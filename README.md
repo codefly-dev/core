@@ -1,0 +1,2 @@
+# core
+Shared components library
