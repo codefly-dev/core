@@ -14,11 +14,10 @@ import (
 const ServiceConfigurationName = "service.codefly.yaml"
 
 /*
+A Service
 
-Convention: Relative NewDir from Application
-
+Convention: RelativePath from Application
 */
-
 type Service struct {
 	Kind         string               `yaml:"kind"`
 	Name         string               `yaml:"name"`
@@ -31,6 +30,10 @@ type Service struct {
 	Dependencies []*ServiceDependency `yaml:"dependencies"`
 	Endpoints    []*EndpointEntry     `yaml:"endpoints"`
 	Spec         map[string]any       `yaml:"spec"`
+}
+
+func (s *Service) Endpoint() string {
+	return fmt.Sprintf("%s.%s", s.Name, s.Namespace)
 }
 
 func (s *Service) Dir() string {
