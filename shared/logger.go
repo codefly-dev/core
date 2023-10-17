@@ -2,11 +2,12 @@ package shared
 
 import (
 	"fmt"
+	"github.com/codefly-dev/golor"
 	"github.com/fatih/color"
-	"github.com/hygge-io/golor"
 	"github.com/pkg/errors"
 	"os"
 	runtimedebug "runtime/debug"
+	"strings"
 )
 
 // TODO: logger level
@@ -183,7 +184,7 @@ func (u *UserError) WithSuggestion(s string) *UserError {
 }
 
 func (u *UserError) Error() string {
-	return golor.Sprintf(`🌩️{{.Value}}
+	return golor.Sprintf(`{{.Value}}
 {{.Suggestion}}`, u)
 }
 
@@ -203,7 +204,7 @@ func UserErrorMessage(err error) string {
 	if !ok {
 		Exit("should have a user error: got %T", err)
 	}
-	return userError.Error()
+	return strings.TrimSpace(userError.Error())
 }
 
 // UserWarning: something went somewhat wrong from the user "side"

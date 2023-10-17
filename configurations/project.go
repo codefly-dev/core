@@ -2,9 +2,9 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/hygge-io/golor"
-	"github.com/hygge-io/hygge/pkg/core"
-	"github.com/hygge-io/hygge/pkg/templates"
+	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/templates"
+	"github.com/codefly-dev/golor"
 	"os"
 	"path"
 	"path/filepath"
@@ -32,7 +32,7 @@ type Project struct {
 	CurrentApplication string             `yaml:"current-application"`
 
 	// Libraries installed in the project
-	Libraries []*LibrarySummary `yaml:"libraries"`
+	//Libraries []*LibrarySummary `yaml:"libraries"`
 }
 
 type ProjectStyle string
@@ -86,13 +86,16 @@ func (p *ProjectInput) ProjectDir() string {
 }
 
 func NewProject(builder ProjectBuilder) error {
-	logger := core.NewLogger("configurations.NewProject<%s>", builder.ProjectName())
+	logger := shared.NewLogger("configurations.NewProject<%s>", builder.ProjectName())
 	err := builder.Fetch()
+	if err != nil {
+		return logger.Wrapf(err, "cannot fetch project builder")
+	}
 	name := builder.ProjectName()
 	// Uniqueness of project Name is enforced
 	if slices.Contains(KnownProjects(), name) {
-		if !core.Debug() {
-			return core.NewUserError("project <%s> already exists", name).WithSuggestion("Try to use a different name")
+		if !shared.Debug() {
+			return shared.NewUserError("project <%s> already exists", name).WithSuggestion("Try to use a different name")
 		}
 	}
 	if err := ValidateProjectName(name); err != nil {
@@ -100,8 +103,8 @@ func NewProject(builder ProjectBuilder) error {
 	}
 	relativePath := builder.RelativePath()
 	dir := path.Join(GlobalProjectRoot(), relativePath)
-	err = core.CreateDirIf(dir)
-	core.UnexpectedExitOnError(err, "cannot create default project directory")
+	err = shared.CreateDirIf(dir)
+	shared.UnexpectedExitOnError(err, "cannot create default project directory")
 
 	p := &Project{
 		Name:         name,
@@ -113,10 +116,10 @@ func NewProject(builder ProjectBuilder) error {
 	logger.TODO("Depending on style we want to do git init, etc...")
 	logger.Debugf("to %s", dir)
 	err = SaveToDir[Project](p, dir)
-	core.UnexpectedExitOnError(err, "cannot save project configuration")
+	shared.UnexpectedExitOnError(err, "cannot save project configuration")
 
 	// Templatize as usual
-	err = templates.CopyAndApply(logger, templates.NewEmbeddedFileSystem(fs), core.NewDir("templates/project"), core.NewDir(dir), p)
+	err = templates.CopyAndApply(logger, templates.NewEmbeddedFileSystem(fs), shared.NewDir("templates/project"), shared.NewDir(dir), p)
 	if err != nil {
 		return logger.Wrapf(err, "cannot copy and apply template")
 	}
@@ -137,13 +140,13 @@ func (p *Project) Unique() string {
 }
 
 func LoadCurrentProject() (*Project, error) {
-	logger := core.NewLogger("configurations.LoadCurrentProject")
+	logger := shared.NewLogger("configurations.LoadCurrentProject")
 	if MustCurrent().CurrentProject == "" {
-		return nil, core.NewUserError("no current project")
+		return nil, shared.NewUserError("no current project")
 	}
 	reference, err := FindProjectReference(MustCurrent().CurrentProject)
 	if err != nil {
-		return nil, core.NewUserError("cannot find current project <%s> in global configuration", MustCurrent().CurrentProject)
+		return nil, shared.NewUserError("cannot find current project <%s> in global configuration", MustCurrent().CurrentProject)
 	}
 	p, err := LoadFromDir[Project](path.Join(GlobalProjectRoot(), reference.RelativePath))
 	if err != nil {
@@ -169,7 +172,7 @@ func ValidateProjectName(name string) error {
 }
 
 func ListProjects() ([]*Project, error) {
-	logger := core.NewLogger("configurations.ListProjects")
+	logger := shared.NewLogger("configurations.ListProjects")
 	var projects []*Project
 	for _, p := range MustCurrent().Projects {
 		project, err := LoadProjectFromDir(ProjectPath(p.RelativePath))
@@ -192,7 +195,7 @@ func ProjectPath(relativePath string) string {
 
 func RelativeProjectPath(p string) string {
 	rel, err := filepath.Rel(GlobalProjectRoot(), p)
-	core.UnexpectedExitOnError(err, "cannot compute relative path")
+	shared.UnexpectedExitOnError(err, "cannot compute relative path")
 	return rel
 }
 
@@ -206,7 +209,7 @@ func FindProjectReference(name string) (*ProjectReference, error) {
 }
 
 func CurrentProject() (*Project, error) {
-	logger := core.NewLogger("configurations.CurrentProject")
+	logger := shared.NewLogger("configurations.CurrentProject")
 	if currentProject == nil {
 		project, err := LoadCurrentProject()
 		if err != nil {
@@ -220,7 +223,7 @@ func CurrentProject() (*Project, error) {
 func MustCurrentProject() *Project {
 	if currentProject == nil {
 		project, err := CurrentProject()
-		core.ExitOnError(err, "cannot load current project")
+		shared.ExitOnError(err, "cannot load current project")
 		currentProject = project
 	}
 	return currentProject
@@ -233,7 +236,7 @@ func SetCurrentProject(p *Project) {
 }
 
 func LoadProjectFromDir(dir string) (*Project, error) {
-	logger := core.NewLogger("configurations.LoadProjectFromDir<%s>", dir)
+	logger := shared.NewLogger("configurations.LoadProjectFromDir<%s>", dir)
 	conf, err := LoadFromDir[Project](dir)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project configuration")
@@ -243,7 +246,7 @@ func LoadProjectFromDir(dir string) (*Project, error) {
 }
 
 func LoadProjectFromName(name string) (*Project, error) {
-	logger := core.NewLogger("configurations.LoadProjectFromName<%s>", name)
+	logger := shared.NewLogger("configurations.LoadProjectFromName<%s>", name)
 	reference, err := FindProjectReference(name)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot find project reference")
@@ -252,7 +255,7 @@ func LoadProjectFromName(name string) (*Project, error) {
 }
 
 func (p *Project) Save() error {
-	logger := core.NewLogger("configurations.Project.Save<%s>", p.Name)
+	logger := shared.NewLogger("configurations.Project.Save<%s>", p.Name)
 	if p.RelativePath == "" {
 		return logger.Errorf("project location is not set")
 	}
@@ -266,7 +269,7 @@ func (p *Project) SaveToDir(dir string) error {
 }
 
 func (p *Project) ListServices() ([]*ServiceReference, error) {
-	logger := core.NewLogger("configurations.Project.ListServices")
+	logger := shared.NewLogger("configurations.Project.ListServices")
 	logger.Debugf("Listing services in <%s>", p.Dir())
 	var references []*ServiceReference
 	err := filepath.Walk(p.Dir(), func(path string, info os.FileInfo, err error) error {
@@ -316,7 +319,7 @@ func (p *Project) ListServices() ([]*ServiceReference, error) {
 }
 
 func (p *Project) GetService(name string) (*Service, error) {
-	logger := core.NewLogger("configurations.Project.GetService")
+	logger := shared.NewLogger("configurations.Project.GetService")
 	// Unique can be scoped to applications or not
 	entries, err := p.ListServices()
 	if err != nil {
@@ -332,7 +335,7 @@ func (p *Project) GetService(name string) (*Service, error) {
 
 func (p *Project) Relative(absolute string) string {
 	s, err := filepath.Rel(p.Dir(), absolute)
-	core.ExitOnError(err, "cannot compute relative path from project")
+	shared.ExitOnError(err, "cannot compute relative path from project")
 	return s
 }
 
@@ -348,14 +351,15 @@ func AddApplication(app *ApplicationEntry) error {
 	return project.SaveToDir(path.Join(GlobalProjectRoot(), project.RelativePath))
 }
 
-func AddLibraryUsage(library *Library, destination string) error {
-	logger := core.NewLogger("configurations.AddLibraryUsage<%s>", library.Name())
-	project := MustCurrentProject()
-	manager := NewLibraryManager(project.Libraries)
-	err := manager.Add(library, project.Relative(destination))
-	if err != nil {
-		return logger.Wrapf(err, "cannot add")
-	}
-	project.Libraries = manager.ToSummary()
-	return project.Save()
-}
+//
+//func AddLibraryUsage(library *Library, destination string) error {
+//	logger := shared.NewLogger("configurations.AddLibraryUsage<%s>", library.Name())
+//	project := MustCurrentProject()
+//	manager := NewLibraryManager(project.Libraries)
+//	err := manager.Add(library, project.Relative(destination))
+//	if err != nil {
+//		return logger.Wrapf(err, "cannot add")
+//	}
+//	project.Libraries = manager.ToSummary()
+//	return project.Save()
+//}

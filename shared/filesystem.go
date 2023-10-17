@@ -115,6 +115,9 @@ func CreateDirIf(path string) error {
 func CheckEmptyDirectoryOrCreate(path string) error {
 	logger := NewLogger("shared.CheckEmptyDirectoryOrCreate<%s>", path)
 	err := CheckDirectoryOrCreate(path)
+	if err != nil {
+		return logger.Wrapf(err, "cannot check or create directory")
+	}
 	// Check if directory is empty
 	files, err := os.ReadDir(path)
 	if err != nil {
@@ -208,7 +211,7 @@ func CopyFileWithReplacement(from string, to string, replacements []Replacement)
 
 // CopyDirectory recursively copies a directory
 func CopyDirectory(src, dst string) error {
-	logger := NewLogger("shared.Copycore.Directory<%s><%s>", src, dst)
+	logger := NewLogger("shared.Copyshared.Directory<%s><%s>", src, dst)
 	// Check if source directory exists
 	if err := CheckDirectory(src); err != nil {
 		return logger.Wrapf(err, "source directory does not exist")

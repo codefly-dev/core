@@ -1,14 +1,14 @@
 package configurations
 
 import (
-	"github.com/hygge-io/hygge/pkg/core"
+	"github.com/codefly-dev/core/shared"
 	"os/user"
 )
 
 func HomeDir() string {
 	currentUser, err := user.Current()
 	if err != nil {
-		core.ExitOnError(err, "cannot get current user")
+		shared.ExitOnError(err, "cannot get current user")
 	}
 	return currentUser.HomeDir
 }

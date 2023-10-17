@@ -2,8 +2,8 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/hygge-io/hygge/pkg/core"
-	"github.com/hygge-io/hygge/pkg/templates"
+	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/templates"
 	"os"
 	"path"
 	"path/filepath"
@@ -33,7 +33,7 @@ type Application struct {
 }
 
 func NewApplication(name string) (*Application, error) {
-	logger := core.NewLogger("configurations.NewApplication")
+	logger := shared.NewLogger("configurations.NewApplication")
 	app := Application{
 		Kind:    ApplicationKind,
 		Name:    name,
@@ -46,7 +46,7 @@ func NewApplication(name string) (*Application, error) {
 	SolveDirOrCreate(dir)
 
 	// Templatize as usual
-	err := templates.CopyAndApply(logger, templates.NewEmbeddedFileSystem(fs), core.NewDir("templates/application"), core.NewDir(dir), app)
+	err := templates.CopyAndApply(logger, templates.NewEmbeddedFileSystem(fs), shared.NewDir("templates/application"), shared.NewDir(dir), app)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot copy and apply template")
 	}
@@ -79,7 +79,7 @@ func (app *Application) Dir(opts ...Option) string {
 }
 
 func LoadApplicationFromDir(dir string) (*Application, error) {
-	logger := core.NewLogger("configurations.LoadApplicationFromDir<%s>", dir)
+	logger := shared.NewLogger("configurations.LoadApplicationFromDir<%s>", dir)
 	config, err := LoadFromDir[Application](dir)
 	if err != nil {
 		return nil, err
@@ -118,7 +118,7 @@ func WithProject(project *Project) Option {
 }
 
 func LoadApplicationFromName(name string, opts ...Option) (*Application, error) {
-	logger := core.NewLogger("configurations.LoadApplicationFromName<%s>", name)
+	logger := shared.NewLogger("configurations.LoadApplicationFromName<%s>", name)
 	//scope := WithScope(opts...)
 	apps, err := ListApplications(opts...)
 	if err != nil {
@@ -134,12 +134,12 @@ func LoadApplicationFromName(name string, opts ...Option) (*Application, error) 
 
 func (app *Application) Relative(absolute string, opts ...Option) string {
 	s, err := filepath.Rel(app.Dir(opts...), absolute)
-	core.ExitOnError(err, "cannot compute relative path from applications")
+	shared.ExitOnError(err, "cannot compute relative path from applications")
 	return s
 }
 
 func (app *Application) AddService(service *Service) error {
-	logger := core.NewLogger("configurations.AddService")
+	logger := shared.NewLogger("configurations.AddService")
 	for _, s := range app.Services {
 		if s.Name == service.Name {
 			return nil
@@ -175,7 +175,7 @@ func (app *Application) Unique() string {
 }
 
 func CurrentApplication(opts ...Option) (*Application, error) {
-	logger := core.NewLogger("configurations.CurrentApplication")
+	logger := shared.NewLogger("configurations.CurrentApplication")
 	scope := WithScope(opts...)
 	logger.TODO("This is more complicated: should be take the current as by configuration or by path?")
 	if currentApplication == nil {
@@ -206,7 +206,7 @@ func CurrentApplication(opts ...Option) (*Application, error) {
 
 func MustCurrentApplication() *Application {
 	app, err := CurrentApplication()
-	core.ExitOnError(err, "cannot get current application")
+	shared.ExitOnError(err, "cannot get current application")
 	return app
 }
 
@@ -222,11 +222,11 @@ func SetCurrentApplication(app *Application) {
 	currentApplication = app
 	MustCurrentProject().CurrentApplication = app.Name
 	err := MustCurrentProject().Save()
-	core.ExitOnError(err, "cannot save current project")
+	shared.ExitOnError(err, "cannot save current project")
 }
 
 func ListApplications(opts ...Option) ([]*Application, error) {
-	logger := core.NewLogger("applications.List<%s>", MustCurrentProject().Dir())
+	logger := shared.NewLogger("applications.List<%s>", MustCurrentProject().Dir())
 	scope := WithScope()
 	for _, opt := range opts {
 		opt(scope)
@@ -243,7 +243,7 @@ func ListApplications(opts ...Option) ([]*Application, error) {
 }
 
 func FindApplicationUp(p string) (*Application, error) {
-	logger := core.NewLogger("configurations.FindApplicationUp")
+	logger := shared.NewLogger("configurations.FindApplicationUp")
 	// Look at current directory
 	cur := filepath.Dir(p)
 	for {

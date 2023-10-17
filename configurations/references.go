@@ -2,7 +2,7 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/hygge-io/hygge/pkg/core"
+	"github.com/codefly-dev/core/shared"
 )
 
 // ServiceReference is a reference to a service used by Application configuration
@@ -27,7 +27,7 @@ func (ref *ServiceReference) Validate() error {
 }
 
 func (ref *ServiceReference) CreateReplicas() []string {
-	logger := core.NewLogger("configurations.ServiceRunner.Replicas")
+	logger := shared.NewLogger("configurations.ServiceRunner.Replicas")
 	if ref.RunningOptions.Replicas == 0 {
 		return nil
 	}

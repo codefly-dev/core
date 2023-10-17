@@ -1,8 +1,8 @@
 package configurations_test
 
 import (
-	"github.com/hygge-io/hygge/pkg/configurations"
-	"github.com/hygge-io/hygge/pkg/core"
+	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/shared"
 	"testing"
 )
 
@@ -19,7 +19,7 @@ func TestPluginParse(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			p, err := configurations.ParsePlugin(configurations.PluginService, tc.in)
-			if err != nil && !core.IsUserWarning(err) {
+			if err != nil && !shared.IsUserWarning(err) {
 				t.Fatal(err)
 			}
 			if p.Kind != tc.out.Kind {

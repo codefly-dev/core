@@ -1,8 +1,8 @@
 package configurations_test
 
 import (
-	"github.com/hygge-io/hygge/pkg/configurations"
-	"github.com/hygge-io/hygge/pkg/core"
+	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 	"os"
 	"path"
@@ -16,49 +16,56 @@ func (o override) Override(p string) bool {
 	return false
 }
 
-type globalGetterTest struct {
+type globalConfigInput struct {
+	createDefaultProject bool
 }
 
-func (g *globalGetterTest) RelativePath() string {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (g *globalGetterTest) Style() configurations.ProjectStyle {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (g *globalGetterTest) Organization() string {
-	return "org:test"
-}
-
-func (g *globalGetterTest) Domain() string {
-	return "github.com/org/test"
-}
-
-func (g *globalGetterTest) CreateDefaultProject() bool {
-	return true
-}
-
-func (g *globalGetterTest) ProjectGetter() configurations.ProjectBuilder {
-	// convenient
-	return g
-}
-
-func (g *globalGetterTest) DefaultProjectName() string {
-	return "test:project_name"
-}
-
-func (g *globalGetterTest) ProjectName() string {
-	return g.DefaultProjectName()
-}
-
-func (g *globalGetterTest) Fetch() error {
+func (g *globalConfigInput) Fetch() error {
 	return nil
 }
 
-var g globalGetterTest
+func (g *globalConfigInput) Organization() string {
+	return "org:test"
+}
+
+func (g *globalConfigInput) Domain() string {
+	return "github.com/org/test"
+}
+
+func (g *globalConfigInput) CreateDefaultProject() bool {
+	return g.createDefaultProject
+}
+
+func (g *globalConfigInput) ProjectBuilder() configurations.ProjectBuilder {
+	return &projectBuilder{defaultProjectName: "test_project_name"}
+}
+
+var g globalConfigInput
+
+type projectBuilder struct {
+	defaultProjectName string
+}
+
+func (b *projectBuilder) DefaultProjectName() string {
+	return b.defaultProjectName
+}
+
+func (b *projectBuilder) ProjectName() string {
+	return b.defaultProjectName
+}
+
+func (b *projectBuilder) Fetch() error {
+	return nil
+}
+
+func (b *projectBuilder) RelativePath() string {
+	return b.DefaultProjectName()
+}
+
+func (b *projectBuilder) Style() configurations.ProjectStyle {
+	return configurations.ProjectStyleMonorepo
+}
+
 var over override
 
 type tmpPath struct {
@@ -73,14 +80,18 @@ func (tp tmpPath) Exists(p string) bool {
 }
 
 func TestGlobal(t *testing.T) {
-	core.SetDebug(true)
+	shared.SetTrace(true)
+
+	g = globalConfigInput{createDefaultProject: true}
 
 	// Temporary directory
 	tmp := t.TempDir()
 	fromTmp := tmpPath{root: tmp}
 	configurations.OverrideWorkspaceConfigDir(path.Join(tmp, "global"))
 	configurations.OverrideWorkspaceProjectRoot(path.Join(tmp, "projects"))
+
 	configurations.InitGlobal(&g, &over)
+
 	config, err := configurations.Current()
 	assert.NoError(t, err)
 	assert.Equal(t, path.Join(tmp, "global"), config.Dir())
@@ -89,18 +100,20 @@ func TestGlobal(t *testing.T) {
 
 	// Check that we have a default project
 	configurations.Reset()
+
 	assert.Equal(t, path.Join(tmp, "global"), configurations.MustCurrent().Dir())
 	assert.Equal(t, g.Organization(), configurations.MustCurrent().Organization)
 	assert.Equal(t, g.Domain(), configurations.MustCurrent().Domain)
 
-	assert.True(t, fromTmp.Exists("projects/test:project_name/project.codefly.yaml"))
-
+	// We should also have a project from the option
 	assert.Equal(t, 1, len(configurations.MustCurrent().Projects))
-	assert.Equal(t, g.ProjectName(), configurations.MustCurrent().Projects[0].Name)
-	assert.Equal(t, g.DefaultProjectName(), configurations.MustCurrent().Projects[0].RelativePath)
-	assert.Equal(t, g.DefaultProjectName(), configurations.MustCurrent().CurrentProject)
+	assert.Equal(t, g.ProjectBuilder().ProjectName(), configurations.MustCurrent().Projects[0].Name)
+	assert.Equal(t, g.ProjectBuilder().ProjectName(), configurations.MustCurrent().CurrentProject)
+	assert.Equal(t, g.ProjectBuilder().RelativePath(), configurations.MustCurrent().Projects[0].RelativePath)
 
-	application := "test:applications"
+	assert.True(t, fromTmp.Exists("projects/test_project_name/project.codefly.yaml"))
+
+	application := "test_application"
 	app, err := configurations.NewApplication(application)
 	assert.NoError(t, err)
 	assert.Equal(t, application, app.Name)
@@ -108,6 +121,6 @@ func TestGlobal(t *testing.T) {
 	assert.Equal(t, application, configurations.MustCurrentApplication().Name)
 	assert.Equal(t, application, configurations.MustCurrentProject().CurrentApplication)
 
-	assert.True(t, fromTmp.Exists("projects/test:project_name/test:applications"))
-	assert.True(t, fromTmp.Exists("projects/test:project_name/test:applications/applications.codefly.yaml"))
+	assert.True(t, fromTmp.Exists("projects/test_project_name/test_application"))
+	assert.True(t, fromTmp.Exists("projects/test_project_name/test_application/application.codefly.yaml"))
 }

@@ -2,8 +2,7 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/hygge-io/hygge/pkg/core"
-	runtimev1 "github.com/hygge-io/hygge/proto/v1/services/runtime"
+	"github.com/codefly-dev/core/shared"
 	"github.com/mitchellh/mapstructure"
 	"gopkg.in/yaml.v3"
 	"os"
@@ -47,7 +46,7 @@ func (s *Service) Unique() string {
 }
 
 func NewService(name string, namespace string, plugin *Plugin) (*Service, error) {
-	logger := core.NewLogger("configurations.NewService")
+	logger := shared.NewLogger("configurations.NewService")
 	svc := Service{
 		Kind:         "service",
 		Name:         name,
@@ -62,8 +61,14 @@ func NewService(name string, namespace string, plugin *Plugin) (*Service, error)
 	return &svc, nil
 }
 
-func Identity(conf *Service) *runtimev1.ServiceIdentity {
-	return &runtimev1.ServiceIdentity{
+type ServiceIdentity struct {
+	Name      string
+	Namespace string
+	Domain    string
+}
+
+func Identity(conf *Service) *ServiceIdentity {
+	return &ServiceIdentity{
 		Name:      conf.Name,
 		Namespace: conf.Namespace,
 		Domain:    conf.Domain,
@@ -71,7 +76,7 @@ func Identity(conf *Service) *runtimev1.ServiceIdentity {
 }
 
 func (s *Service) Reference() (*ServiceReference, error) {
-	logger := core.NewLogger("configurations.Unique<%s>.Reference", s.Name)
+	logger := shared.NewLogger("configurations.Unique<%s>.Reference", s.Name)
 	entry := &ServiceReference{
 		Name:         s.Name,
 		RelativePath: s.RelativePath,
@@ -84,7 +89,7 @@ func (s *Service) Reference() (*ServiceReference, error) {
 }
 
 func LoadServiceFromDir(dir string, opts ...Option) (*Service, error) {
-	logger := core.NewLogger("configurations.LoadServiceFromPath<%s>", dir)
+	logger := shared.NewLogger("configurations.LoadServiceFromPath<%s>", dir)
 	scope := WithScope(opts...).WithApplication(MustCurrentApplication())
 	conf, err := LoadFromDir[Service](dir)
 	if err != nil {
@@ -107,7 +112,7 @@ Derivatives
 */
 
 func LoadServiceFromReference(ref *ServiceReference, opts ...Option) (*Service, error) {
-	logger := core.NewLogger("configurations.LoadServiceFromReference<%s>", ref.Name)
+	logger := shared.NewLogger("configurations.LoadServiceFromReference<%s>", ref.Name)
 	p, err := ref.Dir(opts...)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot get service path")
@@ -117,7 +122,7 @@ func LoadServiceFromReference(ref *ServiceReference, opts ...Option) (*Service, 
 }
 
 func FindServiceFromName(name string) (*Service, error) {
-	logger := core.NewLogger("configurations.FindServiceFromName<%s>", name)
+	logger := shared.NewLogger("configurations.FindServiceFromName<%s>", name)
 	ref, err := MustCurrentApplication().GetServiceReferences(name)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
@@ -134,14 +139,14 @@ func FindServiceFromName(name string) (*Service, error) {
 }
 
 func (s *Service) Save() error {
-	logger := core.NewLogger("configurations.Unique<%s>.Save", s.Name)
+	logger := shared.NewLogger("configurations.Unique<%s>.Save", s.Name)
 	destination := s.Dir()
 	logger.Tracef("saving service at <%s> from applications path <%s>", destination, MustCurrentApplication().Dir())
 	return s.SaveAtDir(destination)
 }
 
 func (s *Service) SaveAtDir(destination string) error {
-	logger := core.NewLogger("configurations.Unique<%s>.Save", s.Name)
+	logger := shared.NewLogger("configurations.Unique<%s>.Save", s.Name)
 	if _, err := os.Stat(destination); os.IsNotExist(err) {
 		err := os.Mkdir(destination, 0755)
 		if err != nil {
@@ -172,7 +177,7 @@ func (s *Service) AddSpec(spec any) error {
 
 // AddDependencyReference adds a dependency to the service
 func (s *Service) AddDependencyReference(requirement *Service) error {
-	logger := core.NewLogger("configurations.Unique.AddDependencyReference<%s> <- %s", s.Name, requirement.Name)
+	logger := shared.NewLogger("configurations.Unique.AddDependencyReference<%s> <- %s", s.Name, requirement.Name)
 	logger.DebugMe("endpoints from the requirements: %v", requirement.Endpoints)
 	for _, d := range requirement.Endpoints {
 		logger.DebugMe("JERE DEP: %v", d)
@@ -203,7 +208,7 @@ func (s *Service) Duplicate(name string) *Service {
 LoadServicesFromInput from string inputs
 */
 func LoadServicesFromInput(inputs ...string) ([]*Service, error) {
-	logger := core.NewLogger("configurations.LoadServicesFromInput")
+	logger := shared.NewLogger("configurations.LoadServicesFromInput")
 	var services []*Service
 	for _, input := range inputs {
 		entry, err := LoadService(input)
@@ -227,7 +232,7 @@ func ParseServiceInput(input string) (string, string, error) {
 }
 
 func LoadService(input string) (*Service, error) {
-	logger := core.NewLogger("configurations.LoadService")
+	logger := shared.NewLogger("configurations.LoadService")
 	service, appOrNothing, err := ParseServiceInput(input)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot parse service entry")

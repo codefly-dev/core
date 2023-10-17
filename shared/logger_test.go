@@ -1,27 +1,27 @@
 package shared_test
 
 import (
-	"github.com/hygge-io/hygge/pkg/core"
+	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
 func TestWarning(t *testing.T) {
-	logger := core.NewLogger("test")
-	err := core.NewUserWarning("This is a warning")
-	assert.True(t, core.IsUserWarning(err))
-	assert.Equal(t, "This is a warning", core.UserWarnMessage(err))
+	logger := shared.NewLogger("test")
+	err := shared.NewUserWarning("This is a warning")
+	assert.True(t, shared.IsUserWarning(err))
+	assert.Equal(t, "This is a warning", shared.UserWarnMessage(err))
 
 	err = logger.Wrapf(err, "This is a layer on top")
-	assert.True(t, core.IsUserWarning(err))
-	assert.Equal(t, "This is a warning", core.UserWarnMessage(err))
+	assert.True(t, shared.IsUserWarning(err))
+	assert.Equal(t, "This is a warning", shared.UserWarnMessage(err))
 
-	err = core.NewUserError("This is an error")
-	assert.True(t, core.IsUserError(err))
-	assert.Equal(t, "This is an error", core.UserErrorMessage(err))
+	err = shared.NewUserError("This is an error")
+	assert.True(t, shared.IsUserError(err))
+	assert.Equal(t, "This is an error", shared.UserErrorMessage(err))
 
 	err = logger.Wrapf(err, "This is a layer on top")
-	assert.True(t, core.IsUserError(err))
-	assert.Equal(t, "This is an error", core.UserErrorMessage(err))
+	assert.True(t, shared.IsUserError(err))
+	assert.Equal(t, "This is an error", shared.UserErrorMessage(err))
 
 }

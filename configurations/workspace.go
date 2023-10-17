@@ -1,7 +1,7 @@
 package configurations
 
 import (
-	"github.com/hygge-io/hygge/pkg/core"
+	"github.com/codefly-dev/core/shared"
 	"path"
 	"path/filepath"
 )
@@ -26,18 +26,26 @@ type ProjectReference struct {
 	RelativePath string `yaml:"relative-path"`
 }
 
-type GlobalGetter interface {
+// A GlobalConfigurationInputer abstracts away global configuration and default of project creation
+type GlobalConfigurationInputer interface {
+	// Fetch instantiates the input
 	Fetch() error
+	// Organization is now global
 	Organization() string
+	// Domain associated with the organization
 	Domain() string
+	// CreateDefaultProject returns true if a default project should be created
 	CreateDefaultProject() bool
-	ProjectGetter() ProjectBuilder
+	// ProjectBuilder abstracts away the configuration of Project creation
+	ProjectBuilder() ProjectBuilder
 }
 
-// InitGlobal creates a new global configuration in the global configuration directory
-func InitGlobal(getter GlobalGetter, override Override) {
-	logger := core.NewLogger("configurations.InitCodefly")
-	logger.Debugf("initializing codefly")
+// InitGlobal initializes the global configuration of codefly
+// GlobalConfigurationInputer: setup the configuration and defaults
+// Override: policy to replace existing configuration
+func InitGlobal(getter GlobalConfigurationInputer, override Override) {
+	logger := shared.NewLogger("configurations.InitCodefly")
+	logger.Tracef("creating if needed global configuration dir: %v", globalConfigDir)
 
 	dir := SolveDirOrCreate(globalConfigDir)
 
@@ -48,18 +56,21 @@ func InitGlobal(getter GlobalGetter, override Override) {
 	}
 	logger.Debugf("to <%s>", dir)
 
-	getter.Fetch()
+	err := getter.Fetch()
+	if err != nil {
+		shared.UnexpectedExitOnError(err, "cannot fetch global configuration")
+	}
 	global := Workspace{
 		FullDir:      dir,
 		Organization: getter.Organization(),
 		Domain:       getter.Domain(),
 	}
-	err := SaveToDir[Workspace](&global, dir)
-	core.ExitOnError(err, "cannot save global configuration")
+	err = SaveToDir[Workspace](&global, dir)
+	shared.ExitOnError(err, "cannot save global configuration")
 	if getter.CreateDefaultProject() {
 		logger.Debugf("creating default project")
-		err := NewProject(getter.ProjectGetter())
-		core.UnexpectedExitOnError(err, "cannot create default project")
+		err := NewProject(getter.ProjectBuilder())
+		shared.UnexpectedExitOnError(err, "cannot create default project")
 	}
 }
 
@@ -70,13 +81,13 @@ func (g *Workspace) Dir() string {
 
 func (g *Workspace) Relative(dir string) string {
 	rel, err := filepath.Rel(g.Dir(), dir)
-	core.ExitOnError(err, "cannot compute relative path from workspace")
+	shared.ExitOnError(err, "cannot compute relative path from workspace")
 	return rel
 }
 
 // Current returns the current global configuration
 func Current() (*Workspace, error) {
-	logger := core.NewLogger("configurations.Current")
+	logger := shared.NewLogger("configurations.Current")
 	if global != nil {
 		return global, nil
 	}
@@ -91,7 +102,7 @@ func Current() (*Workspace, error) {
 
 func SaveCurrent() {
 	err := SaveToDir[Workspace](global, global.Dir())
-	core.UnexpectedExitOnError(err, "cannot save global configuration")
+	shared.UnexpectedExitOnError(err, "cannot save global configuration")
 }
 
 func Reset() {
@@ -111,7 +122,7 @@ func GlobalProjectRoot() string {
 func MustCurrent() *Workspace {
 	if global == nil {
 		g, err := Current()
-		core.ExitOnError(err, "cannot load current global configuration")
+		shared.ExitOnError(err, "cannot load current global configuration")
 		global = g
 	}
 	return global
@@ -133,19 +144,19 @@ func init() {
 }
 
 func LoadGlobalConfiguration() {
-	logger := core.NewLogger("configurations.LoadGlobalConfiguration")
+	logger := shared.NewLogger("configurations.LoadGlobalConfiguration")
 	p := Path[Workspace](globalConfigDir)
 	logger.Debugf("from <%s>", p)
 }
 
 func OverrideWorkspaceConfigDir(dir string) {
-	logger := core.NewLogger("configurations.OverrideWorkspaceConfigDir")
-	logger.Debugf("overriding global  to <%s>", dir)
+	logger := shared.NewLogger("configurations.OverrideWorkspaceConfigDir")
+	logger.Debugf("overriding global workspace configuration directory to <%s>", dir)
 	globalConfigDir = dir
 }
 
 func OverrideWorkspaceProjectRoot(dir string) {
-	logger := core.NewLogger("configurations.OverrideWorkspaceProjectRoot")
+	logger := shared.NewLogger("configurations.OverrideWorkspaceProjectRoot")
 	logger.Debugf("overriding global project root to <%s>", dir)
 	globalProjectRoot = dir
 }

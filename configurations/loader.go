@@ -2,7 +2,7 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/hygge-io/hygge/pkg/core"
+	"github.com/codefly-dev/core/shared"
 	"gopkg.in/yaml.v3"
 	"os"
 	"path"
@@ -14,28 +14,28 @@ type Configuration interface {
 }
 
 func SolveDir(dir string) string {
-	logger := core.NewLogger("configurations.SolveDir")
+	logger := shared.NewLogger("configurations.SolveDir")
 	if filepath.IsLocal(dir) || strings.HasPrefix(dir, ".") || strings.HasPrefix(dir, "..") {
 		cur, err := os.Getwd()
 		if err != nil {
-			core.ExitOnError(err, "cannot get current directory")
+			shared.ExitOnError(err, "cannot get current directory")
 		}
 		dir = filepath.Join(cur, dir)
 		logger.Tracef("Solving path <%s> from current directory", dir)
 	}
 	// Validate
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		core.ExitOnError(err, "cannot find directory")
+		shared.ExitOnError(err, "cannot find directory")
 	}
 	return dir
 }
 
 func SolveDirOrCreate(dir string) string {
-	logger := core.NewLogger("configurations.SolveDirOrCreate")
+	logger := shared.NewLogger("configurations.SolveDirOrCreate")
 	if filepath.IsLocal(dir) || strings.HasPrefix(dir, ".") || strings.HasPrefix(dir, "..") {
 		cur, err := os.Getwd()
 		if err != nil {
-			core.ExitOnError(err, "cannot get current directory")
+			shared.ExitOnError(err, "cannot get current directory")
 		}
 		dir = filepath.Join(cur, dir)
 		logger.Tracef("solving path <%s> from current directory", dir)
@@ -44,18 +44,18 @@ func SolveDirOrCreate(dir string) string {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		err = os.MkdirAll(dir, 0755)
 		if err != nil {
-			core.ExitOnError(err, "cannot create directory")
+			shared.ExitOnError(err, "cannot create directory")
 		}
 	}
 	return dir
 }
 
 func Path[C Configuration](dir string) string {
-	if err := core.CheckDirectory(dir); err != nil {
+	if err := shared.CheckDirectory(dir); err != nil {
 		if filepath.IsLocal(dir) {
 			cur, err := os.Getwd()
 			if err != nil {
-				core.ExitOnError(err, "cannot get current directory")
+				shared.ExitOnError(err, "cannot get current directory")
 			}
 			dir = filepath.Join(cur, dir)
 		}
@@ -70,10 +70,10 @@ func Path[C Configuration](dir string) string {
 		return path.Join(dir, ApplicationConfigurationName)
 	case Service:
 		return path.Join(dir, ServiceConfigurationName)
-	case Library:
-		return path.Join(dir, LibraryConfigurationName)
-	case LibraryGeneration:
-		return path.Join(dir, LibraryGenerationConfigurationName)
+	//case Library:
+	//	return path.Join(dir, LibraryConfigurationName)
+	//case LibraryGeneration:
+	//	return path.Join(dir, LibraryGenerationConfigurationName)
 	default:
 		panic(fmt.Errorf("unknown configuration type <%T>", c))
 	}
@@ -91,10 +91,10 @@ func ExistsAtDir[C Configuration](dir string) bool {
 		p = path.Join(dir, ApplicationConfigurationName)
 	case Service:
 		p = path.Join(dir, ServiceConfigurationName)
-	case Library:
-		p = path.Join(dir, LibraryConfigurationName)
-	case LibraryGeneration:
-		p = path.Join(dir, LibraryGenerationConfigurationName)
+	//case Library:
+	//	p = path.Join(dir, LibraryConfigurationName)
+	//case LibraryGeneration:
+	//	p = path.Join(dir, LibraryGenerationConfigurationName)
 	default:
 		panic(fmt.Errorf("unknown configuration type <%T>", c))
 	}
@@ -116,7 +116,7 @@ func LoadFromDir[C Configuration](dir string) (*C, error) {
 
 func LoadFromPath[C Configuration](p string) (*C, error) {
 	var config C
-	logger := core.NewLogger("configurations.LoadFromPath[%T]<%s>", config, p)
+	logger := shared.NewLogger("configurations.LoadFromPath[%T]<%s>", config, p)
 	if _, err := os.Stat(p); os.IsNotExist(err) {
 		return nil, logger.Errorf("path for %v does not exist", TypeName[C]())
 	}
@@ -132,7 +132,7 @@ func LoadFromPath[C Configuration](p string) (*C, error) {
 }
 
 func SaveToDir[C Configuration](c *C, dir string) error {
-	logger := core.NewLogger("configurations.SaveToDir[%s]", TypeName[C]())
+	logger := shared.NewLogger("configurations.SaveToDir[%s]", TypeName[C]())
 	if f, err := os.Stat(dir); os.IsNotExist(err) || !f.IsDir() {
 		return logger.Wrapf(err, "cannot find NewDir: %s", dir)
 	}
@@ -149,7 +149,7 @@ func SaveToDir[C Configuration](c *C, dir string) error {
 }
 
 func FindUp[C Configuration](cur string) (*C, error) {
-	logger := core.NewLogger("configurations.FindUp[%s]", TypeName[C]())
+	logger := shared.NewLogger("configurations.FindUp[%s]", TypeName[C]())
 	logger.Debugf("Solving <%s>", cur)
 	for {
 		// Look for a service configuration

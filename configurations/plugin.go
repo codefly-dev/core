@@ -2,7 +2,7 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/hygge-io/hygge/pkg/core"
+	"github.com/codefly-dev/core/shared"
 	"path"
 	"slices"
 	"strings"
@@ -29,16 +29,16 @@ func NewPlugin(kind string, publisher string, identifier string, version string)
 
 func (p *Plugin) Validate() {
 	if p.Publisher == "" {
-		core.Exit("plugin publisher is required")
+		shared.Exit("plugin publisher is required")
 	}
 	if p.Identifier == "" {
-		core.Exit("plugin identifier is required")
+		shared.Exit("plugin identifier is required")
 	}
 	if p.Version == "" {
-		core.Exit("plugin version is required")
+		shared.Exit("plugin version is required")
 	}
 	if p.Kind == "" {
-		core.Exit("plugin kind is required")
+		shared.Exit("plugin kind is required")
 	}
 }
 
@@ -54,7 +54,7 @@ const PluginFactoryService = "factory::service"
 
 func (p *Plugin) ImplementationKind() string {
 	if !slices.Contains(KnownPluginImplementationKinds(), p.Kind) {
-		core.Exit("unknown plugin kind: %s", p.Kind)
+		shared.Exit("unknown plugin kind: %s", p.Kind)
 	}
 	return p.Kind
 }
@@ -114,7 +114,7 @@ func ParsePlugin(kind string, s string) (*Plugin, error) {
 	identifier := tokens[0]
 	version := "latest"
 	if len(tokens) == 1 {
-		err = core.NewUserWarning("No version of the plugin <%s> specified, assuming latest", identifier)
+		err = shared.NewUserWarning("No version of the plugin <%s> specified, assuming latest", identifier)
 	} else {
 		version = tokens[1]
 	}
