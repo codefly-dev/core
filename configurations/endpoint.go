@@ -1,16 +1,10 @@
 package configurations
 
-/*
-A Endpoint provides exposition to a Unique
-For example, write and read are different roles for a storage service
-*/
+import (
+	"fmt"
+	"strings"
+)
 
-//	func DefaultEndpoint() Endpoint {
-//		return Endpoint{
-//			Name:        "default",
-//			Description: "default endpoint to access the service",
-//		}
-//	}
 type Api struct {
 	Protocol  string `yaml:"protocol"`
 	Framework string `yaml:"framework,omitempty"`
@@ -23,31 +17,61 @@ type Endpoint struct {
 	FailOver *Endpoint `yaml:"fail-over,omitempty"`
 }
 
-//
-//func (r Endpoint) String() string {
-//	if r.FailOver != nil {
-//		return fmt.Sprintf("%s (failover: %s)", r.Name, r.FailOver.Name)
+const NetworkPrefix = "CODEFLY-NETWORK_"
+
+func SerializeAddresses(addresses []string) string {
+	return strings.Join(addresses, " ")
+}
+
+func AsEnvironmentVariable(reference string, addresses []string) string {
+	return fmt.Sprintf("%s%s=%s", NetworkPrefix, strings.ToUpper(reference), SerializeAddresses(addresses))
+}
+
+func ParseEnvironmentVariable(env string) (string, []string) {
+	tokens := strings.Split(env, "=")
+	reference := strings.ToLower(tokens[0])
+	// Namespace break
+	reference = strings.Replace(reference, "_", ".", 1)
+	reference = strings.Replace(reference, "_", "::", 1)
+	values := strings.Split(tokens[1], " ")
+	return reference, values
+}
+
+//func LoadEnvironmentVariables() {
+//	for _, env := range os.Environ() {
+//		if p, ok := strings.CutPrefix(env, NetworkPrefix); ok {
+//			tokens := strings.Split(p, "=")
+//			key := strings.ToLower(tokens[0])
+//			// Namespace break
+//			key = strings.Replace(key, "_", ".", 1)
+//			key = strings.Replace(key, "_", "::", 1)
+//			value := tokens[1]
+//			networks[key] = value
+//		}
 //	}
-//	return r.Name
 //}
-//
-//func (r Endpoint) Proto() *factoryv1.Endpoint {
-//	return &factoryv1.Endpoint{
-//		Name:        r.Name,
-//		Description: r.Description,
+
+//	func (r Endpoint) String() string {
+//		if r.FailOver != nil {
+//			return fmt.Sprintf("%s (failover: %s)", r.Name, r.FailOver.Name)
+//		}
+//		return r.Name
 //	}
-//}
 //
-//func EndpointFromProto(proto *runtimev1.Endpoint) *Endpoint {
-//	return &Endpoint{
-//		Name:        proto.Name,
-//		Description: proto.Description,
+//	func (r Endpoint) Proto() *factoryv1.Endpoint {
+//		return &factoryv1.Endpoint{
+//			Name:        r.Name,
+//			Description: r.Description,
+//		}
 //	}
-//}
 //
-//func AsEnvironmentVariable(reference string) string {
-//	return strings.ToUpper(fmt.Sprintf("codefly-network_%s", reference))
-//}
+//	func EndpointFromProto(proto *runtimev1.Endpoint) *Endpoint {
+//		return &Endpoint{
+//			Name:        proto.Name,
+//			Description: proto.Description,
+//		}
+//	}
+
 //
 //func Extract(env *runtimev1.Environment, reference string) []string {
 //	for _, e := range env.Variables {
