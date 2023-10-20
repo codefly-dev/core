@@ -30,6 +30,15 @@ func (f *File) RelativeFrom(base Dir) (*File, error) {
 	return &File{file: rel}, nil
 }
 
+func (f *File) Base() string {
+	return filepath.Base(f.file)
+}
+
+func (f *File) RelativePath() string {
+	return filepath.Dir(f.file)
+
+}
+
 type Dir struct {
 	name string
 }

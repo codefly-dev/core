@@ -5,24 +5,24 @@ A Endpoint provides exposition to a Unique
 For example, write and read are different roles for a storage service
 */
 
-//func DefaultEndpoint() Endpoint {
-//	return Endpoint{
-//		Name:        "default",
-//		Description: "default endpoint to access the service",
+//	func DefaultEndpoint() Endpoint {
+//		return Endpoint{
+//			Name:        "default",
+//			Description: "default endpoint to access the service",
+//		}
 //	}
-//}
-//
-//type Api struct {
-//	Protocol  string `yaml:"protocol"`
-//	Framework string `yaml:"framework,omitempty"`
-//}
-//
-//type Endpoint struct {
-//	Name        string `yaml:"name"`
-//	Description string `yaml:"description,omitempty"`
-//	// FailOver indicates that this endpoint should fail over to another endpoint
-//	FailOver *Endpoint `yaml:"fail-over,omitempty"`
-//}
+type Api struct {
+	Protocol  string `yaml:"protocol"`
+	Framework string `yaml:"framework,omitempty"`
+}
+
+type Endpoint struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+	// FailOver indicates that this endpoint should fail over to another endpoint
+	FailOver *Endpoint `yaml:"fail-over,omitempty"`
+}
+
 //
 //func (r Endpoint) String() string {
 //	if r.FailOver != nil {

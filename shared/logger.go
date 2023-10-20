@@ -48,6 +48,8 @@ func Trace() bool {
 
 type Logger struct {
 	action string
+	debug  bool
+	trace  bool
 }
 
 func NewLogger(action string, args ...any) *Logger {
@@ -63,11 +65,22 @@ func (l *Logger) IfNot(base BaseLogger) BaseLogger {
 
 // BaseLogger is the Minimum logger interface
 type BaseLogger interface {
+	SetDebug()
+	SetTrace()
+	Tracef(format string, args ...any)
 	Debugf(format string, args ...any)
 	DebugMe(format string, args ...any)
 	TODO(format string, args ...any)
 	Wrapf(err error, format string, args ...any) error
 	Errorf(format string, args ...any) error
+}
+
+func (l *Logger) SetDebug() {
+	l.debug = true
+}
+
+func (l *Logger) SetTrace() {
+	l.trace = true
 }
 
 func (l *Logger) Errorf(format string, args ...any) error {
@@ -84,7 +97,7 @@ func Wrapf(err error, format string, args ...any) error {
 }
 
 func (l *Logger) Tracef(format string, args ...any) {
-	if Trace() {
+	if Trace() || l.trace {
 		c := color.New(color.FgGreen, color.Italic)
 		c.Printf("[TRACE] (%s) ", l.action)
 		c.Printf(format, args...)
@@ -94,7 +107,7 @@ func (l *Logger) Tracef(format string, args ...any) {
 }
 
 func (l *Logger) Debugf(format string, args ...any) {
-	if Debug() || Trace() {
+	if Debug() || Trace() || l.debug || l.trace {
 		c := color.New(color.FgHiGreen, color.Italic)
 		c.Printf("[DEBUG] (%s) ", l.action)
 		c.Printf(format, args...)

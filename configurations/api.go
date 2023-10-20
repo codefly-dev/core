@@ -9,6 +9,6 @@ const (
 )
 
 type EndpointEntry struct {
-	//Endpoint *Endpoint
-	//Api *Api
+	Endpoint *Endpoint
+	Api      *Api
 }
