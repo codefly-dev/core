@@ -15,24 +15,19 @@ var currentProject *Project
 
 const ProjectConfigurationName = "project.codefly.yaml"
 
-type ApplicationEntry struct {
-	Name         string `yaml:"name"`
-	RelativePath string `yaml:"relative-path"`
-}
-
 type Project struct {
 	Name         string       `yaml:"name"`
 	Style        ProjectStyle `yaml:"style"`
 	Domain       string       `yaml:"domain"`
 	Organization string       `yaml:"organization"`
-	RelativePath string       `yaml:"relative-path"`
+	RelativePath string       `yaml:"relative-path,omitempty"`
 
 	// Applications in the project
-	Applications       []ApplicationEntry `yaml:"applications"`
-	CurrentApplication string             `yaml:"current-application"`
+	Applications       []ApplicationReference `yaml:"applications"`
+	CurrentApplication string                 `yaml:"current-application,omitempty"`
 
-	// Libraries installed in the project
-	//Libraries []*LibrarySummary `yaml:"libraries"`
+	// Providers in the project
+	Providers []ProviderReference `yaml:"providers"`
 }
 
 type ProjectStyle string
@@ -339,27 +334,25 @@ func (p *Project) Relative(absolute string) string {
 	return s
 }
 
-func AddApplication(app *ApplicationEntry) error {
-	project := MustCurrentProject()
-	for _, a := range project.Applications {
+func (p *Project) AddApplication(app *ApplicationReference) error {
+	for _, a := range p.Applications {
 		if a.Name == app.Name {
 			return nil
 		}
 	}
-	project.Applications = append(project.Applications, *app)
+	p.Applications = append(p.Applications, *app)
 
-	return project.SaveToDir(path.Join(GlobalProjectRoot(), project.RelativePath))
+	return p.SaveToDir(path.Join(GlobalProjectRoot(), p.RelativePath))
 }
 
 //
-//func AddLibraryUsage(library *Library, destination string) error {
-//	logger := shared.NewLogger("configurations.AddLibraryUsage<%s>", library.Name())
-//	project := MustCurrentProject()
-//	manager := NewLibraryManager(project.Libraries)
-//	err := manager.Add(library, project.Relative(destination))
-//	if err != nil {
-//		return logger.Wrapf(err, "cannot add")
+//func (p *Project) AddProvider() error {
+//	for _, prov := range p.Providers {
+//		if a.Name == app.Name {
+//			return nil
+//		}
 //	}
-//	project.Libraries = manager.ToSummary()
-//	return project.Save()
+//	p.Applications = append(p.Applications, *app)
+//
+//	return p.SaveToDir(path.Join(GlobalProjectRoot(), p.RelativePath))
 //}

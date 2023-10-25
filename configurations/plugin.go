@@ -52,6 +52,8 @@ const PluginLibrary = "library"
 const PluginRuntimeService = "runtime::service"
 const PluginFactoryService = "factory::service"
 
+const PluginProvider = "provider"
+
 func (p *Plugin) ImplementationKind() string {
 	if !slices.Contains(KnownPluginImplementationKinds(), p.Kind) {
 		shared.Exit("unknown plugin kind: %s", p.Kind)

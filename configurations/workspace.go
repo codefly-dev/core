@@ -21,11 +21,6 @@ type Workspace struct {
 	FullDir string `yaml:"-"`
 }
 
-type ProjectReference struct {
-	Name         string `yaml:"name"`
-	RelativePath string `yaml:"relative-path"`
-}
-
 // A GlobalConfigurationInputer abstracts away global configuration and default of project creation
 type GlobalConfigurationInputer interface {
 	// Fetch instantiates the input

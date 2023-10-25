@@ -23,7 +23,7 @@ type Service struct {
 	Name         string               `yaml:"name"`
 	Version      string               `yaml:"version"`
 	Application  string               `yaml:"applications"`
-	RelativePath string               `yaml:"relative-path"`
+	RelativePath string               `yaml:"relative-path,omitempty"`
 	Namespace    string               `yaml:"namespace"`
 	Domain       string               `yaml:"domain"`
 	Plugin       *Plugin              `yaml:"plugin"`

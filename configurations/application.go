@@ -58,7 +58,7 @@ func NewApplication(name string) (*Application, error) {
 	}
 	SetCurrentApplication(&app)
 
-	err = AddApplication(&ApplicationEntry{
+	err = MustCurrentProject().AddApplication(&ApplicationReference{
 		Name:         name,
 		RelativePath: name,
 	})
