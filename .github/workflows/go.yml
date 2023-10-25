@@ -41,3 +41,28 @@ jobs:
 
     - name: Run golangci-lint
       run: golangci-lint run
+
+
+    - name: generate test generate coverage
+      run: go test ./... -coverprofile=./cover.out
+
+    - name: check test coverage
+      id: coverage ## this step must have id
+      uses: vladopajic/go-test-coverage@v2
+      with:
+        profile: cover.out
+        local-prefix: github.com/org/project
+        threshold-file: 80
+        threshold-package: 80
+        threshold-total: 95
+
+    - name: make coverage badge
+      uses: action-badges/core@0.2.2
+      if: contains(github.ref, 'main')
+      with:
+        label: coverage
+        message: ${{ steps.coverage.outputs.badge-text }}
+        message-color: ${{ steps.coverage.outputs.badge-color }}
+        file-name: coverage.svg
+        badge-branch: badges ## orphan branch where badge will be committed
+        github-token: "${{ secrets.GITHUB_TOKEN }}"

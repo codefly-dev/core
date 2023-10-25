@@ -7,7 +7,7 @@
 
 ![](docs/media/dragonfly.png)
 
-# Welcome to CodeFly core library
+# Welcome to `codefly.ai` core library
 
 What is this?
 
