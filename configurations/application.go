@@ -2,9 +2,9 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/codefly-dev/golor"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
+	"github.com/codefly-dev/golor"
 	"os"
 	"path"
 	"path/filepath"

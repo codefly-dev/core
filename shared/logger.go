@@ -116,8 +116,6 @@ func (l *Logger) Info(format string, args ...any) {
 	fmt.Println()
 }
 
-
-
 func (l *Logger) Tracef(format string, args ...any) {
 	if Trace() || l.trace {
 		c := color.New(color.FgGreen, color.Italic)
