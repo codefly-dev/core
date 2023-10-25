@@ -2,6 +2,7 @@ package configurations
 
 import (
 	"fmt"
+	"github.com/codefly-dev/golor"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 	"os"
@@ -51,11 +52,9 @@ func NewApplication(name string) (*Application, error) {
 		return nil, logger.Wrapf(err, "cannot copy and apply template")
 	}
 
-	if !DryRun() {
-		err := SaveToDir[Application](&app, dir)
-		if err != nil {
-			return nil, logger.Errorf("cannot save applications configuration <%s>: %v", app.Name, err)
-		}
+	err = SaveToDir[Application](&app, dir)
+	if err != nil {
+		return nil, logger.Errorf("cannot save applications configuration <%s>: %v", app.Name, err)
 	}
 	SetCurrentApplication(&app)
 
@@ -219,6 +218,10 @@ func (e NoApplicationError) Error() string {
 }
 
 func SetCurrentApplication(app *Application) {
+	if app == nil {
+		golor.Println(`#(bold,white)[No application selected: you are running outside the application folder or forgot to use --current]`)
+		os.Exit(0)
+	}
 	currentApplication = app
 	MustCurrentProject().CurrentApplication = app.Name
 	err := MustCurrentProject().Save()

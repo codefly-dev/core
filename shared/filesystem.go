@@ -48,7 +48,7 @@ func (d *Dir) Relative() string {
 }
 
 func (d *Dir) RelativeFrom(base Dir) (*Dir, error) {
-	logger := NewLogger("shared.Dir.RelativeFrom<%s><%s>", d, base)
+	logger := NewLogger("shared.dir.RelativeFrom<%s><%s>", d, base)
 	rel, err := filepath.Rel(base.Absolute(), d.Absolute())
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot get relative path")

@@ -11,6 +11,10 @@ type FileVisitor interface {
 	Ignore(file shared.File) bool
 }
 
+type Ignore interface {
+	Ignore(file shared.File) bool
+}
+
 func CopyAndVisit(logger shared.BaseLogger, fs FileSystem, root shared.Dir, destination shared.Dir, visitor FileVisitor) error {
 	logger.Tracef("visiting to directory %s -> %s", root, destination)
 	err := shared.CheckDirectoryOrCreate(fs.AbsoluteDir(destination))
@@ -19,7 +23,7 @@ func CopyAndVisit(logger shared.BaseLogger, fs FileSystem, root shared.Dir, dest
 	}
 	var dirs []shared.Dir
 	var files []shared.File
-	err = Walk(logger, fs, root, &files, &dirs)
+	err = Walk(logger, fs, root, visitor, &files, &dirs)
 	if err != nil {
 		return fmt.Errorf("cannot read template directory: %v", err)
 	}

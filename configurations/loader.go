@@ -2,6 +2,7 @@ package configurations
 
 import (
 	"fmt"
+	"github.com/codefly-dev/core/configurations/generation"
 	"github.com/codefly-dev/core/shared"
 	"gopkg.in/yaml.v3"
 	"os"
@@ -70,6 +71,8 @@ func Path[C Configuration](dir string) string {
 		return path.Join(dir, ApplicationConfigurationName)
 	case Service:
 		return path.Join(dir, ServiceConfigurationName)
+	case generation.Service:
+		return path.Join(dir, generation.ServiceGenerationConfigurationName)
 	//case Library:
 	//	return path.Join(dir, LibraryConfigurationName)
 	//case LibraryGeneration:

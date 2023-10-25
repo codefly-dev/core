@@ -52,7 +52,7 @@ package configurations
 //}
 //
 //func (l *Library) FullPath() string {
-//	return path.Join(MustCurrentProject().Dir(), l.RelativePath)
+//	return path.Join(MustCurrentProject().dir(), l.RelativePath)
 //}
 //
 //type LibraryGeneration struct {
