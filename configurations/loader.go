@@ -166,7 +166,7 @@ func FindUp[C Configuration](cur string) (*C, error) {
 
 		// Stop if we reach the root directory
 		if cur == "/" || cur == "." {
-			return nil, logger.Errorf("cannot find service configuration: reached root directory")
+			return nil, logger.Errorf("cannot find %s configuration: reached root directory", TypeName[C]())
 		}
 	}
 }

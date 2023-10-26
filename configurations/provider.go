@@ -18,5 +18,7 @@ func NewProvider(name string, plugin *Plugin) (*Provider, error) {
 }
 
 func (p *Provider) Reference() (*ProviderReference, error) {
-	return &ProviderReference{}, nil
+	return &ProviderReference{
+		Name: p.Name,
+	}, nil
 }

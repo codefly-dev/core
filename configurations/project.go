@@ -345,14 +345,34 @@ func (p *Project) AddApplication(app *ApplicationReference) error {
 	return p.SaveToDir(path.Join(GlobalProjectRoot(), p.RelativePath))
 }
 
-//
-//func (p *Project) AddProvider() error {
-//	for _, prov := range p.Providers {
-//		if a.Name == app.Name {
-//			return nil
-//		}
-//	}
-//	p.Applications = append(p.Applications, *app)
-//
-//	return p.SaveToDir(path.Join(GlobalProjectRoot(), p.RelativePath))
-//}
+func (p *Project) AddProvider(provider *Provider) error {
+	logger := shared.NewLogger("configurations.Project.AddProvider<%s>", provider.Name)
+	for _, prov := range p.Providers {
+		if prov.Name == provider.Name {
+			return nil
+		}
+	}
+	ref, err := provider.Reference()
+	if err != nil {
+		return logger.Wrapf(err, "cannot get reference")
+	}
+	p.Providers = append(p.Providers, *ref)
+
+	return p.SaveToDir(path.Join(GlobalProjectRoot(), p.RelativePath))
+}
+
+func (p *Project) OtherApplications(app *Application) ([]*Application, error) {
+	logger := shared.NewLogger("")
+	apps, err := ListApplications(WithProject(p))
+	if err != nil {
+		logger.Wrapf(err, "cannot list applications")
+	}
+	var others []*Application
+	for _, other := range apps {
+		if other.Unique() == app.Unique() {
+			continue
+		}
+		others = append(others, other)
+	}
+	return others, nil
+}
