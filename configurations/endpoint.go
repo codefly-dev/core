@@ -5,17 +5,33 @@ import (
 	"strings"
 )
 
+type Protocol string
+type ApiFramework string
+
+const (
+	RestApiFramework    ApiFramework = "rest"
+	GraphQLApiFramework ApiFramework = "graphql"
+)
+
 type Api struct {
-	Protocol  string `yaml:"protocol"`
-	Framework string `yaml:"framework,omitempty"`
+	Protocol  Protocol     `yaml:"protocol"`
+	Framework ApiFramework `yaml:"framework,omitempty"`
 }
 
 type Endpoint struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
+	Public      bool   `yaml:"public,omitempty"`
+	Api         *Api   `yaml:"api,omitempty"`
 	// FailOver indicates that this endpoint should fail over to another endpoint
 	FailOver *Endpoint `yaml:"fail-over,omitempty"`
 }
+
+func (e *Endpoint) Reference() *EndpointReference {
+	return &EndpointReference{}
+}
+
+/* For runtime */
 
 const NetworkPrefix = "CODEFLY-NETWORK_"
 
@@ -36,61 +52,3 @@ func ParseEnvironmentVariable(env string) (string, []string) {
 	values := strings.Split(tokens[1], " ")
 	return reference, values
 }
-
-//func LoadEnvironmentVariables() {
-//	for _, env := range os.Environ() {
-//		if p, ok := strings.CutPrefix(env, NetworkPrefix); ok {
-//			tokens := strings.Split(p, "=")
-//			key := strings.ToLower(tokens[0])
-//			// Namespace break
-//			key = strings.Replace(key, "_", ".", 1)
-//			key = strings.Replace(key, "_", "::", 1)
-//			value := tokens[1]
-//			networks[key] = value
-//		}
-//	}
-//}
-
-//	func (r Endpoint) String() string {
-//		if r.FailOver != nil {
-//			return fmt.Sprintf("%s (failover: %s)", r.Name, r.FailOver.Name)
-//		}
-//		return r.Name
-//	}
-//
-//	func (r Endpoint) Proto() *factoryv1.Endpoint {
-//		return &factoryv1.Endpoint{
-//			Name:        r.Name,
-//			Description: r.Description,
-//		}
-//	}
-//
-//	func EndpointFromProto(proto *runtimev1.Endpoint) *Endpoint {
-//		return &Endpoint{
-//			Name:        proto.Name,
-//			Description: proto.Description,
-//		}
-//	}
-
-//
-//func Extract(env *runtimev1.Environment, reference string) []string {
-//	for _, e := range env.Variables {
-//		if e.Name == AsEnvironmentVariable(reference) {
-//			return strings.Split(e.Value, " ")
-//		}
-//	}
-//	return nil
-//}
-//
-//func ExtractPorts(env *runtimev1.Environment, reference string) []string {
-//	var ports []string
-//	for _, e := range env.Variables {
-//		if e.Name == AsEnvironmentVariable(reference) {
-//			values := strings.Split(e.Value, " ")
-//			for _, v := range values {
-//				ports = append(ports, strings.Split(v, "_")[1])
-//			}
-//		}
-//	}
-//	return ports
-//}

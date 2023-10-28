@@ -151,13 +151,13 @@ func SaveToDir[C Configuration](c *C, dir string) error {
 	return nil
 }
 
+// FindUp looks for a service configuration in the current directory and up
 func FindUp[C Configuration](cur string) (*C, error) {
 	logger := shared.NewLogger("configurations.FindUp[%s]", TypeName[C]())
-	logger.Debugf("Solving <%s>", cur)
+	logger.Tracef("from <%s>", cur)
 	for {
 		// Look for a service configuration
 		p := Path[C](cur)
-		logger.Debugf("looking for %s", p)
 		if _, err := os.Stat(p); err == nil {
 			return LoadFromDir[C](cur)
 		}

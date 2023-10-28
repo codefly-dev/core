@@ -64,3 +64,9 @@ type ProviderReference struct {
 	Name         string `yaml:"name"`
 	RelativePath string `yaml:"relative-path,omitempty"`
 }
+
+// Services reference Endpoints
+
+// A EndpointReference
+type EndpointReference struct {
+}

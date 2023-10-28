@@ -22,13 +22,13 @@ type Service struct {
 	Kind         string               `yaml:"kind"`
 	Name         string               `yaml:"name"`
 	Version      string               `yaml:"version"`
-	Application  string               `yaml:"applications"`
+	Application  string               `yaml:"application"`
 	RelativePath string               `yaml:"relative-path,omitempty"`
 	Namespace    string               `yaml:"namespace"`
 	Domain       string               `yaml:"domain"`
 	Plugin       *Plugin              `yaml:"plugin"`
 	Dependencies []*ServiceDependency `yaml:"dependencies"`
-	Endpoints    []*EndpointEntry     `yaml:"endpoints"`
+	Endpoints    []*Endpoint          `yaml:"endpoints"`
 	Spec         map[string]any       `yaml:"spec"`
 }
 
@@ -36,8 +36,9 @@ func (s *Service) Endpoint() string {
 	return fmt.Sprintf("%s.%s", s.Name, s.Namespace)
 }
 
-func (s *Service) Dir() string {
-	return path.Join(MustCurrentApplication().Dir(), s.RelativePath)
+func (s *Service) Dir(opts ...Option) string {
+	scope := WithScope(opts...)
+	return path.Join(scope.Application.Dir(), s.RelativePath)
 }
 
 func ValidateServiceName(name string) error {
@@ -48,14 +49,15 @@ func (s *Service) Unique() string {
 	return fmt.Sprintf("%s.%s", s.Application, s.Name)
 }
 
-func NewService(name string, namespace string, plugin *Plugin) (*Service, error) {
+func NewService(name string, namespace string, plugin *Plugin, ops ...Option) (*Service, error) {
 	logger := shared.NewLogger("configurations.NewService")
+	scope := WithScope(ops...)
 	svc := Service{
 		Kind:         "service",
 		Name:         name,
-		Application:  MustCurrentApplication().Name,
+		Application:  scope.Application.Name,
 		RelativePath: name,
-		Domain:       path.Join(MustCurrentApplication().Domain, name),
+		Domain:       path.Join(scope.Application.Domain, name),
 		Namespace:    namespace,
 		Plugin:       plugin,
 		Spec:         make(map[string]any),
@@ -93,19 +95,17 @@ func (s *Service) Reference() (*ServiceReference, error) {
 
 func LoadServiceFromDir(dir string, opts ...Option) (*Service, error) {
 	logger := shared.NewLogger("configurations.LoadServiceFromPath<%s>", dir)
-	scope := WithScope(opts...).WithApplication(MustCurrentApplication())
 	conf, err := LoadFromDir[Service](dir)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
 	}
 	// Normalize
+
 	for _, entry := range conf.Dependencies {
 		if entry.RelativePath == "" {
 			entry.RelativePath = entry.Name
 		}
 	}
-	conf.Application = MustCurrentApplication().Name
-	conf.RelativePath = scope.Application.Relative(dir, opts...)
 	conf.Plugin.Kind = PluginRuntimeService
 	return conf, nil
 }
@@ -258,7 +258,7 @@ type ServiceDependency struct {
 	RelativePath        string `yaml:"relative-path"`
 	ApplicationOverride string `yaml:"applications,omitempty"`
 
-	Uses []*EndpointEntry `yaml:"uses,omitempty"`
+	Endpoints []*EndpointReference `yaml:"uses,omitempty"`
 }
 
 func (s *ServiceDependency) Validate() error {
@@ -289,18 +289,8 @@ func SupportedApi(kind string) error {
 	return fmt.Errorf("unsupported api: %s", kind)
 }
 
-func WithApplication(app *Application) Option {
-	return func(scope *Scope) {
-		scope.Application = app
-	}
-}
-
 func (ref *ServiceReference) Dir(opts ...Option) (string, error) {
-	scope := WithScope()
-	scope.Application = MustCurrentApplication()
-	for _, opt := range opts {
-		opt(scope)
-	}
+	scope := WithScope(opts...)
 	// if no relative path is specified, we used the Name
 	relativePath := ref.RelativePath
 	if relativePath == "" {

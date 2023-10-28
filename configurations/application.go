@@ -84,7 +84,7 @@ func LoadApplicationFromDir(dir string) (*Application, error) {
 		return nil, err
 	}
 	config.RelativePath = MustCurrentProject().Relative(dir)
-	logger.Debugf("loaded applications configuration with %d services", len(config.Services))
+	logger.Tracef("loaded applications configuration with %d services", len(config.Services))
 	return config, err
 }
 
@@ -98,7 +98,26 @@ func (s *Scope) WithApplication(app *Application) *Scope {
 	return s
 }
 
+func (s *Scope) WithProject(project *Project) *Scope {
+	s.Project = project
+	return s
+}
+
 func WithScope(opts ...Option) *Scope {
+	scope := &Scope{
+		Project: MustCurrentProject(),
+	}
+	app, _ := CurrentApplication()
+	if app != nil {
+		scope.Application = app
+	}
+	for _, opt := range opts {
+		opt(scope)
+	}
+	return scope
+}
+
+func WithScopeProjectOnly(opts ...Option) *Scope {
 	scope := &Scope{
 		Project: MustCurrentProject(),
 	}
@@ -116,9 +135,14 @@ func WithProject(project *Project) Option {
 	}
 }
 
+func WithApplication(app *Application) Option {
+	return func(scope *Scope) {
+		scope.Application = app
+	}
+}
+
 func LoadApplicationFromName(name string, opts ...Option) (*Application, error) {
 	logger := shared.NewLogger("configurations.LoadApplicationFromName<%s>", name)
-	//scope := WithScope(opts...)
 	apps, err := ListApplications(opts...)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot list applications")
@@ -175,32 +199,32 @@ func (app *Application) Unique() string {
 
 func CurrentApplication(opts ...Option) (*Application, error) {
 	logger := shared.NewLogger("configurations.CurrentApplication")
-	scope := WithScope(opts...)
-	logger.TODO("This is more complicated: should be take the current as by configuration or by path?")
-	if currentApplication == nil {
-		// Look for the current applications in the project
-		current := scope.Project.CurrentApplication
-		if current == "" {
-			logger.Debugf("no current applications for <%v>", scope.Project.Name)
-			return nil, nil //NoApplicationError{Project: scope.Project.Name}
-		}
-
-		all, err := ListApplications(opts...)
-		if err != nil {
-			return nil, logger.Wrapf(err, "Listing applications in project <%s>", MustCurrentProject().Name)
-		}
-		if len(all) == 0 {
-			return nil, NoApplicationError{Project: MustCurrentProject().Name}
-		}
-		for _, app := range all {
-			if app.Name == current {
-				currentApplication = app
-				return app, nil
-			}
-		}
-		return nil, logger.Errorf("cannot find current applications <%s> in project <%s>", current, MustCurrentProject().Name)
+	if currentApplication != nil {
+		return currentApplication, nil
 	}
-	return currentApplication, nil
+	scope := WithScopeProjectOnly(opts...)
+	logger.TODO("This is more complicated: should be take the current as by configuration or by path?")
+	// Look for the current applications in the project
+	current := scope.Project.CurrentApplication
+	if current == "" {
+		logger.Debugf("no current applications for <%v>", scope.Project.Name)
+		return nil, nil //NoApplicationError{Project: scope.Project.Name}
+	}
+
+	all, err := ListApplications(opts...)
+	if err != nil {
+		return nil, logger.Wrapf(err, "Listing applications in project <%s>", MustCurrentProject().Name)
+	}
+	if len(all) == 0 {
+		return nil, NoApplicationError{Project: MustCurrentProject().Name}
+	}
+	for _, app := range all {
+		if app.Name == current {
+			currentApplication = app
+			return app, nil
+		}
+	}
+	return nil, logger.Errorf("cannot find current applications <%s> in project <%s>", current, MustCurrentProject().Name)
 }
 
 func MustCurrentApplication() *Application {
@@ -230,10 +254,7 @@ func SetCurrentApplication(app *Application) {
 
 func ListApplications(opts ...Option) ([]*Application, error) {
 	logger := shared.NewLogger("applications.List<%s>", MustCurrentProject().Dir())
-	scope := WithScope()
-	for _, opt := range opts {
-		opt(scope)
-	}
+	scope := WithScopeProjectOnly(opts...)
 	var apps []*Application
 	for _, app := range scope.Project.Applications {
 		a, err := LoadApplicationFromDir(path.Join(scope.Project.Dir(), app.RelativePath))

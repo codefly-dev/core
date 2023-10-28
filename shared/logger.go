@@ -39,9 +39,11 @@ var trace bool
 var todo bool
 
 var todos map[string]bool
+var warns map[string]bool
 
 func init() {
 	todos = make(map[string]bool)
+	warns = make(map[string]bool)
 }
 
 func SetDebug(d bool) {
@@ -166,6 +168,14 @@ func (l *Logger) Warn(err error) {
 	c.Print("⚠️ ")
 	c.Printf(UserWarnMessage(err))
 	c.Println()
+}
+
+func (l *Logger) WarnUnique(err error) {
+	if !warns[err.Error()] {
+		l.Warn(err)
+		warns[err.Error()] = true
+
+	}
 }
 
 func (l *Logger) UserFatal(err error) {
