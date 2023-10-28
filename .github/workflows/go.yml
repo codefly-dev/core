@@ -36,12 +36,10 @@ jobs:
     - name: Test with race detection
       run: go test -race ./... -v
 
-    - name: Install golangci-lint
-      run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.55
-
-    - name: Run golangci-lint
-      run: golangci-lint run
-
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: v1.55
 
     - name: generate test generate coverage
       run: go test ./... -coverprofile=./cover.out
@@ -51,7 +49,7 @@ jobs:
       uses: vladopajic/go-test-coverage@v2
       with:
         profile: cover.out
-        local-prefix: github.com/org/project
+        local-prefix: github.com/codefly-dev/core
         threshold-file: 80
         threshold-package: 80
         threshold-total: 95
