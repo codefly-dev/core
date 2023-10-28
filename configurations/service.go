@@ -124,16 +124,17 @@ func LoadServiceFromReference(ref *ServiceReference, opts ...Option) (*Service, 
 	return LoadServiceFromDir(p, opts...)
 }
 
-func FindServiceFromName(name string) (*Service, error) {
+func FindServiceFromName(name string, opts ...Option) (*Service, error) {
 	logger := shared.NewLogger("configurations.FindServiceFromName<%s>", name)
-	ref, err := MustCurrentApplication().GetServiceReferences(name)
+	scope := WithScope(opts...)
+	ref, err := scope.Application.GetServiceReferences(name)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
 	}
 	if ref == nil {
 		return nil, logger.Errorf("service does not exist")
 	}
-	config, err := LoadServiceFromReference(ref)
+	config, err := LoadServiceFromReference(ref, opts...)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
 	}

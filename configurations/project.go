@@ -365,7 +365,7 @@ func (p *Project) OtherApplications(app *Application) ([]*Application, error) {
 	logger := shared.NewLogger("")
 	apps, err := ListApplications(WithProject(p))
 	if err != nil {
-		logger.Wrapf(err, "cannot list applications")
+		return nil, logger.Wrapf(err, "cannot list applications")
 	}
 	var others []*Application
 	for _, other := range apps {
