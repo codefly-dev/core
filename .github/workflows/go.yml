@@ -39,6 +39,7 @@ jobs:
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v3
       with:
+        # Latest
         version: v1.55
 
     - name: generate test generate coverage
