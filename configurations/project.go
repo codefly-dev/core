@@ -23,8 +23,11 @@ type Project struct {
 	RelativePath string       `yaml:"relative-path,omitempty"`
 
 	// Applications in the project
-	Applications       []ApplicationReference `yaml:"applications"`
-	CurrentApplication string                 `yaml:"current-application,omitempty"`
+	Applications       []*ApplicationReference `yaml:"applications"`
+	CurrentApplication string                  `yaml:"current-application,omitempty"`
+
+	// Partials are convenient way to run several applications
+	Partials []Partial `yaml:"partials"`
 
 	// Providers in the project
 	Providers []ProviderReference `yaml:"providers"`
@@ -148,6 +151,11 @@ func LoadCurrentProject() (*Project, error) {
 		return nil, logger.Wrapf(err, "cannot load project")
 	}
 	p.RelativePath = reference.RelativePath
+	for _, app := range p.Applications {
+		if app.RelativePath == "" {
+			app.RelativePath = app.Name
+		}
+	}
 	return p, err
 }
 
@@ -340,7 +348,7 @@ func (p *Project) AddApplication(app *ApplicationReference) error {
 			return nil
 		}
 	}
-	p.Applications = append(p.Applications, *app)
+	p.Applications = append(p.Applications, app)
 
 	return p.SaveToDir(path.Join(GlobalProjectRoot(), p.RelativePath))
 }
@@ -375,4 +383,12 @@ func (p *Project) OtherApplications(app *Application) ([]*Application, error) {
 		others = append(others, other)
 	}
 	return others, nil
+}
+func (p *Project) GetPartial(name string) *Partial {
+	for _, partial := range p.Partials {
+		if partial.Name == name {
+			return &partial
+		}
+	}
+	return nil
 }

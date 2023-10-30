@@ -90,6 +90,11 @@ func FileExists(p string) bool {
 	return !os.IsNotExist(err)
 }
 
+func DirectoryExists(p string) bool {
+	info, err := os.Stat(p)
+	return !os.IsNotExist(err) && info.IsDir()
+}
+
 type CopyInstruction struct {
 	Name string
 	Path string

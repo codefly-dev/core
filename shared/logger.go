@@ -37,6 +37,7 @@ var debug bool
 var trace bool
 
 var todo bool
+var override bool
 
 var todos map[string]bool
 var warns map[string]bool
@@ -58,6 +59,10 @@ func SetTrace(t bool) {
 	trace = t
 }
 
+func SetOverride(o bool) {
+	override = o
+}
+
 func Debug() bool {
 	return debug
 }
@@ -68,6 +73,10 @@ func Todo() bool {
 
 func Trace() bool {
 	return trace
+}
+
+func Override() bool {
+	return override
 }
 
 type Logger struct {

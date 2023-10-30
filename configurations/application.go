@@ -257,6 +257,7 @@ func ListApplications(opts ...Option) ([]*Application, error) {
 	scope := WithScopeProjectOnly(opts...)
 	var apps []*Application
 	for _, app := range scope.Project.Applications {
+
 		a, err := LoadApplicationFromDir(path.Join(scope.Project.Dir(), app.RelativePath))
 		if err != nil {
 			return nil, logger.Errorf("cannot load applications configuration <%s>: %v", app.Name, err)

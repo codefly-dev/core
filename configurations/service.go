@@ -50,19 +50,19 @@ func (s *Service) Unique() string {
 }
 
 func NewService(name string, namespace string, plugin *Plugin, ops ...Option) (*Service, error) {
-	logger := shared.NewLogger("configurations.NewService")
 	scope := WithScope(ops...)
+	logger := shared.NewLogger("configurations.NewService<%s>", scope.Application.Name)
 	svc := Service{
 		Kind:         "service",
 		Name:         name,
 		Application:  scope.Application.Name,
 		RelativePath: name,
-		Domain:       path.Join(scope.Application.Domain, name),
+		Domain:       scope.Application.ServiceDomain(name),
 		Namespace:    namespace,
 		Plugin:       plugin,
 		Spec:         make(map[string]any),
 	}
-	logger.Debugf("Creating service <%s> at relative path to applications <%s>", svc.Name, name)
+	logger.Debugf("new service configuration <%s> with relative path <%s>", svc.Name, svc.Name)
 	return &svc, nil
 }
 
