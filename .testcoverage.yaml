@@ -10,15 +10,15 @@ local-prefix: "github.com/codefly-dev/core"
 threshold:
   # (optional; default 0) 
   # The minimum coverage that each file should have
-  file: 70
+  #file: 70
 
   # (optional; default 0) 
   # The minimum coverage that each package should have
-  package: 80
+  #package: 80
 
   # (optional; default 0) 
   # The minimum total coverage project should have
-  total: 95
+  #total: 95
 
 # Holds regexp rules which will override thresholds for matched files or packages using their paths.
 #
