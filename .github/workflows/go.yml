@@ -13,28 +13,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v2
-      with:
-        go-version: ^1.16
-      id: go
+    - uses: actions/checkout@v3
+    - uses: actions/setup-go@v3
 
-    - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
 
-    - name: Cache Go modules
+    - name: cache Go modules
       uses: actions/cache@v2
       with:
         path: ~/go/pkg/mod
         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-
-
-    - name: Test without race detection
-      run: go test ./... -v
-
-    - name: Test with race detection
-      run: go test -race ./... -v
 
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v3
@@ -65,3 +54,6 @@ jobs:
         file-name: coverage.svg
         badge-branch: badges ## orphan branch where badge will be committed
         github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: test with race detection
+      run: go test -race ./... -v
