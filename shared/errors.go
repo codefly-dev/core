@@ -3,8 +3,9 @@ package shared
 import (
 	"errors"
 	"fmt"
-	"github.com/codefly-dev/golor"
 	"strings"
+
+	"github.com/codefly-dev/golor"
 )
 
 func HandleError(err error) {

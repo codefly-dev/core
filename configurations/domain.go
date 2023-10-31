@@ -3,7 +3,6 @@ package configurations
 import "path"
 
 func ValidateDomain() {
-
 }
 
 func ExtendDomain(domain string, extension string) string {

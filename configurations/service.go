@@ -2,13 +2,14 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/codefly-dev/core/shared"
-	"github.com/mitchellh/mapstructure"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/codefly-dev/core/shared"
+	"github.com/mitchellh/mapstructure"
+	"gopkg.in/yaml.v3"
 )
 
 const ServiceConfigurationName = "service.codefly.yaml"
@@ -152,7 +153,7 @@ func (s *Service) Save() error {
 func (s *Service) SaveAtDir(destination string) error {
 	logger := shared.NewLogger("configurations.Unique<%s>.Save", s.Name)
 	if _, err := os.Stat(destination); os.IsNotExist(err) {
-		err := os.Mkdir(destination, 0755)
+		err := os.Mkdir(destination, 0o755)
 		if err != nil {
 			return logger.Errorf("cannot create directory <%s>: %v", destination, err)
 		}
@@ -162,7 +163,7 @@ func (s *Service) SaveAtDir(destination string) error {
 	if err != nil {
 		return logger.Errorf("cannot marshal service configuration: %s", err)
 	}
-	err = os.WriteFile(p, content, 0644)
+	err = os.WriteFile(p, content, 0o644)
 	if err != nil {
 		return logger.Errorf("cannot save service configuration: %s", err)
 	}
@@ -187,7 +188,7 @@ func (s *Service) AddDependencyReference(requirement *Service) error {
 		logger.DebugMe("JERE DEP: %v", d)
 	}
 	logger.Debugf("adding dependency <%s > to requirement <%s>", requirement.Name, s.Name)
-	//s.Dependencies =
+	// s.Dependencies =
 	return nil
 }
 
@@ -271,9 +272,11 @@ func (s *ServiceDependency) Validate() error {
 
 const Unknown = "unknown"
 
-const Grpc = "grpc"
-const Http = "http"
-const Tcp = "tcp"
+const (
+	Grpc = "grpc"
+	Http = "http"
+	Tcp  = "tcp"
+)
 
 const RestFramework = "rest"
 

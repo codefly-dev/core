@@ -5,8 +5,10 @@ import (
 	"strings"
 )
 
-type Protocol string
-type ApiFramework string
+type (
+	Protocol     string
+	ApiFramework string
+)
 
 const (
 	RestApiFramework    ApiFramework = "rest"

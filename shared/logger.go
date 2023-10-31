@@ -2,10 +2,11 @@ package shared
 
 import (
 	"fmt"
-	"github.com/fatih/color"
-	"github.com/pkg/errors"
 	"os"
 	runtimedebug "runtime/debug"
+
+	"github.com/fatih/color"
+	"github.com/pkg/errors"
 )
 
 type LogLevel = string
@@ -33,14 +34,20 @@ type BaseLogger interface {
 }
 
 // TODO: logger level
-var debug bool
-var trace bool
+var (
+	debug bool
+	trace bool
+)
 
-var todo bool
-var override bool
+var (
+	todo     bool
+	override bool
+)
 
-var todos map[string]bool
-var warns map[string]bool
+var (
+	todos map[string]bool
+	warns map[string]bool
+)
 
 func init() {
 	todos = make(map[string]bool)
@@ -134,7 +141,6 @@ func (l *Logger) Tracef(format string, args ...any) {
 		c.Printf(format, args...)
 		c.Println()
 	}
-
 }
 
 func (l *Logger) Debugf(format string, args ...any) {

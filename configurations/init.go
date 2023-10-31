@@ -1,8 +1,9 @@
 package configurations
 
 import (
-	"github.com/codefly-dev/core/shared"
 	"os/user"
+
+	"github.com/codefly-dev/core/shared"
 )
 
 func HomeDir() string {

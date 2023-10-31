@@ -1,9 +1,10 @@
 package configurations
 
 import (
-	"github.com/codefly-dev/core/shared"
 	"path"
 	"path/filepath"
+
+	"github.com/codefly-dev/core/shared"
 )
 
 const GlobalConfigurationName = "codefly.yaml"
@@ -130,8 +131,10 @@ var globalConfigDir string
 // This is where we create projects from:
 // default to ~/codefly
 
-var globalProjectRoot string
-var global *Workspace
+var (
+	globalProjectRoot string
+	global            *Workspace
+)
 
 func init() {
 	globalConfigDir = path.Join(HomeDir(), ".codefly")

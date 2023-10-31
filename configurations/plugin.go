@@ -2,10 +2,11 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/codefly-dev/core/shared"
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/codefly-dev/core/shared"
 )
 
 type Plugin struct {
@@ -16,7 +17,6 @@ type Plugin struct {
 }
 
 func NewPlugin(kind string, publisher string, identifier string, version string) *Plugin {
-
 	p := &Plugin{
 		Kind:       kind,
 		Publisher:  publisher,
@@ -46,11 +46,15 @@ func KnownPluginImplementationKinds() []string {
 	return []string{PluginLibrary, PluginRuntimeService, PluginFactoryService}
 }
 
-const PluginService = "service"
-const PluginLibrary = "library"
+const (
+	PluginService = "service"
+	PluginLibrary = "library"
+)
 
-const PluginRuntimeService = "runtime::service"
-const PluginFactoryService = "factory::service"
+const (
+	PluginRuntimeService = "runtime::service"
+	PluginFactoryService = "factory::service"
+)
 
 const PluginProvider = "provider"
 
@@ -96,7 +100,6 @@ func (p *Plugin) Path() (string, error) {
 		return "", fmt.Errorf("unknown kind: %s", p.Kind)
 	}
 	return path.Join(GlobalConfigurationDir(), "plugins", subdir, p.Name()), nil
-
 }
 
 func ParsePlugin(kind string, s string) (*Plugin, error) {

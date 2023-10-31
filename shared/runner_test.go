@@ -2,10 +2,11 @@ package shared_test
 
 import (
 	"fmt"
-	"github.com/codefly-dev/core/shared"
-	"github.com/stretchr/testify/assert"
 	"os/exec"
 	"testing"
+
+	"github.com/codefly-dev/core/shared"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestWrapStart(t *testing.T) {

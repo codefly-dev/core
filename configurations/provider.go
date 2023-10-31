@@ -9,7 +9,7 @@ type Provider struct {
 }
 
 func NewProvider(name string, plugin *Plugin) (*Provider, error) {
-	//logger := shared.NewLogger("configurations.NewProvider")
+	// logger := shared.NewLogger("configurations.NewProvider")
 	return &Provider{
 		Kind:   "provider",
 		Name:   name,

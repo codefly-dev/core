@@ -1,9 +1,10 @@
 package configurations_test
 
 import (
+	"testing"
+
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
-	"testing"
 )
 
 func TestPluginParse(t *testing.T) {

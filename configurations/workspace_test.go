@@ -1,16 +1,16 @@
 package configurations_test
 
 import (
-	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/shared"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"path"
 	"testing"
+
+	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/shared"
+	"github.com/stretchr/testify/assert"
 )
 
-type override struct {
-}
+type override struct{}
 
 func (o override) Override(p string) bool {
 	return false

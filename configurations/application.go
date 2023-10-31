@@ -2,12 +2,13 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/core/templates"
-	"github.com/codefly-dev/golor"
 	"os"
 	"path"
 	"path/filepath"
+
+	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/templates"
+	"github.com/codefly-dev/golor"
 )
 
 /*
@@ -16,8 +17,10 @@ This is a configuration wrapper to be able to read and write configuration of th
 
 var currentApplication *Application
 
-const ApplicationConfigurationName = "application.codefly.yaml"
-const ApplicationKind = "application"
+const (
+	ApplicationConfigurationName = "application.codefly.yaml"
+	ApplicationKind              = "application"
+)
 
 /*
 Convention: relative to path from project
@@ -208,7 +211,7 @@ func CurrentApplication(opts ...Option) (*Application, error) {
 	current := scope.Project.CurrentApplication
 	if current == "" {
 		logger.Debugf("no current applications for <%v>", scope.Project.Name)
-		return nil, nil //NoApplicationError{Project: scope.Project.Name}
+		return nil, nil // NoApplicationError{Project: scope.Project.Name}
 	}
 
 	all, err := ListApplications(opts...)

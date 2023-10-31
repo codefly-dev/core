@@ -2,17 +2,17 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/codefly-dev/core/configurations/generation"
-	"github.com/codefly-dev/core/shared"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/codefly-dev/core/configurations/generation"
+	"github.com/codefly-dev/core/shared"
+	"gopkg.in/yaml.v3"
 )
 
-type Configuration interface {
-}
+type Configuration interface{}
 
 func SolveDir(dir string) string {
 	logger := shared.NewLogger("configurations.SolveDir")
@@ -43,7 +43,7 @@ func SolveDirOrCreate(dir string) string {
 	}
 	// Validate
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		err = os.MkdirAll(dir, 0755)
+		err = os.MkdirAll(dir, 0o755)
 		if err != nil {
 			shared.ExitOnError(err, "cannot create directory")
 		}
@@ -73,9 +73,9 @@ func Path[C Configuration](dir string) string {
 		return path.Join(dir, ServiceConfigurationName)
 	case generation.Service:
 		return path.Join(dir, generation.ServiceGenerationConfigurationName)
-	//case Library:
+	// case Library:
 	//	return path.Join(dir, LibraryConfigurationName)
-	//case LibraryGeneration:
+	// case LibraryGeneration:
 	//	return path.Join(dir, LibraryGenerationConfigurationName)
 	default:
 		panic(fmt.Errorf("unknown configuration type <%T>", c))
@@ -94,9 +94,9 @@ func ExistsAtDir[C Configuration](dir string) bool {
 		p = path.Join(dir, ApplicationConfigurationName)
 	case Service:
 		p = path.Join(dir, ServiceConfigurationName)
-	//case Library:
+	// case Library:
 	//	p = path.Join(dir, LibraryConfigurationName)
-	//case LibraryGeneration:
+	// case LibraryGeneration:
 	//	p = path.Join(dir, LibraryGenerationConfigurationName)
 	default:
 		panic(fmt.Errorf("unknown configuration type <%T>", c))
@@ -144,7 +144,7 @@ func SaveToDir[C Configuration](c *C, dir string) error {
 	if err != nil {
 		return logger.Wrapf(err, "cannot marshal")
 	}
-	err = os.WriteFile(file, content, 0644)
+	err = os.WriteFile(file, content, 0o644)
 	if err != nil {
 		return logger.Wrapf(err, "cannot write")
 	}

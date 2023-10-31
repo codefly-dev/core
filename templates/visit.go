@@ -2,8 +2,9 @@ package templates
 
 import (
 	"fmt"
-	"github.com/codefly-dev/core/shared"
 	"path"
+
+	"github.com/codefly-dev/core/shared"
 )
 
 type FileVisitor interface {

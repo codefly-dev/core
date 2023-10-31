@@ -2,6 +2,7 @@ package configurations
 
 import (
 	"fmt"
+
 	"github.com/codefly-dev/core/shared"
 )
 
@@ -68,5 +69,4 @@ type ProviderReference struct {
 // Services reference Endpoints
 
 // A EndpointReference
-type EndpointReference struct {
-}
+type EndpointReference struct{}

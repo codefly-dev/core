@@ -1,8 +1,9 @@
 package templates
 
 import (
-	"github.com/codefly-dev/core/shared"
 	"os"
+
+	"github.com/codefly-dev/core/shared"
 )
 
 type Source interface {

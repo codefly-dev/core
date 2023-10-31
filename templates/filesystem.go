@@ -1,9 +1,10 @@
 package templates
 
 import (
-	"github.com/codefly-dev/core/shared"
 	"io/fs"
 	"os"
+
+	"github.com/codefly-dev/core/shared"
 )
 
 type FileSystem interface {
@@ -54,7 +55,7 @@ func (fr *FSReader) Copy(s string, file string) error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(file, content, 0644)
+	err = os.WriteFile(file, content, 0o644)
 	if err != nil {
 		return err
 	}
@@ -65,8 +66,7 @@ func (fr *FSReader) Copy(s string, file string) error {
 Local file system
 */
 
-type DirReader struct {
-}
+type DirReader struct{}
 
 func (dr *DirReader) AbsoluteFile(f shared.File) string {
 	return f.Relative()

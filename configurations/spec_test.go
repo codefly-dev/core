@@ -1,9 +1,10 @@
 package configurations_test
 
 import (
+	"testing"
+
 	"github.com/codefly-dev/core/configurations"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 type spec struct {
@@ -18,5 +19,4 @@ readReplicas: 1
 	err := configurations.LoadSpec(content, &s, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, s.ReadReplicas)
-
 }

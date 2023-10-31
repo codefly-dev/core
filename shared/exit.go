@@ -8,7 +8,6 @@ import (
 func Exit(msg string, args ...any) {
 	fmt.Println(fmt.Sprintf(msg, args...))
 	os.Exit(0)
-
 }
 
 func ExitOnError(err error, msg string, args ...any) {

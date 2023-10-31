@@ -2,12 +2,13 @@ package templates_test
 
 import (
 	"embed"
-	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/core/templates"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"path"
 	"testing"
+
+	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/templates"
+	"github.com/stretchr/testify/assert"
 )
 
 type testData struct {
@@ -40,7 +41,6 @@ func testCopyAndApplyTemplateToDir(t *testing.T, fs templates.FileSystem, dir sh
 	content, err = os.ReadFile(p)
 	assert.NoError(t, err)
 	assert.Equal(t, "other test", string(content))
-
 }
 
 func TestCopyAndApplyTemplateToDirEmbed(t *testing.T) {

@@ -1,9 +1,10 @@
 package shared_test
 
 import (
+	"testing"
+
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestWarning(t *testing.T) {
@@ -23,5 +24,4 @@ func TestWarning(t *testing.T) {
 	err = logger.Wrapf(err, "This is a layer on top")
 	assert.True(t, shared.IsUserError(err))
 	assert.Equal(t, "This is an error", shared.UserErrorMessage(err))
-
 }

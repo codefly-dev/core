@@ -2,13 +2,14 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/core/templates"
-	"github.com/codefly-dev/golor"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
+
+	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/templates"
+	"github.com/codefly-dev/golor"
 )
 
 var currentProject *Project
@@ -314,7 +315,6 @@ func (p *Project) ListServices() ([]*ServiceReference, error) {
 		}
 		return nil
 	})
-
 	if err != nil {
 		return nil, logger.Errorf("error during walking root <%s>: %v", p.Dir(), err)
 	}
@@ -384,6 +384,7 @@ func (p *Project) OtherApplications(app *Application) ([]*Application, error) {
 	}
 	return others, nil
 }
+
 func (p *Project) GetPartial(name string) *Partial {
 	for _, partial := range p.Partials {
 		if partial.Name == name {

@@ -36,7 +36,6 @@ func (f *File) Base() string {
 
 func (f *File) RelativePath() string {
 	return filepath.Dir(f.file)
-
 }
 
 type Dir struct {
@@ -121,7 +120,7 @@ func CheckDirectory(path string) error {
 
 func CreateDirIf(path string) error {
 	if CheckDirectory(path) != nil {
-		return os.MkdirAll(path, 0755)
+		return os.MkdirAll(path, 0o755)
 	}
 	return nil
 }
@@ -141,7 +140,6 @@ func CheckEmptyDirectoryOrCreate(path string) error {
 		return logger.Errorf("exists and not empty")
 	}
 	return nil
-
 }
 
 func CheckDirectoryOrCreate(path string) error {
@@ -151,7 +149,7 @@ func CheckDirectoryOrCreate(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			err = os.MkdirAll(path, 0755)
+			err = os.MkdirAll(path, 0o755)
 			if err != nil {
 				return logger.Wrapf(err, "cannot create directory")
 			}
@@ -164,7 +162,6 @@ func CheckDirectoryOrCreate(path string) error {
 		return logger.Errorf("%s is not a directory", path)
 	}
 	return nil
-
 }
 
 func CopyFile(from string, to string) error {
@@ -176,7 +173,7 @@ func CopyFile(from string, to string) error {
 	}
 	defer srcFile.Close()
 
-	if err := os.MkdirAll(filepath.Dir(to), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
 		log.Fatalf("Failed to create directory: %v", err)
 	}
 	dstFile, err := os.Create(to)

@@ -114,5 +114,4 @@ func TestConfigurations(t *testing.T) {
 	//	assert.Equal(t, cache.ProjectName, cacheBack.ProjectName, "loaded cache service is not equal to the original")
 	//
 	//}
-
 }

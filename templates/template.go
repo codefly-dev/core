@@ -3,11 +3,12 @@ package templates
 import (
 	"bytes"
 	"fmt"
-	"github.com/codefly-dev/core/shared"
 	"os"
 	"path"
 	"strings"
 	"text/template"
+
+	"github.com/codefly-dev/core/shared"
 )
 
 // ApplyTemplate takes a YAML template as []byte, populates it using data, and returns the result as a string.
@@ -68,7 +69,7 @@ func CopyAndApplyTemplate(fs FileSystem, f shared.File, destination shared.File,
 	if err != nil {
 		return fmt.Errorf("cannot apply template in %v: %v", f.Base(), err)
 	}
-	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed opening file %s: %s", destination, err)
 	}
@@ -97,7 +98,7 @@ func CopyAndReplace(fs FileSystem, f shared.File, destination shared.File, repla
 	if err != nil {
 		return fmt.Errorf("replacer failed: %v", err)
 	}
-	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed opening file %s: %s", destination, err)
 	}
