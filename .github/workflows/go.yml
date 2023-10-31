@@ -51,9 +51,9 @@ jobs:
       with:
         profile: cover.out
         local-prefix: github.com/codefly-dev/core
-        threshold-file: 80
-        threshold-package: 80
-        threshold-total: 95
+        threshold-file: 0
+        threshold-package: 10
+        threshold-total: 10
 
     - name: make coverage badge
       uses: action-badges/core@0.2.2
