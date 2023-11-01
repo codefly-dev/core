@@ -301,9 +301,9 @@ func (ref *ServiceReference) Dir(opts ...Option) (string, error) {
 		relativePath = ref.Name
 	}
 	if ref.ApplicationOverride == "" {
-		return path.Join(scope.Application.Dir(), relativePath), nil
+		return path.Join(scope.Application.Dir(opts...), relativePath), nil
 	}
-	panic("TOTO")
+	panic("TODO")
 	//app, err := LoadApplicationConfigurationFromName(s.ApplicationOverride)
 	//if err != nil {
 	//	return "", logger.Wrapf(err, "cannot load applications configuration: %s", s.ApplicationOverride)

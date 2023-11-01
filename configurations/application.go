@@ -76,7 +76,7 @@ func NewApplication(name string) (*Application, error) {
 }
 
 func (app *Application) Dir(opts ...Option) string {
-	scope := WithScope(opts...).WithApplication(app)
+	scope := WithScopeProjectOnly(opts...).WithApplication(app)
 	return path.Join(scope.Project.Dir(), scope.Application.RelativePath)
 }
 
@@ -110,12 +110,14 @@ func WithScope(opts ...Option) *Scope {
 	scope := &Scope{
 		Project: MustCurrentProject(),
 	}
-	app, _ := CurrentApplication()
-	if app != nil {
-		scope.Application = app
-	}
 	for _, opt := range opts {
 		opt(scope)
+	}
+
+	if scope.Application == nil {
+		app, err := CurrentApplication()
+		shared.ExitOnError(err, "cannot get current application")
+		scope.Application = app
 	}
 	return scope
 }
