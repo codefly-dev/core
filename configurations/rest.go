@@ -37,9 +37,7 @@ type ServiceRestRoute struct {
 }
 
 func sanitize(route string) string {
-	if strings.HasPrefix(route, "/") {
-		route = route[1:]
-	}
+	route = strings.TrimPrefix(route, "/")
 	return strings.ReplaceAll(route, "/", "_")
 }
 

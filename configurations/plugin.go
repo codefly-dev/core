@@ -32,6 +32,9 @@ func NewPlugin(kind string, publisher string, identifier string, version string)
 
 func LoadPluginConfigurations(fs embed.FS) Plugin {
 	content, err := fs.ReadFile(PluginConfigurationName)
+	if err != nil {
+		shared.ExitOnError(err, "cannot load plugin configurations")
+	}
 	conf, err := LoadFromBytes[Plugin](content)
 	if err != nil {
 		shared.ExitOnError(err, "cannot load plugin configurations")
