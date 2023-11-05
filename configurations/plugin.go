@@ -1,6 +1,7 @@
 package configurations
 
 import (
+	"embed"
 	"fmt"
 	"path"
 	"slices"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/codefly-dev/core/shared"
 )
+
+const PluginConfigurationName = "plugin.codefly.yaml"
 
 type Plugin struct {
 	Kind       string `yaml:"kind"`
@@ -25,6 +28,15 @@ func NewPlugin(kind string, publisher string, identifier string, version string)
 	}
 	p.Validate()
 	return p
+}
+
+func LoadPluginConfigurations(fs embed.FS) Plugin {
+	content, err := fs.ReadFile(PluginConfigurationName)
+	conf, err := LoadFromBytes[Plugin](content)
+	if err != nil {
+		shared.ExitOnError(err, "cannot load plugin configurations")
+	}
+	return *conf
 }
 
 func (p *Plugin) Validate() {

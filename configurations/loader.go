@@ -73,6 +73,8 @@ func Path[C Configuration](dir string) string {
 		return path.Join(dir, ServiceConfigurationName)
 	case generation.Service:
 		return path.Join(dir, generation.ServiceGenerationConfigurationName)
+	case Plugin:
+		return path.Join(dir, PluginConfigurationName)
 	// case Library:
 	//	return path.Join(dir, LibraryConfigurationName)
 	// case LibraryGeneration:
@@ -118,18 +120,22 @@ func LoadFromDir[C Configuration](dir string) (*C, error) {
 }
 
 func LoadFromPath[C Configuration](p string) (*C, error) {
-	var config C
-	logger := shared.NewLogger("configurations.LoadFromPath[%T]<%s>", config, p)
+	logger := shared.NewLogger("configurations.LoadFromPath[%s]<%s>", TypeName[C](), p)
 	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return nil, logger.Errorf("path for %v does not exist", TypeName[C]())
+		return nil, logger.Errorf("path doesn't exist")
 	}
 	content, err := os.ReadFile(p)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read path %s: %s", p, err)
 	}
-	err = yaml.Unmarshal(content, &config)
+	return LoadFromBytes[C](content)
+}
+
+func LoadFromBytes[C Configuration](content []byte) (*C, error) {
+	var config C
+	err := yaml.Unmarshal(content, &config)
 	if err != nil {
-		return nil, logger.Errorf("cannot unmarshal service configuration: %s", err)
+		return nil, fmt.Errorf("cannot unmarshal service configuration: %s", err)
 	}
 	return &config, nil
 }

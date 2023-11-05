@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
@@ -32,6 +33,32 @@ type Project struct {
 
 	// Providers in the project
 	Providers []ProviderReference `yaml:"providers"`
+}
+
+func ProjectConfiguration(current bool) (*Project, error) {
+	logger := shared.NewLogger("build.ProjectCmd")
+	var config *Project
+	if !current {
+		cur, err := os.Getwd()
+		if err != nil {
+			return nil, logger.Wrapf(err, "cannot get current directory")
+		}
+		config, err = FindUp[Project](cur)
+		if err != nil {
+			if strings.Contains(err.Error(), "reached root directory") {
+				cur, err := CurrentProject()
+				if err != nil {
+					return nil, logger.Wrapf(err, "cannot load current project")
+				}
+				logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current project from context: <%s>.", cur.Name))
+				return cur, nil
+			}
+			return nil, err
+		}
+	} else {
+		return CurrentProject()
+	}
+	return config, nil
 }
 
 type ProjectStyle string
@@ -85,7 +112,7 @@ func (p *ProjectInput) ProjectDir() string {
 }
 
 func NewProject(builder ProjectBuilder) error {
-	logger := shared.NewLogger("configurations.NewProject<%s>", builder.ProjectName())
+	logger := shared.NewLogger("NewProject<%s>", builder.ProjectName())
 	err := builder.Fetch()
 	if err != nil {
 		return logger.Wrapf(err, "cannot fetch project builder")
@@ -139,7 +166,7 @@ func (p *Project) Unique() string {
 }
 
 func LoadCurrentProject() (*Project, error) {
-	logger := shared.NewLogger("configurations.LoadCurrentProject")
+	logger := shared.NewLogger("LoadCurrentProject")
 	if MustCurrent().CurrentProject == "" {
 		return nil, shared.NewUserError("no current project")
 	}
@@ -176,7 +203,7 @@ func ValidateProjectName(name string) error {
 }
 
 func ListProjects() ([]*Project, error) {
-	logger := shared.NewLogger("configurations.ListProjects")
+	logger := shared.NewLogger("ListProjects")
 	var projects []*Project
 	for _, p := range MustCurrent().Projects {
 		project, err := LoadProjectFromDir(ProjectPath(p.RelativePath))
@@ -213,7 +240,7 @@ func FindProjectReference(name string) (*ProjectReference, error) {
 }
 
 func CurrentProject() (*Project, error) {
-	logger := shared.NewLogger("configurations.CurrentProject")
+	logger := shared.NewLogger("CurrentProject")
 	if currentProject == nil {
 		project, err := LoadCurrentProject()
 		if err != nil {
@@ -240,7 +267,7 @@ func SetCurrentProject(p *Project) {
 }
 
 func LoadProjectFromDir(dir string) (*Project, error) {
-	logger := shared.NewLogger("configurations.LoadProjectFromDir<%s>", dir)
+	logger := shared.NewLogger("LoadProjectFromDir<%s>", dir)
 	conf, err := LoadFromDir[Project](dir)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project configuration")
@@ -250,7 +277,7 @@ func LoadProjectFromDir(dir string) (*Project, error) {
 }
 
 func LoadProjectFromName(name string) (*Project, error) {
-	logger := shared.NewLogger("configurations.LoadProjectFromName<%s>", name)
+	logger := shared.NewLogger("LoadProjectFromName<%s>", name)
 	reference, err := FindProjectReference(name)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot find project reference")
@@ -259,7 +286,7 @@ func LoadProjectFromName(name string) (*Project, error) {
 }
 
 func (p *Project) Save() error {
-	logger := shared.NewLogger("configurations.Project.Save<%s>", p.Name)
+	logger := shared.NewLogger("Project.Save<%s>", p.Name)
 	if p.RelativePath == "" {
 		return logger.Errorf("project location is not set")
 	}
@@ -273,7 +300,7 @@ func (p *Project) SaveToDir(dir string) error {
 }
 
 func (p *Project) ListServices() ([]*ServiceReference, error) {
-	logger := shared.NewLogger("configurations.Project.ListServices")
+	logger := shared.NewLogger("Project.ListServices")
 	logger.Debugf("Listing services in <%s>", p.Dir())
 	var references []*ServiceReference
 	err := filepath.Walk(p.Dir(), func(path string, info os.FileInfo, err error) error {
@@ -322,7 +349,7 @@ func (p *Project) ListServices() ([]*ServiceReference, error) {
 }
 
 func (p *Project) GetService(name string) (*Service, error) {
-	logger := shared.NewLogger("configurations.Project.GetService")
+	logger := shared.NewLogger("Project.GetService")
 	// Unique can be scoped to applications or not
 	entries, err := p.ListServices()
 	if err != nil {
@@ -354,7 +381,7 @@ func (p *Project) AddApplication(app *ApplicationReference) error {
 }
 
 func (p *Project) AddProvider(provider *Provider) error {
-	logger := shared.NewLogger("configurations.Project.AddProvider<%s>", provider.Name)
+	logger := shared.NewLogger("Project.AddProvider<%s>", provider.Name)
 	for _, prov := range p.Providers {
 		if prov.Name == provider.Name {
 			return nil
@@ -392,4 +419,36 @@ func (p *Project) GetPartial(name string) *Partial {
 		}
 	}
 	return nil
+}
+
+func (p *Project) ApplicationByName(override string) (*Application, error) {
+	apps, err := p.ListApplications()
+	if err != nil {
+		return nil, err
+	}
+	for _, app := range apps {
+		if app.Name == override {
+			return app, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot find application <%s> in project <%s>", override, p.Name)
+}
+
+func (project *Project) ListApplications() ([]*Application, error) {
+	logger := shared.NewLogger("Project.ListApplications")
+	var applications []*Application
+	for _, ref := range project.Applications {
+		app, err := project.LoadApplicationFromReference(ref)
+		if err != nil {
+			return nil, logger.Wrapf(err, "cannot load application <%s>", ref.Name)
+		}
+		applications = append(applications, app)
+	}
+	return applications, nil
+
+}
+
+func (project *Project) LoadApplicationFromReference(ref *ApplicationReference) (*Application, error) {
+	dir := path.Join(project.Dir(), ref.RelativePath)
+	return LoadApplicationFromDir(dir)
 }

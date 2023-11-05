@@ -3,6 +3,7 @@ package shared
 import (
 	"errors"
 	"fmt"
+	"github.com/hashicorp/go-multierror"
 	"strings"
 
 	"github.com/codefly-dev/golor"
@@ -111,4 +112,10 @@ func IsOutputError(err error) (error, bool) {
 	var outputError *OutputError
 	ok := errors.As(err, &outputError)
 	return outputError, ok
+}
+
+func MultiErrors(errs ...error) error {
+	var result error
+	out := multierror.Append(result, errs...)
+	return out.ErrorOrNil()
 }

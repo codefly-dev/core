@@ -250,15 +250,16 @@ func LoadService(input string) (*Service, error) {
 
 func (s *ServiceDependency) AsReference() *ServiceReference {
 	return &ServiceReference{
-		Name:         s.Name,
-		RelativePath: s.RelativePath,
+		Name:                s.Name,
+		RelativePath:        s.RelativePath,
+		ApplicationOverride: s.ApplicationOverride,
 	}
 }
 
 type ServiceDependency struct {
 	Name                string `yaml:"name"`
-	RelativePath        string `yaml:"relative-path"`
-	ApplicationOverride string `yaml:"applications,omitempty"`
+	RelativePath        string `yaml:"relative-path,omitempty"`
+	ApplicationOverride string `yaml:"application,omitempty"`
 
 	Endpoints []*EndpointReference `yaml:"uses,omitempty"`
 }
@@ -294,6 +295,7 @@ func SupportedApi(kind string) error {
 }
 
 func (ref *ServiceReference) Dir(opts ...Option) (string, error) {
+	logger := shared.NewLogger("configurations.ServiceReference.Dir<%s>", ref.Name)
 	scope := WithScope(opts...)
 	// if no relative path is specified, we used the Name
 	relativePath := ref.RelativePath
@@ -303,12 +305,11 @@ func (ref *ServiceReference) Dir(opts ...Option) (string, error) {
 	if ref.ApplicationOverride == "" {
 		return path.Join(scope.Application.Dir(opts...), relativePath), nil
 	}
-	panic("TODO")
-	//app, err := LoadApplicationConfigurationFromName(s.ApplicationOverride)
-	//if err != nil {
-	//	return "", logger.Wrapf(err, "cannot load applications configuration: %s", s.ApplicationOverride)
-	//}
-	//return path.Join(app.NewDir(), relativePath), nil
+	app, err := scope.Project.ApplicationByName(ref.ApplicationOverride)
+	if err != nil {
+		return "", logger.Errorf("cannot load applications configuration: %s", ref.ApplicationOverride)
+	}
+	return path.Join(app.Dir(), ref.RelativePath), nil
 }
 
 type ClientEntry struct {

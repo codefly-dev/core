@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
@@ -36,8 +37,34 @@ type Application struct {
 	Services []*ServiceReference `yaml:"services"`
 }
 
+func ApplicationConfiguration(current bool) (*Application, error) {
+	logger := shared.NewLogger("build.ApplicationCmd")
+	var config *Application
+	if !current {
+		cur, err := os.Getwd()
+		if err != nil {
+			return nil, logger.Wrapf(err, "cannot get current directory")
+		}
+		config, err = FindUp[Application](cur)
+		if err != nil {
+			if strings.Contains(err.Error(), "reached root directory") {
+				cur, err := CurrentApplication()
+				if err != nil {
+					return nil, logger.Wrapf(err, "cannot load current appplication")
+				}
+				logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current application from context: <%s>.", cur.Name))
+				return cur, nil
+			}
+			return nil, err
+		}
+	} else {
+		return CurrentApplication()
+	}
+	return config, nil
+}
+
 func NewApplication(name string) (*Application, error) {
-	logger := shared.NewLogger("configurations.NewApplication")
+	logger := shared.NewLogger("NewApplication")
 	app := Application{
 		Kind:    ApplicationKind,
 		Name:    name,
@@ -81,7 +108,7 @@ func (app *Application) Dir(opts ...Option) string {
 }
 
 func LoadApplicationFromDir(dir string) (*Application, error) {
-	logger := shared.NewLogger("configurations.LoadApplicationFromDir<%s>", dir)
+	logger := shared.NewLogger("LoadApplicationFromDir<%s>", dir)
 	config, err := LoadFromDir[Application](dir)
 	if err != nil {
 		return nil, err
@@ -147,7 +174,7 @@ func WithApplication(app *Application) Option {
 }
 
 func LoadApplicationFromName(name string, opts ...Option) (*Application, error) {
-	logger := shared.NewLogger("configurations.LoadApplicationFromName<%s>", name)
+	logger := shared.NewLogger("LoadApplicationFromName<%s>", name)
 	apps, err := ListApplications(opts...)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot list applications")
@@ -167,7 +194,7 @@ func (app *Application) Relative(absolute string, opts ...Option) string {
 }
 
 func (app *Application) AddService(service *Service) error {
-	logger := shared.NewLogger("configurations.AddService")
+	logger := shared.NewLogger("AddService")
 	for _, s := range app.Services {
 		if s.Name == service.Name {
 			return nil
@@ -203,7 +230,7 @@ func (app *Application) Unique() string {
 }
 
 func CurrentApplication(opts ...Option) (*Application, error) {
-	logger := shared.NewLogger("configurations.CurrentApplication")
+	logger := shared.NewLogger("CurrentApplication")
 	if currentApplication != nil {
 		return currentApplication, nil
 	}
@@ -273,7 +300,7 @@ func ListApplications(opts ...Option) ([]*Application, error) {
 }
 
 func FindApplicationUp(p string) (*Application, error) {
-	logger := shared.NewLogger("configurations.FindApplicationUp")
+	logger := shared.NewLogger("FindApplicationUp")
 	// Look at current directory
 	cur := filepath.Dir(p)
 	for {
