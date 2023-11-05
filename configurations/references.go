@@ -18,9 +18,9 @@ type ProjectReference struct {
 
 // ServiceReference is a reference to a service used by Application configuration
 type ServiceReference struct {
-	Name                string `yaml:"name"`
-	RelativePath        string `yaml:"relative-path,omitempty"`
-	ApplicationOverride string `yaml:"applications,omitempty"`
+	Name         string `yaml:"name"`
+	RelativePath string `yaml:"relative-path,omitempty"`
+	Application  string `yaml:"application,omitempty"`
 
 	RunningOptions RunningOptions `yaml:"options,omitempty"`
 }

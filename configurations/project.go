@@ -326,16 +326,10 @@ func (p *Project) ListServices() ([]*ServiceReference, error) {
 			if err != nil {
 				return fmt.Errorf("cannot find applications for service <%s>: %v", path, err)
 			}
-			override := ""
-			if app.Name == MustCurrentApplication().Name {
-				app = MustCurrentApplication()
-			} else {
-				override = app.Name
-			}
 			ref := &ServiceReference{
-				Name:                config.Name,
-				RelativePath:        app.Relative(path),
-				ApplicationOverride: override,
+				Name:         config.Name,
+				RelativePath: app.Relative(path),
+				Application:  app.Name,
 			}
 			references = append(references, ref)
 

@@ -35,17 +35,17 @@ func (e *Endpoint) Reference() *EndpointReference {
 
 /* For runtime */
 
-const NetworkPrefix = "CODEFLY-NETWORK_"
+const EndpointPrefix = "CODEFLY-ENDPOINT_"
 
 func SerializeAddresses(addresses []string) string {
 	return strings.Join(addresses, " ")
 }
 
-func AsEnvironmentVariable(reference string, addresses []string) string {
-	return fmt.Sprintf("%s%s=%s", NetworkPrefix, strings.ToUpper(reference), SerializeAddresses(addresses))
+func AsEndpointEnvironmentVariable(reference string, addresses []string) string {
+	return fmt.Sprintf("%s%s=%s", EndpointPrefix, strings.ToUpper(reference), SerializeAddresses(addresses))
 }
 
-func ParseEnvironmentVariable(env string) (string, []string) {
+func ParseEndpointEnvironmentVariable(env string) (string, []string) {
 	tokens := strings.Split(env, "=")
 	reference := strings.ToLower(tokens[0])
 	// Namespace break

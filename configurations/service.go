@@ -47,7 +47,7 @@ func ValidateServiceName(name string) error {
 }
 
 func (s *Service) Unique() string {
-	return fmt.Sprintf("%s.%s", s.Application, s.Name)
+	return fmt.Sprintf("%s.%s", s.Name, s.Application)
 }
 
 func NewService(name string, namespace string, plugin *Plugin, ops ...Option) (*Service, error) {
@@ -250,16 +250,21 @@ func LoadService(input string) (*Service, error) {
 
 func (s *ServiceDependency) AsReference() *ServiceReference {
 	return &ServiceReference{
-		Name:                s.Name,
-		RelativePath:        s.RelativePath,
-		ApplicationOverride: s.ApplicationOverride,
+		Name:         s.Name,
+		RelativePath: s.RelativePath,
+		Application:  s.Application,
 	}
 }
 
+func (s *ServiceDependency) Unique() string {
+	return fmt.Sprintf("%s.%s", s.Name, s.Application)
+}
+
 type ServiceDependency struct {
-	Name                string `yaml:"name"`
-	RelativePath        string `yaml:"relative-path,omitempty"`
-	ApplicationOverride string `yaml:"application,omitempty"`
+	Name         string `yaml:"name"`
+	RelativePath string `yaml:"relative-path,omitempty"`
+	// Null appliciation means self
+	Application string `yaml:"application,omitempty"`
 
 	Endpoints []*EndpointReference `yaml:"uses,omitempty"`
 }
@@ -302,12 +307,12 @@ func (ref *ServiceReference) Dir(opts ...Option) (string, error) {
 	if relativePath == "" {
 		relativePath = ref.Name
 	}
-	if ref.ApplicationOverride == "" {
+	if ref.Application == "" {
 		return path.Join(scope.Application.Dir(opts...), relativePath), nil
 	}
-	app, err := scope.Project.ApplicationByName(ref.ApplicationOverride)
+	app, err := scope.Project.ApplicationByName(ref.Application)
 	if err != nil {
-		return "", logger.Errorf("cannot load applications configuration: %s", ref.ApplicationOverride)
+		return "", logger.Errorf("cannot load applications configuration: %s", ref.Application)
 	}
 	return path.Join(app.Dir(), ref.RelativePath), nil
 }
