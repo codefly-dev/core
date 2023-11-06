@@ -26,7 +26,7 @@ func ApplyTemplate(t string, data any) (string, error) {
 	return buf.String(), nil
 }
 
-func Walk(logger shared.BaseLogger, fs FileSystem, root shared.Dir, ignore Ignore, files *[]shared.File, dirs *[]shared.Dir) error {
+func Walk(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, ignore Ignore, files *[]shared.File, dirs *[]shared.Dir) error {
 	entries, err := fs.ReadDir(root)
 	if err != nil {
 		return logger.Wrapf(err, "cannot got to target source")
@@ -59,7 +59,7 @@ func (a AlreadyExistError) Error() string {
 	return fmt.Sprintf("file %s already exists", a.file)
 }
 
-func CopyAndApplyTemplate(fs FileSystem, f shared.File, destination shared.File, obj any) error {
+func CopyAndApplyTemplate(fs shared.FileSystem, f shared.File, destination shared.File, obj any) error {
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
 	if err != nil {
@@ -88,7 +88,7 @@ type Replacer interface {
 	Do([]byte) ([]byte, error)
 }
 
-func CopyAndReplace(fs FileSystem, f shared.File, destination shared.File, replacer Replacer) error {
+func CopyAndReplace(fs shared.FileSystem, f shared.File, destination shared.File, replacer Replacer) error {
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
 	if err != nil {
@@ -119,7 +119,7 @@ func (n NoOpIgnore) Ignore(file shared.File) bool {
 	return false
 }
 
-func CopyAndApply(logger shared.BaseLogger, fs FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
+func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
 	logger.Debugf("applying template to directory %s -> %s", root, destination)
 	err := shared.CheckDirectoryOrCreate(fs.AbsoluteDir(destination))
 	if err != nil {

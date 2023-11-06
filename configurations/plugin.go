@@ -1,8 +1,8 @@
 package configurations
 
 import (
-	"embed"
 	"fmt"
+	"github.com/Masterminds/semver"
 	"path"
 	"slices"
 	"strings"
@@ -30,8 +30,20 @@ func NewPlugin(kind string, publisher string, identifier string, version string)
 	return p
 }
 
-func LoadPluginConfigurations(fs embed.FS) Plugin {
-	content, err := fs.ReadFile(PluginConfigurationName)
+func LoadPluginConfiguration(fs shared.FileSystem) Plugin {
+	content, err := fs.ReadFile(shared.NewFile(PluginConfigurationName))
+	if err != nil {
+		shared.ExitOnError(err, "cannot load plugin configurations")
+	}
+	conf, err := LoadFromBytes[Plugin](content)
+	if err != nil {
+		shared.ExitOnError(err, "cannot load plugin configurations")
+	}
+	return *conf
+}
+
+func LoadPluginConfigurationFromReader(fs shared.FSReader) Plugin {
+	content, err := fs.ReadFile(shared.NewFile(PluginConfigurationName))
 	if err != nil {
 		shared.ExitOnError(err, "cannot load plugin configurations")
 	}
@@ -115,6 +127,22 @@ func (p *Plugin) Path() (string, error) {
 		return "", fmt.Errorf("unknown kind: %s", p.Kind)
 	}
 	return path.Join(GlobalConfigurationDir(), "plugins", subdir, p.Name()), nil
+}
+
+func (p *Plugin) Patch() (*Plugin, error) {
+	patch := &Plugin{
+		Kind:       p.Kind,
+		Publisher:  p.Publisher,
+		Identifier: p.Identifier,
+	}
+
+	v, err := semver.NewVersion(p.Version)
+	if err != nil {
+		return nil, err
+	}
+	n := v.IncPatch()
+	patch.Version = n.String()
+	return patch, nil
 }
 
 func ParsePlugin(kind string, s string) (*Plugin, error) {

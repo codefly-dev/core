@@ -1,6 +1,8 @@
 package configurations_test
 
 import (
+	"embed"
+	"github.com/stretchr/testify/assert"
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
@@ -38,3 +40,22 @@ func TestPluginParse(t *testing.T) {
 		})
 	}
 }
+
+func TestPluginLoadDir(t *testing.T) {
+	p := configurations.LoadPluginConfiguration(shared.NewDirReader().At("testdata"))
+	assert.Equal(t, "codefly.ai", p.Publisher)
+	assert.Equal(t, "go", p.Identifier)
+	assert.Equal(t, "0.0.0", p.Version)
+
+	patch, err := p.Patch()
+	assert.NoError(t, err)
+	assert.Equal(t, "0.0.1", patch.Version)
+}
+
+func TestPluginLoadEmbed(t *testing.T) {
+	p := configurations.LoadPluginConfiguration(shared.Embed(info).At("testdata"))
+	assert.Equal(t, "codefly.ai", p.Publisher)
+}
+
+//go:embed testdata/plugin.codefly.yaml
+var info embed.FS

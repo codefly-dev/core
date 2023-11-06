@@ -15,7 +15,7 @@ type testData struct {
 	Test string
 }
 
-func testCopyAndApplyTemplateToDir(t *testing.T, fs templates.FileSystem, dir shared.Dir) {
+func testCopyAndApplyTemplateToDir(t *testing.T, fs shared.FileSystem, dir shared.Dir) {
 	logger := shared.NewLogger("templates.TestCopyAndApplyTemplateToDir")
 	dest := t.TempDir()
 	destination := shared.NewDir(dest)
@@ -44,7 +44,7 @@ func testCopyAndApplyTemplateToDir(t *testing.T, fs templates.FileSystem, dir sh
 }
 
 func TestCopyAndApplyTemplateToDirEmbed(t *testing.T) {
-	fs := templates.NewEmbeddedFileSystem(test)
+	fs := shared.Embed(test)
 	dir := shared.NewDir("testdata")
 	testCopyAndApplyTemplateToDir(t, fs, dir)
 }
@@ -54,6 +54,6 @@ var test embed.FS
 
 func TestCopyAndApplyTemplateToDirLocal(t *testing.T) {
 	dir := shared.MustLocal("testdata")
-	fs := templates.NewDirReader()
+	fs := shared.NewDirReader()
 	testCopyAndApplyTemplateToDir(t, fs, dir)
 }

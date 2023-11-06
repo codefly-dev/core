@@ -145,7 +145,7 @@ func NewProject(builder ProjectBuilder) error {
 	shared.UnexpectedExitOnError(err, "cannot save project configuration")
 
 	// Templatize as usual
-	err = templates.CopyAndApply(logger, templates.NewEmbeddedFileSystem(fs), shared.NewDir("templates/project"), shared.NewDir(dir), p)
+	err = templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(dir), p)
 	if err != nil {
 		return logger.Wrapf(err, "cannot copy and apply template")
 	}

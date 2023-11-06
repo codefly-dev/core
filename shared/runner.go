@@ -51,7 +51,7 @@ func WrapStart(cmd *exec.Cmd, logger BaseLogger) error {
 
 func (r *Runner) Run() error {
 	cmd := exec.Command(r.bin, r.args...)
-	cmd.Dir = r.dir.Absolute()
+	cmd.Dir = r.dir.Relative()
 	return WrapStart(cmd, r.out)
 }
 
