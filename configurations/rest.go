@@ -22,8 +22,14 @@ const (
 )
 
 type RestRoute struct {
-	Path    string
-	Methods []HttpMethod
+	Path        string
+	Methods     []HttpMethod
+	Application string `yaml:"-"`
+	Service     string `yaml:"-"`
+}
+
+func (r *RestRoute) String() string {
+	return fmt.Sprintf("%s.%s%s %s", r.Service, r.Application, r.Path, r.Methods)
 }
 
 type ApplicationRestRoute struct {
@@ -32,8 +38,9 @@ type ApplicationRestRoute struct {
 }
 
 type ServiceRestRoute struct {
-	Routes []*RestRoute
-	Name   string
+	Routes      []*RestRoute
+	Name        string
+	Application string `yaml:"-"`
 }
 
 func sanitize(route string) string {
@@ -41,19 +48,30 @@ func sanitize(route string) string {
 	return strings.ReplaceAll(route, "/", "_")
 }
 
-func (r ServiceRestRoute) Save(dir string) error {
+func (r *RestRoute) Save(dir string, logger shared.BaseLogger) error {
+	dir = path.Join(dir, r.Application, r.Service)
+	err := shared.CheckDirectoryOrCreate(dir)
+	file := path.Join(dir, fmt.Sprintf("%s.route.yaml", sanitize(r.Path)))
+	logger.DebugMe("Saving rest route to %s", file)
+	f, err := os.Create(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	out, err := yaml.Marshal(r)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(out)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *ServiceRestRoute) Save(dir string) error {
 	for _, route := range r.Routes {
-		file := path.Join(dir, fmt.Sprintf("%s.yaml", sanitize(route.Path)))
-		f, err := os.Create(file)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		out, err := yaml.Marshal(route)
-		if err != nil {
-			return err
-		}
-		_, err = f.Write(out)
+		err := route.Save(dir, nil)
 		if err != nil {
 			return err
 		}
@@ -62,20 +80,10 @@ func (r ServiceRestRoute) Save(dir string) error {
 }
 
 // Save as folder structure
-func (r *ApplicationRestRoute) Save(location string, logger shared.BaseLogger) error {
-	dir := path.Join(location, r.Name)
+func (r *ApplicationRestRoute) Save(dir string, logger shared.BaseLogger) error {
 	logger.DebugMe("Saving application rest route to %s", dir)
-	err := shared.CheckDirectoryOrCreate(dir)
-	if err != nil {
-		return err
-	}
 	for _, s := range r.ServiceRestRoutes {
-		serviceDir := path.Join(dir, s.Name)
-		err := shared.CheckDirectoryOrCreate(serviceDir)
-		if err != nil {
-			return err
-		}
-		err = s.Save(serviceDir)
+		err := s.Save(dir)
 		if err != nil {
 			return err
 		}
