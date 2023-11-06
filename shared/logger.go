@@ -155,9 +155,10 @@ func (l *Logger) Debugf(format string, args ...any) {
 func (l *Logger) DebugMe(format string, args ...any) {
 	if Debug() || Trace() || l.debug || l.trace {
 		c := color.New(color.Bold, color.FgRed)
+		c.Println("---------")
 		c.Printf("[HELP] (%s) ", l.action)
 		c.Printf(format, args...)
-		c.Println()
+		c.Println("\n---------")
 	}
 }
 

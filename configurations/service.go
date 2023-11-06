@@ -263,10 +263,14 @@ func (s *ServiceDependency) Unique() string {
 type ServiceDependency struct {
 	Name         string `yaml:"name"`
 	RelativePath string `yaml:"relative-path,omitempty"`
-	// Null appliciation means self
+	// Null application means self
 	Application string `yaml:"application,omitempty"`
 
-	Endpoints []*EndpointReference `yaml:"uses,omitempty"`
+	Endpoints []*EndpointReference `yaml:"endpoints,omitempty"`
+}
+
+func (s *ServiceDependency) String() string {
+	return fmt.Sprintf("ServiceDependency<%s.%s>", s.Name, s.Application)
 }
 
 func (s *ServiceDependency) Validate() error {

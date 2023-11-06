@@ -51,6 +51,9 @@ func sanitize(route string) string {
 func (r *RestRoute) Save(dir string, logger shared.BaseLogger) error {
 	dir = path.Join(dir, r.Application, r.Service)
 	err := shared.CheckDirectoryOrCreate(dir)
+	if err != nil {
+		return err
+	}
 	file := path.Join(dir, fmt.Sprintf("%s.route.yaml", sanitize(r.Path)))
 	logger.DebugMe("Saving rest route to %s", file)
 	f, err := os.Create(file)

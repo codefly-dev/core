@@ -69,4 +69,6 @@ type ProviderReference struct {
 // Services reference Endpoints
 
 // A EndpointReference
-type EndpointReference struct{}
+type EndpointReference struct {
+	Name string `yaml:"name"`
+}

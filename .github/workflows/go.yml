@@ -62,16 +62,15 @@ jobs:
     - name: test with race detection
       run: go test -race ./... -v
 
-
-      # Add this at the end of your job
     - name: Notify Slack on Failure
       if: failure() # This ensures the step runs only if the previous step fails
-      uses: 8398a7/action-slack@v3
+      uses: slackapi/slack-github-action@v1.24.0
       with:
-        status: ${{ job.status }}
-        fields: repo,message,commit,author,action,eventName,ref,workflow,job,took # Optional
-        author_name: Github Actions
-        # You can customize the message as needed
-        text: 'Failure occurred in ${{ github.workflow }}.'
+        # This data can be any valid JSON from a previous step in the GitHub Action
+        payload: |
+          {
+            "key": "value",
+            "foo": "bar"
+          }
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
