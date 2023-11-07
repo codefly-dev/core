@@ -59,6 +59,27 @@ func (a AlreadyExistError) Error() string {
 	return fmt.Sprintf("file %s already exists", a.file)
 }
 
+func Copy(fs shared.FileSystem, f shared.File, destination shared.File) error {
+	// Read the file from the embedded file system
+	data, err := fs.ReadFile(f)
+	if err != nil {
+		return fmt.Errorf("could not read file: %v", err)
+	}
+	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("failed opening file %s: %s", destination, err)
+	}
+	_, err = file.Write([]byte(data))
+	if err != nil {
+		return fmt.Errorf("failed writing to file %s: %s", destination, err)
+	}
+	err = file.Close()
+	if err != nil {
+		return fmt.Errorf("failed closing file %s: %s", destination, err)
+	}
+	return nil
+}
+
 func CopyAndApplyTemplate(fs shared.FileSystem, f shared.File, destination shared.File, obj any) error {
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
@@ -155,7 +176,10 @@ func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Di
 
 		d, found := strings.CutSuffix(target, ".tmpl")
 		if !found {
-			return logger.Errorf("cannot cut suffix from %s", d)
+			err = Copy(fs, f, shared.NewFile(target))
+			if err != nil {
+				return fmt.Errorf("cannot copy file: %v", err)
+			}
 		}
 
 		if shared.FileExists(d) {
