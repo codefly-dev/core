@@ -54,7 +54,7 @@ func (fr *FSReader) At(root string) *FSReader {
 }
 
 func (fr *FSReader) Copy(s string, file string) error {
-	content, err := fr.ReadFile(File{})
+	content, err := fr.ReadFile(NewFile(path.Join(fr.root, s)))
 	if err != nil {
 		return err
 	}

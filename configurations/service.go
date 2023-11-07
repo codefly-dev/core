@@ -67,17 +67,29 @@ func NewService(name string, namespace string, plugin *Plugin, ops ...Option) (*
 	return &svc, nil
 }
 
+// ServiceIdentity defines exactly the scope of the service
+// Name: the name of the service
+// It will be unique within an application
+// Application: the name of the application the service belongs to
+// Recall that application names are unique within a project
+// This is a logical partitioning
+// Namespace: the namespace the service belongs to
+// This is a resource partitioning
+// Domain: the domain of the service belongs to
+// This is a responsibility partitioning
 type ServiceIdentity struct {
-	Name      string
-	Namespace string
-	Domain    string
+	Name        string
+	Application string
+	Namespace   string
+	Domain      string
 }
 
 func Identity(conf *Service) *ServiceIdentity {
 	return &ServiceIdentity{
-		Name:      conf.Name,
-		Namespace: conf.Namespace,
-		Domain:    conf.Domain,
+		Name:        conf.Name,
+		Application: conf.Application,
+		Namespace:   conf.Namespace,
+		Domain:      conf.Domain,
 	}
 }
 

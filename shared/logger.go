@@ -11,6 +11,11 @@ import (
 
 type LogLevel = string
 
+type ContextLoggerKey string
+
+const Plugin = ContextLoggerKey("plugin")
+const Service = ContextLoggerKey("service")
+
 const (
 	TraceLevel LogLevel = "trace"
 	DebugLevel LogLevel = "debug"

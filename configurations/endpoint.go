@@ -48,8 +48,7 @@ func AsEndpointEnvironmentVariable(reference string, addresses []string) string 
 func ParseEndpointEnvironmentVariable(env string) (string, []string) {
 	tokens := strings.Split(env, "=")
 	reference := strings.ToLower(tokens[0])
-	// Namespace break
-	reference = strings.Replace(reference, "_", ".", 1)
+	reference = strings.Replace(reference, "_", "/", 1)
 	reference = strings.Replace(reference, "_", "::", 1)
 	values := strings.Split(tokens[1], " ")
 	return reference, values
