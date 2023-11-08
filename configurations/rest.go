@@ -41,6 +41,14 @@ func NewExtendedRestRoute[T any](rest RestRoute, value T) *ExtendedRestRoute[T] 
 	}
 }
 
+func UnwrapRoutes[T any](routes []*ExtendedRestRoute[T]) []*RestRoute {
+	var rs []*RestRoute
+	for _, r := range routes {
+		rs = append(rs, &r.RestRoute)
+	}
+	return rs
+}
+
 func (r *RestRoute) String() string {
 	return fmt.Sprintf("%s.%s%s %s", r.Service, r.Application, r.Path, r.Methods)
 }

@@ -398,7 +398,7 @@ func (p *Project) OtherApplications(app *Application) ([]*Application, error) {
 	}
 	var others []*Application
 	for _, other := range apps {
-		if other.Unique() == app.Unique() {
+		if other.Name == app.Name {
 			continue
 		}
 		others = append(others, other)

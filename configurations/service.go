@@ -296,16 +296,14 @@ const Unknown = "unknown"
 
 const (
 	Grpc = "grpc"
-	Http = "http"
+	Rest = "rest"
 	Tcp  = "tcp"
 )
-
-const RestFramework = "rest"
 
 var supportedApi []string
 
 func init() {
-	supportedApi = []string{Grpc}
+	supportedApi = []string{Grpc, Rest, Tcp}
 }
 
 func SupportedApi(kind string) error {

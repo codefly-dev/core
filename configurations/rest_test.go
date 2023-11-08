@@ -31,4 +31,6 @@ func TestLoadingExtended(t *testing.T) {
 	assert.Equal(t, 1, len(routes))
 	assert.Equal(t, "/test", routes[0].Path)
 	assert.Equal(t, "working", routes[0].Extension.Protected)
+	unwrapped := configurations.UnwrapRoutes(routes)
+	assert.Equal(t, 1, len(unwrapped))
 }

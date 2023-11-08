@@ -225,23 +225,13 @@ func (app *Application) GetServiceReferences(name string) (*ServiceReference, er
 	return nil, nil
 }
 
-func (app *Application) Unique() string {
-	return app.Name
-}
-
 func CurrentApplication(opts ...Option) (*Application, error) {
 	logger := shared.NewLogger("CurrentApplication")
 	if currentApplication != nil {
 		return currentApplication, nil
 	}
 	scope := WithScopeProjectOnly(opts...)
-	logger.TODO("This is more complicated: should be take the current as by configuration or by path?")
-	// Look for the current applications in the project
 	current := scope.Project.CurrentApplication
-	if current == "" {
-		logger.Debugf("no current applications for <%v>", scope.Project.Name)
-		return nil, nil // NoApplicationError{Project: scope.Project.Name}
-	}
 
 	all, err := ListApplications(opts...)
 	if err != nil {
