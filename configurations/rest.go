@@ -28,6 +28,19 @@ type RestRoute struct {
 	Service     string `yaml:"-"`
 }
 
+type ExtendedRestRoute[T any] struct {
+	RestRoute `yaml:",inline"`
+
+	Extension T `yaml:"extension"`
+}
+
+func NewExtendedRestRoute[T any](rest RestRoute, value T) *ExtendedRestRoute[T] {
+	return &ExtendedRestRoute[T]{
+		RestRoute: rest,
+		Extension: value,
+	}
+}
+
 func (r *RestRoute) String() string {
 	return fmt.Sprintf("%s.%s%s %s", r.Service, r.Application, r.Path, r.Methods)
 }
@@ -92,6 +105,157 @@ func (r *ApplicationRestRoute) Save(dir string, logger shared.BaseLogger) error 
 		}
 	}
 	return nil
+}
+
+func LoadApplicationRoutes(dir string, logger shared.BaseLogger) ([]*RestRoute, error) {
+	var routes []*RestRoute
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		r, err := LoadServiceRoutes(path.Join(dir, name), name)
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, r...)
+	}
+	return routes, nil
+}
+
+func LoadServiceRoutes(dir string, app string) ([]*RestRoute, error) {
+	var routes []*RestRoute
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		r, err := LoadRoutes(path.Join(dir, name), app, name)
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, r...)
+	}
+	return routes, nil
+}
+
+func LoadRoutes(dir string, app string, service string) ([]*RestRoute, error) {
+	var routes []*RestRoute
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(entry.Name(), "route.yaml") {
+			continue
+		}
+		r, err := LoadRoute(path.Join(dir, entry.Name()), app, service)
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, r)
+	}
+	return routes, nil
+}
+
+func LoadRoute(p string, app string, service string) (*RestRoute, error) {
+	r, err := LoadFromPath[RestRoute](p)
+	if err != nil {
+		return nil, err
+	}
+	r.Application = app
+	r.Service = service
+	return r, nil
+}
+
+// Extension of routes -- can we merge both?
+
+func LoadApplicationExtendedRoutes[T any](dir string, logger shared.BaseLogger) ([]*ExtendedRestRoute[T], error) {
+	var routes []*ExtendedRestRoute[T]
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		r, err := LoadServiceExtendedRoutes[T](path.Join(dir, name), name)
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, r...)
+	}
+	return routes, nil
+}
+
+func LoadServiceExtendedRoutes[T any](dir string, app string) ([]*ExtendedRestRoute[T], error) {
+	var routes []*ExtendedRestRoute[T]
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		r, err := LoadExtendedRoutes[T](path.Join(dir, name), app, name)
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, r...)
+	}
+	return routes, nil
+}
+
+func LoadExtendedRoutes[T any](dir string, app string, service string) ([]*ExtendedRestRoute[T], error) {
+	var routes []*ExtendedRestRoute[T]
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(entry.Name(), "route.yaml") {
+			continue
+		}
+		r, err := LoadExtendedRestRoute[T](path.Join(dir, entry.Name()), app, service)
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, r)
+	}
+	return routes, nil
+}
+
+func LoadExtendedRestRoute[T any](p string, app string, service string) (*ExtendedRestRoute[T], error) {
+	content, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	var r ExtendedRestRoute[T]
+	err = yaml.Unmarshal(content, &r)
+	if err != nil {
+		return nil, err
+	}
+	r.Application = app
+	r.Service = service
+	return &r, nil
 }
 
 /* For runtime */
