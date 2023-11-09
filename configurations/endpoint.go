@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+// TODO: WANT TO ADD gRPC types for endpoints here -- generic enough!
+
 type (
 	Protocol     string
 	ApiFramework string

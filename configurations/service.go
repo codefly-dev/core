@@ -46,8 +46,10 @@ func ValidateServiceName(name string) error {
 	return nil
 }
 
+// Unique identifies a service within a project
+// We use a REST like convention rather then a sub-domain one
 func (s *Service) Unique() string {
-	return fmt.Sprintf("%s.%s", s.Name, s.Application)
+	return fmt.Sprintf("%s/%s", s.Application, s.Name)
 }
 
 func NewService(name string, namespace string, plugin *Plugin, ops ...Option) (*Service, error) {
@@ -292,12 +294,11 @@ func (s *ServiceDependency) Validate() error {
 	return nil
 }
 
-const Unknown = "unknown"
-
 const (
-	Grpc = "grpc"
-	Rest = "rest"
-	Tcp  = "tcp"
+	Unknown = "unknown"
+	Grpc    = "grpc"
+	Rest    = "rest"
+	Tcp     = "tcp"
 )
 
 var supportedApi []string

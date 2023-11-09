@@ -141,7 +141,7 @@ func (l *Logger) Info(format string, args ...any) {
 
 func (l *Logger) Tracef(format string, args ...any) {
 	if Trace() || l.trace {
-		c := color.New(color.FgGreen, color.Italic)
+		c := color.New(color.FgGreen)
 		c.Printf("[TRACE] (%s) ", l.action)
 		c.Printf(format, args...)
 		c.Println()
@@ -150,7 +150,7 @@ func (l *Logger) Tracef(format string, args ...any) {
 
 func (l *Logger) Debugf(format string, args ...any) {
 	if Debug() || Trace() || l.debug || l.trace {
-		c := color.New(color.FgHiGreen, color.Italic)
+		c := color.New(color.FgHiGreen, color.Bold)
 		c.Printf("[DEBUG] (%s) ", l.action)
 		c.Printf(format, args...)
 		c.Println()
@@ -159,11 +159,10 @@ func (l *Logger) Debugf(format string, args ...any) {
 
 func (l *Logger) DebugMe(format string, args ...any) {
 	if Debug() || Trace() || l.debug || l.trace {
-		c := color.New(color.Bold, color.FgRed)
-		c.Println("---------")
-		c.Printf("[HELP] (%s) ", l.action)
+		c := color.New(color.Bold, color.FgHiWhite, color.BgRed)
+		c.Printf("[DEBUG ME] (%s) ", l.action)
 		c.Printf(format, args...)
-		c.Println("\n---------")
+		c.Println()
 	}
 }
 
