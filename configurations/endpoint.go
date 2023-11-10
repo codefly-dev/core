@@ -15,10 +15,15 @@ type Endpoint struct {
 }
 
 func (e *Endpoint) Unique(app string, service string) string {
-	if e.Api == e.Name {
-		return fmt.Sprintf("%s/%s::%s", app, service, e.Name)
+	unique := fmt.Sprintf("%s/%s", app, service)
+	// Convention: if Endpoint == Api, we skip the Endpoint
+	if e.Name != "" && e.Name != e.Api {
+		unique = fmt.Sprintf("%s/%s", unique, e.Name)
 	}
-	return fmt.Sprintf("%s/%s/%s::%s", app, service, e.Name, e.Api)
+	if e.Api != "" {
+		return fmt.Sprintf("%s::%s", unique, e.Api)
+	}
+	return unique
 }
 
 /* For runtime */
