@@ -63,8 +63,8 @@ func (d *Dir) Absolute() string {
 	return d.name
 }
 
-func NewDir(dir string) Dir {
-	return Dir{name: dir}
+func NewDir(dir string, args ...any) Dir {
+	return Dir{name: fmt.Sprintf(dir, args...)}
 }
 
 func Local(dir string) (*Dir, error) {

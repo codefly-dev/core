@@ -273,6 +273,11 @@ func LoadProjectFromDir(dir string) (*Project, error) {
 		return nil, logger.Wrapf(err, "cannot load project configuration")
 	}
 	conf.RelativePath = MustCurrent().Relative(dir)
+	for _, app := range conf.Applications {
+		if app.RelativePath == "" {
+			app.RelativePath = app.Name
+		}
+	}
 	return conf, nil
 }
 

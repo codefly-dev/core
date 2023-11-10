@@ -1,7 +1,16 @@
 version: v1
 managed:
   enabled: true
+  go_package_prefix:
+    default: github.com/codefly-dev/core/v1
+    except:
+      - buf.build/googleapis/googleapis
 plugins:
+  - plugin: buf.build/protocolbuffers/go
+    out: v1
+    opt: paths=source_relative
   - plugin: es
     opt: target=ts
-    out: gen
+    out: v1
+  - plugin: buf.build/protocolbuffers/python:v25.0
+    out: v1
