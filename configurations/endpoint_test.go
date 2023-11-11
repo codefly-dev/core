@@ -12,10 +12,10 @@ func TestParsing(t *testing.T) {
 		key      string
 		expected string
 	}{
-		{"app + svc", "CODEFLY-ENDPOINT__APP__SVC", "app/svc"},
-		{"app + svc + api", "CODEFLY-ENDPOINT__APP__SVC____REST", "app/svc::rest"},
-		{"app + svc + endpoint", "CODEFLY-ENDPOINT__APP__SVC___ENDPOINT", "app/svc/endpoint"},
-		{"app. svc +endpoint+api", "CODEFLY-ENDPOINT__APP__SVC___ENDPOINT____REST", "app/svc/endpoint::rest"},
+		{"app + svc", "CODEFLY_ENDPOINT__APP__SVC", "app/svc"},
+		{"app + svc + api", "CODEFLY_ENDPOINT__APP__SVC____REST", "app/svc::rest"},
+		{"app + svc + endpoint", "CODEFLY_ENDPOINT__APP__SVC___ENDPOINT", "app/svc/endpoint"},
+		{"app. svc +endpoint+api", "CODEFLY_ENDPOINT__APP__SVC___ENDPOINT____REST", "app/svc/endpoint::rest"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			unique, err := configurations.ParseEndpointEnvironmentVariableKey(tc.key)

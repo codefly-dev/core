@@ -28,7 +28,7 @@ func (e *Endpoint) Unique(app string, service string) string {
 
 /* For runtime */
 
-const EndpointPrefix = "CODEFLY-ENDPOINT__"
+const EndpointPrefix = "CODEFLY_ENDPOINT__"
 
 func SerializeAddresses(addresses []string) string {
 	return strings.Join(addresses, " ")

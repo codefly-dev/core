@@ -96,8 +96,8 @@ func (p *Plugin) Name() string {
 	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Identifier, p.Version)
 }
 
-func (p *Plugin) Key(f string) string {
-	return fmt.Sprintf("%s::%s", f, p.Name())
+func (p *Plugin) Key(f string, unique string) string {
+	return fmt.Sprintf("%s::%s::%s", f, p.Name(), unique)
 }
 
 func (p *Plugin) Unique() string {
