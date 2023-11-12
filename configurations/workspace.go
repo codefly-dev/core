@@ -65,7 +65,7 @@ func InitGlobal(getter GlobalConfigurationInputer, override Override) {
 	shared.ExitOnError(err, "cannot save global configuration")
 	if getter.CreateDefaultProject() {
 		logger.Debugf("creating default project")
-		err := NewProject(getter.ProjectBuilder())
+		_, err := NewProject("fix me")
 		shared.UnexpectedExitOnError(err, "cannot create default project")
 	}
 }

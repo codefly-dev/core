@@ -153,21 +153,19 @@ func LoadServiceFromReference(ref *ServiceReference, opts ...Option) (*Service, 
 	return LoadServiceFromDir(p, opts...)
 }
 
-func FindServiceFromName(name string, opts ...Option) (*Service, error) {
-	logger := shared.NewLogger("configurations.FindServiceFromName<%s>", name)
-	scope := WithScope(opts...)
-	ref, err := scope.Application.GetServiceReferences(name)
+func FindServiceFromReference(ref *ServiceReference) (*Service, error) {
+	logger := shared.NewLogger("configurations.FindServiceFromReference<%s/%s>", ref.Application, ref.Name)
+	// Find the application
+	app, err := MustCurrentProject().LoadApplicationFromReference(&ApplicationReference{Name: ref.Application})
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot load application configuration")
+	}
+
+	config, err := app.LoadServiceFromName(ref.Name)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
 	}
-	if ref == nil {
-		return nil, logger.Errorf("service does not exist")
-	}
-	config, err := LoadServiceFromReference(ref, opts...)
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load service configuration")
-	}
-	logger.Tracef("loading service <%s> from applications <%s> at <%s>", ref.Name, MustCurrentApplication().Name, ref.RelativePath)
+	logger.Tracef("loading service <%s> from applications <%s> at <%s>", ref.Name, app.Name, ref.RelativePath)
 	return config, nil
 }
 
@@ -267,7 +265,7 @@ func LoadService(input string) (*Service, error) {
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot parse service entry")
 	}
-	return FindServiceFromName(ref.Name)
+	return FindServiceFromReference(ref)
 }
 
 func (s *ServiceDependency) AsReference() *ServiceReference {

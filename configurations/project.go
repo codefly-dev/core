@@ -111,30 +111,29 @@ func (p *ProjectInput) ProjectDir() string {
 	return path.Join(GlobalProjectRoot(), p.Name)
 }
 
-func NewProject(builder ProjectBuilder) error {
-	logger := shared.NewLogger("NewProject<%s>", builder.ProjectName())
-	err := builder.Fetch()
-	if err != nil {
-		return logger.Wrapf(err, "cannot fetch project builder")
-	}
-	name := builder.ProjectName()
+func NewProject(name string) (*Project, error) {
+	logger := shared.NewLogger("NewProject<%s>", name)
+	//err := builder.Fetch()
+	//if err != nil {
+	//	return nil, logger.Wrapf(err, "cannot fetch project builder")
+	//}
+	//name := builder.ProjectName()
 	// Uniqueness of project Name is enforced
 	if slices.Contains(KnownProjects(), name) {
 		if !shared.Debug() {
-			return shared.NewUserError("project <%s> already exists", name).WithSuggestion("Try to use a different name")
+			return nil, shared.NewUserError("project <%s> already exists", name).WithSuggestion("Try to use a different name")
 		}
 	}
 	if err := ValidateProjectName(name); err != nil {
-		return logger.Wrapf(err, "invalid project name")
+		return nil, logger.Wrapf(err, "invalid project name")
 	}
-	relativePath := builder.RelativePath()
+	relativePath := name //builder.RelativePath()
 	dir := path.Join(GlobalProjectRoot(), relativePath)
-	err = shared.CreateDirIf(dir)
+	err := shared.CreateDirIf(dir)
 	shared.UnexpectedExitOnError(err, "cannot create default project directory")
 
 	p := &Project{
 		Name:         name,
-		Style:        builder.Style(),
 		Organization: MustCurrent().Organization,
 		Domain:       ExtendDomain(MustCurrent().Domain, name),
 		RelativePath: relativePath,
@@ -142,12 +141,14 @@ func NewProject(builder ProjectBuilder) error {
 	logger.TODO("Depending on style we want to do git init, etc...")
 	logger.Debugf("to %s", dir)
 	err = SaveToDir[Project](p, dir)
-	shared.UnexpectedExitOnError(err, "cannot save project configuration")
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot save project")
+	}
 
 	// Templatize as usual
 	err = templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(dir), p)
 	if err != nil {
-		return logger.Wrapf(err, "cannot copy and apply template")
+		return nil, logger.Wrapf(err, "cannot copy and apply template")
 	}
 
 	// And set as current
@@ -158,11 +159,11 @@ func NewProject(builder ProjectBuilder) error {
 	})
 	golor.Println(`#(blue)[Creating new project <{{.Name}}> at {{.NewDir}}]`, map[string]any{"Name": name, "NewDir": dir})
 	SaveCurrent()
-	return nil
+	return p, nil
 }
 
-func (p *Project) Unique() string {
-	return p.Name
+func (project *Project) Unique() string {
+	return project.Name
 }
 
 func LoadCurrentProject() (*Project, error) {
@@ -216,8 +217,8 @@ func ListProjects() ([]*Project, error) {
 	return projects, nil
 }
 
-func (p *Project) Dir() string {
-	return path.Join(GlobalProjectRoot(), p.RelativePath)
+func (project *Project) Dir() string {
+	return path.Join(GlobalProjectRoot(), project.RelativePath)
 }
 
 func ProjectPath(relativePath string) string {
@@ -290,27 +291,27 @@ func LoadProjectFromName(name string) (*Project, error) {
 	return LoadProjectFromDir(ProjectPath(reference.RelativePath))
 }
 
-func (p *Project) Save() error {
-	logger := shared.NewLogger("Project.Save<%s>", p.Name)
-	if p.RelativePath == "" {
+func (project *Project) Save() error {
+	logger := shared.NewLogger("Project.Save<%s>", project.Name)
+	if project.RelativePath == "" {
 		return logger.Errorf("project location is not set")
 	}
-	dir := path.Join(GlobalProjectRoot(), p.RelativePath)
+	dir := path.Join(GlobalProjectRoot(), project.RelativePath)
 	logger.Tracef("relative path of project <%s>", dir)
-	return p.SaveToDir(dir)
+	return project.SaveToDir(dir)
 }
 
-func (p *Project) SaveToDir(dir string) error {
-	return SaveToDir(p, dir)
+func (project *Project) SaveToDir(dir string) error {
+	return SaveToDir(project, dir)
 }
 
-func (p *Project) ListServices() ([]*ServiceReference, error) {
+func (project *Project) ListServices() ([]*ServiceReference, error) {
 	logger := shared.NewLogger("Project.ListServices")
-	logger.Debugf("Listing services in <%s>", p.Dir())
+	logger.Debugf("Listing services in <%s>", project.Dir())
 	var references []*ServiceReference
-	err := filepath.Walk(p.Dir(), func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(project.Dir(), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return logger.Errorf("error during walking root <%s>: %v", p.Dir(), err)
+			return logger.Errorf("error during walking root <%s>: %v", project.Dir(), err)
 		}
 
 		if info.IsDir() {
@@ -342,46 +343,46 @@ func (p *Project) ListServices() ([]*ServiceReference, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, logger.Errorf("error during walking root <%s>: %v", p.Dir(), err)
+		return nil, logger.Errorf("error during walking root <%s>: %v", project.Dir(), err)
 	}
 	return references, nil
 }
 
-func (p *Project) GetService(name string) (*Service, error) {
+func (project *Project) GetService(name string) (*Service, error) {
 	logger := shared.NewLogger("Project.GetService")
 	// Unique can be scoped to applications or not
-	entries, err := p.ListServices()
+	entries, err := project.ListServices()
 	if err != nil {
-		return nil, logger.Errorf("cannot list services for project <%s>: %v", p.Name, err)
+		return nil, logger.Errorf("cannot list services for project <%s>: %v", project.Name, err)
 	}
 	for _, entry := range entries {
 		if entry.Name == name {
 			return LoadServiceFromReference(entry)
 		}
 	}
-	return nil, logger.Errorf("cannot find service <%s> in project <%s>", name, p.Name)
+	return nil, logger.Errorf("cannot find service <%s> in project <%s>", name, project.Name)
 }
 
-func (p *Project) Relative(absolute string) string {
-	s, err := filepath.Rel(p.Dir(), absolute)
+func (project *Project) Relative(absolute string) string {
+	s, err := filepath.Rel(project.Dir(), absolute)
 	shared.ExitOnError(err, "cannot compute relative path from project")
 	return s
 }
 
-func (p *Project) AddApplication(app *ApplicationReference) error {
-	for _, a := range p.Applications {
+func (project *Project) AddApplication(app *ApplicationReference) error {
+	for _, a := range project.Applications {
 		if a.Name == app.Name {
 			return nil
 		}
 	}
-	p.Applications = append(p.Applications, app)
+	project.Applications = append(project.Applications, app)
 
-	return p.SaveToDir(path.Join(GlobalProjectRoot(), p.RelativePath))
+	return project.SaveToDir(path.Join(GlobalProjectRoot(), project.RelativePath))
 }
 
-func (p *Project) AddProvider(provider *Provider) error {
+func (project *Project) AddProvider(provider *Provider) error {
 	logger := shared.NewLogger("Project.AddProvider<%s>", provider.Name)
-	for _, prov := range p.Providers {
+	for _, prov := range project.Providers {
 		if prov.Name == provider.Name {
 			return nil
 		}
@@ -390,14 +391,14 @@ func (p *Project) AddProvider(provider *Provider) error {
 	if err != nil {
 		return logger.Wrapf(err, "cannot get reference")
 	}
-	p.Providers = append(p.Providers, *ref)
+	project.Providers = append(project.Providers, *ref)
 
-	return p.SaveToDir(path.Join(GlobalProjectRoot(), p.RelativePath))
+	return project.SaveToDir(path.Join(GlobalProjectRoot(), project.RelativePath))
 }
 
-func (p *Project) OtherApplications(app *Application) ([]*Application, error) {
+func (project *Project) OtherApplications(app *Application) ([]*Application, error) {
 	logger := shared.NewLogger("")
-	apps, err := ListApplications(WithProject(p))
+	apps, err := ListApplications(WithProject(project))
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot list applications")
 	}
@@ -411,17 +412,17 @@ func (p *Project) OtherApplications(app *Application) ([]*Application, error) {
 	return others, nil
 }
 
-func (p *Project) GetPartial(name string) *Partial {
-	for _, partial := range p.Partials {
+func (project *Project) GetPartial(name string) (*Partial, error) {
+	for _, partial := range project.Partials {
 		if partial.Name == name {
-			return &partial
+			return &partial, nil
 		}
 	}
-	return nil
+	return nil, fmt.Errorf("cannot find partial <%s> in project <%s>", name, project.Name)
 }
 
-func (p *Project) ApplicationByName(override string) (*Application, error) {
-	apps, err := p.ListApplications()
+func (project *Project) ApplicationByName(override string) (*Application, error) {
+	apps, err := project.ListApplications()
 	if err != nil {
 		return nil, err
 	}
@@ -430,7 +431,7 @@ func (p *Project) ApplicationByName(override string) (*Application, error) {
 			return app, nil
 		}
 	}
-	return nil, fmt.Errorf("cannot find application <%s> in project <%s>", override, p.Name)
+	return nil, fmt.Errorf("cannot find application <%s> in project <%s>", override, project.Name)
 }
 
 func (project *Project) ListApplications() ([]*Application, error) {
@@ -448,6 +449,21 @@ func (project *Project) ListApplications() ([]*Application, error) {
 }
 
 func (project *Project) LoadApplicationFromReference(ref *ApplicationReference) (*Application, error) {
-	dir := path.Join(project.Dir(), ref.RelativePath)
-	return LoadApplicationFromDir(dir)
+	dir := path.Join(project.Dir(), ref.Name)
+	config, err := LoadFromDir[Application](dir)
+	if err != nil {
+		return nil, err
+	}
+	return config, nil
+}
+
+func (project *Project) AddPartial(partial Partial) error {
+	for _, p := range project.Partials {
+		if p.Name == partial.Name {
+			return nil
+		}
+	}
+	project.Partials = append(project.Partials, partial)
+	return project.Save()
+
 }

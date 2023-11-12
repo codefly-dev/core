@@ -225,6 +225,10 @@ func (app *Application) GetServiceReferences(name string) (*ServiceReference, er
 	return nil, nil
 }
 
+func (app *Application) LoadServiceFromName(name string) (*Service, error) {
+	return LoadServiceFromDir(path.Join(app.Dir(), name))
+}
+
 func CurrentApplication(opts ...Option) (*Application, error) {
 	logger := shared.NewLogger("CurrentApplication")
 	if currentApplication != nil {
