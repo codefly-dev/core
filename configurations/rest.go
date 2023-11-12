@@ -136,7 +136,7 @@ func LoadApplicationRoutes(dir string) ([]*RestRoute, error) {
 			continue
 		}
 		name := entry.Name()
-		r, err := LoadServiceRoutes(path.Join(dir, name), name)
+		r, err := LoadServiceRoutes(path.Join(dir, name), entry.Name())
 		if err != nil {
 			return nil, err
 		}
@@ -210,7 +210,7 @@ func LoadApplicationExtendedRoutes[T any](dir string, logger shared.BaseLogger) 
 			continue
 		}
 		name := entry.Name()
-		r, err := LoadServiceExtendedRoutes[T](path.Join(dir, name), name)
+		r, err := LoadServiceExtendedRoutes[T](path.Join(dir, name), entry.Name())
 		if err != nil {
 			return nil, err
 		}
