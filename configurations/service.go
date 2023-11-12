@@ -2,14 +2,13 @@ package configurations
 
 import (
 	"fmt"
+	"github.com/codefly-dev/core/shared"
+	"github.com/mitchellh/mapstructure"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path"
 	"slices"
 	"strings"
-
-	"github.com/codefly-dev/core/shared"
-	"github.com/mitchellh/mapstructure"
-	"gopkg.in/yaml.v3"
 )
 
 const ServiceConfigurationName = "service.codefly.yaml"
@@ -31,6 +30,21 @@ type Service struct {
 	Dependencies []*ServiceDependency `yaml:"dependencies"`
 	Endpoints    []*Endpoint          `yaml:"endpoints"`
 	Spec         map[string]any       `yaml:"spec"`
+}
+type serviceYAML struct {
+	*Service
+}
+
+func (s serviceYAML) MarshalYAML() (interface{}, error) {
+	// Create a cp of Service
+	cp := *s.Service
+
+	// Only include RelativePath if it's different from Name
+	if cp.RelativePath == cp.Name {
+		cp.RelativePath = ""
+	}
+
+	return &cp, nil
 }
 
 func (s *Service) Endpoint() string {
@@ -173,7 +187,7 @@ func (s *Service) SaveAtDir(destination string) error {
 		}
 	}
 	p := path.Join(destination, ServiceConfigurationName)
-	content, err := yaml.Marshal(*s)
+	content, err := yaml.Marshal(serviceYAML{s})
 	if err != nil {
 		return logger.Errorf("cannot marshal service configuration: %s", err)
 	}
@@ -239,27 +253,21 @@ func LoadServicesFromInput(inputs ...string) ([]*Service, error) {
 	return services, nil
 }
 
-func ParseServiceInput(input string) (string, string, error) {
-	tokens := strings.Split(input, "@")
+func ParseServiceInput(input string) (*ServiceReference, error) {
+	tokens := strings.Split(input, "/")
 	if len(tokens) == 1 {
-		return tokens[0], "", nil
+		return &ServiceReference{Name: input}, nil
 	}
-	if len(tokens) == 2 {
-		return tokens[0], tokens[1], nil
-	}
-	return "", "", fmt.Errorf("invalid service entry: %s", input)
+	return &ServiceReference{Name: tokens[1], Application: tokens[0]}, nil
 }
 
 func LoadService(input string) (*Service, error) {
 	logger := shared.NewLogger("configurations.LoadService")
-	service, appOrNothing, err := ParseServiceInput(input)
+	ref, err := ParseServiceInput(input)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot parse service entry")
 	}
-	if appOrNothing != "" {
-		return nil, logger.Errorf("not implemented yet: with other applications")
-	}
-	return FindServiceFromName(service)
+	return FindServiceFromName(ref.Name)
 }
 
 func (s *ServiceDependency) AsReference() *ServiceReference {
@@ -284,7 +292,7 @@ type ServiceDependency struct {
 }
 
 func (s *ServiceDependency) String() string {
-	return fmt.Sprintf("ServiceDependency<%s.%s>", s.Name, s.Application)
+	return fmt.Sprintf("ServiceDependency<%s/%s>", s.Application, s.Name)
 }
 
 func (s *ServiceDependency) Validate() error {

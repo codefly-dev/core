@@ -13,14 +13,15 @@ func TestParseServiceEntry(t *testing.T) {
 		service     string
 		application string
 	}{
-		{"applications", "applications", ""},
-		{"applications@codefly", "applications", "codefly"},
+		{"app/svc", "svc", "app"},
+		{"svc", "svc", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			service, app, _ := configurations.ParseServiceInput(tt.input)
-			assert.Equalf(t, tt.service, service, "ParseServiceInput(%v) Unique failed", tt.input)
-			assert.Equalf(t, tt.application, app, "ParseServiceInput(%v) Application failed", tt.input)
+			ref, err := configurations.ParseServiceInput(tt.input)
+			assert.NoError(t, err)
+			assert.Equalf(t, tt.service, ref.Name, "ParseServiceInput(%v) Unique failed", tt.input)
+			assert.Equalf(t, tt.application, ref.Application, "ParseServiceInput(%v) Application failed", tt.input)
 		})
 	}
 }

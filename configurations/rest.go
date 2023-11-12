@@ -1,6 +1,7 @@
 package configurations
 
 import (
+	"context"
 	"fmt"
 	"github.com/codefly-dev/core/shared"
 	"gopkg.in/yaml.v3"
@@ -69,8 +70,18 @@ func sanitize(route string) string {
 	return strings.ReplaceAll(route, "/", "_")
 }
 
-func (r *RestRoute) Save(dir string, logger shared.BaseLogger) error {
+// Save a route:
+// The path is inferred from the configuration
+// application
+//
+//	 service
+//		path.codefly.route.yaml
+func (r *RestRoute) Save(ctx context.Context, dir string) error {
+	logger := ctx.Value(shared.Plugin).(shared.BaseLogger)
 	dir = path.Join(dir, r.Application, r.Service)
+	logger.DebugMe("APPL %v", r.Application)
+	logger.DebugMe("SERV %v", r.Service)
+	logger.DebugMe("saving rest route %v to %s", r, dir)
 	err := shared.CheckDirectoryOrCreate(dir)
 	if err != nil {
 		return err
@@ -93,9 +104,9 @@ func (r *RestRoute) Save(dir string, logger shared.BaseLogger) error {
 	return nil
 }
 
-func (r *ServiceRestRoute) Save(dir string) error {
+func (r *ServiceRestRoute) Save(ctx context.Context, dir string) error {
 	for _, route := range r.Routes {
-		err := route.Save(dir, nil)
+		err := route.Save(ctx, dir)
 		if err != nil {
 			return err
 		}
@@ -104,10 +115,9 @@ func (r *ServiceRestRoute) Save(dir string) error {
 }
 
 // Save as folder structure
-func (r *ApplicationRestRoute) Save(dir string, logger shared.BaseLogger) error {
-	logger.DebugMe("Saving application rest route to %s", dir)
+func (r *ApplicationRestRoute) Save(ctx context.Context, dir string) error {
 	for _, s := range r.ServiceRestRoutes {
-		err := s.Save(dir)
+		err := s.Save(ctx, dir)
 		if err != nil {
 			return err
 		}
@@ -115,7 +125,7 @@ func (r *ApplicationRestRoute) Save(dir string, logger shared.BaseLogger) error 
 	return nil
 }
 
-func LoadApplicationRoutes(dir string, logger shared.BaseLogger) ([]*RestRoute, error) {
+func LoadApplicationRoutes(dir string) ([]*RestRoute, error) {
 	var routes []*RestRoute
 	entries, err := os.ReadDir(dir)
 	if err != nil {
