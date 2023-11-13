@@ -6,12 +6,33 @@ import (
 	"github.com/codefly-dev/core/shared"
 )
 
+/*
+References help find where the resource is located
+
+Convention: relativePath is the name unless specified otherwise
+
+*/
+
 // Workspace references Projects
 
 // ProjectReference is a reference to a project used by Workspace configuration
 type ProjectReference struct {
-	Name         string `yaml:"name"`
-	RelativePath string `yaml:"relative-path,omitempty"`
+	Name                 string  `yaml:"name"`
+	RelativePathOverride *string `yaml:"relative-path,omitempty"`
+}
+
+func (ref *ProjectReference) RelativePath() string {
+	if ref.RelativePathOverride != nil {
+		return *ref.RelativePathOverride
+	}
+	return ref.Name
+}
+
+func (ref *ProjectReference) WithRelativePath(relativePath string) *ProjectReference {
+	if ref.Name != relativePath {
+		ref.RelativePathOverride = Pointer(relativePath)
+	}
+	return ref
 }
 
 // Application reference services

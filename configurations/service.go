@@ -31,6 +31,7 @@ type Service struct {
 	Endpoints    []*Endpoint          `yaml:"endpoints"`
 	Spec         map[string]any       `yaml:"spec"`
 }
+
 type serviceYAML struct {
 	*Service
 }
@@ -39,7 +40,7 @@ func (s serviceYAML) MarshalYAML() (interface{}, error) {
 	// Create a cp of Service
 	cp := *s.Service
 
-	// Only include RelativePath if it's different from Name
+	// Only include RelativePathOverride if it's different from Name
 	if cp.RelativePath == cp.Name {
 		cp.RelativePath = ""
 	}

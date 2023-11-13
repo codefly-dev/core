@@ -49,7 +49,7 @@ package configurations_test
 //	return nil
 //}
 //
-//func (b *projectBuilder) RelativePath() string {
+//func (b *projectBuilder) RelativePathOverride() string {
 //	return b.DefaultProjectName()
 //}
 //
@@ -100,7 +100,7 @@ package configurations_test
 //	//assert.Equal(t, 1, len(configurations.MustCurrent().Projects))
 //	//assert.Equal(t, g.ProjectBuilder().ProjectName(), configurations.MustCurrent().Projects[0].Name)
 //	//assert.Equal(t, g.ProjectBuilder().ProjectName(), configurations.MustCurrent().CurrentProject)
-//	//assert.Equal(t, g.ProjectBuilder().RelativePath(), configurations.MustCurrent().Projects[0].RelativePath)
+//	//assert.Equal(t, g.ProjectBuilder().RelativePathOverride(), configurations.MustCurrent().Projects[0].RelativePathOverride)
 //	//
 //	//assert.True(t, fromTmp.Exists("projects/test_project_name/project.codefly.yaml"))
 //	//
@@ -108,7 +108,7 @@ package configurations_test
 //	//app, err := configurations.NewApplication(application)
 //	//assert.NoError(t, err)
 //	//assert.Equal(t, application, app.Name)
-//	//assert.Equal(t, application, app.RelativePath)
+//	//assert.Equal(t, application, app.RelativePathOverride)
 //	//assert.Equal(t, application, configurations.MustCurrentApplication().Name)
 //	//assert.Equal(t, application, configurations.MustCurrentProject().CurrentApplication)
 //	//

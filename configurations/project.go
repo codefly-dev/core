@@ -113,12 +113,6 @@ func (p *ProjectInput) ProjectDir() string {
 
 func NewProject(name string) (*Project, error) {
 	logger := shared.NewLogger("NewProject<%s>", name)
-	//err := builder.Fetch()
-	//if err != nil {
-	//	return nil, logger.Wrapf(err, "cannot fetch project builder")
-	//}
-	//name := builder.ProjectName()
-	// Uniqueness of project Name is enforced
 	if slices.Contains(KnownProjects(), name) {
 		if !shared.Debug() {
 			return nil, shared.NewUserError("project <%s> already exists", name).WithSuggestion("Try to use a different name")
@@ -127,8 +121,9 @@ func NewProject(name string) (*Project, error) {
 	if err := ValidateProjectName(name); err != nil {
 		return nil, logger.Wrapf(err, "invalid project name")
 	}
-	relativePath := name //builder.RelativePath()
-	dir := path.Join(GlobalProjectRoot(), relativePath)
+	ref := &ProjectReference{Name: name}
+	ref.WithRelativePath(name)
+	dir := path.Join(GlobalProjectRoot(), ref.RelativePath())
 	err := shared.CreateDirIf(dir)
 	shared.UnexpectedExitOnError(err, "cannot create default project directory")
 
@@ -136,7 +131,7 @@ func NewProject(name string) (*Project, error) {
 		Name:         name,
 		Organization: MustCurrent().Organization,
 		Domain:       ExtendDomain(MustCurrent().Domain, name),
-		RelativePath: relativePath,
+		RelativePath: ref.RelativePath(),
 	}
 	logger.TODO("Depending on style we want to do git init, etc...")
 	logger.Debugf("to %s", dir)
@@ -153,10 +148,7 @@ func NewProject(name string) (*Project, error) {
 
 	// And set as current
 	MustCurrent().CurrentProject = name
-	MustCurrent().Projects = append(MustCurrent().Projects, &ProjectReference{
-		Name:         name,
-		RelativePath: name,
-	})
+	MustCurrent().Projects = append(MustCurrent().Projects, ref)
 	golor.Println(`#(blue)[Creating new project <{{.Name}}> at {{.NewDir}}]`, map[string]any{"Name": name, "NewDir": dir})
 	SaveCurrent()
 	return p, nil
@@ -175,16 +167,16 @@ func LoadCurrentProject() (*Project, error) {
 	if err != nil {
 		return nil, shared.NewUserError("cannot find current project <%s> in global configuration", MustCurrent().CurrentProject)
 	}
-	p, err := LoadFromDir[Project](path.Join(GlobalProjectRoot(), reference.RelativePath))
+	p, err := LoadFromDir[Project](path.Join(GlobalProjectRoot(), reference.RelativePath()))
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project")
 	}
-	p.RelativePath = reference.RelativePath
-	for _, app := range p.Applications {
-		if app.RelativePath == "" {
-			app.RelativePath = app.Name
-		}
-	}
+	//p.RelativePath = reference.RelativePathOverride
+	//for _, app := range p.Applications {
+	//	if app.RelativePath == "" {
+	//		app.RelativePath = app.Name
+	//	}
+	//}
 	return p, err
 }
 
@@ -207,7 +199,7 @@ func ListProjects() ([]*Project, error) {
 	logger := shared.NewLogger("ListProjects")
 	var projects []*Project
 	for _, p := range MustCurrent().Projects {
-		project, err := LoadProjectFromDir(ProjectPath(p.RelativePath))
+		project, err := LoadProjectFromDir(ProjectPath(p.RelativePath()))
 		if err != nil {
 			logger.Warn(err)
 			continue
@@ -288,7 +280,7 @@ func LoadProjectFromName(name string) (*Project, error) {
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot find project reference")
 	}
-	return LoadProjectFromDir(ProjectPath(reference.RelativePath))
+	return LoadProjectFromDir(ProjectPath(reference.RelativePath()))
 }
 
 func (project *Project) Save() error {
