@@ -19,33 +19,17 @@ A Service
 Convention: RelativePath from Application
 */
 type Service struct {
-	Kind         string               `yaml:"kind"`
-	Name         string               `yaml:"name"`
-	Version      string               `yaml:"version"`
-	Application  string               `yaml:"application"`
-	RelativePath string               `yaml:"relative-path,omitempty"`
-	Namespace    string               `yaml:"namespace"`
-	Domain       string               `yaml:"domain"`
-	Plugin       *Plugin              `yaml:"plugin"`
-	Dependencies []*ServiceDependency `yaml:"dependencies"`
-	Endpoints    []*Endpoint          `yaml:"endpoints"`
-	Spec         map[string]any       `yaml:"spec"`
-}
-
-type serviceYAML struct {
-	*Service
-}
-
-func (s serviceYAML) MarshalYAML() (interface{}, error) {
-	// Create a cp of Service
-	cp := *s.Service
-
-	// Only include RelativePathOverride if it's different from Name
-	if cp.RelativePath == cp.Name {
-		cp.RelativePath = ""
-	}
-
-	return &cp, nil
+	Kind                 string               `yaml:"kind"`
+	Name                 string               `yaml:"name"`
+	Version              string               `yaml:"version"`
+	Application          string               `yaml:"application"`
+	RelativePathOverride *string              `yaml:"relative-path,omitempty"`
+	Namespace            string               `yaml:"namespace"`
+	Domain               string               `yaml:"domain"`
+	Plugin               *Plugin              `yaml:"plugin"`
+	Dependencies         []*ServiceDependency `yaml:"dependencies"`
+	Endpoints            []*Endpoint          `yaml:"endpoints"`
+	Spec                 map[string]any       `yaml:"spec"`
 }
 
 func (s *Service) Endpoint() string {
@@ -54,7 +38,7 @@ func (s *Service) Endpoint() string {
 
 func (s *Service) Dir(opts ...Option) string {
 	scope := WithScope(opts...)
-	return path.Join(scope.Application.Dir(), s.RelativePath)
+	return path.Join(scope.Application.Dir(), s.RelativePath())
 }
 
 func ValidateServiceName(name string) error {
@@ -71,14 +55,13 @@ func NewService(name string, namespace string, plugin *Plugin, ops ...Option) (*
 	scope := WithScope(ops...)
 	logger := shared.NewLogger("configurations.NewService<%s>", scope.Application.Name)
 	svc := Service{
-		Kind:         "service",
-		Name:         name,
-		Application:  scope.Application.Name,
-		RelativePath: name,
-		Domain:       scope.Application.ServiceDomain(name),
-		Namespace:    namespace,
-		Plugin:       plugin,
-		Spec:         make(map[string]any),
+		Kind:        "service",
+		Name:        name,
+		Application: scope.Application.Name,
+		Domain:      scope.Application.ServiceDomain(name),
+		Namespace:   namespace,
+		Plugin:      plugin,
+		Spec:        make(map[string]any),
 	}
 	logger.Debugf("new service configuration <%s> with relative path <%s>", svc.Name, svc.Name)
 	return &svc, nil
@@ -111,14 +94,9 @@ func Identity(conf *Service) *ServiceIdentity {
 }
 
 func (s *Service) Reference() (*ServiceReference, error) {
-	logger := shared.NewLogger("configurations.Unique<%s>.Reference", s.Name)
 	entry := &ServiceReference{
-		Name:         s.Name,
-		RelativePath: s.RelativePath,
-	}
-	err := entry.Validate()
-	if err != nil {
-		return nil, logger.Wrapf(err, "invalid service entry")
+		Name:                 s.Name,
+		RelativePathOverride: s.RelativePathOverride,
 	}
 	return entry, nil
 }
@@ -128,13 +106,6 @@ func LoadServiceFromDir(dir string, opts ...Option) (*Service, error) {
 	conf, err := LoadFromDir[Service](dir)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
-	}
-	// Normalize
-
-	for _, entry := range conf.Dependencies {
-		if entry.RelativePath == "" {
-			entry.RelativePath = entry.Name
-		}
 	}
 	conf.Plugin.Kind = PluginRuntimeService
 	return conf, nil
@@ -166,7 +137,7 @@ func FindServiceFromReference(ref *ServiceReference) (*Service, error) {
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
 	}
-	logger.Tracef("loading service <%s> from applications <%s> at <%s>", ref.Name, app.Name, ref.RelativePath)
+	logger.Tracef("loading service <%s> from applications <%s> at <%s>", ref.Name, app.Name, ref.RelativePath())
 	return config, nil
 }
 
@@ -186,7 +157,7 @@ func (s *Service) SaveAtDir(destination string) error {
 		}
 	}
 	p := path.Join(destination, ServiceConfigurationName)
-	content, err := yaml.Marshal(serviceYAML{s})
+	content, err := yaml.Marshal(s)
 	if err != nil {
 		return logger.Errorf("cannot marshal service configuration: %s", err)
 	}
@@ -221,19 +192,27 @@ func (s *Service) AddDependencyReference(requirement *Service) error {
 
 func (s *Service) Duplicate(name string) *Service {
 	other := Service{
-		Kind:         s.Kind,
-		Name:         name,
-		Version:      s.Version,
-		Application:  s.Application,
-		RelativePath: s.RelativePath,
-		Namespace:    s.Namespace,
-		Domain:       s.Domain,
-		Plugin:       s.Plugin,
-		Dependencies: s.Dependencies,
-		Endpoints:    s.Endpoints,
-		Spec:         s.Spec,
+		Kind:                 s.Kind,
+		Name:                 name,
+		Version:              s.Version,
+		Application:          s.Application,
+		RelativePathOverride: s.RelativePathOverride,
+		Namespace:            s.Namespace,
+		Domain:               s.Domain,
+		Plugin:               s.Plugin,
+		Dependencies:         s.Dependencies,
+		Endpoints:            s.Endpoints,
+		Spec:                 s.Spec,
 	}
 	return &other
+}
+
+func (s *Service) RelativePath() string {
+	if s.RelativePathOverride != nil {
+		return *s.RelativePathOverride
+	}
+	return s.Name
+
 }
 
 /*
@@ -271,9 +250,9 @@ func LoadService(input string) (*Service, error) {
 
 func (s *ServiceDependency) AsReference() *ServiceReference {
 	return &ServiceReference{
-		Name:         s.Name,
-		RelativePath: s.RelativePath,
-		Application:  s.Application,
+		Name:                 s.Name,
+		RelativePathOverride: s.RelativePathOverride,
+		Application:          s.Application,
 	}
 }
 
@@ -282,8 +261,8 @@ func (s *ServiceDependency) Unique() string {
 }
 
 type ServiceDependency struct {
-	Name         string `yaml:"name"`
-	RelativePath string `yaml:"relative-path,omitempty"`
+	Name                 string  `yaml:"name"`
+	RelativePathOverride *string `yaml:"relative-path,omitempty"`
 	// Null application means self
 	Application string `yaml:"application,omitempty"`
 
@@ -292,13 +271,6 @@ type ServiceDependency struct {
 
 func (s *ServiceDependency) String() string {
 	return fmt.Sprintf("ServiceDependency<%s/%s>", s.Application, s.Name)
-}
-
-func (s *ServiceDependency) Validate() error {
-	if s.RelativePath == "" {
-		s.RelativePath = s.Name
-	}
-	return nil
 }
 
 const (
@@ -319,24 +291,6 @@ func SupportedApi(kind string) error {
 		return nil
 	}
 	return fmt.Errorf("unsupported api: %s", kind)
-}
-
-func (ref *ServiceReference) Dir(opts ...Option) (string, error) {
-	logger := shared.NewLogger("configurations.ServiceReference.Dir<%s>", ref.Name)
-	scope := WithScope(opts...)
-	// if no relative path is specified, we used the Name
-	relativePath := ref.RelativePath
-	if relativePath == "" {
-		relativePath = ref.Name
-	}
-	if ref.Application == "" {
-		return path.Join(scope.Application.Dir(opts...), relativePath), nil
-	}
-	app, err := scope.Project.ApplicationByName(ref.Application)
-	if err != nil {
-		return "", logger.Errorf("cannot load applications configuration: %s", ref.Application)
-	}
-	return path.Join(app.Dir(), ref.RelativePath), nil
 }
 
 type ClientEntry struct {

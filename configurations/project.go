@@ -10,7 +10,6 @@ import (
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
-	"github.com/codefly-dev/golor"
 )
 
 var currentProject *Project
@@ -50,7 +49,7 @@ func ProjectConfiguration(current bool) (*Project, error) {
 				if err != nil {
 					return nil, logger.Wrapf(err, "cannot load current project")
 				}
-				logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current project from context: <%s>.", cur.Name))
+				//logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current project from context: <%s>.", cur.Name))
 				return cur, nil
 			}
 			return nil, err
@@ -141,7 +140,7 @@ func NewProject(name string) (*Project, error) {
 	}
 
 	// Templatize as usual
-	err = templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(dir), p)
+	err = templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(dir), p, nil)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot copy and apply template")
 	}
@@ -149,7 +148,6 @@ func NewProject(name string) (*Project, error) {
 	// And set as current
 	MustCurrent().CurrentProject = name
 	MustCurrent().Projects = append(MustCurrent().Projects, ref)
-	golor.Println(`#(blue)[Creating new project <{{.Name}}> at {{.NewDir}}]`, map[string]any{"Name": name, "NewDir": dir})
 	SaveCurrent()
 	return p, nil
 }
@@ -171,10 +169,10 @@ func LoadCurrentProject() (*Project, error) {
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project")
 	}
-	//p.RelativePath = reference.RelativePathOverride
+	//p.RelativePathOverride = reference.RelativePathOverride
 	//for _, app := range p.Applications {
-	//	if app.RelativePath == "" {
-	//		app.RelativePath = app.Name
+	//	if app.RelativePathOverride == "" {
+	//		app.RelativePathOverride = app.Name
 	//	}
 	//}
 	return p, err
@@ -265,12 +263,6 @@ func LoadProjectFromDir(dir string) (*Project, error) {
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project configuration")
 	}
-	conf.RelativePath = MustCurrent().Relative(dir)
-	for _, app := range conf.Applications {
-		if app.RelativePath == "" {
-			app.RelativePath = app.Name
-		}
-	}
 	return conf, nil
 }
 
@@ -325,9 +317,9 @@ func (project *Project) ListServices() ([]*ServiceReference, error) {
 				return fmt.Errorf("cannot find applications for service <%s>: %v", path, err)
 			}
 			ref := &ServiceReference{
-				Name:         config.Name,
-				RelativePath: app.Relative(path),
-				Application:  app.Name,
+				Name:                 config.Name,
+				RelativePathOverride: config.RelativePathOverride,
+				Application:          app.Name,
 			}
 			references = append(references, ref)
 

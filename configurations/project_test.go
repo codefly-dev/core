@@ -5,6 +5,5 @@ import (
 )
 
 func TestCreation(t *testing.T) {
-	// setup a temporary workspace
-	// p, err := configurations.NewProject("test")
+	//p, err := configurations.NewProject("test")
 }

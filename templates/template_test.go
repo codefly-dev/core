@@ -19,7 +19,7 @@ func testCopyAndApplyTemplateToDir(t *testing.T, fs shared.FileSystem, dir share
 	logger := shared.NewLogger("templates.TestCopyAndApplyTemplateToDir")
 	dest := t.TempDir()
 	destination := shared.NewDir(dest)
-	err := templates.CopyAndApply(logger, fs, dir, destination, testData{Test: "test"})
+	err := templates.CopyAndApply(logger, fs, dir, destination, testData{Test: "test"}, nil)
 	assert.NoError(t, err)
 
 	p := path.Join(dest, "template.txt")

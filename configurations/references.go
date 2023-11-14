@@ -2,8 +2,7 @@ package configurations
 
 import (
 	"fmt"
-
-	"github.com/codefly-dev/core/shared"
+	"path"
 )
 
 /*
@@ -12,6 +11,18 @@ References help find where the resource is located
 Convention: relativePath is the name unless specified otherwise
 
 */
+
+func Pointer[T any](t T) *T {
+	return &t
+}
+
+// RelativePath is nil if the name is the same as the desired relative path
+func RelativePath(name string, rel string) *string {
+	if rel == name {
+		return nil
+	}
+	return Pointer(rel)
+}
 
 // Workspace references Projects
 
@@ -37,54 +48,59 @@ func (ref *ProjectReference) WithRelativePath(relativePath string) *ProjectRefer
 
 // Application reference services
 
-// ServiceReference is a reference to a service used by Application configuration
-type ServiceReference struct {
-	Name         string `yaml:"name"`
-	RelativePath string `yaml:"relative-path,omitempty"`
-	Application  string `yaml:"application,omitempty"`
-
-	RunningOptions RunningOptions `yaml:"options,omitempty"`
-}
-
 // RunningOptions of the ServiceReference can tweak running behavior of service
 // Note: this is not a part of the Service configuration but part of the Application running
 type RunningOptions struct {
-	Replicas    int  `yaml:"replicas,omitempty"`
 	Quiet       bool `yaml:"quiet,omitempty"`
 	Persistence bool `yaml:"persistence,omitempty"`
 }
 
-func (ref *ServiceReference) Validate() error {
-	return nil
+// ServiceReference is a reference to a service used by Application configuration
+type ServiceReference struct {
+	Name                 string  `yaml:"name"`
+	RelativePathOverride *string `yaml:"relative-path,omitempty"`
+	Application          string  `yaml:"application,omitempty"`
+
+	RunningOptions RunningOptions `yaml:"options,omitempty"`
 }
 
-func (ref *ServiceReference) CreateReplicas() []string {
-	logger := shared.NewLogger("configurations.ServiceRunner.Replicas")
-	if ref.RunningOptions.Replicas == 0 {
-		return nil
+func (ref *ServiceReference) RelativePath() string {
+	if ref.RelativePathOverride != nil {
+		return *ref.RelativePathOverride
 	}
-	logger.Debugf("creating replica services - useful for logging")
-	var names []string
-	for i := 0; i < ref.RunningOptions.Replicas; i++ {
-		names = append(names, fmt.Sprintf("%s-%d", ref.Name, i+1))
-	}
-	return names
+	return ref.Name
+}
+
+func (ref *ServiceReference) Dir(opts ...Option) (string, error) {
+	scope := WithScope(opts...)
+	return path.Join(scope.Application.Dir(), ref.RelativePath()), nil
+}
+
+func (ref *ServiceReference) String() string {
+	return fmt.Sprintf("%s/%s", ref.Application, ref.Name)
 }
 
 // Projects reference Applications
 
 // An ApplicationReference
 type ApplicationReference struct {
-	Name         string `yaml:"name"`
-	RelativePath string `yaml:"relative-path,omitempty"`
+	Name                 string  `yaml:"name"`
+	RelativePathOverride *string `yaml:"relative-path,omitempty"`
+}
+
+func (r ApplicationReference) RelativePath() string {
+	if r.RelativePathOverride != nil {
+		return *r.RelativePathOverride
+	}
+	return r.Name
 }
 
 // Projects reference Providers
 
 // A ProviderReference
 type ProviderReference struct {
-	Name         string `yaml:"name"`
-	RelativePath string `yaml:"relative-path,omitempty"`
+	Name                 string  `yaml:"name"`
+	RelativePathOverride *string `yaml:"relative-path,omitempty"`
 }
 
 // Services reference Endpoints

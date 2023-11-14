@@ -28,11 +28,11 @@ Convention: relative to path from project
 */
 
 type Application struct {
-	Kind         string `yaml:"kind"`
-	Name         string `yaml:"name"`
-	RelativePath string `yaml:"relative-path"`
-	Project      string `yaml:"project"`
-	Domain       string `yaml:"domain"`
+	Kind                 string  `yaml:"kind"`
+	Name                 string  `yaml:"name"`
+	RelativePathOverride *string `yaml:"relative-path"`
+	Project              string  `yaml:"project"`
+	Domain               string  `yaml:"domain"`
 
 	Services []*ServiceReference `yaml:"services"`
 }
@@ -52,7 +52,7 @@ func ApplicationConfiguration(current bool) (*Application, error) {
 				if err != nil {
 					return nil, logger.Wrapf(err, "cannot load current appplication")
 				}
-				logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current application from context: <%s>.", cur.Name))
+				//logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current application from context: <%s>.", cur.Name))
 				return cur, nil
 			}
 			return nil, err
@@ -70,14 +70,12 @@ func NewApplication(name string) (*Application, error) {
 		Name:    name,
 		Domain:  ExtendDomain(MustCurrentProject().Domain, name),
 		Project: MustCurrentProject().Name,
-
-		RelativePath: name,
 	}
-	dir := path.Join(MustCurrentProject().Dir(), app.RelativePath)
+	dir := path.Join(MustCurrentProject().Dir(), app.RelativePath())
 	SolveDirOrCreate(dir)
 
 	// Templatize as usual
-	err := templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/application"), shared.NewDir(dir), app)
+	err := templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/application"), shared.NewDir(dir), app, nil)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot copy and apply template")
 	}
@@ -89,8 +87,7 @@ func NewApplication(name string) (*Application, error) {
 	SetCurrentApplication(&app)
 
 	err = MustCurrentProject().AddApplication(&ApplicationReference{
-		Name:         name,
-		RelativePath: name,
+		Name: name,
 	})
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot add applications to project configuration")
@@ -103,8 +100,8 @@ func NewApplication(name string) (*Application, error) {
 }
 
 func (app *Application) Dir(opts ...Option) string {
-	scope := WithScopeProjectOnly(opts...).WithApplication(app)
-	return path.Join(scope.Project.Dir(), scope.Application.RelativePath)
+	scope := WithScope(opts...)
+	return path.Join(scope.Project.Dir(), app.RelativePath())
 }
 
 func LoadApplicationFromDir(dir string) (*Application, error) {
@@ -113,7 +110,7 @@ func LoadApplicationFromDir(dir string) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	config.RelativePath = MustCurrentProject().Relative(dir)
+	config.RelativePathOverride = RelativePath(config.Name, MustCurrentProject().Relative(dir))
 	logger.Tracef("loaded applications configuration with %d services", len(config.Services))
 	return config, err
 }
@@ -229,6 +226,21 @@ func (app *Application) LoadServiceFromName(name string) (*Service, error) {
 	return LoadServiceFromDir(path.Join(app.Dir(), name))
 }
 
+func (app *Application) Reference() *ApplicationReference {
+	return &ApplicationReference{
+		Name:                 app.Name,
+		RelativePathOverride: app.RelativePathOverride,
+	}
+
+}
+
+func (app *Application) RelativePath() string {
+	if app.RelativePathOverride != nil {
+		return *app.RelativePathOverride
+	}
+	return app.Name
+}
+
 func CurrentApplication(opts ...Option) (*Application, error) {
 	logger := shared.NewLogger("CurrentApplication")
 	if currentApplication != nil {
@@ -284,7 +296,7 @@ func ListApplications(opts ...Option) ([]*Application, error) {
 	var apps []*Application
 	for _, app := range scope.Project.Applications {
 
-		a, err := LoadApplicationFromDir(path.Join(scope.Project.Dir(), app.RelativePath))
+		a, err := LoadApplicationFromDir(path.Join(scope.Project.Dir(), app.RelativePath()))
 		if err != nil {
 			return nil, logger.Errorf("cannot load applications configuration <%s>: %v", app.Name, err)
 		}

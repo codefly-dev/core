@@ -8,6 +8,17 @@ import (
 	"os/exec"
 )
 
+func RequireExec(bins ...string) ([]string, bool) {
+	var missing []string
+	for _, bin := range bins {
+		_, err := exec.LookPath(bin)
+		if err != nil {
+			missing = append(missing, bin)
+		}
+	}
+	return missing, len(missing) == 0
+}
+
 func WrapStart(cmd *exec.Cmd, logger BaseLogger) error {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

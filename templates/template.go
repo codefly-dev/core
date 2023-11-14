@@ -32,7 +32,7 @@ func Walk(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, ignor
 		return logger.Wrapf(err, "cannot got to target source")
 	}
 	for _, entry := range entries {
-		if ignore.Ignore(shared.NewFile(entry.Name())) {
+		if ignore != nil && ignore.Ignore(shared.NewFile(entry.Name())) {
 			continue
 		}
 		p := path.Join(fs.AbsoluteDir(root), entry.Name())
@@ -136,11 +136,32 @@ func CopyAndReplace(fs shared.FileSystem, f shared.File, destination shared.File
 
 type NoOpIgnore struct{}
 
-func (n NoOpIgnore) Ignore(file shared.File) bool {
+var _ Ignore = NoOpIgnore{}
+
+func (ign NoOpIgnore) Ignore(file shared.File) bool {
 	return false
 }
 
-func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
+type IgnorePatterns struct {
+	patterns []string
+}
+
+var _ Ignore = IgnorePatterns{}
+
+func NewIgnore(patterns ...string) IgnorePatterns {
+	return IgnorePatterns{patterns: patterns}
+}
+
+func (ign IgnorePatterns) Ignore(file shared.File) bool {
+	for _, pattern := range ign.patterns {
+		if strings.Contains(file.Base(), pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any, ignore Ignore) error {
 	logger.Debugf("applying template to directory %s -> %s", root, destination)
 	err := shared.CheckDirectoryOrCreate(fs.AbsoluteDir(destination))
 	if err != nil {
@@ -148,11 +169,11 @@ func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Di
 	}
 	var dirs []shared.Dir
 	var files []shared.File
-	err = Walk(logger, fs, root, &NoOpIgnore{}, &files, &dirs)
+	err = Walk(logger, fs, root, ignore, &files, &dirs)
 	if err != nil {
 		return fmt.Errorf("cannot read template directory: %v", err)
 	}
-	logger.Debugf("walked %d directories and %d files", len(dirs), len(files))
+	logger.DebugMe("walked %d directories and %d files", len(dirs), len(files))
 	for _, d := range dirs {
 		// We take the relative path from the root directory
 		rel, err := d.RelativeFrom(root)
@@ -183,7 +204,7 @@ func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Di
 		}
 
 		if shared.FileExists(d) {
-			logger.DebugMe("file %s already exists: skipping", d)
+			logger.Debugf("file %s already exists: skipping", d)
 			continue
 		}
 		err = CopyAndApplyTemplate(fs, f, shared.NewFile(d), obj)

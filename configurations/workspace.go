@@ -39,14 +39,14 @@ type GlobalConfigurationInputer interface {
 // InitGlobal initializes the global configuration of codefly
 // GlobalConfigurationInputer: setup the configuration and defaults
 // Override: policy to replace existing configuration
-func InitGlobal(getter GlobalConfigurationInputer, override Override) {
+func InitGlobal(getter GlobalConfigurationInputer) {
 	logger := shared.NewLogger("configurations.InitCodefly")
 	logger.Tracef("creating if needed global configuration dir: %v", globalConfigDir)
 
 	dir := SolveDirOrCreate(globalConfigDir)
 
 	// Check if already exists
-	if ExistsAtDir[Workspace](dir) && !override.Override(Path[Workspace](dir)) {
+	if ExistsAtDir[Workspace](dir) { // && !override.Override(Path[Workspace](dir)) {
 		logger.Debugf("global configuration already exists and no override")
 		return
 	}
@@ -79,6 +79,25 @@ func (g *Workspace) Relative(dir string) string {
 	rel, err := filepath.Rel(g.Dir(), dir)
 	shared.ExitOnError(err, "cannot compute relative path from workspace")
 	return rel
+}
+
+func DeleteProject(name string) {
+	var projects []*ProjectReference
+	current := MustCurrent()
+	if current == nil {
+		panic("fix me")
+	}
+	for _, p := range global.Projects {
+		if p.Name == name {
+			continue
+		}
+		projects = append(projects, p)
+	}
+	global.Projects = projects
+	if global.CurrentProject == name {
+		global.CurrentProject = ""
+	}
+	SaveCurrent()
 }
 
 // Current returns the current global configuration

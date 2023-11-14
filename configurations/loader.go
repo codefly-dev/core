@@ -12,10 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func Pointer[C Configuration](c C) *C {
-	return &c
-}
-
 type Configuration interface{}
 
 func SolveDir(dir string) string {
