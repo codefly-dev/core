@@ -149,7 +149,7 @@ func (s *Service) Save() error {
 }
 
 func (s *Service) SaveAtDir(destination string) error {
-	logger := shared.NewLogger("configurations.Unique<%s>.Save", s.Name)
+	logger := shared.NewLogger("configurations.Unique<%s>.Save", s.Unique())
 	if _, err := os.Stat(destination); os.IsNotExist(err) {
 		err := os.Mkdir(destination, 0o755)
 		if err != nil {
@@ -168,7 +168,7 @@ func (s *Service) SaveAtDir(destination string) error {
 	return nil
 }
 
-func (s *Service) UpdateSpec(spec any) error {
+func (s *Service) UpdateSpecFromSettings(spec any) error {
 	if s.Spec == nil {
 		s.Spec = make(map[string]any)
 	}
@@ -190,7 +190,7 @@ func (s *Service) UpdateSpec(spec any) error {
 	return nil
 }
 
-func (s *Service) LoadFromSpec(t any) error {
+func (s *Service) LoadSettingsFromSpec(t any) error {
 	// write down the spec to []byte
 	content, err := yaml.Marshal(s.Spec)
 	if err != nil {
