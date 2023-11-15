@@ -168,12 +168,38 @@ func (s *Service) SaveAtDir(destination string) error {
 	return nil
 }
 
-func (s *Service) AddSpec(spec any) error {
+func (s *Service) UpdateSpec(spec any) error {
 	if s.Spec == nil {
 		s.Spec = make(map[string]any)
 	}
-	if err := mapstructure.Decode(spec, &s.Spec); err != nil {
-		return fmt.Errorf("cannot decode service spec: %s", err)
+
+	config := &mapstructure.DecoderConfig{
+		Metadata: nil,
+		Result:   &s.Spec,
+		TagName:  "yaml",
+	}
+
+	decoder, err := mapstructure.NewDecoder(config)
+	if err != nil {
+		return fmt.Errorf("cannot create decoder: %w", err)
+	}
+
+	if err := decoder.Decode(spec); err != nil {
+		return fmt.Errorf("cannot decode service spec: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) LoadFromSpec(t any) error {
+	// write down the spec to []byte
+	content, err := yaml.Marshal(s.Spec)
+	if err != nil {
+		return fmt.Errorf("cannot marshal service spec: %w", err)
+	}
+	// decode the spec into the target
+	err = yaml.Unmarshal(content, t)
+	if err != nil {
+		return fmt.Errorf("cannot unmarshal service spec: %w", err)
 	}
 	return nil
 }

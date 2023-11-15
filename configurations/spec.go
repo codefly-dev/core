@@ -1,15 +1,15 @@
 package configurations
 
 import (
+	"fmt"
 	"github.com/codefly-dev/core/shared"
 	"gopkg.in/yaml.v3"
 )
 
-func LoadSpec(content []byte, obj any, override shared.BaseLogger) error {
-	logger := shared.NewLogger("configurations.LoadSpec").IfNot(override)
+func LoadSpec(content []byte, obj any) error {
 	err := yaml.Unmarshal(content, obj)
 	if err != nil {
-		return logger.Wrapf(err, "cannot load object")
+		return fmt.Errorf("cannot unmarshal object: %w", err)
 	}
 	return nil
 }
