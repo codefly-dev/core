@@ -79,8 +79,6 @@ func sanitize(route string) string {
 func (r *RestRoute) Save(ctx context.Context, dir string) error {
 	logger := ctx.Value(shared.Plugin).(shared.BaseLogger)
 	dir = path.Join(dir, r.Application, r.Service)
-	logger.DebugMe("APPL %v", r.Application)
-	logger.DebugMe("SERV %v", r.Service)
 	logger.DebugMe("saving rest route %v to %s", r, dir)
 	err := shared.CheckDirectoryOrCreate(dir)
 	if err != nil {

@@ -3,6 +3,7 @@ package configurations
 import (
 	"fmt"
 	"path"
+	"strings"
 )
 
 /*
@@ -78,6 +79,18 @@ func (ref *ServiceReference) Dir(opts ...Option) (string, error) {
 
 func (ref *ServiceReference) String() string {
 	return fmt.Sprintf("%s/%s", ref.Application, ref.Name)
+}
+
+func ParseServiceReference(input string) (*ServiceReference, error) {
+	parts := strings.Split(input, "/")
+	switch len(parts) {
+	case 1:
+		return &ServiceReference{Name: parts[0]}, nil
+	case 2:
+		return &ServiceReference{Name: parts[1], Application: parts[0]}, nil
+	default:
+		return nil, fmt.Errorf("invalid service input: %s", input)
+	}
 }
 
 // Projects reference Applications

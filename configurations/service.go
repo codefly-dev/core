@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"slices"
-	"strings"
 )
 
 const ServiceConfigurationName = "service.codefly.yaml"
@@ -257,17 +256,9 @@ func LoadServicesFromInput(inputs ...string) ([]*Service, error) {
 	return services, nil
 }
 
-func ParseServiceInput(input string) (*ServiceReference, error) {
-	tokens := strings.Split(input, "/")
-	if len(tokens) == 1 {
-		return &ServiceReference{Name: input}, nil
-	}
-	return &ServiceReference{Name: tokens[1], Application: tokens[0]}, nil
-}
-
 func LoadService(input string) (*Service, error) {
 	logger := shared.NewLogger("configurations.LoadService")
-	ref, err := ParseServiceInput(input)
+	ref, err := ParseServiceReference(input)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot parse service entry")
 	}

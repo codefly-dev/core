@@ -19,6 +19,10 @@ type Plugin struct {
 	Publisher  string `yaml:"publisher"`
 }
 
+func (p *Plugin) String() string {
+	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Identifier, p.Version)
+}
+
 func NewPlugin(kind string, publisher string, identifier string, version string) *Plugin {
 	p := &Plugin{
 		Kind:       kind,
