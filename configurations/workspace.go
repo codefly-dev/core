@@ -32,17 +32,15 @@ func LoadCurrentProject() (*Project, error) {
 	if err != nil {
 		return nil, shared.NewUserError("cannot find current project <%s> in global configuration", MustCurrent().CurrentProject)
 	}
-	p, err := LoadFromDir[Project](path.Join(GlobalProjectRoot(), reference.RelativePath()))
+	p, err := LoadProjectFromDir(path.Join(GlobalProjectRoot(), reference.RelativePath()))
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project")
 	}
-	//p.RelativePathOverride = reference.RelativePathOverride
-	//for _, app := range p.Applications {
-	//	if app.RelativePathOverride == "" {
-	//		app.RelativePathOverride = app.Name
-	//	}
-	//}
-	return p, err
+	err = p.Process()
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot process project")
+	}
+	return p, nil
 }
 
 func ListProjects() ([]*Project, error) {

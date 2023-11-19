@@ -49,19 +49,29 @@ func MakeCurrent(entry string) string {
 	return fmt.Sprintf("%s*", entry)
 }
 
+func (project *Project) Process() error {
+	// Internally we keep track of current application differently
+	for _, app := range project.Applications {
+		if strings.HasSuffix(app.Name, "*") {
+			app.Name = strings.TrimSuffix(app.Name, "*")
+			project.currentApplication = app.Name
+		}
+	}
+	return nil
+}
+
 func (project *Project) SetCurrent(name string) {
 	for _, app := range project.Applications {
-		if ProjectMatch(app.Name, name) {
+		if app.Name == name {
 			project.currentApplication = name
-			app.Name = MakeCurrent(app.Name)
+			app.Name = MakeCurrent(name)
 			return
 		}
 	}
 }
+
 func (project *Project) PreSave() error {
-	if project.currentApplication != "" {
-		project.SetCurrent(project.currentApplication)
-	}
+	project.SetCurrent(project.currentApplication)
 	return nil
 }
 
@@ -210,18 +220,16 @@ func RelativeProjectPath(p string) string {
 
 func LoadProjectFromDir(dir string) (*Project, error) {
 	logger := shared.NewLogger("LoadProjectFromDir<%s>", dir)
-	conf, err := LoadFromDir[Project](dir)
+	project, err := LoadFromDir[Project](dir)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project configuration")
 	}
-	// Internally we keep track of current application differently
-	for _, app := range conf.Applications {
-		if strings.HasSuffix(app.Name, "*") {
-			app.Name = strings.TrimSuffix(app.Name, "*")
-			conf.currentApplication = app.Name
-		}
+	err = project.Process()
+	if err != nil {
+		return nil, err
 	}
-	return conf, nil
+
+	return project, nil
 }
 
 func LoadProjectFromName(name string) (*Project, error) {
@@ -394,11 +402,11 @@ func (project *Project) ListApplications() ([]*Application, error) {
 
 func (project *Project) LoadApplicationFromReference(ref *ApplicationReference) (*Application, error) {
 	dir := path.Join(project.Dir(), ref.Name)
-	config, err := LoadFromDir[Application](dir)
+	app, err := LoadFromDir[Application](dir)
 	if err != nil {
 		return nil, err
 	}
-	return config, nil
+	return app, nil
 }
 
 func (project *Project) AddPartial(partial Partial) error {
@@ -410,4 +418,14 @@ func (project *Project) AddPartial(partial Partial) error {
 	project.Partials = append(project.Partials, partial)
 	return project.Save()
 
+}
+
+func (project *Project) CurrentApplication() (*Application, error) {
+	cur := project.Current()
+	for _, ref := range project.Applications {
+		if ref.Name == cur {
+			return project.LoadApplicationFromReference(ref)
+		}
+	}
+	return nil, fmt.Errorf("current application not defined")
 }
