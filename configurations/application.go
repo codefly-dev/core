@@ -247,7 +247,7 @@ func CurrentApplication(opts ...Option) (*Application, error) {
 		return currentApplication, nil
 	}
 	scope := WithScopeProjectOnly(opts...)
-	current := scope.Project.CurrentApplication
+	current := scope.Project.Current()
 
 	all, err := ListApplications(opts...)
 	if err != nil {
@@ -285,7 +285,7 @@ func SetCurrentApplication(app *Application) {
 		os.Exit(0)
 	}
 	currentApplication = app
-	MustCurrentProject().CurrentApplication = app.Name
+	MustCurrentProject().SetCurrent(app.Name)
 	err := MustCurrentProject().Save()
 	shared.ExitOnError(err, "cannot save current project")
 }

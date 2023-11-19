@@ -25,13 +25,44 @@ type Project struct {
 
 	// Applications in the project
 	Applications       []*ApplicationReference `yaml:"applications"`
-	CurrentApplication string                  `yaml:"current-application,omitempty"`
+	currentApplication string                  `yaml:"current-application,omitempty"`
 
 	// Partials are convenient way to run several applications
 	Partials []Partial `yaml:"partials"`
 
 	// Providers in the project
 	Providers []ProviderReference `yaml:"providers"`
+}
+
+func (project *Project) Current() string {
+	return project.currentApplication
+}
+
+func ProjectMatch(entry string, name string) bool {
+	return entry == name || entry == fmt.Sprintf("%s*", name)
+}
+
+func MakeCurrent(entry string) string {
+	if strings.HasSuffix(entry, "*") {
+		return entry
+	}
+	return fmt.Sprintf("%s*", entry)
+}
+
+func (project *Project) SetCurrent(name string) {
+	for _, app := range project.Applications {
+		if ProjectMatch(app.Name, name) {
+			project.currentApplication = name
+			app.Name = MakeCurrent(app.Name)
+			return
+		}
+	}
+}
+func (project *Project) PreSave() error {
+	if project.currentApplication != "" {
+		project.SetCurrent(project.currentApplication)
+	}
+	return nil
 }
 
 func ProjectConfiguration(current bool) (*Project, error) {
@@ -156,55 +187,11 @@ func (project *Project) Unique() string {
 	return project.Name
 }
 
-func LoadCurrentProject() (*Project, error) {
-	logger := shared.NewLogger("LoadCurrentProject")
-	if MustCurrent().CurrentProject == "" {
-		return nil, shared.NewUserError("no current project")
-	}
-	reference, err := FindProjectReference(MustCurrent().CurrentProject)
-	if err != nil {
-		return nil, shared.NewUserError("cannot find current project <%s> in global configuration", MustCurrent().CurrentProject)
-	}
-	p, err := LoadFromDir[Project](path.Join(GlobalProjectRoot(), reference.RelativePath()))
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load project")
-	}
-	//p.RelativePathOverride = reference.RelativePathOverride
-	//for _, app := range p.Applications {
-	//	if app.RelativePathOverride == "" {
-	//		app.RelativePathOverride = app.Name
-	//	}
-	//}
-	return p, err
-}
-
-func KnownProjects() []string {
-	var names []string
-	for _, p := range MustCurrent().Projects {
-		names = append(names, p.Name)
-	}
-	return names
-}
-
 func ValidateProjectName(name string) error {
 	if name == "" {
 		return fmt.Errorf("invalid project name")
 	}
 	return nil
-}
-
-func ListProjects() ([]*Project, error) {
-	logger := shared.NewLogger("ListProjects")
-	var projects []*Project
-	for _, p := range MustCurrent().Projects {
-		project, err := LoadProjectFromDir(ProjectPath(p.RelativePath()))
-		if err != nil {
-			logger.Warn(err)
-			continue
-		}
-		projects = append(projects, project)
-	}
-	return projects, nil
 }
 
 func (project *Project) Dir() string {
@@ -221,47 +208,18 @@ func RelativeProjectPath(p string) string {
 	return rel
 }
 
-func FindProjectReference(name string) (*ProjectReference, error) {
-	for _, p := range MustCurrent().Projects {
-		if p.Name == name {
-			return p, nil
-		}
-	}
-	return nil, fmt.Errorf("cannot find project <%s>", name)
-}
-
-func CurrentProject() (*Project, error) {
-	logger := shared.NewLogger("CurrentProject")
-	if currentProject == nil {
-		project, err := LoadCurrentProject()
-		if err != nil {
-			return nil, logger.Wrapf(err, "cannot load current project")
-		}
-		currentProject = project
-	}
-	return currentProject, nil
-}
-
-func MustCurrentProject() *Project {
-	if currentProject == nil {
-		project, err := CurrentProject()
-		shared.ExitOnError(err, "cannot load current project")
-		currentProject = project
-	}
-	return currentProject
-}
-
-func SetCurrentProject(p *Project) {
-	currentProject = p
-	MustCurrent().CurrentProject = p.Name
-	SaveCurrent()
-}
-
 func LoadProjectFromDir(dir string) (*Project, error) {
 	logger := shared.NewLogger("LoadProjectFromDir<%s>", dir)
 	conf, err := LoadFromDir[Project](dir)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project configuration")
+	}
+	// Internally we keep track of current application differently
+	for _, app := range conf.Applications {
+		if strings.HasSuffix(app.Name, "*") {
+			app.Name = strings.TrimSuffix(app.Name, "*")
+			conf.currentApplication = app.Name
+		}
 	}
 	return conf, nil
 }
@@ -277,15 +235,17 @@ func LoadProjectFromName(name string) (*Project, error) {
 
 func (project *Project) Save() error {
 	logger := shared.NewLogger("Project.Save<%s>", project.Name)
-	if project.RelativePath == "" {
-		return logger.Errorf("project location is not set")
-	}
+
 	dir := path.Join(GlobalProjectRoot(), project.RelativePath)
 	logger.Tracef("relative path of project <%s>", dir)
 	return project.SaveToDir(dir)
 }
 
 func (project *Project) SaveToDir(dir string) error {
+	err := project.PreSave()
+	if err != nil {
+		return err
+	}
 	return SaveToDir(project, dir)
 }
 

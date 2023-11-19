@@ -1,6 +1,7 @@
 package configurations
 
 import (
+	"fmt"
 	"path"
 	"path/filepath"
 
@@ -20,6 +21,86 @@ type Workspace struct {
 
 	// Internal
 	FullDir string `yaml:"-"`
+}
+
+func LoadCurrentProject() (*Project, error) {
+	logger := shared.NewLogger("LoadCurrentProject")
+	if MustCurrent().CurrentProject == "" {
+		return nil, shared.NewUserError("no current project")
+	}
+	reference, err := FindProjectReference(MustCurrent().CurrentProject)
+	if err != nil {
+		return nil, shared.NewUserError("cannot find current project <%s> in global configuration", MustCurrent().CurrentProject)
+	}
+	p, err := LoadFromDir[Project](path.Join(GlobalProjectRoot(), reference.RelativePath()))
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot load project")
+	}
+	//p.RelativePathOverride = reference.RelativePathOverride
+	//for _, app := range p.Applications {
+	//	if app.RelativePathOverride == "" {
+	//		app.RelativePathOverride = app.Name
+	//	}
+	//}
+	return p, err
+}
+
+func ListProjects() ([]*Project, error) {
+	logger := shared.NewLogger("ListProjects")
+	var projects []*Project
+	for _, p := range MustCurrent().Projects {
+		project, err := LoadProjectFromDir(ProjectPath(p.RelativePath()))
+		if err != nil {
+			logger.Warn(err)
+			continue
+		}
+		projects = append(projects, project)
+	}
+	return projects, nil
+}
+
+func KnownProjects() []string {
+	var names []string
+	for _, p := range MustCurrent().Projects {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
+func FindProjectReference(name string) (*ProjectReference, error) {
+	for _, p := range MustCurrent().Projects {
+		if p.Name == name {
+			return p, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot find project <%s>", name)
+}
+
+func CurrentProject() (*Project, error) {
+	logger := shared.NewLogger("CurrentProject")
+	if currentProject == nil {
+		project, err := LoadCurrentProject()
+		if err != nil {
+			return nil, logger.Wrapf(err, "cannot load current project")
+		}
+		currentProject = project
+	}
+	return currentProject, nil
+}
+
+func MustCurrentProject() *Project {
+	if currentProject == nil {
+		project, err := CurrentProject()
+		shared.ExitOnError(err, "cannot load current project")
+		currentProject = project
+	}
+	return currentProject
+}
+
+func SetCurrentProject(p *Project) {
+	currentProject = p
+	MustCurrent().CurrentProject = p.Name
+	SaveCurrent()
 }
 
 // A GlobalConfigurationInputer abstracts away global configuration and default of project creation

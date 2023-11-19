@@ -34,7 +34,7 @@ func NewPlugin(kind string, publisher string, identifier string, version string)
 	return p
 }
 
-func LoadPluginConfiguration(fs shared.FileSystem) Plugin {
+func LoadPluginConfiguration(fs shared.FileSystem) *Plugin {
 	content, err := fs.ReadFile(shared.NewFile(PluginConfigurationName))
 	if err != nil {
 		shared.ExitOnError(err, "cannot load plugin configurations")
@@ -43,7 +43,7 @@ func LoadPluginConfiguration(fs shared.FileSystem) Plugin {
 	if err != nil {
 		shared.ExitOnError(err, "cannot load plugin configurations")
 	}
-	return *conf
+	return conf
 }
 
 func LoadPluginConfigurationFromReader(fs shared.FSReader) Plugin {
