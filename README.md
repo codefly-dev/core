@@ -30,3 +30,23 @@ A folder is a project folder if it contains a `project.codefly.yaml` file.
 ## Templating on steroids
 
 Within `codefly.ai`, we do *a lot* of templating. We add some powerful tools.
+
+
+
+### Tips for a Cool README:
+
+1. **Engaging Visuals**: Include badges for build status, code quality, etc., and consider adding a project logo or screenshots/gifs of your project in action.
+
+2. **Clear and Concise**: Make your README easy to read with clear headings and concise descriptions.
+
+3. **Examples**: Include usage examples, as they are extremely helpful to new users.
+
+4. **Contribution Guidelines**: Encourage community involvement with clear contribution guidelines.
+
+5. **License Information**: Always specify the license to inform users about how they can use your project.
+
+6. **Acknowledgments**: Give credit where it's due if you're building upon others' work.
+
+7. **Keep it Updated**: Regularly update the README as your project evolves.
+
+Remember, the README is often the first thing users or potential contributors see, so making it informative, welcoming, and visually appealing can greatly impact the success of your project.

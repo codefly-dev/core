@@ -80,7 +80,7 @@ func Debug() bool {
 }
 
 func Todo() bool {
-	return todo
+	return todo || Trace() || Debug()
 }
 
 func Trace() bool {
