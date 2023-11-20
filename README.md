@@ -1,5 +1,6 @@
 # Welcome to `codefly.ai` core library
 
+[![Release](https://github.com/codefly-dev/core/actions/workflows/release.yml/badge.svg)](https://github.com/codefly-dev/core/actions/workflows/release.yml)
 ![workflow](https://github.com/codefly-dev/core/actions/workflows/go.yml/badge.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/codefly-dev/core)](https://goreportcard.com/report/github.com/codefly-dev/core)
 [![Go Reference](https://pkg.go.dev/badge/github.com/codefly-dev/core.svg)](https://pkg.go.dev/github.com/codefly-dev/sdk-go)
