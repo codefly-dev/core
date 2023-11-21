@@ -2,12 +2,13 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/codefly-dev/core/shared"
-	"github.com/mitchellh/mapstructure"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path"
 	"slices"
+
+	"github.com/codefly-dev/core/shared"
+	"github.com/mitchellh/mapstructure"
+	"gopkg.in/yaml.v3"
 )
 
 const ServiceConfigurationName = "service.codefly.yaml"

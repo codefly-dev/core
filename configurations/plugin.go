@@ -2,10 +2,11 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/Masterminds/semver"
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/Masterminds/semver"
 
 	"github.com/codefly-dev/core/shared"
 )

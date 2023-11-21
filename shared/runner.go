@@ -3,9 +3,10 @@ package shared
 import (
 	"bufio"
 	"bytes"
-	"github.com/pkg/errors"
 	"io"
 	"os/exec"
+
+	"github.com/pkg/errors"
 )
 
 func RequireExec(bins ...string) ([]string, bool) {

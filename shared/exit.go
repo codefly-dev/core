@@ -10,11 +10,10 @@ func Exit(msg string, args ...any) {
 	os.Exit(0)
 }
 
-
 func ExitOnFalse(b bool, msg string, args ...any) {
 	logger := NewLogger("shared.ExitOnError")
 	if !b {
-		logger.Oops( fmt.Sprintf(msg, args...))
+		logger.Oops(fmt.Sprintf(msg, args...))
 		os.Exit(1)
 	}
 }

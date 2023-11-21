@@ -1,10 +1,11 @@
 package configurations_test
 
 import (
-	"gopkg.in/yaml.v3"
 	"os"
 	"path"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/codefly-dev/core/configurations"
 	"github.com/stretchr/testify/assert"

@@ -1,11 +1,12 @@
 package configurations_test
 
 import (
-	"github.com/codefly-dev/core/configurations"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"path"
 	"testing"
+
+	"github.com/codefly-dev/core/configurations"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCreation(t *testing.T) {

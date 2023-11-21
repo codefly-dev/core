@@ -3,11 +3,12 @@ package configurations
 import (
 	"context"
 	"fmt"
-	"github.com/codefly-dev/core/shared"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path"
 	"strings"
+
+	"github.com/codefly-dev/core/shared"
+	"gopkg.in/yaml.v3"
 )
 
 type HttpMethod string

@@ -3,8 +3,9 @@ package shared
 import (
 	"errors"
 	"fmt"
-	"github.com/hashicorp/go-multierror"
 	"strings"
+
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/codefly-dev/golor"
 )
