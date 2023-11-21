@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+// Endpoint is the fundamental entity that standardize communication between services.
 type Endpoint struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
