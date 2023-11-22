@@ -1,4 +1,4 @@
-name: CodeflyCore
+name: codefly core
 
 on:
   push:

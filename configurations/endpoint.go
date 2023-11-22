@@ -9,7 +9,7 @@ import (
 type Endpoint struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
-	Visibility  string `yaml:"visibility,omitempty"`
+	Scope       string `yaml:"scope,omitempty"`
 	Api         string `yaml:"api,omitempty"`
 	// FailOver indicates that this endpoint should fail over to another endpoint
 	FailOver *Endpoint `yaml:"fail-over,omitempty"`

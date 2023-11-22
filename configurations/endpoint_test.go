@@ -42,3 +42,25 @@ func TestUniqueAndBack(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, unique, back)
 }
+
+func TestLoadingFromDir(t *testing.T) {
+	conf, err := configurations.LoadServiceFromDir("testdata/service")
+	assert.NoError(t, err)
+
+	assert.Equal(t, 2, len(conf.Endpoints))
+
+	var restFound bool
+	var grpcFound bool
+	for _, e := range conf.Endpoints {
+		if e.Name == configurations.Rest {
+			restFound = true
+			assert.Equal(t, "project", e.Scope)
+		}
+		if e.Name == configurations.Grpc {
+			grpcFound = true
+			assert.Equal(t, "", e.Scope)
+		}
+	}
+	assert.True(t, restFound)
+	assert.True(t, grpcFound)
+}
