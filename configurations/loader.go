@@ -96,10 +96,6 @@ func ExistsAtDir[C Configuration](dir string) bool {
 		p = path.Join(dir, ApplicationConfigurationName)
 	case Service:
 		p = path.Join(dir, ServiceConfigurationName)
-	// case Library:
-	//	p = path.Join(dir, LibraryConfigurationName)
-	// case LibraryGeneration:
-	//	p = path.Join(dir, LibraryGenerationConfigurationName)
 	default:
 		panic(fmt.Errorf("unknown configuration type <%T>", c))
 	}
@@ -140,12 +136,71 @@ func LoadFromBytes[C Configuration](content []byte) (*C, error) {
 	return &config, nil
 }
 
-func SaveToDir[C Configuration](c *C, dir string) error {
-	logger := shared.NewLogger("configurations.SaveToDir[%s]", TypeName[C]())
-	if f, err := os.Stat(dir); os.IsNotExist(err) || !f.IsDir() {
-		return logger.Wrapf(err, "cannot find NewDir: %s", dir)
+type OverrideHandler interface {
+	Replace(p string) bool
+}
+
+type SaveOption struct {
+	OverrideHandler
+}
+
+type SaveOptionFunc func(*SaveOption)
+
+func WithOverride(handler OverrideHandler) SaveOptionFunc {
+	return func(o *SaveOption) {
+		o.OverrideHandler = handler
 	}
+}
+
+func SkipOverride() SaveOptionFunc {
+	return func(o *SaveOption) {
+		o.OverrideHandler = &SkipOverrideHandler{}
+	}
+}
+
+type AskOverrideHandler struct{}
+
+var overridingPath map[string]bool
+
+func init() {
+	overridingPath = make(map[string]bool)
+}
+
+func (a AskOverrideHandler) Replace(p string) bool {
+	if overridingPath[p] {
+		return true
+	}
+	ok := shared.Confirm(fmt.Sprintf("File %s already exists, want to override it?", p))
+	overridingPath[p] = ok
+	return ok
+}
+
+var _ OverrideHandler = (*AskOverrideHandler)(nil)
+
+func AskOverride() SaveOptionFunc {
+	return func(o *SaveOption) {
+		o.OverrideHandler = &AskOverrideHandler{}
+	}
+}
+
+type SkipOverrideHandler struct{}
+
+func (h *SkipOverrideHandler) Replace(f string) bool {
+	return false
+}
+
+func SaveToDir[C Configuration](c *C, dir string, opts ...SaveOptionFunc) error {
+	logger := shared.NewLogger("configurations.SaveToDir[%s]", TypeName[C]())
+	if !shared.DirectoryExists(dir) {
+		return logger.Errorf("directory doesn't exist")
+	}
+	option := SaveOptions(opts)
 	file := Path[C](dir)
+	if shared.FileExists(file) {
+		if !option.OverrideHandler.Replace(file) {
+			return nil
+		}
+	}
 	content, err := yaml.Marshal(*c)
 	if err != nil {
 		return logger.Wrapf(err, "cannot marshal")
@@ -155,6 +210,16 @@ func SaveToDir[C Configuration](c *C, dir string) error {
 		return logger.Wrapf(err, "cannot write")
 	}
 	return nil
+}
+
+func SaveOptions(opts []SaveOptionFunc) SaveOption {
+	saveOption := SaveOption{
+		OverrideHandler: &AskOverrideHandler{},
+	}
+	for _, opt := range opts {
+		opt(&saveOption)
+	}
+	return saveOption
 }
 
 // FindUp looks for a service configuration in the current directory and up

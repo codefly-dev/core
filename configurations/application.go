@@ -290,6 +290,16 @@ func SetCurrentApplication(app *Application) {
 	shared.ExitOnError(err, "cannot save current project")
 }
 
+func AddApplication(app *Application) error {
+	for _, a := range MustCurrentProject().Applications {
+		if a.Name == app.Name {
+			return nil
+		}
+	}
+	MustCurrentProject().Applications = append(MustCurrentProject().Applications, app.Reference())
+	return nil
+}
+
 func ListApplications(opts ...Option) ([]*Application, error) {
 	logger := shared.NewLogger("applications.List<%s>", MustCurrentProject().Dir())
 	scope := WithScopeProjectOnly(opts...)

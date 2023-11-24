@@ -154,9 +154,7 @@ func (p *ProjectInput) ProjectDir() string {
 func NewProject(name string) (*Project, error) {
 	logger := shared.NewLogger("NewProject<%s>", name)
 	if slices.Contains(KnownProjects(), name) {
-		if !shared.Debug() {
-			return nil, shared.NewUserError("project <%s> already exists", name).WithSuggestion("Try to use a different name")
-		}
+		return LoadProjectFromName(name)
 	}
 	if err := ValidateProjectName(name); err != nil {
 		return nil, logger.Wrapf(err, "invalid project name")

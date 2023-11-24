@@ -101,6 +101,18 @@ func SetCurrentProject(p *Project) {
 	SaveCurrent()
 }
 
+func AddProject(p *Project) {
+	for _, project := range MustCurrent().Projects {
+		if project.Name == p.Name {
+			return
+		}
+	}
+	MustCurrent().Projects = append(MustCurrent().Projects, &ProjectReference{
+		Name: p.Name,
+	})
+	SaveCurrent()
+}
+
 // A GlobalConfigurationInputer abstracts away global configuration and default of project creation
 type GlobalConfigurationInputer interface {
 	// Fetch instantiates the input
@@ -109,23 +121,16 @@ type GlobalConfigurationInputer interface {
 	Organization() string
 	// Domain associated with the organization
 	Domain() string
-	// CreateDefaultProject returns true if a default project should be created
-	CreateDefaultProject() bool
-	// ProjectBuilder abstracts away the configuration of Project creation
-	ProjectBuilder() ProjectBuilder
 }
 
 // InitGlobal initializes the global configuration of codefly
-// GlobalConfigurationInputer: setup the configuration and defaults
-// Override: policy to replace existing configuration
 func InitGlobal(getter GlobalConfigurationInputer) {
 	logger := shared.NewLogger("configurations.InitCodefly")
 	logger.Tracef("creating if needed global configuration dir: %v", globalConfigDir)
 
 	dir := SolveDirOrCreate(globalConfigDir)
 
-	// Check if already exists
-	if ExistsAtDir[Workspace](dir) { // && !override.Override(Path[Workspace](dir)) {
+	if ExistsAtDir[Workspace](dir) {
 		logger.Debugf("global configuration already exists and no override")
 		return
 	}
@@ -140,13 +145,8 @@ func InitGlobal(getter GlobalConfigurationInputer) {
 		Organization: getter.Organization(),
 		Domain:       getter.Domain(),
 	}
-	err = SaveToDir[Workspace](&global, dir)
+	err = SaveToDir[Workspace](&global, dir, SkipOverride())
 	shared.ExitOnError(err, "cannot save global configuration")
-	if getter.CreateDefaultProject() {
-		logger.Debugf("creating default project")
-		_, err := NewProject("fix me")
-		shared.UnexpectedExitOnError(err, "cannot create default project")
-	}
 }
 
 // Dir returns the absolute path to the global configuration directory
