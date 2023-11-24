@@ -131,7 +131,10 @@ func (p *Plugin) Path() (string, error) {
 	default:
 		return "", fmt.Errorf("unknown kind: %s", p.Kind)
 	}
-	return path.Join(GlobalConfigurationDir(), "plugins", subdir, p.Name()), nil
+	name := p.Name()
+	// Replace : by __ for compatilbity of file names
+	name = strings.Replace(name, ":", "__", 1)
+	return path.Join(GlobalConfigurationDir(), "plugins", subdir, name), nil
 }
 
 func (p *Plugin) Patch() (*Plugin, error) {
