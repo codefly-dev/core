@@ -52,7 +52,7 @@ func ApplicationConfiguration(current bool) (*Application, error) {
 				if err != nil {
 					return nil, logger.Wrapf(err, "cannot load current appplication")
 				}
-				//logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current application from context: <%s>.", cur.Name))
+				// logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current application from context: <%s>.", cur.Name))
 				return cur, nil
 			}
 			return nil, err
@@ -231,7 +231,6 @@ func (app *Application) Reference() *ApplicationReference {
 		Name:                 app.Name,
 		RelativePathOverride: app.RelativePathOverride,
 	}
-
 }
 
 func (app *Application) RelativePath() string {

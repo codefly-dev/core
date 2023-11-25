@@ -17,7 +17,6 @@ func (m ConfirmModel) Init() tea.Cmd {
 
 func (m ConfirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-
 	case tea.KeyMsg:
 		// Handle Ctrl+C and Ctrl+D
 		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlD {
@@ -42,7 +41,7 @@ func (m ConfirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m ConfirmModel) View() string {
 	// Render a block of text.
-	var style = lipgloss.NewStyle().
+	style := lipgloss.NewStyle().
 		Margin(1, 2, 1, 2)
 	return style.Render(golor.Sprintf("#(bold,magenta)[{{.Prompt}}] (Y/n)", m))
 }

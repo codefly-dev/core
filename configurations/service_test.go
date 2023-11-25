@@ -45,5 +45,4 @@ func TestSpecSave(t *testing.T) {
 	err = s.LoadSettingsFromSpec(&field)
 	assert.NoError(t, err)
 	assert.Equal(t, "testKind", field.TestField)
-
 }

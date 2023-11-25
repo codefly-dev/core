@@ -90,7 +90,7 @@ func ProjectConfiguration(current bool) (*Project, error) {
 				if err != nil {
 					return nil, logger.Wrapf(err, "cannot load current project")
 				}
-				//logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current project from context: <%s>.", cur.Name))
+				// logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current project from context: <%s>.", cur.Name))
 				return cur, nil
 			}
 			return nil, err
@@ -395,7 +395,6 @@ func (project *Project) ListApplications() ([]*Application, error) {
 		applications = append(applications, app)
 	}
 	return applications, nil
-
 }
 
 func (project *Project) LoadApplicationFromReference(ref *ApplicationReference) (*Application, error) {
@@ -415,7 +414,6 @@ func (project *Project) AddPartial(partial Partial) error {
 	}
 	project.Partials = append(project.Partials, partial)
 	return project.Save()
-
 }
 
 func (project *Project) CurrentApplication() (*Application, error) {

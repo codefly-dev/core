@@ -13,8 +13,10 @@ type LogLevel = string
 
 type ContextLoggerKey string
 
-const Plugin = ContextLoggerKey("plugin")
-const Service = ContextLoggerKey("service")
+const (
+	Plugin  = ContextLoggerKey("plugin")
+	Service = ContextLoggerKey("service")
+)
 
 const (
 	TraceLevel LogLevel = "trace"

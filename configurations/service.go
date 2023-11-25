@@ -238,7 +238,6 @@ func (s *Service) RelativePath() string {
 		return *s.RelativePathOverride
 	}
 	return s.Name
-
 }
 
 /*

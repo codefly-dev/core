@@ -1,5 +1,5 @@
 syntax = "proto3";
-package v1.core.api;
+package v1.base;
 
 
 /*
@@ -13,18 +13,29 @@ Only public endpoint can be accessed across applications
 
 */
 
+//message Visibility {
+//  enum Value {
+//    PUBLIC = 0;
+//    PROJECT = 1;
+//    PRIVATE = 2;
+//  }
+//  Value value = 1;
+//}
 
 message Endpoint {
   string name = 1;
   string description = 2;
-  bool public = 3;
+  string scope = 3;
   API api = 4;
+  string application = 5;
+  string service = 6;
+  string namespace = 7;
 }
 
 // Groups of endpoints are very convenient to manage and organize endpoints
 
 message ServiceEndpointGroup {
-  string unique = 1;
+  string name = 1;
   bool public = 2;
   repeated Endpoint endpoints = 3;
 }
