@@ -9,7 +9,7 @@ package runtime
 import (
 	context "context"
 
-	plugins "github.com/codefly-dev/core/proto/v1/go/plugins"
+	agents "github.com/codefly-dev/core/proto/v1/go/agents"
 	services "github.com/codefly-dev/core/proto/v1/go/services"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -40,7 +40,7 @@ type RuntimeClient interface {
 	Information(ctx context.Context, in *InformationRequest, opts ...grpc.CallOption) (*InformationResponse, error)
 	Stop(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
 	// Communication helper
-	Communicate(ctx context.Context, in *plugins.Engage, opts ...grpc.CallOption) (*plugins.InformationRequest, error)
+	Communicate(ctx context.Context, in *agents.Engage, opts ...grpc.CallOption) (*agents.InformationRequest, error)
 }
 
 type runtimeClient struct {
@@ -96,8 +96,8 @@ func (c *runtimeClient) Stop(ctx context.Context, in *StopRequest, opts ...grpc.
 	return out, nil
 }
 
-func (c *runtimeClient) Communicate(ctx context.Context, in *plugins.Engage, opts ...grpc.CallOption) (*plugins.InformationRequest, error) {
-	out := new(plugins.InformationRequest)
+func (c *runtimeClient) Communicate(ctx context.Context, in *agents.Engage, opts ...grpc.CallOption) (*agents.InformationRequest, error) {
+	out := new(agents.InformationRequest)
 	err := c.cc.Invoke(ctx, Runtime_Communicate_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -115,7 +115,7 @@ type RuntimeServer interface {
 	Information(context.Context, *InformationRequest) (*InformationResponse, error)
 	Stop(context.Context, *StopRequest) (*StopResponse, error)
 	// Communication helper
-	Communicate(context.Context, *plugins.Engage) (*plugins.InformationRequest, error)
+	Communicate(context.Context, *agents.Engage) (*agents.InformationRequest, error)
 	mustEmbedUnimplementedRuntimeServer()
 }
 
@@ -138,7 +138,7 @@ func (UnimplementedRuntimeServer) Information(context.Context, *InformationReque
 func (UnimplementedRuntimeServer) Stop(context.Context, *StopRequest) (*StopResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Stop not implemented")
 }
-func (UnimplementedRuntimeServer) Communicate(context.Context, *plugins.Engage) (*plugins.InformationRequest, error) {
+func (UnimplementedRuntimeServer) Communicate(context.Context, *agents.Engage) (*agents.InformationRequest, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Communicate not implemented")
 }
 func (UnimplementedRuntimeServer) mustEmbedUnimplementedRuntimeServer() {}
@@ -245,7 +245,7 @@ func _Runtime_Stop_Handler(srv interface{}, ctx context.Context, dec func(interf
 }
 
 func _Runtime_Communicate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(plugins.Engage)
+	in := new(agents.Engage)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -257,7 +257,7 @@ func _Runtime_Communicate_Handler(srv interface{}, ctx context.Context, dec func
 		FullMethod: Runtime_Communicate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuntimeServer).Communicate(ctx, req.(*plugins.Engage))
+		return srv.(RuntimeServer).Communicate(ctx, req.(*agents.Engage))
 	}
 	return interceptor(ctx, in, info, handler)
 }

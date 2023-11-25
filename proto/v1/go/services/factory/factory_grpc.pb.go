@@ -9,7 +9,7 @@ package factory
 import (
 	context "context"
 
-	plugins "github.com/codefly-dev/core/proto/v1/go/plugins"
+	agents "github.com/codefly-dev/core/proto/v1/go/agents"
 	services "github.com/codefly-dev/core/proto/v1/go/services"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -46,7 +46,7 @@ type FactoryClient interface {
 	Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error)
 	Deploy(ctx context.Context, in *DeploymentRequest, opts ...grpc.CallOption) (*DeploymentResponse, error)
 	// Communication helper
-	Communicate(ctx context.Context, in *plugins.Engage, opts ...grpc.CallOption) (*plugins.InformationRequest, error)
+	Communicate(ctx context.Context, in *agents.Engage, opts ...grpc.CallOption) (*agents.InformationRequest, error)
 }
 
 type factoryClient struct {
@@ -111,8 +111,8 @@ func (c *factoryClient) Deploy(ctx context.Context, in *DeploymentRequest, opts 
 	return out, nil
 }
 
-func (c *factoryClient) Communicate(ctx context.Context, in *plugins.Engage, opts ...grpc.CallOption) (*plugins.InformationRequest, error) {
-	out := new(plugins.InformationRequest)
+func (c *factoryClient) Communicate(ctx context.Context, in *agents.Engage, opts ...grpc.CallOption) (*agents.InformationRequest, error) {
+	out := new(agents.InformationRequest)
 	err := c.cc.Invoke(ctx, Factory_Communicate_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -135,7 +135,7 @@ type FactoryServer interface {
 	Build(context.Context, *BuildRequest) (*BuildResponse, error)
 	Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error)
 	// Communication helper
-	Communicate(context.Context, *plugins.Engage) (*plugins.InformationRequest, error)
+	Communicate(context.Context, *agents.Engage) (*agents.InformationRequest, error)
 	mustEmbedUnimplementedFactoryServer()
 }
 
@@ -161,7 +161,7 @@ func (UnimplementedFactoryServer) Build(context.Context, *BuildRequest) (*BuildR
 func (UnimplementedFactoryServer) Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Deploy not implemented")
 }
-func (UnimplementedFactoryServer) Communicate(context.Context, *plugins.Engage) (*plugins.InformationRequest, error) {
+func (UnimplementedFactoryServer) Communicate(context.Context, *agents.Engage) (*agents.InformationRequest, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Communicate not implemented")
 }
 func (UnimplementedFactoryServer) mustEmbedUnimplementedFactoryServer() {}
@@ -286,7 +286,7 @@ func _Factory_Deploy_Handler(srv interface{}, ctx context.Context, dec func(inte
 }
 
 func _Factory_Communicate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(plugins.Engage)
+	in := new(agents.Engage)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -298,7 +298,7 @@ func _Factory_Communicate_Handler(srv interface{}, ctx context.Context, dec func
 		FullMethod: Factory_Communicate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FactoryServer).Communicate(ctx, req.(*plugins.Engage))
+		return srv.(FactoryServer).Communicate(ctx, req.(*agents.Engage))
 	}
 	return interceptor(ctx, in, info, handler)
 }

@@ -78,7 +78,7 @@ func sanitize(route string) string {
 //	 service
 //		path.codefly.route.yaml
 func (r *RestRoute) Save(ctx context.Context, dir string) error {
-	logger := ctx.Value(shared.Plugin).(shared.BaseLogger)
+	logger := ctx.Value(shared.Agent).(shared.BaseLogger)
 	dir = path.Join(dir, r.Application, r.Service)
 	logger.DebugMe("saving rest route %v to %s", r, dir)
 	err := shared.CheckDirectoryOrCreate(dir)

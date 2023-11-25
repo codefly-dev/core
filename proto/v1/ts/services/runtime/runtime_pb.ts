@@ -6,7 +6,7 @@
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3 } from "@bufbuild/protobuf";
 import { Version } from "../init_pb.js";
-import { Channel } from "../../plugins/communicate_pb.js";
+import { Channel } from "../../agents/communicate_pb.js";
 import { Endpoint, EndpointGroup } from "../../base/api_pb.js";
 import { Tracker } from "./tracker_pb.js";
 
@@ -91,7 +91,7 @@ export class InitResponse extends Message<InitResponse> {
   /**
    * The communication channels of the service
    *
-   * @generated from field: repeated v1.plugins.communicate.Channel channels = 2;
+   * @generated from field: repeated v1.agents.communicate.Channel channels = 2;
    */
   channels: Channel[] = [];
 

@@ -330,22 +330,6 @@ func (project *Project) AddApplication(app *ApplicationReference) error {
 	return project.SaveToDir(path.Join(GlobalProjectRoot(), project.RelativePath))
 }
 
-func (project *Project) AddProvider(provider *Provider) error {
-	logger := shared.NewLogger("Project.AddProvider<%s>", provider.Name)
-	for _, prov := range project.Providers {
-		if prov.Name == provider.Name {
-			return nil
-		}
-	}
-	ref, err := provider.Reference()
-	if err != nil {
-		return logger.Wrapf(err, "cannot get reference")
-	}
-	project.Providers = append(project.Providers, *ref)
-
-	return project.SaveToDir(path.Join(GlobalProjectRoot(), project.RelativePath))
-}
-
 func (project *Project) OtherApplications(app *Application) ([]*Application, error) {
 	logger := shared.NewLogger("")
 	apps, err := ListApplications(WithProject(project))
