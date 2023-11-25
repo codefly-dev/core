@@ -1,4 +1,4 @@
-package monitoring
+package services
 
 import (
 	"github.com/codefly-dev/core/configurations"
@@ -16,8 +16,8 @@ type Tracked interface {
 type ProcessState int
 
 const (
-	Unknown ProcessState = iota
-	NotFound
+	Unknown  ProcessState = iota
+	NotFound ProcessState = iota
 	Running
 	InterruptibleSleep
 	UninterruptibleSleep

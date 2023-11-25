@@ -6,7 +6,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/endpoints"
 
-	corev1 "github.com/codefly-dev/core/proto/v1/go/base"
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	servicev1 "github.com/codefly-dev/core/proto/v1/go/services"
 	"github.com/codefly-dev/core/shared"
 )
@@ -29,7 +29,7 @@ func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointIn
 	return m, nil
 }
 
-func NewServiceDnsManager(ctx context.Context, identity *servicev1.ServiceIdentity, endpoints ...*corev1.Endpoint) (*ServiceManager, error) {
+func NewServiceDnsManager(ctx context.Context, identity *servicev1.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
 	logger := shared.NewLogger("network.NewServicePortManager<%s>", identity.Name)
 	return &ServiceManager{
 		logger:    logger,

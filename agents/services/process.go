@@ -1,4 +1,4 @@
-package monitoring
+package services
 
 import (
 	"bytes"

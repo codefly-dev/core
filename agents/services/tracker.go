@@ -1,4 +1,4 @@
-package monitoring
+package services
 
 import (
 	"sync"
@@ -76,7 +76,7 @@ func (t *SingleTracker) Stop() {
 //					logger.Debugf("cannot get status from runtime: %v", err)
 //					continue
 //				}
-//				if req.Status == services.RestartWanted {
+//				if req.State == services.RestartWanted {
 //					logger.Debugf("runtime wants to restart")
 //					events <- ServiceEvent{
 //						Unique: t.Tracked.Unique(),

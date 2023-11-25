@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/configurations"
-	corev1 "github.com/codefly-dev/core/proto/v1/go/base"
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	"github.com/codefly-dev/core/shared"
 )
 
@@ -19,7 +19,7 @@ type ApplicationEndpoint struct {
 	Service     string
 	Application string
 	Namespace   string
-	Endpoint    *corev1.Endpoint
+	Endpoint    *basev1.Endpoint
 	PortBinding string // something like 8080/tcp
 }
 
@@ -64,14 +64,14 @@ func (pm *ApplicationEndpointInstances) First() *ApplicationEndpointInstance {
 	return pm.ApplicationEndpointInstances[0]
 }
 
-func ToEndpoint(endpoint *corev1.Endpoint) *configurations.Endpoint {
+func ToEndpoint(endpoint *basev1.Endpoint) *configurations.Endpoint {
 	var api string
 	switch endpoint.Api.Value.(type) {
-	case *corev1.API_Grpc:
+	case *basev1.API_Grpc:
 		api = configurations.Grpc
-	case *corev1.API_Rest:
+	case *basev1.API_Rest:
 		api = configurations.Rest
-	case *corev1.API_Tcp:
+	case *basev1.API_Tcp:
 		api = configurations.Tcp
 	}
 	return &configurations.Endpoint{
@@ -81,7 +81,7 @@ func ToEndpoint(endpoint *corev1.Endpoint) *configurations.Endpoint {
 	}
 }
 
-func ToUnique(endpoint *corev1.Endpoint) string {
+func ToUnique(endpoint *basev1.Endpoint) string {
 	return ToEndpoint(endpoint).Unique(endpoint.Application, endpoint.Service)
 }
 
@@ -90,7 +90,7 @@ type Address struct {
 	Port int
 }
 
-func (pm *ApplicationEndpointInstances) Address(endpoint *corev1.Endpoint) *Address {
+func (pm *ApplicationEndpointInstances) Address(endpoint *basev1.Endpoint) *Address {
 	// Returns the first one
 	logger := shared.NewLogger("network.ApplicationEndpointInstances.Address")
 	logger.TODO("implement the free local IP: will depend on deploy")

@@ -6,20 +6,20 @@ import (
 	"os"
 
 	"github.com/codefly-dev/core/configurations"
-	corev1 "github.com/codefly-dev/core/proto/v1/go/base"
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	"github.com/codefly-dev/core/shared"
 	openapiloads "github.com/go-openapi/loads"
 	openapispec "github.com/go-openapi/spec"
 )
 
-func WithApi(endpoint *configurations.Endpoint, source ApiSource) (*corev1.Endpoint, error) {
+func WithApi(endpoint *configurations.Endpoint, source ApiSource) (*basev1.Endpoint, error) {
 	logger := shared.NewLogger("services.DefaultApi")
 	logger.Debugf("VISILIBITY %v", endpoint.Scope)
 	api, err := source.Proto()
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot create grpc api: %v")
 	}
-	return &corev1.Endpoint{
+	return &basev1.Endpoint{
 		Name:        endpoint.Name,
 		Scope:       endpoint.Scope,
 		Description: endpoint.Description,
@@ -28,7 +28,7 @@ func WithApi(endpoint *configurations.Endpoint, source ApiSource) (*corev1.Endpo
 }
 
 type ApiSource interface {
-	Proto() (*corev1.API, error)
+	Proto() (*basev1.API, error)
 }
 
 type GrpcApi struct {
@@ -36,7 +36,7 @@ type GrpcApi struct {
 	content  []byte
 }
 
-func NewGrpcApi(endpoint *configurations.Endpoint, filename string) (*corev1.Endpoint, error) {
+func NewGrpcApi(endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
 	// Read the file content
 	content, err := os.ReadFile(filename)
 	if err != nil {
@@ -45,14 +45,14 @@ func NewGrpcApi(endpoint *configurations.Endpoint, filename string) (*corev1.End
 	return WithApi(endpoint, &GrpcApi{filename: filename, content: content})
 }
 
-func (grpc *GrpcApi) Proto() (*corev1.API, error) {
+func (grpc *GrpcApi) Proto() (*basev1.API, error) {
 	// Add a GrpcAPI message with the file content
-	grpcAPI := &corev1.GrpcAPI{
+	grpcAPI := &basev1.GrpcAPI{
 		Proto: grpc.content,
 	}
 	// Add an API message with the GrpcAPI message
-	api := &corev1.API{
-		Value: &corev1.API_Grpc{
+	api := &basev1.API{
+		Value: &basev1.API_Grpc{
 			Grpc: grpcAPI,
 		},
 	}
@@ -63,30 +63,30 @@ type RestApi struct {
 	// openapi []byte
 }
 
-func NewRestApi(endpoint *configurations.Endpoint) (*corev1.Endpoint, error) {
+func NewRestApi(endpoint *configurations.Endpoint) (*basev1.Endpoint, error) {
 	return WithApi(endpoint, &RestApi{})
 }
 
-func (http *RestApi) Proto() (*corev1.API, error) {
-	restAPI := &corev1.RestAPI{}
+func (http *RestApi) Proto() (*basev1.API, error) {
+	restAPI := &basev1.RestAPI{}
 	// Add an API message with the GrpcAPI message
-	api := &corev1.API{
-		Value: &corev1.API_Rest{
+	api := &basev1.API{
+		Value: &basev1.API_Rest{
 			Rest: restAPI,
 		},
 	}
 	return api, nil
 }
 
-func NewRestApiFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*corev1.Endpoint, error) {
+func NewRestApiFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
 	logger := shared.NewLogger("services.Default")
 	logger.TODO("visibility")
-	rest := &corev1.API_Rest{Rest: &corev1.RestAPI{}}
-	e := &corev1.Endpoint{
+	rest := &basev1.API_Rest{Rest: &basev1.RestAPI{}}
+	e := &basev1.Endpoint{
 		Name:        endpoint.Name,
 		Scope:       endpoint.Scope,
 		Description: endpoint.Description,
-		Api: &corev1.API{
+		Api: &basev1.API{
 			Value: rest,
 		},
 	}
@@ -105,7 +105,7 @@ func NewRestApiFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoin
 
 	rest.Rest.Openapi = content
 	for p, item := range swagger.Paths.Paths {
-		rest.Rest.Routes = append(rest.Rest.Routes, &corev1.RestRoute{
+		rest.Rest.Routes = append(rest.Rest.Routes, &basev1.RestRoute{
 			Methods: getHTTPMethodsFromPathItem(item),
 			Path:    p,
 		})
@@ -119,12 +119,12 @@ func NewTcp() (*Tcp, error) {
 	return &Tcp{}, nil
 }
 
-func (*Tcp) Proto() (*corev1.API, error) {
+func (*Tcp) Proto() (*basev1.API, error) {
 	// Add a GrpcAPI message with the file content
-	tcp := &corev1.TcpAPI{}
+	tcp := &basev1.TcpAPI{}
 	// Add an API message with the GrpcAPI message
-	api := &corev1.API{
-		Value: &corev1.API_Tcp{
+	api := &basev1.API{
+		Value: &basev1.API_Tcp{
 			Tcp: tcp,
 		},
 	}
@@ -140,29 +140,29 @@ func parseOpenApi(spec []byte) (*openapispec.Swagger, error) {
 	return analyzed.Spec(), nil
 }
 
-func getHTTPMethodsFromPathItem(pathItem openapispec.PathItem) []corev1.HttpMethod {
-	var methods []corev1.HttpMethod
+func getHTTPMethodsFromPathItem(pathItem openapispec.PathItem) []basev1.HttpMethod {
+	var methods []basev1.HttpMethod
 
 	if pathItem.Get != nil {
-		methods = append(methods, corev1.HttpMethod_GET)
+		methods = append(methods, basev1.HttpMethod_GET)
 	}
 	if pathItem.Post != nil {
-		methods = append(methods, corev1.HttpMethod_POST)
+		methods = append(methods, basev1.HttpMethod_POST)
 	}
 	if pathItem.Put != nil {
-		methods = append(methods, corev1.HttpMethod_PUT)
+		methods = append(methods, basev1.HttpMethod_PUT)
 	}
 	if pathItem.Delete != nil {
-		methods = append(methods, corev1.HttpMethod_DELETE)
+		methods = append(methods, basev1.HttpMethod_DELETE)
 	}
 	if pathItem.Options != nil {
-		methods = append(methods, corev1.HttpMethod_OPTIONS)
+		methods = append(methods, basev1.HttpMethod_OPTIONS)
 	}
 	if pathItem.Head != nil {
-		methods = append(methods, corev1.HttpMethod_HEAD)
+		methods = append(methods, basev1.HttpMethod_HEAD)
 	}
 	if pathItem.Patch != nil {
-		methods = append(methods, corev1.HttpMethod_PATCH)
+		methods = append(methods, basev1.HttpMethod_PATCH)
 	}
 	return methods
 }

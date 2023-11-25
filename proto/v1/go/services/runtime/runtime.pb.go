@@ -1093,7 +1093,7 @@ var file_services_runtime_runtime_proto_goTypes = []interface{}{
 	(InitStatus_State)(0),             // 0: v1.services.runtime.InitStatus.State
 	(ConfigureStatus_State)(0),        // 1: v1.services.runtime.ConfigureStatus.State
 	(StartStatus_State)(0),            // 2: v1.services.runtime.StartStatus.State
-	(InformationResponse_Status)(0),   // 3: v1.services.runtime.InformationResponse.Status
+	(InformationResponse_Status)(0),   // 3: v1.services.runtime.InformationResponse.State
 	(*InitStatus)(nil),                // 4: v1.services.runtime.InitStatus
 	(*InitResponse)(nil),              // 5: v1.services.runtime.InitResponse
 	(*ConfigureStatus)(nil),           // 6: v1.services.runtime.ConfigureStatus
@@ -1131,7 +1131,7 @@ var file_services_runtime_runtime_proto_depIdxs = []int32{
 	2,  // 11: v1.services.runtime.StartStatus.state:type_name -> v1.services.runtime.StartStatus.State
 	11, // 12: v1.services.runtime.StartResponse.status:type_name -> v1.services.runtime.StartStatus
 	21, // 13: v1.services.runtime.StartResponse.trackers:type_name -> v1.services.runtime.Tracker
-	3,  // 14: v1.services.runtime.InformationResponse.status:type_name -> v1.services.runtime.InformationResponse.Status
+	3,  // 14: v1.services.runtime.InformationResponse.status:type_name -> v1.services.runtime.InformationResponse.State
 	22, // 15: v1.services.runtime.Runtime.Init:input_type -> v1.services.InitRequest
 	7,  // 16: v1.services.runtime.Runtime.Configure:input_type -> v1.services.runtime.ConfigureRequest
 	10, // 17: v1.services.runtime.Runtime.Start:input_type -> v1.services.runtime.StartRequest

@@ -1,7 +1,7 @@
 package network
 
 import (
-	corev1 "github.com/codefly-dev/core/proto/v1/go/base"
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	servicev1 "github.com/codefly-dev/core/proto/v1/go/services"
 	runtimev1 "github.com/codefly-dev/core/proto/v1/go/services/runtime"
 	"github.com/codefly-dev/core/shared"
@@ -10,7 +10,7 @@ import (
 // A ServiceManager helps go from a service to applications endpoint instances
 type ServiceManager struct {
 	service   *servicev1.ServiceIdentity
-	endpoints []*corev1.Endpoint
+	endpoints []*basev1.Endpoint
 
 	strategy Strategy
 	specs    []ApplicationEndpoint
@@ -22,7 +22,7 @@ type ServiceManager struct {
 	logger   shared.BaseLogger
 }
 
-func NewServiceManager(identity *servicev1.ServiceIdentity, endpoints ...*corev1.Endpoint) *ServiceManager {
+func NewServiceManager(identity *servicev1.ServiceIdentity, endpoints ...*basev1.Endpoint) *ServiceManager {
 	logger := shared.NewLogger("network.NewServicePortManager<%s>", identity.Name)
 	return &ServiceManager{
 		logger:    logger,
@@ -33,7 +33,7 @@ func NewServiceManager(identity *servicev1.ServiceIdentity, endpoints ...*corev1
 	}
 }
 
-func (pm *ServiceManager) Bind(endpoint *corev1.Endpoint, portBinding string) error {
+func (pm *ServiceManager) Bind(endpoint *basev1.Endpoint, portBinding string) error {
 	if endpoint == nil {
 		return pm.logger.Errorf("cannot expose nil endpoint")
 	}
@@ -50,12 +50,12 @@ func (pm *ServiceManager) Bind(endpoint *corev1.Endpoint, portBinding string) er
 	return nil
 }
 
-func (pm *ServiceManager) Expose(endpoint *corev1.Endpoint) error {
+func (pm *ServiceManager) Expose(endpoint *basev1.Endpoint) error {
 	if endpoint == nil {
 		return pm.logger.Errorf("cannot expose nil endpoint")
 	}
 	pm.logger.Tracef("exposing endpoint <%s>", endpoint.Name)
-	pm.logger.TODO("Protocol from corev1.Endpoint")
+	pm.logger.TODO("Protocol from basev1.Endpoint")
 	pm.specs = append(pm.specs,
 		ApplicationEndpoint{
 			Service:     pm.service.Name,
@@ -92,7 +92,7 @@ func (pm *ServiceManager) NetworkMapping() ([]*runtimev1.NetworkMapping, error) 
 	return nets, nil
 }
 
-func (pm *ServiceManager) ApplicationEndpointInstance(endpoint *corev1.Endpoint) (*ApplicationEndpointInstance, error) {
+func (pm *ServiceManager) ApplicationEndpointInstance(endpoint *basev1.Endpoint) (*ApplicationEndpointInstance, error) {
 	var result *ApplicationEndpointInstance
 	for _, e := range pm.reserved.ApplicationEndpointInstances {
 		if ToUnique(e.ApplicationEndpoint.Endpoint) == ToUnique(endpoint) {
@@ -105,7 +105,7 @@ func (pm *ServiceManager) ApplicationEndpointInstance(endpoint *corev1.Endpoint)
 	return result, nil
 }
 
-func (pm *ServiceManager) Port(endpoint *corev1.Endpoint) (int, error) {
+func (pm *ServiceManager) Port(endpoint *basev1.Endpoint) (int, error) {
 	instance, err := pm.ApplicationEndpointInstance(endpoint)
 	if err != nil {
 		return 0, pm.logger.Wrapf(err, "cannot find endpoint <%s>", endpoint.Name)
