@@ -2,7 +2,7 @@ syntax = "proto3";
 package v1.services.runtime;
 
 import "base/api.proto";
-import "plugins/communicate.proto";
+import "agents/communicate.proto";
 import "services/init.proto";
 import "services/runtime/tracker.proto";
 
@@ -33,7 +33,7 @@ message InitStatus {
 
 message InitResponse {
   services.Version version = 1;
-  repeated plugins.communicate.Channel channels = 2; // The communication channels of the service
+  repeated agents.communicate.Channel channels = 2; // The communication channels of the service
   repeated v1.base.Endpoint endpoints = 3;  // Endpoints exposed by the service
   InitStatus status = 4;
 }
@@ -159,5 +159,5 @@ service Runtime {
 
 
   // Communication helper
-  rpc Communicate(plugins.communicate.Engage) returns (plugins.communicate.InformationRequest) {}
+  rpc Communicate(agents.communicate.Engage) returns (agents.communicate.InformationRequest) {}
 }

@@ -2,7 +2,7 @@ syntax = "proto3";
 package v1.services.factory;
 
 import "base/api.proto";
-import "plugins/communicate.proto";
+import "agents/communicate.proto";
 import "services/init.proto";
 
 /*
@@ -11,7 +11,7 @@ import "services/init.proto";
 message InitResponse {
   services.Version version = 1;
   repeated v1.base.Endpoint endpoints = 2;
-  repeated v1.plugins.communicate.Channel channels = 3; // The communication channels of the service
+  repeated v1.agents.communicate.Channel channels = 3; // The communication channels of the service
 }
 
 /*
@@ -98,5 +98,5 @@ service Factory {
   rpc Deploy (DeploymentRequest) returns (DeploymentResponse) {}
 
   // Communication helper
-  rpc Communicate(plugins.communicate.Engage) returns (plugins.communicate.InformationRequest) {}
+  rpc Communicate(agents.communicate.Engage) returns (agents.communicate.InformationRequest) {}
 }

@@ -14,7 +14,7 @@ type LogLevel = string
 type ContextLoggerKey string
 
 const (
-	Plugin  = ContextLoggerKey("plugin")
+	Agent   = ContextLoggerKey("agent")
 	Service = ContextLoggerKey("service")
 )
 

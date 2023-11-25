@@ -17,6 +17,20 @@
   ],
   "paths": {},
   "definitions": {
+    "agentscommunicateInformationRequest": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "$ref": "#/definitions/communicateMethod"
+        },
+        "done": {
+          "type": "boolean"
+        },
+        "question": {
+          "$ref": "#/definitions/communicateQuestion"
+        }
+      }
+    },
     "baseAPI": {
       "type": "object",
       "properties": {
@@ -364,20 +378,6 @@
             "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
-        }
-      }
-    },
-    "pluginscommunicateInformationRequest": {
-      "type": "object",
-      "properties": {
-        "method": {
-          "$ref": "#/definitions/communicateMethod"
-        },
-        "done": {
-          "type": "boolean"
-        },
-        "question": {
-          "$ref": "#/definitions/communicateQuestion"
         }
       }
     },

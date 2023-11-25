@@ -11,7 +11,7 @@ git-branch: badges
 threshold:
   file: 0
 
-  package: 20
+  package: 0
 
   total: 20
 

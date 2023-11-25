@@ -73,8 +73,8 @@ func Path[C Configuration](dir string) string {
 		return path.Join(dir, ServiceConfigurationName)
 	case generation.Service:
 		return path.Join(dir, generation.ServiceGenerationConfigurationName)
-	case Plugin:
-		return path.Join(dir, PluginConfigurationName)
+	case Agent:
+		return path.Join(dir, AgentConfigurationName)
 	// case Library:
 	//	return path.Join(dir, LibraryConfigurationName)
 	// case LibraryGeneration:

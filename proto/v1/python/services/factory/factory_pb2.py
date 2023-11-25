@@ -13,11 +13,11 @@ _sym_db = _symbol_database.Default()
 
 
 from base import api_pb2 as base_dot_api__pb2
-from plugins import communicate_pb2 as plugins_dot_communicate__pb2
+from agents import communicate_pb2 as agents_dot_communicate__pb2
 from services import init_pb2 as services_dot_init__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1eservices/factory/factory.proto\x12\x13v1.services.factory\x1a\x0e\x62\x61se/api.proto\x1a\x19plugins/communicate.proto\x1a\x13services/init.proto\"\xac\x01\n\x0cInitResponse\x12.\n\x07version\x18\x01 \x01(\x0b\x32\x14.v1.services.VersionR\x07version\x12/\n\tendpoints\x18\x02 \x03(\x0b\x32\x11.v1.base.EndpointR\tendpoints\x12;\n\x08\x63hannels\x18\x03 \x03(\x0b\x32\x1f.v1.plugins.communicate.ChannelR\x08\x63hannels\"\x0f\n\rCreateRequest\"p\n\x0e\x43reateResponse\x12-\n\x12need_communication\x18\x01 \x01(\x08R\x11needCommunication\x12/\n\tendpoints\x18\x02 \x03(\x0b\x32\x11.v1.base.EndpointR\tendpoints\"\x0f\n\rUpdateRequest\"\x10\n\x0eUpdateResponse\"a\n\x0bSyncRequest\x12R\n\x19\x64\x65pendency_endpoint_group\x18\x01 \x01(\x0b\x32\x16.v1.base.EndpointGroupR\x17\x64\x65pendencyEndpointGroup\"=\n\x0cSyncResponse\x12-\n\x12need_communication\x18\x01 \x01(\x08R\x11needCommunication\"b\n\x0c\x42uildRequest\x12R\n\x19\x64\x65pendency_endpoint_group\x18\x01 \x01(\x0b\x32\x16.v1.base.EndpointGroupR\x17\x64\x65pendencyEndpointGroup\"\x0f\n\rBuildResponse\"\x13\n\x11\x44\x65ploymentRequest\"\x14\n\x12\x44\x65ploymentResponse2\xd5\x04\n\x07\x46\x61\x63tory\x12\x45\n\x04Init\x12\x18.v1.services.InitRequest\x1a!.v1.services.factory.InitResponse\"\x00\x12S\n\x06\x43reate\x12\".v1.services.factory.CreateRequest\x1a#.v1.services.factory.CreateResponse\"\x00\x12S\n\x06Update\x12\".v1.services.factory.UpdateRequest\x1a#.v1.services.factory.UpdateResponse\"\x00\x12M\n\x04Sync\x12 .v1.services.factory.SyncRequest\x1a!.v1.services.factory.SyncResponse\"\x00\x12P\n\x05\x42uild\x12!.v1.services.factory.BuildRequest\x1a\".v1.services.factory.BuildResponse\"\x00\x12[\n\x06\x44\x65ploy\x12&.v1.services.factory.DeploymentRequest\x1a\'.v1.services.factory.DeploymentResponse\"\x00\x12[\n\x0b\x43ommunicate\x12\x1e.v1.plugins.communicate.Engage\x1a*.v1.plugins.communicate.InformationRequest\"\x00\x42\xcf\x01\n\x17\x63om.v1.services.factoryB\x0c\x46\x61\x63toryProtoP\x01Z8github.com/codefly-dev/core/proto/v1/go/services/factory\xa2\x02\x03VSF\xaa\x02\x13V1.Services.Factory\xca\x02\x13V1\\Services\\Factory\xe2\x02\x1fV1\\Services\\Factory\\GPBMetadata\xea\x02\x15V1::Services::Factoryb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1eservices/factory/factory.proto\x12\x13v1.services.factory\x1a\x0e\x62\x61se/api.proto\x1a\x18\x61gents/communicate.proto\x1a\x13services/init.proto\"\xab\x01\n\x0cInitResponse\x12.\n\x07version\x18\x01 \x01(\x0b\x32\x14.v1.services.VersionR\x07version\x12/\n\tendpoints\x18\x02 \x03(\x0b\x32\x11.v1.base.EndpointR\tendpoints\x12:\n\x08\x63hannels\x18\x03 \x03(\x0b\x32\x1e.v1.agents.communicate.ChannelR\x08\x63hannels\"\x0f\n\rCreateRequest\"p\n\x0e\x43reateResponse\x12-\n\x12need_communication\x18\x01 \x01(\x08R\x11needCommunication\x12/\n\tendpoints\x18\x02 \x03(\x0b\x32\x11.v1.base.EndpointR\tendpoints\"\x0f\n\rUpdateRequest\"\x10\n\x0eUpdateResponse\"a\n\x0bSyncRequest\x12R\n\x19\x64\x65pendency_endpoint_group\x18\x01 \x01(\x0b\x32\x16.v1.base.EndpointGroupR\x17\x64\x65pendencyEndpointGroup\"=\n\x0cSyncResponse\x12-\n\x12need_communication\x18\x01 \x01(\x08R\x11needCommunication\"b\n\x0c\x42uildRequest\x12R\n\x19\x64\x65pendency_endpoint_group\x18\x01 \x01(\x0b\x32\x16.v1.base.EndpointGroupR\x17\x64\x65pendencyEndpointGroup\"\x0f\n\rBuildResponse\"\x13\n\x11\x44\x65ploymentRequest\"\x14\n\x12\x44\x65ploymentResponse2\xd3\x04\n\x07\x46\x61\x63tory\x12\x45\n\x04Init\x12\x18.v1.services.InitRequest\x1a!.v1.services.factory.InitResponse\"\x00\x12S\n\x06\x43reate\x12\".v1.services.factory.CreateRequest\x1a#.v1.services.factory.CreateResponse\"\x00\x12S\n\x06Update\x12\".v1.services.factory.UpdateRequest\x1a#.v1.services.factory.UpdateResponse\"\x00\x12M\n\x04Sync\x12 .v1.services.factory.SyncRequest\x1a!.v1.services.factory.SyncResponse\"\x00\x12P\n\x05\x42uild\x12!.v1.services.factory.BuildRequest\x1a\".v1.services.factory.BuildResponse\"\x00\x12[\n\x06\x44\x65ploy\x12&.v1.services.factory.DeploymentRequest\x1a\'.v1.services.factory.DeploymentResponse\"\x00\x12Y\n\x0b\x43ommunicate\x12\x1d.v1.agents.communicate.Engage\x1a).v1.agents.communicate.InformationRequest\"\x00\x42\xcf\x01\n\x17\x63om.v1.services.factoryB\x0c\x46\x61\x63toryProtoP\x01Z8github.com/codefly-dev/core/proto/v1/go/services/factory\xa2\x02\x03VSF\xaa\x02\x13V1.Services.Factory\xca\x02\x13V1\\Services\\Factory\xe2\x02\x1fV1\\Services\\Factory\\GPBMetadata\xea\x02\x15V1::Services::Factoryb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -25,28 +25,28 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'services.factory.factory_pb
 if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['DESCRIPTOR']._options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\027com.v1.services.factoryB\014FactoryProtoP\001Z8github.com/codefly-dev/core/proto/v1/go/services/factory\242\002\003VSF\252\002\023V1.Services.Factory\312\002\023V1\\Services\\Factory\342\002\037V1\\Services\\Factory\\GPBMetadata\352\002\025V1::Services::Factory'
-  _globals['_INITRESPONSE']._serialized_start=120
-  _globals['_INITRESPONSE']._serialized_end=292
-  _globals['_CREATEREQUEST']._serialized_start=294
-  _globals['_CREATEREQUEST']._serialized_end=309
-  _globals['_CREATERESPONSE']._serialized_start=311
-  _globals['_CREATERESPONSE']._serialized_end=423
-  _globals['_UPDATEREQUEST']._serialized_start=425
-  _globals['_UPDATEREQUEST']._serialized_end=440
-  _globals['_UPDATERESPONSE']._serialized_start=442
-  _globals['_UPDATERESPONSE']._serialized_end=458
-  _globals['_SYNCREQUEST']._serialized_start=460
-  _globals['_SYNCREQUEST']._serialized_end=557
-  _globals['_SYNCRESPONSE']._serialized_start=559
-  _globals['_SYNCRESPONSE']._serialized_end=620
-  _globals['_BUILDREQUEST']._serialized_start=622
-  _globals['_BUILDREQUEST']._serialized_end=720
-  _globals['_BUILDRESPONSE']._serialized_start=722
-  _globals['_BUILDRESPONSE']._serialized_end=737
-  _globals['_DEPLOYMENTREQUEST']._serialized_start=739
-  _globals['_DEPLOYMENTREQUEST']._serialized_end=758
-  _globals['_DEPLOYMENTRESPONSE']._serialized_start=760
-  _globals['_DEPLOYMENTRESPONSE']._serialized_end=780
-  _globals['_FACTORY']._serialized_start=783
-  _globals['_FACTORY']._serialized_end=1380
+  _globals['_INITRESPONSE']._serialized_start=119
+  _globals['_INITRESPONSE']._serialized_end=290
+  _globals['_CREATEREQUEST']._serialized_start=292
+  _globals['_CREATEREQUEST']._serialized_end=307
+  _globals['_CREATERESPONSE']._serialized_start=309
+  _globals['_CREATERESPONSE']._serialized_end=421
+  _globals['_UPDATEREQUEST']._serialized_start=423
+  _globals['_UPDATEREQUEST']._serialized_end=438
+  _globals['_UPDATERESPONSE']._serialized_start=440
+  _globals['_UPDATERESPONSE']._serialized_end=456
+  _globals['_SYNCREQUEST']._serialized_start=458
+  _globals['_SYNCREQUEST']._serialized_end=555
+  _globals['_SYNCRESPONSE']._serialized_start=557
+  _globals['_SYNCRESPONSE']._serialized_end=618
+  _globals['_BUILDREQUEST']._serialized_start=620
+  _globals['_BUILDREQUEST']._serialized_end=718
+  _globals['_BUILDRESPONSE']._serialized_start=720
+  _globals['_BUILDRESPONSE']._serialized_end=735
+  _globals['_DEPLOYMENTREQUEST']._serialized_start=737
+  _globals['_DEPLOYMENTREQUEST']._serialized_end=756
+  _globals['_DEPLOYMENTRESPONSE']._serialized_start=758
+  _globals['_DEPLOYMENTRESPONSE']._serialized_end=778
+  _globals['_FACTORY']._serialized_start=781
+  _globals['_FACTORY']._serialized_end=1376
 # @@protoc_insertion_point(module_scope)

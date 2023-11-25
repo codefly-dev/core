@@ -26,7 +26,7 @@ type Service struct {
 	RelativePathOverride *string              `yaml:"relative-path,omitempty"`
 	Namespace            string               `yaml:"namespace"`
 	Domain               string               `yaml:"domain"`
-	Plugin               *Plugin              `yaml:"plugin"`
+	Agent                *Agent               `yaml:"agent"`
 	Dependencies         []*ServiceDependency `yaml:"dependencies"`
 	Endpoints            []*Endpoint          `yaml:"endpoints"`
 	Spec                 map[string]any       `yaml:"spec"`
@@ -51,7 +51,7 @@ func (s *Service) Unique() string {
 	return fmt.Sprintf("%s/%s", s.Application, s.Name)
 }
 
-func NewService(name string, namespace string, plugin *Plugin, ops ...Option) (*Service, error) {
+func NewService(name string, namespace string, agent *Agent, ops ...Option) (*Service, error) {
 	scope := WithScope(ops...)
 	logger := shared.NewLogger("configurations.NewService<%s>", scope.Application.Name)
 	svc := Service{
@@ -60,7 +60,7 @@ func NewService(name string, namespace string, plugin *Plugin, ops ...Option) (*
 		Application: scope.Application.Name,
 		Domain:      scope.Application.ServiceDomain(name),
 		Namespace:   namespace,
-		Plugin:      plugin,
+		Agent:       agent,
 		Spec:        make(map[string]any),
 	}
 	logger.Debugf("new service configuration <%s> with relative path <%s>", svc.Name, svc.Name)
@@ -107,7 +107,7 @@ func LoadServiceFromDir(dir string, opts ...Option) (*Service, error) {
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
 	}
-	conf.Plugin.Kind = PluginRuntimeService
+	conf.Agent.Kind = AgentRuntimeService
 	return conf, nil
 }
 
@@ -225,7 +225,7 @@ func (s *Service) Duplicate(name string) *Service {
 		RelativePathOverride: s.RelativePathOverride,
 		Namespace:            s.Namespace,
 		Domain:               s.Domain,
-		Plugin:               s.Plugin,
+		Agent:                s.Agent,
 		Dependencies:         s.Dependencies,
 		Endpoints:            s.Endpoints,
 		Spec:                 s.Spec,

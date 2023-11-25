@@ -50,7 +50,7 @@ func TestConfigurations(t *testing.T) {
 	//assert.Equal(t, 0, len(configurations.MustCurrentApplication().Services), "current applications has services")
 	//
 	//// Create a service
-	//service, err := configurations.NewService("service", "default", &configurations.Plugin{Identifier: "codefly-io/codefly-service-base", Version: "0.0.1"})
+	//service, err := configurations.NewService("service", "default", &configurations.Agent{Identifier: "codefly-io/codefly-service-base", Version: "0.0.1"})
 	//assert.NoError(t, err, "failed to create service")
 	//assert.Equal(t, "service", service.ProjectName, "service Name is not equal to the original")
 	//
@@ -86,7 +86,7 @@ func TestConfigurations(t *testing.T) {
 	//anotherApp, err := configurations.NewApplication("another-applications")
 	//assert.NoError(t, err, "failed to create another applications")
 	//
-	//cache, err := configurations.NewService("cache", "default", &configurations.Plugin{Identifier: "codefly-io/cache", Version: "0.0.1"})
+	//cache, err := configurations.NewService("cache", "default", &configurations.Agent{Identifier: "codefly-io/cache", Version: "0.0.1"})
 	//assert.NoError(t, err, "failed to create cache service")
 	//err = cache.Save()
 	//assert.NoError(t, err, "failed to save service")

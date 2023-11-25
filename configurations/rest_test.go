@@ -21,7 +21,7 @@ func TestRouteExtended(t *testing.T) {
 
 func TestLoading(t *testing.T) {
 	// ctx := context.Background()
-	// ctx = context.WithValue(ctx, shared.Plugin, shared.NewLogger("test"))
+	// ctx = context.WithValue(ctx, shared.Agent, shared.NewLogger("test"))
 	routes, err := configurations.LoadApplicationRoutes("testdata")
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(routes))
