@@ -107,6 +107,9 @@ func LoadServiceFromDir(dir string, opts ...Option) (*Service, error) {
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
 	}
+	if conf.Agent == nil {
+		return nil, logger.Errorf("service agent cannot be nil")
+	}
 	conf.Agent.Kind = AgentRuntimeService
 	return conf, nil
 }

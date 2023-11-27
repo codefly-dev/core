@@ -98,7 +98,7 @@ func MustCurrentProject() *Project {
 func SetCurrentProject(p *Project) {
 	currentProject = p
 	MustCurrent().CurrentProject = p.Name
-	SaveCurrent()
+	SaveCurrent(SilentOverride())
 }
 
 func AddProject(p *Project) {
@@ -194,8 +194,8 @@ func Current() (*Workspace, error) {
 	return global, nil
 }
 
-func SaveCurrent() {
-	err := SaveToDir[Workspace](global, global.Dir())
+func SaveCurrent(opts ...SaveOptionFunc) {
+	err := SaveToDir[Workspace](global, global.Dir(), opts...)
 	shared.UnexpectedExitOnError(err, "cannot save global configuration")
 }
 

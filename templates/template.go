@@ -105,6 +105,16 @@ func CopyAndApplyTemplate(fs shared.FileSystem, f shared.File, destination share
 	return nil
 }
 
+func ApplyTemplateFrom(fs shared.FileSystem, f string, obj any) (string, error) {
+	// Read the file from the embedded file system
+	f = fmt.Sprintf("%s.tmpl", f)
+	data, err := fs.ReadFile(shared.NewFile(f))
+	if err != nil {
+		return "", fmt.Errorf("could not read file: %v", err)
+	}
+	return ApplyTemplate(string(data), obj)
+}
+
 type Replacer interface {
 	Do([]byte) ([]byte, error)
 }

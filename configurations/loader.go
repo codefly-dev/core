@@ -75,10 +75,6 @@ func Path[C Configuration](dir string) string {
 		return path.Join(dir, generation.ServiceGenerationConfigurationName)
 	case Agent:
 		return path.Join(dir, AgentConfigurationName)
-	// case Library:
-	//	return path.Join(dir, LibraryConfigurationName)
-	// case LibraryGeneration:
-	//	return path.Join(dir, LibraryGenerationConfigurationName)
 	default:
 		panic(fmt.Errorf("unknown configuration type <%T>", c))
 	}
@@ -158,6 +154,20 @@ func SkipOverride() SaveOptionFunc {
 	}
 }
 
+type SilentOverrideHandler struct{}
+
+func (h *SilentOverrideHandler) Replace(f string) bool {
+	return true
+}
+
+func SilentOverride() SaveOptionFunc {
+	return func(o *SaveOption) {
+		o.OverrideHandler = &SilentOverrideHandler{}
+	}
+}
+
+var _ OverrideHandler = (*SilentOverrideHandler)(nil)
+
 type AskOverrideHandler struct{}
 
 var overridingPath map[string]bool
@@ -214,7 +224,7 @@ func SaveToDir[C Configuration](c *C, dir string, opts ...SaveOptionFunc) error 
 
 func SaveOptions(opts []SaveOptionFunc) SaveOption {
 	saveOption := SaveOption{
-		OverrideHandler: &AskOverrideHandler{},
+		OverrideHandler: &SilentOverrideHandler{},
 	}
 	for _, opt := range opts {
 		opt(&saveOption)

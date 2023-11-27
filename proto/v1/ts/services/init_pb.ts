@@ -8,6 +8,75 @@ import { Message, proto3 } from "@bufbuild/protobuf";
 import { EndpointGroup } from "../base/api_pb.js";
 
 /**
+ * @generated from message v1.services.InitStatus
+ */
+export class InitStatus extends Message<InitStatus> {
+  /**
+   * @generated from field: v1.services.InitStatus.State state = 1;
+   */
+  state = InitStatus_State.UNKNOWN;
+
+  /**
+   * @generated from field: string message = 2;
+   */
+  message = "";
+
+  constructor(data?: PartialMessage<InitStatus>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "v1.services.InitStatus";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "state", kind: "enum", T: proto3.getEnumType(InitStatus_State) },
+    { no: 2, name: "message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): InitStatus {
+    return new InitStatus().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): InitStatus {
+    return new InitStatus().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): InitStatus {
+    return new InitStatus().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: InitStatus | PlainMessage<InitStatus> | undefined, b: InitStatus | PlainMessage<InitStatus> | undefined): boolean {
+    return proto3.util.equals(InitStatus, a, b);
+  }
+}
+
+/**
+ * @generated from enum v1.services.InitStatus.State
+ */
+export enum InitStatus_State {
+  /**
+   * @generated from enum value: UNKNOWN = 0;
+   */
+  UNKNOWN = 0,
+
+  /**
+   * @generated from enum value: READY = 1;
+   */
+  READY = 1,
+
+  /**
+   * @generated from enum value: ERROR = 2;
+   */
+  ERROR = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(InitStatus_State)
+proto3.util.setEnumType(InitStatus_State, "v1.services.InitStatus.State", [
+  { no: 0, name: "UNKNOWN" },
+  { no: 1, name: "READY" },
+  { no: 2, name: "ERROR" },
+]);
+
+/**
  * @generated from message v1.services.Version
  */
 export class Version extends Message<Version> {

@@ -1,6 +1,8 @@
 package communicate
 
 import (
+	"fmt"
+
 	agentsv1 "github.com/codefly-dev/core/proto/v1/go/agents"
 	factoryv1 "github.com/codefly-dev/core/proto/v1/go/services/factory"
 	"github.com/codefly-dev/core/shared"
@@ -49,6 +51,7 @@ func (m *ServerManager) Register(channels ...*agentsv1.Channel) error {
 }
 
 func (m *ServerManager) RequiresCommunication(req any) (*ServerContext, bool) {
+	fmt.Println("ALL METHOD", m.channels)
 	method := ToMethod(req)
 	if s, ok := m.channels[method]; ok {
 		return s, true
@@ -57,10 +60,12 @@ func (m *ServerManager) RequiresCommunication(req any) (*ServerContext, bool) {
 }
 
 func ToMethod(req any) agentsv1.Method {
+	logger := shared.NewLogger("ToMethod")
+	logger.DebugMe("method for req: %T", req)
 	switch req.(type) {
-	case factoryv1.CreateRequest:
+	case *factoryv1.CreateRequest:
 		return Create
-	case factoryv1.SyncRequest:
+	case *factoryv1.SyncRequest:
 		return Sync
 	default:
 		return agentsv1.Method_UNKNOWN

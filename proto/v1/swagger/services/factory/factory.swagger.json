@@ -17,6 +17,15 @@
   ],
   "paths": {},
   "definitions": {
+    "InitStatusState": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "READY",
+        "ERROR"
+      ],
+      "default": "UNKNOWN"
+    },
     "baseAPI": {
       "type": "object",
       "properties": {
@@ -404,6 +413,12 @@
             "$ref": "#/definitions/communicateChannel"
           },
           "title": "The communication channels of the service"
+        },
+        "readMe": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/servicesInitStatus"
         }
       }
     },
@@ -443,6 +458,17 @@
             "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
+        }
+      }
+    },
+    "servicesInitStatus": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/InitStatusState"
+        },
+        "message": {
+          "type": "string"
         }
       }
     },

@@ -61,6 +61,7 @@ func Load[P AgentContext, Instance any](p *configurations.Agent, unique string, 
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot compute agent path")
 	}
+	logger.Tracef("looking agent %v in %s", p, bin)
 	// Already loaded or download
 	if _, err := exec.LookPath(bin); err != nil {
 		err := Download(p)

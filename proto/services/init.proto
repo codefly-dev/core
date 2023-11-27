@@ -12,6 +12,16 @@ Init Input
 
 */
 
+message InitStatus {
+  enum State {
+    UNKNOWN = 0;
+    READY = 1;
+    ERROR = 2;
+  }
+  State state = 1;
+  string message = 2;
+}
+
 message Version {
   string version = 1;
 }

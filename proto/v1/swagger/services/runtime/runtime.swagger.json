@@ -477,29 +477,9 @@
           "title": "Endpoints exposed by the service"
         },
         "status": {
-          "$ref": "#/definitions/runtimeInitStatus"
+          "$ref": "#/definitions/servicesInitStatus"
         }
       }
-    },
-    "runtimeInitStatus": {
-      "type": "object",
-      "properties": {
-        "state": {
-          "$ref": "#/definitions/runtimeInitStatusState"
-        },
-        "message": {
-          "type": "string"
-        }
-      }
-    },
-    "runtimeInitStatusState": {
-      "type": "string",
-      "enum": [
-        "UNKNOWN",
-        "READY",
-        "ERROR"
-      ],
-      "default": "UNKNOWN"
     },
     "runtimeNetworkMapping": {
       "type": "object",
@@ -587,6 +567,26 @@
           "$ref": "#/definitions/runtimeDockerTracker"
         }
       }
+    },
+    "servicesInitStatus": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/servicesInitStatusState"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "servicesInitStatusState": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "READY",
+        "ERROR"
+      ],
+      "default": "UNKNOWN"
     },
     "servicesServiceIdentity": {
       "type": "object",

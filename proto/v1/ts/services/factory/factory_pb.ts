@@ -5,7 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3 } from "@bufbuild/protobuf";
-import { Version } from "../init_pb.js";
+import { InitStatus, Version } from "../init_pb.js";
 import { Endpoint, EndpointGroup } from "../../base/api_pb.js";
 import { Channel } from "../../agents/communicate_pb.js";
 
@@ -30,6 +30,16 @@ export class InitResponse extends Message<InitResponse> {
    */
   channels: Channel[] = [];
 
+  /**
+   * @generated from field: string read_me = 4;
+   */
+  readMe = "";
+
+  /**
+   * @generated from field: v1.services.InitStatus status = 5;
+   */
+  status?: InitStatus;
+
   constructor(data?: PartialMessage<InitResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -41,6 +51,8 @@ export class InitResponse extends Message<InitResponse> {
     { no: 1, name: "version", kind: "message", T: Version },
     { no: 2, name: "endpoints", kind: "message", T: Endpoint, repeated: true },
     { no: 3, name: "channels", kind: "message", T: Channel, repeated: true },
+    { no: 4, name: "read_me", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "status", kind: "message", T: InitStatus },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): InitResponse {
