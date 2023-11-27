@@ -7,6 +7,8 @@ import (
 	"path"
 	"strings"
 
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
+
 	"github.com/codefly-dev/core/shared"
 	"gopkg.in/yaml.v3"
 )
@@ -291,4 +293,64 @@ func ParseRestRouteEnvironmentVariable(env string) (string, []string) {
 	reference = strings.Replace(reference, "_", "::", 1)
 	values := strings.Split(tokens[1], " ")
 	return reference, values
+}
+
+func DetectNewRoutes(known []*RestRoute, routes []*RestRoute) []*RestRoute {
+	var rs []*RestRoute
+	for _, r := range routes {
+		if !ContainsRoute(known, r) {
+			rs = append(rs, r)
+		}
+	}
+	return rs
+}
+
+func ContainsRoute(routes []*RestRoute, r *RestRoute) bool {
+	for _, route := range routes {
+		if route.Application == r.Application && route.Service == r.Service && route.Path == r.Path {
+			return true
+		}
+	}
+	return false
+}
+
+func ConvertRoutes(routes []*basev1.RestRoute, app string, service string) []*RestRoute {
+	var rs []*RestRoute
+	for _, r := range routes {
+		rs = append(rs, &RestRoute{
+			Path:        r.Path,
+			Methods:     ConvertMethods(r.Methods),
+			Application: app,
+			Service:     service,
+		})
+	}
+	return rs
+}
+
+func ConvertMethods(methods []basev1.HttpMethod) []HttpMethod {
+	var ms []HttpMethod
+	for _, m := range methods {
+		ms = append(ms, ConvertMethod(m))
+	}
+	return ms
+}
+
+func ConvertMethod(m basev1.HttpMethod) HttpMethod {
+	switch m {
+	case basev1.HttpMethod_GET:
+		return HttpMethodGet
+	case basev1.HttpMethod_POST:
+		return HttpMethodPost
+	case basev1.HttpMethod_PUT:
+		return HttpMethodPut
+	case basev1.HttpMethod_DELETE:
+		return HttpMethodDelete
+	case basev1.HttpMethod_PATCH:
+		return HttpMethodPatch
+	case basev1.HttpMethod_OPTIONS:
+		return HttpMethodOptions
+	case basev1.HttpMethod_HEAD:
+		return HttpMethodHead
+	}
+	panic(fmt.Sprintf("unknown http method: <%v>", m))
 }

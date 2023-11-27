@@ -170,6 +170,10 @@ func (s *Base) Wrapf(err error, format string, args ...interface{}) error {
 	return s.AgentLogger.Wrapf(err, format, args...)
 }
 
+func (s *Base) Errorf(format string, args ...interface{}) error {
+	return s.AgentLogger.Errorf(format, args...)
+}
+
 // EndpointsFromConfiguration from Configuration and data from the service
 func (s *Base) EndpointsFromConfiguration() ([]*basev1.Endpoint, error) {
 	var eps []*basev1.Endpoint
