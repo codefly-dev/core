@@ -49,8 +49,7 @@ func ListProjects() ([]*Project, error) {
 	for _, p := range MustCurrent().Projects {
 		project, err := LoadProjectFromDir(ProjectPath(p.RelativePath()))
 		if err != nil {
-			logger.Warn(err)
-			continue
+			return nil, logger.Wrapf(err, "cannot load project <%s>", p.Name)
 		}
 		projects = append(projects, project)
 	}

@@ -86,10 +86,14 @@ func IsUserWarning(err error) bool {
 func UserWarnMessage(err error) string {
 	var userWarning *UserWarning
 	ok := errors.As(err, &userWarning)
-	if !ok {
-		Exit("should have a user warning: got %T", err)
+	if ok {
+		return userWarning.Error()
 	}
-	return userWarning.Error()
+
+	if debug {
+		fmt.Printf("should have a user warning: got %T\n", err)
+	}
+	return ""
 }
 
 // OutputError: encapsulates the output of a command
