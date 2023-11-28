@@ -44,10 +44,6 @@ func (m ServiceFactoryAgentContext) Default() plugin.Plugin {
 	return &ServiceFactoryAgent{}
 }
 
-/*
-
- */
-
 func (m ServiceFactory) Init(req *servicev1.InitRequest) (*factoryv1.InitResponse, error) {
 	return m.client.Init(context.Background(), req)
 }

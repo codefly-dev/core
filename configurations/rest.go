@@ -54,7 +54,7 @@ func UnwrapRoutes[T any](routes []*ExtendedRestRoute[T]) []*RestRoute {
 }
 
 func (r *RestRoute) String() string {
-	return fmt.Sprintf("%s.%s%s %s", r.Service, r.Application, r.Path, r.Methods)
+	return fmt.Sprintf("%s/%s%s %s", r.Application, r.Service, r.Path, r.Methods)
 }
 
 type ApplicationRestRoute struct {
