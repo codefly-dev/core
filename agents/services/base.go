@@ -32,6 +32,7 @@ func ServiceLogger(ctx context.Context) *agents.ServiceLogger {
 type Information struct {
 	Service *configurations.ServiceWithCase
 	Agent   *configurations.Agent
+	Domain  string
 }
 
 type Base struct {
@@ -39,10 +40,13 @@ type Base struct {
 	Agent *configurations.Agent
 
 	// State
-	Identity              *servicev1.ServiceIdentity
-	Location              string
+	Identity *servicev1.ServiceIdentity
+	Location string
+
+	// codefly configuration
 	ConfigurationLocation string
-	Configuration         *configurations.Service
+
+	Configuration *configurations.Service
 
 	// Information convenience
 	Information *Information
@@ -117,11 +121,20 @@ func (s *Base) Init(req *servicev1.InitRequest, settings any) error {
 
 	s.Information = &Information{
 		Service: configurations.ToServiceWithCase(s.Configuration),
+		Domain:  s.Identity.Domain,
 		Agent:   s.Agent,
 	}
 	s.CommunicationClientManager.WithLogger(s.AgentLogger)
-	s.DebugMe("setup successful for %v", s.Identity)
+	s.AgentLogger.Debugf("setup successful for %v", s.Identity)
 	return nil
+}
+
+func (s *Base) DockerImage() *configurations.DockerImage {
+	s.AgentLogger.TODO("deal with the registry: provider")
+	return &configurations.DockerImage{
+		Name: fmt.Sprintf("%s/%s", s.Identity.Application, s.Identity.Name),
+		Tag:  s.Version().Version,
+	}
 }
 
 func (s *Base) Create(settings any, endpoints ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
@@ -135,6 +148,21 @@ func (s *Base) Create(settings any, endpoints ...*basev1.Endpoint) (*factoryv1.C
 	}
 	return &factoryv1.CreateResponse{
 		Endpoints: endpoints,
+	}, nil
+}
+
+func (s *Base) FactoryInitResponse(es []*basev1.Endpoint, channels []*agentsv1.Channel, readme string) (*factoryv1.InitResponse, error) {
+	for _, e := range es {
+		e.Application = s.Identity.Application
+		e.Service = s.Identity.Name
+		e.Namespace = s.Identity.Namespace
+	}
+	return &factoryv1.InitResponse{
+		Version:   s.Version(),
+		Endpoints: es,
+		Channels:  channels,
+		ReadMe:    readme,
+		Status:    &servicev1.InitStatus{State: servicev1.InitStatus_READY},
 	}, nil
 }
 
@@ -323,7 +351,6 @@ func (s *Base) Communicate(eng *agentsv1.Engage) (*agentsv1.InformationRequest, 
 	if eng.Method == agentsv1.Method_UNKNOWN {
 		return nil, s.AgentLogger.Errorf("unknown method")
 	}
-	s.AgentLogger.DebugMe("SENDING TO CLIENT MANAGER: %v", eng)
 	return s.CommunicationClientManager.Process(eng)
 }
 
@@ -332,6 +359,7 @@ type TemplateWrapper struct {
 	fs       *shared.FSReader
 	relative string
 	ignores  []string
+	opts     []templates.TemplateOptionFunc
 }
 
 func WithFactory(fs embed.FS, ignores ...string) TemplateWrapper {
@@ -343,20 +371,29 @@ func WithBuilder(fs embed.FS) TemplateWrapper {
 }
 
 func WithDeployment(fs embed.FS) TemplateWrapper {
-	return TemplateWrapper{fs: shared.Embed(fs), dir: shared.NewDir("templates/deployment"), relative: "codefly/deployment"}
+	return TemplateWrapper{
+		fs: shared.Embed(fs), dir: shared.NewDir("templates/deployment"), relative: "codefly/deployment"}
 }
 
-func WithDeploymentFor(fs embed.FS, relativePath string) TemplateWrapper {
-	return TemplateWrapper{fs: shared.Embed(fs),
+func WithDestination(destination string, args ...any) templates.TemplateOptionFunc {
+	return func(opt *templates.TemplateOption) {
+		opt.Destination = fmt.Sprintf(destination, args...)
+	}
+}
+
+func WithDeploymentFor(fs embed.FS, relativePath string, opts ...templates.TemplateOptionFunc) TemplateWrapper {
+	opt := templates.Option(relativePath, opts...)
+	return TemplateWrapper{
+		opts:     opts,
+		fs:       shared.Embed(fs),
 		dir:      shared.NewDir("templates/deployment/%s", relativePath),
-		relative: fmt.Sprintf("codefly/deployment/%s", relativePath)}
+		relative: fmt.Sprintf("codefly/deployment/%s", opt.Destination)}
 }
 
 func (s *Base) Templates(obj any, ws ...TemplateWrapper) error {
 	s.AgentLogger.Debugf("templates: %v", s.Location)
 	for _, w := range ws {
-		ignore := templates.NewIgnore(w.ignores...)
-		err := templates.CopyAndApply(s.AgentLogger, w.fs, w.dir, shared.NewDir(s.Local(w.relative)), obj, ignore)
+		err := templates.CopyAndApply(s.AgentLogger, w.fs, w.dir, shared.NewDir(s.Local(w.relative)), obj, w.opts...)
 		if err != nil {
 			return s.AgentLogger.Wrapf(err, "cannot copy and apply template")
 		}

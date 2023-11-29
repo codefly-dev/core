@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"context"
 	"fmt"
 	"os"
 	runtimedebug "runtime/debug"
@@ -22,6 +23,10 @@ const (
 	TraceLevel LogLevel = "trace"
 	DebugLevel LogLevel = "debug"
 )
+
+func AgentLogger(ctx context.Context) BaseLogger {
+	return ctx.Value(Agent).(BaseLogger)
+}
 
 // BaseLogger is the Minimum logger interface
 type BaseLogger interface {

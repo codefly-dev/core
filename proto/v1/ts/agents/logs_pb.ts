@@ -5,7 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
-import { Session } from "../base/types_pb.js";
+import { Session } from "../base/sessions_pb.js";
 
 /**
  * @generated from message v1.agents.logs.Log

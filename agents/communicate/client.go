@@ -151,10 +151,9 @@ func (m *ClientManager) Add(method agentsv1.Method, client *ClientContext) error
 
 func (m *ClientManager) Process(eng *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
 	if client, ok := m.clients[eng.Method]; ok {
-		m.logger.Debugf("found client context: %v", client)
+		m.logger.Debugf("found client context for %v", eng.Method)
 		return client.Process(eng)
 	}
-	m.logger.Debugf("FOUND NOTHING")
 	return &agentsv1.InformationRequest{}, fmt.Errorf("no client for method: %v", eng.Method)
 }
 

@@ -171,15 +171,77 @@ func (ign IgnorePatterns) Ignore(file shared.File) bool {
 	return false
 }
 
-func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any, ignore Ignore) error {
+type Override interface {
+	Override(string) bool
+}
+
+type TemplateOption struct {
+	Destination string
+	Ignore
+	Override
+}
+
+type TemplateOptionFunc func(*TemplateOption)
+
+func WithIgnore(ignore Ignore) TemplateOptionFunc {
+	return func(opt *TemplateOption) {
+		opt.Ignore = ignore
+	}
+}
+
+type NoIgnore struct {
+}
+
+func (i *NoIgnore) Ignore(file shared.File) bool {
+	return false
+}
+
+func WithOverridePolicy(override Override) TemplateOptionFunc {
+	return func(opt *TemplateOption) {
+		opt.Override = override
+	}
+}
+
+func WithOverrideAll() TemplateOptionFunc {
+	return func(opt *TemplateOption) {
+		opt.Override = &OverrideAll{}
+	}
+}
+
+type OverrideAll struct{}
+
+func (o *OverrideAll) Override(string) bool {
+	return true
+}
+
+type SkipOnExist struct{}
+
+func (o *SkipOnExist) Override(string) bool {
+	return false
+}
+
+func Option(relativePath string, opts ...TemplateOptionFunc) *TemplateOption {
+	opt := &TemplateOption{
+		Destination: relativePath,
+		Ignore:      &NoIgnore{},
+		Override:    &SkipOnExist{},
+	}
+	for _, o := range opts {
+		o(opt)
+	}
+	return opt
+}
+
+func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any, opts ...TemplateOptionFunc) error {
 	logger.Debugf("applying template to directory %s -> %s", root, destination)
+	opt := Option(destination.Absolute(), opts...)
 	err := shared.CheckDirectoryOrCreate(fs.AbsoluteDir(destination))
 	if err != nil {
 		return logger.Wrapf(err, "cannot check or create directory")
 	}
 	var dirs []shared.Dir
 	var files []shared.File
-	err = Walk(logger, fs, root, ignore, &files, &dirs)
+	err = Walk(logger, fs, root, opt.Ignore, &files, &dirs)
 	if err != nil {
 		return fmt.Errorf("cannot read template directory: %v", err)
 	}
@@ -213,7 +275,7 @@ func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Di
 			}
 		}
 
-		if shared.FileExists(d) {
+		if shared.FileExists(d) && !opt.Override.Override(d) {
 			logger.Debugf("file %s already exists: skipping", d)
 			continue
 		}

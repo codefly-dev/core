@@ -96,6 +96,14 @@
         }
       }
     },
+    "baseEnvironment": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      }
+    },
     "baseGrpcAPI": {
       "type": "object",
       "properties": {

@@ -1,14 +1,9 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "providers/provider.proto",
+    "title": "base/sessions.proto",
     "version": "version not set"
   },
-  "tags": [
-    {
-      "name": "Provider"
-    }
-  ],
   "consumes": [
     "application/json"
   ],
@@ -25,9 +20,6 @@
         }
       },
       "additionalProperties": {}
-    },
-    "providerInitResponse": {
-      "type": "object"
     },
     "rpcStatus": {
       "type": "object",

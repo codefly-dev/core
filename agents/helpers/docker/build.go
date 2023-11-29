@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/docker/docker/api/types"
@@ -95,7 +96,11 @@ func (builder *Builder) Build() (*BuilderOutput, error) {
 		if buildOutput.Error != nil {
 			builder.logger.Debugf("Error during build: %s\n", buildOutput.Error.Message)
 		} else {
-			builder.logger.Debugf(buildOutput.Stream)
+			out := strings.TrimSpace(buildOutput.Stream)
+			if len(out) == 0 {
+				continue
+			}
+			builder.logger.Debugf(out)
 		}
 	}
 

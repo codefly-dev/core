@@ -118,7 +118,14 @@ type ProviderReference struct {
 
 // Services reference Endpoints
 
-// A EndpointReference
+// An EndpointReference
 type EndpointReference struct {
+	Name string `yaml:"name"`
+}
+
+// Projects reference Environments
+
+// An EnvironmentReference
+type EnvironmentReference struct {
 	Name string `yaml:"name"`
 }

@@ -77,6 +77,10 @@ func FromProtoEndpoint(e *basev1.Endpoint) (*configurations.Endpoint, error) {
 	}, nil
 }
 
+func Destination(e *basev1.Endpoint) string {
+	return fmt.Sprintf("%s/%s/%s[%s]", e.Application, e.Service, e.Name, FromProtoApi(e.Api))
+}
+
 func FromProtoApi(api *basev1.API) string {
 	if api == nil {
 		return configurations.Unknown
@@ -123,7 +127,7 @@ func Light(e *basev1.Endpoint) *basev1.Endpoint {
 	}
 }
 
-func FlattenEndpoints(group *basev1.EndpointGroup) []*basev1.Endpoint {
+func FlattenEndpoints(ctx context.Context, group *basev1.EndpointGroup) []*basev1.Endpoint {
 	var endpoints []*basev1.Endpoint
 	if group == nil {
 		return endpoints
@@ -136,8 +140,8 @@ func FlattenEndpoints(group *basev1.EndpointGroup) []*basev1.Endpoint {
 	return endpoints
 }
 
-func FlattenRestRoutes(group *basev1.EndpointGroup) []*basev1.RestRoute {
-	endpoints := FlattenEndpoints(group)
+func FlattenRestRoutes(ctx context.Context, group *basev1.EndpointGroup) []*basev1.RestRoute {
+	endpoints := FlattenEndpoints(ctx, group)
 	var routes []*basev1.RestRoute
 	for _, ep := range endpoints {
 		if rest := ep.Api.GetRest(); rest != nil {
@@ -189,4 +193,30 @@ func IsRest(ctx context.Context, api *basev1.API) *basev1.RestAPI {
 	default:
 		return nil
 	}
+}
+
+func CondensedOutput(group *basev1.EndpointGroup) []string {
+	if group == nil {
+		return nil
+	}
+	var outs []string
+	for _, appGroup := range group.ApplicationEndpointGroup {
+		for _, svcGroup := range appGroup.ServiceEndpointGroups {
+			if len(svcGroup.Endpoints) > 0 {
+				outs = append(outs, fmt.Sprintf("%s/%s[#%d]", appGroup.Name, svcGroup.Name, len(svcGroup.Endpoints)))
+				for _, e := range svcGroup.Endpoints {
+					outs = append(outs, fmt.Sprintf("--%s", Destination(e)))
+				}
+			}
+		}
+	}
+	return outs
+}
+
+func Condensed(es []*basev1.Endpoint) []string {
+	var outs []string
+	for _, e := range es {
+		outs = append(outs, Destination(e))
+	}
+	return outs
 }

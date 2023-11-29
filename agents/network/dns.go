@@ -13,6 +13,10 @@ import (
 
 type DNS struct{}
 
+func ToDns(e *basev1.Endpoint) string {
+	return fmt.Sprintf("%s-%s.%s.svc.cluster.local", e.Service, e.Application, e.Namespace)
+}
+
 func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
 	m := &ApplicationEndpointInstances{}
 	for _, e := range es {
@@ -23,7 +27,7 @@ func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointIn
 		m.ApplicationEndpointInstances = append(m.ApplicationEndpointInstances, &ApplicationEndpointInstance{
 			ApplicationEndpoint: e,
 			Port:                port,
-			Host:                fmt.Sprintf("%s.%s.svc.cluster.local", e.Unique(), e.Namespace),
+			Host:                ToDns(e.Endpoint),
 		})
 	}
 	return m, nil
@@ -35,7 +39,7 @@ func NewServiceDnsManager(ctx context.Context, identity *servicev1.ServiceIdenti
 		logger:    logger,
 		service:   identity,
 		endpoints: endpoints,
-		strategy:  &FixedStrategy{},
+		strategy:  &DNS{},
 		ids:       make(map[string]int),
 	}, nil
 }

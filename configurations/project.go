@@ -32,6 +32,9 @@ type Project struct {
 
 	// Providers in the project
 	Providers []ProviderReference `yaml:"providers"`
+
+	// Environments in the project
+	Environments []EnvironmentReference `yaml:"environments"`
 }
 
 func (project *Project) Current() string {
@@ -408,4 +411,22 @@ func (project *Project) CurrentApplication() (*Application, error) {
 		}
 	}
 	return nil, fmt.Errorf("current application not defined")
+}
+
+func (project *Project) FindEnvironment(environment string) (*Environment, error) {
+	logger := shared.NewLogger("Project.FindEnvironment")
+	if environment == "" {
+		return nil, logger.Errorf("environment cannot be empty")
+	}
+	for _, ref := range project.Environments {
+		if ref.Name == environment {
+			return LoadEnvironmentFromReference(ref)
+		}
+	}
+	return nil, logger.Errorf("unnown environment %s", environment)
+
+}
+
+func LoadEnvironmentFromReference(ref EnvironmentReference) (*Environment, error) {
+	return &Environment{Name: ref.Name}, nil
 }

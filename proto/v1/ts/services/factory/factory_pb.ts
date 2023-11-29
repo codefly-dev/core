@@ -8,6 +8,7 @@ import { Message, proto3 } from "@bufbuild/protobuf";
 import { InitStatus, Version } from "../init_pb.js";
 import { Endpoint, EndpointGroup } from "../../base/api_pb.js";
 import { Channel } from "../../agents/communicate_pb.js";
+import { Environment } from "../../base/environment_pb.js";
 
 /**
  * @generated from message v1.services.factory.InitResponse
@@ -356,6 +357,11 @@ export class BuildResponse extends Message<BuildResponse> {
  * @generated from message v1.services.factory.DeploymentRequest
  */
 export class DeploymentRequest extends Message<DeploymentRequest> {
+  /**
+   * @generated from field: v1.base.Environment environment = 1;
+   */
+  environment?: Environment;
+
   constructor(data?: PartialMessage<DeploymentRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -364,6 +370,7 @@ export class DeploymentRequest extends Message<DeploymentRequest> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "v1.services.factory.DeploymentRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "environment", kind: "message", T: Environment },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeploymentRequest {

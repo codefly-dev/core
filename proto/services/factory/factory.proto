@@ -2,6 +2,7 @@ syntax = "proto3";
 package v1.services.factory;
 
 import "base/api.proto";
+import "base/environment.proto";
 import "agents/communicate.proto";
 import "services/init.proto";
 
@@ -65,6 +66,7 @@ Build is the first stage of Deployment
 
 */
 
+
 message BuildRequest {
   v1.base.EndpointGroup dependency_endpoint_group = 1;
 }
@@ -77,6 +79,7 @@ Deployment
 */
 
 message DeploymentRequest {
+  v1.base.Environment environment = 1;
 }
 
 message DeploymentResponse {
