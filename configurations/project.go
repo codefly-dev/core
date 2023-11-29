@@ -182,7 +182,7 @@ func NewProject(name string) (*Project, error) {
 	}
 
 	// Templatize as usual
-	err = templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(dir), p, nil)
+	err = templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(dir), p)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot copy and apply template")
 	}

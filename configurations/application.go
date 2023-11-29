@@ -75,7 +75,7 @@ func NewApplication(name string) (*Application, error) {
 	SolveDirOrCreate(dir)
 
 	// Templatize as usual
-	err := templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/application"), shared.NewDir(dir), app, nil)
+	err := templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/application"), shared.NewDir(dir), app)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot copy and apply template")
 	}

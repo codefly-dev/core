@@ -2,6 +2,7 @@ package configurations
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -14,8 +15,8 @@ type Case struct {
 	SnakeCase string
 	CamelCase string
 	KebabCase string
-	Title     string
 	DnsCase   string
+	Title     string
 }
 
 type ServiceWithCase struct {
@@ -66,7 +67,15 @@ func toKebabCase(str string) string {
 }
 
 func toDnsCase(s string) string {
-	return strings.ReplaceAll(toLowerCase(s), "/", "-")
+	// Unique is of the convention /app/service
+	// For DNS we invert and follow a subdomain convention service-app
+	tokens := strings.Split(s, "/")
+	if len(tokens) == 1 {
+		return strings.ToLower(s)
+	}
+	app := tokens[0]
+	svc := tokens[1]
+	return strings.ToLower(fmt.Sprintf("%s-%s", svc, app))
 }
 
 func toCase(s string) Case {

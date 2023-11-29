@@ -45,6 +45,10 @@ func NewExtendedRestRoute[T any](rest RestRoute, value T) *ExtendedRestRoute[T] 
 	}
 }
 
+func UnwrapRoute[T any](route *ExtendedRestRoute[T]) *RestRoute {
+	return &route.RestRoute
+}
+
 func UnwrapRoutes[T any](routes []*ExtendedRestRoute[T]) []*RestRoute {
 	var rs []*RestRoute
 	for _, r := range routes {
@@ -73,25 +77,28 @@ func sanitize(route string) string {
 	return strings.ReplaceAll(route, "/", "_")
 }
 
-// Save a route:
-// The path is inferred from the configuration
-// application
-//
-//	 service
-//		path.codefly.route.yaml
-func (r *RestRoute) Save(ctx context.Context, dir string) error {
-	logger := ctx.Value(shared.Agent).(shared.BaseLogger)
+func (r *RestRoute) FilePath(dir string) (string, error) {
 	dir = path.Join(dir, r.Application, r.Service)
-	logger.DebugMe("saving rest route %v to %s", r, dir)
 	err := shared.CheckDirectoryOrCreate(dir)
 	if err != nil {
-		return err
+		return "", err
 	}
 	file := path.Join(dir, fmt.Sprintf("%s.route.yaml", sanitize(r.Path)))
-	logger.DebugMe("Saving rest route to %s", file)
+	return file, nil
+}
+
+// Save a route:
+// The path is inferred from the configuration
+func (r *RestRoute) Save(ctx context.Context, dir string) error {
+	logger := shared.AgentLogger(ctx)
+	file, err := r.FilePath(dir)
+	if err != nil {
+		return logger.Wrapf(err, "cannot get file path for route to save")
+	}
+	logger.Debugf("Saving rest route to %s", file)
 	f, err := os.Create(file)
 	if err != nil {
-		return err
+		return logger.Wrapf(err, "cannot create file for route")
 	}
 	defer f.Close()
 	out, err := yaml.Marshal(r)
@@ -101,6 +108,20 @@ func (r *RestRoute) Save(ctx context.Context, dir string) error {
 	_, err = f.Write(out)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+// Delete a route
+func (r *RestRoute) Delete(ctx context.Context, dir string) error {
+	logger := shared.AgentLogger(ctx)
+	file, err := r.FilePath(dir)
+	if err != nil {
+		return logger.Wrapf(err, "cannot get file path for route to delete")
+	}
+	err = os.Remove(file)
+	if err != nil {
+		return logger.Wrapf(err, "cannot delete route file")
 	}
 	return nil
 }

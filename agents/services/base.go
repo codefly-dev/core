@@ -271,6 +271,10 @@ func (s *Base) DebugMe(format string, args ...any) {
 	s.AgentLogger.DebugMe(format, args...)
 }
 
+func (s *Base) Debugf(format string, args ...any) {
+	s.AgentLogger.Debugf(format, args...)
+}
+
 func ConfigureError(err error) *runtimev1.ConfigureStatus {
 	return &runtimev1.ConfigureStatus{
 		State:   runtimev1.ConfigureStatus_ERROR,

@@ -152,19 +152,25 @@ func FlattenRestRoutes(ctx context.Context, group *basev1.EndpointGroup) []*base
 }
 
 func DetectNewRoutes(ctx context.Context, known []*configurations.RestRoute, group *basev1.EndpointGroup) []*configurations.RestRoute {
-	logger := ctx.Value(shared.Agent).(shared.BaseLogger)
+	logger := shared.AgentLogger(ctx)
 	if group == nil {
 		logger.Debugf("we have a nil group")
 		return nil
 	}
 	logger.Debugf("application groups: #%d", len(group.ApplicationEndpointGroup))
+	endpoints := FlattenEndpoints(ctx, group)
+	for _, e := range endpoints {
+		logger.DebugMe("enpoints HERE %v", e.Application, e.Service)
+
+	}
+
 	var newRoutes []*configurations.RestRoute
 	for _, app := range group.ApplicationEndpointGroup {
-		logger.DebugMe("service groups: %s #%d", app.Name, len(app.ServiceEndpointGroups))
+		logger.Debugf("service groups: %s #%d", app.Name, len(app.ServiceEndpointGroups))
 		for _, svc := range app.ServiceEndpointGroups {
-			logger.DebugMe("endpoints: %s #%d", svc.Name, len(svc.Endpoints))
+			logger.Debugf("endpoints: %s #%d", svc.Name, len(svc.Endpoints))
 			for _, ep := range svc.Endpoints {
-				if rest := IsRest(ctx, ep.Api); rest != nil {
+				if rest := HasRest(ctx, ep.Api); rest != nil {
 					for _, route := range rest.Routes {
 						potential := &configurations.RestRoute{
 							Application: app.Name,
@@ -183,7 +189,16 @@ func DetectNewRoutes(ctx context.Context, known []*configurations.RestRoute, gro
 	return newRoutes
 }
 
-func IsRest(ctx context.Context, api *basev1.API) *basev1.RestAPI {
+func FindEndpointForRoute(ctx context.Context, endpoints []*basev1.Endpoint, route *configurations.RestRoute) *basev1.Endpoint {
+	for _, e := range endpoints {
+		if e.Application == route.Application && e.Service == route.Service && HasRest(ctx, e.Api) != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func HasRest(ctx context.Context, api *basev1.API) *basev1.RestAPI {
 	if api == nil {
 		return nil
 	}

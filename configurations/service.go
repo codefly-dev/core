@@ -210,9 +210,9 @@ func (s *Service) LoadSettingsFromSpec(t any) error {
 // AddDependencyReference adds a dependency to the service
 func (s *Service) AddDependencyReference(requirement *Service) error {
 	logger := shared.NewLogger("configurations.Unique.AddDependencyReference<%s> <- %s", s.Name, requirement.Name)
-	logger.DebugMe("endpoints from the requirements: %v", requirement.Endpoints)
+	logger.Debugf("endpoints from the requirements: %v", requirement.Endpoints)
 	for _, d := range requirement.Endpoints {
-		logger.DebugMe("JERE DEP: %v", d)
+		logger.Debugf("JERE DEP: %v", d)
 	}
 	logger.Debugf("adding dependency <%s > to requirement <%s>", requirement.Name, s.Name)
 	// s.Dependencies =

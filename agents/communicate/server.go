@@ -57,8 +57,6 @@ func (m *ServerManager) RequiresCommunication(req any) (*ServerContext, bool) {
 }
 
 func ToMethod(req any) agentsv1.Method {
-	logger := shared.NewLogger("ToMethod")
-	logger.DebugMe("method for req: %T", req)
 	switch req.(type) {
 	case *factoryv1.CreateRequest:
 		return Create

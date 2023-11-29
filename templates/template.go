@@ -245,7 +245,7 @@ func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Di
 	if err != nil {
 		return fmt.Errorf("cannot read template directory: %v", err)
 	}
-	logger.DebugMe("walked %d directories and %d files", len(dirs), len(files))
+	logger.Debugf("walked %d directories and %d files", len(dirs), len(files))
 	for _, d := range dirs {
 		// We take the relative path from the root directory
 		rel, err := d.RelativeFrom(root)
