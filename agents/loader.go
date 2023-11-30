@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,13 +9,15 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 
-	"github.com/hashicorp/go-plugin"
+	"github.com/google/go-github/v37/github"
 
 	"github.com/cheggaaa/pb/v3"
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/golor"
+	"github.com/hashicorp/go-plugin"
 	"github.com/mholt/archiver"
 )
 
@@ -55,6 +58,14 @@ func Load[P AgentContext, Instance any](p *configurations.Agent, unique string, 
 	}
 	if p == nil {
 		return nil, logger.Errorf("agent cannot be nil")
+	}
+	// if verion is latest, fetch latest release number
+	if p.Version == "latest" {
+		latest, err := LatestRelease(p)
+		if err != nil {
+			return nil, logger.Wrapf(err, "cannot get latest release")
+		}
+		p.Version = latest
 	}
 	var this P
 	bin, err := p.Path()
@@ -105,22 +116,54 @@ func Load[P AgentContext, Instance any](p *configurations.Agent, unique string, 
 	return u, nil
 }
 
+type GithubSource struct {
+	Owner string
+	Repo  string
+}
+
+func toGithubSource(p *configurations.Agent) GithubSource {
+	return GithubSource{
+		Owner: strings.Replace(p.Publisher, ".", "-", -1),
+		Repo:  fmt.Sprintf("service-%s", p.Identifier),
+	}
+}
+
+func LatestRelease(p *configurations.Agent) (string, error) {
+	logger := shared.NewLogger("agents.LatestRelease<%s>", p.Unique())
+	client := github.NewClient(nil)
+	source := toGithubSource(p)
+	release, _, err := client.Repositories.GetLatestRelease(context.Background(), source.Owner, source.Repo)
+	if err != nil {
+		return "", logger.Wrapf(err, "cannot get latest release")
+	}
+	tag := release.GetTagName()
+	tag = strings.Replace(tag, "v", "", -1)
+	return tag, nil
+}
+
 func Download(p *configurations.Agent) error {
 	logger := shared.NewLogger("agents.Download<%s>", p.Unique())
 	golor.Println(`#(blue,bold)[Downloading agent {{.Publisher}}::{{.Identifier}} Version {{.Version}}]`, p)
+
 	releaseURL := DownloadURL(p)
+
 	logger.TODO("Publisher to URL: %v", releaseURL)
 	resp, err := http.Get(releaseURL)
 	if err != nil {
-		panic(err)
+		return logger.Wrapf(err, "cannot download agent")
 	}
 
 	tmp, err := os.CreateTemp("", "service-*.tar.gz")
 	if err != nil {
-		panic(err)
+		return logger.Wrapf(err, "cannot create temp file")
 	}
 
-	defer os.Remove(tmp.Name())
+	defer func(name string) {
+		err := os.Remove(name)
+		if err != nil {
+			logger.Info("cannot remove temp file <%s>: %v", name, err)
+		}
+	}(tmp.Name())
 	// Get the content size from the header
 	size := resp.ContentLength
 
@@ -134,7 +177,7 @@ func Download(p *configurations.Agent) error {
 	// Copy the response body to the file while updating the progress bar
 	_, err = io.Copy(writer, resp.Body)
 	if err != nil {
-		panic(err)
+		return logger.Wrapf(err, "cannot copy agent")
 	}
 	bar.Finish()
 
@@ -143,7 +186,7 @@ func Download(p *configurations.Agent) error {
 	// Write the body to file
 	_, err = io.Copy(tmp, resp.Body)
 	if err != nil {
-		panic(err)
+		return logger.Wrapf(err, "cannot copy agent")
 	}
 	tmpDir, err := os.MkdirTemp("", "service-*")
 	if err != nil {
