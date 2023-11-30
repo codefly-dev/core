@@ -221,6 +221,7 @@ func RelativeProjectPath(p string) string {
 
 func LoadProjectFromDir(dir string) (*Project, error) {
 	logger := shared.NewLogger("LoadProjectFromDir<%s>", dir)
+	logger.Tracef("loading project from <%s>", dir)
 	project, err := LoadFromDir[Project](dir)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project configuration")

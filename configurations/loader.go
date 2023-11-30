@@ -113,6 +113,7 @@ func LoadFromDir[C Configuration](dir string) (*C, error) {
 
 func LoadFromPath[C Configuration](p string) (*C, error) {
 	logger := shared.NewLogger("configurations.LoadFromPath[%s]<%s>", TypeName[C](), p)
+	logger.Tracef("loading")
 	if _, err := os.Stat(p); os.IsNotExist(err) {
 		return nil, logger.Errorf("path doesn't exist")
 	}

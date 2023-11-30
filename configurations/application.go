@@ -111,6 +111,9 @@ func LoadApplicationFromDir(dir string) (*Application, error) {
 		return nil, err
 	}
 	config.RelativePathOverride = RelativePath(config.Name, MustCurrentProject().Relative(dir))
+	for _, service := range config.Services {
+		service.Application = config.Name
+	}
 	logger.Tracef("loaded applications configuration with %d services", len(config.Services))
 	return config, err
 }
@@ -168,6 +171,20 @@ func WithApplication(app *Application) Option {
 	return func(scope *Scope) {
 		scope.Application = app
 	}
+}
+
+func LoadApplicationFromReference(ref *ApplicationReference, opts ...Option) (*Application, error) {
+	logger := shared.NewLogger("LoadApplicationFromReference<%s>", ref.Name)
+	apps, err := ListApplications(opts...)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot list applications")
+	}
+	for _, a := range apps {
+		if a.Name == ref.Name {
+			return a, nil
+		}
+	}
+	return nil, logger.Errorf("cannot find application <%v>", ref)
 }
 
 func LoadApplicationFromName(name string, opts ...Option) (*Application, error) {

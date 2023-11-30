@@ -101,8 +101,9 @@ func (s *Service) Reference() (*ServiceReference, error) {
 	return entry, nil
 }
 
-func LoadServiceFromDir(dir string, opts ...Option) (*Service, error) {
+func LoadServiceFromDir(dir string) (*Service, error) {
 	logger := shared.NewLogger("configurations.LoadServiceFromPath<%s>", dir)
+	logger.Tracef("loading")
 	conf, err := LoadFromDir[Service](dir)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
@@ -111,6 +112,11 @@ func LoadServiceFromDir(dir string, opts ...Option) (*Service, error) {
 		return nil, logger.Errorf("service agent cannot be nil")
 	}
 	conf.Agent.Kind = AgentRuntimeService
+	for _, dep := range conf.Dependencies {
+		if dep.Application == "" {
+			dep.Application = conf.Application
+		}
+	}
 	return conf, nil
 }
 
@@ -120,12 +126,18 @@ Derivatives
 
 func LoadServiceFromReference(ref *ServiceReference, opts ...Option) (*Service, error) {
 	logger := shared.NewLogger("configurations.LoadServiceFromReference<%s>", ref.Name)
-	p, err := ref.Dir(opts...)
+	scope := WithScope(opts...)
+	app, err := LoadApplicationFromName(ref.Application, opts...)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot load application configuration")
+	}
+	scope.Application = app
+	p, err := ref.Dir(scope)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot get service path")
 	}
-	logger.Tracef("loading service <%s> at <%s>", ref.Name, p)
-	return LoadServiceFromDir(p, opts...)
+	logger.DebugMe("loading service <%s> at <%s>", ref, p)
+	return LoadServiceFromDir(p)
 }
 
 func FindServiceFromReference(ref *ServiceReference) (*Service, error) {
@@ -277,7 +289,7 @@ func (s *ServiceDependency) AsReference() *ServiceReference {
 }
 
 func (s *ServiceDependency) Unique() string {
-	return fmt.Sprintf("%s.%s", s.Name, s.Application)
+	return fmt.Sprintf("%s/%s", s.Application, s.Name)
 }
 
 type ServiceDependency struct {

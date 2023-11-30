@@ -72,8 +72,7 @@ func (ref *ServiceReference) RelativePath() string {
 	return ref.Name
 }
 
-func (ref *ServiceReference) Dir(opts ...Option) (string, error) {
-	scope := WithScope(opts...)
+func (ref *ServiceReference) Dir(scope *Scope) (string, error) {
 	return path.Join(scope.Application.Dir(), ref.RelativePath()), nil
 }
 

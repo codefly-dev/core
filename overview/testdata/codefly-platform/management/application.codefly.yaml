@@ -1,0 +1,7 @@
+kind: application
+name: management
+relative-path: null
+project: codefly-platform
+domain: github.com/codefly-ai/codefly-platform/management
+services:
+    - name: organization
