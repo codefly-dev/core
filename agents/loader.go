@@ -59,7 +59,7 @@ func Load[P AgentContext, Instance any](p *configurations.Agent, unique string, 
 	if p == nil {
 		return nil, logger.Errorf("agent cannot be nil")
 	}
-	// if verion is latest, fetch latest release number
+	// if version is latest, fetch latest release number
 	if p.Version == "latest" {
 		latest, err := LatestRelease(p)
 		if err != nil {

@@ -26,8 +26,8 @@ type ServiceWithCase struct {
 	Namespace string
 }
 
-// toSnakeCase converts a string to snake_case
-func toSnakeCase(s string) string {
+// ToSnakeCase converts a string to snake_case
+func ToSnakeCase(s string) string {
 	var buf bytes.Buffer
 	for i, r := range s {
 		if unicode.IsUpper(r) {
@@ -42,8 +42,8 @@ func toSnakeCase(s string) string {
 	return buf.String()
 }
 
-// toCamelCase converts a string to camelCase
-func toCamelCase(s string) string {
+// ToCamelCase converts a string to camelCase
+func ToCamelCase(s string) string {
 	var buf bytes.Buffer
 	toUpper := false
 	for _, r := range s {
@@ -61,12 +61,12 @@ func toCamelCase(s string) string {
 	return buf.String()
 }
 
-// toKebabCase converts a string to kebab-case
-func toKebabCase(str string) string {
-	return strings.ReplaceAll(toSnakeCase(str), "_", "-")
+// ToKebabCase converts a string to kebab-case
+func ToKebabCase(str string) string {
+	return strings.ReplaceAll(ToSnakeCase(str), "_", "-")
 }
 
-func toDnsCase(s string) string {
+func ToDnsCase(s string) string {
 	// Unique is of the convention /app/service
 	// For DNS we invert and follow a subdomain convention service-app
 	tokens := strings.Split(s, "/")
@@ -78,25 +78,29 @@ func toDnsCase(s string) string {
 	return strings.ToLower(fmt.Sprintf("%s-%s", svc, app))
 }
 
-func toCase(s string) Case {
+func ToCase(s string) Case {
 	return Case{
-		LowerCase: toLowerCase(s),
-		DnsCase:   toDnsCase(s),
-		SnakeCase: toSnakeCase(s),
-		CamelCase: toCamelCase(s),
-		KebabCase: toKebabCase(s),
-		Title:     cases.Title(language.English).String(s),
+		LowerCase: ToLowerCase(s),
+		DnsCase:   ToDnsCase(s),
+		SnakeCase: ToSnakeCase(s),
+		CamelCase: ToCamelCase(s),
+		KebabCase: ToKebabCase(s),
+		Title:     ToTitle(s),
 	}
 }
 
-func toLowerCase(s string) string {
+func ToTitle(s string) string {
+	return ToCamelCase(cases.Title(language.English).String(s))
+}
+
+func ToLowerCase(s string) string {
 	return strings.ToLower(s)
 }
 
 func ToServiceWithCase(svc *Service) *ServiceWithCase {
 	return &ServiceWithCase{
-		Name:      toCase(svc.Name),
-		Unique:    toCase(svc.Unique()),
+		Name:      ToCase(svc.Name),
+		Unique:    ToCase(svc.Unique()),
 		Domain:    svc.Domain,
 		Namespace: svc.Namespace,
 	}
