@@ -35,6 +35,8 @@ type Project struct {
 
 	// Environments in the project
 	Environments []EnvironmentReference `yaml:"environments"`
+
+	dir string // actual dir
 }
 
 func (project *Project) Current() string {
@@ -180,6 +182,7 @@ func NewProject(name string) (*Project, error) {
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot save project")
 	}
+	p.dir = dir
 
 	// Templatize as usual
 	err = templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(dir), p)
@@ -206,7 +209,7 @@ func ValidateProjectName(name string) error {
 }
 
 func (project *Project) Dir() string {
-	return path.Join(GlobalProjectRoot(), project.RelativePath)
+	return project.dir
 }
 
 func ProjectPath(relativePath string) string {
@@ -226,6 +229,7 @@ func LoadProjectFromDir(dir string) (*Project, error) {
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project configuration")
 	}
+	project.dir = dir
 	err = project.Process()
 	if err != nil {
 		return nil, err

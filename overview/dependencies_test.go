@@ -8,16 +8,23 @@ import (
 )
 
 func TestGraph(t *testing.T) {
-	configurations.OverrideWorkspaceProjectRoot(configurations.SolveDir("testdata"))
-	project, err := configurations.LoadProjectFromName("codefly-platform")
+	project, err := configurations.LoadProjectFromDir(configurations.SolveDir("testdata/codefly-platform"))
 	assert.NoError(t, err)
 	assert.NotNil(t, project)
+	assert.Equal(t, 2, len(project.Applications))
 	depGraph, err := overview.NewDependencyGraph(project)
 	assert.NoError(t, err)
 	assert.NotNil(t, depGraph)
 	// should find a node from web/frontend to web/gateway
 	// and from web/gateway to management/organization
+	assert.Equal(t, 3, len(depGraph.Nodes()))
+	for _, node := range depGraph.Nodes() {
+		t.Logf("node: %v", node)
+	}
 	edges := depGraph.Edges()
+	for _, ed := range edges {
+		t.Logf("edge: %v", ed)
+	}
 	assert.Equal(t, 2, len(edges))
 	expectedWebEdge := &overview.Edge{
 		From: "web/gateway", // is a dependency for

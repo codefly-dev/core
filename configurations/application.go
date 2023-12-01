@@ -134,11 +134,15 @@ func (s *Scope) WithProject(project *Project) *Scope {
 }
 
 func WithScope(opts ...Option) *Scope {
-	scope := &Scope{
-		Project: MustCurrentProject(),
-	}
+	// If we don't have a project Option, add the current project
+	scope := &Scope{}
 	for _, opt := range opts {
 		opt(scope)
+	}
+	if scope.Project == nil {
+		project, err := CurrentProject()
+		shared.ExitOnError(err, "cannot get current project")
+		scope.Project = project
 	}
 
 	if scope.Application == nil {
@@ -255,6 +259,11 @@ func (app *Application) RelativePath() string {
 		return *app.RelativePathOverride
 	}
 	return app.Name
+}
+
+func (app *Application) LoadServiceFromReference(ref *ServiceReference, opts ...Option) (*Service, error) {
+	dir := path.Join(app.Dir(opts...), ref.RelativePath())
+	return LoadServiceFromDir(dir)
 }
 
 func CurrentApplication(opts ...Option) (*Application, error) {

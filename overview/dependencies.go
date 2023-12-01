@@ -55,12 +55,12 @@ func Load(project *configurations.Project) (*Graph, error) {
 	logger := shared.NewLogger("overview.Load")
 	graph := NewGraph(project.Name)
 	for _, appRef := range project.Applications {
-		app, err := configurations.LoadApplicationFromName(appRef.Name)
+		app, err := project.LoadApplicationFromReference(appRef)
 		if err != nil {
 			return nil, logger.Wrapf(err, "cannot load application <%s>", appRef.Name)
 		}
 		for _, serviceRef := range app.Services {
-			service, err := configurations.LoadServiceFromReference(serviceRef)
+			service, err := app.LoadServiceFromReference(serviceRef, configurations.WithProject(project))
 			if err != nil {
 				return nil, logger.Wrapf(err, "cannot load service <%s>", serviceRef.Name)
 			}
