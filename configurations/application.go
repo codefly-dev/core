@@ -100,7 +100,7 @@ func NewApplication(name string) (*Application, error) {
 }
 
 func (app *Application) Dir(opts ...Option) string {
-	scope := WithScope(opts...)
+	scope := WithScopeProjectOnly(opts...)
 	return path.Join(scope.Project.Dir(), app.RelativePath())
 }
 

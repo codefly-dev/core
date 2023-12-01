@@ -73,7 +73,7 @@ func (project *Project) SetCurrentApplication(name string) error {
 			break
 		}
 	}
-	return project.Save()
+	return nil
 }
 
 func (project *Project) PreSave() error {
@@ -259,7 +259,7 @@ func (project *Project) SaveToDir(dir string) error {
 	if err != nil {
 		return err
 	}
-	return SaveToDir(project, dir)
+	return SaveToDir[Project](project, dir)
 }
 
 func (project *Project) ListServices() ([]*ServiceReference, error) {
