@@ -154,11 +154,12 @@ func WithScope(opts ...Option) *Scope {
 }
 
 func WithScopeProjectOnly(opts ...Option) *Scope {
-	scope := &Scope{
-		Project: MustCurrentProject(),
-	}
+	scope := &Scope{}
 	for _, opt := range opts {
 		opt(scope)
+	}
+	if scope.Project == nil {
+		scope.Project = MustCurrentProject()
 	}
 	return scope
 }
