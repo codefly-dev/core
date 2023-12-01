@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/codefly-dev/core/shared"
 )
@@ -16,21 +17,22 @@ type Workspace struct {
 	Domain       string `yaml:"domain"`
 
 	// Projects in the global configuration
-	Projects       []*ProjectReference `yaml:"projects"`
-	CurrentProject string              `yaml:"current-project,omitempty"`
+	Projects []*ProjectReference `yaml:"projects"`
 
 	// Internal
-	FullDir string `yaml:"-"`
+	dir            string
+	currentProject string
 }
 
 func LoadCurrentProject() (*Project, error) {
 	logger := shared.NewLogger("LoadCurrentProject")
-	if MustCurrent().CurrentProject == "" {
+	current := Global().CurrentProject()
+	if current == "" {
 		return nil, shared.NewUserError("no current project")
 	}
-	reference, err := FindProjectReference(MustCurrent().CurrentProject)
+	reference, err := FindProjectReference(current)
 	if err != nil {
-		return nil, shared.NewUserError("cannot find current project <%s> in global configuration", MustCurrent().CurrentProject)
+		return nil, shared.NewUserError("cannot find current project <%s> in global configuration", current)
 	}
 	p, err := LoadProjectFromDir(path.Join(GlobalProjectRoot(), reference.RelativePath()))
 	if err != nil {
@@ -46,7 +48,7 @@ func LoadCurrentProject() (*Project, error) {
 func ListProjects() ([]*Project, error) {
 	logger := shared.NewLogger("ListProjects")
 	var projects []*Project
-	for _, p := range MustCurrent().Projects {
+	for _, p := range Global().Projects {
 		project, err := LoadProjectFromDir(ProjectPath(p.RelativePath()))
 		if err != nil {
 			return nil, logger.Wrapf(err, "cannot load project <%s>", p.Name)
@@ -58,15 +60,19 @@ func ListProjects() ([]*Project, error) {
 
 func KnownProjects() []string {
 	var names []string
-	for _, p := range MustCurrent().Projects {
+	for _, p := range Global().Projects {
 		names = append(names, p.Name)
 	}
 	return names
 }
 
+func WorkspaceMatch(entry string, name string) bool {
+	return entry == name || entry == fmt.Sprintf("%s*", name)
+}
+
 func FindProjectReference(name string) (*ProjectReference, error) {
-	for _, p := range MustCurrent().Projects {
-		if p.Name == name {
+	for _, p := range Global().Projects {
+		if WorkspaceMatch(p.Name, name) {
 			return p, nil
 		}
 	}
@@ -94,22 +100,29 @@ func MustCurrentProject() *Project {
 	return currentProject
 }
 
-func SetCurrentProject(p *Project) {
+func (w *Workspace) SetCurrentProject(p *Project) {
 	currentProject = p
-	MustCurrent().CurrentProject = p.Name
-	SaveCurrent(SilentOverride())
+	if w.CurrentProject() == p.Name {
+		return
+	}
+	for _, ref := range w.Projects {
+		if ref.Name == p.Name {
+			ref.Name = fmt.Sprintf("%s*", ref.Name)
+		}
+	}
+	w.SaveCurrent(SilentOverride())
 }
 
-func AddProject(p *Project) {
-	for _, project := range MustCurrent().Projects {
+func (w *Workspace) AddProject(p *Project) {
+	for _, project := range Global().Projects {
 		if project.Name == p.Name {
 			return
 		}
 	}
-	MustCurrent().Projects = append(MustCurrent().Projects, &ProjectReference{
+	w.Projects = append(Global().Projects, &ProjectReference{
 		Name: p.Name,
 	})
-	SaveCurrent()
+	w.SaveCurrent()
 }
 
 // A GlobalConfigurationInputer abstracts away global configuration and default of project creation
@@ -140,7 +153,7 @@ func InitGlobal(getter GlobalConfigurationInputer) {
 		shared.UnexpectedExitOnError(err, "cannot fetch global configuration")
 	}
 	global := Workspace{
-		FullDir:      dir,
+		dir:          dir,
 		Organization: getter.Organization(),
 		Domain:       getter.Domain(),
 	}
@@ -149,33 +162,33 @@ func InitGlobal(getter GlobalConfigurationInputer) {
 }
 
 // Dir returns the absolute path to the global configuration directory
-func (g *Workspace) Dir() string {
-	return g.FullDir
+func (w *Workspace) Dir() string {
+	return w.dir
 }
 
-func (g *Workspace) Relative(dir string) string {
-	rel, err := filepath.Rel(g.Dir(), dir)
+func (w *Workspace) Relative(dir string) string {
+	rel, err := filepath.Rel(w.Dir(), dir)
 	shared.ExitOnError(err, "cannot compute relative path from workspace")
 	return rel
 }
 
-func DeleteProject(name string) {
+func (w *Workspace) CurrentProject() string {
+	return w.currentProject
+}
+
+func (w *Workspace) DeleteProject(name string) {
 	var projects []*ProjectReference
-	current := MustCurrent()
-	if current == nil {
-		panic("fix me")
-	}
-	for _, p := range global.Projects {
+	for _, p := range w.Projects {
 		if p.Name == name {
 			continue
 		}
 		projects = append(projects, p)
 	}
-	global.Projects = projects
-	if global.CurrentProject == name {
-		global.CurrentProject = ""
+	w.Projects = projects
+	if w.currentProject == name {
+		w.currentProject = ""
 	}
-	SaveCurrent()
+	w.SaveCurrent()
 }
 
 // Current returns the current global configuration
@@ -184,17 +197,24 @@ func Current() (*Workspace, error) {
 	if global != nil {
 		return global, nil
 	}
+	logger.Tracef("getting current")
 	g, err := LoadFromDir[Workspace](GlobalConfigurationDir())
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load global configuration")
 	}
-	g.FullDir = GlobalConfigurationDir()
+	g.dir = GlobalConfigurationDir()
 	global = g
+	for _, p := range g.Projects {
+		if name, ok := strings.CutSuffix(p.Name, "*"); ok {
+			p.Name = name
+			g.currentProject = name
+		}
+	}
 	return global, nil
 }
 
-func SaveCurrent(opts ...SaveOptionFunc) {
-	err := SaveToDir[Workspace](global, global.Dir(), opts...)
+func (w *Workspace) SaveCurrent(opts ...SaveOptionFunc) {
+	err := SaveToDir[Workspace](w, w.Dir(), opts...)
 	shared.UnexpectedExitOnError(err, "cannot save global configuration")
 }
 
@@ -211,8 +231,8 @@ func GlobalProjectRoot() string {
 	return globalProjectRoot
 }
 
-// MustCurrent returns the current global configuration
-func MustCurrent() *Workspace {
+// Global returns the current global configuration
+func Global() *Workspace {
 	if global == nil {
 		g, err := Current()
 		shared.ExitOnError(err, "cannot load current global configuration")

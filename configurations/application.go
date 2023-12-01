@@ -311,8 +311,7 @@ func SetCurrentApplication(app *Application) {
 		os.Exit(0)
 	}
 	currentApplication = app
-	MustCurrentProject().SetCurrent(app.Name)
-	err := MustCurrentProject().Save()
+	err := MustCurrentProject().SetCurrentApplication(app.Name)
 	shared.ExitOnError(err, "cannot save current project")
 }
 

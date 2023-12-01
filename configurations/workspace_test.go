@@ -92,15 +92,15 @@ package configurations_test
 //	//// Check that we have a default project
 //	//configurations.Reset()
 //	//
-//	//assert.Equal(t, path.Join(tmp, "global"), configurations.MustCurrent().Dir())
-//	//assert.Equal(t, g.Organization(), configurations.MustCurrent().Organization)
-//	//assert.Equal(t, g.Domain(), configurations.MustCurrent().Domain)
+//	//assert.Equal(t, path.Join(tmp, "global"), configurations.Global().Dir())
+//	//assert.Equal(t, g.Organization(), configurations.Global().Organization)
+//	//assert.Equal(t, g.Domain(), configurations.Global().Domain)
 //	//
 //	//// We should also have a project from the option
-//	//assert.Equal(t, 1, len(configurations.MustCurrent().Projects))
-//	//assert.Equal(t, g.ProjectBuilder().ProjectName(), configurations.MustCurrent().Projects[0].Name)
-//	//assert.Equal(t, g.ProjectBuilder().ProjectName(), configurations.MustCurrent().CurrentProject)
-//	//assert.Equal(t, g.ProjectBuilder().RelativePathOverride(), configurations.MustCurrent().Projects[0].RelativePathOverride)
+//	//assert.Equal(t, 1, len(configurations.Global().Projects))
+//	//assert.Equal(t, g.ProjectBuilder().ProjectName(), configurations.Global().Projects[0].Name)
+//	//assert.Equal(t, g.ProjectBuilder().ProjectName(), configurations.Global().CurrentProject)
+//	//assert.Equal(t, g.ProjectBuilder().RelativePathOverride(), configurations.Global().Projects[0].RelativePathOverride)
 //	//
 //	//assert.True(t, fromTmp.Exists("projects/test_project_name/project.codefly.yaml"))
 //	//

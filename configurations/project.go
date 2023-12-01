@@ -24,8 +24,7 @@ type Project struct {
 	RelativePath string       `yaml:"relative-path,omitempty"`
 
 	// Applications in the project
-	Applications       []*ApplicationReference `yaml:"applications"`
-	currentApplication string                  `yaml:"current-application,omitempty"`
+	Applications []*ApplicationReference `yaml:"applications"`
 
 	// Partials are convenient way to run several applications
 	Partials []Partial `yaml:"partials"`
@@ -36,7 +35,8 @@ type Project struct {
 	// Environments in the project
 	Environments []EnvironmentReference `yaml:"environments"`
 
-	dir string // actual dir
+	currentApplication string // internal use
+	dir                string // actual dir
 }
 
 func (project *Project) Current() string {
@@ -65,19 +65,19 @@ func (project *Project) Process() error {
 	return nil
 }
 
-func (project *Project) SetCurrent(name string) {
+func (project *Project) SetCurrentApplication(name string) error {
 	for _, app := range project.Applications {
 		if app.Name == name {
 			project.currentApplication = name
 			app.Name = MakeCurrent(name)
-			return
+			break
 		}
 	}
+	return project.Save()
 }
 
 func (project *Project) PreSave() error {
-	project.SetCurrent(project.currentApplication)
-	return nil
+	return project.SetCurrentApplication(project.currentApplication)
 }
 
 func ProjectConfiguration(current bool) (*Project, error) {
@@ -172,8 +172,8 @@ func NewProject(name string) (*Project, error) {
 
 	p := &Project{
 		Name:         name,
-		Organization: MustCurrent().Organization,
-		Domain:       ExtendDomain(MustCurrent().Domain, name),
+		Organization: Global().Organization,
+		Domain:       ExtendDomain(Global().Domain, name),
 		RelativePath: ref.RelativePath(),
 	}
 	logger.TODO("Depending on style we want to do git init, etc...")
@@ -191,9 +191,8 @@ func NewProject(name string) (*Project, error) {
 	}
 
 	// And set as current
-	MustCurrent().CurrentProject = name
-	MustCurrent().Projects = append(MustCurrent().Projects, ref)
-	SaveCurrent()
+	Global().AddProject(p)
+	Global().SetCurrentProject(p)
 	return p, nil
 }
 
