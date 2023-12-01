@@ -362,6 +362,11 @@ export class DeploymentRequest extends Message<DeploymentRequest> {
    */
   environment?: Environment;
 
+  /**
+   * @generated from field: v1.base.EndpointGroup dependency_endpoint_group = 2;
+   */
+  dependencyEndpointGroup?: EndpointGroup;
+
   constructor(data?: PartialMessage<DeploymentRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -371,6 +376,7 @@ export class DeploymentRequest extends Message<DeploymentRequest> {
   static readonly typeName = "v1.services.factory.DeploymentRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "environment", kind: "message", T: Environment },
+    { no: 2, name: "dependency_endpoint_group", kind: "message", T: EndpointGroup },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeploymentRequest {

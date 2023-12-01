@@ -80,6 +80,7 @@ Deployment
 
 message DeploymentRequest {
   v1.base.Environment environment = 1;
+  v1.base.EndpointGroup dependency_endpoint_group = 2;
 }
 
 message DeploymentResponse {
