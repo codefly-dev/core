@@ -61,11 +61,10 @@ func Load[P AgentContext, Instance any](p *configurations.Agent, unique string, 
 	}
 	// if version is latest, fetch latest release number
 	if p.Version == "latest" {
-		latest, err := LatestRelease(p)
+		err := PinToLatestRelease(p)
 		if err != nil {
 			return nil, logger.Wrapf(err, "cannot get latest release")
 		}
-		p.Version = latest
 	}
 	var this P
 	bin, err := p.Path()
@@ -128,17 +127,17 @@ func toGithubSource(p *configurations.Agent) GithubSource {
 	}
 }
 
-func LatestRelease(p *configurations.Agent) (string, error) {
-	logger := shared.NewLogger("agents.LatestRelease<%s>", p.Unique())
+func PinToLatestRelease(p *configurations.Agent) error {
+	logger := shared.NewLogger("agents.PinToLatestRelease<%s>", p.Unique())
 	client := github.NewClient(nil)
 	source := toGithubSource(p)
 	release, _, err := client.Repositories.GetLatestRelease(context.Background(), source.Owner, source.Repo)
 	if err != nil {
-		return "", logger.Wrapf(err, "cannot get latest release")
+		return logger.Wrapf(err, "cannot get latest release")
 	}
 	tag := release.GetTagName()
-	tag = strings.Replace(tag, "v", "", -1)
-	return tag, nil
+	p.Version = strings.Replace(tag, "v", "", -1)
+	return nil
 }
 
 func Download(p *configurations.Agent) error {

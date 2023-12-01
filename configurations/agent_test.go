@@ -16,9 +16,9 @@ func TestAgentParse(t *testing.T) {
 		in   string
 		out  *configurations.Agent
 	}{
-		{name: "identifier only", in: "go-grpc", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.ai", Identifier: "go-grpc", Version: "latest"}},
-		{name: "identifier with publisher", in: "go-grpc:0.0.0", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.ai", Identifier: "go-grpc", Version: "0.0.0"}},
-		{name: "full specification", in: "codefly.ai/go-grpc:0.0.0", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.ai", Identifier: "go-grpc", Version: "0.0.0"}},
+		{name: "identifier only", in: "go-grpc", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.dev", Identifier: "go-grpc", Version: "latest"}},
+		{name: "identifier with publisher", in: "go-grpc:0.0.0", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.dev", Identifier: "go-grpc", Version: "0.0.0"}},
+		{name: "full specification", in: "codefly.dev/go-grpc:0.0.0", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.dev", Identifier: "go-grpc", Version: "0.0.0"}},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {

@@ -157,7 +157,7 @@ func ParseAgent(kind string, s string) (*Agent, error) {
 	var err error
 	// TODO: More validation
 	tokens := strings.SplitN(s, "/", 2)
-	pub := "codefly.ai"
+	pub := "codefly.dev"
 	rest := s
 	if len(tokens) == 2 {
 		pub = tokens[0]
