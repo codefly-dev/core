@@ -282,13 +282,16 @@ func CurrentApplication(opts ...Option) (*Application, error) {
 	if len(all) == 0 {
 		return nil, NoApplicationError{Project: MustCurrentProject().Name}
 	}
+	if len(all) == 1 {
+		return all[0], nil
+	}
 	for _, app := range all {
 		if app.Name == current {
 			currentApplication = app
 			return app, nil
 		}
 	}
-	return nil, logger.Errorf("cannot find current applications <%s> in project <%s>", current, MustCurrentProject().Name)
+	return nil, logger.Errorf("cannot find current application <%s> in project <%s>", current, MustCurrentProject().Name)
 }
 
 func MustCurrentApplication() *Application {
