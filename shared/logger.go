@@ -28,6 +28,10 @@ func AgentLogger(ctx context.Context) BaseLogger {
 	return ctx.Value(Agent).(BaseLogger)
 }
 
+func ServiceLogger(ctx context.Context) BaseLogger {
+	return ctx.Value(Service).(BaseLogger)
+}
+
 // BaseLogger is the Minimum logger interface
 type BaseLogger interface {
 	Write(p []byte) (n int, err error)

@@ -9,8 +9,6 @@ import (
 
 	"github.com/codefly-dev/core/agents/services"
 
-	"github.com/codefly-dev/core/agents"
-
 	"github.com/codefly-dev/core/shared"
 	"github.com/pkg/errors"
 )
@@ -23,8 +21,8 @@ type Runner struct {
 	Envs  []string
 	Debug bool
 
-	ServiceLogger *agents.ServiceLogger
-	AgentLogger   *agents.AgentLogger
+	ServiceLogger shared.BaseLogger
+	AgentLogger   shared.BaseLogger
 
 	Wait bool
 
@@ -113,7 +111,7 @@ func WrapStart(cmd *exec.Cmd, loggers ...shared.BaseLogger) error {
 	return nil
 }
 
-func WrapStartDebug(cmd *exec.Cmd, logger *agents.AgentLogger) error {
+func WrapStartDebug(cmd *exec.Cmd, logger shared.BaseLogger) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		logger.Debugf("OOPS got error %v %v", err, string(out))
