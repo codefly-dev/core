@@ -43,8 +43,9 @@ func TestAgentParse(t *testing.T) {
 }
 
 func TestAgentLoadDir(t *testing.T) {
-	p := configurations.LoadAgentConfiguration(shared.NewDirReader().At("testdata"))
-	assert.Equal(t, "codefly.ai", p.Publisher)
+	p, err := configurations.LoadFromFs[configurations.Agent](shared.NewDirReader().At("testdata"))
+	assert.NoError(t, err)
+	assert.Equal(t, "codefly.dev", p.Publisher)
 	assert.Equal(t, "go", p.Identifier)
 	assert.Equal(t, "0.0.0", p.Version)
 
@@ -54,8 +55,9 @@ func TestAgentLoadDir(t *testing.T) {
 }
 
 func TestAgentLoadEmbed(t *testing.T) {
-	p := configurations.LoadAgentConfiguration(shared.Embed(info).At("testdata"))
-	assert.Equal(t, "codefly.ai", p.Publisher)
+	p, err := configurations.LoadFromFs[configurations.Agent](shared.Embed(info).At("testdata"))
+	assert.NoError(t, err)
+	assert.Equal(t, "codefly.dev", p.Publisher)
 }
 
 //go:embed testdata/agent.codefly.yaml

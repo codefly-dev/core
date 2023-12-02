@@ -51,6 +51,28 @@ func SolveDirOrCreate(dir string) string {
 	return dir
 }
 
+func ConfigurationFile[C Configuration]() string {
+	var c C
+	switch any(c).(type) {
+	case Info:
+		return InfoConfigurationName
+	case Workspace:
+		return GlobalConfigurationName
+	case Project:
+		return ProjectConfigurationName
+	case Application:
+		return ApplicationConfigurationName
+	case Service:
+		return ServiceConfigurationName
+	case generation.Service:
+		return generation.ServiceGenerationConfigurationName
+	case Agent:
+		return AgentConfigurationName
+	default:
+		panic(fmt.Errorf("unknown configuration type <%T>", c))
+	}
+}
+
 func Path[C Configuration](dir string) string {
 	if err := shared.CheckDirectory(dir); err != nil {
 		if filepath.IsLocal(dir) {
@@ -61,23 +83,7 @@ func Path[C Configuration](dir string) string {
 			dir = filepath.Join(cur, dir)
 		}
 	}
-	var c C
-	switch any(c).(type) {
-	case Workspace:
-		return path.Join(dir, GlobalConfigurationName)
-	case Project:
-		return path.Join(dir, ProjectConfigurationName)
-	case Application:
-		return path.Join(dir, ApplicationConfigurationName)
-	case Service:
-		return path.Join(dir, ServiceConfigurationName)
-	case generation.Service:
-		return path.Join(dir, generation.ServiceGenerationConfigurationName)
-	case Agent:
-		return path.Join(dir, AgentConfigurationName)
-	default:
-		panic(fmt.Errorf("unknown configuration type <%T>", c))
-	}
+	return path.Join(dir, ConfigurationFile[C]())
 }
 
 func ExistsAtDir[C Configuration](dir string) bool {
@@ -104,6 +110,19 @@ func ExistsAtDir[C Configuration](dir string) bool {
 func TypeName[C Configuration]() string {
 	var c C
 	return fmt.Sprintf("%T", c)
+}
+
+func LoadFromFs[C any](fs shared.FileSystem) (*C, error) {
+	logger := shared.NewLogger("configurations.LoadFromFs[%s]", TypeName[C]())
+	content, err := fs.ReadFile(shared.NewFile(ConfigurationFile[C]()))
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot read file")
+	}
+	conf, err := LoadFromBytes[C](content)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot load from bytes")
+	}
+	return conf, nil
 }
 
 func LoadFromDir[C Configuration](dir string) (*C, error) {

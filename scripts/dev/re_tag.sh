@@ -1,8 +1,6 @@
 #!/bin/bash
 
-# Usage: ./tag.sh <new_version>
-
-YAML_FILE="info.yaml"
+YAML_FILE="configurations/info.codefly.yaml"
 
 if [ ! -f "$YAML_FILE" ]; then
     echo "Error: YAML file $YAML_FILE does not exist."

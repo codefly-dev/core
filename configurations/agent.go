@@ -35,30 +35,6 @@ func NewAgent(kind string, publisher string, identifier string, version string) 
 	return p
 }
 
-func LoadAgentConfiguration(fs shared.FileSystem) *Agent {
-	content, err := fs.ReadFile(shared.NewFile(AgentConfigurationName))
-	if err != nil {
-		shared.ExitOnError(err, "cannot load agent configurations")
-	}
-	conf, err := LoadFromBytes[Agent](content)
-	if err != nil {
-		shared.ExitOnError(err, "cannot load agent configurations")
-	}
-	return conf
-}
-
-func LoadAgentConfigurationFromReader(fs shared.FSReader) Agent {
-	content, err := fs.ReadFile(shared.NewFile(AgentConfigurationName))
-	if err != nil {
-		shared.ExitOnError(err, "cannot load agent configurations")
-	}
-	conf, err := LoadFromBytes[Agent](content)
-	if err != nil {
-		shared.ExitOnError(err, "cannot load agent configurations")
-	}
-	return *conf
-}
-
 func (p *Agent) Validate() {
 	if p.Publisher == "" {
 		shared.Exit("agent publisher is required")

@@ -1,10 +1,11 @@
 package overview_test
 
 import (
+	"testing"
+
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/overview"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestGraph(t *testing.T) {
