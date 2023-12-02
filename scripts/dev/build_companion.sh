@@ -9,4 +9,4 @@ fi
 
 CURRENT_VERSION=$(yq eval '.version' "$YAML_FILE")
 
-docker build -f agents/helpers/proto/Dockerfile -t codefly/companion:"$CURRENT_VERSION" .
+docker build -f agents/helpers/proto/Dockerfile -t codeflydev/companion:"$CURRENT_VERSION" .

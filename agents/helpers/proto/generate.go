@@ -47,7 +47,7 @@ var info embed.FS
 
 func (g *Proto) Generate(ctx context.Context) error {
 	logger := shared.AgentLogger(ctx)
-	image := fmt.Sprintf("codefly/companion:%s", g.version)
+	image := fmt.Sprintf("codeflydev/companion:%s", g.version)
 	volume := fmt.Sprintf("%s:/workspace", g.Dir)
 	runner := runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "generate"}, AgentLogger: logger, ServiceLogger: shared.ServiceLogger(ctx)}
 	logger.Debugf("Generating code from buf...")
