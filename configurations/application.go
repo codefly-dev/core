@@ -64,6 +64,7 @@ func ApplicationConfiguration(current bool) (*Application, error) {
 }
 
 func NewApplication(name string) (*Application, error) {
+	ctx := shared.NewContext()
 	logger := shared.NewLogger("NewApplication")
 	app := Application{
 		Kind:    ApplicationKind,
@@ -92,7 +93,7 @@ func NewApplication(name string) (*Application, error) {
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot add applications to project configuration")
 	}
-	err = MustCurrentProject().Save()
+	err = MustCurrentProject().Save(ctx)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot save project configuration")
 	}
@@ -110,7 +111,7 @@ func LoadApplicationFromDir(dir string) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	config.RelativePathOverride = RelativePath(config.Name, MustCurrentProject().Relative(dir))
+	config.RelativePathOverride = OverridePath(config.Name, MustCurrentProject().Relative(dir))
 	for _, service := range config.Services {
 		service.Application = config.Name
 	}

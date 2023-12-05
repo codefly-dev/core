@@ -7,11 +7,10 @@
 package base
 
 import (
-	reflect "reflect"
-	sync "sync"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -21,23 +20,23 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type HttpMethod int32
+type HTTPMethod int32
 
 const (
-	HttpMethod_GET     HttpMethod = 0
-	HttpMethod_POST    HttpMethod = 1
-	HttpMethod_PUT     HttpMethod = 2
-	HttpMethod_DELETE  HttpMethod = 3
-	HttpMethod_PATCH   HttpMethod = 4
-	HttpMethod_OPTIONS HttpMethod = 5
-	HttpMethod_HEAD    HttpMethod = 6
-	HttpMethod_CONNECT HttpMethod = 7
-	HttpMethod_TRACE   HttpMethod = 8
+	HTTPMethod_GET     HTTPMethod = 0
+	HTTPMethod_POST    HTTPMethod = 1
+	HTTPMethod_PUT     HTTPMethod = 2
+	HTTPMethod_DELETE  HTTPMethod = 3
+	HTTPMethod_PATCH   HTTPMethod = 4
+	HTTPMethod_OPTIONS HTTPMethod = 5
+	HTTPMethod_HEAD    HTTPMethod = 6
+	HTTPMethod_CONNECT HTTPMethod = 7
+	HTTPMethod_TRACE   HTTPMethod = 8
 )
 
-// Enum value maps for HttpMethod.
+// Enum value maps for HTTPMethod.
 var (
-	HttpMethod_name = map[int32]string{
+	HTTPMethod_name = map[int32]string{
 		0: "GET",
 		1: "POST",
 		2: "PUT",
@@ -48,7 +47,7 @@ var (
 		7: "CONNECT",
 		8: "TRACE",
 	}
-	HttpMethod_value = map[string]int32{
+	HTTPMethod_value = map[string]int32{
 		"GET":     0,
 		"POST":    1,
 		"PUT":     2,
@@ -61,30 +60,30 @@ var (
 	}
 )
 
-func (x HttpMethod) Enum() *HttpMethod {
-	p := new(HttpMethod)
+func (x HTTPMethod) Enum() *HTTPMethod {
+	p := new(HTTPMethod)
 	*p = x
 	return p
 }
 
-func (x HttpMethod) String() string {
+func (x HTTPMethod) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (HttpMethod) Descriptor() protoreflect.EnumDescriptor {
+func (HTTPMethod) Descriptor() protoreflect.EnumDescriptor {
 	return file_base_api_proto_enumTypes[0].Descriptor()
 }
 
-func (HttpMethod) Type() protoreflect.EnumType {
+func (HTTPMethod) Type() protoreflect.EnumType {
 	return &file_base_api_proto_enumTypes[0]
 }
 
-func (x HttpMethod) Number() protoreflect.EnumNumber {
+func (x HTTPMethod) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use HttpMethod.Descriptor instead.
-func (HttpMethod) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use HTTPMethod.Descriptor instead.
+func (HTTPMethod) EnumDescriptor() ([]byte, []int) {
 	return file_base_api_proto_rawDescGZIP(), []int{0}
 }
 
@@ -456,7 +455,7 @@ type RestRoute struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Methods []HttpMethod `protobuf:"varint,1,rep,packed,name=methods,proto3,enum=v1.base.HttpMethod" json:"methods,omitempty"`
+	Methods []HTTPMethod `protobuf:"varint,1,rep,packed,name=methods,proto3,enum=v1.base.HTTPMethod" json:"methods,omitempty"`
 	Path    string       `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
 }
 
@@ -492,7 +491,7 @@ func (*RestRoute) Descriptor() ([]byte, []int) {
 	return file_base_api_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *RestRoute) GetMethods() []HttpMethod {
+func (x *RestRoute) GetMethods() []HTTPMethod {
 	if x != nil {
 		return x.Methods
 	}
@@ -737,7 +736,7 @@ var file_base_api_proto_rawDesc = []byte{
 	0x42, 0x07, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x22, 0x4e, 0x0a, 0x09, 0x52, 0x65, 0x73,
 	0x74, 0x52, 0x6f, 0x75, 0x74, 0x65, 0x12, 0x2d, 0x0a, 0x07, 0x6d, 0x65, 0x74, 0x68, 0x6f, 0x64,
 	0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0e, 0x32, 0x13, 0x2e, 0x76, 0x31, 0x2e, 0x62, 0x61, 0x73,
-	0x65, 0x2e, 0x48, 0x74, 0x74, 0x70, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64, 0x52, 0x07, 0x6d, 0x65,
+	0x65, 0x2e, 0x48, 0x54, 0x54, 0x50, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64, 0x52, 0x07, 0x6d, 0x65,
 	0x74, 0x68, 0x6f, 0x64, 0x73, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x61, 0x74, 0x68, 0x18, 0x02, 0x20,
 	0x01, 0x28, 0x09, 0x52, 0x04, 0x70, 0x61, 0x74, 0x68, 0x22, 0x4f, 0x0a, 0x07, 0x52, 0x65, 0x73,
 	0x74, 0x41, 0x50, 0x49, 0x12, 0x18, 0x0a, 0x07, 0x6f, 0x70, 0x65, 0x6e, 0x61, 0x70, 0x69, 0x18,
@@ -748,7 +747,7 @@ var file_base_api_proto_rawDesc = []byte{
 	0x70, 0x63, 0x41, 0x50, 0x49, 0x12, 0x14, 0x0a, 0x05, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x18, 0x01,
 	0x20, 0x01, 0x28, 0x0c, 0x52, 0x05, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0x09, 0x0a, 0x07, 0x48,
 	0x74, 0x74, 0x70, 0x41, 0x50, 0x49, 0x22, 0x08, 0x0a, 0x06, 0x54, 0x63, 0x70, 0x41, 0x50, 0x49,
-	0x2a, 0x6e, 0x0a, 0x0a, 0x48, 0x74, 0x74, 0x70, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64, 0x12, 0x07,
+	0x2a, 0x6e, 0x0a, 0x0a, 0x48, 0x54, 0x54, 0x50, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64, 0x12, 0x07,
 	0x0a, 0x03, 0x47, 0x45, 0x54, 0x10, 0x00, 0x12, 0x08, 0x0a, 0x04, 0x50, 0x4f, 0x53, 0x54, 0x10,
 	0x01, 0x12, 0x07, 0x0a, 0x03, 0x50, 0x55, 0x54, 0x10, 0x02, 0x12, 0x0a, 0x0a, 0x06, 0x44, 0x45,
 	0x4c, 0x45, 0x54, 0x45, 0x10, 0x03, 0x12, 0x09, 0x0a, 0x05, 0x50, 0x41, 0x54, 0x43, 0x48, 0x10,
@@ -781,7 +780,7 @@ func file_base_api_proto_rawDescGZIP() []byte {
 var file_base_api_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_base_api_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_base_api_proto_goTypes = []interface{}{
-	(HttpMethod)(0),                  // 0: v1.base.HttpMethod
+	(HTTPMethod)(0),                  // 0: v1.base.HTTPMethod
 	(*Endpoint)(nil),                 // 1: v1.base.Endpoint
 	(*ServiceEndpointGroup)(nil),     // 2: v1.base.ServiceEndpointGroup
 	(*ApplicationEndpointGroup)(nil), // 3: v1.base.ApplicationEndpointGroup
@@ -801,7 +800,7 @@ var file_base_api_proto_depIdxs = []int32{
 	10, // 4: v1.base.API.tcp:type_name -> v1.base.TcpAPI
 	7,  // 5: v1.base.API.rest:type_name -> v1.base.RestAPI
 	8,  // 6: v1.base.API.grpc:type_name -> v1.base.GrpcAPI
-	0,  // 7: v1.base.RestRoute.methods:type_name -> v1.base.HttpMethod
+	0,  // 7: v1.base.RestRoute.methods:type_name -> v1.base.HTTPMethod
 	6,  // 8: v1.base.RestAPI.routes:type_name -> v1.base.RestRoute
 	9,  // [9:9] is the sub-list for method output_type
 	9,  // [9:9] is the sub-list for method input_type

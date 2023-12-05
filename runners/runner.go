@@ -34,11 +34,12 @@ type Runner struct {
 
 func (g *Runner) Init(ctx context.Context) error {
 	g.killed = false
+	// #nosec G204
 	g.Cmd = exec.CommandContext(ctx, g.Bin, g.Args...)
 	return nil
 }
 
-func (g *Runner) Run(ctx context.Context) (*services.TrackedProcess, error) {
+func (g *Runner) Run(_ context.Context) (*services.TrackedProcess, error) {
 	// Setup variables once
 	g.Cmd.Env = g.Envs
 	g.Cmd.Dir = g.Dir

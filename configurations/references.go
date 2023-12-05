@@ -3,6 +3,7 @@ package configurations
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -17,35 +18,39 @@ func Pointer[T any](t T) *T {
 	return &t
 }
 
-// RelativePath is nil if the name is the same as the desired relative path
-func RelativePath(name string, rel string) *string {
-	if rel == name {
+// OverridePath is nil if the name is the same as the desired relative path
+func OverridePath(name string, path string) *string {
+	if path == "" || path == name {
 		return nil
 	}
-	return Pointer(rel)
+	if filepath.IsAbs(path) {
+		return Pointer(path)
+	}
+	return Pointer(path)
 }
 
 // Workspace references Projects
 
 // ProjectReference is a reference to a project used by Workspace configuration
 type ProjectReference struct {
-	Name                 string  `yaml:"name"`
-	RelativePathOverride *string `yaml:"relative-path,omitempty"`
+	Name         string  `yaml:"name"`
+	PathOverride *string `yaml:"path,omitempty"`
 }
 
-func (ref *ProjectReference) RelativePath() string {
-	if ref.RelativePathOverride != nil {
-		return *ref.RelativePathOverride
-	}
-	return ref.Name
-}
-
-func (ref *ProjectReference) WithRelativePath(relativePath string) *ProjectReference {
-	if ref.Name != relativePath {
-		ref.RelativePathOverride = Pointer(relativePath)
-	}
-	return ref
-}
+//
+//func (ref *ProjectReference) OverridePath() string {
+//	if ref.RelativePathOverride != nil {
+//		return *ref.RelativePathOverride
+//	}
+//	return ref.Name
+//}
+//
+//func (ref *ProjectReference) WithRelativePath(relativePath string) *ProjectReference {
+//	if ref.Name != relativePath {
+//		ref.RelativePathOverride = Pointer(relativePath)
+//	}
+//	return ref
+//}
 
 // Application reference services
 

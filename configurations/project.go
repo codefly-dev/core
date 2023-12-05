@@ -1,6 +1,7 @@
 package configurations
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -8,25 +9,26 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/codefly-dev/core/shared"
+	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
 	"github.com/codefly-dev/core/templates"
-)
 
-var currentProject *Project
+	"github.com/codefly-dev/core/shared"
+)
 
 const ProjectConfigurationName = "project.codefly.yaml"
 
 type Project struct {
-	Name         string       `yaml:"name"`
-	Style        ProjectStyle `yaml:"style"`
-	Domain       string       `yaml:"domain"`
-	Organization string       `yaml:"organization"`
-	RelativePath string       `yaml:"relative-path,omitempty"`
+	Name         string  `yaml:"name"`
+	Workspace    string  `yaml:"workspace"`
+	PathOverride *string `yaml:"path,omitempty"`
+
+	Domain       string `yaml:"domain"`
+	Organization string `yaml:"organization"`
 
 	// Applications in the project
 	Applications []*ApplicationReference `yaml:"applications"`
 
-	// Partials are convenient way to run several applications
+	// Partials are a convenient way to run several applications
 	Partials []Partial `yaml:"partials"`
 
 	// Providers in the project
@@ -35,8 +37,56 @@ type Project struct {
 	// Environments in the project
 	Environments []EnvironmentReference `yaml:"environments"`
 
-	currentApplication string // internal use
+	// internal
+	workspace          *Workspace
 	dir                string // actual dir
+	currentApplication string // internal use
+}
+
+func (w *Workspace) NewProject(ctx context.Context, action *v1actions.AddProject) (*Project, error) {
+	logger := shared.GetBaseLogger(ctx).With("NewProject<%s>", action.Name)
+	if slices.Contains(w.ProjectNames(), action.Name) {
+		return nil, logger.Errorf("project already exists")
+	}
+	if err := ValidateProjectName(action.Name); err != nil {
+		return nil, logger.Wrapf(err, "invalid project name")
+	}
+	ref := &ProjectReference{Name: action.Name, PathOverride: OverridePath(action.Name, action.Path)}
+	dir := w.ProjectPath(ref)
+	err := shared.CreateDirIf(dir)
+	shared.UnexpectedExitOnError(err, "cannot create default project directory")
+
+	p := &Project{
+		Name:         action.Name,
+		Organization: w.Organization,
+		Workspace:    w.Name,
+		Domain:       ExtendDomain(w.Domain, action.Name),
+		PathOverride: ref.PathOverride,
+
+		workspace: w,
+		dir:       dir,
+	}
+	w.Projects = append(w.Projects, ref)
+	return p, nil
+}
+
+func (project *Project) Save(ctx context.Context) error {
+	logger := shared.GetBaseLogger(ctx).With("SaveProject<%s>", project.Name)
+	err := SaveToDir[Project](project, project.Dir())
+	if err != nil {
+		return logger.Wrapf(err, "cannot save project")
+	}
+	// Templatize as usual
+	err = templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(project.dir), project)
+	if err != nil {
+		return logger.Wrapf(err, "cannot copy and apply template")
+	}
+	// Save project
+	err = project.workspace.Save(ctx)
+	if err != nil {
+		return logger.Wrapf(err, "cannot save workspace")
+	}
+	return nil
 }
 
 func (project *Project) Current() string {
@@ -106,96 +156,6 @@ func ProjectConfiguration(current bool) (*Project, error) {
 	return config, nil
 }
 
-type ProjectStyle string
-
-const (
-	ProjectStyleUnknown   ProjectStyle = "unknown"
-	ProjectStyleMonorepo  ProjectStyle = "monorepo"
-	ProjectStyleMultirepo ProjectStyle = "multirepo"
-)
-
-func NewStyle(style string) ProjectStyle {
-	switch style {
-	case string(ProjectStyleMonorepo):
-		return ProjectStyleMonorepo
-	case string(ProjectStyleMultirepo):
-		return ProjectStyleMultirepo
-	default:
-		return ProjectStyleUnknown
-	}
-}
-
-type ProjectBuilder interface {
-	ProjectName() string
-	RelativePath() string
-	Fetch() error
-	Style() ProjectStyle
-}
-
-type ProjectInput struct {
-	Name string
-}
-
-func (p *ProjectInput) Style() ProjectStyle {
-	return ProjectStyleMonorepo
-}
-
-func (p *ProjectInput) RelativePath() string {
-	return p.Name
-}
-
-func (p *ProjectInput) ProjectName() string {
-	return p.Name
-}
-
-func (p *ProjectInput) Fetch() error {
-	return nil
-}
-
-func (p *ProjectInput) ProjectDir() string {
-	return path.Join(GlobalProjectRoot(), p.Name)
-}
-
-func NewProject(name string) (*Project, error) {
-	logger := shared.NewLogger("NewProject<%s>", name)
-	if slices.Contains(KnownProjects(), name) {
-		return LoadProjectFromName(name)
-	}
-	if err := ValidateProjectName(name); err != nil {
-		return nil, logger.Wrapf(err, "invalid project name")
-	}
-	ref := &ProjectReference{Name: name}
-	ref.WithRelativePath(name)
-	dir := path.Join(GlobalProjectRoot(), ref.RelativePath())
-	err := shared.CreateDirIf(dir)
-	shared.UnexpectedExitOnError(err, "cannot create default project directory")
-
-	p := &Project{
-		Name:         name,
-		Organization: Global().Organization,
-		Domain:       ExtendDomain(Global().Domain, name),
-		RelativePath: ref.RelativePath(),
-	}
-	logger.TODO("Depending on style we want to do git init, etc...")
-	logger.Debugf("to %s", dir)
-	err = SaveToDir[Project](p, dir)
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save project")
-	}
-	p.dir = dir
-
-	// Templatize as usual
-	err = templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(dir), p)
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot copy and apply template")
-	}
-
-	// And set as current
-	Global().AddProject(p)
-	Global().SetCurrentProject(p)
-	return p, nil
-}
-
 func (project *Project) Unique() string {
 	return project.Name
 }
@@ -209,16 +169,6 @@ func ValidateProjectName(name string) error {
 
 func (project *Project) Dir() string {
 	return project.dir
-}
-
-func ProjectPath(relativePath string) string {
-	return path.Join(GlobalProjectRoot(), relativePath)
-}
-
-func RelativeProjectPath(p string) string {
-	rel, err := filepath.Rel(GlobalProjectRoot(), p)
-	shared.UnexpectedExitOnError(err, "cannot compute relative path")
-	return rel
 }
 
 func LoadProjectFromDir(dir string) (*Project, error) {
@@ -237,21 +187,13 @@ func LoadProjectFromDir(dir string) (*Project, error) {
 	return project, nil
 }
 
-func LoadProjectFromName(name string) (*Project, error) {
+func (w *Workspace) LoadProjectFromName(name string) (*Project, error) {
 	logger := shared.NewLogger("LoadProjectFromName<%s>", name)
-	reference, err := FindProjectReference(name)
+	ref, err := FindProjectReference(name)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot find project reference")
 	}
-	return LoadProjectFromDir(ProjectPath(reference.RelativePath()))
-}
-
-func (project *Project) Save() error {
-	logger := shared.NewLogger("Project.Save<%s>", project.Name)
-
-	dir := path.Join(GlobalProjectRoot(), project.RelativePath)
-	logger.Tracef("relative path of project <%s>", dir)
-	return project.SaveToDir(dir)
+	return LoadProjectFromDir(w.ProjectPath(ref))
 }
 
 func (project *Project) SaveToDir(dir string) error {
@@ -333,8 +275,8 @@ func (project *Project) AddApplication(app *ApplicationReference) error {
 		}
 	}
 	project.Applications = append(project.Applications, app)
-
-	return project.SaveToDir(path.Join(GlobalProjectRoot(), project.RelativePath))
+	return nil
+	//return project.SaveToDir(path.Join(WorkspaceProjectRoot(), project.OverridePath))
 }
 
 func (project *Project) OtherApplications(app *Application) ([]*Application, error) {
@@ -398,13 +340,14 @@ func (project *Project) LoadApplicationFromReference(ref *ApplicationReference) 
 }
 
 func (project *Project) AddPartial(partial Partial) error {
+	ctx := shared.NewContext()
 	for _, p := range project.Partials {
 		if p.Name == partial.Name {
 			return nil
 		}
 	}
 	project.Partials = append(project.Partials, partial)
-	return project.Save()
+	return project.Save(ctx)
 }
 
 func (project *Project) CurrentApplication() (*Application, error) {

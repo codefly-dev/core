@@ -15,6 +15,7 @@ type LogLevel = string
 type ContextLoggerKey string
 
 const (
+	Base    = ContextLoggerKey("base")
 	Agent   = ContextLoggerKey("agent")
 	Service = ContextLoggerKey("service")
 )
@@ -24,19 +25,24 @@ const (
 	DebugLevel LogLevel = "debug"
 )
 
-func AgentLogger(ctx context.Context) BaseLogger {
+func GetBaseLogger(ctx context.Context) BaseLogger {
+	return ctx.Value(Base).(BaseLogger)
+}
+
+func GetAgentLogger(ctx context.Context) BaseLogger {
 	return ctx.Value(Agent).(BaseLogger)
 }
 
-func ServiceLogger(ctx context.Context) BaseLogger {
+func GetServiceLogger(ctx context.Context) BaseLogger {
 	return ctx.Value(Service).(BaseLogger)
 }
 
 // BaseLogger is the Minimum logger interface
 type BaseLogger interface {
-	Write(p []byte) (n int, err error)
-
 	SetLevel(lvl LogLevel)
+
+	// With gives Logger some context
+	With(format string, args ...any) BaseLogger
 
 	Info(format string, args ...any)
 
@@ -45,8 +51,16 @@ type BaseLogger interface {
 	DebugMe(format string, args ...any)
 	TODO(format string, args ...any)
 
+	// Wrap uses action to wrap the error
+	Wrap(err error) error
+
+	// Wrapf uses action to wrap the error and other message
 	Wrapf(err error, format string, args ...any) error
+
 	Errorf(format string, args ...any) error
+
+	// Write does the actual work
+	Write(p []byte) (n int, err error)
 }
 
 // TODO: logger level
@@ -108,6 +122,11 @@ type Logger struct {
 	trace  bool
 }
 
+func (l *Logger) With(format string, args ...any) BaseLogger {
+	l.action = fmt.Sprintf(format, args...)
+	return l
+}
+
 func (l *Logger) SetLevel(lvl LogLevel) {
 	if lvl == TraceLevel {
 		l.trace = true
@@ -136,8 +155,14 @@ func (l *Logger) Errorf(format string, args ...any) error {
 	return errors.Wrap(errors.Errorf(format, args...), l.action)
 }
 
+func (l *Logger) Wrap(err error) error {
+	return errors.Wrapf(err, l.action)
+}
+
 func (l *Logger) Wrapf(err error, format string, args ...any) error {
-	format = fmt.Sprintf("%s: %s", l.action, format)
+	if l.action != "" {
+		format = fmt.Sprintf("%s: %s", l.action, format)
+	}
 	return errors.Wrapf(err, format, args...)
 }
 

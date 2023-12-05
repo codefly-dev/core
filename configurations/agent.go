@@ -110,7 +110,7 @@ func (p *Agent) Path() (string, error) {
 	name := p.Name()
 	// Replace : by __ for compatilbity of file names
 	name = strings.Replace(name, ":", "__", 1)
-	return path.Join(GlobalConfigurationDir(), "agents", subdir, name), nil
+	return path.Join(WorkspaceConfigurationDir(), "agents", subdir, name), nil
 }
 
 func (p *Agent) Patch() (*Agent, error) {

@@ -7,9 +7,9 @@ import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialM
 import { Message, proto3 } from "@bufbuild/protobuf";
 
 /**
- * @generated from enum v1.base.HttpMethod
+ * @generated from enum v1.base.HTTPMethod
  */
-export enum HttpMethod {
+export enum HTTPMethod {
   /**
    * @generated from enum value: GET = 0;
    */
@@ -55,8 +55,8 @@ export enum HttpMethod {
    */
   TRACE = 8,
 }
-// Retrieve enum metadata with: proto3.getEnumType(HttpMethod)
-proto3.util.setEnumType(HttpMethod, "v1.base.HttpMethod", [
+// Retrieve enum metadata with: proto3.getEnumType(HTTPMethod)
+proto3.util.setEnumType(HTTPMethod, "v1.base.HTTPMethod", [
   { no: 0, name: "GET" },
   { no: 1, name: "POST" },
   { no: 2, name: "PUT" },
@@ -338,9 +338,9 @@ export class API extends Message<API> {
  */
 export class RestRoute extends Message<RestRoute> {
   /**
-   * @generated from field: repeated v1.base.HttpMethod methods = 1;
+   * @generated from field: repeated v1.base.HTTPMethod methods = 1;
    */
-  methods: HttpMethod[] = [];
+  methods: HTTPMethod[] = [];
 
   /**
    * @generated from field: string path = 2;
@@ -355,7 +355,7 @@ export class RestRoute extends Message<RestRoute> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "v1.base.RestRoute";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "methods", kind: "enum", T: proto3.getEnumType(HttpMethod), repeated: true },
+    { no: 1, name: "methods", kind: "enum", T: proto3.getEnumType(HTTPMethod), repeated: true },
     { no: 2, name: "path", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 

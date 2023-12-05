@@ -46,10 +46,10 @@ func version() (string, error) {
 var info embed.FS
 
 func (g *Proto) Generate(ctx context.Context) error {
-	logger := shared.AgentLogger(ctx)
+	logger := shared.GetAgentLogger(ctx)
 	image := fmt.Sprintf("codeflydev/companion:%s", g.version)
 	volume := fmt.Sprintf("%s:/workspace", g.Dir)
-	runner := runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "generate"}, AgentLogger: logger, ServiceLogger: shared.ServiceLogger(ctx)}
+	runner := runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "generate"}, AgentLogger: logger, ServiceLogger: shared.GetServiceLogger(ctx)}
 	logger.Debugf("Generating code from buf...")
 	err := runner.Init(ctx)
 	if err != nil {

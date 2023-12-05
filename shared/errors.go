@@ -110,13 +110,13 @@ func NewOutputError(format string, args ...any) error {
 	return &OutputError{value: fmt.Sprintf(format, args...)}
 }
 
-func IsOutputError(err error) (error, bool) {
+func IsOutputError(err error) (bool, error) {
 	if err == nil {
-		return nil, false
+		return false, nil
 	}
 	var outputError *OutputError
 	ok := errors.As(err, &outputError)
-	return outputError, ok
+	return ok, outputError
 }
 
 func MultiErrors(errs ...error) error {

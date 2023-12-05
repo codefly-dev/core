@@ -28,7 +28,7 @@ func TestParsing(t *testing.T) {
 
 func TestUniqueAndBack(t *testing.T) {
 	unique := "app/svc/cool::rest"
-	e := &configurations.Endpoint{Name: "cool", Api: configurations.Rest}
+	e := &configurations.Endpoint{Name: "cool", API: configurations.Rest}
 	assert.Equal(t, unique, e.Unique("app", "svc"))
 	key := configurations.AsEndpointEnvironmentVariableKey("app", "svc", e)
 	back, err := configurations.ParseEndpointEnvironmentVariableKey(key)
@@ -36,7 +36,7 @@ func TestUniqueAndBack(t *testing.T) {
 	assert.Equal(t, unique, back)
 
 	unique = "app/svc::rest"
-	e = &configurations.Endpoint{Name: configurations.Rest, Api: configurations.Rest}
+	e = &configurations.Endpoint{Name: configurations.Rest, API: configurations.Rest}
 	key = configurations.AsEndpointEnvironmentVariableKey("app", "svc", e)
 	back, err = configurations.ParseEndpointEnvironmentVariableKey(key)
 	assert.NoError(t, err)

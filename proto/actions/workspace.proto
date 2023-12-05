@@ -1,0 +1,12 @@
+syntax = "proto3";
+package v1.actions;
+
+import "base/organization.proto";
+
+message AddWorkspace {
+    string kind = 1;
+    v1.base.Organization organization = 2;
+    string name = 3;
+    string description = 4;
+    string dir = 5;
+}

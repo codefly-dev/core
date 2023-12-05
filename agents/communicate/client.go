@@ -119,7 +119,7 @@ func (c *ClientContext) Get() string {
 
 type NoOpClientContext struct{}
 
-func (c *NoOpClientContext) Process(req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (c *NoOpClientContext) Process(*agentsv1.Engage) (*agentsv1.InformationRequest, error) {
 	return &agentsv1.InformationRequest{Done: true}, nil
 }
 

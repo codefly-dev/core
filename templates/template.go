@@ -148,7 +148,7 @@ type NoOpIgnore struct{}
 
 var _ Ignore = NoOpIgnore{}
 
-func (ign NoOpIgnore) Ignore(file shared.File) bool {
+func (ign NoOpIgnore) Ignore(shared.File) bool {
 	return false
 }
 
@@ -192,7 +192,7 @@ func WithIgnore(ignore Ignore) TemplateOptionFunc {
 type NoIgnore struct {
 }
 
-func (i *NoIgnore) Ignore(file shared.File) bool {
+func (i *NoIgnore) Ignore(shared.File) bool {
 	return false
 }
 

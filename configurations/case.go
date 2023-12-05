@@ -15,7 +15,7 @@ type Case struct {
 	SnakeCase string
 	CamelCase string
 	KebabCase string
-	DnsCase   string
+	DNSCase   string
 	Title     string
 }
 
@@ -66,7 +66,7 @@ func ToKebabCase(str string) string {
 	return strings.ReplaceAll(ToSnakeCase(str), "_", "-")
 }
 
-func ToDnsCase(s string) string {
+func ToDNSCase(s string) string {
 	// Unique is of the convention /app/service
 	// For DNS we invert and follow a subdomain convention service-app
 	tokens := strings.Split(s, "/")
@@ -81,7 +81,7 @@ func ToDnsCase(s string) string {
 func ToCase(s string) Case {
 	return Case{
 		LowerCase: ToLowerCase(s),
-		DnsCase:   ToDnsCase(s),
+		DNSCase:   ToDNSCase(s),
 		SnakeCase: ToSnakeCase(s),
 		CamelCase: ToCamelCase(s),
 		KebabCase: ToKebabCase(s),

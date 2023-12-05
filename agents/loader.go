@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -140,13 +141,28 @@ func PinToLatestRelease(p *configurations.Agent) error {
 	return nil
 }
 
+func ValidURL(s string) bool {
+	u, err := url.Parse(s)
+	if err != nil {
+		return false
+	}
+	if u.Host != "github.com" {
+		return false
+	}
+	return true
+}
+
 func Download(p *configurations.Agent) error {
 	logger := shared.NewLogger("agents.Download<%s>", p.Unique())
 	golor.Println(`#(blue,bold)[Downloading agent {{.Publisher}}::{{.Identifier}} Version {{.Version}}]`, p)
 
 	releaseURL := DownloadURL(p)
+	if !ValidURL(releaseURL) {
+		return logger.Errorf("invalid download URL: %s", releaseURL)
+	}
 
 	logger.TODO("Publisher to URL: %v", releaseURL)
+	// #nosec G107
 	resp, err := http.Get(releaseURL)
 	if err != nil {
 		return logger.Wrapf(err, "cannot download agent")

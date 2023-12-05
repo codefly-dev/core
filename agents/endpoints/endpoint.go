@@ -10,39 +10,39 @@ import (
 	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 )
 
-type NilApiError struct {
+type NilAPIError struct {
 	name string
 }
 
-func (err *NilApiError) Error() string {
+func (err *NilAPIError) Error() string {
 	return fmt.Sprintf("endpoint <%s> api is nil", err.name)
 }
 
-type UnknownApiError struct {
+type UnknownAPIError struct {
 	api *basev1.API
 }
 
-func (err *UnknownApiError) Error() string {
+func (err *UnknownAPIError) Error() string {
 	return fmt.Sprintf("unknow api: <%v>", err.api)
 }
 
-func WhichApiFromEndpoint(endpoint *basev1.Endpoint) (string, error) {
+func WhichAPIFromEndpoint(endpoint *basev1.Endpoint) (string, error) {
 	if endpoint.Api == nil {
-		return "", &NilApiError{name: endpoint.Name}
+		return "", &NilAPIError{name: endpoint.Name}
 	}
-	return WhichApi(endpoint.Api)
+	return WhichAPI(endpoint.Api)
 }
 
-func WhichApi(api *basev1.API) (string, error) {
+func WhichAPI(api *basev1.API) (string, error) {
 	switch api.Value.(type) {
 	case *basev1.API_Grpc:
 		return configurations.Grpc, nil
 	case *basev1.API_Rest:
 		return configurations.Rest, nil
 	case *basev1.API_Tcp:
-		return configurations.Tcp, nil
+		return configurations.TCP, nil
 	default:
-		return "", &UnknownApiError{api}
+		return "", &UnknownAPIError{api}
 	}
 }
 
@@ -55,7 +55,7 @@ func StandardPort(api *basev1.API) (int, error) {
 	case *basev1.API_Tcp:
 		return 7070, nil
 	default:
-		return 0, &UnknownApiError{api}
+		return 0, &UnknownAPIError{api}
 	}
 }
 
@@ -73,15 +73,15 @@ func FromProtoEndpoint(e *basev1.Endpoint) (*configurations.Endpoint, error) {
 		Name:        e.Name,
 		Scope:       e.Scope,
 		Description: e.Description,
-		Api:         FromProtoApi(e.Api),
+		API:         FromProtoAPI(e.Api),
 	}, nil
 }
 
 func Destination(e *basev1.Endpoint) string {
-	return fmt.Sprintf("%s/%s/%s[%s]", e.Application, e.Service, e.Name, FromProtoApi(e.Api))
+	return fmt.Sprintf("%s/%s/%s[%s]", e.Application, e.Service, e.Name, FromProtoAPI(e.Api))
 }
 
-func FromProtoApi(api *basev1.API) string {
+func FromProtoAPI(api *basev1.API) string {
 	if api == nil {
 		return configurations.Unknown
 	}
@@ -91,13 +91,13 @@ func FromProtoApi(api *basev1.API) string {
 	case *basev1.API_Rest:
 		return configurations.Rest
 	case *basev1.API_Tcp:
-		return configurations.Tcp
+		return configurations.TCP
 	default:
 		return configurations.Unknown
 	}
 }
 
-func LightApi(api *basev1.API) *basev1.API {
+func LightAPI(api *basev1.API) *basev1.API {
 	switch api.Value.(type) {
 	case *basev1.API_Grpc:
 		return &basev1.API{
@@ -127,7 +127,7 @@ func Light(e *basev1.Endpoint) *basev1.Endpoint {
 	}
 }
 
-func FlattenEndpoints(ctx context.Context, group *basev1.EndpointGroup) []*basev1.Endpoint {
+func FlattenEndpoints(_ context.Context, group *basev1.EndpointGroup) []*basev1.Endpoint {
 	var endpoints []*basev1.Endpoint
 	if group == nil {
 		return endpoints
@@ -152,7 +152,7 @@ func FlattenRestRoutes(ctx context.Context, group *basev1.EndpointGroup) []*base
 }
 
 func DetectNewRoutes(ctx context.Context, known []*configurations.RestRoute, group *basev1.EndpointGroup) []*configurations.RestRoute {
-	logger := shared.AgentLogger(ctx)
+	logger := shared.GetAgentLogger(ctx)
 	if group == nil {
 		logger.Debugf("we have a nil group")
 		return nil
@@ -198,7 +198,7 @@ func FindEndpointForRoute(ctx context.Context, endpoints []*basev1.Endpoint, rou
 	return nil
 }
 
-func HasRest(ctx context.Context, api *basev1.API) *basev1.RestAPI {
+func HasRest(_ context.Context, api *basev1.API) *basev1.RestAPI {
 	if api == nil {
 		return nil
 	}

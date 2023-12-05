@@ -110,12 +110,12 @@ type ServiceRuntimeAgent struct {
 	Runtime IRuntime
 }
 
-func (p *ServiceRuntimeAgent) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
+func (p *ServiceRuntimeAgent) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
 	runtimev1.RegisterRuntimeServer(s, &RuntimeServer{Runtime: p.Runtime})
 	return nil
 }
 
-func (p *ServiceRuntimeAgent) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
+func (p *ServiceRuntimeAgent) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
 	return &ServiceRuntime{client: runtimev1.NewRuntimeClient(c)}, nil
 }
 
@@ -125,27 +125,27 @@ type RuntimeServer struct {
 	Runtime IRuntime
 }
 
-func (m *RuntimeServer) Configure(ctx context.Context, req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error) {
+func (m *RuntimeServer) Configure(_ context.Context, req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error) {
 	return m.Runtime.Configure(req)
 }
 
-func (m *RuntimeServer) Init(ctx context.Context, req *v1.InitRequest) (*runtimev1.InitResponse, error) {
+func (m *RuntimeServer) Init(_ context.Context, req *v1.InitRequest) (*runtimev1.InitResponse, error) {
 	return m.Runtime.Init(req)
 }
 
-func (m *RuntimeServer) Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
+func (m *RuntimeServer) Start(_ context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
 	return m.Runtime.Start(req)
 }
 
-func (m *RuntimeServer) Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
+func (m *RuntimeServer) Information(_ context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
 	return m.Runtime.Information(req)
 }
 
-func (m *RuntimeServer) Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
+func (m *RuntimeServer) Stop(_ context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
 	return m.Runtime.Stop(req)
 }
 
-func (m *RuntimeServer) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (m *RuntimeServer) Communicate(_ context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
 	return m.Runtime.Communicate(req)
 }
 

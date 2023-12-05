@@ -110,7 +110,7 @@
         }
       }
     },
-    "baseHttpMethod": {
+    "baseHTTPMethod": {
       "type": "string",
       "enum": [
         "GET",
@@ -147,7 +147,7 @@
         "methods": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/baseHttpMethod"
+            "$ref": "#/definitions/baseHTTPMethod"
           }
         },
         "path": {

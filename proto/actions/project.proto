@@ -1,0 +1,10 @@
+syntax = "proto3";
+package v1.actions;
+
+message AddProject {
+    string kind = 1;
+    string workspace = 2;
+    string name = 3;
+    string description = 4;
+    string path = 5;
+}

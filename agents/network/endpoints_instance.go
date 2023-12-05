@@ -72,12 +72,12 @@ func ToEndpoint(endpoint *basev1.Endpoint) *configurations.Endpoint {
 	case *basev1.API_Rest:
 		api = configurations.Rest
 	case *basev1.API_Tcp:
-		api = configurations.Tcp
+		api = configurations.TCP
 	}
 	return &configurations.Endpoint{
 		Name:        endpoint.Name,
 		Description: endpoint.Description,
-		Api:         api,
+		API:         api,
 	}
 }
 

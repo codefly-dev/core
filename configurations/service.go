@@ -16,7 +16,7 @@ const ServiceConfigurationName = "service.codefly.yaml"
 /*
 A Service
 
-Convention: RelativePath from Application
+Convention: OverridePath from Application
 */
 type Service struct {
 	Kind                 string               `yaml:"kind"`
@@ -41,7 +41,7 @@ func (s *Service) Dir(opts ...Option) string {
 	return path.Join(scope.Application.Dir(), s.RelativePath())
 }
 
-func ValidateServiceName(name string) error {
+func ValidateServiceName(string) error {
 	return nil
 }
 
@@ -176,7 +176,7 @@ func (s *Service) SaveAtDir(destination string) error {
 	if err != nil {
 		return logger.Errorf("cannot marshal service configuration: %s", err)
 	}
-	err = os.WriteFile(p, content, 0o644)
+	err = os.WriteFile(p, content, 0600)
 	if err != nil {
 		return logger.Errorf("cannot save service configuration: %s", err)
 	}
@@ -309,17 +309,17 @@ const (
 	Unknown = "unknown"
 	Grpc    = "grpc"
 	Rest    = "rest"
-	Tcp     = "tcp"
+	TCP     = "tcp"
 )
 
-var supportedApi []string
+var supportedAPI []string
 
 func init() {
-	supportedApi = []string{Grpc, Rest, Tcp}
+	supportedAPI = []string{Grpc, Rest, TCP}
 }
 
-func SupportedApi(kind string) error {
-	if slices.Contains(supportedApi, kind) {
+func SupportedAPI(kind string) error {
+	if slices.Contains(supportedAPI, kind) {
 		return nil
 	}
 	return fmt.Errorf("unsupported api: %s", kind)
@@ -327,12 +327,12 @@ func SupportedApi(kind string) error {
 
 type ClientEntry struct {
 	Name string   `yaml:"name"`
-	Apis []string `yaml:"apis"`
+	APIs []string `yaml:"apis"`
 }
 
 func (c *ClientEntry) Validate() error {
-	for _, api := range c.Apis {
-		if err := SupportedApi(api); err != nil {
+	for _, api := range c.APIs {
+		if err := SupportedAPI(api); err != nil {
 			return err
 		}
 	}

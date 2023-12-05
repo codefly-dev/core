@@ -119,6 +119,7 @@ func parseState(out string) (string, bool) {
 
 func findState(pid int) (ProcessState, error) {
 	logger := shared.NewLogger("TrackedProcess.State<%d>", pid)
+	// #nosec G204
 	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid), "-o", "state=")
 	var out bytes.Buffer
 	cmd.Stdout = &out

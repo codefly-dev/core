@@ -53,7 +53,7 @@ func (builder *Builder) Build() (*BuilderOutput, error) {
 		return nil, builder.logger.Wrapf(err, "cannot create docker client")
 	}
 
-	buildContextBuffer, err := createTarArchive(builder.logger, builder.Root)
+	buildContextBuffer, err := createTarArchive(builder.Root)
 	if err != nil {
 		return nil, builder.logger.Wrapf(err, "cannot create tar archive")
 	}
@@ -117,7 +117,7 @@ func (builder *Builder) Build() (*BuilderOutput, error) {
 }
 
 // createTarArchive creates a tar archive from the provided directory and returns it as a bytes buffer.
-func createTarArchive(logger shared.BaseLogger, srcDir string) (*bytes.Buffer, error) {
+func createTarArchive(srcDir string) (*bytes.Buffer, error) {
 	// Add a buffer to write our archive to.
 	buf := new(bytes.Buffer)
 

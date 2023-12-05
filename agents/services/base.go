@@ -206,16 +206,16 @@ func (s *Base) Errorf(format string, args ...interface{}) error {
 func (s *Base) EndpointsFromConfiguration() ([]*basev1.Endpoint, error) {
 	var eps []*basev1.Endpoint
 	for _, e := range s.Configuration.Endpoints {
-		if e.Api == configurations.Grpc {
-			endpoint, err := endpoints.NewGrpcApi(e, s.Local("api.proto"))
+		if e.API == configurations.Grpc {
+			endpoint, err := endpoints.NewGrpcAPI(e, s.Local("api.proto"))
 			if err != nil {
 				return nil, s.AgentLogger.Wrapf(err, "cannot create grpc api")
 			}
 			eps = append(eps, endpoint)
 			continue
 		}
-		if e.Api == configurations.Rest {
-			endpoint, err := endpoints.NewRestApiFromOpenAPI(s.Context(), e, s.Local("api.swagger.json"))
+		if e.API == configurations.Rest {
+			endpoint, err := endpoints.NewRestAPIFromOpenAPI(s.Context(), e, s.Local("api.swagger.json"))
 			if err != nil {
 				return nil, s.AgentLogger.Wrapf(err, "cannot create grpc api")
 			}

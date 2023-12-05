@@ -12,7 +12,7 @@ import (
 	openapispec "github.com/go-openapi/spec"
 )
 
-func WithApi(endpoint *configurations.Endpoint, source ApiSource) (*basev1.Endpoint, error) {
+func WithAPI(endpoint *configurations.Endpoint, source APISource) (*basev1.Endpoint, error) {
 	logger := shared.NewLogger("services.DefaultApi")
 	logger.Debugf("VISILIBITY %v", endpoint.Scope)
 	api, err := source.Proto()
@@ -27,25 +27,25 @@ func WithApi(endpoint *configurations.Endpoint, source ApiSource) (*basev1.Endpo
 	}, nil
 }
 
-type ApiSource interface {
+type APISource interface {
 	Proto() (*basev1.API, error)
 }
 
-type GrpcApi struct {
+type GrpcAPI struct {
 	filename string
 	content  []byte
 }
 
-func NewGrpcApi(endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
+func NewGrpcAPI(endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
 	// Read the file content
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %v", filename, err)
 	}
-	return WithApi(endpoint, &GrpcApi{filename: filename, content: content})
+	return WithAPI(endpoint, &GrpcAPI{filename: filename, content: content})
 }
 
-func (grpc *GrpcApi) Proto() (*basev1.API, error) {
+func (grpc *GrpcAPI) Proto() (*basev1.API, error) {
 	// Add a GrpcAPI message with the file content
 	grpcAPI := &basev1.GrpcAPI{
 		Proto: grpc.content,
@@ -59,15 +59,15 @@ func (grpc *GrpcApi) Proto() (*basev1.API, error) {
 	return api, nil
 }
 
-type RestApi struct {
+type RestAPI struct {
 	// openapi []byte
 }
 
-func NewRestApi(endpoint *configurations.Endpoint) (*basev1.Endpoint, error) {
-	return WithApi(endpoint, &RestApi{})
+func NewRestAPI(endpoint *configurations.Endpoint) (*basev1.Endpoint, error) {
+	return WithAPI(endpoint, &RestAPI{})
 }
 
-func (http *RestApi) Proto() (*basev1.API, error) {
+func (HTTP *RestAPI) Proto() (*basev1.API, error) {
 	restAPI := &basev1.RestAPI{}
 	// Add an API message with the GrpcAPI message
 	api := &basev1.API{
@@ -78,8 +78,8 @@ func (http *RestApi) Proto() (*basev1.API, error) {
 	return api, nil
 }
 
-func NewRestApiFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
-	logger := shared.NewLogger("services.Default")
+func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
+	logger := shared.GetBaseLogger(ctx).With("NewRestAPIFromOpenAPI")
 	logger.TODO("visibility")
 	rest := &basev1.API_Rest{Rest: &basev1.RestAPI{}}
 	e := &basev1.Endpoint{
@@ -98,28 +98,29 @@ func NewRestApiFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoin
 	if err != nil {
 		return nil, logger.Wrapf(err, "failed to read file")
 	}
-	swagger, err := parseOpenApi(content)
+	swagger, err := parseOpenAPI(content)
 	if err != nil {
 		return nil, logger.Wrapf(err, "failed to parse openapi spec")
 	}
 
 	rest.Rest.Openapi = content
-	for p, item := range swagger.Paths.Paths {
+	for path := range swagger.Paths.Paths {
+		item := swagger.Paths.Paths[path]
 		rest.Rest.Routes = append(rest.Rest.Routes, &basev1.RestRoute{
-			Methods: getHTTPMethodsFromPathItem(item),
-			Path:    p,
+			Methods: getHTTPMethodsFromPathItem(&item),
+			Path:    path,
 		})
 	}
 	return e, nil
 }
 
-type Tcp struct{}
+type TCP struct{}
 
-func NewTcp() (*Tcp, error) {
-	return &Tcp{}, nil
+func NewTCP() (*TCP, error) {
+	return &TCP{}, nil
 }
 
-func (*Tcp) Proto() (*basev1.API, error) {
+func (*TCP) Proto() (*basev1.API, error) {
 	// Add a GrpcAPI message with the file content
 	tcp := &basev1.TcpAPI{}
 	// Add an API message with the GrpcAPI message
@@ -132,7 +133,7 @@ func (*Tcp) Proto() (*basev1.API, error) {
 }
 
 /* Helpers */
-func parseOpenApi(spec []byte) (*openapispec.Swagger, error) {
+func parseOpenAPI(spec []byte) (*openapispec.Swagger, error) {
 	analyzed, err := openapiloads.Analyzed(spec, "2.0")
 	if err != nil {
 		return nil, err
@@ -140,29 +141,29 @@ func parseOpenApi(spec []byte) (*openapispec.Swagger, error) {
 	return analyzed.Spec(), nil
 }
 
-func getHTTPMethodsFromPathItem(pathItem openapispec.PathItem) []basev1.HttpMethod {
-	var methods []basev1.HttpMethod
+func getHTTPMethodsFromPathItem(pathItem *openapispec.PathItem) []basev1.HTTPMethod {
+	var methods []basev1.HTTPMethod
 
 	if pathItem.Get != nil {
-		methods = append(methods, basev1.HttpMethod_GET)
+		methods = append(methods, basev1.HTTPMethod_GET)
 	}
 	if pathItem.Post != nil {
-		methods = append(methods, basev1.HttpMethod_POST)
+		methods = append(methods, basev1.HTTPMethod_POST)
 	}
 	if pathItem.Put != nil {
-		methods = append(methods, basev1.HttpMethod_PUT)
+		methods = append(methods, basev1.HTTPMethod_PUT)
 	}
 	if pathItem.Delete != nil {
-		methods = append(methods, basev1.HttpMethod_DELETE)
+		methods = append(methods, basev1.HTTPMethod_DELETE)
 	}
 	if pathItem.Options != nil {
-		methods = append(methods, basev1.HttpMethod_OPTIONS)
+		methods = append(methods, basev1.HTTPMethod_OPTIONS)
 	}
 	if pathItem.Head != nil {
-		methods = append(methods, basev1.HttpMethod_HEAD)
+		methods = append(methods, basev1.HTTPMethod_HEAD)
 	}
 	if pathItem.Patch != nil {
-		methods = append(methods, basev1.HttpMethod_PATCH)
+		methods = append(methods, basev1.HTTPMethod_PATCH)
 	}
 	return methods
 }

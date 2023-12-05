@@ -78,12 +78,12 @@ type ServiceFactoryAgent struct {
 	Factory IFactory
 }
 
-func (p *ServiceFactoryAgent) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
+func (p *ServiceFactoryAgent) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
 	factoryv1.RegisterFactoryServer(s, &FactoryServer{Factory: p.Factory})
 	return nil
 }
 
-func (p *ServiceFactoryAgent) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
+func (p *ServiceFactoryAgent) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
 	return &ServiceFactory{client: factoryv1.NewFactoryClient(c)}, nil
 }
 
@@ -93,31 +93,31 @@ type FactoryServer struct {
 	Factory IFactory
 }
 
-func (m *FactoryServer) Init(ctx context.Context, req *servicev1.InitRequest) (*factoryv1.InitResponse, error) {
+func (m *FactoryServer) Init(_ context.Context, req *servicev1.InitRequest) (*factoryv1.InitResponse, error) {
 	return m.Factory.Init(req)
 }
 
-func (m *FactoryServer) Create(ctx context.Context, req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error) {
+func (m *FactoryServer) Create(_ context.Context, req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error) {
 	return m.Factory.Create(req)
 }
 
-func (m *FactoryServer) Update(ctx context.Context, req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error) {
+func (m *FactoryServer) Update(_ context.Context, req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error) {
 	return m.Factory.Update(req)
 }
 
-func (m *FactoryServer) Sync(ctx context.Context, req *factoryv1.SyncRequest) (*factoryv1.SyncResponse, error) {
+func (m *FactoryServer) Sync(_ context.Context, req *factoryv1.SyncRequest) (*factoryv1.SyncResponse, error) {
 	return m.Factory.Sync(req)
 }
 
-func (m *FactoryServer) Build(ctx context.Context, req *factoryv1.BuildRequest) (*factoryv1.BuildResponse, error) {
+func (m *FactoryServer) Build(_ context.Context, req *factoryv1.BuildRequest) (*factoryv1.BuildResponse, error) {
 	return m.Factory.Build(req)
 }
 
-func (m *FactoryServer) Deploy(ctx context.Context, req *factoryv1.DeploymentRequest) (*factoryv1.DeploymentResponse, error) {
+func (m *FactoryServer) Deploy(_ context.Context, req *factoryv1.DeploymentRequest) (*factoryv1.DeploymentResponse, error) {
 	return m.Factory.Deploy(req)
 }
 
-func (m *FactoryServer) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (m *FactoryServer) Communicate(_ context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
 	return m.Factory.Communicate(req)
 }
 

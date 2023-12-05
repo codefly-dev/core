@@ -57,7 +57,7 @@ func ConfigurationFile[C Configuration]() string {
 	case Info:
 		return InfoConfigurationName
 	case Workspace:
-		return GlobalConfigurationName
+		return WorkspaceConfigurationName
 	case Project:
 		return ProjectConfigurationName
 	case Application:
@@ -91,7 +91,7 @@ func ExistsAtDir[C Configuration](dir string) bool {
 	var c C
 	switch any(c).(type) {
 	case Workspace:
-		p = path.Join(dir, GlobalConfigurationName)
+		p = path.Join(dir, WorkspaceConfigurationName)
 	case Project:
 		p = path.Join(dir, ProjectConfigurationName)
 	case Application:
@@ -176,7 +176,7 @@ func SkipOverride() SaveOptionFunc {
 
 type SilentOverrideHandler struct{}
 
-func (h *SilentOverrideHandler) Replace(f string) bool {
+func (h *SilentOverrideHandler) Replace(string) bool {
 	return true
 }
 
@@ -215,7 +215,7 @@ func AskOverride() SaveOptionFunc {
 
 type SkipOverrideHandler struct{}
 
-func (h *SkipOverrideHandler) Replace(f string) bool {
+func (h *SkipOverrideHandler) Replace(string) bool {
 	return false
 }
 
@@ -235,7 +235,7 @@ func SaveToDir[C Configuration](c *C, dir string, opts ...SaveOptionFunc) error 
 	if err != nil {
 		return logger.Wrapf(err, "cannot marshal")
 	}
-	err = os.WriteFile(file, content, 0o644)
+	err = os.WriteFile(file, content, 0600)
 	if err != nil {
 		return logger.Wrapf(err, "cannot write")
 	}

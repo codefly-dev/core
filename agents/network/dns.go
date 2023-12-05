@@ -13,7 +13,7 @@ import (
 
 type DNS struct{}
 
-func ToDns(e *basev1.Endpoint) string {
+func ToDNS(e *basev1.Endpoint) string {
 	return fmt.Sprintf("%s-%s.%s.svc.cluster.local", e.Service, e.Application, e.Namespace)
 }
 
@@ -27,14 +27,14 @@ func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointIn
 		m.ApplicationEndpointInstances = append(m.ApplicationEndpointInstances, &ApplicationEndpointInstance{
 			ApplicationEndpoint: e,
 			Port:                port,
-			Host:                ToDns(e.Endpoint),
+			Host:                ToDNS(e.Endpoint),
 		})
 	}
 	return m, nil
 }
 
-func NewServiceDnsManager(ctx context.Context, identity *servicev1.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
-	logger := shared.NewLogger("network.NewServicePortManager<%s>", identity.Name)
+func NewServiceDNSManager(ctx context.Context, identity *servicev1.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
+	logger := shared.GetBaseLogger(ctx).With("network.NewServicePortManager<%s>", identity.Name)
 	return &ServiceManager{
 		logger:    logger,
 		service:   identity,

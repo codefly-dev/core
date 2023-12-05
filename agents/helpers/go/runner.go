@@ -40,13 +40,13 @@ func (g *Runner) Init(ctx context.Context) error {
 		clean, err = g.debugCmd(ctx)
 	}
 	g.clean = clean
-	if output, ok := shared.IsOutputError(err); ok {
-		return shared.Wrapf(output, "cannot build cmd")
+	if ok, err := shared.IsOutputError(err); ok {
+		return shared.Wrapf(err, "cannot build cmd")
 	}
 	return nil
 }
 
-func (g *Runner) Run(ctx context.Context) (*services.TrackedProcess, error) {
+func (g *Runner) Run(_ context.Context) (*services.TrackedProcess, error) {
 	// Setup variables once
 	g.Cmd.Env = g.Envs
 
