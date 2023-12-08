@@ -85,6 +85,11 @@ func (s *Base) Context() context.Context {
 
 func (s *Base) Init(req *servicev1.InitRequest, settings any) error {
 
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, shared.Agent, s.AgentLogger)
+	ctx = context.WithValue(ctx, shared.Service, s.ServiceLogger)
+	s.ctx = ctx
+
 	s.Identity = req.Identity
 	s.ServiceLogger = agents.NewServiceLogger(s.Identity, s.Agent)
 
@@ -93,7 +98,7 @@ func (s *Base) Init(req *servicev1.InitRequest, settings any) error {
 	s.Location = req.Location
 
 	s.ConfigurationLocation = path.Join(s.Location, "codefly")
-	err := shared.CheckDirectoryOrCreate(s.ConfigurationLocation)
+	err := shared.CheckDirectoryOrCreate(s.ctx, s.ConfigurationLocation)
 
 	if err != nil {
 		return s.Wrapf(err, "cannot create configuration directory")
@@ -104,12 +109,7 @@ func (s *Base) Init(req *servicev1.InitRequest, settings any) error {
 		s.AgentLogger.SetDebug() // For developers
 	}
 
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, shared.Agent, s.AgentLogger)
-	ctx = context.WithValue(ctx, shared.Service, s.ServiceLogger)
-	s.ctx = ctx
-
-	s.Configuration, err = configurations.LoadFromDir[configurations.Service](s.Location)
+	s.Configuration, err = configurations.LoadFromDir[configurations.Service](s.ctx, s.Location)
 	if err != nil {
 		return s.Wrapf(err, "cannot load service configuration")
 	}
@@ -363,7 +363,6 @@ type TemplateWrapper struct {
 	fs       *shared.FSReader
 	relative string
 	ignores  []string
-	opts     []templates.TemplateOptionFunc
 }
 
 func WithFactory(fs embed.FS, ignores ...string) TemplateWrapper {
@@ -379,25 +378,26 @@ func WithDeployment(fs embed.FS) TemplateWrapper {
 		fs: shared.Embed(fs), dir: shared.NewDir("templates/deployment"), relative: "codefly/deployment"}
 }
 
-func WithDestination(destination string, args ...any) templates.TemplateOptionFunc {
-	return func(opt *templates.TemplateOption) {
-		opt.Destination = fmt.Sprintf(destination, args...)
-	}
-}
+//
+//func WithDestination(destination string, args ...any) templates.TemplateOptionFunc {
+//	return func(opt *templates.TemplateOption) {
+//		opt.Destination = fmt.Sprintf(destination, args...)
+//	}
+//}
+//
+//func WithDeploymentFor(fs embed.FS, relativePath string, opts ...templates.TemplateOptionFunc) TemplateWrapper {
+//	opt := templates.Option(relativePath, opts...)
+//	return TemplateWrapper{
+//		opts:     opts,
+//		fs:       shared.Embed(fs),
+//		dir:      shared.NewDir("templates/deployment/%s", relativePath),
+//		relative: fmt.Sprintf("codefly/deployment/%s", opt.Destination)}
+//}
 
-func WithDeploymentFor(fs embed.FS, relativePath string, opts ...templates.TemplateOptionFunc) TemplateWrapper {
-	opt := templates.Option(relativePath, opts...)
-	return TemplateWrapper{
-		opts:     opts,
-		fs:       shared.Embed(fs),
-		dir:      shared.NewDir("templates/deployment/%s", relativePath),
-		relative: fmt.Sprintf("codefly/deployment/%s", opt.Destination)}
-}
-
-func (s *Base) Templates(obj any, ws ...TemplateWrapper) error {
+func (s *Base) Templates(ctx context.Context, obj any, ws ...TemplateWrapper) error {
 	s.AgentLogger.Debugf("templates: %v", s.Location)
 	for _, w := range ws {
-		err := templates.CopyAndApply(s.AgentLogger, w.fs, w.dir, shared.NewDir(s.Local(w.relative)), obj, w.opts...)
+		err := templates.CopyAndApply(ctx, w.fs, w.dir, shared.NewDir(s.Local(w.relative)), obj)
 		if err != nil {
 			return s.AgentLogger.Wrapf(err, "cannot copy and apply template")
 		}

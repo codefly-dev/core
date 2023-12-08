@@ -14,7 +14,7 @@ type Info struct {
 }
 
 func Version() (string, error) {
-	logger := shared.NewLogger("configurations.Version")
+	logger := shared.NewLogger().With("configurations.Version")
 	conf, err := LoadFromFs[Info](shared.Embed(info))
 	if err != nil {
 		return "", logger.Wrapf(err, "cannot load configuration file <%s>", InfoConfigurationName)

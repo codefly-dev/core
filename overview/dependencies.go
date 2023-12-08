@@ -40,7 +40,7 @@ func (g *DependencyGraph) Edges() []Edge {
 }
 
 func NewDependencyGraph(project *configurations.Project) (*DependencyGraph, error) {
-	logger := shared.NewLogger("overview.NewDependencyGraph")
+	logger := shared.NewLogger().With("overview.NewDependencyGraph")
 	graph, err := Load(project)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load graph")
@@ -52,24 +52,25 @@ func NewDependencyGraph(project *configurations.Project) (*DependencyGraph, erro
 }
 
 func Load(project *configurations.Project) (*Graph, error) {
-	logger := shared.NewLogger("overview.Load")
-	graph := NewGraph(project.Name)
-	for _, appRef := range project.Applications {
-		app, err := project.LoadApplicationFromReference(appRef)
-		if err != nil {
-			return nil, logger.Wrapf(err, "cannot load application <%s>", appRef.Name)
-		}
-		for _, serviceRef := range app.Services {
-			service, err := app.LoadServiceFromReference(serviceRef, configurations.WithProject(project))
-			if err != nil {
-				return nil, logger.Wrapf(err, "cannot load service <%s>", serviceRef.Name)
-			}
-			graph.AddNode(service.Unique())
-			for _, dep := range service.Dependencies {
-				graph.AddNode(dep.Unique())
-				graph.AddEdge(dep.Unique(), service.Unique())
-			}
-		}
-	}
-	return graph, nil
+	//logger := shared.NewLogger().With("overview.Load")
+	//graph := NewGraph(project.Name)
+	//for _, appRef := range project.Applications {
+	//	app, err := project.LoadApplicationFromReference(appRef)
+	//	if err != nil {
+	//		return nil, logger.Wrapf(err, "cannot load application <%s>", appRef.Name)
+	//	}
+	//	for _, serviceRef := range app.Services {
+	//		service, err := app.LoadServiceFromReference(serviceRef, configurations.WithProject(project))
+	//		if err != nil {
+	//			return nil, logger.Wrapf(err, "cannot load service <%s>", serviceRef.Name)
+	//		}
+	//		graph.AddNode(service.Unique())
+	//		for _, dep := range service.Dependencies {
+	//			graph.AddNode(dep.Unique())
+	//			graph.AddEdge(dep.Unique(), service.Unique())
+	//		}
+	//	}
+	//}
+	//return graph, nil
+	return nil, nil
 }

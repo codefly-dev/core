@@ -44,32 +44,32 @@ func (m ServiceFactoryAgentContext) Default() plugin.Plugin {
 	return &ServiceFactoryAgent{}
 }
 
-func (m ServiceFactory) Init(req *servicev1.InitRequest) (*factoryv1.InitResponse, error) {
-	return m.client.Init(context.Background(), req)
+func (m ServiceFactory) Init(ctx context.Context, req *servicev1.InitRequest) (*factoryv1.InitResponse, error) {
+	return m.client.Init(ctx, req)
 }
 
-func (m ServiceFactory) Create(req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error) {
-	return m.client.Create(context.Background(), req)
+func (m ServiceFactory) Create(ctx context.Context, req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error) {
+	return m.client.Create(ctx, req)
 }
 
-func (m ServiceFactory) Update(req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error) {
-	return m.client.Update(context.Background(), req)
+func (m ServiceFactory) Update(ctx context.Context, req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error) {
+	return m.client.Update(ctx, req)
 }
 
-func (m ServiceFactory) Sync(req *factoryv1.SyncRequest) (*factoryv1.SyncResponse, error) {
-	return m.client.Sync(context.Background(), req)
+func (m ServiceFactory) Sync(ctx context.Context, req *factoryv1.SyncRequest) (*factoryv1.SyncResponse, error) {
+	return m.client.Sync(ctx, req)
 }
 
-func (m ServiceFactory) Build(req *factoryv1.BuildRequest) (*factoryv1.BuildResponse, error) {
-	return m.client.Build(context.Background(), req)
+func (m ServiceFactory) Build(ctx context.Context, req *factoryv1.BuildRequest) (*factoryv1.BuildResponse, error) {
+	return m.client.Build(ctx, req)
 }
 
-func (m ServiceFactory) Deploy(req *factoryv1.DeploymentRequest) (*factoryv1.DeploymentResponse, error) {
-	return m.client.Deploy(context.Background(), req)
+func (m ServiceFactory) Deploy(ctx context.Context, req *factoryv1.DeploymentRequest) (*factoryv1.DeploymentResponse, error) {
+	return m.client.Deploy(ctx, req)
 }
 
-func (m ServiceFactory) Communicate(req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
-	return m.client.Communicate(context.Background(), req)
+func (m ServiceFactory) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+	return m.client.Communicate(ctx, req)
 }
 
 type ServiceFactoryAgent struct {
@@ -121,16 +121,16 @@ func (m *FactoryServer) Communicate(_ context.Context, req *agentsv1.Engage) (*a
 	return m.Factory.Communicate(req)
 }
 
-func LoadFactory(conf *configurations.Service) (*ServiceFactory, error) {
+func LoadFactory(ctx context.Context, conf *configurations.Service) (*ServiceFactory, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("conf cannot be nil")
 	}
 	if conf.Agent == nil {
-		return nil, shared.NewLogger("services.LoadFactory<%s>", conf.Name).Errorf("agent found nil")
+		return nil, shared.NewLogger().With("services.LoadFactory<%s>", conf.Name).Errorf("agent found nil")
 	}
-	logger := shared.NewLogger("services.LoadFactory<%s>", conf.Agent.Name())
+	logger := shared.NewLogger().With("services.LoadFactory<%s>", conf.Agent.Identifier())
 	logger.Debugf("loading service factory")
-	factory, err := agents.Load[ServiceFactoryAgentContext, ServiceFactory](conf.Agent.Of(configurations.AgentFactoryService), conf.Unique())
+	factory, err := agents.Load[ServiceFactoryAgentContext, ServiceFactory](ctx, conf.Agent.Of(configurations.AgentFactoryService), conf.Unique())
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service factory conf")
 	}

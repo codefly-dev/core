@@ -11,7 +11,7 @@ func Exit(msg string, args ...any) {
 }
 
 func ExitOnFalse(b bool, msg string, args ...any) {
-	logger := NewLogger("shared.ExitOnError")
+	logger := NewLogger().With("shared.ExitOnError")
 	if !b {
 		logger.Oops(fmt.Sprintf(msg, args...))
 		os.Exit(1)
@@ -19,7 +19,7 @@ func ExitOnFalse(b bool, msg string, args ...any) {
 }
 
 func ExitOnError(err error, msg string, args ...any) {
-	logger := NewLogger("shared.ExitOnError")
+	logger := NewLogger().With("shared.ExitOnError")
 	if err != nil {
 		logger.Oops("%s: %v", fmt.Sprintf(msg, args...), err)
 		os.Exit(1)
@@ -27,8 +27,12 @@ func ExitOnError(err error, msg string, args ...any) {
 }
 
 func UnexpectedExitOnError(err error, msg string, args ...any) {
-	logger := NewLogger("shared.ExitOnError")
+	logger := NewLogger().With("shared.UnexpectedExitOnError")
 	if err != nil {
+		if !IsDebug() {
+			logger.Oops(msg, args...)
+			os.Exit(1)
+		}
 		logger.Oops("%s: %v", fmt.Sprintf(msg, args...), err)
 		os.Exit(1)
 	}

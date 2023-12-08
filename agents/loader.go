@@ -41,7 +41,7 @@ func init() {
 }
 
 func Cleanup(unique string) {
-	logger := shared.NewLogger("agents.Cleanup<%s>", unique)
+	logger := shared.NewLogger().With("agents.Cleanup<%s>", unique)
 	if client, ok := inUse[unique]; ok {
 		client.Kill()
 		return
@@ -51,8 +51,8 @@ func Cleanup(unique string) {
 
 // Name is what the agent will be identified as: for clean up
 
-func Load[P AgentContext, Instance any](p *configurations.Agent, unique string, opts ...Option) (*Instance, error) {
-	logger := shared.NewLogger("agents.Load<%s>", p.Unique())
+func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.Agent, unique string, opts ...Option) (*Instance, error) {
+	logger := shared.NewLogger().With("agents.Load<%s>", p.Unique())
 	opt := Options{}
 	for _, o := range opts {
 		o(&opt)
@@ -75,9 +75,9 @@ func Load[P AgentContext, Instance any](p *configurations.Agent, unique string, 
 	logger.Tracef("looking agent %v in %s", p, bin)
 	// Already loaded or download
 	if _, err := exec.LookPath(bin); err != nil {
-		err := Download(p)
+		err := Download(ctx, p)
 		if err != nil {
-			return nil, logger.Errorf("cannot find agent <%s>: %v", p.Name(), err)
+			return nil, logger.Errorf("cannot find agent <%s>: %v", p.Identifier(), err)
 		}
 	}
 	logger.Tracef("loading agent from local path <%s>", bin)
@@ -107,7 +107,7 @@ func Load[P AgentContext, Instance any](p *configurations.Agent, unique string, 
 	// Request the platform
 	raw, err := grpcClient.Dispense(this.Key(p, unique))
 	if err != nil {
-		return nil, logger.Errorf("cannot dispense agent <%s> from gRPC client: %v", p.Name(), err)
+		return nil, logger.Errorf("cannot dispense agent <%s> from gRPC client: %v", p.Identifier(), err)
 	}
 	u := raw.(*Instance)
 	if u == nil {
@@ -124,20 +124,20 @@ type GithubSource struct {
 func toGithubSource(p *configurations.Agent) GithubSource {
 	return GithubSource{
 		Owner: strings.Replace(p.Publisher, ".", "-", -1),
-		Repo:  fmt.Sprintf("service-%s", p.Identifier),
+		Repo:  fmt.Sprintf("service-%s", p.Name),
 	}
 }
 
-func PinToLatestRelease(p *configurations.Agent) error {
-	logger := shared.NewLogger("agents.PinToLatestRelease<%s>", p.Unique())
+func PinToLatestRelease(agent *configurations.Agent) error {
+	logger := shared.NewLogger().With("agents.PinToLatestRelease<%s>", agent.Unique())
 	client := github.NewClient(nil)
-	source := toGithubSource(p)
+	source := toGithubSource(agent)
 	release, _, err := client.Repositories.GetLatestRelease(context.Background(), source.Owner, source.Repo)
 	if err != nil {
 		return logger.Wrapf(err, "cannot get latest release")
 	}
 	tag := release.GetTagName()
-	p.Version = strings.Replace(tag, "v", "", -1)
+	agent.Version = strings.Replace(tag, "v", "", -1)
 	return nil
 }
 
@@ -152,9 +152,9 @@ func ValidURL(s string) bool {
 	return true
 }
 
-func Download(p *configurations.Agent) error {
-	logger := shared.NewLogger("agents.Download<%s>", p.Unique())
-	golor.Println(`#(blue,bold)[Downloading agent {{.Publisher}}::{{.Identifier}} Version {{.Version}}]`, p)
+func Download(ctx context.Context, p *configurations.Agent) error {
+	logger := shared.NewLogger().With("agents.Download<%s>", p.Unique())
+	golor.Println(`#(blue,bold)[Downloading agent {{.Publisher}}::{{.Name}} Version {{.Version}}]`, p)
 
 	releaseURL := DownloadURL(p)
 	if !ValidURL(releaseURL) {
@@ -215,7 +215,7 @@ func Download(p *configurations.Agent) error {
 	}
 	bin, err := p.Path()
 
-	binary := path.Join(dest, fmt.Sprintf("service-%s", p.Identifier))
+	binary := path.Join(dest, fmt.Sprintf("service-%s", p.Name))
 	if !shared.FileExists(binary) {
 		content, _ := os.ReadDir(dest)
 		fmt.Println("content ", content)
@@ -229,7 +229,7 @@ func Download(p *configurations.Agent) error {
 	}
 	// create folder if needed
 	folder := filepath.Dir(target)
-	err = shared.CheckDirectoryOrCreate(folder)
+	err = shared.CheckDirectoryOrCreate(ctx, folder)
 	if err != nil {
 		return logger.Wrapf(err, "cannot create agent folder")
 	}

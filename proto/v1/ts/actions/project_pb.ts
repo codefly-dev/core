@@ -67,3 +67,52 @@ export class AddProject extends Message<AddProject> {
   }
 }
 
+/**
+ * @generated from message v1.actions.SetProjectActive
+ */
+export class SetProjectActive extends Message<SetProjectActive> {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind = "";
+
+  /**
+   * @generated from field: string workspace = 2;
+   */
+  workspace = "";
+
+  /**
+   * @generated from field: string name = 3;
+   */
+  name = "";
+
+  constructor(data?: PartialMessage<SetProjectActive>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "v1.actions.SetProjectActive";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "kind", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "workspace", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetProjectActive {
+    return new SetProjectActive().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetProjectActive {
+    return new SetProjectActive().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetProjectActive {
+    return new SetProjectActive().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetProjectActive | PlainMessage<SetProjectActive> | undefined, b: SetProjectActive | PlainMessage<SetProjectActive> | undefined): boolean {
+    return proto3.util.equals(SetProjectActive, a, b);
+  }
+}
+

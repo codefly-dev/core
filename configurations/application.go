@@ -1,220 +1,148 @@
 package configurations
 
 import (
+	"context"
 	"fmt"
-	"os"
+	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
 	"path"
-	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
-	"github.com/codefly-dev/golor"
 )
-
-/*
-This is a configuration wrapper to be able to read and write configuration of the applications.
-*/
-
-var currentApplication *Application
 
 const (
-	ApplicationConfigurationName = "application.codefly.yaml"
 	ApplicationKind              = "application"
+	ApplicationConfigurationName = "application.codefly.yaml"
 )
 
-/*
-Convention: relative to path from project
-*/
-
+// An Application is a collection of services that are deployed together.
 type Application struct {
-	Kind                 string  `yaml:"kind"`
-	Name                 string  `yaml:"name"`
-	RelativePathOverride *string `yaml:"relative-path"`
-	Project              string  `yaml:"project"`
-	Domain               string  `yaml:"domain"`
+	Kind         string  `yaml:"kind"`
+	Name         string  `yaml:"name"`
+	PathOverride *string `yaml:"path,omitempty"`
+
+	Project     string `yaml:"project"`
+	Domain      string `yaml:"domain"`
+	Description string `yaml:"description,omitempty"`
 
 	Services []*ServiceReference `yaml:"services"`
+
+	// internal
+	dir string
 }
 
-func ApplicationConfiguration(current bool) (*Application, error) {
-	logger := shared.NewLogger("build.ApplicationCmd")
-	var config *Application
-	if !current {
-		cur, err := os.Getwd()
-		if err != nil {
-			return nil, logger.Wrapf(err, "cannot get current directory")
-		}
-		config, err = FindUp[Application](cur)
-		if err != nil {
-			if strings.Contains(err.Error(), "reached root directory") {
-				cur, err := CurrentApplication()
-				if err != nil {
-					return nil, logger.Wrapf(err, "cannot load current appplication")
-				}
-				// logger.WarnUnique(shared.NewUserWarning("You are running in a directory that is not part of a project. Using current application from context: <%s>.", cur.Name))
-				return cur, nil
-			}
-			return nil, err
-		}
-	} else {
-		return CurrentApplication()
+// An ApplicationReference
+type ApplicationReference struct {
+	Name         string  `yaml:"name"`
+	PathOverride *string `yaml:"path,omitempty"`
+}
+
+// MarkAsActive marks a project as active
+func (ref *ApplicationReference) MarkAsActive() {
+	if !strings.HasSuffix(ref.Name, "*") {
+		ref.Name = fmt.Sprintf("%s*", ref.Name)
 	}
-	return config, nil
 }
 
-func NewApplication(name string) (*Application, error) {
-	ctx := shared.NewContext()
-	logger := shared.NewLogger("NewApplication")
-	app := Application{
+// IsActive returns true if the project is marked as active
+func (ref *ApplicationReference) IsActive() (*ApplicationReference, bool) {
+	if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
+		return &ApplicationReference{Name: name, PathOverride: ref.PathOverride}, true
+	}
+	return ref, false
+}
+
+func (project *Project) NewApplication(ctx context.Context, action *v1actions.AddApplication) (*Application, error) {
+	logger := shared.GetBaseLogger(ctx).With("NewApplication<%s>", action.Name)
+	if slices.Contains(project.ApplicationsNames(), action.Name) {
+		return nil, logger.Errorf("project already exists")
+	}
+
+	if err := ValidateProjectName(action.Name); err != nil {
+		return nil, logger.Wrapf(err, "invalid project name")
+	}
+
+	app := &Application{
 		Kind:    ApplicationKind,
-		Name:    name,
-		Domain:  ExtendDomain(MustCurrentProject().Domain, name),
-		Project: MustCurrentProject().Name,
+		Name:    action.Name,
+		Domain:  ExtendDomain(project.Domain, action.Name),
+		Project: project.Name,
 	}
-	dir := path.Join(MustCurrentProject().Dir(), app.RelativePath())
-	SolveDirOrCreate(dir)
 
+	ref := &ApplicationReference{Name: action.Name, PathOverride: OverridePath(action.Name, action.Path)}
+	dir := project.ApplicationPath(ctx, ref)
+
+	app.dir = dir
+
+	err := shared.CheckDirectoryOrCreate(ctx, dir)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot create application directory")
+	}
+	err = app.Save(ctx)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot save application configuration")
+	}
 	// Templatize as usual
-	err := templates.CopyAndApply(logger, shared.Embed(fs), shared.NewDir("templates/application"), shared.NewDir(dir), app)
+	err = templates.CopyAndApply(ctx, shared.Embed(fs), shared.NewDir("templates/application"), shared.NewDir(dir), app)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot copy and apply template")
 	}
-
-	err = SaveToDir[Application](&app, dir)
-	if err != nil {
-		return nil, logger.Errorf("cannot save applications configuration <%s>: %v", app.Name, err)
-	}
-	SetCurrentApplication(&app)
-
-	err = MustCurrentProject().AddApplication(&ApplicationReference{
-		Name: name,
-	})
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot add applications to project configuration")
-	}
-	err = MustCurrentProject().Save(ctx)
+	// Add application to project
+	project.Applications = append(project.Applications, ref)
+	err = project.Save(ctx)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot save project configuration")
 	}
-	return &app, nil
+	return app, nil
 }
 
-func (app *Application) Dir(opts ...Option) string {
-	scope := WithScopeProjectOnly(opts...)
-	return path.Join(scope.Project.Dir(), app.RelativePath())
+func (app *Application) Dir() string {
+	return app.dir
 }
 
-func LoadApplicationFromDir(dir string) (*Application, error) {
-	logger := shared.NewLogger("LoadApplicationFromDir<%s>", dir)
-	config, err := LoadFromDir[Application](dir)
+// LoadApplicationFromReference loads an application from a reference
+func (project *Project) LoadApplicationFromReference(ctx context.Context, ref *ApplicationReference) (*Application, error) {
+	logger := shared.GetBaseLogger(ctx).With("LoadApplicationFromReference<%s>", ref.Name)
+	dir := project.ApplicationPath(ctx, ref)
+	app, err := LoadFromDir[Application](ctx, dir)
+	if err != nil {
+		return nil, logger.Wrap(err)
+	}
+	app.dir = dir
 	if err != nil {
 		return nil, err
 	}
-	config.RelativePathOverride = OverridePath(config.Name, MustCurrentProject().Relative(dir))
-	for _, service := range config.Services {
-		service.Application = config.Name
-	}
-	logger.Tracef("loaded applications configuration with %d services", len(config.Services))
-	return config, err
+	return app, nil
 }
 
-type Scope struct {
-	Project     *Project
-	Application *Application
-}
-
-func (s *Scope) WithApplication(app *Application) *Scope {
-	s.Application = app
-	return s
-}
-
-func (s *Scope) WithProject(project *Project) *Scope {
-	s.Project = project
-	return s
-}
-
-func WithScope(opts ...Option) *Scope {
-	// If we don't have a project Option, add the current project
-	scope := &Scope{}
-	for _, opt := range opts {
-		opt(scope)
-	}
-	if scope.Project == nil {
-		project, err := CurrentProject()
-		shared.ExitOnError(err, "cannot get current project")
-		scope.Project = project
-	}
-
-	if scope.Application == nil {
-		app, err := CurrentApplication()
-		shared.ExitOnError(err, "cannot get current application")
-		scope.Application = app
-	}
-	return scope
-}
-
-func WithScopeProjectOnly(opts ...Option) *Scope {
-	scope := &Scope{}
-	for _, opt := range opts {
-		opt(scope)
-	}
-	if scope.Project == nil {
-		scope.Project = MustCurrentProject()
-	}
-	return scope
-}
-
-type Option func(scope *Scope)
-
-func WithProject(project *Project) Option {
-	return func(scope *Scope) {
-		scope.Project = project
-	}
-}
-
-func WithApplication(app *Application) Option {
-	return func(scope *Scope) {
-		scope.Application = app
-	}
-}
-
-func LoadApplicationFromReference(ref *ApplicationReference, opts ...Option) (*Application, error) {
-	logger := shared.NewLogger("LoadApplicationFromReference<%s>", ref.Name)
-	apps, err := ListApplications(opts...)
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot list applications")
-	}
-	for _, a := range apps {
-		if a.Name == ref.Name {
-			return a, nil
+// LoadApplicationFromName loads an application from a name
+func (project *Project) LoadApplicationFromName(ctx context.Context, name string) (*Application, error) {
+	logger := shared.GetBaseLogger(ctx).With("LoadApplicationFromName<%s>", name)
+	logger.Debugf("#applications %d", len(project.Applications))
+	for _, ref := range project.Applications {
+		if ReferenceMatch(ref.Name, name) {
+			return project.LoadApplicationFromReference(ctx, ref)
 		}
 	}
-	return nil, logger.Errorf("cannot find application <%v>", ref)
+	return nil, fmt.Errorf("cannot find application <%s> in project <%s>", name, project.Name)
 }
 
-func LoadApplicationFromName(name string, opts ...Option) (*Application, error) {
-	logger := shared.NewLogger("LoadApplicationFromName<%s>", name)
-	apps, err := ListApplications(opts...)
+// LoadApplicationFromDir is the loader from filesystem
+func LoadApplicationFromDir(ctx context.Context, dir string) (*Application, error) {
+	logger := shared.GetBaseLogger(ctx).With("LoadApplicationFromDir<%s>", dir)
+	app, err := LoadFromDir[Application](ctx, dir)
+	logger.Tracef("loaded applications configuration")
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot list applications")
+		return nil, err
 	}
-	for _, a := range apps {
-		if a.Name == name {
-			return a, nil
-		}
-	}
-	return nil, logger.Errorf("cannot find application <%s>", name)
-}
-
-func (app *Application) Relative(absolute string, opts ...Option) string {
-	s, err := filepath.Rel(app.Dir(opts...), absolute)
-	shared.ExitOnError(err, "cannot compute relative path from applications")
-	return s
+	app.dir = dir
+	return app, err
 }
 
 func (app *Application) AddService(service *Service) error {
-	logger := shared.NewLogger("AddService")
+	logger := shared.NewLogger().With("AddService")
 	for _, s := range app.Services {
 		if s.Name == service.Name {
 			return nil
@@ -228,8 +156,8 @@ func (app *Application) AddService(service *Service) error {
 	return nil
 }
 
-func (app *Application) Save() error {
-	return SaveToDir(app, app.Dir())
+func (app *Application) Save(ctx context.Context) error {
+	return SaveToDir(ctx, app, app.Dir())
 }
 
 func (app *Application) ServiceDomain(name string) string {
@@ -245,60 +173,25 @@ func (app *Application) GetServiceReferences(name string) (*ServiceReference, er
 	return nil, nil
 }
 
-func (app *Application) LoadServiceFromName(name string) (*Service, error) {
-	return LoadServiceFromDir(path.Join(app.Dir(), name))
+func (app *Application) LoadServiceFromName(ctx context.Context, name string) (*Service, error) {
+	return LoadServiceFromDir(ctx, path.Join(app.Dir(), name))
 }
 
 func (app *Application) Reference() *ApplicationReference {
 	return &ApplicationReference{
-		Name:                 app.Name,
-		RelativePathOverride: app.RelativePathOverride,
+		Name:         app.Name,
+		PathOverride: app.PathOverride,
 	}
 }
 
-func (app *Application) RelativePath() string {
-	if app.RelativePathOverride != nil {
-		return *app.RelativePathOverride
-	}
-	return app.Name
-}
-
-func (app *Application) LoadServiceFromReference(ref *ServiceReference, opts ...Option) (*Service, error) {
-	dir := path.Join(app.Dir(opts...), ref.RelativePath())
-	return LoadServiceFromDir(dir)
-}
-
-func CurrentApplication(opts ...Option) (*Application, error) {
-	logger := shared.NewLogger("CurrentApplication")
-	if currentApplication != nil {
-		return currentApplication, nil
-	}
-	scope := WithScopeProjectOnly(opts...)
-	current := scope.Project.Current()
-
-	all, err := ListApplications(opts...)
-	if err != nil {
-		return nil, logger.Wrapf(err, "Listing applications in project <%s>", MustCurrentProject().Name)
-	}
-	if len(all) == 0 {
-		return nil, NoApplicationError{Project: MustCurrentProject().Name}
-	}
-	if len(all) == 1 {
-		return all[0], nil
-	}
-	for _, app := range all {
-		if app.Name == current {
-			currentApplication = app
-			return app, nil
+// ExistsService returns true if the service exists in the application
+func (app *Application) ExistsService(name string) bool {
+	for _, s := range app.Services {
+		if s.Name == name {
+			return true
 		}
 	}
-	return nil, logger.Errorf("cannot find current application <%s> in project <%s>", current, MustCurrentProject().Name)
-}
-
-func MustCurrentApplication() *Application {
-	app, err := CurrentApplication()
-	shared.ExitOnError(err, "cannot get current application")
-	return app
+	return false
 }
 
 type NoApplicationError struct {
@@ -307,59 +200,4 @@ type NoApplicationError struct {
 
 func (e NoApplicationError) Error() string {
 	return fmt.Sprintf("no applications found in <%s>", e.Project)
-}
-
-func SetCurrentApplication(app *Application) {
-	if app == nil {
-		golor.Println(`#(bold,white)[No application selected: you are running outside the application folder or forgot to use --current]`)
-		os.Exit(0)
-	}
-	currentApplication = app
-	err := MustCurrentProject().SetCurrentApplication(app.Name)
-	shared.ExitOnError(err, "cannot save current project")
-}
-
-func AddApplication(app *Application) error {
-	for _, a := range MustCurrentProject().Applications {
-		if a.Name == app.Name {
-			return nil
-		}
-	}
-	MustCurrentProject().Applications = append(MustCurrentProject().Applications, app.Reference())
-	return nil
-}
-
-func ListApplications(opts ...Option) ([]*Application, error) {
-	logger := shared.NewLogger("applications.List<%s>", MustCurrentProject().Dir())
-	scope := WithScopeProjectOnly(opts...)
-	var apps []*Application
-	for _, app := range scope.Project.Applications {
-
-		a, err := LoadApplicationFromDir(path.Join(scope.Project.Dir(), app.RelativePath()))
-		if err != nil {
-			return nil, logger.Errorf("cannot load applications configuration <%s>: %v", app.Name, err)
-		}
-		apps = append(apps, a)
-	}
-	return apps, nil
-}
-
-func FindApplicationUp(p string) (*Application, error) {
-	logger := shared.NewLogger("FindApplicationUp")
-	// Look at current directory
-	cur := filepath.Dir(p)
-	for {
-		// Look for a service configuration
-		p := path.Join(cur, ApplicationConfigurationName)
-		if _, err := os.Stat(p); err == nil {
-			return LoadApplicationFromDir(cur)
-		}
-		// Move up one directory
-		cur = filepath.Dir(cur)
-
-		// Stop if we reach the root directory
-		if cur == "/" || cur == "." {
-			return nil, logger.Errorf("cannot find service configuration: reached root directory")
-		}
-	}
 }

@@ -1,7 +1,10 @@
 package configurations
 
 import (
+	"context"
 	"fmt"
+	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
+	v1base "github.com/codefly-dev/core/proto/v1/go/base"
 	"os"
 	"path"
 	"slices"
@@ -19,7 +22,6 @@ A Service
 Convention: OverridePath from Application
 */
 type Service struct {
-	Kind                 string               `yaml:"kind"`
 	Name                 string               `yaml:"name"`
 	Version              string               `yaml:"version"`
 	Application          string               `yaml:"application"`
@@ -30,41 +32,47 @@ type Service struct {
 	Dependencies         []*ServiceDependency `yaml:"dependencies"`
 	Endpoints            []*Endpoint          `yaml:"endpoints"`
 	Spec                 map[string]any       `yaml:"spec"`
+
+	// internal
+	kind string
+	dir  string
+}
+
+const ServiceAgentKind = "codefly.service"
+
+func init() {
+	RegisterAgent(ServiceAgentKind, v1base.Agent_SERVICE)
 }
 
 func (s *Service) Endpoint() string {
 	return fmt.Sprintf("%s.%s", s.Name, s.Namespace)
 }
 
-func (s *Service) Dir(opts ...Option) string {
-	scope := WithScope(opts...)
-	return path.Join(scope.Application.Dir(), s.RelativePath())
-}
-
-func ValidateServiceName(string) error {
-	return nil
+func (s *Service) Dir() string {
+	return s.dir
 }
 
 // Unique identifies a service within a project
-// We use a REST like convention rather then a sub-domain one
+// We use a REST like convention rather then a subdomain one
 func (s *Service) Unique() string {
 	return fmt.Sprintf("%s/%s", s.Application, s.Name)
 }
 
-func NewService(name string, namespace string, agent *Agent, ops ...Option) (*Service, error) {
-	scope := WithScope(ops...)
-	logger := shared.NewLogger("configurations.NewService<%s>", scope.Application.Name)
-	svc := Service{
-		Kind:        "service",
-		Name:        name,
-		Application: scope.Application.Name,
-		Domain:      scope.Application.ServiceDomain(name),
-		Namespace:   namespace,
+func (app *Application) NewService(ctx context.Context, action *v1actions.AddService) (*Service, error) {
+	logger := shared.GetBaseLogger(ctx).With("NewService<%s>", action.Name)
+	agent, err := LoadAgent(ctx, action.Agent)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot load agent")
+	}
+	service := &Service{
+		Name:        action.Name,
+		Application: app.Name,
+		Domain:      app.ServiceDomain(action.Name),
+		Namespace:   shared.DefaultTo(action.Namespace, app.Name),
 		Agent:       agent,
 		Spec:        make(map[string]any),
 	}
-	logger.Debugf("new service configuration <%s> with relative path <%s>", svc.Name, svc.Name)
-	return &svc, nil
+	return service, nil
 }
 
 // ServiceIdentity defines exactly the scope of the service
@@ -101,10 +109,10 @@ func (s *Service) Reference() (*ServiceReference, error) {
 	return entry, nil
 }
 
-func LoadServiceFromDir(dir string) (*Service, error) {
-	logger := shared.NewLogger("configurations.LoadServiceFromPath<%s>", dir)
+func LoadServiceFromDir(ctx context.Context, dir string) (*Service, error) {
+	logger := shared.NewLogger().With("configurations.LoadServiceFromPath<%s>", dir)
 	logger.Tracef("loading")
-	conf, err := LoadFromDir[Service](dir)
+	conf, err := LoadFromDir[Service](ctx, dir)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service configuration")
 	}
@@ -124,47 +132,48 @@ func LoadServiceFromDir(dir string) (*Service, error) {
 Derivatives
 */
 
-func LoadServiceFromReference(ref *ServiceReference, opts ...Option) (*Service, error) {
-	logger := shared.NewLogger("configurations.LoadServiceFromReference<%s>", ref.Name)
-	scope := WithScope(opts...)
-	app, err := LoadApplicationFromName(ref.Application, opts...)
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load application configuration")
-	}
-	scope.Application = app
-	p, err := ref.Dir(scope)
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot get service path")
-	}
-	logger.DebugMe("loading service <%s> at <%s>", ref, p)
-	return LoadServiceFromDir(p)
+func LoadServiceFromReference(ref *ServiceReference) (*Service, error) {
+	//logger := shared.NewLogger().With("configurations.LoadServiceFromReference<%s>", ref.Name)
+	//scope := WithScope(opts...)
+	//app, err := LoadApplicationFromName(ref.Application, opts...)
+	//if err != nil {
+	//	return nil, logger.Wrapf(err, "cannot load application configuration")
+	//}
+	//scope.Application = app
+	//p, err := ref.Dir(scope)
+	//if err != nil {
+	//	return nil, logger.Wrapf(err, "cannot get service path")
+	//}
+	//logger.DebugMe("loading service <%s> at <%s>", ref, p)
+	//return LoadServiceFromDir(p)
+	return nil, nil
 }
 
 func FindServiceFromReference(ref *ServiceReference) (*Service, error) {
-	logger := shared.NewLogger("configurations.FindServiceFromReference<%s/%s>", ref.Application, ref.Name)
-	// Find the application
-	app, err := MustCurrentProject().LoadApplicationFromReference(&ApplicationReference{Name: ref.Application})
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load application configuration")
-	}
-
-	config, err := app.LoadServiceFromName(ref.Name)
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load service configuration")
-	}
-	logger.Tracef("loading service <%s> from applications <%s> at <%s>", ref.Name, app.Name, ref.RelativePath())
-	return config, nil
+	//logger := shared.NewLogger().With("configurations.FindServiceFromReference<%s/%s>", ref.Application, ref.Name)
+	//// Find the application
+	//app, err := MustActiveProject().LoadApplicationFromReference(&ApplicationReference{Name: ref.Application})
+	//if err != nil {
+	//	return nil, logger.Wrapf(err, "cannot load application configuration")
+	//}
+	//
+	//config, err := app.LoadServiceFromName(ref.Name)
+	//if err != nil {
+	//	return nil, logger.Wrapf(err, "cannot load service configuration")
+	//}
+	//logger.Tracef("loading service <%s> from applications <%s> at <%s>", ref.Name, app.Name, ref.RelativePath())
+	return nil, nil
 }
 
 func (s *Service) Save() error {
-	logger := shared.NewLogger("configurations.Unique<%s>.Save", s.Name)
+	//logger := shared.NewLogger().With("configurations.Unique<%s>.Save", s.Name)
 	destination := s.Dir()
-	logger.Tracef("saving service at <%s> from applications path <%s>", destination, MustCurrentApplication().Dir())
+	//logger.Tracef("saving service at <%s> from applications path <%s>", destination, MustActiveApplication().Dir())
 	return s.SaveAtDir(destination)
 }
 
 func (s *Service) SaveAtDir(destination string) error {
-	logger := shared.NewLogger("configurations.Unique<%s>.Save", s.Unique())
+	logger := shared.NewLogger().With("configurations.Unique<%s>.Save", s.Unique())
 	if _, err := os.Stat(destination); os.IsNotExist(err) {
 		err := os.Mkdir(destination, 0o755)
 		if err != nil {
@@ -221,7 +230,7 @@ func (s *Service) LoadSettingsFromSpec(t any) error {
 
 // AddDependencyReference adds a dependency to the service
 func (s *Service) AddDependencyReference(requirement *Service) error {
-	logger := shared.NewLogger("configurations.Unique.AddDependencyReference<%s> <- %s", s.Name, requirement.Name)
+	logger := shared.NewLogger().With("configurations.Unique.AddDependencyReference<%s> <- %s", s.Name, requirement.Name)
 	logger.Debugf("endpoints from the requirements: %v", requirement.Endpoints)
 	for _, d := range requirement.Endpoints {
 		logger.Debugf("JERE DEP: %v", d)
@@ -233,7 +242,6 @@ func (s *Service) AddDependencyReference(requirement *Service) error {
 
 func (s *Service) Duplicate(name string) *Service {
 	other := Service{
-		Kind:                 s.Kind,
 		Name:                 name,
 		Version:              s.Version,
 		Application:          s.Application,
@@ -259,7 +267,7 @@ func (s *Service) RelativePath() string {
 LoadServicesFromInput from string inputs
 */
 func LoadServicesFromInput(inputs ...string) ([]*Service, error) {
-	logger := shared.NewLogger("configurations.LoadServicesFromInput")
+	logger := shared.NewLogger().With("configurations.LoadServicesFromInput")
 	var services []*Service
 	for _, input := range inputs {
 		entry, err := LoadService(input)
@@ -272,7 +280,7 @@ func LoadServicesFromInput(inputs ...string) ([]*Service, error) {
 }
 
 func LoadService(input string) (*Service, error) {
-	logger := shared.NewLogger("configurations.LoadService")
+	logger := shared.NewLogger().With("configurations.LoadService")
 	ref, err := ParseServiceReference(input)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot parse service entry")

@@ -54,7 +54,7 @@ func (p *TrackedProcess) Kill() error {
 }
 
 func (p *TrackedProcess) GetStatus() (ProcessState, error) {
-	logger := shared.NewLogger("TrackedProcess.State<%d>", p.PID)
+	logger := shared.NewLogger().With("TrackedProcess.State<%d>", p.PID)
 	// Check for PID
 	proc, err := os.FindProcess(p.PID)
 	if err != nil {
@@ -74,7 +74,7 @@ func (p *TrackedProcess) GetStatus() (ProcessState, error) {
 }
 
 func (p *TrackedProcess) GetUsage() (*Usage, error) {
-	logger := shared.NewLogger("TrackedProcess.Usage<%d>", p.PID)
+	logger := shared.NewLogger().With("TrackedProcess.Usage<%d>", p.PID)
 	proc, err := process.NewProcess(int32(p.PID))
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot create process")
@@ -118,7 +118,7 @@ func parseState(out string) (string, bool) {
 }
 
 func findState(pid int) (ProcessState, error) {
-	logger := shared.NewLogger("TrackedProcess.State<%d>", pid)
+	logger := shared.NewLogger().With("TrackedProcess.State<%d>", pid)
 	// #nosec G204
 	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid), "-o", "state=")
 	var out bytes.Buffer

@@ -2,6 +2,7 @@ package configurations_test
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/codefly-dev/core/actions/actions"
@@ -21,10 +22,11 @@ func createTestWorkspace(t *testing.T, ctx context.Context) (*configurations.Wor
 		Domain: "https://github/codefly-dev",
 	}
 
-	action := actionworkspace.NewAddWorkspaceAction(&v1actions.AddWorkspace{
+	action := actionworkspace.NewActionAddWorkspace(&v1actions.AddWorkspace{
 		Organization: org,
 		Name:         "test",
 		Dir:          tmpDir,
+		ProjectRoot:  tmpDir,
 	})
 
 	out, err := action.Run(ctx)
@@ -41,13 +43,10 @@ func createTestWorkspace(t *testing.T, ctx context.Context) (*configurations.Wor
 func TestCreateWorkspace(t *testing.T) {
 	ctx := shared.NewContext()
 	w, dir := createTestWorkspace(t, ctx)
-
-	// Save
-	err := w.Save(ctx)
-	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
 
 	// Load back
-	w, err = configurations.LoadWorkspaceFromDir(ctx, dir)
+	w, err := configurations.LoadWorkspaceFromDir(ctx, dir)
 	assert.NoError(t, err)
 	assert.Equal(t, "codefly", w.Organization)
 	assert.Equal(t, "https://github/codefly-dev", w.Domain)
@@ -55,8 +54,8 @@ func TestCreateWorkspace(t *testing.T) {
 	// Do a reset
 	configurations.Reset()
 
-	// Get current
-	w, err = configurations.CurrentWorkspace(ctx)
+	// Get active
+	w, err = configurations.ActiveWorkspace(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "codefly", w.Organization)
 

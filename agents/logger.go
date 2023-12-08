@@ -36,8 +36,28 @@ type ServiceLogger struct {
 	debug           bool
 }
 
-func (l *ServiceLogger) SetLevel(shared.LogLevel) {
-	// Not supported for now
+func (l *ServiceLogger) Warn(format string, args ...any) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (l *ServiceLogger) SetLogMethod(actions shared.LogMode) shared.BaseLogger {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (l *ServiceLogger) WarnOnError(err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (l *ServiceLogger) Oops(format string, args ...any) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (l *ServiceLogger) SetLevel(shared.LogLevel) shared.BaseLogger {
+	return l
 }
 
 func NewServiceLogger(identity *servicev1.ServiceIdentity, agent *configurations.Agent) *ServiceLogger {
@@ -46,7 +66,7 @@ func NewServiceLogger(identity *servicev1.ServiceIdentity, agent *configurations
 	})
 	return &ServiceLogger{
 		transport:       logger,
-		AgentIdentifier: agent.Identifier,
+		AgentIdentifier: agent.Name,
 		Application:     identity.Application,
 		Service:         identity.Name,
 	}
@@ -156,18 +176,34 @@ type AgentLogger struct {
 	action          string
 }
 
+func (l *AgentLogger) Warn(format string, args ...any) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (l *AgentLogger) WarnOnError(err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (l *AgentLogger) SetLevel(lvl shared.LogLevel) shared.BaseLogger {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (l *AgentLogger) SetLogMethod(actions shared.LogMode) shared.BaseLogger {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (l *AgentLogger) Oops(format string, args ...any) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (l *AgentLogger) With(format string, args ...any) shared.BaseLogger {
 	l.action = fmt.Sprintf(format, args...)
 	return l
-}
-
-func (l *AgentLogger) SetLevel(lvl shared.LogLevel) {
-	if lvl == shared.TraceLevel {
-		l.trace = true
-		l.debug = true
-	} else if lvl == shared.DebugLevel {
-		l.debug = true
-	}
 }
 
 func (l *AgentLogger) SetDebug() {
@@ -199,7 +235,7 @@ func NewAgentLogger(identity *servicev1.ServiceIdentity, agent *configurations.A
 		JSONFormat: true,
 	})
 	return &AgentLogger{
-		AgentIdentifier: agent.Identifier,
+		AgentIdentifier: agent.Name,
 		Application:     identity.Application,
 		Service:         identity.Name,
 		transport:       logger,
@@ -311,10 +347,6 @@ func (l *AgentLogger) Errorf(format string, args ...any) error {
 	return fmt.Errorf(format, args...)
 }
 
-func (l *AgentLogger) Warn(format string, args ...any) {
-	l.UnsafeWrite(fmt.Sprintf(fmt.Sprintf("WARN: %s", format), args...))
-}
-
 func (l *AgentLogger) Catch() {
 	if r := recover(); r != nil {
 		l.Debugf("IN PANIC CATCH")
@@ -333,7 +365,7 @@ var (
 )
 
 func init() {
-	output = NewServerFormatter(shared.Debug())
+	output = NewServerFormatter(shared.IsDebug())
 }
 
 func NewServerLogger() hclog.Logger {

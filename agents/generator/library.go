@@ -42,7 +42,7 @@ package generator
 //}
 //
 //func EvaluateBase(dir string, gen *configurations.LibraryGeneration) (*Evaluation, error) {
-//	logger := shared.NewLogger("generator.EvaluateBase")
+//	logger := shared.NewLogger().With("generator.EvaluateBase")
 //	matcher, err := NewRegexpMatcher(gen.Pattern)
 //	if err != nil {
 //		return nil, logger.Wrapf(err, "cannot create matcher")
@@ -90,7 +90,7 @@ package generator
 //}
 //
 //func CreateLibrary(dir string) error {
-//	logger := shared.NewLogger("generator.CreateLibrary<%s>", path.Base(dir))
+//	logger := shared.NewLogger().With("generator.CreateLibrary<%s>", path.Base(dir))
 //	gen, err := configurations.LoadFromDir[configurations.LibraryGeneration](dir)
 //	if err != nil {
 //		return logger.Wrapf(err, "cannot load library generation from <%s>", dir)
@@ -122,7 +122,7 @@ package generator
 //	//if t.Ignore(p) {
 //	//	return nil
 //	//}
-//	//logger := shared.NewLogger("generator.TemplatizeVisitor.Apply<%s>", path.Base(S(p)))
+//	//logger := shared.NewLogger().With("generator.TemplatizeVisitor.Apply<%s>", path.Base(S(p)))
 //	//destination := path.Join(S(to), path.Base(S(p)))
 //	//// Check if the file is in the match summary hit list
 //	//if !slices.Contains(t.Files, S(p)) {
@@ -156,7 +156,7 @@ package generator
 ////}
 //
 //func CreateTemplatizedVersion(gen *configurations.LibraryGeneration, dir string, evaluation *Evaluation) error {
-//	logger := shared.NewLogger("generator.CreateTemplatizedVersion<%s>", dir)
+//	logger := shared.NewLogger().With("generator.CreateTemplatizedVersion<%s>", dir)
 //	// Will copy all files into the template directory
 //	templateDir := path.Join(dir, "../../templates")
 //	logger.Debugf("creating template directory: %s", templateDir)

@@ -77,9 +77,9 @@ func sanitize(route string) string {
 	return strings.ReplaceAll(route, "/", "_")
 }
 
-func (r *RestRoute) FilePath(dir string) (string, error) {
+func (r *RestRoute) FilePath(ctx context.Context, dir string) (string, error) {
 	dir = path.Join(dir, r.Application, r.Service)
-	err := shared.CheckDirectoryOrCreate(dir)
+	err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return "", err
 	}
@@ -91,7 +91,7 @@ func (r *RestRoute) FilePath(dir string) (string, error) {
 // The path is inferred from the configuration
 func (r *RestRoute) Save(ctx context.Context, dir string) error {
 	logger := shared.GetAgentLogger(ctx)
-	file, err := r.FilePath(dir)
+	file, err := r.FilePath(ctx, dir)
 	if err != nil {
 		return logger.Wrapf(err, "cannot get file path for route to save")
 	}
@@ -115,7 +115,7 @@ func (r *RestRoute) Save(ctx context.Context, dir string) error {
 // Delete a route
 func (r *RestRoute) Delete(ctx context.Context, dir string) error {
 	logger := shared.GetAgentLogger(ctx)
-	file, err := r.FilePath(dir)
+	file, err := r.FilePath(ctx, dir)
 	if err != nil {
 		return logger.Wrapf(err, "cannot get file path for route to delete")
 	}
@@ -147,7 +147,7 @@ func (r *ApplicationRestRoute) Save(ctx context.Context, dir string) error {
 	return nil
 }
 
-func LoadApplicationRoutes(dir string) ([]*RestRoute, error) {
+func LoadApplicationRoutes(ctx context.Context, dir string) ([]*RestRoute, error) {
 	var routes []*RestRoute
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -158,7 +158,7 @@ func LoadApplicationRoutes(dir string) ([]*RestRoute, error) {
 			continue
 		}
 		name := entry.Name()
-		r, err := LoadServiceRoutes(path.Join(dir, name), entry.Name())
+		r, err := LoadServiceRoutes(ctx, path.Join(dir, name), entry.Name())
 		if err != nil {
 			return nil, err
 		}
@@ -167,7 +167,7 @@ func LoadApplicationRoutes(dir string) ([]*RestRoute, error) {
 	return routes, nil
 }
 
-func LoadServiceRoutes(dir string, app string) ([]*RestRoute, error) {
+func LoadServiceRoutes(ctx context.Context, dir string, app string) ([]*RestRoute, error) {
 	var routes []*RestRoute
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -178,7 +178,7 @@ func LoadServiceRoutes(dir string, app string) ([]*RestRoute, error) {
 			continue
 		}
 		name := entry.Name()
-		r, err := LoadRoutes(path.Join(dir, name), app, name)
+		r, err := LoadRoutes(ctx, path.Join(dir, name), app, name)
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +187,7 @@ func LoadServiceRoutes(dir string, app string) ([]*RestRoute, error) {
 	return routes, nil
 }
 
-func LoadRoutes(dir string, app string, service string) ([]*RestRoute, error) {
+func LoadRoutes(ctx context.Context, dir string, app string, service string) ([]*RestRoute, error) {
 	var routes []*RestRoute
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -200,7 +200,7 @@ func LoadRoutes(dir string, app string, service string) ([]*RestRoute, error) {
 		if !strings.HasSuffix(entry.Name(), "route.yaml") {
 			continue
 		}
-		r, err := LoadRoute(path.Join(dir, entry.Name()), app, service)
+		r, err := LoadRoute(ctx, path.Join(dir, entry.Name()), app, service)
 		if err != nil {
 			return nil, err
 		}
@@ -209,8 +209,8 @@ func LoadRoutes(dir string, app string, service string) ([]*RestRoute, error) {
 	return routes, nil
 }
 
-func LoadRoute(p string, app string, service string) (*RestRoute, error) {
-	r, err := LoadFromPath[RestRoute](p)
+func LoadRoute(ctx context.Context, p string, app string, service string) (*RestRoute, error) {
+	r, err := LoadFromPath[RestRoute](ctx, p)
 	if err != nil {
 		return nil, err
 	}

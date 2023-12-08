@@ -14,7 +14,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19\x61\x63tions/application.proto\x12\nv1.actions\"t\n\x0e\x41\x64\x64\x41pplication\x12\x12\n\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x03 \x01(\tR\x0b\x64\x65scription\x12\x18\n\x07project\x18\x04 \x01(\tR\x07project\"*\n\x14\x41\x64\x64\x41pplicationOutput\x12\x12\n\x04name\x18\x01 \x01(\tR\x04nameB\x9c\x01\n\x0e\x63om.v1.actionsB\x10\x41pplicationProtoP\x01Z/github.com/codefly-dev/core/proto/v1/go/actions\xa2\x02\x03VAX\xaa\x02\nV1.Actions\xca\x02\nV1\\Actions\xe2\x02\x16V1\\Actions\\GPBMetadata\xea\x02\x0bV1::Actionsb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19\x61\x63tions/application.proto\x12\nv1.actions\"\x88\x01\n\x0e\x41\x64\x64\x41pplication\x12\x12\n\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x03 \x01(\tR\x0b\x64\x65scription\x12\x18\n\x07project\x18\x04 \x01(\tR\x07project\x12\x12\n\x04path\x18\x05 \x01(\tR\x04path\"X\n\x14SetApplicationActive\x12\x12\n\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n\x07project\x18\x03 \x01(\tR\x07projectB\x9c\x01\n\x0e\x63om.v1.actionsB\x10\x41pplicationProtoP\x01Z/github.com/codefly-dev/core/proto/v1/go/actions\xa2\x02\x03VAX\xaa\x02\nV1.Actions\xca\x02\nV1\\Actions\xe2\x02\x16V1\\Actions\\GPBMetadata\xea\x02\x0bV1::Actionsb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -22,8 +22,8 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'actions.application_pb2', _
 if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['DESCRIPTOR']._options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\016com.v1.actionsB\020ApplicationProtoP\001Z/github.com/codefly-dev/core/proto/v1/go/actions\242\002\003VAX\252\002\nV1.Actions\312\002\nV1\\Actions\342\002\026V1\\Actions\\GPBMetadata\352\002\013V1::Actions'
-  _globals['_ADDAPPLICATION']._serialized_start=41
-  _globals['_ADDAPPLICATION']._serialized_end=157
-  _globals['_ADDAPPLICATIONOUTPUT']._serialized_start=159
-  _globals['_ADDAPPLICATIONOUTPUT']._serialized_end=201
+  _globals['_ADDAPPLICATION']._serialized_start=42
+  _globals['_ADDAPPLICATION']._serialized_end=178
+  _globals['_SETAPPLICATIONACTIVE']._serialized_start=180
+  _globals['_SETAPPLICATIONACTIVE']._serialized_end=268
 # @@protoc_insertion_point(module_scope)

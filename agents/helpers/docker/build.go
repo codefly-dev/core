@@ -35,7 +35,7 @@ type Builder struct {
 }
 
 func NewBuilder(cfg BuilderConfiguration) (*Builder, error) {
-	logger := shared.NewLogger("docker.NewBuilder")
+	logger := shared.NewLogger().With("docker.NewBuilder")
 	return &Builder{BuilderConfiguration: cfg, logger: logger}, nil
 }
 

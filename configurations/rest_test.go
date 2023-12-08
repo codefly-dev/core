@@ -20,7 +20,8 @@ func TestRouteExtended(t *testing.T) {
 }
 
 func TestLoadingRoute(t *testing.T) {
-	routes, err := configurations.LoadApplicationRoutes("testdata")
+	ctx := shared.NewContext()
+	routes, err := configurations.LoadApplicationRoutes(ctx, "testdata")
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(routes))
 	assert.Equal(t, "/test", routes[0].Path)

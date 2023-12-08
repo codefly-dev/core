@@ -31,16 +31,16 @@ const (
 )
 
 type IRuntime interface {
-	Init(req *v1.InitRequest) (*runtimev1.InitResponse, error)
+	Init(ctx context.Context, req *v1.InitRequest) (*runtimev1.InitResponse, error)
 
-	Configure(req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error)
+	Configure(ctx context.Context, req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error)
 
-	Start(req *runtimev1.StartRequest) (*runtimev1.StartResponse, error)
-	Information(req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error)
+	Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error)
+	Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error)
 
-	Stop(req *runtimev1.StopRequest) (*runtimev1.StopResponse, error)
+	Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error)
 
-	Communicate(req *agentsv1.Engage) (*agentsv1.InformationRequest, error)
+	Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error)
 }
 
 type ServiceRuntime struct {
@@ -61,13 +61,13 @@ func (m ServiceRuntimeAgentContext) Default() plugin.Plugin {
 
 // Configure documents things
 // It can be used safely anywhere: doesn't start or do anything
-func (m *ServiceRuntime) Configure(req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error) {
-	return m.client.Configure(context.Background(), req)
+func (m *ServiceRuntime) Configure(ctx context.Context, req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error) {
+	return m.client.Configure(ctx, req)
 }
 
 // Init initializes the service
-func (m *ServiceRuntime) Init(req *v1.InitRequest) (*runtimev1.InitResponse, error) {
-	resp, err := m.client.Init(context.Background(), req)
+func (m *ServiceRuntime) Init(ctx context.Context, req *v1.InitRequest) (*runtimev1.InitResponse, error) {
+	resp, err := m.client.Init(ctx, req)
 	if err != nil && strings.Contains(err.Error(), "Marshal called with nil") {
 		return resp, fmt.Errorf("WE PROBABLY HAVE A PANIC")
 	}
@@ -75,8 +75,8 @@ func (m *ServiceRuntime) Init(req *v1.InitRequest) (*runtimev1.InitResponse, err
 }
 
 // Start starts the service
-func (m *ServiceRuntime) Start(req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
-	resp, err := m.client.Start(context.Background(), req)
+func (m *ServiceRuntime) Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
+	resp, err := m.client.Start(ctx, req)
 	if err != nil {
 		st := status.Convert(err)
 		for _, detail := range st.Details() {
@@ -90,18 +90,18 @@ func (m *ServiceRuntime) Start(req *runtimev1.StartRequest) (*runtimev1.StartRes
 }
 
 // Information return some useful information about the service
-func (m *ServiceRuntime) Information(req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
-	return m.client.Information(context.Background(), req)
+func (m *ServiceRuntime) Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
+	return m.client.Information(ctx, req)
 }
 
 // Stop stops the service
-func (m *ServiceRuntime) Stop(req *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
-	return m.client.Stop(context.Background(), req)
+func (m *ServiceRuntime) Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
+	return m.client.Stop(ctx, req)
 }
 
 // Communicate helper
-func (m *ServiceRuntime) Communicate(req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
-	return m.client.Communicate(context.Background(), req)
+func (m *ServiceRuntime) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+	return m.client.Communicate(ctx, req)
 }
 
 type ServiceRuntimeAgent struct {
@@ -110,12 +110,12 @@ type ServiceRuntimeAgent struct {
 	Runtime IRuntime
 }
 
-func (p *ServiceRuntimeAgent) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
+func (p *ServiceRuntimeAgent) GRPCServer(ctx *plugin.GRPCBroker, s *grpc.Server) error {
 	runtimev1.RegisterRuntimeServer(s, &RuntimeServer{Runtime: p.Runtime})
 	return nil
 }
 
-func (p *ServiceRuntimeAgent) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
+func (p *ServiceRuntimeAgent) GRPCClient(ctx context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
 	return &ServiceRuntime{client: runtimev1.NewRuntimeClient(c)}, nil
 }
 
@@ -125,28 +125,28 @@ type RuntimeServer struct {
 	Runtime IRuntime
 }
 
-func (m *RuntimeServer) Configure(_ context.Context, req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error) {
-	return m.Runtime.Configure(req)
+func (m *RuntimeServer) Configure(ctx context.Context, req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error) {
+	return m.Runtime.Configure(ctx, req)
 }
 
-func (m *RuntimeServer) Init(_ context.Context, req *v1.InitRequest) (*runtimev1.InitResponse, error) {
-	return m.Runtime.Init(req)
+func (m *RuntimeServer) Init(ctx context.Context, req *v1.InitRequest) (*runtimev1.InitResponse, error) {
+	return m.Runtime.Init(ctx, req)
 }
 
-func (m *RuntimeServer) Start(_ context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
-	return m.Runtime.Start(req)
+func (m *RuntimeServer) Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
+	return m.Runtime.Start(ctx, req)
 }
 
-func (m *RuntimeServer) Information(_ context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
-	return m.Runtime.Information(req)
+func (m *RuntimeServer) Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
+	return m.Runtime.Information(ctx, req)
 }
 
-func (m *RuntimeServer) Stop(_ context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
-	return m.Runtime.Stop(req)
+func (m *RuntimeServer) Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
+	return m.Runtime.Stop(ctx, req)
 }
 
-func (m *RuntimeServer) Communicate(_ context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
-	return m.Runtime.Communicate(req)
+func (m *RuntimeServer) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+	return m.Runtime.Communicate(ctx, req)
 }
 
 /*
@@ -157,12 +157,13 @@ type ServiceRuntimeLoader struct {
 	Logger hclog.Logger
 }
 
-func LoadRuntime(service *configurations.Service, opts ...agents.Option) (*ServiceRuntime, error) {
-	logger := shared.NewLogger("services.LoadRuntime")
+func LoadRuntime(ctx context.Context, service *configurations.Service, opts ...agents.Option) (*ServiceRuntime, error) {
+	logger := shared.NewLogger().With("services.LoadRuntime")
 	if service == nil || service.Agent == nil {
 		return nil, logger.Errorf("agent cannot be nil")
 	}
 	runtime, err := agents.Load[ServiceRuntimeAgentContext, ServiceRuntime](
+		ctx,
 		service.Agent.Of(configurations.AgentRuntimeService),
 		service.Unique(),
 		opts...)

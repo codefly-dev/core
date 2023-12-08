@@ -36,6 +36,11 @@ export class AddWorkspace extends Message<AddWorkspace> {
    */
   dir = "";
 
+  /**
+   * @generated from field: string project_root = 6;
+   */
+  projectRoot = "";
+
   constructor(data?: PartialMessage<AddWorkspace>) {
     super();
     proto3.util.initPartial(data, this);
@@ -49,6 +54,7 @@ export class AddWorkspace extends Message<AddWorkspace> {
     { no: 3, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "description", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "dir", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "project_root", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AddWorkspace {

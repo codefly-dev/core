@@ -10,7 +10,7 @@ import (
 )
 
 func TestWrapStart(t *testing.T) {
-	logger := shared.NewLogger("shared.TestWrapStart")
+	logger := shared.NewLogger().With("shared.TestWrapStart")
 	tests := []struct {
 		name    string
 		cmd     *exec.Cmd

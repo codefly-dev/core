@@ -16,10 +16,10 @@ type testData struct {
 }
 
 func testCopyAndApplyTemplateToDir(t *testing.T, fs shared.FileSystem, dir shared.Dir) {
-	logger := shared.NewLogger("templates.TestCopyAndApplyTemplateToDir")
+	ctx := shared.NewContext()
 	dest := t.TempDir()
 	destination := shared.NewDir(dest)
-	err := templates.CopyAndApply(logger, fs, dir, destination, testData{Test: "test"}, templates.WithOverrideAll())
+	err := templates.CopyAndApply(ctx, fs, dir, destination, testData{Test: "test"})
 	assert.NoError(t, err)
 
 	p := path.Join(dest, "template.txt")

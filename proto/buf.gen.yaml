@@ -5,6 +5,7 @@ managed:
     default: github.com/codefly-dev/core/proto/v1/go
     except:
       - buf.build/googleapis/googleapis
+      - buf.build/bufbuild/protovalidate
 plugins:
   - plugin: buf.build/protocolbuffers/go
     out: v1/go

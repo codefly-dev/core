@@ -8,3 +8,9 @@ message AddProject {
     string description = 4;
     string path = 5;
 }
+
+message SetProjectActive {
+    string kind = 1;
+    string workspace = 2;
+    string name = 3;
+}

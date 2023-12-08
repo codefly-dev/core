@@ -1,7 +1,11 @@
 package configurations
 
 import (
+	"context"
 	"fmt"
+	"github.com/bufbuild/protovalidate-go"
+
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	"path"
 	"slices"
 	"strings"
@@ -14,40 +18,71 @@ import (
 const AgentConfigurationName = "agent.codefly.yaml"
 
 type Agent struct {
-	Kind       string `yaml:"kind"`
-	Identifier string `yaml:"name"`
-	Version    string `yaml:"version"`
-	Publisher  string `yaml:"publisher"`
+	Kind      string `yaml:"kind"`
+	Name      string `yaml:"name"`
+	Version   string `yaml:"version"`
+	Publisher string `yaml:"publisher"`
+}
+
+func RegisterAgent(kind string, protoKind basev1.Agent_Kind) {
+	agentKinds[protoKind] = kind
+	agentInputs[kind] = protoKind
+}
+
+var agentKinds map[basev1.Agent_Kind]string
+var agentInputs map[string]basev1.Agent_Kind
+
+func init() {
+	agentKinds = map[basev1.Agent_Kind]string{}
+	agentInputs = map[string]basev1.Agent_Kind{}
 }
 
 func (p *Agent) String() string {
-	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Identifier, p.Version)
+	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Name, p.Version)
 }
 
-func NewAgent(kind string, publisher string, identifier string, version string) *Agent {
+func LoadAgent(ctx context.Context, action *basev1.Agent) (*Agent, error) {
+	logger := shared.GetBaseLogger(ctx).With("LoadAgent")
+	if err := ValidateAgent(action); err != nil {
+		return nil, logger.Wrapf(err, "invalid agent")
+	}
 	p := &Agent{
-		Kind:       kind,
-		Publisher:  publisher,
-		Identifier: identifier,
-		Version:    version,
+		Kind:      agentKinds[action.Kind],
+		Publisher: action.Publisher,
+		Name:      action.Name,
+		Version:   action.Version,
 	}
-	p.Validate()
-	return p
+	return p, nil
 }
 
-func (p *Agent) Validate() {
-	if p.Publisher == "" {
-		shared.Exit("agent publisher is required")
+func AgentKindFromProto(kind basev1.Agent_Kind) (*string, error) {
+	s, ok := agentKinds[kind]
+	if !ok {
+		return nil, fmt.Errorf("unknown agent kind: %s", kind)
 	}
-	if p.Identifier == "" {
-		shared.Exit("agent identifier is required")
+	return &s, nil
+}
+
+func AgentKind(kind string) (basev1.Agent_Kind, error) {
+	k, ok := agentInputs[kind]
+	if !ok {
+		return basev1.Agent_UNKNOWN, fmt.Errorf("unknown agent kind: %s", kind)
 	}
-	if p.Version == "" {
-		shared.Exit("agent version is required")
+	return k, nil
+}
+
+func ValidateAgent(agent *basev1.Agent) error {
+	if agent == nil {
+		return shared.NewNilError[Agent]()
 	}
-	if p.Kind == "" {
-		shared.Exit("agent kind is required")
+	v, err := protovalidate.New()
+	if err != nil {
+		return err
 	}
+	if err = v.Validate(agent); err != nil {
+		return err
+	}
+	return nil
 }
 
 func KnownAgentImplementationKinds() []string {
@@ -73,24 +108,24 @@ func (p *Agent) ImplementationKind() string {
 	return p.Kind
 }
 
-func (p *Agent) Name() string {
-	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Identifier, p.Version)
+func (p *Agent) Identifier() string {
+	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Name, p.Version)
 }
 
 func (p *Agent) Key(f string, unique string) string {
-	return fmt.Sprintf("%s::%s::%s", f, p.Name(), unique)
+	return fmt.Sprintf("%s::%s::%s", f, p.Identifier(), unique)
 }
 
 func (p *Agent) Unique() string {
-	return fmt.Sprintf("%s::%s", p.Kind, p.Name())
+	return fmt.Sprintf("%s::%s", p.Kind, p.Identifier())
 }
 
 func (p *Agent) Of(kind string) *Agent {
 	out := Agent{
-		Kind:       kind,
-		Publisher:  p.Publisher,
-		Identifier: p.Identifier,
-		Version:    p.Version,
+		Kind:      kind,
+		Publisher: p.Publisher,
+		Name:      p.Name,
+		Version:   p.Version,
 	}
 	return &out
 }
@@ -107,17 +142,17 @@ func (p *Agent) Path() (string, error) {
 	default:
 		return "", fmt.Errorf("unknown kind: %s", p.Kind)
 	}
-	name := p.Name()
-	// Replace : by __ for compatilbity of file names
+	name := p.Identifier()
+	// Replace : by __ for compatibility of file names
 	name = strings.Replace(name, ":", "__", 1)
 	return path.Join(WorkspaceConfigurationDir(), "agents", subdir, name), nil
 }
 
 func (p *Agent) Patch() (*Agent, error) {
 	patch := &Agent{
-		Kind:       p.Kind,
-		Publisher:  p.Publisher,
-		Identifier: p.Identifier,
+		Kind:      p.Kind,
+		Publisher: p.Publisher,
+		Name:      p.Name,
 	}
 
 	v, err := semver.NewVersion(p.Version)
@@ -129,8 +164,8 @@ func (p *Agent) Patch() (*Agent, error) {
 	return patch, nil
 }
 
-func ParseAgent(kind string, s string) (*Agent, error) {
-	var err error
+func ParseAgent(ctx context.Context, kindInput string, s string) (*basev1.Agent, error) {
+	logger := shared.GetBaseLogger(ctx).With("ParseAgent<%s>", s)
 	// TODO: More validation
 	tokens := strings.SplitN(s, "/", 2)
 	pub := "codefly.dev"
@@ -146,9 +181,29 @@ func ParseAgent(kind string, s string) (*Agent, error) {
 	identifier := tokens[0]
 	version := "latest"
 	if len(tokens) == 1 {
-		err = shared.NewUserWarning("No version of the agent <%s> specified, assuming latest", identifier)
+		logger.Warn("missing version, assuming latest")
 	} else {
 		version = tokens[1]
 	}
-	return &Agent{Kind: kind, Publisher: pub, Identifier: identifier, Version: version}, err
+	kind, err := AgentKind(kindInput)
+
+	agent := &basev1.Agent{Kind: kind, Publisher: pub, Name: identifier, Version: version}
+	v, err := protovalidate.New()
+	if err != nil {
+		return nil, err
+	}
+	if err = v.Validate(agent); err != nil {
+		return nil, err
+	}
+	return agent, nil
+}
+
+func AgentFromProto(agent *basev1.Agent) *Agent {
+	return &Agent{
+		Kind:      agentKinds[agent.Kind],
+		Publisher: agent.Publisher,
+		Name:      agent.Name,
+		Version:   agent.Version,
+	}
+
 }

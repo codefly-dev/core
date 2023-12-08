@@ -17,7 +17,7 @@ type AddWorkspaceAction struct {
 	*v1actions.AddWorkspace
 }
 
-func NewAddWorkspaceAction(in *v1actions.AddWorkspace) *AddWorkspaceAction {
+func NewActionAddWorkspace(in *v1actions.AddWorkspace) *AddWorkspaceAction {
 	in.Kind = AddWorkspace
 	return &AddWorkspaceAction{
 		AddWorkspace: in,

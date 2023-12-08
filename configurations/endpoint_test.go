@@ -1,6 +1,7 @@
 package configurations_test
 
 import (
+	"github.com/codefly-dev/core/shared"
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
@@ -44,7 +45,8 @@ func TestUniqueAndBack(t *testing.T) {
 }
 
 func TestLoadingFromDir(t *testing.T) {
-	conf, err := configurations.LoadServiceFromDir("testdata/service")
+	ctx := shared.NewContext()
+	conf, err := configurations.LoadServiceFromDir(ctx, "testdata/service")
 	assert.NoError(t, err)
 
 	assert.Equal(t, 2, len(conf.Endpoints))

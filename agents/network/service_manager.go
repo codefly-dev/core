@@ -23,7 +23,7 @@ type ServiceManager struct {
 }
 
 func NewServiceManager(identity *servicev1.ServiceIdentity, endpoints ...*basev1.Endpoint) *ServiceManager {
-	logger := shared.NewLogger("network.NewServicePortManager<%s>", identity.Name)
+	logger := shared.NewLogger().With("network.NewServicePortManager<%s>", identity.Name)
 	return &ServiceManager{
 		logger:    logger,
 		service:   identity,

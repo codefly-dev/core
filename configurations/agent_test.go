@@ -16,9 +16,9 @@ func TestAgentParse(t *testing.T) {
 		in   string
 		out  *configurations.Agent
 	}{
-		{name: "identifier only", in: "go-grpc", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.dev", Identifier: "go-grpc", Version: "latest"}},
-		{name: "identifier with publisher", in: "go-grpc:0.0.0", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.dev", Identifier: "go-grpc", Version: "0.0.0"}},
-		{name: "full specification", in: "codefly.dev/go-grpc:0.0.0", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.dev", Identifier: "go-grpc", Version: "0.0.0"}},
+		{name: "identifier only", in: "go-grpc", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.dev", Name: "go-grpc", Version: "latest"}},
+		{name: "identifier with publisher", in: "go-grpc:0.0.0", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.dev", Name: "go-grpc", Version: "0.0.0"}},
+		{name: "full specification", in: "codefly.dev/go-grpc:0.0.0", out: &configurations.Agent{Kind: configurations.AgentService, Publisher: "codefly.dev", Name: "go-grpc", Version: "0.0.0"}},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
@@ -32,8 +32,8 @@ func TestAgentParse(t *testing.T) {
 			if p.Publisher != tc.out.Publisher {
 				t.Fatalf("expected publisher %s, got %s", tc.out.Publisher, p.Publisher)
 			}
-			if p.Identifier != tc.out.Identifier {
-				t.Fatalf("expected identifier %s, got %s", tc.out.Identifier, p.Identifier)
+			if p.Name != tc.out.Name {
+				t.Fatalf("expected identifier %s, got %s", tc.out.Name, p.Name)
 			}
 			if p.Version != tc.out.Version {
 				t.Fatalf("expected version %s, got %s", tc.out.Version, p.Version)
@@ -46,7 +46,7 @@ func TestAgentLoadDir(t *testing.T) {
 	p, err := configurations.LoadFromFs[configurations.Agent](shared.NewDirReader().At("testdata"))
 	assert.NoError(t, err)
 	assert.Equal(t, "codefly.dev", p.Publisher)
-	assert.Equal(t, "go", p.Identifier)
+	assert.Equal(t, "go", p.Name)
 	assert.Equal(t, "0.0.0", p.Version)
 
 	patch, err := p.Patch()

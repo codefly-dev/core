@@ -17,7 +17,7 @@ type Proto struct {
 }
 
 func NewProto(dir string) (*Proto, error) {
-	logger := shared.NewLogger("proto.NewProto")
+	logger := shared.NewLogger().With("proto.NewProto")
 	version, err := version()
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot get version")
@@ -29,7 +29,7 @@ func NewProto(dir string) (*Proto, error) {
 }
 
 func version() (string, error) {
-	logger := shared.NewLogger("configurations.Version")
+	logger := shared.NewLogger().With("configurations.Version")
 	conf, err := configurations.LoadFromFs[configurations.Info](shared.Embed(info))
 	if err != nil {
 		return "", logger.Wrapf(err, "cannot load info for companion")

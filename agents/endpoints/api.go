@@ -13,7 +13,7 @@ import (
 )
 
 func WithAPI(endpoint *configurations.Endpoint, source APISource) (*basev1.Endpoint, error) {
-	logger := shared.NewLogger("services.DefaultApi")
+	logger := shared.NewLogger().With("services.DefaultApi")
 	logger.Debugf("VISILIBITY %v", endpoint.Scope)
 	api, err := source.Proto()
 	if err != nil {

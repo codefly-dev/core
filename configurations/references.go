@@ -2,7 +2,6 @@ package configurations
 
 import (
 	"fmt"
-	"path"
 	"path/filepath"
 	"strings"
 )
@@ -29,25 +28,35 @@ func OverridePath(name string, path string) *string {
 	return Pointer(path)
 }
 
-// Workspace references Projects
+func ReferenceMatch(entry string, name string) bool {
+	return entry == name || entry == fmt.Sprintf("%s*", name)
+}
 
-// ProjectReference is a reference to a project used by Workspace configuration
-type ProjectReference struct {
-	Name         string  `yaml:"name"`
-	PathOverride *string `yaml:"path,omitempty"`
+func MakeActive(entry string) string {
+	if strings.HasSuffix(entry, "*") {
+		return entry
+	}
+	return fmt.Sprintf("%s*", entry)
+}
+
+func MakeInactive(entry string) string {
+	if name, ok := strings.CutSuffix(entry, "*"); ok {
+		return name
+	}
+	return entry
 }
 
 //
 //func (ref *ProjectReference) OverridePath() string {
-//	if ref.RelativePathOverride != nil {
-//		return *ref.RelativePathOverride
+//	if ref.PathOverride != nil {
+//		return *ref.PathOverride
 //	}
 //	return ref.Name
 //}
 //
 //func (ref *ProjectReference) WithRelativePath(relativePath string) *ProjectReference {
 //	if ref.Name != relativePath {
-//		ref.RelativePathOverride = Pointer(relativePath)
+//		ref.PathOverride = Pointer(relativePath)
 //	}
 //	return ref
 //}
@@ -77,10 +86,6 @@ func (ref *ServiceReference) RelativePath() string {
 	return ref.Name
 }
 
-func (ref *ServiceReference) Dir(scope *Scope) (string, error) {
-	return path.Join(scope.Application.Dir(), ref.RelativePath()), nil
-}
-
 func (ref *ServiceReference) String() string {
 	return fmt.Sprintf("%s/%s", ref.Application, ref.Name)
 }
@@ -99,19 +104,6 @@ func ParseServiceReference(input string) (*ServiceReference, error) {
 
 // Projects reference Applications
 
-// An ApplicationReference
-type ApplicationReference struct {
-	Name                 string  `yaml:"name"`
-	RelativePathOverride *string `yaml:"relative-path,omitempty"`
-}
-
-func (r ApplicationReference) RelativePath() string {
-	if r.RelativePathOverride != nil {
-		return *r.RelativePathOverride
-	}
-	return r.Name
-}
-
 // Projects reference Providers
 
 // A ProviderReference
@@ -128,8 +120,3 @@ type EndpointReference struct {
 }
 
 // Projects reference Environments
-
-// An EnvironmentReference
-type EnvironmentReference struct {
-	Name string `yaml:"name"`
-}

@@ -2,6 +2,8 @@ package configurations
 
 import (
 	"context"
+	"github.com/bufbuild/protovalidate-go"
+	"github.com/codefly-dev/core/shared"
 	"net/url"
 	"regexp"
 
@@ -13,7 +15,7 @@ type Organization struct {
 	Domain string
 }
 
-func ValidOrganizationName(name string) bool {
+func ExtraValidOrganizationName(name string) bool {
 	// Regular expression to match valid organization names
 	// ^[a-zA-Z] : starts with a letter
 	// [a-zA-Z0-9-\.]* : followed by any number of letters, numbers, hyphens, or spaces
@@ -28,7 +30,21 @@ func ValidOrganizationDomain(domain string) bool {
 		return false
 	}
 	return u.Scheme != "" && u.Host != ""
+}
 
+func ValidOrganization(org *basev1.Organization) error {
+	if org == nil {
+		return shared.NewNilError[basev1.Organization]()
+	}
+
+	v, err := protovalidate.New()
+	if err != nil {
+		return err
+	}
+	if err = v.Validate(org); err != nil {
+		return err
+	}
+	return nil
 }
 
 func OrganizationFromProto(_ context.Context, m *basev1.Organization) (*Organization, error) {

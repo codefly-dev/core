@@ -261,7 +261,7 @@ func (r *DockerRunner) Start() error {
 }
 
 func (r *DockerRunner) Stop() error {
-	logger := shared.NewLogger("DockerRunner.Stop")
+	logger := shared.NewLogger().With("DockerRunner.Stop")
 	logger.Debugf("cleaning up everything by default")
 	for _, c := range r.Containers {
 		logger.Debugf("cleaning %v", c.Name)

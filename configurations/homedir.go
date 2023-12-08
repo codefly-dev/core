@@ -7,9 +7,9 @@ import (
 )
 
 func HomeDir() string {
-	currentUser, err := user.Current()
+	activeUser, err := user.Current()
 	if err != nil {
-		shared.ExitOnError(err, "cannot get current user")
+		shared.ExitOnError(err, "cannot get active user")
 	}
-	return currentUser.HomeDir
+	return activeUser.HomeDir
 }

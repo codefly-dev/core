@@ -9,4 +9,5 @@ message AddWorkspace {
     string name = 3;
     string description = 4;
     string dir = 5;
+    string project_root = 6;
 }

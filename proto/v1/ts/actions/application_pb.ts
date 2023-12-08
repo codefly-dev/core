@@ -30,6 +30,11 @@ export class AddApplication extends Message<AddApplication> {
    */
   project = "";
 
+  /**
+   * @generated from field: string path = 5;
+   */
+  path = "";
+
   constructor(data?: PartialMessage<AddApplication>) {
     super();
     proto3.util.initPartial(data, this);
@@ -42,6 +47,7 @@ export class AddApplication extends Message<AddApplication> {
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "description", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "project", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "path", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AddApplication {
@@ -62,39 +68,51 @@ export class AddApplication extends Message<AddApplication> {
 }
 
 /**
- * @generated from message v1.actions.AddApplicationOutput
+ * @generated from message v1.actions.SetApplicationActive
  */
-export class AddApplicationOutput extends Message<AddApplicationOutput> {
+export class SetApplicationActive extends Message<SetApplicationActive> {
   /**
-   * @generated from field: string name = 1;
+   * @generated from field: string kind = 1;
+   */
+  kind = "";
+
+  /**
+   * @generated from field: string name = 2;
    */
   name = "";
 
-  constructor(data?: PartialMessage<AddApplicationOutput>) {
+  /**
+   * @generated from field: string project = 3;
+   */
+  project = "";
+
+  constructor(data?: PartialMessage<SetApplicationActive>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "v1.actions.AddApplicationOutput";
+  static readonly typeName = "v1.actions.SetApplicationActive";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 1, name: "kind", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "project", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AddApplicationOutput {
-    return new AddApplicationOutput().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetApplicationActive {
+    return new SetApplicationActive().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AddApplicationOutput {
-    return new AddApplicationOutput().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetApplicationActive {
+    return new SetApplicationActive().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AddApplicationOutput {
-    return new AddApplicationOutput().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetApplicationActive {
+    return new SetApplicationActive().fromJsonString(jsonString, options);
   }
 
-  static equals(a: AddApplicationOutput | PlainMessage<AddApplicationOutput> | undefined, b: AddApplicationOutput | PlainMessage<AddApplicationOutput> | undefined): boolean {
-    return proto3.util.equals(AddApplicationOutput, a, b);
+  static equals(a: SetApplicationActive | PlainMessage<SetApplicationActive> | undefined, b: SetApplicationActive | PlainMessage<SetApplicationActive> | undefined): boolean {
+    return proto3.util.equals(SetApplicationActive, a, b);
   }
 }
 

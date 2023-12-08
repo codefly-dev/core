@@ -47,7 +47,7 @@ func (s seqHandler) Process(req *agentsv1.InformationRequest) (*agentsv1.Answer,
 var _ communicate.QuestionHandler = &seqHandler{}
 
 func TestSequence(t *testing.T) {
-	//logger := shared.NewLogger("communicate_test.TestSequence")
+	//logger := shared.NewLogger().With("communicate_test.TestSequence")
 	//logger.SetLevel(shared.DebugLevel)
 	//
 	//// The client asks for 3 things
@@ -75,7 +75,7 @@ func TestSequence(t *testing.T) {
 	//	// Communicate message to send to the client based on previous answer
 	//	eng, err := server.Communicate(answer)
 	//	assert.NoError(t, err)
-	//	request, err := client.Process(eng)
+	//	request, err := client.postLoad(eng)
 	//	assert.NoError(t, err)
 	//	if request == nil {
 	//		logger.Debugf("client is done at step %v", step)
@@ -83,7 +83,7 @@ func TestSequence(t *testing.T) {
 	//	}
 	//	assert.IsType(t, expectedTypes[step], request.Question.Value)
 	//	// This is how the server will answer the thing
-	//	answer, err = server.Process(request)
+	//	answer, err = server.postLoad(request)
 	//	assert.NoError(t, err)
 	//}
 	//

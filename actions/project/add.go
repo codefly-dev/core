@@ -11,14 +11,16 @@ import (
 	"github.com/codefly-dev/core/configurations"
 )
 
-const AddProject = "project.add"
+const AddProjectKind = "project.add"
+
+type AddProject = v1actions.AddProject
 
 type AddProjectAction struct {
-	*v1actions.AddProject
+	*AddProject
 }
 
-func NewAddProjectAction(in *v1actions.AddProject) *AddProjectAction {
-	in.Kind = AddProject
+func NewActionAddProject(in *AddProject) *AddProjectAction {
+	in.Kind = AddProjectKind
 	return &AddProjectAction{
 		AddProject: in,
 	}
@@ -27,18 +29,26 @@ func NewAddProjectAction(in *v1actions.AddProject) *AddProjectAction {
 var _ actions.Action = (*AddProjectAction)(nil)
 
 func (action *AddProjectAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetBaseLogger(ctx).With("AddProjectAction")
-	w, err := configurations.CurrentWorkspace(ctx)
+	logger := shared.GetBaseLogger(ctx).With("AddProjectAction<%s>", action.Name)
+
+	w, err := configurations.ActiveWorkspace(ctx)
 	if err != nil {
 		return nil, logger.Wrap(err)
 	}
+
 	project, err := w.NewProject(ctx, action.AddProject)
 	if err != nil {
 		return nil, err
 	}
+
+	err = w.SetProjectActive(ctx, &v1actions.SetProjectActive{Name: project.Name})
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot set project as active")
+	}
+
 	return project, nil
 }
 
 func init() {
-	actions.RegisterFactory(AddProject, actions.Wrap[*AddProjectAction]())
+	actions.RegisterFactory(AddProjectKind, actions.Wrap[*AddProjectAction]())
 }
