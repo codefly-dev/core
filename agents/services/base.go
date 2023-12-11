@@ -95,6 +95,7 @@ func (s *Base) Init(req *servicev1.InitRequest, settings any) error {
 
 	s.AgentLogger = agents.NewAgentLogger(s.Identity, s.Agent)
 	defer s.AgentLogger.Catch()
+
 	s.Location = req.Location
 
 	s.ConfigurationLocation = path.Join(s.Location, "codefly")
@@ -109,7 +110,7 @@ func (s *Base) Init(req *servicev1.InitRequest, settings any) error {
 		s.AgentLogger.SetDebug() // For developers
 	}
 
-	s.Configuration, err = configurations.LoadFromDir[configurations.Service](s.ctx, s.Location)
+	s.Configuration, err = configurations.LoadServiceFromDirUnsafe(s.ctx, s.Location)
 	if err != nil {
 		return s.Wrapf(err, "cannot load service configuration")
 	}
@@ -137,14 +138,14 @@ func (s *Base) DockerImage() *configurations.DockerImage {
 	}
 }
 
-func (s *Base) Create(settings any, endpoints ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
+func (s *Base) Create(ctx context.Context, settings any, endpoints ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
 	err := s.Configuration.UpdateSpecFromSettings(settings)
 	if err != nil {
-		return nil, s.Wrapf(err, "cannot update spec")
+		return nil, s.Wrapf(err, "base: cannot update spec")
 	}
-	err = s.Configuration.Save()
+	err = s.Configuration.Save(ctx)
 	if err != nil {
-		return nil, s.Wrapf(err, "cannot save configuration")
+		return nil, s.Wrapf(err, "base: cannot save configuration")
 	}
 	return &factoryv1.CreateResponse{
 		Endpoints: endpoints,
@@ -152,6 +153,7 @@ func (s *Base) Create(settings any, endpoints ...*basev1.Endpoint) (*factoryv1.C
 }
 
 func (s *Base) FactoryInitResponse(es []*basev1.Endpoint, channels []*agentsv1.Channel, readme string) (*factoryv1.InitResponse, error) {
+	defer s.AgentLogger.Catch()
 	for _, e := range es {
 		e.Application = s.Identity.Application
 		e.Service = s.Identity.Name
@@ -351,7 +353,7 @@ func (s *Base) Wire(method agentsv1.Method, client *communicate.ClientContext) e
 	return s.CommunicationClientManager.Add(method, client)
 }
 
-func (s *Base) Communicate(eng *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (s *Base) Communicate(ctx context.Context, eng *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
 	if eng.Method == agentsv1.Method_UNKNOWN {
 		return nil, s.AgentLogger.Errorf("unknown method")
 	}

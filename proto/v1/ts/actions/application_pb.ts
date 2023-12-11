@@ -26,9 +26,9 @@ export class AddApplication extends Message<AddApplication> {
   description = "";
 
   /**
-   * @generated from field: string project = 4;
+   * @generated from field: string in_project = 4;
    */
-  project = "";
+  inProject = "";
 
   /**
    * @generated from field: string path = 5;
@@ -46,7 +46,7 @@ export class AddApplication extends Message<AddApplication> {
     { no: 1, name: "kind", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "description", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 4, name: "project", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "in_project", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "path", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
@@ -82,9 +82,9 @@ export class SetApplicationActive extends Message<SetApplicationActive> {
   name = "";
 
   /**
-   * @generated from field: string project = 3;
+   * @generated from field: string in_project = 3;
    */
-  project = "";
+  inProject = "";
 
   constructor(data?: PartialMessage<SetApplicationActive>) {
     super();
@@ -96,7 +96,7 @@ export class SetApplicationActive extends Message<SetApplicationActive> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "kind", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "project", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "in_project", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetApplicationActive {

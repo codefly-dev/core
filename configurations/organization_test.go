@@ -64,3 +64,21 @@ func TestValidOrganization(t *testing.T) {
 		})
 	}
 }
+
+func TestToOrganizationDomain(t *testing.T) {
+	tcs := []struct {
+		name string
+		in   string
+		out  string
+	}{
+		{"normal", "org", "github.com/org"},
+		{"normal", "Org", "github.com/org"},
+		{"normal", "My Org", "github.com/my-org"},
+		{"normal", "org.io", "github.com/org-io"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.out, configurations.ToOrganizationDomain(tc.in))
+		})
+	}
+}

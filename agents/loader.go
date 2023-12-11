@@ -51,12 +51,8 @@ func Cleanup(unique string) {
 
 // Name is what the agent will be identified as: for clean up
 
-func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.Agent, unique string, opts ...Option) (*Instance, error) {
+func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.Agent, unique string) (*Instance, error) {
 	logger := shared.NewLogger().With("agents.Load<%s>", p.Unique())
-	opt := Options{}
-	for _, o := range opts {
-		o(&opt)
-	}
 	if p == nil {
 		return nil, logger.Errorf("agent cannot be nil")
 	}
@@ -67,7 +63,6 @@ func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.A
 			return nil, logger.Wrapf(err, "cannot get latest release")
 		}
 	}
-	var this P
 	bin, err := p.Path()
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot compute agent path")
@@ -82,14 +77,12 @@ func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.A
 	}
 	logger.Tracef("loading agent from local path <%s>", bin)
 
+	var this P
 	placeholder := this.Default()
 	pluginMap := map[string]plugin.Plugin{this.Key(p, unique): placeholder}
 
 	clientLogger := NewServerLogger() // shared.Debug() || shared.Trace())
 
-	if opt.Quiet {
-		clientLogger = NoLogger()
-	}
 	client := plugin.NewClient(&plugin.ClientConfig{
 		HandshakeConfig:  HandshakeConfig,
 		Plugins:          pluginMap,
@@ -99,7 +92,8 @@ func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.A
 	})
 	logger.Tracef("agent client created for <%s>", unique)
 	inUse[unique] = client
-	// Connect via RPC
+
+	// Connect via gRPC
 	grpcClient, err := client.Client()
 	if err != nil {
 		return nil, logger.Errorf("cannot create gRPC client: %v", err)

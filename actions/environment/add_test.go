@@ -28,7 +28,7 @@ func TestEnvironmentAddFromJson(t *testing.T) {
 }
 
 func TestEnvironmentAddFromCode(t *testing.T) {
-	action := environment.NewActionAddEnvironment(&v1actions.AddEnvironment{
+	action := environment.NewActionAddEnvironment(ctx, &v1actions.AddEnvironment{
 		Name:        "My Environment",
 		Description: "My Environment Description",
 	})

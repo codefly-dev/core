@@ -36,24 +36,20 @@ type ServiceLogger struct {
 	debug           bool
 }
 
-func (l *ServiceLogger) Warn(format string, args ...any) {
-	//TODO implement me
-	panic("implement me")
-}
-
 func (l *ServiceLogger) SetLogMethod(actions shared.LogMode) shared.BaseLogger {
-	//TODO implement me
-	panic("implement me")
+	l.UnsafeWrite("TODO: SETLOG")
+	return l
 }
 
+func (l *ServiceLogger) Warn(format string, args ...any) {
+	l.UnsafeWrite("WARN" + fmt.Sprintf(format, args...))
+}
 func (l *ServiceLogger) WarnOnError(err error) {
-	//TODO implement me
-	panic("implement me")
+	l.UnsafeWrite("WARN" + err.Error())
 }
 
 func (l *ServiceLogger) Oops(format string, args ...any) {
-	//TODO implement me
-	panic("implement me")
+	l.UnsafeWrite("OOPS" + fmt.Sprintf(format, args...))
 }
 
 func (l *ServiceLogger) SetLevel(shared.LogLevel) shared.BaseLogger {
@@ -69,6 +65,7 @@ func NewServiceLogger(identity *servicev1.ServiceIdentity, agent *configurations
 		AgentIdentifier: agent.Name,
 		Application:     identity.Application,
 		Service:         identity.Name,
+		debug:           true,
 	}
 }
 
@@ -99,10 +96,7 @@ func (l *ServiceLogger) Write(p []byte) (n int, err error) {
 }
 
 func (l *ServiceLogger) UnsafeWrite(s string) {
-	_, err := l.Write([]byte(s))
-	if err != nil {
-		panic(err)
-	}
+	_, _ = l.Write([]byte(s))
 }
 
 func (l *ServiceLogger) Info(format string, args ...any) {
@@ -177,28 +171,25 @@ type AgentLogger struct {
 }
 
 func (l *AgentLogger) Warn(format string, args ...any) {
-	//TODO implement me
-	panic("implement me")
+	l.UnsafeWrite("WARN" + fmt.Sprintf(format, args...))
 }
 
 func (l *AgentLogger) WarnOnError(err error) {
-	//TODO implement me
-	panic("implement me")
+	l.UnsafeWrite("WARN" + err.Error())
 }
 
 func (l *AgentLogger) SetLevel(lvl shared.LogLevel) shared.BaseLogger {
-	//TODO implement me
-	panic("implement me")
+	l.UnsafeWrite("TODO: SETLEVEL")
+	return l
 }
 
 func (l *AgentLogger) SetLogMethod(actions shared.LogMode) shared.BaseLogger {
-	//TODO implement me
-	panic("implement me")
+	l.UnsafeWrite("TODO: SETLOG")
+	return l
 }
 
 func (l *AgentLogger) Oops(format string, args ...any) {
-	//TODO implement me
-	panic("implement me")
+	l.UnsafeWrite("OOPP TO BE IM")
 }
 
 func (l *AgentLogger) With(format string, args ...any) shared.BaseLogger {
@@ -239,6 +230,7 @@ func NewAgentLogger(identity *servicev1.ServiceIdentity, agent *configurations.A
 		Application:     identity.Application,
 		Service:         identity.Name,
 		transport:       logger,
+		debug:           true,
 	}
 }
 

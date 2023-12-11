@@ -2,10 +2,12 @@ package configurations
 
 import (
 	"context"
+	"fmt"
 	"github.com/bufbuild/protovalidate-go"
 	"github.com/codefly-dev/core/shared"
 	"net/url"
 	"regexp"
+	"strings"
 
 	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 )
@@ -21,6 +23,12 @@ func ExtraValidOrganizationName(name string) bool {
 	// [a-zA-Z0-9-\.]* : followed by any number of letters, numbers, hyphens, or spaces
 	re := regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9-\.]*$`)
 	return re.MatchString(name)
+}
+
+func ToOrganizationDomain(name string) string {
+	domain := strings.Replace(name, " ", ".", -1)
+	domain = strings.Replace(domain, ".", "-", -1)
+	return fmt.Sprintf("github.com/%s", strings.ToLower(domain))
 }
 
 func ValidOrganizationDomain(domain string) bool {

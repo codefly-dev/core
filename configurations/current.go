@@ -7,8 +7,8 @@ import (
 )
 
 func ActiveDefaultProject(ctx context.Context) (*Project, error) {
-	logger := shared.GetBaseLogger(ctx).With("ActiveDefaultProject")
-	ws, err := ActiveWorkspace(ctx)
+	logger := shared.GetLogger(ctx).With("ActiveDefaultProject")
+	ws, err := LoadWorkspace(ctx)
 	if err != nil {
 		return nil, logger.Wrap(err)
 	}

@@ -17,19 +17,27 @@ type AddEnvironmentAction struct {
 	*v1actions.AddEnvironment
 }
 
-func NewActionAddEnvironment(in *v1actions.AddEnvironment) *AddEnvironmentAction {
+func (action *AddEnvironmentAction) Command() string {
+	return "TODO"
+}
+
+func NewActionAddEnvironment(ctx context.Context, in *v1actions.AddEnvironment) (*AddEnvironmentAction, error) {
+	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	if err := actions.Validate(ctx, in); err != nil {
+		return nil, logger.Wrap(err)
+	}
 	in.Kind = AddEnvironment
 	return &AddEnvironmentAction{
 		AddEnvironment: in,
-	}
+	}, nil
 }
 
 var _ actions.Action = (*AddEnvironmentAction)(nil)
 
 func (action *AddEnvironmentAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetBaseLogger(ctx).With("AddEnvironmentAction")
+	logger := shared.GetLogger(ctx).With("AddEnvironmentAction")
 	// Get project
-	ws, err := configurations.ActiveWorkspace(ctx)
+	ws, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
 		return nil, logger.Wrap(err)
 	}

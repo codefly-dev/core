@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"fmt"
 	"github.com/codefly-dev/core/configurations"
 
 	"github.com/codefly-dev/core/shared"
@@ -19,28 +20,36 @@ type AddApplicationAction struct {
 	*AddApplication
 }
 
-func NewActionAddApplication(in *AddApplication) *AddApplicationAction {
+func (action *AddApplicationAction) Command() string {
+	return fmt.Sprintf("codefly add application %s", action.Name)
+}
+
+func NewActionAddApplication(ctx context.Context, in *AddApplication) (*AddApplicationAction, error) {
+	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	if err := actions.Validate(ctx, in); err != nil {
+		return nil, logger.Wrap(err)
+	}
 	in.Kind = AddApplicationKind
 	return &AddApplicationAction{
 		AddApplication: in,
-	}
+	}, nil
 }
 
 var _ actions.Action = (*AddApplicationAction)(nil)
 
 func (action *AddApplicationAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetBaseLogger(ctx).With("AddApplicationAction<%s>", action.Name)
+	logger := shared.GetLogger(ctx).With("AddApplicationAction<%s>", action.Name)
 
-	if action.Project == "" {
+	if action.InProject == "" {
 		return nil, logger.Errorf("missing project in action")
 	}
 
-	w, err := configurations.ActiveWorkspace(ctx)
+	w, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
 		return nil, logger.Wrap(err)
 	}
 
-	project, err := w.LoadProjectFromName(ctx, action.Project)
+	project, err := w.LoadProjectFromName(ctx, action.InProject)
 	if err != nil {
 		return nil, logger.Wrap(err)
 	}
@@ -48,11 +57,6 @@ func (action *AddApplicationAction) Run(ctx context.Context) (any, error) {
 	application, err := project.NewApplication(ctx, action.AddApplication)
 	if err != nil {
 		return nil, logger.Wrap(err)
-	}
-
-	err = application.Save(ctx)
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save application")
 	}
 
 	err = project.SetActiveApplication(ctx, application.Name)

@@ -28,7 +28,7 @@ func TestProjectAddFromJson(t *testing.T) {
 }
 
 func TestProjectAddFromCode(t *testing.T) {
-	action := project.NewActionAddProject(&v1actions.AddProject{
+	action := project.NewActionAddProject(ctx, &v1actions.AddProject{
 		Name:        "My Project",
 		Description: "My Project Description",
 	})

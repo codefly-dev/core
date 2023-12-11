@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/bufbuild/protovalidate-go"
+	"slices"
 
 	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	"path"
-	"slices"
 	"strings"
 
 	"github.com/Masterminds/semver"
@@ -17,24 +17,26 @@ import (
 
 const AgentConfigurationName = "agent.codefly.yaml"
 
+type AgentKind string
+
 type Agent struct {
-	Kind      string `yaml:"kind"`
-	Name      string `yaml:"name"`
-	Version   string `yaml:"version"`
-	Publisher string `yaml:"publisher"`
+	Kind      AgentKind `yaml:"kind"`
+	Name      string    `yaml:"name"`
+	Version   string    `yaml:"version"`
+	Publisher string    `yaml:"publisher"`
 }
 
-func RegisterAgent(kind string, protoKind basev1.Agent_Kind) {
+func RegisterAgent(kind AgentKind, protoKind basev1.Agent_Kind) {
 	agentKinds[protoKind] = kind
 	agentInputs[kind] = protoKind
 }
 
-var agentKinds map[basev1.Agent_Kind]string
-var agentInputs map[string]basev1.Agent_Kind
+var agentKinds map[basev1.Agent_Kind]AgentKind
+var agentInputs map[AgentKind]basev1.Agent_Kind
 
 func init() {
-	agentKinds = map[basev1.Agent_Kind]string{}
-	agentInputs = map[string]basev1.Agent_Kind{}
+	agentKinds = map[basev1.Agent_Kind]AgentKind{}
+	agentInputs = map[AgentKind]basev1.Agent_Kind{}
 }
 
 func (p *Agent) String() string {
@@ -42,7 +44,7 @@ func (p *Agent) String() string {
 }
 
 func LoadAgent(ctx context.Context, action *basev1.Agent) (*Agent, error) {
-	logger := shared.GetBaseLogger(ctx).With("LoadAgent")
+	logger := shared.GetLogger(ctx).With("LoadAgent")
 	if err := ValidateAgent(action); err != nil {
 		return nil, logger.Wrapf(err, "invalid agent")
 	}
@@ -55,7 +57,7 @@ func LoadAgent(ctx context.Context, action *basev1.Agent) (*Agent, error) {
 	return p, nil
 }
 
-func AgentKindFromProto(kind basev1.Agent_Kind) (*string, error) {
+func AgentKindFromProto(kind basev1.Agent_Kind) (*AgentKind, error) {
 	s, ok := agentKinds[kind]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent kind: %s", kind)
@@ -63,7 +65,7 @@ func AgentKindFromProto(kind basev1.Agent_Kind) (*string, error) {
 	return &s, nil
 }
 
-func AgentKind(kind string) (basev1.Agent_Kind, error) {
+func agentKindFromProto(kind AgentKind) (basev1.Agent_Kind, error) {
 	k, ok := agentInputs[kind]
 	if !ok {
 		return basev1.Agent_UNKNOWN, fmt.Errorf("unknown agent kind: %s", kind)
@@ -85,42 +87,19 @@ func ValidateAgent(agent *basev1.Agent) error {
 	return nil
 }
 
-func KnownAgentImplementationKinds() []string {
-	return []string{AgentLibrary, AgentRuntimeService, AgentFactoryService}
-}
-
-const (
-	AgentService = "service"
-	AgentLibrary = "library"
-)
-
-const (
-	AgentRuntimeService = "runtime::service"
-	AgentFactoryService = "factory::service"
-)
-
-const AgentProvider = "provider"
-
-func (p *Agent) ImplementationKind() string {
-	if !slices.Contains(KnownAgentImplementationKinds(), p.Kind) {
-		shared.Exit("unknown agent kind: %s", p.Kind)
-	}
-	return p.Kind
-}
-
 func (p *Agent) Identifier() string {
 	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Name, p.Version)
 }
 
-func (p *Agent) Key(f string, unique string) string {
-	return fmt.Sprintf("%s::%s::%s", f, p.Identifier(), unique)
+func (p *Agent) Key(kind AgentKind, unique string) string {
+	return fmt.Sprintf("%s::%s::%s", kind, p.Identifier(), unique)
 }
 
 func (p *Agent) Unique() string {
 	return fmt.Sprintf("%s::%s", p.Kind, p.Identifier())
 }
 
-func (p *Agent) Of(kind string) *Agent {
+func (p *Agent) Of(kind AgentKind) *Agent {
 	out := Agent{
 		Kind:      kind,
 		Publisher: p.Publisher,
@@ -130,17 +109,16 @@ func (p *Agent) Of(kind string) *Agent {
 	return &out
 }
 
+func (p *Agent) IsService() bool {
+	return slices.Contains([]AgentKind{ServiceAgent, FactoryServiceAgent, RuntimeServiceAgent}, p.Kind)
+}
+
 func (p *Agent) Path() (string, error) {
 	var subdir string
-	switch p.Kind {
-	case AgentLibrary:
-		subdir = "libraries"
-	case AgentRuntimeService:
+	if p.IsService() {
 		subdir = "services"
-	case AgentFactoryService:
-		subdir = "services"
-	default:
-		return "", fmt.Errorf("unknown kind: %s", p.Kind)
+	} else {
+		return "", fmt.Errorf("unknown agent kind: %s", p.Kind)
 	}
 	name := p.Identifier()
 	// Replace : by __ for compatibility of file names
@@ -164,8 +142,8 @@ func (p *Agent) Patch() (*Agent, error) {
 	return patch, nil
 }
 
-func ParseAgent(ctx context.Context, kindInput string, s string) (*basev1.Agent, error) {
-	logger := shared.GetBaseLogger(ctx).With("ParseAgent<%s>", s)
+func ParseAgent(ctx context.Context, k AgentKind, s string) (*basev1.Agent, error) {
+	logger := shared.GetLogger(ctx).With("ParseAgent<%s>", s)
 	// TODO: More validation
 	tokens := strings.SplitN(s, "/", 2)
 	pub := "codefly.dev"
@@ -185,7 +163,10 @@ func ParseAgent(ctx context.Context, kindInput string, s string) (*basev1.Agent,
 	} else {
 		version = tokens[1]
 	}
-	kind, err := AgentKind(kindInput)
+	kind, err := agentKindFromProto(k)
+	if err != nil {
+		return nil, err
+	}
 
 	agent := &basev1.Agent{Kind: kind, Publisher: pub, Name: identifier, Version: version}
 	v, err := protovalidate.New()

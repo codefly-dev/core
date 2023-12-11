@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
-	v1base "github.com/codefly-dev/core/proto/v1/go/base"
-	"os"
-	"path"
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	"slices"
+	"strings"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/mitchellh/mapstructure"
@@ -16,63 +15,114 @@ import (
 
 const ServiceConfigurationName = "service.codefly.yaml"
 
+const ServiceAgent = AgentKind("codefly:service")
+
+func init() {
+	RegisterAgent(ServiceAgent, basev1.Agent_SERVICE)
+}
+
+const RuntimeServiceAgent = "codefly:service:runtime"
+const FactoryServiceAgent = "codefly:service:factory"
+
 /*
 A Service
-
-Convention: OverridePath from Application
 */
 type Service struct {
-	Name                 string               `yaml:"name"`
-	Version              string               `yaml:"version"`
-	Application          string               `yaml:"application"`
-	RelativePathOverride *string              `yaml:"relative-path,omitempty"`
-	Namespace            string               `yaml:"namespace"`
-	Domain               string               `yaml:"domain"`
-	Agent                *Agent               `yaml:"agent"`
-	Dependencies         []*ServiceDependency `yaml:"dependencies"`
-	Endpoints            []*Endpoint          `yaml:"endpoints"`
-	Spec                 map[string]any       `yaml:"spec"`
+	Name        string `yaml:"name"`
+	Version     string `yaml:"version"`
+	Application string `yaml:"application"`
+	Domain      string `yaml:"domain"`
+	Namespace   string `yaml:"namespace"`
+
+	PathOverride *string `yaml:"path,omitempty"`
+
+	Agent        *Agent               `yaml:"agent"`
+	Dependencies []*ServiceDependency `yaml:"dependencies"`
+	Endpoints    []*Endpoint          `yaml:"endpoints"`
+	Spec         map[string]any       `yaml:"spec"`
 
 	// internal
 	kind string
 	dir  string
 }
 
-const ServiceAgentKind = "codefly.service"
-
-func init() {
-	RegisterAgent(ServiceAgentKind, v1base.Agent_SERVICE)
-}
-
-func (s *Service) Endpoint() string {
-	return fmt.Sprintf("%s.%s", s.Name, s.Namespace)
-}
-
-func (s *Service) Dir() string {
-	return s.dir
-}
-
 // Unique identifies a service within a project
 // We use a REST like convention rather then a subdomain one
 func (s *Service) Unique() string {
+	if shared.IsDebug() && s.Application == "" {
+		panic(fmt.Sprintf("application is empty in unique %s", s.Name))
+	}
 	return fmt.Sprintf("%s/%s", s.Application, s.Name)
 }
 
+// NewService creates a service in an application
 func (app *Application) NewService(ctx context.Context, action *v1actions.AddService) (*Service, error) {
-	logger := shared.GetBaseLogger(ctx).With("NewService<%s>", action.Name)
+	logger := shared.GetLogger(ctx).With("NewService<%s>", action.Name)
+	if app.ExistsService(action.Name) && !action.Override {
+		return nil, logger.Errorf("service already exists: %s", action.Name)
+	}
 	agent, err := LoadAgent(ctx, action.Agent)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load agent")
 	}
 	service := &Service{
 		Name:        action.Name,
+		Version:     "0.0.0",
 		Application: app.Name,
 		Domain:      app.ServiceDomain(action.Name),
 		Namespace:   shared.DefaultTo(action.Namespace, app.Name),
 		Agent:       agent,
 		Spec:        make(map[string]any),
 	}
+
+	ref := &ServiceReference{Name: action.Name, PathOverride: OverridePath(action.Name, action.Path)}
+	dir := app.ServicePath(ctx, ref)
+
+	service.dir = dir
+
+	err = shared.CheckDirectoryOrCreate(ctx, dir)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot create service directory")
+	}
+	err = service.Save(ctx)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot save service configuration")
+	}
+	err = app.AddService(ctx, service)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot add service to application")
+	}
+	err = app.Save(ctx)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot save project configuration")
+	}
 	return service, nil
+}
+
+// ServiceReference is a reference to a service used by Application configuration
+type ServiceReference struct {
+	Name         string  `yaml:"name"`
+	PathOverride *string `yaml:"path,omitempty"`
+	Application  string  `yaml:"application,omitempty"`
+}
+
+func (ref *ServiceReference) String() string {
+	if shared.IsDebug() && ref.Application == "" {
+		panic(fmt.Sprintf("application is empty in reference %s", ref.Name))
+	}
+	return fmt.Sprintf("%s/%s", ref.Application, ref.Name)
+}
+
+func ParseServiceReference(input string) (*ServiceReference, error) {
+	parts := strings.Split(input, "/")
+	switch len(parts) {
+	case 1:
+		return &ServiceReference{Name: parts[0]}, nil
+	case 2:
+		return &ServiceReference{Name: parts[1], Application: parts[0]}, nil
+	default:
+		return nil, fmt.Errorf("invalid service input: %s", input)
+	}
 }
 
 // ServiceIdentity defines exactly the scope of the service
@@ -103,93 +153,53 @@ func Identity(conf *Service) *ServiceIdentity {
 
 func (s *Service) Reference() (*ServiceReference, error) {
 	entry := &ServiceReference{
-		Name:                 s.Name,
-		RelativePathOverride: s.RelativePathOverride,
+		Name:         s.Name,
+		PathOverride: s.PathOverride,
 	}
 	return entry, nil
 }
 
-func LoadServiceFromDir(ctx context.Context, dir string) (*Service, error) {
-	logger := shared.NewLogger().With("configurations.LoadServiceFromPath<%s>", dir)
-	logger.Tracef("loading")
-	conf, err := LoadFromDir[Service](ctx, dir)
+func (s *Service) Endpoint() string {
+	return fmt.Sprintf("%s.%s", s.Name, s.Namespace)
+}
+
+func (s *Service) Dir() string {
+	return s.dir
+}
+
+// LoadServiceFromDirUnsafe loads a service from a directory
+func LoadServiceFromDirUnsafe(ctx context.Context, dir string) (*Service, error) {
+	logger := shared.GetLogger(ctx).With("LoadServiceFromDirUnsafe<%s>", dir)
+	service, err := LoadFromDir[Service](ctx, dir)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load service configuration")
+		return nil, logger.Wrap(err)
 	}
-	if conf.Agent == nil {
-		return nil, logger.Errorf("service agent cannot be nil")
-	}
-	conf.Agent.Kind = AgentRuntimeService
-	for _, dep := range conf.Dependencies {
-		if dep.Application == "" {
-			dep.Application = conf.Application
-		}
-	}
-	return conf, nil
-}
-
-/*
-Derivatives
-*/
-
-func LoadServiceFromReference(ref *ServiceReference) (*Service, error) {
-	//logger := shared.NewLogger().With("configurations.LoadServiceFromReference<%s>", ref.Name)
-	//scope := WithScope(opts...)
-	//app, err := LoadApplicationFromName(ref.Application, opts...)
-	//if err != nil {
-	//	return nil, logger.Wrapf(err, "cannot load application configuration")
-	//}
-	//scope.Application = app
-	//p, err := ref.Dir(scope)
-	//if err != nil {
-	//	return nil, logger.Wrapf(err, "cannot get service path")
-	//}
-	//logger.DebugMe("loading service <%s> at <%s>", ref, p)
-	//return LoadServiceFromDir(p)
-	return nil, nil
-}
-
-func FindServiceFromReference(ref *ServiceReference) (*Service, error) {
-	//logger := shared.NewLogger().With("configurations.FindServiceFromReference<%s/%s>", ref.Application, ref.Name)
-	//// Find the application
-	//app, err := MustActiveProject().LoadApplicationFromReference(&ApplicationReference{Name: ref.Application})
-	//if err != nil {
-	//	return nil, logger.Wrapf(err, "cannot load application configuration")
-	//}
-	//
-	//config, err := app.LoadServiceFromName(ref.Name)
-	//if err != nil {
-	//	return nil, logger.Wrapf(err, "cannot load service configuration")
-	//}
-	//logger.Tracef("loading service <%s> from applications <%s> at <%s>", ref.Name, app.Name, ref.RelativePath())
-	return nil, nil
-}
-
-func (s *Service) Save() error {
-	//logger := shared.NewLogger().With("configurations.Unique<%s>.Save", s.Name)
-	destination := s.Dir()
-	//logger.Tracef("saving service at <%s> from applications path <%s>", destination, MustActiveApplication().Dir())
-	return s.SaveAtDir(destination)
-}
-
-func (s *Service) SaveAtDir(destination string) error {
-	logger := shared.NewLogger().With("configurations.Unique<%s>.Save", s.Unique())
-	if _, err := os.Stat(destination); os.IsNotExist(err) {
-		err := os.Mkdir(destination, 0o755)
-		if err != nil {
-			return logger.Errorf("cannot create directory <%s>: %v", destination, err)
-		}
-	}
-	p := path.Join(destination, ServiceConfigurationName)
-	content, err := yaml.Marshal(s)
+	service.dir = dir
 	if err != nil {
-		return logger.Errorf("cannot marshal service configuration: %s", err)
+		return nil, err
 	}
-	err = os.WriteFile(p, content, 0600)
+	return service, nil
+}
+
+// LoadServiceFromPath loads an service from a path
+func LoadServiceFromPath(ctx context.Context) (*Service, error) {
+	dir, err := FindUp[Service](ctx)
 	if err != nil {
-		return logger.Errorf("cannot save service configuration: %s", err)
+		return nil, err
 	}
-	return nil
+	if dir == nil {
+		return nil, nil
+	}
+	return LoadServiceFromDirUnsafe(ctx, *dir)
+}
+
+func (s *Service) SaveAtDir(ctx context.Context, dir string) error {
+	s.dir = dir
+	return s.Save(ctx)
+}
+
+func (s *Service) Save(ctx context.Context) error {
+	return SaveToDir(ctx, s, s.Dir())
 }
 
 func (s *Service) UpdateSpecFromSettings(spec any) error {
@@ -240,59 +250,15 @@ func (s *Service) AddDependencyReference(requirement *Service) error {
 	return nil
 }
 
-func (s *Service) Duplicate(name string) *Service {
-	other := Service{
-		Name:                 name,
-		Version:              s.Version,
-		Application:          s.Application,
-		RelativePathOverride: s.RelativePathOverride,
-		Namespace:            s.Namespace,
-		Domain:               s.Domain,
-		Agent:                s.Agent,
-		Dependencies:         s.Dependencies,
-		Endpoints:            s.Endpoints,
-		Spec:                 s.Spec,
-	}
-	return &other
-}
-
-func (s *Service) RelativePath() string {
-	if s.RelativePathOverride != nil {
-		return *s.RelativePathOverride
-	}
-	return s.Name
-}
-
-/*
-LoadServicesFromInput from string inputs
-*/
-func LoadServicesFromInput(inputs ...string) ([]*Service, error) {
-	logger := shared.NewLogger().With("configurations.LoadServicesFromInput")
-	var services []*Service
-	for _, input := range inputs {
-		entry, err := LoadService(input)
-		if err != nil {
-			return nil, logger.Wrapf(err, "cannot load service entry")
-		}
-		services = append(services, entry)
-	}
-	return services, nil
-}
-
-func LoadService(input string) (*Service, error) {
-	logger := shared.NewLogger().With("configurations.LoadService")
-	ref, err := ParseServiceReference(input)
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot parse service entry")
-	}
-	return FindServiceFromReference(ref)
+// Reload from directory
+func (s *Service) Reload(ctx context.Context, service *Service) (*Service, error) {
+	return LoadServiceFromDirUnsafe(ctx, service.Dir())
 }
 
 func (s *ServiceDependency) AsReference() *ServiceReference {
 	return &ServiceReference{
-		Name:                 s.Name,
-		RelativePathOverride: s.RelativePathOverride,
-		Application:          s.Application,
+		Name:        s.Name,
+		Application: s.Application,
 	}
 }
 
@@ -301,9 +267,7 @@ func (s *ServiceDependency) Unique() string {
 }
 
 type ServiceDependency struct {
-	Name                 string  `yaml:"name"`
-	RelativePathOverride *string `yaml:"relative-path,omitempty"`
-	// Null application means self
+	Name        string `yaml:"name"`
 	Application string `yaml:"application,omitempty"`
 
 	Endpoints []*EndpointReference `yaml:"endpoints,omitempty"`

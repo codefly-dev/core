@@ -20,29 +20,37 @@ type SetApplicationActiveAction struct {
 	*SetApplicationActive
 }
 
-func NewActionSetApplicationActive(in *SetApplicationActive) *SetApplicationActiveAction {
+func (action *SetApplicationActiveAction) Command() string {
+	return "codefly switch application"
+}
+
+func NewActionSetApplicationActive(ctx context.Context, in *SetApplicationActive) (*SetApplicationActiveAction, error) {
+	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	if err := actions.Validate(ctx, in); err != nil {
+		return nil, logger.Wrap(err)
+	}
 	in.Kind = SetApplicationActiveKind
 	return &SetApplicationActiveAction{
 		SetApplicationActive: in,
-	}
+	}, nil
 }
 
 var _ actions.Action = (*SetApplicationActiveAction)(nil)
 
 func (action *SetApplicationActiveAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetBaseLogger(ctx).With("SetApplicationActiveAction<%s>", action.Name)
-	if action.Project == "" {
+	logger := shared.GetLogger(ctx).With("SetApplicationActiveAction<%s>", action.Name)
+	if action.InProject == "" {
 		return nil, logger.Errorf("missing project in action")
 	}
 
-	w, err := configurations.ActiveWorkspace(ctx)
+	w, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot get active workspace")
 	}
 
-	project, err := w.LoadProjectFromName(ctx, action.Project)
+	project, err := w.LoadProjectFromName(ctx, action.InProject)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load project from name: %s", action.Project)
+		return nil, logger.Wrapf(err, "cannot load project from name: %s", action.InProject)
 	}
 
 	err = project.SetActiveApplication(ctx, action.Name)

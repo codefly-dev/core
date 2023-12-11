@@ -3,11 +3,12 @@ package configurations
 import (
 	"context"
 	"fmt"
-	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
+	"os"
 	"path"
-	"slices"
+	"path/filepath"
 	"strings"
 
+	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )
@@ -30,7 +31,13 @@ type Application struct {
 	Services []*ServiceReference `yaml:"services"`
 
 	// internal
-	dir string
+	dir           string
+	activeService string
+}
+
+// Dir returns the directory of the application
+func (app *Application) Dir() string {
+	return app.dir
 }
 
 // An ApplicationReference
@@ -54,14 +61,11 @@ func (ref *ApplicationReference) IsActive() (*ApplicationReference, bool) {
 	return ref, false
 }
 
+// NewApplication creates an application in a project
 func (project *Project) NewApplication(ctx context.Context, action *v1actions.AddApplication) (*Application, error) {
-	logger := shared.GetBaseLogger(ctx).With("NewApplication<%s>", action.Name)
-	if slices.Contains(project.ApplicationsNames(), action.Name) {
+	logger := shared.GetLogger(ctx).With("NewApplication<%s>", action.Name)
+	if project.ExistsApplication(action.Name) {
 		return nil, logger.Errorf("project already exists")
-	}
-
-	if err := ValidateProjectName(action.Name); err != nil {
-		return nil, logger.Wrapf(err, "invalid project name")
 	}
 
 	app := &Application{
@@ -98,17 +102,15 @@ func (project *Project) NewApplication(ctx context.Context, action *v1actions.Ad
 	return app, nil
 }
 
-func (app *Application) Dir() string {
-	return app.dir
-}
-
-// LoadApplicationFromReference loads an application from a reference
-func (project *Project) LoadApplicationFromReference(ctx context.Context, ref *ApplicationReference) (*Application, error) {
-	logger := shared.GetBaseLogger(ctx).With("LoadApplicationFromReference<%s>", ref.Name)
-	dir := project.ApplicationPath(ctx, ref)
+func LoadApplicationFromDirUnsafe(ctx context.Context, dir string) (*Application, error) {
+	logger := shared.GetLogger(ctx).With("LoadApplicationFromDirUnsafe")
 	app, err := LoadFromDir[Application](ctx, dir)
 	if err != nil {
 		return nil, logger.Wrap(err)
+	}
+	err = app.postLoad(ctx)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot post load")
 	}
 	app.dir = dir
 	if err != nil {
@@ -117,31 +119,69 @@ func (project *Project) LoadApplicationFromReference(ctx context.Context, ref *A
 	return app, nil
 }
 
-// LoadApplicationFromName loads an application from a name
-func (project *Project) LoadApplicationFromName(ctx context.Context, name string) (*Application, error) {
-	logger := shared.GetBaseLogger(ctx).With("LoadApplicationFromName<%s>", name)
-	logger.Debugf("#applications %d", len(project.Applications))
-	for _, ref := range project.Applications {
-		if ReferenceMatch(ref.Name, name) {
-			return project.LoadApplicationFromReference(ctx, ref)
-		}
-	}
-	return nil, fmt.Errorf("cannot find application <%s> in project <%s>", name, project.Name)
-}
-
-// LoadApplicationFromDir is the loader from filesystem
-func LoadApplicationFromDir(ctx context.Context, dir string) (*Application, error) {
-	logger := shared.GetBaseLogger(ctx).With("LoadApplicationFromDir<%s>", dir)
-	app, err := LoadFromDir[Application](ctx, dir)
-	logger.Tracef("loaded applications configuration")
+// LoadApplicationFromPath loads an application from a path
+func LoadApplicationFromPath(ctx context.Context) (*Application, error) {
+	dir, err := FindUp[Application](ctx)
 	if err != nil {
 		return nil, err
 	}
-	app.dir = dir
-	return app, err
+	if dir == nil {
+		return nil, nil
+	}
+	return LoadApplicationFromDirUnsafe(ctx, *dir)
 }
 
-func (app *Application) AddService(service *Service) error {
+func (app *Application) postLoad(ctx context.Context) error {
+	for _, ref := range app.Services {
+		ref.Application = app.Name
+	}
+	// Internally we keep track of active application differently
+	if len(app.Services) == 1 {
+		app.activeService = app.Services[0].Name
+		return nil
+	}
+	for _, ref := range app.Services {
+		if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
+			ref.Name = name
+			app.activeService = name
+		}
+	}
+	return nil
+}
+
+func (app *Application) SaveToDir(ctx context.Context, dir string) error {
+	logger := shared.GetLogger(ctx).With("SaveToDir<%s>", app.Name)
+	err := app.preSave(ctx)
+	if err != nil {
+		return logger.Wrapf(err, "cannot pre-save")
+	}
+	return SaveToDir(ctx, app, dir)
+}
+
+func (app *Application) Save(ctx context.Context) error {
+	return app.SaveToDir(ctx, app.Dir())
+}
+
+// Pre-save deals with the * style of active
+func (app *Application) preSave(ctx context.Context) error {
+	for _, ref := range app.Services {
+		ref.Application = ""
+	}
+	if len(app.Services) == 1 {
+		app.Services[0].Name = MakeInactive(app.Services[0].Name)
+		return nil
+	}
+	for _, ref := range app.Services {
+		if ref.Name == app.activeService {
+			ref.Name = MakeActive(ref.Name)
+		} else {
+			ref.Name = MakeInactive(ref.Name)
+		}
+	}
+	return nil
+}
+
+func (app *Application) AddService(ctx context.Context, service *Service) error {
 	logger := shared.NewLogger().With("AddService")
 	for _, s := range app.Services {
 		if s.Name == service.Name {
@@ -154,10 +194,6 @@ func (app *Application) AddService(service *Service) error {
 	}
 	app.Services = append(app.Services, reference)
 	return nil
-}
-
-func (app *Application) Save(ctx context.Context) error {
-	return SaveToDir(ctx, app, app.Dir())
 }
 
 func (app *Application) ServiceDomain(name string) string {
@@ -174,7 +210,13 @@ func (app *Application) GetServiceReferences(name string) (*ServiceReference, er
 }
 
 func (app *Application) LoadServiceFromName(ctx context.Context, name string) (*Service, error) {
-	return LoadServiceFromDir(ctx, path.Join(app.Dir(), name))
+	logger := shared.GetLogger(ctx).With("LoadServiceFromName<%s>", name)
+	for _, ref := range app.Services {
+		if ReferenceMatch(ref.Name, name) {
+			return app.LoadServiceFromReference(ctx, ref)
+		}
+	}
+	return nil, logger.Errorf("cannot find service <%s> in application <%s>", name, app.Name)
 }
 
 func (app *Application) Reference() *ApplicationReference {
@@ -192,6 +234,73 @@ func (app *Application) ExistsService(name string) bool {
 		}
 	}
 	return false
+}
+
+// ServicePath returns the absolute path of an Service
+// Cases for Reference.Path
+// nil: relative path to application with name
+// rel: relative path
+// /abs: absolute path
+func (app *Application) ServicePath(ctx context.Context, ref *ServiceReference) string {
+	if ref.PathOverride == nil {
+		return path.Join(app.Dir(), ref.Name)
+	}
+	if filepath.IsAbs(*ref.PathOverride) {
+		return *ref.PathOverride
+	}
+	return path.Join(app.Dir(), *ref.PathOverride)
+}
+
+func (app *Application) LoadServiceFromReference(ctx context.Context, ref *ServiceReference) (*Service, error) {
+	dir := app.ServicePath(ctx, ref)
+	return LoadServiceFromDirUnsafe(ctx, dir)
+}
+
+func (app *Application) Reload(ctx context.Context, app2 *Application) (*Application, error) {
+	return LoadApplicationFromDirUnsafe(ctx, app.Dir())
+}
+
+func (app *Application) ActiveService(ctx context.Context) *string {
+	if app.activeService == "" {
+		return nil
+	}
+	return &app.activeService
+}
+
+func (app *Application) SetActiveService(ctx context.Context, name string) error {
+	logger := shared.GetLogger(ctx).With("SetActiveService<%s>", name)
+	logger.DebugMe("Services: %v", app.Services)
+	if !app.ExistsService(name) {
+		return logger.Errorf("service <%s> does not exist in application <%s>", name, app.Name)
+	}
+	app.activeService = name
+	return nil
+}
+
+// DeleteService deletes a service from an application
+func (app *Application) DeleteService(ctx context.Context, name string) error {
+	logger := shared.GetLogger(ctx).With("DeleteService<%s>", name)
+	logger.TODO("Need to delete service dependencies everywhere")
+	var services []*ServiceReference
+	for _, s := range app.Services {
+		if s.Name != name {
+			services = append(services, s)
+		}
+	}
+	app.Services = services
+	err := app.Save(ctx)
+	if err != nil {
+		return logger.Wrapf(err, "cannot save application")
+	}
+	err = os.RemoveAll(app.ServicePath(ctx, &ServiceReference{Name: name}))
+	if err != nil {
+		return logger.Wrapf(err, "cannot remove service directory")
+	}
+	return nil
+}
+
+func (app *Application) LoadActiveService(ctx context.Context) (*Service, error) {
+	return app.LoadServiceFromName(ctx, app.activeService)
 }
 
 type NoApplicationError struct {

@@ -17,17 +17,25 @@ type AddWorkspaceAction struct {
 	*v1actions.AddWorkspace
 }
 
-func NewActionAddWorkspace(in *v1actions.AddWorkspace) *AddWorkspaceAction {
+func (action *AddWorkspaceAction) Command() string {
+	return "TODO"
+}
+
+func NewActionAddWorkspace(ctx context.Context, in *v1actions.AddWorkspace) (*AddWorkspaceAction, error) {
+	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	if err := actions.Validate(ctx, in); err != nil {
+		return nil, logger.Wrap(err)
+	}
 	in.Kind = AddWorkspace
 	return &AddWorkspaceAction{
 		AddWorkspace: in,
-	}
+	}, nil
 }
 
 var _ actions.Action = (*AddWorkspaceAction)(nil)
 
 func (action *AddWorkspaceAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetBaseLogger(ctx).With("AddWorkspaceAction")
+	logger := shared.GetLogger(ctx).With("AddWorkspaceAction")
 	w, err := configurations.NewWorkspace(ctx, action.AddWorkspace)
 	if err != nil {
 		return nil, logger.Wrap(err)

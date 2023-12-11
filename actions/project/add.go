@@ -2,6 +2,8 @@ package project
 
 import (
 	"context"
+	"fmt"
+	"github.com/bufbuild/protovalidate-go"
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/shared"
@@ -19,19 +21,37 @@ type AddProjectAction struct {
 	*AddProject
 }
 
-func NewActionAddProject(in *AddProject) *AddProjectAction {
+func (action *AddProjectAction) Command() string {
+	return fmt.Sprintf("codefly add project %s", action.Name)
+}
+
+func NewActionAddProject(ctx context.Context, in *AddProject) (*AddProjectAction, error) {
+	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	if err := actions.Validate(ctx, in); err != nil {
+		return nil, logger.Wrap(err)
+	}
 	in.Kind = AddProjectKind
 	return &AddProjectAction{
 		AddProject: in,
-	}
+	}, nil
 }
 
 var _ actions.Action = (*AddProjectAction)(nil)
 
 func (action *AddProjectAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetBaseLogger(ctx).With("AddProjectAction<%s>", action.Name)
+	logger := shared.GetLogger(ctx).With("AddProjectAction<%s>", action.Name)
 
-	w, err := configurations.ActiveWorkspace(ctx)
+	// Validate
+	v, err := protovalidate.New()
+	if err != nil {
+		return nil, logger.Wrap(err)
+	}
+	err = v.Validate(action.AddProject)
+	if err != nil {
+		return nil, logger.Wrap(err)
+	}
+
+	w, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
 		return nil, logger.Wrap(err)
 	}

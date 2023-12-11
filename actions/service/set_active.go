@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/actions/actions"
 
@@ -16,11 +17,19 @@ type SetServiceActiveAction struct {
 	*SetServiceActive
 }
 
-func NewActionSetServiceActive(in *SetServiceActive) *SetServiceActiveAction {
+func (action *SetServiceActiveAction) Command() string {
+	return "codefly switch service"
+}
+
+func NewActionSetServiceActive(ctx context.Context, in *SetServiceActive) (*SetServiceActiveAction, error) {
+	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	if err := actions.Validate(ctx, in); err != nil {
+		return nil, logger.Wrap(err)
+	}
 	in.Kind = SetServiceActiveKind
 	return &SetServiceActiveAction{
 		SetServiceActive: in,
-	}
+	}, nil
 }
 
 var _ actions.Action = (*SetServiceActiveAction)(nil)

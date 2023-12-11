@@ -46,7 +46,7 @@ func TestUniqueAndBack(t *testing.T) {
 
 func TestLoadingFromDir(t *testing.T) {
 	ctx := shared.NewContext()
-	conf, err := configurations.LoadServiceFromDir(ctx, "testdata/service")
+	conf, err := configurations.LoadServiceFromDirUnsafe(ctx, "testdata/service")
 	assert.NoError(t, err)
 
 	assert.Equal(t, 2, len(conf.Endpoints))

@@ -11,7 +11,7 @@ func NewContext() context.Context {
 
 // ChildContext
 func ChildContext(ctx context.Context, name string) context.Context {
-	logger := GetBaseLogger(ctx)
+	logger := GetLogger(ctx)
 	return context.WithValue(ctx, Base, logger.With(name))
 
 }

@@ -17,9 +17,9 @@ export class AddService extends Message<AddService> {
   kind = "";
 
   /**
-   * @generated from field: string path = 2;
+   * @generated from field: bool override = 2;
    */
-  path = "";
+  override = false;
 
   /**
    * @generated from field: string name = 3;
@@ -32,14 +32,14 @@ export class AddService extends Message<AddService> {
   description = "";
 
   /**
-   * @generated from field: string application = 5;
+   * @generated from field: string in_application = 5;
    */
-  application = "";
+  inApplication = "";
 
   /**
-   * @generated from field: string project = 6;
+   * @generated from field: string in_project = 6;
    */
-  project = "";
+  inProject = "";
 
   /**
    * @generated from field: string namespace = 7;
@@ -51,6 +51,11 @@ export class AddService extends Message<AddService> {
    */
   agent?: Agent;
 
+  /**
+   * @generated from field: string path = 9;
+   */
+  path = "";
+
   constructor(data?: PartialMessage<AddService>) {
     super();
     proto3.util.initPartial(data, this);
@@ -60,13 +65,14 @@ export class AddService extends Message<AddService> {
   static readonly typeName = "v1.actions.AddService";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "kind", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "path", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "override", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 3, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "description", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 5, name: "application", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 6, name: "project", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "in_application", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "in_project", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 7, name: "namespace", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 8, name: "agent", kind: "message", T: Agent },
+    { no: 9, name: "path", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AddService {

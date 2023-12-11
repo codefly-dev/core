@@ -28,7 +28,7 @@ func TestWorkspaceAddFromJson(t *testing.T) {
 }
 
 func TestWorkspaceAddFromCode(t *testing.T) {
-	action := workspace.NewActionAddWorkspace(&v1actions.AddWorkspace{
+	action := workspace.NewActionAddWorkspace(ctx, &v1actions.AddWorkspace{
 		Name:        "My Workspace",
 		Description: "My Workspace Description",
 	})

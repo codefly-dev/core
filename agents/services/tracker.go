@@ -43,7 +43,7 @@ func (t *SingleTracker) Stop() {
 }
 
 //
-//func NewSingleTracker(service *configurations.Service, runtime services.IRuntime, tracker *runtime.Tracker) (*SingleTracker, error) {
+//func NewSingleTracker(service *configurations.Agent, runtime services.Runtime, tracker *runtime.Tracker) (*SingleTracker, error) {
 //	logger := shared.NewLogger().With("monitoring.NewSingleTracker<%s>", service.Name)
 //	tracked, err := NewTracked(service, tracker)
 //	if err != nil {
@@ -133,7 +133,7 @@ func (t *SingleTracker) Stop() {
 //	panic("implement me")
 //}
 //
-//func NewGroupTracker(service *configurations.Service, runtime services.IRuntime, trackers []*runtime.Tracker) (*GroupTracker, error) {
+//func NewGroupTracker(service *configurations.Agent, runtime services.Runtime, trackers []*runtime.Tracker) (*GroupTracker, error) {
 //	return &GroupTracker{}, nil
 //}
 //
@@ -148,7 +148,7 @@ func (t *SingleTracker) Stop() {
 //	trackers map[string]*runtime.TrackerList
 //}
 //
-//func (t *ServiceTracker) OnHold(service *configurations.Service, runtime services.IRuntime) error {
+//func (t *ServiceTracker) OnHold(service *configurations.Agent, runtime services.Runtime) error {
 //	logger := shared.NewLogger().With("monitoring.ServiceTracker.OnHold<%s>", service.Name)
 //	tracker := &RestartTracker{unique: service.Unique(), runtime: runtime}
 //	// Start errors first or start working in a non-blocking way
@@ -162,7 +162,7 @@ func (t *SingleTracker) Stop() {
 //	return nil
 //}
 //
-//func (t *ServiceTracker) Track(ctx context.Action, service *configurations.Service, runtime services.IRuntime, trackers []*runtime.Tracker) error {
+//func (t *ServiceTracker) Track(ctx context.Action, service *configurations.Agent, runtime services.Runtime, trackers []*runtime.Tracker) error {
 //	logger := shared.NewLogger().With("monitoring.ServiceTracker.Track<%s>", service.Name)
 //	tracker, err := CreateTracker(service, runtime, trackers)
 //	if err != nil {
@@ -183,7 +183,7 @@ func (t *SingleTracker) Stop() {
 //	return nil
 //}
 //
-//func (t *ServiceTracker) Untrack(service *configurations.Service) error {
+//func (t *ServiceTracker) Untrack(service *configurations.Agent) error {
 //	t.Lock()
 //	defer t.Unlock()
 //	unique := service.Unique()
@@ -205,7 +205,7 @@ func (t *SingleTracker) Stop() {
 ////	return tracks
 ////}
 //
-//func CreateTracker(service *configurations.Service, runtime services.IRuntime, trackers []*runtime.Tracker) (Tracker, error) {
+//func CreateTracker(service *configurations.Agent, runtime services.Runtime, trackers []*runtime.Tracker) (Tracker, error) {
 //	if len(trackers) == 0 {
 //		return nil, nil
 //	}

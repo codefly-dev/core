@@ -132,10 +132,10 @@ func LoadFromDir[C Configuration](ctx context.Context, dir string) (*C, error) {
 }
 
 func LoadFromPath[C Configuration](ctx context.Context, p string) (*C, error) {
-	logger := shared.GetBaseLogger(ctx).With("configurations.LoadFromPath[%s]<%s>", TypeName[C](), p)
+	logger := shared.GetLogger(ctx).With("LoadFromPath[%s]", TypeName[C]())
 	logger.SetLogMethod(shared.AllActions).Tracef("loading")
 	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return nil, logger.Errorf("path doesn't exist")
+		return nil, logger.Errorf("path doesn't exist <%s>", p)
 	}
 	content, err := os.ReadFile(p)
 	if err != nil {
@@ -154,8 +154,8 @@ func LoadFromBytes[C Configuration](content []byte) (*C, error) {
 }
 
 func SaveToDir[C Configuration](ctx context.Context, c *C, dir string) error {
-	logger := shared.GetBaseLogger(ctx).With("SaveToDir[%s]", TypeName[C]())
-	logger.Debugf("saving to <%s>", dir)
+	logger := shared.GetLogger(ctx).With("SaveToDir[%s]", TypeName[C]())
+	logger.Tracef("saving to <%s>", dir)
 	err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return logger.Wrapf(err, "cannot check directory")
@@ -179,9 +179,9 @@ func SaveToDir[C Configuration](ctx context.Context, c *C, dir string) error {
 	return nil
 }
 
-// FindUp looks for a service configuration in the active directory and up
-func FindUp[C Configuration](ctx context.Context) (*C, error) {
-	logger := shared.GetBaseLogger(ctx).With("configurations.FindUp[%s]", TypeName[C]())
+// FindUp looks for a configuration in the active directory and up
+func FindUp[C Configuration](ctx context.Context) (*string, error) {
+	logger := shared.GetLogger(ctx).With("configurations.FindUp[%s]", TypeName[C]())
 	cur, err := os.Getwd()
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot get active directory")
@@ -191,14 +191,14 @@ func FindUp[C Configuration](ctx context.Context) (*C, error) {
 		// Look for a service configuration
 		p := Path[C](cur)
 		if _, err := os.Stat(p); err == nil {
-			return LoadFromDir[C](ctx, cur)
+			return &cur, nil
 		}
 		// Move up one directory
 		cur = filepath.Dir(cur)
 
 		// Stop if we reach the root directory
 		if cur == "/" || cur == "." {
-			return nil, logger.Errorf("cannot find %s configuration: reached root directory", TypeName[C]())
+			return nil, nil
 		}
 	}
 }

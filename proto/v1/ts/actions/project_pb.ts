@@ -16,9 +16,9 @@ export class AddProject extends Message<AddProject> {
   kind = "";
 
   /**
-   * @generated from field: string workspace = 2;
+   * @generated from field: string in_workspace = 2;
    */
-  workspace = "";
+  inWorkspace = "";
 
   /**
    * @generated from field: string name = 3;
@@ -44,7 +44,7 @@ export class AddProject extends Message<AddProject> {
   static readonly typeName = "v1.actions.AddProject";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "kind", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "workspace", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "in_workspace", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "description", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "path", kind: "scalar", T: 9 /* ScalarType.STRING */ },

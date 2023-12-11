@@ -5,13 +5,15 @@ import "base/agent.proto";
 
 message AddService {
     string kind = 1;
-    string path = 2;
+    bool override = 2;
     string name = 3;
     string description = 4;
-    string application = 5;
-    string project = 6;
+    string in_application = 5;
+    string in_project = 6;
     string namespace = 7;
     v1.base.Agent agent = 8;
+    string path = 9;
+
 }
 
 message SetServiceActive {

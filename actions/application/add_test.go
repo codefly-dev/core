@@ -28,7 +28,7 @@ func TestApplicationAddFromJson(t *testing.T) {
 }
 
 func TestApplicationAddFromCode(t *testing.T) {
-	action := application.NewActionAddApplication(&v1actions.AddApplication{
+	action := application.NewActionAddApplication(ctx, &v1actions.AddApplication{
 		Name:        "My Application",
 		Description: "My Application Description",
 	})

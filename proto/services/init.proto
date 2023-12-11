@@ -1,6 +1,7 @@
 syntax = "proto3";
 package v1.services;
 
+import "google/protobuf/empty.proto";
 import "base/api.proto";
 
 /*
@@ -11,6 +12,8 @@ Init Input
 
 
 */
+
+
 
 message InitStatus {
   enum State {

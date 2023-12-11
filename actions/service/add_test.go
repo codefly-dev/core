@@ -28,7 +28,7 @@ func TestServiceAddFromJson(t *testing.T) {
 }
 
 func TestServiceAddFromCode(t *testing.T) {
-	action := service.NewActionAddService(&v1actions.AddService{
+	action := service.NewActionAddService(ctx, &v1actions.AddService{
 		Name:        "My Service",
 		Description: "My Service Description",
 	})

@@ -127,7 +127,7 @@ func CreateDirIf(path string) error {
 }
 
 func CheckEmptyDirectoryOrCreate(ctx context.Context, path string) error {
-	logger := GetBaseLogger(ctx)
+	logger := GetLogger(ctx)
 	err := CheckDirectoryOrCreate(ctx, path)
 	if err != nil {
 		return logger.Wrapf(err, "cannot check or create directory")
@@ -144,14 +144,14 @@ func CheckEmptyDirectoryOrCreate(ctx context.Context, path string) error {
 }
 
 func CheckDirectoryOrCreate(ctx context.Context, path string) error {
-	logger := GetBaseLogger(ctx)
+	logger := GetLogger(ctx)
 	// Check if directory exists
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			err = os.MkdirAll(path, 0o755)
 			if err != nil {
-				return logger.Wrapf(err, "cannot create directory")
+				return logger.Wrapf(err, "cannot create directory: <%s>", path)
 			}
 		}
 		return logger.Wrapf(err, "cannot create directory") // Some other error occurred

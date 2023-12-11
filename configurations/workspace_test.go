@@ -22,12 +22,13 @@ func createTestWorkspace(t *testing.T, ctx context.Context) (*configurations.Wor
 		Domain: "https://github/codefly-dev",
 	}
 
-	action := actionworkspace.NewActionAddWorkspace(&v1actions.AddWorkspace{
+	action, err := actionworkspace.NewActionAddWorkspace(ctx, &v1actions.AddWorkspace{
 		Organization: org,
 		Name:         "test",
 		Dir:          tmpDir,
 		ProjectRoot:  tmpDir,
 	})
+	assert.NoError(t, err)
 
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
@@ -37,6 +38,7 @@ func createTestWorkspace(t *testing.T, ctx context.Context) (*configurations.Wor
 	assert.Equal(t, "https://github/codefly-dev", w.Domain)
 	assert.Equal(t, "test", w.Name)
 	assert.Equal(t, tmpDir, w.Dir())
+	configurations.SetLoadWorkspaceUnsafe(w)
 	return w, tmpDir
 }
 
@@ -46,16 +48,13 @@ func TestCreateWorkspace(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	// Load back
-	w, err := configurations.LoadWorkspaceFromDir(ctx, dir)
+	w, err := configurations.LoadWorkspaceFromDirUnsafe(ctx, dir)
 	assert.NoError(t, err)
 	assert.Equal(t, "codefly", w.Organization)
 	assert.Equal(t, "https://github/codefly-dev", w.Domain)
 
-	// Do a reset
-	configurations.Reset()
-
 	// Get active
-	w, err = configurations.ActiveWorkspace(ctx)
+	w, err = configurations.LoadWorkspace(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "codefly", w.Organization)
 

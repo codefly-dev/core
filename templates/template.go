@@ -146,7 +146,7 @@ func CopyAndReplace(fs shared.FileSystem, f shared.File, destination shared.File
 }
 
 func CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
-	logger := shared.GetBaseLogger(ctx).With("templates.CopyAndApply")
+	logger := shared.GetLogger(ctx).With("templates.CopyAndApply")
 	logger.Tracef("applying template to directory %s -> %s", root, destination)
 
 	err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))

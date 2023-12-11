@@ -28,14 +28,26 @@ const (
 	Service = ContextLoggerKey("service")
 )
 
-func GetBaseLogger(ctx context.Context) *Logger {
-	logger := ctx.Value(Base).(*Logger)
+// GetLogger returns the logger from the context
+// - Base
+// - Agent
+func GetLogger(ctx context.Context) BaseLogger {
+	//var logger BaseLogger
+	//l := ctx.Value(Base)
+	//if l != nil {
+	//	logger = l.(BaseLogger)
+	//} else {
+	//	l = ctx.Value(Agent)
+	//	if l == nil {
+	//		panic("no logger in context")
+	//	}
+
 	child := NewLogger()
-	child.lvl = logger.lvl
-	child.logMode = logger.logMode
-	for _, action := range logger.actions {
-		child.actions = append(child.actions, action)
-	}
+	//child.lvl = logger.LogLevel()
+	//child.logMode = logger.LogMode()
+	//for _, action := range logger.actions {
+	//	child.actions = append(child.actions, action)
+	//}
 	return child
 }
 
@@ -107,7 +119,7 @@ func SetOverride(o bool) {
 }
 
 func IsDebug() bool {
-	return level == Debug
+	return level == Debug || level == Trace
 }
 
 func Todo() bool {

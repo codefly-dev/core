@@ -1,7 +1,6 @@
 syntax = "proto3";
 package v1.base;
 
-
 message Agent {
   enum Kind {
     UNKNOWN = 0;

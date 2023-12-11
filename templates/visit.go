@@ -18,7 +18,7 @@ type Ignore interface {
 }
 
 func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, visitor FileVisitor) error {
-	logger := shared.GetBaseLogger(ctx).With("visiting to directory %s -> %s", root, destination)
+	logger := shared.GetLogger(ctx).With("visiting to directory %s -> %s", root, destination)
 	err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
 	if err != nil {
 		return logger.Wrapf(err, "cannot check or create directory")

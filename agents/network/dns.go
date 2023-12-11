@@ -34,7 +34,7 @@ func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointIn
 }
 
 func NewServiceDNSManager(ctx context.Context, identity *servicev1.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
-	logger := shared.GetBaseLogger(ctx).With("network.NewServicePortManager<%s>", identity.Name)
+	logger := shared.GetLogger(ctx).With("network.NewServicePortManager<%s>", identity.Name)
 	return &ServiceManager{
 		logger:    logger,
 		service:   identity,

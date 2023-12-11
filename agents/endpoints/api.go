@@ -79,7 +79,7 @@ func (HTTP *RestAPI) Proto() (*basev1.API, error) {
 }
 
 func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
-	logger := shared.GetBaseLogger(ctx).With("NewRestAPIFromOpenAPI")
+	logger := shared.GetLogger(ctx).With("NewRestAPIFromOpenAPI")
 	logger.TODO("visibility")
 	rest := &basev1.API_Rest{Rest: &basev1.RestAPI{}}
 	e := &basev1.Endpoint{

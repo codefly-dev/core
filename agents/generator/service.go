@@ -55,7 +55,7 @@ func (v *visitor) Skip(file string) bool {
 }
 
 func GenerateServiceTemplate(ctx context.Context, dir string) error {
-	logger := shared.GetBaseLogger(ctx).With("generator.GenerateServiceTemplate")
+	logger := shared.GetLogger(ctx).With("generator.GenerateServiceTemplate")
 	base := path.Join(dir, "base")
 	err := shared.CheckDirectory(base)
 	if err != nil {

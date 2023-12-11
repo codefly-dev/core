@@ -10,7 +10,15 @@ func Exit(msg string, args ...any) {
 	os.Exit(0)
 }
 
-func ExitOnFalse(b bool, msg string, args ...any) {
+func ExitIf(b bool, msg string, args ...any) {
+	logger := NewLogger().With("shared.ExitOnError")
+	if b {
+		logger.Oops(fmt.Sprintf(msg, args...))
+		os.Exit(1)
+	}
+}
+
+func ExitIfNot(b bool, msg string, args ...any) {
 	logger := NewLogger().With("shared.ExitOnError")
 	if !b {
 		logger.Oops(fmt.Sprintf(msg, args...))

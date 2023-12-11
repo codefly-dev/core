@@ -42,11 +42,16 @@ type Project struct {
 	activeApplication string // internal use
 }
 
+// Dir is the directory of the project
+func (project *Project) Dir() string {
+	return project.dir
+}
+
+// Unique returns the unique name of the project
+// Currently, we don't insure uniqueness across workspaces
 func (project *Project) Unique() string {
 	return project.Name
 }
-
-// Workspace references Projects
 
 // ProjectReference is a reference to a project used by Workspace configuration
 type ProjectReference struct {
@@ -58,13 +63,14 @@ func (ref *ProjectReference) String() string {
 	return ref.Name
 }
 
-// MarkAsActive marks a project as active
+// MarkAsActive marks a project as active using the * convention
 func (ref *ProjectReference) MarkAsActive() {
 	if !strings.HasSuffix(ref.Name, "*") {
 		ref.Name = fmt.Sprintf("%s*", ref.Name)
 	}
 }
 
+// MarkAsInactive marks a project as inactive using the * convention
 func (ref *ProjectReference) MarkAsInactive() {
 	if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
 		ref.Name = name
@@ -72,6 +78,7 @@ func (ref *ProjectReference) MarkAsInactive() {
 }
 
 // IsActive returns true if the project is marked as active
+// and return the clean reference for Loading
 func (ref *ProjectReference) IsActive() (*ProjectReference, bool) {
 	if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
 		return &ProjectReference{Name: name, PathOverride: ref.PathOverride}, true
@@ -79,13 +86,11 @@ func (ref *ProjectReference) IsActive() (*ProjectReference, bool) {
 	return ref, false
 }
 
+// NewProject creates a new project in a workspace
 func (workspace *Workspace) NewProject(ctx context.Context, action *v1actions.AddProject) (*Project, error) {
-	logger := shared.GetBaseLogger(ctx).With("NewProject<%s>", action.Name)
+	logger := shared.GetLogger(ctx).With("NewProject<%s>", action.Name)
 	if slices.Contains(workspace.ProjectNames(), action.Name) {
 		return nil, logger.Errorf("project already exists in workspace: %s at %s", workspace.Name, workspace.Dir())
-	}
-	if err := ValidateProjectName(action.Name); err != nil {
-		return nil, logger.Wrapf(err, "invalid project name")
 	}
 
 	ref := &ProjectReference{Name: action.Name, PathOverride: OverridePath(action.Name, action.Path)}
@@ -113,6 +118,7 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *v1actions.Ad
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot save workspace")
 	}
+
 	// Templatize as usual
 	err = templates.CopyAndApply(ctx, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(p.dir), p)
 	if err != nil {
@@ -126,7 +132,7 @@ func (project *Project) Save(ctx context.Context) error {
 }
 
 func (project *Project) SaveToDirUnsafe(ctx context.Context, dir string) error {
-	logger := shared.GetBaseLogger(ctx).With("SaveProject<%s>", project.Name)
+	logger := shared.GetLogger(ctx).With("SaveProject<%s>", project.Name)
 	logger.Debugf("saving with #application <%d>", len(project.Applications))
 	err := project.preSave(ctx)
 	if err != nil {
@@ -140,20 +146,34 @@ func (project *Project) SaveToDirUnsafe(ctx context.Context, dir string) error {
 }
 
 /*
-Applications are parts of the project
+Loaders
 */
 
-// LoadApplication loads the application based on the following rules:
-// - if in a application directory, load it
-// - otherwise, use the active application
-// and returns the project and a boolean flag to indicate if it comes from path
-func (project *Project) LoadApplication(ctx context.Context) (*Application, bool, error) {
-	up, err := FindUp[Application](ctx)
-	if err == nil {
-		return up, true, nil
+// LoadProjectFromDirUnsafe loads a Project configuration from a directory
+func LoadProjectFromDirUnsafe(ctx context.Context, dir string) (*Project, error) {
+	logger := shared.GetLogger(ctx).With("LoadProjectFromDirUnsafe")
+	dir = SolveDir(dir)
+	project, err := LoadFromDir[Project](ctx, dir)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot load Project configuration")
 	}
-	app, err := project.LoadActiveApplication(ctx)
-	return app, false, err
+	project.dir = dir
+	err = project.postLoad(ctx)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot post load Project configuration")
+	}
+	return project, nil
+}
+
+func LoadProjectFromPath(ctx context.Context) (*Project, error) {
+	dir, err := FindUp[Project](ctx)
+	if err != nil {
+		return nil, err
+	}
+	if dir == nil {
+		return nil, nil
+	}
+	return LoadProjectFromDirUnsafe(ctx, *dir)
 }
 
 // LoadActiveApplication decides which application is active:
@@ -172,6 +192,42 @@ func (project *Project) LoadActiveApplication(ctx context.Context) (*Application
 	return project.LoadApplicationFromName(ctx, project.activeApplication)
 }
 
+// LoadApplicationFromReference loads an application from a reference
+func (project *Project) LoadApplicationFromReference(ctx context.Context, ref *ApplicationReference) (*Application, error) {
+	logger := shared.GetLogger(ctx).With("LoadApplicationFromReference<%s>", ref.Name)
+	dir := project.ApplicationPath(ctx, ref)
+	app, err := LoadApplicationFromDirUnsafe(ctx, dir)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot load application")
+	}
+	return app, nil
+}
+
+// LoadApplicationFromName loads an application from a name
+func (project *Project) LoadApplicationFromName(ctx context.Context, name string) (*Application, error) {
+	logger := shared.GetLogger(ctx).With("LoadApplicationFromName<%s>", name)
+	for _, ref := range project.Applications {
+		if ReferenceMatch(ref.Name, name) {
+			return project.LoadApplicationFromReference(ctx, ref)
+		}
+	}
+	return nil, logger.Errorf("cannot find application")
+}
+
+// LoadApplications returns the applications in the project
+func (project *Project) LoadApplications(ctx context.Context) ([]*Application, error) {
+	logger := shared.GetLogger(ctx).With("Project.ListApplications")
+	var applications []*Application
+	for _, ref := range project.Applications {
+		app, err := project.LoadApplicationFromReference(ctx, ref)
+		if err != nil {
+			return nil, logger.Wrapf(err, "cannot load application <%s>", ref.Name)
+		}
+		applications = append(applications, app)
+	}
+	return applications, nil
+}
+
 // ApplicationsNames returns the names of the applications in the project
 func (project *Project) ApplicationsNames() []string {
 	var names []string
@@ -186,7 +242,7 @@ func (project *Project) ApplicationsNames() []string {
 // nil: relative path to project with name
 // rel: relative path
 // /abs: absolute path
-func (project *Project) ApplicationPath(ctx context.Context, ref *ApplicationReference) string {
+func (project *Project) ApplicationPath(_ context.Context, ref *ApplicationReference) string {
 	if ref.PathOverride == nil {
 		return path.Join(project.Dir(), ref.Name)
 	}
@@ -196,47 +252,23 @@ func (project *Project) ApplicationPath(ctx context.Context, ref *ApplicationRef
 	return path.Join(project.Dir(), *ref.PathOverride)
 }
 
-// LoadApplications returns the applications in the project
-func (project *Project) LoadApplications(ctx context.Context) ([]*Application, error) {
-	logger := shared.GetBaseLogger(ctx).With("Project.ListApplications")
-	var applications []*Application
-	for _, ref := range project.Applications {
-		app, err := project.LoadApplicationFromReference(ctx, ref)
-		if err != nil {
-			return nil, logger.Wrapf(err, "cannot load application <%s>", ref.Name)
-		}
-		applications = append(applications, app)
+// Internally we keep track of active application differently
+func (project *Project) postLoad(_ context.Context) error {
+	if len(project.Applications) == 1 {
+		project.activeApplication = project.Applications[0].Name
+		return nil
 	}
-	return applications, nil
-}
-
-/*
-
-CLEAN
-
-*/
-
-func (project *Project) Active() string {
-	return project.activeApplication
-}
-
-func ProjectMatch(entry string, name string) bool {
-	return entry == name || entry == fmt.Sprintf("%s*", name)
-}
-
-func (project *Project) postLoad() error {
-	// Internally we keep track of active application differently
-	for _, app := range project.Applications {
-		if name, ok := strings.CutSuffix(app.Name, "*"); ok {
-			app.Name = name
+	for _, ref := range project.Applications {
+		if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
+			ref.Name = name
 			project.activeApplication = name
 		}
 	}
 	return nil
 }
 
-// Pre-save deals with the * style of active
-func (project *Project) preSave(ctx context.Context) error {
+// Internally we keep track of active application differently
+func (project *Project) preSave(_ context.Context) error {
 	if len(project.Applications) == 1 {
 		project.Applications[0].Name = MakeInactive(project.Applications[0].Name)
 		return nil
@@ -258,8 +290,11 @@ func (project *Project) SetActiveApplication(ctx context.Context, name string) e
 }
 
 // ActiveApplication returns the active application
-func (project *Project) ActiveApplication() string {
-	return project.activeApplication
+func (project *Project) ActiveApplication() *string {
+	if project.activeApplication == "" {
+		return nil
+	}
+	return &project.activeApplication
 }
 
 // ExistsApplication returns true if the application exists in the project
@@ -271,16 +306,38 @@ func (project *Project) ExistsApplication(name string) bool {
 	}
 	return false
 }
-func ValidateProjectName(name string) error {
-	if name == "" {
-		return fmt.Errorf("invalid project name")
+
+// AddApplication adds an application to the project
+func (project *Project) AddApplication(app *ApplicationReference) error {
+	for _, a := range project.Applications {
+		if a.Name == app.Name {
+			return nil
+		}
 	}
+	project.Applications = append(project.Applications, app)
 	return nil
 }
 
-func (project *Project) Dir() string {
-	return project.dir
+// DeleteApplication deletes an application from the project
+func (project *Project) DeleteApplication(ctx context.Context, name string) error {
+	logger := shared.GetLogger(ctx).With("Project.DeleteApplication")
+	if !project.ExistsApplication(name) {
+		return logger.Errorf("application <%s> does not exist in project <%s>", name, project.Name)
+	}
+	if active := project.ActiveApplication(); shared.PointerEqual(active, name) {
+		project.activeApplication = ""
+	}
+	var apps []*ApplicationReference
+	for _, app := range project.Applications {
+		if app.Name != name {
+			apps = append(apps, app)
+		}
+	}
+	project.Applications = apps
+	return project.Save(ctx)
 }
+
+//  ------------------------------
 
 func (project *Project) ListServices() ([]*ServiceReference, error) {
 	logger := shared.NewLogger().With("Project.ListServices")
@@ -301,7 +358,7 @@ func (project *Project) ListServices() ([]*ServiceReference, error) {
 		}
 
 		if matched {
-			//config, err := LoadServiceFromDir(filepath.Dir(path))
+			//config, err := LoadServiceFromDirUnsafe(filepath.Dir(path))
 			//if err != nil {
 			//	return fmt.Errorf("cannot load service configuration for <%s>: %v", path, err)
 			//}
@@ -311,7 +368,7 @@ func (project *Project) ListServices() ([]*ServiceReference, error) {
 			//}
 			//ref := &ServiceReference{
 			//	Name:                 config.Name,
-			//	RelativePathOverride: config.RelativePathOverride,
+			//	PathOverride: config.PathOverride,
 			//	Application:          app.Name,
 			//}
 			//references = append(references, ref)
@@ -323,37 +380,6 @@ func (project *Project) ListServices() ([]*ServiceReference, error) {
 		return nil, logger.Errorf("error during walking root <%s>: %v", project.Dir(), err)
 	}
 	return references, nil
-}
-
-func (project *Project) GetService(name string) (*Service, error) {
-	logger := shared.NewLogger().With("Project.GetService")
-	// Unique can be scoped to applications or not
-	entries, err := project.ListServices()
-	if err != nil {
-		return nil, logger.Errorf("cannot list services for project <%s>: %v", project.Name, err)
-	}
-	for _, entry := range entries {
-		if entry.Name == name {
-			return LoadServiceFromReference(entry)
-		}
-	}
-	return nil, logger.Errorf("cannot find service <%s> in project <%s>", name, project.Name)
-}
-
-func (project *Project) Relative(absolute string) string {
-	s, err := filepath.Rel(project.Dir(), absolute)
-	shared.ExitOnError(err, "cannot compute relative path from project")
-	return s
-}
-
-func (project *Project) AddApplication(app *ApplicationReference) error {
-	for _, a := range project.Applications {
-		if a.Name == app.Name {
-			return nil
-		}
-	}
-	project.Applications = append(project.Applications, app)
-	return nil
 }
 
 func (project *Project) GetPartial(name string) (*Partial, error) {

@@ -18,18 +18,26 @@ type SetProjectActiveAction struct {
 	*SetProjectActive
 }
 
-func NewActionSetProjectActive(in *SetProjectActive) *SetProjectActiveAction {
+func (action *SetProjectActiveAction) Command() string {
+	return "codefly switch project"
+}
+
+func NewActionSetProjectActive(ctx context.Context, in *SetProjectActive) (*SetProjectActiveAction, error) {
+	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	if err := actions.Validate(ctx, in); err != nil {
+		return nil, logger.Wrap(err)
+	}
 	in.Kind = SetProjectActiveKind
 	return &SetProjectActiveAction{
 		SetProjectActive: in,
-	}
+	}, nil
 }
 
 var _ actions.Action = (*SetProjectActiveAction)(nil)
 
 func (action *SetProjectActiveAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetBaseLogger(ctx).With("SetProjectActiveAction")
-	w, err := configurations.ActiveWorkspace(ctx)
+	logger := shared.GetLogger(ctx).With("SetProjectActiveAction")
+	w, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
 		return nil, logger.Wrap(err)
 	}

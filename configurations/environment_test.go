@@ -16,19 +16,19 @@ import (
 
 func TestEnvironment(t *testing.T) {
 	ctx := shared.NewContext()
-	w, _ := createTestWorkspace(t, ctx)
-	configurations.SetActiveWorkspace(w)
+	createTestWorkspace(t, ctx)
 
 	var action actions.Action
+	var err error
 
-	action = actionproject.NewActionAddProject(&v1actions.AddProject{
+	action, err = actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
 		Name: "test-project",
 	})
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
 	project := shared.Must(actions.As[configurations.Project](out))
 
-	action = actionenviroment.NewActionAddEnvironment(&v1actions.AddEnvironment{
+	action, err = actionenviroment.NewActionAddEnvironment(ctx, &v1actions.AddEnvironment{
 		Name:    "test-environment",
 		Project: "test-project",
 	})
