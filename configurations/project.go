@@ -3,12 +3,12 @@ package configurations
 import (
 	"context"
 	"fmt"
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
 
 	"github.com/codefly-dev/core/templates"
 
@@ -293,7 +293,7 @@ func (project *Project) preSave(_ context.Context) error {
 }
 
 // SetActiveApplication sets the active application
-func (project *Project) SetActiveApplication(ctx context.Context, name string) error {
+func (project *Project) SetActiveApplication(_ context.Context, name string) error {
 	project.activeApplication = name
 	return nil
 }
@@ -344,51 +344,6 @@ func (project *Project) DeleteApplication(ctx context.Context, name string) erro
 	}
 	project.Applications = apps
 	return project.Save(ctx)
-}
-
-//  ------------------------------
-
-func (project *Project) ListServices() ([]*ServiceReference, error) {
-	logger := shared.NewLogger().With("Project.ListServices")
-	logger.Debugf("Listing services in <%s>", project.Dir())
-	var references []*ServiceReference
-	err := filepath.Walk(project.Dir(), func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return logger.Errorf("error during walking root <%s>: %v", project.Dir(), err)
-		}
-
-		if info.IsDir() {
-			return nil // Skip directories but proceed to explore its contents
-		}
-
-		matched, err := filepath.Match(ServiceConfigurationName, filepath.Base(path))
-		if err != nil {
-			return logger.Errorf("error during matching <%s> with <%s>: %v", path, ApplicationConfigurationName, err)
-		}
-
-		if matched {
-			//config, err := LoadServiceFromDirUnsafe(filepath.Dir(path))
-			//if err != nil {
-			//	return fmt.Errorf("cannot load service configuration for <%s>: %v", path, err)
-			//}
-			//app, err := FindApplicationUp(path)
-			//if err != nil {
-			//	return fmt.Errorf("cannot find applications for service <%s>: %v", path, err)
-			//}
-			//ref := &ServiceReference{
-			//	Name:                 config.Name,
-			//	PathOverride: config.PathOverride,
-			//	Application:          app.Name,
-			//}
-			//references = append(references, ref)
-
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, logger.Errorf("error during walking root <%s>: %v", project.Dir(), err)
-	}
-	return references, nil
 }
 
 func (project *Project) GetPartial(name string) (*Partial, error) {

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
@@ -19,7 +18,7 @@ type AddServiceDependencyAction struct {
 }
 
 func (action *AddServiceDependencyAction) Command() string {
-	return fmt.Sprintf("TODO")
+	return "TODO"
 }
 
 type AddServiceDependency = v1actions.AddServiceDependency

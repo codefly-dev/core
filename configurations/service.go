@@ -45,8 +45,7 @@ type Service struct {
 	Spec         map[string]any       `yaml:"spec"`
 
 	// internal
-	kind string
-	dir  string
+	dir string
 }
 
 func (s *Service) Proto() *basev1.Service {
@@ -291,7 +290,7 @@ func ReloadService(ctx context.Context, service *Service) (*Service, error) {
 	return LoadServiceFromDirUnsafe(ctx, service.Dir())
 }
 
-func (s *Service) postLoad(ctx context.Context) error {
+func (s *Service) postLoad(_ context.Context) error {
 	for _, ref := range s.Dependencies {
 		if ref.Application == "" {
 			ref.Application = s.Application
@@ -300,7 +299,7 @@ func (s *Service) postLoad(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) preSave(ctx context.Context) error {
+func (s *Service) preSave(_ context.Context) error {
 	for _, ref := range s.Dependencies {
 		if ref.Application == s.Application {
 			ref.Application = ""
@@ -309,7 +308,7 @@ func (s *Service) preSave(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) HasEndpoints(ctx context.Context, endpoints []string) ([]string, error) {
+func (s *Service) HasEndpoints(_ context.Context, endpoints []string) ([]string, error) {
 	known := map[string]bool{}
 	for _, endpoint := range s.Endpoints {
 		known[endpoint.Name] = true

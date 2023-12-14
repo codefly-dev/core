@@ -88,7 +88,7 @@ func (tracker *ActionTracker) Save(action Action) error {
 	step := tracker.NextStep()
 	actionName := strings.ToLower(fmt.Sprintf("%T", action))
 	filename := fmt.Sprintf("%d_%s.codefly.action.json", step, strings.Replace(actionName, "*", "", -1))
-	err = os.WriteFile(path.Join(tracker.Dir, filename), data, 0644)
+	err = os.WriteFile(path.Join(tracker.Dir, filename), data, 0600)
 	if err != nil {
 		return err
 	}
@@ -101,9 +101,9 @@ type ActionStep struct {
 	Action Action
 }
 
-func (tracker *ActionTracker) GetActions(ctx context.Context) ([]Action, error) {
+func (tracker *ActionTracker) GetActions(_ context.Context) ([]Action, error) {
 	var steps []ActionStep
-	err := filepath.Walk(tracker.Dir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(tracker.Dir, func(path string, info os.FileInfo, e error) error {
 		if info.IsDir() {
 			return nil
 		}

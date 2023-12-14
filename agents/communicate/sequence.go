@@ -2,6 +2,7 @@ package communicate
 
 import (
 	"context"
+
 	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 )
 
@@ -19,7 +20,7 @@ func (s *Sequence) Ready() bool {
 	return s.step == s.totalSteps
 }
 
-func (s *Sequence) Process(ctx context.Context, eng *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (s *Sequence) Process(_ context.Context, _ *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
 	// We may be done
 	if s.step == s.totalSteps {
 		return &agentsv1.InformationRequest{Done: true}, nil

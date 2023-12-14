@@ -35,7 +35,7 @@ func NewActionSetServiceActive(ctx context.Context, in *SetServiceActive) (*SetS
 
 var _ actions.Action = (*SetServiceActiveAction)(nil)
 
-func (action *SetServiceActiveAction) Run(ctx context.Context) (any, error) {
+func (action *SetServiceActiveAction) Run(_ context.Context) (any, error) {
 	return nil, nil
 }
 

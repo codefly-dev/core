@@ -3,6 +3,7 @@ package communicate
 import (
 	"context"
 	"fmt"
+
 	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 	"github.com/codefly-dev/core/shared"
 )
@@ -29,7 +30,7 @@ func (c *ServerContext) Communicate(ctx context.Context, req *agentsv1.Engage) (
 	return c.session.Process(ctx, req)
 }
 
-func NewServerContext(ctx context.Context, gen QuestionGenerator) *ServerContext {
+func NewServerContext(_ context.Context, gen QuestionGenerator) *ServerContext {
 	return &ServerContext{gen: gen}
 }
 
@@ -84,7 +85,7 @@ func (m *Server) Done(ctx context.Context, channel *agentsv1.Channel) (*ServerSe
 	return nil, logger.Errorf("cannot find channel %s", channel.Kind)
 }
 
-func NewServer(ctx context.Context) *Server {
+func NewServer(_ context.Context) *Server {
 	return &Server{
 		channels: make(map[string]*ServerContext),
 	}

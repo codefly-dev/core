@@ -34,18 +34,23 @@ type ServiceLogger struct {
 	action          string
 	trace           bool
 	debug           bool
+	actions         shared.LogMode
 }
 
+const (
+	WARN = "WARN"
+)
+
 func (l *ServiceLogger) SetLogMethod(actions shared.LogMode) shared.BaseLogger {
-	l.UnsafeWrite("TODO: SETLOG")
+	l.actions = actions
 	return l
 }
 
 func (l *ServiceLogger) Warn(format string, args ...any) {
-	l.UnsafeWrite("WARN" + fmt.Sprintf(format, args...))
+	l.UnsafeWrite(WARN + fmt.Sprintf(format, args...))
 }
 func (l *ServiceLogger) WarnOnError(err error) {
-	l.UnsafeWrite("WARN" + err.Error())
+	l.UnsafeWrite(WARN + err.Error())
 }
 
 func (l *ServiceLogger) Oops(format string, args ...any) {
@@ -168,28 +173,30 @@ type AgentLogger struct {
 	debug           bool
 	trace           bool
 	action          string
+	actions         shared.LogMode
+	lvl             shared.LogLevel
 }
 
 func (l *AgentLogger) Warn(format string, args ...any) {
-	l.UnsafeWrite("WARN" + fmt.Sprintf(format, args...))
+	l.UnsafeWrite(WARN + fmt.Sprintf(format, args...))
 }
 
 func (l *AgentLogger) WarnOnError(err error) {
-	l.UnsafeWrite("WARN" + err.Error())
+	l.UnsafeWrite(WARN + err.Error())
 }
 
 func (l *AgentLogger) SetLevel(lvl shared.LogLevel) shared.BaseLogger {
-	l.UnsafeWrite("TODO: SETLEVEL")
+	l.lvl = lvl
 	return l
 }
 
 func (l *AgentLogger) SetLogMethod(actions shared.LogMode) shared.BaseLogger {
-	l.UnsafeWrite("TODO: SETLOG")
+	l.actions = actions
 	return l
 }
 
 func (l *AgentLogger) Oops(format string, args ...any) {
-	l.UnsafeWrite("OOPP TO BE IM")
+	l.UnsafeWrite("OOOPS" + fmt.Sprintf(format, args...))
 }
 
 func (l *AgentLogger) With(format string, args ...any) shared.BaseLogger {

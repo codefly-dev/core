@@ -86,7 +86,7 @@ func LoadWorkspaceFromDirUnsafe(ctx context.Context, dir string) (*Workspace, er
 	return w, nil
 }
 
-func (workspace *Workspace) postLoad(ctx context.Context) error {
+func (workspace *Workspace) postLoad(_ context.Context) error {
 	for _, ref := range workspace.Projects {
 		if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
 			ref.Name = name
@@ -97,7 +97,7 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 }
 
 // Pre-save deals with the * style of active
-func (workspace *Workspace) preSave(ctx context.Context) error {
+func (workspace *Workspace) preSave(_ context.Context) error {
 	if len(workspace.Projects) == 1 {
 		workspace.Projects[0].Name = MakeInactive(workspace.Projects[0].Name)
 		return nil
@@ -151,7 +151,7 @@ func (workspace *Workspace) LoadProjectFromReference(ctx context.Context, ref *P
 // nil: relative path to workspace with name
 // rel: relative path
 // /abs: absolute path
-func (workspace *Workspace) ProjectPath(ctx context.Context, ref *ProjectReference) string {
+func (workspace *Workspace) ProjectPath(_ context.Context, ref *ProjectReference) string {
 	if ref.PathOverride == nil {
 		return path.Join(workspace.ProjectRoot(), ref.Name)
 	}
@@ -169,10 +169,14 @@ func (workspace *Workspace) Save(ctx context.Context) error {
 	if err != nil {
 		return shared.GetLogger(ctx).With("Saving Workspace configuration").Wrap(err)
 	}
+	err = workspace.preSave(ctx)
+	if err != nil {
+		return logger.Wrapf(err, "cannot pre-save Workspace configuration")
+	}
 	return nil
 }
 
-func IsInitialized(ctx context.Context) bool {
+func IsInitialized(_ context.Context) bool {
 	return shared.DirectoryExists(WorkspaceConfigurationDir())
 }
 

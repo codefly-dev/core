@@ -32,23 +32,24 @@ const (
 // - Base
 // - Agent
 func GetLogger(ctx context.Context) BaseLogger {
-	//var logger BaseLogger
-	//l := ctx.Value(Base)
-	//if l != nil {
-	//	logger = l.(BaseLogger)
-	//} else {
-	//	l = ctx.Value(Agent)
-	//	if l == nil {
-	//		panic("no logger in context")
-	//	}
-
-	child := NewLogger()
+	var logger BaseLogger
+	l := ctx.Value(Base)
+	if l != nil {
+		logger = l.(BaseLogger)
+	} else {
+		l = ctx.Value(Agent)
+		if l == nil {
+			panic("no logger in context")
+		}
+	}
+	return logger
+	//child := NewLogger()
 	//child.lvl = logger.LogLevel()
 	//child.logMode = logger.LogMode()
 	//for _, action := range logger.actions {
 	//	child.actions = append(child.actions, action)
 	//}
-	return child
+	//return child
 }
 
 func GetAgentLogger(ctx context.Context) BaseLogger {
@@ -195,9 +196,7 @@ func (l *Logger) Action() string {
 			ss = append(ss, l.actions[0], l.actions[len(l.actions)-1])
 		}
 	case AllActions:
-		for _, s := range l.actions {
-			ss = append(ss, s)
-		}
+		ss = append(ss, l.actions...)
 	}
 
 	return fmt.Sprintf("(%s)", strings.Join(ss, sep))

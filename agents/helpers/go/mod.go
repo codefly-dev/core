@@ -1,12 +1,14 @@
 package golang
 
 import (
+	"context"
 	"os/exec"
 
-	"github.com/codefly-dev/core/agents"
+	"github.com/codefly-dev/core/shared"
 )
 
-func (g *Go) ModTidy(logger *agents.AgentLogger) error {
+func (g *Go) ModTidy(ctx context.Context) error {
+	logger := shared.GetLogger(ctx).With("go.Update")
 	logger.Info("Tidying go modules...")
 	cmd := exec.Command("go", "mod", "tidy")
 	cmd.Dir = g.Dir
@@ -17,7 +19,8 @@ func (g *Go) ModTidy(logger *agents.AgentLogger) error {
 	return nil
 }
 
-func (g *Go) Update(logger *agents.AgentLogger) error {
+func (g *Go) Update(ctx context.Context) error {
+	logger := shared.GetLogger(ctx).With("go.Update")
 	logger.Info("Updating go modules...")
 	cmd := exec.Command("go", "get", "-u", "./...")
 	cmd.Dir = g.Dir

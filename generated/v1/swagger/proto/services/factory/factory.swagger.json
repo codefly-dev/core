@@ -399,6 +399,9 @@
     "factoryCreateResponse": {
       "type": "object",
       "properties": {
+        "status": {
+          "$ref": "#/definitions/factoryCreateStatus"
+        },
         "endpoints": {
           "type": "array",
           "items": {
@@ -408,6 +411,26 @@
           "title": "The endpoints of the created service"
         }
       }
+    },
+    "factoryCreateStatus": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/factoryCreateStatusStatus"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "factoryCreateStatusStatus": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "CREATED",
+        "ERROR"
+      ],
+      "default": "UNKNOWN"
     },
     "factoryDeploymentResponse": {
       "type": "object"
@@ -444,16 +467,7 @@
     "factoryUpdateResponse": {
       "type": "object"
     },
-    "protobufAny": {
-      "type": "object",
-      "properties": {
-        "@type": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": {}
-    },
-    "rpcStatus": {
+    "googlerpcStatus": {
       "type": "object",
       "properties": {
         "code": {
@@ -471,6 +485,15 @@
           }
         }
       }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
     },
     "servicesInitStatus": {
       "type": "object",

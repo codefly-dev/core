@@ -27,8 +27,19 @@ message CreateRequest {
 
 
 
+message CreateStatus {
+  enum Status {
+    UNKNOWN = 0;
+    CREATED = 1;
+    ERROR = 2;
+  }
+  Status status = 1;
+  string message = 2;
+}
+
 message CreateResponse {
-  repeated v1.base.Endpoint endpoints = 1; // The endpoints of the created service
+  CreateStatus status = 1;
+  repeated v1.base.Endpoint endpoints = 2; // The endpoints of the created service
 }
 
 /*

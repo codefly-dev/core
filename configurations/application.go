@@ -3,11 +3,12 @@ package configurations
 import (
 	"context"
 	"fmt"
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
 
 	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
 	"github.com/codefly-dev/core/shared"
@@ -140,7 +141,7 @@ func LoadApplicationFromPath(ctx context.Context) (*Application, error) {
 	return LoadApplicationFromDirUnsafe(ctx, *dir)
 }
 
-func (app *Application) postLoad(ctx context.Context) error {
+func (app *Application) postLoad(_ context.Context) error {
 	for _, ref := range app.Services {
 		ref.Application = app.Name
 	}
@@ -172,7 +173,7 @@ func (app *Application) Save(ctx context.Context) error {
 }
 
 // Pre-save deals with the * style of active
-func (app *Application) preSave(ctx context.Context) error {
+func (app *Application) preSave(_ context.Context) error {
 	for _, ref := range app.Services {
 		ref.Application = ""
 	}
@@ -190,7 +191,7 @@ func (app *Application) preSave(ctx context.Context) error {
 	return nil
 }
 
-func (app *Application) AddService(ctx context.Context, service *Service) error {
+func (app *Application) AddService(_ context.Context, service *Service) error {
 	logger := shared.NewLogger().With("AddService")
 	for _, s := range app.Services {
 		if s.Name == service.Name {
@@ -240,7 +241,7 @@ func (app *Application) ExistsService(name string) bool {
 // nil: relative path to application with name
 // rel: relative path
 // /abs: absolute path
-func (app *Application) ServicePath(ctx context.Context, ref *ServiceReference) string {
+func (app *Application) ServicePath(_ context.Context, ref *ServiceReference) string {
 	if ref.PathOverride == nil {
 		return path.Join(app.Dir(), ref.Name)
 	}
@@ -281,11 +282,11 @@ func (app *Application) LoadServices(ctx context.Context) ([]*Service, error) {
 	return services, nil
 }
 
-func (app *Application) Reload(ctx context.Context, app2 *Application) (*Application, error) {
+func ReloadApplication(ctx context.Context, app *Application) (*Application, error) {
 	return LoadApplicationFromDirUnsafe(ctx, app.Dir())
 }
 
-func (app *Application) ActiveService(ctx context.Context) *string {
+func (app *Application) ActiveService(_ context.Context) *string {
 	if app.activeService == "" {
 		return nil
 	}

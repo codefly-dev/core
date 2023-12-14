@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/configurations"
 	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"

@@ -2,8 +2,9 @@ package communicate
 
 import (
 	"fmt"
-	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 	"strings"
+
+	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 )
 
 func (c *ServerSession) Confirm(stage string) (bool, error) {

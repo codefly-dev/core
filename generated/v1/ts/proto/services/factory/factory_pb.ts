@@ -96,13 +96,87 @@ export class CreateRequest extends Message<CreateRequest> {
 }
 
 /**
+ * @generated from message v1.services.factory.CreateStatus
+ */
+export class CreateStatus extends Message<CreateStatus> {
+  /**
+   * @generated from field: v1.services.factory.CreateStatus.Status status = 1;
+   */
+  status = CreateStatus_Status.UNKNOWN;
+
+  /**
+   * @generated from field: string message = 2;
+   */
+  message = "";
+
+  constructor(data?: PartialMessage<CreateStatus>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "v1.services.factory.CreateStatus";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "status", kind: "enum", T: proto3.getEnumType(CreateStatus_Status) },
+    { no: 2, name: "message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateStatus {
+    return new CreateStatus().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CreateStatus {
+    return new CreateStatus().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CreateStatus {
+    return new CreateStatus().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CreateStatus | PlainMessage<CreateStatus> | undefined, b: CreateStatus | PlainMessage<CreateStatus> | undefined): boolean {
+    return proto3.util.equals(CreateStatus, a, b);
+  }
+}
+
+/**
+ * @generated from enum v1.services.factory.CreateStatus.Status
+ */
+export enum CreateStatus_Status {
+  /**
+   * @generated from enum value: UNKNOWN = 0;
+   */
+  UNKNOWN = 0,
+
+  /**
+   * @generated from enum value: CREATED = 1;
+   */
+  CREATED = 1,
+
+  /**
+   * @generated from enum value: ERROR = 2;
+   */
+  ERROR = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(CreateStatus_Status)
+proto3.util.setEnumType(CreateStatus_Status, "v1.services.factory.CreateStatus.Status", [
+  { no: 0, name: "UNKNOWN" },
+  { no: 1, name: "CREATED" },
+  { no: 2, name: "ERROR" },
+]);
+
+/**
  * @generated from message v1.services.factory.CreateResponse
  */
 export class CreateResponse extends Message<CreateResponse> {
   /**
+   * @generated from field: v1.services.factory.CreateStatus status = 1;
+   */
+  status?: CreateStatus;
+
+  /**
    * The endpoints of the created service
    *
-   * @generated from field: repeated v1.base.Endpoint endpoints = 1;
+   * @generated from field: repeated v1.base.Endpoint endpoints = 2;
    */
   endpoints: Endpoint[] = [];
 
@@ -114,7 +188,8 @@ export class CreateResponse extends Message<CreateResponse> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "v1.services.factory.CreateResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "endpoints", kind: "message", T: Endpoint, repeated: true },
+    { no: 1, name: "status", kind: "message", T: CreateStatus },
+    { no: 2, name: "endpoints", kind: "message", T: Endpoint, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateResponse {

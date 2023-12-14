@@ -66,11 +66,11 @@ func (m *ServiceAgentServer) GetAgentInformation(ctx context.Context, req *v1age
 }
 
 func LoadAgent(ctx context.Context, service *configurations.Service) (*ServiceAgent, error) {
-	logger := shared.NewLogger().With("services.LoadAgent<%s>", service.Name)
 	if service == nil {
 		return nil, fmt.Errorf("service cannot be nil")
 	}
-	if service == nil || service.Agent == nil {
+	logger := shared.NewLogger().With("services.LoadAgent<%s>", service.Name)
+	if service.Agent == nil {
 		return nil, logger.Errorf("agent cannot be nil")
 	}
 	agent, err := agents.Load[ServiceAgentContext, ServiceAgent](

@@ -3,8 +3,9 @@ package services
 import (
 	"context"
 	"fmt"
-	"github.com/codefly-dev/core/agents/communicate"
 	"strings"
+
+	"github.com/codefly-dev/core/agents/communicate"
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
@@ -101,12 +102,12 @@ type RuntimeAgentGRPC struct {
 	Runtime Runtime
 }
 
-func (p *RuntimeAgentGRPC) GRPCServer(ctx *plugin.GRPCBroker, s *grpc.Server) error {
+func (p *RuntimeAgentGRPC) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
 	runtimev1.RegisterRuntimeServer(s, &RuntimeServer{Runtime: p.Runtime})
 	return nil
 }
 
-func (p *RuntimeAgentGRPC) GRPCClient(ctx context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
+func (p *RuntimeAgentGRPC) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
 	return &RuntimeAgent{client: runtimev1.NewRuntimeClient(c)}, nil
 }
 

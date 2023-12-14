@@ -2,6 +2,7 @@ package communicate
 
 import (
 	"context"
+
 	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 	"github.com/codefly-dev/core/shared"
 )
@@ -22,6 +23,9 @@ func Do[T any](ctx context.Context, agent Communicate, handler AnswerProvider) e
 		}
 
 		req, err = agent.Communicate(ctx, eng)
+		if err != nil {
+			return logger.Wrapf(err, "error communicating")
+		}
 		logger.DebugMe("Received request: %s", req)
 		if eng.Mode == agentsv1.Engage_END {
 			logger.DebugMe("Communication ended")

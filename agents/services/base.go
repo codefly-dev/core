@@ -179,10 +179,12 @@ func (s *Base) FactoryInitResponseError(err error) (*factoryv1.InitResponse, err
 }
 
 func (s *Base) CreateResponseError(err error) (*factoryv1.CreateResponse, error) {
-	return &factoryv1.CreateResponse{}, nil
+	return &factoryv1.CreateResponse{
+		Status: &factoryv1.CreateStatus{Status: factoryv1.CreateStatus_ERROR, Message: err.Error()},
+	}, nil
 }
 
-func (s *Base) RuntimeInitResponse(endpoints []*basev1.Endpoint, channels ...*agentsv1.Channel) (*runtimev1.InitResponse, error) {
+func (s *Base) RuntimeInitResponse(endpoints []*basev1.Endpoint) (*runtimev1.InitResponse, error) {
 	// for convenience, add application and service
 	for _, endpoint := range endpoints {
 		endpoint.Application = s.Configuration.Application
