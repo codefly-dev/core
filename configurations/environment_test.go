@@ -9,7 +9,7 @@ import (
 	actionenviroment "github.com/codefly-dev/core/actions/environment"
 	actionproject "github.com/codefly-dev/core/actions/project"
 	"github.com/codefly-dev/core/configurations"
-	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
+	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )

@@ -9,13 +9,13 @@ import (
 	"runtime/debug"
 	"time"
 
-	agentsv1 "github.com/codefly-dev/core/proto/v1/go/agents"
+	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/codefly-dev/core/configurations"
-	servicev1 "github.com/codefly-dev/core/proto/v1/go/services"
+	servicev1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
 	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-hclog"
 	"github.com/pkg/errors"

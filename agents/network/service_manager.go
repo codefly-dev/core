@@ -1,9 +1,9 @@
 package network
 
 import (
-	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
-	servicev1 "github.com/codefly-dev/core/proto/v1/go/services"
-	runtimev1 "github.com/codefly-dev/core/proto/v1/go/services/runtime"
+	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	servicev1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
+	runtimev1 "github.com/codefly-dev/core/generated/v1/go/proto/services/runtime"
 	"github.com/codefly-dev/core/shared"
 )
 

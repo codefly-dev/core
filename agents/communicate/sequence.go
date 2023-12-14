@@ -2,7 +2,7 @@ package communicate
 
 import (
 	"context"
-	agentsv1 "github.com/codefly-dev/core/proto/v1/go/agents"
+	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 )
 
 // A Sequence is a list of total_steps that are executed in order

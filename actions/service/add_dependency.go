@@ -9,7 +9,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 
-	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
+	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
 )
 
 const AddServiceDependencyKind = "service.add_dependency"
@@ -85,7 +85,7 @@ func (action *AddServiceDependencyAction) Run(ctx context.Context) (any, error) 
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot save service %s", action.Name)
 	}
-	
+
 	return service, nil
 }
 

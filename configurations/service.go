@@ -6,9 +6,9 @@ import (
 	"slices"
 	"strings"
 
-	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
-	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
-	servicesv1 "github.com/codefly-dev/core/proto/v1/go/services"
+	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	servicesv1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/mitchellh/mapstructure"

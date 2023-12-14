@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/codefly-dev/core/configurations"
-	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
+	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
 	"github.com/codefly-dev/core/shared"
 	openapiloads "github.com/go-openapi/loads"
 	openapispec "github.com/go-openapi/spec"

@@ -1,0 +1,12 @@
+syntax = "proto3";
+package v1.base;
+
+import "proto/base/endpoint.proto";
+
+message Service {
+  string name = 1;
+  string description = 2;
+  string application = 3;
+  repeated Endpoint endpoints = 4;
+
+}

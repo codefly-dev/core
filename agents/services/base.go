@@ -12,11 +12,11 @@ import (
 	"github.com/codefly-dev/core/agents/helpers/code"
 
 	"github.com/codefly-dev/core/configurations"
-	agentsv1 "github.com/codefly-dev/core/proto/v1/go/agents"
-	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
-	servicev1 "github.com/codefly-dev/core/proto/v1/go/services"
-	factoryv1 "github.com/codefly-dev/core/proto/v1/go/services/factory"
-	runtimev1 "github.com/codefly-dev/core/proto/v1/go/services/runtime"
+	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
+	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	servicev1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
+	factoryv1 "github.com/codefly-dev/core/generated/v1/go/proto/services/factory"
+	runtimev1 "github.com/codefly-dev/core/generated/v1/go/proto/services/runtime"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )

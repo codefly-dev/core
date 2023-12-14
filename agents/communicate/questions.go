@@ -1,7 +1,7 @@
 package communicate
 
 import (
-	agentsv1 "github.com/codefly-dev/core/proto/v1/go/agents"
+	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 )
 
 func Display(msg *agentsv1.Message, data map[string]string) *agentsv1.Question {

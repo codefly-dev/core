@@ -10,7 +10,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 
-	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
+	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
 )
 
 const AddApplicationKind = "application.add"

@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
+	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
 
 	"github.com/codefly-dev/core/shared"
 	"gopkg.in/yaml.v3"

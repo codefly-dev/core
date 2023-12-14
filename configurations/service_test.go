@@ -9,8 +9,8 @@ import (
 	actionapplication "github.com/codefly-dev/core/actions/application"
 	actionproject "github.com/codefly-dev/core/actions/project"
 	actionservice "github.com/codefly-dev/core/actions/service"
-	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
-	v1base "github.com/codefly-dev/core/proto/v1/go/base"
+	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	v1base "github.com/codefly-dev/core/generated/v1/go/proto/base"
 	"github.com/codefly-dev/core/shared"
 
 	"gopkg.in/yaml.v3"

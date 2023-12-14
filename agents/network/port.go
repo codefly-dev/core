@@ -6,8 +6,8 @@ import (
 	"encoding/binary"
 	"net"
 
-	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
-	servicev1 "github.com/codefly-dev/core/proto/v1/go/services"
+	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	servicev1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
 	"github.com/codefly-dev/core/shared"
 )
 

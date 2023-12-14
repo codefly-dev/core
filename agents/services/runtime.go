@@ -8,9 +8,9 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
-	agentsv1 "github.com/codefly-dev/core/proto/v1/go/agents"
-	v1 "github.com/codefly-dev/core/proto/v1/go/services"
-	runtimev1 "github.com/codefly-dev/core/proto/v1/go/services/runtime"
+	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
+	v1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
+	runtimev1 "github.com/codefly-dev/core/generated/v1/go/proto/services/runtime"
 	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"

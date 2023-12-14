@@ -9,7 +9,7 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/shared"
 
-	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
+	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
 
 	"github.com/codefly-dev/core/configurations"
 )

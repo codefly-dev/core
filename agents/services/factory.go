@@ -7,9 +7,9 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
-	agentsv1 "github.com/codefly-dev/core/proto/v1/go/agents"
-	servicev1 "github.com/codefly-dev/core/proto/v1/go/services"
-	factoryv1 "github.com/codefly-dev/core/proto/v1/go/services/factory"
+	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
+	servicev1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
+	factoryv1 "github.com/codefly-dev/core/generated/v1/go/proto/services/factory"
 	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
