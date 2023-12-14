@@ -2,6 +2,7 @@ package templates
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -26,13 +27,13 @@ func ApplyTemplate(t string, data any) (string, error) {
 	return buf.String(), nil
 }
 
-func Walk(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, ignore Ignore, files *[]shared.File, dirs *[]shared.Dir) error {
+func Walk(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, ignore shared.Ignore, files *[]shared.File, dirs *[]shared.Dir) error {
 	entries, err := fs.ReadDir(root)
 	if err != nil {
 		return logger.Wrapf(err, "cannot got to target source")
 	}
 	for _, entry := range entries {
-		if ignore != nil && ignore.Ignore(shared.NewFile(entry.Name())) {
+		if ignore.Skip(entry.Name()) {
 			continue
 		}
 		p := path.Join(fs.AbsoluteDir(root), entry.Name())
@@ -144,108 +145,24 @@ func CopyAndReplace(fs shared.FileSystem, f shared.File, destination shared.File
 	return nil
 }
 
-type NoOpIgnore struct{}
+func CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
+	logger := shared.GetLogger(ctx).With("templates.CopyAndApply")
+	logger.Tracef("applying template to directory %s -> %s", root, destination)
 
-var _ Ignore = NoOpIgnore{}
+	err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
+	override := shared.GetOverride(ctx)
+	ignore := shared.GetIgnore(ctx)
 
-func (ign NoOpIgnore) Ignore(file shared.File) bool {
-	return false
-}
-
-type IgnorePatterns struct {
-	patterns []string
-}
-
-var _ Ignore = IgnorePatterns{}
-
-func NewIgnore(patterns ...string) IgnorePatterns {
-	return IgnorePatterns{patterns: patterns}
-}
-
-func (ign IgnorePatterns) Ignore(file shared.File) bool {
-	for _, pattern := range ign.patterns {
-		if strings.Contains(file.Base(), pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-type Override interface {
-	Override(string) bool
-}
-
-type TemplateOption struct {
-	Destination string
-	Ignore
-	Override
-}
-
-type TemplateOptionFunc func(*TemplateOption)
-
-func WithIgnore(ignore Ignore) TemplateOptionFunc {
-	return func(opt *TemplateOption) {
-		opt.Ignore = ignore
-	}
-}
-
-type NoIgnore struct {
-}
-
-func (i *NoIgnore) Ignore(file shared.File) bool {
-	return false
-}
-
-func WithOverridePolicy(override Override) TemplateOptionFunc {
-	return func(opt *TemplateOption) {
-		opt.Override = override
-	}
-}
-
-func WithOverrideAll() TemplateOptionFunc {
-	return func(opt *TemplateOption) {
-		opt.Override = &OverrideAll{}
-	}
-}
-
-type OverrideAll struct{}
-
-func (o *OverrideAll) Override(string) bool {
-	return true
-}
-
-type SkipOnExist struct{}
-
-func (o *SkipOnExist) Override(string) bool {
-	return false
-}
-
-func Option(relativePath string, opts ...TemplateOptionFunc) *TemplateOption {
-	opt := &TemplateOption{
-		Destination: relativePath,
-		Ignore:      &NoIgnore{},
-		Override:    &SkipOnExist{},
-	}
-	for _, o := range opts {
-		o(opt)
-	}
-	return opt
-}
-
-func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any, opts ...TemplateOptionFunc) error {
-	logger.Debugf("applying template to directory %s -> %s", root, destination)
-	opt := Option(destination.Absolute(), opts...)
-	err := shared.CheckDirectoryOrCreate(fs.AbsoluteDir(destination))
 	if err != nil {
 		return logger.Wrapf(err, "cannot check or create directory")
 	}
 	var dirs []shared.Dir
 	var files []shared.File
-	err = Walk(logger, fs, root, opt.Ignore, &files, &dirs)
+	err = Walk(logger, fs, root, ignore, &files, &dirs)
 	if err != nil {
 		return fmt.Errorf("cannot read template directory: %v", err)
 	}
-	logger.Debugf("walked %d directories and %d files", len(dirs), len(files))
+	logger.Tracef("walked %d directories and %d files", len(dirs), len(files))
 	for _, d := range dirs {
 		// We take the relative path from the root directory
 		rel, err := d.RelativeFrom(root)
@@ -253,7 +170,7 @@ func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Di
 			return logger.Wrapf(err, "cannot get relative path")
 		}
 		dest := destination.Join(*rel)
-		err = shared.CheckDirectoryOrCreate(dest.Absolute())
+		err = shared.CheckDirectoryOrCreate(ctx, dest.Absolute())
 		if err != nil {
 			return logger.Wrapf(err, "cannot check or create directory for destination")
 		}
@@ -275,12 +192,12 @@ func CopyAndApply(logger shared.BaseLogger, fs shared.FileSystem, root shared.Di
 			}
 		}
 
-		if shared.FileExists(d) && !opt.Override.Override(d) {
-			logger.Debugf("file %s already exists: skipping", d)
+		if shared.FileExists(d) && !override.Replace(d) {
+			logger.Tracef("file %s already exists: skipping", d)
 			continue
 		}
 		err = CopyAndApplyTemplate(fs, f, shared.NewFile(d), obj)
-		logger.Debugf("copied template %s to %s", f, destination)
+		logger.Tracef("copied template %s to %s", f, destination)
 		if err != nil {
 			return fmt.Errorf("cannot copy template: %v", err)
 		}

@@ -8,7 +8,7 @@ import (
 )
 
 func TestWarning(t *testing.T) {
-	logger := shared.NewLogger("test")
+	logger := shared.NewLogger().With("test")
 	err := shared.NewUserWarning("This is a warning")
 	assert.True(t, shared.IsUserWarning(err))
 	assert.Equal(t, "This is a warning", shared.UserWarnMessage(err))

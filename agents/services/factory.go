@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"github.com/codefly-dev/core/agents/communicate"
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
@@ -14,123 +15,126 @@ import (
 	"google.golang.org/grpc"
 )
 
-type IFactory interface {
-	Init(req *servicev1.InitRequest) (*factoryv1.InitResponse, error)
-
-	Create(req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error)
-	Update(req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error)
-
-	Sync(req *factoryv1.SyncRequest) (*factoryv1.SyncResponse, error)
-
-	Build(req *factoryv1.BuildRequest) (*factoryv1.BuildResponse, error)
-	Deploy(req *factoryv1.DeploymentRequest) (*factoryv1.DeploymentResponse, error)
-
-	Communicate(req *agentsv1.Engage) (*agentsv1.InformationRequest, error)
-}
-
-type ServiceFactory struct {
-	client factoryv1.FactoryClient
-	agent  *configurations.Agent
-}
-
 type ServiceFactoryAgentContext struct {
 }
 
 func (m ServiceFactoryAgentContext) Key(p *configurations.Agent, unique string) string {
-	return p.Key(configurations.AgentFactoryService, unique)
+	return p.Key(configurations.FactoryServiceAgent, unique)
 }
 
 func (m ServiceFactoryAgentContext) Default() plugin.Plugin {
-	return &ServiceFactoryAgent{}
+	return &FactoryAgentGRPC{}
 }
 
-func (m ServiceFactory) Init(req *servicev1.InitRequest) (*factoryv1.InitResponse, error) {
-	return m.client.Init(context.Background(), req)
+var _ agents.AgentContext = ServiceFactoryAgentContext{}
+
+type Factory interface {
+	Init(ctx context.Context, req *servicev1.InitRequest) (*factoryv1.InitResponse, error)
+
+	Create(ctx context.Context, req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error)
+	Update(ctx context.Context, req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error)
+
+	Sync(ctx context.Context, req *factoryv1.SyncRequest) (*factoryv1.SyncResponse, error)
+
+	Build(ctx context.Context, req *factoryv1.BuildRequest) (*factoryv1.BuildResponse, error)
+	Deploy(ctx context.Context, req *factoryv1.DeploymentRequest) (*factoryv1.DeploymentResponse, error)
+
+	// Communicate is a special method that is used to communicate with the agent
+	communicate.Communicate
 }
 
-func (m ServiceFactory) Create(req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error) {
-	return m.client.Create(context.Background(), req)
+type FactoryAgent struct {
+	client factoryv1.FactoryClient
+	agent  *configurations.Agent
 }
 
-func (m ServiceFactory) Update(req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error) {
-	return m.client.Update(context.Background(), req)
+func (m FactoryAgent) Init(ctx context.Context, req *servicev1.InitRequest) (*factoryv1.InitResponse, error) {
+	return m.client.Init(ctx, req)
 }
 
-func (m ServiceFactory) Sync(req *factoryv1.SyncRequest) (*factoryv1.SyncResponse, error) {
-	return m.client.Sync(context.Background(), req)
+func (m FactoryAgent) Create(ctx context.Context, req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error) {
+	return m.client.Create(ctx, req)
 }
 
-func (m ServiceFactory) Build(req *factoryv1.BuildRequest) (*factoryv1.BuildResponse, error) {
-	return m.client.Build(context.Background(), req)
+func (m FactoryAgent) Update(ctx context.Context, req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error) {
+	return m.client.Update(ctx, req)
 }
 
-func (m ServiceFactory) Deploy(req *factoryv1.DeploymentRequest) (*factoryv1.DeploymentResponse, error) {
-	return m.client.Deploy(context.Background(), req)
+func (m FactoryAgent) Sync(ctx context.Context, req *factoryv1.SyncRequest) (*factoryv1.SyncResponse, error) {
+	return m.client.Sync(ctx, req)
 }
 
-func (m ServiceFactory) Communicate(req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
-	return m.client.Communicate(context.Background(), req)
+func (m FactoryAgent) Build(ctx context.Context, req *factoryv1.BuildRequest) (*factoryv1.BuildResponse, error) {
+	return m.client.Build(ctx, req)
 }
 
-type ServiceFactoryAgent struct {
-	// GRPCAgent must still implement the Agent interface
+func (m FactoryAgent) Deploy(ctx context.Context, req *factoryv1.DeploymentRequest) (*factoryv1.DeploymentResponse, error) {
+	return m.client.Deploy(ctx, req)
+}
+
+func (m FactoryAgent) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+	return m.client.Communicate(ctx, req)
+}
+
+type FactoryAgentGRPC struct {
+	// GRPCAgent must still implement the ServiceAgent interface
 	plugin.Plugin
-	Factory IFactory
+	Factory Factory
 }
 
-func (p *ServiceFactoryAgent) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
+func (p *FactoryAgentGRPC) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
 	factoryv1.RegisterFactoryServer(s, &FactoryServer{Factory: p.Factory})
 	return nil
 }
 
-func (p *ServiceFactoryAgent) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &ServiceFactory{client: factoryv1.NewFactoryClient(c)}, nil
+func (p *FactoryAgentGRPC) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
+	return &FactoryAgent{client: factoryv1.NewFactoryClient(c)}, nil
 }
 
 // FactoryServer wraps the gRPC protocol Request/Response
 type FactoryServer struct {
 	factoryv1.UnimplementedFactoryServer
-	Factory IFactory
+	Factory Factory
 }
 
 func (m *FactoryServer) Init(ctx context.Context, req *servicev1.InitRequest) (*factoryv1.InitResponse, error) {
-	return m.Factory.Init(req)
+	return m.Factory.Init(ctx, req)
 }
 
 func (m *FactoryServer) Create(ctx context.Context, req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error) {
-	return m.Factory.Create(req)
+	return m.Factory.Create(ctx, req)
 }
 
 func (m *FactoryServer) Update(ctx context.Context, req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error) {
-	return m.Factory.Update(req)
+	return m.Factory.Update(ctx, req)
 }
 
 func (m *FactoryServer) Sync(ctx context.Context, req *factoryv1.SyncRequest) (*factoryv1.SyncResponse, error) {
-	return m.Factory.Sync(req)
+	return m.Factory.Sync(ctx, req)
 }
 
 func (m *FactoryServer) Build(ctx context.Context, req *factoryv1.BuildRequest) (*factoryv1.BuildResponse, error) {
-	return m.Factory.Build(req)
+	return m.Factory.Build(ctx, req)
 }
 
 func (m *FactoryServer) Deploy(ctx context.Context, req *factoryv1.DeploymentRequest) (*factoryv1.DeploymentResponse, error) {
-	return m.Factory.Deploy(req)
+	return m.Factory.Deploy(ctx, req)
 }
 
 func (m *FactoryServer) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
-	return m.Factory.Communicate(req)
+	return m.Factory.Communicate(ctx, req)
 }
 
-func LoadFactory(conf *configurations.Service) (*ServiceFactory, error) {
+func LoadFactory(ctx context.Context, conf *configurations.Service) (*FactoryAgent, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("conf cannot be nil")
 	}
 	if conf.Agent == nil {
-		return nil, shared.NewLogger("services.LoadFactory<%s>", conf.Name).Errorf("agent found nil")
+		return nil, shared.NewLogger().With("services.LoadFactory<%s>", conf.Name).Errorf("agent found nil")
 	}
-	logger := shared.NewLogger("services.LoadFactory<%s>", conf.Agent.Name())
+	logger := shared.NewLogger().With("services.LoadFactory<%s>", conf.Agent.Identifier())
 	logger.Debugf("loading service factory")
-	factory, err := agents.Load[ServiceFactoryAgentContext, ServiceFactory](conf.Agent.Of(configurations.AgentFactoryService), conf.Unique())
+	factory, err := agents.Load[ServiceFactoryAgentContext, FactoryAgent](ctx, conf.Agent.Of(configurations.FactoryServiceAgent), conf.Unique())
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service factory conf")
 	}
@@ -138,9 +142,9 @@ func LoadFactory(conf *configurations.Service) (*ServiceFactory, error) {
 	return factory, nil
 }
 
-func NewFactoryAgent(conf *configurations.Agent, factory IFactory) agents.AgentImplementation {
+func NewFactoryAgent(conf *configurations.Agent, factory Factory) agents.AgentImplementation {
 	return agents.AgentImplementation{
 		Configuration: conf,
-		Agent:         &ServiceFactoryAgent{Factory: factory},
+		Agent:         &FactoryAgentGRPC{Factory: factory},
 	}
 }

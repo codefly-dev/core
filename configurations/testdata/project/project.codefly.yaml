@@ -1,15 +1,7 @@
 name: codefly-platform
-style: monorepo
 domain: github.com/codefly-ai/codefly-platform
-organization: codefly.ai
-relative-path: codefly-platform
+organization:
+  name: codefly.ai
 applications:
   - name: web*
   - name: management
-partials:
-  - name: workspace
-    applications:
-      - management
-      - web
-providers:
-  - name: auth0

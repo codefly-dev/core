@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -22,7 +23,7 @@ func NewFile(file string) File {
 }
 
 func (f *File) RelativeFrom(base Dir) (*File, error) {
-	logger := NewLogger("shared.File.RelativeFrom<%s><%s>", f.file, base)
+	logger := NewLogger().With("shared.File.RelativeFrom<%s><%s>", f.file, base)
 	rel, err := filepath.Rel(base.name, f.file)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot get relative path")
@@ -47,7 +48,7 @@ func (d *Dir) Relative() string {
 }
 
 func (d *Dir) RelativeFrom(base Dir) (*Dir, error) {
-	logger := NewLogger("shared.dir.RelativeFrom<%s><%s>", d, base)
+	logger := NewLogger().With("shared.dir.RelativeFrom<%s><%s>", d, base)
 	rel, err := filepath.Rel(base.Absolute(), d.Absolute())
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot get relative path")
@@ -68,10 +69,10 @@ func NewDir(dir string, args ...any) Dir {
 }
 
 func Local(dir string) (*Dir, error) {
-	logger := NewLogger("shared.Local<%s>", dir)
+	logger := NewLogger().With("shared.Local<%s>", dir)
 	cur, err := os.Getwd()
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot get current directory")
+		return nil, logger.Wrapf(err, "cannot get active directory")
 	}
 	return &Dir{name: filepath.Join(cur, dir)}, nil
 }
@@ -102,7 +103,7 @@ type CopyInstruction struct {
 // CheckDirectory checks if a directory exists
 // otherwise returns an error
 func CheckDirectory(path string) error {
-	logger := NewLogger("shared.CheckDirectory<%s>", path)
+	logger := NewLogger().With("shared.CheckDirectory<%s>", path)
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -125,9 +126,9 @@ func CreateDirIf(path string) error {
 	return nil
 }
 
-func CheckEmptyDirectoryOrCreate(path string) error {
-	logger := NewLogger("shared.CheckEmptyDirectoryOrCreate<%s>", path)
-	err := CheckDirectoryOrCreate(path)
+func CheckEmptyDirectoryOrCreate(ctx context.Context, path string) error {
+	logger := GetLogger(ctx)
+	err := CheckDirectoryOrCreate(ctx, path)
 	if err != nil {
 		return logger.Wrapf(err, "cannot check or create directory")
 	}
@@ -142,16 +143,15 @@ func CheckEmptyDirectoryOrCreate(path string) error {
 	return nil
 }
 
-func CheckDirectoryOrCreate(path string) error {
-	logger := NewLogger("shared.CheckEmptyDirectoryOrCreate<%s>", path)
-	logger.Tracef("Checking for empty or create")
+func CheckDirectoryOrCreate(ctx context.Context, path string) error {
+	logger := GetLogger(ctx)
 	// Check if directory exists
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			err = os.MkdirAll(path, 0o755)
 			if err != nil {
-				return logger.Wrapf(err, "cannot create directory")
+				return logger.Wrapf(err, "cannot create directory: <%s>", path)
 			}
 		}
 		return logger.Wrapf(err, "cannot create directory") // Some other error occurred
@@ -164,8 +164,8 @@ func CheckDirectoryOrCreate(path string) error {
 	return nil
 }
 
-func CopyFile(from string, to string) error {
-	logger := NewLogger("builder.CopyFile<%s><%s>", from, to)
+func CopyFile(_ context.Context, from string, to string) error {
+	logger := NewLogger().With("builder.CopyFile<%s><%s>", from, to)
 	// Open source file for reading
 	srcFile, err := os.Open(from)
 	if err != nil {
@@ -196,7 +196,7 @@ type Replacement struct {
 }
 
 func CopyFileWithReplacement(from string, to string, replacements []Replacement) error {
-	logger := NewLogger("builder.CopyFile<%s><%s>", from, to)
+	logger := NewLogger().With("builder.CopyFile<%s><%s>", from, to)
 	// Open source file for reading
 	src, err := os.ReadFile(from)
 	if err != nil {
@@ -221,15 +221,15 @@ func CopyFileWithReplacement(from string, to string, replacements []Replacement)
 }
 
 // CopyDirectory recursively copies a directory
-func CopyDirectory(src, dst string) error {
-	logger := NewLogger("shared.Copyshared.Directory<%s><%s>", src, dst)
+func CopyDirectory(ctx context.Context, src, dst string) error {
+	logger := NewLogger().With("CopyDirectory<%s><%s>", src, dst)
 	// Check if source directory exists
 	if err := CheckDirectory(src); err != nil {
 		return logger.Wrapf(err, "source directory does not exist")
 	}
 
 	// Check if destination directory exists
-	if err := CheckDirectoryOrCreate(dst); err != nil {
+	if err := CheckDirectoryOrCreate(ctx, dst); err != nil {
 		return logger.Wrapf(err, "destination directory does not exist")
 	}
 
@@ -247,12 +247,12 @@ func CopyDirectory(src, dst string) error {
 
 		// If the content is a directory, recursively copy it
 		if content.IsDir() {
-			if err := CopyDirectory(srcPath, dstPath); err != nil {
+			if err := CopyDirectory(ctx, srcPath, dstPath); err != nil {
 				return logger.Wrapf(err, "cannot copy directory")
 			}
 		} else {
 			// Otherwise, copy the file
-			if err := CopyFile(srcPath, dstPath); err != nil {
+			if err := CopyFile(ctx, srcPath, dstPath); err != nil {
 				return logger.Wrapf(err, "cannot copy file")
 			}
 		}

@@ -1,6 +1,7 @@
 package configurations
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -15,14 +16,14 @@ import (
 type Configuration interface{}
 
 func SolveDir(dir string) string {
-	logger := shared.NewLogger("configurations.SolveDir")
+	logger := shared.NewLogger().With("configurations.SolveDir")
 	if filepath.IsLocal(dir) || strings.HasPrefix(dir, ".") || strings.HasPrefix(dir, "..") {
 		cur, err := os.Getwd()
 		if err != nil {
-			shared.ExitOnError(err, "cannot get current directory")
+			shared.ExitOnError(err, "cannot get active directory")
 		}
 		dir = filepath.Join(cur, dir)
-		logger.Tracef("Solving path <%s> from current directory", dir)
+		logger.Tracef("Solving path <%s> from active directory", dir)
 	}
 	// Validate
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -32,14 +33,14 @@ func SolveDir(dir string) string {
 }
 
 func SolveDirOrCreate(dir string) string {
-	logger := shared.NewLogger("configurations.SolveDirOrCreate")
+	logger := shared.NewLogger().With("configurations.SolveDirOrCreate")
 	if filepath.IsLocal(dir) || strings.HasPrefix(dir, ".") || strings.HasPrefix(dir, "..") {
 		cur, err := os.Getwd()
 		if err != nil {
-			shared.ExitOnError(err, "cannot get current directory")
+			shared.ExitOnError(err, "cannot get active directory")
 		}
 		dir = filepath.Join(cur, dir)
-		logger.Tracef("solving path <%s> from current directory", dir)
+		logger.Tracef("solving path <%s> from active directory", dir)
 	}
 	// Validate
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -57,7 +58,7 @@ func ConfigurationFile[C Configuration]() string {
 	case Info:
 		return InfoConfigurationName
 	case Workspace:
-		return GlobalConfigurationName
+		return WorkspaceConfigurationName
 	case Project:
 		return ProjectConfigurationName
 	case Application:
@@ -78,7 +79,7 @@ func Path[C Configuration](dir string) string {
 		if filepath.IsLocal(dir) {
 			cur, err := os.Getwd()
 			if err != nil {
-				shared.ExitOnError(err, "cannot get current directory")
+				shared.ExitOnError(err, "cannot get active directory")
 			}
 			dir = filepath.Join(cur, dir)
 		}
@@ -91,7 +92,7 @@ func ExistsAtDir[C Configuration](dir string) bool {
 	var c C
 	switch any(c).(type) {
 	case Workspace:
-		p = path.Join(dir, GlobalConfigurationName)
+		p = path.Join(dir, WorkspaceConfigurationName)
 	case Project:
 		p = path.Join(dir, ProjectConfigurationName)
 	case Application:
@@ -113,7 +114,7 @@ func TypeName[C Configuration]() string {
 }
 
 func LoadFromFs[C any](fs shared.FileSystem) (*C, error) {
-	logger := shared.NewLogger("configurations.LoadFromFs[%s]", TypeName[C]())
+	logger := shared.NewLogger().With("configurations.LoadFromFs[%s]", TypeName[C]())
 	content, err := fs.ReadFile(shared.NewFile(ConfigurationFile[C]()))
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot read file")
@@ -125,16 +126,16 @@ func LoadFromFs[C any](fs shared.FileSystem) (*C, error) {
 	return conf, nil
 }
 
-func LoadFromDir[C Configuration](dir string) (*C, error) {
+func LoadFromDir[C Configuration](ctx context.Context, dir string) (*C, error) {
 	p := Path[C](dir)
-	return LoadFromPath[C](p)
+	return LoadFromPath[C](ctx, p)
 }
 
-func LoadFromPath[C Configuration](p string) (*C, error) {
-	logger := shared.NewLogger("configurations.LoadFromPath[%s]<%s>", TypeName[C](), p)
-	logger.Tracef("loading")
+func LoadFromPath[C Configuration](ctx context.Context, p string) (*C, error) {
+	logger := shared.GetLogger(ctx).With("LoadFromPath[%s]", TypeName[C]())
+	logger.SetLogMethod(shared.AllActions).Tracef("loading")
 	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return nil, logger.Errorf("path doesn't exist")
+		return nil, logger.Errorf("path doesn't exist <%s>", p)
 	}
 	content, err := os.ReadFile(p)
 	if err != nil {
@@ -152,82 +153,18 @@ func LoadFromBytes[C Configuration](content []byte) (*C, error) {
 	return &config, nil
 }
 
-type OverrideHandler interface {
-	Replace(p string) bool
-}
-
-type SaveOption struct {
-	OverrideHandler
-}
-
-type SaveOptionFunc func(*SaveOption)
-
-func WithOverride(handler OverrideHandler) SaveOptionFunc {
-	return func(o *SaveOption) {
-		o.OverrideHandler = handler
+func SaveToDir[C Configuration](ctx context.Context, c *C, dir string) error {
+	logger := shared.GetLogger(ctx).With("SaveToDir[%s]", TypeName[C]())
+	logger.Tracef("saving to <%s>", dir)
+	err := shared.CheckDirectoryOrCreate(ctx, dir)
+	if err != nil {
+		return logger.Wrapf(err, "cannot check directory")
 	}
-}
-
-func SkipOverride() SaveOptionFunc {
-	return func(o *SaveOption) {
-		o.OverrideHandler = &SkipOverrideHandler{}
-	}
-}
-
-type SilentOverrideHandler struct{}
-
-func (h *SilentOverrideHandler) Replace(f string) bool {
-	return true
-}
-
-func SilentOverride() SaveOptionFunc {
-	return func(o *SaveOption) {
-		o.OverrideHandler = &SilentOverrideHandler{}
-	}
-}
-
-var _ OverrideHandler = (*SilentOverrideHandler)(nil)
-
-type AskOverrideHandler struct{}
-
-var overridingPath map[string]bool
-
-func init() {
-	overridingPath = make(map[string]bool)
-}
-
-func (a AskOverrideHandler) Replace(p string) bool {
-	if overridingPath[p] {
-		return true
-	}
-	ok := shared.Confirm(fmt.Sprintf("File %s already exists, want to override it?", p))
-	overridingPath[p] = ok
-	return ok
-}
-
-var _ OverrideHandler = (*AskOverrideHandler)(nil)
-
-func AskOverride() SaveOptionFunc {
-	return func(o *SaveOption) {
-		o.OverrideHandler = &AskOverrideHandler{}
-	}
-}
-
-type SkipOverrideHandler struct{}
-
-func (h *SkipOverrideHandler) Replace(f string) bool {
-	return false
-}
-
-func SaveToDir[C Configuration](c *C, dir string, opts ...SaveOptionFunc) error {
-	logger := shared.NewLogger("configurations.SaveToDir[%s]", TypeName[C]())
-	if !shared.DirectoryExists(dir) {
-		return logger.Errorf("directory doesn't exist")
-	}
-	option := SaveOptions(opts)
 	file := Path[C](dir)
 	if shared.FileExists(file) {
-		if !option.OverrideHandler.Replace(file) {
+		override := shared.GetOverride(ctx)
+		if !override.Replace(file) {
+			logger.Debugf("file <%s> already exists and override is not set", file)
 			return nil
 		}
 	}
@@ -235,39 +172,33 @@ func SaveToDir[C Configuration](c *C, dir string, opts ...SaveOptionFunc) error 
 	if err != nil {
 		return logger.Wrapf(err, "cannot marshal")
 	}
-	err = os.WriteFile(file, content, 0o644)
+	err = os.WriteFile(file, content, 0600)
 	if err != nil {
 		return logger.Wrapf(err, "cannot write")
 	}
 	return nil
 }
 
-func SaveOptions(opts []SaveOptionFunc) SaveOption {
-	saveOption := SaveOption{
-		OverrideHandler: &SilentOverrideHandler{},
+// FindUp looks for a configuration in the active directory and up
+func FindUp[C Configuration](ctx context.Context) (*string, error) {
+	logger := shared.GetLogger(ctx).With("configurations.FindUp[%s]", TypeName[C]())
+	cur, err := os.Getwd()
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot get active directory")
 	}
-	for _, opt := range opts {
-		opt(&saveOption)
-	}
-	return saveOption
-}
-
-// FindUp looks for a service configuration in the current directory and up
-func FindUp[C Configuration](cur string) (*C, error) {
-	logger := shared.NewLogger("configurations.FindUp[%s]", TypeName[C]())
 	logger.Tracef("from <%s>", cur)
 	for {
 		// Look for a service configuration
 		p := Path[C](cur)
 		if _, err := os.Stat(p); err == nil {
-			return LoadFromDir[C](cur)
+			return &cur, nil
 		}
 		// Move up one directory
 		cur = filepath.Dir(cur)
 
 		// Stop if we reach the root directory
 		if cur == "/" || cur == "." {
-			return nil, logger.Errorf("cannot find %s configuration: reached root directory", TypeName[C]())
+			return nil, nil
 		}
 	}
 }

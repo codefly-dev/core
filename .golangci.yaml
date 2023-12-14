@@ -23,9 +23,9 @@ linters:
     - gofmt
     - goimports
     - govet
-    #- revive
-      #- gocritic
-    #- gosec
+    - revive
+    - gocritic
+    - gosec
     - errcheck
     - staticcheck
     - unused
@@ -33,8 +33,6 @@ linters:
     - goconst
     - gocyclo
     - misspell
-    #- prealloc
-    #- fieldalignment
 
   disable:
     - gochecknoinits

@@ -27,7 +27,7 @@ type Change struct {
 }
 
 func NewWatcher(agentLogger *agents.AgentLogger, events chan<- Change, base string, includes []string, excludes ...string) (*Watcher, error) {
-	logger := shared.NewLogger("code.NewWatcher")
+	logger := shared.NewLogger().With("code.NewWatcher")
 	// Add new watcher.
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {

@@ -5,54 +5,90 @@ import (
 	"fmt"
 	"os"
 	runtimedebug "runtime/debug"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/pkg/errors"
 )
 
-type LogLevel = string
+type LogLevel int
+
+const (
+	Trace LogLevel = iota
+	Debug
+	Info
+	Warn
+)
 
 type ContextLoggerKey string
 
 const (
+	Base    = ContextLoggerKey("base")
 	Agent   = ContextLoggerKey("agent")
 	Service = ContextLoggerKey("service")
 )
 
-const (
-	TraceLevel LogLevel = "trace"
-	DebugLevel LogLevel = "debug"
-)
+// GetLogger returns the logger from the context
+// - Base
+// - Agent
+func GetLogger(ctx context.Context) BaseLogger {
+	//var logger BaseLogger
+	//l := ctx.Value(Base)
+	//if l != nil {
+	//	logger = l.(BaseLogger)
+	//} else {
+	//	l = ctx.Value(Agent)
+	//	if l == nil {
+	//		panic("no logger in context")
+	//	}
 
-func AgentLogger(ctx context.Context) BaseLogger {
+	child := NewLogger()
+	//child.lvl = logger.LogLevel()
+	//child.logMode = logger.LogMode()
+	//for _, action := range logger.actions {
+	//	child.actions = append(child.actions, action)
+	//}
+	return child
+}
+
+func GetAgentLogger(ctx context.Context) BaseLogger {
 	return ctx.Value(Agent).(BaseLogger)
 }
 
-func ServiceLogger(ctx context.Context) BaseLogger {
+func GetServiceLogger(ctx context.Context) BaseLogger {
 	return ctx.Value(Service).(BaseLogger)
 }
 
 // BaseLogger is the Minimum logger interface
 type BaseLogger interface {
-	Write(p []byte) (n int, err error)
-
-	SetLevel(lvl LogLevel)
+	SetLevel(lvl LogLevel) BaseLogger
+	SetLogMethod(actions LogMode) BaseLogger
+	With(format string, args ...any) BaseLogger
 
 	Info(format string, args ...any)
 
 	Tracef(format string, args ...any)
 	Debugf(format string, args ...any)
 	DebugMe(format string, args ...any)
-	TODO(format string, args ...any)
+	Warn(format string, args ...any)
 
+	TODO(format string, args ...any)
+	// Wrap uses action to wrap the error
+	Wrap(err error) error
+
+	// Wrapf uses action to wrap the error and other message
 	Wrapf(err error, format string, args ...any) error
+
 	Errorf(format string, args ...any) error
+	Oops(format string, args ...any)
+
+	// Write does the actual work
+	Write(p []byte) (n int, err error)
+	WarnOnError(err error)
 }
 
-// TODO: logger level
 var (
-	debug bool
-	trace bool
+	level = Info
 )
 
 var (
@@ -70,62 +106,101 @@ func init() {
 	warns = make(map[string]bool)
 }
 
-func SetDebug(d bool) {
-	debug = d
+func SetLogLevel(lvl LogLevel) {
+	level = lvl
 }
 
 func SetTodo(t bool) {
 	todo = t
 }
 
-func SetTrace(t bool) {
-	trace = t
-}
-
 func SetOverride(o bool) {
 	override = o
 }
 
-func Debug() bool {
-	return debug
+func IsDebug() bool {
+	return level == Debug || level == Trace
 }
 
 func Todo() bool {
-	return todo || Trace() || Debug()
+	return todo || IsTrace() || IsDebug()
 }
 
-func Trace() bool {
-	return trace
+func IsTrace() bool {
+	return level == Trace
 }
 
-func Override() bool {
+func GlobalOverride() bool {
 	return override
 }
 
 type Logger struct {
-	action string
-	debug  bool
-	trace  bool
+	actions []string
+	lvl     LogLevel
+	logMode LogMode
 }
 
-func (l *Logger) SetLevel(lvl LogLevel) {
-	if lvl == TraceLevel {
-		l.trace = true
-		l.debug = true
-	} else if lvl == DebugLevel {
-		l.debug = true
-	}
+func (l *Logger) Warn(format string, args ...any) {
+	l.TODO(format, args...)
 }
 
-func NewLogger(action string, args ...any) *Logger {
-	return &Logger{action: fmt.Sprintf(action, args...)}
+func NewLogger() *Logger {
+	return &Logger{
+		lvl:     Info,
+		logMode: StartAndLastAction}
 }
 
-func (l *Logger) IfNot(base BaseLogger) BaseLogger {
-	if base != nil {
-		return base
-	}
+func (l *Logger) SetLevel(lvl LogLevel) BaseLogger {
+	l.lvl = lvl
 	return l
+}
+
+func (l *Logger) SetLogMethod(mode LogMode) BaseLogger {
+	l.logMode = mode
+	return l
+}
+
+func (l *Logger) With(format string, args ...any) BaseLogger {
+	action := fmt.Sprintf(format, args...)
+	l.actions = append(l.actions, action)
+	return l
+}
+
+type LogMode string
+
+const (
+	LastAction         = LogMode("last_action")
+	StartAndLastAction = LogMode("start_and_last_action")
+	AllActions         = LogMode("all_actions")
+)
+
+func (l *Logger) SetLogMode(mode LogMode) {
+	l.logMode = mode
+}
+
+func (l *Logger) Action() string {
+	if len(l.actions) == 0 {
+		return ""
+	}
+	sep := " -> "
+	var ss []string
+	switch l.logMode {
+	case LastAction:
+		ss = append(ss, l.actions[len(l.actions)-1])
+	case StartAndLastAction:
+		sep = " ---> "
+		if len(l.actions) == 1 {
+			ss = append(ss, l.actions[0])
+		} else {
+			ss = append(ss, l.actions[0], l.actions[len(l.actions)-1])
+		}
+	case AllActions:
+		for _, s := range l.actions {
+			ss = append(ss, s)
+		}
+	}
+
+	return fmt.Sprintf("(%s)", strings.Join(ss, sep))
 }
 
 func (l *Logger) Write(p []byte) (n int, err error) {
@@ -133,11 +208,17 @@ func (l *Logger) Write(p []byte) (n int, err error) {
 }
 
 func (l *Logger) Errorf(format string, args ...any) error {
-	return errors.Wrap(errors.Errorf(format, args...), l.action)
+	return errors.Wrap(errors.Errorf(format, args...), l.Action())
+}
+
+func (l *Logger) Wrap(err error) error {
+	return errors.Wrapf(err, l.Action())
 }
 
 func (l *Logger) Wrapf(err error, format string, args ...any) error {
-	format = fmt.Sprintf("%s: %s", l.action, format)
+	if len(l.actions) > 0 {
+		format = fmt.Sprintf("%s: %s", l.Action(), format)
+	}
 	return errors.Wrapf(err, format, args...)
 }
 
@@ -151,27 +232,27 @@ func (l *Logger) Info(format string, args ...any) {
 }
 
 func (l *Logger) Tracef(format string, args ...any) {
-	if Trace() || l.trace {
+	if IsTrace() || l.lvl == Trace {
 		c := color.New(color.FgGreen)
-		c.Printf("[TRACE] (%s) ", l.action)
+		c.Printf("[TRACE]%s ", l.Action())
 		c.Printf(format, args...)
 		c.Println()
 	}
 }
 
 func (l *Logger) Debugf(format string, args ...any) {
-	if Debug() || Trace() || l.debug || l.trace {
+	if IsDebug() || IsTrace() || l.lvl <= Debug {
 		c := color.New(color.FgHiGreen, color.Bold)
-		c.Printf("[DEBUG] (%s) ", l.action)
+		c.Printf("[DEBUG]%s ", l.Action())
 		c.Printf(format, args...)
 		c.Println()
 	}
 }
 
 func (l *Logger) DebugMe(format string, args ...any) {
-	if Debug() || Trace() || l.debug || l.trace {
+	if IsDebug() || IsTrace() || l.lvl <= Debug {
 		c := color.New(color.Bold, color.FgHiWhite, color.BgRed)
-		c.Printf("[DEBUG ME] (%s) ", l.action)
+		c.Printf("[DEBUG ME]%s ", l.Action())
 		c.Printf(format, args...)
 		c.Println()
 	}
@@ -185,7 +266,7 @@ func (l *Logger) Oops(format string, args ...any) {
 }
 
 func (l *Logger) TODO(format string, args ...any) {
-	todo := fmt.Sprintf(fmt.Sprintf("⚠️TODO [%s] => %s", l.action, format), args...)
+	todo := fmt.Sprintf(fmt.Sprintf("⚠️TODO [%s] => %s", l.actions[len(l.actions)-1], format), args...)
 	if Todo() {
 		if !todos[format] {
 			todos[format] = true
@@ -196,7 +277,7 @@ func (l *Logger) TODO(format string, args ...any) {
 	}
 }
 
-func (l *Logger) Warn(err error) {
+func (l *Logger) WarnOnError(err error) {
 	c := color.New(color.FgHiWhite)
 	c.Print("⚠️ ")
 	c.Printf(UserWarnMessage(err))
@@ -205,7 +286,7 @@ func (l *Logger) Warn(err error) {
 
 func (l *Logger) WarnUnique(err error) {
 	if !warns[err.Error()] {
-		l.Warn(err)
+		l.WarnOnError(err)
 		warns[err.Error()] = true
 
 	}
@@ -234,9 +315,13 @@ func (l *Logger) Message(format string, args ...any) {
 func (l *Logger) Catch() {
 	if r := recover(); r != nil {
 		fmt.Println("Exiting the CLI unexpectedly")
-		if Debug() {
+		if IsDebug() {
 			fmt.Println(r)
 			fmt.Println(string(runtimedebug.Stack()))
 		}
 	}
+}
+
+func (l *Logger) Actions() []string {
+	return l.actions
 }

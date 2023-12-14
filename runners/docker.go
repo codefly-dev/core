@@ -165,7 +165,8 @@ func (r *DockerRunner) cleanContainers(name string) error {
 	var id string
 
 	match := fmt.Sprintf("/%s", name)
-	for _, c := range containers {
+	for i := range containers {
+		c := containers[i]
 		for _, cn := range c.Names {
 			if cn == match { // Docker prefixes names with a "/"
 				id = c.ID
@@ -260,7 +261,7 @@ func (r *DockerRunner) Start() error {
 }
 
 func (r *DockerRunner) Stop() error {
-	logger := shared.NewLogger("DockerRunner.Stop")
+	logger := shared.NewLogger().With("DockerRunner.Stop")
 	logger.Debugf("cleaning up everything by default")
 	for _, c := range r.Containers {
 		logger.Debugf("cleaning %v", c.Name)
@@ -281,7 +282,8 @@ func (r *DockerRunner) EnsureImage(imageName string) error {
 	}
 
 	imageExists := false
-	for _, image := range images {
+	for i := range images {
+		image := images[i]
 		for _, tag := range image.RepoTags {
 			if tag == imageName {
 				imageExists = true
@@ -302,7 +304,7 @@ func (r *DockerRunner) EnsureImage(imageName string) error {
 	return nil
 }
 
-func (r *DockerRunner) IP(instance *network.ApplicationEndpointInstance) (string, error) {
+func (r *DockerRunner) IP(*network.ApplicationEndpointInstance) (string, error) {
 	// Get IP Address
 	r.AgentLogger.TODO("DEAL WITH NETWORK DOCKER")
 	return "172.17.0.2", nil
@@ -331,7 +333,8 @@ func (r *DockerRunner) ContainerReady(name string) (bool, error) {
 	var id string
 
 	match := fmt.Sprintf("/%s", name)
-	for _, c := range containers {
+	for i := range containers {
+		c := containers[i]
 		for _, cn := range c.Names {
 			if cn == match { // Docker prefixes names with a "/"
 				id = c.ID

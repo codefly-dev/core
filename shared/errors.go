@@ -90,7 +90,7 @@ func UserWarnMessage(err error) string {
 		return userWarning.Error()
 	}
 
-	if debug {
+	if IsDebug() {
 		fmt.Printf("should have a user warning: got %T\n", err)
 	}
 	return ""
@@ -110,17 +110,41 @@ func NewOutputError(format string, args ...any) error {
 	return &OutputError{value: fmt.Sprintf(format, args...)}
 }
 
-func IsOutputError(err error) (error, bool) {
+func IsOutputError(err error) (bool, error) {
 	if err == nil {
-		return nil, false
+		return false, nil
 	}
 	var outputError *OutputError
 	ok := errors.As(err, &outputError)
-	return outputError, ok
+	return ok, outputError
 }
 
 func MultiErrors(errs ...error) error {
 	var result error
 	out := multierror.Append(result, errs...)
 	return out.ErrorOrNil()
+}
+
+type NilError[T any] struct {
+}
+
+func (n NilError[T]) Error() string {
+	var t *T
+	return fmt.Sprintf("%T cannot be nil", t)
+}
+
+func NewNilError[T any]() *NilError[T] {
+	return &NilError[T]{}
+}
+
+type InvalidArgumentError struct {
+	value string
+}
+
+func (i *InvalidArgumentError) Error() string {
+	return i.value
+}
+
+func NewInvalidArgumentError(s string) error {
+	return &InvalidArgumentError{value: s}
 }

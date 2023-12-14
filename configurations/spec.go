@@ -16,7 +16,7 @@ func LoadSpec(content []byte, obj any) error {
 }
 
 func SerializeSpec(spec any) ([]byte, error) {
-	logger := shared.NewLogger("configurations.SerializeSpec")
+	logger := shared.NewLogger().With("configurations.SerializeSpec")
 	content, err := yaml.Marshal(spec)
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot serialize object")

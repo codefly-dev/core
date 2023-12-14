@@ -19,17 +19,17 @@ func TestRouteExtended(t *testing.T) {
 	assert.Equal(t, "working", r.Extension.Protected)
 }
 
-func TestLoading(t *testing.T) {
-	// ctx := context.Background()
-	// ctx = context.WithValue(ctx, shared.Agent, shared.NewLogger("test"))
-	routes, err := configurations.LoadApplicationRoutes("testdata")
+func TestLoadingRoute(t *testing.T) {
+	ctx := shared.NewContext()
+	routes, err := configurations.LoadApplicationRoutes(ctx, "testdata")
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(routes))
 	assert.Equal(t, "/test", routes[0].Path)
 }
 
-func TestLoadingExtended(t *testing.T) {
-	routes, err := configurations.LoadApplicationExtendedRoutes[Auth]("testdata", shared.NewLogger("test"))
+func TestLoadingExtendedRoute(t *testing.T) {
+	ctx := shared.NewContext()
+	routes, err := configurations.LoadApplicationExtendedRoutes[Auth](ctx, "testdata")
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(routes))
 	assert.Equal(t, "/test", routes[0].Path)

@@ -1,117 +1,61 @@
 package configurations_test
 
-//
-//type override struct{}
-//
-//func (o override) Override(p string) bool {
-//	return false
-//}
-//
-//type globalConfigInput struct {
-//	createDefaultProject bool
-//}
-//
-//func (g *globalConfigInput) Fetch() error {
-//	return nil
-//}
-//
-//func (g *globalConfigInput) Organization() string {
-//	return "org:test"
-//}
-//
-//func (g *globalConfigInput) Domain() string {
-//	return "github.com/org/test"
-//}
-//
-//func (g *globalConfigInput) CreateDefaultProject() bool {
-//	return g.createDefaultProject
-//}
-//
-//func (g *globalConfigInput) ProjectBuilder() configurations.ProjectBuilder {
-//	return &projectBuilder{defaultProjectName: "test_project_name"}
-//}
-//
-//var g globalConfigInput
-//
-//type projectBuilder struct {
-//	defaultProjectName string
-//}
-//
-//func (b *projectBuilder) DefaultProjectName() string {
-//	return b.defaultProjectName
-//}
-//
-//func (b *projectBuilder) ProjectName() string {
-//	return b.defaultProjectName
-//}
-//
-//func (b *projectBuilder) Fetch() error {
-//	return nil
-//}
-//
-//func (b *projectBuilder) RelativePathOverride() string {
-//	return b.DefaultProjectName()
-//}
-//
-//func (b *projectBuilder) Style() configurations.ProjectStyle {
-//	return configurations.ProjectStyleMonorepo
-//}
-//
-//var over override
-//
-//type tmpPath struct {
-//	root string
-//}
-//
-////func (tp tmpPath) Exists(p string) bool {
-////	if _, err := os.Stat(path.Join(tp.root, p)); err == nil {
-////		return true
-////	}
-////	return false
-////}
-//
-//func TestGlobal(t *testing.T) {
-//	//shared.SetTrace(true)
-//	//
-//	//g = globalConfigInput{createDefaultProject: true}
-//	//
-//	//// Temporary directory
-//	//tmp := t.TempDir()
-//	//fromTmp := tmpPath{root: tmp}
-//	//configurations.OverrideWorkspaceConfigDir(path.Join(tmp, "global"))
-//	//configurations.OverrideWorkspaceProjectRoot(path.Join(tmp, "projects"))
-//	//
-//	//configurations.InitGlobal(&g, &over)
-//	//
-//	//config, err := configurations.Current()
-//	//assert.NoError(t, err)
-//	//assert.Equal(t, path.Join(tmp, "global"), config.Dir())
-//	//
-//	//assert.True(t, fromTmp.Exists("global/codefly.yaml"))
-//	//
-//	//// Check that we have a default project
-//	//configurations.Reset()
-//	//
-//	//assert.Equal(t, path.Join(tmp, "global"), configurations.Global().Dir())
-//	//assert.Equal(t, g.Organization(), configurations.Global().Organization)
-//	//assert.Equal(t, g.Domain(), configurations.Global().Domain)
-//	//
-//	//// We should also have a project from the option
-//	//assert.Equal(t, 1, len(configurations.Global().Projects))
-//	//assert.Equal(t, g.ProjectBuilder().ProjectName(), configurations.Global().Projects[0].Name)
-//	//assert.Equal(t, g.ProjectBuilder().ProjectName(), configurations.Global().CurrentProject)
-//	//assert.Equal(t, g.ProjectBuilder().RelativePathOverride(), configurations.Global().Projects[0].RelativePathOverride)
-//	//
-//	//assert.True(t, fromTmp.Exists("projects/test_project_name/project.codefly.yaml"))
-//	//
-//	//application := "test_application"
-//	//app, err := configurations.NewApplication(application)
-//	//assert.NoError(t, err)
-//	//assert.Equal(t, application, app.Name)
-//	//assert.Equal(t, application, app.RelativePathOverride)
-//	//assert.Equal(t, application, configurations.MustCurrentApplication().Name)
-//	//assert.Equal(t, application, configurations.MustCurrentProject().CurrentApplication)
-//	//
-//	//assert.True(t, fromTmp.Exists("projects/test_project_name/test_application"))
-//	//assert.True(t, fromTmp.Exists("projects/test_project_name/test_application/application.codefly.yaml"))
-//}
+import (
+	"context"
+	"os"
+	"testing"
+
+	"github.com/codefly-dev/core/actions/actions"
+	actionworkspace "github.com/codefly-dev/core/actions/workspace"
+	"github.com/codefly-dev/core/configurations"
+	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
+	v1base "github.com/codefly-dev/core/proto/v1/go/base"
+	"github.com/codefly-dev/core/shared"
+	"github.com/stretchr/testify/assert"
+)
+
+func createTestWorkspace(t *testing.T, ctx context.Context) (*configurations.Workspace, string) {
+	tmpDir := t.TempDir()
+
+	org := &v1base.Organization{
+		Name:   "codefly",
+		Domain: "https://github/codefly-dev",
+	}
+
+	action, err := actionworkspace.NewActionAddWorkspace(ctx, &v1actions.AddWorkspace{
+		Organization: org,
+		Name:         "test",
+		Dir:          tmpDir,
+		ProjectRoot:  tmpDir,
+	})
+	assert.NoError(t, err)
+
+	out, err := action.Run(ctx)
+	assert.NoError(t, err)
+
+	w := shared.Must(actions.As[configurations.Workspace](out))
+	assert.Equal(t, "codefly", w.Organization.Name)
+	assert.Equal(t, "https://github/codefly-dev", w.Domain)
+	assert.Equal(t, "test", w.Name)
+	assert.Equal(t, tmpDir, w.Dir())
+	configurations.SetLoadWorkspaceUnsafe(w)
+	return w, tmpDir
+}
+
+func TestCreateWorkspace(t *testing.T) {
+	ctx := shared.NewContext()
+	w, dir := createTestWorkspace(t, ctx)
+	defer os.RemoveAll(dir)
+
+	// Load back
+	w, err := configurations.LoadWorkspaceFromDirUnsafe(ctx, dir)
+	assert.NoError(t, err)
+	assert.Equal(t, "codefly", w.Organization.Name)
+	assert.Equal(t, "https://github/codefly-dev", w.Domain)
+
+	// Get active
+	w, err = configurations.LoadWorkspace(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, "codefly", w.Organization.Name)
+
+}

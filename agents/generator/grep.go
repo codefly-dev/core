@@ -32,7 +32,7 @@ func (r RegexpMatcher) Match(data []byte) [][]byte {
 }
 
 func NewRegexpMatcher(pattern string) (Matcher, error) {
-	logger := shared.NewLogger("generator.NewRegexpMatcher")
+	logger := shared.NewLogger().With("generator.NewRegexpMatcher")
 	if pattern == "" {
 		return nil, logger.Errorf("pattern cannot be empty")
 	}
@@ -76,7 +76,7 @@ func (g *Grep) Exclude(p string) bool {
 type HitExpansion = func(hit string) []string
 
 func (g *Grep) FindFiles(expand HitExpansion) (*MatchSummary, error) {
-	logger := shared.NewLogger("generator.Grep.FindFiles")
+	logger := shared.NewLogger().With("generator.Grep.FindFiles")
 	fileMatches := make(map[string]Match)
 	hits := make(map[string]bool)
 	expandedHits := make(map[string]bool)

@@ -1,8 +1,11 @@
 package endpoints
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"github.com/yoheimuta/go-protoparser/v4"
+	"github.com/yoheimuta/go-protoparser/v4/parser"
 	"os"
 
 	"github.com/codefly-dev/core/configurations"
@@ -12,43 +15,58 @@ import (
 	openapispec "github.com/go-openapi/spec"
 )
 
-func WithApi(endpoint *configurations.Endpoint, source ApiSource) (*basev1.Endpoint, error) {
-	logger := shared.NewLogger("services.DefaultApi")
-	logger.Debugf("VISILIBITY %v", endpoint.Scope)
+func WithAPI(endpoint *configurations.Endpoint, source APISource) (*basev1.Endpoint, error) {
+	logger := shared.NewLogger().With("services.DefaultApi")
 	api, err := source.Proto()
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot create grpc api: %v")
 	}
-	return &basev1.Endpoint{
-		Name:        endpoint.Name,
-		Scope:       endpoint.Scope,
-		Description: endpoint.Description,
-		Api:         api,
-	}, nil
+	base := BaseProto(endpoint)
+	base.Api = api
+	return base, nil
 }
 
-type ApiSource interface {
+type APISource interface {
 	Proto() (*basev1.API, error)
 }
 
-type GrpcApi struct {
+type GrpcAPI struct {
 	filename string
 	content  []byte
+	rpcs     []*basev1.RPC
 }
 
-func NewGrpcApi(endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
+func NewGrpcAPI(endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
 	// Read the file content
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %v", filename, err)
 	}
-	return WithApi(endpoint, &GrpcApi{filename: filename, content: content})
+
+	got, err := protoparser.Parse(bytes.NewReader(content))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse proto file %s: %v", filename, err)
+	}
+
+	var rpcs []*basev1.RPC
+	for _, element := range got.ProtoBody {
+		if service, ok := element.(*parser.Service); ok {
+			for _, inside := range service.ServiceBody {
+				if rpc, ok := inside.(*parser.RPC); ok {
+					rpcs = append(rpcs, &basev1.RPC{Name: rpc.RPCName})
+				}
+			}
+		}
+	}
+
+	return WithAPI(endpoint, &GrpcAPI{filename: filename, content: content, rpcs: rpcs})
 }
 
-func (grpc *GrpcApi) Proto() (*basev1.API, error) {
+func (grpc *GrpcAPI) Proto() (*basev1.API, error) {
 	// Add a GrpcAPI message with the file content
 	grpcAPI := &basev1.GrpcAPI{
 		Proto: grpc.content,
+		Rpcs:  grpc.rpcs,
 	}
 	// Add an API message with the GrpcAPI message
 	api := &basev1.API{
@@ -59,16 +77,21 @@ func (grpc *GrpcApi) Proto() (*basev1.API, error) {
 	return api, nil
 }
 
-type RestApi struct {
-	// openapi []byte
+type RestAPI struct {
+	filename string
+	openapi  []byte
+	routes   []*basev1.RestRoute
 }
 
-func NewRestApi(endpoint *configurations.Endpoint) (*basev1.Endpoint, error) {
-	return WithApi(endpoint, &RestApi{})
+func NewRestAPI(endpoint *configurations.Endpoint) (*basev1.Endpoint, error) {
+	return WithAPI(endpoint, &RestAPI{})
 }
 
-func (http *RestApi) Proto() (*basev1.API, error) {
-	restAPI := &basev1.RestAPI{}
+func (rest *RestAPI) Proto() (*basev1.API, error) {
+	restAPI := &basev1.RestAPI{
+		Openapi: rest.openapi,
+		Routes:  rest.routes,
+	}
 	// Add an API message with the GrpcAPI message
 	api := &basev1.API{
 		Value: &basev1.API_Rest{
@@ -78,48 +101,40 @@ func (http *RestApi) Proto() (*basev1.API, error) {
 	return api, nil
 }
 
-func NewRestApiFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
-	logger := shared.NewLogger("services.Default")
+func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
+	logger := shared.GetLogger(ctx).With("NewRestAPIFromOpenAPI")
 	logger.TODO("visibility")
-	rest := &basev1.API_Rest{Rest: &basev1.RestAPI{}}
-	e := &basev1.Endpoint{
-		Name:        endpoint.Name,
-		Scope:       endpoint.Scope,
-		Description: endpoint.Description,
-		Api: &basev1.API{
-			Value: rest,
-		},
-	}
 	if !shared.FileExists(filename) {
-		return e, nil
+		return nil, logger.Errorf("file does not exist: %s", filename)
 	}
 	// Read the file content
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, logger.Wrapf(err, "failed to read file")
 	}
-	swagger, err := parseOpenApi(content)
+	swagger, err := parseOpenAPI(content)
 	if err != nil {
 		return nil, logger.Wrapf(err, "failed to parse openapi spec")
 	}
 
-	rest.Rest.Openapi = content
-	for p, item := range swagger.Paths.Paths {
-		rest.Rest.Routes = append(rest.Rest.Routes, &basev1.RestRoute{
-			Methods: getHTTPMethodsFromPathItem(item),
-			Path:    p,
+	var routes []*basev1.RestRoute
+	for path := range swagger.Paths.Paths {
+		item := swagger.Paths.Paths[path]
+		routes = append(routes, &basev1.RestRoute{
+			Methods: getHTTPMethodsFromPathItem(&item),
+			Path:    path,
 		})
 	}
-	return e, nil
+	return WithAPI(endpoint, &RestAPI{openapi: content, routes: routes, filename: filename})
 }
 
-type Tcp struct{}
+type TCP struct{}
 
-func NewTcp() (*Tcp, error) {
-	return &Tcp{}, nil
+func NewTCP() (*TCP, error) {
+	return &TCP{}, nil
 }
 
-func (*Tcp) Proto() (*basev1.API, error) {
+func (*TCP) Proto() (*basev1.API, error) {
 	// Add a GrpcAPI message with the file content
 	tcp := &basev1.TcpAPI{}
 	// Add an API message with the GrpcAPI message
@@ -132,7 +147,7 @@ func (*Tcp) Proto() (*basev1.API, error) {
 }
 
 /* Helpers */
-func parseOpenApi(spec []byte) (*openapispec.Swagger, error) {
+func parseOpenAPI(spec []byte) (*openapispec.Swagger, error) {
 	analyzed, err := openapiloads.Analyzed(spec, "2.0")
 	if err != nil {
 		return nil, err
@@ -140,29 +155,29 @@ func parseOpenApi(spec []byte) (*openapispec.Swagger, error) {
 	return analyzed.Spec(), nil
 }
 
-func getHTTPMethodsFromPathItem(pathItem openapispec.PathItem) []basev1.HttpMethod {
-	var methods []basev1.HttpMethod
+func getHTTPMethodsFromPathItem(pathItem *openapispec.PathItem) []basev1.HTTPMethod {
+	var methods []basev1.HTTPMethod
 
 	if pathItem.Get != nil {
-		methods = append(methods, basev1.HttpMethod_GET)
+		methods = append(methods, basev1.HTTPMethod_GET)
 	}
 	if pathItem.Post != nil {
-		methods = append(methods, basev1.HttpMethod_POST)
+		methods = append(methods, basev1.HTTPMethod_POST)
 	}
 	if pathItem.Put != nil {
-		methods = append(methods, basev1.HttpMethod_PUT)
+		methods = append(methods, basev1.HTTPMethod_PUT)
 	}
 	if pathItem.Delete != nil {
-		methods = append(methods, basev1.HttpMethod_DELETE)
+		methods = append(methods, basev1.HTTPMethod_DELETE)
 	}
 	if pathItem.Options != nil {
-		methods = append(methods, basev1.HttpMethod_OPTIONS)
+		methods = append(methods, basev1.HTTPMethod_OPTIONS)
 	}
 	if pathItem.Head != nil {
-		methods = append(methods, basev1.HttpMethod_HEAD)
+		methods = append(methods, basev1.HTTPMethod_HEAD)
 	}
 	if pathItem.Patch != nil {
-		methods = append(methods, basev1.HttpMethod_PATCH)
+		methods = append(methods, basev1.HTTPMethod_PATCH)
 	}
 	return methods
 }

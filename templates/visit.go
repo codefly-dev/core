@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"fmt"
 	"path"
 
@@ -9,16 +10,16 @@ import (
 
 type FileVisitor interface {
 	Apply(path shared.File, to shared.Dir) error
-	Ignore(file shared.File) bool
+	Skip(file string) bool
 }
 
 type Ignore interface {
 	Ignore(file shared.File) bool
 }
 
-func CopyAndVisit(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, destination shared.Dir, visitor FileVisitor) error {
-	logger.Tracef("visiting to directory %s -> %s", root, destination)
-	err := shared.CheckDirectoryOrCreate(fs.AbsoluteDir(destination))
+func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, visitor FileVisitor) error {
+	logger := shared.GetLogger(ctx).With("visiting to directory %s -> %s", root, destination)
+	err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
 	if err != nil {
 		return logger.Wrapf(err, "cannot check or create directory")
 	}
@@ -28,7 +29,7 @@ func CopyAndVisit(logger shared.BaseLogger, fs shared.FileSystem, root shared.Di
 	if err != nil {
 		return fmt.Errorf("cannot read template directory: %v", err)
 	}
-	logger.Debugf("walked %d directories and %d files", len(dirs), len(files))
+	logger.Tracef("walked %d directories and %d files", len(dirs), len(files))
 	for _, d := range dirs {
 		// We take the relative path from the root directory
 		rel, err := d.RelativeFrom(root)
@@ -37,18 +38,17 @@ func CopyAndVisit(logger shared.BaseLogger, fs shared.FileSystem, root shared.Di
 		}
 		dest := destination.Join(*rel)
 		// Hack
-		if visitor.Ignore(shared.NewFile(d.Absolute())) {
+		if visitor.Skip(d.Absolute()) {
 			continue
 		}
-		err = shared.CheckDirectoryOrCreate(dest.Absolute())
+		err = shared.CheckDirectoryOrCreate(ctx, dest.Absolute())
 		if err != nil {
 			return logger.Wrapf(err, "cannot check or create directory for destination")
 		}
 
 	}
 	for _, f := range files {
-
-		if visitor.Ignore(f) {
+		if visitor.Skip(f.Base()) {
 			logger.Tracef("ignoring %s", f)
 			continue
 		}

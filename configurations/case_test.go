@@ -3,7 +3,8 @@ package configurations_test
 import (
 	"testing"
 
-	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/shared"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -17,7 +18,7 @@ func TestTitleCase(t *testing.T) {
 		{input: "some_name", expected: "SomeName"},
 	}
 	for _, tc := range tcs {
-		actual := configurations.ToTitle(tc.input)
+		actual := shared.ToTitle(tc.input)
 		assert.Equal(t, tc.expected, actual)
 	}
 }

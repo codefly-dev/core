@@ -1,0 +1,5 @@
+{
+  "kind": "organization.add",
+  "name": "My Organization",
+  "domain": "https://github.com/my-organization"
+}

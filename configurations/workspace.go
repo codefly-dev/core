@@ -1,277 +1,355 @@
 package configurations
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
+	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
+
 	"github.com/codefly-dev/core/shared"
 )
 
-const GlobalConfigurationName = "codefly.yaml"
+const WorkspaceConfigurationName = "codefly.yaml"
 
 // Workspace configuration for codefly CLI
 type Workspace struct {
-	Organization string `yaml:"organization"`
-	Domain       string `yaml:"domain"`
+	Name         string       `yaml:"name"`
+	Organization Organization `yaml:"organization,omitempty"`
+	Domain       string       `yaml:"domain,omitempty"`
 
-	// Projects in the global configuration
+	// Projects in the Workspace configuration
 	Projects []*ProjectReference `yaml:"projects"`
 
+	// Configuration
+	ProjectsRoot string `yaml:"projects-root"`
+
 	// Internal
-	dir            string
-	currentProject string
+	dir           string
+	activeProject string
 }
 
-func LoadCurrentProject() (*Project, error) {
-	logger := shared.NewLogger("LoadCurrentProject")
-	current := Global().CurrentProject()
-	if current == "" {
-		return nil, shared.NewUserError("no current project")
-	}
-	reference, err := FindProjectReference(current)
+// NewWorkspace creates a new workspace
+func NewWorkspace(ctx context.Context, action *v1actions.AddWorkspace) (*Workspace, error) {
+	logger := shared.GetLogger(ctx).With("NewWorkspace<%s>", action.Name)
+	org, err := OrganizationFromProto(ctx, action.Organization)
 	if err != nil {
-		return nil, shared.NewUserError("cannot find current project <%s> in global configuration", current)
+		return nil, err
 	}
-	p, err := LoadProjectFromDir(path.Join(GlobalProjectRoot(), reference.RelativePath()))
+	projectRoot := action.ProjectRoot
+	if projectRoot == "" {
+		projectRoot = defaultProjectsRoot
+	}
+	logger.Debugf("workspace project root: <%s>", projectRoot)
+	workspace := &Workspace{
+		Name:         action.Name,
+		Organization: *org,
+		Domain:       org.Domain,
+		ProjectsRoot: projectRoot,
+	}
+	if action.Dir != "" {
+		workspace.dir = action.Dir
+		workspaceConfigDir = workspace.dir
+	} else {
+		workspace.dir = WorkspaceConfigurationDir()
+	}
+	return workspace, nil
+}
+
+// LoadWorkspace returns the active Workspace configuration
+func LoadWorkspace(ctx context.Context) (*Workspace, error) {
+	if workspace != nil {
+		return workspace, nil
+	}
+	logger := shared.GetLogger(ctx).With("configurations.LoadWorkspace")
+	logger.Tracef("loading active workspace in %s", WorkspaceConfigurationDir())
+	dir := WorkspaceConfigurationDir()
+	return LoadWorkspaceFromDirUnsafe(ctx, dir)
+}
+
+// LoadWorkspaceFromDirUnsafe loads a Workspace configuration from a directory
+func LoadWorkspaceFromDirUnsafe(ctx context.Context, dir string) (*Workspace, error) {
+	logger := shared.GetLogger(ctx).With("LoadWorkspaceFromDirUnsafe")
+	dir = SolveDir(dir)
+	w, err := LoadFromDir[Workspace](ctx, dir)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot load Workspace configuration")
+	}
+	w.dir = dir
+	err = w.postLoad(ctx)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot post load Workspace configuration")
+	}
+	return w, nil
+}
+
+func (workspace *Workspace) postLoad(ctx context.Context) error {
+	for _, ref := range workspace.Projects {
+		if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
+			ref.Name = name
+			workspace.activeProject = name
+		}
+	}
+	return nil
+}
+
+// Pre-save deals with the * style of active
+func (workspace *Workspace) preSave(ctx context.Context) error {
+	if len(workspace.Projects) == 1 {
+		workspace.Projects[0].Name = MakeInactive(workspace.Projects[0].Name)
+		return nil
+	}
+	for _, ref := range workspace.Projects {
+		if ref.Name == workspace.activeProject {
+			ref.Name = MakeActive(ref.Name)
+		} else {
+			ref.Name = MakeInactive(ref.Name)
+		}
+	}
+	return nil
+}
+
+// Dir returns the absolute path to the Workspace configuration directory
+func (workspace *Workspace) Dir() string {
+	return workspace.dir
+}
+
+// ProjectRoot returns the absolute path to the Workspace project root
+func (workspace *Workspace) ProjectRoot() string {
+	return workspace.ProjectsRoot
+}
+
+// Reload a project configuration
+func (workspace *Workspace) Reload(ctx context.Context) (*Workspace, error) {
+	updated, err := LoadWorkspaceFromDirUnsafe(ctx, workspace.Dir())
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// ReloadProject a project configuration
+func (workspace *Workspace) ReloadProject(ctx context.Context, project *Project) (*Project, error) {
+	return workspace.LoadProjectFromName(ctx, project.Name)
+}
+
+// LoadProjectFromReference loads a project from  a reference
+func (workspace *Workspace) LoadProjectFromReference(ctx context.Context, ref *ProjectReference) (*Project, error) {
+	logger := shared.GetLogger(ctx).With("LoadProject<%s>", ref.Name)
+	p, err := workspace.LoadProjectFromDir(ctx, workspace.ProjectPath(ctx, ref))
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load project")
-	}
-	err = p.Process()
-	if err != nil {
-		return nil, logger.Wrapf(err, "cannot process project")
 	}
 	return p, nil
 }
 
-func ListProjects() ([]*Project, error) {
-	logger := shared.NewLogger("ListProjects")
-	var projects []*Project
-	for _, p := range Global().Projects {
-		project, err := LoadProjectFromDir(ProjectPath(p.RelativePath()))
-		if err != nil {
-			return nil, logger.Wrapf(err, "cannot load project <%s>", p.Name)
-		}
-		projects = append(projects, project)
+// ProjectPath returns the absolute path of a project
+// Cases for Reference.Path
+// nil: relative path to workspace with name
+// rel: relative path
+// /abs: absolute path
+func (workspace *Workspace) ProjectPath(ctx context.Context, ref *ProjectReference) string {
+	if ref.PathOverride == nil {
+		return path.Join(workspace.ProjectRoot(), ref.Name)
 	}
-	return projects, nil
+	if filepath.IsAbs(*ref.PathOverride) {
+		return *ref.PathOverride
+	}
+	return path.Join(workspace.ProjectRoot(), *ref.PathOverride)
 }
 
-func KnownProjects() []string {
+// Save Workspaces
+func (workspace *Workspace) Save(ctx context.Context) error {
+	logger := shared.GetLogger(ctx).With("SaveWorkspace")
+	logger.Tracef("saving at <%s>", workspace.Dir())
+	err := SaveToDir[Workspace](ctx, workspace, workspace.Dir())
+	if err != nil {
+		return shared.GetLogger(ctx).With("Saving Workspace configuration").Wrap(err)
+	}
+	return nil
+}
+
+func IsInitialized(ctx context.Context) bool {
+	return shared.DirectoryExists(WorkspaceConfigurationDir())
+}
+
+/*
+
+Workspaces have a active project, so we don't always have to specify it
+
+*/
+
+// SetProjectActive sets the active project
+func (workspace *Workspace) SetProjectActive(ctx context.Context, input *v1actions.SetProjectActive) error {
+	if len(workspace.Projects) == 1 {
+		workspace.activeProject = workspace.Projects[0].Name
+		return nil
+	}
+	for _, ref := range workspace.Projects {
+		if ref.Name == input.Name {
+			ref.MarkAsActive()
+		} else {
+			ref.MarkAsInactive()
+		}
+	}
+	return workspace.Save(ctx)
+}
+
+func (workspace *Workspace) ActiveProject(ctx context.Context) (*ProjectReference, error) {
+	logger := shared.GetLogger(ctx).With("LoadActiveProject")
+	if len(workspace.Projects) == 0 {
+		return nil, logger.Errorf("no projects in Workspace configuration")
+	}
+	if len(workspace.Projects) == 1 {
+		return workspace.Projects[0], nil
+	}
+	for _, ref := range workspace.Projects {
+		if ref.Name == workspace.activeProject {
+			return ref, nil
+		}
+
+	}
+	return nil, logger.Errorf("no active project in Workspace configuration")
+}
+
+// LoadActiveProject loads the active project
+func (workspace *Workspace) LoadActiveProject(ctx context.Context) (*Project, error) {
+	logger := shared.GetLogger(ctx).With("LoadActiveProject")
+	ref, err := workspace.ActiveProject(ctx)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot load active project")
+	}
+	return workspace.LoadProjectFromReference(ctx, ref)
+}
+
+// ProjectNames returns the names of the projects in the Workspace configuration
+func (workspace *Workspace) ProjectNames() []string {
 	var names []string
-	for _, p := range Global().Projects {
+	for _, p := range workspace.Projects {
 		names = append(names, p.Name)
 	}
 	return names
 }
 
-func WorkspaceMatch(entry string, name string) bool {
-	return entry == name || entry == fmt.Sprintf("%s*", name)
-}
-
-func FindProjectReference(name string) (*ProjectReference, error) {
-	for _, p := range Global().Projects {
-		if WorkspaceMatch(p.Name, name) {
+// FindProjectReference finds a project reference by name
+func (workspace *Workspace) FindProjectReference(name string) (*ProjectReference, error) {
+	for _, p := range workspace.Projects {
+		if ReferenceMatch(p.Name, name) {
 			return p, nil
 		}
 	}
 	return nil, fmt.Errorf("cannot find project <%s>", name)
 }
 
-func CurrentProject() (*Project, error) {
-	logger := shared.NewLogger("CurrentProject")
-	if currentProject == nil {
-		project, err := LoadCurrentProject()
+// LoadProjects loads all the projects in the Workspace
+func (workspace *Workspace) LoadProjects(ctx context.Context) ([]*Project, error) {
+	var projects []*Project
+	for _, ref := range workspace.Projects {
+		p, err := workspace.LoadProjectFromReference(ctx, ref)
 		if err != nil {
-			return nil, logger.Wrapf(err, "cannot load current project")
+			return nil, err
 		}
-		currentProject = project
+		projects = append(projects, p)
 	}
-	return currentProject, nil
+	return projects, nil
 }
 
-func MustCurrentProject() *Project {
-	if currentProject == nil {
-		project, err := CurrentProject()
-		shared.ExitOnError(err, "cannot load current project")
-		currentProject = project
-	}
-	return currentProject
-}
-
-func (w *Workspace) SetCurrentProject(p *Project) {
-	currentProject = p
-	if w.CurrentProject() == p.Name {
-		return
-	}
-	for _, ref := range w.Projects {
-		if ref.Name == p.Name {
-			ref.Name = fmt.Sprintf("%s*", ref.Name)
-		}
-	}
-	w.SaveCurrent(SilentOverride())
-}
-
-func (w *Workspace) AddProject(p *Project) {
-	for _, project := range Global().Projects {
-		if project.Name == p.Name {
-			return
-		}
-	}
-	w.Projects = append(Global().Projects, &ProjectReference{
-		Name: p.Name,
-	})
-	w.SaveCurrent()
-}
-
-// A GlobalConfigurationInputer abstracts away global configuration and default of project creation
-type GlobalConfigurationInputer interface {
-	// Fetch instantiates the input
-	Fetch() error
-	// Organization is now global
-	Organization() string
-	// Domain associated with the organization
-	Domain() string
-}
-
-// InitGlobal initializes the global configuration of codefly
-func InitGlobal(getter GlobalConfigurationInputer) {
-	logger := shared.NewLogger("configurations.InitCodefly")
-	logger.Tracef("creating if needed global configuration dir: %v", globalConfigDir)
-
-	dir := SolveDirOrCreate(globalConfigDir)
-
-	if ExistsAtDir[Workspace](dir) {
-		logger.Debugf("global configuration already exists and no override")
-		return
-	}
-	logger.Debugf("to <%s>", dir)
-
-	err := getter.Fetch()
+// LoadProjectFromName loads a project from a name
+func (workspace *Workspace) LoadProjectFromName(ctx context.Context, name string) (*Project, error) {
+	logger := shared.GetLogger(ctx).With("LoadProjectFromName<%s>", name)
+	ref, err := workspace.FindProjectReference(name)
 	if err != nil {
-		shared.UnexpectedExitOnError(err, "cannot fetch global configuration")
+		return nil, logger.Wrapf(err, "cannot find project reference")
 	}
-	global := Workspace{
-		dir:          dir,
-		Organization: getter.Organization(),
-		Domain:       getter.Domain(),
+	return workspace.LoadProjectFromDir(ctx, workspace.ProjectPath(ctx, ref))
+}
+
+// LoadProjectFromDir loads a project from a directory
+func (workspace *Workspace) LoadProjectFromDir(ctx context.Context, dir string) (*Project, error) {
+	logger := shared.GetLogger(ctx).With("LoadProjectFromDir<%s>", dir)
+	logger.Tracef("loading project from <%s>", dir)
+	project, err := LoadFromDir[Project](ctx, dir)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot load project configuration")
 	}
-	err = SaveToDir[Workspace](&global, dir, SkipOverride())
-	shared.ExitOnError(err, "cannot save global configuration")
+	project.dir = dir
+	err = project.postLoad(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return project, nil
 }
 
-// Dir returns the absolute path to the global configuration directory
-func (w *Workspace) Dir() string {
-	return w.dir
+/*
+Global Workspace Configuration
+*/
+
+// WorkspaceConfigurationDir returns the directory where the Workspace configuration is stored
+// Initialized to the default user folder
+func WorkspaceConfigurationDir() string {
+	return workspaceConfigDir
 }
 
-func (w *Workspace) Relative(dir string) string {
-	rel, err := filepath.Rel(w.Dir(), dir)
-	shared.ExitOnError(err, "cannot compute relative path from workspace")
-	return rel
+// ExistsProject returns true if the project exists
+func (workspace *Workspace) ExistsProject(name string) bool {
+	for _, p := range workspace.Projects {
+		if p.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
-func (w *Workspace) CurrentProject() string {
-	return w.currentProject
+var (
+	workspaceConfigDir string
+	// This is where the Workspace configuration is stored
+	// default to ~/.codefly
+
+	defaultProjectsRoot string
+	// This is where the projects are stored
+	// default to ~/codefly
+
+)
+
+func init() {
+	workspaceConfigDir = path.Join(HomeDir(), ".codefly")
+	defaultProjectsRoot = path.Join(HomeDir(), "codefly")
 }
 
-func (w *Workspace) DeleteProject(name string) {
+/*
+
+CLEAN
+
+
+*/
+
+func (workspace *Workspace) DeleteProject(ctx context.Context, name string) error {
+	project, err := workspace.LoadProjectFromName(ctx, name)
+	if err != nil {
+		return err
+	}
 	var projects []*ProjectReference
-	for _, p := range w.Projects {
+	for _, p := range workspace.Projects {
 		if p.Name == name {
 			continue
 		}
 		projects = append(projects, p)
 	}
-	w.Projects = projects
-	if w.currentProject == name {
-		w.currentProject = ""
-	}
-	w.SaveCurrent()
-}
-
-// Current returns the current global configuration
-func Current() (*Workspace, error) {
-	logger := shared.NewLogger("configurations.Current")
-	if global != nil {
-		return global, nil
-	}
-	logger.Tracef("getting current")
-	g, err := LoadFromDir[Workspace](GlobalConfigurationDir())
+	workspace.Projects = projects
+	err = workspace.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load global configuration")
+		return shared.GetLogger(ctx).With("Deleting project <%s>", name).Wrap(err)
 	}
-	g.dir = GlobalConfigurationDir()
-	global = g
-	for _, p := range g.Projects {
-		if name, ok := strings.CutSuffix(p.Name, "*"); ok {
-			p.Name = name
-			g.currentProject = name
-		}
-	}
-	return global, nil
+	os.RemoveAll(project.Dir())
+	return nil
 }
 
-func (w *Workspace) SaveCurrent(opts ...SaveOptionFunc) {
-	err := SaveToDir[Workspace](w, w.Dir(), opts...)
-	shared.UnexpectedExitOnError(err, "cannot save global configuration")
-}
+var workspace *Workspace
 
-func Reset() {
-	global = nil
-	currentProject = nil
-}
-
-func GlobalConfigurationDir() string {
-	return globalConfigDir
-}
-
-func GlobalProjectRoot() string {
-	return globalProjectRoot
-}
-
-// Global returns the current global configuration
-func Global() *Workspace {
-	if global == nil {
-		g, err := Current()
-		shared.ExitOnError(err, "cannot load current global configuration")
-		global = g
-	}
-	return global
-}
-
-// This is where the global configuration is stored
-// default to ~/.codefly/.
-var globalConfigDir string
-
-// This is where we create projects from:
-// default to ~/codefly
-
-var (
-	globalProjectRoot string
-	global            *Workspace
-)
-
-func init() {
-	globalConfigDir = path.Join(HomeDir(), ".codefly")
-	globalProjectRoot = path.Join(HomeDir(), "codefly")
-}
-
-func LoadGlobalConfiguration() {
-	logger := shared.NewLogger("configurations.LoadGlobalConfiguration")
-	p := Path[Workspace](globalConfigDir)
-	logger.Debugf("from <%s>", p)
-}
-
-func OverrideWorkspaceConfigDir(dir string) {
-	logger := shared.NewLogger("configurations.OverrideWorkspaceConfigDir")
-	logger.Debugf("overriding global workspace configuration directory to <%s>", dir)
-	globalConfigDir = dir
-}
-
-func OverrideWorkspaceProjectRoot(dir string) {
-	logger := shared.NewLogger("configurations.OverrideWorkspaceProjectRoot")
-	logger.Debugf("overriding global project root to <%s>", dir)
-	globalProjectRoot = dir
+func SetLoadWorkspaceUnsafe(w *Workspace) {
+	workspace = w
 }

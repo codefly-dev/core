@@ -3,6 +3,8 @@ package configurations_test
 import (
 	"testing"
 
+	"github.com/codefly-dev/core/shared"
+
 	"github.com/codefly-dev/core/configurations"
 	"github.com/stretchr/testify/assert"
 )
@@ -28,7 +30,7 @@ func TestParsing(t *testing.T) {
 
 func TestUniqueAndBack(t *testing.T) {
 	unique := "app/svc/cool::rest"
-	e := &configurations.Endpoint{Name: "cool", Api: configurations.Rest}
+	e := &configurations.Endpoint{Name: "cool", API: configurations.Rest}
 	assert.Equal(t, unique, e.Unique("app", "svc"))
 	key := configurations.AsEndpointEnvironmentVariableKey("app", "svc", e)
 	back, err := configurations.ParseEndpointEnvironmentVariableKey(key)
@@ -36,7 +38,7 @@ func TestUniqueAndBack(t *testing.T) {
 	assert.Equal(t, unique, back)
 
 	unique = "app/svc::rest"
-	e = &configurations.Endpoint{Name: configurations.Rest, Api: configurations.Rest}
+	e = &configurations.Endpoint{Name: configurations.Rest, API: configurations.Rest}
 	key = configurations.AsEndpointEnvironmentVariableKey("app", "svc", e)
 	back, err = configurations.ParseEndpointEnvironmentVariableKey(key)
 	assert.NoError(t, err)
@@ -44,7 +46,8 @@ func TestUniqueAndBack(t *testing.T) {
 }
 
 func TestLoadingFromDir(t *testing.T) {
-	conf, err := configurations.LoadServiceFromDir("testdata/service")
+	ctx := shared.NewContext()
+	conf, err := configurations.LoadServiceFromDirUnsafe(ctx, "testdata/service")
 	assert.NoError(t, err)
 
 	assert.Equal(t, 2, len(conf.Endpoints))
@@ -54,11 +57,11 @@ func TestLoadingFromDir(t *testing.T) {
 	for _, e := range conf.Endpoints {
 		if e.Name == configurations.Rest {
 			restFound = true
-			assert.Equal(t, "project", e.Scope)
+			assert.Equal(t, "project", e.Visibility)
 		}
 		if e.Name == configurations.Grpc {
 			grpcFound = true
-			assert.Equal(t, "", e.Scope)
+			assert.Equal(t, "", e.Visibility)
 		}
 	}
 	assert.True(t, restFound)

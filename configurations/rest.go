@@ -13,21 +13,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type HttpMethod string
+type HTTPMethod string
 
 const (
-	HttpMethodGet     HttpMethod = "GET"
-	HttpMethodPut     HttpMethod = "PUT"
-	HttpMethodPost    HttpMethod = "POST"
-	HttpMethodDelete  HttpMethod = "DELETE"
-	HttpMethodPatch   HttpMethod = "PATCH"
-	HttpMethodOptions HttpMethod = "OPTIONS"
-	HttpMethodHead    HttpMethod = "HEAD"
+	HTTPMethodGet     HTTPMethod = "GET"
+	HTTPMethodPut     HTTPMethod = "PUT"
+	HTTPMethodPost    HTTPMethod = "POST"
+	HTTPMethodDelete  HTTPMethod = "DELETE"
+	HTTPMethodPatch   HTTPMethod = "PATCH"
+	HTTPMethodOptions HTTPMethod = "OPTIONS"
+	HTTPMethodHead    HTTPMethod = "HEAD"
 )
 
 type RestRoute struct {
 	Path        string
-	Methods     []HttpMethod
+	Methods     []HTTPMethod
 	Application string `yaml:"-"`
 	Service     string `yaml:"-"`
 }
@@ -77,9 +77,9 @@ func sanitize(route string) string {
 	return strings.ReplaceAll(route, "/", "_")
 }
 
-func (r *RestRoute) FilePath(dir string) (string, error) {
+func (r *RestRoute) FilePath(ctx context.Context, dir string) (string, error) {
 	dir = path.Join(dir, r.Application, r.Service)
-	err := shared.CheckDirectoryOrCreate(dir)
+	err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return "", err
 	}
@@ -90,8 +90,8 @@ func (r *RestRoute) FilePath(dir string) (string, error) {
 // Save a route:
 // The path is inferred from the configuration
 func (r *RestRoute) Save(ctx context.Context, dir string) error {
-	logger := shared.AgentLogger(ctx)
-	file, err := r.FilePath(dir)
+	logger := shared.GetAgentLogger(ctx)
+	file, err := r.FilePath(ctx, dir)
 	if err != nil {
 		return logger.Wrapf(err, "cannot get file path for route to save")
 	}
@@ -114,8 +114,8 @@ func (r *RestRoute) Save(ctx context.Context, dir string) error {
 
 // Delete a route
 func (r *RestRoute) Delete(ctx context.Context, dir string) error {
-	logger := shared.AgentLogger(ctx)
-	file, err := r.FilePath(dir)
+	logger := shared.GetAgentLogger(ctx)
+	file, err := r.FilePath(ctx, dir)
 	if err != nil {
 		return logger.Wrapf(err, "cannot get file path for route to delete")
 	}
@@ -147,7 +147,7 @@ func (r *ApplicationRestRoute) Save(ctx context.Context, dir string) error {
 	return nil
 }
 
-func LoadApplicationRoutes(dir string) ([]*RestRoute, error) {
+func LoadApplicationRoutes(ctx context.Context, dir string) ([]*RestRoute, error) {
 	var routes []*RestRoute
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -158,7 +158,7 @@ func LoadApplicationRoutes(dir string) ([]*RestRoute, error) {
 			continue
 		}
 		name := entry.Name()
-		r, err := LoadServiceRoutes(path.Join(dir, name), entry.Name())
+		r, err := LoadServiceRoutes(ctx, path.Join(dir, name), entry.Name())
 		if err != nil {
 			return nil, err
 		}
@@ -167,7 +167,7 @@ func LoadApplicationRoutes(dir string) ([]*RestRoute, error) {
 	return routes, nil
 }
 
-func LoadServiceRoutes(dir string, app string) ([]*RestRoute, error) {
+func LoadServiceRoutes(ctx context.Context, dir string, app string) ([]*RestRoute, error) {
 	var routes []*RestRoute
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -178,7 +178,7 @@ func LoadServiceRoutes(dir string, app string) ([]*RestRoute, error) {
 			continue
 		}
 		name := entry.Name()
-		r, err := LoadRoutes(path.Join(dir, name), app, name)
+		r, err := LoadRoutes(ctx, path.Join(dir, name), app, name)
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +187,7 @@ func LoadServiceRoutes(dir string, app string) ([]*RestRoute, error) {
 	return routes, nil
 }
 
-func LoadRoutes(dir string, app string, service string) ([]*RestRoute, error) {
+func LoadRoutes(ctx context.Context, dir string, app string, service string) ([]*RestRoute, error) {
 	var routes []*RestRoute
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -200,7 +200,7 @@ func LoadRoutes(dir string, app string, service string) ([]*RestRoute, error) {
 		if !strings.HasSuffix(entry.Name(), "route.yaml") {
 			continue
 		}
-		r, err := LoadRoute(path.Join(dir, entry.Name()), app, service)
+		r, err := LoadRoute(ctx, path.Join(dir, entry.Name()), app, service)
 		if err != nil {
 			return nil, err
 		}
@@ -209,8 +209,8 @@ func LoadRoutes(dir string, app string, service string) ([]*RestRoute, error) {
 	return routes, nil
 }
 
-func LoadRoute(p string, app string, service string) (*RestRoute, error) {
-	r, err := LoadFromPath[RestRoute](p)
+func LoadRoute(ctx context.Context, p string, app string, service string) (*RestRoute, error) {
+	r, err := LoadFromPath[RestRoute](ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ func LoadRoute(p string, app string, service string) (*RestRoute, error) {
 
 // Extension of routes -- can we merge both?
 
-func LoadApplicationExtendedRoutes[T any](dir string, logger shared.BaseLogger) ([]*ExtendedRestRoute[T], error) {
+func LoadApplicationExtendedRoutes[T any](_ context.Context, dir string) ([]*ExtendedRestRoute[T], error) {
 	var routes []*ExtendedRestRoute[T]
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -348,30 +348,30 @@ func ConvertRoutes(routes []*basev1.RestRoute, app string, service string) []*Re
 	return rs
 }
 
-func ConvertMethods(methods []basev1.HttpMethod) []HttpMethod {
-	var ms []HttpMethod
+func ConvertMethods(methods []basev1.HTTPMethod) []HTTPMethod {
+	var ms []HTTPMethod
 	for _, m := range methods {
 		ms = append(ms, ConvertMethod(m))
 	}
 	return ms
 }
 
-func ConvertMethod(m basev1.HttpMethod) HttpMethod {
+func ConvertMethod(m basev1.HTTPMethod) HTTPMethod {
 	switch m {
-	case basev1.HttpMethod_GET:
-		return HttpMethodGet
-	case basev1.HttpMethod_POST:
-		return HttpMethodPost
-	case basev1.HttpMethod_PUT:
-		return HttpMethodPut
-	case basev1.HttpMethod_DELETE:
-		return HttpMethodDelete
-	case basev1.HttpMethod_PATCH:
-		return HttpMethodPatch
-	case basev1.HttpMethod_OPTIONS:
-		return HttpMethodOptions
-	case basev1.HttpMethod_HEAD:
-		return HttpMethodHead
+	case basev1.HTTPMethod_GET:
+		return HTTPMethodGet
+	case basev1.HTTPMethod_POST:
+		return HTTPMethodPost
+	case basev1.HTTPMethod_PUT:
+		return HTTPMethodPut
+	case basev1.HTTPMethod_DELETE:
+		return HTTPMethodDelete
+	case basev1.HTTPMethod_PATCH:
+		return HTTPMethodPatch
+	case basev1.HTTPMethod_OPTIONS:
+		return HTTPMethodOptions
+	case basev1.HTTPMethod_HEAD:
+		return HTTPMethodHead
 	}
-	panic(fmt.Sprintf("unknown http method: <%v>", m))
+	panic(fmt.Sprintf("unknown HTTP method: <%v>", m))
 }

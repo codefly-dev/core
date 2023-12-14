@@ -72,12 +72,12 @@ func ToEndpoint(endpoint *basev1.Endpoint) *configurations.Endpoint {
 	case *basev1.API_Rest:
 		api = configurations.Rest
 	case *basev1.API_Tcp:
-		api = configurations.Tcp
+		api = configurations.TCP
 	}
 	return &configurations.Endpoint{
 		Name:        endpoint.Name,
 		Description: endpoint.Description,
-		Api:         api,
+		API:         api,
 	}
 }
 
@@ -92,7 +92,7 @@ type Address struct {
 
 func (pm *ApplicationEndpointInstances) Address(endpoint *basev1.Endpoint) *Address {
 	// Returns the first one
-	logger := shared.NewLogger("network.ApplicationEndpointInstances.Address")
+	logger := shared.NewLogger().With("network.ApplicationEndpointInstances.Address")
 	logger.TODO("implement the free local IP: will depend on deploy")
 	for _, e := range pm.ApplicationEndpointInstances {
 		if ToUnique(e.ApplicationEndpoint.Endpoint) == ToUnique(endpoint) {

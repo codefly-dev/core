@@ -8,7 +8,7 @@ func InPartialMode() bool {
 	return mode == ModePartial
 }
 
-func InApplicationMode() bool {
+func ApplicationMode() bool {
 	return mode == ModeApplication
 }
 

@@ -58,7 +58,7 @@ func (fr *FSReader) Copy(s string, file string) error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(file, content, 0o644)
+	err = os.WriteFile(file, content, 0600)
 	if err != nil {
 		return err
 	}

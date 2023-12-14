@@ -9,22 +9,28 @@ import (
 type Endpoint struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
-	Scope       string `yaml:"scope,omitempty"`
-	Api         string `yaml:"api,omitempty"`
+	Visibility  string `yaml:"scope,omitempty"`
+	API         string `yaml:"api,omitempty"`
 	// FailOver indicates that this endpoint should fail over to another endpoint
 	FailOver *Endpoint `yaml:"fail-over,omitempty"`
 }
 
 func (e *Endpoint) Unique(app string, service string) string {
 	unique := fmt.Sprintf("%s/%s", app, service)
-	// Convention: if Endpoint == Api, we skip the Endpoint
-	if e.Name != "" && e.Name != e.Api {
+	// Convention: if Endpoint == API, we skip the Endpoint
+	if e.Name != "" && e.Name != e.API {
 		unique = fmt.Sprintf("%s/%s", unique, e.Name)
 	}
-	if e.Api != "" {
-		return fmt.Sprintf("%s::%s", unique, e.Api)
+	if e.API != "" {
+		return fmt.Sprintf("%s::%s", unique, e.API)
 	}
 	return unique
+}
+
+func (e *Endpoint) AsReference() *EndpointReference {
+	return &EndpointReference{
+		Name: e.Name,
+	}
 }
 
 /* For runtime */
@@ -76,9 +82,9 @@ func ParseEndpointEnvironmentVariableKey(key string) (string, error) {
 		return fmt.Sprintf("%s/%s", unique, remaining), nil
 	} else if len(tokens) == 2 {
 		return fmt.Sprintf("%s/%s::%s", unique, tokens[0], tokens[1]), nil
-	} else {
-		return Unknown, fmt.Errorf("needs to be at least of the form app__svc___endpoint")
 	}
+	return Unknown, fmt.Errorf("needs to be at least of the form app__svc___endpoint")
+
 }
 
 type EndpointInstance struct {

@@ -31,10 +31,29 @@ type ServiceLogger struct {
 	Service         string
 	Application     string
 	JSON            bool
+	action          string
+	trace           bool
+	debug           bool
 }
 
-func (l *ServiceLogger) SetLevel(lvl shared.LogLevel) {
-	// Not supported for now
+func (l *ServiceLogger) SetLogMethod(actions shared.LogMode) shared.BaseLogger {
+	l.UnsafeWrite("TODO: SETLOG")
+	return l
+}
+
+func (l *ServiceLogger) Warn(format string, args ...any) {
+	l.UnsafeWrite("WARN" + fmt.Sprintf(format, args...))
+}
+func (l *ServiceLogger) WarnOnError(err error) {
+	l.UnsafeWrite("WARN" + err.Error())
+}
+
+func (l *ServiceLogger) Oops(format string, args ...any) {
+	l.UnsafeWrite("OOPS" + fmt.Sprintf(format, args...))
+}
+
+func (l *ServiceLogger) SetLevel(shared.LogLevel) shared.BaseLogger {
+	return l
 }
 
 func NewServiceLogger(identity *servicev1.ServiceIdentity, agent *configurations.Agent) *ServiceLogger {
@@ -43,9 +62,10 @@ func NewServiceLogger(identity *servicev1.ServiceIdentity, agent *configurations
 	})
 	return &ServiceLogger{
 		transport:       logger,
-		AgentIdentifier: agent.Identifier,
+		AgentIdentifier: agent.Name,
 		Application:     identity.Application,
 		Service:         identity.Name,
+		debug:           true,
 	}
 }
 
@@ -76,10 +96,7 @@ func (l *ServiceLogger) Write(p []byte) (n int, err error) {
 }
 
 func (l *ServiceLogger) UnsafeWrite(s string) {
-	_, err := l.Write([]byte(s))
-	if err != nil {
-		panic(err)
-	}
+	_, _ = l.Write([]byte(s))
 }
 
 func (l *ServiceLogger) Info(format string, args ...any) {
@@ -87,13 +104,15 @@ func (l *ServiceLogger) Info(format string, args ...any) {
 }
 
 func (l *ServiceLogger) Tracef(format string, args ...any) {
-	// TODO implement me
-	panic("implement me")
+	if l.trace {
+		l.UnsafeWrite(fmt.Sprintf(format, args...))
+	}
 }
 
 func (l *ServiceLogger) Debugf(format string, args ...any) {
-	// TODO implement me
-	panic("implement me")
+	if l.trace || l.debug {
+		l.UnsafeWrite(fmt.Sprintf(format, args...))
+	}
 }
 
 func (l *ServiceLogger) DebugMe(format string, args ...any) {
@@ -101,18 +120,34 @@ func (l *ServiceLogger) DebugMe(format string, args ...any) {
 }
 
 func (l *ServiceLogger) TODO(format string, args ...any) {
-	// TODO implement me
-	panic("implement me")
+	if _, ok := todos[format]; ok {
+		return
+	}
+	todos[format] = true
+	l.UnsafeWrite("⚠️TODO " + fmt.Sprintf(format, args...))
+}
+
+func (l *ServiceLogger) With(format string, args ...any) shared.BaseLogger {
+	l.action = fmt.Sprintf(format, args...)
+	return l
+}
+
+func (l *ServiceLogger) Wrap(err error) error {
+	if l.action == "" {
+		return err
+	}
+	return errors.Wrapf(err, l.action)
 }
 
 func (l *ServiceLogger) Wrapf(err error, format string, args ...any) error {
-	// TODO implement me
-	panic("implement me")
+	if l.action != "" {
+		format = fmt.Sprintf("%s: %s", l.action, format)
+	}
+	return errors.Wrapf(err, format, args...)
 }
 
 func (l *ServiceLogger) Errorf(format string, args ...any) error {
-	// TODO implement me
-	panic("implement me")
+	return fmt.Errorf(format, args...)
 }
 
 /*
@@ -132,15 +167,34 @@ type AgentLogger struct {
 	Application     string
 	debug           bool
 	trace           bool
+	action          string
 }
 
-func (l *AgentLogger) SetLevel(lvl shared.LogLevel) {
-	if lvl == shared.TraceLevel {
-		l.trace = true
-		l.debug = true
-	} else if lvl == shared.DebugLevel {
-		l.debug = true
-	}
+func (l *AgentLogger) Warn(format string, args ...any) {
+	l.UnsafeWrite("WARN" + fmt.Sprintf(format, args...))
+}
+
+func (l *AgentLogger) WarnOnError(err error) {
+	l.UnsafeWrite("WARN" + err.Error())
+}
+
+func (l *AgentLogger) SetLevel(lvl shared.LogLevel) shared.BaseLogger {
+	l.UnsafeWrite("TODO: SETLEVEL")
+	return l
+}
+
+func (l *AgentLogger) SetLogMethod(actions shared.LogMode) shared.BaseLogger {
+	l.UnsafeWrite("TODO: SETLOG")
+	return l
+}
+
+func (l *AgentLogger) Oops(format string, args ...any) {
+	l.UnsafeWrite("OOPP TO BE IM")
+}
+
+func (l *AgentLogger) With(format string, args ...any) shared.BaseLogger {
+	l.action = fmt.Sprintf(format, args...)
+	return l
 }
 
 func (l *AgentLogger) SetDebug() {
@@ -153,7 +207,17 @@ func (l *AgentLogger) SetTrace() {
 	l.transport.SetLevel(hclog.Trace)
 }
 
+func (l *AgentLogger) Wrap(err error) error {
+	if l.action == "" {
+		return err
+	}
+	return errors.Wrapf(err, l.action)
+}
+
 func (l *AgentLogger) Wrapf(err error, format string, args ...any) error {
+	if l.action != "" {
+		format = fmt.Sprintf("%s: %s", l.action, format)
+	}
 	return errors.Wrapf(err, format, args...)
 }
 
@@ -162,10 +226,11 @@ func NewAgentLogger(identity *servicev1.ServiceIdentity, agent *configurations.A
 		JSONFormat: true,
 	})
 	return &AgentLogger{
-		AgentIdentifier: agent.Identifier,
+		AgentIdentifier: agent.Name,
 		Application:     identity.Application,
 		Service:         identity.Name,
 		transport:       logger,
+		debug:           true,
 	}
 }
 
@@ -178,7 +243,7 @@ type LogEntry struct {
 	DebugMe         bool
 }
 
-func (l *AgentLogger) WriteEntry(entry LogEntry) (n int, err error) {
+func (l *AgentLogger) WriteEntry(entry *LogEntry) (n int, err error) {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		// Log the error to a fallback logger or stderr.
@@ -199,8 +264,8 @@ const (
 	ServiceKind = "service"
 )
 
-func (l *AgentLogger) NewLogEntry(b []byte) LogEntry {
-	return LogEntry{
+func (l *AgentLogger) NewLogEntry(b []byte) *LogEntry {
+	return &LogEntry{
 		Msg:             string(b),
 		Kind:            AgentKind,
 		AgentIdentifier: l.AgentIdentifier,
@@ -274,10 +339,6 @@ func (l *AgentLogger) Errorf(format string, args ...any) error {
 	return fmt.Errorf(format, args...)
 }
 
-func (l *AgentLogger) Warn(format string, args ...any) {
-	l.UnsafeWrite(fmt.Sprintf(fmt.Sprintf("WARN: %s", format), args...))
-}
-
 func (l *AgentLogger) Catch() {
 	if r := recover(); r != nil {
 		l.Debugf("IN PANIC CATCH")
@@ -296,7 +357,7 @@ var (
 )
 
 func init() {
-	output = NewServerFormatter(shared.Debug())
+	output = NewServerFormatter(shared.IsDebug())
 }
 
 func NewServerLogger() hclog.Logger {
@@ -410,7 +471,7 @@ func ToKind(s string) agentsv1.Log_Kind {
 	}
 }
 
-func createManagementLog(log LogMessage) *agentsv1.Log {
+func createManagementLog(log *LogMessage) *agentsv1.Log {
 	return &agentsv1.Log{
 		At:          timestamppb.New(log.Timestamp),
 		Kind:        ToKind(log.Message.Kind),
@@ -443,7 +504,7 @@ func (out *ServerFormatter) Write(p []byte) (n int, err error) {
 		return
 	}
 
-	mgLog := createManagementLog(log)
+	mgLog := createManagementLog(&log)
 	// Send the management Log to registered callbacks
 	for _, callback := range out.callbacks {
 		callback(mgLog)
