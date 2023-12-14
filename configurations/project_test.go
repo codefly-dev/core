@@ -52,7 +52,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
 
-	w, err = w.Reload(ctx)
+	w, err = configurations.ReloadWorkspace(ctx, w)
 	assert.NoError(t, err)
 
 	project, err := actions.As[configurations.Project](out)
@@ -129,7 +129,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-project-2", recent.Name)
 
-	w, err = w.Reload(ctx)
+	w, err = configurations.ReloadWorkspace(ctx, w)
 	assert.NoError(t, err)
 
 	//Maintain no * in memory
@@ -154,7 +154,8 @@ func TestCreationWithDefaultPath(t *testing.T) {
 
 	// Change the active project
 	action, err = actionproject.NewActionSetProjectActive(ctx, &actionproject.SetProjectActive{
-		Name: projectName,
+		Name:      projectName,
+		Workspace: w.Name,
 	})
 	assert.NoError(t, err)
 

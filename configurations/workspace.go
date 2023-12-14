@@ -122,8 +122,8 @@ func (workspace *Workspace) ProjectRoot() string {
 	return workspace.ProjectsRoot
 }
 
-// Reload a project configuration
-func (workspace *Workspace) Reload(ctx context.Context) (*Workspace, error) {
+// ReloadWorkspace a project configuration
+func ReloadWorkspace(ctx context.Context, workspace *Workspace) (*Workspace, error) {
 	updated, err := LoadWorkspaceFromDirUnsafe(ctx, workspace.Dir())
 	if err != nil {
 		return nil, err
@@ -214,7 +214,6 @@ func (workspace *Workspace) ActiveProject(ctx context.Context) (*ProjectReferenc
 		if ref.Name == workspace.activeProject {
 			return ref, nil
 		}
-
 	}
 	return nil, logger.Errorf("no active project in Workspace configuration")
 }

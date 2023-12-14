@@ -40,21 +40,28 @@ func (action *SetProjectActiveAction) Run(ctx context.Context) (any, error) {
 	logger := shared.GetLogger(ctx).With("SetProjectActiveAction")
 	w, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, logger.Wrapf(err, "cannot load workspace")
 	}
 
 	err = w.SetProjectActive(ctx, action.SetProjectActive)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, logger.Wrapf(err, "cannot set project active")
 	}
-	w, err = w.Reload(ctx)
+
+	err = w.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, logger.Wrapf(err, "cannot save workspace")
 	}
+
+	w, err = configurations.ReloadWorkspace(ctx, w)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot reload workspace")
+	}
+
 	// Return the project
 	project, err := w.LoadActiveProject(ctx)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, logger.Wrapf(err, "cannot load active project")
 	}
 	return project, nil
 }

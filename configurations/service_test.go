@@ -124,7 +124,7 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.Equal(t, serviceOne.Name, s.Name)
 
 	// re-load the appOne and check that this is the active serviceOne
-	appOne, err = appOne.ReloadApplication(ctx, appOne)
+	appOne, err = configurations.ReloadApplication(ctx, appOne)
 	assert.NoError(t, err)
 	assert.Equal(t, "test-service-1", *appOne.ActiveService(ctx))
 
@@ -174,7 +174,7 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.Equal(t, "test-service-2", serviceTwo.Name)
 
 	// re-load
-	appOne, err = appOne.ReloadApplication(ctx, appOne)
+	appOne, err = configurations.ReloadApplication(ctx, appOne)
 	assert.NoError(t, err)
 
 	assert.Equal(t, "test-service-2", *appOne.ActiveService(ctx))
