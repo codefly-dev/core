@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"github.com/codefly-dev/core/agents/communicate"
 	"strings"
 
 	"github.com/codefly-dev/core/agents"
@@ -40,7 +41,8 @@ type Runtime interface {
 
 	Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error)
 
-	Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error)
+	// Communicate is a special method that is used to communicate with the agent
+	communicate.Communicate
 }
 
 type RuntimeAgent struct {

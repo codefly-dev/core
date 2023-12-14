@@ -61,21 +61,20 @@ type Base struct {
 	ServiceLogger *agents.ServiceLogger
 	AgentLogger   *agents.AgentLogger
 
-	// Communication Manager
-	CommunicationClientManager *communicate.ClientManager
+	// Communication
+	Communication *communicate.Server
 
 	// Code Watcher
 	Watcher *code.Watcher
 	Events  chan code.Change
 
-	// Internal
 	ctx context.Context
 }
 
-func NewServiceBase(agent *configurations.Agent) *Base {
+func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 	return &Base{
-		Agent:                      agent,
-		CommunicationClientManager: communicate.NewClientManager(),
+		Agent:         agent,
+		Communication: communicate.NewServer(ctx),
 	}
 }
 
@@ -125,7 +124,6 @@ func (s *Base) Init(req *servicev1.InitRequest, settings any) error {
 		Domain:  s.Identity.Domain,
 		Agent:   s.Agent,
 	}
-	s.CommunicationClientManager.WithLogger(s.AgentLogger)
 	s.AgentLogger.Debugf("setup successful for %v", s.Identity)
 	return nil
 }
@@ -138,21 +136,28 @@ func (s *Base) DockerImage() *configurations.DockerImage {
 	}
 }
 
-func (s *Base) Create(ctx context.Context, settings any, endpoints ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
+func (s *Base) CreateResponse(ctx context.Context, settings any, eps ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
 	err := s.Configuration.UpdateSpecFromSettings(settings)
 	if err != nil {
-		return nil, s.Wrapf(err, "base: cannot update spec")
+		return s.CreateResponseError(err)
 	}
+	s.Configuration.Endpoints, err = endpoints.FromProtoEndpoints(eps...)
+	if err != nil {
+		return s.CreateResponseError(err)
+	}
+
 	err = s.Configuration.Save(ctx)
 	if err != nil {
 		return nil, s.Wrapf(err, "base: cannot save configuration")
 	}
 	return &factoryv1.CreateResponse{
-		Endpoints: endpoints,
+		Endpoints: eps,
 	}, nil
 }
 
-func (s *Base) FactoryInitResponse(es []*basev1.Endpoint, channels []*agentsv1.Channel, readme string) (*factoryv1.InitResponse, error) {
+// Factory
+
+func (s *Base) FactoryInitResponse(es []*basev1.Endpoint, readme string) (*factoryv1.InitResponse, error) {
 	defer s.AgentLogger.Catch()
 	for _, e := range es {
 		e.Application = s.Identity.Application
@@ -162,7 +167,6 @@ func (s *Base) FactoryInitResponse(es []*basev1.Endpoint, channels []*agentsv1.C
 	return &factoryv1.InitResponse{
 		Version:   s.Version(),
 		Endpoints: es,
-		Channels:  channels,
 		ReadMe:    readme,
 		Status:    &servicev1.InitStatus{State: servicev1.InitStatus_READY},
 	}, nil
@@ -174,6 +178,10 @@ func (s *Base) FactoryInitResponseError(err error) (*factoryv1.InitResponse, err
 	}, nil
 }
 
+func (s *Base) CreateResponseError(err error) (*factoryv1.CreateResponse, error) {
+	return &factoryv1.CreateResponse{}, nil
+}
+
 func (s *Base) RuntimeInitResponse(endpoints []*basev1.Endpoint, channels ...*agentsv1.Channel) (*runtimev1.InitResponse, error) {
 	// for convenience, add application and service
 	for _, endpoint := range endpoints {
@@ -183,7 +191,6 @@ func (s *Base) RuntimeInitResponse(endpoints []*basev1.Endpoint, channels ...*ag
 	return &runtimev1.InitResponse{
 		Version:   s.Version(),
 		Endpoints: endpoints,
-		Channels:  channels,
 		Status:    &servicev1.InitStatus{State: servicev1.InitStatus_READY},
 	}, nil
 }
@@ -321,43 +328,8 @@ func (s *Base) Stop() error {
 	return nil
 }
 
-type Channel struct {
-	Method agentsv1.Method
-	Client *communicate.ClientContext
-}
-
-func NewChannel(method agentsv1.Method, client *communicate.ClientContext) *Channel {
-	return &Channel{Method: method, Client: client}
-}
-
-func NewDynamicChannel(method agentsv1.Method) *Channel {
-	return &Channel{Method: method}
-}
-
-func (s *Base) WithCommunications(channels ...*Channel) ([]*agentsv1.Channel, error) {
-	var out []*agentsv1.Channel
-	for _, c := range channels {
-		out = append(out, &agentsv1.Channel{Method: c.Method})
-		if c.Client == nil {
-			continue
-		}
-		err := s.CommunicationClientManager.Add(c.Method, c.Client)
-		if err != nil {
-			return nil, s.AgentLogger.Wrapf(err, "cannot add communication client")
-		}
-	}
-	return out, nil
-}
-
-func (s *Base) Wire(method agentsv1.Method, client *communicate.ClientContext) error {
-	return s.CommunicationClientManager.Add(method, client)
-}
-
 func (s *Base) Communicate(ctx context.Context, eng *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
-	if eng.Method == agentsv1.Method_UNKNOWN {
-		return nil, s.AgentLogger.Errorf("unknown method")
-	}
-	return s.CommunicationClientManager.Process(eng)
+	return s.Communication.Communicate(ctx, eng)
 }
 
 type TemplateWrapper struct {

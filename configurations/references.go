@@ -2,9 +2,10 @@ package configurations
 
 import (
 	"fmt"
-	"github.com/codefly-dev/core/shared"
 	"path/filepath"
 	"strings"
+
+	"github.com/codefly-dev/core/shared"
 )
 
 /*

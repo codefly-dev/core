@@ -17,9 +17,9 @@ const WorkspaceConfigurationName = "codefly.yaml"
 
 // Workspace configuration for codefly CLI
 type Workspace struct {
-	Name         string `yaml:"name"`
-	Organization string `yaml:"organization,omitempty"`
-	Domain       string `yaml:"domain,omitempty"`
+	Name         string       `yaml:"name"`
+	Organization Organization `yaml:"organization,omitempty"`
+	Domain       string       `yaml:"domain,omitempty"`
 
 	// Projects in the Workspace configuration
 	Projects []*ProjectReference `yaml:"projects"`
@@ -46,7 +46,7 @@ func NewWorkspace(ctx context.Context, action *v1actions.AddWorkspace) (*Workspa
 	logger.Debugf("workspace project root: <%s>", projectRoot)
 	workspace := &Workspace{
 		Name:         action.Name,
-		Organization: org.Name,
+		Organization: *org,
 		Domain:       org.Domain,
 		ProjectsRoot: projectRoot,
 	}

@@ -3,10 +3,12 @@ package configurations
 import (
 	"context"
 	"fmt"
-	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
-	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	"slices"
 	"strings"
+
+	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
+	servicesv1 "github.com/codefly-dev/core/proto/v1/go/services"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/mitchellh/mapstructure"
@@ -29,6 +31,7 @@ A Service
 */
 type Service struct {
 	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
 	Version     string `yaml:"version"`
 	Application string `yaml:"application"`
 	Domain      string `yaml:"domain"`
@@ -46,6 +49,14 @@ type Service struct {
 	dir  string
 }
 
+func (s *Service) Proto() *basev1.Service {
+	return &basev1.Service{
+		Name:        s.Name,
+		Description: s.Description,
+		Application: s.Application,
+	}
+}
+
 // Unique identifies a service within a project
 // We use a REST like convention rather then a subdomain one
 func (s *Service) Unique() string {
@@ -53,6 +64,16 @@ func (s *Service) Unique() string {
 		panic(fmt.Sprintf("application is empty in unique %s", s.Name))
 	}
 	return fmt.Sprintf("%s/%s", s.Application, s.Name)
+}
+
+// Identity is the proto version of Unique
+func (s *Service) Identity() *servicesv1.ServiceIdentity {
+	return &servicesv1.ServiceIdentity{
+		Name:        s.Name,
+		Application: s.Application,
+		Domain:      s.Domain,
+		Namespace:   s.Namespace,
+	}
 }
 
 // NewService creates a service in an application
@@ -178,6 +199,10 @@ func LoadServiceFromDirUnsafe(ctx context.Context, dir string) (*Service, error)
 	if err != nil {
 		return nil, err
 	}
+	err = service.postLoad(ctx)
+	if err != nil {
+		return nil, logger.Wrapf(err, "cannot post load service")
+	}
 	return service, nil
 }
 
@@ -199,6 +224,11 @@ func (s *Service) SaveAtDir(ctx context.Context, dir string) error {
 }
 
 func (s *Service) Save(ctx context.Context) error {
+	logger := shared.GetLogger(ctx).With("Save<%s>", s.Name)
+	err := s.preSave(ctx)
+	if err != nil {
+		return logger.Wrapf(err, "cannot pre-save")
+	}
 	return SaveToDir(ctx, s, s.Dir())
 }
 
@@ -238,21 +268,87 @@ func (s *Service) LoadSettingsFromSpec(t any) error {
 	return nil
 }
 
-// AddDependencyReference adds a dependency to the service
-func (s *Service) AddDependencyReference(requirement *Service) error {
-	logger := shared.NewLogger().With("configurations.Unique.AddDependencyReference<%s> <- %s", s.Name, requirement.Name)
-	logger.Debugf("endpoints from the requirements: %v", requirement.Endpoints)
-	for _, d := range requirement.Endpoints {
-		logger.Debugf("JERE DEP: %v", d)
+// AddDependency adds a dependency to the service
+func (s *Service) AddDependency(ctx context.Context, requirement *Service, requiredEndpoints []*Endpoint) error {
+	logger := shared.GetLogger(ctx).With("AddDependency<%s>", requirement.Name)
+	dep, ok := s.ExistsDependency(requirement)
+	if !ok {
+		dep = &ServiceDependency{
+			Name:        requirement.Name,
+			Application: requirement.Application,
+		}
+		s.Dependencies = append(s.Dependencies, dep)
 	}
-	logger.Debugf("adding dependency <%s > to requirement <%s>", requirement.Name, s.Name)
-	// s.Dependencies =
+	err := dep.UpdateEndpoints(ctx, requiredEndpoints)
+	if err != nil {
+		return logger.Wrapf(err, "cannot update endpoints")
+	}
 	return nil
 }
 
-// Reload from directory
-func (s *Service) Reload(ctx context.Context, service *Service) (*Service, error) {
+// ReloadService from directory
+func ReloadService(ctx context.Context, service *Service) (*Service, error) {
 	return LoadServiceFromDirUnsafe(ctx, service.Dir())
+}
+
+func (s *Service) postLoad(ctx context.Context) error {
+	for _, ref := range s.Dependencies {
+		if ref.Application == "" {
+			ref.Application = s.Application
+		}
+	}
+	return nil
+}
+
+func (s *Service) preSave(ctx context.Context) error {
+	for _, ref := range s.Dependencies {
+		if ref.Application == s.Application {
+			ref.Application = ""
+		}
+	}
+	return nil
+}
+
+func (s *Service) HasEndpoints(ctx context.Context, endpoints []string) ([]string, error) {
+	known := map[string]bool{}
+	for _, endpoint := range s.Endpoints {
+		known[endpoint.Name] = true
+	}
+	var unknowns []string
+	for _, endpoint := range endpoints {
+		if !known[endpoint] {
+			unknowns = append(unknowns, endpoint)
+		}
+	}
+	if len(unknowns) > 0 {
+		return unknowns, fmt.Errorf("unknown endpoints: %v", unknowns)
+	}
+	return nil, nil
+}
+
+// EndpointsFromNames return matching endpoints
+func (s *Service) EndpointsFromNames(endpoints []string) ([]*Endpoint, error) {
+	known := map[string]*Endpoint{}
+	for _, endpoint := range s.Endpoints {
+		known[endpoint.Name] = endpoint
+	}
+	var out []*Endpoint
+	for _, endpoint := range endpoints {
+		if known[endpoint] == nil {
+			return nil, fmt.Errorf("unknown endpoint: %s", endpoint)
+		}
+		out = append(out, known[endpoint])
+	}
+	return out, nil
+}
+
+func (s *Service) ExistsDependency(requirement *Service) (*ServiceDependency, bool) {
+	for _, dep := range s.Dependencies {
+		if dep.Name == requirement.Name {
+			return dep, true
+		}
+	}
+	return nil, false
 }
 
 func (s *ServiceDependency) AsReference() *ServiceReference {
@@ -275,6 +371,22 @@ type ServiceDependency struct {
 
 func (s *ServiceDependency) String() string {
 	return fmt.Sprintf("ServiceDependency<%s/%s>", s.Application, s.Name)
+}
+
+func (s *ServiceDependency) UpdateEndpoints(ctx context.Context, endpoints []*Endpoint) error {
+	logger := shared.GetLogger(ctx).With("UpdateEndpoints<%s>", s.Name)
+	known := map[string]*EndpointReference{}
+	for _, endpoint := range s.Endpoints {
+		known[endpoint.Name] = endpoint
+	}
+	for _, endpoint := range endpoints {
+		if _, exists := known[endpoint.Name]; exists {
+			return fmt.Errorf("endpoint already exists: %s", endpoint.Name)
+		}
+		logger.DebugMe("adding endpoint %s", endpoint.Name)
+		s.Endpoints = append(s.Endpoints, endpoint.AsReference())
+	}
+	return nil
 }
 
 const (

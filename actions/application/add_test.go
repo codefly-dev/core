@@ -2,6 +2,7 @@ package application_test
 
 import (
 	"encoding/json"
+	"github.com/codefly-dev/core/shared"
 	"os"
 	"testing"
 
@@ -28,10 +29,12 @@ func TestApplicationAddFromJson(t *testing.T) {
 }
 
 func TestApplicationAddFromCode(t *testing.T) {
-	action := application.NewActionAddApplication(ctx, &v1actions.AddApplication{
+	ctx := shared.NewContext()
+	action, err := application.NewActionAddApplication(ctx, &v1actions.AddApplication{
 		Name:        "My Application",
 		Description: "My Application Description",
 	})
+	assert.NoError(t, err)
 	content := `{"kind":"application.add","name":"My Application","description":"My Application Description"}`
 	back, err := json.Marshal(action)
 	assert.NoError(t, err)

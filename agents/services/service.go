@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	runtimev1 "github.com/codefly-dev/core/proto/v1/go/services/runtime"
+
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
 	v1 "github.com/codefly-dev/core/proto/v1/go/services"
@@ -13,19 +15,24 @@ import (
 type ServiceInstance struct {
 	*configurations.Service
 	Agent   Agent
-	Factory Factory
-	Runtime Runtime
+	Factory *FactoryInstance
+	Runtime *RuntimeInstance
 }
 
-/* Factory methods */
-
-type InitOutput struct {
-	Readme string
+type FactoryInstance struct {
+	*configurations.Service
+	init *v1.InitRequest
+	Factory
 }
 
-func (instance *ServiceInstance) Init(ctx context.Context) (*InitOutput, error) {
-	logger := shared.NewLogger().With("agents.FactoryInit<%s||%s>", instance.Unique(), instance.Service.Agent.Identifier())
-	init, err := instance.Factory.Init(ctx, &v1.InitRequest{
+type RuntimeInstance struct {
+	*configurations.Service
+	init *v1.InitRequest
+	Runtime
+}
+
+func (instance *ServiceInstance) InitRequest() *v1.InitRequest {
+	return &v1.InitRequest{
 		Debug:    shared.IsDebug(),
 		Location: instance.Dir(),
 		Identity: &v1.ServiceIdentity{
@@ -34,32 +41,27 @@ func (instance *ServiceInstance) Init(ctx context.Context) (*InitOutput, error) 
 			Domain:      instance.Domain,
 			Namespace:   instance.Namespace,
 		},
-	})
-
-	if err != nil {
-		return nil, logger.Wrapf(err, "init failed")
 	}
-	logger.DebugMe("init successful")
-
-	_, err = instance.Factory.Create(ctx, &factoryv1.CreateRequest{})
-	if err != nil {
-		return nil, logger.Wrapf(err, "create failed")
-	}
-	return &InitOutput{Readme: init.ReadMe}, nil
 }
 
-type CreateOutput struct {
+// Factory methods
+
+func (instance *FactoryInstance) Init(ctx context.Context) (*factoryv1.InitResponse, error) {
+	return instance.Factory.Init(ctx, instance.init)
+
 }
 
-func (instance *ServiceInstance) Create(ctx context.Context) (*CreateOutput, error) {
-	logger := shared.NewLogger().With("agents.FactoryCreate<%s||%s>", instance.Unique(), instance.Service.Agent.Identifier())
-
-	_, err := instance.Factory.Create(ctx, &factoryv1.CreateRequest{})
-	if err != nil {
-		return nil, logger.Wrapf(err, "create failed")
-	}
-	return &CreateOutput{}, nil
+func (instance *FactoryInstance) Create(ctx context.Context) (*factoryv1.CreateResponse, error) {
+	return instance.Factory.Create(ctx, &factoryv1.CreateRequest{})
 }
+
+// Runtime methods
+
+func (instance *RuntimeInstance) Init(ctx context.Context) (*runtimev1.InitResponse, error) {
+	return instance.Runtime.Init(ctx, instance.init)
+}
+
+// Loader
 
 func Load(ctx context.Context, service *configurations.Service) (*ServiceInstance, error) {
 	logger := shared.NewLogger().With("agents.Load<%s>", service.Unique())
@@ -85,6 +87,11 @@ func Load(ctx context.Context, service *configurations.Service) (*ServiceInstanc
 			if err != nil {
 				return nil, logger.Wrapf(err, "cannot provide factory")
 			}
+		case v1agent.Capability_RUNTIME:
+			err = instance.LoadRuntime(ctx, service)
+			if err != nil {
+				return nil, logger.Wrapf(err, "cannot provide runtime")
+			}
 		}
 
 	}
@@ -97,6 +104,16 @@ func (instance *ServiceInstance) LoadFactory(ctx context.Context, service *confi
 	if err != nil {
 		return logger.Wrapf(err, "cannot load factory")
 	}
-	instance.Factory = factory
+	instance.Factory = &FactoryInstance{Service: service, Factory: factory, init: instance.InitRequest()}
+	return nil
+}
+
+func (instance *ServiceInstance) LoadRuntime(ctx context.Context, service *configurations.Service) error {
+	logger := shared.NewLogger().With("agents.LoadRuntime<%s>", service.Unique())
+	runtime, err := LoadRuntime(ctx, service)
+	if err != nil {
+		return logger.Wrapf(err, "cannot load runtime")
+	}
+	instance.Runtime = &RuntimeInstance{Service: service, Runtime: runtime, init: instance.InitRequest()}
 	return nil
 }

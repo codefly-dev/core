@@ -2,6 +2,7 @@ package organization_test
 
 import (
 	"encoding/json"
+	"github.com/codefly-dev/core/shared"
 	"os"
 	"testing"
 
@@ -28,10 +29,12 @@ func TestOrganizationAddFromJson(t *testing.T) {
 }
 
 func TestOrganizationAddFromCode(t *testing.T) {
-	action := organization.NewActionAddOrganization(ctx, &v1actions.AddOrganization{
+	ctx := shared.NewContext()
+	action, err := organization.NewActionAddOrganization(ctx, &v1actions.AddOrganization{
 		Name:   "My Organization",
 		Domain: "https://github.com/my-organization",
 	})
+	assert.NoError(t, err)
 	content := `{"kind":"organization.add","name":"My Organization","domain": "https://github.com/my-organization"}`
 	back, err := json.Marshal(action)
 	assert.NoError(t, err)

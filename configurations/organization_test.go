@@ -1,10 +1,11 @@
 package configurations_test
 
 import (
+	"testing"
+
 	"github.com/bufbuild/protovalidate-go"
 	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	"github.com/codefly-dev/core/shared"
-	"testing"
 
 	"github.com/codefly-dev/core/configurations"
 	"github.com/stretchr/testify/assert"

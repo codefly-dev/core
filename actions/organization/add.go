@@ -2,6 +2,7 @@ package organization
 
 import (
 	"context"
+
 	"github.com/bufbuild/protovalidate-go"
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
@@ -24,7 +25,7 @@ func (action *AddOrganizationAction) Command() string {
 }
 
 func NewActionAddOrganization(ctx context.Context, in *AddOrganization) (*AddOrganizationAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, logger.Wrap(err)
 	}

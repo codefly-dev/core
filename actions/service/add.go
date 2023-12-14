@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
 
@@ -25,7 +26,7 @@ func (action *AddServiceAction) Command() string {
 type AddService = v1actions.AddService
 
 func NewActionAddService(ctx context.Context, in *AddService) (*AddServiceAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, logger.Wrap(err)
 	}
@@ -49,14 +50,14 @@ func (action *AddServiceAction) Run(ctx context.Context) (any, error) {
 		return nil, logger.Wrapf(err, "cannot get current workspace")
 	}
 
-	project, err := ws.LoadProjectFromName(ctx, action.InProject)
+	project, err := ws.LoadProjectFromName(ctx, action.Project)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load project %s", action.InProject)
+		return nil, logger.Wrapf(err, "cannot load project %s", action.Project)
 	}
 
-	app, err := project.LoadApplicationFromName(ctx, action.InApplication)
+	app, err := project.LoadApplicationFromName(ctx, action.Application)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load application %s", action.InApplication)
+		return nil, logger.Wrapf(err, "cannot load application %s", action.Application)
 	}
 
 	service, err := app.NewService(ctx, action.AddService)

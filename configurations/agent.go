@@ -3,12 +3,14 @@ package configurations
 import (
 	"context"
 	"fmt"
-	"github.com/bufbuild/protovalidate-go"
 	"slices"
 
-	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
+	"github.com/bufbuild/protovalidate-go"
+
 	"path"
 	"strings"
+
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 
 	"github.com/Masterminds/semver"
 

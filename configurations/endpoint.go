@@ -9,7 +9,7 @@ import (
 type Endpoint struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
-	Scope       string `yaml:"scope,omitempty"`
+	Visibility  string `yaml:"scope,omitempty"`
 	API         string `yaml:"api,omitempty"`
 	// FailOver indicates that this endpoint should fail over to another endpoint
 	FailOver *Endpoint `yaml:"fail-over,omitempty"`
@@ -25,6 +25,12 @@ func (e *Endpoint) Unique(app string, service string) string {
 		return fmt.Sprintf("%s::%s", unique, e.API)
 	}
 	return unique
+}
+
+func (e *Endpoint) AsReference() *EndpointReference {
+	return &EndpointReference{
+		Name: e.Name,
+	}
 }
 
 /* For runtime */

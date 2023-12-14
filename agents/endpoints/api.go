@@ -1,8 +1,11 @@
 package endpoints
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"github.com/yoheimuta/go-protoparser/v4"
+	"github.com/yoheimuta/go-protoparser/v4/parser"
 	"os"
 
 	"github.com/codefly-dev/core/configurations"
@@ -14,17 +17,13 @@ import (
 
 func WithAPI(endpoint *configurations.Endpoint, source APISource) (*basev1.Endpoint, error) {
 	logger := shared.NewLogger().With("services.DefaultApi")
-	logger.Debugf("VISILIBITY %v", endpoint.Scope)
 	api, err := source.Proto()
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot create grpc api: %v")
 	}
-	return &basev1.Endpoint{
-		Name:        endpoint.Name,
-		Scope:       endpoint.Scope,
-		Description: endpoint.Description,
-		Api:         api,
-	}, nil
+	base := BaseProto(endpoint)
+	base.Api = api
+	return base, nil
 }
 
 type APISource interface {
@@ -34,6 +33,7 @@ type APISource interface {
 type GrpcAPI struct {
 	filename string
 	content  []byte
+	rpcs     []*basev1.RPC
 }
 
 func NewGrpcAPI(endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
@@ -42,13 +42,31 @@ func NewGrpcAPI(endpoint *configurations.Endpoint, filename string) (*basev1.End
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %v", filename, err)
 	}
-	return WithAPI(endpoint, &GrpcAPI{filename: filename, content: content})
+
+	got, err := protoparser.Parse(bytes.NewReader(content))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse proto file %s: %v", filename, err)
+	}
+
+	var rpcs []*basev1.RPC
+	for _, element := range got.ProtoBody {
+		if service, ok := element.(*parser.Service); ok {
+			for _, inside := range service.ServiceBody {
+				if rpc, ok := inside.(*parser.RPC); ok {
+					rpcs = append(rpcs, &basev1.RPC{Name: rpc.RPCName})
+				}
+			}
+		}
+	}
+
+	return WithAPI(endpoint, &GrpcAPI{filename: filename, content: content, rpcs: rpcs})
 }
 
 func (grpc *GrpcAPI) Proto() (*basev1.API, error) {
 	// Add a GrpcAPI message with the file content
 	grpcAPI := &basev1.GrpcAPI{
 		Proto: grpc.content,
+		Rpcs:  grpc.rpcs,
 	}
 	// Add an API message with the GrpcAPI message
 	api := &basev1.API{
@@ -60,15 +78,20 @@ func (grpc *GrpcAPI) Proto() (*basev1.API, error) {
 }
 
 type RestAPI struct {
-	// openapi []byte
+	filename string
+	openapi  []byte
+	routes   []*basev1.RestRoute
 }
 
 func NewRestAPI(endpoint *configurations.Endpoint) (*basev1.Endpoint, error) {
 	return WithAPI(endpoint, &RestAPI{})
 }
 
-func (HTTP *RestAPI) Proto() (*basev1.API, error) {
-	restAPI := &basev1.RestAPI{}
+func (rest *RestAPI) Proto() (*basev1.API, error) {
+	restAPI := &basev1.RestAPI{
+		Openapi: rest.openapi,
+		Routes:  rest.routes,
+	}
 	// Add an API message with the GrpcAPI message
 	api := &basev1.API{
 		Value: &basev1.API_Rest{
@@ -81,17 +104,8 @@ func (HTTP *RestAPI) Proto() (*basev1.API, error) {
 func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
 	logger := shared.GetLogger(ctx).With("NewRestAPIFromOpenAPI")
 	logger.TODO("visibility")
-	rest := &basev1.API_Rest{Rest: &basev1.RestAPI{}}
-	e := &basev1.Endpoint{
-		Name:        endpoint.Name,
-		Scope:       endpoint.Scope,
-		Description: endpoint.Description,
-		Api: &basev1.API{
-			Value: rest,
-		},
-	}
 	if !shared.FileExists(filename) {
-		return e, nil
+		return nil, logger.Errorf("file does not exist: %s", filename)
 	}
 	// Read the file content
 	content, err := os.ReadFile(filename)
@@ -103,15 +117,15 @@ func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoin
 		return nil, logger.Wrapf(err, "failed to parse openapi spec")
 	}
 
-	rest.Rest.Openapi = content
+	var routes []*basev1.RestRoute
 	for path := range swagger.Paths.Paths {
 		item := swagger.Paths.Paths[path]
-		rest.Rest.Routes = append(rest.Rest.Routes, &basev1.RestRoute{
+		routes = append(routes, &basev1.RestRoute{
 			Methods: getHTTPMethodsFromPathItem(&item),
 			Path:    path,
 		})
 	}
-	return e, nil
+	return WithAPI(endpoint, &RestAPI{openapi: content, routes: routes, filename: filename})
 }
 
 type TCP struct{}

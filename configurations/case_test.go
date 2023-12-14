@@ -1,8 +1,9 @@
 package configurations_test
 
 import (
-	"github.com/codefly-dev/core/shared"
 	"testing"
+
+	"github.com/codefly-dev/core/shared"
 
 	"github.com/stretchr/testify/assert"
 )

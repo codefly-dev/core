@@ -25,7 +25,7 @@ func (action *SetApplicationActiveAction) Command() string {
 }
 
 func NewActionSetApplicationActive(ctx context.Context, in *SetApplicationActive) (*SetApplicationActiveAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, logger.Wrap(err)
 	}
@@ -39,7 +39,7 @@ var _ actions.Action = (*SetApplicationActiveAction)(nil)
 
 func (action *SetApplicationActiveAction) Run(ctx context.Context) (any, error) {
 	logger := shared.GetLogger(ctx).With("SetApplicationActiveAction<%s>", action.Name)
-	if action.InProject == "" {
+	if action.Project == "" {
 		return nil, logger.Errorf("missing project in action")
 	}
 
@@ -48,9 +48,9 @@ func (action *SetApplicationActiveAction) Run(ctx context.Context) (any, error) 
 		return nil, logger.Wrapf(err, "cannot get active workspace")
 	}
 
-	project, err := w.LoadProjectFromName(ctx, action.InProject)
+	project, err := w.LoadProjectFromName(ctx, action.Project)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load project from name: %s", action.InProject)
+		return nil, logger.Wrapf(err, "cannot load project from name: %s", action.Project)
 	}
 
 	err = project.SetActiveApplication(ctx, action.Name)

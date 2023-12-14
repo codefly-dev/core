@@ -2,6 +2,7 @@ package project_test
 
 import (
 	"encoding/json"
+	"github.com/codefly-dev/core/shared"
 	"os"
 	"testing"
 
@@ -28,10 +29,12 @@ func TestProjectAddFromJson(t *testing.T) {
 }
 
 func TestProjectAddFromCode(t *testing.T) {
-	action := project.NewActionAddProject(ctx, &v1actions.AddProject{
+	ctx := shared.NewContext()
+	action, err := project.NewActionAddProject(ctx, &v1actions.AddProject{
 		Name:        "My Project",
 		Description: "My Project Description",
 	})
+	assert.NoError(t, err)
 	content := `{"kind":"project.add","name":"My Project","description":"My Project Description"}`
 	back, err := json.Marshal(action)
 	assert.NoError(t, err)

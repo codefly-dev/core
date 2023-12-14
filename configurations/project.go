@@ -3,6 +3,7 @@ package configurations
 import (
 	"context"
 	"fmt"
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,9 +22,9 @@ type Project struct {
 	Name         string  `yaml:"name"`
 	PathOverride *string `yaml:"path,omitempty"`
 
-	Domain       string `yaml:"domain"`
-	Organization string `yaml:"organization"`
-	Description  string `yaml:"description,omitempty"`
+	Organization Organization `yaml:"organization"`
+	Domain       string       `yaml:"domain,omitempty"`
+	Description  string       `yaml:"description,omitempty"`
 
 	// Applications in the project
 	Applications []*ApplicationReference `yaml:"applications"`
@@ -40,6 +41,14 @@ type Project struct {
 	// internal
 	dir               string // actual dir
 	activeApplication string // internal use
+}
+
+func (project *Project) Proto() *basev1.Project {
+	return &basev1.Project{
+		Name:         project.Name,
+		Organization: project.Organization.Proto(),
+		Description:  project.Description,
+	}
 }
 
 // Dir is the directory of the project

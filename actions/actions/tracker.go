@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/shared"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/shared"
 )
 
 type ActionSave struct {

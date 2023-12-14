@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/shared"
 
@@ -23,7 +24,7 @@ func (action *SetProjectActiveAction) Command() string {
 }
 
 func NewActionSetProjectActive(ctx context.Context, in *SetProjectActive) (*SetProjectActiveAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, logger.Wrap(err)
 	}

@@ -25,11 +25,9 @@ func TestBadInputs(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			action, err := actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
+			_, err := actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
 				Name: tc.project,
 			})
-			assert.NoError(t, err)
-			_, err = action.Run(ctx)
 			assert.Error(t, err)
 		})
 	}
@@ -47,8 +45,8 @@ func TestCreationWithDefaultPath(t *testing.T) {
 
 	projectName := "test-project"
 	action, err = actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
-		Name:        projectName,
-		InWorkspace: w.Name,
+		Name:      projectName,
+		Workspace: w.Name,
 	})
 	assert.NoError(t, err)
 	out, err := action.Run(ctx)

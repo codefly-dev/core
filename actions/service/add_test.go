@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"encoding/json"
+	"github.com/codefly-dev/core/shared"
 	"os"
 	"testing"
 
@@ -28,10 +29,12 @@ func TestServiceAddFromJson(t *testing.T) {
 }
 
 func TestServiceAddFromCode(t *testing.T) {
-	action := service.NewActionAddService(ctx, &v1actions.AddService{
+	ctx := shared.NewContext()
+	action, err := service.NewActionAddService(ctx, &v1actions.AddService{
 		Name:        "My Service",
 		Description: "My Service Description",
 	})
+	assert.NoError(t, err)
 	content := `{"kind":"service.add","name":"My Service","description":"My Service Description"}`
 	back, err := json.Marshal(action)
 	assert.NoError(t, err)

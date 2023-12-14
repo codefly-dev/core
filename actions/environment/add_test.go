@@ -2,6 +2,7 @@ package environment_test
 
 import (
 	"encoding/json"
+	"github.com/codefly-dev/core/shared"
 	"os"
 	"testing"
 
@@ -28,10 +29,12 @@ func TestEnvironmentAddFromJson(t *testing.T) {
 }
 
 func TestEnvironmentAddFromCode(t *testing.T) {
-	action := environment.NewActionAddEnvironment(ctx, &v1actions.AddEnvironment{
+	ctx := shared.NewContext()
+	action, err := environment.NewActionAddEnvironment(ctx, &v1actions.AddEnvironment{
 		Name:        "My Environment",
 		Description: "My Environment Description",
 	})
+	assert.NoError(t, err)
 	content := `{"kind":"environment.add","name":"My Environment","description":"My Environment Description"}`
 	back, err := json.Marshal(action)
 	assert.NoError(t, err)

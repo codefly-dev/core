@@ -1,6 +1,10 @@
 package configurations_test
 
 import (
+	"os"
+	"path"
+	"testing"
+
 	"github.com/codefly-dev/core/actions/actions"
 	actionapplication "github.com/codefly-dev/core/actions/application"
 	actionproject "github.com/codefly-dev/core/actions/project"
@@ -8,9 +12,6 @@ import (
 	v1actions "github.com/codefly-dev/core/proto/v1/go/actions"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
-	"os"
-	"path"
-	"testing"
 )
 
 func TestCreationApplication(t *testing.T) {
@@ -21,8 +22,8 @@ func TestCreationApplication(t *testing.T) {
 	var action actions.Action
 	var err error
 	action, err = actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
-		Name:        "test-project",
-		InWorkspace: w.Name,
+		Name:      "test-project",
+		Workspace: w.Name,
 	})
 	assert.NoError(t, err)
 	out, err := action.Run(ctx)
@@ -38,8 +39,8 @@ func TestCreationApplication(t *testing.T) {
 	assert.Error(t, err)
 
 	action, err = actionapplication.NewActionAddApplication(ctx, &v1actions.AddApplication{
-		Name:      "test-application",
-		InProject: project.Name,
+		Name:    "test-application",
+		Project: project.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
@@ -82,8 +83,8 @@ func TestCreationApplication(t *testing.T) {
 
 	// Add a second application
 	action, err = actionapplication.NewActionAddApplication(ctx, &v1actions.AddApplication{
-		Name:      "test-application-2",
-		InProject: project.Name,
+		Name:    "test-application-2",
+		Project: project.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
@@ -114,8 +115,8 @@ func TestCreationApplication(t *testing.T) {
 
 	// Make the first one active
 	action, err = actionapplication.NewActionSetApplicationActive(ctx, &v1actions.SetApplicationActive{
-		Name:      "test-application",
-		InProject: project.Name,
+		Name:    "test-application",
+		Project: project.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
@@ -130,8 +131,8 @@ func TestCreationApplication(t *testing.T) {
 	assert.NotContains(t, projectConfig, "name: test-application-2*")
 
 	action, err = actionapplication.NewActionSetApplicationActive(ctx, &v1actions.SetApplicationActive{
-		Name:      "test-application-2",
-		InProject: project.Name,
+		Name:    "test-application-2",
+		Project: project.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)

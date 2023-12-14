@@ -22,7 +22,7 @@ func (action *AddEnvironmentAction) Command() string {
 }
 
 func NewActionAddEnvironment(ctx context.Context, in *v1actions.AddEnvironment) (*AddEnvironmentAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, logger.Wrap(err)
 	}

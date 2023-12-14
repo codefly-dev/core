@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"github.com/codefly-dev/core/agents/communicate"
+
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
 	agentsv1 "github.com/codefly-dev/core/proto/v1/go/agents"
@@ -37,7 +39,8 @@ type Factory interface {
 	Build(ctx context.Context, req *factoryv1.BuildRequest) (*factoryv1.BuildResponse, error)
 	Deploy(ctx context.Context, req *factoryv1.DeploymentRequest) (*factoryv1.DeploymentResponse, error)
 
-	Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error)
+	// Communicate is a special method that is used to communicate with the agent
+	communicate.Communicate
 }
 
 type FactoryAgent struct {

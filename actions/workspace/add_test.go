@@ -2,6 +2,7 @@ package workspace_test
 
 import (
 	"encoding/json"
+	"github.com/codefly-dev/core/shared"
 	"os"
 	"testing"
 
@@ -28,10 +29,12 @@ func TestWorkspaceAddFromJson(t *testing.T) {
 }
 
 func TestWorkspaceAddFromCode(t *testing.T) {
-	action := workspace.NewActionAddWorkspace(ctx, &v1actions.AddWorkspace{
+	ctx := shared.NewContext()
+	action, err := workspace.NewActionAddWorkspace(ctx, &v1actions.AddWorkspace{
 		Name:        "My Workspace",
 		Description: "My Workspace Description",
 	})
+	assert.NoError(t, err)
 	content := `{"kind":"workspace.add","name":"My Workspace","description":"My Workspace Description"}`
 	back, err := json.Marshal(action)
 	assert.NoError(t, err)

@@ -1,8 +1,9 @@
 package configurations_test
 
 import (
-	"github.com/codefly-dev/core/shared"
 	"testing"
+
+	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/configurations"
 	"github.com/stretchr/testify/assert"
@@ -56,11 +57,11 @@ func TestLoadingFromDir(t *testing.T) {
 	for _, e := range conf.Endpoints {
 		if e.Name == configurations.Rest {
 			restFound = true
-			assert.Equal(t, "project", e.Scope)
+			assert.Equal(t, "project", e.Visibility)
 		}
 		if e.Name == configurations.Grpc {
 			grpcFound = true
-			assert.Equal(t, "", e.Scope)
+			assert.Equal(t, "", e.Visibility)
 		}
 	}
 	assert.True(t, restFound)

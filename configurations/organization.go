@@ -3,18 +3,26 @@ package configurations
 import (
 	"context"
 	"fmt"
-	"github.com/bufbuild/protovalidate-go"
-	"github.com/codefly-dev/core/shared"
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/bufbuild/protovalidate-go"
+	"github.com/codefly-dev/core/shared"
 
 	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 )
 
 type Organization struct {
-	Name   string
-	Domain string
+	Name   string `yaml:"name"`
+	Domain string `yaml:"domain"`
+}
+
+func (organization *Organization) Proto() *basev1.Organization {
+	return &basev1.Organization{
+		Name:   organization.Name,
+		Domain: organization.Domain,
+	}
 }
 
 func ExtraValidOrganizationName(name string) bool {

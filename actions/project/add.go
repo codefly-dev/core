@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"fmt"
+
 	"github.com/bufbuild/protovalidate-go"
 
 	"github.com/codefly-dev/core/actions/actions"
@@ -26,7 +27,7 @@ func (action *AddProjectAction) Command() string {
 }
 
 func NewActionAddProject(ctx context.Context, in *AddProject) (*AddProjectAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.Type(in))
+	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, logger.Wrap(err)
 	}

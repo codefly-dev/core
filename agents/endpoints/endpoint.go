@@ -65,16 +65,36 @@ func (n NilEndpointError) Error() string {
 	return "endpoint is nil"
 }
 
+func BaseProto(e *configurations.Endpoint) *basev1.Endpoint {
+	return &basev1.Endpoint{
+		Name:        e.Name,
+		Visibility:  e.Visibility,
+		Description: e.Description,
+	}
+}
+
 func FromProtoEndpoint(e *basev1.Endpoint) (*configurations.Endpoint, error) {
 	if e == nil {
 		return nil, &NilEndpointError{}
 	}
 	return &configurations.Endpoint{
 		Name:        e.Name,
-		Scope:       e.Scope,
+		Visibility:  e.Visibility,
 		Description: e.Description,
 		API:         FromProtoAPI(e.Api),
 	}, nil
+}
+
+func FromProtoEndpoints(es ...*basev1.Endpoint) ([]*configurations.Endpoint, error) {
+	var endpoints []*configurations.Endpoint
+	for _, e := range es {
+		endpoint, err := FromProtoEndpoint(e)
+		if err != nil {
+			return nil, err
+		}
+		endpoints = append(endpoints, endpoint)
+	}
+	return endpoints, nil
 }
 
 func Destination(e *basev1.Endpoint) string {
@@ -121,7 +141,7 @@ func LightAPI(api *basev1.API) *basev1.API {
 func Light(e *basev1.Endpoint) *basev1.Endpoint {
 	return &basev1.Endpoint{
 		Name:        e.Name,
-		Scope:       e.Scope,
+		Visibility:  e.Visibility,
 		Description: e.Description,
 		Api:         e.Api,
 	}

@@ -3,6 +3,7 @@ package configurations
 import (
 	"context"
 	"fmt"
+	basev1 "github.com/codefly-dev/core/proto/v1/go/base"
 	"os"
 	"path"
 	"path/filepath"
@@ -33,6 +34,14 @@ type Application struct {
 	// internal
 	dir           string
 	activeService string
+}
+
+func (app *Application) Proto() *basev1.Application {
+	return &basev1.Application{
+		Name:        app.Name,
+		Description: app.Description,
+		Project:     app.Project,
+	}
 }
 
 // Dir returns the directory of the application
@@ -71,7 +80,7 @@ func (project *Project) NewApplication(ctx context.Context, action *v1actions.Ad
 	app := &Application{
 		Kind:    ApplicationKind,
 		Name:    action.Name,
-		Domain:  ExtendDomain(project.Domain, action.Name),
+		Domain:  ExtendDomain(project.Organization.Domain, action.Name),
 		Project: project.Name,
 	}
 
@@ -209,16 +218,6 @@ func (app *Application) GetServiceReferences(name string) (*ServiceReference, er
 	return nil, nil
 }
 
-func (app *Application) LoadServiceFromName(ctx context.Context, name string) (*Service, error) {
-	logger := shared.GetLogger(ctx).With("LoadServiceFromName<%s>", name)
-	for _, ref := range app.Services {
-		if ReferenceMatch(ref.Name, name) {
-			return app.LoadServiceFromReference(ctx, ref)
-		}
-	}
-	return nil, logger.Errorf("cannot find service <%s> in application <%s>", name, app.Name)
-}
-
 func (app *Application) Reference() *ApplicationReference {
 	return &ApplicationReference{
 		Name:         app.Name,
@@ -254,6 +253,32 @@ func (app *Application) ServicePath(ctx context.Context, ref *ServiceReference) 
 func (app *Application) LoadServiceFromReference(ctx context.Context, ref *ServiceReference) (*Service, error) {
 	dir := app.ServicePath(ctx, ref)
 	return LoadServiceFromDirUnsafe(ctx, dir)
+}
+
+func (app *Application) LoadServiceFromName(ctx context.Context, name string) (*Service, error) {
+	logger := shared.GetLogger(ctx).With("LoadServiceFromName<%s>", name)
+	for _, ref := range app.Services {
+		if ReferenceMatch(ref.Name, name) {
+			return app.LoadServiceFromReference(ctx, ref)
+		}
+	}
+	return nil, logger.Errorf("cannot find service <%s> in application <%s>", name, app.Name)
+}
+
+func (app *Application) LoadActiveService(ctx context.Context) (*Service, error) {
+	return app.LoadServiceFromName(ctx, app.activeService)
+}
+
+func (app *Application) LoadServices(ctx context.Context) ([]*Service, error) {
+	var services []*Service
+	for _, ref := range app.Services {
+		service, err := app.LoadServiceFromReference(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		services = append(services, service)
+	}
+	return services, nil
 }
 
 func (app *Application) Reload(ctx context.Context, app2 *Application) (*Application, error) {
@@ -297,10 +322,6 @@ func (app *Application) DeleteService(ctx context.Context, name string) error {
 		return logger.Wrapf(err, "cannot remove service directory")
 	}
 	return nil
-}
-
-func (app *Application) LoadActiveService(ctx context.Context) (*Service, error) {
-	return app.LoadServiceFromName(ctx, app.activeService)
 }
 
 type NoApplicationError struct {

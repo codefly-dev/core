@@ -3,5 +3,5 @@ domain: github.com/codefly-ai/codefly-platform
 organization:
   name: codefly.ai
 applications:
-  - name: web*
-  - name: management
+    - name: management*
+    - name: web
