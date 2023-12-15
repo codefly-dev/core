@@ -9,7 +9,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/service"
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,7 +31,7 @@ func TestServiceAddFromJson(t *testing.T) {
 
 func TestServiceAddFromCode(t *testing.T) {
 	ctx := shared.NewContext()
-	action, err := service.NewActionAddService(ctx, &v1actions.AddService{
+	action, err := service.NewActionAddService(ctx, &actionsv1.AddService{
 		Name:        "My Service",
 		Description: "My Service Description",
 	})

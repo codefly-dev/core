@@ -9,9 +9,9 @@ import (
 	"runtime/debug"
 	"time"
 
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 
-	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
+	obsv1 "github.com/codefly-dev/core/generated/go/observability/v1"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -443,7 +443,7 @@ func NewServerFormatter(debug bool) *ServerFormatter {
 	}
 }
 
-type LogCallback func(log *agentsv1.Log)
+type LogCallback func(log *obsv1.Log)
 
 func RegisterLogCallback(callback LogCallback) {
 	output.callbacks = append(output.callbacks, callback)
@@ -467,19 +467,19 @@ type LogMessageContent struct {
 	Level           string `json:"Level"`
 }
 
-func ToKind(s string) agentsv1.Log_Kind {
+func ToKind(s string) obsv1.Log_Kind {
 	switch s {
 	case ServiceKind:
-		return agentsv1.Log_SERVICE
+		return obsv1.Log_SERVICE
 	case AgentKind:
-		return agentsv1.Log_AGENT
+		return obsv1.Log_AGENT
 	default:
-		return agentsv1.Log_UNKNOWN
+		return obsv1.Log_UNKNOWN
 	}
 }
 
-func createManagementLog(log *LogMessage) *agentsv1.Log {
-	return &agentsv1.Log{
+func createManagementLog(log *LogMessage) *obsv1.Log {
+	return &obsv1.Log{
 		At:          timestamppb.New(log.Timestamp),
 		Kind:        ToKind(log.Message.Kind),
 		Application: log.Message.Application,

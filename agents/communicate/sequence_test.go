@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/communicate"
-	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
+	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 
-	factoryv1 "github.com/codefly-dev/core/generated/v1/go/proto/services/factory"
+	factoryv1 "github.com/codefly-dev/core/generated/go/services/factory/v1"
 )
 
 // We mimic the behavior of a agent
@@ -45,30 +45,30 @@ func TestSequenceWithoutCommunication(t *testing.T) {
 
 func (s *agentTest) createSequence() *communicate.Sequence {
 	return communicate.NewSequence(
-		communicate.NewStringInput(&agentsv1.Message{Name: "one"}, ""),
+		communicate.NewStringInput(&agentv1.Message{Name: "one"}, ""),
 	)
 }
 
 func (s *agentTest) createBiggerSequence() *communicate.Sequence {
 	return communicate.NewSequence(
-		communicate.NewStringInput(&agentsv1.Message{Name: "one"}, ""),
-		communicate.NewStringInput(&agentsv1.Message{Name: "two"}, ""),
-		communicate.NewStringInput(&agentsv1.Message{Name: "three"}, ""),
-		communicate.NewStringInput(&agentsv1.Message{Name: "four"}, ""),
+		communicate.NewStringInput(&agentv1.Message{Name: "one"}, ""),
+		communicate.NewStringInput(&agentv1.Message{Name: "two"}, ""),
+		communicate.NewStringInput(&agentv1.Message{Name: "three"}, ""),
+		communicate.NewStringInput(&agentv1.Message{Name: "four"}, ""),
 	)
 }
 
-func (s *agentTest) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (s *agentTest) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
 	return s.Server.Communicate(ctx, req)
 }
 
 type clientHandler struct{}
 
-func (*clientHandler) Answer(ctx context.Context, question *agentsv1.Question) (*agentsv1.Answer, error) {
-	return &agentsv1.Answer{
-		Value: &agentsv1.Answer_Input{
-			Input: &agentsv1.InputAnswer{
-				Answer: &agentsv1.InputAnswer_StringValue{StringValue: "working"},
+func (*clientHandler) Answer(ctx context.Context, question *agentv1.Question) (*agentv1.Answer, error) {
+	return &agentv1.Answer{
+		Value: &agentv1.Answer_Input{
+			Input: &agentv1.InputAnswer{
+				Answer: &agentv1.InputAnswer_StringValue{StringValue: "working"},
 			},
 		},
 	}, nil
@@ -76,11 +76,11 @@ func (*clientHandler) Answer(ctx context.Context, question *agentsv1.Question) (
 
 type clientHandlerRepeater struct{}
 
-func (*clientHandlerRepeater) Answer(ctx context.Context, question *agentsv1.Question) (*agentsv1.Answer, error) {
-	return &agentsv1.Answer{
-		Value: &agentsv1.Answer_Input{
-			Input: &agentsv1.InputAnswer{
-				Answer: &agentsv1.InputAnswer_StringValue{StringValue: question.Message.Name},
+func (*clientHandlerRepeater) Answer(ctx context.Context, question *agentv1.Question) (*agentv1.Answer, error) {
+	return &agentv1.Answer{
+		Value: &agentv1.Answer_Input{
+			Input: &agentv1.InputAnswer{
+				Answer: &agentv1.InputAnswer_StringValue{StringValue: question.Message.Name},
 			},
 		},
 	}, nil
@@ -104,7 +104,7 @@ func TestSequenceWithCommunication(t *testing.T) {
 
 	eng, err := clientSession.Engage(ctx, nil)
 	assert.NoError(t, err)
-	assert.True(t, eng.Mode == agentsv1.Engage_START)
+	assert.True(t, eng.Mode == agentv1.Engage_START)
 
 	// Send that to the server
 	res, err := server.Communicate(ctx, eng)
@@ -127,7 +127,7 @@ func TestSequenceWithCommunication(t *testing.T) {
 	// we will send that back to the generator
 	eng, err = clientSession.Engage(ctx, res)
 	assert.NoError(t, err)
-	assert.True(t, eng.Mode == agentsv1.Engage_END)
+	assert.True(t, eng.Mode == agentv1.Engage_END)
 
 	// we got the info back
 	session, err := server.Done(ctx, communicate.Channel[factoryv1.CreateRequest]())

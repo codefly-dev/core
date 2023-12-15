@@ -3,7 +3,7 @@ package communicate
 import (
 	"context"
 
-	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
+	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 )
 
 // A Sequence is a list of total_steps that are executed in order
@@ -11,7 +11,7 @@ import (
 type Sequence struct {
 	step       int
 	totalSteps int
-	questions  []*agentsv1.Question
+	questions  []*agentv1.Question
 }
 
 var _ QuestionGenerator = &Sequence{}
@@ -20,20 +20,20 @@ func (s *Sequence) Ready() bool {
 	return s.step == s.totalSteps
 }
 
-func (s *Sequence) Process(_ context.Context, _ *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (s *Sequence) Process(_ context.Context, _ *agentv1.Engage) (*agentv1.InformationRequest, error) {
 	// We may be done
 	if s.step == s.totalSteps {
-		return &agentsv1.InformationRequest{Done: true}, nil
+		return &agentv1.InformationRequest{Done: true}, nil
 	}
 	// Return the questions in order
 	step := s.step
 	s.step++
-	return &agentsv1.InformationRequest{
+	return &agentv1.InformationRequest{
 		Question: s.questions[step],
 	}, nil
 }
 
-func NewSequence(qs ...*agentsv1.Question) *Sequence {
+func NewSequence(qs ...*agentv1.Question) *Sequence {
 	return &Sequence{
 		step:       0,
 		totalSteps: len(qs),

@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/mitchellh/mapstructure"
@@ -75,7 +75,7 @@ func (s *Service) Identity() *basev1.ServiceIdentity {
 }
 
 // NewService creates a service in an application
-func (app *Application) NewService(ctx context.Context, action *v1actions.AddService) (*Service, error) {
+func (app *Application) NewService(ctx context.Context, action *actionsv1.AddService) (*Service, error) {
 	logger := shared.GetLogger(ctx).With("NewService<%s>", action.Name)
 	if app.ExistsService(action.Name) && !action.Override {
 		return nil, logger.Errorf("service already exists: %s", action.Name)

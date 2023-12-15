@@ -9,7 +9,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/project"
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,7 +31,7 @@ func TestProjectAddFromJson(t *testing.T) {
 
 func TestProjectAddFromCode(t *testing.T) {
 	ctx := shared.NewContext()
-	action, err := project.NewActionAddProject(ctx, &v1actions.AddProject{
+	action, err := project.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name:        "My Project",
 		Description: "My Project Description",
 	})

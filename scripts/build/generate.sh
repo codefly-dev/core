@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-cd generated && buf generate
+cd generated && buf generate buf.build/codefly-dev/proto

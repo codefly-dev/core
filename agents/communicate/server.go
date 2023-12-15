@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
+	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	"github.com/codefly-dev/core/shared"
 )
 
@@ -23,8 +23,8 @@ func (c *ServerContext) Done() bool {
 	return c.done
 }
 
-func (c *ServerContext) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
-	if req.Mode == agentsv1.Engage_START {
+func (c *ServerContext) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
+	if req.Mode == agentv1.Engage_START {
 		c.session = NewServerSession(c.gen)
 	}
 	return c.session.Process(ctx, req)
@@ -51,7 +51,7 @@ func (m *Server) Register(ctx context.Context, generator *Generator) error {
 	return nil
 }
 
-func (m *Server) RequiresCommunication(channel *agentsv1.Channel) (*ServerContext, bool) {
+func (m *Server) RequiresCommunication(channel *agentv1.Channel) (*ServerContext, bool) {
 	if s, ok := m.channels[channel.Kind]; ok {
 		return s, true
 	}
@@ -67,14 +67,14 @@ func (m *Server) Ready(s string) bool {
 }
 
 // Communicate from the generator and sends back information request required
-func (m *Server) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (m *Server) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
 	if c, ok := m.channels[req.Channel.Kind]; ok {
 		return c.Communicate(ctx, req)
 	}
 	return nil, fmt.Errorf("cannot find channel %s", req.Channel.Kind)
 }
 
-func (m *Server) Done(ctx context.Context, channel *agentsv1.Channel) (*ServerSession, error) {
+func (m *Server) Done(ctx context.Context, channel *agentv1.Channel) (*ServerSession, error) {
 	logger := shared.GetLogger(ctx).With("communicate.Server.Done")
 	if c, ok := m.channels[channel.Kind]; ok {
 		if c.session == nil {
@@ -93,18 +93,18 @@ func NewServer(_ context.Context) *Server {
 
 type QuestionGenerator interface {
 	Ready() bool
-	Process(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error)
+	Process(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error)
 }
 
 type ServerSession struct {
 	generator QuestionGenerator
-	states    map[string]*agentsv1.Answer
+	states    map[string]*agentv1.Answer
 }
 
 func NewServerSession(generator QuestionGenerator) *ServerSession {
 	return &ServerSession{
 		generator: generator,
-		states:    make(map[string]*agentsv1.Answer),
+		states:    make(map[string]*agentv1.Answer),
 	}
 }
 
@@ -114,7 +114,7 @@ func (c *ServerSession) Ready() bool {
 	return false
 }
 
-func (c *ServerSession) Process(ctx context.Context, eng *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (c *ServerSession) Process(ctx context.Context, eng *agentv1.Engage) (*agentv1.InformationRequest, error) {
 	if eng.Answer != nil {
 		if _, ok := c.states[eng.Stage]; ok {
 			return nil, fmt.Errorf("cannot process stage %s twice", eng.Stage)

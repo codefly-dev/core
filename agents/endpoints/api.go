@@ -10,7 +10,7 @@ import (
 	"github.com/yoheimuta/go-protoparser/v4/parser"
 
 	"github.com/codefly-dev/core/configurations"
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	"github.com/codefly-dev/core/shared"
 	openapiloads "github.com/go-openapi/loads"
 	openapispec "github.com/go-openapi/spec"

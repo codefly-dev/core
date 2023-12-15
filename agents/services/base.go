@@ -12,10 +12,10 @@ import (
 	"github.com/codefly-dev/core/agents/helpers/code"
 
 	"github.com/codefly-dev/core/configurations"
-	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
-	factoryv1 "github.com/codefly-dev/core/generated/v1/go/proto/services/factory"
-	runtimev1 "github.com/codefly-dev/core/generated/v1/go/proto/services/runtime"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
+	factoryv1 "github.com/codefly-dev/core/generated/go/services/factory/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )
@@ -327,7 +327,7 @@ func (s *Base) Stop() error {
 	return nil
 }
 
-func (s *Base) Communicate(ctx context.Context, eng *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (s *Base) Communicate(ctx context.Context, eng *agentv1.Engage) (*agentv1.InformationRequest, error) {
 	return s.Communication.Communicate(ctx, eng)
 }
 

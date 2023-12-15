@@ -8,8 +8,8 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
-	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
-	factoryv1 "github.com/codefly-dev/core/generated/v1/go/proto/services/factory"
+	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
+	factoryv1 "github.com/codefly-dev/core/generated/go/services/factory/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
@@ -72,7 +72,7 @@ func (m FactoryAgent) Deploy(ctx context.Context, req *factoryv1.DeploymentReque
 	return m.client.Deploy(ctx, req)
 }
 
-func (m FactoryAgent) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (m FactoryAgent) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
 	return m.client.Communicate(ctx, req)
 }
 
@@ -121,7 +121,7 @@ func (m *FactoryServer) Deploy(ctx context.Context, req *factoryv1.DeploymentReq
 	return m.Factory.Deploy(ctx, req)
 }
 
-func (m *FactoryServer) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (m *FactoryServer) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
 	return m.Factory.Communicate(ctx, req)
 }
 

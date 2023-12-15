@@ -8,7 +8,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	actionproject "github.com/codefly-dev/core/actions/project"
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/configurations"
@@ -25,7 +25,7 @@ func TestBadInputs(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
+			_, err := actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 				Name: tc.project,
 			})
 			assert.Error(t, err)
@@ -44,7 +44,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	assert.Equal(t, dir, w.Dir())
 
 	projectName := "test-project"
-	action, err = actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
+	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name:      projectName,
 		Workspace: w.Name,
 	})
@@ -63,7 +63,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	assert.Equal(t, path.Join(w.Dir(), projectName), project.Dir())
 
 	// Creating again should return an error
-	action, err = actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
+	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name: projectName,
 	})
 	assert.NoError(t, err)
@@ -118,7 +118,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	assert.Equal(t, 1, len(all))
 
 	// Add another project
-	action, err = actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
+	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name: "test-project-2",
 	})
 	assert.NoError(t, err)
@@ -174,7 +174,7 @@ func TestCreationWithAbsolutePath(t *testing.T) {
 
 	projectDir := t.TempDir()
 
-	action, err := actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
+	action, err := actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name: "test-project",
 		Path: projectDir,
 	})
@@ -206,7 +206,7 @@ func TestCreationWithRelativePath(t *testing.T) {
 	ctx := shared.NewContext()
 	w, dir := createTestWorkspace(t, ctx)
 
-	action, err := actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
+	action, err := actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name: "test-project",
 		Path: "path-from-workspace",
 	})

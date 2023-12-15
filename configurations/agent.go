@@ -10,7 +10,7 @@ import (
 	"path"
 	"strings"
 
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 
 	"github.com/Masterminds/semver"
 

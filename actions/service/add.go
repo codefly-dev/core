@@ -9,7 +9,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 )
 
 const AddServiceKind = "service.add"
@@ -23,7 +23,7 @@ func (action *AddServiceAction) Command() string {
 	return fmt.Sprintf("codefly add service %s --agent=%s", action.Name, agent.Identifier())
 }
 
-type AddService = v1actions.AddService
+type AddService = actionsv1.AddService
 
 func NewActionAddService(ctx context.Context, in *AddService) (*AddServiceAction, error) {
 	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))

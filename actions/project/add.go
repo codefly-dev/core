@@ -9,15 +9,14 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/shared"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 
 	"github.com/codefly-dev/core/configurations"
 )
 
 const AddProjectKind = "project.add"
 
-type AddProject = v1actions.AddProject
-
+type AddProject = actionsv1.AddProject
 type AddProjectAction struct {
 	*AddProject
 }
@@ -62,7 +61,9 @@ func (action *AddProjectAction) Run(ctx context.Context) (any, error) {
 		return nil, err
 	}
 
-	err = w.SetProjectActive(ctx, &v1actions.SetProjectActive{Name: project.Name})
+	err = w.SetProjectActive(ctx, &actionsv1.SetProjectActive{
+		Name: project.Name,
+	})
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot set project as active")
 	}

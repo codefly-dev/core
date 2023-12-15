@@ -6,15 +6,14 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/shared"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 
 	"github.com/codefly-dev/core/configurations"
 )
 
 const SetProjectActiveKind = "project.set_as_active"
 
-type SetProjectActive = v1actions.SetProjectActive
-
+type SetProjectActive = actionsv1.SetProjectActive
 type SetProjectActiveAction struct {
 	*SetProjectActive
 }

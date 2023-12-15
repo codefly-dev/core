@@ -8,9 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
-
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )
@@ -72,7 +71,7 @@ func (ref *ApplicationReference) IsActive() (*ApplicationReference, bool) {
 }
 
 // NewApplication creates an application in a project
-func (project *Project) NewApplication(ctx context.Context, action *v1actions.AddApplication) (*Application, error) {
+func (project *Project) NewApplication(ctx context.Context, action *actionsv1.AddApplication) (*Application, error) {
 	logger := shared.GetLogger(ctx).With("NewApplication<%s>", action.Name)
 	if project.ExistsApplication(action.Name) {
 		return nil, logger.Errorf("project already exists")

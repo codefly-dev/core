@@ -8,8 +8,8 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	actionworkspace "github.com/codefly-dev/core/actions/workspace"
 	"github.com/codefly-dev/core/configurations"
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
-	v1base "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	v1base "github.com/codefly-dev/core/generated/go/base/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
@@ -22,7 +22,7 @@ func createTestWorkspace(t *testing.T, ctx context.Context) (*configurations.Wor
 		Domain: "https://github/codefly-dev",
 	}
 
-	action, err := actionworkspace.NewActionAddWorkspace(ctx, &v1actions.AddWorkspace{
+	action, err := actionworkspace.NewActionAddWorkspace(ctx, &actionsv1.AddWorkspace{
 		Organization: org,
 		Name:         "test",
 		Dir:          tmpDir,

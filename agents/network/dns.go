@@ -6,7 +6,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/endpoints"
 
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	"github.com/codefly-dev/core/shared"
 )
 

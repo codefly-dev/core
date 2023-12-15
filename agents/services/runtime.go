@@ -9,8 +9,8 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
-	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
-	runtimev1 "github.com/codefly-dev/core/generated/v1/go/proto/services/runtime"
+	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -91,7 +91,7 @@ func (m *RuntimeAgent) Stop(ctx context.Context, req *runtimev1.StopRequest) (*r
 }
 
 // Communicate helper
-func (m *RuntimeAgent) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (m *RuntimeAgent) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
 	return m.client.Communicate(ctx, req)
 }
 
@@ -136,7 +136,7 @@ func (m *RuntimeServer) Stop(ctx context.Context, req *runtimev1.StopRequest) (*
 	return m.Runtime.Stop(ctx, req)
 }
 
-func (m *RuntimeServer) Communicate(ctx context.Context, req *agentsv1.Engage) (*agentsv1.InformationRequest, error) {
+func (m *RuntimeServer) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
 	return m.Runtime.Communicate(ctx, req)
 }
 

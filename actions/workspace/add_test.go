@@ -9,7 +9,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/workspace"
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,7 +31,7 @@ func TestWorkspaceAddFromJson(t *testing.T) {
 
 func TestWorkspaceAddFromCode(t *testing.T) {
 	ctx := shared.NewContext()
-	action, err := workspace.NewActionAddWorkspace(ctx, &v1actions.AddWorkspace{
+	action, err := workspace.NewActionAddWorkspace(ctx, &actionsv1.AddWorkspace{
 		Name:        "My Workspace",
 		Description: "My Workspace Description",
 	})

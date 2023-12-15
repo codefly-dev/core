@@ -8,11 +8,11 @@ import (
 	"slices"
 	"strings"
 
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 
 	"github.com/codefly-dev/core/templates"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 	"github.com/codefly-dev/core/shared"
 )
 
@@ -96,7 +96,7 @@ func (ref *ProjectReference) IsActive() (*ProjectReference, bool) {
 }
 
 // NewProject creates a new project in a workspace
-func (workspace *Workspace) NewProject(ctx context.Context, action *v1actions.AddProject) (*Project, error) {
+func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv1.AddProject) (*Project, error) {
 	logger := shared.GetLogger(ctx).With("NewProject<%s>", action.Name)
 	if slices.Contains(workspace.ProjectNames(), action.Name) {
 		return nil, logger.Errorf("project already exists in workspace: %s at %s", workspace.Name, workspace.Dir())

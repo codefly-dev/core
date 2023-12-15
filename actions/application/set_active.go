@@ -7,15 +7,14 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 
 	"github.com/codefly-dev/core/configurations"
 )
 
 const SetApplicationActiveKind = "application.activate"
 
-type SetApplicationActive = v1actions.SetApplicationActive
-
+type SetApplicationActive = actionsv1.SetApplicationActive
 type SetApplicationActiveAction struct {
 	*SetApplicationActive
 }

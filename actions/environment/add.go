@@ -6,7 +6,7 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/shared"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 
 	"github.com/codefly-dev/core/configurations"
 )
@@ -14,14 +14,14 @@ import (
 const AddEnvironment = "environment.add"
 
 type AddEnvironmentAction struct {
-	*v1actions.AddEnvironment
+	*actionsv1.AddEnvironment
 }
 
 func (action *AddEnvironmentAction) Command() string {
 	return "TODO"
 }
 
-func NewActionAddEnvironment(ctx context.Context, in *v1actions.AddEnvironment) (*AddEnvironmentAction, error) {
+func NewActionAddEnvironment(ctx context.Context, in *actionsv1.AddEnvironment) (*AddEnvironmentAction, error) {
 	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, logger.Wrap(err)

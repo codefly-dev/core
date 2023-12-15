@@ -3,7 +3,7 @@ package communicate
 import (
 	"context"
 
-	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
+	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	"github.com/codefly-dev/core/shared"
 )
 
@@ -13,7 +13,7 @@ func Do[T any](ctx context.Context, agent Communicate, handler AnswerProvider) e
 	logger := shared.GetLogger(ctx).With("communicate.Communicate<%s>", shared.TypeOf[T]())
 	logger.DebugMe("Starting communication")
 	session := NewClientSession(Channel[T](), handler)
-	var req *agentsv1.InformationRequest
+	var req *agentv1.InformationRequest
 	for {
 		// client provides the data
 		eng, err := session.Engage(ctx, req)
@@ -27,7 +27,7 @@ func Do[T any](ctx context.Context, agent Communicate, handler AnswerProvider) e
 			return logger.Wrapf(err, "error communicating")
 		}
 		logger.DebugMe("Received request: %s", req)
-		if eng.Mode == agentsv1.Engage_END {
+		if eng.Mode == agentv1.Engage_END {
 			logger.DebugMe("Communication ended")
 			break
 		}
@@ -38,31 +38,31 @@ func Do[T any](ctx context.Context, agent Communicate, handler AnswerProvider) e
 // Dispatches the request to the appropriate generator
 
 type ClientSession struct {
-	channel        *agentsv1.Channel
+	channel        *agentv1.Channel
 	answerProvider AnswerProvider
 }
 
-func (s *ClientSession) Engage(ctx context.Context, req *agentsv1.InformationRequest) (*agentsv1.Engage, error) {
+func (s *ClientSession) Engage(ctx context.Context, req *agentv1.InformationRequest) (*agentv1.Engage, error) {
 	logger := shared.GetLogger(ctx).With("communicate.ClientSession.Engage")
 	if req == nil {
-		return &agentsv1.Engage{Channel: s.channel, Mode: agentsv1.Engage_START}, nil
+		return &agentv1.Engage{Channel: s.channel, Mode: agentv1.Engage_START}, nil
 	}
 	// if we don't have a question, we are done
 	if req.Question == nil {
-		return &agentsv1.Engage{Channel: s.channel, Mode: agentsv1.Engage_END}, nil
+		return &agentv1.Engage{Channel: s.channel, Mode: agentv1.Engage_END}, nil
 	}
 	answer, err := s.answerProvider.Answer(ctx, req.Question)
 	if err != nil {
 		return nil, logger.Wrapf(err, "error answering question")
 	}
 
-	return &agentsv1.Engage{Channel: s.channel, Stage: req.Question.Message.Name, Answer: answer}, nil
+	return &agentv1.Engage{Channel: s.channel, Stage: req.Question.Message.Name, Answer: answer}, nil
 }
 
 type AnswerProvider interface {
-	Answer(ctx context.Context, question *agentsv1.Question) (*agentsv1.Answer, error)
+	Answer(ctx context.Context, question *agentv1.Question) (*agentv1.Answer, error)
 }
 
-func NewClientSession(channel *agentsv1.Channel, handler AnswerProvider) *ClientSession {
+func NewClientSession(channel *agentv1.Channel, handler AnswerProvider) *ClientSession {
 	return &ClientSession{channel: channel, answerProvider: handler}
 }

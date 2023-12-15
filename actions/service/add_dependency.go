@@ -8,7 +8,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 )
 
 const AddServiceDependencyKind = "service.add_dependency"
@@ -21,7 +21,7 @@ func (action *AddServiceDependencyAction) Command() string {
 	return "TODO"
 }
 
-type AddServiceDependency = v1actions.AddServiceDependency
+type AddServiceDependency = actionsv1.AddServiceDependency
 
 func NewActionAddServiceDependency(ctx context.Context, in *AddServiceDependency) (*AddServiceDependencyAction, error) {
 	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))

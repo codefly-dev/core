@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/bufbuild/protovalidate-go"
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/configurations"

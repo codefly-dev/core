@@ -9,7 +9,7 @@ import (
 	actionapplication "github.com/codefly-dev/core/actions/application"
 	actionproject "github.com/codefly-dev/core/actions/project"
 	"github.com/codefly-dev/core/configurations"
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
@@ -21,7 +21,7 @@ func TestCreationApplication(t *testing.T) {
 
 	var action actions.Action
 	var err error
-	action, err = actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
+	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name:      "test-project",
 		Workspace: w.Name,
 	})
@@ -31,14 +31,14 @@ func TestCreationApplication(t *testing.T) {
 	project := shared.Must(actions.As[configurations.Project](out))
 
 	// Action needs a project
-	action, err = actionapplication.NewActionAddApplication(ctx, &v1actions.AddApplication{
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv1.AddApplication{
 		Name: "test-application",
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
 	assert.Error(t, err)
 
-	action, err = actionapplication.NewActionAddApplication(ctx, &v1actions.AddApplication{
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv1.AddApplication{
 		Name:    "test-application",
 		Project: project.Name,
 	})
@@ -82,7 +82,7 @@ func TestCreationApplication(t *testing.T) {
 	assert.Equal(t, 1, len(project.Applications))
 
 	// Add a second application
-	action, err = actionapplication.NewActionAddApplication(ctx, &v1actions.AddApplication{
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv1.AddApplication{
 		Name:    "test-application-2",
 		Project: project.Name,
 	})
@@ -114,7 +114,7 @@ func TestCreationApplication(t *testing.T) {
 	assert.Equal(t, "test-application-2", back.Name)
 
 	// Make the first one active
-	action, err = actionapplication.NewActionSetApplicationActive(ctx, &v1actions.SetApplicationActive{
+	action, err = actionapplication.NewActionSetApplicationActive(ctx, &actionsv1.SetApplicationActive{
 		Name:    "test-application",
 		Project: project.Name,
 	})
@@ -130,7 +130,7 @@ func TestCreationApplication(t *testing.T) {
 	assert.Contains(t, projectConfig, "name: test-application*")
 	assert.NotContains(t, projectConfig, "name: test-application-2*")
 
-	action, err = actionapplication.NewActionSetApplicationActive(ctx, &v1actions.SetApplicationActive{
+	action, err = actionapplication.NewActionSetApplicationActive(ctx, &actionsv1.SetApplicationActive{
 		Name:    "test-application-2",
 		Project: project.Name,
 	})

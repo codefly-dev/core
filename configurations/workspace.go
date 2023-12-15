@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 
 	"github.com/codefly-dev/core/shared"
 )
@@ -33,7 +33,7 @@ type Workspace struct {
 }
 
 // NewWorkspace creates a new workspace
-func NewWorkspace(ctx context.Context, action *v1actions.AddWorkspace) (*Workspace, error) {
+func NewWorkspace(ctx context.Context, action *actionsv1.AddWorkspace) (*Workspace, error) {
 	logger := shared.GetLogger(ctx).With("NewWorkspace<%s>", action.Name)
 	org, err := OrganizationFromProto(ctx, action.Organization)
 	if err != nil {
@@ -187,7 +187,7 @@ Workspaces have a active project, so we don't always have to specify it
 */
 
 // SetProjectActive sets the active project
-func (workspace *Workspace) SetProjectActive(ctx context.Context, input *v1actions.SetProjectActive) error {
+func (workspace *Workspace) SetProjectActive(ctx context.Context, input *actionsv1.SetProjectActive) error {
 	if len(workspace.Projects) == 1 {
 		workspace.activeProject = workspace.Projects[0].Name
 		return nil

@@ -3,14 +3,14 @@ package services
 import (
 	"context"
 
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 
-	runtimev1 "github.com/codefly-dev/core/generated/v1/go/proto/services/runtime"
+	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
-	v1agent "github.com/codefly-dev/core/generated/v1/go/proto/services/agent"
-	factoryv1 "github.com/codefly-dev/core/generated/v1/go/proto/services/factory"
+	v1agent "github.com/codefly-dev/core/generated/go/services/agent/v1"
+	factoryv1 "github.com/codefly-dev/core/generated/go/services/factory/v1"
 	"github.com/codefly-dev/core/shared"
 )
 

@@ -38,6 +38,13 @@ func NewActionTracker(group string) *ActionTracker {
 	return tracker
 }
 
+func (tracker *ActionTracker) WithDir(dir string) {
+	if dir == "" {
+		return
+	}
+	tracker.Dir = dir
+}
+
 func InitActionTracker(group string) {
 	tracker = NewActionTracker(group)
 }

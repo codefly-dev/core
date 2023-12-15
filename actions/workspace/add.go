@@ -6,7 +6,7 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/shared"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 
 	"github.com/codefly-dev/core/configurations"
 )
@@ -14,14 +14,14 @@ import (
 const AddWorkspace = "workspace.add"
 
 type AddWorkspaceAction struct {
-	*v1actions.AddWorkspace
+	*actionsv1.AddWorkspace
 }
 
 func (action *AddWorkspaceAction) Command() string {
 	return "TODO"
 }
 
-func NewActionAddWorkspace(ctx context.Context, in *v1actions.AddWorkspace) (*AddWorkspaceAction, error) {
+func NewActionAddWorkspace(ctx context.Context, in *actionsv1.AddWorkspace) (*AddWorkspaceAction, error) {
 	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, logger.Wrap(err)

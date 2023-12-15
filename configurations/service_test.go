@@ -9,8 +9,8 @@ import (
 	actionapplication "github.com/codefly-dev/core/actions/application"
 	actionproject "github.com/codefly-dev/core/actions/project"
 	actionservice "github.com/codefly-dev/core/actions/service"
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
-	v1base "github.com/codefly-dev/core/generated/v1/go/proto/base"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	v1base "github.com/codefly-dev/core/generated/go/base/v1"
 	"github.com/codefly-dev/core/shared"
 
 	"gopkg.in/yaml.v3"
@@ -69,14 +69,14 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 
 	var action actions.Action
 	var err error
-	action, err = actionproject.NewActionAddProject(ctx, &v1actions.AddProject{
+	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name:      "test-project",
 		Workspace: w.Name,
 	})
 	assert.NoError(t, err)
 	_, err = action.Run(ctx)
 	assert.NoError(t, err)
-	action, err = actionapplication.NewActionAddApplication(ctx, &v1actions.AddApplication{
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv1.AddApplication{
 		Name:    "test-app-1",
 		Project: "test-project",
 	})
@@ -88,7 +88,7 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.Equal(t, "test-app-1", appOne.Name)
 	assert.Equal(t, 0, len(appOne.Services))
 
-	input := &v1actions.AddService{
+	input := &actionsv1.AddService{
 		Name:        "test-service-1",
 		Application: "test-app-1",
 		Project:     "test-project",
@@ -158,7 +158,7 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.Equal(t, "overwritten", serviceOne.Namespace)
 
 	// create another service
-	action, err = actionservice.NewActionAddService(ctx, &v1actions.AddService{
+	action, err = actionservice.NewActionAddService(ctx, &actionsv1.AddService{
 		Name:        "test-service-2",
 		Application: "test-app-1",
 		Project:     "test-project",
@@ -180,7 +180,7 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.Equal(t, "test-service-2", *appOne.ActiveService(ctx))
 
 	// new appOne and new serviceOne
-	action, err = actionapplication.NewActionAddApplication(ctx, &v1actions.AddApplication{
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv1.AddApplication{
 		Name:    "test-app-2",
 		Project: "test-project",
 	})
@@ -191,7 +191,7 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-app-2", appTwo.Name)
 
-	action, err = actionservice.NewActionAddService(ctx, &v1actions.AddService{
+	action, err = actionservice.NewActionAddService(ctx, &actionsv1.AddService{
 		Name:        "test-service-3",
 		Application: "test-app-2",
 		Project:     "test-project",
@@ -236,7 +236,7 @@ func TestAddDependencyService(t *testing.T) {
 	var action actions.Action
 	var err error
 	// No endpoint yet
-	input := &v1actions.AddServiceDependency{
+	input := &actionsv1.AddServiceDependency{
 		Name:                  "test-service-1",
 		Application:           "test-app-1",
 		Project:               "test-project",

@@ -7,13 +7,12 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 )
 
 const SetServiceActiveKind = "service.activate"
 
-type SetServiceActive = v1actions.SetServiceActive
-
+type SetServiceActive = actionsv1.SetServiceActive
 type SetServiceActiveAction struct {
 	*SetServiceActive
 }

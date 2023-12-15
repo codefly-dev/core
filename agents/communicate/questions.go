@@ -1,35 +1,35 @@
 package communicate
 
 import (
-	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
+	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 )
 
-func Display(msg *agentsv1.Message, data map[string]string) *agentsv1.Question {
-	return &agentsv1.Question{
+func Display(msg *agentv1.Message, data map[string]string) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentsv1.Question_Display{
-			Display: &agentsv1.Display{Data: data},
+		Value: &agentv1.Question_Display{
+			Display: &agentv1.Display{Data: data},
 		},
 	}
 }
 
-func NewConfirm(msg *agentsv1.Message, defaultConfirm bool) *agentsv1.Question {
-	return &agentsv1.Question{
+func NewConfirm(msg *agentv1.Message, defaultConfirm bool) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentsv1.Question_Confirm{
-			Confirm: &agentsv1.Confirm{
+		Value: &agentv1.Question_Confirm{
+			Confirm: &agentv1.Confirm{
 				Default: defaultConfirm,
 			},
 		},
 	}
 }
 
-func NewStringInput(msg *agentsv1.Message, defaultValue string) *agentsv1.Question {
-	return &agentsv1.Question{
+func NewStringInput(msg *agentv1.Message, defaultValue string) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentsv1.Question_Input{
-			Input: &agentsv1.Input{
-				Default: &agentsv1.Input_StringDefault{
+		Value: &agentv1.Question_Input{
+			Input: &agentv1.Input{
+				Default: &agentv1.Input_StringDefault{
 					StringDefault: defaultValue,
 				},
 			},
@@ -37,22 +37,22 @@ func NewStringInput(msg *agentsv1.Message, defaultValue string) *agentsv1.Questi
 	}
 }
 
-func NewSelection(msg *agentsv1.Message, options ...*agentsv1.Message) *agentsv1.Question {
-	return &agentsv1.Question{
+func NewSelection(msg *agentv1.Message, options ...*agentv1.Message) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentsv1.Question_Selection{
-			Selection: &agentsv1.Selection{
+		Value: &agentv1.Question_Selection{
+			Selection: &agentv1.Selection{
 				Options: options,
 			},
 		},
 	}
 }
 
-func NewChoice(msg *agentsv1.Message, options ...*agentsv1.Message) *agentsv1.Question {
-	return &agentsv1.Question{
+func NewChoice(msg *agentv1.Message, options ...*agentv1.Message) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentsv1.Question_Choice{
-			Choice: &agentsv1.Choice{
+		Value: &agentv1.Question_Choice{
+			Choice: &agentv1.Choice{
 				Options: options,
 			},
 		},

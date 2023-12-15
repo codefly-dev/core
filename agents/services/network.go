@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/codefly-dev/core/configurations"
-	runtimev1 "github.com/codefly-dev/core/generated/v1/go/proto/services/runtime"
+	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
 )
 
 // NetworkMappingForRoute finds the proper network mapping for a given route

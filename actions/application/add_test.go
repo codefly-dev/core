@@ -9,7 +9,9 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/application"
-	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
+
+	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,7 +33,7 @@ func TestApplicationAddFromJson(t *testing.T) {
 
 func TestApplicationAddFromCode(t *testing.T) {
 	ctx := shared.NewContext()
-	action, err := application.NewActionAddApplication(ctx, &v1actions.AddApplication{
+	action, err := application.NewActionAddApplication(ctx, &actionsv1.AddApplication{
 		Name:        "My Application",
 		Description: "My Application Description",
 	})
