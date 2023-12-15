@@ -15,7 +15,7 @@ import (
 )
 
 func TestCreationApplication(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := wool.NewContext()
 	w, dir := createTestWorkspace(t, ctx)
 	defer os.RemoveAll(dir)
 

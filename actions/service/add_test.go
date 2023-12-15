@@ -5,8 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/codefly-dev/core/shared"
-
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/service"
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
@@ -30,7 +28,7 @@ func TestServiceAddFromJson(t *testing.T) {
 }
 
 func TestServiceAddFromCode(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := wool.NewContext()
 	action, err := service.NewActionAddService(ctx, &actionsv1.AddService{
 		Name:        "My Service",
 		Description: "My Service Description",

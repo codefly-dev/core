@@ -28,6 +28,17 @@ type Agent struct {
 	Publisher string    `yaml:"publisher"`
 }
 
+var CLI *Agent
+
+func init() {
+	CLI = &Agent{
+		Kind:      "codefly:cli",
+		Publisher: "codefly.dev",
+		Name:      "cli",
+		Version:   shared.Must(Version()),
+	}
+}
+
 func RegisterAgent(kind AgentKind, protoKind basev1.Agent_Kind) {
 	agentKinds[protoKind] = kind
 	agentInputs[kind] = protoKind

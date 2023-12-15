@@ -1,4 +1,4 @@
-package observability
+package architecture
 
 type Graph struct {
 	Name  string

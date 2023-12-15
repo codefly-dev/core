@@ -3,8 +3,6 @@ package configurations_test
 import (
 	"testing"
 
-	"github.com/codefly-dev/core/shared"
-
 	"github.com/codefly-dev/core/configurations"
 	"github.com/stretchr/testify/assert"
 )
@@ -46,7 +44,7 @@ func TestUniqueAndBack(t *testing.T) {
 }
 
 func TestLoadingFromDir(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := wool.NewContext()
 	conf, err := configurations.LoadServiceFromDirUnsafe(ctx, "testdata/service")
 	assert.NoError(t, err)
 

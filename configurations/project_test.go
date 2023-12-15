@@ -16,7 +16,7 @@ import (
 )
 
 func TestBadInputs(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := wool.NewContext()
 	tcs := []struct {
 		name    string
 		project string
@@ -34,7 +34,7 @@ func TestBadInputs(t *testing.T) {
 }
 
 func TestCreationWithDefaultPath(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := wool.NewContext()
 	w, dir := createTestWorkspace(t, ctx)
 	defer os.RemoveAll(dir)
 
@@ -169,7 +169,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 }
 
 func TestCreationWithAbsolutePath(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := wool.NewContext()
 	w, dir := createTestWorkspace(t, ctx)
 
 	projectDir := t.TempDir()
@@ -203,7 +203,7 @@ func TestCreationWithAbsolutePath(t *testing.T) {
 }
 
 func TestCreationWithRelativePath(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := wool.NewContext()
 	w, dir := createTestWorkspace(t, ctx)
 
 	action, err := actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
@@ -236,7 +236,7 @@ func TestCreationWithRelativePath(t *testing.T) {
 }
 
 func TestLoading(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := wool.NewContext()
 	ws := &configurations.Workspace{}
 
 	p, err := ws.LoadProjectFromDir(ctx, "testdata/project")

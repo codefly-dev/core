@@ -11,7 +11,7 @@ import (
 )
 
 func TestAgentParse(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := wool.NewContext()
 	tcs := []struct {
 		name string
 		in   string

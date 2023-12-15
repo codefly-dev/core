@@ -1,22 +1,21 @@
-package observability_test
+package architecture_test
 
 import (
 	"testing"
 
+	"github.com/codefly-dev/core/architecture"
 	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/observability"
-	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGraph(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := wool.NewContext()
 	ws := &configurations.Workspace{}
 	project, err := ws.LoadProjectFromDir(ctx, "testdata/codefly-platform")
 	assert.NoError(t, err)
 	assert.NotNil(t, project)
 	assert.Equal(t, 2, len(project.Applications))
-	g, err := observability.NewDependencyGraph(ctx, project)
+	g, err := architecture.NewDependencyGraph(ctx, project)
 	assert.NoError(t, err)
 	assert.NotNil(t, g)
 
@@ -30,15 +29,15 @@ func TestGraph(t *testing.T) {
 
 	assert.Equal(t, 2, len(g.ServiceDependencyGraph.Edges()))
 
-	expectedWebEdge := &observability.Edge{
+	expectedWebEdge := &architecture.Edge{
 		From: "web/gateway", // is a dependency for
 		To:   "web/frontend",
 	}
-	expectedManagementEdge := &observability.Edge{
+	expectedManagementEdge := &architecture.Edge{
 		From: "management/organization", // is a dependency for
 		To:   "web/gateway",
 	}
-	for _, expected := range []*observability.Edge{expectedWebEdge, expectedManagementEdge} {
+	for _, expected := range []*architecture.Edge{expectedWebEdge, expectedManagementEdge} {
 		found := false
 		for _, edge := range g.ServiceDependencyGraph.Edges() {
 			if edge.From == expected.From && edge.To == expected.To {
