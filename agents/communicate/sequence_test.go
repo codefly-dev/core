@@ -3,11 +3,12 @@ package communicate_test
 import (
 	"context"
 	"fmt"
+	"testing"
+
 	"github.com/codefly-dev/core/agents/communicate"
 	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
-	"testing"
 
 	factoryv1 "github.com/codefly-dev/core/generated/v1/go/proto/services/factory"
 )

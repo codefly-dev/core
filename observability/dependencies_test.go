@@ -1,11 +1,12 @@
 package observability_test
 
 import (
+	"testing"
+
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/observability"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestGraph(t *testing.T) {
@@ -26,7 +27,7 @@ func TestGraph(t *testing.T) {
 	// - frontend -> gateway
 	// - gateway -> organization
 	assert.Equal(t, 3, len(g.ServiceDependencyGraph.Nodes()))
-	
+
 	assert.Equal(t, 2, len(g.ServiceDependencyGraph.Edges()))
 
 	expectedWebEdge := &observability.Edge{

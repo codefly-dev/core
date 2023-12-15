@@ -2,9 +2,10 @@ package workspace_test
 
 import (
 	"encoding/json"
-	"github.com/codefly-dev/core/shared"
 	"os"
 	"testing"
+
+	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/workspace"

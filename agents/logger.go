@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
 	"hash/fnv"
 	"os"
 	"runtime/debug"
 	"time"
+
+	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
 
 	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 
