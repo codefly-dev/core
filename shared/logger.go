@@ -39,8 +39,9 @@ func GetLogger(ctx context.Context) BaseLogger {
 	} else {
 		l = ctx.Value(Agent)
 		if l == nil {
-			panic("no logger in context")
+			return NewLogger()
 		}
+		logger = l.(BaseLogger)
 	}
 	return logger
 	//child := NewLogger()
@@ -196,7 +197,7 @@ func (l *Logger) Action() string {
 			ss = append(ss, l.actions[0], l.actions[len(l.actions)-1])
 		}
 	case AllActions:
-		ss = append(ss, l.actions...)
+		//	ss = append(ss, l.actions...)
 	}
 
 	return fmt.Sprintf("(%s)", strings.Join(ss, sep))

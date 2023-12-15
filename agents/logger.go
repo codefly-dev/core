@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
 	"hash/fnv"
 	"os"
 	"runtime/debug"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/codefly-dev/core/configurations"
-	servicev1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
 	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-hclog"
 	"github.com/pkg/errors"
@@ -61,7 +61,7 @@ func (l *ServiceLogger) SetLevel(shared.LogLevel) shared.BaseLogger {
 	return l
 }
 
-func NewServiceLogger(identity *servicev1.ServiceIdentity, agent *configurations.Agent) *ServiceLogger {
+func NewServiceLogger(identity *basev1.ServiceIdentity, agent *configurations.Agent) *ServiceLogger {
 	logger := hclog.New(&hclog.LoggerOptions{
 		JSONFormat: true,
 	})
@@ -200,7 +200,6 @@ func (l *AgentLogger) Oops(format string, args ...any) {
 }
 
 func (l *AgentLogger) With(format string, args ...any) shared.BaseLogger {
-	l.action = fmt.Sprintf(format, args...)
 	return l
 }
 
@@ -228,7 +227,7 @@ func (l *AgentLogger) Wrapf(err error, format string, args ...any) error {
 	return errors.Wrapf(err, format, args...)
 }
 
-func NewAgentLogger(identity *servicev1.ServiceIdentity, agent *configurations.Agent) *AgentLogger {
+func NewAgentLogger(identity *basev1.ServiceIdentity, agent *configurations.Agent) *AgentLogger {
 	logger := hclog.New(&hclog.LoggerOptions{
 		JSONFormat: true,
 	})

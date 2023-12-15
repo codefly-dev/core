@@ -2,14 +2,13 @@ package network
 
 import (
 	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
-	servicev1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
 	runtimev1 "github.com/codefly-dev/core/generated/v1/go/proto/services/runtime"
 	"github.com/codefly-dev/core/shared"
 )
 
 // A ServiceManager helps go from a service to applications endpoint instances
 type ServiceManager struct {
-	service   *servicev1.ServiceIdentity
+	service   *basev1.ServiceIdentity
 	endpoints []*basev1.Endpoint
 
 	strategy Strategy
@@ -22,7 +21,7 @@ type ServiceManager struct {
 	logger   shared.BaseLogger
 }
 
-func NewServiceManager(identity *servicev1.ServiceIdentity, endpoints ...*basev1.Endpoint) *ServiceManager {
+func NewServiceManager(identity *basev1.ServiceIdentity, endpoints ...*basev1.Endpoint) *ServiceManager {
 	logger := shared.NewLogger().With("network.NewServicePortManager<%s>", identity.Name)
 	return &ServiceManager{
 		logger:    logger,

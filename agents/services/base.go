@@ -14,7 +14,6 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
 	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
-	servicev1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
 	factoryv1 "github.com/codefly-dev/core/generated/v1/go/proto/services/factory"
 	runtimev1 "github.com/codefly-dev/core/generated/v1/go/proto/services/runtime"
 	"github.com/codefly-dev/core/shared"
@@ -40,7 +39,7 @@ type Base struct {
 	Agent *configurations.Agent
 
 	// State
-	Identity *servicev1.ServiceIdentity
+	Identity *basev1.ServiceIdentity
 	Location string
 
 	// codefly configuration
@@ -82,20 +81,21 @@ func (s *Base) Context() context.Context {
 	return s.ctx
 }
 
-func (s *Base) Init(req *servicev1.InitRequest, settings any) error {
+func (s *Base) Init(identity *basev1.ServiceIdentity, settings any) error {
 
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, shared.Agent, s.AgentLogger)
-	ctx = context.WithValue(ctx, shared.Service, s.ServiceLogger)
-	s.ctx = ctx
-
-	s.Identity = req.Identity
+	s.Identity = identity
 	s.ServiceLogger = agents.NewServiceLogger(s.Identity, s.Agent)
 
 	s.AgentLogger = agents.NewAgentLogger(s.Identity, s.Agent)
 	defer s.AgentLogger.Catch()
 
-	s.Location = req.Location
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, shared.Base, s.AgentLogger)
+	ctx = context.WithValue(ctx, shared.Agent, s.AgentLogger)
+	ctx = context.WithValue(ctx, shared.Service, s.ServiceLogger)
+	s.ctx = ctx
+
+	s.Location = identity.Location
 
 	s.ConfigurationLocation = path.Join(s.Location, "codefly")
 	err := shared.CheckDirectoryOrCreate(s.ctx, s.ConfigurationLocation)
@@ -105,9 +105,6 @@ func (s *Base) Init(req *servicev1.InitRequest, settings any) error {
 	}
 
 	s.AgentLogger.Debugf("Location %v", s.Location)
-	if req.Debug {
-		s.AgentLogger.SetDebug() // For developers
-	}
 
 	s.Configuration, err = configurations.LoadServiceFromDirUnsafe(s.ctx, s.Location)
 	if err != nil {
@@ -168,13 +165,13 @@ func (s *Base) FactoryInitResponse(es []*basev1.Endpoint, readme string) (*facto
 		Version:   s.Version(),
 		Endpoints: es,
 		ReadMe:    readme,
-		Status:    &servicev1.InitStatus{State: servicev1.InitStatus_READY},
+		Status:    &factoryv1.InitStatus{State: factoryv1.InitStatus_READY},
 	}, nil
 }
 
 func (s *Base) FactoryInitResponseError(err error) (*factoryv1.InitResponse, error) {
 	return &factoryv1.InitResponse{
-		Status: &servicev1.InitStatus{State: servicev1.InitStatus_ERROR, Message: err.Error()},
+		Status: &factoryv1.InitStatus{State: factoryv1.InitStatus_ERROR, Message: err.Error()},
 	}, nil
 }
 
@@ -193,13 +190,13 @@ func (s *Base) RuntimeInitResponse(endpoints []*basev1.Endpoint) (*runtimev1.Ini
 	return &runtimev1.InitResponse{
 		Version:   s.Version(),
 		Endpoints: endpoints,
-		Status:    &servicev1.InitStatus{State: servicev1.InitStatus_READY},
+		Status:    &runtimev1.InitStatus{State: runtimev1.InitStatus_READY},
 	}, nil
 }
 
 func (s *Base) RuntimeInitResponseError(err error) (*runtimev1.InitResponse, error) {
 	return &runtimev1.InitResponse{
-		Status: &servicev1.InitStatus{State: servicev1.InitStatus_ERROR, Message: err.Error()},
+		Status: &runtimev1.InitStatus{State: runtimev1.InitStatus_ERROR, Message: err.Error()},
 	}, nil
 }
 
@@ -312,8 +309,8 @@ func StartSuccess() *runtimev1.StartStatus {
 	}
 }
 
-func (s *Base) Version() *servicev1.Version {
-	return &servicev1.Version{Version: s.Configuration.Version}
+func (s *Base) Version() *basev1.Version {
+	return &basev1.Version{Version: s.Configuration.Version}
 }
 
 func (s *Base) WantRestart() {

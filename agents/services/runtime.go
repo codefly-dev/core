@@ -10,7 +10,6 @@ import (
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
 	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
-	v1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
 	runtimev1 "github.com/codefly-dev/core/generated/v1/go/proto/services/runtime"
 	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-plugin"
@@ -33,7 +32,7 @@ func (m ServiceRuntimeAgentContext) Default() plugin.Plugin {
 var _ agents.AgentContext = ServiceRuntimeAgentContext{}
 
 type Runtime interface {
-	Init(ctx context.Context, req *v1.InitRequest) (*runtimev1.InitResponse, error)
+	Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error)
 
 	Configure(ctx context.Context, req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error)
 
@@ -58,7 +57,7 @@ func (m *RuntimeAgent) Configure(ctx context.Context, req *runtimev1.ConfigureRe
 }
 
 // Init initializes the service
-func (m *RuntimeAgent) Init(ctx context.Context, req *v1.InitRequest) (*runtimev1.InitResponse, error) {
+func (m *RuntimeAgent) Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error) {
 	resp, err := m.client.Init(ctx, req)
 	if err != nil && strings.Contains(err.Error(), "Marshal called with nil") {
 		return resp, fmt.Errorf("WE PROBABLY HAVE A PANIC")
@@ -121,7 +120,7 @@ func (m *RuntimeServer) Configure(ctx context.Context, req *runtimev1.ConfigureR
 	return m.Runtime.Configure(ctx, req)
 }
 
-func (m *RuntimeServer) Init(ctx context.Context, req *v1.InitRequest) (*runtimev1.InitResponse, error) {
+func (m *RuntimeServer) Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error) {
 	return m.Runtime.Init(ctx, req)
 }
 

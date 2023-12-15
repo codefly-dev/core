@@ -133,7 +133,7 @@ func LoadFromDir[C Configuration](ctx context.Context, dir string) (*C, error) {
 
 func LoadFromPath[C Configuration](ctx context.Context, p string) (*C, error) {
 	logger := shared.GetLogger(ctx).With("LoadFromPath[%s]", TypeName[C]())
-	logger.SetLogMethod(shared.AllActions).Tracef("loading")
+	//logger.SetLogMethod(shared.AllActions).Tracef("loading")
 	if _, err := os.Stat(p); os.IsNotExist(err) {
 		return nil, logger.Errorf("path doesn't exist <%s>", p)
 	}

@@ -9,7 +9,6 @@ import (
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
 	agentsv1 "github.com/codefly-dev/core/generated/v1/go/proto/agents"
-	servicev1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
 	factoryv1 "github.com/codefly-dev/core/generated/v1/go/proto/services/factory"
 	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-plugin"
@@ -30,7 +29,7 @@ func (m ServiceFactoryAgentContext) Default() plugin.Plugin {
 var _ agents.AgentContext = ServiceFactoryAgentContext{}
 
 type Factory interface {
-	Init(ctx context.Context, req *servicev1.InitRequest) (*factoryv1.InitResponse, error)
+	Init(ctx context.Context, req *factoryv1.InitRequest) (*factoryv1.InitResponse, error)
 
 	Create(ctx context.Context, req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error)
 	Update(ctx context.Context, req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error)
@@ -49,7 +48,7 @@ type FactoryAgent struct {
 	agent  *configurations.Agent
 }
 
-func (m FactoryAgent) Init(ctx context.Context, req *servicev1.InitRequest) (*factoryv1.InitResponse, error) {
+func (m FactoryAgent) Init(ctx context.Context, req *factoryv1.InitRequest) (*factoryv1.InitResponse, error) {
 	return m.client.Init(ctx, req)
 }
 
@@ -98,7 +97,7 @@ type FactoryServer struct {
 	Factory Factory
 }
 
-func (m *FactoryServer) Init(ctx context.Context, req *servicev1.InitRequest) (*factoryv1.InitResponse, error) {
+func (m *FactoryServer) Init(ctx context.Context, req *factoryv1.InitRequest) (*factoryv1.InitResponse, error) {
 	return m.Factory.Init(ctx, req)
 }
 

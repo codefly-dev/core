@@ -8,7 +8,6 @@ import (
 
 	v1actions "github.com/codefly-dev/core/generated/v1/go/proto/actions"
 	basev1 "github.com/codefly-dev/core/generated/v1/go/proto/base"
-	servicesv1 "github.com/codefly-dev/core/generated/v1/go/proto/services"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/mitchellh/mapstructure"
@@ -66,8 +65,8 @@ func (s *Service) Unique() string {
 }
 
 // Identity is the proto version of Unique
-func (s *Service) Identity() *servicesv1.ServiceIdentity {
-	return &servicesv1.ServiceIdentity{
+func (s *Service) Identity() *basev1.ServiceIdentity {
+	return &basev1.ServiceIdentity{
 		Name:        s.Name,
 		Application: s.Application,
 		Domain:      s.Domain,

@@ -9,7 +9,6 @@ package runtime
 import (
 	context "context"
 	agents "github.com/codefly-dev/core/generated/v1/go/proto/agents"
-	services "github.com/codefly-dev/core/generated/v1/go/proto/services"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -33,7 +32,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RuntimeClient interface {
-	Init(ctx context.Context, in *services.InitRequest, opts ...grpc.CallOption) (*InitResponse, error)
+	Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error)
 	Configure(ctx context.Context, in *ConfigureRequest, opts ...grpc.CallOption) (*ConfigureResponse, error)
 	Start(ctx context.Context, in *StartRequest, opts ...grpc.CallOption) (*StartResponse, error)
 	Information(ctx context.Context, in *InformationRequest, opts ...grpc.CallOption) (*InformationResponse, error)
@@ -50,7 +49,7 @@ func NewRuntimeClient(cc grpc.ClientConnInterface) RuntimeClient {
 	return &runtimeClient{cc}
 }
 
-func (c *runtimeClient) Init(ctx context.Context, in *services.InitRequest, opts ...grpc.CallOption) (*InitResponse, error) {
+func (c *runtimeClient) Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error) {
 	out := new(InitResponse)
 	err := c.cc.Invoke(ctx, Runtime_Init_FullMethodName, in, out, opts...)
 	if err != nil {
@@ -108,7 +107,7 @@ func (c *runtimeClient) Communicate(ctx context.Context, in *agents.Engage, opts
 // All implementations must embed UnimplementedRuntimeServer
 // for forward compatibility
 type RuntimeServer interface {
-	Init(context.Context, *services.InitRequest) (*InitResponse, error)
+	Init(context.Context, *InitRequest) (*InitResponse, error)
 	Configure(context.Context, *ConfigureRequest) (*ConfigureResponse, error)
 	Start(context.Context, *StartRequest) (*StartResponse, error)
 	Information(context.Context, *InformationRequest) (*InformationResponse, error)
@@ -122,7 +121,7 @@ type RuntimeServer interface {
 type UnimplementedRuntimeServer struct {
 }
 
-func (UnimplementedRuntimeServer) Init(context.Context, *services.InitRequest) (*InitResponse, error) {
+func (UnimplementedRuntimeServer) Init(context.Context, *InitRequest) (*InitResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Init not implemented")
 }
 func (UnimplementedRuntimeServer) Configure(context.Context, *ConfigureRequest) (*ConfigureResponse, error) {
@@ -154,7 +153,7 @@ func RegisterRuntimeServer(s grpc.ServiceRegistrar, srv RuntimeServer) {
 }
 
 func _Runtime_Init_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(services.InitRequest)
+	in := new(InitRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -166,7 +165,7 @@ func _Runtime_Init_Handler(srv interface{}, ctx context.Context, dec func(interf
 		FullMethod: Runtime_Init_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuntimeServer).Init(ctx, req.(*services.InitRequest))
+		return srv.(RuntimeServer).Init(ctx, req.(*InitRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

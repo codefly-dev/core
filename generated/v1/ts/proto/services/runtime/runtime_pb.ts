@@ -5,16 +5,140 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3 } from "@bufbuild/protobuf";
-import { InitStatus, Version } from "../init_pb.js";
+import { ServiceIdentity, Version } from "../../base/service_pb.js";
 import { Endpoint, EndpointGroup } from "../../base/endpoint_pb.js";
 import { Tracker } from "./tracker_pb.js";
+
+/**
+ * @generated from message v1.services.runtime.InitStatus
+ */
+export class InitStatus extends Message<InitStatus> {
+  /**
+   * @generated from field: v1.services.runtime.InitStatus.State state = 1;
+   */
+  state = InitStatus_State.UNKNOWN;
+
+  /**
+   * @generated from field: string message = 2;
+   */
+  message = "";
+
+  constructor(data?: PartialMessage<InitStatus>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "v1.services.runtime.InitStatus";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "state", kind: "enum", T: proto3.getEnumType(InitStatus_State) },
+    { no: 2, name: "message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): InitStatus {
+    return new InitStatus().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): InitStatus {
+    return new InitStatus().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): InitStatus {
+    return new InitStatus().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: InitStatus | PlainMessage<InitStatus> | undefined, b: InitStatus | PlainMessage<InitStatus> | undefined): boolean {
+    return proto3.util.equals(InitStatus, a, b);
+  }
+}
+
+/**
+ * @generated from enum v1.services.runtime.InitStatus.State
+ */
+export enum InitStatus_State {
+  /**
+   * @generated from enum value: UNKNOWN = 0;
+   */
+  UNKNOWN = 0,
+
+  /**
+   * @generated from enum value: READY = 1;
+   */
+  READY = 1,
+
+  /**
+   * @generated from enum value: ERROR = 2;
+   */
+  ERROR = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(InitStatus_State)
+proto3.util.setEnumType(InitStatus_State, "v1.services.runtime.InitStatus.State", [
+  { no: 0, name: "UNKNOWN" },
+  { no: 1, name: "READY" },
+  { no: 2, name: "ERROR" },
+]);
+
+/**
+ * @generated from message v1.services.runtime.InitRequest
+ */
+export class InitRequest extends Message<InitRequest> {
+  /**
+   * Developer debug
+   *
+   * @generated from field: bool debug = 1;
+   */
+  debug = false;
+
+  /**
+   * Identity of the service
+   *
+   * @generated from field: v1.base.ServiceIdentity identity = 2;
+   */
+  identity?: ServiceIdentity;
+
+  /**
+   * Dependency EndpointGroup
+   *
+   * @generated from field: v1.base.EndpointGroup dependency_endpoint_group = 3;
+   */
+  dependencyEndpointGroup?: EndpointGroup;
+
+  constructor(data?: PartialMessage<InitRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "v1.services.runtime.InitRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "debug", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 2, name: "identity", kind: "message", T: ServiceIdentity },
+    { no: 3, name: "dependency_endpoint_group", kind: "message", T: EndpointGroup },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): InitRequest {
+    return new InitRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): InitRequest {
+    return new InitRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): InitRequest {
+    return new InitRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: InitRequest | PlainMessage<InitRequest> | undefined, b: InitRequest | PlainMessage<InitRequest> | undefined): boolean {
+    return proto3.util.equals(InitRequest, a, b);
+  }
+}
 
 /**
  * @generated from message v1.services.runtime.InitResponse
  */
 export class InitResponse extends Message<InitResponse> {
   /**
-   * @generated from field: v1.services.Version version = 1;
+   * @generated from field: v1.base.Version version = 1;
    */
   version?: Version;
 
@@ -24,7 +148,7 @@ export class InitResponse extends Message<InitResponse> {
   endpoints: Endpoint[] = [];
 
   /**
-   * @generated from field: v1.services.InitStatus status = 3;
+   * @generated from field: v1.services.runtime.InitStatus status = 3;
    */
   status?: InitStatus;
 

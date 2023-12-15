@@ -203,8 +203,41 @@
         }
       }
     },
+    "baseServiceIdentity": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "The name of the service"
+        },
+        "domain": {
+          "type": "string",
+          "title": "The domain of the service"
+        },
+        "application": {
+          "type": "string",
+          "title": "The application of the service | logical partitioning"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "The namespace of the service | resource partitioning"
+        },
+        "location": {
+          "type": "string",
+          "title": "The location of the service | physical partitioning"
+        }
+      }
+    },
     "baseTcpAPI": {
       "type": "object"
+    },
+    "baseVersion": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        }
+      }
     },
     "communicateAnswer": {
       "type": "object",
@@ -439,7 +472,7 @@
       "type": "object",
       "properties": {
         "version": {
-          "$ref": "#/definitions/servicesVersion"
+          "$ref": "#/definitions/baseVersion"
         },
         "endpoints": {
           "type": "array",
@@ -452,7 +485,18 @@
           "type": "string"
         },
         "status": {
-          "$ref": "#/definitions/servicesInitStatus"
+          "$ref": "#/definitions/factoryInitStatus"
+        }
+      }
+    },
+    "factoryInitStatus": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/InitStatusState"
+        },
+        "message": {
+          "type": "string"
         }
       }
     },
@@ -494,46 +538,6 @@
         }
       },
       "additionalProperties": {}
-    },
-    "servicesInitStatus": {
-      "type": "object",
-      "properties": {
-        "state": {
-          "$ref": "#/definitions/InitStatusState"
-        },
-        "message": {
-          "type": "string"
-        }
-      }
-    },
-    "servicesServiceIdentity": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string",
-          "title": "The name of the service"
-        },
-        "domain": {
-          "type": "string",
-          "title": "The domain of the service"
-        },
-        "application": {
-          "type": "string",
-          "title": "The application of the service | logical partitioning"
-        },
-        "namespace": {
-          "type": "string",
-          "title": "The namespace of the service | resource partitioning"
-        }
-      }
-    },
-    "servicesVersion": {
-      "type": "object",
-      "properties": {
-        "version": {
-          "type": "string"
-        }
-      }
     }
   }
 }

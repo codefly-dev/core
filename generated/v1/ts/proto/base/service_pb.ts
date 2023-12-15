@@ -62,3 +62,111 @@ export class Service extends Message<Service> {
   }
 }
 
+/**
+ * @generated from message v1.base.Version
+ */
+export class Version extends Message<Version> {
+  /**
+   * @generated from field: string version = 1;
+   */
+  version = "";
+
+  constructor(data?: PartialMessage<Version>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "v1.base.Version";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "version", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Version {
+    return new Version().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): Version {
+    return new Version().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): Version {
+    return new Version().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: Version | PlainMessage<Version> | undefined, b: Version | PlainMessage<Version> | undefined): boolean {
+    return proto3.util.equals(Version, a, b);
+  }
+}
+
+/**
+ * @generated from message v1.base.ServiceIdentity
+ */
+export class ServiceIdentity extends Message<ServiceIdentity> {
+  /**
+   * The name of the service
+   *
+   * @generated from field: string name = 1;
+   */
+  name = "";
+
+  /**
+   * The domain of the service
+   *
+   * @generated from field: string domain = 2;
+   */
+  domain = "";
+
+  /**
+   * The application of the service | logical partitioning
+   *
+   * @generated from field: string application = 3;
+   */
+  application = "";
+
+  /**
+   * The namespace of the service | resource partitioning
+   *
+   * @generated from field: string namespace = 4;
+   */
+  namespace = "";
+
+  /**
+   * The location of the service | physical partitioning
+   *
+   * @generated from field: string location = 5;
+   */
+  location = "";
+
+  constructor(data?: PartialMessage<ServiceIdentity>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "v1.base.ServiceIdentity";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "domain", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "application", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "namespace", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "location", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ServiceIdentity {
+    return new ServiceIdentity().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ServiceIdentity {
+    return new ServiceIdentity().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ServiceIdentity {
+    return new ServiceIdentity().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ServiceIdentity | PlainMessage<ServiceIdentity> | undefined, b: ServiceIdentity | PlainMessage<ServiceIdentity> | undefined): boolean {
+    return proto3.util.equals(ServiceIdentity, a, b);
+  }
+}
+
