@@ -5,11 +5,12 @@ import (
 
 	"github.com/codefly-dev/core/architecture"
 	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGraph(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	ws := &configurations.Workspace{}
 	project, err := ws.LoadProjectFromDir(ctx, "testdata/codefly-platform")
 	assert.NoError(t, err)

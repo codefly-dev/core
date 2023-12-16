@@ -8,6 +8,7 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/service"
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,7 +29,7 @@ func TestServiceAddFromJson(t *testing.T) {
 }
 
 func TestServiceAddFromCode(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	action, err := service.NewActionAddService(ctx, &actionsv1.AddService{
 		Name:        "My Service",
 		Description: "My Service Description",

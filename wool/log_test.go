@@ -1,9 +1,10 @@
 package wool_test
 
 import (
+	"testing"
+
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestFields(t *testing.T) {

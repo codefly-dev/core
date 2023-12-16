@@ -8,6 +8,7 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/project"
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,7 +29,7 @@ func TestProjectAddFromJson(t *testing.T) {
 }
 
 func TestProjectAddFromCode(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	action, err := project.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name:        "My Project",
 		Description: "My Project Description",

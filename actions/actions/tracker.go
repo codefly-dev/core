@@ -25,7 +25,7 @@ type ActionTracker struct {
 }
 
 func NewActionTracker(group string) *ActionTracker {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	dir := path.Join(configurations.WorkspaceConfigurationDir(), "actions", group)
 	err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {

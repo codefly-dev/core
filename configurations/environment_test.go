@@ -15,7 +15,7 @@ import (
 )
 
 func TestEnvironment(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	createTestWorkspace(t, ctx)
 
 	var action actions.Action

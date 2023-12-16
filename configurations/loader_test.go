@@ -8,7 +8,7 @@ import (
 )
 
 func TestOverrideFromContext(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	override := shared.GetOverride(ctx)
 	assert.Equal(t, shared.SilentOverride(), override)
 }

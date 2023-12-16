@@ -16,7 +16,7 @@ type testData struct {
 }
 
 func testCopyAndApplyTemplateToDir(t *testing.T, fs shared.FileSystem, dir shared.Dir) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	dest := t.TempDir()
 	destination := shared.NewDir(dest)
 	err := templates.CopyAndApply(ctx, fs, dir, destination, testData{Test: "test"})

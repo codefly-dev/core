@@ -8,6 +8,7 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/environment"
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,7 +29,7 @@ func TestEnvironmentAddFromJson(t *testing.T) {
 }
 
 func TestEnvironmentAddFromCode(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	action, err := environment.NewActionAddEnvironment(ctx, &actionsv1.AddEnvironment{
 		Name:        "My Environment",
 		Description: "My Environment Description",

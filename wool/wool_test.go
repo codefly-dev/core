@@ -2,11 +2,12 @@ package wool_test
 
 import (
 	"context"
+	"testing"
+
 	"github.com/codefly-dev/core/configurations"
 	wool "github.com/codefly-dev/core/wool"
 	"github.com/codefly-dev/core/wool/adapters/log"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestWoolBasics(t *testing.T) {

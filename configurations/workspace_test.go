@@ -43,7 +43,7 @@ func createTestWorkspace(t *testing.T, ctx context.Context) (*configurations.Wor
 }
 
 func TestCreateWorkspace(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	w, dir := createTestWorkspace(t, ctx)
 	defer os.RemoveAll(dir)
 

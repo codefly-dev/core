@@ -2,6 +2,7 @@ package wool
 
 import (
 	"context"
+
 	"github.com/codefly-dev/core/configurations"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"

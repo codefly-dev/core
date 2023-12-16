@@ -31,7 +31,7 @@ func (s *agentTest) Create(ctx context.Context, req *factoryv1.CreateRequest) (*
 }
 
 func TestSequenceWithoutCommunication(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	// Create a new sequence
 	server := communicate.NewServer(ctx)
 	sequence := agentTest{Server: server}
@@ -87,7 +87,7 @@ func (*clientHandlerRepeater) Answer(ctx context.Context, question *agentv1.Ques
 }
 
 func TestSequenceWithCommunication(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	// Create a new agent
 	server := communicate.NewServer(ctx)
 	agent := agentTest{Server: server}
@@ -138,7 +138,7 @@ func TestSequenceWithCommunication(t *testing.T) {
 }
 
 func TestSequenceWithCommunicationFlow(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	// Create a new agent
 	server := communicate.NewServer(ctx)
 	agent := agentTest{Server: server}

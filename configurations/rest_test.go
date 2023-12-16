@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -19,7 +20,7 @@ func TestRouteExtended(t *testing.T) {
 }
 
 func TestLoadingRoute(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	routes, err := configurations.LoadApplicationRoutes(ctx, "testdata")
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(routes))
@@ -27,7 +28,7 @@ func TestLoadingRoute(t *testing.T) {
 }
 
 func TestLoadingExtendedRoute(t *testing.T) {
-	ctx := wool.NewContext()
+	ctx := shared.NewContext()
 	routes, err := configurations.LoadApplicationExtendedRoutes[Auth](ctx, "testdata")
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(routes))

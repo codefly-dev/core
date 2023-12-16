@@ -200,7 +200,7 @@ func (l *AgentLogger) Oops(format string, args ...any) {
 	l.UnsafeWrite("OOOPS" + fmt.Sprintf(format, args...))
 }
 
-func (l *AgentLogger) With(format string, args ...any) shared.BaseLogger {
+func (l *AgentLogger) With(_ string, _ ...any) shared.BaseLogger {
 	return l
 }
 

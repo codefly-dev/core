@@ -3,12 +3,13 @@ package wool
 import (
 	"context"
 	"fmt"
+	"testing"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
-	"testing"
 )
 
 var tp *sdktrace.TracerProvider
