@@ -39,7 +39,7 @@ func TestOTel(t *testing.T) {
 	ctx := context.Background()
 	initTracer()
 
-	// Create a named tracer with package path as its name.
+	// Create a named tracer with package path as its Name.
 	tracer := tp.Tracer("example/namedtracer/main")
 	defer func() { _ = tp.Shutdown(ctx) }()
 

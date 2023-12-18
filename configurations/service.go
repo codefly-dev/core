@@ -8,6 +8,8 @@ import (
 
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	"github.com/codefly-dev/core/wool"
+	"go.opentelemetry.io/otel/sdk/resource"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/mitchellh/mapstructure"
@@ -76,13 +78,13 @@ func (s *Service) Identity() *basev1.ServiceIdentity {
 
 // NewService creates a service in an application
 func (app *Application) NewService(ctx context.Context, action *actionsv1.AddService) (*Service, error) {
-	logger := shared.GetLogger(ctx).With("NewService<%s>", action.Name)
+	w := wool.Get(ctx).In("app.NewService", wool.NameField(action.Name))
 	if app.ExistsService(action.Name) && !action.Override {
-		return nil, logger.Errorf("service already exists: %s", action.Name)
+		return nil, w.NewError("service already exists")
 	}
 	agent, err := LoadAgent(ctx, action.Agent)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load agent")
+		return nil, w.Wrapf(err, "cannot load agent")
 	}
 	service := &Service{
 		Name:        action.Name,
@@ -94,26 +96,26 @@ func (app *Application) NewService(ctx context.Context, action *actionsv1.AddSer
 		Spec:        make(map[string]any),
 	}
 
-	ref := &ServiceReference{Name: action.Name, PathOverride: OverridePath(action.Name, action.Path)}
+	ref := &ServiceReference{Name: action.Name, PathOverride: OverridePath(action.Name, action.Path), Application: app.Name}
 	dir := app.ServicePath(ctx, ref)
 
 	service.dir = dir
 
 	err = shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot create service directory")
+		return nil, w.Wrap(err)
 	}
 	err = service.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save service configuration")
+		return nil, w.Wrap(err)
 	}
 	err = app.AddService(ctx, service)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot add service to application")
+		return nil, w.Wrap(err)
 	}
 	err = app.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save project configuration")
+		return nil, w.Wrap(err)
 	}
 	return service, nil
 }
@@ -170,6 +172,20 @@ func Identity(conf *Service) *ServiceIdentity {
 	}
 }
 
+func (s *ServiceIdentity) Unique() string {
+	return fmt.Sprintf("%s/%s", s.Application, s.Name)
+}
+
+func (s *ServiceIdentity) AsResource() *wool.Resource {
+	r := resource.NewSchemaless()
+	return &wool.Resource{
+		Identifier: &wool.Identifier{
+			Kind:   "service",
+			Unique: s.Unique(),
+		},
+		Resource: r}
+}
+
 func (s *Service) Reference() (*ServiceReference, error) {
 	entry := &ServiceReference{
 		Name:         s.Name,
@@ -188,10 +204,10 @@ func (s *Service) Dir() string {
 
 // LoadServiceFromDirUnsafe loads a service from a directory
 func LoadServiceFromDirUnsafe(ctx context.Context, dir string) (*Service, error) {
-	logger := shared.GetLogger(ctx).With("LoadServiceFromDirUnsafe<%s>", dir)
+	w := wool.Get(ctx).In("LoadServiceFromDirUnsafe", wool.DirField(dir))
 	service, err := LoadFromDir[Service](ctx, dir)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	service.dir = dir
 	if err != nil {
@@ -199,7 +215,7 @@ func LoadServiceFromDirUnsafe(ctx context.Context, dir string) (*Service, error)
 	}
 	err = service.postLoad(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot post load service")
+		return nil, w.Wrap(err)
 	}
 	return service, nil
 }
@@ -222,10 +238,10 @@ func (s *Service) SaveAtDir(ctx context.Context, dir string) error {
 }
 
 func (s *Service) Save(ctx context.Context) error {
-	logger := shared.GetLogger(ctx).With("Save<%s>", s.Name)
+	w := wool.Get(ctx).In("Service::Save", wool.NameField(s.Name))
 	err := s.preSave(ctx)
 	if err != nil {
-		return logger.Wrapf(err, "cannot pre-save")
+		return w.Wrapf(err, "cannot pre-save")
 	}
 	return SaveToDir(ctx, s, s.Dir())
 }
@@ -268,7 +284,7 @@ func (s *Service) LoadSettingsFromSpec(t any) error {
 
 // AddDependency adds a dependency to the service
 func (s *Service) AddDependency(ctx context.Context, requirement *Service, requiredEndpoints []*Endpoint) error {
-	logger := shared.GetLogger(ctx).With("AddDependency<%s>", requirement.Name)
+	w := wool.Get(ctx).In("Service::AddDependency", wool.NameField(s.Name))
 	dep, ok := s.ExistsDependency(requirement)
 	if !ok {
 		dep = &ServiceDependency{
@@ -279,7 +295,7 @@ func (s *Service) AddDependency(ctx context.Context, requirement *Service, requi
 	}
 	err := dep.UpdateEndpoints(ctx, requiredEndpoints)
 	if err != nil {
-		return logger.Wrapf(err, "cannot update endpoints")
+		return w.Wrapf(err, "cannot update endpoints")
 	}
 	return nil
 }
@@ -372,7 +388,7 @@ func (s *ServiceDependency) String() string {
 }
 
 func (s *ServiceDependency) UpdateEndpoints(ctx context.Context, endpoints []*Endpoint) error {
-	logger := shared.GetLogger(ctx).With("UpdateEndpoints<%s>", s.Name)
+	w := wool.Get(ctx).In("ServiceDependency::UpdateEndpoints", wool.NameField(s.Name))
 	known := map[string]*EndpointReference{}
 	for _, endpoint := range s.Endpoints {
 		known[endpoint.Name] = endpoint
@@ -381,7 +397,7 @@ func (s *ServiceDependency) UpdateEndpoints(ctx context.Context, endpoints []*En
 		if _, exists := known[endpoint.Name]; exists {
 			return fmt.Errorf("endpoint already exists: %s", endpoint.Name)
 		}
-		logger.DebugMe("adding endpoint %s", endpoint.Name)
+		w.Debug("adding endpoint %s", wool.NameField(endpoint.Name))
 		s.Endpoints = append(s.Endpoints, endpoint.AsReference())
 	}
 	return nil

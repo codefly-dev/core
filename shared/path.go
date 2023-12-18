@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/codefly-dev/core/wool"
 )
 
 type File struct {
@@ -144,22 +146,24 @@ func CheckEmptyDirectoryOrCreate(ctx context.Context, path string) error {
 }
 
 func CheckDirectoryOrCreate(ctx context.Context, path string) error {
-	logger := GetLogger(ctx)
+	w := wool.Get(ctx).In("shared.CheckDirectoryOrCreate", wool.Field("path", path))
+	w.Info("checking directory")
 	// Check if directory exists
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			err = os.MkdirAll(path, 0o755)
 			if err != nil {
-				return logger.Wrapf(err, "cannot create directory: <%s>", path)
+				return w.Wrapf(err, "cannot create directory")
 			}
+		} else {
+			return w.Wrapf(err, "check directory existence") // Some other error occurred
 		}
-		return logger.Wrapf(err, "cannot create directory") // Some other error occurred
-	}
-
-	// Check if it's actually a directory
-	if !info.IsDir() {
-		return logger.Errorf("%s is not a directory", path)
+	} else {
+		// Check if it's actually a directory
+		if !info.IsDir() {
+			return w.NewError("%s is not a directory", path)
+		}
 	}
 	return nil
 }

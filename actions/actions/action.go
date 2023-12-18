@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/codefly-dev/core/shared"
 )
 
 type Action interface {
@@ -16,11 +14,10 @@ type Action interface {
 var tracker *ActionTracker
 
 func Run(ctx context.Context, action Action) (any, error) {
-	logger := shared.GetLogger(ctx).With("RunAction<%T>", action)
 	if tracker != nil {
 		err := tracker.Save(action)
 		if err != nil {
-			logger.Warn("cannot save action: %v", err)
+			return nil, err
 		}
 	}
 	return action.Run(ctx)

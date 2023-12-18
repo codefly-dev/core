@@ -14,6 +14,7 @@ import (
 
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 )
 
 const ProjectConfigurationName = "project.codefly.yaml"
@@ -97,16 +98,18 @@ func (ref *ProjectReference) IsActive() (*ProjectReference, bool) {
 
 // NewProject creates a new project in a workspace
 func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv1.AddProject) (*Project, error) {
-	logger := shared.GetLogger(ctx).With("NewProject<%s>", action.Name)
+	w := wool.Get(ctx).In("NewProject<%s>", wool.NameField(action.Name), wool.DirField(workspace.Dir()))
 	if slices.Contains(workspace.ProjectNames(), action.Name) {
-		return nil, logger.Errorf("project already exists in workspace: %s at %s", workspace.Name, workspace.Dir())
+		return nil, w.NewError("project already exists")
 	}
 
 	ref := &ProjectReference{Name: action.Name, PathOverride: OverridePath(action.Name, action.Path)}
 	dir := workspace.ProjectPath(ctx, ref)
 
 	err := shared.CreateDirIf(dir)
-	shared.UnexpectedExitOnError(err, "cannot create default project directory")
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot create project directory")
+	}
 
 	p := &Project{
 		Name:         action.Name,
@@ -120,18 +123,18 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv1.Ad
 
 	err = p.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save project")
+		return nil, w.Wrapf(err, "cannot save project")
 	}
 
 	err = workspace.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save workspace")
+		return nil, w.Wrapf(err, "cannot save workspace")
 	}
 
 	// Templatize as usual
 	err = templates.CopyAndApply(ctx, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(p.dir), p)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot copy and apply template")
+		return nil, w.Wrapf(err, "cannot copy and apply template")
 	}
 	return p, nil
 }
@@ -141,15 +144,15 @@ func (project *Project) Save(ctx context.Context) error {
 }
 
 func (project *Project) SaveToDirUnsafe(ctx context.Context, dir string) error {
-	logger := shared.GetLogger(ctx).With("SaveProject<%s>", project.Name)
-	logger.Debugf("saving with #application <%d>", len(project.Applications))
+	w := wool.Get(ctx).In("SaveProject<%s>", wool.NameField(project.Name))
+	w.Debug("saving", wool.Field("#application", len(project.Applications)))
 	err := project.preSave(ctx)
 	if err != nil {
-		return logger.Wrapf(err, "cannot pre-save project")
+		return w.Wrapf(err, "cannot pre-save project")
 	}
 	err = SaveToDir[Project](ctx, project, dir)
 	if err != nil {
-		return logger.Wrapf(err, "cannot save project")
+		return w.Wrapf(err, "cannot save project")
 	}
 	return nil
 }
@@ -160,16 +163,21 @@ Loaders
 
 // LoadProjectFromDirUnsafe loads a Project configuration from a directory
 func LoadProjectFromDirUnsafe(ctx context.Context, dir string) (*Project, error) {
-	logger := shared.GetLogger(ctx).With("LoadProjectFromDirUnsafe")
-	dir = SolveDir(dir)
+	w := wool.Get(ctx).In("LoadProjectFromDirUnsafe")
+	var err error
+	dir, err = SolveDir(dir)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+
 	project, err := LoadFromDir[Project](ctx, dir)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load Project configuration")
+		return nil, w.Wrap(err)
 	}
 	project.dir = dir
 	err = project.postLoad(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot post load Project configuration")
+		return nil, w.Wrap(err)
 	}
 	return project, nil
 }
@@ -203,34 +211,34 @@ func (project *Project) LoadActiveApplication(ctx context.Context) (*Application
 
 // LoadApplicationFromReference loads an application from a reference
 func (project *Project) LoadApplicationFromReference(ctx context.Context, ref *ApplicationReference) (*Application, error) {
-	logger := shared.GetLogger(ctx).With("LoadApplicationFromReference<%s>", ref.Name)
+	w := wool.Get(ctx).In("Project.LoadApplicationFromReference", wool.Field("name", ref.Name))
 	dir := project.ApplicationPath(ctx, ref)
 	app, err := LoadApplicationFromDirUnsafe(ctx, dir)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load application")
+		return nil, w.Wrapf(err, "cannot load application")
 	}
 	return app, nil
 }
 
 // LoadApplicationFromName loads an application from a name
 func (project *Project) LoadApplicationFromName(ctx context.Context, name string) (*Application, error) {
-	logger := shared.GetLogger(ctx).With("LoadApplicationFromName<%s>", name)
+	w := wool.Get(ctx).In("LoadApplicationFromName", wool.NameField(name))
 	for _, ref := range project.Applications {
 		if ReferenceMatch(ref.Name, name) {
 			return project.LoadApplicationFromReference(ctx, ref)
 		}
 	}
-	return nil, logger.Errorf("cannot find application")
+	return nil, w.NewError("cannot find application")
 }
 
 // LoadApplications returns the applications in the project
 func (project *Project) LoadApplications(ctx context.Context) ([]*Application, error) {
-	logger := shared.GetLogger(ctx).With("Project.ListApplications")
+	w := wool.Get(ctx).In("Project.ListApplications", wool.NameField(project.Name))
 	var applications []*Application
 	for _, ref := range project.Applications {
 		app, err := project.LoadApplicationFromReference(ctx, ref)
 		if err != nil {
-			return nil, logger.Wrapf(err, "cannot load application <%s>", ref.Name)
+			return nil, w.Wrapf(err, "cannot load application: <%s>", ref.Name)
 		}
 		applications = append(applications, app)
 	}
@@ -329,9 +337,9 @@ func (project *Project) AddApplication(app *ApplicationReference) error {
 
 // DeleteApplication deletes an application from the project
 func (project *Project) DeleteApplication(ctx context.Context, name string) error {
-	logger := shared.GetLogger(ctx).With("Project.DeleteApplication")
+	w := wool.Get(ctx).In("Project.DeleteApplication")
 	if !project.ExistsApplication(name) {
-		return logger.Errorf("application <%s> does not exist in project <%s>", name, project.Name)
+		return w.NewError("application <%s> does not exist in project <%s>", name, project.Name)
 	}
 	if active := project.ActiveApplication(); shared.PointerEqual(active, name) {
 		project.activeApplication = ""
@@ -367,16 +375,16 @@ func (project *Project) AddPartial(partial Partial) error {
 }
 
 func (project *Project) FindEnvironment(environment string) (*Environment, error) {
-	logger := shared.NewLogger().With("Project.FindEnvironment")
+	w := wool.Get(context.Background()).In("Project.FindEnvironment", wool.NameField(environment))
 	if environment == "" {
-		return nil, logger.Errorf("environment cannot be empty")
+		return nil, w.NewError("environment cannot be empty")
 	}
 	for _, ref := range project.Environments {
 		if ref.Name == environment {
 			return LoadEnvironmentFromReference(ref)
 		}
 	}
-	return nil, logger.Errorf("unknown environment %s", environment)
+	return nil, w.NewError("unknown environment %s", environment)
 
 }
 

@@ -7,15 +7,15 @@ import (
 )
 
 type Logger struct {
-	context *wool.Context
+	w *wool.Wool
 }
 
-func AsLog(context *wool.Context) *Logger {
+func AsLog(w *wool.Wool) *Logger {
 	return &Logger{
-		context: context,
+		w: w,
 	}
 }
 
 func (l *Logger) Info(message string, args ...any) {
-	l.context.Info(fmt.Sprintf(message, args...))
+	l.w.Info(fmt.Sprintf(message, args...))
 }

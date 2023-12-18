@@ -10,6 +10,7 @@ import (
 	"text/template"
 
 	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 )
 
 // ApplyTemplate takes a YAML template as []byte, populates it using data, and returns the result as a string.
@@ -27,10 +28,11 @@ func ApplyTemplate(t string, data any) (string, error) {
 	return buf.String(), nil
 }
 
-func Walk(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, ignore shared.Ignore, files *[]shared.File, dirs *[]shared.Dir) error {
+func Walk(ctx context.Context, fs shared.FileSystem, root shared.Dir, ignore shared.Ignore, files *[]shared.File, dirs *[]shared.Dir) error {
+	w := wool.Get(ctx).In("templates.Walk")
 	entries, err := fs.ReadDir(root)
 	if err != nil {
-		return logger.Wrapf(err, "cannot got to target source")
+		return w.Wrapf(err, "cannot got to target source")
 	}
 	for _, entry := range entries {
 		if ignore.Skip(entry.Name()) {
@@ -44,9 +46,9 @@ func Walk(logger shared.BaseLogger, fs shared.FileSystem, root shared.Dir, ignor
 		dir := shared.NewDir(p)
 		*dirs = append(*dirs, dir)
 		// recurse into subdirectory
-		err = Walk(logger, fs, dir, ignore, files, dirs)
+		err = Walk(ctx, fs, dir, ignore, files, dirs)
 		if err != nil {
-			return fmt.Errorf("cannot collect files: %v", err)
+			return w.Wrapf(err, "cannot walk into subdirectory")
 		}
 	}
 	return nil
@@ -60,7 +62,7 @@ func (a AlreadyExistError) Error() string {
 	return fmt.Sprintf("file %s already exists", a.file)
 }
 
-func Copy(fs shared.FileSystem, f shared.File, destination shared.File) error {
+func Copy(ctx context.Context, fs shared.FileSystem, f shared.File, destination shared.File) error {
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
 	if err != nil {
@@ -81,7 +83,7 @@ func Copy(fs shared.FileSystem, f shared.File, destination shared.File) error {
 	return nil
 }
 
-func CopyAndApplyTemplate(fs shared.FileSystem, f shared.File, destination shared.File, obj any) error {
+func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f shared.File, destination shared.File, obj any) error {
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
 	if err != nil {
@@ -146,60 +148,61 @@ func CopyAndReplace(fs shared.FileSystem, f shared.File, destination shared.File
 }
 
 func CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
-	logger := shared.GetLogger(ctx).With("templates.CopyAndApply")
-	logger.Tracef("applying template to directory %s -> %s", root, destination)
+	w := wool.Get(ctx).In("templates.CopyAndApply")
+	w.Info("copying and applying template")
 
 	err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
 	override := shared.GetOverride(ctx)
 	ignore := shared.GetIgnore(ctx)
 
 	if err != nil {
-		return logger.Wrapf(err, "cannot check or create directory")
+		return w.Wrapf(err, "cannot check or create directory")
 	}
 	var dirs []shared.Dir
 	var files []shared.File
-	err = Walk(logger, fs, root, ignore, &files, &dirs)
+	err = Walk(ctx, fs, root, ignore, &files, &dirs)
 	if err != nil {
 		return fmt.Errorf("cannot read template directory: %v", err)
 	}
-	logger.Tracef("walked %d directories and %d files", len(dirs), len(files))
+	w.Trace(fmt.Sprintf("walked %d directories and %d files", len(dirs), len(files)))
 	for _, d := range dirs {
 		// We take the relative path from the root directory
 		rel, err := d.RelativeFrom(root)
 		if err != nil {
-			return logger.Wrapf(err, "cannot get relative path")
+			return w.Wrapf(err, "cannot get relative path")
 		}
 		dest := destination.Join(*rel)
 		err = shared.CheckDirectoryOrCreate(ctx, dest.Absolute())
 		if err != nil {
-			return logger.Wrapf(err, "cannot check or create directory for destination")
+			return w.Wrapf(err, "cannot check or create directory for destination")
 		}
 
 	}
 	for _, f := range files {
 		rel, err := f.RelativeFrom(root)
 		if err != nil {
-			return logger.Wrapf(err, "cannot get relative path")
+			return w.Wrapf(err, "cannot get relative path")
 		}
 
 		target := path.Join(fs.AbsoluteDir(destination), rel.Relative())
 
 		d, found := strings.CutSuffix(target, ".tmpl")
 		if !found {
-			err = Copy(fs, f, shared.NewFile(target))
+			err = Copy(ctx, fs, f, shared.NewFile(target))
 			if err != nil {
 				return fmt.Errorf("cannot copy file: %v", err)
 			}
+			continue
 		}
 
 		if shared.FileExists(d) && !override.Replace(d) {
-			logger.Tracef("file %s already exists: skipping", d)
+			w.Trace("file %s already exists: skipping", wool.FileField(d))
 			continue
 		}
-		err = CopyAndApplyTemplate(fs, f, shared.NewFile(d), obj)
-		logger.Tracef("copied template %s to %s", f, destination)
+		err = CopyAndApplyTemplate(ctx, fs, f, shared.NewFile(d), obj)
+		w.Trace(fmt.Sprintf("copied template %s to %s", f, destination))
 		if err != nil {
-			return fmt.Errorf("cannot copy template: %v", err)
+			return w.Wrapf(err, "cannot copy template")
 		}
 	}
 	return nil

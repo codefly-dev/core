@@ -3,12 +3,11 @@ package runners
 import (
 	"context"
 	"fmt"
-	"time"
+	"io"
 
-	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/agents/network"
+	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/core/shared"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
@@ -17,11 +16,10 @@ import (
 )
 
 type DockerRunner struct {
-	cli           *client.Client
-	ctx           context.Context
-	Containers    []*ContainerInstance
-	AgentLogger   *agents.AgentLogger
-	ServiceLogger *agents.ServiceLogger
+	cli        *client.Client
+	Containers []*ContainerInstance
+
+	writer io.Writer
 }
 
 type ContainerInstance struct {
@@ -33,16 +31,15 @@ type ContainerInstance struct {
 }
 
 // NewDockerRunner creates a new docker runner
-func NewDockerRunner(ctx context.Context, serviceLogger *agents.ServiceLogger, agentLogger *agents.AgentLogger) (*DockerRunner, error) {
+func NewDockerRunner(ctx context.Context, forwarder io.Writer) (*DockerRunner, error) {
+	w := wool.Get(ctx).In("NewDockerRunner")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, agentLogger.Wrapf(err, "cannot create docker client")
+		return nil, w.Wrapf(err, "cannot create docker client")
 	}
 	return &DockerRunner{
-		ctx:           ctx,
-		cli:           cli,
-		AgentLogger:   agentLogger,
-		ServiceLogger: serviceLogger,
+		cli:    cli,
+		writer: forwarder,
 	}, nil
 }
 
@@ -86,17 +83,18 @@ type CreateDockerInput struct {
 	ApplicationEndpointInstance *network.ApplicationEndpointInstance
 }
 
-func (r *DockerRunner) CreateContainer(input CreateDockerInput, opts ...DockerOption) error {
+func (r *DockerRunner) CreateContainer(ctx context.Context, input CreateDockerInput, opts ...DockerOption) error {
+	w := wool.Get(ctx).In("DockerRunner.CreateContainer")
 	options := &Option{}
 	for _, opt := range opts {
 		opt(options)
 	}
 	name := input.ApplicationEndpointInstance.Name()
-	r.AgentLogger.Debugf("PortBinding %s", input.ApplicationEndpointInstance.ApplicationEndpoint.PortBinding)
+	w.Debug("PortBinding") //, input.ApplicationEndpointInstance.ApplicationEndpoint.PortBinding)
 
-	good, err := r.ContainerReady(name)
+	good, err := r.ContainerReady(ctx, name)
 	if err != nil {
-		return r.AgentLogger.Wrapf(err, "cannot check if container is ready")
+		return w.Wrapf(err, "cannot check if container is ready")
 	}
 	if good {
 		return nil
@@ -109,7 +107,7 @@ func (r *DockerRunner) CreateContainer(input CreateDockerInput, opts ...DockerOp
 			},
 		},
 	}
-	r.AgentLogger.Debugf("port mapping: %v", portMapping)
+	w.Debug("port mapping") //: %v", portMapping)
 
 	cfg := &container.Config{
 		Image: input.Image,
@@ -134,20 +132,18 @@ func (r *DockerRunner) CreateContainer(input CreateDockerInput, opts ...DockerOp
 	}
 	cfg.Env = options.Envs
 
-	t := time.Now()
-	resp, err := r.cli.ContainerCreate(r.ctx,
+	resp, err := r.cli.ContainerCreate(ctx,
 		cfg,
 		&container.HostConfig{
 			AutoRemove:   true,
 			PortBindings: portMapping,
 			Mounts:       mounts,
 		}, nil, nil, name)
-	r.AgentLogger.Debugf("creating <%s> from <%s> took: %v", name, input.Image, time.Since(t))
 	if err != nil {
-		return r.AgentLogger.Wrapf(err, "cannot create container")
+		return w.Wrapf(err, "cannot create container")
 	}
 	if err != nil {
-		return r.AgentLogger.Wrapf(err, "cannot create container")
+		return w.Wrapf(err, "cannot create container")
 	}
 	instance := ContainerInstance{
 		Name: name,
@@ -157,10 +153,11 @@ func (r *DockerRunner) CreateContainer(input CreateDockerInput, opts ...DockerOp
 	return nil
 }
 
-func (r *DockerRunner) cleanContainers(name string) error {
-	containers, err := r.cli.ContainerList(r.ctx, types.ContainerListOptions{All: true})
+func (r *DockerRunner) cleanContainers(ctx context.Context, name string) error {
+	w := wool.Get(ctx).In("DockerRunner.cleanContainers")
+	containers, err := r.cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
-		return r.AgentLogger.Wrapf(err, "cannot list containers")
+		return w.Wrapf(err, "cannot list containers")
 	}
 	var id string
 
@@ -178,107 +175,101 @@ found:
 	if id == "" {
 		return nil
 	}
-	inspectedContainer, err := r.cli.ContainerInspect(r.ctx, id)
+	inspectedContainer, err := r.cli.ContainerInspect(ctx, id)
 	if err != nil {
-		return r.AgentLogger.Wrapf(err, "cannot inspect container")
+		return w.Wrapf(err, "cannot inspect container")
 	}
 
 	if inspectedContainer.State.Status == "exited" || inspectedContainer.State.Status == "dead" {
 		// Restart the container if it's stopped TODO: port strategy
 		//if err := r.cli.ContainerRestart(r.ctx, id, nil); err != nil {
-		//	return r.AgentLogger.Wrapf(err, "cannot restart container")
+		//	return w.Wrap(err, "cannot restart container")
 		//}
-		//r.AgentLogger.Info("container restarted")
+		//w.Info("container restarted")
 		if err := r.cli.ContainerRemove(context.Background(), id, types.ContainerRemoveOptions{}); err != nil {
-			r.AgentLogger.Warn("Error remove container %s: %v", name, err)
-			return r.AgentLogger.Wrapf(err, "cannot remove container")
+			return w.Wrapf(err, "cannot remove container")
 		}
 	} else {
-		r.AgentLogger.Info("container is running")
+		w.Info("container is running")
 		// Stop the container
 		if err := r.cli.ContainerStop(context.Background(), id, container.StopOptions{}); err != nil {
-			r.AgentLogger.Warn("Error stopping container %s: %v", name, err)
-			return r.AgentLogger.Wrapf(err, "cannot stop container")
+			return w.Wrapf(err, "cannot stop container")
 		}
 
 		// Remove the container
 		if err := r.cli.ContainerRemove(context.Background(), id, types.ContainerRemoveOptions{}); err != nil {
-			return r.AgentLogger.Wrapf(err, "cannot remove stopped container")
+			return w.Wrapf(err, "cannot remove stopped container")
 		}
 	}
 	//// Stop the container
 	//if err := r.cli.ContainerStop(context.Background(), id, container.StopOptions{}); err != nil {
-	//	r.AgentLogger.Warn("Error stopping container %s: %v", name, err)
-	//	return r.AgentLogger.Wrapf(err, "cannot stop container")
+	//	w.Warn("Error stopping container %s: %v", name, err)
+	//	return w.Wrap(err, "cannot stop container")
 	//}
 
 	//// Remove the container
 	//if err := r.cli.ContainerRemove(context.Background(), id, types.ContainerRemoveOptions{}); err != nil {
-	//	return r.AgentLogger.Wrapf(err, "cannot remove stopped container")
+	//	return w.Wrap(err, "cannot remove stopped container")
 	//}
 	//status, errs := r.cli.ContainerWait(context.Background(), id, container.WaitConditionRemoved)
 	//select {
 	//case err := <-errs:
 	//	if err != nil {
-	//		r.AgentLogger.Debugf("cannot wait for container to be removed: %v", err)
+	//		w.Debugf("cannot wait for container to be removed: %v", err)
 	//		return nil
 	//	}
 	//case s := <-status:
 	//	if s.StatusCode == 0 {
-	//		r.AgentLogger.Debugf("container %s removed successfully", name)
+	//		w.Debugf("container %s removed successfully", name)
 	//		return nil
 	//	}
 	//}
-	//return r.AgentLogger.Errorf("not sure why I am here")
+	//return w.Error("not sure why I am here")
 	return nil
 }
 
-func (r *DockerRunner) StartContainer(c *ContainerInstance) error {
-	if err := r.cli.ContainerStart(r.ctx, c.ID, types.ContainerStartOptions{}); err != nil {
+func (r *DockerRunner) StartContainer(ctx context.Context, c *ContainerInstance) error {
+	if err := r.cli.ContainerStart(ctx, c.ID, types.ContainerStartOptions{}); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (r *DockerRunner) Start() error {
+func (r *DockerRunner) Start(ctx context.Context) error {
+	w := wool.Get(ctx).In("DockerRunner.Start")
 	for _, c := range r.Containers {
-		err := r.StartContainer(c)
+		err := r.StartContainer(ctx, c)
 		if err != nil {
-			return r.AgentLogger.Wrapf(err, "cannot start container")
+			return w.Wrapf(err, "cannot start container")
 		}
 		// After the container starts, get its logs
-		out, err := r.cli.ContainerLogs(r.ctx, c.ID,
+		out, err := r.cli.ContainerLogs(ctx, c.ID,
 			types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false, Details: false})
 		if err != nil {
-			return r.AgentLogger.Wrapf(err, "cannot get container logs")
+			return w.Wrapf(err, "cannot get container logs")
 		}
 
 		go func(name string) {
-			ForwardLogs(out, r.ServiceLogger)
+			ForwardLogs(out, r.writer)
 		}(c.Name)
 	}
 	return nil
 }
 
-func (r *DockerRunner) Stop() error {
-	logger := shared.NewLogger().With("DockerRunner.Stop")
-	logger.Debugf("cleaning up everything by default")
+func (r *DockerRunner) Stop(ctx context.Context) error {
 	for _, c := range r.Containers {
-		logger.Debugf("cleaning %v", c.Name)
-		err := r.cleanContainers(c.Name)
+		err := r.cleanContainers(ctx, c.Name)
 		if err != nil {
-			r.AgentLogger.Warn("cannot clean container %s: %v", c.Name, err)
 		}
 	}
 	return nil
 }
 
-func (r *DockerRunner) EnsureImage(imageName string) error {
+func (r *DockerRunner) EnsureImage(ctx context.Context, imageName string) error {
 	// Check if image is available locally
-	ctx := context.Background()
 	images, err := r.cli.ImageList(ctx, types.ImageListOptions{})
 	if err != nil {
-		panic(err)
+
 	}
 
 	imageExists := false
@@ -306,13 +297,12 @@ func (r *DockerRunner) EnsureImage(imageName string) error {
 
 func (r *DockerRunner) IP(*network.ApplicationEndpointInstance) (string, error) {
 	// Get IP Address
-	r.AgentLogger.TODO("DEAL WITH NETWORK DOCKER")
 	return "172.17.0.2", nil
-	//r.AgentLogger.Debugf("Instance container %v", instance)
+	//w.Debugf("Instance container %v", instance)
 	//// Get container JSON object
 	//container, err := r.cli.ContainerInspect(context.Background(), instance.Name())
 	//if err != nil {
-	//	return "", r.AgentLogger.Wrapf(err, "cannot inspect container")
+	//	return "", w.Wrap(err, "cannot inspect container")
 	//}
 	//ipAddress := container.NetworkSettings.IPAddress
 	//// If using the default bridge network, you might want to get the IP from the Networks map
@@ -322,13 +312,14 @@ func (r *DockerRunner) IP(*network.ApplicationEndpointInstance) (string, error) 
 	//for _, network := range container.NetworkSettings.Networks {
 	//	return network.IPAddress, nil
 	//}
-	//return "", r.AgentLogger.Errorf("cannot get ip address")
+	//return "", w.Error("cannot get ip address")
 }
 
-func (r *DockerRunner) ContainerReady(name string) (bool, error) {
-	containers, err := r.cli.ContainerList(r.ctx, types.ContainerListOptions{All: true})
+func (r *DockerRunner) ContainerReady(ctx context.Context, name string) (bool, error) {
+	w := wool.Get(ctx).In("DockerRunner.ContainerReady")
+	containers, err := r.cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
-		return false, r.AgentLogger.Wrapf(err, "cannot list containers")
+		return false, w.Wrapf(err, "cannot list containers")
 	}
 	var id string
 
@@ -346,9 +337,9 @@ found:
 	if id == "" {
 		return false, nil
 	}
-	inspectedContainer, err := r.cli.ContainerInspect(r.ctx, id)
+	inspectedContainer, err := r.cli.ContainerInspect(ctx, id)
 	if err != nil {
-		return false, r.AgentLogger.Wrapf(err, "cannot inspect container")
+		return false, w.Wrapf(err, "cannot inspect container")
 	}
 
 	if inspectedContainer.State.Status == "running" {

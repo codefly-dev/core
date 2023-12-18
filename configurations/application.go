@@ -12,6 +12,7 @@ import (
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
+	"github.com/codefly-dev/core/wool"
 )
 
 const (
@@ -72,9 +73,9 @@ func (ref *ApplicationReference) IsActive() (*ApplicationReference, bool) {
 
 // NewApplication creates an application in a project
 func (project *Project) NewApplication(ctx context.Context, action *actionsv1.AddApplication) (*Application, error) {
-	logger := shared.GetLogger(ctx).With("NewApplication<%s>", action.Name)
+	w := wool.Get(ctx).In("configurations.NewApplication", wool.Field("name", action.Name))
 	if project.ExistsApplication(action.Name) {
-		return nil, logger.Errorf("project already exists")
+		return nil, w.NewError("project already exists")
 	}
 
 	app := &Application{
@@ -91,35 +92,35 @@ func (project *Project) NewApplication(ctx context.Context, action *actionsv1.Ad
 
 	err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot create application directory")
+		return nil, w.Wrapf(err, "cannot create application directory")
 	}
 	err = app.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save application configuration")
+		return nil, w.Wrapf(err, "cannot save application configuration")
 	}
 	// Templatize as usual
 	err = templates.CopyAndApply(ctx, shared.Embed(fs), shared.NewDir("templates/application"), shared.NewDir(dir), app)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot copy and apply template")
+		return nil, w.Wrapf(err, "cannot copy and apply template")
 	}
 	// Add application to project
 	project.Applications = append(project.Applications, ref)
 	err = project.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save project configuration")
+		return nil, w.Wrapf(err, "cannot save project configuration")
 	}
 	return app, nil
 }
 
 func LoadApplicationFromDirUnsafe(ctx context.Context, dir string) (*Application, error) {
-	logger := shared.GetLogger(ctx).With("LoadApplicationFromDirUnsafe")
+	w := wool.Get(ctx).In("configurations.LoadApplicationFromDirUnsafe", wool.DirField(dir))
 	app, err := LoadFromDir[Application](ctx, dir)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	err = app.postLoad(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot post load")
+		return nil, w.Wrapf(err, "cannot post load")
 	}
 	app.dir = dir
 	if err != nil {
@@ -159,15 +160,19 @@ func (app *Application) postLoad(_ context.Context) error {
 }
 
 func (app *Application) SaveToDir(ctx context.Context, dir string) error {
-	logger := shared.GetLogger(ctx).With("SaveToDir<%s>", app.Name)
+	w := wool.Get(ctx).In("configurations.SaveToDir", wool.DirField(dir))
 	err := app.preSave(ctx)
 	if err != nil {
-		return logger.Wrapf(err, "cannot pre-save")
+		return w.Wrapf(err, "cannot pre-save")
 	}
 	return SaveToDir(ctx, app, dir)
 }
 
 func (app *Application) Save(ctx context.Context) error {
+	err := app.preSave(ctx)
+	if err != nil {
+		return err
+	}
 	return app.SaveToDir(ctx, app.Dir())
 }
 
@@ -191,7 +196,7 @@ func (app *Application) preSave(_ context.Context) error {
 }
 
 func (app *Application) AddService(_ context.Context, service *Service) error {
-	logger := shared.NewLogger().With("AddService")
+	w := wool.Get(context.Background()).In("configurations.AddService", wool.Field("name", service.Name))
 	for _, s := range app.Services {
 		if s.Name == service.Name {
 			return nil
@@ -199,7 +204,7 @@ func (app *Application) AddService(_ context.Context, service *Service) error {
 	}
 	reference, err := service.Reference()
 	if err != nil {
-		return logger.Wrapf(err, "cannot get service reference")
+		return w.Wrapf(err, "cannot get service reference")
 	}
 	app.Services = append(app.Services, reference)
 	return nil
@@ -256,13 +261,13 @@ func (app *Application) LoadServiceFromReference(ctx context.Context, ref *Servi
 }
 
 func (app *Application) LoadServiceFromName(ctx context.Context, name string) (*Service, error) {
-	logger := shared.GetLogger(ctx).With("LoadServiceFromName<%s>", name)
+	w := wool.Get(ctx).In("configurations.LoadServiceFromName", wool.NameField(name))
 	for _, ref := range app.Services {
 		if ReferenceMatch(ref.Name, name) {
 			return app.LoadServiceFromReference(ctx, ref)
 		}
 	}
-	return nil, logger.Errorf("cannot find service <%s> in application <%s>", name, app.Name)
+	return nil, w.NewError("cannot find service in %s", app.Name)
 }
 
 func (app *Application) LoadActiveService(ctx context.Context) (*Service, error) {
@@ -293,10 +298,13 @@ func (app *Application) ActiveService(_ context.Context) *string {
 }
 
 func (app *Application) SetActiveService(ctx context.Context, name string) error {
-	logger := shared.GetLogger(ctx).With("SetActiveService<%s>", name)
-	logger.DebugMe("Services: %v", app.Services)
+	w := wool.Get(ctx).In("configurations.SetActiveService", wool.NameField(name))
+	w.Info("setting active service")
+	for _, ref := range app.Services {
+		fmt.Println("REF", ref.Name, "APP", ref.Application)
+	}
 	if !app.ExistsService(name) {
-		return logger.Errorf("service <%s> does not exist in application <%s>", name, app.Name)
+		return w.NewError("service <%s> does not exist in application <%s>", name, app.Name)
 	}
 	app.activeService = name
 	return nil
@@ -304,8 +312,7 @@ func (app *Application) SetActiveService(ctx context.Context, name string) error
 
 // DeleteService deletes a service from an application
 func (app *Application) DeleteService(ctx context.Context, name string) error {
-	logger := shared.GetLogger(ctx).With("DeleteService<%s>", name)
-	logger.TODO("Need to delete service dependencies everywhere")
+	w := wool.Get(ctx).In("configurations.DeleteService", wool.NameField(name))
 	var services []*ServiceReference
 	for _, s := range app.Services {
 		if s.Name != name {
@@ -315,11 +322,11 @@ func (app *Application) DeleteService(ctx context.Context, name string) error {
 	app.Services = services
 	err := app.Save(ctx)
 	if err != nil {
-		return logger.Wrapf(err, "cannot save application")
+		return w.Wrapf(err, "cannot save application")
 	}
 	err = os.RemoveAll(app.ServicePath(ctx, &ServiceReference{Name: name}))
 	if err != nil {
-		return logger.Wrapf(err, "cannot remove service directory")
+		return w.Wrapf(err, "cannot remove service directory")
 	}
 	return nil
 }

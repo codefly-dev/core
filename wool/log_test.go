@@ -8,7 +8,7 @@ import (
 )
 
 func TestFields(t *testing.T) {
-	field := wool.Field("key", "string")
+	field := wool.InfoField("key", "string")
 	log := wool.Log{
 		Message: "message",
 		Fields:  []*wool.LogField{field},

@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/codefly-dev/core/agents"
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/codefly-dev/core/agents/communicate"
 	"github.com/codefly-dev/core/agents/endpoints"
 	"github.com/codefly-dev/core/agents/helpers/code"
 
+	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
@@ -19,14 +21,6 @@ import (
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )
-
-func AgentLogger(ctx context.Context) *agents.AgentLogger {
-	return ctx.Value(shared.Agent).(*agents.AgentLogger)
-}
-
-func ServiceLogger(ctx context.Context) *agents.ServiceLogger {
-	return ctx.Value(shared.Service).(*agents.ServiceLogger)
-}
 
 type Information struct {
 	Service *configurations.ServiceWithCase
@@ -37,6 +31,9 @@ type Information struct {
 type Base struct {
 	// Agent
 	Agent *configurations.Agent
+
+	Provider *wool.Provider
+	Wool     *wool.Wool
 
 	// State
 	Identity *basev1.ServiceIdentity
@@ -56,57 +53,49 @@ type Base struct {
 	// Runtime
 	State InformationStatus
 
-	// Loggers
-	ServiceLogger *agents.ServiceLogger
-	AgentLogger   *agents.AgentLogger
-
 	// Communication
 	Communication *communicate.Server
 
 	// Code Watcher
 	Watcher *code.Watcher
 	Events  chan code.Change
-
-	ctx context.Context
 }
 
 func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
+	provider := agents.NewAgentProvider(ctx, agent)
 	return &Base{
 		Agent:         agent,
 		Communication: communicate.NewServer(ctx),
+		Provider:      provider,
+		Wool:          provider.Get(ctx),
 	}
 }
 
-func (s *Base) Context() context.Context {
-	return s.ctx
-}
-
-func (s *Base) Init(identity *basev1.ServiceIdentity, settings any) error {
-
+func (s *Base) Init(ctx context.Context, identity *basev1.ServiceIdentity, settings any) error {
 	s.Identity = identity
-	s.ServiceLogger = agents.NewServiceLogger(s.Identity, s.Agent)
 
-	s.AgentLogger = agents.NewAgentLogger(s.Identity, s.Agent)
-	defer s.AgentLogger.Catch()
+	// Replace the provider!
+	s.Provider = agents.NewServiceProvider(ctx, &configurations.ServiceIdentity{
+		Application: identity.Application,
+		Domain:      identity.Domain,
+		Name:        identity.Name,
+		Namespace:   identity.Namespace,
+	})
 
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, shared.Base, s.AgentLogger)
-	ctx = context.WithValue(ctx, shared.Agent, s.AgentLogger)
-	ctx = context.WithValue(ctx, shared.Service, s.ServiceLogger)
-	s.ctx = ctx
+	s.Wool = s.Provider.Get(ctx)
+
+	ctx = s.Wool.Context()
 
 	s.Location = identity.Location
 
 	s.ConfigurationLocation = path.Join(s.Location, "codefly")
-	err := shared.CheckDirectoryOrCreate(s.ctx, s.ConfigurationLocation)
+	err := shared.CheckDirectoryOrCreate(ctx, s.ConfigurationLocation)
 
 	if err != nil {
 		return s.Wrapf(err, "cannot create configuration directory")
 	}
 
-	s.AgentLogger.Debugf("Location %v", s.Location)
-
-	s.Configuration, err = configurations.LoadServiceFromDirUnsafe(s.ctx, s.Location)
+	s.Configuration, err = configurations.LoadServiceFromDirUnsafe(ctx, s.Location)
 	if err != nil {
 		return s.Wrapf(err, "cannot load service configuration")
 	}
@@ -121,12 +110,10 @@ func (s *Base) Init(identity *basev1.ServiceIdentity, settings any) error {
 		Domain:  s.Identity.Domain,
 		Agent:   s.Agent,
 	}
-	s.AgentLogger.Debugf("setup successful for %v", s.Identity)
 	return nil
 }
 
 func (s *Base) DockerImage() *configurations.DockerImage {
-	s.AgentLogger.TODO("deal with the registry: provider")
 	return &configurations.DockerImage{
 		Name: fmt.Sprintf("%s/%s", s.Identity.Application, s.Identity.Name),
 		Tag:  s.Version().Version,
@@ -155,7 +142,6 @@ func (s *Base) CreateResponse(ctx context.Context, settings any, eps ...*basev1.
 // Factory
 
 func (s *Base) FactoryInitResponse(es []*basev1.Endpoint, readme string) (*factoryv1.InitResponse, error) {
-	defer s.AgentLogger.Catch()
 	for _, e := range es {
 		e.Application = s.Identity.Application
 		e.Service = s.Identity.Name
@@ -202,30 +188,30 @@ func (s *Base) RuntimeInitResponseError(err error) (*runtimev1.InitResponse, err
 
 /* Some very important helpers */
 
-func (s *Base) Wrapf(err error, format string, args ...interface{}) error {
-	return s.AgentLogger.Wrapf(err, format, args...)
+func (s *Base) Wrapf(err error, format string, args ...any) error {
+	return s.Wool.Wrapf(err, format, args...)
 }
 
-func (s *Base) Errorf(format string, args ...interface{}) error {
-	return s.AgentLogger.Errorf(format, args...)
+func (s *Base) Errorf(format string, args ...any) error {
+	return s.Wool.NewError(format, args...)
 }
 
 // EndpointsFromConfiguration from Configuration and data from the service
-func (s *Base) EndpointsFromConfiguration() ([]*basev1.Endpoint, error) {
+func (s *Base) EndpointsFromConfiguration(ctx context.Context) ([]*basev1.Endpoint, error) {
 	var eps []*basev1.Endpoint
 	for _, e := range s.Configuration.Endpoints {
 		if e.API == configurations.Grpc {
-			endpoint, err := endpoints.NewGrpcAPI(e, s.Local("api.proto"))
+			endpoint, err := endpoints.NewGrpcAPI(ctx, e, s.Local("api.proto"))
 			if err != nil {
-				return nil, s.AgentLogger.Wrapf(err, "cannot create grpc api")
+				return nil, s.Wool.Wrapf(err, "cannot create grpc api")
 			}
 			eps = append(eps, endpoint)
 			continue
 		}
 		if e.API == configurations.Rest {
-			endpoint, err := endpoints.NewRestAPIFromOpenAPI(s.Context(), e, s.Local("api.swagger.json"))
+			endpoint, err := endpoints.NewRestAPIFromOpenAPI(ctx, e, s.Local("api.swagger.json"))
 			if err != nil {
-				return nil, s.AgentLogger.Wrapf(err, "cannot create grpc api")
+				return nil, s.Wool.Wrapf(err, "cannot create grpc api")
 			}
 			eps = append(eps, endpoint)
 			continue
@@ -246,11 +232,11 @@ func NewWatchConfiguration(includes []string, excludes ...string) *WatchConfigur
 	}
 }
 
-func (s *Base) SetupWatcher(conf *WatchConfiguration, handler func(event code.Change) error) error {
-	s.AgentLogger.Debugf("watching for changes")
+func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handler func(event code.Change) error) error {
+	s.Wool.Debug("watching for changes")
 	s.Events = make(chan code.Change)
 	var err error
-	s.Watcher, err = code.NewWatcher(s.AgentLogger, s.Events, s.Location, conf.Includes, conf.Excludes...)
+	s.Watcher, err = code.NewWatcher(ctx, s.Events, s.Location, conf.Includes, conf.Excludes...)
 	if err != nil {
 		return err
 	}
@@ -260,7 +246,7 @@ func (s *Base) SetupWatcher(conf *WatchConfiguration, handler func(event code.Ch
 		for event := range s.Events {
 			err := handler(event)
 			if err != nil {
-				s.AgentLogger.Debugf("OOPS: %v", err)
+
 			}
 		}
 	}()
@@ -276,11 +262,11 @@ func (s *Base) Local(f string) string {
  */
 
 func (s *Base) DebugMe(format string, args ...any) {
-	s.AgentLogger.DebugMe(format, args...)
+	s.Wool.Debug(format)
 }
 
 func (s *Base) Debugf(format string, args ...any) {
-	s.AgentLogger.Debugf(format, args...)
+	s.Wool.Debug(format)
 }
 
 func ConfigureError(err error) *runtimev1.ConfigureStatus {
@@ -368,11 +354,11 @@ func WithDeployment(fs embed.FS) TemplateWrapper {
 //}
 
 func (s *Base) Templates(ctx context.Context, obj any, ws ...TemplateWrapper) error {
-	s.AgentLogger.Debugf("templates: %v", s.Location)
+	s.Wool.Debug("templates")
 	for _, w := range ws {
 		err := templates.CopyAndApply(ctx, w.fs, w.dir, shared.NewDir(s.Local(w.relative)), obj)
 		if err != nil {
-			return s.AgentLogger.Wrapf(err, "cannot copy and apply template")
+			return s.Wool.Wrapf(err, "cannot copy and apply template")
 		}
 	}
 	return nil

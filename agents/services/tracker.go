@@ -47,7 +47,7 @@ func (t *SingleTracker) Stop() {
 //	logger := shared.NewLogger().With("monitoring.NewSingleTracker<%s>", service.Name)
 //	tracked, err := NewTracked(service, tracker)
 //	if err != nil {
-//		return nil, logger.Wrapf(err, "cannot create tracked")
+//		return nil, logger.Wrap(err, "cannot create tracked")
 //	}
 //	ctx := context.Background()
 //	ctx, cancel := context.WithCancel(ctx)
@@ -154,7 +154,7 @@ func (t *SingleTracker) Stop() {
 //	// Start errors first or start working in a non-blocking way
 //	err := tracker.Start(t.events)
 //	if err != nil {
-//		return logger.Wrapf(err, "cannot start on-hold")
+//		return logger.Wrap(err, "cannot start on-hold")
 //	}
 //	t.Lock()
 //	t.active[service.Unique()] = tracker
@@ -166,7 +166,7 @@ func (t *SingleTracker) Stop() {
 //	logger := shared.NewLogger().With("monitoring.ServiceTracker.Track<%s>", service.Name)
 //	tracker, err := CreateTracker(service, runtime, trackers)
 //	if err != nil {
-//		return logger.Wrapf(err, "cannot create tracker")
+//		return logger.Wrap(err, "cannot create tracker")
 //	}
 //	if tracker == nil {
 //		return nil
@@ -174,7 +174,7 @@ func (t *SingleTracker) Stop() {
 //	// Start errors first or start working in a non-blocking way
 //	err = tracker.Start(t.events)
 //	if err != nil {
-//		return logger.Wrapf(err, "cannot start tracker")
+//		return logger.Wrap(err, "cannot start tracker")
 //	}
 //	t.Lock()
 //	t.trackers[service.Unique()] = &runtime.TrackerList{Trackers: trackers}

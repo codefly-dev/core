@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/google/go-github/v37/github"
 
 	"github.com/cheggaaa/pb/v3"
@@ -52,60 +54,52 @@ func Cleanup(unique string) {
 // Name is what the agent will be identified as: for clean up
 
 func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.Agent, unique string) (*Instance, error) {
-	logger := shared.NewLogger().With("agents.Load<%s>", p.Unique())
+	w := wool.Get(ctx).In("agents.Load", wool.Field("agent", p.Identifier()))
 	if p == nil {
-		return nil, logger.Errorf("agent cannot be nil")
-	}
-	// if version is latest, fetch latest release number
-	if p.Version == "latest" {
-		err := PinToLatestRelease(p)
-		if err != nil {
-			return nil, logger.Wrapf(err, "cannot get latest release")
-		}
+		return nil, w.NewError("agent cannot be nil")
 	}
 	bin, err := p.Path()
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot compute agent path")
+		return nil, w.Wrapf(err, "cannot compute agent path")
 	}
-	logger.Tracef("looking agent %v in %s", p, bin)
+
+	w.Trace("local", wool.Field("path", bin))
 	// Already loaded or download
 	if _, err := exec.LookPath(bin); err != nil {
 		err := Download(ctx, p)
 		if err != nil {
-			return nil, logger.Errorf("cannot find agent <%s>: %v", p.Identifier(), err)
+			return nil, w.Wrapf(err, "cannot download")
 		}
 	}
-	logger.Tracef("loading agent from local path <%s>", bin)
+	w.Trace("loading", wool.Field("path", bin))
 
 	var this P
 	placeholder := this.Default()
 	pluginMap := map[string]plugin.Plugin{this.Key(p, unique): placeholder}
-
-	clientLogger := NewServerLogger() // shared.Debug() || shared.Trace())
 
 	client := plugin.NewClient(&plugin.ClientConfig{
 		HandshakeConfig:  HandshakeConfig,
 		Plugins:          pluginMap,
 		Cmd:              exec.Command(bin),
 		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
-		Logger:           clientLogger,
+		Logger:           LogHandler().receiver,
 	})
-	logger.Tracef("agent client created for <%s>", unique)
+	w.Trace("loaded")
 	inUse[unique] = client
 
 	// Connect via gRPC
 	grpcClient, err := client.Client()
 	if err != nil {
-		return nil, logger.Errorf("cannot create gRPC client: %v", err)
+		return nil, w.Wrapf(err, "cannot connect to gRPC client")
 	}
 	// Request the platform
 	raw, err := grpcClient.Dispense(this.Key(p, unique))
 	if err != nil {
-		return nil, logger.Errorf("cannot dispense agent <%s> from gRPC client: %v", p.Identifier(), err)
+		return nil, w.Wrapf(err, "cannot dispense agent")
 	}
 	u := raw.(*Instance)
 	if u == nil {
-		return nil, logger.Errorf("agent [%s] does not implement the proper interface", p.Unique())
+		return nil, w.NewError("cannot cast agent")
 	}
 	return u, nil
 }

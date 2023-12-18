@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	wool "github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/shared"
 )
@@ -32,9 +33,13 @@ type Workspace struct {
 	activeProject string
 }
 
+func (workspace *Workspace) Unique() string {
+	return workspace.Name
+}
+
 // NewWorkspace creates a new workspace
 func NewWorkspace(ctx context.Context, action *actionsv1.AddWorkspace) (*Workspace, error) {
-	logger := shared.GetLogger(ctx).With("NewWorkspace<%s>", action.Name)
+	w := wool.Get(ctx).In("NewWorkspace", wool.NameField(action.Name))
 	org, err := OrganizationFromProto(ctx, action.Organization)
 	if err != nil {
 		return nil, err
@@ -43,7 +48,7 @@ func NewWorkspace(ctx context.Context, action *actionsv1.AddWorkspace) (*Workspa
 	if projectRoot == "" {
 		projectRoot = defaultProjectsRoot
 	}
-	logger.Debugf("workspace project root: <%s>", projectRoot)
+	w.Debug("workspace project root", wool.DirField(projectRoot))
 	workspace := &Workspace{
 		Name:         action.Name,
 		Organization: *org,
@@ -64,26 +69,30 @@ func LoadWorkspace(ctx context.Context) (*Workspace, error) {
 	if workspace != nil {
 		return workspace, nil
 	}
-	logger := shared.GetLogger(ctx).With("configurations.LoadWorkspace")
-	logger.Tracef("loading active workspace in %s", WorkspaceConfigurationDir())
+	w := wool.Get(ctx).In("configurations.LoadWorkspace")
+	w.Trace("loading active workspace in %s", wool.DirField(WorkspaceConfigurationDir()))
 	dir := WorkspaceConfigurationDir()
 	return LoadWorkspaceFromDirUnsafe(ctx, dir)
 }
 
 // LoadWorkspaceFromDirUnsafe loads a Workspace configuration from a directory
 func LoadWorkspaceFromDirUnsafe(ctx context.Context, dir string) (*Workspace, error) {
-	logger := shared.GetLogger(ctx).With("LoadWorkspaceFromDirUnsafe")
-	dir = SolveDir(dir)
-	w, err := LoadFromDir[Workspace](ctx, dir)
+	w := wool.Get(ctx).In("configurations.LoadWorkspace")
+	var err error
+	dir, err = SolveDir(dir)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load Workspace configuration")
+		return nil, w.Wrap(err)
 	}
-	w.dir = dir
-	err = w.postLoad(ctx)
+	workspace, err := LoadFromDir[Workspace](ctx, dir)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot post load Workspace configuration")
+		return nil, w.Wrapf(err, "cannot load Workspace configuration")
 	}
-	return w, nil
+	workspace.dir = dir
+	err = workspace.postLoad(ctx)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot post load Workspace configuration")
+	}
+	return workspace, nil
 }
 
 func (workspace *Workspace) postLoad(_ context.Context) error {
@@ -138,10 +147,10 @@ func (workspace *Workspace) ReloadProject(ctx context.Context, project *Project)
 
 // LoadProjectFromReference loads a project from  a reference
 func (workspace *Workspace) LoadProjectFromReference(ctx context.Context, ref *ProjectReference) (*Project, error) {
-	logger := shared.GetLogger(ctx).With("LoadProject<%s>", ref.Name)
+	w := wool.Get(ctx).In("configurations.LoadProjectFromReference", wool.Field("ref", ref))
 	p, err := workspace.LoadProjectFromDir(ctx, workspace.ProjectPath(ctx, ref))
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load project")
+		return nil, w.Wrapf(err, "cannot load project")
 	}
 	return p, nil
 }
@@ -163,21 +172,23 @@ func (workspace *Workspace) ProjectPath(_ context.Context, ref *ProjectReference
 
 // Save Workspaces
 func (workspace *Workspace) Save(ctx context.Context) error {
-	logger := shared.GetLogger(ctx).With("SaveWorkspace")
-	logger.Tracef("saving at <%s>", workspace.Dir())
+	w := wool.Get(ctx).In("Workspace::Save", wool.DirField(workspace.Dir()))
+	w.Trace("saving")
 	err := SaveToDir[Workspace](ctx, workspace, workspace.Dir())
 	if err != nil {
-		return shared.GetLogger(ctx).With("Saving Workspace configuration").Wrap(err)
+		w.Wrap(err)
 	}
 	err = workspace.preSave(ctx)
 	if err != nil {
-		return logger.Wrapf(err, "cannot pre-save Workspace configuration")
+		return w.Wrap(err)
 	}
 	return nil
 }
 
-func IsInitialized(_ context.Context) bool {
-	return shared.DirectoryExists(WorkspaceConfigurationDir())
+func IsInitialized(ctx context.Context) (bool, error) {
+	c := wool.Get(ctx)
+	c.Info("checking if workspace is initialized")
+	return shared.DirectoryExists(WorkspaceConfigurationDir()), nil
 }
 
 /*
@@ -203,9 +214,9 @@ func (workspace *Workspace) SetProjectActive(ctx context.Context, input *actions
 }
 
 func (workspace *Workspace) ActiveProject(ctx context.Context) (*ProjectReference, error) {
-	logger := shared.GetLogger(ctx).With("LoadActiveProject")
+	w := wool.Get(ctx).In("configurations.ActiveProject")
 	if len(workspace.Projects) == 0 {
-		return nil, logger.Errorf("no projects in Workspace configuration")
+		return nil, w.NewError("no projects in Workspace configuration")
 	}
 	if len(workspace.Projects) == 1 {
 		return workspace.Projects[0], nil
@@ -215,15 +226,15 @@ func (workspace *Workspace) ActiveProject(ctx context.Context) (*ProjectReferenc
 			return ref, nil
 		}
 	}
-	return nil, logger.Errorf("no active project in Workspace configuration")
+	return nil, w.NewError("no active project in Workspace configuration")
 }
 
 // LoadActiveProject loads the active project
 func (workspace *Workspace) LoadActiveProject(ctx context.Context) (*Project, error) {
-	logger := shared.GetLogger(ctx).With("LoadActiveProject")
+	w := wool.Get(ctx).In("configurations.LoadActiveProject")
 	ref, err := workspace.ActiveProject(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load active project")
+		return nil, w.Wrapf(err, "cannot load active project")
 	}
 	return workspace.LoadProjectFromReference(ctx, ref)
 }
@@ -262,21 +273,21 @@ func (workspace *Workspace) LoadProjects(ctx context.Context) ([]*Project, error
 
 // LoadProjectFromName loads a project from a name
 func (workspace *Workspace) LoadProjectFromName(ctx context.Context, name string) (*Project, error) {
-	logger := shared.GetLogger(ctx).With("LoadProjectFromName<%s>", name)
+	w := wool.Get(ctx).In("Workspace::LoadProjectFromName", wool.NameField(name))
 	ref, err := workspace.FindProjectReference(name)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot find project reference")
+		return nil, w.Wrapf(err, "cannot find project reference")
 	}
 	return workspace.LoadProjectFromDir(ctx, workspace.ProjectPath(ctx, ref))
 }
 
 // LoadProjectFromDir loads a project from a directory
 func (workspace *Workspace) LoadProjectFromDir(ctx context.Context, dir string) (*Project, error) {
-	logger := shared.GetLogger(ctx).With("LoadProjectFromDir<%s>", dir)
-	logger.Tracef("loading project from <%s>", dir)
+	w := wool.Get(ctx).In("configurations.LoadProjectFromDir", wool.Field("dir", dir))
+	w.Trace("loading")
 	project, err := LoadFromDir[Project](ctx, dir)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load project configuration")
+		return nil, w.Wrapf(err, "cannot load project configuration")
 	}
 	project.dir = dir
 	err = project.postLoad(ctx)
@@ -331,6 +342,7 @@ CLEAN
 */
 
 func (workspace *Workspace) DeleteProject(ctx context.Context, name string) error {
+	w := wool.Get(ctx).In("Workspace::DeleteProject", wool.ThisField(workspace), wool.NameField(name))
 	project, err := workspace.LoadProjectFromName(ctx, name)
 	if err != nil {
 		return err
@@ -345,7 +357,7 @@ func (workspace *Workspace) DeleteProject(ctx context.Context, name string) erro
 	workspace.Projects = projects
 	err = workspace.Save(ctx)
 	if err != nil {
-		return shared.GetLogger(ctx).With("Deleting project <%s>", name).Wrap(err)
+		return w.Wrap(err)
 	}
 	os.RemoveAll(project.Dir())
 	return nil

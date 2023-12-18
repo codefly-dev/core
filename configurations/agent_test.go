@@ -17,29 +17,22 @@ func TestAgentParse(t *testing.T) {
 		in   string
 		out  *configurations.Agent
 	}{
+		{name: "empty", in: "", out: nil},
 		{name: "identifier only", in: "go-grpc", out: &configurations.Agent{Kind: configurations.ServiceAgent, Publisher: "codefly.dev", Name: "go-grpc", Version: "latest"}},
 		{name: "identifier with publisher", in: "go-grpc:0.0.0", out: &configurations.Agent{Kind: configurations.ServiceAgent, Publisher: "codefly.dev", Name: "go-grpc", Version: "0.0.0"}},
 		{name: "full specification", in: "codefly.dev/go-grpc:0.0.0", out: &configurations.Agent{Kind: configurations.ServiceAgent, Publisher: "codefly.dev", Name: "go-grpc", Version: "0.0.0"}},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			p, err := configurations.ParseAgent(ctx, configurations.ServiceAgent, tc.in)
-			if err != nil && !shared.IsUserWarning(err) {
-				t.Fatal(err)
+			agent, err := configurations.ParseAgent(ctx, configurations.ServiceAgent, tc.in)
+			if agent == nil {
+				assert.Error(t, err)
+				return
 			}
-
-			if *shared.Must(configurations.AgentKindFromProto(p.Kind)) != tc.out.Kind {
-				t.Fatalf("expected kind %s, got %s", tc.out.Kind, p.Kind)
-			}
-			if p.Publisher != tc.out.Publisher {
-				t.Fatalf("expected publisher %s, got %s", tc.out.Publisher, p.Publisher)
-			}
-			if p.Name != tc.out.Name {
-				t.Fatalf("expected identifier %s, got %s", tc.out.Name, p.Name)
-			}
-			if p.Version != tc.out.Version {
-				t.Fatalf("expected version %s, got %s", tc.out.Version, p.Version)
-			}
+			assert.Equal(t, tc.out.Kind, agent.Kind)
+			assert.Equal(t, tc.out.Publisher, agent.Publisher)
+			assert.Equal(t, tc.out.Name, agent.Name)
+			assert.Equal(t, tc.out.Version, agent.Version)
 		})
 	}
 }

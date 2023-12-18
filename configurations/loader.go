@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/codefly-dev/core/configurations/generation"
 	"github.com/codefly-dev/core/shared"
 	"gopkg.in/yaml.v3"
@@ -15,41 +17,41 @@ import (
 
 type Configuration interface{}
 
-func SolveDir(dir string) string {
-	logger := shared.NewLogger().With("configurations.SolveDir")
+func SolveDir(dir string) (string, error) {
+	w := wool.Get(context.Background()).In("configurations.SolveDir", wool.Field("dir", dir))
 	if filepath.IsLocal(dir) || strings.HasPrefix(dir, ".") || strings.HasPrefix(dir, "..") {
 		cur, err := os.Getwd()
 		if err != nil {
-			shared.ExitOnError(err, "cannot get active directory")
+			return "", w.Wrapf(err, "cannot get active directory")
 		}
 		dir = filepath.Join(cur, dir)
-		logger.Tracef("Solving path <%s> from active directory", dir)
+		w.Trace("solved path")
 	}
 	// Validate
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		shared.ExitOnError(err, "cannot find directory")
+		return "", w.Wrapf(err, "directory doesn't exist")
 	}
-	return dir
+	return dir, nil
 }
 
-func SolveDirOrCreate(dir string) string {
-	logger := shared.NewLogger().With("configurations.SolveDirOrCreate")
+func SolveDirOrCreate(dir string) (string, error) {
+	w := wool.Get(context.Background()).In("configurations.SolveDirOrCreate", wool.Field("dir", dir))
 	if filepath.IsLocal(dir) || strings.HasPrefix(dir, ".") || strings.HasPrefix(dir, "..") {
 		cur, err := os.Getwd()
 		if err != nil {
-			shared.ExitOnError(err, "cannot get active directory")
+			return "", w.Wrapf(err, "cannot get active directory")
 		}
 		dir = filepath.Join(cur, dir)
-		logger.Tracef("solving path <%s> from active directory", dir)
+		w.Trace("solved path")
 	}
 	// Validate
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		err = os.MkdirAll(dir, 0o755)
 		if err != nil {
-			shared.ExitOnError(err, "cannot create directory")
+			return "", w.Wrapf(err, "cannot create directory")
 		}
 	}
-	return dir
+	return dir, nil
 }
 
 func ConfigurationFile[C Configuration]() string {
@@ -114,14 +116,14 @@ func TypeName[C Configuration]() string {
 }
 
 func LoadFromFs[C any](fs shared.FileSystem) (*C, error) {
-	logger := shared.NewLogger().With("configurations.LoadFromFs[%s]", TypeName[C]())
+	w := wool.Get(context.Background()).In("configurations.LoadFromFs", wool.Field("type", TypeName[C]()))
 	content, err := fs.ReadFile(shared.NewFile(ConfigurationFile[C]()))
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot read file")
+		return nil, w.Wrapf(err, "cannot read file")
 	}
 	conf, err := LoadFromBytes[C](content)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load from bytes")
+		return nil, w.Wrapf(err, "cannot load from bytes")
 	}
 	return conf, nil
 }
@@ -132,14 +134,13 @@ func LoadFromDir[C Configuration](ctx context.Context, dir string) (*C, error) {
 }
 
 func LoadFromPath[C Configuration](ctx context.Context, p string) (*C, error) {
-	logger := shared.GetLogger(ctx).With("LoadFromPath[%s]", TypeName[C]())
-	//logger.SetLogMethod(shared.AllActions).Tracef("loading")
+	w := wool.Get(ctx).In("configurations.LoadWorkspace", wool.Field("path", p))
 	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return nil, logger.Errorf("path doesn't exist <%s>", p)
+		return nil, w.NewError("path doesn't exist <%s>", p)
 	}
 	content, err := os.ReadFile(p)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read path %s: %s", p, err)
+		return nil, w.NewError("cannot read path %s: %s", p, err)
 	}
 	return LoadFromBytes[C](content)
 }
@@ -154,39 +155,38 @@ func LoadFromBytes[C Configuration](content []byte) (*C, error) {
 }
 
 func SaveToDir[C Configuration](ctx context.Context, c *C, dir string) error {
-	logger := shared.GetLogger(ctx).With("SaveToDir[%s]", TypeName[C]())
-	logger.Tracef("saving to <%s>", dir)
+	w := wool.Get(ctx).In("SaveToDir[%s]", wool.GenericField[C](), wool.DirField(dir))
+	w.Trace("saving")
 	err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
-		return logger.Wrapf(err, "cannot check directory")
+		return w.Wrapf(err, "cannot check directory")
 	}
 	file := Path[C](dir)
 	if shared.FileExists(file) {
 		override := shared.GetOverride(ctx)
 		if !override.Replace(file) {
-			logger.Debugf("file <%s> already exists and override is not set", file)
+			w.Debug("file <%s> already exists and override is not set", wool.FileField(file))
 			return nil
 		}
 	}
 	content, err := yaml.Marshal(*c)
 	if err != nil {
-		return logger.Wrapf(err, "cannot marshal")
+		return w.Wrapf(err, "cannot marshal")
 	}
 	err = os.WriteFile(file, content, 0600)
 	if err != nil {
-		return logger.Wrapf(err, "cannot write")
+		return w.Wrapf(err, "cannot write")
 	}
 	return nil
 }
 
 // FindUp looks for a configuration in the active directory and up
 func FindUp[C Configuration](ctx context.Context) (*string, error) {
-	logger := shared.GetLogger(ctx).With("configurations.FindUp[%s]", TypeName[C]())
+	w := wool.Get(ctx).In("configurations.FindUp", wool.GenericField[C]())
 	cur, err := os.Getwd()
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot get active directory")
+		return nil, w.Wrapf(err, "cannot get active directory")
 	}
-	logger.Tracef("from <%s>", cur)
 	for {
 		// Look for a service configuration
 		p := Path[C](cur)

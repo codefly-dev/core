@@ -2,15 +2,14 @@ package configurations
 
 import (
 	"context"
-
-	"github.com/codefly-dev/core/shared"
+	wool "github.com/codefly-dev/core/wool"
 )
 
 func ActiveDefaultProject(ctx context.Context) (*Project, error) {
-	logger := shared.GetLogger(ctx).With("ActiveDefaultProject")
+	w := wool.Get(ctx).In("ActiveDefaultProject")
 	ws, err := LoadWorkspace(ctx)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	return ws.LoadActiveProject(ctx)
 }

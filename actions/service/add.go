@@ -10,6 +10,7 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	"github.com/codefly-dev/core/wool"
 )
 
 const AddServiceKind = "service.add"
@@ -26,9 +27,9 @@ func (action *AddServiceAction) Command() string {
 type AddService = actionsv1.AddService
 
 func NewActionAddService(ctx context.Context, in *AddService) (*AddServiceAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
+	w := wool.Get(ctx).In("actions.service.NewActionAddService")
 	if err := actions.Validate(ctx, in); err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	in.Kind = AddServiceKind
 	return &AddServiceAction{
@@ -39,40 +40,38 @@ func NewActionAddService(ctx context.Context, in *AddService) (*AddServiceAction
 var _ actions.Action = (*AddServiceAction)(nil)
 
 func (action *AddServiceAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetLogger(ctx).With("AddServiceAction")
-
+	w := wool.Get(ctx).In("actions.service.AddServiceAction.Run")
 	if action.Override {
 		ctx = shared.WithOverride(ctx, shared.SilentOverride())
 	}
 
 	ws, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot get current workspace")
+		return nil, w.Wrap(err)
 	}
 
 	project, err := ws.LoadProjectFromName(ctx, action.Project)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load project %s", action.Project)
+		return nil, w.Wrap(err)
 	}
 
 	app, err := project.LoadApplicationFromName(ctx, action.Application)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load application %s", action.Application)
+		return nil, w.Wrap(err)
 	}
 
 	service, err := app.NewService(ctx, action.AddService)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot add service %s", action.Name)
+		return nil, w.Wrap(err)
 	}
 
 	err = app.SetActiveService(ctx, service.Name)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
-
 	err = app.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save project")
+		return nil, w.Wrap(err)
 	}
 
 	return service, nil

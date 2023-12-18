@@ -12,15 +12,16 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 	openapiloads "github.com/go-openapi/loads"
 	openapispec "github.com/go-openapi/spec"
 )
 
-func WithAPI(endpoint *configurations.Endpoint, source APISource) (*basev1.Endpoint, error) {
-	logger := shared.NewLogger().With("services.DefaultApi")
+func WithAPI(ctx context.Context, endpoint *configurations.Endpoint, source APISource) (*basev1.Endpoint, error) {
+	w := wool.Get(ctx).In("endpoints.WithAPI")
 	api, err := source.Proto()
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot create grpc api: %v")
+		return nil, w.Wrapf(err, "cannot create grpc api: %v")
 	}
 	base := BaseProto(endpoint)
 	base.Api = api
@@ -37,7 +38,7 @@ type GrpcAPI struct {
 	rpcs     []*basev1.RPC
 }
 
-func NewGrpcAPI(endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
+func NewGrpcAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
 	// Read the file content
 	content, err := os.ReadFile(filename)
 	if err != nil {
@@ -60,7 +61,7 @@ func NewGrpcAPI(endpoint *configurations.Endpoint, filename string) (*basev1.End
 		}
 	}
 
-	return WithAPI(endpoint, &GrpcAPI{filename: filename, content: content, rpcs: rpcs})
+	return WithAPI(ctx, endpoint, &GrpcAPI{filename: filename, content: content, rpcs: rpcs})
 }
 
 func (grpc *GrpcAPI) Proto() (*basev1.API, error) {
@@ -84,8 +85,8 @@ type RestAPI struct {
 	routes   []*basev1.RestRoute
 }
 
-func NewRestAPI(endpoint *configurations.Endpoint) (*basev1.Endpoint, error) {
-	return WithAPI(endpoint, &RestAPI{})
+func NewRestAPI(ctx context.Context, endpoint *configurations.Endpoint) (*basev1.Endpoint, error) {
+	return WithAPI(ctx, endpoint, &RestAPI{})
 }
 
 func (rest *RestAPI) Proto() (*basev1.API, error) {
@@ -103,19 +104,18 @@ func (rest *RestAPI) Proto() (*basev1.API, error) {
 }
 
 func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
-	logger := shared.GetLogger(ctx).With("NewRestAPIFromOpenAPI")
-	logger.TODO("visibility")
+	w := wool.Get(ctx).In("endpoints.NewRestAPIFromOpenAPI")
 	if !shared.FileExists(filename) {
-		return nil, logger.Errorf("file does not exist: %s", filename)
+		return nil, w.NewError("file does not exist: %s", filename)
 	}
 	// Read the file content
 	content, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, logger.Wrapf(err, "failed to read file")
+		return nil, w.Wrapf(err, "failed to read file")
 	}
 	swagger, err := parseOpenAPI(content)
 	if err != nil {
-		return nil, logger.Wrapf(err, "failed to parse openapi spec")
+		return nil, w.Wrapf(err, "failed to parse openapi spec")
 	}
 
 	var routes []*basev1.RestRoute
@@ -126,7 +126,7 @@ func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoin
 			Path:    path,
 		})
 	}
-	return WithAPI(endpoint, &RestAPI{openapi: content, routes: routes, filename: filename})
+	return WithAPI(ctx, endpoint, &RestAPI{openapi: content, routes: routes, filename: filename})
 }
 
 type TCP struct{}

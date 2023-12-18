@@ -206,13 +206,13 @@ func createTarArchive(srcDir string) (*bytes.Buffer, error) {
 //			break // End of archive
 //		}
 //		if err != nil {
-//			return fmt.Errorf("error reading tar header: %v", err)
+//			return fmt.Error("error reading tar header: %v", err)
 //		}
 //
 //		if header.Name == filename {
 //			content, err := ioutil.ReadAll(tarReader)
 //			if err != nil {
-//				return fmt.Errorf("error reading file content: %v", err)
+//				return fmt.Error("error reading file content: %v", err)
 //			}
 //			logger.Debugf("Content of %s:\n%s\n", filename, content)
 //			return nil

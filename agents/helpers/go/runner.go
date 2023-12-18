@@ -3,12 +3,12 @@ package golang
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
 	"github.com/codefly-dev/core/agents/services"
-
-	"github.com/codefly-dev/core/agents"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/shared"
 )
@@ -20,8 +20,7 @@ type Runner struct {
 	Envs  []string
 	Debug bool
 
-	ServiceLogger *agents.ServiceLogger
-	AgentLogger   *agents.AgentLogger
+	ForwardLogger io.Writer
 
 	Cmd   *exec.Cmd
 	clean func()
@@ -50,7 +49,7 @@ func (g *Runner) Run(_ context.Context) (*services.TrackedProcess, error) {
 	// Setup variables once
 	g.Cmd.Env = g.Envs
 
-	err := shared.WrapStart(g.Cmd, g.ServiceLogger)
+	err := shared.WrapStart(g.Cmd, g.ForwardLogger)
 	if err != nil {
 		return nil, shared.Wrapf(err, "cannot wrap execution of cmd")
 	}
@@ -61,7 +60,8 @@ func (g *Runner) Run(_ context.Context) (*services.TrackedProcess, error) {
 }
 
 func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
-	g.AgentLogger.Info("running in DEBUG mode")
+	w := wool.Get(ctx).In("GoRunner")
+	w.Info("building binary in debug mode")
 	// Build with debug options
 	tmp := os.TempDir()
 	target := fmt.Sprintf("%s/main", tmp)
@@ -80,7 +80,6 @@ func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
 		output := shared.NewOutputError(string(out))
 		return nil, output
 	}
-	g.AgentLogger.Info("[go:runner] successfully built the debug binary")
 	cmd = exec.CommandContext(ctx, target)
 	cmd.Dir = g.Dir
 	g.Cmd = cmd
@@ -88,7 +87,8 @@ func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
 }
 
 func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
-	g.AgentLogger.Info("[go::runner] building binary in normal mode")
+	w := wool.Get(ctx).In("GoRunner")
+	w.Info("building binary in debug mode")
 	// Build with debug options
 	tmp := os.TempDir()
 	target := fmt.Sprintf("%s/main", tmp)
@@ -106,7 +106,7 @@ func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
 		output := shared.NewOutputError(string(out))
 		return nil, output
 	}
-	g.AgentLogger.Info("[go::runner] successfully built the regular binary")
+	w.Info("built", wool.StatusOK())
 
 	cmd = exec.CommandContext(ctx, target)
 	cmd.Dir = g.Dir

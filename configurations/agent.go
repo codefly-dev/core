@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"slices"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/resource"
+
 	"github.com/bufbuild/protovalidate-go"
 
 	"path"
 	"strings"
 
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/Masterminds/semver"
 
@@ -22,10 +26,10 @@ const AgentConfigurationName = "agent.codefly.yaml"
 type AgentKind string
 
 type Agent struct {
-	Kind      AgentKind `yaml:"kind"`
-	Name      string    `yaml:"name"`
-	Version   string    `yaml:"version"`
-	Publisher string    `yaml:"publisher"`
+	Kind      AgentKind `yaml:"kind" json:"kind"`
+	Name      string    `yaml:"name" json:"name"`
+	Version   string    `yaml:"version" json:"version"`
+	Publisher string    `yaml:"publisher" json:"publisher"`
 }
 
 var CLI *Agent
@@ -57,9 +61,9 @@ func (p *Agent) String() string {
 }
 
 func LoadAgent(ctx context.Context, action *basev1.Agent) (*Agent, error) {
-	logger := shared.GetLogger(ctx).With("LoadAgent")
+	w := wool.Get(ctx).In("LoadAgent")
 	if err := ValidateAgent(action); err != nil {
-		return nil, logger.Wrapf(err, "invalid agent")
+		return nil, w.Wrapf(err, "invalid agent")
 	}
 	p := &Agent{
 		Kind:      agentKinds[action.Kind],
@@ -155,9 +159,20 @@ func (p *Agent) Patch() (*Agent, error) {
 	return patch, nil
 }
 
-func ParseAgent(ctx context.Context, k AgentKind, s string) (*basev1.Agent, error) {
-	logger := shared.GetLogger(ctx).With("ParseAgent<%s>", s)
+func ParseAgent(ctx context.Context, k AgentKind, s string) (*Agent, error) {
+	agent, err := parseAgent(ctx, k, s)
+	if err != nil {
+		return nil, err
+	}
+	return AgentFromProto(agent), nil
+}
+
+func parseAgent(ctx context.Context, k AgentKind, s string) (*basev1.Agent, error) {
+	w := wool.Get(ctx).In("parseAgent", wool.Field("kind", k), wool.Field("agent", s))
 	// TODO: More validation
+	if s == "" {
+		return nil, fmt.Errorf("emmpty")
+	}
 	tokens := strings.SplitN(s, "/", 2)
 	pub := "codefly.dev"
 	rest := s
@@ -172,7 +187,7 @@ func ParseAgent(ctx context.Context, k AgentKind, s string) (*basev1.Agent, erro
 	identifier := tokens[0]
 	version := "latest"
 	if len(tokens) == 1 {
-		logger.Warn("missing version, assuming latest")
+		w.Warn("no version specified, using latest")
 	} else {
 		version = tokens[1]
 	}
@@ -199,5 +214,28 @@ func AgentFromProto(agent *basev1.Agent) *Agent {
 		Name:      agent.Name,
 		Version:   agent.Version,
 	}
+}
 
+func (p *Agent) Proto() *basev1.Agent {
+	return &basev1.Agent{
+		Kind:      agentInputs[p.Kind],
+		Publisher: p.Publisher,
+		Name:      p.Name,
+		Version:   p.Version,
+	}
+}
+
+func (p *Agent) AsResource() *wool.Resource {
+	r := resource.NewSchemaless(toAttributes(p)...)
+	return &wool.Resource{
+		Identifier: &wool.Identifier{
+			Kind:   "agent",
+			Unique: p.Identifier(),
+		},
+		Resource: r}
+}
+
+func toAttributes(agent *Agent) []attribute.KeyValue {
+	var attr []attribute.KeyValue
+	return attr
 }

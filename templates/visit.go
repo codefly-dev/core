@@ -6,6 +6,7 @@ import (
 	"path"
 
 	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 )
 
 type FileVisitor interface {
@@ -18,23 +19,23 @@ type Ignore interface {
 }
 
 func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, visitor FileVisitor) error {
-	logger := shared.GetLogger(ctx).With("visiting to directory %s -> %s", root, destination)
+	w := wool.Get(ctx).In("templates.CopyAndVisit")
 	err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
 	if err != nil {
-		return logger.Wrapf(err, "cannot check or create directory")
+		return w.Wrapf(err, "cannot check or create directory")
 	}
 	var dirs []shared.Dir
 	var files []shared.File
-	err = Walk(logger, fs, root, visitor, &files, &dirs)
+	err = Walk(ctx, fs, root, visitor, &files, &dirs)
 	if err != nil {
 		return fmt.Errorf("cannot read template directory: %v", err)
 	}
-	logger.Tracef("walked %d directories and %d files", len(dirs), len(files))
+	w.Trace(fmt.Sprintf("walked %d directories and %d files", len(dirs), len(files)))
 	for _, d := range dirs {
 		// We take the relative path from the root directory
 		rel, err := d.RelativeFrom(root)
 		if err != nil {
-			return logger.Wrapf(err, "cannot get relative path")
+			return w.Wrapf(err, "cannot get relative path")
 		}
 		dest := destination.Join(*rel)
 		// Hack
@@ -43,25 +44,25 @@ func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root shared.Dir, de
 		}
 		err = shared.CheckDirectoryOrCreate(ctx, dest.Absolute())
 		if err != nil {
-			return logger.Wrapf(err, "cannot check or create directory for destination")
+			return w.Wrapf(err, "cannot check or create directory for destination")
 		}
 
 	}
 	for _, f := range files {
 		if visitor.Skip(f.Base()) {
-			logger.Tracef("ignoring %s", f)
+			w.Trace("ignoring", wool.FileField(f.Base()))
 			continue
 		}
 
 		rel, err := f.RelativeFrom(root)
 		if err != nil {
-			return logger.Wrapf(err, "cannot get relative path")
+			return w.Wrapf(err, "cannot get relative path")
 		}
 
 		target := path.Join(fs.AbsoluteDir(destination), rel.RelativePath())
 		err = visitor.Apply(f, shared.NewDir(target))
 		if err != nil {
-			return logger.Wrapf(err, "cannot apply visitor")
+			return w.Wrapf(err, "cannot apply visitor")
 		}
 	}
 	return nil

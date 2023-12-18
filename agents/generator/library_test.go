@@ -13,7 +13,7 @@ package generator
 //		t.Run(tc.name, func(t *testing.T) {
 //			got := OtherMatches(tc.input)
 //			if !reflect.DeepEqual(got, tc.want) {
-//				t.Errorf("OtherMatches() = %v, want %v", got, tc.want)
+//				t.Error("OtherMatches() = %v, want %v", got, tc.want)
 //			}
 //
 //		})

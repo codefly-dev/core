@@ -20,7 +20,7 @@ func RequireExec(bins ...string) ([]string, bool) {
 	return missing, len(missing) == 0
 }
 
-func WrapStart(cmd *exec.Cmd, logger BaseLogger) error {
+func WrapStart(cmd *exec.Cmd, writer io.Writer) error {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return errors.Wrap(err, "cannot create stdout pipe")
@@ -31,7 +31,7 @@ func WrapStart(cmd *exec.Cmd, logger BaseLogger) error {
 		return errors.Wrap(err, "cannot create stderr pipe")
 	}
 
-	go ForwardLogs(stdout, logger)
+	go ForwardLogs(stdout, writer)
 
 	//	catch the error
 	var b bytes.Buffer

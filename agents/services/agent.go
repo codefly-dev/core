@@ -4,16 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
-	v1agent "github.com/codefly-dev/core/generated/go/services/agent/v1"
-	"github.com/codefly-dev/core/shared"
+	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )
 
 type Agent interface {
-	GetAgentInformation(ctx context.Context, req *v1agent.AgentInformationRequest) (*v1agent.AgentInformation, error)
+	GetAgentInformation(ctx context.Context, req *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error)
 }
 
 type ServiceAgentContext struct {
@@ -30,13 +31,13 @@ func (m ServiceAgentContext) Default() plugin.Plugin {
 var _ agents.AgentContext = ServiceAgentContext{}
 
 type ServiceAgent struct {
-	client v1agent.AgentClient
+	client agentv1.AgentClient
 	agent  *configurations.Agent
 }
 
 // GetAgentInformation provides
 // - capabilities
-func (m *ServiceAgent) GetAgentInformation(ctx context.Context, req *v1agent.AgentInformationRequest) (*v1agent.AgentInformation, error) {
+func (m *ServiceAgent) GetAgentInformation(ctx context.Context, req *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error) {
 	return m.client.GetAgentInformation(ctx, req)
 }
 
@@ -47,43 +48,48 @@ type ServiceAgentGRPC struct {
 }
 
 func (p *ServiceAgentGRPC) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
-	v1agent.RegisterAgentServer(s, &ServiceAgentServer{Service: p.Service})
+	agentv1.RegisterAgentServer(s, &ServiceAgentServer{Service: p.Service})
 	return nil
 }
 
 func (p *ServiceAgentGRPC) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &ServiceAgent{client: v1agent.NewAgentClient(c)}, nil
+	return &ServiceAgent{client: agentv1.NewAgentClient(c)}, nil
 }
 
 // ServiceAgentServer wraps the gRPC protocol Request/Response
 type ServiceAgentServer struct {
-	v1agent.UnimplementedAgentServer
+	agentv1.UnimplementedAgentServer
 	Service Agent
 }
 
-func (m *ServiceAgentServer) GetAgentInformation(ctx context.Context, req *v1agent.AgentInformationRequest) (*v1agent.AgentInformation, error) {
+func (m *ServiceAgentServer) GetAgentInformation(ctx context.Context, req *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error) {
 	return m.Service.GetAgentInformation(ctx, req)
 }
 
-func LoadAgent(ctx context.Context, service *configurations.Service) (*ServiceAgent, error) {
-	if service == nil {
+func LoadAgent(ctx context.Context, agent *configurations.Agent) (*ServiceAgent, error) {
+	if agent == nil {
 		return nil, fmt.Errorf("service cannot be nil")
 	}
-	logger := shared.NewLogger().With("services.LoadAgent<%s>", service.Name)
-	if service.Agent == nil {
-		return nil, logger.Errorf("agent cannot be nil")
+	w := wool.Get(ctx).In("services.LoadAgent", wool.Field("agent", agent.Name))
+	w.Debug("loading service agent")
+	if agent.Version == "latest" {
+		err := agents.PinToLatestRelease(agent)
+		if err != nil {
+			return nil, w.Wrap(err)
+		}
 	}
-	agent, err := agents.Load[ServiceAgentContext, ServiceAgent](
+	loaded, err := agents.Load[ServiceAgentContext, ServiceAgent](
 		ctx,
-		service.Agent.Of(configurations.ServiceAgent),
-		service.Unique())
+		agent.Of(configurations.ServiceAgent),
+		agent.Unique())
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load service agent")
+		return nil, w.Wrap(err)
 	}
-	agent.agent = service.Agent
-	return agent, nil
+	loaded.agent = agent
+	return loaded, nil
 }
 
+// NewServiceAgent binds the agent implementation to the agent
 func NewServiceAgent(conf *configurations.Agent, service Agent) agents.AgentImplementation {
 	return agents.AgentImplementation{
 		Configuration: conf,

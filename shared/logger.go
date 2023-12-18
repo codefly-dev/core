@@ -39,7 +39,7 @@ func GetLogger(ctx context.Context) BaseLogger {
 	} else {
 		l = ctx.Value(Agent)
 		if l == nil {
-			return NewLogger()
+			panic("no logger in context")
 		}
 		logger = l.(BaseLogger)
 	}
@@ -87,6 +87,7 @@ type BaseLogger interface {
 	// Write does the actual work
 	Write(p []byte) (n int, err error)
 	WarnOnError(err error)
+	Catch()
 }
 
 var (

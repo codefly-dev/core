@@ -1,20 +1,18 @@
 package code
 
 import (
+	"context"
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/codefly-dev/core/agents"
-
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 	"github.com/fsnotify/fsnotify"
 )
 
 type Watcher struct {
-	events      chan<- Change
-	watcher     *fsnotify.Watcher
-	AgentLogger *agents.AgentLogger
+	events  chan<- Change
+	watcher *fsnotify.Watcher
 
 	// internal
 	excludes []string
@@ -26,24 +24,24 @@ type Change struct {
 	IsRelative bool
 }
 
-func NewWatcher(agentLogger *agents.AgentLogger, events chan<- Change, base string, includes []string, excludes ...string) (*Watcher, error) {
-	logger := shared.NewLogger().With("code.NewWatcher")
+func NewWatcher(ctx context.Context, events chan<- Change, base string, includes []string, excludes ...string) (*Watcher, error) {
+	w := wool.Get(ctx)
 	// Add new watcher.
-	watcher, err := fsnotify.NewWatcher()
+	fswatcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot create fsnotify watcher")
+		return nil, w.Wrapf(err, "cannot create fsnotify watcher")
 	}
 	for _, p := range includes {
-		err = watcher.Add(path.Join(base, p))
+		err = fswatcher.Add(path.Join(base, p))
 		if err != nil {
-			return nil, logger.Wrapf(err, "cannot add path: %s", p)
+			return nil, w.Wrapf(err, "cannot add path: %s", p)
 		}
 	}
 
-	w := &Watcher{watcher: watcher, base: base, events: events, AgentLogger: agentLogger}
-	w.excludes = append(w.excludes, excludes...)
-	go w.Start()
-	return w, nil
+	watcher := &Watcher{watcher: fswatcher, base: base, events: events}
+	watcher.excludes = append(watcher.excludes, excludes...)
+	go watcher.Start()
+	return watcher, nil
 }
 
 func (w *Watcher) Start() {
@@ -74,11 +72,10 @@ func (w *Watcher) Start() {
 					Path: event.Name,
 				}
 			}
-		case err, ok := <-w.watcher.Errors:
+		case _, ok := <-w.watcher.Errors:
 			if !ok {
 				return
 			}
-			w.AgentLogger.Info("error: %v", err)
 		}
 	}
 }

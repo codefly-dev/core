@@ -2,168 +2,181 @@ package wool
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
 
-	"github.com/codefly-dev/core/configurations"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"github.com/pkg/errors"
+
+	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	trace "go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace"
 )
+
+type Wool struct {
+	name   string
+	source *Identifier
+	ref    *CodefReference
+
+	fields []*LogField
+
+	ctx context.Context
+
+	provider *Provider
+	span     trace.Span
+
+	logger LogProcessor
+}
+
+type Otel interface {
+}
+
+func (c *Wool) In(method string, fields ...*LogField) *Wool {
+	c.name = method
+	c.fields = fields
+	// We keep track of the stack
+	//stack := c.Stack()
+	return c
+}
+
+func (c *Wool) Context() context.Context {
+	return c.ctx
+}
+
+// Catch recovers from a panic and logs the error
+func (c *Wool) Catch() {
+	if r := recover(); r != nil {
+		c.Warn("PANIC CAUGHT INSIDE THE AGENT CODE ", Field("panic", r))
+		c.Warn(string(debug.Stack()))
+	}
+}
+
+func (c *Wool) process(l Loglevel, msg string, fields ...*LogField) {
+	for _, f := range fields {
+		if f.Level == DEFAULT {
+			f.Level = l
+		}
+	}
+	log := &Log{Message: msg, Fields: fields, Header: c.Name(), Level: l}
+
+	if WithTelemetry() {
+		c.span.AddEvent(LogEvent, log.Event())
+	}
+	if c.logger != nil {
+		c.logger.Process(log)
+	}
+}
+
+func (c *Wool) Trace(msg string, fields ...*LogField) {
+	c.process(TRACE, msg, fields...)
+}
+
+func (c *Wool) Info(msg string, fields ...*LogField) {
+	c.process(INFO, msg, fields...)
+}
+
+func (c *Wool) Debug(msg string, fields ...*LogField) {
+	c.process(DEBUG, msg, fields...)
+}
+
+func (c *Wool) Warn(msg string, fields ...*LogField) {
+	c.process(WARN, msg, fields...)
+}
+
+func (c *Wool) Error(msg string, fields ...*LogField) {
+	c.process(ERROR, msg, fields...)
+}
+
+func (c *Wool) Fatal(msg string, fields ...*LogField) {
+	c.process(FATAL, msg, fields...)
+}
+
+func (c *Wool) Wrap(err error) error {
+	if msg := c.Name(); msg != "" {
+		return errors.Wrap(err, msg)
+	}
+	return err
+}
+
+func (c *Wool) Wrapf(err error, msg string, args ...any) error {
+	msg = fmt.Sprintf(msg, args...)
+	if name := c.Name(); name != "" {
+		msg = fmt.Sprintf("%s: %s", c.Name(), msg)
+	}
+	if msg != "" {
+		return errors.Wrap(err, msg)
+	}
+	return err
+}
+
+func (c *Wool) Close() {
+	if c.span != nil {
+		c.span.End()
+	}
+}
+
+func (c *Wool) NewError(format string, args ...any) error {
+	return fmt.Errorf(format, args...)
+}
+
+type CodePath struct {
+	Method string      `json:"method"`
+	Fields []*LogField `json:"fields"`
+}
+
+const CodePathKey = "codepath"
+
+func (c *Wool) StackTrace() []CodePath {
+	b := baggage.FromContext(c.ctx)
+	m := b.Member(CodePathKey)
+	return toCodePaths(m)
+}
 
 type ContextKey string
 
-const KeyInContext = ContextKey("wool")
+const KeyInContext = ContextKey("provider")
 
-type Resourceful interface {
-	Resource() *resource.Resource
-	Name() string
-}
-
-func ToAttributes(agent *configurations.Agent) []attribute.KeyValue {
-	var attr []attribute.KeyValue
-
-	return attr
-}
-
-type Agent struct {
-	agent *configurations.Agent
-	name  string
-}
-
-func (a *Agent) Name() string {
-	return a.name
-}
-
-func (a *Agent) Resource() *resource.Resource {
-	return resource.NewSchemaless(ToAttributes(a.agent)...)
-}
-
-func NewAgent(agent *configurations.Agent) *Agent {
-	return &Agent{agent: agent, name: agent.Name}
+type Resource struct {
+	Resource *resource.Resource
+	*Identifier
 }
 
 func WithTelemetry() bool {
 	return false
 }
 
-func New(ctx context.Context, who Resourceful) *Wool {
-	// Define a wool
-	if WithTelemetry() {
-
-		// Create a new exporter
-		exp, err := stdouttrace.New(stdouttrace.WithPrettyPrint())
-		if err != nil {
-			panic(err)
-		}
-
-		bsp := sdktrace.NewBatchSpanProcessor(exp)
-
-		r := who.Resource()
-
-		// Create tracer provider
-		tp := sdktrace.NewTracerProvider(
-			sdktrace.WithSpanProcessor(bsp),
-			sdktrace.WithResource(r),
-		)
-		otel.SetTracerProvider(tp)
-		return &Wool{
-			ctx:      ctx,
-			resource: r,
-			tp:       tp,
-			name:     who.Name(),
-			tracer:   otel.Tracer(""),
-		}
-	}
-	return &Wool{
-		ctx:  ctx,
-		name: who.Name(),
-	}
-
+func (c *Wool) Name() string {
+	return c.name
 }
 
-// Wool keeping track
-type Wool struct {
-	tp       *sdktrace.TracerProvider
-	resource *resource.Resource
-	name     string
-	tracer   trace.Tracer
-	ctx      context.Context
-}
-
-func (w *Wool) Context() *Context {
-	return &Context{wool: w}
-}
-
-func (w *Wool) Done() {
-	if w.tp != nil {
-		_ = w.tp.Shutdown(w.ctx)
-	}
-}
-
-func (w *Wool) NewContext() context.Context {
-	return context.WithValue(w.ctx, KeyInContext, w)
-}
-
-func (c *Context) Name() string {
-	return c.wool.name
+func (c *Wool) WithLogger(l LogProcessor) *Wool {
+	c.logger = l
+	return c
 }
 
 const LogEvent = "log"
 
-func (c *Context) Info(msg string, fields ...*LogField) {
-	log := &Log{Message: msg, Fields: fields}
-	if WithTelemetry() {
-		c.span.AddEvent(LogEvent, log.Event())
+func toCodePaths(m baggage.Member) []CodePath {
+	// Use Properties of the Member to get the values
+	// and convert them to CodePath
+	var paths []CodePath
+	for _, v := range m.Properties() {
+		paths = append(paths, toCodePath(v))
 	}
-	if logHandler != nil {
-		logHandler(log)
+	return paths
+}
+
+func toCodePath(v baggage.Property) CodePath {
+	return CodePath{}
+}
+
+type CodefReference struct {
+	Line int    `json:"line"`
+	File string `json:"file"`
+}
+
+func (w *Wool) File() string {
+	if w.ref == nil {
+		return ""
 	}
-}
-
-type Context struct {
-	wool *Wool
-	ctx  context.Context
-	span trace.Span
-}
-
-func CLI(ctx context.Context) *Wool {
-	return New(ctx, NewAgent(configurations.CLI))
-}
-
-func get(ctx context.Context) *Wool {
-	w := ctx.Value(KeyInContext)
-	if w == nil {
-		return CLI(ctx)
-	}
-	return w.(*Wool)
-}
-
-func Get(ctx context.Context) *Context {
-	w := get(ctx)
-	if w.tracer != nil {
-		// Create a span
-		currentCtx, span := w.tracer.Start(ctx, w.name)
-		return &Context{wool: w, ctx: currentCtx, span: span}
-	}
-	return &Context{wool: w, ctx: ctx}
-}
-
-func (c *Context) Context() context.Context {
-	return c.ctx
-}
-
-func (c *Context) Close() {
-	if c.span != nil {
-		c.span.End()
-	}
-}
-
-type LogHandler func(msg *Log)
-
-var logHandler LogHandler
-
-func SetLogExporter(handler LogHandler) {
-	logHandler = handler
+	return w.ref.File
 }

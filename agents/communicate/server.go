@@ -6,6 +6,7 @@ import (
 
 	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 )
 
 // Server is the Agent
@@ -71,18 +72,18 @@ func (m *Server) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1
 	if c, ok := m.channels[req.Channel.Kind]; ok {
 		return c.Communicate(ctx, req)
 	}
-	return nil, fmt.Errorf("cannot find channel %s", req.Channel.Kind)
+	return &agentv1.InformationRequest{Done: true}, nil
 }
 
 func (m *Server) Done(ctx context.Context, channel *agentv1.Channel) (*ServerSession, error) {
-	logger := shared.GetLogger(ctx).With("communicate.Server.Done")
+	w := wool.Get(ctx).In("communicate.Server.Done")
 	if c, ok := m.channels[channel.Kind]; ok {
 		if c.session == nil {
-			return nil, logger.Errorf("cannot find session for channel %s", channel.Kind)
+			return nil, w.NewError("cannot find session for channel %s", channel.Kind)
 		}
 		return c.session, nil
 	}
-	return nil, logger.Errorf("cannot find channel %s", channel.Kind)
+	return nil, nil
 }
 
 func NewServer(_ context.Context) *Server {
