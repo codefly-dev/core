@@ -2,14 +2,12 @@ package configurations
 
 import (
 	"os/user"
-
-	"github.com/codefly-dev/core/shared"
 )
 
-func HomeDir() string {
+func HomeDir() (string, error) {
 	activeUser, err := user.Current()
 	if err != nil {
-		shared.ExitOnError(err, "cannot get active user")
+		return "", err
 	}
-	return activeUser.HomeDir
+	return activeUser.HomeDir, nil
 }

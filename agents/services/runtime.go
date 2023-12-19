@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/codefly-dev/core/agents/manager"
 
 	"github.com/codefly-dev/core/agents/communicate"
@@ -13,7 +15,6 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
-	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -75,11 +76,16 @@ func (m *RuntimeAgent) Start(ctx context.Context, req *runtimev1.StartRequest) (
 		for _, detail := range st.Details() {
 			switch t := detail.(type) {
 			case *errdetails.DebugInfo:
-				return nil, shared.ParseError(t.Detail)
+				return nil, parseError(t.Detail)
 			}
 		}
 	}
 	return resp, err
+}
+
+func parseError(detail string) error {
+	return fmt.Errorf("TODO: %v", detail)
+
 }
 
 // Information return some useful information about the service
@@ -147,16 +153,16 @@ Loader
 */
 
 func LoadRuntime(ctx context.Context, service *configurations.Service) (*RuntimeAgent, error) {
-	logger := shared.NewLogger().With("services.LoadRuntime")
+	w := wool.Get(ctx).In("services.LoadRuntime", wool.ThisField(service))
 	if service == nil || service.Agent == nil {
-		return nil, logger.Errorf("agent cannot be nil")
+		return nil, w.NewError("agent cannot be nil")
 	}
 	runtime, err := manager.Load[ServiceRuntimeAgentContext, RuntimeAgent](
 		ctx,
 		service.Agent.Of(configurations.RuntimeServiceAgent),
 		service.Unique())
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load service runtime agent")
+		return nil, w.Wrapf(err, "cannot load service runtime agent")
 	}
 	runtime.agent = service.Agent
 	return runtime, nil

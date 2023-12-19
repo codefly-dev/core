@@ -6,7 +6,6 @@ import (
 
 	"github.com/codefly-dev/core/configurations"
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
-	"github.com/codefly-dev/core/shared"
 )
 
 type Strategy interface {
@@ -92,8 +91,6 @@ type Address struct {
 
 func (pm *ApplicationEndpointInstances) Address(endpoint *basev1.Endpoint) *Address {
 	// Returns the first one
-	logger := shared.NewLogger().With("network.ApplicationEndpointInstances.Address")
-	logger.TODO("implement the free local IP: will depend on deploy")
 	for _, e := range pm.ApplicationEndpointInstances {
 		if ToUnique(e.ApplicationEndpoint.Endpoint) == ToUnique(endpoint) {
 			return &Address{

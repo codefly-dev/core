@@ -1,25 +1,27 @@
 package configurations
 
 import (
-	"fmt"
+	"context"
 
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
+
 	"gopkg.in/yaml.v3"
 )
 
-func LoadSpec(content []byte, obj any) error {
+func LoadSpec(ctx context.Context, content []byte, obj any) error {
+	w := wool.Get(ctx).In("LoadSpec")
 	err := yaml.Unmarshal(content, obj)
 	if err != nil {
-		return fmt.Errorf("cannot unmarshal object: %w", err)
+		return w.Wrapf(err, "cannot load object")
 	}
 	return nil
 }
 
-func SerializeSpec(spec any) ([]byte, error) {
-	logger := shared.NewLogger().With("configurations.SerializeSpec")
+func SerializeSpec(ctx context.Context, spec any) ([]byte, error) {
+	w := wool.Get(ctx).In("SerializeSpec")
 	content, err := yaml.Marshal(spec)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot serialize object")
+		return nil, w.Wrapf(err, "cannot serialize object")
 	}
 	return content, nil
 }

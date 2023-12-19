@@ -3,9 +3,9 @@ package environment
 import (
 	"context"
 
-	"github.com/codefly-dev/core/actions/actions"
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 
+	"github.com/codefly-dev/core/actions/actions"
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 
 	"github.com/codefly-dev/core/configurations"
@@ -22,9 +22,9 @@ func (action *AddEnvironmentAction) Command() string {
 }
 
 func NewActionAddEnvironment(ctx context.Context, in *actionsv1.AddEnvironment) (*AddEnvironmentAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
+	w := wool.Get(ctx).In("NewActionAddEnvironment", wool.Field("name", in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	in.Kind = AddEnvironment
 	return &AddEnvironmentAction{
@@ -35,24 +35,24 @@ func NewActionAddEnvironment(ctx context.Context, in *actionsv1.AddEnvironment) 
 var _ actions.Action = (*AddEnvironmentAction)(nil)
 
 func (action *AddEnvironmentAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetLogger(ctx).With("AddEnvironmentAction")
+	w := wool.Get(ctx).In("AddEnvironmentAction.Run", wool.Field("name", action.Name))
 	// Get project
 	ws, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	project, err := ws.LoadProjectFromName(ctx, action.Project)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 
-	w, err := project.NewEnvironment(ctx, action.AddEnvironment)
+	_, err = project.NewEnvironment(ctx, action.AddEnvironment)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	err = project.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save")
+		return nil, w.Wrapf(err, "cannot save")
 	}
 	return w, nil
 }

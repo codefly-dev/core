@@ -30,6 +30,7 @@ type Runner struct {
 }
 
 func (g *Runner) Init(ctx context.Context) error {
+	w := wool.Get(ctx).In("GoRunner")
 	g.killed = false
 	var clean func()
 	var err error
@@ -38,20 +39,21 @@ func (g *Runner) Init(ctx context.Context) error {
 	} else {
 		clean, err = g.debugCmd(ctx)
 	}
-	g.clean = clean
-	if ok, err := shared.IsOutputError(err); ok {
-		return shared.Wrapf(err, "cannot build cmd")
+	if err != nil {
+		return w.Wrapf(err, "cannot build binary")
 	}
+	g.clean = clean
 	return nil
 }
 
-func (g *Runner) Run(_ context.Context) (*services.TrackedProcess, error) {
+func (g *Runner) Run(ctx context.Context) (*services.TrackedProcess, error) {
+	w := wool.Get(ctx).In("GoRunner")
 	// Setup variables once
 	g.Cmd.Env = g.Envs
 
 	err := shared.WrapStart(g.Cmd, g.ForwardLogger)
 	if err != nil {
-		return nil, shared.Wrapf(err, "cannot wrap execution of cmd")
+		return nil, w.Wrapf(err, "cannot wrap execution of cmd")
 	}
 	if g.killed {
 		return &services.TrackedProcess{PID: g.Cmd.Process.Pid, Killed: true}, nil
@@ -77,7 +79,7 @@ func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		g.killed = true
-		output := shared.NewOutputError(string(out))
+		output := fmt.Errorf(string(out))
 		return nil, output
 	}
 	cmd = exec.CommandContext(ctx, target)
@@ -103,7 +105,7 @@ func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		g.killed = true
-		output := shared.NewOutputError(string(out))
+		output := fmt.Errorf(string(out))
 		return nil, output
 	}
 	w.Info("built", wool.StatusOK())
@@ -114,7 +116,8 @@ func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
 	return clean, nil
 }
 
-func (g *Runner) Kill() error {
+func (g *Runner) Kill(ctx context.Context) error {
+	w := wool.Get(ctx).In("GoRunner::Kill")
 	if g.killed {
 		return nil
 	}
@@ -126,9 +129,9 @@ func (g *Runner) Kill() error {
 	if err != nil {
 		err = g.Cmd.Wait()
 		if err != nil {
-			return shared.Wrapf(err, "cannot wait for process to die")
+			return w.Wrapf(err, "cannot wait for process to die")
 		}
-		return shared.Wrapf(err, "cannot kill process")
+		return w.Wrapf(err, "cannot kill process")
 	}
 	return nil
 }

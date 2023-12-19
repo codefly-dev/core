@@ -75,7 +75,7 @@ func LoadAgent(ctx context.Context, agent *configurations.Agent) (*ServiceAgent,
 	w := wool.Get(ctx).In("services.LoadAgent", wool.Field("agent", agent.Name))
 	w.Debug("loading service agent")
 	if agent.Version == "latest" {
-		err := manager.PinToLatestRelease(agent)
+		err := manager.PinToLatestRelease(ctx, agent)
 		if err != nil {
 			return nil, w.Wrap(err)
 		}

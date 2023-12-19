@@ -7,6 +7,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/codefly-dev/core/wool"
+
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 
 	"github.com/codefly-dev/core/shared"
@@ -79,7 +81,7 @@ func sanitize(route string) string {
 
 func (r *RestRoute) FilePath(ctx context.Context, dir string) (string, error) {
 	dir = path.Join(dir, r.Application, r.Service)
-	err := shared.CheckDirectoryOrCreate(ctx, dir)
+	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return "", err
 	}
@@ -90,38 +92,43 @@ func (r *RestRoute) FilePath(ctx context.Context, dir string) (string, error) {
 // Save a route:
 // The path is inferred from the configuration
 func (r *RestRoute) Save(ctx context.Context, dir string) error {
-	logger := shared.GetAgentLogger(ctx)
+	w := wool.Get(ctx).In("RestRoute::Save")
 	file, err := r.FilePath(ctx, dir)
 	if err != nil {
-		return logger.Wrapf(err, "cannot get file path for route to save")
+		return w.Wrapf(err, "cannot get file path for route to save")
 	}
-	logger.Debugf("Saving rest route to %s", file)
+	w.Trace("saving", wool.FileField(file))
 	f, err := os.Create(file)
 	if err != nil {
-		return logger.Wrapf(err, "cannot create file for route")
+		return w.Wrapf(err, "cannot create file for route")
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			w.Error("cannot close file", wool.ErrField(err))
+		}
+	}(f)
 	out, err := yaml.Marshal(r)
 	if err != nil {
-		return err
+		return w.Wrapf(err, "cannot marshal route")
 	}
 	_, err = f.Write(out)
 	if err != nil {
-		return err
+		return w.With(wool.FileField(file)).Wrapf(err, "cannot write route")
 	}
 	return nil
 }
 
 // Delete a route
 func (r *RestRoute) Delete(ctx context.Context, dir string) error {
-	logger := shared.GetAgentLogger(ctx)
+	w := wool.Get(ctx).In("RestRoute::Delete")
 	file, err := r.FilePath(ctx, dir)
 	if err != nil {
-		return logger.Wrapf(err, "cannot get file path for route to delete")
+		return w.Wrapf(err, "cannot get file path for route to delete")
 	}
 	err = os.Remove(file)
 	if err != nil {
-		return logger.Wrapf(err, "cannot delete route file")
+		return w.Wrapf(err, "cannot delete route file")
 	}
 	return nil
 }

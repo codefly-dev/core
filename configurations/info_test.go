@@ -1,6 +1,7 @@
 package configurations_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
@@ -8,6 +9,6 @@ import (
 )
 
 func TestVersion(t *testing.T) {
-	_, err := configurations.Version()
+	_, err := configurations.Version(context.Background())
 	assert.NoError(t, err)
 }

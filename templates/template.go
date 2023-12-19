@@ -63,47 +63,49 @@ func (a AlreadyExistError) Error() string {
 }
 
 func Copy(ctx context.Context, fs shared.FileSystem, f shared.File, destination shared.File) error {
+	w := wool.Get(ctx).In("templates.Copy", wool.Field("from", f), wool.Field("to", destination))
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
 	if err != nil {
-		return fmt.Errorf("could not read file: %v", err)
+		return w.Wrap(err)
 	}
 	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		return fmt.Errorf("failed opening file %s: %s", destination, err)
+		return w.Wrap(err)
 	}
 	_, err = file.Write([]byte(data))
 	if err != nil {
-		return fmt.Errorf("failed writing to file %s: %s", destination, err)
+		return w.Wrap(err)
 	}
 	err = file.Close()
 	if err != nil {
-		return fmt.Errorf("failed closing file %s: %s", destination, err)
+		return w.Wrap(err)
 	}
 	return nil
 }
 
 func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f shared.File, destination shared.File, obj any) error {
+	w := wool.Get(ctx).In("templates.CopyAndApplyTemplate", wool.Field("from", f), wool.Field("to", destination))
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
 	if err != nil {
-		return fmt.Errorf("could not read file: %v", err)
+		return w.Wrap(err)
 	}
 	out, err := ApplyTemplate(string(data), obj)
 	if err != nil {
-		return fmt.Errorf("cannot apply template in %v: %v", f.Base(), err)
+		return w.Wrap(err)
 	}
 	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		return fmt.Errorf("failed opening file %s: %s", destination, err)
+		return w.Wrap(err)
 	}
 	_, err = file.Write([]byte(out))
 	if err != nil {
-		return fmt.Errorf("failed writing to file %s: %s", destination, err)
+		return w.Wrap(err)
 	}
 	err = file.Close()
 	if err != nil {
-		return fmt.Errorf("failed closing file %s: %s", destination, err)
+		return w.Wrap(err)
 	}
 	return nil
 }
@@ -122,27 +124,28 @@ type Replacer interface {
 	Do([]byte) ([]byte, error)
 }
 
-func CopyAndReplace(fs shared.FileSystem, f shared.File, destination shared.File, replacer Replacer) error {
+func CopyAndReplace(ctx context.Context, fs shared.FileSystem, f shared.File, destination shared.File, replacer Replacer) error {
+	w := wool.Get(ctx).In("templates.CopyAndReplace", wool.Field("from", f), wool.Field("to", destination))
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
 	if err != nil {
-		return fmt.Errorf("could not read file: %v", err)
+		return w.Wrap(err)
 	}
 	out, err := replacer.Do(data)
 	if err != nil {
-		return fmt.Errorf("replacer failed: %v", err)
+		return w.Wrap(err)
 	}
 	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		return fmt.Errorf("failed opening file %s: %s", destination, err)
+		return w.Wrap(err)
 	}
 	_, err = file.Write([]byte(out))
 	if err != nil {
-		return fmt.Errorf("failed writing to file %s: %s", destination, err)
+		return w.Wrap(err)
 	}
 	err = file.Close()
 	if err != nil {
-		return fmt.Errorf("failed closing file %s: %s", destination, err)
+		return w.Wrap(err)
 	}
 	return nil
 }
@@ -151,7 +154,7 @@ func CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, de
 	w := wool.Get(ctx).In("templates.CopyAndApply")
 	w.Info("copying and applying template")
 
-	err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
+	_, err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
 	override := shared.GetOverride(ctx)
 	ignore := shared.GetIgnore(ctx)
 
@@ -172,7 +175,7 @@ func CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, de
 			return w.Wrapf(err, "cannot get relative path")
 		}
 		dest := destination.Join(*rel)
-		err = shared.CheckDirectoryOrCreate(ctx, dest.Absolute())
+		_, err = shared.CheckDirectoryOrCreate(ctx, dest.Absolute())
 		if err != nil {
 			return w.Wrapf(err, "cannot check or create directory for destination")
 		}

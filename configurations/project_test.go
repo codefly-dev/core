@@ -34,15 +34,57 @@ func TestBadInputs(t *testing.T) {
 	}
 }
 
-func TestAddingExistingProject(t *testing.T) {
+func TestAddingExistingProjectAbsolutePath(t *testing.T) {
 	ctx := context.Background()
-	w, dir := createTestWorkspace(t, ctx)
+	workspace, dir := createTestWorkspace(t, ctx)
 	defer os.RemoveAll(dir)
 
 	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/project")
 	assert.NoError(t, err)
 	assert.Equal(t, "codefly-platform", project.Name)
+	cur, _ := os.Getwd()
+	assert.Equal(t, path.Join(cur, "testdata/project"), project.Dir())
 
+	// Adding this project to the workspace should result in absolute path
+	err = workspace.AddProject(ctx, project)
+	assert.NoError(t, err)
+
+	wsConfig := string(shared.Must(os.ReadFile(path.Join(dir, configurations.WorkspaceConfigurationName))))
+
+	assert.NotContains(t, wsConfig, "path: testdata/project")
+	assert.Contains(t, wsConfig, fmt.Sprintf("path: %s", project.Dir()))
+}
+
+func TestAddingExistingProjectDefaultRelativePath(t *testing.T) {
+	ctx := context.Background()
+	// Projects root is the workspace root
+	workspace, err := configurations.LoadWorkspaceFromDirUnsafe(ctx, "testdata/workspace")
+	assert.NoError(t, err)
+	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/workspace/project")
+	assert.Equal(t, "project", project.Name)
+	assert.NoError(t, err)
+	err = workspace.AddProjectReference(ctx, project)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, len(workspace.Projects))
+	ref := workspace.Projects[0]
+	assert.Nil(t, ref.PathOverride)
+}
+
+func TestAddingExistingProjectNonDefaultRelativePath(t *testing.T) {
+	ctx := context.Background()
+	// Projects root is the workspace root
+	workspace, err := configurations.LoadWorkspaceFromDirUnsafe(ctx, "testdata/workspace")
+	assert.NoError(t, err)
+	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/workspace/other_project")
+	assert.NoError(t, err)
+	assert.Equal(t, "codefly-platform", project.Name)
+	err = workspace.AddProjectReference(ctx, project)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, len(workspace.Projects))
+	ref := workspace.Projects[0]
+	assert.Equal(t, "other_project", *ref.PathOverride)
 }
 
 func TestLoading(t *testing.T) {

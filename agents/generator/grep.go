@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -9,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 )
 
 type Grep struct {
@@ -31,14 +32,14 @@ func (r RegexpMatcher) Match(data []byte) [][]byte {
 	return r.Pattern.FindAll(data, -1)
 }
 
-func NewRegexpMatcher(pattern string) (Matcher, error) {
-	logger := shared.NewLogger().With("generator.NewRegexpMatcher")
+func NewRegexpMatcher(ctx context.Context, pattern string) (Matcher, error) {
+	w := wool.Get(ctx).In("NewRegexpMatcher", wool.Field("pattern", pattern))
 	if pattern == "" {
-		return nil, logger.Errorf("pattern cannot be empty")
+		return nil, w.NewError("pattern cannot be empty")
 	}
 	reg, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot compile pattern")
+		return nil, w.Wrapf(err, "cannot compile pattern")
 	}
 	return &RegexpMatcher{Pattern: reg}, nil
 }
@@ -75,8 +76,8 @@ func (g *Grep) Exclude(p string) bool {
 
 type HitExpansion = func(hit string) []string
 
-func (g *Grep) FindFiles(expand HitExpansion) (*MatchSummary, error) {
-	logger := shared.NewLogger().With("generator.Grep.FindFiles")
+func (g *Grep) FindFiles(ctx context.Context, expand HitExpansion) (*MatchSummary, error) {
+	w := wool.Get(ctx).In("FindFiles", wool.DirField(g.Root))
 	fileMatches := make(map[string]Match)
 	hits := make(map[string]bool)
 	expandedHits := make(map[string]bool)
@@ -129,14 +130,14 @@ func (g *Grep) FindFiles(expand HitExpansion) (*MatchSummary, error) {
 		return nil
 	})
 	for other := range expandedHits {
-		otherMatcher, err := NewRegexpMatcher(other)
+		otherMatcher, err := NewRegexpMatcher(ctx, other)
 		if err != nil {
-			return nil, logger.Wrapf(err, "cannot create new matcher from hit expansion")
+			return nil, w.Wrapf(err, "cannot create new matcher from hit expansion")
 		}
 		otherGrep := NewGrep(g.Root, g.Extensions, otherMatcher, g.Excludes)
-		otherResult, err := otherGrep.FindFiles(nil)
+		otherResult, err := otherGrep.FindFiles(ctx, nil)
 		if err != nil {
-			return nil, logger.Wrapf(err, "cannot find files from hit expansion")
+			return nil, w.Wrapf(err, "cannot find files from hit expansion")
 		}
 
 		for file, match := range otherResult.FileMatches {
@@ -150,7 +151,7 @@ func (g *Grep) FindFiles(expand HitExpansion) (*MatchSummary, error) {
 		}
 	}
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot walk through files")
+		return nil, w.Wrapf(err, "cannot walk through files")
 	}
 	var uniqueHits []string
 	for hit := range hits {

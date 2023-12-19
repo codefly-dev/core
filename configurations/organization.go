@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/bufbuild/protovalidate-go"
-	"github.com/codefly-dev/core/shared"
-
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 )
 
@@ -49,10 +47,6 @@ func ValidOrganizationDomain(domain string) bool {
 }
 
 func ValidOrganization(org *basev1.Organization) error {
-	if org == nil {
-		return shared.NewNilError[basev1.Organization]()
-	}
-
 	v, err := protovalidate.New()
 	if err != nil {
 		return err

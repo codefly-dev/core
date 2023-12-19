@@ -76,17 +76,18 @@ func ConfigurationFile[C Configuration]() string {
 	}
 }
 
-func Path[C Configuration](dir string) string {
-	if err := shared.CheckDirectory(dir); err != nil {
+func Path[C Configuration](ctx context.Context, dir string) (string, error) {
+	w := wool.Get(ctx).In("configurations.Path", wool.DirField(dir), wool.GenericField[C]())
+	if _, err := shared.CheckDirectory(ctx, dir); err != nil {
 		if filepath.IsLocal(dir) {
 			cur, err := os.Getwd()
 			if err != nil {
-				shared.ExitOnError(err, "cannot get active directory")
+				return "", w.Wrap(err)
 			}
 			dir = filepath.Join(cur, dir)
 		}
 	}
-	return path.Join(dir, ConfigurationFile[C]())
+	return path.Join(dir, ConfigurationFile[C]()), nil
 }
 
 func ExistsAtDir[C Configuration](dir string) bool {
@@ -129,7 +130,11 @@ func LoadFromFs[C any](fs shared.FileSystem) (*C, error) {
 }
 
 func LoadFromDir[C Configuration](ctx context.Context, dir string) (*C, error) {
-	p := Path[C](dir)
+	w := wool.Get(ctx).In("configurations.LoadFromDir")
+	p, err := Path[C](ctx, dir)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
 	return LoadFromPath[C](ctx, p)
 }
 
@@ -157,15 +162,18 @@ func LoadFromBytes[C Configuration](content []byte) (*C, error) {
 func SaveToDir[C Configuration](ctx context.Context, c *C, dir string) error {
 	w := wool.Get(ctx).In("SaveToDir[%s]", wool.GenericField[C](), wool.DirField(dir))
 	w.Trace("saving")
-	err := shared.CheckDirectoryOrCreate(ctx, dir)
+	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return w.Wrapf(err, "cannot check directory")
 	}
-	file := Path[C](dir)
+	file, err := Path[C](ctx, dir)
+	if err != nil {
+		return w.Wrapf(err, "cannot get path")
+	}
 	if shared.FileExists(file) {
 		override := shared.GetOverride(ctx)
 		if !override.Replace(file) {
-			w.Debug("file <%s> already exists and override is not set", wool.FileField(file))
+			w.Debug("file already exists without override: skipping", wool.FileField(file))
 			return nil
 		}
 	}
@@ -189,7 +197,10 @@ func FindUp[C Configuration](ctx context.Context) (*string, error) {
 	}
 	for {
 		// Look for a service configuration
-		p := Path[C](cur)
+		p, err := Path[C](ctx, cur)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot get path")
+		}
 		if _, err := os.Stat(p); err == nil {
 			return &cur, nil
 		}

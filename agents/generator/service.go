@@ -6,6 +6,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/configurations/generation"
 	"github.com/codefly-dev/core/shared"
@@ -14,18 +16,18 @@ import (
 
 type visitor struct {
 	base     shared.Dir
-	logger   shared.BaseLogger
 	replacer *templates.ServiceReplacer
 	ignores  []string
 }
 
-func (v *visitor) Apply(p shared.File, to shared.Dir) error {
+func (v *visitor) Apply(ctx context.Context, p shared.File, to shared.Dir) error {
+	w := wool.Get(ctx).In("visitor.Apply", wool.Field("from", p), wool.Field("to", to))
 	tmpl := fmt.Sprintf("%s.%s", p.Base(), "tmpl")
 	target := path.Join(to.Absolute(), tmpl)
-	v.logger.Tracef("copying %s -> %s", p, target)
-	err := templates.CopyAndReplace(shared.NewDirReader(), p, shared.NewFile(target), v.replacer)
+	w.Trace("copying")
+	err := templates.CopyAndReplace(ctx, shared.NewDirReader(), p, shared.NewFile(target), v.replacer)
 	if err != nil {
-		return v.logger.Wrapf(err, "cannot copy and apply template")
+		return w.Wrapf(err, "cannot copy and apply template")
 	}
 	return nil
 }
@@ -55,26 +57,26 @@ func (v *visitor) Skip(file string) bool {
 }
 
 func GenerateServiceTemplate(ctx context.Context, dir string) error {
-	logger := shared.GetLogger(ctx).With("generator.GenerateServiceTemplate")
+	w := wool.Get(ctx).In("GenerateServiceTemplate", wool.DirField(dir))
 	base := path.Join(dir, "base")
-	err := shared.CheckDirectory(base)
+	_, err := shared.CheckDirectory(ctx, base)
 	if err != nil {
-		return shared.NewUserError("we expect to find a working service in </base> folder")
+		return w.Wrapf(err, "we expect to find a working service in </base> folder")
 	}
-	logger.Debugf("found base to generate new agent templates")
+	w.Trace("found base to generate new agent templates")
 	gen, err := configurations.LoadFromDir[generation.Service](ctx, base)
 	if err != nil {
-		logger.WarnOnError(shared.NewUserWarning("no service generation configuration found, using default"))
+		return w.Wrapf(err, "cannot load generation configuration")
 	}
-	logger.Debugf("ignoring files: %v", gen.Ignores)
+	w.Trace("ignoring files", wool.Field("ignores", gen.Ignores))
 	replacer := templates.NewServiceReplacer(gen)
 	// For now, we copy everything to template and add .tmpl
 	target := path.Join(dir, "templates/factory")
 
-	visitor := &visitor{base: shared.NewDir(base), logger: logger, replacer: replacer, ignores: gen.Ignores}
+	visitor := &visitor{base: shared.NewDir(base), replacer: replacer, ignores: gen.Ignores}
 	err = templates.CopyAndVisit(ctx, shared.NewDirReader(), shared.NewDir(base), shared.NewDir(target), visitor)
 	if err != nil {
-		return shared.NewUserError("cannot copy base to templates: %s", err)
+		return w.Wrapf(err, "cannot copy and apply template")
 	}
 	return nil
 }

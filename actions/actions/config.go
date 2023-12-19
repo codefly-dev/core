@@ -12,7 +12,7 @@ type Config struct {
 }
 
 // Validate action input
-func Validate(ctx context.Context, input proto.Message) error {
+func Validate(_ context.Context, input proto.Message) error {
 	v, err := protovalidate.New()
 
 	if err != nil {

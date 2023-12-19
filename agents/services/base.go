@@ -89,7 +89,7 @@ func (s *Base) Init(ctx context.Context, identity *basev1.ServiceIdentity, setti
 	s.Location = identity.Location
 
 	s.ConfigurationLocation = path.Join(s.Location, "codefly")
-	err := shared.CheckDirectoryOrCreate(ctx, s.ConfigurationLocation)
+	_, err := shared.CheckDirectoryOrCreate(ctx, s.ConfigurationLocation)
 
 	if err != nil {
 		return s.Wrapf(err, "cannot create configuration directory")
@@ -246,7 +246,7 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 		for event := range s.Events {
 			err := handler(event)
 			if err != nil {
-
+				s.Wool.Error("got", wool.ErrField(err))
 			}
 		}
 	}()
@@ -262,11 +262,11 @@ func (s *Base) Local(f string) string {
  */
 
 func (s *Base) DebugMe(format string, args ...any) {
-	s.Wool.Debug(format)
+	s.Wool.Debug(fmt.Sprintf(format, args...))
 }
 
 func (s *Base) Debugf(format string, args ...any) {
-	s.Wool.Debug(format)
+	s.Wool.Debug(fmt.Sprintf(format, args...))
 }
 
 func ConfigureError(err error) *runtimev1.ConfigureStatus {

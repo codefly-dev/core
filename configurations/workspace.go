@@ -14,7 +14,7 @@ import (
 	"github.com/codefly-dev/core/shared"
 )
 
-const WorkspaceConfigurationName = "codefly.yaml"
+const WorkspaceConfigurationName = "workspace.codefly.yaml"
 
 // Workspace configuration for codefly CLI
 type Workspace struct {
@@ -64,16 +64,31 @@ func NewWorkspace(ctx context.Context, action *actionsv1.AddWorkspace) (*Workspa
 	return workspace, nil
 }
 
-func (workspace *Workspace) AddProject(ctx context.Context, project *Project) error {
+func (workspace *Workspace) AddProjectReference(ctx context.Context, project *Project) error {
 	w := wool.Get(ctx).In("Workspace::AddProject", wool.ThisField(workspace), wool.NameField(project.Name))
 	if workspace.ExistsProject(project.Name) {
 		return w.NewError("project already exists")
 	}
+	// relative path
+	dir := project.Dir()
+	rel, err := filepath.Rel(workspace.ProjectRoot(), dir)
+	if err == nil && !strings.HasPrefix(rel, "..") {
+		dir = rel
+	}
 	workspace.Projects = append(workspace.Projects, &ProjectReference{
 		Name:         project.Name,
-		PathOverride: OverridePath(project.Name, project.Dir()),
+		PathOverride: OverridePath(project.Name, dir),
 	})
-	err := workspace.Save(ctx)
+	return nil
+}
+
+func (workspace *Workspace) AddProject(ctx context.Context, project *Project) error {
+	w := wool.Get(ctx).In("Workspace::AddProject", wool.ThisField(workspace), wool.NameField(project.Name))
+	err := workspace.AddProjectReference(ctx, project)
+	if err != nil {
+		return w.Wrapf(err, "cannot add project reference")
+	}
+	err = workspace.Save(ctx)
 	if err != nil {
 		return w.Wrap(err)
 	}
@@ -96,6 +111,7 @@ func LoadWorkspaceFromDirUnsafe(ctx context.Context, dir string) (*Workspace, er
 	w := wool.Get(ctx).In("configurations.LoadWorkspace")
 	var err error
 	dir, err = SolveDir(dir)
+	w.With(wool.DirField(dir)).Trace("resolved")
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -104,6 +120,7 @@ func LoadWorkspaceFromDirUnsafe(ctx context.Context, dir string) (*Workspace, er
 		return nil, w.Wrapf(err, "cannot load Workspace configuration")
 	}
 	workspace.dir = dir
+	workspace.ProjectsRoot = dir
 	err = workspace.postLoad(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot post load Workspace configuration")
@@ -192,7 +209,7 @@ func (workspace *Workspace) Save(ctx context.Context) error {
 	w.Trace("saving")
 	err := SaveToDir[Workspace](ctx, workspace, workspace.Dir())
 	if err != nil {
-		w.Wrap(err)
+		return w.Wrap(err)
 	}
 	err = workspace.preSave(ctx)
 	if err != nil {
@@ -346,8 +363,8 @@ var (
 )
 
 func init() {
-	workspaceConfigDir = path.Join(HomeDir(), ".codefly")
-	defaultProjectsRoot = path.Join(HomeDir(), "codefly")
+	workspaceConfigDir = path.Join(shared.Must(HomeDir()), ".codefly")
+	defaultProjectsRoot = path.Join(shared.Must(HomeDir()), "codefly")
 }
 
 /*

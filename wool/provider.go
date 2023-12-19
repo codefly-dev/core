@@ -64,20 +64,20 @@ type Provider struct {
 	ctx    context.Context
 }
 
-func (w *Provider) Done() {
-	if w.tp != nil {
-		_ = w.tp.Shutdown(w.ctx)
+func (provider *Provider) Done() {
+	if provider.tp != nil {
+		_ = provider.tp.Shutdown(provider.ctx)
 	}
 }
 
-func (w *Provider) WithContext(ctx context.Context) context.Context {
+func (provider *Provider) WithContext(ctx context.Context) context.Context {
 	// TODO: ADD TO BAGGAGE
-	return context.WithValue(ctx, KeyInContext, w)
+	return context.WithValue(ctx, KeyInContext, provider)
 }
 
-func (w *Provider) WithLogger(l LogProcessor) *Provider {
-	w.logger = l
-	return w
+func (provider *Provider) WithLogger(l LogProcessor) *Provider {
+	provider.logger = l
+	return provider
 }
 
 // TODO: MOVE TO BAGGAGE
@@ -92,9 +92,9 @@ func get(ctx context.Context) (*Provider, error) {
 func (provider *Provider) Get(ctx context.Context) *Wool {
 	base := &Wool{ctx: ctx, source: provider.identifier}
 	if _, file, line, ok := runtime.Caller(1); ok {
-		base.ref = &CodefReference{File: file, Line: line}
+		base.ref = &CodeReference{File: file, Line: line}
 	} else {
-		base.ref = &CodefReference{File: "unknown", Line: 0}
+		base.ref = &CodeReference{File: "unknown", Line: 0}
 	}
 	base.provider = provider
 	if provider.logger != nil {
@@ -127,9 +127,9 @@ func Get(ctx context.Context) *Wool {
 	}
 	base := &Wool{ctx: ctx, logger: &Console{level: INFO}}
 	if _, file, line, ok := runtime.Caller(1); ok {
-		base.ref = &CodefReference{File: file, Line: line}
+		base.ref = &CodeReference{File: file, Line: line}
 	} else {
-		base.ref = &CodefReference{File: "unknown", Line: 0}
+		base.ref = &CodeReference{File: "unknown", Line: 0}
 	}
 	provider, err := get(ctx)
 	if err != nil {

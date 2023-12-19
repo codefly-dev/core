@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/configurations"
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
@@ -172,23 +172,19 @@ func FlattenRestRoutes(ctx context.Context, group *basev1.EndpointGroup) []*base
 }
 
 func DetectNewRoutes(ctx context.Context, known []*configurations.RestRoute, group *basev1.EndpointGroup) []*configurations.RestRoute {
-	logger := shared.GetAgentLogger(ctx)
+	w := wool.Get(ctx).In("DetectNewRoutes")
 	if group == nil {
-		logger.Debugf("we have a nil group")
+		w.Debug("we have a nil group")
 		return nil
 	}
-	logger.Debugf("application groups: #%d", len(group.ApplicationEndpointGroup))
 	endpoints := FlattenEndpoints(ctx, group)
 	for _, e := range endpoints {
-		logger.DebugMe("enpoints HERE %v", e.Application, e.Service)
-
+		w.Error("do", wool.Field("endpoint", e))
 	}
 
 	var newRoutes []*configurations.RestRoute
 	for _, app := range group.ApplicationEndpointGroup {
-		logger.Debugf("service groups: %s #%d", app.Name, len(app.ServiceEndpointGroups))
 		for _, svc := range app.ServiceEndpointGroups {
-			logger.Debugf("endpoints: %s #%d", svc.Name, len(svc.Endpoints))
 			for _, ep := range svc.Endpoints {
 				if rest := HasRest(ctx, ep.Api); rest != nil {
 					for _, route := range rest.Routes {

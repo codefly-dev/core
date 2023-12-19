@@ -39,7 +39,7 @@ func init() {
 		Kind:      "codefly:cli",
 		Publisher: "codefly.dev",
 		Name:      "cli",
-		Version:   shared.Must(Version()),
+		Version:   shared.Must(Version(context.Background())),
 	}
 }
 
@@ -91,9 +91,6 @@ func agentKindFromProto(kind AgentKind) (basev1.Agent_Kind, error) {
 }
 
 func ValidateAgent(agent *basev1.Agent) error {
-	if agent == nil {
-		return shared.NewNilError[Agent]()
-	}
 	v, err := protovalidate.New()
 	if err != nil {
 		return err
@@ -235,7 +232,7 @@ func (p *Agent) AsResource() *wool.Resource {
 		Resource: r}
 }
 
-func toAttributes(agent *Agent) []attribute.KeyValue {
+func toAttributes(_ *Agent) []attribute.KeyValue {
 	var attr []attribute.KeyValue
 	return attr
 }

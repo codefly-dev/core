@@ -12,7 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 )
@@ -30,32 +31,25 @@ type BuilderConfiguration struct {
 }
 
 type Builder struct {
-	logger shared.BaseLogger
 	BuilderConfiguration
 }
 
 func NewBuilder(cfg BuilderConfiguration) (*Builder, error) {
-	logger := shared.NewLogger().With("docker.NewBuilder")
-	return &Builder{BuilderConfiguration: cfg, logger: logger}, nil
-}
-
-func (builder *Builder) WithLogger(logger shared.BaseLogger) {
-	builder.logger = logger
+	return &Builder{BuilderConfiguration: cfg}, nil
 }
 
 type BuilderOutput struct{}
 
-func (builder *Builder) Build() (*BuilderOutput, error) {
-	builder.logger.Debugf("Building image %s from %s", builder.Image, builder.Root)
-	ctx := context.Background()
+func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
+	w := wool.Get(ctx).In("Builder.Build", wool.DirField(builder.Root))
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, builder.logger.Wrapf(err, "cannot create docker client")
+		return nil, w.Wrapf(err, "cannot create docker client")
 	}
 
 	buildContextBuffer, err := createTarArchive(builder.Root)
 	if err != nil {
-		return nil, builder.logger.Wrapf(err, "cannot create tar archive")
+		return nil, w.Wrapf(err, "cannot create tar archive")
 	}
 	buildContext := buildContextBuffer.Bytes()
 
@@ -74,7 +68,7 @@ func (builder *Builder) Build() (*BuilderOutput, error) {
 		},
 	)
 	if err != nil {
-		return nil, builder.logger.Wrapf(err, "cannot build image")
+		return nil, w.Wrapf(err, "cannot build image")
 	}
 
 	// Respond the build output
@@ -89,18 +83,18 @@ func (builder *Builder) Build() (*BuilderOutput, error) {
 		line := scanner.Bytes()
 
 		if err := json.Unmarshal(line, &buildOutput); err != nil {
-			builder.logger.Debugf("Error during build from parsing <%s>: %v", string(line), err)
+			w.Error("cannot unmarshal build output", wool.ErrField(err))
 			continue
 		}
 
 		if buildOutput.Error != nil {
-			builder.logger.Debugf("Error during build: %s\n", buildOutput.Error.Message)
+			w.Error("got build error", wool.Field("output", buildOutput.Error.Message))
 		} else {
 			out := strings.TrimSpace(buildOutput.Stream)
 			if len(out) == 0 {
 				continue
 			}
-			builder.logger.Debugf(out)
+			w.Debug(out)
 		}
 	}
 
@@ -110,7 +104,7 @@ func (builder *Builder) Build() (*BuilderOutput, error) {
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-			builder.logger.TODO("Error closing build response body: %v", err)
+			w.Error("Error closing build response body", wool.ErrField(err))
 		}
 	}(imageBuildResponse.Body)
 	return nil, nil

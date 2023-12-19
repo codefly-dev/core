@@ -10,7 +10,7 @@ import (
 )
 
 type FileVisitor interface {
-	Apply(path shared.File, to shared.Dir) error
+	Apply(ctx context.Context, from shared.File, to shared.Dir) error
 	Skip(file string) bool
 }
 
@@ -20,7 +20,7 @@ type Ignore interface {
 
 func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, visitor FileVisitor) error {
 	w := wool.Get(ctx).In("templates.CopyAndVisit")
-	err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
+	_, err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
 	if err != nil {
 		return w.Wrapf(err, "cannot check or create directory")
 	}
@@ -42,7 +42,7 @@ func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root shared.Dir, de
 		if visitor.Skip(d.Absolute()) {
 			continue
 		}
-		err = shared.CheckDirectoryOrCreate(ctx, dest.Absolute())
+		_, err = shared.CheckDirectoryOrCreate(ctx, dest.Absolute())
 		if err != nil {
 			return w.Wrapf(err, "cannot check or create directory for destination")
 		}
@@ -60,7 +60,7 @@ func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root shared.Dir, de
 		}
 
 		target := path.Join(fs.AbsoluteDir(destination), rel.RelativePath())
-		err = visitor.Apply(f, shared.NewDir(target))
+		err = visitor.Apply(ctx, f, shared.NewDir(target))
 		if err != nil {
 			return w.Wrapf(err, "cannot apply visitor")
 		}

@@ -13,7 +13,6 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	v1agent "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	factoryv1 "github.com/codefly-dev/core/generated/go/services/factory/v1"
-	"github.com/codefly-dev/core/shared"
 )
 
 type ServiceInstance struct {
@@ -37,7 +36,7 @@ type RuntimeInstance struct {
 
 func (instance *FactoryInstance) Init(ctx context.Context) (*factoryv1.InitResponse, error) {
 	init := &factoryv1.InitRequest{
-		Debug: shared.IsDebug(),
+		Debug: wool.IsDebug(),
 		Identity: &basev1.ServiceIdentity{
 			Name:        instance.Name,
 			Application: instance.Application,
@@ -58,7 +57,7 @@ func (instance *FactoryInstance) Create(ctx context.Context) (*factoryv1.CreateR
 
 func (instance *RuntimeInstance) Init(ctx context.Context) (*runtimev1.InitResponse, error) {
 	init := &runtimev1.InitRequest{
-		Debug: shared.IsDebug(),
+		Debug: wool.IsDebug(),
 		Identity: &basev1.ServiceIdentity{
 			Name:        instance.Name,
 			Application: instance.Application,
@@ -73,10 +72,10 @@ func (instance *RuntimeInstance) Init(ctx context.Context) (*runtimev1.InitRespo
 // Loader
 
 func Load(ctx context.Context, service *configurations.Service) (*ServiceInstance, error) {
-	logger := shared.NewLogger().With("agents.Load<%s>", service.Unique())
+	w := wool.Get(ctx).In("services.Load", wool.Field("service", service.Name))
 	agent, err := manager.Load[ServiceAgentContext, ServiceAgent](ctx, service.Agent, service.Unique())
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load service agent")
+		return nil, w.Wrapf(err, "cannot load service agent")
 	}
 	// Load capabilities
 	instance := &ServiceInstance{
@@ -86,7 +85,7 @@ func Load(ctx context.Context, service *configurations.Service) (*ServiceInstanc
 
 	info, err := agent.GetAgentInformation(ctx, &v1agent.AgentInformationRequest{})
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot get agent information")
+		return nil, w.Wrapf(err, "cannot get agent information")
 	}
 
 	for _, capability := range info.Capabilities {
@@ -94,12 +93,12 @@ func Load(ctx context.Context, service *configurations.Service) (*ServiceInstanc
 		case v1agent.Capability_FACTORY:
 			err = instance.LoadFactory(ctx, service)
 			if err != nil {
-				return nil, logger.Wrapf(err, "cannot provide factory")
+				return nil, w.Wrapf(err, "cannot provide factory")
 			}
 		case v1agent.Capability_RUNTIME:
 			err = instance.LoadRuntime(ctx, service)
 			if err != nil {
-				return nil, logger.Wrapf(err, "cannot provide runtime")
+				return nil, w.Wrapf(err, "cannot provide runtime")
 			}
 		}
 
@@ -108,20 +107,20 @@ func Load(ctx context.Context, service *configurations.Service) (*ServiceInstanc
 }
 
 func (instance *ServiceInstance) LoadFactory(ctx context.Context, service *configurations.Service) error {
-	logger := shared.NewLogger().With("agents.LoadFactory<%s>", service.Unique())
+	w := wool.Get(ctx).In("ServiceInstance::LoadFactory", wool.NameField(service.Unique()))
 	factory, err := LoadFactory(ctx, service)
 	if err != nil {
-		return logger.Wrapf(err, "cannot load factory")
+		return w.Wrapf(err, "cannot load factory")
 	}
 	instance.Factory = &FactoryInstance{Service: service, Factory: factory}
 	return nil
 }
 
 func (instance *ServiceInstance) LoadRuntime(ctx context.Context, service *configurations.Service) error {
-	logger := shared.NewLogger().With("agents.LoadRuntime<%s>", service.Unique())
+	w := wool.Get(ctx).In("ServiceInstance::LoadRuntime", wool.NameField(service.Unique()))
 	runtime, err := LoadRuntime(ctx, service)
 	if err != nil {
-		return logger.Wrapf(err, "cannot load runtime")
+		return w.Wrapf(err, "cannot load runtime")
 	}
 	instance.Runtime = &RuntimeInstance{Service: service, Runtime: runtime}
 	return nil
@@ -130,7 +129,7 @@ func (instance *ServiceInstance) LoadRuntime(ctx context.Context, service *confi
 func UpdateAgent(ctx context.Context, service *configurations.Service) error {
 	w := wool.Get(ctx).In("ServiceInstance::Update")
 	// Fetch the latest agent version
-	err := manager.PinToLatestRelease(service.Agent)
+	err := manager.PinToLatestRelease(ctx, service.Agent)
 	if err != nil {
 		return w.Wrap(err)
 	}

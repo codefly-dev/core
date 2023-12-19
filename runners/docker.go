@@ -257,19 +257,22 @@ func (r *DockerRunner) Start(ctx context.Context) error {
 }
 
 func (r *DockerRunner) Stop(ctx context.Context) error {
+	w := wool.Get(ctx).In("DockerRunner.Stop")
 	for _, c := range r.Containers {
 		err := r.cleanContainers(ctx, c.Name)
 		if err != nil {
+			w.Error(err.Error())
 		}
 	}
 	return nil
 }
 
 func (r *DockerRunner) EnsureImage(ctx context.Context, imageName string) error {
+	w := wool.Get(ctx).In("DockerRunner.EnsureImage")
 	// Check if image is available locally
 	images, err := r.cli.ImageList(ctx, types.ImageListOptions{})
 	if err != nil {
-
+		return w.Wrapf(err, "cannot list images")
 	}
 
 	imageExists := false

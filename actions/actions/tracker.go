@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
 )
@@ -24,18 +26,17 @@ type ActionTracker struct {
 	Dir string
 }
 
-func NewActionTracker(group string) *ActionTracker {
-	ctx := context.Background()
+func NewActionTracker(ctx context.Context, group string) (*ActionTracker, error) {
+	w := wool.Get(ctx).In("actions.NewActionTracker", wool.Field("group", group))
 	dir := path.Join(configurations.WorkspaceConfigurationDir(), "actions", group)
-	err := shared.CheckDirectoryOrCreate(ctx, dir)
+	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
-		shared.GetLogger(ctx).Warn("cannot create action directory: %v", err)
-		return nil
+		return nil, w.Wrapf(err, "cannot create directory")
 	}
 	tracker = &ActionTracker{
 		Dir: dir,
 	}
-	return tracker
+	return tracker, nil
 }
 
 func (tracker *ActionTracker) WithDir(dir string) {
@@ -43,10 +44,6 @@ func (tracker *ActionTracker) WithDir(dir string) {
 		return
 	}
 	tracker.Dir = dir
-}
-
-func InitActionTracker(group string) {
-	tracker = NewActionTracker(group)
 }
 
 func (tracker *ActionTracker) NextStep() int {

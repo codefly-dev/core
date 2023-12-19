@@ -4,10 +4,8 @@ import (
 	"testing"
 
 	"github.com/bufbuild/protovalidate-go"
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
-	"github.com/codefly-dev/core/shared"
-
 	"github.com/codefly-dev/core/configurations"
+	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -50,7 +48,6 @@ func TestValidOrganization(t *testing.T) {
 		*basev1.Organization
 		err error
 	}{
-		{"nil", nil, shared.NewNilError[basev1.Organization]()},
 		{"too short", &basev1.Organization{Name: "c"}, &protovalidate.ValidationError{}},
 	}
 	for _, tc := range tcs {

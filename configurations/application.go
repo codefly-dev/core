@@ -90,7 +90,7 @@ func (project *Project) NewApplication(ctx context.Context, action *actionsv1.Ad
 
 	app.dir = dir
 
-	err := shared.CheckDirectoryOrCreate(ctx, dir)
+	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create application directory")
 	}

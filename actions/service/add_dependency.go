@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 
-	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/actions/actions"
+	"github.com/codefly-dev/core/configurations"
 
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 )
@@ -24,9 +24,9 @@ func (action *AddServiceDependencyAction) Command() string {
 type AddServiceDependency = actionsv1.AddServiceDependency
 
 func NewActionAddServiceDependency(ctx context.Context, in *AddServiceDependency) (*AddServiceDependencyAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
+	w := wool.Get(ctx).In("NewActionAddServiceDependency", wool.Field("name", in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	in.Kind = AddServiceDependencyKind
 	return &AddServiceDependencyAction{
@@ -37,52 +37,52 @@ func NewActionAddServiceDependency(ctx context.Context, in *AddServiceDependency
 var _ actions.Action = (*AddServiceDependencyAction)(nil)
 
 func (action *AddServiceDependencyAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetLogger(ctx).With("AddServiceDependencyAction")
+	w := wool.Get(ctx).In("AddServiceDependencyAction.Run", wool.Field("name", action.Name))
 
-	ws, err := configurations.LoadWorkspace(ctx)
+	workspace, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot get current workspace")
+		return nil, w.Wrapf(err, "cannot get current workspace")
 	}
 
-	project, err := ws.LoadProjectFromName(ctx, action.Project)
+	project, err := workspace.LoadProjectFromName(ctx, action.Project)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load project %s", action.Project)
+		return nil, w.Wrapf(err, "cannot load project %s", action.Project)
 	}
 
 	app, err := project.LoadApplicationFromName(ctx, action.Application)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load application %s", action.Application)
+		return nil, w.Wrapf(err, "cannot load application %s", action.Application)
 	}
 
 	service, err := app.LoadServiceFromName(ctx, action.Name)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load service %s", action.Name)
+		return nil, w.Wrapf(err, "cannot load service %s", action.Name)
 	}
 
 	appDep, err := project.LoadApplicationFromName(ctx, action.DependencyApplication)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load dependent application %s", action.DependencyApplication)
+		return nil, w.Wrapf(err, "cannot load dependent application %s", action.DependencyApplication)
 	}
 	serviceDependency, err := appDep.LoadServiceFromName(ctx, action.DependencyName)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load dependent service %s", action.DependencyName)
+		return nil, w.Wrapf(err, "cannot load dependent service %s", action.DependencyName)
 	}
 	// Validate that the endpoints exists
 	unknowns, err := serviceDependency.HasEndpoints(ctx, action.Endpoints)
 	if err != nil {
-		return nil, logger.Wrapf(err, "unknown endpoints %s for service %s", unknowns, action.DependencyName)
+		return nil, w.Wrapf(err, "unknown endpoints %s for service %s", unknowns, action.DependencyName)
 	}
 	dependencyEndpoints, err := serviceDependency.EndpointsFromNames(action.Endpoints)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot get endpoints %s for service %s", action.Endpoints, action.DependencyName)
+		return nil, w.Wrapf(err, "cannot get endpoints %s for service %s", action.Endpoints, action.DependencyName)
 	}
 	err = service.AddDependency(ctx, serviceDependency, dependencyEndpoints)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot add dependency %s to service %s", action.DependencyName, action.Name)
+		return nil, w.Wrapf(err, "cannot add dependency %s to service %s", action.DependencyName, action.Name)
 	}
 	err = service.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save service %s", action.Name)
+		return nil, w.Wrapf(err, "cannot save service %s", action.Name)
 	}
 
 	return service, nil

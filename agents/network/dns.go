@@ -7,7 +7,6 @@ import (
 	"github.com/codefly-dev/core/agents/endpoints"
 
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
-	"github.com/codefly-dev/core/shared"
 )
 
 type DNS struct{}
@@ -32,10 +31,8 @@ func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointIn
 	return m, nil
 }
 
-func NewServiceDNSManager(ctx context.Context, identity *basev1.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
-	logger := shared.GetLogger(ctx).With("network.NewServicePortManager<%s>", identity.Name)
+func NewServiceDNSManager(_ context.Context, identity *basev1.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
 	return &ServiceManager{
-		logger:    logger,
 		service:   identity,
 		endpoints: endpoints,
 		strategy:  &DNS{},

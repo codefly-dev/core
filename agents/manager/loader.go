@@ -8,7 +8,6 @@ import (
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-plugin"
 )
 
@@ -31,12 +30,10 @@ func init() {
 }
 
 func Cleanup(unique string) {
-	logger := shared.NewLogger().With("agents.Cleanup<%s>", unique)
 	if client, ok := inUse[unique]; ok {
 		client.Kill()
 		return
 	}
-	logger.Oops("cannot find agent client for <%s> in use", unique)
 }
 
 // Name is what the agent will be identified as: for clean up

@@ -84,6 +84,9 @@ type Unique interface {
 }
 
 func ThisField(this Unique) *LogField {
+	if this == nil {
+		return &LogField{Key: "this", Value: "nil"}
+	}
 	return &LogField{Key: "this", Value: this.Unique()}
 }
 

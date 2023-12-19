@@ -119,7 +119,7 @@ func Download(ctx context.Context, p *configurations.Agent) error {
 	}
 	// create folder if needed
 	folder := filepath.Dir(target)
-	err = shared.CheckDirectoryOrCreate(ctx, folder)
+	_, err = shared.CheckDirectoryOrCreate(ctx, folder)
 	if err != nil {
 		return w.Wrapf(err, "cannot create agent folder")
 	}

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/configurations"
 
 	"github.com/codefly-dev/core/actions/actions"
 
@@ -25,9 +25,9 @@ func (action *AddApplicationAction) Command() string {
 }
 
 func NewActionAddApplication(ctx context.Context, in *AddApplication) (*AddApplicationAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
+	w := wool.Get(ctx).In("NewActionAddApplication", wool.Field("name", in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	in.Kind = AddApplicationKind
 	return &AddApplicationAction{
@@ -38,35 +38,35 @@ func NewActionAddApplication(ctx context.Context, in *AddApplication) (*AddAppli
 var _ actions.Action = (*AddApplicationAction)(nil)
 
 func (action *AddApplicationAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetLogger(ctx).With("AddApplicationAction<%s>", action.Name)
+	w := wool.Get(ctx).In("AddApplicationAction.Run", wool.Field("name", action.Name))
 
 	if action.Project == "" {
-		return nil, logger.Errorf("missing project in action")
+		return nil, w.NewError("missing project in action")
 	}
 
-	w, err := configurations.LoadWorkspace(ctx)
+	workspace, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 
-	project, err := w.LoadProjectFromName(ctx, action.Project)
+	project, err := workspace.LoadProjectFromName(ctx, action.Project)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 
 	application, err := project.NewApplication(ctx, action.AddApplication)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 
 	err = project.SetActiveApplication(ctx, application.Name)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 
 	err = project.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save project")
+		return nil, w.Wrapf(err, "cannot save project")
 	}
 
 	return application, nil

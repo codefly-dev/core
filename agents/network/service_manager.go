@@ -1,9 +1,11 @@
 package network
 
 import (
+	"context"
+
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 )
 
 // A ServiceManager helps go from a service to applications endpoint instances
@@ -18,13 +20,10 @@ type ServiceManager struct {
 	host string
 
 	reserved *ApplicationEndpointInstances
-	logger   shared.BaseLogger
 }
 
 func NewServiceManager(identity *basev1.ServiceIdentity, endpoints ...*basev1.Endpoint) *ServiceManager {
-	logger := shared.NewLogger().With("network.NewServicePortManager<%s>", identity.Name)
 	return &ServiceManager{
-		logger:    logger,
 		service:   identity,
 		endpoints: endpoints,
 		strategy:  &FixedStrategy{},
@@ -32,11 +31,14 @@ func NewServiceManager(identity *basev1.ServiceIdentity, endpoints ...*basev1.En
 	}
 }
 
-func (pm *ServiceManager) Bind(endpoint *basev1.Endpoint, portBinding string) error {
+func (pm *ServiceManager) Bind(ctx context.Context, endpoint *basev1.Endpoint, portBinding string) error {
+	w := wool.Get(ctx).In("ServiceManager.Bind")
 	if endpoint == nil {
-		return pm.logger.Errorf("cannot expose nil endpoint")
+		return w.NewError("cannot bind nil endpoint")
 	}
-	pm.logger.Tracef("binding endpoint <%v>", endpoint.Name)
+	w = w.With(wool.Field("endpoint", endpoint.Name))
+
+	w.Trace("binding endpoint")
 	pm.specs = append(pm.specs,
 		ApplicationEndpoint{
 			Service:     pm.service.Name,
@@ -50,11 +52,12 @@ func (pm *ServiceManager) Bind(endpoint *basev1.Endpoint, portBinding string) er
 }
 
 func (pm *ServiceManager) Expose(endpoint *basev1.Endpoint) error {
+	w := wool.Get(context.Background()).In("ServiceManager.Expose")
 	if endpoint == nil {
-		return pm.logger.Errorf("cannot expose nil endpoint")
+		return w.NewError("cannot expose nil endpoint")
 	}
-	pm.logger.Tracef("exposing endpoint <%s>", endpoint.Name)
-	pm.logger.TODO("Protocol from basev1.Endpoint")
+	w = w.With(wool.Field("endpoint", endpoint.Name))
+	w.Trace("exposing endpoint")
 	pm.specs = append(pm.specs,
 		ApplicationEndpoint{
 			Service:     pm.service.Name,
@@ -66,19 +69,18 @@ func (pm *ServiceManager) Expose(endpoint *basev1.Endpoint) error {
 	return nil
 }
 
-func (pm *ServiceManager) Reserve() error {
+func (pm *ServiceManager) Reserve(ctx context.Context) error {
+	w := wool.Get(ctx).In("ServiceManager.Reserve")
 	m, err := pm.strategy.Reserve(pm.host, pm.specs)
 	if err != nil {
-		return pm.logger.Wrapf(err, "cannot reserve ports")
+		return w.Wrapf(err, "cannot reserve ports")
 	}
 	pm.reserved = m
 	return nil
 }
 
 // NetworkMapping returns the network mapping for the service to be passed back to codefly
-func (pm *ServiceManager) NetworkMapping() ([]*runtimev1.NetworkMapping, error) {
-	pm.logger.TODO("fail over is broken")
-
+func (pm *ServiceManager) NetworkMapping(context.Context) ([]*runtimev1.NetworkMapping, error) {
 	var nets []*runtimev1.NetworkMapping
 	for _, instance := range pm.reserved.ApplicationEndpointInstances {
 		nets = append(nets, &runtimev1.NetworkMapping{
@@ -91,12 +93,13 @@ func (pm *ServiceManager) NetworkMapping() ([]*runtimev1.NetworkMapping, error) 
 	return nets, nil
 }
 
-func (pm *ServiceManager) ApplicationEndpointInstance(endpoint *basev1.Endpoint) (*ApplicationEndpointInstance, error) {
+func (pm *ServiceManager) ApplicationEndpointInstance(ctx context.Context, endpoint *basev1.Endpoint) (*ApplicationEndpointInstance, error) {
+	w := wool.Get(ctx).In("ServiceManager.ApplicationEndpointInstance", wool.Field("endpoint", endpoint.Name))
 	var result *ApplicationEndpointInstance
 	for _, e := range pm.reserved.ApplicationEndpointInstances {
 		if ToUnique(e.ApplicationEndpoint.Endpoint) == ToUnique(endpoint) {
 			if result != nil {
-				return nil, pm.logger.Errorf("duplicate endpoint found <%s>", endpoint.Name)
+				return nil, w.NewError("duplicated endpoint")
 			}
 			result = e
 		}
@@ -104,10 +107,11 @@ func (pm *ServiceManager) ApplicationEndpointInstance(endpoint *basev1.Endpoint)
 	return result, nil
 }
 
-func (pm *ServiceManager) Port(endpoint *basev1.Endpoint) (int, error) {
-	instance, err := pm.ApplicationEndpointInstance(endpoint)
+func (pm *ServiceManager) Port(ctx context.Context, endpoint *basev1.Endpoint) (int, error) {
+	w := wool.Get(ctx).In("ServiceManager.Port", wool.Field("endpoint", endpoint.Name))
+	instance, err := pm.ApplicationEndpointInstance(ctx, endpoint)
 	if err != nil {
-		return 0, pm.logger.Wrapf(err, "cannot find endpoint <%s>", endpoint.Name)
+		return 0, w.Wrapf(err, "cannot find endpoint")
 	}
 	return instance.Port, nil
 }

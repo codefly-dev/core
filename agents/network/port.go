@@ -6,17 +6,18 @@ import (
 	"encoding/binary"
 	"net"
 
+	"github.com/codefly-dev/core/wool"
+
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
-	"github.com/codefly-dev/core/shared"
 )
 
 type RandomStrategy struct{}
 
-func (r RandomStrategy) Reserve(host string, endpoints []ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
-	logger := shared.NewLogger().With("RandomStrategy.Reserve")
+func (r RandomStrategy) Reserve(ctx context.Context, host string, endpoints []ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
+	w := wool.Get(ctx).In("network.RandomStrategy.Reserve")
 	ports, err := GetFreePorts(len(endpoints))
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot get free ports")
+		return nil, w.Wrapf(err, "cannot get free ports")
 	}
 	m := &ApplicationEndpointInstances{}
 	for i, port := range ports {
@@ -81,9 +82,7 @@ func GetFreePorts(n int) ([]int, error) {
 }
 
 func NewServicePortManager(_ context.Context, identity *basev1.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
-	logger := shared.NewLogger().With("network.NewServicePortManager<%s>", identity.Name)
 	return &ServiceManager{
-		logger:    logger,
 		service:   identity,
 		endpoints: endpoints,
 		strategy:  &FixedStrategy{},

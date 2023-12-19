@@ -1,6 +1,7 @@
 package configurations_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
@@ -12,24 +13,26 @@ type spec struct {
 }
 
 func TestLoadSpec(t *testing.T) {
+	ctx := context.Background()
 	content := []byte(`awesome: hello
 readReplicas: 1
 `)
 	var s spec
-	err := configurations.LoadSpec(content, &s)
+	err := configurations.LoadSpec(ctx, content, &s)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, s.ReadReplicas)
 }
 
 func TestSerializeSpec(t *testing.T) {
+	ctx := context.Background()
 	s := spec{ReadReplicas: 1}
-	content, err := configurations.SerializeSpec(s)
+	content, err := configurations.SerializeSpec(ctx, s)
 	assert.NoError(t, err)
 	assert.Contains(t, string(content), "readReplicas")
 	assert.Contains(t, string(content), "1")
 
 	ts := testSpec{TestField: "testKind"}
-	content, err = configurations.SerializeSpec(ts)
+	content, err = configurations.SerializeSpec(ctx, ts)
 	assert.NoError(t, err)
 	assert.Contains(t, string(content), "test-field")
 	assert.Contains(t, string(content), "testKind")

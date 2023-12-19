@@ -60,7 +60,7 @@ func (s *Service) Proto() *basev1.Service {
 // Unique identifies a service within a project
 // We use a REST like convention rather then a subdomain one
 func (s *Service) Unique() string {
-	if shared.IsDebug() && s.Application == "" {
+	if wool.IsDebug() && s.Application == "" {
 		panic(fmt.Sprintf("application is empty in unique %s", s.Name))
 	}
 	return fmt.Sprintf("%s/%s", s.Application, s.Name)
@@ -101,7 +101,7 @@ func (app *Application) NewService(ctx context.Context, action *actionsv1.AddSer
 
 	service.dir = dir
 
-	err = shared.CheckDirectoryOrCreate(ctx, dir)
+	_, err = shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -128,7 +128,7 @@ type ServiceReference struct {
 }
 
 func (ref *ServiceReference) String() string {
-	if shared.IsDebug() && ref.Application == "" {
+	if wool.IsDebug() && ref.Application == "" {
 		panic(fmt.Sprintf("application is empty in reference %s", ref.Name))
 	}
 	return fmt.Sprintf("%s/%s", ref.Application, ref.Name)

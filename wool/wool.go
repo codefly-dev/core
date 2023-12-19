@@ -15,7 +15,7 @@ import (
 type Wool struct {
 	name   string
 	source *Identifier
-	ref    *CodefReference
+	ref    *CodeReference
 
 	fields []*LogField
 
@@ -30,77 +30,82 @@ type Wool struct {
 type Otel interface {
 }
 
-func (c *Wool) In(method string, fields ...*LogField) *Wool {
-	c.name = method
-	c.fields = fields
+func (w *Wool) In(method string, fields ...*LogField) *Wool {
+	w.name = method
+	w.fields = fields
 	// We keep track of the stack
 	//stack := c.Stack()
-	return c
+	return w
 }
 
-func (c *Wool) Context() context.Context {
-	return c.ctx
+func (w *Wool) With(fields ...*LogField) *Wool {
+	w.fields = append(w.fields, fields...)
+	return w
+}
+
+func (w *Wool) Context() context.Context {
+	return w.ctx
 }
 
 // Catch recovers from a panic and logs the error
-func (c *Wool) Catch() {
+func (w *Wool) Catch() {
 	if r := recover(); r != nil {
-		c.Warn("PANIC CAUGHT INSIDE THE AGENT CODE ", Field("panic", r))
-		c.Warn(string(debug.Stack()))
+		w.Warn("PANIC CAUGHT INSIDE THE AGENT CODE ", Field("panic", r))
+		w.Warn(string(debug.Stack()))
 	}
 }
 
-func (c *Wool) process(l Loglevel, msg string, fields ...*LogField) {
+func (w *Wool) process(l Loglevel, msg string, fields ...*LogField) {
 	for _, f := range fields {
 		if f.Level == DEFAULT {
 			f.Level = l
 		}
 	}
-	log := &Log{Message: msg, Fields: fields, Header: c.Name(), Level: l}
+	log := &Log{Message: msg, Fields: fields, Header: w.Name(), Level: l}
 
 	if WithTelemetry() {
-		c.span.AddEvent(LogEvent, log.Event())
+		w.span.AddEvent(LogEvent, log.Event())
 	}
-	if c.logger != nil {
-		c.logger.Process(log)
+	if w.logger != nil {
+		w.logger.Process(log)
 	}
 }
 
-func (c *Wool) Trace(msg string, fields ...*LogField) {
-	c.process(TRACE, msg, fields...)
+func (w *Wool) Trace(msg string, fields ...*LogField) {
+	w.process(TRACE, msg, fields...)
 }
 
-func (c *Wool) Info(msg string, fields ...*LogField) {
-	c.process(INFO, msg, fields...)
+func (w *Wool) Info(msg string, fields ...*LogField) {
+	w.process(INFO, msg, fields...)
 }
 
-func (c *Wool) Debug(msg string, fields ...*LogField) {
-	c.process(DEBUG, msg, fields...)
+func (w *Wool) Debug(msg string, fields ...*LogField) {
+	w.process(DEBUG, msg, fields...)
 }
 
-func (c *Wool) Warn(msg string, fields ...*LogField) {
-	c.process(WARN, msg, fields...)
+func (w *Wool) Warn(msg string, fields ...*LogField) {
+	w.process(WARN, msg, fields...)
 }
 
-func (c *Wool) Error(msg string, fields ...*LogField) {
-	c.process(ERROR, msg, fields...)
+func (w *Wool) Error(msg string, fields ...*LogField) {
+	w.process(ERROR, msg, fields...)
 }
 
-func (c *Wool) Fatal(msg string, fields ...*LogField) {
-	c.process(FATAL, msg, fields...)
+func (w *Wool) Fatal(msg string, fields ...*LogField) {
+	w.process(FATAL, msg, fields...)
 }
 
-func (c *Wool) Wrap(err error) error {
-	if msg := c.Name(); msg != "" {
+func (w *Wool) Wrap(err error) error {
+	if msg := w.Name(); msg != "" {
 		return errors.Wrap(err, msg)
 	}
 	return err
 }
 
-func (c *Wool) Wrapf(err error, msg string, args ...any) error {
+func (w *Wool) Wrapf(err error, msg string, args ...any) error {
 	msg = fmt.Sprintf(msg, args...)
-	if name := c.Name(); name != "" {
-		msg = fmt.Sprintf("%s: %s", c.Name(), msg)
+	if name := w.Name(); name != "" {
+		msg = fmt.Sprintf("%s: %s", w.Name(), msg)
 	}
 	if msg != "" {
 		return errors.Wrap(err, msg)
@@ -108,13 +113,13 @@ func (c *Wool) Wrapf(err error, msg string, args ...any) error {
 	return err
 }
 
-func (c *Wool) Close() {
-	if c.span != nil {
-		c.span.End()
+func (w *Wool) Close() {
+	if w.span != nil {
+		w.span.End()
 	}
 }
 
-func (c *Wool) NewError(format string, args ...any) error {
+func (w *Wool) NewError(format string, args ...any) error {
 	return fmt.Errorf(format, args...)
 }
 
@@ -125,8 +130,8 @@ type CodePath struct {
 
 const CodePathKey = "codepath"
 
-func (c *Wool) StackTrace() []CodePath {
-	b := baggage.FromContext(c.ctx)
+func (w *Wool) StackTrace() []CodePath {
+	b := baggage.FromContext(w.ctx)
 	m := b.Member(CodePathKey)
 	return toCodePaths(m)
 }
@@ -144,13 +149,13 @@ func WithTelemetry() bool {
 	return false
 }
 
-func (c *Wool) Name() string {
-	return c.name
+func (w *Wool) Name() string {
+	return w.name
 }
 
-func (c *Wool) WithLogger(l LogProcessor) *Wool {
-	c.logger = l
-	return c
+func (w *Wool) WithLogger(l LogProcessor) *Wool {
+	w.logger = l
+	return w
 }
 
 const LogEvent = "log"
@@ -165,11 +170,11 @@ func toCodePaths(m baggage.Member) []CodePath {
 	return paths
 }
 
-func toCodePath(v baggage.Property) CodePath {
+func toCodePath(baggage.Property) CodePath {
 	return CodePath{}
 }
 
-type CodefReference struct {
+type CodeReference struct {
 	Line int    `json:"line"`
 	File string `json:"file"`
 }

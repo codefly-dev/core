@@ -3,11 +3,11 @@ package organization
 import (
 	"context"
 
-	"github.com/bufbuild/protovalidate-go"
-	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 
+	"github.com/bufbuild/protovalidate-go"
 	"github.com/codefly-dev/core/actions/actions"
+	"github.com/codefly-dev/core/configurations"
 
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 )
@@ -24,9 +24,9 @@ func (action *AddOrganizationAction) Command() string {
 }
 
 func NewActionAddOrganization(ctx context.Context, in *AddOrganization) (*AddOrganizationAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
+	w := wool.Get(ctx).In("NewActionAddOrganization", wool.Field("name", in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	in.Kind = AddOrganizationKind
 	return &AddOrganizationAction{
@@ -37,16 +37,15 @@ func NewActionAddOrganization(ctx context.Context, in *AddOrganization) (*AddOrg
 var _ actions.Action = (*AddOrganizationAction)(nil)
 
 func (action *AddOrganizationAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetLogger(ctx).With("AddOrganizationAction<%s>", action.Name)
-
+	w := wool.Get(ctx).In("AddOrganizationAction.Run", wool.Field("name", action.Name))
 	// Validate
 	v, err := protovalidate.New()
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	err = v.Validate(action.AddOrganization)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 
 	org := &configurations.Organization{

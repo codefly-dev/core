@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/actions/actions"
 
@@ -22,9 +22,9 @@ func (action *SetServiceActiveAction) Command() string {
 }
 
 func NewActionSetServiceActive(ctx context.Context, in *SetServiceActive) (*SetServiceActiveAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
+	w := wool.Get(ctx).In("NewActionSetServiceActive", wool.Field("name", in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	in.Kind = SetServiceActiveKind
 	return &SetServiceActiveAction{

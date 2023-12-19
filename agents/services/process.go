@@ -2,15 +2,17 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"syscall"
 
+	"github.com/codefly-dev/core/wool"
+
 	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
 
-	"github.com/codefly-dev/core/shared"
 	"github.com/shirou/gopsutil/v3/process"
 )
 
@@ -53,8 +55,8 @@ func (p *TrackedProcess) Kill() error {
 	panic("implement me")
 }
 
-func (p *TrackedProcess) GetStatus() (ProcessState, error) {
-	logger := shared.NewLogger().With("TrackedProcess.State<%d>", p.PID)
+func (p *TrackedProcess) GetStatus(ctx context.Context) (ProcessState, error) {
+	w := wool.Get(ctx).In("TrackedProcess.Status", wool.Field("pid", p.PID))
 	// Check for PID
 	proc, err := os.FindProcess(p.PID)
 	if err != nil {
@@ -64,32 +66,32 @@ func (p *TrackedProcess) GetStatus() (ProcessState, error) {
 	// and do nothing if it is.
 	err = proc.Signal(syscall.Signal(0))
 	if err == nil {
-		state, err := findState(p.PID)
+		state, err := findState(ctx, p.PID)
 		if err != nil {
-			return Unknown, logger.Wrapf(err, "cannot check if proc is defunct")
+			return Unknown, w.Wrapf(err, "cannot check if proc is defunct")
 		}
 		return state, nil
 	}
 	return Dead, nil
 }
 
-func (p *TrackedProcess) GetUsage() (*Usage, error) {
-	logger := shared.NewLogger().With("TrackedProcess.Usage<%d>", p.PID)
+func (p *TrackedProcess) GetUsage(ctx context.Context) (*Usage, error) {
+	w := wool.Get(ctx).In("TrackedProcess.Usage", wool.Field("pid", p.PID))
 	proc, err := process.NewProcess(int32(p.PID))
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot create process")
+		return nil, w.Wrapf(err, "cannot create process")
 	}
 
 	// Get CPU percent
 	cpuPercent, err := proc.CPUPercent()
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot get cpu percent")
+		return nil, w.Wrapf(err, "cannot get cpu percent")
 	}
 
 	// Get memory info
 	memInfo, err := proc.MemoryInfo()
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot get memory info")
+		return nil, w.Wrapf(err, "cannot get memory info")
 	}
 	return &Usage{
 		CPU:    cpuPercent,
@@ -117,8 +119,8 @@ func parseState(out string) (string, bool) {
 	return state, true
 }
 
-func findState(pid int) (ProcessState, error) {
-	logger := shared.NewLogger().With("TrackedProcess.State<%d>", pid)
+func findState(ctx context.Context, pid int) (ProcessState, error) {
+	w := wool.Get(ctx).In("findState", wool.Field("pid", pid))
 	// #nosec G204
 	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid), "-o", "state=")
 	var out bytes.Buffer
@@ -129,7 +131,7 @@ func findState(pid int) (ProcessState, error) {
 	}
 	state, tts := parseState(out.String())
 	if tts {
-		logger.Debugf("process %d is in TTS", pid)
+		w.Debug("process %d is in TTS")
 	}
 	switch state {
 	case "R":
@@ -153,6 +155,6 @@ func findState(pid int) (ProcessState, error) {
 	case "W":
 		return Waking, nil
 	default:
-		return Unknown, fmt.Errorf("unknown state: %s", out.String())
+		return Unknown, w.NewError("unknown state: %s", out.String())
 	}
 }

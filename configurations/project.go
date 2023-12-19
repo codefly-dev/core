@@ -111,7 +111,7 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv1.Ad
 
 	dir := workspace.ProjectPath(ctx, ref)
 
-	err := shared.CreateDirIf(dir)
+	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create project directory")
 	}

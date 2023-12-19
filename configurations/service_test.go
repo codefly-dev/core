@@ -274,8 +274,6 @@ func TestAddDependencyService(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(service.Endpoints))
 
-	shared.SetLogLevel(shared.Debug)
-
 	// Both endpoints will work because we are inside the same application
 	input.Endpoints = []string{"test-endpoint-private", "test-endpoint-application"}
 	action, err = actionservice.NewActionAddServiceDependency(ctx, input)

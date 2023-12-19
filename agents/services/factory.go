@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/codefly-dev/core/agents/manager"
 
 	"github.com/codefly-dev/core/agents/communicate"
@@ -12,7 +14,6 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	factoryv1 "github.com/codefly-dev/core/generated/go/services/factory/v1"
-	"github.com/codefly-dev/core/shared"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )
@@ -128,17 +129,16 @@ func (m *FactoryServer) Communicate(ctx context.Context, req *agentv1.Engage) (*
 }
 
 func LoadFactory(ctx context.Context, conf *configurations.Service) (*FactoryAgent, error) {
+	w := wool.Get(ctx).In("services.LoadFactory", wool.ThisField(conf))
 	if conf == nil {
 		return nil, fmt.Errorf("conf cannot be nil")
 	}
 	if conf.Agent == nil {
-		return nil, shared.NewLogger().With("services.LoadFactory<%s>", conf.Name).Errorf("agent found nil")
+		return nil, w.NewError("agent cannot be nil")
 	}
-	logger := shared.NewLogger().With("services.LoadFactory<%s>", conf.Agent.Identifier())
-	logger.Debugf("loading service factory")
 	factory, err := manager.Load[ServiceFactoryAgentContext, FactoryAgent](ctx, conf.Agent.Of(configurations.FactoryServiceAgent), conf.Unique())
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot load service factory conf")
+		return nil, w.Wrapf(err, "cannot load service factory conf")
 	}
 	factory.agent = conf.Agent
 	return factory, nil
