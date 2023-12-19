@@ -2,10 +2,9 @@ package workspace
 
 import (
 	"context"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/actions/actions"
-	"github.com/codefly-dev/core/shared"
-
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 
 	"github.com/codefly-dev/core/configurations"
@@ -22,9 +21,9 @@ func (action *AddWorkspaceAction) Command() string {
 }
 
 func NewActionAddWorkspace(ctx context.Context, in *actionsv1.AddWorkspace) (*AddWorkspaceAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
+	w := wool.Get(ctx).In("workspace.NewActionAddWorkspace")
 	if err := actions.Validate(ctx, in); err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	in.Kind = AddWorkspace
 	return &AddWorkspaceAction{
@@ -35,16 +34,16 @@ func NewActionAddWorkspace(ctx context.Context, in *actionsv1.AddWorkspace) (*Ad
 var _ actions.Action = (*AddWorkspaceAction)(nil)
 
 func (action *AddWorkspaceAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetLogger(ctx).With("AddWorkspaceAction")
-	w, err := configurations.NewWorkspace(ctx, action.AddWorkspace)
+	w := wool.Get(ctx).In("workspace.AddWorkspaceAction.Run")
+	workspace, err := configurations.NewWorkspace(ctx, action.AddWorkspace)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
-	err = w.Save(ctx)
+	err = workspace.Save(ctx)
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot save")
+		return nil, w.Wrapf(err, "cannot save")
 	}
-	return w, nil
+	return workspace, nil
 }
 
 func init() {

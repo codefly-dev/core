@@ -147,7 +147,7 @@ func CheckEmptyDirectoryOrCreate(ctx context.Context, path string) error {
 
 func CheckDirectoryOrCreate(ctx context.Context, path string) error {
 	w := wool.Get(ctx).In("shared.CheckDirectoryOrCreate", wool.Field("path", path))
-	w.Info("checking directory")
+	w.Trace("checking directory")
 	// Check if directory exists
 	info, err := os.Stat(path)
 	if err != nil {

@@ -110,11 +110,22 @@ func (provider *Provider) Get(ctx context.Context) *Wool {
 	return base
 }
 
+type Console struct {
+	level Loglevel
+}
+
+func (c Console) Process(msg *Log) {
+	if msg.Level < c.level {
+		return
+	}
+	fmt.Println(msg.Message, msg.Fields)
+}
+
 func Get(ctx context.Context) *Wool {
 	if ctx == nil {
 		panic("nil context")
 	}
-	base := &Wool{ctx: ctx}
+	base := &Wool{ctx: ctx, logger: &Console{level: INFO}}
 	if _, file, line, ok := runtime.Caller(1); ok {
 		base.ref = &CodefReference{File: file, Line: line}
 	} else {

@@ -1,6 +1,7 @@
 package configurations_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -203,8 +204,8 @@ func TestCreationWithAbsolutePath(t *testing.T) {
 }
 
 func TestCreationWithRelativePath(t *testing.T) {
-	ctx := shared.NewContext()
-	w, dir := createTestWorkspace(t, ctx)
+	ctx := context.Background()
+	workspace, dir := createTestWorkspace(t, ctx)
 
 	action, err := actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name: "test-project",
@@ -222,6 +223,7 @@ func TestCreationWithRelativePath(t *testing.T) {
 	assert.NoError(t, err)
 	// We should find the path
 
+	t.Log(string(ws))
 	assert.Contains(t, string(ws), fmt.Sprintf("path: %s", "path-from-workspace"))
 
 	content, err := os.ReadFile(path.Join(p.Dir(), configurations.ProjectConfigurationName))
@@ -230,7 +232,7 @@ func TestCreationWithRelativePath(t *testing.T) {
 
 	// Load -- reference
 	ref := &configurations.ProjectReference{Name: "test-project", PathOverride: shared.Pointer("path-from-workspace")}
-	back, err := w.LoadProjectFromReference(ctx, ref)
+	back, err := workspace.LoadProjectFromReference(ctx, ref)
 	assert.NoError(t, err)
 	assert.Equal(t, p.Name, back.Name)
 }

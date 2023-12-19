@@ -3,12 +3,11 @@ package project
 import (
 	"context"
 	"fmt"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/bufbuild/protovalidate-go"
 
 	"github.com/codefly-dev/core/actions/actions"
-	"github.com/codefly-dev/core/shared"
-
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 
 	"github.com/codefly-dev/core/configurations"
@@ -26,9 +25,9 @@ func (action *AddProjectAction) Command() string {
 }
 
 func NewActionAddProject(ctx context.Context, in *AddProject) (*AddProjectAction, error) {
-	logger := shared.GetLogger(ctx).With(shared.ProtoType(in))
+	w := wool.Get(ctx).In("project.NewActionAddProject")
 	if err := actions.Validate(ctx, in); err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	in.Kind = AddProjectKind
 	return &AddProjectAction{
@@ -39,33 +38,33 @@ func NewActionAddProject(ctx context.Context, in *AddProject) (*AddProjectAction
 var _ actions.Action = (*AddProjectAction)(nil)
 
 func (action *AddProjectAction) Run(ctx context.Context) (any, error) {
-	logger := shared.GetLogger(ctx).With("AddProjectAction<%s>", action.Name)
+	w := wool.Get(ctx).In("project.AddProjectAction.Run")
 
 	// Validate
 	v, err := protovalidate.New()
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 	err = v.Validate(action.AddProject)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 
-	w, err := configurations.LoadWorkspace(ctx)
+	workspace, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
-		return nil, logger.Wrap(err)
+		return nil, w.Wrap(err)
 	}
 
-	project, err := w.NewProject(ctx, action.AddProject)
+	project, err := workspace.NewProject(ctx, action.AddProject)
 	if err != nil {
 		return nil, err
 	}
 
-	err = w.SetProjectActive(ctx, &actionsv1.SetProjectActive{
+	err = workspace.SetProjectActive(ctx, &actionsv1.SetProjectActive{
 		Name: project.Name,
 	})
 	if err != nil {
-		return nil, logger.Wrapf(err, "cannot set project as active")
+		return nil, w.Wrapf(err, "cannot set project as active")
 	}
 
 	return project, nil

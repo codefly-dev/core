@@ -69,10 +69,9 @@ func (workspace *Workspace) AddProject(ctx context.Context, project *Project) er
 	if workspace.ExistsProject(project.Name) {
 		return w.NewError("project already exists")
 	}
-	wouldBePath := path.Join(workspace.ProjectRoot(), project.Name)
 	workspace.Projects = append(workspace.Projects, &ProjectReference{
 		Name:         project.Name,
-		PathOverride: OverridePath(wouldBePath, project.Dir()),
+		PathOverride: OverridePath(project.Name, project.Dir()),
 	})
 	err := workspace.Save(ctx)
 	if err != nil {

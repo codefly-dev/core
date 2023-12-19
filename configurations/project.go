@@ -103,7 +103,12 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv1.Ad
 		return nil, w.NewError("project already exists")
 	}
 
-	ref := &ProjectReference{Name: action.Name, PathOverride: OverridePath(action.Name, action.Path)}
+	w.Info("action", wool.PathField(action.Path))
+	override := OverridePath(action.Name, action.Path)
+	w.Info("override", wool.PointerField(override))
+
+	ref := &ProjectReference{Name: action.Name, PathOverride: override}
+
 	dir := workspace.ProjectPath(ctx, ref)
 
 	err := shared.CreateDirIf(dir)
@@ -144,7 +149,7 @@ func (project *Project) Save(ctx context.Context) error {
 
 func (project *Project) SaveToDirUnsafe(ctx context.Context, dir string) error {
 	w := wool.Get(ctx).In("SaveProject<%s>", wool.NameField(project.Name))
-	w.Debug("saving", wool.Field("#application", len(project.Applications)))
+	w.Debug("applications", wool.SliceCountField(project.Applications))
 	err := project.preSave(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot pre-save project")

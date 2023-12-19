@@ -2,7 +2,6 @@ package wool
 
 import (
 	"fmt"
-
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -32,6 +31,10 @@ type LogField struct {
 	Key   string   `json:"key"`
 	Level Loglevel `json:"level"`
 	Value any      `json:"value"`
+}
+
+func (f *LogField) String() string {
+	return fmt.Sprintf("%s=%v", f.Key, f.Value)
 }
 
 type Loglevel int
@@ -96,6 +99,13 @@ func GenericField[T any]() *LogField {
 	return &LogField{Key: "generic", Value: TypeOf[T]()}
 }
 
+func PointerField[T any](override *T) *LogField {
+	if override == nil {
+		return &LogField{Key: "pointer", Value: "nil"}
+	}
+	return &LogField{Key: "pointer", Value: *override}
+}
+
 func RequestField(req any) *LogField {
 	return &LogField{Key: "request", Value: req}
 }
@@ -110,6 +120,10 @@ func DirField(dir string) *LogField {
 
 func PathField(dir string) *LogField {
 	return &LogField{Key: "path", Value: dir}
+}
+
+func SliceCountField[T any](slice []T) *LogField {
+	return &LogField{Key: "count", Value: len(slice)}
 }
 
 func ErrField(err error) *LogField {
