@@ -223,7 +223,6 @@ func TestCreationWithRelativePath(t *testing.T) {
 	assert.NoError(t, err)
 	// We should find the path
 
-	t.Log(string(ws))
 	assert.Contains(t, string(ws), fmt.Sprintf("path: %s", "path-from-workspace"))
 
 	content, err := os.ReadFile(path.Join(p.Dir(), configurations.ProjectConfigurationName))
@@ -236,6 +235,8 @@ func TestCreationWithRelativePath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, p.Name, back.Name)
 }
+
+func
 
 func TestLoading(t *testing.T) {
 	ctx := shared.NewContext()
