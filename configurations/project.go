@@ -111,7 +111,7 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv1.Ad
 		return nil, w.Wrapf(err, "cannot create project directory")
 	}
 
-	p := &Project{
+	project := &Project{
 		Name:         action.Name,
 		Organization: workspace.Organization,
 		Domain:       ExtendDomain(workspace.Domain, action.Name),
@@ -119,24 +119,23 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv1.Ad
 
 		dir: dir,
 	}
-	workspace.Projects = append(workspace.Projects, ref)
 
-	err = p.Save(ctx)
+	err = workspace.AddProject(ctx, project)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot add project to workspace")
+	}
+
+	err = project.Save(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot save project")
 	}
 
-	err = workspace.Save(ctx)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot save workspace")
-	}
-
 	// Templatize as usual
-	err = templates.CopyAndApply(ctx, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(p.dir), p)
+	err = templates.CopyAndApply(ctx, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(project.dir), project)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot copy and apply template")
 	}
-	return p, nil
+	return project, nil
 }
 
 func (project *Project) Save(ctx context.Context) error {

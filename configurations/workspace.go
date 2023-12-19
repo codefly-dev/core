@@ -64,6 +64,23 @@ func NewWorkspace(ctx context.Context, action *actionsv1.AddWorkspace) (*Workspa
 	return workspace, nil
 }
 
+func (workspace *Workspace) AddProject(ctx context.Context, project *Project) error {
+	w := wool.Get(ctx).In("Workspace::AddProject", wool.ThisField(workspace), wool.NameField(project.Name))
+	if workspace.ExistsProject(project.Name) {
+		return w.NewError("project already exists")
+	}
+	wouldBePath := path.Join(workspace.ProjectRoot(), project.Name)
+	workspace.Projects = append(workspace.Projects, &ProjectReference{
+		Name:         project.Name,
+		PathOverride: OverridePath(wouldBePath, project.Dir()),
+	})
+	err := workspace.Save(ctx)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	return nil
+}
+
 // LoadWorkspace returns the active Workspace configuration
 func LoadWorkspace(ctx context.Context) (*Workspace, error) {
 	if workspace != nil {

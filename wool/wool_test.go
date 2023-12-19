@@ -50,7 +50,7 @@ func TestWoolBasics(t *testing.T) {
 	provider.WithLogger(logger)
 	defer provider.Done()
 
-	ctx = provider.NewContext()
+	ctx = provider.WithContext(ctx)
 
 	w := wool.Get(ctx).In("testBasics", wool.Field("test", "test"))
 
@@ -77,7 +77,7 @@ func TestWoolWithContext(t *testing.T) {
 	provider.WithLogger(logger)
 	defer provider.Done()
 
-	ctx = provider.NewContext()
+	ctx = provider.WithContext(ctx)
 
 	w := wool.Get(ctx)
 

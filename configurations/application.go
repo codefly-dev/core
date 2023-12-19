@@ -169,10 +169,6 @@ func (app *Application) SaveToDir(ctx context.Context, dir string) error {
 }
 
 func (app *Application) Save(ctx context.Context) error {
-	err := app.preSave(ctx)
-	if err != nil {
-		return err
-	}
 	return app.SaveToDir(ctx, app.Dir())
 }
 
@@ -300,9 +296,6 @@ func (app *Application) ActiveService(_ context.Context) *string {
 func (app *Application) SetActiveService(ctx context.Context, name string) error {
 	w := wool.Get(ctx).In("configurations.SetActiveService", wool.NameField(name))
 	w.Info("setting active service")
-	for _, ref := range app.Services {
-		fmt.Println("REF", ref.Name, "APP", ref.Application)
-	}
 	if !app.ExistsService(name) {
 		return w.NewError("service <%s> does not exist in application <%s>", name, app.Name)
 	}

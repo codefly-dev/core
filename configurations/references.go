@@ -16,8 +16,8 @@ Convention: relativePath is the name unless specified otherwise
 */
 
 // OverridePath is nil if the name is the same as the desired relative path
-func OverridePath(name string, path string) *string {
-	if path == "" || path == name {
+func OverridePath(defaultPath string, path string) *string {
+	if path == "" || path == defaultPath {
 		return nil
 	}
 	if filepath.IsAbs(path) {
