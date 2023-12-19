@@ -1,11 +1,10 @@
 package application_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
-
-	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/application"
@@ -32,7 +31,7 @@ func TestApplicationAddFromJson(t *testing.T) {
 }
 
 func TestApplicationAddFromCode(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	action, err := application.NewActionAddApplication(ctx, &actionsv1.AddApplication{
 		Name:        "My Application",
 		Description: "My Application Description",

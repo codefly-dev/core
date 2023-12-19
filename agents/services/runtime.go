@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/codefly-dev/core/agents/manager"
+
 	"github.com/codefly-dev/core/agents/communicate"
 
 	"github.com/codefly-dev/core/agents"
@@ -29,7 +31,7 @@ func (m ServiceRuntimeAgentContext) Default() plugin.Plugin {
 	return &RuntimeAgentGRPC{}
 }
 
-var _ agents.AgentContext = ServiceRuntimeAgentContext{}
+var _ manager.AgentContext = ServiceRuntimeAgentContext{}
 
 type Runtime interface {
 	Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error)
@@ -149,7 +151,7 @@ func LoadRuntime(ctx context.Context, service *configurations.Service) (*Runtime
 	if service == nil || service.Agent == nil {
 		return nil, logger.Errorf("agent cannot be nil")
 	}
-	runtime, err := agents.Load[ServiceRuntimeAgentContext, RuntimeAgent](
+	runtime, err := manager.Load[ServiceRuntimeAgentContext, RuntimeAgent](
 		ctx,
 		service.Agent.Of(configurations.RuntimeServiceAgent),
 		service.Unique())

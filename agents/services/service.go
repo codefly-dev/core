@@ -3,11 +3,13 @@ package services
 import (
 	"context"
 
+	"github.com/codefly-dev/core/agents/manager"
+	"github.com/codefly-dev/core/wool"
+
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 
 	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
 
-	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
 	v1agent "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	factoryv1 "github.com/codefly-dev/core/generated/go/services/factory/v1"
@@ -72,7 +74,7 @@ func (instance *RuntimeInstance) Init(ctx context.Context) (*runtimev1.InitRespo
 
 func Load(ctx context.Context, service *configurations.Service) (*ServiceInstance, error) {
 	logger := shared.NewLogger().With("agents.Load<%s>", service.Unique())
-	agent, err := agents.Load[ServiceAgentContext, ServiceAgent](ctx, service.Agent, service.Unique())
+	agent, err := manager.Load[ServiceAgentContext, ServiceAgent](ctx, service.Agent, service.Unique())
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service agent")
 	}
@@ -122,5 +124,19 @@ func (instance *ServiceInstance) LoadRuntime(ctx context.Context, service *confi
 		return logger.Wrapf(err, "cannot load runtime")
 	}
 	instance.Runtime = &RuntimeInstance{Service: service, Runtime: runtime}
+	return nil
+}
+
+func UpdateAgent(ctx context.Context, service *configurations.Service) error {
+	w := wool.Get(ctx).In("ServiceInstance::Update")
+	// Fetch the latest agent version
+	err := manager.PinToLatestRelease(service.Agent)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	err = service.Save(ctx)
+	if err != nil {
+		return w.Wrap(err)
+	}
 	return nil
 }

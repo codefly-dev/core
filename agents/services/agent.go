@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/codefly-dev/core/agents/manager"
+
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/agents"
@@ -28,7 +30,7 @@ func (m ServiceAgentContext) Default() plugin.Plugin {
 	return &ServiceAgentGRPC{}
 }
 
-var _ agents.AgentContext = ServiceAgentContext{}
+var _ manager.AgentContext = ServiceAgentContext{}
 
 type ServiceAgent struct {
 	client agentv1.AgentClient
@@ -73,12 +75,12 @@ func LoadAgent(ctx context.Context, agent *configurations.Agent) (*ServiceAgent,
 	w := wool.Get(ctx).In("services.LoadAgent", wool.Field("agent", agent.Name))
 	w.Debug("loading service agent")
 	if agent.Version == "latest" {
-		err := agents.PinToLatestRelease(agent)
+		err := manager.PinToLatestRelease(agent)
 		if err != nil {
 			return nil, w.Wrap(err)
 		}
 	}
-	loaded, err := agents.Load[ServiceAgentContext, ServiceAgent](
+	loaded, err := manager.Load[ServiceAgentContext, ServiceAgent](
 		ctx,
 		agent.Of(configurations.ServiceAgent),
 		agent.Unique())

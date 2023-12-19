@@ -25,7 +25,7 @@ type ActionTracker struct {
 }
 
 func NewActionTracker(group string) *ActionTracker {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	dir := path.Join(configurations.WorkspaceConfigurationDir(), "actions", group)
 	err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {

@@ -1,6 +1,7 @@
 package configurations_test
 
 import (
+	"context"
 	"os"
 	"path"
 	"testing"
@@ -15,7 +16,7 @@ import (
 )
 
 func TestCreationApplication(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	w, dir := createTestWorkspace(t, ctx)
 	defer os.RemoveAll(dir)
 

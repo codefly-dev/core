@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/codefly-dev/core/agents/manager"
+
 	"github.com/codefly-dev/core/agents/communicate"
 
 	"github.com/codefly-dev/core/agents"
@@ -26,7 +28,7 @@ func (m ServiceFactoryAgentContext) Default() plugin.Plugin {
 	return &FactoryAgentGRPC{}
 }
 
-var _ agents.AgentContext = ServiceFactoryAgentContext{}
+var _ manager.AgentContext = ServiceFactoryAgentContext{}
 
 type Factory interface {
 	Init(ctx context.Context, req *factoryv1.InitRequest) (*factoryv1.InitResponse, error)
@@ -134,7 +136,7 @@ func LoadFactory(ctx context.Context, conf *configurations.Service) (*FactoryAge
 	}
 	logger := shared.NewLogger().With("services.LoadFactory<%s>", conf.Agent.Identifier())
 	logger.Debugf("loading service factory")
-	factory, err := agents.Load[ServiceFactoryAgentContext, FactoryAgent](ctx, conf.Agent.Of(configurations.FactoryServiceAgent), conf.Unique())
+	factory, err := manager.Load[ServiceFactoryAgentContext, FactoryAgent](ctx, conf.Agent.Of(configurations.FactoryServiceAgent), conf.Unique())
 	if err != nil {
 		return nil, logger.Wrapf(err, "cannot load service factory conf")
 	}

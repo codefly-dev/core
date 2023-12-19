@@ -1,6 +1,7 @@
 package configurations_test
 
 import (
+	"context"
 	"embed"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 )
 
 func TestAgentParse(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	tcs := []struct {
 		name string
 		in   string

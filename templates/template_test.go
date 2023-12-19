@@ -1,6 +1,7 @@
 package templates_test
 
 import (
+	"context"
 	"embed"
 	"os"
 	"path"
@@ -16,7 +17,7 @@ type testData struct {
 }
 
 func testCopyAndApplyTemplateToDir(t *testing.T, fs shared.FileSystem, dir shared.Dir) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	dest := t.TempDir()
 	destination := shared.NewDir(dest)
 	err := templates.CopyAndApply(ctx, fs, dir, destination, testData{Test: "test"})

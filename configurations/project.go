@@ -368,7 +368,7 @@ func (project *Project) GetPartial(name string) (*Partial, error) {
 }
 
 func (project *Project) AddPartial(partial Partial) error {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	for _, p := range project.Partials {
 		if p.Name == partial.Name {
 			return nil

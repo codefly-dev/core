@@ -1,6 +1,7 @@
 package organization_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -8,7 +9,6 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/organization"
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
-	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -29,7 +29,7 @@ func TestOrganizationAddFromJson(t *testing.T) {
 }
 
 func TestOrganizationAddFromCode(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	action, err := organization.NewActionAddOrganization(ctx, &actionsv1.AddOrganization{
 		Name:   "My Organization",
 		Domain: "https://github.com/my-organization",

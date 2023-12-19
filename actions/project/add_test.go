@@ -1,6 +1,7 @@
 package project_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -8,7 +9,6 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/project"
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
-	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -29,7 +29,7 @@ func TestProjectAddFromJson(t *testing.T) {
 }
 
 func TestProjectAddFromCode(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	action, err := project.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name:        "My Project",
 		Description: "My Project Description",

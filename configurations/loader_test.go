@@ -1,6 +1,7 @@
 package configurations_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/codefly-dev/core/shared"
@@ -8,7 +9,7 @@ import (
 )
 
 func TestOverrideFromContext(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	override := shared.GetOverride(ctx)
 	assert.Equal(t, shared.SilentOverride(), override)
 }

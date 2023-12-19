@@ -14,7 +14,7 @@ var (
 
 // A ClientLogHandler handles logs from the Agents and converts them back to wool.Log
 type ClientLogHandler struct {
-	receiver   hclog.Logger
+	Receiver   hclog.Logger
 	processors []wool.LogProcessorWithSource
 }
 
@@ -37,7 +37,7 @@ func NewLogHandler() *ClientLogHandler {
 		Output:     handler,
 		Level:      hclog.Debug,
 	})
-	handler.receiver = logger
+	handler.Receiver = logger
 	return handler
 }
 

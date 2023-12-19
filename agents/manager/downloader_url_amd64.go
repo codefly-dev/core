@@ -1,6 +1,6 @@
 //go:build amd64 && darwin
 
-package agents
+package manager
 
 import (
 	"fmt"

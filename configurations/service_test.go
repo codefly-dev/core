@@ -1,6 +1,7 @@
 package configurations_test
 
 import (
+	"context"
 	"os"
 	"path"
 	"testing"
@@ -24,7 +25,7 @@ type testSpec struct {
 }
 
 func TestSpecSave(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	s := &configurations.Service{Name: "testName"}
 	out, err := yaml.Marshal(s)
 	assert.NoError(t, err)
@@ -61,7 +62,7 @@ func TestSpecSave(t *testing.T) {
 type Cleanup func()
 
 func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	w, dir := createTestWorkspace(t, ctx)
 	cleanup := func() {
 		os.RemoveAll(dir)
@@ -232,7 +233,7 @@ func TestAddDependencyService(t *testing.T) {
 	setup, cleanup := BaseSetup(t)
 	defer cleanup()
 
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	var action actions.Action
 	var err error
 	// No endpoint yet

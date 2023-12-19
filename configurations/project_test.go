@@ -17,7 +17,7 @@ import (
 )
 
 func TestBadInputs(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	tcs := []struct {
 		name    string
 		project string
@@ -34,8 +34,45 @@ func TestBadInputs(t *testing.T) {
 	}
 }
 
+func TestAddingExistingProject(t *testing.T) {
+	ctx := context.Background()
+	w, dir := createTestWorkspace(t, ctx)
+	defer os.RemoveAll(dir)
+
+	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/project")
+	assert.NoError(t, err)
+	assert.Equal(t, "codefly-platform", project.Name)
+
+}
+
+func TestLoading(t *testing.T) {
+	ctx := context.Background()
+	ws := &configurations.Workspace{}
+
+	p, err := ws.LoadProjectFromDir(ctx, "testdata/project")
+	assert.NoError(t, err)
+	assert.Equal(t, "codefly-platform", p.Name)
+	assert.Equal(t, 2, len(p.Applications))
+	assert.Equal(t, "web", p.Applications[0].Name)
+	assert.Equal(t, "management", p.Applications[1].Name)
+	assert.Equal(t, "web", *p.ActiveApplication())
+
+	// Save and make sure we preserve the "active application" convention
+	tmpDir := t.TempDir()
+
+	err = p.SaveToDirUnsafe(ctx, tmpDir)
+	assert.NoError(t, err)
+
+	content, err := os.ReadFile(path.Join(tmpDir, configurations.ProjectConfigurationName))
+	assert.NoError(t, err)
+	assert.Contains(t, string(content), "web*")
+	p, err = ws.LoadProjectFromDir(ctx, tmpDir)
+	assert.NoError(t, err)
+	assert.Equal(t, "web", *p.ActiveApplication())
+}
+
 func TestCreationWithDefaultPath(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	w, dir := createTestWorkspace(t, ctx)
 	defer os.RemoveAll(dir)
 
@@ -170,7 +207,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 }
 
 func TestCreationWithAbsolutePath(t *testing.T) {
-	ctx := shared.NewContext()
+	ctx := context.Background()
 	w, dir := createTestWorkspace(t, ctx)
 
 	projectDir := t.TempDir()
@@ -234,32 +271,4 @@ func TestCreationWithRelativePath(t *testing.T) {
 	back, err := workspace.LoadProjectFromReference(ctx, ref)
 	assert.NoError(t, err)
 	assert.Equal(t, p.Name, back.Name)
-}
-
-func
-
-func TestLoading(t *testing.T) {
-	ctx := shared.NewContext()
-	ws := &configurations.Workspace{}
-
-	p, err := ws.LoadProjectFromDir(ctx, "testdata/project")
-	assert.NoError(t, err)
-	assert.Equal(t, "codefly-platform", p.Name)
-	assert.Equal(t, 2, len(p.Applications))
-	assert.Equal(t, "web", p.Applications[0].Name)
-	assert.Equal(t, "management", p.Applications[1].Name)
-	assert.Equal(t, "web", *p.ActiveApplication())
-
-	// Save and make sure we preserve the "active application" convention
-	tmpDir := t.TempDir()
-
-	err = p.SaveToDirUnsafe(ctx, tmpDir)
-	assert.NoError(t, err)
-
-	content, err := os.ReadFile(path.Join(tmpDir, configurations.ProjectConfigurationName))
-	assert.NoError(t, err)
-	assert.Contains(t, string(content), "web*")
-	p, err = ws.LoadProjectFromDir(ctx, tmpDir)
-	assert.NoError(t, err)
-	assert.Equal(t, "web", *p.ActiveApplication())
 }

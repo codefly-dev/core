@@ -1,6 +1,6 @@
 //go:build amd64 && linux
 
-package agents
+package manager
 
 import (
 	"fmt"
