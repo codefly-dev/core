@@ -19,6 +19,18 @@
  ./scripts/build/generate.sh
 ```
 
+### Publish
+
+TODO: When needed, move to PR system for versioning
+
+```shell
+./scripts/publish/tag.sh
+```
+or
+```shell
+./scripts/publish/re_tag.sh
+```
+
 ### Tips for a Cool README:
 
 1. **Engaging Visuals**: Include badges for build status, code quality, etc., and consider adding a project logo or screenshots/gifs of your project in action.
