@@ -56,6 +56,7 @@ func LoadService(ctx context.Context, service *configurations.Service) (*basev1.
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to init service: %s", service.Name)
 	}
+	out.Agent = service.Agent.Proto()
 	out.Endpoints = init.Endpoints
 	return out, nil
 }
