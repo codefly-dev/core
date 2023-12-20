@@ -157,3 +157,7 @@ func (tracker *ActionTracker) GetActions(_ context.Context) ([]Action, error) {
 	}
 	return actions, nil
 }
+
+func SetActionTracker(actionTracker *ActionTracker) {
+	tracker = actionTracker
+}
