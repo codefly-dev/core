@@ -1,4 +1,4 @@
-package endpoints_test
+package configurations_test
 
 import "testing"
 

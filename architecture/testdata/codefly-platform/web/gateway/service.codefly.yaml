@@ -12,6 +12,12 @@ agent:
 dependencies:
     - name: organization
       application: management
-endpoints: []
+endpoints:
+    - name: rest
+      visibility: public
+      api: rest
+    - name: grpc
+      visibility: public
+      api: grpc
 spec:
     debug: false

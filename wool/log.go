@@ -186,3 +186,7 @@ func (l *Log) AtLevel(debug Loglevel) *Log {
 		Fields:  fields,
 	}
 }
+
+func (l *Log) String() string {
+	return fmt.Sprintf("[%s] %s %s", l.Header, l.Message, l.Fields)
+}

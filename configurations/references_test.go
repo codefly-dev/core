@@ -20,7 +20,7 @@ func TestParseServiceReference(t *testing.T) {
 		t.Run(tt.input, func(t *testing.T) {
 			ref, err := configurations.ParseServiceReference(tt.input)
 			assert.NoError(t, err)
-			assert.Equalf(t, tt.service, ref.Name, "ParseServiceReference(%v) Unique failed", tt.input)
+			assert.Equalf(t, tt.service, ref.Name, "ParseServiceReference(%v) MakeUnique failed", tt.input)
 			assert.Equalf(t, tt.application, ref.Application, "ParseServiceReference(%v) Application failed", tt.input)
 		})
 	}

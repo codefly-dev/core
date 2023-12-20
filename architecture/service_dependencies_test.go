@@ -9,16 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGraph(t *testing.T) {
+func TestServiceGraph(t *testing.T) {
 	ctx := context.Background()
 	ws := &configurations.Workspace{}
 	project, err := ws.LoadProjectFromDir(ctx, "testdata/codefly-platform")
 	assert.NoError(t, err)
 	assert.NotNil(t, project)
-	assert.Equal(t, 2, len(project.Applications))
-	g, err := architecture.NewDependencyGraph(ctx, project)
-	assert.NoError(t, err)
-	assert.NotNil(t, g)
 
 	// applications:
 	// management:
@@ -26,9 +22,17 @@ func TestGraph(t *testing.T) {
 	// web:
 	// - frontend -> gateway
 	// - gateway -> organization
-	assert.Equal(t, 3, len(g.ServiceDependencyGraph.Nodes()))
+	// billing
+	// - accounts
 
-	assert.Equal(t, 2, len(g.ServiceDependencyGraph.Edges()))
+	assert.Equal(t, 3, len(project.Applications))
+	g, err := architecture.LoadServiceGraph(ctx, project)
+	assert.NoError(t, err)
+	assert.NotNil(t, g)
+
+	assert.Equal(t, 4, len(g.Nodes()))
+
+	assert.Equal(t, 2, len(g.Edges()))
 
 	expectedWebEdge := &architecture.Edge{
 		From: "web/gateway", // is a dependency for
@@ -40,7 +44,7 @@ func TestGraph(t *testing.T) {
 	}
 	for _, expected := range []*architecture.Edge{expectedWebEdge, expectedManagementEdge} {
 		found := false
-		for _, edge := range g.ServiceDependencyGraph.Edges() {
+		for _, edge := range g.Edges() {
 			if edge.From == expected.From && edge.To == expected.To {
 				found = true
 			}

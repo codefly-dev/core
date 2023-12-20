@@ -62,6 +62,7 @@ func (w *Wool) process(l Loglevel, msg string, fields ...*LogField) {
 		}
 	}
 	log := &Log{Message: msg, Fields: fields, Header: w.Name(), Level: l}
+	log.Fields = append(log.Fields, w.fields...)
 
 	if WithTelemetry() {
 		w.span.AddEvent(LogEvent, log.Event())

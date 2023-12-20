@@ -59,6 +59,8 @@ func TestAddingExistingProjectDefaultRelativePath(t *testing.T) {
 	ctx := context.Background()
 	// Projects root is the workspace root
 	workspace, err := configurations.LoadWorkspaceFromDirUnsafe(ctx, "testdata/workspace")
+	workspace.ProjectsRoot = workspace.Dir()
+
 	assert.NoError(t, err)
 	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/workspace/project")
 	assert.Equal(t, "project", project.Name)
@@ -76,6 +78,7 @@ func TestAddingExistingProjectNonDefaultRelativePath(t *testing.T) {
 	// Projects root is the workspace root
 	workspace, err := configurations.LoadWorkspaceFromDirUnsafe(ctx, "testdata/workspace")
 	assert.NoError(t, err)
+	workspace.ProjectsRoot = workspace.Dir()
 	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/workspace/other_project")
 	assert.NoError(t, err)
 	assert.Equal(t, "codefly-platform", project.Name)

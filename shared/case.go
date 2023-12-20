@@ -60,7 +60,7 @@ func ToKebabCase(str string) string {
 }
 
 func ToDNSCase(s string) string {
-	// Unique is of the convention /app/service
+	// MakeUnique is of the convention /app/service
 	// For DNS we invert and follow a subdomain convention service-app
 	tokens := strings.Split(s, "/")
 	if len(tokens) == 1 {

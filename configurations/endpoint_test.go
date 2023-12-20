@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/codefly-dev/core/configurations/standards"
+
 	"github.com/codefly-dev/core/configurations"
 	"github.com/stretchr/testify/assert"
 )
@@ -29,16 +31,16 @@ func TestParsing(t *testing.T) {
 
 func TestUniqueAndBack(t *testing.T) {
 	unique := "app/svc/cool::rest"
-	e := &configurations.Endpoint{Name: "cool", API: configurations.Rest}
-	assert.Equal(t, unique, e.Unique("app", "svc"))
-	key := configurations.AsEndpointEnvironmentVariableKey("app", "svc", e)
+	e := &configurations.Endpoint{Name: "cool", API: standards.REST, Application: "app", Service: "svc"}
+	assert.Equal(t, unique, e.Unique())
+	key := configurations.AsEndpointEnvironmentVariableKey(e)
 	back, err := configurations.ParseEndpointEnvironmentVariableKey(key)
 	assert.NoError(t, err)
 	assert.Equal(t, unique, back)
 
-	unique = "app/svc::rest"
-	e = &configurations.Endpoint{Name: configurations.Rest, API: configurations.Rest}
-	key = configurations.AsEndpointEnvironmentVariableKey("app", "svc", e)
+	unique = "app/svc/rest"
+	e = &configurations.Endpoint{Name: standards.REST, API: standards.REST, Application: "app", Service: "svc"}
+	key = configurations.AsEndpointEnvironmentVariableKey(e)
 	back, err = configurations.ParseEndpointEnvironmentVariableKey(key)
 	assert.NoError(t, err)
 	assert.Equal(t, unique, back)
@@ -54,11 +56,11 @@ func TestLoadingFromDir(t *testing.T) {
 	var restFound bool
 	var grpcFound bool
 	for _, e := range conf.Endpoints {
-		if e.Name == configurations.Rest {
+		if e.Name == standards.REST {
 			restFound = true
-			assert.Equal(t, "project", e.Visibility)
+			assert.Equal(t, "application", e.Visibility)
 		}
-		if e.Name == configurations.Grpc {
+		if e.Name == standards.GRPC {
 			grpcFound = true
 			assert.Equal(t, "", e.Visibility)
 		}

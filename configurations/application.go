@@ -37,6 +37,10 @@ type Application struct {
 	activeService string
 }
 
+func (app *Application) Unique() string {
+	return app.Name
+}
+
 func (app *Application) Proto() *basev1.Application {
 	return &basev1.Application{
 		Name:        app.Name,
@@ -322,6 +326,41 @@ func (app *Application) DeleteService(ctx context.Context, name string) error {
 		return w.Wrapf(err, "cannot remove service directory")
 	}
 	return nil
+}
+
+const VisibilityPublic = "public"
+
+func (app *Application) PublicEndpoints(ctx context.Context) (*basev1.ApplicationEndpointGroup, error) {
+	w := wool.Get(ctx).In("Application::PublicEndpoints", wool.ThisField(app))
+	// Load services
+	services, err := app.LoadServices(ctx)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load services")
+	}
+	var groups []*basev1.ServiceEndpointGroup
+	for _, service := range services {
+		// Load groups
+		var publicEndpoints []*basev1.Endpoint
+		for _, endpoint := range service.Endpoints {
+			if endpoint.Visibility != VisibilityPublic {
+				continue
+			}
+			publicEndpoints = append(publicEndpoints, EndpointBaseProto(endpoint))
+		}
+		if len(publicEndpoints) == 0 {
+			continue
+		}
+		group := &basev1.ServiceEndpointGroup{
+			Name:      service.Unique(),
+			Public:    true,
+			Endpoints: publicEndpoints,
+		}
+		groups = append(groups, group)
+	}
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	return &basev1.ApplicationEndpointGroup{ServiceEndpointGroups: groups, Public: true, Name: app.Name}, nil
 }
 
 type NoApplicationError struct {

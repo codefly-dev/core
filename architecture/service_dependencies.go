@@ -12,23 +12,8 @@ import (
 Overview builds a dependency graph of the application and its services.
 */
 
-type DependencyGraph struct {
-	ServiceDependencyGraph *Graph
-}
-
-func NewDependencyGraph(ctx context.Context, project *configurations.Project) (*DependencyGraph, error) {
-	w := wool.Get(ctx).In("overview.NewDependencyGraph")
-	serviceGraph, err := LoadServiceGraph(ctx, project)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot load graph")
-	}
-	return &DependencyGraph{
-		ServiceDependencyGraph: serviceGraph,
-	}, nil
-}
-
 func LoadServiceGraph(ctx context.Context, project *configurations.Project) (*Graph, error) {
-	w := wool.Get(ctx).In("overview.LoadServiceGraph")
+	w := wool.Get(ctx).In("LoadServiceGraph")
 	graph := NewGraph(project.Name)
 	for _, appRef := range project.Applications {
 		app, err := project.LoadApplicationFromReference(ctx, appRef)

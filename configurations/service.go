@@ -3,8 +3,9 @@ package configurations
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
+
+	"github.com/codefly-dev/core/configurations/standards"
 
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
@@ -311,6 +312,10 @@ func (s *Service) postLoad(_ context.Context) error {
 			ref.Application = s.Application
 		}
 	}
+	for _, endpoint := range s.Endpoints {
+		endpoint.Application = s.Application
+		endpoint.Service = s.Name
+	}
 	return nil
 }
 
@@ -319,6 +324,10 @@ func (s *Service) preSave(_ context.Context) error {
 		if ref.Application == s.Application {
 			ref.Application = ""
 		}
+	}
+	for _, endpoint := range s.Endpoints {
+		endpoint.Application = ""
+		endpoint.Service = ""
 	}
 	return nil
 }
@@ -403,26 +412,6 @@ func (s *ServiceDependency) UpdateEndpoints(ctx context.Context, endpoints []*En
 	return nil
 }
 
-const (
-	Unknown = "unknown"
-	Grpc    = "grpc"
-	Rest    = "rest"
-	TCP     = "tcp"
-)
-
-var supportedAPI []string
-
-func init() {
-	supportedAPI = []string{Grpc, Rest, TCP}
-}
-
-func SupportedAPI(kind string) error {
-	if slices.Contains(supportedAPI, kind) {
-		return nil
-	}
-	return fmt.Errorf("unsupported api: %s", kind)
-}
-
 type ClientEntry struct {
 	Name string   `yaml:"name"`
 	APIs []string `yaml:"apis"`
@@ -430,7 +419,7 @@ type ClientEntry struct {
 
 func (c *ClientEntry) Validate() error {
 	for _, api := range c.APIs {
-		if err := SupportedAPI(api); err != nil {
+		if err := standards.SupportedAPI(api); err != nil {
 			return err
 		}
 	}

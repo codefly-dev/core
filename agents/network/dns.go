@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/codefly-dev/core/agents/endpoints"
+	"github.com/codefly-dev/core/configurations"
 
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 )
@@ -18,7 +18,7 @@ func ToDNS(e *basev1.Endpoint) string {
 func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
 	m := &ApplicationEndpointInstances{}
 	for _, e := range es {
-		port, err := endpoints.StandardPort(e.Endpoint.Api)
+		port, err := configurations.StandardPort(e.Endpoint.Api)
 		if err != nil {
 			return nil, err
 		}

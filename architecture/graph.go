@@ -1,5 +1,7 @@
 package architecture
 
+import observabilityv1 "github.com/codefly-dev/core/generated/go/observability/v1"
+
 type Graph struct {
 	Name  string
 	nodes map[string]bool
@@ -52,6 +54,21 @@ func (g *Graph) Edges() []Edge {
 		}
 	}
 	return edges
+}
+func ToGraphResponse(g *Graph) *observabilityv1.GraphResponse {
+	resp := &observabilityv1.GraphResponse{}
+	for _, node := range g.Nodes() {
+		resp.Nodes = append(resp.Nodes, &observabilityv1.GraphNode{
+			Id: node,
+		})
+	}
+	for _, edge := range g.Edges() {
+		resp.Edges = append(resp.Edges, &observabilityv1.GraphEdge{
+			From: edge.From,
+			To:   edge.To,
+		})
+	}
+	return resp
 }
 
 func (g *Graph) TopologicalSort() []string {

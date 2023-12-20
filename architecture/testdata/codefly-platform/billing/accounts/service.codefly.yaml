@@ -1,7 +1,7 @@
 kind: service
-name: organization
+name: accounts
 version: 0.0.0
-application: management
+application: billing
 namespace: default
 domain: github.com/codefly-ai/codefly-platform/management/organization
 agent:
@@ -14,7 +14,7 @@ endpoints:
     - name: grpc
       api: grpc
     - name: rest
-      visibility: application
+      visibility: public
       api: rest
 spec:
     create-rest-endpoint: true

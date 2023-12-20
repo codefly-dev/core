@@ -15,7 +15,7 @@ endpoints:
     api: grpc
   - name: rest
     api: rest
-    scope: project
+    visibility: application
 spec:
   create-rest-endpoint: true
   debug: false

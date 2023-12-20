@@ -11,7 +11,10 @@ agent:
     publisher: codefly.ai
 dependencies:
     - name: gateway
-endpoints: []
+endpoints:
+    - name: http
+      visibility: public
+      api: http
 spec:
     debug: false
     watch: true

@@ -1,4 +1,4 @@
-package endpoints
+package configurations
 
 import (
 	"bytes"
@@ -9,7 +9,6 @@ import (
 	"github.com/yoheimuta/go-protoparser/v4"
 	"github.com/yoheimuta/go-protoparser/v4/parser"
 
-	"github.com/codefly-dev/core/configurations"
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
@@ -17,13 +16,13 @@ import (
 	openapispec "github.com/go-openapi/spec"
 )
 
-func WithAPI(ctx context.Context, endpoint *configurations.Endpoint, source APISource) (*basev1.Endpoint, error) {
+func WithAPI(ctx context.Context, endpoint *Endpoint, source APISource) (*basev1.Endpoint, error) {
 	w := wool.Get(ctx).In("endpoints.WithAPI")
 	api, err := source.Proto()
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create grpc api: %v")
 	}
-	base := BaseProto(endpoint)
+	base := EndpointBaseProto(endpoint)
 	base.Api = api
 	return base, nil
 }
@@ -38,7 +37,7 @@ type GrpcAPI struct {
 	rpcs     []*basev1.RPC
 }
 
-func NewGrpcAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
+func NewGrpcAPI(ctx context.Context, endpoint *Endpoint, filename string) (*basev1.Endpoint, error) {
 	// Read the file content
 	content, err := os.ReadFile(filename)
 	if err != nil {
@@ -85,7 +84,7 @@ type RestAPI struct {
 	routes   []*basev1.RestRoute
 }
 
-func NewRestAPI(ctx context.Context, endpoint *configurations.Endpoint) (*basev1.Endpoint, error) {
+func NewRestAPI(ctx context.Context, endpoint *Endpoint) (*basev1.Endpoint, error) {
 	return WithAPI(ctx, endpoint, &RestAPI{})
 }
 
@@ -103,7 +102,7 @@ func (rest *RestAPI) Proto() (*basev1.API, error) {
 	return api, nil
 }
 
-func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *configurations.Endpoint, filename string) (*basev1.Endpoint, error) {
+func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *Endpoint, filename string) (*basev1.Endpoint, error) {
 	w := wool.Get(ctx).In("endpoints.NewRestAPIFromOpenAPI")
 	if !shared.FileExists(filename) {
 		return nil, w.NewError("file does not exist: %s", filename)

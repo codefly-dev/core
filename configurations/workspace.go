@@ -101,7 +101,7 @@ func LoadWorkspace(ctx context.Context) (*Workspace, error) {
 		return workspace, nil
 	}
 	w := wool.Get(ctx).In("configurations.LoadWorkspace")
-	w.Trace("loading active workspace in %s", wool.DirField(WorkspaceConfigurationDir()))
+	w.Trace("loading active", wool.DirField(WorkspaceConfigurationDir()))
 	dir := WorkspaceConfigurationDir()
 	return LoadWorkspaceFromDirUnsafe(ctx, dir)
 }
@@ -120,7 +120,6 @@ func LoadWorkspaceFromDirUnsafe(ctx context.Context, dir string) (*Workspace, er
 		return nil, w.Wrapf(err, "cannot load Workspace configuration")
 	}
 	workspace.dir = dir
-	workspace.ProjectsRoot = dir
 	err = workspace.postLoad(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot post load Workspace configuration")

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/codefly-dev/core/configurations/standards"
+
 	"github.com/codefly-dev/core/configurations"
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 )
@@ -67,11 +69,11 @@ func ToEndpoint(endpoint *basev1.Endpoint) *configurations.Endpoint {
 	var api string
 	switch endpoint.Api.Value.(type) {
 	case *basev1.API_Grpc:
-		api = configurations.Grpc
+		api = standards.GRPC
 	case *basev1.API_Rest:
-		api = configurations.Rest
+		api = standards.REST
 	case *basev1.API_Tcp:
-		api = configurations.TCP
+		api = standards.TCP
 	}
 	return &configurations.Endpoint{
 		Name:        endpoint.Name,
@@ -81,7 +83,7 @@ func ToEndpoint(endpoint *basev1.Endpoint) *configurations.Endpoint {
 }
 
 func ToUnique(endpoint *basev1.Endpoint) string {
-	return ToEndpoint(endpoint).Unique(endpoint.Application, endpoint.Service)
+	return ToEndpoint(endpoint).Unique()
 }
 
 type Address struct {

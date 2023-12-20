@@ -1,7 +1,6 @@
 package network
 
 import (
-	"github.com/codefly-dev/core/agents/endpoints"
 	"github.com/codefly-dev/core/configurations"
 	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
 )
@@ -10,11 +9,11 @@ import (
 func ConvertToEnvironmentVariables(nets []*runtimev1.NetworkMapping) ([]string, error) {
 	var envs []string
 	for _, net := range nets {
-		e, err := endpoints.FromProtoEndpoint(net.Endpoint)
+		e, err := configurations.FromProtoEndpoint(net.Endpoint)
 		if err != nil {
 			return nil, err
 		}
-		envs = append(envs, configurations.AsEndpointEnvironmentVariable(net.Application, net.Service, e, net.Addresses))
+		envs = append(envs, configurations.AsEndpointEnvironmentVariable(e, net.Addresses))
 	}
 	return envs, nil
 }

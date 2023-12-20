@@ -79,7 +79,7 @@ func (t *SingleTracker) Stop() {
 //				if req.State == services.RestartWanted {
 //					logger.Debugf("runtime wants to restart")
 //					events <- ServiceEvent{
-//						Unique: t.Tracked.Unique(),
+//						MakeUnique: t.Tracked.MakeUnique(),
 //						Event:  "RestartWanted",
 //					}
 //					t.Lock()
@@ -150,14 +150,14 @@ func (t *SingleTracker) Stop() {
 //
 //func (t *ServiceTracker) OnHold(service *configurations.Agent, runtime services.Runtime) error {
 //	logger := shared.NewLogger().With("monitoring.ServiceTracker.OnHold<%s>", service.Name)
-//	tracker := &RestartTracker{unique: service.Unique(), runtime: runtime}
+//	tracker := &RestartTracker{unique: service.MakeUnique(), runtime: runtime}
 //	// Start errors first or start working in a non-blocking way
 //	err := tracker.Start(t.events)
 //	if err != nil {
 //		return logger.Wrap(err, "cannot start on-hold")
 //	}
 //	t.Lock()
-//	t.active[service.Unique()] = tracker
+//	t.active[service.MakeUnique()] = tracker
 //	t.Unlock()
 //	return nil
 //}
@@ -177,8 +177,8 @@ func (t *SingleTracker) Stop() {
 //		return logger.Wrap(err, "cannot start tracker")
 //	}
 //	t.Lock()
-//	t.trackers[service.Unique()] = &runtime.TrackerList{Trackers: trackers}
-//	t.active[service.Unique()] = tracker
+//	t.trackers[service.MakeUnique()] = &runtime.TrackerList{Trackers: trackers}
+//	t.active[service.MakeUnique()] = tracker
 //	t.Unlock()
 //	return nil
 //}
@@ -186,7 +186,7 @@ func (t *SingleTracker) Stop() {
 //func (t *ServiceTracker) Untrack(service *configurations.Agent) error {
 //	t.Lock()
 //	defer t.Unlock()
-//	unique := service.Unique()
+//	unique := service.MakeUnique()
 //	if v, ok := t.active[unique]; ok {
 //		v.Stop()
 //	}

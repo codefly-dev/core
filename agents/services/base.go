@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/codefly-dev/core/configurations/standards"
+
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/agents/communicate"
-	"github.com/codefly-dev/core/agents/endpoints"
 	"github.com/codefly-dev/core/agents/helpers/code"
 
 	"github.com/codefly-dev/core/agents"
@@ -125,7 +126,7 @@ func (s *Base) CreateResponse(ctx context.Context, settings any, eps ...*basev1.
 	if err != nil {
 		return s.CreateResponseError(err)
 	}
-	s.Configuration.Endpoints, err = endpoints.FromProtoEndpoints(eps...)
+	s.Configuration.Endpoints, err = configurations.FromProtoEndpoints(eps...)
 	if err != nil {
 		return s.CreateResponseError(err)
 	}
@@ -200,16 +201,16 @@ func (s *Base) Errorf(format string, args ...any) error {
 func (s *Base) EndpointsFromConfiguration(ctx context.Context) ([]*basev1.Endpoint, error) {
 	var eps []*basev1.Endpoint
 	for _, e := range s.Configuration.Endpoints {
-		if e.API == configurations.Grpc {
-			endpoint, err := endpoints.NewGrpcAPI(ctx, e, s.Local("api.proto"))
+		if e.API == standards.GRPC {
+			endpoint, err := configurations.NewGrpcAPI(ctx, e, s.Local("api.proto"))
 			if err != nil {
 				return nil, s.Wool.Wrapf(err, "cannot create grpc api")
 			}
 			eps = append(eps, endpoint)
 			continue
 		}
-		if e.API == configurations.Rest {
-			endpoint, err := endpoints.NewRestAPIFromOpenAPI(ctx, e, s.Local("api.swagger.json"))
+		if e.API == standards.REST {
+			endpoint, err := configurations.NewRestAPIFromOpenAPI(ctx, e, s.Local("api.swagger.json"))
 			if err != nil {
 				return nil, s.Wool.Wrapf(err, "cannot create grpc api")
 			}
