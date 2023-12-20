@@ -141,17 +141,17 @@ func (s *Base) CreateResponse(ctx context.Context, settings any, eps ...*basev1.
 
 // Factory
 
-func (s *Base) FactoryInitResponse(es []*basev1.Endpoint, readme string) (*factoryv1.InitResponse, error) {
+func (s *Base) FactoryInitResponse(es []*basev1.Endpoint, gettingStarted string) (*factoryv1.InitResponse, error) {
 	for _, e := range es {
 		e.Application = s.Identity.Application
 		e.Service = s.Identity.Name
 		e.Namespace = s.Identity.Namespace
 	}
 	return &factoryv1.InitResponse{
-		Version:   s.Version(),
-		Endpoints: es,
-		ReadMe:    readme,
-		Status:    &factoryv1.InitStatus{State: factoryv1.InitStatus_READY},
+		Version:        s.Version(),
+		Endpoints:      es,
+		GettingStarted: gettingStarted,
+		Status:         &factoryv1.InitStatus{State: factoryv1.InitStatus_READY},
 	}, nil
 }
 
