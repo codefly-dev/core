@@ -218,8 +218,8 @@ func (workspace *Workspace) Save(ctx context.Context) error {
 }
 
 func IsInitialized(ctx context.Context) (bool, error) {
-	c := wool.Get(ctx)
-	c.Info("checking if workspace is initialized")
+	w := wool.Get(ctx)
+	w.Info("checking if workspace is initialized")
 	return shared.DirectoryExists(WorkspaceConfigurationDir()), nil
 }
 

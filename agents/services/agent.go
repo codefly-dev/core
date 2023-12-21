@@ -33,8 +33,9 @@ func (m ServiceAgentContext) Default() plugin.Plugin {
 var _ manager.AgentContext = ServiceAgentContext{}
 
 type ServiceAgent struct {
-	client agentv1.AgentClient
-	agent  *configurations.Agent
+	client  agentv1.AgentClient
+	agent   *configurations.Agent
+	process *manager.ProcessInfo
 }
 
 // GetAgentInformation provides
@@ -80,7 +81,7 @@ func LoadAgent(ctx context.Context, agent *configurations.Agent) (*ServiceAgent,
 			return nil, w.Wrap(err)
 		}
 	}
-	loaded, err := manager.Load[ServiceAgentContext, ServiceAgent](
+	loaded, process, err := manager.Load[ServiceAgentContext, ServiceAgent](
 		ctx,
 		agent.Of(configurations.ServiceAgent),
 		agent.Unique())
@@ -88,6 +89,7 @@ func LoadAgent(ctx context.Context, agent *configurations.Agent) (*ServiceAgent,
 		return nil, w.Wrap(err)
 	}
 	loaded.agent = agent
+	loaded.process = process
 	return loaded, nil
 }
 

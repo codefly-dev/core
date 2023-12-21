@@ -8,7 +8,7 @@ import (
 )
 
 func TestFields(t *testing.T) {
-	field := wool.InfoField("key", "string")
+	field := wool.Field("key", "string").Debug()
 	log := wool.Log{
 		Message: "message",
 		Fields:  []*wool.LogField{field},
@@ -16,7 +16,7 @@ func TestFields(t *testing.T) {
 	debug := log.AtLevel(wool.DEBUG)
 	assert.Equal(t, 1, len(debug.Fields))
 
-	field = wool.DebugField("key", "string")
+	field = wool.Field("key", "string").Debug()
 	log = wool.Log{
 		Message: "message",
 		Fields:  []*wool.LogField{field},

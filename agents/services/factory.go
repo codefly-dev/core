@@ -47,8 +47,9 @@ type Factory interface {
 }
 
 type FactoryAgent struct {
-	client factoryv1.FactoryClient
-	agent  *configurations.Agent
+	client  factoryv1.FactoryClient
+	agent   *configurations.Agent
+	process *manager.ProcessInfo
 }
 
 func (m FactoryAgent) Init(ctx context.Context, req *factoryv1.InitRequest) (*factoryv1.InitResponse, error) {
@@ -136,11 +137,12 @@ func LoadFactory(ctx context.Context, conf *configurations.Service) (*FactoryAge
 	if conf.Agent == nil {
 		return nil, w.NewError("agent cannot be nil")
 	}
-	factory, err := manager.Load[ServiceFactoryAgentContext, FactoryAgent](ctx, conf.Agent.Of(configurations.FactoryServiceAgent), conf.Unique())
+	factory, process, err := manager.Load[ServiceFactoryAgentContext, FactoryAgent](ctx, conf.Agent.Of(configurations.FactoryServiceAgent), conf.Unique())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load service factory conf")
 	}
 	factory.agent = conf.Agent
+	factory.process = process
 	return factory, nil
 }
 

@@ -20,30 +20,62 @@ func RequireExec(bins ...string) ([]string, bool) {
 	return missing, len(missing) == 0
 }
 
-func WrapStart(cmd *exec.Cmd, writer io.Writer) error {
-	stdout, err := cmd.StdoutPipe()
+type Event struct {
+	Err     error
+	Message string
+}
+
+type WrappedCmd struct {
+	cmd    *exec.Cmd
+	writer io.Writer
+}
+
+func NewWrappedCmd(cmd *exec.Cmd, writer io.Writer) (*WrappedCmd, error) {
+	w := &WrappedCmd{
+		cmd:    cmd,
+		writer: writer,
+	}
+	return w, nil
+}
+
+type WrappedCmdOutput struct {
+	PID    int
+	Events chan Event
+}
+
+func (run *WrappedCmd) Start() (*WrappedCmdOutput, error) {
+	stdout, err := run.cmd.StdoutPipe()
 	if err != nil {
-		return errors.Wrap(err, "cannot create stdout pipe")
+		return nil, errors.Wrap(err, "cannot create stdout pipe")
 	}
 
-	stderr, err := cmd.StderrPipe()
+	stderr, err := run.cmd.StderrPipe()
 	if err != nil {
-		return errors.Wrap(err, "cannot create stderr pipe")
+		return nil, errors.Wrap(err, "cannot create stderr pipe")
 	}
 
-	go ForwardLogs(stdout, writer)
+	events := make(chan Event, 1)
+	out := &WrappedCmdOutput{Events: events}
+	go ForwardLogs(stdout, run.writer)
 
 	//	catch the error
 	var b bytes.Buffer
 	w := bufio.NewWriter(&b)
 	go ForwardLogs(stderr, w)
 
-	err = cmd.Start()
+	err = run.cmd.Start()
 	if err != nil {
-		w.Flush()
-		return errors.Wrapf(err, "cannot run command: %s", b.String())
+		return nil, errors.Wrap(err, "cannot start command")
 	}
-	return nil
+	out.PID = run.cmd.Process.Pid
+	go func() {
+		err := run.cmd.Wait()
+		if err != nil {
+			out.Events <- Event{Err: err, Message: b.String()}
+			return
+		}
+	}()
+	return out, nil
 }
 
 func ForwardLogs(r io.ReadCloser, w io.Writer) {

@@ -85,7 +85,7 @@ func (s *Base) Init(ctx context.Context, identity *basev1.ServiceIdentity, setti
 
 	s.Wool = s.Provider.Get(ctx)
 
-	ctx = s.Wool.Context()
+	ctx = s.Wool.Inject(ctx)
 
 	s.Location = identity.Location
 
@@ -184,6 +184,32 @@ func (s *Base) RuntimeInitResponse(endpoints []*basev1.Endpoint) (*runtimev1.Ini
 func (s *Base) RuntimeInitResponseError(err error) (*runtimev1.InitResponse, error) {
 	return &runtimev1.InitResponse{
 		Status: &runtimev1.InitStatus{State: runtimev1.InitStatus_ERROR, Message: err.Error()},
+	}, nil
+}
+
+func (s *Base) RuntimeConfigureResponse(nms []*runtimev1.NetworkMapping) (*runtimev1.ConfigureResponse, error) {
+	return &runtimev1.ConfigureResponse{
+		Status:          &runtimev1.ConfigureStatus{State: runtimev1.ConfigureStatus_READY},
+		NetworkMappings: nms,
+	}, nil
+}
+
+func (s *Base) RuntimeConfigureResponseError(err error, _ ...*wool.LogField) (*runtimev1.ConfigureResponse, error) {
+	return &runtimev1.ConfigureResponse{
+		Status: &runtimev1.ConfigureStatus{State: runtimev1.ConfigureStatus_ERROR, Message: err.Error()},
+	}, nil
+}
+
+func (s *Base) RuntimeStartResponse(trackers []*runtimev1.Tracker) (*runtimev1.StartResponse, error) {
+	return &runtimev1.StartResponse{
+		Status:   &runtimev1.StartStatus{State: runtimev1.StartStatus_STARTED},
+		Trackers: trackers,
+	}, nil
+}
+
+func (s *Base) RuntimeStartResponseError(err error, _ ...*wool.LogField) (*runtimev1.StartResponse, error) {
+	return &runtimev1.StartResponse{
+		Status: &runtimev1.StartStatus{State: runtimev1.StartStatus_ERROR, Message: err.Error()},
 	}, nil
 }
 

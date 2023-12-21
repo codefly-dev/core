@@ -3,11 +3,9 @@ package golang
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 
-	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/shared"
@@ -20,13 +18,12 @@ type Runner struct {
 	Envs  []string
 	Debug bool
 
-	ForwardLogger io.Writer
-
-	Cmd   *exec.Cmd
 	clean func()
 
 	// internal
 	killed bool
+	target string
+	cmd    *exec.Cmd
 }
 
 func (g *Runner) Init(ctx context.Context) error {
@@ -46,19 +43,29 @@ func (g *Runner) Init(ctx context.Context) error {
 	return nil
 }
 
-func (g *Runner) Run(ctx context.Context) (*services.TrackedProcess, error) {
+func (g *Runner) Run(ctx context.Context) (*shared.WrappedCmdOutput, error) {
 	w := wool.Get(ctx).In("GoRunner")
+	w.Debug("in runner")
+	// #nosec G204
+	cmd := exec.CommandContext(ctx, g.target)
+	g.cmd = cmd
+	cmd.Dir = g.Dir
 	// Setup variables once
-	g.Cmd.Env = g.Envs
+	cmd.Env = g.Envs
 
-	err := shared.WrapStart(g.Cmd, g.ForwardLogger)
+	run, err := shared.NewWrappedCmd(cmd, w)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot wrap execution of cmd")
+		return nil, w.Wrapf(err, "cannot create wrapped command")
 	}
+	out, err := run.Start()
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot start command")
+	}
+
 	if g.killed {
-		return &services.TrackedProcess{PID: g.Cmd.Process.Pid, Killed: true}, nil
+		return out, nil
 	}
-	return &services.TrackedProcess{PID: g.Cmd.Process.Pid}, nil
+	return out, nil
 }
 
 func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
@@ -82,9 +89,7 @@ func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
 		output := fmt.Errorf(string(out))
 		return nil, output
 	}
-	cmd = exec.CommandContext(ctx, target)
-	cmd.Dir = g.Dir
-	g.Cmd = cmd
+
 	return clean, nil
 }
 
@@ -93,12 +98,12 @@ func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
 	w.Info("building binary in debug mode")
 	// Build with debug options
 	tmp := os.TempDir()
-	target := fmt.Sprintf("%s/main", tmp)
+	g.target = fmt.Sprintf("%s/main", tmp)
 	clean := func() {
-		_ = os.Remove(target)
+		_ = os.Remove(g.target)
 	}
 
-	args := []string{"build", "-o", target}
+	args := []string{"build", "-o", g.target}
 	args = append(args, g.Args...)
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = g.Dir
@@ -110,9 +115,6 @@ func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
 	}
 	w.Info("built", wool.StatusOK())
 
-	cmd = exec.CommandContext(ctx, target)
-	cmd.Dir = g.Dir
-	g.Cmd = cmd
 	return clean, nil
 }
 
@@ -125,9 +127,12 @@ func (g *Runner) Kill(ctx context.Context) error {
 	if g.clean != nil {
 		g.clean()
 	}
-	err := g.Cmd.Process.Kill()
+	if g.cmd == nil {
+		return nil
+	}
+	err := g.cmd.Process.Kill()
 	if err != nil {
-		err = g.Cmd.Wait()
+		err = g.cmd.Wait()
 		if err != nil {
 			return w.Wrapf(err, "cannot wait for process to die")
 		}

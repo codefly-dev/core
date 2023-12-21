@@ -2,6 +2,7 @@ package agents
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/codefly-dev/core/wool"
@@ -49,33 +50,33 @@ type HCLogMessageIn struct {
 }
 
 func (h *ClientLogHandler) Write(p []byte) (n int, err error) {
+	fmt.Println("GOT", string(p))
 	// We assume that the log is in JSON format
 	msg := &HCLogMessageIn{}
 	err = json.Unmarshal(p, msg)
 	if err != nil {
+		h.process(wool.LogError(err, "unmarshalling in message"), wool.System())
 		return 0, err
 	}
 	// message is a JSON representation of a wool.Log
+	// other messages come from the plugin framework
 	var log HCLogMessageOut
 	err = json.Unmarshal([]byte(msg.Message), &log)
 	if err != nil {
+		h.process(wool.LogTrace(msg.Message), wool.System())
 		return 0, err
 	}
 	// Drop non-wool logs
 	if msg.Message == "" {
 		return 0, nil
 	}
-	err = h.process(log.Log, log.Source)
-	if err != nil {
-		return 0, err
-	}
-
+	h.process(log.Log, log.Source)
 	return len(p), nil
 }
 
-func (h *ClientLogHandler) process(log *wool.Log, identifier *wool.Identifier) error {
+func (h *ClientLogHandler) process(log *wool.Log, identifier *wool.Identifier) {
+	log.Header = identifier.Unique
 	for _, processor := range h.processors {
 		processor.ProcessWithSource(log, identifier)
 	}
-	return nil
 }

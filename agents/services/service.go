@@ -73,7 +73,7 @@ func (instance *RuntimeInstance) Init(ctx context.Context) (*runtimev1.InitRespo
 
 func Load(ctx context.Context, service *configurations.Service) (*ServiceInstance, error) {
 	w := wool.Get(ctx).In("services.Load", wool.Field("service", service.Name))
-	agent, err := manager.Load[ServiceAgentContext, ServiceAgent](ctx, service.Agent, service.Unique())
+	agent, _, err := manager.Load[ServiceAgentContext, ServiceAgent](ctx, service.Agent, service.Unique())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load service agent")
 	}

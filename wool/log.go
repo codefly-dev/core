@@ -15,6 +15,20 @@ type LogProcessorWithSource interface {
 	ProcessWithSource(msg *Log, source *Identifier)
 }
 
+var system *Identifier
+
+func init() {
+	system = &Identifier{Kind: "system", Unique: "wool:system"}
+}
+
+func System() *Identifier {
+	return system
+}
+
+func (identifier *Identifier) IsSystem() bool {
+	return identifier.Unique == "wool:system"
+}
+
 /*
 
 This is how open-telemetry view logs
@@ -25,6 +39,72 @@ attribute.Int("someIntValue", 42),
 attribute.String("severityText", "INFO"),
 ))
 */
+
+type Log struct {
+	Level   Loglevel    `json:"level"`
+	Header  string      `json:"header"`
+	Message string      `json:"message"`
+	Fields  []*LogField `json:"fields"`
+}
+
+func eventOption(f *LogField) attribute.KeyValue {
+	switch f.Value.(type) {
+	case string:
+		return attribute.String(f.Key, f.Value.(string))
+	case int:
+		return attribute.Int(f.Key, f.Value.(int))
+	case int64:
+		return attribute.Int64(f.Key, f.Value.(int64))
+	case float64:
+		return attribute.Float64(f.Key, f.Value.(float64))
+	case bool:
+		return attribute.Bool(f.Key, f.Value.(bool))
+	default:
+		return attribute.String(f.Key, "unknown")
+	}
+}
+
+func (l *Log) Event() trace.SpanStartEventOption {
+	var attrs []attribute.KeyValue
+	for _, f := range l.Fields {
+		attrs = append(attrs, eventOption(f))
+	}
+	return trace.WithAttributes(attrs...)
+}
+
+func (l *Log) AtLevel(debug Loglevel) *Log {
+	var fields []*LogField
+	for _, f := range l.Fields {
+		if f.Level >= debug {
+			fields = append(fields, f)
+		}
+	}
+	return &Log{
+		Message: l.Message,
+		Fields:  fields,
+	}
+}
+
+func (l *Log) String() string {
+	// We treat the "this" field differently
+	var this *LogField
+	var fields []*LogField
+	for _, f := range l.Fields {
+		if f.Key == "this" {
+			this = f
+			continue
+		}
+		fields = append(fields, f)
+	}
+	header := l.Header
+	if this != nil {
+		header = fmt.Sprintf("%s|%s", header, this.Value)
+	}
+	if len(fields) == 0 {
+		return fmt.Sprintf("(%s) %s", header, l.Message)
+	}
+	return fmt.Sprintf("(%s) %s %s", header, l.Message, l.Fields)
+}
 
 // LogField is a key value pair with a log level
 // A Field is shown only if the log level is equal or higher than the log level of the log
@@ -50,26 +130,29 @@ const (
 	FATAL
 )
 
-// DEFAULT will inherit its level from the statement
-
-func TraceField(key string, value string) *LogField {
-	return &LogField{Key: key, Value: value, Level: TRACE}
+func (f *LogField) Debug() *LogField {
+	f.Level = DEBUG
+	return f
 }
 
-func DebugField(key string, value string) *LogField {
-	return &LogField{Key: key, Value: value, Level: DEBUG}
+func (f *LogField) Trace() *LogField {
+	f.Level = TRACE
+	return f
 }
 
-func InfoField(key string, value any) *LogField {
-	return &LogField{Key: key, Value: value, Level: INFO}
+func (f *LogField) Error() *LogField {
+	f.Level = ERROR
+	return f
 }
 
-func WarnField(key string, value any) *LogField {
-	return &LogField{Key: key, Value: value, Level: WARN}
+func LogTrace(msg string, fields ...*LogField) *Log {
+	return &Log{Message: msg, Fields: fields, Level: TRACE}
 }
 
-func ErrorField(s string, value any) *LogField {
-	return &LogField{Key: s, Value: value, Level: ERROR}
+func LogError(err error, msg string, fields ...*LogField) *Log {
+	log := &Log{Message: msg, Fields: fields, Level: ERROR}
+	log.Fields = append(log.Fields, ErrField(err))
+	return log
 }
 
 // Field with default level
@@ -114,6 +197,10 @@ func RequestField(req any) *LogField {
 	return &LogField{Key: "request", Value: req}
 }
 
+func ResponseField(req any) *LogField {
+	return &LogField{Key: "response", Value: req}
+}
+
 func FileField(file string) *LogField {
 	return &LogField{Key: "file", Value: file}
 }
@@ -140,53 +227,4 @@ func StatusOK() *LogField {
 
 func StatusFailed() *LogField {
 	return &LogField{Key: "status", Value: "FAILED"}
-}
-
-type Log struct {
-	Level   Loglevel    `json:"level"`
-	Message string      `json:"message"`
-	Header  string      `json:"header"`
-	Fields  []*LogField `json:"fields"`
-}
-
-func eventOption(f *LogField) attribute.KeyValue {
-	switch f.Value.(type) {
-	case string:
-		return attribute.String(f.Key, f.Value.(string))
-	case int:
-		return attribute.Int(f.Key, f.Value.(int))
-	case int64:
-		return attribute.Int64(f.Key, f.Value.(int64))
-	case float64:
-		return attribute.Float64(f.Key, f.Value.(float64))
-	case bool:
-		return attribute.Bool(f.Key, f.Value.(bool))
-	default:
-		return attribute.String(f.Key, "unknown")
-	}
-}
-
-func (l *Log) Event() trace.SpanStartEventOption {
-	var attrs []attribute.KeyValue
-	for _, f := range l.Fields {
-		attrs = append(attrs, eventOption(f))
-	}
-	return trace.WithAttributes(attrs...)
-}
-
-func (l *Log) AtLevel(debug Loglevel) *Log {
-	var fields []*LogField
-	for _, f := range l.Fields {
-		if f.Level >= debug {
-			fields = append(fields, f)
-		}
-	}
-	return &Log{
-		Message: l.Message,
-		Fields:  fields,
-	}
-}
-
-func (l *Log) String() string {
-	return fmt.Sprintf("[%s] %s %s", l.Header, l.Message, l.Fields)
 }

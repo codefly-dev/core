@@ -27,7 +27,14 @@ type Wool struct {
 	logger LogProcessor
 }
 
-type Otel interface {
+func Writer() *LogField {
+	return &LogField{Key: "writer"}
+}
+
+// Writer implements the io.Writer interface
+func (w *Wool) Write(p []byte) (n int, err error) {
+	w.With(Writer()).Info(string(p))
+	return len(p), nil
 }
 
 func (w *Wool) In(method string, fields ...*LogField) *Wool {
@@ -43,8 +50,8 @@ func (w *Wool) With(fields ...*LogField) *Wool {
 	return w
 }
 
-func (w *Wool) Context() context.Context {
-	return w.ctx
+func (w *Wool) Inject(ctx context.Context) context.Context {
+	return w.provider.WithContext(ctx)
 }
 
 // Catch recovers from a panic and logs the error
@@ -55,13 +62,20 @@ func (w *Wool) Catch() {
 	}
 }
 
-func (w *Wool) process(l Loglevel, msg string, fields ...*LogField) {
-	for _, f := range fields {
+func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
+	for _, f := range fs {
 		if f.Level == DEFAULT {
 			f.Level = l
 		}
 	}
-	log := &Log{Message: msg, Fields: fields, Header: w.Name(), Level: l}
+	var fields []*LogField
+	for _, f := range fs {
+		if f.Level >= l {
+			fields = append(fields, f)
+		}
+	}
+
+	log := &Log{Message: msg, Header: w.Name(), Fields: fields, Level: l}
 	log.Fields = append(log.Fields, w.fields...)
 
 	if WithTelemetry() {
@@ -118,6 +132,10 @@ func (w *Wool) Close() {
 	if w.span != nil {
 		w.span.End()
 	}
+}
+
+func (w *Wool) Source() *Identifier {
+	return w.source
 }
 
 func (w *Wool) NewError(format string, args ...any) error {

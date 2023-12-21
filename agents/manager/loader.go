@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"os/exec"
+	"strconv"
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/wool"
@@ -36,16 +37,18 @@ func Cleanup(unique string) {
 	}
 }
 
-// Name is what the agent will be identified as: for clean up
+type ProcessInfo struct {
+	PID int
+}
 
-func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.Agent, unique string) (*Instance, error) {
+func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.Agent, unique string) (*Instance, *ProcessInfo, error) {
 	w := wool.Get(ctx).In("agents.Load", wool.Field("agent", p.Identifier()))
 	if p == nil {
-		return nil, w.NewError("agent cannot be nil")
+		return nil, nil, w.NewError("agent cannot be nil")
 	}
 	bin, err := p.Path()
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot compute agent path")
+		return nil, nil, w.Wrapf(err, "cannot compute agent path")
 	}
 
 	w.Trace("local", wool.Field("path", bin))
@@ -53,7 +56,7 @@ func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.A
 	if _, err := exec.LookPath(bin); err != nil {
 		err := Download(ctx, p)
 		if err != nil {
-			return nil, w.Wrapf(err, "cannot download")
+			return nil, nil, w.Wrapf(err, "cannot download")
 		}
 	}
 	w.Trace("loading", wool.Field("path", bin))
@@ -75,16 +78,21 @@ func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.A
 	// Connect via gRPC
 	grpcClient, err := client.Client()
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot connect to gRPC client")
+		return nil, nil, w.Wrapf(err, "cannot connect to gRPC client")
 	}
+
 	// Request the platform
 	raw, err := grpcClient.Dispense(this.Key(p, unique))
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot dispense agent")
+		return nil, nil, w.Wrapf(err, "cannot dispense agent")
 	}
 	u := raw.(*Instance)
 	if u == nil {
-		return nil, w.NewError("cannot cast agent")
+		return nil, nil, w.NewError("cannot cast agent")
 	}
-	return u, nil
+	var proc *ProcessInfo
+	if pid, err := strconv.Atoi(client.ID()); err == nil {
+		proc = &ProcessInfo{PID: pid}
+	}
+	return u, proc, nil
 }

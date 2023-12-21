@@ -49,8 +49,9 @@ type Runtime interface {
 }
 
 type RuntimeAgent struct {
-	client runtimev1.RuntimeClient
-	agent  *configurations.Agent
+	client  runtimev1.RuntimeClient
+	agent   *configurations.Agent
+	process *manager.ProcessInfo
 }
 
 // Configure documents things
@@ -157,7 +158,7 @@ func LoadRuntime(ctx context.Context, service *configurations.Service) (*Runtime
 	if service == nil || service.Agent == nil {
 		return nil, w.NewError("agent cannot be nil")
 	}
-	runtime, err := manager.Load[ServiceRuntimeAgentContext, RuntimeAgent](
+	runtime, process, err := manager.Load[ServiceRuntimeAgentContext, RuntimeAgent](
 		ctx,
 		service.Agent.Of(configurations.RuntimeServiceAgent),
 		service.Unique())
@@ -165,6 +166,9 @@ func LoadRuntime(ctx context.Context, service *configurations.Service) (*Runtime
 		return nil, w.Wrapf(err, "cannot load service runtime agent")
 	}
 	runtime.agent = service.Agent
+	runtime.process = process
+	fmt.Println("PID", process.PID)
+	w.Info("loader runtime", wool.Field("pid", process.PID))
 	return runtime, nil
 }
 
