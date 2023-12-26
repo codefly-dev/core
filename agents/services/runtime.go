@@ -167,8 +167,6 @@ func LoadRuntime(ctx context.Context, service *configurations.Service) (*Runtime
 	}
 	runtime.agent = service.Agent
 	runtime.process = process
-	fmt.Println("PID", process.PID)
-	w.Info("loader runtime", wool.Field("pid", process.PID))
 	return runtime, nil
 }
 

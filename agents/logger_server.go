@@ -2,7 +2,6 @@ package agents
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/codefly-dev/core/wool"
@@ -50,7 +49,6 @@ type HCLogMessageIn struct {
 }
 
 func (h *ClientLogHandler) Write(p []byte) (n int, err error) {
-	fmt.Println("GOT", string(p))
 	// We assume that the log is in JSON format
 	msg := &HCLogMessageIn{}
 	err = json.Unmarshal(p, msg)

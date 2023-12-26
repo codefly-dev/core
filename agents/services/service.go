@@ -15,11 +15,17 @@ import (
 	factoryv1 "github.com/codefly-dev/core/generated/go/services/factory/v1"
 )
 
+type ProcessInfo struct {
+	AgentPID int
+	Trackers []*runtimev1.Tracker
+}
+
 type ServiceInstance struct {
 	*configurations.Service
 	Agent   Agent
 	Factory *FactoryInstance
 	Runtime *RuntimeInstance
+	ProcessInfo
 }
 
 type FactoryInstance struct {
@@ -73,7 +79,7 @@ func (instance *RuntimeInstance) Init(ctx context.Context) (*runtimev1.InitRespo
 
 func Load(ctx context.Context, service *configurations.Service) (*ServiceInstance, error) {
 	w := wool.Get(ctx).In("services.Load", wool.Field("service", service.Name))
-	agent, _, err := manager.Load[ServiceAgentContext, ServiceAgent](ctx, service.Agent, service.Unique())
+	agent, proc, err := manager.Load[ServiceAgentContext, ServiceAgent](ctx, service.Agent, service.Unique())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load service agent")
 	}
@@ -82,6 +88,7 @@ func Load(ctx context.Context, service *configurations.Service) (*ServiceInstanc
 		Service: service,
 		Agent:   agent,
 	}
+	instance.ProcessInfo.AgentPID = proc.PID
 
 	info, err := agent.GetAgentInformation(ctx, &v1agent.AgentInformationRequest{})
 	if err != nil {
