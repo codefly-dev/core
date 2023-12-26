@@ -2,6 +2,7 @@ package wool
 
 import (
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -42,7 +43,6 @@ attribute.String("severityText", "INFO"),
 
 type Log struct {
 	Level   Loglevel    `json:"level"`
-	Header  string      `json:"header"`
 	Message string      `json:"message"`
 	Fields  []*LogField `json:"fields"`
 }
@@ -85,6 +85,8 @@ func (l *Log) AtLevel(debug Loglevel) *Log {
 	}
 }
 
+// String display a log message into this format
+// (level) (this) message [key=value, key=value]
 func (l *Log) String() string {
 	// We treat the "this" field differently
 	var this *LogField
@@ -96,14 +98,15 @@ func (l *Log) String() string {
 		}
 		fields = append(fields, f)
 	}
-	header := l.Header
+	tokens := []string{fmt.Sprintf("(%s)", levelToString[l.Level])}
 	if this != nil {
-		header = fmt.Sprintf("%s|%s", header, this.Value)
+		tokens = append(tokens, fmt.Sprintf("(%s)", this.Value))
 	}
-	if len(fields) == 0 {
-		return fmt.Sprintf("(%s) %s", header, l.Message)
+	tokens = append(tokens, l.Message)
+	for _, f := range fields {
+		tokens = append(tokens, f.String())
 	}
-	return fmt.Sprintf("(%s) %s %s", header, l.Message, l.Fields)
+	return strings.Join(tokens, " ")
 }
 
 // LogField is a key value pair with a log level
@@ -115,6 +118,9 @@ type LogField struct {
 }
 
 func (f *LogField) String() string {
+	if f.Value == nil {
+		return fmt.Sprintf("%s=nil", f.Key)
+	}
 	return fmt.Sprintf("%s=%v", f.Key, f.Value)
 }
 
@@ -128,7 +134,18 @@ const (
 	WARN
 	ERROR
 	FATAL
+	FOCUS
 )
+
+var levelToString = map[Loglevel]string{
+	TRACE: "TRACE",
+	DEBUG: "DEBUG",
+	INFO:  "INFO",
+	WARN:  "WARN",
+	ERROR: "ERROR",
+	FATAL: "FATAL",
+	FOCUS: "FOCUS",
+}
 
 func (f *LogField) Debug() *LogField {
 	f.Level = DEBUG
@@ -146,7 +163,8 @@ func (f *LogField) Error() *LogField {
 }
 
 func LogTrace(msg string, fields ...*LogField) *Log {
-	return &Log{Message: msg, Fields: fields, Level: TRACE}
+	log := &Log{Message: msg, Fields: fields, Level: TRACE}
+	return log
 }
 
 func LogError(err error, msg string, fields ...*LogField) *Log {
@@ -227,4 +245,8 @@ func StatusOK() *LogField {
 
 func StatusFailed() *LogField {
 	return &LogField{Key: "status", Value: "FAILED"}
+}
+
+func FocusField() *LogField {
+	return &LogField{Key: "focus", Value: "true"}
 }

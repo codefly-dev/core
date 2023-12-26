@@ -75,7 +75,7 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 		}
 	}
 
-	log := &Log{Message: msg, Header: w.Name(), Fields: fields, Level: l}
+	log := &Log{Message: msg, Fields: fields, Level: l}
 	log.Fields = append(log.Fields, w.fields...)
 
 	if WithTelemetry() {
@@ -108,6 +108,10 @@ func (w *Wool) Error(msg string, fields ...*LogField) {
 
 func (w *Wool) Fatal(msg string, fields ...*LogField) {
 	w.process(FATAL, msg, fields...)
+}
+
+func (w *Wool) Focus(msg string, fields ...*LogField) {
+	w.process(FOCUS, msg, fields...)
 }
 
 func (w *Wool) Wrap(err error) error {

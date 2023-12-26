@@ -31,10 +31,12 @@ type Information struct {
 
 type Base struct {
 	// Agent
-	Agent *configurations.Agent
+	Agent     *configurations.Agent
+	WoolAgent *wool.Provider
+	Wool      *wool.Wool
 
-	Provider *wool.Provider
-	Wool     *wool.Wool
+	// Underlying service
+	WoolService *wool.Provider
 
 	// State
 	Identity *basev1.ServiceIdentity
@@ -67,27 +69,21 @@ func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 	return &Base{
 		Agent:         agent,
 		Communication: communicate.NewServer(ctx),
-		Provider:      provider,
+		WoolAgent:     provider,
 		Wool:          provider.Get(ctx),
 	}
 }
 
-func (s *Base) Init(ctx context.Context, identity *basev1.ServiceIdentity, settings any) error {
-	s.Identity = identity
+func (s *Base) Init(ctx context.Context, service *configurations.Service, settings any) error {
+	s.Identity = service.Identity()
 
-	// Replace the provider!
-	s.Provider = agents.NewServiceProvider(ctx, &configurations.ServiceIdentity{
-		Application: identity.Application,
-		Domain:      identity.Domain,
-		Name:        identity.Name,
-		Namespace:   identity.Namespace,
-	})
-
-	s.Wool = s.Provider.Get(ctx)
+	// Replace the agent now that we know more!
+	s.WoolAgent = agents.NewServiceProvider(ctx, service)
+	s.Wool = s.WoolAgent.Get(ctx)
 
 	ctx = s.Wool.Inject(ctx)
 
-	s.Location = identity.Location
+	s.Location = service.Identity().Location
 
 	s.ConfigurationLocation = path.Join(s.Location, "codefly")
 	_, err := shared.CheckDirectoryOrCreate(ctx, s.ConfigurationLocation)
@@ -288,12 +284,12 @@ func (s *Base) Local(f string) string {
 
  */
 
-func (s *Base) DebugMe(format string, args ...any) {
-	s.Wool.Debug(fmt.Sprintf(format, args...))
+func (s *Base) Debug(msg string, fields ...*wool.LogField) {
+	s.Wool.Debug(msg, fields...)
 }
 
-func (s *Base) Debugf(format string, args ...any) {
-	s.Wool.Debug(fmt.Sprintf(format, args...))
+func (s *Base) Focus(msg string, fields ...*wool.LogField) {
+	s.Wool.Focus(msg, fields...)
 }
 
 func ConfigureError(err error) *runtimev1.ConfigureStatus {

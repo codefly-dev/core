@@ -19,7 +19,7 @@ func TestParsing(t *testing.T) {
 		{"app + svc", "CODEFLY_ENDPOINT__APP__SVC", "app/svc"},
 		{"app + svc + api", "CODEFLY_ENDPOINT__APP__SVC____REST", "app/svc::rest"},
 		{"app + svc + endpoint", "CODEFLY_ENDPOINT__APP__SVC___ENDPOINT", "app/svc/endpoint"},
-		{"app. svc +endpoint+api", "CODEFLY_ENDPOINT__APP__SVC___ENDPOINT____REST", "app/svc/endpoint::rest"},
+		{"ap + svc + endpoint + api", "CODEFLY_ENDPOINT__APP__SVC___ENDPOINT____REST", "app/svc/endpoint::rest"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			unique, err := configurations.ParseEndpointEnvironmentVariableKey(tc.key)
@@ -40,6 +40,13 @@ func TestUniqueAndBack(t *testing.T) {
 
 	unique = "app/svc/rest"
 	e = &configurations.Endpoint{Name: standards.REST, API: standards.REST, Application: "app", Service: "svc"}
+	key = configurations.AsEndpointEnvironmentVariableKey(e)
+	back, err = configurations.ParseEndpointEnvironmentVariableKey(key)
+	assert.NoError(t, err)
+	assert.Equal(t, unique, back)
+
+	unique = "app/svc"
+	e = &configurations.Endpoint{Application: "app", Service: "svc"}
 	key = configurations.AsEndpointEnvironmentVariableKey(e)
 	back, err = configurations.ParseEndpointEnvironmentVariableKey(key)
 	assert.NoError(t, err)

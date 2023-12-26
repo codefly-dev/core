@@ -12,7 +12,7 @@ import (
 
 type AgentLogger struct {
 	agent   *configurations.Agent
-	service *configurations.ServiceIdentity
+	service *configurations.Service
 	writer  io.Writer
 }
 
@@ -54,7 +54,7 @@ func NewAgentLogger(agent *configurations.Agent) wool.LogProcessor {
 	return &AgentLogger{agent: agent, writer: writer}
 }
 
-func NewServiceLogger(service *configurations.ServiceIdentity) wool.LogProcessor {
+func NewServiceLogger(service *configurations.Service) wool.LogProcessor {
 	logger := hclog.New(&hclog.LoggerOptions{
 		JSONFormat: true,
 	})
@@ -69,7 +69,7 @@ func NewAgentProvider(ctx context.Context, agent *configurations.Agent) *wool.Pr
 	return provider
 }
 
-func NewServiceProvider(ctx context.Context, service *configurations.ServiceIdentity) *wool.Provider {
+func NewServiceProvider(ctx context.Context, service *configurations.Service) *wool.Provider {
 	res := service.AsResource()
 	provider := wool.New(ctx, res)
 	provider.WithLogger(NewServiceLogger(service))

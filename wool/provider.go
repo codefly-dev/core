@@ -46,6 +46,11 @@ func New(ctx context.Context, r *Resource) *Provider {
 
 }
 
+func (provider *Provider) WithConsole(lvl Loglevel) *Provider {
+	provider.logger = &Console{level: lvl}
+	return provider
+}
+
 type Identifier struct {
 	Kind   string `json:"kind"`
 	Unique string `json:"unique"`
@@ -118,7 +123,7 @@ func (c Console) Process(msg *Log) {
 	if msg.Level < c.level {
 		return
 	}
-	fmt.Println(msg.Message, msg.Fields)
+	fmt.Println(msg)
 }
 
 func Get(ctx context.Context) *Wool {

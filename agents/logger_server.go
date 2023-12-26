@@ -73,7 +73,6 @@ func (h *ClientLogHandler) Write(p []byte) (n int, err error) {
 }
 
 func (h *ClientLogHandler) process(log *wool.Log, identifier *wool.Identifier) {
-	log.Header = identifier.Unique
 	for _, processor := range h.processors {
 		processor.ProcessWithSource(log, identifier)
 	}

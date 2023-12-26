@@ -24,6 +24,9 @@ type Endpoint struct {
 }
 
 func (e *Endpoint) Unique() string {
+	if e.Name == "" {
+		return fmt.Sprintf("%s/%s", e.Application, e.Service)
+	}
 	unique := fmt.Sprintf("%s/%s/%s", e.Application, e.Service, e.Name)
 	// Convention: if Endpoint Name == API, we skip the Name
 	if e.API != Unknown && e.Name != e.API {

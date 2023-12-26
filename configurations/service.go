@@ -177,7 +177,7 @@ func (s *ServiceIdentity) Unique() string {
 	return fmt.Sprintf("%s/%s", s.Application, s.Name)
 }
 
-func (s *ServiceIdentity) AsResource() *wool.Resource {
+func (s *Service) AsResource() *wool.Resource {
 	r := resource.NewSchemaless()
 	return &wool.Resource{
 		Identifier: &wool.Identifier{
