@@ -8,7 +8,6 @@ package runtimev1
 
 import (
 	context "context"
-
 	v1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -21,7 +20,7 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	Runtime_Load_FullMethodName        = "/service.runtime.v1.Runtime/Init"
+	Runtime_Load_FullMethodName        = "/service.runtime.v1.Runtime/Load"
 	Runtime_Init_FullMethodName        = "/service.runtime.v1.Runtime/Init"
 	Runtime_Start_FullMethodName       = "/service.runtime.v1.Runtime/Start"
 	Runtime_Stop_FullMethodName        = "/service.runtime.v1.Runtime/Stop"
@@ -135,7 +134,7 @@ type UnimplementedRuntimeServer struct {
 }
 
 func (UnimplementedRuntimeServer) Load(context.Context, *LoadRequest) (*LoadResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Init not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method Load not implemented")
 }
 func (UnimplementedRuntimeServer) Init(context.Context, *InitRequest) (*InitResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Init not implemented")
@@ -281,7 +280,7 @@ var Runtime_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*RuntimeServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "Init",
+			MethodName: "Load",
 			Handler:    _Runtime_Load_Handler,
 		},
 		{

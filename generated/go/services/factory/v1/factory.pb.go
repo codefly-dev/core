@@ -7,13 +7,12 @@
 package factoryv1
 
 import (
-	reflect "reflect"
-	sync "sync"
-
 	v1 "github.com/codefly-dev/core/generated/go/base/v1"
 	v11 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -1007,14 +1006,14 @@ var file_services_factory_v1_factory_proto_depIdxs = []int32{
 	17, // 10: service.factory.v1.BuildRequest.dependency_endpoint_group:type_name -> base.v1.EndpointGroup
 	20, // 11: service.factory.v1.DeploymentRequest.environment:type_name -> base.v1.Environment
 	17, // 12: service.factory.v1.DeploymentRequest.dependency_endpoint_group:type_name -> base.v1.EndpointGroup
-	3,  // 13: service.factory.v1.Factory.Init:input_type -> service.factory.v1.LoadRequest
+	3,  // 13: service.factory.v1.Factory.Load:input_type -> service.factory.v1.LoadRequest
 	5,  // 14: service.factory.v1.Factory.Create:input_type -> service.factory.v1.CreateRequest
 	8,  // 15: service.factory.v1.Factory.Update:input_type -> service.factory.v1.UpdateRequest
 	10, // 16: service.factory.v1.Factory.Sync:input_type -> service.factory.v1.SyncRequest
 	12, // 17: service.factory.v1.Factory.Build:input_type -> service.factory.v1.BuildRequest
 	14, // 18: service.factory.v1.Factory.Deploy:input_type -> service.factory.v1.DeploymentRequest
 	21, // 19: service.factory.v1.Factory.Communicate:input_type -> agent.v1.Engage
-	4,  // 20: service.factory.v1.Factory.Init:output_type -> service.factory.v1.LoadResponse
+	4,  // 20: service.factory.v1.Factory.Load:output_type -> service.factory.v1.LoadResponse
 	7,  // 21: service.factory.v1.Factory.Create:output_type -> service.factory.v1.CreateResponse
 	9,  // 22: service.factory.v1.Factory.Update:output_type -> service.factory.v1.UpdateResponse
 	11, // 23: service.factory.v1.Factory.Sync:output_type -> service.factory.v1.SyncResponse

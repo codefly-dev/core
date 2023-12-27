@@ -8,7 +8,6 @@ package factoryv1
 
 import (
 	context "context"
-
 	v1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -21,7 +20,7 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	Factory_Load_FullMethodName        = "/service.factory.v1.Factory/Init"
+	Factory_Load_FullMethodName        = "/service.factory.v1.Factory/Load"
 	Factory_Create_FullMethodName      = "/service.factory.v1.Factory/Create"
 	Factory_Update_FullMethodName      = "/service.factory.v1.Factory/Update"
 	Factory_Sync_FullMethodName        = "/service.factory.v1.Factory/Sync"
@@ -143,7 +142,7 @@ type UnimplementedFactoryServer struct {
 }
 
 func (UnimplementedFactoryServer) Load(context.Context, *LoadRequest) (*LoadResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Init not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method Load not implemented")
 }
 func (UnimplementedFactoryServer) Create(context.Context, *CreateRequest) (*CreateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Create not implemented")
@@ -310,7 +309,7 @@ var Factory_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*FactoryServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "Init",
+			MethodName: "Load",
 			Handler:    _Factory_Load_Handler,
 		},
 		{

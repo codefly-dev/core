@@ -7,13 +7,12 @@
 package runtimev1
 
 import (
-	reflect "reflect"
-	sync "sync"
-
 	v1 "github.com/codefly-dev/core/generated/go/base/v1"
 	v11 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -1293,13 +1292,13 @@ var file_services_runtime_v1_runtime_proto_depIdxs = []int32{
 	23, // 14: service.runtime.v1.StartResponse.trackers:type_name -> services.runtime.v1.Tracker
 	3,  // 15: service.runtime.v1.InformationResponse.status:type_name -> service.runtime.v1.InformationResponse.Status
 	4,  // 16: service.runtime.v1.InformationResponse.desired_state:type_name -> service.runtime.v1.InformationResponse.DesiredState
-	6,  // 17: service.runtime.v1.Runtime.Init:input_type -> service.runtime.v1.LoadRequest
+	6,  // 17: service.runtime.v1.Runtime.Load:input_type -> service.runtime.v1.LoadRequest
 	9,  // 18: service.runtime.v1.Runtime.Init:input_type -> service.runtime.v1.InitRequest
 	12, // 19: service.runtime.v1.Runtime.Start:input_type -> service.runtime.v1.StartRequest
 	17, // 20: service.runtime.v1.Runtime.Stop:input_type -> service.runtime.v1.StopRequest
 	15, // 21: service.runtime.v1.Runtime.Information:input_type -> service.runtime.v1.InformationRequest
 	24, // 22: service.runtime.v1.Runtime.Communicate:input_type -> agent.v1.Engage
-	7,  // 23: service.runtime.v1.Runtime.Init:output_type -> service.runtime.v1.LoadResponse
+	7,  // 23: service.runtime.v1.Runtime.Load:output_type -> service.runtime.v1.LoadResponse
 	10, // 24: service.runtime.v1.Runtime.Init:output_type -> service.runtime.v1.InitResponse
 	14, // 25: service.runtime.v1.Runtime.Start:output_type -> service.runtime.v1.StartResponse
 	18, // 26: service.runtime.v1.Runtime.Stop:output_type -> service.runtime.v1.StopResponse
