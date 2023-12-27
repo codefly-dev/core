@@ -2,8 +2,9 @@ package runners
 
 import (
 	"context"
-	"github.com/codefly-dev/core/wool"
 	"os/exec"
+
+	"github.com/codefly-dev/core/wool"
 )
 
 type Runner struct {
