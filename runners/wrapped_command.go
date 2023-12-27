@@ -1,4 +1,4 @@
-package shared
+package runners
 
 import (
 	"bufio"
@@ -20,7 +20,7 @@ func RequireExec(bins ...string) ([]string, bool) {
 	return missing, len(missing) == 0
 }
 
-type Event struct {
+type RunnerEvent struct {
 	Err     error
 	Message string
 }
@@ -40,7 +40,7 @@ func NewWrappedCmd(cmd *exec.Cmd, writer io.Writer) (*WrappedCmd, error) {
 
 type WrappedCmdOutput struct {
 	PID    int
-	Events chan Event
+	Events chan RunnerEvent
 }
 
 func (run *WrappedCmd) Start() (*WrappedCmdOutput, error) {
@@ -54,14 +54,14 @@ func (run *WrappedCmd) Start() (*WrappedCmdOutput, error) {
 		return nil, errors.Wrap(err, "cannot create stderr pipe")
 	}
 
-	events := make(chan Event, 1)
+	events := make(chan RunnerEvent, 1)
 	out := &WrappedCmdOutput{Events: events}
-	go ForwardLogs(stdout, run.writer)
 
-	//	catch the error
 	var b bytes.Buffer
 	w := bufio.NewWriter(&b)
-	go ForwardLogs(stderr, w)
+
+	go ForwardLogs(stdout, run.writer)
+	go ForwardLogs(stderr, run.writer, w)
 
 	err = run.cmd.Start()
 	if err != nil {
@@ -71,21 +71,25 @@ func (run *WrappedCmd) Start() (*WrappedCmdOutput, error) {
 	go func() {
 		err := run.cmd.Wait()
 		if err != nil {
-			out.Events <- Event{Err: err, Message: b.String()}
+			out.Events <- RunnerEvent{Err: err, Message: b.String()}
 			return
 		}
 	}()
 	return out, nil
 }
 
-func ForwardLogs(r io.ReadCloser, w io.Writer) {
+func ForwardLogs(r io.ReadCloser, ws ...io.Writer) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		_, _ = w.Write([]byte(scanner.Text()))
+		for _, w := range ws {
+			_, _ = w.Write([]byte(scanner.Text()))
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		_, _ = w.Write([]byte(err.Error()))
+		for _, w := range ws {
+			_, _ = w.Write([]byte(err.Error()))
+		}
 	}
 
 	_ = r.Close()

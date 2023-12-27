@@ -67,7 +67,8 @@ type Base struct {
 	Factory *FactoryWrapper
 
 	// Runtime
-	State InformationStatus
+	State        InformationStatus
+	DesiredState InformationStateDesired
 
 	// Communication
 	Communication *communicate.Server
@@ -226,14 +227,16 @@ func (s *RuntimeWrapper) StartError(err error, _ ...*wool.LogField) (*runtimev1.
 	}, err
 }
 
-/* Some very important helpers */
-
-func (s *Base) Wrapf(err error, format string, args ...any) error {
-	return s.Wool.Wrapf(err, format, args...)
-}
-
-func (s *Base) Errorf(format string, args ...any) error {
-	return s.Wool.NewError(format, args...)
+func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
+	resp := &runtimev1.InformationResponse{
+		Status:       s.State,
+		DesiredState: s.DesiredState,
+	}
+	// only send the restart information once
+	if s.DesiredState == DesiredRestart {
+		s.DesiredState = DesiredNOOP
+	}
+	return resp, nil
 }
 
 // EndpointsFromConfiguration from Configuration and data from the service
@@ -301,6 +304,20 @@ func (s *Base) Local(f string) string {
 
  */
 
+/* Some very important helpers */
+
+func (s *Base) Wrapf(err error, format string, args ...any) error {
+	return s.Wool.Wrapf(err, format, args...)
+}
+
+func (s *Base) Errorf(format string, args ...any) error {
+	return s.Wool.NewError(format, args...)
+}
+
+func (s *Base) Info(msg string, fields ...*wool.LogField) {
+	s.Wool.Info(msg, fields...)
+}
+
 func (s *Base) Debug(msg string, fields ...*wool.LogField) {
 	s.Wool.Debug(msg, fields...)
 }
@@ -318,7 +335,7 @@ func (s *Base) Ready() {
 }
 
 func (s *Base) WantRestart() {
-	//	s.State = RestartWantedState
+	s.DesiredState = DesiredRestart
 }
 
 func (s *Base) WantSync() {

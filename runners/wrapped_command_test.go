@@ -1,4 +1,4 @@
-package shared_test
+package runners_test
 
 import (
 	"testing"

@@ -6,9 +6,9 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/core/runners"
 
-	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wool"
 )
 
 type Runner struct {
@@ -43,7 +43,7 @@ func (g *Runner) Init(ctx context.Context) error {
 	return nil
 }
 
-func (g *Runner) Run(ctx context.Context) (*shared.WrappedCmdOutput, error) {
+func (g *Runner) Run(ctx context.Context) (*runners.WrappedCmdOutput, error) {
 	w := wool.Get(ctx).In("go/runner")
 	w.Debug("in runner")
 	// #nosec G204
@@ -53,7 +53,7 @@ func (g *Runner) Run(ctx context.Context) (*shared.WrappedCmdOutput, error) {
 	// Setup variables once
 	cmd.Env = g.Envs
 
-	run, err := shared.NewWrappedCmd(cmd, w)
+	run, err := runners.NewWrappedCmd(cmd, w)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create wrapped command")
 	}
