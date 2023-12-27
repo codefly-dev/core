@@ -3,6 +3,8 @@ package proto
 import (
 	"context"
 	"embed"
+	"fmt"
+	"github.com/codefly-dev/core/runners"
 
 	"github.com/Masterminds/semver"
 	"github.com/codefly-dev/core/configurations"
@@ -44,19 +46,15 @@ func version(ctx context.Context) (string, error) {
 //go:embed info.codefly.yaml
 var info embed.FS
 
-func (g *Proto) Generate(_ context.Context) error {
-	//w := wool.Get(ctx).In("proto.Generate")
-	//image := fmt.Sprintf("codeflydev/companion:%s", g.version)
-	//volume := fmt.Sprintf("%s:/workspace", g.Dir)
-	//runner := runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "generate"}}
-	//w.Debug("Generating code from buf...")
-	//err := runner.Load(ctx)
-	//if err != nil {
-	//	return w.Wrapf(err, "cannot generate code from buf")
-	//}
-	//_, err = runner.Run(ctx)
-	//if err != nil {
-	//	return w.Wrapf(err, "cannot generate code from buf")
-	//}
+func (g *Proto) Generate(ctx context.Context) error {
+	w := wool.Get(ctx).In("proto.Generate")
+	image := fmt.Sprintf("codeflydev/companion:%s", g.version)
+	volume := fmt.Sprintf("%s:/workspace", g.Dir)
+	runner := runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "generate"}}
+	w.Debug("Generating code from buf...")
+	_, err := runner.Run(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot generate code from buf")
+	}
 	return nil
 }

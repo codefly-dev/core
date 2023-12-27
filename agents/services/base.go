@@ -107,17 +107,17 @@ func (s *Base) Load(ctx context.Context, identity *basev1.ServiceIdentity, setti
 	_, err := shared.CheckDirectoryOrCreate(ctx, s.ConfigurationLocation)
 
 	if err != nil {
-		return s.Wrapf(err, "cannot create configuration directory")
+		return s.Wool.Wrapf(err, "cannot create configuration directory")
 	}
 
 	s.Configuration, err = configurations.LoadServiceFromDirUnsafe(ctx, s.Location)
 	if err != nil {
-		return s.Wrapf(err, "cannot load service configuration")
+		return s.Wool.Wrapf(err, "cannot load service configuration")
 	}
 
 	err = s.Configuration.LoadSettingsFromSpec(settings)
 	if err != nil {
-		return s.Wrapf(err, "cannot load settings from spec")
+		return s.Wool.Wrapf(err, "cannot load settings from spec")
 	}
 
 	s.Information = &Information{
@@ -167,7 +167,7 @@ func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, eps .
 
 	err = s.Configuration.Save(ctx)
 	if err != nil {
-		return nil, s.Wrapf(err, "base: cannot save configuration")
+		return nil, s.Wool.Wrapf(err, "base: cannot save configuration")
 	}
 	return &factoryv1.CreateResponse{
 		Endpoints: eps,
@@ -305,10 +305,6 @@ func (s *Base) Local(f string) string {
  */
 
 /* Some very important helpers */
-
-func (s *Base) Wrapf(err error, format string, args ...any) error {
-	return s.Wool.Wrapf(err, format, args...)
-}
 
 func (s *Base) Errorf(format string, args ...any) error {
 	return s.Wool.NewError(format, args...)
