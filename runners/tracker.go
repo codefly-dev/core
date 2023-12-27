@@ -1,46 +1,93 @@
-package services
+package runners
 
 import (
-	"sync"
+	"context"
+	"time"
+
+	observabilityv1 "github.com/codefly-dev/core/generated/go/observability/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
 )
 
-type ServiceEvent struct {
-	Unique string
-	Event  string
-}
-
-type Tracker interface {
-	Start(events chan<- ServiceEvent) error
-	Stop()
-	// Tracks() []*applications.Tracked
-}
-
-/*
-First target tracker
-*/
-
-type SingleTracker struct {
-	Tracked Tracked
-
-	// latest
-	// usage  *Usage
-	// status ProcessState
-
-	// internal
-	// ctx    context.Action
-	cancel func()
-	sync.RWMutex
-	stopping bool
-}
-
-func (t *SingleTracker) Stop() {
-	t.Lock()
-	defer t.Unlock()
-	if t.cancel != nil {
-		t.cancel()
+func Track(ctx context.Context, trackers []*runtimev1.Tracker) (chan Event, error) {
+	events := make(chan Event)
+	var trackeds []Tracked
+	for _, t := range trackers {
+		tracked, err := NewTracked(t)
+		if err != nil {
+			return nil, err
+		}
+		trackeds = append(trackeds, tracked)
 	}
-	t.stopping = true
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				time.Sleep(1000 * time.Millisecond)
+				for _, tracked := range trackeds {
+					state, err := tracked.GetState(ctx)
+					if err != nil {
+						continue
+					}
+					events <- Event{
+						ProcessState: state,
+					}
+					cpu, err := tracked.GetCPU(ctx)
+					if err != nil {
+						continue
+					}
+					events <- Event{
+						CPU: &observabilityv1.CPU{Usage: cpu.usage},
+					}
+					memory, err := tracked.GetMemory(ctx)
+					if err != nil {
+						continue
+					}
+					events <- Event{
+						Memory: &observabilityv1.Memory{Usage: float64(memory.used)},
+					}
+				}
+
+			}
+		}
+	}()
+	return events, nil
 }
+
+//
+//type Tracker interface {
+//	Start(events chan<- ServiceEvent) error
+//	Stop()
+//	// Tracks() []*applications.Tracked
+//}
+
+///*
+//First target tracker
+//*/
+//
+//type SingleTracker struct {
+//	Tracked Tracked
+//
+//	// latest
+//	// usage  *Usage
+//	// status ProcessState
+//
+//	// internal
+//	// ctx    context.Action
+//	cancel func()
+//	sync.RWMutex
+//	stopping bool
+//}
+//
+//func (t *SingleTracker) Stop() {
+//	t.Lock()
+//	defer t.Unlock()
+//	if t.cancel != nil {
+//		t.cancel()
+//	}
+//	t.stopping = true
+//}
 
 //
 //func NewSingleTracker(service *configurations.Agent, runtime services.Runtime, tracker *runtime.Tracker) (*SingleTracker, error) {
@@ -89,7 +136,7 @@ func (t *SingleTracker) Stop() {
 //				if t.Tracked == nil {
 //					return
 //				}
-//				status, err := t.Tracked.GetStatus()
+//				status, err := t.Tracked.GetState()
 //				if err == nil {
 //					t.Lock()
 //					t.status = status

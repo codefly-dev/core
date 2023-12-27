@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 
+	"github.com/codefly-dev/core/configurations"
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
 	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
 	"github.com/codefly-dev/core/wool"
@@ -10,7 +11,7 @@ import (
 
 // A ServiceManager helps go from a service to applications endpoint instances
 type ServiceManager struct {
-	service   *basev1.ServiceIdentity
+	service   *configurations.ServiceIdentity
 	endpoints []*basev1.Endpoint
 
 	strategy Strategy
@@ -22,7 +23,7 @@ type ServiceManager struct {
 	reserved *ApplicationEndpointInstances
 }
 
-func NewServiceManager(identity *basev1.ServiceIdentity, endpoints ...*basev1.Endpoint) *ServiceManager {
+func NewServiceManager(identity *configurations.ServiceIdentity, endpoints ...*basev1.Endpoint) *ServiceManager {
 	return &ServiceManager{
 		service:   identity,
 		endpoints: endpoints,

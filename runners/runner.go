@@ -9,8 +9,6 @@ import (
 
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/core/agents/services"
-
 	"github.com/pkg/errors"
 )
 
@@ -37,7 +35,7 @@ func (g *Runner) Init(ctx context.Context) error {
 	return nil
 }
 
-func (g *Runner) Run(_ context.Context) (*services.TrackedProcess, error) {
+func (g *Runner) Run(_ context.Context) (*TrackedProcess, error) {
 	//// Setup variables once
 	//g.Cmd.Env = g.Envs
 	//g.Cmd.Dir = g.Dir

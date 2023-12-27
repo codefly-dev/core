@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"net"
 
+	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/wool"
 
 	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
@@ -81,7 +82,7 @@ func GetFreePorts(n int) ([]int, error) {
 	return ports, nil
 }
 
-func NewServicePortManager(_ context.Context, identity *basev1.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
+func NewServicePortManager(_ context.Context, identity *configurations.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
 	return &ServiceManager{
 		service:   identity,
 		endpoints: endpoints,

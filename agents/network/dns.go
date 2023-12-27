@@ -31,7 +31,7 @@ func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointIn
 	return m, nil
 }
 
-func NewServiceDNSManager(_ context.Context, identity *basev1.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
+func NewServiceDNSManager(_ context.Context, identity *configurations.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
 	return &ServiceManager{
 		service:   identity,
 		endpoints: endpoints,

@@ -11,9 +11,9 @@ import (
 )
 
 type AgentLogger struct {
-	agent   *configurations.Agent
-	service *configurations.Service
-	writer  io.Writer
+	agent    *configurations.Agent
+	identity *configurations.ServiceIdentity
+	writer   io.Writer
 }
 
 type HCLogMessageOut struct {
@@ -29,10 +29,10 @@ func (w *AgentLogger) Process(log *wool.Log) {
 			Unique: w.agent.Unique(),
 		}
 	}
-	if w.service != nil {
+	if w.identity != nil {
 		msg.Source = &wool.Identifier{
 			Kind:   "service",
-			Unique: w.service.Unique(),
+			Unique: w.identity.Unique(),
 		}
 
 	}
@@ -54,12 +54,12 @@ func NewAgentLogger(agent *configurations.Agent) wool.LogProcessor {
 	return &AgentLogger{agent: agent, writer: writer}
 }
 
-func NewServiceLogger(service *configurations.Service) wool.LogProcessor {
+func NewServiceLogger(identity *configurations.ServiceIdentity) wool.LogProcessor {
 	logger := hclog.New(&hclog.LoggerOptions{
 		JSONFormat: true,
 	})
 	writer := logger.StandardWriter(&hclog.StandardLoggerOptions{})
-	return &AgentLogger{service: service, writer: writer}
+	return &AgentLogger{identity: identity, writer: writer}
 }
 
 func NewAgentProvider(ctx context.Context, agent *configurations.Agent) *wool.Provider {
@@ -69,9 +69,9 @@ func NewAgentProvider(ctx context.Context, agent *configurations.Agent) *wool.Pr
 	return provider
 }
 
-func NewServiceProvider(ctx context.Context, service *configurations.Service) *wool.Provider {
-	res := service.AsResource()
+func NewServiceProvider(ctx context.Context, identity *configurations.ServiceIdentity) *wool.Provider {
+	res := identity.AsResource()
 	provider := wool.New(ctx, res)
-	provider.WithLogger(NewServiceLogger(service))
+	provider.WithLogger(NewServiceLogger(identity))
 	return provider
 }

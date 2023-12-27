@@ -75,7 +75,7 @@ func (provider *Provider) Done() {
 	}
 }
 
-func (provider *Provider) WithContext(ctx context.Context) context.Context {
+func (provider *Provider) Inject(ctx context.Context) context.Context {
 	// TODO: ADD TO BAGGAGE
 	return context.WithValue(ctx, KeyInContext, provider)
 }

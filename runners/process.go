@@ -1,4 +1,4 @@
-package services
+package runners
 
 import (
 	"bytes"
@@ -36,26 +36,9 @@ func (ps ProcessState) String() string {
 type TrackedProcess struct {
 	PID    int
 	Killed bool
-	name   string
-	unique string
 }
 
-var _ Tracked = (*TrackedProcess)(nil)
-
-func (p *TrackedProcess) Unique() string {
-	return p.unique
-}
-
-func (p *TrackedProcess) Name() string {
-	return p.name
-}
-
-func (p *TrackedProcess) Kill() error {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (p *TrackedProcess) GetStatus(ctx context.Context) (ProcessState, error) {
+func (p *TrackedProcess) GetState(ctx context.Context) (ProcessState, error) {
 	w := wool.Get(ctx).In("TrackedProcess.Status", wool.Field("pid", p.PID))
 	// Check for PID
 	proc, err := os.FindProcess(p.PID)
@@ -75,7 +58,7 @@ func (p *TrackedProcess) GetStatus(ctx context.Context) (ProcessState, error) {
 	return Dead, nil
 }
 
-func (p *TrackedProcess) GetUsage(ctx context.Context) (*Usage, error) {
+func (p *TrackedProcess) GetCPU(ctx context.Context) (*CPU, error) {
 	w := wool.Get(ctx).In("TrackedProcess.Usage", wool.Field("pid", p.PID))
 	proc, err := process.NewProcess(int32(p.PID))
 	if err != nil {
@@ -88,20 +71,26 @@ func (p *TrackedProcess) GetUsage(ctx context.Context) (*Usage, error) {
 		return nil, w.Wrapf(err, "cannot get cpu percent")
 	}
 
+	return &CPU{usage: cpuPercent}, nil
+}
+
+func (p *TrackedProcess) GetMemory(ctx context.Context) (*Memory, error) {
+	w := wool.Get(ctx).In("TrackedProcess.Usage", wool.Field("pid", p.PID))
+	proc, err := process.NewProcess(int32(p.PID))
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot create process")
+	}
+
 	// Get memory info
 	memInfo, err := proc.MemoryInfo()
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get memory info")
 	}
-	return &Usage{
-		CPU:    cpuPercent,
-		Memory: float64(memInfo.RSS) / 1024.0,
-	}, nil
+	return &Memory{used: (memInfo.RSS) / 1024.0}, nil
 }
 
 func (p *TrackedProcess) Proto() *runtimev1.Tracker {
 	return &runtimev1.Tracker{
-		Name: p.Name(),
 		Tracker: &runtimev1.Tracker_ProcessTracker{
 			ProcessTracker: &runtimev1.ProcessTracker{
 				PID: int32(p.PID),

@@ -24,9 +24,9 @@ jobs:
         continue-on-error: true
         with:
           path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}-20210329
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-20210329
+            ${{ runner.os }}-go
 
       - name: Install Dependencies
         run: go mod tidy && go mod download

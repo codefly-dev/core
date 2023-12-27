@@ -25,8 +25,6 @@ func TestDefault(t *testing.T) {
 	w := wool.Get(ctx)
 	assert.NotNil(t, w)
 
-	fmt.Println(w.File())
-
 	logger := &testLogger{}
 	w.WithLogger(logger)
 
@@ -50,7 +48,7 @@ func TestWoolBasics(t *testing.T) {
 	provider.WithLogger(logger)
 	defer provider.Done()
 
-	ctx = provider.WithContext(ctx)
+	ctx = provider.Inject(ctx)
 
 	w := wool.Get(ctx).In("testBasics", wool.Field("test", "test"))
 
@@ -77,7 +75,7 @@ func TestWoolWithContext(t *testing.T) {
 	provider.WithLogger(logger)
 	defer provider.Done()
 
-	ctx = provider.WithContext(ctx)
+	ctx = provider.Inject(ctx)
 
 	w := wool.Get(ctx)
 

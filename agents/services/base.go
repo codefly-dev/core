@@ -39,7 +39,7 @@ type Base struct {
 	WoolService *wool.Provider
 
 	// State
-	Identity *basev1.ServiceIdentity
+	Identity *configurations.ServiceIdentity
 	Location string
 
 	// codefly configuration
@@ -51,7 +51,8 @@ type Base struct {
 	Information *Information
 
 	// Endpoints
-	Endpoints []*basev1.Endpoint
+	Endpoints       []*basev1.Endpoint
+	NetworkMappings []*runtimev1.NetworkMapping
 
 	// Runtime
 	State InformationStatus
@@ -74,16 +75,16 @@ func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 	}
 }
 
-func (s *Base) Init(ctx context.Context, service *configurations.Service, settings any) error {
-	s.Identity = service.Identity()
+func (s *Base) Init(ctx context.Context, identity *basev1.ServiceIdentity, settings any) error {
+	s.Identity = configurations.ServiceIdentityFromProto(identity)
+	s.Location = identity.Location
 
 	// Replace the agent now that we know more!
-	s.WoolAgent = agents.NewServiceProvider(ctx, service)
+	s.WoolAgent = agents.NewServiceProvider(ctx, s.Identity)
+
 	s.Wool = s.WoolAgent.Get(ctx)
 
 	ctx = s.Wool.Inject(ctx)
-
-	s.Location = service.Identity().Location
 
 	s.ConfigurationLocation = path.Join(s.Location, "codefly")
 	_, err := shared.CheckDirectoryOrCreate(ctx, s.ConfigurationLocation)
@@ -183,10 +184,10 @@ func (s *Base) RuntimeInitResponseError(err error) (*runtimev1.InitResponse, err
 	}, nil
 }
 
-func (s *Base) RuntimeConfigureResponse(nms []*runtimev1.NetworkMapping) (*runtimev1.ConfigureResponse, error) {
+func (s *Base) RuntimeConfigureResponse() (*runtimev1.ConfigureResponse, error) {
 	return &runtimev1.ConfigureResponse{
 		Status:          &runtimev1.ConfigureStatus{State: runtimev1.ConfigureStatus_READY},
-		NetworkMappings: nms,
+		NetworkMappings: s.NetworkMappings,
 	}, nil
 }
 

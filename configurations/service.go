@@ -68,8 +68,8 @@ func (s *Service) Unique() string {
 }
 
 // Identity is the proto version of Unique
-func (s *Service) Identity() *basev1.ServiceIdentity {
-	return &basev1.ServiceIdentity{
+func (s *Service) Identity() *ServiceIdentity {
+	return &ServiceIdentity{
 		Name:        s.Name,
 		Application: s.Application,
 		Domain:      s.Domain,
@@ -177,7 +177,7 @@ func (s *ServiceIdentity) Unique() string {
 	return fmt.Sprintf("%s/%s", s.Application, s.Name)
 }
 
-func (s *Service) AsResource() *wool.Resource {
+func (s *ServiceIdentity) AsResource() *wool.Resource {
 	r := resource.NewSchemaless()
 	return &wool.Resource{
 		Identifier: &wool.Identifier{
@@ -185,6 +185,15 @@ func (s *Service) AsResource() *wool.Resource {
 			Unique: s.Unique(),
 		},
 		Resource: r}
+}
+
+func ServiceIdentityFromProto(proto *basev1.ServiceIdentity) *ServiceIdentity {
+	return &ServiceIdentity{
+		Name:        proto.Name,
+		Application: proto.Application,
+		Namespace:   proto.Namespace,
+		Domain:      proto.Domain,
+	}
 }
 
 func (s *Service) Reference() (*ServiceReference, error) {

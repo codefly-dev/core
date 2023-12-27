@@ -27,7 +27,7 @@ type Runner struct {
 }
 
 func (g *Runner) Init(ctx context.Context) error {
-	w := wool.Get(ctx).In("GoRunner")
+	w := wool.Get(ctx).In("go/runner")
 	g.killed = false
 	var clean func()
 	var err error
@@ -44,7 +44,7 @@ func (g *Runner) Init(ctx context.Context) error {
 }
 
 func (g *Runner) Run(ctx context.Context) (*shared.WrappedCmdOutput, error) {
-	w := wool.Get(ctx).In("GoRunner")
+	w := wool.Get(ctx).In("go/runner")
 	w.Debug("in runner")
 	// #nosec G204
 	cmd := exec.CommandContext(ctx, g.target)
@@ -69,7 +69,7 @@ func (g *Runner) Run(ctx context.Context) (*shared.WrappedCmdOutput, error) {
 }
 
 func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
-	w := wool.Get(ctx).In("GoRunner")
+	w := wool.Get(ctx).In("go/runner")
 	w.Info("building binary in debug mode")
 	// Build with debug options
 	tmp := os.TempDir()
@@ -94,7 +94,7 @@ func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
 }
 
 func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
-	w := wool.Get(ctx).In("GoRunner")
+	w := wool.Get(ctx).In("go/runner")
 	w.Info("building binary in debug mode")
 	// Build with debug options
 	tmp := os.TempDir()
@@ -119,7 +119,7 @@ func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
 }
 
 func (g *Runner) Kill(ctx context.Context) error {
-	w := wool.Get(ctx).In("GoRunner::Kill")
+	w := wool.Get(ctx).In("go/runner::Kill")
 	if g.killed {
 		return nil
 	}

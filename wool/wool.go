@@ -3,6 +3,7 @@ package wool
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"runtime/debug"
 
 	"github.com/pkg/errors"
@@ -33,8 +34,7 @@ func Writer() *LogField {
 
 // Writer implements the io.Writer interface
 func (w *Wool) Write(p []byte) (n int, err error) {
-	w.With(Writer()).Info(string(p))
-	return len(p), nil
+	return w.Forward(p)
 }
 
 func (w *Wool) In(method string, fields ...*LogField) *Wool {
@@ -51,7 +51,7 @@ func (w *Wool) With(fields ...*LogField) *Wool {
 }
 
 func (w *Wool) Inject(ctx context.Context) context.Context {
-	return w.provider.WithContext(ctx)
+	return w.provider.Inject(ctx)
 }
 
 // Catch recovers from a panic and logs the error
@@ -74,8 +74,19 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 			fields = append(fields, f)
 		}
 	}
+	// If LogLevel is ERROR, always add the code reference information
 
-	log := &Log{Message: msg, Fields: fields, Level: l}
+	if l >= ERROR {
+		ref, err := getFileInfo(3)
+		if err == nil {
+			fields = append(fields, &LogField{
+				Key:   "code",
+				Value: ref,
+			})
+		}
+	}
+
+	log := &Log{Message: msg, Fields: fields, Level: l, Header: w.name}
 	log.Fields = append(log.Fields, w.fields...)
 
 	if WithTelemetry() {
@@ -84,6 +95,22 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 	if w.logger != nil {
 		w.logger.Process(log)
 	}
+}
+
+func getFileInfo(depth int) (*CodeReference, error) {
+	_, file, line, ok := runtime.Caller(depth)
+	if !ok {
+		return nil, errors.New("cannot get caller information")
+	}
+	return &CodeReference{
+		Line: line,
+		File: file,
+	}, nil
+}
+
+func (w *Wool) Forward(p []byte) (n int, err error) {
+	w.process(FORWARD, string(p))
+	return len(p), nil
 }
 
 func (w *Wool) Trace(msg string, fields ...*LogField) {
@@ -202,9 +229,6 @@ type CodeReference struct {
 	File string `json:"file"`
 }
 
-func (w *Wool) File() string {
-	if w.ref == nil {
-		return ""
-	}
-	return w.ref.File
+func (c *CodeReference) String() string {
+	return fmt.Sprintf("%s:%d", c.File, c.Line)
 }

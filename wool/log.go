@@ -43,6 +43,7 @@ attribute.String("severityText", "INFO"),
 
 type Log struct {
 	Level   Loglevel    `json:"level"`
+	Header  string      `json:"header"`
 	Message string      `json:"message"`
 	Fields  []*LogField `json:"fields"`
 }
@@ -88,6 +89,10 @@ func (l *Log) AtLevel(debug Loglevel) *Log {
 // String display a log message into this format
 // (level) (this) message [key=value, key=value]
 func (l *Log) String() string {
+	// Forward case
+	if l.Level == FORWARD {
+		return l.Message
+	}
 	// We treat the "this" field differently
 	var this *LogField
 	var fields []*LogField
@@ -101,6 +106,9 @@ func (l *Log) String() string {
 	tokens := []string{fmt.Sprintf("(%s)", levelToString[l.Level])}
 	if this != nil {
 		tokens = append(tokens, fmt.Sprintf("(%s)", this.Value))
+	}
+	if l.Header != "" {
+		tokens = append(tokens, fmt.Sprintf("(%s)", l.Header))
 	}
 	tokens = append(tokens, l.Message)
 	for _, f := range fields {
@@ -135,16 +143,18 @@ const (
 	ERROR
 	FATAL
 	FOCUS
+	FORWARD
 )
 
 var levelToString = map[Loglevel]string{
-	TRACE: "TRACE",
-	DEBUG: "DEBUG",
-	INFO:  "INFO",
-	WARN:  "WARN",
-	ERROR: "ERROR",
-	FATAL: "FATAL",
-	FOCUS: "FOCUS",
+	TRACE:   "TRACE",
+	DEBUG:   "DEBUG",
+	INFO:    "INFO",
+	WARN:    "WARN",
+	ERROR:   "ERROR",
+	FATAL:   "FATAL",
+	FOCUS:   "FOCUS",
+	FORWARD: "FORWARD",
 }
 
 func (f *LogField) Debug() *LogField {
