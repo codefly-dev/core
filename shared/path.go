@@ -278,7 +278,7 @@ type Replacement struct {
 //		return "", err
 //	}
 //
-//	// Initialize the tree string
+//	// Loadialize the tree string
 //	var treeStr string
 //
 //	// Loop through the contents

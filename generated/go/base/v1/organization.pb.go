@@ -22,6 +22,9 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Organization represents the owner of a software system
+// The Domain corresponds to a URI for that organization
+// A Github organization URL is a good example of this
 type Organization struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

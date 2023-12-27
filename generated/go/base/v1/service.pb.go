@@ -21,6 +21,10 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Service is the fundamental "live" computing unit of a system
+// It belongs to an application
+// It is "hosted" by an agent
+// It has a set of endpoints
 type Service struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -147,16 +151,21 @@ func (x *Version) GetVersion() string {
 	return ""
 }
 
+// ServiceIdentity is the identity of a service
+// It has several component depending on how we look at a software system:
+// - Logical: corresponds to the Bounded Context of DDD
+// - Resource: corresponds to a logical or computational group
+// - Physical: corresponds to a physical group, where the code lives!
 type ServiceIdentity struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Name        string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`               // The name of the service
-	Domain      string `protobuf:"bytes,2,opt,name=domain,proto3" json:"domain,omitempty"`           // The domain of the service
-	Application string `protobuf:"bytes,3,opt,name=application,proto3" json:"application,omitempty"` // The application of the service | logical partitioning
-	Namespace   string `protobuf:"bytes,4,opt,name=namespace,proto3" json:"namespace,omitempty"`     // The namespace of the service | resource partitioning
-	Location    string `protobuf:"bytes,5,opt,name=location,proto3" json:"location,omitempty"`       // The location of the service | physical partitioning
+	Name        string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Domain      string `protobuf:"bytes,2,opt,name=domain,proto3" json:"domain,omitempty"`
+	Application string `protobuf:"bytes,3,opt,name=application,proto3" json:"application,omitempty"`
+	Namespace   string `protobuf:"bytes,4,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Location    string `protobuf:"bytes,5,opt,name=location,proto3" json:"location,omitempty"`
 }
 
 func (x *ServiceIdentity) Reset() {

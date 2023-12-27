@@ -332,14 +332,14 @@ const VisibilityPublic = "public"
 
 func (app *Application) PublicEndpoints(ctx context.Context) (*basev1.ApplicationEndpointGroup, error) {
 	w := wool.Get(ctx).In("Application::PublicEndpoints", wool.ThisField(app))
-	// Load services
+	// Init services
 	services, err := app.LoadServices(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load services")
 	}
 	var groups []*basev1.ServiceEndpointGroup
 	for _, service := range services {
-		// Load groups
+		// Init groups
 		var publicEndpoints []*basev1.Endpoint
 		for _, endpoint := range service.Endpoints {
 			if endpoint.Visibility != VisibilityPublic {

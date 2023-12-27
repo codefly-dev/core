@@ -40,8 +40,8 @@ type RuntimeInstance struct {
 
 // Factory methods
 
-func (instance *FactoryInstance) Init(ctx context.Context) (*factoryv1.InitResponse, error) {
-	init := &factoryv1.InitRequest{
+func (instance *FactoryInstance) Load(ctx context.Context) (*factoryv1.LoadResponse, error) {
+	init := &factoryv1.LoadRequest{
 		Debug: wool.IsDebug(),
 		Identity: &basev1.ServiceIdentity{
 			Name:        instance.Name,
@@ -51,7 +51,7 @@ func (instance *FactoryInstance) Init(ctx context.Context) (*factoryv1.InitRespo
 			Location:    instance.Dir(),
 		},
 	}
-	return instance.Factory.Init(ctx, init)
+	return instance.Factory.Load(ctx, init)
 
 }
 
@@ -61,8 +61,8 @@ func (instance *FactoryInstance) Create(ctx context.Context) (*factoryv1.CreateR
 
 // Runtime methods
 
-func (instance *RuntimeInstance) Init(ctx context.Context) (*runtimev1.InitResponse, error) {
-	init := &runtimev1.InitRequest{
+func (instance *RuntimeInstance) Load(ctx context.Context) (*runtimev1.LoadResponse, error) {
+	init := &runtimev1.LoadRequest{
 		Debug: wool.IsDebug(),
 		Identity: &basev1.ServiceIdentity{
 			Name:        instance.Name,
@@ -72,18 +72,18 @@ func (instance *RuntimeInstance) Init(ctx context.Context) (*runtimev1.InitRespo
 			Location:    instance.Dir(),
 		},
 	}
-	return instance.Runtime.Init(ctx, init)
+	return instance.Runtime.Load(ctx, init)
 }
 
 // Loader
 
 func Load(ctx context.Context, service *configurations.Service) (*ServiceInstance, error) {
-	w := wool.Get(ctx).In("services.Load", wool.Field("service", service.Name))
+	w := wool.Get(ctx).In("services.Init", wool.Field("service", service.Name))
 	agent, proc, err := manager.Load[ServiceAgentContext, ServiceAgent](ctx, service.Agent, service.Unique())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load service agent")
 	}
-	// Load capabilities
+	// Init capabilities
 	instance := &ServiceInstance{
 		Service: service,
 		Agent:   agent,

@@ -2,8 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"github.com/codefly-dev/core/wool"
 
@@ -16,9 +14,7 @@ import (
 	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
 	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
 	"github.com/hashicorp/go-plugin"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/status"
 )
 
 type ServiceRuntimeAgentContext struct {
@@ -35,14 +31,18 @@ func (m ServiceRuntimeAgentContext) Default() plugin.Plugin {
 var _ manager.AgentContext = ServiceRuntimeAgentContext{}
 
 type Runtime interface {
+	// Load loads the service: it is a NoOp operation and can be called safely
+	Load(ctx context.Context, req *runtimev1.LoadRequest) (*runtimev1.LoadResponse, error)
+
+	// Init initializes the service: can include steps like compilation, etc...
 	Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error)
 
-	Configure(ctx context.Context, req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error)
-
+	// Start the underlying service
 	Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error)
-	Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error)
 
 	Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error)
+
+	Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error)
 
 	// Communicate is a special method that is used to communicate with the agent
 	communicate.Communicate
@@ -54,39 +54,19 @@ type RuntimeAgent struct {
 	process *manager.ProcessInfo
 }
 
-// Configure documents things
-// It can be used safely anywhere: doesn't start or do anything
-func (m *RuntimeAgent) Configure(ctx context.Context, req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error) {
-	return m.client.Configure(ctx, req)
+// Load loads the service: it is a NoOp operation and can be called safely
+func (m *RuntimeAgent) Load(ctx context.Context, req *runtimev1.LoadRequest) (*runtimev1.LoadResponse, error) {
+	return m.client.Load(ctx, req)
 }
 
 // Init initializes the service
 func (m *RuntimeAgent) Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error) {
-	resp, err := m.client.Init(ctx, req)
-	if err != nil && strings.Contains(err.Error(), "Marshal called with nil") {
-		return resp, fmt.Errorf("WE PROBABLY HAVE A PANIC")
-	}
-	return resp, err
+	return m.client.Init(ctx, req)
 }
 
 // Start starts the service
 func (m *RuntimeAgent) Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
-	resp, err := m.client.Start(ctx, req)
-	if err != nil {
-		st := status.Convert(err)
-		for _, detail := range st.Details() {
-			switch t := detail.(type) {
-			case *errdetails.DebugInfo:
-				return nil, parseError(t.Detail)
-			}
-		}
-	}
-	return resp, err
-}
-
-func parseError(detail string) error {
-	return fmt.Errorf("TODO: %v", detail)
-
+	return m.client.Start(ctx, req)
 }
 
 // Information return some useful information about the service
@@ -125,8 +105,8 @@ type RuntimeServer struct {
 	Runtime Runtime
 }
 
-func (m *RuntimeServer) Configure(ctx context.Context, req *runtimev1.ConfigureRequest) (*runtimev1.ConfigureResponse, error) {
-	return m.Runtime.Configure(ctx, req)
+func (m *RuntimeServer) Load(ctx context.Context, req *runtimev1.LoadRequest) (*runtimev1.LoadResponse, error) {
+	return m.Runtime.Load(ctx, req)
 }
 
 func (m *RuntimeServer) Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error) {
@@ -180,11 +160,25 @@ func NewRuntimeAgent(conf *configurations.Agent, runtime Runtime) agents.AgentIm
 type InformationStatus = runtimev1.InformationResponse_Status
 
 const (
-	UnknownState       = runtimev1.InformationResponse_UNKNOWN
-	InitState          = runtimev1.InformationResponse_INIT
-	StartedState       = runtimev1.InformationResponse_STARTED
-	RestartWantedState = runtimev1.InformationResponse_RESTART_WANTED
-	SyncWantedState    = runtimev1.InformationResponse_SYNC_WANTED
-	StoppedState       = runtimev1.InformationResponse_STOPPED
-	ErrorState         = runtimev1.InformationResponse_ERROR
+	UnknownState    = runtimev1.InformationResponse_UNKNOWN
+	LoadInProgress  = runtimev1.InformationResponse_LOAD_IN_PROGRESS
+	LoadSuccess     = runtimev1.InformationResponse_LOADED_SUCCESS
+	LoadFailed      = runtimev1.InformationResponse_LOADED_FAILED
+	InitInProgress  = runtimev1.InformationResponse_INIT_IN_PROGRESS
+	InitSuccess     = runtimev1.InformationResponse_INIT_SUCCESS
+	InitFailed      = runtimev1.InformationResponse_INIT_FAILED
+	StartInProgress = runtimev1.InformationResponse_START_IN_PROGRESS
+	StartSuccess    = runtimev1.InformationResponse_START_SUCCESS
+	StartFailed     = runtimev1.InformationResponse_START_FAILED
+	StopInProgress  = runtimev1.InformationResponse_STOP_IN_PROGRESS
+	StopSuccess     = runtimev1.InformationResponse_STOP_SUCCESS
+	StopFailed      = runtimev1.InformationResponse_STOP_FAILED
+)
+
+type InformationStateDesired = runtimev1.InformationResponse_DesiredState
+
+const (
+	DesiredNOOP    = runtimev1.InformationResponse_NOOP
+	DesiredRestart = runtimev1.InformationResponse_RESTARTED
+	DesiredStop    = runtimev1.InformationResponse_STOPPED
 )

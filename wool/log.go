@@ -246,7 +246,7 @@ func SliceCountField[T any](slice []T) *LogField {
 }
 
 func ErrField(err error) *LogField {
-	return &LogField{Key: "error", Value: err}
+	return &LogField{Key: "error", Value: err.Error()}
 }
 
 func StatusOK() *LogField {

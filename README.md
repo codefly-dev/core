@@ -13,7 +13,7 @@
 
 ## Getting started
 
-### Generate code from proto files
+### Update proto definitions and generate code 
 
 ```shell
  ./scripts/build/generate.sh
@@ -22,6 +22,8 @@
 ### Publish
 
 TODO: When needed, move to PR system for versioning
+
+*Requirement:* `semver`
 
 ```shell
 ./scripts/publish/tag.sh

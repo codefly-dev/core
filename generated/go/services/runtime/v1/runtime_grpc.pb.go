@@ -21,11 +21,11 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
+	Runtime_Load_FullMethodName        = "/service.runtime.v1.Runtime/Init"
 	Runtime_Init_FullMethodName        = "/service.runtime.v1.Runtime/Init"
-	Runtime_Configure_FullMethodName   = "/service.runtime.v1.Runtime/Configure"
 	Runtime_Start_FullMethodName       = "/service.runtime.v1.Runtime/Start"
-	Runtime_Information_FullMethodName = "/service.runtime.v1.Runtime/Information"
 	Runtime_Stop_FullMethodName        = "/service.runtime.v1.Runtime/Stop"
+	Runtime_Information_FullMethodName = "/service.runtime.v1.Runtime/Information"
 	Runtime_Communicate_FullMethodName = "/service.runtime.v1.Runtime/Communicate"
 )
 
@@ -33,11 +33,17 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RuntimeClient interface {
+	// Load the Service Agent: this should be a NoOp and never fails
+	Load(ctx context.Context, in *LoadRequest, opts ...grpc.CallOption) (*LoadResponse, error)
+	// Init the Service Agent: could include steps like compilation, configuration, etc.
+	// An important step of Initialization is to get the list of network mappings
 	Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error)
-	Configure(ctx context.Context, in *ConfigureRequest, opts ...grpc.CallOption) (*ConfigureResponse, error)
+	// Start the underlying service
 	Start(ctx context.Context, in *StartRequest, opts ...grpc.CallOption) (*StartResponse, error)
-	Information(ctx context.Context, in *InformationRequest, opts ...grpc.CallOption) (*InformationResponse, error)
+	// Stop the underlying service and cleanup
 	Stop(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
+	// Information about the state of the service
+	Information(ctx context.Context, in *InformationRequest, opts ...grpc.CallOption) (*InformationResponse, error)
 	// Communication helper
 	Communicate(ctx context.Context, in *v1.Engage, opts ...grpc.CallOption) (*v1.InformationRequest, error)
 }
@@ -50,18 +56,18 @@ func NewRuntimeClient(cc grpc.ClientConnInterface) RuntimeClient {
 	return &runtimeClient{cc}
 }
 
-func (c *runtimeClient) Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error) {
-	out := new(InitResponse)
-	err := c.cc.Invoke(ctx, Runtime_Init_FullMethodName, in, out, opts...)
+func (c *runtimeClient) Load(ctx context.Context, in *LoadRequest, opts ...grpc.CallOption) (*LoadResponse, error) {
+	out := new(LoadResponse)
+	err := c.cc.Invoke(ctx, Runtime_Load_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *runtimeClient) Configure(ctx context.Context, in *ConfigureRequest, opts ...grpc.CallOption) (*ConfigureResponse, error) {
-	out := new(ConfigureResponse)
-	err := c.cc.Invoke(ctx, Runtime_Configure_FullMethodName, in, out, opts...)
+func (c *runtimeClient) Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error) {
+	out := new(InitResponse)
+	err := c.cc.Invoke(ctx, Runtime_Init_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -77,18 +83,18 @@ func (c *runtimeClient) Start(ctx context.Context, in *StartRequest, opts ...grp
 	return out, nil
 }
 
-func (c *runtimeClient) Information(ctx context.Context, in *InformationRequest, opts ...grpc.CallOption) (*InformationResponse, error) {
-	out := new(InformationResponse)
-	err := c.cc.Invoke(ctx, Runtime_Information_FullMethodName, in, out, opts...)
+func (c *runtimeClient) Stop(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error) {
+	out := new(StopResponse)
+	err := c.cc.Invoke(ctx, Runtime_Stop_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *runtimeClient) Stop(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error) {
-	out := new(StopResponse)
-	err := c.cc.Invoke(ctx, Runtime_Stop_FullMethodName, in, out, opts...)
+func (c *runtimeClient) Information(ctx context.Context, in *InformationRequest, opts ...grpc.CallOption) (*InformationResponse, error) {
+	out := new(InformationResponse)
+	err := c.cc.Invoke(ctx, Runtime_Information_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -108,11 +114,17 @@ func (c *runtimeClient) Communicate(ctx context.Context, in *v1.Engage, opts ...
 // All implementations must embed UnimplementedRuntimeServer
 // for forward compatibility
 type RuntimeServer interface {
+	// Load the Service Agent: this should be a NoOp and never fails
+	Load(context.Context, *LoadRequest) (*LoadResponse, error)
+	// Init the Service Agent: could include steps like compilation, configuration, etc.
+	// An important step of Initialization is to get the list of network mappings
 	Init(context.Context, *InitRequest) (*InitResponse, error)
-	Configure(context.Context, *ConfigureRequest) (*ConfigureResponse, error)
+	// Start the underlying service
 	Start(context.Context, *StartRequest) (*StartResponse, error)
-	Information(context.Context, *InformationRequest) (*InformationResponse, error)
+	// Stop the underlying service and cleanup
 	Stop(context.Context, *StopRequest) (*StopResponse, error)
+	// Information about the state of the service
+	Information(context.Context, *InformationRequest) (*InformationResponse, error)
 	// Communication helper
 	Communicate(context.Context, *v1.Engage) (*v1.InformationRequest, error)
 	mustEmbedUnimplementedRuntimeServer()
@@ -122,20 +134,20 @@ type RuntimeServer interface {
 type UnimplementedRuntimeServer struct {
 }
 
-func (UnimplementedRuntimeServer) Init(context.Context, *InitRequest) (*InitResponse, error) {
+func (UnimplementedRuntimeServer) Load(context.Context, *LoadRequest) (*LoadResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Init not implemented")
 }
-func (UnimplementedRuntimeServer) Configure(context.Context, *ConfigureRequest) (*ConfigureResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Configure not implemented")
+func (UnimplementedRuntimeServer) Init(context.Context, *InitRequest) (*InitResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Init not implemented")
 }
 func (UnimplementedRuntimeServer) Start(context.Context, *StartRequest) (*StartResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Start not implemented")
 }
-func (UnimplementedRuntimeServer) Information(context.Context, *InformationRequest) (*InformationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Information not implemented")
-}
 func (UnimplementedRuntimeServer) Stop(context.Context, *StopRequest) (*StopResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Stop not implemented")
+}
+func (UnimplementedRuntimeServer) Information(context.Context, *InformationRequest) (*InformationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Information not implemented")
 }
 func (UnimplementedRuntimeServer) Communicate(context.Context, *v1.Engage) (*v1.InformationRequest, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Communicate not implemented")
@@ -153,6 +165,24 @@ func RegisterRuntimeServer(s grpc.ServiceRegistrar, srv RuntimeServer) {
 	s.RegisterService(&Runtime_ServiceDesc, srv)
 }
 
+func _Runtime_Load_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LoadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServer).Load(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Runtime_Load_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServer).Load(ctx, req.(*LoadRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Runtime_Init_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InitRequest)
 	if err := dec(in); err != nil {
@@ -167,24 +197,6 @@ func _Runtime_Init_Handler(srv interface{}, ctx context.Context, dec func(interf
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RuntimeServer).Init(ctx, req.(*InitRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Runtime_Configure_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ConfigureRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuntimeServer).Configure(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Runtime_Configure_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuntimeServer).Configure(ctx, req.(*ConfigureRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -207,24 +219,6 @@ func _Runtime_Start_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Runtime_Information_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(InformationRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuntimeServer).Information(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Runtime_Information_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuntimeServer).Information(ctx, req.(*InformationRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _Runtime_Stop_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StopRequest)
 	if err := dec(in); err != nil {
@@ -239,6 +233,24 @@ func _Runtime_Stop_Handler(srv interface{}, ctx context.Context, dec func(interf
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RuntimeServer).Stop(ctx, req.(*StopRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Runtime_Information_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InformationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServer).Information(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Runtime_Information_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServer).Information(ctx, req.(*InformationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -270,23 +282,23 @@ var Runtime_ServiceDesc = grpc.ServiceDesc{
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "Init",
-			Handler:    _Runtime_Init_Handler,
+			Handler:    _Runtime_Load_Handler,
 		},
 		{
-			MethodName: "Configure",
-			Handler:    _Runtime_Configure_Handler,
+			MethodName: "Init",
+			Handler:    _Runtime_Init_Handler,
 		},
 		{
 			MethodName: "Start",
 			Handler:    _Runtime_Start_Handler,
 		},
 		{
-			MethodName: "Information",
-			Handler:    _Runtime_Information_Handler,
-		},
-		{
 			MethodName: "Stop",
 			Handler:    _Runtime_Stop_Handler,
+		},
+		{
+			MethodName: "Information",
+			Handler:    _Runtime_Information_Handler,
 		},
 		{
 			MethodName: "Communicate",

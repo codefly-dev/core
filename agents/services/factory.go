@@ -32,7 +32,7 @@ func (m ServiceFactoryAgentContext) Default() plugin.Plugin {
 var _ manager.AgentContext = ServiceFactoryAgentContext{}
 
 type Factory interface {
-	Init(ctx context.Context, req *factoryv1.InitRequest) (*factoryv1.InitResponse, error)
+	Load(ctx context.Context, req *factoryv1.LoadRequest) (*factoryv1.LoadResponse, error)
 
 	Create(ctx context.Context, req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error)
 	Update(ctx context.Context, req *factoryv1.UpdateRequest) (*factoryv1.UpdateResponse, error)
@@ -52,8 +52,8 @@ type FactoryAgent struct {
 	process *manager.ProcessInfo
 }
 
-func (m FactoryAgent) Init(ctx context.Context, req *factoryv1.InitRequest) (*factoryv1.InitResponse, error) {
-	return m.client.Init(ctx, req)
+func (m FactoryAgent) Load(ctx context.Context, req *factoryv1.LoadRequest) (*factoryv1.LoadResponse, error) {
+	return m.client.Load(ctx, req)
 }
 
 func (m FactoryAgent) Create(ctx context.Context, req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error) {
@@ -101,8 +101,8 @@ type FactoryServer struct {
 	Factory Factory
 }
 
-func (m *FactoryServer) Init(ctx context.Context, req *factoryv1.InitRequest) (*factoryv1.InitResponse, error) {
-	return m.Factory.Init(ctx, req)
+func (m *FactoryServer) Load(ctx context.Context, req *factoryv1.LoadRequest) (*factoryv1.LoadResponse, error) {
+	return m.Factory.Load(ctx, req)
 }
 
 func (m *FactoryServer) Create(ctx context.Context, req *factoryv1.CreateRequest) (*factoryv1.CreateResponse, error) {

@@ -52,7 +52,7 @@ func (g *Proto) Generate(ctx context.Context) error {
 	volume := fmt.Sprintf("%s:/workspace", g.Dir)
 	runner := runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "generate"}}
 	w.Debug("Generating code from buf...")
-	err := runner.Init(ctx)
+	err := runner.Load(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}

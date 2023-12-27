@@ -155,7 +155,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 
 	assert.Equal(t, 1, len(w.Projects))
 
-	// Load Back, different ways
+	// Init Back, different ways
 	project, err = w.LoadProjectFromName(ctx, projectName)
 	assert.NoError(t, err)
 	assert.Equal(t, projectName, project.Name)
@@ -172,7 +172,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	_, err = os.Stat(path.Join(project.Dir(), "README.md"))
 	assert.NoError(t, err)
 
-	// Load the workspace configuration
+	// Init the workspace configuration
 	wsConfig := string(shared.Must(os.ReadFile(path.Join(w.Dir(), configurations.WorkspaceConfigurationName))))
 	assert.NoError(t, err)
 	// We use default path
@@ -185,7 +185,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	// We use default path
 	assert.NotContains(t, projectConfig, "path")
 
-	// Load -- reference
+	// Init -- reference
 	ref := &configurations.ProjectReference{Name: projectName}
 	back, err := w.LoadProjectFromReference(ctx, ref)
 	assert.NoError(t, err)
@@ -268,7 +268,7 @@ func TestCreationWithAbsolutePath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-project", p.Name)
 
-	// Load the workspace configuration
+	// Init the workspace configuration
 	ws, err := os.ReadFile(path.Join(dir, configurations.WorkspaceConfigurationName))
 	assert.NoError(t, err)
 	// We should find the path
@@ -278,7 +278,7 @@ func TestCreationWithAbsolutePath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, string(content), fmt.Sprintf("path: %s", projectDir))
 
-	// Load -- reference
+	// Init -- reference
 	ref := &configurations.ProjectReference{Name: "test-project", PathOverride: &projectDir}
 	back, err := w.LoadProjectFromReference(ctx, ref)
 	assert.NoError(t, err)
@@ -300,7 +300,7 @@ func TestCreationWithRelativePath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-project", p.Name)
 
-	// Load the workspace configuration
+	// Init the workspace configuration
 	ws, err := os.ReadFile(path.Join(dir, configurations.WorkspaceConfigurationName))
 	assert.NoError(t, err)
 	// We should find the path
@@ -311,7 +311,7 @@ func TestCreationWithRelativePath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, string(content), fmt.Sprintf("path: %s", "path-from-workspace"))
 
-	// Load -- reference
+	// Init -- reference
 	ref := &configurations.ProjectReference{Name: "test-project", PathOverride: shared.Pointer("path-from-workspace")}
 	back, err := workspace.LoadProjectFromReference(ctx, ref)
 	assert.NoError(t, err)

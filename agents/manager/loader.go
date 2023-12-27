@@ -42,7 +42,7 @@ type ProcessInfo struct {
 }
 
 func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.Agent, unique string) (*Instance, *ProcessInfo, error) {
-	w := wool.Get(ctx).In("agents.Load", wool.Field("agent", p.Identifier()))
+	w := wool.Get(ctx).In("agents.Init", wool.Field("agent", p.Identifier()))
 	if p == nil {
 		return nil, nil, w.NewError("agent cannot be nil")
 	}

@@ -61,7 +61,7 @@ func (h *ClientLogHandler) Write(p []byte) (n int, err error) {
 	var log HCLogMessageOut
 	err = json.Unmarshal([]byte(msg.Message), &log)
 	if err != nil {
-		h.process(wool.LogTrace(msg.Message), wool.System())
+		h.process(&wool.Log{Level: wool.TRACE, Message: msg.Message, Header: "plugin"}, wool.System())
 		return 0, err
 	}
 	// Drop non-wool logs

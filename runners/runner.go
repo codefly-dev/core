@@ -28,7 +28,7 @@ type Runner struct {
 	killed bool
 }
 
-func (g *Runner) Init(ctx context.Context) error {
+func (g *Runner) Load(ctx context.Context) error {
 	g.killed = false
 	// #nosec G204
 	g.Cmd = exec.CommandContext(ctx, g.Bin, g.Args...)

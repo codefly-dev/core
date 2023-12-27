@@ -335,7 +335,7 @@ Global Workspace Configuration
 */
 
 // WorkspaceConfigurationDir returns the directory where the Workspace configuration is stored
-// Initialized to the default user folder
+// Loadialized to the default user folder
 func WorkspaceConfigurationDir() string {
 	return workspaceConfigDir
 }

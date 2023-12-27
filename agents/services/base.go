@@ -29,6 +29,14 @@ type Information struct {
 	Domain  string
 }
 
+type RuntimeWrapper struct {
+	*Base
+}
+
+type FactoryWrapper struct {
+	*Base
+}
+
 type Base struct {
 	// Agent
 	Agent     *configurations.Agent
@@ -54,6 +62,10 @@ type Base struct {
 	Endpoints       []*basev1.Endpoint
 	NetworkMappings []*runtimev1.NetworkMapping
 
+	// Wrappers
+	Runtime *RuntimeWrapper
+	Factory *FactoryWrapper
+
 	// Runtime
 	State InformationStatus
 
@@ -67,15 +79,18 @@ type Base struct {
 
 func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 	provider := agents.NewAgentProvider(ctx, agent)
-	return &Base{
+	base := &Base{
 		Agent:         agent,
 		Communication: communicate.NewServer(ctx),
 		WoolAgent:     provider,
 		Wool:          provider.Get(ctx),
 	}
+	base.Runtime = &RuntimeWrapper{Base: base}
+	base.Factory = &FactoryWrapper{Base: base}
+	return base
 }
 
-func (s *Base) Init(ctx context.Context, identity *basev1.ServiceIdentity, settings any) error {
+func (s *Base) Load(ctx context.Context, identity *basev1.ServiceIdentity, settings any) error {
 	s.Identity = configurations.ServiceIdentityFromProto(identity)
 	s.Location = identity.Location
 
@@ -83,6 +98,7 @@ func (s *Base) Init(ctx context.Context, identity *basev1.ServiceIdentity, setti
 	s.WoolAgent = agents.NewServiceProvider(ctx, s.Identity)
 
 	s.Wool = s.WoolAgent.Get(ctx)
+	s.Wool.Info("base initialization")
 
 	ctx = s.Wool.Inject(ctx)
 
@@ -118,14 +134,34 @@ func (s *Base) DockerImage() *configurations.DockerImage {
 	}
 }
 
-func (s *Base) CreateResponse(ctx context.Context, settings any, eps ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
+func (s *FactoryWrapper) LoadResponse(es []*basev1.Endpoint, gettingStarted string) (*factoryv1.LoadResponse, error) {
+	for _, e := range es {
+		e.Application = s.Identity.Application
+		e.Service = s.Identity.Name
+		e.Namespace = s.Identity.Namespace
+	}
+	return &factoryv1.LoadResponse{
+		Version:        s.Version(),
+		Endpoints:      es,
+		GettingStarted: gettingStarted,
+		Status:         &factoryv1.LoadStatus{State: factoryv1.LoadStatus_READY},
+	}, nil
+}
+
+func (s *FactoryWrapper) LoadError(err error) (*factoryv1.LoadResponse, error) {
+	return &factoryv1.LoadResponse{
+		Status: &factoryv1.LoadStatus{State: factoryv1.LoadStatus_ERROR, Message: err.Error()},
+	}, err
+}
+
+func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, eps ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
 	err := s.Configuration.UpdateSpecFromSettings(settings)
 	if err != nil {
-		return s.CreateResponseError(err)
+		return s.CreateError(err)
 	}
 	s.Configuration.Endpoints, err = configurations.FromProtoEndpoints(eps...)
 	if err != nil {
-		return s.CreateResponseError(err)
+		return s.CreateError(err)
 	}
 
 	err = s.Configuration.Save(ctx)
@@ -137,77 +173,57 @@ func (s *Base) CreateResponse(ctx context.Context, settings any, eps ...*basev1.
 	}, nil
 }
 
-// Factory
-
-func (s *Base) FactoryInitResponse(es []*basev1.Endpoint, gettingStarted string) (*factoryv1.InitResponse, error) {
-	for _, e := range es {
-		e.Application = s.Identity.Application
-		e.Service = s.Identity.Name
-		e.Namespace = s.Identity.Namespace
-	}
-	return &factoryv1.InitResponse{
-		Version:        s.Version(),
-		Endpoints:      es,
-		GettingStarted: gettingStarted,
-		Status:         &factoryv1.InitStatus{State: factoryv1.InitStatus_READY},
-	}, nil
-}
-
-func (s *Base) FactoryInitResponseError(err error) (*factoryv1.InitResponse, error) {
-	return &factoryv1.InitResponse{
-		Status: &factoryv1.InitStatus{State: factoryv1.InitStatus_ERROR, Message: err.Error()},
-	}, nil
-}
-
-func (s *Base) CreateResponseError(err error) (*factoryv1.CreateResponse, error) {
+func (s *FactoryWrapper) CreateError(err error) (*factoryv1.CreateResponse, error) {
 	return &factoryv1.CreateResponse{
 		Status: &factoryv1.CreateStatus{Status: factoryv1.CreateStatus_ERROR, Message: err.Error()},
-	}, nil
+	}, err
 }
 
-func (s *Base) RuntimeInitResponse(endpoints []*basev1.Endpoint) (*runtimev1.InitResponse, error) {
+// Runtime
+
+func (s *RuntimeWrapper) LoadResponse(endpoints []*basev1.Endpoint) (*runtimev1.LoadResponse, error) {
 	// for convenience, add application and service
 	for _, endpoint := range endpoints {
 		endpoint.Application = s.Configuration.Application
 		endpoint.Service = s.Configuration.Name
 	}
-	return &runtimev1.InitResponse{
+	return &runtimev1.LoadResponse{
 		Version:   s.Version(),
 		Endpoints: endpoints,
-		Status:    &runtimev1.InitStatus{State: runtimev1.InitStatus_READY},
+		Status:    &runtimev1.LoadStatus{State: runtimev1.LoadStatus_READY},
 	}, nil
 }
 
-func (s *Base) RuntimeInitResponseError(err error) (*runtimev1.InitResponse, error) {
+func (s *RuntimeWrapper) LoadError(err error) (*runtimev1.LoadResponse, error) {
+	return &runtimev1.LoadResponse{
+		Status: &runtimev1.LoadStatus{State: runtimev1.LoadStatus_ERROR, Message: err.Error()},
+	}, err
+}
+
+func (s *RuntimeWrapper) InitResponse() (*runtimev1.InitResponse, error) {
 	return &runtimev1.InitResponse{
-		Status: &runtimev1.InitStatus{State: runtimev1.InitStatus_ERROR, Message: err.Error()},
-	}, nil
-}
-
-func (s *Base) RuntimeConfigureResponse() (*runtimev1.ConfigureResponse, error) {
-	return &runtimev1.ConfigureResponse{
-		Status:          &runtimev1.ConfigureStatus{State: runtimev1.ConfigureStatus_READY},
+		Status:          &runtimev1.InitStatus{State: runtimev1.InitStatus_READY},
 		NetworkMappings: s.NetworkMappings,
 	}, nil
 }
 
-func (s *Base) RuntimeConfigureResponseError(err error, _ ...*wool.LogField) (*runtimev1.ConfigureResponse, error) {
-	return &runtimev1.ConfigureResponse{
-		Status: &runtimev1.ConfigureStatus{State: runtimev1.ConfigureStatus_ERROR, Message: err.Error()},
-	}, nil
+func (s *RuntimeWrapper) InitError(err error, _ ...*wool.LogField) (*runtimev1.InitResponse, error) {
+	return &runtimev1.InitResponse{
+		Status: &runtimev1.InitStatus{State: runtimev1.InitStatus_ERROR, Message: err.Error()},
+	}, err
 }
 
-func (s *Base) RuntimeStartResponse(trackers []*runtimev1.Tracker) (*runtimev1.StartResponse, error) {
+func (s *RuntimeWrapper) StartResponse(trackers []*runtimev1.Tracker) (*runtimev1.StartResponse, error) {
 	return &runtimev1.StartResponse{
 		Status:   &runtimev1.StartStatus{State: runtimev1.StartStatus_STARTED},
 		Trackers: trackers,
 	}, nil
 }
 
-func (s *Base) RuntimeStartResponseError(err error, _ ...*wool.LogField) (*runtimev1.StartResponse, error) {
+func (s *RuntimeWrapper) StartError(err error, _ ...*wool.LogField) (*runtimev1.StartResponse, error) {
 	return &runtimev1.StartResponse{
 		Status: &runtimev1.StartStatus{State: runtimev1.StartStatus_ERROR, Message: err.Error()},
-	}, nil
+	}, err
 }
 
 /* Some very important helpers */
@@ -293,46 +309,24 @@ func (s *Base) Focus(msg string, fields ...*wool.LogField) {
 	s.Wool.Focus(msg, fields...)
 }
 
-func ConfigureError(err error) *runtimev1.ConfigureStatus {
-	return &runtimev1.ConfigureStatus{
-		State:   runtimev1.ConfigureStatus_ERROR,
-		Message: err.Error(),
-	}
-}
-
-func ConfigureSuccess() *runtimev1.ConfigureStatus {
-	return &runtimev1.ConfigureStatus{
-		State: runtimev1.ConfigureStatus_READY,
-	}
-}
-
-func StartError(err error) *runtimev1.StartStatus {
-	return &runtimev1.StartStatus{
-		State:   runtimev1.StartStatus_ERROR,
-		Message: err.Error(),
-	}
-}
-
-func StartSuccess() *runtimev1.StartStatus {
-	return &runtimev1.StartStatus{
-		State: runtimev1.StartStatus_STARTED,
-	}
-}
-
 func (s *Base) Version() *basev1.Version {
 	return &basev1.Version{Version: s.Configuration.Version}
 }
 
+func (s *Base) Ready() {
+	//	s.State = LoadState
+}
+
 func (s *Base) WantRestart() {
-	s.State = RestartWantedState
+	//	s.State = RestartWantedState
 }
 
 func (s *Base) WantSync() {
-	s.State = SyncWantedState
+	//s.State = SyncWantedState
 }
 
 func (s *Base) Stop() error {
-	s.State = StoppedState
+	//s.State = StoppedState
 	close(s.Events)
 	return nil
 }

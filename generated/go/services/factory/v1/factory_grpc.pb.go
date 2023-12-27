@@ -21,7 +21,7 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	Factory_Init_FullMethodName        = "/service.factory.v1.Factory/Init"
+	Factory_Load_FullMethodName        = "/service.factory.v1.Factory/Init"
 	Factory_Create_FullMethodName      = "/service.factory.v1.Factory/Create"
 	Factory_Update_FullMethodName      = "/service.factory.v1.Factory/Update"
 	Factory_Sync_FullMethodName        = "/service.factory.v1.Factory/Sync"
@@ -35,7 +35,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type FactoryClient interface {
 	// Setup
-	Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error)
+	Load(ctx context.Context, in *LoadRequest, opts ...grpc.CallOption) (*LoadResponse, error)
 	// Affect Code
 	Create(ctx context.Context, in *CreateRequest, opts ...grpc.CallOption) (*CreateResponse, error)
 	Update(ctx context.Context, in *UpdateRequest, opts ...grpc.CallOption) (*UpdateResponse, error)
@@ -56,9 +56,9 @@ func NewFactoryClient(cc grpc.ClientConnInterface) FactoryClient {
 	return &factoryClient{cc}
 }
 
-func (c *factoryClient) Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error) {
-	out := new(InitResponse)
-	err := c.cc.Invoke(ctx, Factory_Init_FullMethodName, in, out, opts...)
+func (c *factoryClient) Load(ctx context.Context, in *LoadRequest, opts ...grpc.CallOption) (*LoadResponse, error) {
+	out := new(LoadResponse)
+	err := c.cc.Invoke(ctx, Factory_Load_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (c *factoryClient) Communicate(ctx context.Context, in *v1.Engage, opts ...
 // for forward compatibility
 type FactoryServer interface {
 	// Setup
-	Init(context.Context, *InitRequest) (*InitResponse, error)
+	Load(context.Context, *LoadRequest) (*LoadResponse, error)
 	// Affect Code
 	Create(context.Context, *CreateRequest) (*CreateResponse, error)
 	Update(context.Context, *UpdateRequest) (*UpdateResponse, error)
@@ -142,7 +142,7 @@ type FactoryServer interface {
 type UnimplementedFactoryServer struct {
 }
 
-func (UnimplementedFactoryServer) Init(context.Context, *InitRequest) (*InitResponse, error) {
+func (UnimplementedFactoryServer) Load(context.Context, *LoadRequest) (*LoadResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Init not implemented")
 }
 func (UnimplementedFactoryServer) Create(context.Context, *CreateRequest) (*CreateResponse, error) {
@@ -176,20 +176,20 @@ func RegisterFactoryServer(s grpc.ServiceRegistrar, srv FactoryServer) {
 	s.RegisterService(&Factory_ServiceDesc, srv)
 }
 
-func _Factory_Init_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(InitRequest)
+func _Factory_Load_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LoadRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FactoryServer).Init(ctx, in)
+		return srv.(FactoryServer).Load(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Factory_Init_FullMethodName,
+		FullMethod: Factory_Load_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FactoryServer).Init(ctx, req.(*InitRequest))
+		return srv.(FactoryServer).Load(ctx, req.(*LoadRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -311,7 +311,7 @@ var Factory_ServiceDesc = grpc.ServiceDesc{
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "Init",
-			Handler:    _Factory_Init_Handler,
+			Handler:    _Factory_Load_Handler,
 		},
 		{
 			MethodName: "Create",

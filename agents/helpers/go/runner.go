@@ -89,13 +89,12 @@ func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
 		output := fmt.Errorf(string(out))
 		return nil, output
 	}
-
 	return clean, nil
 }
 
 func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
 	w := wool.Get(ctx).In("go/runner")
-	w.Info("building binary in debug mode")
+	w.Info("building binary in normal mode")
 	// Build with debug options
 	tmp := os.TempDir()
 	g.target = fmt.Sprintf("%s/main", tmp)
@@ -114,7 +113,6 @@ func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
 		return nil, output
 	}
 	w.Info("built", wool.StatusOK())
-
 	return clean, nil
 }
 

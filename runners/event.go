@@ -21,10 +21,11 @@ type Event struct {
 type ActionType int
 
 const (
-	Noop    ActionType = iota
-	Start              // Start the service
-	Stop               // Stop the service
-	Restart            // Restart the service
+	Noop ActionType = iota
+	Init
+	Start   // Start the service
+	Stop    // Stop the service
+	Restart // Restart the service
 )
 
 // Action represents an action to be taken on a service by the runner
