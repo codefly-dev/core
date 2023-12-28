@@ -1,8 +1,9 @@
 package architecture
 
 import (
-	observabilityv1 "github.com/codefly-dev/core/generated/go/observability/v1"
 	"strings"
+
+	observabilityv1 "github.com/codefly-dev/core/generated/go/observability/v1"
 )
 
 type Graph struct {
