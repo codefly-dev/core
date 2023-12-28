@@ -29,19 +29,19 @@ func LoadPublicApplicationGraph(ctx context.Context, project *configurations.Pro
 			continue
 		}
 		g := NewGraph(app.Name)
-		g.AddNode(app.Unique())
+		g.AddNode(app.Unique(), configurations.APPLICATION)
 		// Add one edge for each of the service endpoint
-		for _, serviceEndpoint := range group.ServiceEndpointGroups {
+		for _, serviceEndpointGroup := range group.ServiceEndpointGroups {
 
-			g.AddNode(serviceEndpoint.Name)
-			g.AddEdge(app.Unique(), serviceEndpoint.Name)
-			for _, endpoint := range serviceEndpoint.Endpoints {
+			g.AddNode(serviceEndpointGroup.Name, configurations.SERVICE)
+			g.AddEdge(app.Unique(), serviceEndpointGroup.Name)
+			for _, endpoint := range serviceEndpointGroup.Endpoints {
 				e, err := configurations.FromProtoEndpoint(endpoint)
 				if err != nil {
 					return nil, w.With(wool.NameField(appRef.Name)).Wrapf(err, "cannot convert endpoint")
 				}
-				g.AddNode(e.Unique())
-				g.AddEdge(serviceEndpoint.Name, e.Unique())
+				g.AddNode(e.Unique(), configurations.ENDPOINT)
+				g.AddEdge(serviceEndpointGroup.Name, e.Unique())
 			}
 		}
 		gs = append(gs, g)

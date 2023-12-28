@@ -25,9 +25,9 @@ func LoadServiceGraph(ctx context.Context, project *configurations.Project) (*Gr
 			if err != nil {
 				return nil, w.Wrapf(err, "cannot load service <%s>", serviceRef.Name)
 			}
-			graph.AddNode(service.Unique())
+			graph.AddNode(service.Unique(), configurations.SERVICE)
 			for _, dep := range service.Dependencies {
-				graph.AddNode(dep.Unique())
+				graph.AddNode(dep.Unique(), configurations.SERVICE)
 				graph.AddEdge(dep.Unique(), service.Unique())
 			}
 		}

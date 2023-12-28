@@ -1,23 +1,30 @@
 package architecture
 
-import observabilityv1 "github.com/codefly-dev/core/generated/go/observability/v1"
+import (
+	observabilityv1 "github.com/codefly-dev/core/generated/go/observability/v1"
+	"strings"
+)
 
 type Graph struct {
 	Name  string
 	nodes map[string]bool
 	edges map[string][]string
+
+	nodeTypes map[string]any
 }
 
 func NewGraph(name string) *Graph {
 	return &Graph{
-		Name:  name,
-		nodes: make(map[string]bool),
-		edges: make(map[string][]string),
+		Name:      name,
+		nodes:     make(map[string]bool),
+		edges:     make(map[string][]string),
+		nodeTypes: make(map[string]any),
 	}
 }
 
-func (g *Graph) AddNode(u string) {
+func (g *Graph) AddNode(u string, t any) {
 	g.nodes[u] = true
+	g.nodeTypes[u] = t
 }
 
 func (g *Graph) AddEdge(u, v string) {
@@ -30,10 +37,18 @@ func (g *Graph) AddEdge(u, v string) {
 	g.edges[u] = append(g.edges[u], v)
 }
 
-func (g *Graph) Nodes() []string {
-	var nodes []string
+type Node struct {
+	ID   string
+	Type any
+}
+
+func (g *Graph) Nodes() []Node {
+	var nodes []Node
 	for node := range g.nodes {
-		nodes = append(nodes, node)
+		nodes = append(nodes, Node{
+			ID:   node,
+			Type: g.nodeTypes[node],
+		})
 	}
 	return nodes
 }
@@ -55,11 +70,17 @@ func (g *Graph) Edges() []Edge {
 	}
 	return edges
 }
+
+func ToType(t any) observabilityv1.GraphNode_Type {
+	return observabilityv1.GraphNode_Type(observabilityv1.GraphNode_Type_value[strings.ToUpper(t.(string))])
+}
+
 func ToGraphResponse(g *Graph) *observabilityv1.GraphResponse {
 	resp := &observabilityv1.GraphResponse{}
 	for _, node := range g.Nodes() {
 		resp.Nodes = append(resp.Nodes, &observabilityv1.GraphNode{
-			Id: node,
+			Id:   node.ID,
+			Type: ToType(node.Type),
 		})
 	}
 	for _, edge := range g.Edges() {

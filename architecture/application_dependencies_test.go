@@ -41,6 +41,33 @@ func TestPublicApplicationGraph(t *testing.T) {
 	// billing -> billing/accounts -> billing/accounts/rest
 	assert.Equal(t, 3, len(billing.Nodes()))
 	assert.Equal(t, 2, len(billing.Edges()))
+
+	{
+		expectedWebNodes := []*architecture.Node{
+			{
+				ID:   "billing",
+				Type: configurations.APPLICATION,
+			},
+			{
+				ID:   "billing/accounts",
+				Type: configurations.SERVICE,
+			},
+			{
+				ID:   "billing/accounts/rest",
+				Type: configurations.ENDPOINT,
+			},
+		}
+		for _, expected := range expectedWebNodes {
+			found := false
+			for _, node := range billing.Nodes() {
+				if node.ID == expected.ID && node.Type == expected.Type {
+					found = true
+				}
+			}
+			assert.True(t, found)
+		}
+
+	}
 	{
 		expectedWebEdges := []*architecture.Edge{
 			{
