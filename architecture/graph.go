@@ -1,6 +1,8 @@
 package architecture
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 
 	observabilityv1 "github.com/codefly-dev/core/generated/go/observability/v1"
@@ -23,7 +25,11 @@ func NewGraph(name string) *Graph {
 	}
 }
 
-func (g *Graph) AddNode(u string, t any) {
+func (g *Graph) AddNode(u string) {
+	g.nodes[u] = true
+}
+
+func (g *Graph) AddTypedNode(u string, t any) {
 	g.nodes[u] = true
 	g.nodeTypes[u] = t
 }
@@ -35,12 +41,18 @@ func (g *Graph) AddEdge(u, v string) {
 	if !g.nodes[v] {
 		g.nodes[v] = true
 	}
-	g.edges[u] = append(g.edges[u], v)
+	if !slices.Contains(g.edges[u], v) {
+		g.edges[u] = append(g.edges[u], v)
+	}
 }
 
 type Node struct {
 	ID   string
 	Type any
+}
+
+func (n Node) String() string {
+	return n.ID
 }
 
 func (g *Graph) Nodes() []Node {
@@ -57,6 +69,10 @@ func (g *Graph) Nodes() []Node {
 type Edge struct {
 	From string
 	To   string
+}
+
+func (e Edge) String() string {
+	return fmt.Sprintf("(%s -> %s)", e.From, e.To)
 }
 
 func (g *Graph) Edges() []Edge {
@@ -115,6 +131,59 @@ func (g *Graph) TopologicalSort() []string {
 		}
 	}
 	return stack
+}
+
+func (g *Graph) TopologicalSortFrom(node string) []string {
+	results := g.Subgraph(node).TopologicalSort()
+	// Discard the last one and revert the order
+	if len(results) == 1 {
+		return nil
+	}
+	Reverse(results)
+	return results[1:]
+}
+
+func (g *Graph) Subgraph(start string) *Graph {
+	visited := make(map[string]bool)
+	subgraph := NewGraph("subgraph")
+
+	// Create a reverse mapping of edges (from child to parent)
+	reverseEdges := make(map[string][]string)
+	for parent, children := range g.edges {
+		for _, child := range children {
+			reverseEdges[child] = append(reverseEdges[child], parent)
+		}
+	}
+
+	var dfs func(node string)
+	dfs = func(node string) {
+		visited[node] = true
+		subgraph.AddNode(node)
+
+		// Iterate over the parents of the current node
+		for _, parent := range reverseEdges[node] {
+			if !visited[parent] {
+				subgraph.AddEdge(parent, node) // Add edge from parent to child
+				dfs(parent)
+			}
+		}
+	}
+
+	dfs(start)
+	return subgraph
+}
+
+func (g *Graph) Antecedents(s string) []string {
+	// I really need to invert this graph...
+	var res []string
+	for node, edges := range g.edges {
+		for _, edge := range edges {
+			if edge == s {
+				res = append(res, node)
+			}
+		}
+	}
+	return res
 }
 
 func Reverse[T any](ss []T) {

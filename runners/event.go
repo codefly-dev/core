@@ -30,5 +30,6 @@ const (
 
 // Action represents an action to be taken on a service by the runner
 type Action struct {
-	Type ActionType
+	Type   ActionType
+	Unique string
 }

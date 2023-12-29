@@ -6,6 +6,8 @@ import (
 	"io"
 	"os/exec"
 
+	"strings"
+
 	"github.com/pkg/errors"
 )
 
@@ -67,6 +69,7 @@ func (run *WrappedCmd) Start() (*WrappedCmdOutput, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot start command")
 	}
+
 	out.PID = run.cmd.Process.Pid
 	go func() {
 		err := run.cmd.Wait()
@@ -82,13 +85,13 @@ func ForwardLogs(r io.ReadCloser, ws ...io.Writer) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		for _, w := range ws {
-			_, _ = w.Write([]byte(scanner.Text()))
+			_, _ = w.Write([]byte(strings.TrimSpace(scanner.Text())))
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		for _, w := range ws {
-			_, _ = w.Write([]byte(err.Error()))
+			_, _ = w.Write([]byte(strings.TrimSpace(err.Error())))
 		}
 	}
 

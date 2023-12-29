@@ -215,7 +215,7 @@ func (project *Project) LoadActiveApplication(ctx context.Context) (*Application
 
 // LoadApplicationFromReference loads an application from a reference
 func (project *Project) LoadApplicationFromReference(ctx context.Context, ref *ApplicationReference) (*Application, error) {
-	w := wool.Get(ctx).In("Project.LoadApplicationFromReference", wool.Field("name", ref.Name))
+	w := wool.Get(ctx).In("Project.LoadApplicationFromReference", wool.NameField(ref.Name))
 	dir := project.ApplicationPath(ctx, ref)
 	app, err := LoadApplicationFromDirUnsafe(ctx, dir)
 	if err != nil {
@@ -311,7 +311,7 @@ func (project *Project) SetActiveApplication(_ context.Context, name string) err
 }
 
 // ActiveApplication returns the active application
-func (project *Project) ActiveApplication() *string {
+func (project *Project) ActiveApplication(_ context.Context) *string {
 	if project.activeApplication == "" {
 		return nil
 	}
@@ -345,7 +345,7 @@ func (project *Project) DeleteApplication(ctx context.Context, name string) erro
 	if !project.ExistsApplication(name) {
 		return w.NewError("application <%s> does not exist in project <%s>", name, project.Name)
 	}
-	if active := project.ActiveApplication(); shared.PointerEqual(active, name) {
+	if active := project.ActiveApplication(ctx); shared.PointerEqual(active, name) {
 		project.activeApplication = ""
 	}
 	var apps []*ApplicationReference

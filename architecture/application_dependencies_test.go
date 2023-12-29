@@ -97,6 +97,9 @@ func TestPublicApplicationGraph(t *testing.T) {
 	// web -> web/gateway -> web/gateway/grpc (+1)
 	assert.Equal(t, 6, len(web.Nodes()))
 
+	t.Log(web.Nodes())
+	t.Log(web.Edges())
+
 	{
 		expectedWebEdges := []*architecture.Edge{
 			{

@@ -8,13 +8,14 @@ import (
 var (
 	GRPC = "grpc"
 	REST = "rest"
+	HTTP = "http"
 	TCP  = "tcp"
 )
 
 var supportedAPI []string
 
 func init() {
-	supportedAPI = []string{GRPC, REST, TCP}
+	supportedAPI = []string{GRPC, REST, TCP, HTTP}
 }
 
 func SupportedAPI(kind string) error {

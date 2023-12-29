@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/codefly-dev/core/agents/network"
+
 	"github.com/codefly-dev/core/configurations/standards"
 
 	"github.com/codefly-dev/core/wool"
@@ -99,7 +101,6 @@ func (s *Base) Load(ctx context.Context, identity *basev1.ServiceIdentity, setti
 	s.WoolAgent = agents.NewServiceProvider(ctx, s.Identity)
 
 	s.Wool = s.WoolAgent.Get(ctx)
-	s.Wool.Info("base initialization")
 
 	ctx = s.Wool.Inject(ctx)
 
@@ -155,12 +156,12 @@ func (s *FactoryWrapper) LoadError(err error) (*factoryv1.LoadResponse, error) {
 	}, err
 }
 
-func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, eps ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
+func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, endpoints ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
 	err := s.Configuration.UpdateSpecFromSettings(settings)
 	if err != nil {
 		return s.CreateError(err)
 	}
-	s.Configuration.Endpoints, err = configurations.FromProtoEndpoints(eps...)
+	s.Configuration.Endpoints, err = configurations.FromProtoEndpoints(endpoints...)
 	if err != nil {
 		return s.CreateError(err)
 	}
@@ -170,7 +171,7 @@ func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, eps .
 		return nil, s.Wool.Wrapf(err, "base: cannot save configuration")
 	}
 	return &factoryv1.CreateResponse{
-		Endpoints: eps,
+		Endpoints: endpoints,
 	}, nil
 }
 
@@ -183,6 +184,7 @@ func (s *FactoryWrapper) CreateError(err error) (*factoryv1.CreateResponse, erro
 // Runtime
 
 func (s *RuntimeWrapper) LoadResponse(endpoints []*basev1.Endpoint) (*runtimev1.LoadResponse, error) {
+	s.Wool.Debug("load response", wool.NullableField("exposing endpoints", configurations.MakeEndpointSummary(endpoints)))
 	// for convenience, add application and service
 	for _, endpoint := range endpoints {
 		endpoint.Application = s.Configuration.Application
@@ -202,15 +204,18 @@ func (s *RuntimeWrapper) LoadError(err error) (*runtimev1.LoadResponse, error) {
 }
 
 func (s *RuntimeWrapper) InitResponse() (*runtimev1.InitResponse, error) {
+	s.Wool.Debug("init response", wool.NullableField("exposing network mappings", network.MakeNetworkMappingSummary(s.NetworkMappings)))
 	return &runtimev1.InitResponse{
 		Status:          &runtimev1.InitStatus{State: runtimev1.InitStatus_READY},
 		NetworkMappings: s.NetworkMappings,
 	}, nil
 }
 
-func (s *RuntimeWrapper) InitError(err error, _ ...*wool.LogField) (*runtimev1.InitResponse, error) {
+func (s *RuntimeWrapper) InitError(err error, fields ...*wool.LogField) (*runtimev1.InitResponse, error) {
+	message := wool.Log{Message: err.Error(), Fields: fields}
+	s.Wool.Error(err.Error(), fields...)
 	return &runtimev1.InitResponse{
-		Status: &runtimev1.InitStatus{State: runtimev1.InitStatus_ERROR, Message: err.Error()},
+		Status: &runtimev1.InitStatus{State: runtimev1.InitStatus_ERROR, Message: message.String()},
 	}, err
 }
 
@@ -221,9 +226,11 @@ func (s *RuntimeWrapper) StartResponse(trackers []*runtimev1.Tracker) (*runtimev
 	}, nil
 }
 
-func (s *RuntimeWrapper) StartError(err error, _ ...*wool.LogField) (*runtimev1.StartResponse, error) {
+func (s *RuntimeWrapper) StartError(err error, fields ...*wool.LogField) (*runtimev1.StartResponse, error) {
+	message := wool.Log{Message: err.Error(), Fields: fields}
+	s.Wool.Error(err.Error(), fields...)
 	return &runtimev1.StartResponse{
-		Status: &runtimev1.StartStatus{State: runtimev1.StartStatus_ERROR, Message: err.Error()},
+		Status: &runtimev1.StartStatus{State: runtimev1.StartStatus_ERROR, Message: message.String()},
 	}, err
 }
 
@@ -339,8 +346,6 @@ func (s *Base) WantSync() {
 }
 
 func (s *Base) Stop() error {
-	//s.State = StoppedState
-	close(s.Events)
 	return nil
 }
 
@@ -371,7 +376,7 @@ func WithDeployment(fs embed.FS) TemplateWrapper {
 //
 //func WithDestination(destination string, args ...any) templates.TemplateOptionFunc {
 //	return func(opt *templates.TemplateOption) {
-//		opt.Destination = fmt.Sprintf(destination, args...)
+//		opt.EndpointDestination = fmt.Sprintf(destination, args...)
 //	}
 //}
 //
@@ -381,7 +386,7 @@ func WithDeployment(fs embed.FS) TemplateWrapper {
 //		opts:     opts,
 //		fs:       shared.Embed(fs),
 //		dir:      shared.NewDir("templates/deployment/%s", relativePath),
-//		relative: fmt.Sprintf("codefly/deployment/%s", opt.Destination)}
+//		relative: fmt.Sprintf("codefly/deployment/%s", opt.EndpointDestination)}
 //}
 
 func (s *Base) Templates(ctx context.Context, obj any, ws ...TemplateWrapper) error {

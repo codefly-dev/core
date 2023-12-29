@@ -9,10 +9,7 @@ import (
 func ConvertToEnvironmentVariables(nets []*runtimev1.NetworkMapping) ([]string, error) {
 	var envs []string
 	for _, net := range nets {
-		e, err := configurations.FromProtoEndpoint(net.Endpoint)
-		if err != nil {
-			return nil, err
-		}
+		e := configurations.FromProtoEndpoint(net.Endpoint)
 		envs = append(envs, configurations.AsEndpointEnvironmentVariable(e, net.Addresses))
 	}
 	return envs, nil

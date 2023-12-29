@@ -2,6 +2,7 @@ package wool
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -221,6 +222,14 @@ func PointerField[T any](override *T) *LogField {
 	return &LogField{Key: "pointer", Value: *override}
 }
 
+func NullableField[T any](key string, value T) *LogField {
+	var null T
+	if reflect.DeepEqual(value, null) {
+		return &LogField{Key: key, Value: "null"}
+	}
+	return &LogField{Key: key, Value: value}
+}
+
 func RequestField(req any) *LogField {
 	return &LogField{Key: "request", Value: req}
 }
@@ -259,4 +268,8 @@ func StatusFailed() *LogField {
 
 func FocusField() *LogField {
 	return &LogField{Key: "focus", Value: "true"}
+}
+
+func InField(s string) *LogField {
+	return &LogField{Key: "in", Value: s}
 }

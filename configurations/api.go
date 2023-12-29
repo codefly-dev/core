@@ -128,6 +128,19 @@ func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *Endpoint, filename str
 	return WithAPI(ctx, endpoint, &RestAPI{openapi: content, routes: routes, filename: filename})
 }
 
+type HTTPAPI struct{}
+
+func (h *HTTPAPI) Proto() (*basev1.API, error) {
+	return &basev1.API{
+		Value: &basev1.API_Http{
+			Http: &basev1.HttpAPI{}},
+	}, nil
+}
+
+func NewHTTPApi(ctx context.Context, endpoint *Endpoint) (*basev1.Endpoint, error) {
+	return WithAPI(ctx, endpoint, &HTTPAPI{})
+}
+
 type TCP struct{}
 
 func NewTCP() (*TCP, error) {

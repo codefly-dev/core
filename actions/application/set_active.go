@@ -24,7 +24,7 @@ func (action *SetApplicationActiveAction) Command() string {
 }
 
 func NewActionSetApplicationActive(ctx context.Context, in *SetApplicationActive) (*SetApplicationActiveAction, error) {
-	w := wool.Get(ctx).In("NewActionSetApplicationActive", wool.Field("name", in.Name))
+	w := wool.Get(ctx).In("NewActionSetApplicationActive", wool.NameField(in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -37,7 +37,7 @@ func NewActionSetApplicationActive(ctx context.Context, in *SetApplicationActive
 var _ actions.Action = (*SetApplicationActiveAction)(nil)
 
 func (action *SetApplicationActiveAction) Run(ctx context.Context) (any, error) {
-	w := wool.Get(ctx).In("SetApplicationActiveAction.Run", wool.Field("name", action.Name))
+	w := wool.Get(ctx).In("SetApplicationActiveAction.Run", wool.NameField(action.Name))
 	if action.Project == "" {
 		return nil, w.NewError("missing project in action")
 	}

@@ -23,7 +23,7 @@ func (action *SetProjectActiveAction) Command() string {
 }
 
 func NewActionSetProjectActive(ctx context.Context, in *SetProjectActive) (*SetProjectActiveAction, error) {
-	w := wool.Get(ctx).In("NewActionSetProjectActive", wool.Field("name", in.Name))
+	w := wool.Get(ctx).In("NewActionSetProjectActive", wool.NameField(in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -36,7 +36,7 @@ func NewActionSetProjectActive(ctx context.Context, in *SetProjectActive) (*SetP
 var _ actions.Action = (*SetProjectActiveAction)(nil)
 
 func (action *SetProjectActiveAction) Run(ctx context.Context) (any, error) {
-	w := wool.Get(ctx).In("SetProjectActiveAction.Run", wool.Field("name", action.Name))
+	w := wool.Get(ctx).In("SetProjectActiveAction.Run", wool.NameField(action.Name))
 	workspace, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load workspace")

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/actions/actions"
@@ -22,7 +23,7 @@ func (action *SetServiceActiveAction) Command() string {
 }
 
 func NewActionSetServiceActive(ctx context.Context, in *SetServiceActive) (*SetServiceActiveAction, error) {
-	w := wool.Get(ctx).In("NewActionSetServiceActive", wool.Field("name", in.Name))
+	w := wool.Get(ctx).In("NewActionSetServiceActive", wool.NameField(in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -34,8 +35,33 @@ func NewActionSetServiceActive(ctx context.Context, in *SetServiceActive) (*SetS
 
 var _ actions.Action = (*SetServiceActiveAction)(nil)
 
-func (action *SetServiceActiveAction) Run(_ context.Context) (any, error) {
-	return nil, nil
+func (action *SetServiceActiveAction) Run(ctx context.Context) (any, error) {
+	w := wool.Get(ctx).In("SetServiceActiveAction.Run", wool.NameField(action.Name))
+
+	ws, err := configurations.LoadWorkspace(ctx)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+
+	project, err := ws.LoadProjectFromName(ctx, action.Project)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+
+	app, err := project.LoadApplicationFromName(ctx, action.Application)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+
+	err = app.SetActiveService(ctx, action.Name)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	err = app.Save(ctx)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	return app, nil
 }
 
 func init() {

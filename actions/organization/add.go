@@ -24,7 +24,7 @@ func (action *AddOrganizationAction) Command() string {
 }
 
 func NewActionAddOrganization(ctx context.Context, in *AddOrganization) (*AddOrganizationAction, error) {
-	w := wool.Get(ctx).In("NewActionAddOrganization", wool.Field("name", in.Name))
+	w := wool.Get(ctx).In("NewActionAddOrganization", wool.NameField(in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -37,7 +37,7 @@ func NewActionAddOrganization(ctx context.Context, in *AddOrganization) (*AddOrg
 var _ actions.Action = (*AddOrganizationAction)(nil)
 
 func (action *AddOrganizationAction) Run(ctx context.Context) (any, error) {
-	w := wool.Get(ctx).In("AddOrganizationAction.Run", wool.Field("name", action.Name))
+	w := wool.Get(ctx).In("AddOrganizationAction.Run", wool.NameField(action.Name))
 	// Validate
 	v, err := protovalidate.New()
 	if err != nil {

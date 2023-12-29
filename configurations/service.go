@@ -64,7 +64,11 @@ func (s *Service) Unique() string {
 	if wool.IsDebug() && s.Application == "" {
 		panic(fmt.Sprintf("application is empty in unique %s", s.Name))
 	}
-	return fmt.Sprintf("%s/%s", s.Application, s.Name)
+	return ServiceUnique(s.Application, s.Name)
+}
+
+func ServiceUnique(app string, service string) string {
+	return fmt.Sprintf("%s/%s", app, service)
 }
 
 // Identity is the proto version of Unique
@@ -75,6 +79,26 @@ func (s *Service) Identity() *ServiceIdentity {
 		Domain:      s.Domain,
 		Namespace:   s.Namespace,
 	}
+}
+
+type ServiceWithApplication struct {
+	Name        string
+	Application string
+}
+
+func (s ServiceWithApplication) Unique() string {
+	return fmt.Sprintf("%s/%s", s.Application, s.Name)
+}
+
+func ParseServiceUnique(unique string) (*ServiceWithApplication, error) {
+	parts := strings.Split(unique, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid unique: %s", unique)
+	}
+	return &ServiceWithApplication{
+		Name:        parts[1],
+		Application: parts[0],
+	}, nil
 }
 
 // NewService creates a service in an application

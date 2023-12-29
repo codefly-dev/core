@@ -77,7 +77,7 @@ func (ref *ApplicationReference) IsActive() (*ApplicationReference, bool) {
 
 // NewApplication creates an application in a project
 func (project *Project) NewApplication(ctx context.Context, action *actionsv1.AddApplication) (*Application, error) {
-	w := wool.Get(ctx).In("configurations.NewApplication", wool.Field("name", action.Name))
+	w := wool.Get(ctx).In("configurations.NewApplication", wool.NameField(action.Name))
 	if project.ExistsApplication(action.Name) {
 		return nil, w.NewError("project already exists")
 	}
@@ -196,7 +196,7 @@ func (app *Application) preSave(_ context.Context) error {
 }
 
 func (app *Application) AddService(_ context.Context, service *Service) error {
-	w := wool.Get(context.Background()).In("configurations.AddService", wool.Field("name", service.Name))
+	w := wool.Get(context.Background()).In("configurations.AddService", wool.NameField(service.Name))
 	for _, s := range app.Services {
 		if s.Name == service.Name {
 			return nil
@@ -330,37 +330,24 @@ func (app *Application) DeleteService(ctx context.Context, name string) error {
 
 const VisibilityPublic = "public"
 
-func (app *Application) PublicEndpoints(ctx context.Context) (*basev1.ApplicationEndpointGroup, error) {
+func (app *Application) PublicEndpoints(ctx context.Context) ([]*basev1.Endpoint, error) {
 	w := wool.Get(ctx).In("Application::PublicEndpoints", wool.ThisField(app))
+	var publicEndpoints []*basev1.Endpoint
 	// Init services
 	services, err := app.LoadServices(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load services")
 	}
-	var groups []*basev1.ServiceEndpointGroup
 	for _, service := range services {
 		// Init groups
-		var publicEndpoints []*basev1.Endpoint
 		for _, endpoint := range service.Endpoints {
 			if endpoint.Visibility != VisibilityPublic {
 				continue
 			}
 			publicEndpoints = append(publicEndpoints, EndpointBaseProto(endpoint))
 		}
-		if len(publicEndpoints) == 0 {
-			continue
-		}
-		group := &basev1.ServiceEndpointGroup{
-			Name:      service.Unique(),
-			Public:    true,
-			Endpoints: publicEndpoints,
-		}
-		groups = append(groups, group)
 	}
-	if len(groups) == 0 {
-		return nil, nil
-	}
-	return &basev1.ApplicationEndpointGroup{ServiceEndpointGroups: groups, Public: true, Name: app.Name}, nil
+	return publicEndpoints, nil
 }
 
 type NoApplicationError struct {

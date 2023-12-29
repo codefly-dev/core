@@ -24,7 +24,7 @@ func (action *AddServiceDependencyAction) Command() string {
 type AddServiceDependency = actionsv1.AddServiceDependency
 
 func NewActionAddServiceDependency(ctx context.Context, in *AddServiceDependency) (*AddServiceDependencyAction, error) {
-	w := wool.Get(ctx).In("NewActionAddServiceDependency", wool.Field("name", in.Name))
+	w := wool.Get(ctx).In("NewActionAddServiceDependency", wool.NameField(in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -37,7 +37,7 @@ func NewActionAddServiceDependency(ctx context.Context, in *AddServiceDependency
 var _ actions.Action = (*AddServiceDependencyAction)(nil)
 
 func (action *AddServiceDependencyAction) Run(ctx context.Context) (any, error) {
-	w := wool.Get(ctx).In("AddServiceDependencyAction.Run", wool.Field("name", action.Name))
+	w := wool.Get(ctx).In("AddServiceDependencyAction.Run", wool.NameField(action.Name))
 
 	workspace, err := configurations.LoadWorkspace(ctx)
 	if err != nil {

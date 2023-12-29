@@ -22,7 +22,7 @@ func (action *AddEnvironmentAction) Command() string {
 }
 
 func NewActionAddEnvironment(ctx context.Context, in *actionsv1.AddEnvironment) (*AddEnvironmentAction, error) {
-	w := wool.Get(ctx).In("NewActionAddEnvironment", wool.Field("name", in.Name))
+	w := wool.Get(ctx).In("NewActionAddEnvironment", wool.NameField(in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -35,7 +35,7 @@ func NewActionAddEnvironment(ctx context.Context, in *actionsv1.AddEnvironment) 
 var _ actions.Action = (*AddEnvironmentAction)(nil)
 
 func (action *AddEnvironmentAction) Run(ctx context.Context) (any, error) {
-	w := wool.Get(ctx).In("AddEnvironmentAction.Run", wool.Field("name", action.Name))
+	w := wool.Get(ctx).In("AddEnvironmentAction.Run", wool.NameField(action.Name))
 	// Get project
 	ws, err := configurations.LoadWorkspace(ctx)
 	if err != nil {

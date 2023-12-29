@@ -20,6 +20,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestServiceUnique(t *testing.T) {
+	svc := configurations.Service{Name: "svc", Application: "app"}
+	unique := svc.Unique()
+	info, err := configurations.ParseServiceUnique(unique)
+	assert.NoError(t, err)
+	assert.Equal(t, "svc", info.Name)
+	assert.Equal(t, "app", info.Application)
+}
+
 type testSpec struct {
 	TestField string `yaml:"test-field"`
 }
@@ -180,6 +189,19 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 
 	assert.Equal(t, "test-service-2", *appOne.ActiveService(ctx))
 
+	// set active back to the first one
+	action, err = actionservice.NewActionSetServiceActive(ctx, &actionsv1.SetServiceActive{
+		Name:        "test-service-1",
+		Application: "test-app-1",
+		Project:     "test-project",
+	})
+	assert.NoError(t, err)
+	out, err = action.Run(ctx)
+	assert.NoError(t, err)
+	back, err := actions.As[configurations.Application](out)
+	assert.NoError(t, err)
+	assert.Equal(t, "test-service-1", *back.ActiveService(ctx))
+
 	// new appOne and new serviceOne
 	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv1.AddApplication{
 		Name:    "test-app-2",
@@ -207,6 +229,7 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-service-3", serviceThree.Name)
 	assert.Equal(t, "test-app-2", serviceThree.Application)
+
 	return BaseOutput{
 		serviceOne:   serviceOne,
 		serviceTwo:   serviceTwo,

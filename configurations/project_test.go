@@ -100,7 +100,7 @@ func TestLoading(t *testing.T) {
 	assert.Equal(t, 2, len(p.Applications))
 	assert.Equal(t, "web", p.Applications[0].Name)
 	assert.Equal(t, "management", p.Applications[1].Name)
-	assert.Equal(t, "web", *p.ActiveApplication())
+	assert.Equal(t, "web", *p.ActiveApplication(ctx))
 
 	// Save and make sure we preserve the "active application" convention
 	tmpDir := t.TempDir()
@@ -113,7 +113,7 @@ func TestLoading(t *testing.T) {
 	assert.Contains(t, string(content), "web*")
 	p, err = ws.LoadProjectFromDir(ctx, tmpDir)
 	assert.NoError(t, err)
-	assert.Equal(t, "web", *p.ActiveApplication())
+	assert.Equal(t, "web", *p.ActiveApplication(ctx))
 }
 
 func TestCreationWithDefaultPath(t *testing.T) {

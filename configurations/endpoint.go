@@ -177,10 +177,7 @@ func EndpointBaseProto(e *Endpoint) *basev1.Endpoint {
 	}
 }
 
-func FromProtoEndpoint(e *basev1.Endpoint) (*Endpoint, error) {
-	if e == nil {
-		return nil, &NilEndpointError{}
-	}
+func FromProtoEndpoint(e *basev1.Endpoint) *Endpoint {
 	return &Endpoint{
 		Name:        e.Name,
 		Application: e.Application,
@@ -188,22 +185,18 @@ func FromProtoEndpoint(e *basev1.Endpoint) (*Endpoint, error) {
 		Visibility:  e.Visibility,
 		Description: e.Description,
 		API:         FromProtoAPI(e.Api),
-	}, nil
+	}
 }
 
 func FromProtoEndpoints(es ...*basev1.Endpoint) ([]*Endpoint, error) {
 	var endpoints []*Endpoint
 	for _, e := range es {
-		endpoint, err := FromProtoEndpoint(e)
-		if err != nil {
-			return nil, err
-		}
-		endpoints = append(endpoints, endpoint)
+		endpoints = append(endpoints, FromProtoEndpoint(e))
 	}
 	return endpoints, nil
 }
 
-func Destination(e *basev1.Endpoint) string {
+func EndpointDestination(e *basev1.Endpoint) string {
 	return fmt.Sprintf("%s/%s/%s[%s]", e.Application, e.Service, e.Name, FromProtoAPI(e.Api))
 }
 
@@ -253,21 +246,7 @@ func Light(e *basev1.Endpoint) *basev1.Endpoint {
 	}
 }
 
-func FlattenEndpoints(_ context.Context, group *basev1.EndpointGroup) []*basev1.Endpoint {
-	var endpoints []*basev1.Endpoint
-	if group == nil {
-		return endpoints
-	}
-	for _, app := range group.ApplicationEndpointGroup {
-		for _, svc := range app.ServiceEndpointGroups {
-			endpoints = append(endpoints, svc.Endpoints...)
-		}
-	}
-	return endpoints
-}
-
-func FlattenRestRoutes(ctx context.Context, group *basev1.EndpointGroup) []*basev1.RestRoute {
-	endpoints := FlattenEndpoints(ctx, group)
+func FlattenRestRoutes(_ context.Context, endpoints []*basev1.Endpoint) []*basev1.RestRoute {
 	var routes []*basev1.RestRoute
 	for _, ep := range endpoints {
 		if rest := ep.Api.GetRest(); rest != nil {
@@ -277,37 +256,29 @@ func FlattenRestRoutes(ctx context.Context, group *basev1.EndpointGroup) []*base
 	return routes
 }
 
-func DetectNewRoutesFromGroup(ctx context.Context, known []*RestRoute, group *basev1.EndpointGroup) []*RestRoute {
+func DetectNewRoutesFromGroup(ctx context.Context, known []*RestRoute, endpoints []*basev1.Endpoint) []*RestRoute {
 	w := wool.Get(ctx).In("DetectNewRoutes")
-	if group == nil {
-		w.Debug("we have a nil group")
-		return nil
-	}
-	endpoints := FlattenEndpoints(ctx, group)
 	for _, e := range endpoints {
 		w.Error("do", wool.Field("endpoint", e))
 	}
 
 	var newRoutes []*RestRoute
-	for _, app := range group.ApplicationEndpointGroup {
-		for _, svc := range app.ServiceEndpointGroups {
-			for _, ep := range svc.Endpoints {
-				if rest := HasRest(ctx, ep.Api); rest != nil {
-					for _, route := range rest.Routes {
-						potential := &RestRoute{
-							Application: app.Name,
-							Service:     svc.Name,
-							Path:        route.Path,
-							Methods:     ConvertMethods(route.Methods),
-						}
-						if !ContainsRoute(known, potential) {
-							newRoutes = append(newRoutes, potential)
-						}
-					}
+	for _, endpoint := range endpoints {
+		if rest := HasRest(ctx, endpoint.Api); rest != nil {
+			for _, route := range rest.Routes {
+				potential := &RestRoute{
+					Application: endpoint.Application,
+					Service:     endpoint.Service,
+					Path:        route.Path,
+					Methods:     ConvertMethods(route.Methods),
+				}
+				if !ContainsRoute(known, potential) {
+					newRoutes = append(newRoutes, potential)
 				}
 			}
 		}
 	}
+
 	return newRoutes
 }
 
@@ -332,28 +303,24 @@ func HasRest(_ context.Context, api *basev1.API) *basev1.RestAPI {
 	}
 }
 
-func CondensedOutput(group *basev1.EndpointGroup) []string {
-	if group == nil {
-		return nil
-	}
+func Condensed(es []*basev1.Endpoint) []string {
 	var outs []string
-	for _, appGroup := range group.ApplicationEndpointGroup {
-		for _, svcGroup := range appGroup.ServiceEndpointGroups {
-			if len(svcGroup.Endpoints) > 0 {
-				outs = append(outs, fmt.Sprintf("%s/%s[#%d]", appGroup.Name, svcGroup.Name, len(svcGroup.Endpoints)))
-				for _, e := range svcGroup.Endpoints {
-					outs = append(outs, fmt.Sprintf("--%s", Destination(e)))
-				}
-			}
-		}
+	for _, e := range es {
+		outs = append(outs, EndpointDestination(e))
 	}
 	return outs
 }
 
-func Condensed(es []*basev1.Endpoint) []string {
-	var outs []string
-	for _, e := range es {
-		outs = append(outs, Destination(e))
+type EndpointSummary struct {
+	Count   int
+	Uniques []string
+}
+
+func MakeEndpointSummary(endpoints []*basev1.Endpoint) EndpointSummary {
+	sum := EndpointSummary{}
+	sum.Count = len(endpoints)
+	for _, e := range endpoints {
+		sum.Uniques = append(sum.Uniques, EndpointDestination(e))
 	}
-	return outs
+	return sum
 }

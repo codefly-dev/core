@@ -2,6 +2,7 @@ package architecture_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/codefly-dev/core/architecture"
@@ -51,4 +52,14 @@ func TestServiceGraph(t *testing.T) {
 		}
 		assert.True(t, found)
 	}
+
+	children := g.TopologicalSortFrom("web/frontend")
+	assert.True(t, reflect.DeepEqual(children, []string{"web/gateway", "management/organization"}))
+
+	children = g.TopologicalSortFrom("web/gateway")
+	assert.True(t, reflect.DeepEqual(children, []string{"management/organization"}))
+
+	children = g.TopologicalSortFrom("management/organization")
+	assert.Equal(t, 0, len(children))
+
 }
