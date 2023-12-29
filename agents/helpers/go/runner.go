@@ -43,7 +43,7 @@ func (g *Runner) Init(ctx context.Context) error {
 	return nil
 }
 
-func (g *Runner) Run(ctx context.Context) (*runners.WrappedCmdOutput, error) {
+func (g *Runner) Start(ctx context.Context) (*runners.WrappedCmdOutput, error) {
 	w := wool.Get(ctx).In("go/runner")
 	w.Debug("in runner")
 	// #nosec G204

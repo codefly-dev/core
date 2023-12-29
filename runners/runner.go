@@ -16,7 +16,7 @@ type Runner struct {
 	Envs  []string
 }
 
-func (r *Runner) Run(ctx context.Context) (*WrappedCmdOutput, error) {
+func (r *Runner) Start(ctx context.Context) (*WrappedCmdOutput, error) {
 	w := wool.Get(ctx).In("runner")
 	w.Debug("in runner")
 	// #nosec G204
@@ -33,4 +33,23 @@ func (r *Runner) Run(ctx context.Context) (*WrappedCmdOutput, error) {
 		return nil, w.Wrapf(err, "cannot start command")
 	}
 	return out, nil
+}
+
+func (r *Runner) Run(ctx context.Context) error {
+	w := wool.Get(ctx).In("runner")
+	w.Debug("in runner")
+	// #nosec G204
+	cmd := exec.CommandContext(ctx, r.Bin, r.Args...)
+	cmd.Dir = r.Dir
+	cmd.Env = r.Envs
+
+	run, err := NewWrappedCmd(cmd, w)
+	if err != nil {
+		return w.Wrapf(err, "cannot create wrapped command")
+	}
+	err = run.Run()
+	if err != nil {
+		return w.Wrapf(err, "cannot start command")
+	}
+	return nil
 }

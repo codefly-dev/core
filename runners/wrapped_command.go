@@ -81,6 +81,23 @@ func (run *WrappedCmd) Start() (*WrappedCmdOutput, error) {
 	return out, nil
 }
 
+func (run *WrappedCmd) Run() error {
+	stdout, err := run.cmd.StdoutPipe()
+	if err != nil {
+		return errors.Wrap(err, "cannot create stdout pipe")
+	}
+
+	stderr, err := run.cmd.StderrPipe()
+	if err != nil {
+		return errors.Wrap(err, "cannot create stderr pipe")
+	}
+
+	go ForwardLogs(stdout, run.writer)
+	go ForwardLogs(stderr, run.writer)
+
+	return run.cmd.Run()
+}
+
 func ForwardLogs(r io.ReadCloser, ws ...io.Writer) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
