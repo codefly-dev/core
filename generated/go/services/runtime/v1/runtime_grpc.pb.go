@@ -21,12 +21,12 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	Runtime_Load_FullMethodName        = "/services.runtime.v1.Runtime/Load"
-	Runtime_Init_FullMethodName        = "/services.runtime.v1.Runtime/Init"
-	Runtime_Start_FullMethodName       = "/services.runtime.v1.Runtime/Start"
-	Runtime_Stop_FullMethodName        = "/services.runtime.v1.Runtime/Stop"
-	Runtime_Information_FullMethodName = "/services.runtime.v1.Runtime/Information"
-	Runtime_Communicate_FullMethodName = "/services.runtime.v1.Runtime/Communicate"
+	Runtime_Load_FullMethodName        = "/service.runtime.v1.Runtime/Load"
+	Runtime_Init_FullMethodName        = "/service.runtime.v1.Runtime/Init"
+	Runtime_Start_FullMethodName       = "/service.runtime.v1.Runtime/Start"
+	Runtime_Stop_FullMethodName        = "/service.runtime.v1.Runtime/Stop"
+	Runtime_Information_FullMethodName = "/service.runtime.v1.Runtime/Information"
+	Runtime_Communicate_FullMethodName = "/service.runtime.v1.Runtime/Communicate"
 )
 
 // RuntimeClient is the client API for Runtime service.
@@ -277,7 +277,7 @@ func _Runtime_Communicate_Handler(srv interface{}, ctx context.Context, dec func
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var Runtime_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "services.runtime.v1.Runtime",
+	ServiceName: "service.runtime.v1.Runtime",
 	HandlerType: (*RuntimeServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
