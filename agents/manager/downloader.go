@@ -16,7 +16,6 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
-	"github.com/codefly-dev/golor"
 	"github.com/mholt/archiver"
 )
 
@@ -43,14 +42,22 @@ func ValidURL(s string) bool {
 	return true
 }
 
+func Downloaded(p *configurations.Agent) bool {
+	bin, err := p.Path()
+	if err != nil {
+		return false
+	}
+	return shared.FileExists(bin)
+}
+
 func Download(ctx context.Context, p *configurations.Agent) error {
 	w := wool.Get(ctx).In("agents.Download", wool.Field("agent", p.Identifier()))
-	golor.Println(`#(blue,bold)[Downloading agent {{.Publisher}}::{{.Name}} Version {{.Version}}]`, p)
-
 	releaseURL := DownloadURL(p)
 	if !ValidURL(releaseURL) {
 		return w.NewError("invalid download URL: %s", releaseURL)
 	}
+	w.Info("Downloading agent")
+	w.Debug("downloading", wool.Field("agent", p.Identifier()), wool.Field("url", releaseURL).Debug())
 
 	// #nosec G107
 	resp, err := http.Get(releaseURL)

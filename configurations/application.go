@@ -299,7 +299,7 @@ func (app *Application) ActiveService(_ context.Context) *string {
 
 func (app *Application) SetActiveService(ctx context.Context, name string) error {
 	w := wool.Get(ctx).In("configurations.SetActiveService", wool.NameField(name))
-	w.Info("setting active service")
+	w.Trace("setting active service")
 	if !app.ExistsService(name) {
 		return w.NewError("service <%s> does not exist in application <%s>", name, app.Name)
 	}

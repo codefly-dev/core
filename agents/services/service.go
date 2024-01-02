@@ -20,7 +20,7 @@ type ProcessInfo struct {
 	Trackers []*runtimev1.Tracker
 }
 
-type ServiceInstance struct {
+type Instance struct {
 	*configurations.Service
 	Agent   Agent
 	Factory *FactoryInstance
@@ -77,14 +77,14 @@ func (instance *RuntimeInstance) Load(ctx context.Context) (*runtimev1.LoadRespo
 
 // Loader
 
-func Load(ctx context.Context, service *configurations.Service) (*ServiceInstance, error) {
+func Load(ctx context.Context, service *configurations.Service) (*Instance, error) {
 	w := wool.Get(ctx).In("services.Load", wool.Field("service", service.Name))
 	agent, proc, err := manager.Load[ServiceAgentContext, ServiceAgent](ctx, service.Agent, service.Unique())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load service agent")
 	}
 	// Init capabilities
-	instance := &ServiceInstance{
+	instance := &Instance{
 		Service: service,
 		Agent:   agent,
 	}
@@ -113,7 +113,7 @@ func Load(ctx context.Context, service *configurations.Service) (*ServiceInstanc
 	return instance, nil
 }
 
-func (instance *ServiceInstance) LoadFactory(ctx context.Context, service *configurations.Service) error {
+func (instance *Instance) LoadFactory(ctx context.Context, service *configurations.Service) error {
 	w := wool.Get(ctx).In("ServiceInstance::LoadFactory", wool.NameField(service.Unique()))
 	factory, err := LoadFactory(ctx, service)
 	if err != nil {
@@ -123,7 +123,7 @@ func (instance *ServiceInstance) LoadFactory(ctx context.Context, service *confi
 	return nil
 }
 
-func (instance *ServiceInstance) LoadRuntime(ctx context.Context, service *configurations.Service) error {
+func (instance *Instance) LoadRuntime(ctx context.Context, service *configurations.Service) error {
 	w := wool.Get(ctx).In("ServiceInstance::LoadRuntime", wool.NameField(service.Unique()))
 	runtime, err := LoadRuntime(ctx, service)
 	if err != nil {

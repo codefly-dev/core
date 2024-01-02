@@ -17,19 +17,3 @@ type Event struct {
 	// Memory
 	*observabilityv1.Memory
 }
-
-type ActionType int
-
-const (
-	Noop ActionType = iota
-	Init
-	Start   // Start the service
-	Stop    // Stop the service
-	Restart // Restart the service
-)
-
-// Action represents an action to be taken on a service by the runner
-type Action struct {
-	Type   ActionType
-	Unique string
-}

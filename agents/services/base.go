@@ -156,6 +156,10 @@ func (s *FactoryWrapper) LoadError(err error) (*factoryv1.LoadResponse, error) {
 	}, err
 }
 
+func (s *FactoryWrapper) InitResponse() (*factoryv1.InitResponse, error) {
+	return &factoryv1.InitResponse{}, nil
+}
+
 func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, endpoints ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
 	err := s.Configuration.UpdateSpecFromSettings(settings)
 	if err != nil {

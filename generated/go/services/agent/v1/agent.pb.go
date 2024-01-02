@@ -168,6 +168,58 @@ func (Capability_Type) EnumDescriptor() ([]byte, []int) {
 	return file_services_agent_v1_agent_proto_rawDescGZIP(), []int{2, 0}
 }
 
+type RuntimeRequirement_Type int32
+
+const (
+	RuntimeRequirement_UNKNOWN RuntimeRequirement_Type = 0
+	RuntimeRequirement_DOCKER  RuntimeRequirement_Type = 1
+	RuntimeRequirement_GO      RuntimeRequirement_Type = 2
+	RuntimeRequirement_NPM     RuntimeRequirement_Type = 3
+)
+
+// Enum value maps for RuntimeRequirement_Type.
+var (
+	RuntimeRequirement_Type_name = map[int32]string{
+		0: "UNKNOWN",
+		1: "DOCKER",
+		2: "GO",
+		3: "NPM",
+	}
+	RuntimeRequirement_Type_value = map[string]int32{
+		"UNKNOWN": 0,
+		"DOCKER":  1,
+		"GO":      2,
+		"NPM":     3,
+	}
+)
+
+func (x RuntimeRequirement_Type) Enum() *RuntimeRequirement_Type {
+	p := new(RuntimeRequirement_Type)
+	*p = x
+	return p
+}
+
+func (x RuntimeRequirement_Type) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RuntimeRequirement_Type) Descriptor() protoreflect.EnumDescriptor {
+	return file_services_agent_v1_agent_proto_enumTypes[3].Descriptor()
+}
+
+func (RuntimeRequirement_Type) Type() protoreflect.EnumType {
+	return &file_services_agent_v1_agent_proto_enumTypes[3]
+}
+
+func (x RuntimeRequirement_Type) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RuntimeRequirement_Type.Descriptor instead.
+func (RuntimeRequirement_Type) EnumDescriptor() ([]byte, []int) {
+	return file_services_agent_v1_agent_proto_rawDescGZIP(), []int{3, 0}
+}
+
 type Language struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -309,21 +361,69 @@ func (x *Capability) GetType() Capability_Type {
 	return Capability_UNKNOWN
 }
 
+type RuntimeRequirement struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Type RuntimeRequirement_Type `protobuf:"varint,1,opt,name=type,proto3,enum=agent.v1.RuntimeRequirement_Type" json:"type,omitempty"`
+}
+
+func (x *RuntimeRequirement) Reset() {
+	*x = RuntimeRequirement{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_services_agent_v1_agent_proto_msgTypes[3]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *RuntimeRequirement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuntimeRequirement) ProtoMessage() {}
+
+func (x *RuntimeRequirement) ProtoReflect() protoreflect.Message {
+	mi := &file_services_agent_v1_agent_proto_msgTypes[3]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RuntimeRequirement.ProtoReflect.Descriptor instead.
+func (*RuntimeRequirement) Descriptor() ([]byte, []int) {
+	return file_services_agent_v1_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RuntimeRequirement) GetType() RuntimeRequirement_Type {
+	if x != nil {
+		return x.Type
+	}
+	return RuntimeRequirement_UNKNOWN
+}
+
 type AgentInformation struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Capabilities []*Capability `protobuf:"bytes,1,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	Languages    []*Language   `protobuf:"bytes,2,rep,name=languages,proto3" json:"languages,omitempty"`
-	Protocols    []*Protocol   `protobuf:"bytes,3,rep,name=protocols,proto3" json:"protocols,omitempty"`
-	ReadMe       string        `protobuf:"bytes,4,opt,name=read_me,json=readMe,proto3" json:"read_me,omitempty"`
+	RuntimeRequirements []*RuntimeRequirement `protobuf:"bytes,1,rep,name=runtime_requirements,json=runtimeRequirements,proto3" json:"runtime_requirements,omitempty"`
+	Capabilities        []*Capability         `protobuf:"bytes,2,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Protocols           []*Protocol           `protobuf:"bytes,3,rep,name=protocols,proto3" json:"protocols,omitempty"`
+	Languages           []*Language           `protobuf:"bytes,4,rep,name=languages,proto3" json:"languages,omitempty"`
+	ReadMe              string                `protobuf:"bytes,5,opt,name=read_me,json=readMe,proto3" json:"read_me,omitempty"`
 }
 
 func (x *AgentInformation) Reset() {
 	*x = AgentInformation{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_services_agent_v1_agent_proto_msgTypes[3]
+		mi := &file_services_agent_v1_agent_proto_msgTypes[4]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -336,7 +436,7 @@ func (x *AgentInformation) String() string {
 func (*AgentInformation) ProtoMessage() {}
 
 func (x *AgentInformation) ProtoReflect() protoreflect.Message {
-	mi := &file_services_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_services_agent_v1_agent_proto_msgTypes[4]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -349,7 +449,14 @@ func (x *AgentInformation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentInformation.ProtoReflect.Descriptor instead.
 func (*AgentInformation) Descriptor() ([]byte, []int) {
-	return file_services_agent_v1_agent_proto_rawDescGZIP(), []int{3}
+	return file_services_agent_v1_agent_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *AgentInformation) GetRuntimeRequirements() []*RuntimeRequirement {
+	if x != nil {
+		return x.RuntimeRequirements
+	}
+	return nil
 }
 
 func (x *AgentInformation) GetCapabilities() []*Capability {
@@ -359,16 +466,16 @@ func (x *AgentInformation) GetCapabilities() []*Capability {
 	return nil
 }
 
-func (x *AgentInformation) GetLanguages() []*Language {
+func (x *AgentInformation) GetProtocols() []*Protocol {
 	if x != nil {
-		return x.Languages
+		return x.Protocols
 	}
 	return nil
 }
 
-func (x *AgentInformation) GetProtocols() []*Protocol {
+func (x *AgentInformation) GetLanguages() []*Language {
 	if x != nil {
-		return x.Protocols
+		return x.Languages
 	}
 	return nil
 }
@@ -389,7 +496,7 @@ type AgentInformationRequest struct {
 func (x *AgentInformationRequest) Reset() {
 	*x = AgentInformationRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_services_agent_v1_agent_proto_msgTypes[4]
+		mi := &file_services_agent_v1_agent_proto_msgTypes[5]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -402,7 +509,7 @@ func (x *AgentInformationRequest) String() string {
 func (*AgentInformationRequest) ProtoMessage() {}
 
 func (x *AgentInformationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_services_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_services_agent_v1_agent_proto_msgTypes[5]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -415,7 +522,7 @@ func (x *AgentInformationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentInformationRequest.ProtoReflect.Descriptor instead.
 func (*AgentInformationRequest) Descriptor() ([]byte, []int) {
-	return file_services_agent_v1_agent_proto_rawDescGZIP(), []int{4}
+	return file_services_agent_v1_agent_proto_rawDescGZIP(), []int{5}
 }
 
 var File_services_agent_v1_agent_proto protoreflect.FileDescriptor
@@ -443,18 +550,31 @@ var file_services_agent_v1_agent_proto_rawDesc = []byte{
 	0x22, 0x2d, 0x0a, 0x04, 0x54, 0x79, 0x70, 0x65, 0x12, 0x0b, 0x0a, 0x07, 0x55, 0x4e, 0x4b, 0x4e,
 	0x4f, 0x57, 0x4e, 0x10, 0x00, 0x12, 0x0b, 0x0a, 0x07, 0x46, 0x41, 0x43, 0x54, 0x4f, 0x52, 0x59,
 	0x10, 0x01, 0x12, 0x0b, 0x0a, 0x07, 0x52, 0x55, 0x4e, 0x54, 0x49, 0x4d, 0x45, 0x10, 0x02, 0x22,
-	0xc9, 0x01, 0x0a, 0x10, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x49, 0x6e, 0x66, 0x6f, 0x72, 0x6d, 0x61,
-	0x74, 0x69, 0x6f, 0x6e, 0x12, 0x38, 0x0a, 0x0c, 0x63, 0x61, 0x70, 0x61, 0x62, 0x69, 0x6c, 0x69,
-	0x74, 0x69, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x61, 0x67, 0x65,
+	0x7d, 0x0a, 0x12, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x52, 0x65, 0x71, 0x75, 0x69, 0x72,
+	0x65, 0x6d, 0x65, 0x6e, 0x74, 0x12, 0x35, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x01, 0x20,
+	0x01, 0x28, 0x0e, 0x32, 0x21, 0x2e, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x52,
+	0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x52, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x6d, 0x65, 0x6e,
+	0x74, 0x2e, 0x54, 0x79, 0x70, 0x65, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x22, 0x30, 0x0a, 0x04,
+	0x54, 0x79, 0x70, 0x65, 0x12, 0x0b, 0x0a, 0x07, 0x55, 0x4e, 0x4b, 0x4e, 0x4f, 0x57, 0x4e, 0x10,
+	0x00, 0x12, 0x0a, 0x0a, 0x06, 0x44, 0x4f, 0x43, 0x4b, 0x45, 0x52, 0x10, 0x01, 0x12, 0x06, 0x0a,
+	0x02, 0x47, 0x4f, 0x10, 0x02, 0x12, 0x07, 0x0a, 0x03, 0x4e, 0x50, 0x4d, 0x10, 0x03, 0x22, 0x9a,
+	0x02, 0x0a, 0x10, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x49, 0x6e, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74,
+	0x69, 0x6f, 0x6e, 0x12, 0x4f, 0x0a, 0x14, 0x72, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x5f, 0x72,
+	0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28,
+	0x0b, 0x32, 0x1c, 0x2e, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x75, 0x6e,
+	0x74, 0x69, 0x6d, 0x65, 0x52, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x52,
+	0x13, 0x72, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x52, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x6d,
+	0x65, 0x6e, 0x74, 0x73, 0x12, 0x38, 0x0a, 0x0c, 0x63, 0x61, 0x70, 0x61, 0x62, 0x69, 0x6c, 0x69,
+	0x74, 0x69, 0x65, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x61, 0x67, 0x65,
 	0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x61, 0x70, 0x61, 0x62, 0x69, 0x6c, 0x69, 0x74, 0x79,
 	0x52, 0x0c, 0x63, 0x61, 0x70, 0x61, 0x62, 0x69, 0x6c, 0x69, 0x74, 0x69, 0x65, 0x73, 0x12, 0x30,
-	0x0a, 0x09, 0x6c, 0x61, 0x6e, 0x67, 0x75, 0x61, 0x67, 0x65, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28,
-	0x0b, 0x32, 0x12, 0x2e, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x61, 0x6e,
-	0x67, 0x75, 0x61, 0x67, 0x65, 0x52, 0x09, 0x6c, 0x61, 0x6e, 0x67, 0x75, 0x61, 0x67, 0x65, 0x73,
-	0x12, 0x30, 0x0a, 0x09, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x73, 0x18, 0x03, 0x20,
-	0x03, 0x28, 0x0b, 0x32, 0x12, 0x2e, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x50,
-	0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x52, 0x09, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f,
-	0x6c, 0x73, 0x12, 0x17, 0x0a, 0x07, 0x72, 0x65, 0x61, 0x64, 0x5f, 0x6d, 0x65, 0x18, 0x04, 0x20,
+	0x0a, 0x09, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28,
+	0x0b, 0x32, 0x12, 0x2e, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x72, 0x6f,
+	0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x52, 0x09, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x73,
+	0x12, 0x30, 0x0a, 0x09, 0x6c, 0x61, 0x6e, 0x67, 0x75, 0x61, 0x67, 0x65, 0x73, 0x18, 0x04, 0x20,
+	0x03, 0x28, 0x0b, 0x32, 0x12, 0x2e, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x4c,
+	0x61, 0x6e, 0x67, 0x75, 0x61, 0x67, 0x65, 0x52, 0x09, 0x6c, 0x61, 0x6e, 0x67, 0x75, 0x61, 0x67,
+	0x65, 0x73, 0x12, 0x17, 0x0a, 0x07, 0x72, 0x65, 0x61, 0x64, 0x5f, 0x6d, 0x65, 0x18, 0x05, 0x20,
 	0x01, 0x28, 0x09, 0x52, 0x06, 0x72, 0x65, 0x61, 0x64, 0x4d, 0x65, 0x22, 0x19, 0x0a, 0x17, 0x41,
 	0x67, 0x65, 0x6e, 0x74, 0x49, 0x6e, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52,
 	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x32, 0x5f, 0x0a, 0x05, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x12,
@@ -489,32 +609,36 @@ func file_services_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_services_agent_v1_agent_proto_rawDescData
 }
 
-var file_services_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_services_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_services_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_services_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_services_agent_v1_agent_proto_goTypes = []interface{}{
 	(Language_Type)(0),              // 0: agent.v1.Language.Type
 	(Protocol_Type)(0),              // 1: agent.v1.Protocol.Type
 	(Capability_Type)(0),            // 2: agent.v1.Capability.Type
-	(*Language)(nil),                // 3: agent.v1.Language
-	(*Protocol)(nil),                // 4: agent.v1.Protocol
-	(*Capability)(nil),              // 5: agent.v1.Capability
-	(*AgentInformation)(nil),        // 6: agent.v1.AgentInformation
-	(*AgentInformationRequest)(nil), // 7: agent.v1.AgentInformationRequest
+	(RuntimeRequirement_Type)(0),    // 3: agent.v1.RuntimeRequirement.Type
+	(*Language)(nil),                // 4: agent.v1.Language
+	(*Protocol)(nil),                // 5: agent.v1.Protocol
+	(*Capability)(nil),              // 6: agent.v1.Capability
+	(*RuntimeRequirement)(nil),      // 7: agent.v1.RuntimeRequirement
+	(*AgentInformation)(nil),        // 8: agent.v1.AgentInformation
+	(*AgentInformationRequest)(nil), // 9: agent.v1.AgentInformationRequest
 }
 var file_services_agent_v1_agent_proto_depIdxs = []int32{
 	0, // 0: agent.v1.Language.type:type_name -> agent.v1.Language.Type
 	1, // 1: agent.v1.Protocol.type:type_name -> agent.v1.Protocol.Type
 	2, // 2: agent.v1.Capability.type:type_name -> agent.v1.Capability.Type
-	5, // 3: agent.v1.AgentInformation.capabilities:type_name -> agent.v1.Capability
-	3, // 4: agent.v1.AgentInformation.languages:type_name -> agent.v1.Language
-	4, // 5: agent.v1.AgentInformation.protocols:type_name -> agent.v1.Protocol
-	7, // 6: agent.v1.Agent.GetAgentInformation:input_type -> agent.v1.AgentInformationRequest
-	6, // 7: agent.v1.Agent.GetAgentInformation:output_type -> agent.v1.AgentInformation
-	7, // [7:8] is the sub-list for method output_type
-	6, // [6:7] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	3, // 3: agent.v1.RuntimeRequirement.type:type_name -> agent.v1.RuntimeRequirement.Type
+	7, // 4: agent.v1.AgentInformation.runtime_requirements:type_name -> agent.v1.RuntimeRequirement
+	6, // 5: agent.v1.AgentInformation.capabilities:type_name -> agent.v1.Capability
+	5, // 6: agent.v1.AgentInformation.protocols:type_name -> agent.v1.Protocol
+	4, // 7: agent.v1.AgentInformation.languages:type_name -> agent.v1.Language
+	9, // 8: agent.v1.Agent.GetAgentInformation:input_type -> agent.v1.AgentInformationRequest
+	8, // 9: agent.v1.Agent.GetAgentInformation:output_type -> agent.v1.AgentInformation
+	9, // [9:10] is the sub-list for method output_type
+	8, // [8:9] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_services_agent_v1_agent_proto_init() }
@@ -560,7 +684,7 @@ func file_services_agent_v1_agent_proto_init() {
 			}
 		}
 		file_services_agent_v1_agent_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AgentInformation); i {
+			switch v := v.(*RuntimeRequirement); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -572,6 +696,18 @@ func file_services_agent_v1_agent_proto_init() {
 			}
 		}
 		file_services_agent_v1_agent_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*AgentInformation); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_services_agent_v1_agent_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*AgentInformationRequest); i {
 			case 0:
 				return &v.state
@@ -589,8 +725,8 @@ func file_services_agent_v1_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_services_agent_v1_agent_proto_rawDesc,
-			NumEnums:      3,
-			NumMessages:   5,
+			NumEnums:      4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

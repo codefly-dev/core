@@ -123,13 +123,7 @@ type DockerContainerInstance struct {
 	container container.CreateResponse
 }
 
-type Command interface {
-	AsSlice() []string
-	Envs() []string
-	LogLevel() wool.Loglevel
-}
-
-func (docker *Docker) Run(ctx context.Context, cmds ...Command) error {
+func (docker *Docker) Run(ctx context.Context, cmds ...*Command) error {
 	w := wool.Get(ctx).In("Docker.Run")
 	for _, cmd := range cmds {
 		err := docker.run(ctx, cmd)
@@ -141,7 +135,7 @@ func (docker *Docker) Run(ctx context.Context, cmds ...Command) error {
 	return nil
 }
 
-func (docker *Docker) Start(ctx context.Context, cmd Command) error {
+func (docker *Docker) Start(ctx context.Context, cmd *Command) error {
 	w := wool.Get(ctx).In("Docker.Run")
 	// New context
 	runningContext := context.Background()
@@ -187,7 +181,7 @@ func (docker *Docker) create(ctx context.Context) error {
 	return nil
 }
 
-func (docker *Docker) run(ctx context.Context, cmd Command) error {
+func (docker *Docker) run(ctx context.Context, cmd *Command) error {
 	w := wool.Get(ctx).In("Docker.run")
 	w.WithLoglevel(cmd.LogLevel())
 	execConfig := types.ExecConfig{

@@ -21,7 +21,7 @@ func Do[T any](ctx context.Context, agent Communicate, handler AnswerProvider) e
 			return w.Wrapf(err, "error engaging")
 		}
 
-		w.Info(fmt.Sprintf("sending to agent: %s", eng))
+		w.Trace(fmt.Sprintf("sending to agent: %s", eng))
 		req, err = agent.Communicate(ctx, eng)
 		if err != nil {
 			return w.Wrapf(err, "error communicating")
