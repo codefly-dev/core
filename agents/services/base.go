@@ -219,10 +219,9 @@ func (s *RuntimeWrapper) InitError(err error, fields ...*wool.LogField) (*runtim
 	}, err
 }
 
-func (s *RuntimeWrapper) StartResponse(trackers []*runtimev1.Tracker) (*runtimev1.StartResponse, error) {
+func (s *RuntimeWrapper) StartResponse() (*runtimev1.StartResponse, error) {
 	return &runtimev1.StartResponse{
-		Status:   &runtimev1.StartStatus{State: runtimev1.StartStatus_STARTED},
-		Trackers: trackers,
+		Status: &runtimev1.StartStatus{State: runtimev1.StartStatus_STARTED},
 	}, nil
 }
 
