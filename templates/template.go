@@ -152,7 +152,6 @@ func CopyAndReplace(ctx context.Context, fs shared.FileSystem, f shared.File, de
 
 func CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
 	w := wool.Get(ctx).In("templates.CopyAndApply")
-	w.Info("copying and applying template")
 
 	_, err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
 	override := shared.GetOverride(ctx)

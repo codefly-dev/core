@@ -1,348 +1,251 @@
 package runners
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"strings"
 
-	"github.com/codefly-dev/core/agents/network"
 	"github.com/codefly-dev/core/wool"
-
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
 )
 
-type DockerRunner struct {
+type Docker struct {
 	client     *client.Client
-	Containers []*ContainerInstance
+	image      DockerImage
+	option     DockerRunOption
+	mounts     []mount.Mount
+	instance   *DockerContainerInstance
+	workingDir string
 }
 
-type ContainerInstance struct {
-	ID    string
-	Name  string
-	Image string
-	Host  string
-	Port  int
+type DockerRunOption struct {
+	Location string
 }
 
-// NewDockerRunner creates a new docker runner
-func NewDockerRunner(ctx context.Context) (*DockerRunner, error) {
+type DockerOption func(option *DockerRunOption)
+
+// NewDocker creates a new docker runner
+func NewDocker(ctx context.Context, opts ...DockerOption) (*Docker, error) {
+	option := DockerRunOption{}
+	for _, o := range opts {
+		o(&option)
+	}
 	w := wool.Get(ctx).In("NewDockerRunner")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
-	return &DockerRunner{
-		client: cli,
+	var mounts []mount.Mount
+	workingDir := "/codefly"
+	if option.Location != "" {
+		mounts = append(mounts, mount.Mount{
+			Type:   mount.TypeBind,
+			Source: option.Location,
+			Target: workingDir,
+		})
+	}
+	return &Docker{
+		client:     cli,
+		option:     option,
+		workingDir: workingDir,
+		mounts:     mounts,
 	}, nil
 }
 
-type VolumeMount struct {
-	Source string
-	Target string
-}
-
-type Option struct {
-	Cmd     []string
-	Volumes []VolumeMount
-	Envs    []string
-}
-
-type DockerOption func(option *Option)
-
-func WithCmd(cmd ...string) DockerOption {
-	return func(opt *Option) {
-		opt.Cmd = append(opt.Cmd, cmd...)
-	}
-}
-
-func WithVolume(source, target string) DockerOption {
-	return func(opt *Option) {
-		opt.Volumes = append(opt.Volumes, VolumeMount{Source: source, Target: target})
-	}
-}
-
-func WithEnvironmentVariable(key, value string) DockerOption {
-	return func(opt *Option) {
-		opt.Envs = append(opt.Envs, fmt.Sprintf("%s=%s", key, value))
-	}
-}
-
 type DockerImage struct {
-	Image string
+	Name string
+	Tag  string
 }
 
-type CreateDockerInput struct {
-	DockerImage
-	ApplicationEndpointInstance *network.ApplicationEndpointInstance
-}
-
-func (r *DockerRunner) CreateContainer(ctx context.Context, input CreateDockerInput, opts ...DockerOption) error {
-	w := wool.Get(ctx).In("Runner.CreateContainer")
-	options := &Option{}
-	for _, opt := range opts {
-		opt(options)
+func (image *DockerImage) Image() string {
+	if image.Tag == "" {
+		return image.Name
 	}
-	name := input.ApplicationEndpointInstance.Name()
-	w.Debug("PortBinding") //, input.ApplicationEndpointInstance.ApplicationEndpoint.PortBinding)
+	return fmt.Sprintf("%s:%s", image.Name, image.Tag)
+}
 
-	good, err := r.ContainerReady(ctx, name)
+func (docker *Docker) Init(ctx context.Context, image DockerImage) error {
+	w := wool.Get(ctx).In("Docker.Start")
+
+	// Pull the image if needed
+	err := docker.GetImage(ctx, image)
 	if err != nil {
-		return w.Wrapf(err, "cannot check if container is ready")
+		return w.Wrapf(err, "cannot get image")
 	}
-	if good {
-		return nil
-	}
-
-	portMapping := nat.PortMap{
-		nat.Port(input.ApplicationEndpointInstance.ApplicationEndpoint.PortBinding): []nat.PortBinding{
-			{
-				HostPort: input.ApplicationEndpointInstance.StringPort(),
-			},
-		},
-	}
-	w.Debug("port mapping") //: %v", portMapping)
-
-	cfg := &container.Config{
-		Image: input.Image,
-		ExposedPorts: nat.PortSet{
-			nat.Port(input.ApplicationEndpointInstance.ApplicationEndpoint.PortBinding): struct{}{},
-		},
-	}
-	// err = r.EnsureImage(input.Image)
-
-	var mounts []mount.Mount
-	for _, volume := range options.Volumes {
-		// Mounting volumes (in this case, for nginx context)
-		mounts = append(mounts, mount.Mount{
-			Type:   mount.TypeBind,
-			Source: volume.Source, // replace with the actual path to your nginx.conf on your host
-			Target: volume.Target,
-		})
-	}
-
-	if options.Cmd != nil {
-		cfg.Cmd = options.Cmd
-	}
-	cfg.Env = options.Envs
-
-	resp, err := r.client.ContainerCreate(ctx,
-		cfg,
-		&container.HostConfig{
-			AutoRemove:   true,
-			PortBindings: portMapping,
-			Mounts:       mounts,
-		}, nil, nil, name)
+	docker.image = image
+	err = docker.create(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot create container")
 	}
-	if err != nil {
-		return w.Wrapf(err, "cannot create container")
-	}
-	instance := ContainerInstance{
-		Name: name,
-		ID:   resp.ID,
-	}
-	r.Containers = append(r.Containers, &instance)
 	return nil
 }
 
-func (r *DockerRunner) cleanContainers(ctx context.Context, name string) error {
-	w := wool.Get(ctx).In("Runner.cleanContainers")
-	containers, err := r.client.ContainerList(ctx, types.ContainerListOptions{All: true})
+func (docker *Docker) ImageExists(ctx context.Context, image DockerImage) (bool, error) {
+	w := wool.Get(ctx).In("Docker.ImageExists")
+	images, err := docker.client.ImageList(ctx, types.ImageListOptions{})
 	if err != nil {
-		return w.Wrapf(err, "cannot list containers")
+		return false, w.Wrapf(err, "cannot list images")
 	}
-	var id string
-
-	match := fmt.Sprintf("/%s", name)
-	for i := range containers {
-		c := containers[i]
-		for _, cn := range c.Names {
-			if cn == match { // Docker prefixes names with a "/"
-				id = c.ID
-				goto found
+	for i := range images {
+		img := &images[i]
+		for _, repoTag := range img.RepoTags {
+			if repoTag == image.Image() {
+				return true, nil
 			}
 		}
 	}
-found:
-	if id == "" {
+	return false, nil
+}
+
+func (docker *Docker) GetImage(ctx context.Context, image DockerImage) error {
+	w := wool.Get(ctx).In("Docker.GetImage")
+	if exists, err := docker.ImageExists(ctx, image); err != nil {
+		return w.Wrapf(err, "cannot check if image exists")
+	} else if exists {
+		w.Trace("found Docker image locally")
 		return nil
 	}
-	inspectedContainer, err := r.client.ContainerInspect(ctx, id)
+	w.Debug("pulling Docker image")
+	out, err := docker.client.ImagePull(ctx, image.Image(), types.ImagePullOptions{})
 	if err != nil {
-		return w.Wrapf(err, "cannot inspect container")
+		return w.Wrapf(err, "cannot pull image")
 	}
-
-	if inspectedContainer.State.Status == "exited" || inspectedContainer.State.Status == "dead" {
-		// Restart the container if it's stopped TODO: port strategy
-		//if err := r.client.ContainerRestart(r.ctx, id, nil); err != nil {
-		//	return w.Wrap(err, "cannot restart container")
-		//}
-		//w.Info("container restarted")
-		if err := r.client.ContainerRemove(context.Background(), id, types.ContainerRemoveOptions{}); err != nil {
-			return w.Wrapf(err, "cannot remove container")
-		}
-	} else {
-		w.Info("container is running")
-		// Stop the container
-		if err := r.client.ContainerStop(context.Background(), id, container.StopOptions{}); err != nil {
-			return w.Wrapf(err, "cannot stop container")
-		}
-
-		// Remove the container
-		if err := r.client.ContainerRemove(context.Background(), id, types.ContainerRemoveOptions{}); err != nil {
-			return w.Wrapf(err, "cannot remove stopped container")
-		}
-	}
-	//// Stop the container
-	//if err := r.client.ContainerStop(context.Background(), id, container.StopOptions{}); err != nil {
-	//	w.Warn("Error stopping container %s: %v", name, err)
-	//	return w.Wrap(err, "cannot stop container")
-	//}
-
-	//// Remove the container
-	//if err := r.client.ContainerRemove(context.Background(), id, types.ContainerRemoveOptions{}); err != nil {
-	//	return w.Wrap(err, "cannot remove stopped container")
-	//}
-	//status, errs := r.client.ContainerWait(context.Background(), id, container.WaitConditionRemoved)
-	//select {
-	//case err := <-errs:
-	//	if err != nil {
-	//		w.Debugf("cannot wait for container to be removed: %v", err)
-	//		return nil
-	//	}
-	//case s := <-status:
-	//	if s.StatusCode == 0 {
-	//		w.Debugf("container %s removed successfully", name)
-	//		return nil
-	//	}
-	//}
-	//return w.Error("not sure why I am here")
+	Forward(out, w)
 	return nil
 }
 
-func (r *DockerRunner) StartContainer(ctx context.Context, c *ContainerInstance) error {
-	if err := r.client.ContainerStart(ctx, c.ID, types.ContainerStartOptions{}); err != nil {
-		return err
-	}
-	return nil
+type DockerContainerInstance struct {
+	container container.CreateResponse
 }
 
-func (r *DockerRunner) Start(ctx context.Context) error {
-	w := wool.Get(ctx).In("Runner.Start")
-	for _, c := range r.Containers {
-		err := r.StartContainer(ctx, c)
+type Command interface {
+	AsSlice() []string
+	Envs() []string
+	LogLevel() wool.Loglevel
+}
+
+func (docker *Docker) Run(ctx context.Context, cmds ...Command) error {
+	w := wool.Get(ctx).In("Docker.Run")
+	for _, cmd := range cmds {
+		err := docker.run(ctx, cmd)
 		if err != nil {
-			return w.Wrapf(err, "cannot start container")
+			return w.Wrapf(err, "cannot run command: %s", cmd.AsSlice())
 		}
-		// After the container starts, get its logs
-		out, err := r.client.ContainerLogs(ctx, c.ID,
-			types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false, Details: false})
-		if err != nil {
-			return w.Wrapf(err, "cannot get container logs")
-		}
-
-		go func(name string) {
-			ForwardLogs(out, w)
-		}(c.Name)
+		w.Info("success running", wool.Field("cmd", cmd.AsSlice()))
 	}
 	return nil
 }
 
-func (r *DockerRunner) Stop(ctx context.Context) error {
-	w := wool.Get(ctx).In("Runner.Stop")
-	for _, c := range r.Containers {
-		err := r.cleanContainers(ctx, c.Name)
+func (docker *Docker) Start(ctx context.Context, cmd Command) error {
+	w := wool.Get(ctx).In("Docker.Run")
+	// New context
+	runningContext := context.Background()
+	runningContext = w.Inject(runningContext)
+	go func() {
+		err := docker.run(runningContext, cmd)
 		if err != nil {
 			w.Error(err.Error())
 		}
+	}()
+	return nil
+}
+
+func (docker *Docker) create(ctx context.Context) error {
+	w := wool.Get(ctx).In("Docker.create")
+	containerConfig := &container.Config{
+		Image:      docker.image.Image(),
+		Cmd:        []string{"tail", "-f", "/dev/null"},
+		WorkingDir: docker.workingDir,
+		Tty:        true,
+	}
+	hostConfig := &container.HostConfig{
+		Mounts: docker.mounts,
+	}
+
+	// Create the container
+	w.Debug("creating container")
+	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, "")
+	if err != nil {
+		return w.Wrapf(err, "cannot create container")
+	}
+	w.Debug("created container", wool.Field("id", resp.ID))
+	docker.instance = &DockerContainerInstance{
+		container: resp,
+	}
+	// Start the container
+	w.Debug("starting container")
+	if err := docker.client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+		return w.Wrapf(err, "cannot start container")
+	}
+	w.Debug("started container")
+
+	return nil
+}
+
+func (docker *Docker) run(ctx context.Context, cmd Command) error {
+	w := wool.Get(ctx).In("Docker.run")
+	w.WithLoglevel(cmd.LogLevel())
+	execConfig := types.ExecConfig{
+		Cmd:          cmd.AsSlice(),
+		Env:          cmd.Envs(),
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+	w.Debug("running", wool.Field("cmd", cmd.AsSlice()))
+	w.Debug("creating exec")
+	execResp, err := docker.client.ContainerExecCreate(ctx, docker.instance.container.ID, execConfig)
+	if err != nil {
+		return w.Wrapf(err, "cannot create exec")
+	}
+	// Attach to the exec instance to get the output streams
+	w.Debug("attaching to exec")
+	resp, err := docker.client.ContainerExecAttach(ctx, execResp.ID, types.ExecStartCheck{})
+	if err != nil {
+		return w.Wrapf(err, "cannot attach to exec")
+	}
+	Forward(resp.Reader, w)
+
+	w.Debug("starting exec")
+	err = docker.client.ContainerExecStart(ctx, execResp.ID, types.ExecStartCheck{})
+	if err != nil {
+		return w.Wrapf(err, "cannot start exec")
+	}
+	w.Debug("started exec", wool.Field("id", execResp.ID))
+	Forward(resp.Reader, w)
+	// Wait for the exec to finish and check the exit code
+	w.Debug("waiting for exec to finish")
+	inspect, err := docker.client.ContainerExecInspect(ctx, execResp.ID)
+	if err != nil {
+		return w.Wrapf(err, "cannot inspect exec")
+	}
+	if inspect.ExitCode != 0 {
+		return fmt.Errorf("command failed with exit code: %d", inspect.ExitCode)
 	}
 	return nil
 }
 
-func (r *DockerRunner) EnsureImage(ctx context.Context, imageName string) error {
-	w := wool.Get(ctx).In("Runner.EnsureImage")
-	// Check if image is available locally
-	images, err := r.client.ImageList(ctx, types.ImageListOptions{})
-	if err != nil {
-		return w.Wrapf(err, "cannot list images")
-	}
-
-	imageExists := false
-	for i := range images {
-		image := images[i]
-		for _, tag := range image.RepoTags {
-			if tag == imageName {
-				imageExists = true
-				break
-			}
+func Forward(reader io.Reader, writers ...io.Writer) {
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		for _, w := range writers {
+			_, _ = w.Write([]byte(strings.TrimSpace(scanner.Text())))
 		}
 	}
 
-	// If image is not available locally, pull it
-	if !imageExists {
-		fmt.Println("Image not found locally. Pulling...")
-		_, err := r.client.ImagePull(ctx, imageName, types.ImagePullOptions{})
-		if err != nil {
-			panic(err)
+	if err := scanner.Err(); err != nil {
+		for _, w := range writers {
+			_, _ = w.Write([]byte(strings.TrimSpace(err.Error())))
 		}
-		fmt.Println("Image pulled successfully.")
 	}
-	return nil
 }
 
-func (r *Runner) IP(*network.ApplicationEndpointInstance) (string, error) {
-	// Get IP Address
-	return "172.17.0.2", nil
-	//w.Debugf("Instance container %v", instance)
-	//// Get container JSON object
-	//container, err := r.client.ContainerInspect(context.Background(), instance.Name())
-	//if err != nil {
-	//	return "", w.Wrap(err, "cannot inspect container")
-	//}
-	//ipAddress := container.NetworkSettings.IPAddress
-	//// If using the default bridge network, you might want to get the IP from the Networks map
-	//if ipAddress != "" {
-	//	return ipAddress, nil
-	//}
-	//for _, network := range container.NetworkSettings.Networks {
-	//	return network.IPAddress, nil
-	//}
-	//return "", w.Error("cannot get ip address")
-}
-
-func (r *DockerRunner) ContainerReady(ctx context.Context, name string) (bool, error) {
-	w := wool.Get(ctx).In("Runner.ContainerReady")
-	containers, err := r.client.ContainerList(ctx, types.ContainerListOptions{All: true})
-	if err != nil {
-		return false, w.Wrapf(err, "cannot list containers")
+func WithWorkspace(location string) DockerOption {
+	return func(option *DockerRunOption) {
+		option.Location = location
 	}
-	var id string
-
-	match := fmt.Sprintf("/%s", name)
-	for i := range containers {
-		c := containers[i]
-		for _, cn := range c.Names {
-			if cn == match { // Docker prefixes names with a "/"
-				id = c.ID
-				goto found
-			}
-		}
-	}
-found:
-	if id == "" {
-		return false, nil
-	}
-	inspectedContainer, err := r.client.ContainerInspect(ctx, id)
-	if err != nil {
-		return false, w.Wrapf(err, "cannot inspect container")
-	}
-
-	if inspectedContainer.State.Status == "running" {
-		return true, nil
-	}
-	return false, nil
 }

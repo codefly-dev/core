@@ -77,7 +77,7 @@ func ConfigurationFile[C Configuration]() string {
 }
 
 func Path[C Configuration](ctx context.Context, dir string) (string, error) {
-	w := wool.Get(ctx).In("configurations.Path", wool.DirField(dir), wool.GenericField[C]())
+	w := wool.Get(ctx).In("configurations.Dir", wool.DirField(dir), wool.GenericField[C]())
 	if _, err := shared.CheckDirectory(ctx, dir); err != nil {
 		if filepath.IsLocal(dir) {
 			cur, err := os.Getwd()

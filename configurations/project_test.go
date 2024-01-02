@@ -34,89 +34,7 @@ func TestBadInputs(t *testing.T) {
 	}
 }
 
-func TestAddingExistingProjectAbsolutePath(t *testing.T) {
-	ctx := context.Background()
-	workspace, dir := createTestWorkspace(t, ctx)
-	defer os.RemoveAll(dir)
-
-	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/project")
-	assert.NoError(t, err)
-	assert.Equal(t, "codefly-platform", project.Name)
-	cur, _ := os.Getwd()
-	assert.Equal(t, path.Join(cur, "testdata/project"), project.Dir())
-
-	// Adding this project to the workspace should result in absolute path
-	err = workspace.AddProject(ctx, project)
-	assert.NoError(t, err)
-
-	wsConfig := string(shared.Must(os.ReadFile(path.Join(dir, configurations.WorkspaceConfigurationName))))
-
-	assert.NotContains(t, wsConfig, "path: testdata/project")
-	assert.Contains(t, wsConfig, fmt.Sprintf("path: %s", project.Dir()))
-}
-
-func TestAddingExistingProjectDefaultRelativePath(t *testing.T) {
-	ctx := context.Background()
-	// Projects root is the workspace root
-	workspace, err := configurations.LoadWorkspaceFromDirUnsafe(ctx, "testdata/workspace")
-	workspace.ProjectsRoot = workspace.Dir()
-
-	assert.NoError(t, err)
-	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/workspace/project")
-	assert.Equal(t, "project", project.Name)
-	assert.NoError(t, err)
-	err = workspace.AddProjectReference(ctx, project)
-	assert.NoError(t, err)
-
-	assert.Equal(t, 1, len(workspace.Projects))
-	ref := workspace.Projects[0]
-	assert.Nil(t, ref.PathOverride)
-}
-
-func TestAddingExistingProjectNonDefaultRelativePath(t *testing.T) {
-	ctx := context.Background()
-	// Projects root is the workspace root
-	workspace, err := configurations.LoadWorkspaceFromDirUnsafe(ctx, "testdata/workspace")
-	assert.NoError(t, err)
-	workspace.ProjectsRoot = workspace.Dir()
-	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/workspace/other_project")
-	assert.NoError(t, err)
-	assert.Equal(t, "codefly-platform", project.Name)
-	err = workspace.AddProjectReference(ctx, project)
-	assert.NoError(t, err)
-
-	assert.Equal(t, 1, len(workspace.Projects))
-	ref := workspace.Projects[0]
-	assert.Equal(t, "other_project", *ref.PathOverride)
-}
-
-func TestLoading(t *testing.T) {
-	ctx := context.Background()
-	ws := &configurations.Workspace{}
-
-	p, err := ws.LoadProjectFromDir(ctx, "testdata/project")
-	assert.NoError(t, err)
-	assert.Equal(t, "codefly-platform", p.Name)
-	assert.Equal(t, 2, len(p.Applications))
-	assert.Equal(t, "web", p.Applications[0].Name)
-	assert.Equal(t, "management", p.Applications[1].Name)
-	assert.Equal(t, "web", *p.ActiveApplication(ctx))
-
-	// Save and make sure we preserve the "active application" convention
-	tmpDir := t.TempDir()
-
-	err = p.SaveToDirUnsafe(ctx, tmpDir)
-	assert.NoError(t, err)
-
-	content, err := os.ReadFile(path.Join(tmpDir, configurations.ProjectConfigurationName))
-	assert.NoError(t, err)
-	assert.Contains(t, string(content), "web*")
-	p, err = ws.LoadProjectFromDir(ctx, tmpDir)
-	assert.NoError(t, err)
-	assert.Equal(t, "web", *p.ActiveApplication(ctx))
-}
-
-func TestCreationWithDefaultPath(t *testing.T) {
+func TestCreation(t *testing.T) {
 	ctx := context.Background()
 	w, dir := createTestWorkspace(t, ctx)
 	defer os.RemoveAll(dir)
@@ -124,14 +42,18 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	var action actions.Action
 	var err error
 
+	projectDir := t.TempDir()
+
 	assert.Equal(t, dir, w.Dir())
 
 	projectName := "test-project"
 	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name:      projectName,
+		Path:      projectDir,
 		Workspace: w.Name,
 	})
 	assert.NoError(t, err)
+
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
 
@@ -143,7 +65,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	assert.Equal(t, projectName, project.Name)
 	assert.Equal(t, 1, len(w.Projects))
 	assert.Equal(t, projectName, w.Projects[0].Name)
-	assert.Equal(t, path.Join(w.Dir(), projectName), project.Dir())
+	assert.Equal(t, path.Join(projectDir, projectName), project.Dir())
 
 	// Creating again should return an error
 	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
@@ -160,7 +82,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, projectName, project.Name)
 
-	project, err = w.LoadProjectFromDir(ctx, path.Join(w.Dir(), projectName))
+	project, err = w.LoadProjectFromDir(ctx, project.Dir())
 	assert.NoError(t, err)
 	assert.Equal(t, projectName, project.Name)
 
@@ -176,7 +98,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	wsConfig := string(shared.Must(os.ReadFile(path.Join(w.Dir(), configurations.WorkspaceConfigurationName))))
 	assert.NoError(t, err)
 	// We use default path
-	assert.NotContains(t, wsConfig, "path")
+	assert.Contains(t, wsConfig, fmt.Sprintf("path: %s", project.Dir()))
 	assert.Contains(t, wsConfig, "name: test-project")
 	assert.NotContains(t, wsConfig, "name: test-project*")
 
@@ -186,7 +108,7 @@ func TestCreationWithDefaultPath(t *testing.T) {
 	assert.NotContains(t, projectConfig, "path")
 
 	// Init -- reference
-	ref := &configurations.ProjectReference{Name: projectName}
+	ref := &configurations.ProjectReference{Name: projectName, Path: project.Dir()}
 	back, err := w.LoadProjectFromReference(ctx, ref)
 	assert.NoError(t, err)
 	assert.Equal(t, project.Name, back.Name)
@@ -251,69 +173,49 @@ func TestCreationWithDefaultPath(t *testing.T) {
 
 }
 
-func TestCreationWithAbsolutePath(t *testing.T) {
-	ctx := context.Background()
-	w, dir := createTestWorkspace(t, ctx)
-
-	projectDir := t.TempDir()
-
-	action, err := actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
-		Name: "test-project",
-		Path: projectDir,
-	})
-	assert.NoError(t, err)
-	out, err := action.Run(ctx)
-	assert.NoError(t, err)
-	p := shared.Must(actions.As[configurations.Project](out))
-	assert.NoError(t, err)
-	assert.Equal(t, "test-project", p.Name)
-
-	// Init the workspace configuration
-	ws, err := os.ReadFile(path.Join(dir, configurations.WorkspaceConfigurationName))
-	assert.NoError(t, err)
-	// We should find the path
-	assert.Contains(t, string(ws), fmt.Sprintf("path: %s", projectDir))
-
-	content, err := os.ReadFile(path.Join(p.Dir(), configurations.ProjectConfigurationName))
-	assert.NoError(t, err)
-	assert.Contains(t, string(content), fmt.Sprintf("path: %s", projectDir))
-
-	// Init -- reference
-	ref := &configurations.ProjectReference{Name: "test-project", PathOverride: &projectDir}
-	back, err := w.LoadProjectFromReference(ctx, ref)
-	assert.NoError(t, err)
-	assert.Equal(t, p.Name, back.Name)
-}
-
-func TestCreationWithRelativePath(t *testing.T) {
+func TestAddingExistingProjectAbsolutePath(t *testing.T) {
 	ctx := context.Background()
 	workspace, dir := createTestWorkspace(t, ctx)
+	defer os.RemoveAll(dir)
 
-	action, err := actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
-		Name: "test-project",
-		Path: "path-from-workspace",
-	})
+	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/project")
 	assert.NoError(t, err)
-	out, err := action.Run(ctx)
-	assert.NoError(t, err)
-	p := shared.Must(actions.As[configurations.Project](out))
-	assert.NoError(t, err)
-	assert.Equal(t, "test-project", p.Name)
+	assert.Equal(t, "codefly-platform", project.Name)
+	cur, _ := os.Getwd()
+	assert.Equal(t, path.Join(cur, "testdata/project"), project.Dir())
 
-	// Init the workspace configuration
-	ws, err := os.ReadFile(path.Join(dir, configurations.WorkspaceConfigurationName))
+	// Adding this project to the workspace should result in absolute path
+	err = workspace.AddProject(ctx, project)
 	assert.NoError(t, err)
-	// We should find the path
 
-	assert.Contains(t, string(ws), fmt.Sprintf("path: %s", "path-from-workspace"))
+	wsConfig := string(shared.Must(os.ReadFile(path.Join(dir, configurations.WorkspaceConfigurationName))))
 
-	content, err := os.ReadFile(path.Join(p.Dir(), configurations.ProjectConfigurationName))
+	assert.NotContains(t, wsConfig, "path: testdata/project")
+	assert.Contains(t, wsConfig, fmt.Sprintf("path: %s", project.Dir()))
+}
+
+func TestLoading(t *testing.T) {
+	ctx := context.Background()
+	ws := &configurations.Workspace{}
+
+	p, err := ws.LoadProjectFromDir(ctx, "testdata/project")
 	assert.NoError(t, err)
-	assert.Contains(t, string(content), fmt.Sprintf("path: %s", "path-from-workspace"))
+	assert.Equal(t, "codefly-platform", p.Name)
+	assert.Equal(t, 2, len(p.Applications))
+	assert.Equal(t, "web", p.Applications[0].Name)
+	assert.Equal(t, "management", p.Applications[1].Name)
+	assert.Equal(t, "web", *p.ActiveApplication(ctx))
 
-	// Init -- reference
-	ref := &configurations.ProjectReference{Name: "test-project", PathOverride: shared.Pointer("path-from-workspace")}
-	back, err := workspace.LoadProjectFromReference(ctx, ref)
+	// Save and make sure we preserve the "active application" convention
+	tmpDir := t.TempDir()
+
+	err = p.SaveToDirUnsafe(ctx, tmpDir)
 	assert.NoError(t, err)
-	assert.Equal(t, p.Name, back.Name)
+
+	content, err := os.ReadFile(path.Join(tmpDir, configurations.ProjectConfigurationName))
+	assert.NoError(t, err)
+	assert.Contains(t, string(content), "web*")
+	p, err = ws.LoadProjectFromDir(ctx, tmpDir)
+	assert.NoError(t, err)
+	assert.Equal(t, "web", *p.ActiveApplication(ctx))
 }

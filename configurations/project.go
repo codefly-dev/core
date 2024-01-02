@@ -20,8 +20,7 @@ import (
 const ProjectConfigurationName = "project.codefly.yaml"
 
 type Project struct {
-	Name         string  `yaml:"name"`
-	PathOverride *string `yaml:"path,omitempty"`
+	Name string `yaml:"name"`
 
 	Organization Organization `yaml:"organization"`
 	Domain       string       `yaml:"domain,omitempty"`
@@ -30,9 +29,6 @@ type Project struct {
 	// Applications in the project
 	Applications []*ApplicationReference `yaml:"applications"`
 
-	// Partials are a convenient way to run several applications
-	Partials []*Partial `yaml:"partials"`
-
 	// Providers in the project
 	Providers []*ProviderReference `yaml:"providers"`
 
@@ -40,7 +36,7 @@ type Project struct {
 	Environments []*EnvironmentReference `yaml:"environments"`
 
 	// internal
-	dir               string // actual dir
+	dir               string
 	activeApplication string // internal use
 }
 
@@ -65,8 +61,8 @@ func (project *Project) Unique() string {
 
 // ProjectReference is a reference to a project used by Workspace configuration
 type ProjectReference struct {
-	Name         string  `yaml:"name"`
-	PathOverride *string `yaml:"path,omitempty"`
+	Name string `yaml:"name"`
+	Path string `yaml:"path"`
 }
 
 func (ref *ProjectReference) String() string {
@@ -91,25 +87,20 @@ func (ref *ProjectReference) MarkAsInactive() {
 // and return the clean reference for Loading
 func (ref *ProjectReference) IsActive() (*ProjectReference, bool) {
 	if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
-		return &ProjectReference{Name: name, PathOverride: ref.PathOverride}, true
+		return &ProjectReference{Name: name, Path: ref.Path}, true
 	}
 	return ref, false
 }
 
 // NewProject creates a new project in a workspace
 func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv1.AddProject) (*Project, error) {
-	w := wool.Get(ctx).In("NewProject<%s>", wool.NameField(action.Name), wool.DirField(workspace.Dir()))
+	w := wool.Get(ctx).In("NewProject", wool.NameField(action.Name), wool.DirField(workspace.Dir()))
 	if slices.Contains(workspace.ProjectNames(), action.Name) {
 		return nil, w.NewError("project already exists")
 	}
 
-	w.Info("action", wool.PathField(action.Path))
-	override := OverridePath(action.Name, action.Path)
-	w.Info("override", wool.PointerField(override))
-
-	ref := &ProjectReference{Name: action.Name, PathOverride: override}
-
-	dir := workspace.ProjectPath(ctx, ref)
+	w.Trace("action", wool.PathField(action.Path))
+	dir := path.Join(action.Path, action.Name)
 
 	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
@@ -120,9 +111,7 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv1.Ad
 		Name:         action.Name,
 		Organization: workspace.Organization,
 		Domain:       ExtendDomain(workspace.Domain, action.Name),
-		PathOverride: ref.PathOverride,
-
-		dir: dir,
+		dir:          dir,
 	}
 
 	err = workspace.AddProject(ctx, project)
@@ -259,7 +248,7 @@ func (project *Project) ApplicationsNames() []string {
 }
 
 // ApplicationPath returns the absolute path of an application
-// Cases for Reference.Path
+// Cases for Reference.Dir
 // nil: relative path to project with name
 // rel: relative path
 // /abs: absolute path
@@ -355,26 +344,6 @@ func (project *Project) DeleteApplication(ctx context.Context, name string) erro
 		}
 	}
 	project.Applications = apps
-	return project.Save(ctx)
-}
-
-func (project *Project) GetPartial(name string) (*Partial, error) {
-	for _, partial := range project.Partials {
-		if partial.Name == name {
-			return partial, nil
-		}
-	}
-	return nil, fmt.Errorf("cannot find partial <%s> in project <%s>", name, project.Name)
-}
-
-func (project *Project) AddPartial(partial Partial) error {
-	ctx := context.Background()
-	for _, p := range project.Partials {
-		if p.Name == partial.Name {
-			return nil
-		}
-	}
-	project.Partials = append(project.Partials, &partial)
 	return project.Save(ctx)
 }
 

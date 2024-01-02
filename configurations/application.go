@@ -241,7 +241,7 @@ func (app *Application) ExistsService(name string) bool {
 }
 
 // ServicePath returns the absolute path of an Service
-// Cases for Reference.Path
+// Cases for Reference.Dir
 // nil: relative path to application with name
 // rel: relative path
 // /abs: absolute path

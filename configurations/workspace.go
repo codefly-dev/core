@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 
 	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
@@ -24,9 +23,6 @@ type Workspace struct {
 
 	// Projects in the Workspace configuration
 	Projects []*ProjectReference `yaml:"projects"`
-
-	// Configuration
-	ProjectsRoot string `yaml:"projects-root"`
 
 	// Internal
 	dir           string
@@ -53,7 +49,6 @@ func NewWorkspace(ctx context.Context, action *actionsv1.AddWorkspace) (*Workspa
 		Name:         action.Name,
 		Organization: *org,
 		Domain:       org.Domain,
-		ProjectsRoot: projectRoot,
 	}
 	if action.Dir != "" {
 		workspace.dir = action.Dir
@@ -69,15 +64,9 @@ func (workspace *Workspace) AddProjectReference(ctx context.Context, project *Pr
 	if workspace.ExistsProject(project.Name) {
 		return w.NewError("project already exists")
 	}
-	// relative path
-	dir := project.Dir()
-	rel, err := filepath.Rel(workspace.ProjectRoot(), dir)
-	if err == nil && !strings.HasPrefix(rel, "..") {
-		dir = rel
-	}
 	workspace.Projects = append(workspace.Projects, &ProjectReference{
-		Name:         project.Name,
-		PathOverride: OverridePath(project.Name, dir),
+		Name: project.Name,
+		Path: project.Dir(),
 	})
 	return nil
 }
@@ -158,11 +147,6 @@ func (workspace *Workspace) Dir() string {
 	return workspace.dir
 }
 
-// ProjectRoot returns the absolute path to the Workspace project root
-func (workspace *Workspace) ProjectRoot() string {
-	return workspace.ProjectsRoot
-}
-
 // ReloadWorkspace a project configuration
 func ReloadWorkspace(ctx context.Context, workspace *Workspace) (*Workspace, error) {
 	updated, err := LoadWorkspaceFromDirUnsafe(ctx, workspace.Dir())
@@ -180,26 +164,11 @@ func (workspace *Workspace) ReloadProject(ctx context.Context, project *Project)
 // LoadProjectFromReference loads a project from  a reference
 func (workspace *Workspace) LoadProjectFromReference(ctx context.Context, ref *ProjectReference) (*Project, error) {
 	w := wool.Get(ctx).In("configurations.LoadProjectFromReference", wool.Field("ref", ref))
-	p, err := workspace.LoadProjectFromDir(ctx, workspace.ProjectPath(ctx, ref))
+	p, err := workspace.LoadProjectFromDir(ctx, ref.Path)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load project")
 	}
 	return p, nil
-}
-
-// ProjectPath returns the absolute path of a project
-// Cases for Reference.Path
-// nil: relative path to workspace with name
-// rel: relative path
-// /abs: absolute path
-func (workspace *Workspace) ProjectPath(_ context.Context, ref *ProjectReference) string {
-	if ref.PathOverride == nil {
-		return path.Join(workspace.ProjectRoot(), ref.Name)
-	}
-	if filepath.IsAbs(*ref.PathOverride) {
-		return *ref.PathOverride
-	}
-	return path.Join(workspace.ProjectRoot(), *ref.PathOverride)
 }
 
 // Save Workspaces
@@ -310,7 +279,7 @@ func (workspace *Workspace) LoadProjectFromName(ctx context.Context, name string
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot find project reference")
 	}
-	return workspace.LoadProjectFromDir(ctx, workspace.ProjectPath(ctx, ref))
+	return workspace.LoadProjectFromDir(ctx, ref.Path)
 }
 
 // LoadProjectFromDir loads a project from a directory

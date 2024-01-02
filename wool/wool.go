@@ -25,7 +25,8 @@ type Wool struct {
 	provider *Provider
 	span     trace.Span
 
-	logger LogProcessor
+	logger   LogProcessor
+	logLevel Loglevel
 }
 
 func Writer() *LogField {
@@ -63,6 +64,9 @@ func (w *Wool) Catch() {
 }
 
 func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
+	if w.logLevel > l {
+		return
+	}
 	for _, f := range fs {
 		if f.Level == DEFAULT {
 			f.Level = l
@@ -206,6 +210,10 @@ func (w *Wool) Name() string {
 func (w *Wool) WithLogger(l LogProcessor) *Wool {
 	w.logger = l
 	return w
+}
+
+func (w *Wool) WithLoglevel(level Loglevel) {
+	w.logLevel = level
 }
 
 const LogEvent = "log"
