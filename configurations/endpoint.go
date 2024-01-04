@@ -159,6 +159,8 @@ func WhichAPI(api *basev1.API) (string, error) {
 		return standards.GRPC, nil
 	case *basev1.API_Rest:
 		return standards.REST, nil
+	case *basev1.API_Http:
+		return standards.HTTP, nil
 	case *basev1.API_Tcp:
 		return standards.TCP, nil
 	default:
@@ -171,6 +173,8 @@ func StandardPort(api *basev1.API) (int, error) {
 	case *basev1.API_Grpc:
 		return 9090, nil
 	case *basev1.API_Rest:
+		return 8080, nil
+	case *basev1.API_Http:
 		return 8080, nil
 	case *basev1.API_Tcp:
 		return 7070, nil
@@ -227,6 +231,8 @@ func FromProtoAPI(api *basev1.API) string {
 		return standards.GRPC
 	case *basev1.API_Rest:
 		return standards.REST
+	case *basev1.API_Http:
+		return standards.HTTP
 	case *basev1.API_Tcp:
 		return standards.TCP
 	default:
@@ -245,6 +251,10 @@ func LightAPI(api *basev1.API) *basev1.API {
 			Value: &basev1.API_Rest{
 				Rest: &basev1.RestAPI{Routes: api.Value.(*basev1.API_Rest).Rest.Routes},
 			},
+		}
+	case *basev1.API_Http:
+		return &basev1.API{
+			Value: &basev1.API_Http{},
 		}
 	case *basev1.API_Tcp:
 		return &basev1.API{

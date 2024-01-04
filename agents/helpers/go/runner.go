@@ -130,10 +130,6 @@ func (g *Runner) Kill(ctx context.Context) error {
 	}
 	err := g.cmd.Process.Kill()
 	if err != nil {
-		err = g.cmd.Wait()
-		if err != nil {
-			return w.Wrapf(err, "cannot wait for process to die")
-		}
 		return w.Wrapf(err, "cannot kill process")
 	}
 	return nil
