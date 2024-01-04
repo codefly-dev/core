@@ -364,3 +364,20 @@ func (project *Project) FindEnvironment(environment string) (*Environment, error
 func LoadEnvironmentFromReference(ref *EnvironmentReference) (*Environment, error) {
 	return &Environment{Name: ref.Name}, nil
 }
+
+// DeleteServiceDependencies deletes all service dependencies from a project
+func (project *Project) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {
+	w := wool.Get(ctx).In("configurations.DeleteService", wool.NameField(ref.String()))
+	for _, appRef := range project.Applications {
+		app, err := project.LoadApplicationFromReference(ctx, appRef)
+		if err != nil {
+			return w.Wrapf(err, "cannot load application")
+		}
+		err = app.DeleteServiceDependencies(ctx, ref)
+		if err != nil {
+			return w.Wrapf(err, "cannot delete service dependencies")
+		}
+	}
+
+	return nil
+}

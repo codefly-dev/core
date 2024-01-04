@@ -407,6 +407,17 @@ func (s *Service) ExistsDependency(requirement *Service) (*ServiceDependency, bo
 	return nil, false
 }
 
+func (s *Service) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {
+	var deps []*ServiceDependency
+	for _, dep := range s.Dependencies {
+		if dep.Name != ref.Name && dep.Application != ref.Application {
+			deps = append(deps, dep)
+		}
+	}
+	s.Dependencies = deps
+	return s.Save(ctx)
+}
+
 func (s *ServiceDependency) AsReference() *ServiceReference {
 	return &ServiceReference{
 		Name:        s.Name,

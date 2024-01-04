@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/docker/go-connections/nat"
+
 	"github.com/codefly-dev/core/wool"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -15,11 +17,15 @@ import (
 )
 
 type Docker struct {
-	client     *client.Client
-	image      DockerImage
-	option     DockerRunOption
-	mounts     []mount.Mount
-	instance   *DockerContainerInstance
+	client *client.Client
+	image  DockerImage
+	option DockerRunOption
+
+	mounts []mount.Mount
+	port   *DockerPort
+
+	instance *DockerContainerInstance
+
 	workingDir string
 }
 
@@ -28,6 +34,11 @@ type DockerRunOption struct {
 }
 
 type DockerOption func(option *DockerRunOption)
+
+type DockerPort struct {
+	Host      string
+	Container string
+}
 
 // NewDocker creates a new docker runner
 func NewDocker(ctx context.Context, opts ...DockerOption) (*Docker, error) {
@@ -157,8 +168,18 @@ func (docker *Docker) create(ctx context.Context) error {
 		WorkingDir: docker.workingDir,
 		Tty:        true,
 	}
+	if docker.port != nil {
+		containerConfig.ExposedPorts = nat.PortSet{
+			nat.Port(docker.port.Container + "/tcp"): struct{}{},
+		}
+	}
+
 	hostConfig := &container.HostConfig{
-		Mounts: docker.mounts,
+		Mounts:     docker.mounts,
+		AutoRemove: true,
+	}
+	if docker.port != nil {
+		hostConfig.PortBindings = docker.portBindings()
 	}
 
 	// Create the container
@@ -242,4 +263,29 @@ func WithWorkspace(location string) DockerOption {
 	return func(option *DockerRunOption) {
 		option.Location = location
 	}
+}
+
+func (docker *Docker) WithPorts(port DockerPort) {
+	docker.port = &port
+}
+
+func (docker *Docker) portBindings() nat.PortMap {
+	return nat.PortMap{
+		nat.Port(docker.port.Container + "/tcp"): []nat.PortBinding{
+			{
+				HostIP:   "0.0.0.0",
+				HostPort: docker.port.Host,
+			},
+		},
+	}
+}
+
+func (docker *Docker) Stop() error {
+	go func() {
+		err := docker.client.ContainerStop(context.Background(), docker.instance.container.ID, container.StopOptions{})
+		if err != nil {
+			_ = docker.client.ContainerKill(context.Background(), docker.instance.container.ID, "SIGKILL")
+		}
+	}()
+	return nil
 }

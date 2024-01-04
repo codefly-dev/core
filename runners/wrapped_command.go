@@ -3,11 +3,13 @@ package runners
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"os/exec"
 
 	"strings"
 
+	"github.com/codefly-dev/core/wool"
 	"github.com/pkg/errors"
 )
 
@@ -45,7 +47,9 @@ type WrappedCmdOutput struct {
 	Events chan RunnerEvent
 }
 
-func (run *WrappedCmd) Start() (*WrappedCmdOutput, error) {
+func (run *WrappedCmd) Start(ctx context.Context) (*WrappedCmdOutput, error) {
+	w := wool.Get(ctx).In("WrappedCommand")
+	w.Debug("starting command", wool.Field("cmd", run.cmd.Args))
 	stdout, err := run.cmd.StdoutPipe()
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot create stdout pipe")
@@ -60,16 +64,15 @@ func (run *WrappedCmd) Start() (*WrappedCmdOutput, error) {
 	out := &WrappedCmdOutput{Events: events}
 
 	var b bytes.Buffer
-	w := bufio.NewWriter(&b)
+	writer := bufio.NewWriter(&b)
 
 	go ForwardLogs(stdout, run.writer)
-	go ForwardLogs(stderr, run.writer, w)
+	go ForwardLogs(stderr, run.writer, writer)
 
 	err = run.cmd.Start()
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot start command")
 	}
-
 	out.PID = run.cmd.Process.Pid
 	go func() {
 		err := run.cmd.Wait()

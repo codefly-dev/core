@@ -18,10 +18,17 @@ import (
 func TestCreationApplication(t *testing.T) {
 	ctx := context.Background()
 	w, dir := createTestWorkspace(t, ctx)
-	defer os.RemoveAll(dir)
+	cur, err := os.Getwd()
+	assert.NoError(t, err)
+	err = os.Chdir(dir)
+	assert.NoError(t, err)
+
+	defer func() {
+		os.RemoveAll(dir)
+		os.Chdir(cur)
+	}()
 
 	var action actions.Action
-	var err error
 	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name:      "test-project",
 		Workspace: w.Name,

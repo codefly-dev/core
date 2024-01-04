@@ -34,6 +34,21 @@ type RestRoute struct {
 	Service     string `yaml:"-"`
 }
 
+func RouteUnique(endpoint *basev1.Endpoint, route *basev1.RestRoute) string {
+	return MakeRouteUnique(endpoint.Application, endpoint.Service, route.Path)
+}
+
+func MakeRouteUnique(app string, service string, path string) string {
+	if cut, ok := strings.CutPrefix(path, "/"); ok {
+		path = cut
+	}
+	return fmt.Sprintf("%s/%s/%s", app, service, path)
+}
+
+func (r *RestRoute) Unique() string {
+	return MakeRouteUnique(r.Application, r.Service, r.Path)
+}
+
 type ExtendedRestRoute[T any] struct {
 	RestRoute `yaml:",inline"`
 
@@ -74,9 +89,14 @@ type ServiceRestRoute struct {
 	Application string `yaml:"-"`
 }
 
-func sanitize(route string) string {
+func sanitizeRoute(route string) string {
 	route = strings.TrimPrefix(route, "/")
 	return strings.ReplaceAll(route, "/", "_")
+}
+
+func sanitizePath(route string) string {
+	route = strings.TrimPrefix(route, "/")
+	return strings.ReplaceAll(route, "/", "#")
 }
 
 func (r *RestRoute) FilePath(ctx context.Context, dir string) (string, error) {
@@ -85,7 +105,7 @@ func (r *RestRoute) FilePath(ctx context.Context, dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	file := path.Join(dir, fmt.Sprintf("%s.route.yaml", sanitize(r.Path)))
+	file := path.Join(dir, fmt.Sprintf("%s.route.yaml", sanitizeRoute(r.Path)))
 	return file, nil
 }
 
@@ -307,30 +327,30 @@ func LoadExtendedRestRoute[T any](p string, app string, service string) (*Extend
 
 /* For runtime */
 
-const RestRoutePrefix = "CODEFLY-RESTROUTE_"
+const RestRoutePrefix = "CODEFLY_RESTROUTE__"
 
-func RestRouteAsEnvironmentVariable(reference string, addresses []string) string {
-	return fmt.Sprintf("%s%s=%s", RestRoutePrefix, strings.ToUpper(reference), SerializeAddresses(addresses))
+func RestRoutesAsEnvironmentVariable(endpoint *basev1.Endpoint, route *basev1.RestRoute) string {
+	return fmt.Sprintf("%s=%s", RestRouteEnvironmentVariableKey(endpoint, route), serializeMethods(route.Methods))
 }
 
-func ParseRestRouteEnvironmentVariable(env string) (string, []string) {
-	tokens := strings.Split(env, "=")
-	reference := strings.ToLower(tokens[0])
-	// Namespace break
-	reference = strings.Replace(reference, "_", ".", 1)
-	reference = strings.Replace(reference, "_", "::", 1)
-	values := strings.Split(tokens[1], " ")
-	return reference, values
-}
-
-func DetectNewRoutes(known []*RestRoute, routes []*RestRoute) []*RestRoute {
-	var rs []*RestRoute
-	for _, r := range routes {
-		if !ContainsRoute(known, r) {
-			rs = append(rs, r)
-		}
+func serializeMethods(methods []basev1.HTTPMethod) string {
+	var ss []string
+	for _, m := range methods {
+		ss = append(ss, m.String())
 	}
-	return rs
+	return strings.Join(ss, ",")
+
+}
+
+func RestRouteEnvironmentVariableKey(endpoint *basev1.Endpoint, route *basev1.RestRoute) string {
+	unique := FromProtoEndpoint(endpoint).Unique()
+	unique = strings.ToUpper(unique)
+	unique = strings.Replace(unique, "/", "__", 1)
+	unique = strings.Replace(unique, "/", "___", 1)
+	unique = strings.Replace(unique, "::", "____", 1)
+	// Add path
+	unique = fmt.Sprintf("%s____%s", unique, sanitizePath(route.Path))
+	return strings.ToUpper(fmt.Sprintf("%s%s", RestRoutePrefix, unique))
 }
 
 func ContainsRoute(routes []*RestRoute, r *RestRoute) bool {

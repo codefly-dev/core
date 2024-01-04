@@ -18,7 +18,7 @@ type Runner struct {
 
 func (r *Runner) Start(ctx context.Context) (*WrappedCmdOutput, error) {
 	w := wool.Get(ctx).In("runner")
-	w.Debug("in runner")
+	w.Trace("in runner", wool.Field("bin", r.Bin), wool.Field("args", r.Args))
 	// #nosec G204
 	cmd := exec.CommandContext(ctx, r.Bin, r.Args...)
 	cmd.Dir = r.Dir
@@ -28,7 +28,7 @@ func (r *Runner) Start(ctx context.Context) (*WrappedCmdOutput, error) {
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create wrapped command")
 	}
-	out, err := run.Start()
+	out, err := run.Start(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot start command")
 	}

@@ -11,6 +11,13 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
+type Visibility = string
+
+const (
+	VisibilityApplication Visibility = "application"
+	VisibilityPublic      Visibility = "public"
+)
+
 // Endpoint is the fundamental entity that standardize communication between services.
 type Endpoint struct {
 	Name        string `yaml:"name"`
@@ -49,7 +56,7 @@ func SerializeAddresses(addresses []string) string {
 	return strings.Join(addresses, " ")
 }
 
-func AsEndpointEnvironmentVariableKey(endpoint *Endpoint) string {
+func EndpointEnvironmentVariableKey(endpoint *Endpoint) string {
 	unique := endpoint.Unique()
 	unique = strings.ToUpper(unique)
 	unique = strings.Replace(unique, "/", "__", 1)
@@ -59,7 +66,18 @@ func AsEndpointEnvironmentVariableKey(endpoint *Endpoint) string {
 }
 
 func AsEndpointEnvironmentVariable(endpoint *Endpoint, addresses []string) string {
-	return fmt.Sprintf("%s=%s", AsEndpointEnvironmentVariableKey(endpoint), SerializeAddresses(addresses))
+	return fmt.Sprintf("%s=%s", EndpointEnvironmentVariableKey(endpoint), SerializeAddresses(addresses))
+}
+
+func AsRestRouteEnvironmentVariable(endpoint *basev1.Endpoint) []string {
+	var envs []string
+	if rest := HasRest(context.Background(), endpoint.Api); rest != nil {
+		for _, route := range rest.Routes {
+			envs = append(envs, RestRoutesAsEnvironmentVariable(endpoint, route))
+		}
+	}
+	return envs
+
 }
 
 const Unknown = "unknown"
@@ -256,7 +274,7 @@ func FlattenRestRoutes(_ context.Context, endpoints []*basev1.Endpoint) []*basev
 	return routes
 }
 
-func DetectNewRoutesFromGroup(ctx context.Context, known []*RestRoute, endpoints []*basev1.Endpoint) []*RestRoute {
+func DetectNewRoutesFromEndpoints(ctx context.Context, known []*RestRoute, endpoints []*basev1.Endpoint) []*RestRoute {
 	w := wool.Get(ctx).In("DetectNewRoutes")
 	for _, e := range endpoints {
 		w.Error("do", wool.Field("endpoint", e))

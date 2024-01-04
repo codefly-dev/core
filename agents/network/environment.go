@@ -11,6 +11,8 @@ func ConvertToEnvironmentVariables(nets []*runtimev1.NetworkMapping) ([]string, 
 	for _, net := range nets {
 		e := configurations.FromProtoEndpoint(net.Endpoint)
 		envs = append(envs, configurations.AsEndpointEnvironmentVariable(e, net.Addresses))
+		// Add environment variables for Rest path
+		envs = append(envs, configurations.AsRestRouteEnvironmentVariable(net.Endpoint)...)
 	}
 	return envs, nil
 }

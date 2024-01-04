@@ -267,7 +267,7 @@ func (app *Application) LoadServiceFromName(ctx context.Context, name string) (*
 			return app.LoadServiceFromReference(ctx, ref)
 		}
 	}
-	return nil, w.NewError("cannot find service in %s", app.Name)
+	return nil, w.NewError("cannot find service <%s> in <%s>", name, app.Name)
 }
 
 func (app *Application) LoadActiveService(ctx context.Context) (*Service, error) {
@@ -328,8 +328,6 @@ func (app *Application) DeleteService(ctx context.Context, name string) error {
 	return nil
 }
 
-const VisibilityPublic = "public"
-
 func (app *Application) PublicEndpoints(ctx context.Context) ([]*basev1.Endpoint, error) {
 	w := wool.Get(ctx).In("Application::PublicEndpoints", wool.ThisField(app))
 	var publicEndpoints []*basev1.Endpoint
@@ -348,6 +346,21 @@ func (app *Application) PublicEndpoints(ctx context.Context) ([]*basev1.Endpoint
 		}
 	}
 	return publicEndpoints, nil
+}
+
+func (app *Application) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {
+	w := wool.Get(ctx).In("Application::DeleteServiceDependencies", wool.ThisField(app), wool.Field("service", ref))
+	for _, serviceRef := range app.Services {
+		service, err := app.LoadServiceFromReference(ctx, serviceRef)
+		if err != nil {
+			return w.Wrapf(err, "can't load service from ref")
+		}
+		err = service.DeleteServiceDependencies(ctx, ref)
+		if err != nil {
+			return w.Wrapf(err, "can't delete service dependencies")
+		}
+	}
+	return nil
 }
 
 type NoApplicationError struct {

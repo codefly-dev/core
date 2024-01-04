@@ -37,10 +37,17 @@ func TestBadInputs(t *testing.T) {
 func TestCreation(t *testing.T) {
 	ctx := context.Background()
 	w, dir := createTestWorkspace(t, ctx)
-	defer os.RemoveAll(dir)
+	cur, err := os.Getwd()
+	assert.NoError(t, err)
+	err = os.Chdir(dir)
+	assert.NoError(t, err)
+
+	defer func() {
+		os.RemoveAll(dir)
+		os.Chdir(cur)
+	}()
 
 	var action actions.Action
-	var err error
 
 	projectDir := t.TempDir()
 

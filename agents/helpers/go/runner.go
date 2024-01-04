@@ -57,7 +57,7 @@ func (g *Runner) Start(ctx context.Context) (*runners.WrappedCmdOutput, error) {
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create wrapped command")
 	}
-	out, err := run.Start()
+	out, err := run.Start(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot start command")
 	}

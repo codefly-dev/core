@@ -73,12 +73,14 @@ type Cleanup func()
 func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	ctx := context.Background()
 	w, dir := createTestWorkspace(t, ctx)
+	err := os.Chdir(dir)
+	assert.NoError(t, err)
+
 	cleanup := func() {
 		os.RemoveAll(dir)
 	}
 
 	var action actions.Action
-	var err error
 	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name:      "test-project",
 		Workspace: w.Name,

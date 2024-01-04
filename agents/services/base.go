@@ -61,7 +61,9 @@ type Base struct {
 	Information *Information
 
 	// Endpoints
-	Endpoints       []*basev1.Endpoint
+	Endpoints           []*basev1.Endpoint
+	DependencyEndpoints []*basev1.Endpoint
+
 	NetworkMappings []*runtimev1.NetworkMapping
 
 	// Wrappers
@@ -160,6 +162,12 @@ func (s *FactoryWrapper) InitResponse() (*factoryv1.InitResponse, error) {
 	return &factoryv1.InitResponse{}, nil
 }
 
+func (s *FactoryWrapper) InitError(err error) (*factoryv1.InitResponse, error) {
+	return &factoryv1.InitResponse{
+		Status: &factoryv1.InitStatus{Status: factoryv1.InitStatus_ERROR, Message: err.Error()},
+	}, nil
+}
+
 func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, endpoints ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
 	err := s.Configuration.UpdateSpecFromSettings(settings)
 	if err != nil {
@@ -185,15 +193,20 @@ func (s *FactoryWrapper) CreateError(err error) (*factoryv1.CreateResponse, erro
 	}, err
 }
 
+func (s *FactoryWrapper) SyncError(err error) (*factoryv1.SyncResponse, error) {
+	return &factoryv1.SyncResponse{
+		Status: &factoryv1.SyncStatus{Status: factoryv1.SyncStatus_ERROR, Message: err.Error()}}, err
+}
+
 // Runtime
 
 func (s *RuntimeWrapper) LoadResponse(endpoints []*basev1.Endpoint) (*runtimev1.LoadResponse, error) {
-	s.Wool.Debug("load response", wool.NullableField("exposing endpoints", configurations.MakeEndpointSummary(endpoints)))
 	// for convenience, add application and service
 	for _, endpoint := range endpoints {
 		endpoint.Application = s.Configuration.Application
 		endpoint.Service = s.Configuration.Name
 	}
+	s.Wool.Debug("load response", wool.NullableField("exposing endpoints", configurations.MakeEndpointSummary(endpoints)))
 	return &runtimev1.LoadResponse{
 		Version:   s.Version(),
 		Endpoints: endpoints,
@@ -353,6 +366,7 @@ func (s *Base) Stop() error {
 }
 
 func (s *Base) Communicate(ctx context.Context, eng *agentv1.Engage) (*agentv1.InformationRequest, error) {
+	s.Wool.Trace("base communicate: sending to server", wool.Field("eng", eng))
 	return s.Communication.Communicate(ctx, eng)
 }
 

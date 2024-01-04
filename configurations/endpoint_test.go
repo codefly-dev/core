@@ -33,21 +33,21 @@ func TestUniqueAndBack(t *testing.T) {
 	unique := "app/svc/cool::rest"
 	e := &configurations.Endpoint{Name: "cool", API: standards.REST, Application: "app", Service: "svc"}
 	assert.Equal(t, unique, e.Unique())
-	key := configurations.AsEndpointEnvironmentVariableKey(e)
+	key := configurations.EndpointEnvironmentVariableKey(e)
 	back, err := configurations.ParseEndpointEnvironmentVariableKey(key)
 	assert.NoError(t, err)
 	assert.Equal(t, unique, back)
 
 	unique = "app/svc/rest"
 	e = &configurations.Endpoint{Name: standards.REST, API: standards.REST, Application: "app", Service: "svc"}
-	key = configurations.AsEndpointEnvironmentVariableKey(e)
+	key = configurations.EndpointEnvironmentVariableKey(e)
 	back, err = configurations.ParseEndpointEnvironmentVariableKey(key)
 	assert.NoError(t, err)
 	assert.Equal(t, unique, back)
 
 	unique = "app/svc"
 	e = &configurations.Endpoint{Application: "app", Service: "svc"}
-	key = configurations.AsEndpointEnvironmentVariableKey(e)
+	key = configurations.EndpointEnvironmentVariableKey(e)
 	back, err = configurations.ParseEndpointEnvironmentVariableKey(key)
 	assert.NoError(t, err)
 	assert.Equal(t, unique, back)

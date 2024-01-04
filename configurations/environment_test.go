@@ -17,10 +17,18 @@ import (
 
 func TestEnvironment(t *testing.T) {
 	ctx := context.Background()
-	createTestWorkspace(t, ctx)
+	_, dir := createTestWorkspace(t, ctx)
+	cur, err := os.Getwd()
+	assert.NoError(t, err)
+	err = os.Chdir(dir)
+	assert.NoError(t, err)
+
+	defer func() {
+		os.RemoveAll(dir)
+		os.Chdir(cur)
+	}()
 
 	var action actions.Action
-	var err error
 
 	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
 		Name: "test-project",
