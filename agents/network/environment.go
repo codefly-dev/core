@@ -2,11 +2,11 @@ package network
 
 import (
 	"github.com/codefly-dev/core/configurations"
-	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
+	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 )
 
 // ConvertToEnvironmentVariables converts NetworkMapping to environment variables
-func ConvertToEnvironmentVariables(nets []*runtimev1.NetworkMapping) ([]string, error) {
+func ConvertToEnvironmentVariables(nets []*runtimev0.NetworkMapping) ([]string, error) {
 	var envs []string
 	for _, net := range nets {
 		e := configurations.FromProtoEndpoint(net.Endpoint)

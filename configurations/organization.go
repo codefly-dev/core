@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/bufbuild/protovalidate-go"
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
 type Organization struct {
@@ -16,8 +16,8 @@ type Organization struct {
 	Domain string `yaml:"domain"`
 }
 
-func (organization *Organization) Proto() *basev1.Organization {
-	return &basev1.Organization{
+func (organization *Organization) Proto() *basev0.Organization {
+	return &basev0.Organization{
 		Name:   organization.Name,
 		Domain: organization.Domain,
 	}
@@ -46,7 +46,7 @@ func ValidOrganizationDomain(domain string) bool {
 	return u.Scheme != "" && u.Host != ""
 }
 
-func ValidOrganization(org *basev1.Organization) error {
+func ValidOrganization(org *basev0.Organization) error {
 	v, err := protovalidate.New()
 	if err != nil {
 		return err
@@ -57,7 +57,7 @@ func ValidOrganization(org *basev1.Organization) error {
 	return nil
 }
 
-func OrganizationFromProto(_ context.Context, m *basev1.Organization) (*Organization, error) {
+func OrganizationFromProto(_ context.Context, m *basev0.Organization) (*Organization, error) {
 	return &Organization{
 		Name:   m.Name,
 		Domain: m.Domain,

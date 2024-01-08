@@ -9,7 +9,7 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/wool"
 
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
 type RandomStrategy struct{}
@@ -82,7 +82,7 @@ func GetFreePorts(n int) ([]int, error) {
 	return ports, nil
 }
 
-func NewServicePortManager(_ context.Context, identity *configurations.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
+func NewServicePortManager(_ context.Context, identity *configurations.ServiceIdentity, endpoints ...*basev0.Endpoint) (*ServiceManager, error) {
 	return &ServiceManager{
 		service:   identity,
 		endpoints: endpoints,

@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/communicate"
-	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
+	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 
-	factoryv1 "github.com/codefly-dev/core/generated/go/services/factory/v1"
+	factoryv0 "github.com/codefly-dev/core/generated/go/services/factory/v0"
 )
 
 // We mimic the behavior of a agent
@@ -23,8 +23,8 @@ type dataCreate struct {
 	results []string
 }
 
-func (s *agentTest) Create(ctx context.Context, req *factoryv1.CreateRequest) (*dataCreate, error) {
-	if !s.Server.Ready(shared.TypeOf[factoryv1.CreateRequest]()) {
+func (s *agentTest) Create(ctx context.Context, req *factoryv0.CreateRequest) (*dataCreate, error) {
+	if !s.Server.Ready(shared.TypeOf[factoryv0.CreateRequest]()) {
 		return nil, fmt.Errorf("not ready")
 	}
 	return &dataCreate{}, nil
@@ -35,9 +35,9 @@ func TestSequenceWithoutCommunication(t *testing.T) {
 	// Create a new sequence
 	server := communicate.NewServer(ctx)
 	sequence := agentTest{Server: server}
-	_, ok := server.RequiresCommunication(communicate.Channel[factoryv1.CreateRequest]())
+	_, ok := server.RequiresCommunication(communicate.Channel[factoryv0.CreateRequest]())
 	assert.False(t, ok)
-	resp, err := sequence.Create(ctx, &factoryv1.CreateRequest{})
+	resp, err := sequence.Create(ctx, &factoryv0.CreateRequest{})
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, 0, len(resp.results))
@@ -45,30 +45,30 @@ func TestSequenceWithoutCommunication(t *testing.T) {
 
 func (s *agentTest) createSequence() *communicate.Sequence {
 	return communicate.NewSequence(
-		communicate.NewStringInput(&agentv1.Message{Name: "one"}, ""),
+		communicate.NewStringInput(&agentv0.Message{Name: "one"}, ""),
 	)
 }
 
 func (s *agentTest) createBiggerSequence() *communicate.Sequence {
 	return communicate.NewSequence(
-		communicate.NewStringInput(&agentv1.Message{Name: "one"}, ""),
-		communicate.NewStringInput(&agentv1.Message{Name: "two"}, ""),
-		communicate.NewStringInput(&agentv1.Message{Name: "three"}, ""),
-		communicate.NewStringInput(&agentv1.Message{Name: "four"}, ""),
+		communicate.NewStringInput(&agentv0.Message{Name: "one"}, ""),
+		communicate.NewStringInput(&agentv0.Message{Name: "two"}, ""),
+		communicate.NewStringInput(&agentv0.Message{Name: "three"}, ""),
+		communicate.NewStringInput(&agentv0.Message{Name: "four"}, ""),
 	)
 }
 
-func (s *agentTest) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
+func (s *agentTest) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
 	return s.Server.Communicate(ctx, req)
 }
 
 type clientHandler struct{}
 
-func (*clientHandler) Answer(ctx context.Context, question *agentv1.Question) (*agentv1.Answer, error) {
-	return &agentv1.Answer{
-		Value: &agentv1.Answer_Input{
-			Input: &agentv1.InputAnswer{
-				Answer: &agentv1.InputAnswer_StringValue{StringValue: "working"},
+func (*clientHandler) Answer(ctx context.Context, question *agentv0.Question) (*agentv0.Answer, error) {
+	return &agentv0.Answer{
+		Value: &agentv0.Answer_Input{
+			Input: &agentv0.InputAnswer{
+				Answer: &agentv0.InputAnswer_StringValue{StringValue: "working"},
 			},
 		},
 	}, nil
@@ -76,11 +76,11 @@ func (*clientHandler) Answer(ctx context.Context, question *agentv1.Question) (*
 
 type clientHandlerRepeater struct{}
 
-func (*clientHandlerRepeater) Answer(ctx context.Context, question *agentv1.Question) (*agentv1.Answer, error) {
-	return &agentv1.Answer{
-		Value: &agentv1.Answer_Input{
-			Input: &agentv1.InputAnswer{
-				Answer: &agentv1.InputAnswer_StringValue{StringValue: question.Message.Name},
+func (*clientHandlerRepeater) Answer(ctx context.Context, question *agentv0.Question) (*agentv0.Answer, error) {
+	return &agentv0.Answer{
+		Value: &agentv0.Answer_Input{
+			Input: &agentv0.InputAnswer{
+				Answer: &agentv0.InputAnswer_StringValue{StringValue: question.Message.Name},
 			},
 		},
 	}, nil
@@ -92,19 +92,19 @@ func TestSequenceWithCommunication(t *testing.T) {
 	server := communicate.NewServer(ctx)
 	agent := agentTest{Server: server}
 
-	err := server.Register(ctx, communicate.New[factoryv1.CreateRequest](agent.createSequence()))
+	err := server.Register(ctx, communicate.New[factoryv0.CreateRequest](agent.createSequence()))
 	assert.NoError(t, err)
-	_, ok := server.RequiresCommunication(communicate.Channel[factoryv1.CreateRequest]())
+	_, ok := server.RequiresCommunication(communicate.Channel[factoryv0.CreateRequest]())
 	assert.True(t, ok)
-	_, err = agent.Create(ctx, &factoryv1.CreateRequest{})
+	_, err = agent.Create(ctx, &factoryv0.CreateRequest{})
 	assert.Error(t, err)
 
 	answerProvider := &clientHandler{}
-	clientSession := communicate.NewClientSession(communicate.Channel[factoryv1.CreateRequest](), answerProvider)
+	clientSession := communicate.NewClientSession(communicate.Channel[factoryv0.CreateRequest](), answerProvider)
 
 	eng, err := clientSession.Engage(ctx, nil)
 	assert.NoError(t, err)
-	assert.True(t, eng.Mode == agentv1.Engage_START)
+	assert.True(t, eng.Mode == agentv0.Engage_START)
 
 	// Send that to the server
 	res, err := server.Communicate(ctx, eng)
@@ -127,10 +127,10 @@ func TestSequenceWithCommunication(t *testing.T) {
 	// we will send that back to the generator
 	eng, err = clientSession.Engage(ctx, res)
 	assert.NoError(t, err)
-	assert.True(t, eng.Mode == agentv1.Engage_END)
+	assert.True(t, eng.Mode == agentv0.Engage_END)
 
 	// we got the info back
-	session, err := server.Done(ctx, communicate.Channel[factoryv1.CreateRequest]())
+	session, err := server.Done(ctx, communicate.Channel[factoryv0.CreateRequest]())
 	assert.NoError(t, err)
 	value, err := session.GetInputString("one")
 	assert.NoError(t, err)
@@ -143,15 +143,15 @@ func TestSequenceWithCommunicationFlow(t *testing.T) {
 	server := communicate.NewServer(ctx)
 	agent := agentTest{Server: server}
 
-	err := server.Register(ctx, communicate.New[factoryv1.CreateRequest](agent.createBiggerSequence()))
+	err := server.Register(ctx, communicate.New[factoryv0.CreateRequest](agent.createBiggerSequence()))
 	assert.NoError(t, err)
 
 	answerProvider := &clientHandlerRepeater{}
 
-	err = communicate.Do[factoryv1.CreateRequest](ctx, server, answerProvider)
+	err = communicate.Do[factoryv0.CreateRequest](ctx, server, answerProvider)
 	assert.NoError(t, err)
 
-	session, err := server.Done(ctx, communicate.Channel[factoryv1.CreateRequest]())
+	session, err := server.Done(ctx, communicate.Channel[factoryv0.CreateRequest]())
 	for _, v := range []string{"one", "two", "three", "four"} {
 		value, err := session.GetInputString(v)
 		assert.NoError(t, err)

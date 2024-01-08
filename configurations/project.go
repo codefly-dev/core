@@ -8,11 +8,11 @@ import (
 	"slices"
 	"strings"
 
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 
 	"github.com/codefly-dev/core/templates"
 
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -40,8 +40,8 @@ type Project struct {
 	activeApplication string // internal use
 }
 
-func (project *Project) Proto() *basev1.Project {
-	return &basev1.Project{
+func (project *Project) Proto() *basev0.Project {
+	return &basev0.Project{
 		Name:         project.Name,
 		Organization: project.Organization.Proto(),
 		Description:  project.Description,
@@ -93,7 +93,7 @@ func (ref *ProjectReference) IsActive() (*ProjectReference, bool) {
 }
 
 // NewProject creates a new project in a workspace
-func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv1.AddProject) (*Project, error) {
+func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv0.AddProject) (*Project, error) {
 	w := wool.Get(ctx).In("NewProject", wool.NameField(action.Name), wool.DirField(workspace.Dir()))
 	if slices.Contains(workspace.ProjectNames(), action.Name) {
 		return nil, w.NewError("project already exists")

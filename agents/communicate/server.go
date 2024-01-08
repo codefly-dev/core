@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
+	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -31,9 +31,9 @@ func (c *ServerContext) Done() bool {
 	return c.done
 }
 
-func (c *ServerContext) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
+func (c *ServerContext) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
 	w := wool.Get(ctx).In("communicate.Server.Communicate")
-	if req.Mode == agentv1.Engage_START {
+	if req.Mode == agentv0.Engage_START {
 		w.Focus("FUCK")
 		c.session = NewServerSession(c.gen)
 	}
@@ -61,7 +61,7 @@ func (server *Server) Register(ctx context.Context, generator *Generator) error 
 	return nil
 }
 
-func (server *Server) RequiresCommunication(channel *agentv1.Channel) (*ServerContext, bool) {
+func (server *Server) RequiresCommunication(channel *agentv0.Channel) (*ServerContext, bool) {
 	if s, ok := server.channels[channel.Kind]; ok {
 		return s, true
 	}
@@ -77,17 +77,17 @@ func (server *Server) Ready(s string) bool {
 }
 
 // Communicate from the generator and sends back information request required
-func (server *Server) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
+func (server *Server) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
 	w := wool.Get(ctx).In("communicate.Server.Communicate")
 	w.Trace("channels available", wool.Field("keys", server.Channels()))
 	if c, ok := server.channels[req.Channel.Kind]; ok {
 		w.Trace("communicating in channel", wool.NameField(req.Channel.Kind))
 		return c.Communicate(ctx, req)
 	}
-	return &agentv1.InformationRequest{Done: true}, nil
+	return &agentv0.InformationRequest{Done: true}, nil
 }
 
-func (server *Server) Done(ctx context.Context, channel *agentv1.Channel) (*ServerSession, error) {
+func (server *Server) Done(ctx context.Context, channel *agentv0.Channel) (*ServerSession, error) {
 	w := wool.Get(ctx).In("communicate.Server.Done")
 	if c, ok := server.channels[channel.Kind]; ok {
 		if c.session == nil {
@@ -114,22 +114,22 @@ func NewServer(_ context.Context) *Server {
 
 type QuestionGenerator interface {
 	Ready() bool
-	Process(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error)
+	Process(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error)
 }
 
 type ServerSession struct {
 	generator QuestionGenerator
-	states    map[string]*agentv1.Answer
+	states    map[string]*agentv0.Answer
 }
 
-func (session *ServerSession) GetState() map[string]*agentv1.Answer {
+func (session *ServerSession) GetState() map[string]*agentv0.Answer {
 	return session.states
 }
 
 func NewServerSession(generator QuestionGenerator) *ServerSession {
 	return &ServerSession{
 		generator: generator,
-		states:    make(map[string]*agentv1.Answer),
+		states:    make(map[string]*agentv0.Answer),
 	}
 }
 
@@ -139,7 +139,7 @@ func (session *ServerSession) Ready() bool {
 	return false
 }
 
-func (session *ServerSession) Process(ctx context.Context, eng *agentv1.Engage) (*agentv1.InformationRequest, error) {
+func (session *ServerSession) Process(ctx context.Context, eng *agentv0.Engage) (*agentv0.InformationRequest, error) {
 	if eng.Answer != nil {
 		if _, ok := session.states[eng.Stage]; ok {
 			return nil, fmt.Errorf("cannot process stage %s twice", eng.Stage)

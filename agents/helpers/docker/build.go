@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/wool"
-
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 )
@@ -24,10 +24,9 @@ type Env struct {
 }
 
 type BuilderConfiguration struct {
-	Root       string
-	Image      string
-	Dockerfile string
-	Tag        string
+	Root        string
+	Dockerfile  string
+	Destination *configurations.DockerImage
 }
 
 type Builder struct {
@@ -54,16 +53,12 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	buildContext := buildContextBuffer.Bytes()
 
 	// Build the Docker image
-	tag := "latest"
-	if builder.Tag != "" {
-		tag = builder.Tag
-	}
 	imageBuildResponse, err := cli.ImageBuild(
 		ctx,
 		bytes.NewReader(buildContext),
 		types.ImageBuildOptions{
 			Dockerfile: builder.Dockerfile,
-			Tags:       []string{fmt.Sprintf("%s:%s", builder.Image, tag)},
+			Tags:       []string{builder.Destination.FullName()},
 			Remove:     true,
 		},
 	)

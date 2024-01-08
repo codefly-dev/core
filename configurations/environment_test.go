@@ -10,7 +10,7 @@ import (
 	actionenviroment "github.com/codefly-dev/core/actions/environment"
 	actionproject "github.com/codefly-dev/core/actions/project"
 	"github.com/codefly-dev/core/configurations"
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 )
@@ -30,14 +30,14 @@ func TestEnvironment(t *testing.T) {
 
 	var action actions.Action
 
-	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
+	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
 		Name: "test-project",
 	})
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
 	project := shared.Must(actions.As[configurations.Project](out))
 
-	action, err = actionenviroment.NewActionAddEnvironment(ctx, &actionsv1.AddEnvironment{
+	action, err = actionenviroment.NewActionAddEnvironment(ctx, &actionsv0.AddEnvironment{
 		Name:    "test-environment",
 		Project: "test-project",
 	})

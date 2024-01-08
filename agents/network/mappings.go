@@ -3,23 +3,23 @@ package network
 import (
 	"strings"
 
-	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
+	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 )
 
-func LocalizeMappings(nm []*runtimev1.NetworkMapping, local string) []*runtimev1.NetworkMapping {
-	var localized []*runtimev1.NetworkMapping
+func LocalizeMappings(nm []*runtimev0.NetworkMapping, local string) []*runtimev0.NetworkMapping {
+	var localized []*runtimev0.NetworkMapping
 	for _, mapping := range nm {
 		localized = append(localized, LocalizeMapping(mapping, local))
 	}
 	return localized
 }
 
-func LocalizeMapping(mapping *runtimev1.NetworkMapping, local string) *runtimev1.NetworkMapping {
+func LocalizeMapping(mapping *runtimev0.NetworkMapping, local string) *runtimev0.NetworkMapping {
 	var addresses []string
 	for _, addr := range mapping.Addresses {
 		addresses = append(addresses, strings.Replace(addr, "localhost", local, 1))
 	}
-	return &runtimev1.NetworkMapping{
+	return &runtimev0.NetworkMapping{
 		Application: mapping.Application,
 		Service:     mapping.Service,
 		Endpoint:    mapping.Endpoint,

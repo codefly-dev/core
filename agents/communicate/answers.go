@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
+	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 )
 
 func (session *ServerSession) Confirm(stage string) (bool, error) {
@@ -15,7 +15,7 @@ func (session *ServerSession) Confirm(stage string) (bool, error) {
 	return answer.GetConfirm().Confirmed, nil
 }
 
-func (session *ServerSession) Selection(stage string) (*agentv1.SelectionAnswer, error) {
+func (session *ServerSession) Selection(stage string) (*agentv0.SelectionAnswer, error) {
 	answer := session.states[stage]
 	if answer == nil {
 		return nil, fmt.Errorf("cannot find stage %s", stage)
@@ -23,7 +23,7 @@ func (session *ServerSession) Selection(stage string) (*agentv1.SelectionAnswer,
 	return answer.GetSelection(), nil
 }
 
-func (session *ServerSession) Input(stage string) (*agentv1.InputAnswer, error) {
+func (session *ServerSession) Input(stage string) (*agentv0.InputAnswer, error) {
 	answer := session.states[stage]
 	if answer == nil {
 		return nil, fmt.Errorf("cannot find stage %s", stage)
@@ -40,13 +40,13 @@ func (session *ServerSession) GetInputString(stage string) (string, error) {
 
 }
 
-func StateAsString(s *agentv1.Answer) string {
+func StateAsString(s *agentv0.Answer) string {
 	switch s.Value.(type) {
-	case *agentv1.Answer_Confirm:
+	case *agentv0.Answer_Confirm:
 		return s.GetConfirm().String()
-	case *agentv1.Answer_Selection:
+	case *agentv0.Answer_Selection:
 		return s.GetSelection().String()
-	case *agentv1.Answer_Input:
+	case *agentv0.Answer_Input:
 		return s.GetInput().String()
 	default:
 		return ""

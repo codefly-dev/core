@@ -40,6 +40,15 @@ type DockerPort struct {
 	Container string
 }
 
+func DockerRunning(ctx context.Context) bool {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return false
+	}
+	_, err = cli.Ping(ctx)
+	return err == nil
+}
+
 // NewDocker creates a new docker runner
 func NewDocker(ctx context.Context, opts ...DockerOption) (*Docker, error) {
 	option := DockerRunOption{}

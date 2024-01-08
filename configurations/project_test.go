@@ -9,7 +9,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	actionproject "github.com/codefly-dev/core/actions/project"
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/configurations"
@@ -26,7 +26,7 @@ func TestBadInputs(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
+			_, err := actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
 				Name: tc.project,
 			})
 			assert.Error(t, err)
@@ -54,7 +54,7 @@ func TestCreation(t *testing.T) {
 	assert.Equal(t, dir, w.Dir())
 
 	projectName := "test-project"
-	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
+	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
 		Name:      projectName,
 		Path:      projectDir,
 		Workspace: w.Name,
@@ -75,7 +75,7 @@ func TestCreation(t *testing.T) {
 	assert.Equal(t, path.Join(projectDir, projectName), project.Dir())
 
 	// Creating again should return an error
-	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
+	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
 		Name: projectName,
 	})
 	assert.NoError(t, err)
@@ -130,7 +130,7 @@ func TestCreation(t *testing.T) {
 	assert.Equal(t, 1, len(all))
 
 	// Add another project
-	action, err = actionproject.NewActionAddProject(ctx, &actionsv1.AddProject{
+	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
 		Name: "test-project-2",
 	})
 	assert.NoError(t, err)

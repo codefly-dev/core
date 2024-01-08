@@ -1,6 +1,6 @@
 package runners
 
-import observabilityv1 "github.com/codefly-dev/core/generated/go/observability/v1"
+import observabilityv0 "github.com/codefly-dev/core/generated/go/observability/v0"
 
 // Event represents data of a **running** service
 // Generic so most fields will be nil
@@ -12,8 +12,8 @@ type Event struct {
 	ProcessState
 
 	// CPU
-	*observabilityv1.CPU
+	*observabilityv0.CPU
 
 	// Memory
-	*observabilityv1.Memory
+	*observabilityv0.Memory
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/codefly-dev/core/configurations/standards"
 
 	"github.com/codefly-dev/core/configurations"
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
 type Strategy interface {
@@ -20,7 +20,7 @@ type ApplicationEndpoint struct {
 	Service     string
 	Application string
 	Namespace   string
-	Endpoint    *basev1.Endpoint
+	Endpoint    *basev0.Endpoint
 	PortBinding string // something like 8080/tcp
 }
 
@@ -65,14 +65,14 @@ func (pm *ApplicationEndpointInstances) First() *ApplicationEndpointInstance {
 	return pm.ApplicationEndpointInstances[0]
 }
 
-func ToEndpoint(endpoint *basev1.Endpoint) *configurations.Endpoint {
+func ToEndpoint(endpoint *basev0.Endpoint) *configurations.Endpoint {
 	var api string
 	switch endpoint.Api.Value.(type) {
-	case *basev1.API_Grpc:
+	case *basev0.API_Grpc:
 		api = standards.GRPC
-	case *basev1.API_Rest:
+	case *basev0.API_Rest:
 		api = standards.REST
-	case *basev1.API_Tcp:
+	case *basev0.API_Tcp:
 		api = standards.TCP
 	}
 	return &configurations.Endpoint{
@@ -82,7 +82,7 @@ func ToEndpoint(endpoint *basev1.Endpoint) *configurations.Endpoint {
 	}
 }
 
-func ToUnique(endpoint *basev1.Endpoint) string {
+func ToUnique(endpoint *basev0.Endpoint) string {
 	return ToEndpoint(endpoint).Unique()
 }
 
@@ -91,7 +91,7 @@ type Address struct {
 	Port int
 }
 
-func (pm *ApplicationEndpointInstances) Address(endpoint *basev1.Endpoint) *Address {
+func (pm *ApplicationEndpointInstances) Address(endpoint *basev0.Endpoint) *Address {
 	// Returns the first one
 	for _, e := range pm.ApplicationEndpointInstances {
 		if ToUnique(e.ApplicationEndpoint.Endpoint) == ToUnique(endpoint) {

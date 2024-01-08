@@ -140,6 +140,19 @@ func CheckEmptyDirectoryOrCreate(ctx context.Context, dir string) (bool, error) 
 	return true, nil
 }
 
+func DeleteFile(ctx context.Context, file string) error {
+	// Do nothing if not present
+	if !FileExists(file) {
+		return nil
+	}
+	w := wool.Get(ctx).In("shared.DeleteFile", wool.FileField(file))
+	err := os.Remove(file)
+	if err != nil {
+		return w.Wrapf(err, "cannot delete file")
+	}
+	return nil
+}
+
 // CheckDirectoryOrCreate checks if a directory exists or create it if it doesn't
 // bool: created
 // err: only for unexpected behavior

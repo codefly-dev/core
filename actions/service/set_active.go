@@ -8,12 +8,12 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 )
 
 const SetServiceActiveKind = "service.activate"
 
-type SetServiceActive = actionsv1.SetServiceActive
+type SetServiceActive = actionsv0.SetServiceActive
 type SetServiceActiveAction struct {
 	*SetServiceActive
 }

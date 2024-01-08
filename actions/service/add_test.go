@@ -8,7 +8,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/service"
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -30,7 +30,7 @@ func TestServiceAddFromJson(t *testing.T) {
 
 func TestServiceAddFromCode(t *testing.T) {
 	ctx := context.Background()
-	action, err := service.NewActionAddService(ctx, &actionsv1.AddService{
+	action, err := service.NewActionAddService(ctx, &actionsv0.AddService{
 		Name:        "My Service",
 		Description: "My Service Description",
 	})

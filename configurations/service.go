@@ -7,8 +7,8 @@ import (
 
 	"github.com/codefly-dev/core/configurations/standards"
 
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	"github.com/codefly-dev/core/wool"
 	"go.opentelemetry.io/otel/sdk/resource"
 
@@ -22,7 +22,7 @@ const ServiceConfigurationName = "service.codefly.yaml"
 const ServiceAgent = AgentKind("codefly:service")
 
 func init() {
-	RegisterAgent(ServiceAgent, basev1.Agent_SERVICE)
+	RegisterAgent(ServiceAgent, basev0.Agent_SERVICE)
 }
 
 const RuntimeServiceAgent = "codefly:service:runtime"
@@ -50,8 +50,8 @@ type Service struct {
 	dir string
 }
 
-func (s *Service) Proto() *basev1.Service {
-	return &basev1.Service{
+func (s *Service) Proto() *basev0.Service {
+	return &basev0.Service{
 		Name:        s.Name,
 		Description: s.Description,
 		Application: s.Application,
@@ -86,6 +86,18 @@ type ServiceWithApplication struct {
 	Application string
 }
 
+func ParseService(input string) (*ServiceWithApplication, error) {
+	parts := strings.Split(input, "/")
+	switch len(parts) {
+	case 1:
+		return &ServiceWithApplication{Name: parts[0]}, nil
+	case 2:
+		return &ServiceWithApplication{Name: parts[1], Application: parts[0]}, nil
+	default:
+		return nil, fmt.Errorf("invalid service input: %s", input)
+	}
+}
+
 func (s ServiceWithApplication) Unique() string {
 	return fmt.Sprintf("%s/%s", s.Application, s.Name)
 }
@@ -102,7 +114,7 @@ func ParseServiceUnique(unique string) (*ServiceWithApplication, error) {
 }
 
 // NewService creates a service in an application
-func (app *Application) NewService(ctx context.Context, action *actionsv1.AddService) (*Service, error) {
+func (app *Application) NewService(ctx context.Context, action *actionsv0.AddService) (*Service, error) {
 	w := wool.Get(ctx).In("app.NewService", wool.NameField(action.Name))
 	if app.ExistsService(action.Name) && !action.Override {
 		return nil, w.NewError("service already exists")
@@ -211,7 +223,7 @@ func (s *ServiceIdentity) AsResource() *wool.Resource {
 		Resource: r}
 }
 
-func ServiceIdentityFromProto(proto *basev1.ServiceIdentity) *ServiceIdentity {
+func ServiceIdentityFromProto(proto *basev0.ServiceIdentity) *ServiceIdentity {
 	return &ServiceIdentity{
 		Name:        proto.Name,
 		Application: proto.Application,

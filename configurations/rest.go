@@ -9,7 +9,7 @@ import (
 
 	"github.com/codefly-dev/core/wool"
 
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 
 	"github.com/codefly-dev/core/shared"
 	"gopkg.in/yaml.v3"
@@ -34,7 +34,7 @@ type RestRoute struct {
 	Service     string `yaml:"-"`
 }
 
-func RouteUnique(endpoint *basev1.Endpoint, route *basev1.RestRoute) string {
+func RouteUnique(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
 	return MakeRouteUnique(endpoint.Application, endpoint.Service, route.Path)
 }
 
@@ -329,11 +329,11 @@ func LoadExtendedRestRoute[T any](p string, app string, service string) (*Extend
 
 const RestRoutePrefix = "CODEFLY_RESTROUTE__"
 
-func RestRoutesAsEnvironmentVariable(endpoint *basev1.Endpoint, route *basev1.RestRoute) string {
+func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
 	return fmt.Sprintf("%s=%s", RestRouteEnvironmentVariableKey(endpoint, route), serializeMethods(route.Methods))
 }
 
-func serializeMethods(methods []basev1.HTTPMethod) string {
+func serializeMethods(methods []basev0.HTTPMethod) string {
 	var ss []string
 	for _, m := range methods {
 		ss = append(ss, m.String())
@@ -342,7 +342,7 @@ func serializeMethods(methods []basev1.HTTPMethod) string {
 
 }
 
-func RestRouteEnvironmentVariableKey(endpoint *basev1.Endpoint, route *basev1.RestRoute) string {
+func RestRouteEnvironmentVariableKey(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
 	unique := FromProtoEndpoint(endpoint).Unique()
 	unique = strings.ToUpper(unique)
 	unique = strings.Replace(unique, "/", "__", 1)
@@ -362,7 +362,7 @@ func ContainsRoute(routes []*RestRoute, r *RestRoute) bool {
 	return false
 }
 
-func ConvertRoutes(routes []*basev1.RestRoute, app string, service string) []*RestRoute {
+func ConvertRoutes(routes []*basev0.RestRoute, app string, service string) []*RestRoute {
 	var rs []*RestRoute
 	for _, r := range routes {
 		rs = append(rs, &RestRoute{
@@ -375,7 +375,7 @@ func ConvertRoutes(routes []*basev1.RestRoute, app string, service string) []*Re
 	return rs
 }
 
-func ConvertMethods(methods []basev1.HTTPMethod) []HTTPMethod {
+func ConvertMethods(methods []basev0.HTTPMethod) []HTTPMethod {
 	var ms []HTTPMethod
 	for _, m := range methods {
 		ms = append(ms, ConvertMethod(m))
@@ -383,21 +383,21 @@ func ConvertMethods(methods []basev1.HTTPMethod) []HTTPMethod {
 	return ms
 }
 
-func ConvertMethod(m basev1.HTTPMethod) HTTPMethod {
+func ConvertMethod(m basev0.HTTPMethod) HTTPMethod {
 	switch m {
-	case basev1.HTTPMethod_GET:
+	case basev0.HTTPMethod_GET:
 		return HTTPMethodGet
-	case basev1.HTTPMethod_POST:
+	case basev0.HTTPMethod_POST:
 		return HTTPMethodPost
-	case basev1.HTTPMethod_PUT:
+	case basev0.HTTPMethod_PUT:
 		return HTTPMethodPut
-	case basev1.HTTPMethod_DELETE:
+	case basev0.HTTPMethod_DELETE:
 		return HTTPMethodDelete
-	case basev1.HTTPMethod_PATCH:
+	case basev0.HTTPMethod_PATCH:
 		return HTTPMethodPatch
-	case basev1.HTTPMethod_OPTIONS:
+	case basev0.HTTPMethod_OPTIONS:
 		return HTTPMethodOptions
-	case basev1.HTTPMethod_HEAD:
+	case basev0.HTTPMethod_HEAD:
 		return HTTPMethodHead
 	}
 	panic(fmt.Sprintf("unknown HTTP method: <%v>", m))

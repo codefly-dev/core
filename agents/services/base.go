@@ -17,10 +17,10 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
-	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
-	factoryv1 "github.com/codefly-dev/core/generated/go/services/factory/v1"
-	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
+	factoryv0 "github.com/codefly-dev/core/generated/go/services/factory/v0"
+	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )
@@ -61,10 +61,10 @@ type Base struct {
 	Information *Information
 
 	// Endpoints
-	Endpoints           []*basev1.Endpoint
-	DependencyEndpoints []*basev1.Endpoint
+	Endpoints           []*basev0.Endpoint
+	DependencyEndpoints []*basev0.Endpoint
 
-	NetworkMappings []*runtimev1.NetworkMapping
+	NetworkMappings []*runtimev0.NetworkMapping
 
 	// Wrappers
 	Runtime *RuntimeWrapper
@@ -95,7 +95,7 @@ func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 	return base
 }
 
-func (s *Base) Load(ctx context.Context, identity *basev1.ServiceIdentity, settings any) error {
+func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, settings any) error {
 	s.Identity = configurations.ServiceIdentityFromProto(identity)
 	s.Location = identity.Location
 
@@ -138,37 +138,37 @@ func (s *Base) DockerImage() *configurations.DockerImage {
 	}
 }
 
-func (s *FactoryWrapper) LoadResponse(es []*basev1.Endpoint, gettingStarted string) (*factoryv1.LoadResponse, error) {
+func (s *FactoryWrapper) LoadResponse(es []*basev0.Endpoint, gettingStarted string) (*factoryv0.LoadResponse, error) {
 	for _, e := range es {
 		e.Application = s.Identity.Application
 		e.Service = s.Identity.Name
 		e.Namespace = s.Identity.Namespace
 	}
-	return &factoryv1.LoadResponse{
+	return &factoryv0.LoadResponse{
 		Version:        s.Version(),
 		Endpoints:      es,
 		GettingStarted: gettingStarted,
-		Status:         &factoryv1.LoadStatus{State: factoryv1.LoadStatus_READY},
+		Status:         &factoryv0.LoadStatus{State: factoryv0.LoadStatus_READY},
 	}, nil
 }
 
-func (s *FactoryWrapper) LoadError(err error) (*factoryv1.LoadResponse, error) {
-	return &factoryv1.LoadResponse{
-		Status: &factoryv1.LoadStatus{State: factoryv1.LoadStatus_ERROR, Message: err.Error()},
+func (s *FactoryWrapper) LoadError(err error) (*factoryv0.LoadResponse, error) {
+	return &factoryv0.LoadResponse{
+		Status: &factoryv0.LoadStatus{State: factoryv0.LoadStatus_ERROR, Message: err.Error()},
 	}, err
 }
 
-func (s *FactoryWrapper) InitResponse() (*factoryv1.InitResponse, error) {
-	return &factoryv1.InitResponse{}, nil
+func (s *FactoryWrapper) InitResponse() (*factoryv0.InitResponse, error) {
+	return &factoryv0.InitResponse{}, nil
 }
 
-func (s *FactoryWrapper) InitError(err error) (*factoryv1.InitResponse, error) {
-	return &factoryv1.InitResponse{
-		Status: &factoryv1.InitStatus{Status: factoryv1.InitStatus_ERROR, Message: err.Error()},
+func (s *FactoryWrapper) InitError(err error) (*factoryv0.InitResponse, error) {
+	return &factoryv0.InitResponse{
+		Status: &factoryv0.InitStatus{Status: factoryv0.InitStatus_ERROR, Message: err.Error()},
 	}, nil
 }
 
-func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, endpoints ...*basev1.Endpoint) (*factoryv1.CreateResponse, error) {
+func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, endpoints ...*basev0.Endpoint) (*factoryv0.CreateResponse, error) {
 	err := s.Configuration.UpdateSpecFromSettings(settings)
 	if err != nil {
 		return s.CreateError(err)
@@ -182,76 +182,82 @@ func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, endpo
 	if err != nil {
 		return nil, s.Wool.Wrapf(err, "base: cannot save configuration")
 	}
-	return &factoryv1.CreateResponse{
+	return &factoryv0.CreateResponse{
 		Endpoints: endpoints,
 	}, nil
 }
 
-func (s *FactoryWrapper) CreateError(err error) (*factoryv1.CreateResponse, error) {
-	return &factoryv1.CreateResponse{
-		Status: &factoryv1.CreateStatus{Status: factoryv1.CreateStatus_ERROR, Message: err.Error()},
+func (s *FactoryWrapper) CreateError(err error) (*factoryv0.CreateResponse, error) {
+	return &factoryv0.CreateResponse{
+		Status: &factoryv0.CreateStatus{Status: factoryv0.CreateStatus_ERROR, Message: err.Error()},
 	}, err
 }
 
-func (s *FactoryWrapper) SyncError(err error) (*factoryv1.SyncResponse, error) {
-	return &factoryv1.SyncResponse{
-		Status: &factoryv1.SyncStatus{Status: factoryv1.SyncStatus_ERROR, Message: err.Error()}}, err
+func (s *FactoryWrapper) SyncError(err error) (*factoryv0.SyncResponse, error) {
+	return &factoryv0.SyncResponse{
+		Status: &factoryv0.SyncStatus{Status: factoryv0.SyncStatus_ERROR, Message: err.Error()}}, err
+}
+
+func (s *FactoryWrapper) BuildError(err error) (*factoryv0.BuildResponse, error) {
+	return nil, err
+	//return &factoryv0.BuildResponse{
+	//	Status: &factoryv0.BuildStatus{Status: factoryv0.BuildStatus_ERROR, Message: err.Error()}}, err
 }
 
 // Runtime
 
-func (s *RuntimeWrapper) LoadResponse(endpoints []*basev1.Endpoint) (*runtimev1.LoadResponse, error) {
+func (s *RuntimeWrapper) LoadResponse(endpoints []*basev0.Endpoint) (*runtimev0.LoadResponse, error) {
 	// for convenience, add application and service
 	for _, endpoint := range endpoints {
 		endpoint.Application = s.Configuration.Application
 		endpoint.Service = s.Configuration.Name
 	}
 	s.Wool.Debug("load response", wool.NullableField("exposing endpoints", configurations.MakeEndpointSummary(endpoints)))
-	return &runtimev1.LoadResponse{
+	return &runtimev0.LoadResponse{
 		Version:   s.Version(),
 		Endpoints: endpoints,
-		Status:    &runtimev1.LoadStatus{State: runtimev1.LoadStatus_READY},
+		Status:    &runtimev0.LoadStatus{State: runtimev0.LoadStatus_READY},
 	}, nil
 }
 
-func (s *RuntimeWrapper) LoadError(err error) (*runtimev1.LoadResponse, error) {
-	return &runtimev1.LoadResponse{
-		Status: &runtimev1.LoadStatus{State: runtimev1.LoadStatus_ERROR, Message: err.Error()},
+func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
+	return &runtimev0.LoadResponse{
+		Status: &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: err.Error()},
 	}, err
 }
 
-func (s *RuntimeWrapper) InitResponse() (*runtimev1.InitResponse, error) {
+func (s *RuntimeWrapper) InitResponse() (*runtimev0.InitResponse, error) {
 	s.Wool.Debug("init response", wool.NullableField("exposing network mappings", network.MakeNetworkMappingSummary(s.NetworkMappings)))
-	return &runtimev1.InitResponse{
-		Status:          &runtimev1.InitStatus{State: runtimev1.InitStatus_READY},
+	return &runtimev0.InitResponse{
+		Status:          &runtimev0.InitStatus{State: runtimev0.InitStatus_READY},
 		NetworkMappings: s.NetworkMappings,
 	}, nil
 }
 
-func (s *RuntimeWrapper) InitError(err error, fields ...*wool.LogField) (*runtimev1.InitResponse, error) {
+func (s *RuntimeWrapper) InitError(err error, fields ...*wool.LogField) (*runtimev0.InitResponse, error) {
 	message := wool.Log{Message: err.Error(), Fields: fields}
 	s.Wool.Error(err.Error(), fields...)
-	return &runtimev1.InitResponse{
-		Status: &runtimev1.InitStatus{State: runtimev1.InitStatus_ERROR, Message: message.String()},
+	return &runtimev0.InitResponse{
+		Status: &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: message.String()},
 	}, err
 }
 
-func (s *RuntimeWrapper) StartResponse() (*runtimev1.StartResponse, error) {
-	return &runtimev1.StartResponse{
-		Status: &runtimev1.StartStatus{State: runtimev1.StartStatus_STARTED},
+func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
+	return &runtimev0.StartResponse{
+		Status: &runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED},
 	}, nil
 }
 
-func (s *RuntimeWrapper) StartError(err error, fields ...*wool.LogField) (*runtimev1.StartResponse, error) {
+func (s *RuntimeWrapper) StartError(err error, fields ...*wool.LogField) (*runtimev0.StartResponse, error) {
 	message := wool.Log{Message: err.Error(), Fields: fields}
 	s.Wool.Error(err.Error(), fields...)
-	return &runtimev1.StartResponse{
-		Status: &runtimev1.StartStatus{State: runtimev1.StartStatus_ERROR, Message: message.String()},
+	return &runtimev0.StartResponse{
+		Status: &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: message.String()},
 	}, err
 }
 
-func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
-	resp := &runtimev1.InformationResponse{
+func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
+	resp := &runtimev0.InformationResponse{
 		Status:       s.State,
 		DesiredState: s.DesiredState,
 	}
@@ -263,8 +269,8 @@ func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev1.Inf
 }
 
 // EndpointsFromConfiguration from Configuration and data from the service
-func (s *Base) EndpointsFromConfiguration(ctx context.Context) ([]*basev1.Endpoint, error) {
-	var eps []*basev1.Endpoint
+func (s *Base) EndpointsFromConfiguration(ctx context.Context) ([]*basev0.Endpoint, error) {
+	var eps []*basev0.Endpoint
 	for _, e := range s.Configuration.Endpoints {
 		if e.API == standards.GRPC {
 			endpoint, err := configurations.NewGrpcAPI(ctx, e, s.Local("api.proto"))
@@ -345,8 +351,8 @@ func (s *Base) Focus(msg string, fields ...*wool.LogField) {
 	s.Wool.Focus(msg, fields...)
 }
 
-func (s *Base) Version() *basev1.Version {
-	return &basev1.Version{Version: s.Configuration.Version}
+func (s *Base) Version() *basev0.Version {
+	return &basev0.Version{Version: s.Configuration.Version}
 }
 
 func (s *Base) Ready() {
@@ -365,7 +371,7 @@ func (s *Base) Stop() error {
 	return nil
 }
 
-func (s *Base) Communicate(ctx context.Context, eng *agentv1.Engage) (*agentv1.InformationRequest, error) {
+func (s *Base) Communicate(ctx context.Context, eng *agentv0.Engage) (*agentv0.InformationRequest, error) {
 	s.Wool.Trace("base communicate: sending to server", wool.Field("eng", eng))
 	return s.Communication.Communicate(ctx, eng)
 }

@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 	wool "github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/shared"
@@ -34,7 +34,7 @@ func (workspace *Workspace) Unique() string {
 }
 
 // NewWorkspace creates a new workspace
-func NewWorkspace(ctx context.Context, action *actionsv1.AddWorkspace) (*Workspace, error) {
+func NewWorkspace(ctx context.Context, action *actionsv0.AddWorkspace) (*Workspace, error) {
 	w := wool.Get(ctx).In("NewWorkspace", wool.NameField(action.Name))
 	org, err := OrganizationFromProto(ctx, action.Organization)
 	if err != nil {
@@ -199,13 +199,14 @@ Workspaces have a active project, so we don't always have to specify it
 */
 
 // SetProjectActive sets the active project
-func (workspace *Workspace) SetProjectActive(ctx context.Context, input *actionsv1.SetProjectActive) error {
+func (workspace *Workspace) SetProjectActive(ctx context.Context, input *actionsv0.SetProjectActive) error {
 	if len(workspace.Projects) == 1 {
 		workspace.activeProject = workspace.Projects[0].Name
 		return nil
 	}
 	for _, ref := range workspace.Projects {
 		if ref.Name == input.Name {
+			workspace.activeProject = input.Name
 			ref.MarkAsActive()
 		} else {
 			ref.MarkAsInactive()

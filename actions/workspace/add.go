@@ -6,7 +6,7 @@ import (
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/actions/actions"
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 
 	"github.com/codefly-dev/core/configurations"
 )
@@ -14,14 +14,14 @@ import (
 const AddWorkspace = "workspace.add"
 
 type AddWorkspaceAction struct {
-	*actionsv1.AddWorkspace
+	*actionsv0.AddWorkspace
 }
 
 func (action *AddWorkspaceAction) Command() string {
 	return "TODO"
 }
 
-func NewActionAddWorkspace(ctx context.Context, in *actionsv1.AddWorkspace) (*AddWorkspaceAction, error) {
+func NewActionAddWorkspace(ctx context.Context, in *actionsv0.AddWorkspace) (*AddWorkspaceAction, error) {
 	w := wool.Get(ctx).In("workspace.NewActionAddWorkspace")
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, w.Wrap(err)

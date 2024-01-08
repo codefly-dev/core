@@ -10,12 +10,12 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 )
 
 const AddApplicationKind = "application.add"
 
-type AddApplication = actionsv1.AddApplication
+type AddApplication = actionsv0.AddApplication
 type AddApplicationAction struct {
 	*AddApplication
 }

@@ -6,14 +6,14 @@ import (
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/actions/actions"
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 
 	"github.com/codefly-dev/core/configurations"
 )
 
 const SetProjectActiveKind = "project.set_as_active"
 
-type SetProjectActive = actionsv1.SetProjectActive
+type SetProjectActive = actionsv0.SetProjectActive
 type SetProjectActiveAction struct {
 	*SetProjectActive
 }
@@ -45,11 +45,6 @@ func (action *SetProjectActiveAction) Run(ctx context.Context) (any, error) {
 	err = workspace.SetProjectActive(ctx, action.SetProjectActive)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot set project active")
-	}
-
-	err = workspace.Save(ctx)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot save workspace")
 	}
 
 	workspace, err = configurations.ReloadWorkspace(ctx, workspace)

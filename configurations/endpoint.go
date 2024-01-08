@@ -7,7 +7,7 @@ import (
 
 	"github.com/codefly-dev/core/configurations/standards"
 
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -69,7 +69,7 @@ func AsEndpointEnvironmentVariable(endpoint *Endpoint, addresses []string) strin
 	return fmt.Sprintf("%s=%s", EndpointEnvironmentVariableKey(endpoint), SerializeAddresses(addresses))
 }
 
-func AsRestRouteEnvironmentVariable(endpoint *basev1.Endpoint) []string {
+func AsRestRouteEnvironmentVariable(endpoint *basev0.Endpoint) []string {
 	var envs []string
 	if rest := HasRest(context.Background(), endpoint.Api); rest != nil {
 		for _, route := range rest.Routes {
@@ -139,44 +139,44 @@ func (err *NilAPIError) Error() string {
 }
 
 type UnknownAPIError struct {
-	api *basev1.API
+	api *basev0.API
 }
 
 func (err *UnknownAPIError) Error() string {
 	return fmt.Sprintf("unknow api: <%v>", err.api)
 }
 
-func WhichAPIFromEndpoint(endpoint *basev1.Endpoint) (string, error) {
+func WhichAPIFromEndpoint(endpoint *basev0.Endpoint) (string, error) {
 	if endpoint.Api == nil {
 		return "", &NilAPIError{name: endpoint.Name}
 	}
 	return WhichAPI(endpoint.Api)
 }
 
-func WhichAPI(api *basev1.API) (string, error) {
+func WhichAPI(api *basev0.API) (string, error) {
 	switch api.Value.(type) {
-	case *basev1.API_Grpc:
+	case *basev0.API_Grpc:
 		return standards.GRPC, nil
-	case *basev1.API_Rest:
+	case *basev0.API_Rest:
 		return standards.REST, nil
-	case *basev1.API_Http:
+	case *basev0.API_Http:
 		return standards.HTTP, nil
-	case *basev1.API_Tcp:
+	case *basev0.API_Tcp:
 		return standards.TCP, nil
 	default:
 		return "", &UnknownAPIError{api}
 	}
 }
 
-func StandardPort(api *basev1.API) (int, error) {
+func StandardPort(api *basev0.API) (int, error) {
 	switch api.Value.(type) {
-	case *basev1.API_Grpc:
+	case *basev0.API_Grpc:
 		return 9090, nil
-	case *basev1.API_Rest:
+	case *basev0.API_Rest:
 		return 8080, nil
-	case *basev1.API_Http:
+	case *basev0.API_Http:
 		return 8080, nil
-	case *basev1.API_Tcp:
+	case *basev0.API_Tcp:
 		return 7070, nil
 	default:
 		return 0, &UnknownAPIError{api}
@@ -189,8 +189,8 @@ func (n NilEndpointError) Error() string {
 	return "endpoint is nil"
 }
 
-func EndpointBaseProto(e *Endpoint) *basev1.Endpoint {
-	return &basev1.Endpoint{
+func EndpointBaseProto(e *Endpoint) *basev0.Endpoint {
+	return &basev0.Endpoint{
 		Name:        e.Name,
 		Application: e.Application,
 		Service:     e.Service,
@@ -199,7 +199,7 @@ func EndpointBaseProto(e *Endpoint) *basev1.Endpoint {
 	}
 }
 
-func FromProtoEndpoint(e *basev1.Endpoint) *Endpoint {
+func FromProtoEndpoint(e *basev0.Endpoint) *Endpoint {
 	return &Endpoint{
 		Name:        e.Name,
 		Application: e.Application,
@@ -210,7 +210,7 @@ func FromProtoEndpoint(e *basev1.Endpoint) *Endpoint {
 	}
 }
 
-func FromProtoEndpoints(es ...*basev1.Endpoint) ([]*Endpoint, error) {
+func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
 	var endpoints []*Endpoint
 	for _, e := range es {
 		endpoints = append(endpoints, FromProtoEndpoint(e))
@@ -218,55 +218,55 @@ func FromProtoEndpoints(es ...*basev1.Endpoint) ([]*Endpoint, error) {
 	return endpoints, nil
 }
 
-func EndpointDestination(e *basev1.Endpoint) string {
+func EndpointDestination(e *basev0.Endpoint) string {
 	return fmt.Sprintf("%s/%s/%s[%s]", e.Application, e.Service, e.Name, FromProtoAPI(e.Api))
 }
 
-func FromProtoAPI(api *basev1.API) string {
+func FromProtoAPI(api *basev0.API) string {
 	if api == nil {
 		return Unknown
 	}
 	switch api.Value.(type) {
-	case *basev1.API_Grpc:
+	case *basev0.API_Grpc:
 		return standards.GRPC
-	case *basev1.API_Rest:
+	case *basev0.API_Rest:
 		return standards.REST
-	case *basev1.API_Http:
+	case *basev0.API_Http:
 		return standards.HTTP
-	case *basev1.API_Tcp:
+	case *basev0.API_Tcp:
 		return standards.TCP
 	default:
 		return Unknown
 	}
 }
 
-func LightAPI(api *basev1.API) *basev1.API {
+func LightAPI(api *basev0.API) *basev0.API {
 	switch api.Value.(type) {
-	case *basev1.API_Grpc:
-		return &basev1.API{
-			Value: &basev1.API_Grpc{},
+	case *basev0.API_Grpc:
+		return &basev0.API{
+			Value: &basev0.API_Grpc{},
 		}
-	case *basev1.API_Rest:
-		return &basev1.API{
-			Value: &basev1.API_Rest{
-				Rest: &basev1.RestAPI{Routes: api.Value.(*basev1.API_Rest).Rest.Routes},
+	case *basev0.API_Rest:
+		return &basev0.API{
+			Value: &basev0.API_Rest{
+				Rest: &basev0.RestAPI{Routes: api.Value.(*basev0.API_Rest).Rest.Routes},
 			},
 		}
-	case *basev1.API_Http:
-		return &basev1.API{
-			Value: &basev1.API_Http{},
+	case *basev0.API_Http:
+		return &basev0.API{
+			Value: &basev0.API_Http{},
 		}
-	case *basev1.API_Tcp:
-		return &basev1.API{
-			Value: &basev1.API_Tcp{},
+	case *basev0.API_Tcp:
+		return &basev0.API{
+			Value: &basev0.API_Tcp{},
 		}
 	default:
 		return nil
 	}
 }
 
-func Light(e *basev1.Endpoint) *basev1.Endpoint {
-	return &basev1.Endpoint{
+func Light(e *basev0.Endpoint) *basev0.Endpoint {
+	return &basev0.Endpoint{
 		Name:        e.Name,
 		Visibility:  e.Visibility,
 		Description: e.Description,
@@ -274,8 +274,8 @@ func Light(e *basev1.Endpoint) *basev1.Endpoint {
 	}
 }
 
-func FlattenRestRoutes(_ context.Context, endpoints []*basev1.Endpoint) []*basev1.RestRoute {
-	var routes []*basev1.RestRoute
+func FlattenRestRoutes(_ context.Context, endpoints []*basev0.Endpoint) []*basev0.RestRoute {
+	var routes []*basev0.RestRoute
 	for _, ep := range endpoints {
 		if rest := ep.Api.GetRest(); rest != nil {
 			routes = append(routes, rest.Routes...)
@@ -284,7 +284,7 @@ func FlattenRestRoutes(_ context.Context, endpoints []*basev1.Endpoint) []*basev
 	return routes
 }
 
-func DetectNewRoutesFromEndpoints(ctx context.Context, known []*RestRoute, endpoints []*basev1.Endpoint) []*RestRoute {
+func DetectNewRoutesFromEndpoints(ctx context.Context, known []*RestRoute, endpoints []*basev0.Endpoint) []*RestRoute {
 	w := wool.Get(ctx).In("DetectNewRoutes")
 	for _, e := range endpoints {
 		w.Error("do", wool.Field("endpoint", e))
@@ -310,7 +310,7 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, known []*RestRoute, endpo
 	return newRoutes
 }
 
-func FindEndpointForRoute(ctx context.Context, endpoints []*basev1.Endpoint, route *RestRoute) *basev1.Endpoint {
+func FindEndpointForRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *RestRoute) *basev0.Endpoint {
 	for _, e := range endpoints {
 		if e.Application == route.Application && e.Service == route.Service && HasRest(ctx, e.Api) != nil {
 			return e
@@ -319,19 +319,19 @@ func FindEndpointForRoute(ctx context.Context, endpoints []*basev1.Endpoint, rou
 	return nil
 }
 
-func HasRest(_ context.Context, api *basev1.API) *basev1.RestAPI {
+func HasRest(_ context.Context, api *basev0.API) *basev0.RestAPI {
 	if api == nil {
 		return nil
 	}
 	switch v := api.Value.(type) {
-	case *basev1.API_Rest:
+	case *basev0.API_Rest:
 		return v.Rest
 	default:
 		return nil
 	}
 }
 
-func Condensed(es []*basev1.Endpoint) []string {
+func Condensed(es []*basev0.Endpoint) []string {
 	var outs []string
 	for _, e := range es {
 		outs = append(outs, EndpointDestination(e))
@@ -344,7 +344,7 @@ type EndpointSummary struct {
 	Uniques []string
 }
 
-func MakeEndpointSummary(endpoints []*basev1.Endpoint) EndpointSummary {
+func MakeEndpointSummary(endpoints []*basev0.Endpoint) EndpointSummary {
 	sum := EndpointSummary{}
 	sum.Count = len(endpoints)
 	for _, e := range endpoints {

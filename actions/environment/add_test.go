@@ -8,7 +8,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/environment"
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -30,7 +30,7 @@ func TestEnvironmentAddFromJson(t *testing.T) {
 
 func TestEnvironmentAddFromCode(t *testing.T) {
 	ctx := context.Background()
-	action, err := environment.NewActionAddEnvironment(ctx, &actionsv1.AddEnvironment{
+	action, err := environment.NewActionAddEnvironment(ctx, &actionsv0.AddEnvironment{
 		Name:        "My Environment",
 		Description: "My Environment Description",
 	})

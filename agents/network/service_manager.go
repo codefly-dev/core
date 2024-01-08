@@ -4,15 +4,15 @@ import (
 	"context"
 
 	"github.com/codefly-dev/core/configurations"
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
-	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 	"github.com/codefly-dev/core/wool"
 )
 
 // A ServiceManager helps go from a service to applications endpoint instances
 type ServiceManager struct {
 	service   *configurations.ServiceIdentity
-	endpoints []*basev1.Endpoint
+	endpoints []*basev0.Endpoint
 
 	strategy Strategy
 	specs    []ApplicationEndpoint
@@ -23,7 +23,7 @@ type ServiceManager struct {
 	reserved *ApplicationEndpointInstances
 }
 
-func NewServiceManager(identity *configurations.ServiceIdentity, endpoints ...*basev1.Endpoint) *ServiceManager {
+func NewServiceManager(identity *configurations.ServiceIdentity, endpoints ...*basev0.Endpoint) *ServiceManager {
 	return &ServiceManager{
 		service:   identity,
 		endpoints: endpoints,
@@ -32,7 +32,7 @@ func NewServiceManager(identity *configurations.ServiceIdentity, endpoints ...*b
 	}
 }
 
-func (pm *ServiceManager) Bind(ctx context.Context, endpoint *basev1.Endpoint, portBinding string) error {
+func (pm *ServiceManager) Bind(ctx context.Context, endpoint *basev0.Endpoint, portBinding string) error {
 	w := wool.Get(ctx).In("ServiceManager.Bind")
 	if endpoint == nil {
 		return w.NewError("cannot bind nil endpoint")
@@ -52,7 +52,7 @@ func (pm *ServiceManager) Bind(ctx context.Context, endpoint *basev1.Endpoint, p
 	return nil
 }
 
-func (pm *ServiceManager) Expose(endpoint *basev1.Endpoint) error {
+func (pm *ServiceManager) Expose(endpoint *basev0.Endpoint) error {
 	w := wool.Get(context.Background()).In("ServiceManager.Expose")
 	if endpoint == nil {
 		return w.NewError("cannot expose nil endpoint")
@@ -81,10 +81,10 @@ func (pm *ServiceManager) Reserve(ctx context.Context) error {
 }
 
 // NetworkMapping returns the network mapping for the service to be passed back to codefly
-func (pm *ServiceManager) NetworkMapping(context.Context) ([]*runtimev1.NetworkMapping, error) {
-	var nets []*runtimev1.NetworkMapping
+func (pm *ServiceManager) NetworkMapping(context.Context) ([]*runtimev0.NetworkMapping, error) {
+	var nets []*runtimev0.NetworkMapping
 	for _, instance := range pm.reserved.ApplicationEndpointInstances {
-		nets = append(nets, &runtimev1.NetworkMapping{
+		nets = append(nets, &runtimev0.NetworkMapping{
 			Application: instance.ApplicationEndpoint.Application,
 			Service:     instance.ApplicationEndpoint.Service,
 			Endpoint:    instance.ApplicationEndpoint.Endpoint,
@@ -94,7 +94,7 @@ func (pm *ServiceManager) NetworkMapping(context.Context) ([]*runtimev1.NetworkM
 	return nets, nil
 }
 
-func (pm *ServiceManager) ApplicationEndpointInstance(ctx context.Context, endpoint *basev1.Endpoint) (*ApplicationEndpointInstance, error) {
+func (pm *ServiceManager) ApplicationEndpointInstance(ctx context.Context, endpoint *basev0.Endpoint) (*ApplicationEndpointInstance, error) {
 	w := wool.Get(ctx).In("ServiceManager.ApplicationEndpointInstance", wool.Field("endpoint", endpoint.Name))
 	var result *ApplicationEndpointInstance
 	for _, e := range pm.reserved.ApplicationEndpointInstances {
@@ -108,7 +108,7 @@ func (pm *ServiceManager) ApplicationEndpointInstance(ctx context.Context, endpo
 	return result, nil
 }
 
-func (pm *ServiceManager) Port(ctx context.Context, endpoint *basev1.Endpoint) (int, error) {
+func (pm *ServiceManager) Port(ctx context.Context, endpoint *basev0.Endpoint) (int, error) {
 	w := wool.Get(ctx).In("ServiceManager.Port", wool.Field("endpoint", endpoint.Name))
 	instance, err := pm.ApplicationEndpointInstance(ctx, endpoint)
 	if err != nil {

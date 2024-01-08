@@ -11,8 +11,6 @@ import (
 
 	"github.com/codefly-dev/core/wool"
 
-	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
-
 	"github.com/shirou/gopsutil/v3/process"
 )
 
@@ -87,16 +85,6 @@ func (p *TrackedProcess) GetMemory(ctx context.Context) (*Memory, error) {
 		return nil, w.Wrapf(err, "cannot get memory info")
 	}
 	return &Memory{used: (memInfo.RSS) / 1024.0}, nil
-}
-
-func (p *TrackedProcess) Proto() *runtimev1.Tracker {
-	return &runtimev1.Tracker{
-		Tracker: &runtimev1.Tracker_ProcessTracker{
-			ProcessTracker: &runtimev1.ProcessTracker{
-				PID: int32(p.PID),
-			},
-		},
-	}
 }
 
 func parseState(out string) (string, bool) {

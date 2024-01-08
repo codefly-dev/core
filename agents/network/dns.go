@@ -6,12 +6,12 @@ import (
 
 	"github.com/codefly-dev/core/configurations"
 
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
 type DNS struct{}
 
-func ToDNS(e *basev1.Endpoint) string {
+func ToDNS(e *basev0.Endpoint) string {
 	return fmt.Sprintf("%s-%s.%s.svc.cluster.local", e.Service, e.Application, e.Namespace)
 }
 
@@ -31,7 +31,7 @@ func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointIn
 	return m, nil
 }
 
-func NewServiceDNSManager(_ context.Context, identity *configurations.ServiceIdentity, endpoints ...*basev1.Endpoint) (*ServiceManager, error) {
+func NewServiceDNSManager(_ context.Context, identity *configurations.ServiceIdentity, endpoints ...*basev0.Endpoint) (*ServiceManager, error) {
 	return &ServiceManager{
 		service:   identity,
 		endpoints: endpoints,

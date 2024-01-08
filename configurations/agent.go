@@ -13,7 +13,7 @@ import (
 	"path"
 	"strings"
 
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/Masterminds/semver"
@@ -43,24 +43,24 @@ func init() {
 	}
 }
 
-func RegisterAgent(kind AgentKind, protoKind basev1.Agent_Kind) {
+func RegisterAgent(kind AgentKind, protoKind basev0.Agent_Kind) {
 	agentKinds[protoKind] = kind
 	agentInputs[kind] = protoKind
 }
 
-var agentKinds map[basev1.Agent_Kind]AgentKind
-var agentInputs map[AgentKind]basev1.Agent_Kind
+var agentKinds map[basev0.Agent_Kind]AgentKind
+var agentInputs map[AgentKind]basev0.Agent_Kind
 
 func init() {
-	agentKinds = map[basev1.Agent_Kind]AgentKind{}
-	agentInputs = map[AgentKind]basev1.Agent_Kind{}
+	agentKinds = map[basev0.Agent_Kind]AgentKind{}
+	agentInputs = map[AgentKind]basev0.Agent_Kind{}
 }
 
 func (p *Agent) String() string {
 	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Name, p.Version)
 }
 
-func LoadAgent(ctx context.Context, action *basev1.Agent) (*Agent, error) {
+func LoadAgent(ctx context.Context, action *basev0.Agent) (*Agent, error) {
 	w := wool.Get(ctx).In("LoadAgent")
 	if err := ValidateAgent(action); err != nil {
 		return nil, w.Wrapf(err, "invalid agent")
@@ -74,7 +74,7 @@ func LoadAgent(ctx context.Context, action *basev1.Agent) (*Agent, error) {
 	return p, nil
 }
 
-func AgentKindFromProto(kind basev1.Agent_Kind) (*AgentKind, error) {
+func AgentKindFromProto(kind basev0.Agent_Kind) (*AgentKind, error) {
 	s, ok := agentKinds[kind]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent kind: %s", kind)
@@ -82,15 +82,15 @@ func AgentKindFromProto(kind basev1.Agent_Kind) (*AgentKind, error) {
 	return &s, nil
 }
 
-func agentKindFromProto(kind AgentKind) (basev1.Agent_Kind, error) {
+func agentKindFromProto(kind AgentKind) (basev0.Agent_Kind, error) {
 	k, ok := agentInputs[kind]
 	if !ok {
-		return basev1.Agent_UNKNOWN, fmt.Errorf("unknown agent kind: %s", kind)
+		return basev0.Agent_UNKNOWN, fmt.Errorf("unknown agent kind: %s", kind)
 	}
 	return k, nil
 }
 
-func ValidateAgent(agent *basev1.Agent) error {
+func ValidateAgent(agent *basev0.Agent) error {
 	v, err := protovalidate.New()
 	if err != nil {
 		return err
@@ -164,7 +164,7 @@ func ParseAgent(ctx context.Context, k AgentKind, s string) (*Agent, error) {
 	return AgentFromProto(agent), nil
 }
 
-func parseAgent(ctx context.Context, k AgentKind, s string) (*basev1.Agent, error) {
+func parseAgent(ctx context.Context, k AgentKind, s string) (*basev0.Agent, error) {
 	w := wool.Get(ctx).In("parseAgent", wool.Field("kind", k), wool.Field("agent", s))
 	// TODO: More validation
 	if s == "" {
@@ -193,7 +193,7 @@ func parseAgent(ctx context.Context, k AgentKind, s string) (*basev1.Agent, erro
 		return nil, err
 	}
 
-	agent := &basev1.Agent{Kind: kind, Publisher: pub, Name: identifier, Version: version}
+	agent := &basev0.Agent{Kind: kind, Publisher: pub, Name: identifier, Version: version}
 	v, err := protovalidate.New()
 	if err != nil {
 		return nil, err
@@ -204,7 +204,7 @@ func parseAgent(ctx context.Context, k AgentKind, s string) (*basev1.Agent, erro
 	return agent, nil
 }
 
-func AgentFromProto(agent *basev1.Agent) *Agent {
+func AgentFromProto(agent *basev0.Agent) *Agent {
 	return &Agent{
 		Kind:      agentKinds[agent.Kind],
 		Publisher: agent.Publisher,
@@ -213,8 +213,8 @@ func AgentFromProto(agent *basev1.Agent) *Agent {
 	}
 }
 
-func (p *Agent) Proto() *basev1.Agent {
-	return &basev1.Agent{
+func (p *Agent) Proto() *basev0.Agent {
+	return &basev0.Agent{
 		Kind:      agentInputs[p.Kind],
 		Publisher: p.Publisher,
 		Name:      p.Name,

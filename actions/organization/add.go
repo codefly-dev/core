@@ -9,12 +9,12 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/configurations"
 
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 )
 
 const AddOrganizationKind = "organization.add"
 
-type AddOrganization = actionsv1.AddOrganization
+type AddOrganization = actionsv0.AddOrganization
 type AddOrganizationAction struct {
 	*AddOrganization
 }

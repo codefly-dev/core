@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 )
 
 /*
@@ -36,7 +36,7 @@ func (ref *EnvironmentReference) String() string {
 	return ref.Name
 }
 
-func (project *Project) NewEnvironment(_ context.Context, input *actionsv1.AddEnvironment) (*Environment, error) {
+func (project *Project) NewEnvironment(_ context.Context, input *actionsv0.AddEnvironment) (*Environment, error) {
 	for _, env := range project.Environments {
 		if env.Name == input.Name {
 			return nil, &EnvironmentExistsError{name: input.Name}

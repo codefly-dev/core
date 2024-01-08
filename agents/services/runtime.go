@@ -11,8 +11,8 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
-	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
-	runtimev1 "github.com/codefly-dev/core/generated/go/services/runtime/v1"
+	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
+	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )
@@ -32,55 +32,55 @@ var _ manager.AgentContext = ServiceRuntimeAgentContext{}
 
 type Runtime interface {
 	// Load loads the service: it is a NoOp operation and can be called safely
-	Load(ctx context.Context, req *runtimev1.LoadRequest) (*runtimev1.LoadResponse, error)
+	Load(ctx context.Context, req *runtimev0.LoadRequest) (*runtimev0.LoadResponse, error)
 
 	// Init initializes the service: can include steps like compilation, etc...
-	Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error)
+	Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error)
 
 	// Start the underlying service
-	Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error)
+	Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error)
 
-	Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error)
+	Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error)
 
-	Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error)
+	Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error)
 
 	// Communicate is a special method that is used to communicate with the agent
 	communicate.Communicate
 }
 
 type RuntimeAgent struct {
-	client  runtimev1.RuntimeClient
+	client  runtimev0.RuntimeClient
 	agent   *configurations.Agent
 	process *manager.ProcessInfo
 }
 
 // Load loads the service: it is a NoOp operation and can be called safely
-func (m *RuntimeAgent) Load(ctx context.Context, req *runtimev1.LoadRequest) (*runtimev1.LoadResponse, error) {
+func (m *RuntimeAgent) Load(ctx context.Context, req *runtimev0.LoadRequest) (*runtimev0.LoadResponse, error) {
 	return m.client.Load(ctx, req)
 }
 
 // Init initializes the service
-func (m *RuntimeAgent) Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error) {
+func (m *RuntimeAgent) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
 	return m.client.Init(ctx, req)
 }
 
 // Start starts the service
-func (m *RuntimeAgent) Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
+func (m *RuntimeAgent) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
 	return m.client.Start(ctx, req)
 }
 
 // Information return some useful information about the service
-func (m *RuntimeAgent) Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
+func (m *RuntimeAgent) Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
 	return m.client.Information(ctx, req)
 }
 
 // Stop stops the service
-func (m *RuntimeAgent) Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
+func (m *RuntimeAgent) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
 	return m.client.Stop(ctx, req)
 }
 
 // Communicate helper
-func (m *RuntimeAgent) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
+func (m *RuntimeAgent) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
 	return m.client.Communicate(ctx, req)
 }
 
@@ -91,41 +91,41 @@ type RuntimeAgentGRPC struct {
 }
 
 func (p *RuntimeAgentGRPC) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
-	runtimev1.RegisterRuntimeServer(s, &RuntimeServer{Runtime: p.Runtime})
+	runtimev0.RegisterRuntimeServer(s, &RuntimeServer{Runtime: p.Runtime})
 	return nil
 }
 
 func (p *RuntimeAgentGRPC) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &RuntimeAgent{client: runtimev1.NewRuntimeClient(c)}, nil
+	return &RuntimeAgent{client: runtimev0.NewRuntimeClient(c)}, nil
 }
 
 // RuntimeServer wraps the gRPC protocol Request/Response
 type RuntimeServer struct {
-	runtimev1.UnimplementedRuntimeServer
+	runtimev0.UnimplementedRuntimeServer
 	Runtime Runtime
 }
 
-func (m *RuntimeServer) Load(ctx context.Context, req *runtimev1.LoadRequest) (*runtimev1.LoadResponse, error) {
+func (m *RuntimeServer) Load(ctx context.Context, req *runtimev0.LoadRequest) (*runtimev0.LoadResponse, error) {
 	return m.Runtime.Load(ctx, req)
 }
 
-func (m *RuntimeServer) Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error) {
+func (m *RuntimeServer) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
 	return m.Runtime.Init(ctx, req)
 }
 
-func (m *RuntimeServer) Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
+func (m *RuntimeServer) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
 	return m.Runtime.Start(ctx, req)
 }
 
-func (m *RuntimeServer) Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
+func (m *RuntimeServer) Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
 	return m.Runtime.Information(ctx, req)
 }
 
-func (m *RuntimeServer) Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
+func (m *RuntimeServer) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
 	return m.Runtime.Stop(ctx, req)
 }
 
-func (m *RuntimeServer) Communicate(ctx context.Context, req *agentv1.Engage) (*agentv1.InformationRequest, error) {
+func (m *RuntimeServer) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
 	return m.Runtime.Communicate(ctx, req)
 }
 
@@ -157,28 +157,28 @@ func NewRuntimeAgent(conf *configurations.Agent, runtime Runtime) agents.AgentIm
 	}
 }
 
-type InformationStatus = runtimev1.InformationResponse_Status
+type InformationStatus = runtimev0.InformationResponse_Status
 
 const (
-	UnknownState    = runtimev1.InformationResponse_UNKNOWN
-	LoadInProgress  = runtimev1.InformationResponse_LOAD_IN_PROGRESS
-	LoadSuccess     = runtimev1.InformationResponse_LOADED_SUCCESS
-	LoadFailed      = runtimev1.InformationResponse_LOADED_FAILED
-	InitInProgress  = runtimev1.InformationResponse_INIT_IN_PROGRESS
-	InitSuccess     = runtimev1.InformationResponse_INIT_SUCCESS
-	InitFailed      = runtimev1.InformationResponse_INIT_FAILED
-	StartInProgress = runtimev1.InformationResponse_START_IN_PROGRESS
-	StartSuccess    = runtimev1.InformationResponse_START_SUCCESS
-	StartFailed     = runtimev1.InformationResponse_START_FAILED
-	StopInProgress  = runtimev1.InformationResponse_STOP_IN_PROGRESS
-	StopSuccess     = runtimev1.InformationResponse_STOP_SUCCESS
-	StopFailed      = runtimev1.InformationResponse_STOP_FAILED
+	UnknownState    = runtimev0.InformationResponse_UNKNOWN
+	LoadInProgress  = runtimev0.InformationResponse_LOAD_IN_PROGRESS
+	LoadSuccess     = runtimev0.InformationResponse_LOADED_SUCCESS
+	LoadFailed      = runtimev0.InformationResponse_LOADED_FAILED
+	InitInProgress  = runtimev0.InformationResponse_INIT_IN_PROGRESS
+	InitSuccess     = runtimev0.InformationResponse_INIT_SUCCESS
+	InitFailed      = runtimev0.InformationResponse_INIT_FAILED
+	StartInProgress = runtimev0.InformationResponse_START_IN_PROGRESS
+	StartSuccess    = runtimev0.InformationResponse_START_SUCCESS
+	StartFailed     = runtimev0.InformationResponse_START_FAILED
+	StopInProgress  = runtimev0.InformationResponse_STOP_IN_PROGRESS
+	StopSuccess     = runtimev0.InformationResponse_STOP_SUCCESS
+	StopFailed      = runtimev0.InformationResponse_STOP_FAILED
 )
 
-type InformationStateDesired = runtimev1.InformationResponse_DesiredState
+type InformationStateDesired = runtimev0.InformationResponse_DesiredState
 
 const (
-	DesiredNOOP    = runtimev1.InformationResponse_NOOP
-	DesiredRestart = runtimev1.InformationResponse_RESTARTED
-	DesiredStop    = runtimev1.InformationResponse_STOPPED
+	DesiredNOOP    = runtimev0.InformationResponse_NOOP
+	DesiredRestart = runtimev0.InformationResponse_RESTARTED
+	DesiredStop    = runtimev0.InformationResponse_STOPPED
 )

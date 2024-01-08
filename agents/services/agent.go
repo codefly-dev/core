@@ -10,13 +10,13 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
-	agentv1 "github.com/codefly-dev/core/generated/go/services/agent/v1"
+	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )
 
 type Agent interface {
-	GetAgentInformation(ctx context.Context, req *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error)
+	GetAgentInformation(ctx context.Context, req *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error)
 }
 
 type ServiceAgentContext struct {
@@ -33,14 +33,14 @@ func (m ServiceAgentContext) Default() plugin.Plugin {
 var _ manager.AgentContext = ServiceAgentContext{}
 
 type ServiceAgent struct {
-	client  agentv1.AgentClient
+	client  agentv0.AgentClient
 	agent   *configurations.Agent
 	process *manager.ProcessInfo
 }
 
 // GetAgentInformation provides
 // - capabilities
-func (m *ServiceAgent) GetAgentInformation(ctx context.Context, req *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error) {
+func (m *ServiceAgent) GetAgentInformation(ctx context.Context, req *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
 	return m.client.GetAgentInformation(ctx, req)
 }
 
@@ -51,21 +51,21 @@ type ServiceAgentGRPC struct {
 }
 
 func (p *ServiceAgentGRPC) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
-	agentv1.RegisterAgentServer(s, &ServiceAgentServer{Service: p.Service})
+	agentv0.RegisterAgentServer(s, &ServiceAgentServer{Service: p.Service})
 	return nil
 }
 
 func (p *ServiceAgentGRPC) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &ServiceAgent{client: agentv1.NewAgentClient(c)}, nil
+	return &ServiceAgent{client: agentv0.NewAgentClient(c)}, nil
 }
 
 // ServiceAgentServer wraps the gRPC protocol Request/Response
 type ServiceAgentServer struct {
-	agentv1.UnimplementedAgentServer
+	agentv0.UnimplementedAgentServer
 	Service Agent
 }
 
-func (m *ServiceAgentServer) GetAgentInformation(ctx context.Context, req *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error) {
+func (m *ServiceAgentServer) GetAgentInformation(ctx context.Context, req *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
 	return m.Service.GetAgentInformation(ctx, req)
 }
 

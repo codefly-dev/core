@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
-	basev1 "github.com/codefly-dev/core/generated/go/base/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
@@ -41,8 +41,8 @@ func (app *Application) Unique() string {
 	return app.Name
 }
 
-func (app *Application) Proto() *basev1.Application {
-	return &basev1.Application{
+func (app *Application) Proto() *basev0.Application {
+	return &basev0.Application{
 		Name:        app.Name,
 		Description: app.Description,
 		Project:     app.Project,
@@ -76,7 +76,7 @@ func (ref *ApplicationReference) IsActive() (*ApplicationReference, bool) {
 }
 
 // NewApplication creates an application in a project
-func (project *Project) NewApplication(ctx context.Context, action *actionsv1.AddApplication) (*Application, error) {
+func (project *Project) NewApplication(ctx context.Context, action *actionsv0.AddApplication) (*Application, error) {
 	w := wool.Get(ctx).In("configurations.NewApplication", wool.NameField(action.Name))
 	if project.ExistsApplication(action.Name) {
 		return nil, w.NewError("project already exists")
@@ -328,9 +328,9 @@ func (app *Application) DeleteService(ctx context.Context, name string) error {
 	return nil
 }
 
-func (app *Application) PublicEndpoints(ctx context.Context) ([]*basev1.Endpoint, error) {
+func (app *Application) PublicEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
 	w := wool.Get(ctx).In("Application::PublicEndpoints", wool.ThisField(app))
-	var publicEndpoints []*basev1.Endpoint
+	var publicEndpoints []*basev0.Endpoint
 	// Init services
 	services, err := app.LoadServices(ctx)
 	if err != nil {

@@ -9,14 +9,14 @@ import (
 	"github.com/bufbuild/protovalidate-go"
 
 	"github.com/codefly-dev/core/actions/actions"
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 
 	"github.com/codefly-dev/core/configurations"
 )
 
 const AddProjectKind = "project.add"
 
-type AddProject = actionsv1.AddProject
+type AddProject = actionsv0.AddProject
 type AddProjectAction struct {
 	*AddProject
 }
@@ -61,7 +61,7 @@ func (action *AddProjectAction) Run(ctx context.Context) (any, error) {
 		return nil, err
 	}
 
-	err = workspace.SetProjectActive(ctx, &actionsv1.SetProjectActive{
+	err = workspace.SetProjectActive(ctx, &actionsv0.SetProjectActive{
 		Name: project.Name,
 	})
 	if err != nil {

@@ -8,7 +8,7 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/configurations"
 
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 )
 
 const AddServiceDependencyKind = "service.add_dependency"
@@ -21,7 +21,7 @@ func (action *AddServiceDependencyAction) Command() string {
 	return "TODO"
 }
 
-type AddServiceDependency = actionsv1.AddServiceDependency
+type AddServiceDependency = actionsv0.AddServiceDependency
 
 func NewActionAddServiceDependency(ctx context.Context, in *AddServiceDependency) (*AddServiceDependencyAction, error) {
 	w := wool.Get(ctx).In("NewActionAddServiceDependency", wool.NameField(in.Name))

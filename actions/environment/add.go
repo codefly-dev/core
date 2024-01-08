@@ -6,7 +6,7 @@ import (
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/actions/actions"
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 
 	"github.com/codefly-dev/core/configurations"
 )
@@ -14,14 +14,14 @@ import (
 const AddEnvironment = "environment.add"
 
 type AddEnvironmentAction struct {
-	*actionsv1.AddEnvironment
+	*actionsv0.AddEnvironment
 }
 
 func (action *AddEnvironmentAction) Command() string {
 	return "TODO"
 }
 
-func NewActionAddEnvironment(ctx context.Context, in *actionsv1.AddEnvironment) (*AddEnvironmentAction, error) {
+func NewActionAddEnvironment(ctx context.Context, in *actionsv0.AddEnvironment) (*AddEnvironmentAction, error) {
 	w := wool.Get(ctx).In("NewActionAddEnvironment", wool.NameField(in.Name))
 	if err := actions.Validate(ctx, in); err != nil {
 		return nil, w.Wrap(err)

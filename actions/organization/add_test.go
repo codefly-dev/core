@@ -8,7 +8,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/organization"
-	actionsv1 "github.com/codefly-dev/core/generated/go/actions/v1"
+	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -30,7 +30,7 @@ func TestOrganizationAddFromJson(t *testing.T) {
 
 func TestOrganizationAddFromCode(t *testing.T) {
 	ctx := context.Background()
-	action, err := organization.NewActionAddOrganization(ctx, &actionsv1.AddOrganization{
+	action, err := organization.NewActionAddOrganization(ctx, &actionsv0.AddOrganization{
 		Name:   "My Organization",
 		Domain: "https://github.com/my-organization",
 	})
