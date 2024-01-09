@@ -72,25 +72,19 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 			f.Level = l
 		}
 	}
-	var fields []*LogField
-	for _, f := range fs {
-		if f.Level >= l {
-			fields = append(fields, f)
-		}
-	}
 	// If LogLevel is ERROR, always add the code reference information
 
 	if l >= ERROR {
 		ref, err := getFileInfo(3)
 		if err == nil {
-			fields = append(fields, &LogField{
+			fs = append(fs, &LogField{
 				Key:   "code",
 				Value: ref,
 			})
 		}
 	}
 
-	log := &Log{Message: msg, Fields: fields, Level: l, Header: w.name}
+	log := &Log{Message: msg, Fields: fs, Level: l, Header: w.name}
 	log.Fields = append(log.Fields, w.fields...)
 
 	if WithTelemetry() {

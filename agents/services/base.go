@@ -7,6 +7,7 @@ import (
 	"path"
 
 	"github.com/codefly-dev/core/agents/network"
+	"github.com/codefly-dev/core/builders"
 
 	"github.com/codefly-dev/core/configurations/standards"
 
@@ -158,8 +159,8 @@ func (s *FactoryWrapper) LoadError(err error) (*factoryv0.LoadResponse, error) {
 	}, err
 }
 
-func (s *FactoryWrapper) InitResponse() (*factoryv0.InitResponse, error) {
-	return &factoryv0.InitResponse{}, nil
+func (s *FactoryWrapper) InitResponse(hash string) (*factoryv0.InitResponse, error) {
+	return &factoryv0.InitResponse{RunHash: hash}, nil
 }
 
 func (s *FactoryWrapper) InitError(err error) (*factoryv0.InitResponse, error) {
@@ -293,14 +294,12 @@ func (s *Base) EndpointsFromConfiguration(ctx context.Context) ([]*basev0.Endpoi
 }
 
 type WatchConfiguration struct {
-	Includes []string
-	Excludes []string
+	req *builders.Dependency
 }
 
-func NewWatchConfiguration(includes []string, excludes ...string) *WatchConfiguration {
+func NewWatchConfiguration(requirements *builders.Dependency) *WatchConfiguration {
 	return &WatchConfiguration{
-		Includes: includes,
-		Excludes: excludes,
+		req: requirements,
 	}
 }
 
@@ -308,11 +307,11 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 	s.Wool.Debug("watching for changes")
 	s.Events = make(chan code.Change)
 	var err error
-	s.Watcher, err = code.NewWatcher(ctx, s.Events, s.Location, conf.Includes, conf.Excludes...)
+	s.Watcher, err = code.NewWatcher(ctx, s.Events, s.Location, conf.req)
 	if err != nil {
 		return err
 	}
-	go s.Watcher.Start()
+	go s.Watcher.Start(ctx)
 
 	go func() {
 		for event := range s.Events {

@@ -231,12 +231,14 @@ func (app *Application) Reference() *ApplicationReference {
 }
 
 // ExistsService returns true if the service exists in the application
-func (app *Application) ExistsService(name string) bool {
+func (app *Application) ExistsService(ctx context.Context, name string) bool {
+	w := wool.Get(ctx).In("configurations.ExistsService", wool.NameField(name))
 	for _, s := range app.Services {
 		if s.Name == name {
 			return true
 		}
 	}
+	w.Debug("current services", wool.Field("services", app.Services))
 	return false
 }
 
@@ -300,7 +302,7 @@ func (app *Application) ActiveService(_ context.Context) *string {
 func (app *Application) SetActiveService(ctx context.Context, name string) error {
 	w := wool.Get(ctx).In("configurations.SetActiveService", wool.NameField(name))
 	w.Trace("setting active service")
-	if !app.ExistsService(name) {
+	if !app.ExistsService(ctx, name) {
 		return w.NewError("service <%s> does not exist in application <%s>", name, app.Name)
 	}
 	app.activeService = name

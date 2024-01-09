@@ -116,7 +116,7 @@ func ParseServiceUnique(unique string) (*ServiceWithApplication, error) {
 // NewService creates a service in an application
 func (app *Application) NewService(ctx context.Context, action *actionsv0.AddService) (*Service, error) {
 	w := wool.Get(ctx).In("app.NewService", wool.NameField(action.Name))
-	if app.ExistsService(action.Name) && !action.Override {
+	if app.ExistsService(ctx, action.Name) && !action.Override {
 		return nil, w.NewError("service already exists")
 	}
 	agent, err := LoadAgent(ctx, action.Agent)

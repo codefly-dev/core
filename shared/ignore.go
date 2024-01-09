@@ -2,6 +2,7 @@ package shared
 
 import (
 	"context"
+	"regexp"
 	"strings"
 )
 
@@ -38,27 +39,66 @@ func IgnoreNone() Ignore {
 
 type IgnoreNoneHandler struct{}
 
-func (i IgnoreNoneHandler) Skip(string) bool {
+func (i *IgnoreNoneHandler) Skip(string) bool {
 	return false
 }
 
-var _ Ignore = IgnoreNoneHandler{}
+func sanitizePattern(pattern string) string {
+	return "^" + strings.ReplaceAll(pattern, "*", ".*") + "$"
+}
 
 type IgnorePatterns struct {
 	patterns []string
+	regex    []regexp.Regexp
 }
 
-var _ Ignore = IgnorePatterns{}
-
-func NewIgnore(patterns ...string) IgnorePatterns {
-	return IgnorePatterns{patterns: patterns}
+func NewIgnore(patterns ...string) *IgnorePatterns {
+	ign := &IgnorePatterns{patterns: patterns}
+	for _, p := range patterns {
+		ign.regex = append(ign.regex, *regexp.MustCompile(sanitizePattern(p)))
+	}
+	return ign
 }
 
-func (ign IgnorePatterns) Skip(file string) bool {
+func (ign *IgnorePatterns) Skip(file string) bool {
 	for _, pattern := range ign.patterns {
 		if strings.Contains(file, pattern) {
 			return true
 		}
 	}
+	for i := range ign.regex {
+		reg := &ign.regex[i]
+		if reg.MatchString(file) {
+			return true
+		}
+	}
 	return false
+}
+
+type SelectPatterns struct {
+	patterns []string
+	regex    []regexp.Regexp
+}
+
+func NewSelect(patterns ...string) *SelectPatterns {
+	ign := &SelectPatterns{patterns: patterns}
+	for _, p := range patterns {
+		ign.regex = append(ign.regex, *regexp.MustCompile(sanitizePattern(p)))
+	}
+	return ign
+}
+
+func (ign *SelectPatterns) Skip(file string) bool {
+	for _, pattern := range ign.patterns {
+		if strings.Contains(file, pattern) {
+			return false
+		}
+	}
+	for i := range ign.regex {
+		reg := &ign.regex[i]
+		if reg.MatchString(file) {
+			return false
+		}
+	}
+	return true
 }

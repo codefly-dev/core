@@ -47,31 +47,37 @@ func (action *AddServiceAction) Run(ctx context.Context) (any, error) {
 
 	ws, err := configurations.LoadWorkspace(ctx)
 	if err != nil {
-		return nil, w.Wrap(err)
+		return nil, w.Wrapf(err, "cannot load worspace")
 	}
 
 	project, err := ws.LoadProjectFromName(ctx, action.Project)
 	if err != nil {
-		return nil, w.Wrap(err)
+		return nil, w.Wrapf(err, "cannot load project")
 	}
 
 	app, err := project.LoadApplicationFromName(ctx, action.Application)
 	if err != nil {
-		return nil, w.Wrap(err)
+		return nil, w.Wrapf(err, "cannot load application")
 	}
 
 	service, err := app.NewService(ctx, action.AddService)
 	if err != nil {
-		return nil, w.Wrap(err)
+		return nil, w.Wrapf(err, "cannot app.NewService")
+	}
+
+	// Reload app
+	app, err = configurations.ReloadApplication(ctx, app)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot reload application")
 	}
 
 	err = app.SetActiveService(ctx, service.Name)
 	if err != nil {
-		return nil, w.Wrap(err)
+		return nil, w.Wrapf(err, "cannot set active service")
 	}
 	err = app.Save(ctx)
 	if err != nil {
-		return nil, w.Wrap(err)
+		return nil, w.Wrapf(err, "cannot save application")
 	}
 
 	return service, nil
