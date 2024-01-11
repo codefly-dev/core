@@ -63,3 +63,7 @@ func (holder *EnvironmentVariableManager) GetEndpoint(ctx context.Context, uniqu
 	}
 	return nil, fmt.Errorf("cannot find endpoint env variable: %s", key)
 }
+
+func (holder *EnvironmentVariableManager) Get() []string {
+	return holder.envs
+}

@@ -67,6 +67,9 @@ func ParseEndpoint(unique string) (*Endpoint, error) {
 	endpoint.Service = in.Name
 	endpoint.Application = in.Application
 
+	if endpoint.API == "" {
+		endpoint.API = Unknown
+	}
 	return endpoint, nil
 }
 

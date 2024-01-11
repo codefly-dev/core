@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"path"
 
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
@@ -78,6 +79,13 @@ func (action *AddServiceAction) Run(ctx context.Context) (any, error) {
 	err = app.Save(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot save application")
+	}
+
+	// Create a provider folder for the service
+	providerDir := path.Join(project.Dir(), service.Unique())
+	_, err = shared.CheckDirectoryOrCreate(ctx, providerDir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot create provider directory")
 	}
 
 	return service, nil

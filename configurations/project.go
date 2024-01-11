@@ -126,6 +126,13 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv0.Ad
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot copy and apply template")
 	}
+
+	// Create a provider folder for local development
+	providerDir := path.Join(project.dir, "providers", "local")
+	_, err = shared.CheckDirectoryOrCreate(ctx, providerDir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot create provider directory")
+	}
 	return project, nil
 }
 

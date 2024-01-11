@@ -16,8 +16,8 @@ func TestUniqueParsing(t *testing.T) {
 		unique   string
 		expected *configurations.Endpoint
 	}{
-		{"app + svc", "app/svc", &configurations.Endpoint{Application: "app", Service: "svc"}},
-		{"app + svc + endpoint", "app/svc/endpoint", &configurations.Endpoint{Application: "app", Service: "svc", Name: "endpoint"}},
+		{"app + svc", "app/svc", &configurations.Endpoint{Application: "app", Service: "svc", API: configurations.Unknown}},
+		{"app + svc + endpoint", "app/svc/endpoint", &configurations.Endpoint{Application: "app", Service: "svc", Name: "endpoint", API: configurations.Unknown}},
 		{"ap + svc + endpoint + api", "app/svc/endpoint::rest", &configurations.Endpoint{Application: "app", Service: "svc", Name: "endpoint", API: standards.REST}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
