@@ -34,11 +34,11 @@ func (holder *EnvironmentVariableManager) GetProjectProvider(ctx context.Context
 	return "", fmt.Errorf("cannot find project provider env variable: %s", key)
 }
 
-func (holder *EnvironmentVariableManager) GetServiceProvider(ctx context.Context, unique string, key string) (string, error) {
+func (holder *EnvironmentVariableManager) GetServiceProvider(ctx context.Context, unique string, name string, key string) (string, error) {
 	w := wool.Get(ctx).In("EnvironmentVariableManager.GetServiceProvider")
-	providerInfo := &basev0.ProviderInformation{Origin: unique}
+	providerInfo := &basev0.ProviderInformation{Origin: unique, Name: name}
 	key = ProviderInformationEnvKey(providerInfo, key)
-	w.Debug("looking", wool.Field("key", key))
+	w.Focus("looking", wool.Field("key", key))
 	for _, env := range holder.envs {
 		if value, ok := strings.CutPrefix(env, key); ok {
 			return value[1:], nil
@@ -66,4 +66,18 @@ func (holder *EnvironmentVariableManager) GetEndpoint(ctx context.Context, uniqu
 
 func (holder *EnvironmentVariableManager) Get() []string {
 	return holder.envs
+}
+
+func (holder *EnvironmentVariableManager) GetBase() []string {
+	var envs []string
+	for _, env := range holder.envs {
+		if !strings.HasSuffix(env, ProviderPrefix) {
+			continue
+		}
+		tokens := strings.Split(env, "____")
+		if len(tokens) == 2 {
+			envs = append(envs, tokens[1])
+		}
+	}
+	return envs
 }
