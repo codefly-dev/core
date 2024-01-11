@@ -22,7 +22,11 @@ type Docker struct {
 	option DockerRunOption
 
 	mounts []mount.Mount
-	port   *DockerPort
+
+	envs []string
+	cmd  []string
+
+	port *DockerPort
 
 	instance *DockerContainerInstance
 
@@ -30,7 +34,8 @@ type Docker struct {
 }
 
 type DockerRunOption struct {
-	Location string
+	Location   string
+	CustomExec bool
 }
 
 type DockerOption func(option *DockerRunOption)
@@ -58,7 +63,7 @@ func NewDocker(ctx context.Context, opts ...DockerOption) (*Docker, error) {
 	w := wool.Get(ctx).In("NewDockerRunner")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot create docker client")
+		return nil, w.Wrapf(err, "cannot createAndWait docker client")
 	}
 	var mounts []mount.Mount
 	workingDir := "/codefly"
@@ -98,7 +103,9 @@ func (docker *Docker) Init(ctx context.Context, image DockerImage) error {
 		return w.Wrapf(err, "cannot get image")
 	}
 	docker.image = image
-	err = docker.create(ctx)
+	// Wait only if we have custom command
+	wait := docker.option.CustomExec
+	err = docker.create(ctx, wait)
 	if err != nil {
 		return w.Wrapf(err, "cannot create container")
 	}
@@ -146,22 +153,22 @@ type DockerContainerInstance struct {
 func (docker *Docker) Run(ctx context.Context, cmds ...*Command) error {
 	w := wool.Get(ctx).In("Docker.Run")
 	for _, cmd := range cmds {
-		err := docker.run(ctx, cmd)
+		err := docker.runWithCommand(ctx, cmd)
 		if err != nil {
-			return w.Wrapf(err, "cannot run command: %s", cmd.AsSlice())
+			return w.Wrapf(err, "cannot runWithCommand command: %s", cmd.AsSlice())
 		}
 		w.Info("success running", wool.Field("cmd", cmd.AsSlice()))
 	}
 	return nil
 }
 
-func (docker *Docker) Start(ctx context.Context, cmd *Command) error {
+func (docker *Docker) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.Run")
 	// New context
 	runningContext := context.Background()
 	runningContext = w.Inject(runningContext)
 	go func() {
-		err := docker.run(runningContext, cmd)
+		err := docker.run(runningContext)
 		if err != nil {
 			w.Error(err.Error())
 		}
@@ -169,13 +176,34 @@ func (docker *Docker) Start(ctx context.Context, cmd *Command) error {
 	return nil
 }
 
-func (docker *Docker) create(ctx context.Context) error {
-	w := wool.Get(ctx).In("Docker.create")
+func (docker *Docker) StartWithCommand(ctx context.Context, cmd *Command) error {
+	w := wool.Get(ctx).In("Docker.Run")
+	// New context
+	runningContext := context.Background()
+	runningContext = w.Inject(runningContext)
+	go func() {
+		err := docker.runWithCommand(runningContext, cmd)
+		if err != nil {
+			w.Error(err.Error())
+		}
+	}()
+	return nil
+}
+
+func (docker *Docker) create(ctx context.Context, wait bool) error {
+	w := wool.Get(ctx).In("Docker.createAndWait")
 	containerConfig := &container.Config{
 		Image:      docker.image.Image(),
-		Cmd:        []string{"tail", "-f", "/dev/null"},
 		WorkingDir: docker.workingDir,
+		Env:        docker.envs,
 		Tty:        true,
+	}
+	if wait {
+		containerConfig.Cmd = []string{"tail", "-f", "/dev/null"}
+	}
+	if len(docker.cmd) > 0 {
+		containerConfig.Cmd = docker.cmd
+
 	}
 	if docker.port != nil {
 		containerConfig.ExposedPorts = nat.PortSet{
@@ -195,24 +223,34 @@ func (docker *Docker) create(ctx context.Context) error {
 	w.Debug("creating container")
 	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, "")
 	if err != nil {
-		return w.Wrapf(err, "cannot create container")
+		return w.Wrapf(err, "cannot createAndWait container")
 	}
 	w.Debug("created container", wool.Field("id", resp.ID))
 	docker.instance = &DockerContainerInstance{
 		container: resp,
 	}
-	// Start the container
-	w.Debug("starting container")
-	if err := docker.client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		return w.Wrapf(err, "cannot start container")
-	}
-	w.Debug("started container")
-
 	return nil
 }
 
-func (docker *Docker) run(ctx context.Context, cmd *Command) error {
+func (docker *Docker) run(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.run")
+	err := docker.client.ContainerStart(ctx, docker.instance.container.ID, types.ContainerStartOptions{})
+	if err != nil {
+		return w.Wrapf(err, "cannot start container")
+	}
+	options := types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
+	logReader, err := docker.client.ContainerLogs(ctx, docker.instance.container.ID, options)
+	if err != nil {
+		return w.Wrapf(err, "cannot get container logs")
+	}
+	defer logReader.Close()
+
+	Forward(logReader, w)
+	return nil
+}
+
+func (docker *Docker) runWithCommand(ctx context.Context, cmd *Command) error {
+	w := wool.Get(ctx).In("Docker.runWithCommand")
 	w.WithLoglevel(cmd.LogLevel())
 	execConfig := types.ExecConfig{
 		Cmd:          cmd.AsSlice(),
@@ -224,8 +262,9 @@ func (docker *Docker) run(ctx context.Context, cmd *Command) error {
 	w.Debug("creating exec")
 	execResp, err := docker.client.ContainerExecCreate(ctx, docker.instance.container.ID, execConfig)
 	if err != nil {
-		return w.Wrapf(err, "cannot create exec")
+		return w.Wrapf(err, "cannot createAndWait exec")
 	}
+
 	// Attach to the exec instance to get the output streams
 	w.Debug("attaching to exec")
 	resp, err := docker.client.ContainerExecAttach(ctx, execResp.ID, types.ExecStartCheck{})
@@ -240,13 +279,17 @@ func (docker *Docker) run(ctx context.Context, cmd *Command) error {
 		return w.Wrapf(err, "cannot start exec")
 	}
 	w.Debug("started exec", wool.Field("id", execResp.ID))
+
+	// Get the logs
 	Forward(resp.Reader, w)
+
 	// Wait for the exec to finish and check the exit code
 	w.Debug("waiting for exec to finish")
 	inspect, err := docker.client.ContainerExecInspect(ctx, execResp.ID)
 	if err != nil {
 		return w.Wrapf(err, "cannot inspect exec")
 	}
+
 	if inspect.ExitCode != 0 {
 		return fmt.Errorf("command failed with exit code: %d", inspect.ExitCode)
 	}
@@ -274,8 +317,22 @@ func WithWorkspace(location string) DockerOption {
 	}
 }
 
-func (docker *Docker) WithPorts(port DockerPort) {
+func WithCustomExec() DockerOption {
+	return func(option *DockerRunOption) {
+		option.CustomExec = true
+	}
+}
+
+func (docker *Docker) WithPort(port DockerPort) {
 	docker.port = &port
+}
+
+func (docker *Docker) WithEnvironmentVariables(envs ...string) {
+	docker.envs = envs
+}
+
+func (docker *Docker) WithCommand(cmd ...string) {
+	docker.cmd = cmd
 }
 
 func (docker *Docker) portBindings() nat.PortMap {

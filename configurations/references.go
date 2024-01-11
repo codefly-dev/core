@@ -55,14 +55,6 @@ type RunningOptions struct {
 
 // Projects reference Applications
 
-// Projects reference Providers
-
-// A ProviderReference
-type ProviderReference struct {
-	Name                 string  `yaml:"name"`
-	RelativePathOverride *string `yaml:"relative-path,omitempty"`
-}
-
 // Services reference Endpoints
 
 // An EndpointReference

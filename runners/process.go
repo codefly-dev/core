@@ -60,7 +60,7 @@ func (p *TrackedProcess) GetCPU(ctx context.Context) (*CPU, error) {
 	w := wool.Get(ctx).In("TrackedProcess.Usage", wool.Field("pid", p.PID))
 	proc, err := process.NewProcess(int32(p.PID))
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot create process")
+		return nil, w.Wrapf(err, "cannot createAndWait process")
 	}
 
 	// Get CPU percent
@@ -76,7 +76,7 @@ func (p *TrackedProcess) GetMemory(ctx context.Context) (*Memory, error) {
 	w := wool.Get(ctx).In("TrackedProcess.Usage", wool.Field("pid", p.PID))
 	proc, err := process.NewProcess(int32(p.PID))
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot create process")
+		return nil, w.Wrapf(err, "cannot createAndWait process")
 	}
 
 	// Get memory info

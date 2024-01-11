@@ -32,7 +32,7 @@ func NewDockerRunner(ctx context.Context) (*DockerRunner, error) {
 	w := wool.Get(ctx).In("NewDockerRunner")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot create docker client")
+		return nil, w.Wrapf(err, "cannot createAndWait docker client")
 	}
 	return &DockerRunner{
 		client: cli,
@@ -132,10 +132,10 @@ func (r *DockerRunner) CreateContainer(ctx context.Context, input CreateDockerIn
 			Mounts:       mounts,
 		}, nil, nil, name)
 	if err != nil {
-		return w.Wrapf(err, "cannot create container")
+		return w.Wrapf(err, "cannot createAndWait container")
 	}
 	if err != nil {
-		return w.Wrapf(err, "cannot create container")
+		return w.Wrapf(err, "cannot createAndWait container")
 	}
 	instance := ContainerInstance{
 		Name: name,

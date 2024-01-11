@@ -29,9 +29,6 @@ type Project struct {
 	// Applications in the project
 	Applications []*ApplicationReference `yaml:"applications"`
 
-	// Providers in the project
-	Providers []*ProviderReference `yaml:"providers"`
-
 	// Environments in the project
 	Environments []*EnvironmentReference `yaml:"environments"`
 

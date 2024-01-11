@@ -159,6 +159,10 @@ func (*TCP) Proto() (*basev0.API, error) {
 	return api, nil
 }
 
+func NewTCPAPI(ctx context.Context, endpoint *Endpoint) (*basev0.Endpoint, error) {
+	return WithAPI(ctx, endpoint, &TCP{})
+}
+
 /* Helpers */
 func parseOpenAPI(spec []byte) (*openapispec.Swagger, error) {
 	analyzed, err := openapiloads.Analyzed(spec, "2.0")

@@ -10,47 +10,25 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestParsing(t *testing.T) {
+func TestUniqueParsing(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		key      string
-		expected string
+		unique   string
+		expected *configurations.Endpoint
 	}{
-		{"app + svc", "CODEFLY_ENDPOINT__APP__SVC", "app/svc"},
-		{"app + svc + api", "CODEFLY_ENDPOINT__APP__SVC____REST", "app/svc::rest"},
-		{"app + svc + endpoint", "CODEFLY_ENDPOINT__APP__SVC___ENDPOINT", "app/svc/endpoint"},
-		{"ap + svc + endpoint + api", "CODEFLY_ENDPOINT__APP__SVC___ENDPOINT____REST", "app/svc/endpoint::rest"},
+		{"app + svc", "app/svc", &configurations.Endpoint{Application: "app", Service: "svc"}},
+		{"app + svc + endpoint", "app/svc/endpoint", &configurations.Endpoint{Application: "app", Service: "svc", Name: "endpoint"}},
+		{"ap + svc + endpoint + api", "app/svc/endpoint::rest", &configurations.Endpoint{Application: "app", Service: "svc", Name: "endpoint", API: standards.REST}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			unique, err := configurations.ParseEndpointEnvironmentVariableKey(tc.key)
+			e, err := configurations.ParseEndpoint(tc.unique)
 			assert.NoError(t, err)
-			assert.Equal(t, tc.expected, unique)
+			assert.Equal(t, tc.expected.Name, e.Name)
+			assert.Equal(t, tc.expected.Application, e.Application)
+			assert.Equal(t, tc.expected.Service, e.Service)
+			assert.Equal(t, tc.expected.API, e.API)
 		})
 	}
-}
-
-func TestUniqueAndBack(t *testing.T) {
-	unique := "app/svc/cool::rest"
-	e := &configurations.Endpoint{Name: "cool", API: standards.REST, Application: "app", Service: "svc"}
-	assert.Equal(t, unique, e.Unique())
-	key := configurations.EndpointEnvironmentVariableKey(e)
-	back, err := configurations.ParseEndpointEnvironmentVariableKey(key)
-	assert.NoError(t, err)
-	assert.Equal(t, unique, back)
-
-	unique = "app/svc/rest"
-	e = &configurations.Endpoint{Name: standards.REST, API: standards.REST, Application: "app", Service: "svc"}
-	key = configurations.EndpointEnvironmentVariableKey(e)
-	back, err = configurations.ParseEndpointEnvironmentVariableKey(key)
-	assert.NoError(t, err)
-	assert.Equal(t, unique, back)
-
-	unique = "app/svc"
-	e = &configurations.Endpoint{Application: "app", Service: "svc"}
-	key = configurations.EndpointEnvironmentVariableKey(e)
-	back, err = configurations.ParseEndpointEnvironmentVariableKey(key)
-	assert.NoError(t, err)
-	assert.Equal(t, unique, back)
 }
 
 func TestLoadingFromDir(t *testing.T) {

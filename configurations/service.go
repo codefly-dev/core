@@ -41,10 +41,19 @@ type Service struct {
 
 	PathOverride *string `yaml:"path,omitempty"`
 
-	Agent        *Agent               `yaml:"agent"`
+	Agent *Agent `yaml:"agent"`
+
+	// Dependencies are the other services required
 	Dependencies []*ServiceDependency `yaml:"dependencies"`
-	Endpoints    []*Endpoint          `yaml:"endpoints"`
-	Spec         map[string]any       `yaml:"spec"`
+
+	// ProviderDependencies are the providers required
+	ProviderDependencies []string `yaml:"provider-dependencies"`
+
+	// Endpoints exposed by the service
+	Endpoints []*Endpoint `yaml:"endpoints"`
+
+	// Spec is the specialized configuration of the service
+	Spec map[string]any `yaml:"spec"`
 
 	// internal
 	dir string

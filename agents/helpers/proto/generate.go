@@ -4,15 +4,11 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/codefly-dev/core/builders"
-	"github.com/codefly-dev/core/runners"
 
 	"github.com/Masterminds/semver"
+	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/runners"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -22,7 +18,6 @@ type Proto struct {
 	version string
 
 	// Keep the proto hash for cashing
-	hash       string
 	dependency *builders.Dependency
 }
 
@@ -35,27 +30,8 @@ func NewProto(ctx context.Context, dir string) (*Proto, error) {
 	return &Proto{
 		Dir:        dir,
 		version:    version,
-		dependency: &builders.Dependency{Components: []string{dir}, Ignore: shared.NewSelect("*.proto")},
-		hash:       LoadHash(hashfile(dir)),
+		dependency: builders.NewDependency("proto", dir).WithIgnore(shared.NewSelect("*.proto")).WithDir(dir),
 	}, nil
-}
-
-func hashfile(dir string) string {
-	return filepath.Join(dir, ".proto.hash")
-}
-
-func LoadHash(hashFile string) string {
-	f, err := os.Open(hashFile)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	var hash string
-	_, err = fmt.Fscanf(f, "%s", &hash)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(hash)
 }
 
 func version(ctx context.Context) (string, error) {
@@ -77,14 +53,14 @@ var info embed.FS
 
 func (g *Proto) Generate(ctx context.Context) error {
 	w := wool.Get(ctx).In("proto.Generate")
-	hash, err := g.dependency.Hash()
+	updated, err := g.dependency.Updated(ctx)
 	if err != nil {
-		return w.Wrapf(err, "cannot hash proto files")
+		return w.Wrapf(err, "cannot check if updated")
 	}
-	w.Debug("comparing hashes", wool.Field("stored", g.hash), wool.Field("current", hash))
-	if hash == g.hash {
+	if !updated {
 		return nil
 	}
+
 	image := fmt.Sprintf("codeflydev/companion:%s", g.version)
 	volume := fmt.Sprintf("%s:/workspace", g.Dir)
 	runner := runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "mod", "update"}}
@@ -97,24 +73,6 @@ func (g *Proto) Generate(ctx context.Context) error {
 	err = runner.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
-	}
-	err = WriteHash(ctx, hashfile(g.Dir), hash)
-	if err != nil {
-		return w.Wrapf(err, "cannot write hash")
-	}
-	return nil
-}
-
-func WriteHash(_ context.Context, hashFile string, hash string) error {
-	// New or overwrite
-	f, err := os.Create(hashFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = fmt.Fprintf(f, "%s", hash)
-	if err != nil {
-		return err
 	}
 	return nil
 }

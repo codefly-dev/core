@@ -118,6 +118,9 @@ func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
 
 func (g *Runner) Kill(ctx context.Context) error {
 	w := wool.Get(ctx).In("go/runner::Kill")
+	if g == nil {
+		return nil
+	}
 	if g.killed {
 		return nil
 	}

@@ -52,12 +52,12 @@ func (run *WrappedCmd) Start(ctx context.Context) (*WrappedCmdOutput, error) {
 	w.Debug("starting command", wool.Field("cmd", run.cmd.Args))
 	stdout, err := run.cmd.StdoutPipe()
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot create stdout pipe")
+		return nil, errors.Wrap(err, "cannot createAndWait stdout pipe")
 	}
 
 	stderr, err := run.cmd.StderrPipe()
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot create stderr pipe")
+		return nil, errors.Wrap(err, "cannot createAndWait stderr pipe")
 	}
 
 	events := make(chan RunnerEvent, 1)
@@ -87,12 +87,12 @@ func (run *WrappedCmd) Start(ctx context.Context) (*WrappedCmdOutput, error) {
 func (run *WrappedCmd) Run() error {
 	stdout, err := run.cmd.StdoutPipe()
 	if err != nil {
-		return errors.Wrap(err, "cannot create stdout pipe")
+		return errors.Wrap(err, "cannot createAndWait stdout pipe")
 	}
 
 	stderr, err := run.cmd.StderrPipe()
 	if err != nil {
-		return errors.Wrap(err, "cannot create stderr pipe")
+		return errors.Wrap(err, "cannot createAndWait stderr pipe")
 	}
 
 	go ForwardLogs(stdout, run.writer)

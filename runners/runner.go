@@ -26,7 +26,7 @@ func (r *Runner) Start(ctx context.Context) (*WrappedCmdOutput, error) {
 
 	run, err := NewWrappedCmd(cmd, w)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot create wrapped command")
+		return nil, w.Wrapf(err, "cannot createAndWait wrapped command")
 	}
 	out, err := run.Start(ctx)
 	if err != nil {
@@ -45,7 +45,7 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	run, err := NewWrappedCmd(cmd, w)
 	if err != nil {
-		return w.Wrapf(err, "cannot create wrapped command")
+		return w.Wrapf(err, "cannot createAndWait wrapped command")
 	}
 	err = run.Run()
 	if err != nil {

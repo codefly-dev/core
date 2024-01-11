@@ -84,7 +84,7 @@ func TestCreation(t *testing.T) {
 
 	assert.Equal(t, 1, len(w.Projects))
 
-	// Init Back, different ways
+	// InitAndWait Back, different ways
 	project, err = w.LoadProjectFromName(ctx, projectName)
 	assert.NoError(t, err)
 	assert.Equal(t, projectName, project.Name)
@@ -101,7 +101,7 @@ func TestCreation(t *testing.T) {
 	_, err = os.Stat(path.Join(project.Dir(), "README.md"))
 	assert.NoError(t, err)
 
-	// Init the workspace configuration
+	// InitAndWait the workspace configuration
 	wsConfig := string(shared.Must(os.ReadFile(path.Join(w.Dir(), configurations.WorkspaceConfigurationName))))
 	assert.NoError(t, err)
 	// We use default path
@@ -114,7 +114,7 @@ func TestCreation(t *testing.T) {
 	// We use default path
 	assert.NotContains(t, projectConfig, "path")
 
-	// Init -- reference
+	// InitAndWait -- reference
 	ref := &configurations.ProjectReference{Name: projectName, Path: project.Dir()}
 	back, err := w.LoadProjectFromReference(ctx, ref)
 	assert.NoError(t, err)

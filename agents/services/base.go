@@ -96,6 +96,10 @@ func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 	return base
 }
 
+func (s *Base) Unique() string {
+	return s.Configuration.Unique()
+}
+
 func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, settings any) error {
 	s.Identity = configurations.ServiceIdentityFromProto(identity)
 	s.Location = identity.Location
@@ -227,11 +231,12 @@ func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
 	}, err
 }
 
-func (s *RuntimeWrapper) InitResponse() (*runtimev0.InitResponse, error) {
+func (s *RuntimeWrapper) InitResponse(infos ...*basev0.ProviderInformation) (*runtimev0.InitResponse, error) {
 	s.Wool.Debug("init response", wool.NullableField("exposing network mappings", network.MakeNetworkMappingSummary(s.NetworkMappings)))
 	return &runtimev0.InitResponse{
-		Status:          &runtimev0.InitStatus{State: runtimev0.InitStatus_READY},
-		NetworkMappings: s.NetworkMappings,
+		Status:               &runtimev0.InitStatus{State: runtimev0.InitStatus_READY},
+		NetworkMappings:      s.NetworkMappings,
+		ServiceProviderInfos: infos,
 	}, nil
 }
 

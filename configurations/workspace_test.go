@@ -47,7 +47,7 @@ func TestCreateWorkspace(t *testing.T) {
 	w, dir := createTestWorkspace(t, ctx)
 	defer os.RemoveAll(dir)
 
-	// Init back
+	// InitAndWait back
 	w, err := configurations.LoadWorkspaceFromDirUnsafe(ctx, dir)
 	assert.NoError(t, err)
 	assert.Equal(t, "codefly", w.Organization.Name)

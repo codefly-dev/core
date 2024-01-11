@@ -42,6 +42,34 @@ func (e *Endpoint) Unique() string {
 	return unique
 }
 
+func ParseEndpoint(unique string) (*Endpoint, error) {
+	// Do we have the explicit APIva
+	endpoint := &Endpoint{}
+	if strings.Contains(unique, "::") {
+		tokens := strings.Split(unique, "::")
+		if len(tokens) != 2 {
+			return nil, fmt.Errorf("endpoint needs to be of the form app/svc/endpoint::api")
+		}
+		endpoint.API = tokens[1]
+		endpoint.Name = endpoint.API
+		unique = tokens[0]
+	}
+
+	tokens := strings.Split(unique, "/")
+	if len(tokens) == 3 {
+		unique = strings.Join(tokens[:2], "/")
+		endpoint.Name = tokens[2]
+	}
+	in, err := ParseServiceUnique(unique)
+	if err != nil {
+		return nil, err
+	}
+	endpoint.Service = in.Name
+	endpoint.Application = in.Application
+
+	return endpoint, nil
+}
+
 func (e *Endpoint) AsReference() *EndpointReference {
 	return &EndpointReference{
 		Name: e.Name,
@@ -81,53 +109,30 @@ func AsRestRouteEnvironmentVariable(endpoint *basev0.Endpoint) []string {
 }
 
 const Unknown = "unknown"
-
-func ParseEndpointEnvironmentVariableKey(key string) (string, error) {
-	unique, found := strings.CutPrefix(key, EndpointPrefix)
-	if !found {
-		return Unknown, fmt.Errorf("requires a prefix")
-	}
-	unique = strings.ToLower(unique)
-	tokens := strings.SplitN(unique, "__", 3)
-	if len(tokens) < 2 {
-		return Unknown, fmt.Errorf("needs to be at least of the form app__svc")
-	}
-	app := tokens[0]
-	svc := tokens[1]
-	unique = fmt.Sprintf("%s/%s", app, svc)
-	if len(tokens) == 2 {
-		return unique, nil
-	}
-	remaining := tokens[2]
-	if api, apiOnly := strings.CutPrefix(remaining, "__"); apiOnly {
-		unique = fmt.Sprintf("%s::%s", unique, api)
-		return unique, nil
-	}
-	// We have an endpoint: always as _endpoint or _endpoint____api
-	remaining = remaining[1:]
-	tokens = strings.Split(remaining, "____")
-	if len(tokens) == 1 {
-		return fmt.Sprintf("%s/%s", unique, remaining), nil
-	} else if len(tokens) == 2 {
-		return fmt.Sprintf("%s/%s::%s", unique, tokens[0], tokens[1]), nil
-	}
-	return Unknown, fmt.Errorf("needs to be at least of the form app__svc___endpoint")
-
-}
+const NA = "NA"
 
 type EndpointInstance struct {
-	Unique    string
+	*Endpoint
 	Addresses []string
 }
 
-func ParseEndpointEnvironmentVariable(env string) (*EndpointInstance, error) {
-	tokens := strings.Split(env, "=")
-	unique, err := ParseEndpointEnvironmentVariableKey(tokens[0])
-	if err != nil {
-		return nil, err
+func (instance *EndpointInstance) Address() (string, error) {
+	if len(instance.Addresses) != 1 {
+		return "", fmt.Errorf("endpoint instance has more than one address")
 	}
-	values := strings.Split(tokens[1], " ")
-	return &EndpointInstance{Unique: unique, Addresses: values}, nil
+	return instance.Addresses[0], nil
+}
+
+func (instance *EndpointInstance) PortAddress() (string, error) {
+	address, err := instance.Address()
+	if err != nil {
+		return "", err
+	}
+	tokens := strings.Split(address, ":")
+	if len(tokens) == 2 {
+		return fmt.Sprintf(":%s", tokens[1]), nil
+	}
+	return "", fmt.Errorf("endpoint instance address does not have a port")
 }
 
 type NilAPIError struct {
@@ -286,8 +291,9 @@ func FlattenRestRoutes(_ context.Context, endpoints []*basev0.Endpoint) []*basev
 
 func DetectNewRoutesFromEndpoints(ctx context.Context, known []*RestRoute, endpoints []*basev0.Endpoint) []*RestRoute {
 	w := wool.Get(ctx).In("DetectNewRoutes")
+	// TODO: Don't remember what I wanted to do
 	for _, e := range endpoints {
-		w.Error("do", wool.Field("endpoint", e))
+		w.Info("TODO: forgot what it was", wool.Field("endpoint", e))
 	}
 
 	var newRoutes []*RestRoute

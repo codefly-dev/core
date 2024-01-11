@@ -1,6 +1,7 @@
 package builders_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,14 +12,18 @@ import (
 )
 
 func TestHash(t *testing.T) {
+	ctx := context.Background()
 	// create a temporary directory
 	d, err := os.MkdirTemp("", "example")
 	assert.NoError(t, err)
 	defer os.RemoveAll(d)
 
-	dep := &builders.Dependency{Components: []string{d}}
-	h, err := dep.Hash()
+	dep := builders.NewDependency("test", d)
+	dep.WithDir(d)
+
+	updated, err := dep.Updated(ctx)
 	assert.NoError(t, err)
+	assert.True(t, updated)
 
 	// create a file inside the temporary directory
 	f, err := os.CreateTemp(d, "tmp")
@@ -26,10 +31,10 @@ func TestHash(t *testing.T) {
 	assert.NoError(t, err)
 	err = f.Close()
 	assert.NoError(t, err)
-	h2, err := dep.Hash()
-	assert.NoError(t, err)
 
-	assert.NotEqual(t, h, h2)
+	updated, err = dep.Updated(ctx)
+	assert.NoError(t, err)
+	assert.True(t, updated)
 
 	// To write to the file, you need to open it with write access
 	f, err = os.OpenFile(f.Name(), os.O_APPEND|os.O_WRONLY, 0600)
@@ -41,9 +46,9 @@ func TestHash(t *testing.T) {
 	err = f.Close()
 	assert.NoError(t, err)
 
-	h3, err := dep.Hash()
+	updated, err = dep.Updated(ctx)
 	assert.NoError(t, err)
-	assert.NotEqual(t, h2, h3)
+	assert.True(t, updated)
 
 }
 
@@ -51,18 +56,23 @@ func TestHashFolderAndFilter(t *testing.T) {
 	// create a temporary directory
 	d, err := os.MkdirTemp("", "example")
 	assert.NoError(t, err)
+	ctx := context.Background()
 	defer os.RemoveAll(d)
 
-	dep := &builders.Dependency{Components: []string{d}, Ignore: shared.NewIgnore("*.md")}
-	h, err := dep.Hash()
+	dep := builders.NewDependency("test", d)
+	dep.WithIgnore(shared.NewIgnore("*.md")).WithDir(d)
+
+	updated, err := dep.Updated(ctx)
 	assert.NoError(t, err)
+	assert.True(t, updated)
 
 	dir := filepath.Join(d, "dir")
 	err = os.Mkdir(dir, 0755)
 	assert.NoError(t, err)
-	h2, err := dep.Hash()
+
+	updated, err = dep.Updated(ctx)
 	assert.NoError(t, err)
-	assert.Equal(t, h, h2)
+	assert.False(t, updated)
 
 	// Add an ignored file
 	f, err := os.Create(filepath.Join(dir, "tmp.md"))
@@ -72,9 +82,9 @@ func TestHashFolderAndFilter(t *testing.T) {
 	err = f.Close()
 	assert.NoError(t, err)
 
-	h3, err := dep.Hash()
+	updated, err = dep.Updated(ctx)
 	assert.NoError(t, err)
-	assert.Equal(t, h, h3)
+	assert.False(t, updated)
 
 	// Add a non-ignored file
 	f, err = os.CreateTemp(dir, "tmp.txt")
@@ -84,8 +94,7 @@ func TestHashFolderAndFilter(t *testing.T) {
 	err = f.Close()
 	assert.NoError(t, err)
 
-	h4, err := dep.Hash()
+	updated, err = dep.Updated(ctx)
 	assert.NoError(t, err)
-	assert.NotEqual(t, h, h4)
-
+	assert.True(t, updated)
 }

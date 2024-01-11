@@ -333,13 +333,13 @@ func (app *Application) DeleteService(ctx context.Context, name string) error {
 func (app *Application) PublicEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
 	w := wool.Get(ctx).In("Application::PublicEndpoints", wool.ThisField(app))
 	var publicEndpoints []*basev0.Endpoint
-	// Init services
+	// InitAndWait services
 	services, err := app.LoadServices(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load services")
 	}
 	for _, service := range services {
-		// Init groups
+		// InitAndWait groups
 		for _, endpoint := range service.Endpoints {
 			if endpoint.Visibility != VisibilityPublic {
 				continue
