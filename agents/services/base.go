@@ -302,6 +302,10 @@ type WatchConfiguration struct {
 	req *builders.Dependency
 }
 
+func (c *WatchConfiguration) Add(s string) {
+	c.req.Components = append(c.req.Components, s)
+}
+
 func NewWatchConfiguration(requirements *builders.Dependency) *WatchConfiguration {
 	return &WatchConfiguration{
 		req: requirements,

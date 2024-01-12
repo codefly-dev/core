@@ -21,11 +21,9 @@ func (holder *EnvironmentVariableManager) Add(envs ...string) {
 	holder.envs = append(holder.envs, envs...)
 }
 
-func (holder *EnvironmentVariableManager) GetProjectProvider(ctx context.Context, key string) (string, error) {
-	w := wool.Get(ctx).In("EnvironmentVariableManager.GetServiceProvider")
+func (holder *EnvironmentVariableManager) GetProjectProvider(_ context.Context, key string) (string, error) {
 	providerInfo := &basev0.ProviderInformation{Origin: ProjectProviderOrigin}
 	key = ProviderInformationEnvKey(providerInfo, key)
-	w.Debug("looking", wool.Field("key", key))
 	for _, env := range holder.envs {
 		if value, ok := strings.CutPrefix(env, key); ok {
 			return value, nil
@@ -34,11 +32,9 @@ func (holder *EnvironmentVariableManager) GetProjectProvider(ctx context.Context
 	return "", fmt.Errorf("cannot find project provider env variable: %s", key)
 }
 
-func (holder *EnvironmentVariableManager) GetServiceProvider(ctx context.Context, unique string, name string, key string) (string, error) {
-	w := wool.Get(ctx).In("EnvironmentVariableManager.GetServiceProvider")
+func (holder *EnvironmentVariableManager) GetServiceProvider(_ context.Context, unique string, name string, key string) (string, error) {
 	providerInfo := &basev0.ProviderInformation{Origin: unique, Name: name}
 	key = ProviderInformationEnvKey(providerInfo, key)
-	w.Focus("looking", wool.Field("key", key))
 	for _, env := range holder.envs {
 		if value, ok := strings.CutPrefix(env, key); ok {
 			return value[1:], nil
@@ -48,13 +44,12 @@ func (holder *EnvironmentVariableManager) GetServiceProvider(ctx context.Context
 }
 
 func (holder *EnvironmentVariableManager) GetEndpoint(ctx context.Context, unique string) (*EndpointInstance, error) {
-	w := wool.Get(ctx).In("EnvironmentVariableManager.GetEndpoint")
+	w := wool.Get(ctx).In("configurations.GetEndpoint")
 	endpoint, err := ParseEndpoint(unique)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot parse endpoint")
 	}
 	key := EndpointEnvironmentVariableKey(endpoint)
-	w.Debug("looking", wool.Field("key", key))
 	for _, env := range holder.envs {
 		if value, ok := strings.CutPrefix(env, key); ok {
 			addresses := strings.Split(value[1:], ",")
@@ -71,9 +66,6 @@ func (holder *EnvironmentVariableManager) Get() []string {
 func (holder *EnvironmentVariableManager) GetBase() []string {
 	var envs []string
 	for _, env := range holder.envs {
-		if !strings.HasSuffix(env, ProviderPrefix) {
-			continue
-		}
 		tokens := strings.Split(env, "____")
 		if len(tokens) == 2 {
 			envs = append(envs, tokens[1])

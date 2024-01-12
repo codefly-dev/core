@@ -58,18 +58,21 @@ func (g *Proto) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "cannot check if updated")
 	}
 	if !updated {
+		w.Debug("no change detected")
 		return nil
 	}
+	w.Info("detected changes to the proto: re-generating code")
 
 	image := fmt.Sprintf("codeflydev/companion:%s", g.version)
 	volume := fmt.Sprintf("%s:/workspace", g.Dir)
+	// TODO: Switch to Docker runner
 	runner := runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "mod", "update"}}
 	err = runner.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}
 	runner = runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "generate"}}
-	w.Debug("Generating code from buf...")
+	w.Debug("Generating code from buf", wool.DirField(g.Dir))
 	err = runner.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")

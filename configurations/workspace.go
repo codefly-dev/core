@@ -41,22 +41,19 @@ func NewWorkspace(ctx context.Context, action *actionsv0.AddWorkspace) (*Workspa
 		return nil, err
 	}
 	projectRoot := action.ProjectRoot
-	if projectRoot == "" {
-		projectRoot = defaultProjectsRoot
-	}
-	w.Debug("workspace project root", wool.DirField(projectRoot))
-	workspace := &Workspace{
+	w.Debug("ws project root", wool.DirField(projectRoot))
+	ws := &Workspace{
 		Name:         action.Name,
 		Organization: *org,
 		Domain:       org.Domain,
 	}
 	if action.Dir != "" {
-		workspace.dir = action.Dir
-		workspaceConfigDir = workspace.dir
+		ws.dir = action.Dir
+		workspaceConfigDir = ws.dir
 	} else {
-		workspace.dir = WorkspaceConfigurationDir()
+		ws.dir = WorkspaceConfigurationDir()
 	}
-	return workspace, nil
+	return ws, nil
 }
 
 func (workspace *Workspace) AddProjectReference(ctx context.Context, project *Project) error {
@@ -104,16 +101,16 @@ func LoadWorkspaceFromDirUnsafe(ctx context.Context, dir string) (*Workspace, er
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
-	workspace, err := LoadFromDir[Workspace](ctx, dir)
+	ws, err := LoadFromDir[Workspace](ctx, dir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load Workspace configuration")
 	}
-	workspace.dir = dir
-	err = workspace.postLoad(ctx)
+	ws.dir = dir
+	err = ws.postLoad(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot post load Workspace configuration")
 	}
-	return workspace, nil
+	return ws, nil
 }
 
 func (workspace *Workspace) postLoad(_ context.Context) error {
@@ -305,7 +302,6 @@ Global Workspace Configuration
 */
 
 // WorkspaceConfigurationDir returns the directory where the Workspace configuration is stored
-// Loadialized to the default user folder
 func WorkspaceConfigurationDir() string {
 	return workspaceConfigDir
 }
@@ -324,16 +320,10 @@ var (
 	workspaceConfigDir string
 	// This is where the Workspace configuration is stored
 	// default to ~/.codefly
-
-	defaultProjectsRoot string
-	// This is where the projects are stored
-	// default to ~/codefly
-
 )
 
 func init() {
 	workspaceConfigDir = path.Join(shared.Must(HomeDir()), ".codefly")
-	defaultProjectsRoot = path.Join(shared.Must(HomeDir()), "codefly")
 }
 
 /*

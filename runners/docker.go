@@ -31,6 +31,7 @@ type Docker struct {
 	instance *DockerContainerInstance
 
 	workingDir string
+	silent     bool
 }
 
 type DockerRunOption struct {
@@ -238,14 +239,18 @@ func (docker *Docker) run(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot start container")
 	}
-	options := types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
-	logReader, err := docker.client.ContainerLogs(ctx, docker.instance.container.ID, options)
-	if err != nil {
-		return w.Wrapf(err, "cannot get container logs")
-	}
-	defer logReader.Close()
+	if !docker.silent {
+		options := types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
+		logReader, err := docker.client.ContainerLogs(ctx, docker.instance.container.ID, options)
+		if err != nil {
+			return w.Wrapf(err, "cannot get container logs")
+		}
+		defer logReader.Close()
 
-	Forward(logReader, w)
+		Forward(logReader, w)
+	} else {
+		_, _ = w.Forward([]byte("silent mode"))
+	}
 	return nil
 }
 
@@ -354,4 +359,8 @@ func (docker *Docker) Stop() error {
 		}
 	}()
 	return nil
+}
+
+func (docker *Docker) Silence() {
+	docker.silent = true
 }

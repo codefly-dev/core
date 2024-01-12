@@ -12,6 +12,9 @@ import (
 )
 
 type Organization struct {
+	// ID must be globally unique
+	ID string `yaml:"id"`
+
 	Name   string `yaml:"name"`
 	Domain string `yaml:"domain"`
 }

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/google/uuid"
+
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 
 	"github.com/codefly-dev/core/templates"
@@ -21,6 +23,8 @@ const ProjectConfigurationName = "project.codefly.yaml"
 
 type Project struct {
 	Name string `yaml:"name"`
+	// ID must be globally unique
+	ID string `yaml:"id,omitempty"`
 
 	Organization Organization `yaml:"organization"`
 	Domain       string       `yaml:"domain,omitempty"`
@@ -104,7 +108,13 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv0.Ad
 		return nil, w.Wrapf(err, "cannot create project directory")
 	}
 
+	// Generate UUID
+	id, err := uuid.NewUUID()
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot generate UUID")
+	}
 	project := &Project{
+		ID:           id.String(),
 		Name:         action.Name,
 		Organization: workspace.Organization,
 		Domain:       ExtendDomain(workspace.Domain, action.Name),
@@ -172,6 +182,14 @@ func LoadProjectFromDirUnsafe(ctx context.Context, dir string) (*Project, error)
 		return nil, w.Wrap(err)
 	}
 	project.dir = dir
+	// For safety, generate UUID if not present
+	if project.ID == "" {
+		id, err := uuid.NewUUID()
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot generate UUID")
+		}
+		project.ID = id.String()
+	}
 	err = project.postLoad(ctx)
 	if err != nil {
 		return nil, w.Wrap(err)
