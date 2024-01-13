@@ -14,6 +14,9 @@ type Runner struct {
 	Dir   string
 	Debug bool
 	Envs  []string
+
+	// internal
+	cmd *exec.Cmd
 }
 
 func (r *Runner) Start(ctx context.Context) (*WrappedCmdOutput, error) {
@@ -39,17 +42,30 @@ func (r *Runner) Run(ctx context.Context) error {
 	w := wool.Get(ctx).In("runner")
 	w.Debug("in runner")
 	// #nosec G204
-	cmd := exec.CommandContext(ctx, r.Bin, r.Args...)
-	cmd.Dir = r.Dir
-	cmd.Env = r.Envs
+	r.cmd = exec.CommandContext(ctx, r.Bin, r.Args...)
+	r.cmd.Dir = r.Dir
+	r.cmd.Env = r.Envs
 
-	run, err := NewWrappedCmd(cmd, w)
+	run, err := NewWrappedCmd(r.cmd, w)
 	if err != nil {
 		return w.Wrapf(err, "cannot createAndWait wrapped command")
 	}
 	err = run.Run()
 	if err != nil {
 		return w.Wrapf(err, "cannot start command")
+	}
+	return nil
+}
+
+func (r *Runner) Kill(ctx context.Context) error {
+	w := wool.Get(ctx).In("runner")
+	w.Debug("in runner")
+	if r.cmd == nil {
+		return nil
+	}
+	err := r.cmd.Process.Kill()
+	if err != nil {
+		return w.Wrapf(err, "cannot kill process")
 	}
 	return nil
 }
