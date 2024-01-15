@@ -26,20 +26,32 @@ type Endpoint struct {
 	Description string `yaml:"description,omitempty"`
 	Visibility  string `yaml:"visibility,omitempty"`
 	API         string `yaml:"api,omitempty"`
-	// FailOver indicates that this endpoint should fail over to another endpoint
-	FailOver *Endpoint `yaml:"fail-over,omitempty"`
 }
 
-func (e *Endpoint) Unique() string {
-	if e.Name == "" {
-		return fmt.Sprintf("%s/%s", e.Application, e.Service)
-	}
-	unique := fmt.Sprintf("%s/%s/%s", e.Application, e.Service, e.Name)
-	// Convention: if Endpoint Name == API, we skip the Name
-	if e.API != Unknown && e.Name != e.API {
-		return fmt.Sprintf("%s::%s", unique, e.API)
-	}
+func (endpoint *Endpoint) Unique() string {
+	unique := ServiceUnique(endpoint.Application, endpoint.Service)
+	unique += endpoint.Identifier()
 	return unique
+}
+
+func (endpoint *Endpoint) UnknownAPI() bool {
+	return endpoint.API == Unknown || endpoint.API == ""
+}
+
+// Identifier satisfies this format:
+// - name::api if name != api
+// - api if name == api or name == ""
+func (endpoint *Endpoint) Identifier() string {
+	if endpoint.UnknownAPI() {
+		if endpoint.Name == "" {
+			return ""
+		}
+		return fmt.Sprintf("/%s", endpoint.Name)
+	}
+	if endpoint.Name == endpoint.API {
+		return fmt.Sprintf("/%s", endpoint.API)
+	}
+	return fmt.Sprintf("/%s::%s", endpoint.Name, endpoint.API)
 }
 
 func ParseEndpoint(unique string) (*Endpoint, error) {
@@ -73,42 +85,35 @@ func ParseEndpoint(unique string) (*Endpoint, error) {
 	return endpoint, nil
 }
 
-func (e *Endpoint) AsReference() *EndpointReference {
+func (endpoint *Endpoint) AsReference() *EndpointReference {
 	return &EndpointReference{
-		Name: e.Name,
+		Name: endpoint.Name,
 	}
 }
 
 /* For runtime */
 
-const EndpointPrefix = "CODEFLY_ENDPOINT__"
+const EndpointIdentifier = "ENDPOINT"
 
+// TODO: want to encode only if we need to
 func SerializeAddresses(addresses []string) string {
-	return strings.Join(addresses, " ")
+	return strings.Join(addresses, ",")
+}
+
+func DeserializeAddresses(data string) ([]string, error) {
+	return strings.Split(string(data), ","), nil
 }
 
 func EndpointEnvironmentVariableKey(endpoint *Endpoint) string {
-	unique := endpoint.Unique()
-	unique = strings.ToUpper(unique)
-	unique = strings.Replace(unique, "/", "__", 1)
-	unique = strings.Replace(unique, "/", "___", 1)
-	unique = strings.Replace(unique, "::", "____", 1)
-	return strings.ToUpper(fmt.Sprintf("%s%s", EndpointPrefix, unique))
+	key := IdentifierKey(EndpointIdentifier, endpoint.Application, endpoint.Service)
+	id := strings.ToUpper(endpoint.Identifier())
+	id = strings.Replace(id, "/", "___", 1)
+	id = strings.Replace(id, "::", "____", 1)
+	return fmt.Sprintf("%s%s", key, id)
 }
 
 func AsEndpointEnvironmentVariable(endpoint *Endpoint, addresses []string) string {
 	return fmt.Sprintf("%s=%s", EndpointEnvironmentVariableKey(endpoint), SerializeAddresses(addresses))
-}
-
-func AsRestRouteEnvironmentVariable(endpoint *basev0.Endpoint) []string {
-	var envs []string
-	if rest := HasRest(context.Background(), endpoint.Api); rest != nil {
-		for _, route := range rest.Routes {
-			envs = append(envs, RestRoutesAsEnvironmentVariable(endpoint, route))
-		}
-	}
-	return envs
-
 }
 
 const Unknown = "unknown"

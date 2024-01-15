@@ -325,6 +325,17 @@ func LoadExtendedRestRoute[T any](p string, app string, service string) (*Extend
 	return &r, nil
 }
 
+func AsRestRouteEnvironmentVariable(endpoint *basev0.Endpoint) []string {
+	var envs []string
+	if rest := HasRest(context.Background(), endpoint.Api); rest != nil {
+		for _, route := range rest.Routes {
+			envs = append(envs, RestRoutesAsEnvironmentVariable(endpoint, route))
+		}
+	}
+	return envs
+
+}
+
 /* For runtime */
 
 const RestRoutePrefix = "CODEFLY_RESTROUTE__"
