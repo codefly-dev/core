@@ -21,12 +21,12 @@ func (holder *EnvironmentVariableManager) Add(envs ...string) {
 	holder.envs = append(holder.envs, envs...)
 }
 
-func (holder *EnvironmentVariableManager) GetProjectProvider(_ context.Context, key string) (string, error) {
-	providerInfo := &basev0.ProviderInformation{Origin: ProjectProviderOrigin}
+func (holder *EnvironmentVariableManager) GetProjectProvider(_ context.Context, name string, key string) (string, error) {
+	providerInfo := &basev0.ProviderInformation{Origin: ProjectProviderOrigin, Name: name}
 	key = ProviderInformationEnvKey(providerInfo, key)
 	for _, env := range holder.envs {
 		if value, ok := strings.CutPrefix(env, key); ok {
-			return value, nil
+			return value[1:], nil
 		}
 	}
 	return "", fmt.Errorf("cannot find project provider env variable: %s", key)

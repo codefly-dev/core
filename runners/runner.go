@@ -2,6 +2,7 @@ package runners
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 
 	"github.com/codefly-dev/core/wool"
@@ -57,15 +58,13 @@ func (r *Runner) Run(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) Kill(ctx context.Context) error {
-	w := wool.Get(ctx).In("runner")
-	w.Debug("in runner")
+func (r *Runner) Kill(_ context.Context) error {
 	if r.cmd == nil {
 		return nil
 	}
 	err := r.cmd.Process.Kill()
 	if err != nil {
-		return w.Wrapf(err, "cannot kill process")
+		return fmt.Errorf("cannot kill process: %w", err)
 	}
 	return nil
 }
