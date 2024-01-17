@@ -1,1 +1,1 @@
-package configurations
+package configurations_test

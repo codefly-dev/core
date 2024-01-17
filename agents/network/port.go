@@ -6,15 +6,12 @@ import (
 	"encoding/binary"
 	"net"
 
-	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/wool"
-
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
 type RandomStrategy struct{}
 
-func (r RandomStrategy) Reserve(ctx context.Context, host string, endpoints []ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
+func (r RandomStrategy) Reserve(ctx context.Context, host string, endpoints []*ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
 	w := wool.Get(ctx).In("network.RandomStrategy.Reserve")
 	ports, err := GetFreePorts(len(endpoints))
 	if err != nil {
@@ -33,7 +30,7 @@ func (r RandomStrategy) Reserve(ctx context.Context, host string, endpoints []Ap
 
 type FixedStrategy struct{}
 
-func toHundreds(s string) int {
+func toThousands(s string) int {
 	// Add a new SHA-256 hash.
 	hasher := sha256.New()
 
@@ -43,19 +40,18 @@ func toHundreds(s string) int {
 	// Get the hash sum.
 	hash := hasher.Sum(nil)
 
-	// Convert the first 4 bytes of the hash to an integer.
-	num := binary.BigEndian.Uint32(hash[:4])
+	num := binary.BigEndian.Uint32(hash)
 
-	// Map the number to the range [0, 999].
-	return int(num % 1000)
+	// Map the number to the range [0, 9999].
+	return int(num % 10000)
 }
 
-func (r FixedStrategy) Reserve(host string, endpoints []ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
+func (r FixedStrategy) Reserve(ctx context.Context, host string, endpoints []*ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
 	m := &ApplicationEndpointInstances{}
 	for _, endpoint := range endpoints {
 		m.ApplicationEndpointInstances = append(m.ApplicationEndpointInstances, &ApplicationEndpointInstance{
 			ApplicationEndpoint: endpoint,
-			Port:                11000 + toHundreds(endpoint.Unique()),
+			Port:                10000 + toThousands(endpoint.Unique()),
 			Host:                host,
 		})
 	}
@@ -82,12 +78,10 @@ func GetFreePorts(n int) ([]int, error) {
 	return ports, nil
 }
 
-func NewServicePortManager(_ context.Context, identity *configurations.ServiceIdentity, endpoints ...*basev0.Endpoint) (*ServiceManager, error) {
+func NewServicePortManager(_ context.Context) (*ServiceManager, error) {
 	return &ServiceManager{
-		service:   identity,
-		endpoints: endpoints,
-		strategy:  &FixedStrategy{},
-		ids:       make(map[string]int),
-		host:      "localhost",
+		strategy: &FixedStrategy{},
+		ids:      make(map[string]int),
+		host:     "localhost",
 	}, nil
 }

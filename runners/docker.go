@@ -221,12 +221,12 @@ func (docker *Docker) create(ctx context.Context, wait bool) error {
 	}
 
 	// Create the container
-	w.Debug("creating container")
+	w.Trace("creating container")
 	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, "")
 	if err != nil {
 		return w.Wrapf(err, "cannot createAndWait container")
 	}
-	w.Debug("created container", wool.Field("id", resp.ID))
+	w.Trace("created container", wool.Field("id", resp.ID))
 	docker.instance = &DockerContainerInstance{
 		container: resp,
 	}
@@ -333,7 +333,7 @@ func (docker *Docker) WithPort(port DockerPort) {
 }
 
 func (docker *Docker) WithEnvironmentVariables(envs ...string) {
-	docker.envs = envs
+	docker.envs = append(docker.envs, envs...)
 }
 
 func (docker *Docker) WithCommand(cmd ...string) {

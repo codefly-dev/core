@@ -30,7 +30,7 @@ func NewProto(ctx context.Context, dir string) (*Proto, error) {
 	return &Proto{
 		Dir:        dir,
 		version:    version,
-		dependency: builders.NewDependency("proto", dir).WithIgnore(shared.NewSelect("*.proto")).WithDir(dir),
+		dependency: builders.NewDependency("proto", dir).WithSelect(shared.NewSelect("*.proto")).WithDir(dir),
 	}, nil
 }
 

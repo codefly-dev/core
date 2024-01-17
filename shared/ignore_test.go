@@ -12,3 +12,9 @@ func TestIgnorePattern(t *testing.T) {
 	assert.True(t, ign.Skip("file.md"))
 	assert.False(t, ign.Skip("somefile.txt"))
 }
+
+func TestSelectPattern(t *testing.T) {
+	ign := shared.NewSelect("*.md")
+	assert.True(t, ign.Keep("file.md"))
+	assert.False(t, ign.Keep("somefile.txt"))
+}

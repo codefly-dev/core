@@ -38,6 +38,10 @@ func RouteUnique(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
 	return MakeRouteUnique(endpoint.Application, endpoint.Service, route.Path)
 }
 
+func (r *RestRoute) ServiceUnique() string {
+	return ServiceUnique(r.Application, r.Service)
+}
+
 func MakeRouteUnique(app string, service string, path string) string {
 	if cut, ok := strings.CutPrefix(path, "/"); ok {
 		path = cut
@@ -96,7 +100,7 @@ func sanitizeRoute(route string) string {
 
 func sanitizePath(route string) string {
 	route = strings.TrimPrefix(route, "/")
-	return strings.ReplaceAll(route, "/", "#")
+	return strings.ReplaceAll(route, "/", "__")
 }
 
 func (r *RestRoute) FilePath(ctx context.Context, dir string) (string, error) {

@@ -29,9 +29,13 @@ type Endpoint struct {
 }
 
 func (endpoint *Endpoint) Unique() string {
-	unique := ServiceUnique(endpoint.Application, endpoint.Service)
+	unique := endpoint.ServiceUnique()
 	unique += endpoint.Identifier()
 	return unique
+}
+
+func (endpoint *Endpoint) ServiceUnique() string {
+	return ServiceUnique(endpoint.Application, endpoint.Service)
 }
 
 func (endpoint *Endpoint) UnknownAPI() bool {
@@ -301,7 +305,7 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, known []*RestRoute, endpo
 	w := wool.Get(ctx).In("DetectNewRoutes")
 	// TODO: Don't remember what I wanted to do
 	for _, e := range endpoints {
-		w.Info("TODO: forgot what it was", wool.Field("endpoint", e))
+		w.Debug("TODO: forgot what it was", wool.Field("endpoint", e))
 	}
 
 	var newRoutes []*RestRoute

@@ -52,6 +52,53 @@ func TestHash(t *testing.T) {
 
 }
 
+func TestHashWildCardSelect(t *testing.T) {
+	// create a temporary directory
+	d, err := os.MkdirTemp("", "example")
+	assert.NoError(t, err)
+	ctx := context.Background()
+	defer os.RemoveAll(d)
+
+	dep := builders.NewDependency("test", d)
+	dep.WithSelect(shared.NewSelect("*.md")).WithDir(d)
+
+	updated, err := dep.Updated(ctx)
+	assert.NoError(t, err)
+	assert.True(t, updated)
+
+	dir := filepath.Join(d, "dir")
+	err = os.Mkdir(dir, 0755)
+	assert.NoError(t, err)
+
+	updated, err = dep.Updated(ctx)
+	assert.NoError(t, err)
+	assert.False(t, updated)
+
+	// Add a selected file
+	f, err := os.Create(filepath.Join(dir, "tmp.md"))
+	assert.NoError(t, err)
+	_, err = f.Write([]byte("hello world"))
+	assert.NoError(t, err)
+	err = f.Close()
+	assert.NoError(t, err)
+
+	updated, err = dep.Updated(ctx)
+	assert.NoError(t, err)
+	assert.True(t, updated)
+
+	// Add a non-select file
+	f, err = os.CreateTemp(dir, "tmp.txt")
+	assert.NoError(t, err)
+	_, err = f.Write([]byte("hello world"))
+	assert.NoError(t, err)
+	err = f.Close()
+	assert.NoError(t, err)
+
+	updated, err = dep.Updated(ctx)
+	assert.NoError(t, err)
+	assert.False(t, updated)
+}
+
 func TestHashFolderAndFilter(t *testing.T) {
 	// create a temporary directory
 	d, err := os.MkdirTemp("", "example")

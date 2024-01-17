@@ -15,7 +15,7 @@ func ToDNS(e *basev0.Endpoint) string {
 	return fmt.Sprintf("%s-%s.%s.svc.cluster.local", e.Service, e.Application, e.Namespace)
 }
 
-func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
+func (r DNS) Reserve(_ context.Context, _ string, es []*ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
 	m := &ApplicationEndpointInstances{}
 	for _, e := range es {
 		port, err := configurations.StandardPort(e.Endpoint.Api)
@@ -31,9 +31,8 @@ func (r DNS) Reserve(_ string, es []ApplicationEndpoint) (*ApplicationEndpointIn
 	return m, nil
 }
 
-func NewServiceDNSManager(_ context.Context, identity *configurations.ServiceIdentity, endpoints ...*basev0.Endpoint) (*ServiceManager, error) {
+func NewServiceDNSManager(_ context.Context, endpoints ...*basev0.Endpoint) (*ServiceManager, error) {
 	return &ServiceManager{
-		service:   identity,
 		endpoints: endpoints,
 		strategy:  &DNS{},
 		ids:       make(map[string]int),

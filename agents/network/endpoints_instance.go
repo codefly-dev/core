@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -11,7 +12,7 @@ import (
 )
 
 type Strategy interface {
-	Reserve(host string, endpoints []ApplicationEndpoint) (*ApplicationEndpointInstances, error)
+	Reserve(ctx context.Context, host string, endpoints []*ApplicationEndpoint) (*ApplicationEndpointInstances, error)
 }
 
 // An ApplicationEndpoint takes a service Endpoint
@@ -40,7 +41,7 @@ func (e ApplicationEndpoint) Clone() ApplicationEndpoint {
 
 // An ApplicationEndpointInstance is an instance of an ApplicationEndpoint
 type ApplicationEndpointInstance struct {
-	ApplicationEndpoint ApplicationEndpoint
+	ApplicationEndpoint *ApplicationEndpoint
 	Port                int
 	Host                string
 }
@@ -77,6 +78,8 @@ func ToEndpoint(endpoint *basev0.Endpoint) *configurations.Endpoint {
 	}
 	return &configurations.Endpoint{
 		Name:        endpoint.Name,
+		Service:     endpoint.Service,
+		Application: endpoint.Application,
 		Description: endpoint.Description,
 		API:         api,
 	}

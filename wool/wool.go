@@ -74,15 +74,15 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 	}
 	// If LogLevel is ERROR, always add the code reference information
 
-	if l >= ERROR {
-		ref, err := getFileInfo(3)
-		if err == nil {
-			fs = append(fs, &LogField{
-				Key:   "code",
-				Value: ref,
-			})
-		}
-	}
+	//if l >= ERROR {
+	//	ref, err := getFileInfo(3)
+	//	if err == nil {
+	//		fs = append(fs, &LogField{
+	//			Key:   "code",
+	//			Value: ref,
+	//		})
+	//	}
+	//}
 
 	log := &Log{Message: msg, Fields: fs, Level: l, Header: w.name}
 	log.Fields = append(log.Fields, w.fields...)

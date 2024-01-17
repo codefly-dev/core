@@ -10,6 +10,10 @@ type Ignore interface {
 	Skip(p string) bool
 }
 
+type Select interface {
+	Keep(p string) bool
+}
+
 type ContextIgnoreKey string
 
 const (
@@ -88,17 +92,17 @@ func NewSelect(patterns ...string) *SelectPatterns {
 	return ign
 }
 
-func (ign *SelectPatterns) Skip(file string) bool {
+func (ign *SelectPatterns) Keep(file string) bool {
 	for _, pattern := range ign.patterns {
 		if strings.Contains(file, pattern) {
-			return false
+			return true
 		}
 	}
 	for i := range ign.regex {
 		reg := &ign.regex[i]
 		if reg.MatchString(file) {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
 }

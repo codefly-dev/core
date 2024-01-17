@@ -3,7 +3,6 @@ package network
 import (
 	"context"
 
-	"github.com/codefly-dev/core/configurations"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 	"github.com/codefly-dev/core/wool"
@@ -11,11 +10,10 @@ import (
 
 // A ServiceManager helps go from a service to applications endpoint instances
 type ServiceManager struct {
-	service   *configurations.ServiceIdentity
 	endpoints []*basev0.Endpoint
 
 	strategy Strategy
-	specs    []ApplicationEndpoint
+	specs    []*ApplicationEndpoint
 
 	ids  map[string]int
 	host string
@@ -23,9 +21,8 @@ type ServiceManager struct {
 	reserved *ApplicationEndpointInstances
 }
 
-func NewServiceManager(identity *configurations.ServiceIdentity, endpoints ...*basev0.Endpoint) *ServiceManager {
+func NewServiceManager(endpoints ...*basev0.Endpoint) *ServiceManager {
 	return &ServiceManager{
-		service:   identity,
 		endpoints: endpoints,
 		strategy:  &FixedStrategy{},
 		ids:       make(map[string]int),
@@ -41,10 +38,10 @@ func (pm *ServiceManager) Bind(ctx context.Context, endpoint *basev0.Endpoint, p
 
 	w.Trace("binding endpoint")
 	pm.specs = append(pm.specs,
-		ApplicationEndpoint{
-			Service:     pm.service.Name,
-			Application: pm.service.Application,
-			Namespace:   pm.service.Namespace,
+		&ApplicationEndpoint{
+			Service:     endpoint.Name,
+			Application: endpoint.Application,
+			Namespace:   endpoint.Namespace,
 			Endpoint:    endpoint,
 			PortBinding: portBinding,
 		})
@@ -57,13 +54,11 @@ func (pm *ServiceManager) Expose(endpoint *basev0.Endpoint) error {
 	if endpoint == nil {
 		return w.NewError("cannot expose nil endpoint")
 	}
-	w = w.With(wool.Field("endpoint", endpoint.Name))
-	w.Trace("exposing endpoint")
 	pm.specs = append(pm.specs,
-		ApplicationEndpoint{
-			Service:     pm.service.Name,
-			Application: pm.service.Application,
-			Namespace:   pm.service.Namespace,
+		&ApplicationEndpoint{
+			Service:     endpoint.Name,
+			Application: endpoint.Application,
+			Namespace:   endpoint.Namespace,
 			Endpoint:    endpoint,
 		})
 	pm.ids[ToUnique(endpoint)]++
@@ -72,7 +67,7 @@ func (pm *ServiceManager) Expose(endpoint *basev0.Endpoint) error {
 
 func (pm *ServiceManager) Reserve(ctx context.Context) error {
 	w := wool.Get(ctx).In("ServiceManager.Reserve")
-	m, err := pm.strategy.Reserve(pm.host, pm.specs)
+	m, err := pm.strategy.Reserve(ctx, pm.host, pm.specs)
 	if err != nil {
 		return w.Wrapf(err, "cannot reserve ports")
 	}

@@ -21,6 +21,21 @@ func CheckForRuntimes(ctx context.Context, requirements []*agentv0.Runtime) erro
 			if err != nil {
 				return fmt.Errorf("Go is required and is not installed")
 			}
+		case agentv0.Runtime_NPM:
+			_, err := exec.LookPath("npm")
+			if err != nil {
+				return fmt.Errorf("npm is required and is not installed")
+			}
+		case agentv0.Runtime_PYTHON:
+			_, err := exec.LookPath("python")
+			if err != nil {
+				return fmt.Errorf("Python is required and is not installed")
+			}
+		case agentv0.Runtime_PYTHON_POETRY:
+			_, err := exec.LookPath("poetry")
+			if err != nil {
+				return fmt.Errorf("Poetry is required and is not installed")
+			}
 		}
 	}
 	return nil

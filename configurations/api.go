@@ -112,7 +112,7 @@ func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *Endpoint, filename str
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to read file")
 	}
-	swagger, err := parseOpenAPI(content)
+	swagger, err := ParseOpenAPI(content)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to parse openapi spec")
 	}
@@ -126,6 +126,18 @@ func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *Endpoint, filename str
 		})
 	}
 	return WithAPI(ctx, endpoint, &RestAPI{openapi: content, routes: routes, filename: filename})
+}
+
+func EndpointRestAPI(endpoint *basev0.Endpoint) *basev0.RestAPI {
+	if endpoint == nil {
+		return nil
+	}
+	switch v := endpoint.Api.Value.(type) {
+	case *basev0.API_Rest:
+		return v.Rest
+	default:
+		return nil
+	}
 }
 
 type HTTPAPI struct{}
@@ -164,7 +176,8 @@ func NewTCPAPI(ctx context.Context, endpoint *Endpoint) (*basev0.Endpoint, error
 }
 
 /* Helpers */
-func parseOpenAPI(spec []byte) (*openapispec.Swagger, error) {
+
+func ParseOpenAPI(spec []byte) (*openapispec.Swagger, error) {
 	analyzed, err := openapiloads.Analyzed(spec, "2.0")
 	if err != nil {
 		return nil, err

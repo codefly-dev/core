@@ -113,3 +113,15 @@ func ProviderInformationEnvKey(info *basev0.ProviderInformation, key string) str
 func sanitizeUnique(origin string) string {
 	return strings.Replace(origin, "/", "__", 1)
 }
+
+func GetProjectProvider(name string, provs []*basev0.ProviderInformation) (*basev0.ProviderInformation, error) {
+	for _, prov := range provs {
+		if prov.Origin != ProjectProviderOrigin {
+			continue
+		}
+		if prov.Name == name {
+			return prov, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot find provider: %s", name)
+}

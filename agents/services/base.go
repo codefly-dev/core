@@ -143,15 +143,15 @@ func (s *Base) DockerImage() *configurations.DockerImage {
 	}
 }
 
-func (s *FactoryWrapper) LoadResponse(es []*basev0.Endpoint, gettingStarted string) (*factoryv0.LoadResponse, error) {
-	for _, e := range es {
+func (s *FactoryWrapper) LoadResponse(gettingStarted string) (*factoryv0.LoadResponse, error) {
+	for _, e := range s.Endpoints {
 		e.Application = s.Identity.Application
 		e.Service = s.Identity.Name
 		e.Namespace = s.Identity.Namespace
 	}
 	return &factoryv0.LoadResponse{
 		Version:        s.Version(),
-		Endpoints:      es,
+		Endpoints:      s.Endpoints,
 		GettingStarted: gettingStarted,
 		Status:         &factoryv0.LoadStatus{State: factoryv0.LoadStatus_READY},
 	}, nil
@@ -211,16 +211,16 @@ func (s *FactoryWrapper) BuildError(err error) (*factoryv0.BuildResponse, error)
 
 // Runtime
 
-func (s *RuntimeWrapper) LoadResponse(endpoints []*basev0.Endpoint) (*runtimev0.LoadResponse, error) {
+func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
 	// for convenience, add application and service
-	for _, endpoint := range endpoints {
+	for _, endpoint := range s.Endpoints {
 		endpoint.Application = s.Configuration.Application
 		endpoint.Service = s.Configuration.Name
 	}
-	s.Wool.Debug("load response", wool.NullableField("exposing endpoints", configurations.MakeEndpointSummary(endpoints)))
+	s.Wool.Debug("load response", wool.NullableField("exposing endpoints", configurations.MakeEndpointSummary(s.Endpoints)))
 	return &runtimev0.LoadResponse{
 		Version:   s.Version(),
-		Endpoints: endpoints,
+		Endpoints: s.Endpoints,
 		Status:    &runtimev0.LoadStatus{State: runtimev0.LoadStatus_READY},
 	}, nil
 }
@@ -296,6 +296,24 @@ func (s *Base) EndpointsFromConfiguration(ctx context.Context) ([]*basev0.Endpoi
 		}
 	}
 	return eps, nil
+}
+
+func (s *Base) Network(ctx context.Context) ([]*runtimev0.NetworkMapping, error) {
+	pm, err := network.NewServicePortManager(ctx)
+	if err != nil {
+		return nil, s.Wool.Wrapf(err, "cannot create default endpoint")
+	}
+	for _, endpoint := range s.Endpoints {
+		err = pm.Expose(endpoint)
+		if err != nil {
+			return nil, s.Wool.Wrapf(err, "cannot add grpc endpoint to network manager")
+		}
+	}
+	err = pm.Reserve(ctx)
+	if err != nil {
+		return nil, s.Wool.Wrapf(err, "cannot reserve ports")
+	}
+	return pm.NetworkMapping(ctx)
 }
 
 type WatchConfiguration struct {

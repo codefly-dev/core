@@ -19,6 +19,7 @@ type Dependency struct {
 	Name       string
 	Components []string
 	Ignore     shared.Ignore
+	Select     shared.Select
 
 	dir string
 }
@@ -37,6 +38,11 @@ func (dep *Dependency) WithDir(dir string) *Dependency {
 
 func (dep *Dependency) WithIgnore(ignore shared.Ignore) *Dependency {
 	dep.Ignore = ignore
+	return dep
+}
+
+func (dep *Dependency) WithSelect(sel shared.Select) *Dependency {
+	dep.Select = sel
 	return dep
 }
 
@@ -115,6 +121,9 @@ func (dep *Dependency) Hash(_ context.Context) (string, error) {
 				return nil
 			}
 			if dep.Ignore != nil && dep.Ignore.Skip(path) {
+				return nil
+			}
+			if dep.Select != nil && !dep.Select.Keep(path) {
 				return nil
 			}
 
