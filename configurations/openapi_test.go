@@ -3,10 +3,11 @@ package configurations_test
 import (
 	"context"
 	"fmt"
-	"github.com/codefly-dev/core/configurations"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
+
+	"github.com/codefly-dev/core/configurations"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestOpenAPICombine(t *testing.T) {

@@ -3,7 +3,6 @@ package wool
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"runtime/debug"
 
 	"github.com/pkg/errors"
@@ -95,16 +94,16 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 	}
 }
 
-func getFileInfo(depth int) (*CodeReference, error) {
-	_, file, line, ok := runtime.Caller(depth)
-	if !ok {
-		return nil, errors.New("cannot get caller information")
-	}
-	return &CodeReference{
-		Line: line,
-		File: file,
-	}, nil
-}
+//func getFileInfo(depth int) (*CodeReference, error) {
+//	_, file, line, ok := runtime.Caller(depth)
+//	if !ok {
+//		return nil, errors.New("cannot get caller information")
+//	}
+//	return &CodeReference{
+//		Line: line,
+//		File: file,
+//	}, nil
+//}
 
 func (w *Wool) Forward(p []byte) (n int, err error) {
 	w.process(FORWARD, string(p))

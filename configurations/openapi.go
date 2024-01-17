@@ -3,11 +3,12 @@ package configurations
 import (
 	"context"
 	"fmt"
+	"os"
+	"slices"
+
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	"github.com/codefly-dev/core/wool"
 	"github.com/go-openapi/spec"
-	"os"
-	"slices"
 )
 
 type OpenAPICombinator struct {
@@ -82,7 +83,7 @@ func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.Endpoint, erro
 	// Iterate over each document
 	for _, s := range c.openapis {
 		// Combine paths
-		for path, pathItem := range s.swagger.Paths.Paths {
+		for path := range s.swagger.Paths.Paths {
 			if only, ok := c.only[s.unique]; ok {
 				if !slices.Contains(only, path) {
 					continue
@@ -90,23 +91,25 @@ func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.Endpoint, erro
 			}
 			// New path
 			path = fmt.Sprintf("/%s%s", s.unique, path)
-			if _, exists := combined.Paths.Paths[path]; exists {
-				// Handle path conflict
-				return nil, fmt.Errorf("path conflict: %s", path)
+			if item, exists := combined.Paths.Paths[path]; !exists {
+				combined.Paths.Paths[path] = item
+				continue
 			}
-			combined.Paths.Paths[path] = pathItem
+			// Handle path conflict
+			return nil, fmt.Errorf("path conflict: %s", path)
 		}
 
 		// Combine definitions (schemas)
 		if combined.Definitions == nil {
 			combined.Definitions = make(spec.Definitions)
 		}
-		for name, definition := range s.swagger.Definitions {
-			if _, exists := combined.Definitions[name]; exists {
-				// Handle definition conflict
-				return nil, fmt.Errorf("definition conflict: %s", name)
+		for name := range s.swagger.Definitions {
+			if definition, exists := combined.Definitions[name]; !exists {
+				combined.Definitions[name] = definition
+				continue
 			}
-			combined.Definitions[name] = definition
+			// Handle definition conflict
+			return nil, fmt.Errorf("definition conflict: %s", name)
 		}
 
 		// Similarly, combine other components if needed (responses, parameters, etc.)
@@ -132,5 +135,5 @@ func (c *OpenAPICombinator) Only(unique string, path string) {
 }
 
 func writeToFile(destination string, out []byte) error {
-	return os.WriteFile(destination, out, 0644)
+	return os.WriteFile(destination, out, 0600)
 }

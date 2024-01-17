@@ -46,7 +46,7 @@ func toThousands(s string) int {
 	return int(num % 10000)
 }
 
-func (r FixedStrategy) Reserve(ctx context.Context, host string, endpoints []*ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
+func (r FixedStrategy) Reserve(_ context.Context, host string, endpoints []*ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
 	m := &ApplicationEndpointInstances{}
 	for _, endpoint := range endpoints {
 		m.ApplicationEndpointInstances = append(m.ApplicationEndpointInstances, &ApplicationEndpointInstance{
