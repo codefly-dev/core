@@ -83,7 +83,8 @@ func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.Endpoint, erro
 	// Iterate over each document
 	for _, s := range c.openapis {
 		// Combine paths
-		for path := range s.swagger.Paths.Paths {
+		//nolint:gocritic
+		for path, pathItem := range s.swagger.Paths.Paths {
 			if only, ok := c.only[s.unique]; ok {
 				if !slices.Contains(only, path) {
 					continue
@@ -91,25 +92,26 @@ func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.Endpoint, erro
 			}
 			// New path
 			path = fmt.Sprintf("/%s%s", s.unique, path)
-			if item, exists := combined.Paths.Paths[path]; !exists {
-				combined.Paths.Paths[path] = item
-				continue
+			if _, exists := combined.Paths.Paths[path]; exists {
+				// Handle path conflict
+				return nil, fmt.Errorf("path conflict: %s", path)
 			}
-			// Handle path conflict
-			return nil, fmt.Errorf("path conflict: %s", path)
+
+			combined.Paths.Paths[path] = pathItem
+			continue
 		}
 
 		// Combine definitions (schemas)
 		if combined.Definitions == nil {
 			combined.Definitions = make(spec.Definitions)
 		}
-		for name := range s.swagger.Definitions {
-			if definition, exists := combined.Definitions[name]; !exists {
-				combined.Definitions[name] = definition
-				continue
+		//nolint:gocritic
+		for name, definition := range s.swagger.Definitions {
+			if _, exists := combined.Definitions[name]; exists {
+				// Handle definition conflict
+				return nil, fmt.Errorf("definition conflict: %s", name)
 			}
-			// Handle definition conflict
-			return nil, fmt.Errorf("definition conflict: %s", name)
+			combined.Definitions[name] = definition
 		}
 
 		// Similarly, combine other components if needed (responses, parameters, etc.)

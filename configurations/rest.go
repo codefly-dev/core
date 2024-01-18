@@ -329,10 +329,12 @@ func LoadExtendedRestRoute[T any](p string, app string, service string) (*Extend
 	return &r, nil
 }
 
-func AsRestRouteEnvironmentVariable(endpoint *basev0.Endpoint) []string {
+func AsRestRouteEnvironmentVariable(ctx context.Context, endpoint *basev0.Endpoint) []string {
+	w := wool.Get(ctx).In("AsRestRouteEnvironmentVariable")
 	var envs []string
 	if rest := HasRest(context.Background(), endpoint.Api); rest != nil {
 		for _, route := range rest.Routes {
+			w.Debug("adding", wool.Field("route", route))
 			envs = append(envs, RestRoutesAsEnvironmentVariable(endpoint, route))
 		}
 	}

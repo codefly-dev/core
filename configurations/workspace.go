@@ -228,14 +228,27 @@ func (workspace *Workspace) ActiveProject(ctx context.Context) (*ProjectReferenc
 	return nil, w.NewError("no active project in Workspace configuration")
 }
 
-// LoadActiveProject loads the active project
-func (workspace *Workspace) LoadActiveProject(ctx context.Context) (*Project, error) {
+// LoadActiveProject load the active project
+// bool is active comes from path
+func (workspace *Workspace) LoadActiveProject(ctx context.Context) (*Project, bool, error) {
 	w := wool.Get(ctx).In("configurations.LoadActiveProject")
+	// Override with Path
+	project, err := LoadProjectFromPath(ctx)
+	if err != nil {
+		return nil, false, w.Wrapf(err, "cannot load project from path")
+	}
+	if project != nil {
+		return project, true, nil
+	}
 	ref, err := workspace.ActiveProject(ctx)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot load active project")
+		return nil, false, w.Wrapf(err, "cannot load active project")
 	}
-	return workspace.LoadProjectFromReference(ctx, ref)
+	project, err = workspace.LoadProjectFromReference(ctx, ref)
+	if err != nil {
+		return nil, false, w.Wrapf(err, "cannot load project from reference")
+	}
+	return project, false, nil
 }
 
 // ProjectNames returns the names of the projects in the Workspace configuration

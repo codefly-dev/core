@@ -377,6 +377,10 @@ func (s *Base) Focus(msg string, fields ...*wool.LogField) {
 	s.Wool.Focus(msg, fields...)
 }
 
+func (s *Base) LogForward(msg string, args ...any) {
+	_, _ = s.Wool.Forward([]byte(fmt.Sprintf(msg, args...)))
+}
+
 func (s *Base) Version() *basev0.Version {
 	return &basev0.Version{Version: s.Configuration.Version}
 }

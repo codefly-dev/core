@@ -116,7 +116,7 @@ func EndpointEnvironmentVariableKey(endpoint *Endpoint) string {
 	return fmt.Sprintf("%s%s", key, id)
 }
 
-func AsEndpointEnvironmentVariable(endpoint *Endpoint, addresses []string) string {
+func AsEndpointEnvironmentVariable(_ context.Context, endpoint *Endpoint, addresses []string) string {
 	return fmt.Sprintf("%s=%s", EndpointEnvironmentVariableKey(endpoint), SerializeAddresses(addresses))
 }
 

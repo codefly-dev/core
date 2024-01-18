@@ -53,7 +53,7 @@ func (action *SetProjectActiveAction) Run(ctx context.Context) (any, error) {
 	}
 
 	// Return the project
-	project, err := workspace.LoadActiveProject(ctx)
+	project, _, err := workspace.LoadActiveProject(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load active project")
 	}

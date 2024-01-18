@@ -121,9 +121,10 @@ func TestCreation(t *testing.T) {
 	assert.Equal(t, project.Name, back.Name)
 
 	// Check that the active project is the one we created
-	active, err := w.LoadActiveProject(ctx)
+	active, fromPath, err := w.LoadActiveProject(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, project.Name, active.Name)
+	assert.False(t, fromPath)
 
 	all, err := w.LoadProjects(ctx)
 	assert.NoError(t, err)
@@ -156,8 +157,9 @@ func TestCreation(t *testing.T) {
 	assert.NotContains(t, wsConfig, "name: test-project*")
 
 	// Check that the active project is the latest one
-	active, err = w.LoadActiveProject(ctx)
+	active, fromPath, err = w.LoadActiveProject(ctx)
 	assert.NoError(t, err)
+	assert.False(t, fromPath)
 	assert.Equal(t, recent.Name, active.Name)
 
 	all, err = w.LoadProjects(ctx)
@@ -201,12 +203,46 @@ func TestAddingExistingProjectAbsolutePath(t *testing.T) {
 	assert.Contains(t, wsConfig, fmt.Sprintf("path: %s", project.Dir()))
 }
 
-func TestLoading(t *testing.T) {
+func TestProjectLoading(t *testing.T) {
 	ctx := context.Background()
 	ws := &configurations.Workspace{}
 
 	p, err := ws.LoadProjectFromDir(ctx, "testdata/project")
 	assert.NoError(t, err)
+	assert.Equal(t, "codefly-platform", p.Name)
+	assert.Equal(t, 2, len(p.Applications))
+	assert.Equal(t, "web", p.Applications[0].Name)
+	assert.Equal(t, "management", p.Applications[1].Name)
+	assert.Equal(t, "web", *p.ActiveApplication(ctx))
+
+	// Save and make sure we preserve the "active application" convention
+	tmpDir := t.TempDir()
+
+	err = p.SaveToDirUnsafe(ctx, tmpDir)
+	assert.NoError(t, err)
+
+	content, err := os.ReadFile(path.Join(tmpDir, configurations.ProjectConfigurationName))
+	assert.NoError(t, err)
+	assert.Contains(t, string(content), "web*")
+	p, err = ws.LoadProjectFromDir(ctx, tmpDir)
+	assert.NoError(t, err)
+	assert.Equal(t, "web", *p.ActiveApplication(ctx))
+}
+
+func TestProjectLoadingFromPath(t *testing.T) {
+	ctx := context.Background()
+	ws := &configurations.Workspace{}
+
+	cur, err := os.Getwd()
+	assert.NoError(t, err)
+
+	err = os.Chdir(path.Join(cur, "testdata/project"))
+	assert.NoError(t, err)
+	defer os.Chdir(cur)
+
+	p, fromPath, err := ws.LoadActiveProject(ctx)
+	assert.NoError(t, err)
+	assert.True(t, fromPath)
 	assert.Equal(t, "codefly-platform", p.Name)
 	assert.Equal(t, 2, len(p.Applications))
 	assert.Equal(t, "web", p.Applications[0].Name)
