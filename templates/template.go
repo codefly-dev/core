@@ -150,19 +150,45 @@ func CopyAndReplace(ctx context.Context, fs shared.FileSystem, f shared.File, de
 	return nil
 }
 
+type Templator struct {
+	Ignore   shared.Ignore
+	Override shared.Override
+}
+
+var _ shared.Ignore = &Templator{}
+var _ shared.Override = &Templator{}
+
+func (t *Templator) Skip(name string) bool {
+	if t.Ignore == nil {
+		return false
+
+	}
+	return t.Ignore.Skip(name)
+}
+
+func (t *Templator) Replace(p string) bool {
+	if t.Override == nil {
+		return true
+	}
+	return t.Override.Replace(p)
+}
+
 func CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
+	t := Templator{}
+	return t.CopyAndApply(ctx, fs, root, destination, obj)
+}
+
+func (t *Templator) CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
 	w := wool.Get(ctx).In("templates.CopyAndApply")
 
 	_, err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
-	override := shared.GetOverride(ctx)
-	ignore := shared.GetIgnore(ctx)
 
 	if err != nil {
 		return w.Wrapf(err, "cannot check or create directory")
 	}
 	var dirs []shared.Dir
 	var files []shared.File
-	err = Walk(ctx, fs, root, ignore, &files, &dirs)
+	err = Walk(ctx, fs, root, t, &files, &dirs)
 	if err != nil {
 		return fmt.Errorf("cannot read template directory: %v", err)
 	}
@@ -197,7 +223,7 @@ func CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, de
 			continue
 		}
 
-		if shared.FileExists(d) && !override.Replace(d) {
+		if shared.FileExists(d) && !t.Replace(d) {
 			w.Trace("file %s already exists: skipping", wool.FileField(d))
 			continue
 		}

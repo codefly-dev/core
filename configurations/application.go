@@ -6,7 +6,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 
 	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
@@ -33,8 +32,7 @@ type Application struct {
 	Services []*ServiceReference `yaml:"services"`
 
 	// internal
-	dir           string
-	activeService string
+	dir string
 }
 
 func (app *Application) Unique() string {
@@ -56,23 +54,29 @@ func (app *Application) Dir() string {
 
 // An ApplicationReference
 type ApplicationReference struct {
-	Name         string  `yaml:"name"`
-	PathOverride *string `yaml:"path,omitempty"`
+	Name          string              `yaml:"name"`
+	PathOverride  *string             `yaml:"path,omitempty"`
+	Services      []*ServiceReference `yaml:"services,omitempty"`
+	ActiveService string              `yaml:"active-service,omitempty"`
 }
 
-// MarkAsActive marks a project as active
-func (ref *ApplicationReference) MarkAsActive() {
-	if !strings.HasSuffix(ref.Name, "*") {
-		ref.Name = fmt.Sprintf("%s*", ref.Name)
+func (ref *ApplicationReference) GetActive(ctx context.Context) (*ServiceReference, error) {
+	w := wool.Get(ctx).In("configurations.ApplicationReference.GetActive")
+	if len(ref.Services) == 0 {
+		return nil, w.NewError("no services")
 	}
-}
-
-// IsActive returns true if the project is marked as active
-func (ref *ApplicationReference) IsActive() (*ApplicationReference, bool) {
-	if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
-		return &ApplicationReference{Name: name, PathOverride: ref.PathOverride}, true
+	if len(ref.Services) == 1 {
+		return ref.Services[0], nil
 	}
-	return ref, false
+	if ref.ActiveService == "" {
+		return nil, w.NewError("no active service")
+	}
+	for _, r := range ref.Services {
+		if ref.Name == ref.ActiveService {
+			return r, nil
+		}
+	}
+	return nil, w.NewError("cannot find active service")
 }
 
 // NewApplication creates an application in a project
@@ -149,18 +153,7 @@ func (app *Application) postLoad(_ context.Context) error {
 	for _, ref := range app.Services {
 		ref.Application = app.Name
 	}
-	// Internally we keep track of active application differently
-	if len(app.Services) == 1 {
-		app.activeService = app.Services[0].Name
-		return nil
-	}
-	for _, ref := range app.Services {
-		if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
-			ref.Name = name
-			app.activeService = name
-		}
-	}
-	return nil
+	return app.Validate()
 }
 
 func (app *Application) SaveToDir(ctx context.Context, dir string) error {
@@ -176,21 +169,11 @@ func (app *Application) Save(ctx context.Context) error {
 	return app.SaveToDir(ctx, app.Dir())
 }
 
-// Pre-save deals with the * style of active
+// Pre-save deals with some optimization
 func (app *Application) preSave(_ context.Context) error {
 	for _, ref := range app.Services {
+		// Don't write Application in yaml
 		ref.Application = ""
-	}
-	if len(app.Services) == 1 {
-		app.Services[0].Name = MakeInactive(app.Services[0].Name)
-		return nil
-	}
-	for _, ref := range app.Services {
-		if ref.Name == app.activeService {
-			ref.Name = MakeActive(ref.Name)
-		} else {
-			ref.Name = MakeInactive(ref.Name)
-		}
 	}
 	return nil
 }
@@ -272,10 +255,6 @@ func (app *Application) LoadServiceFromName(ctx context.Context, name string) (*
 	return nil, w.NewError("cannot find service <%s> in <%s>", name, app.Name)
 }
 
-func (app *Application) LoadActiveService(ctx context.Context) (*Service, error) {
-	return app.LoadServiceFromName(ctx, app.activeService)
-}
-
 func (app *Application) LoadServices(ctx context.Context) ([]*Service, error) {
 	var services []*Service
 	for _, ref := range app.Services {
@@ -290,23 +269,6 @@ func (app *Application) LoadServices(ctx context.Context) ([]*Service, error) {
 
 func ReloadApplication(ctx context.Context, app *Application) (*Application, error) {
 	return LoadApplicationFromDirUnsafe(ctx, app.Dir())
-}
-
-func (app *Application) ActiveService(_ context.Context) *string {
-	if app.activeService == "" {
-		return nil
-	}
-	return &app.activeService
-}
-
-func (app *Application) SetActiveService(ctx context.Context, name string) error {
-	w := wool.Get(ctx).In("configurations.SetActiveService", wool.NameField(name))
-	w.Trace("setting active service")
-	if !app.ExistsService(ctx, name) {
-		return w.NewError("service <%s> does not exist in application <%s>", name, app.Name)
-	}
-	app.activeService = name
-	return nil
 }
 
 // DeleteService deletes a service from an application
@@ -363,6 +325,11 @@ func (app *Application) DeleteServiceDependencies(ctx context.Context, ref *Serv
 		}
 	}
 	return nil
+}
+
+func (app *Application) Validate() error {
+	proto := app.Proto()
+	return Validate(proto)
 }
 
 type NoApplicationError struct {

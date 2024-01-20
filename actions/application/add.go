@@ -44,7 +44,7 @@ func (action *AddApplicationAction) Run(ctx context.Context) (any, error) {
 		return nil, w.NewError("missing project in action")
 	}
 
-	workspace, err := configurations.LoadWorkspace(ctx)
+	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -59,14 +59,14 @@ func (action *AddApplicationAction) Run(ctx context.Context) (any, error) {
 		return nil, w.Wrap(err)
 	}
 
-	err = project.SetActiveApplication(ctx, application.Name)
+	err = workspace.AddApplication(ctx, project.Name, application.Reference())
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
 
-	err = project.Save(ctx)
+	err = workspace.SetActiveApplication(ctx, project.Name, application.Name)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot save project")
+		return nil, w.Wrap(err)
 	}
 
 	return application, nil

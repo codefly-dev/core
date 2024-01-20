@@ -59,6 +59,10 @@ type Service struct {
 	dir string
 }
 
+func (s *Service) Validate() error {
+	return Validate(s.Proto())
+}
+
 func (s *Service) Proto() *basev0.Service {
 	return &basev0.Service{
 		Name:        s.Name,
@@ -111,6 +115,7 @@ func (s ServiceWithApplication) Unique() string {
 	return fmt.Sprintf("%s/%s", s.Application, s.Name)
 }
 
+// ParseServiceUnique returns a Service/Application pair from a unique or an error
 func ParseServiceUnique(unique string) (*ServiceWithApplication, error) {
 	parts := strings.Split(unique, "/")
 	if len(parts) != 2 {
@@ -269,6 +274,10 @@ func LoadServiceFromDirUnsafe(ctx context.Context, dir string) (*Service, error)
 		return nil, err
 	}
 	err = service.postLoad(ctx)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	err = service.Validate()
 	if err != nil {
 		return nil, w.Wrap(err)
 	}

@@ -42,7 +42,7 @@ func (action *SetApplicationActiveAction) Run(ctx context.Context) (any, error) 
 		return nil, w.NewError("missing project in action")
 	}
 
-	workspace, err := configurations.LoadWorkspace(ctx)
+	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get active workspace")
 	}
@@ -52,23 +52,28 @@ func (action *SetApplicationActiveAction) Run(ctx context.Context) (any, error) 
 		return nil, w.Wrapf(err, "cannot load project from name: %s", action.Project)
 	}
 
-	err = project.SetActiveApplication(ctx, action.Name)
+	err = workspace.SetActiveApplication(ctx, project.Name, action.Name)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot set active application: %s", action.Name)
 	}
 
-	err = project.Save(ctx)
+	err = workspace.Save(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot save project")
 	}
 
 	// reload
+	workspace, err = configurations.ReloadWorkspace(ctx, workspace)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot reload workspace")
+	}
+
 	project, err = workspace.ReloadProject(ctx, project)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot reload project")
 	}
 
-	return project.LoadActiveApplication(ctx)
+	return project.LoadApplicationFromName(ctx, action.Name)
 }
 
 func init() {

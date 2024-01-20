@@ -17,6 +17,26 @@
   ],
   "paths": {
     "/organization": {
+      "get": {
+        "operationId": "OrganizationService_GetOrganization",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/apiGetOrganizationResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "OrganizationService"
+        ]
+      },
       "post": {
         "operationId": "OrganizationService_CreateOrganization",
         "responses": {
@@ -80,13 +100,18 @@
         },
         "domain": {
           "type": "string"
-        },
-        "owner": {
-          "type": "string"
         }
       }
     },
     "apiCreateOrganizationResponse": {
+      "type": "object",
+      "properties": {
+        "organization": {
+          "$ref": "#/definitions/apiOrganization"
+        }
+      }
+    },
+    "apiGetOrganizationResponse": {
       "type": "object",
       "properties": {
         "organization": {

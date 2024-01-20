@@ -173,12 +173,12 @@ func (s *FactoryWrapper) InitError(err error) (*factoryv0.InitResponse, error) {
 	}, nil
 }
 
-func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, endpoints ...*basev0.Endpoint) (*factoryv0.CreateResponse, error) {
+func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any) (*factoryv0.CreateResponse, error) {
 	err := s.Configuration.UpdateSpecFromSettings(settings)
 	if err != nil {
 		return s.CreateError(err)
 	}
-	s.Configuration.Endpoints, err = configurations.FromProtoEndpoints(endpoints...)
+	s.Configuration.Endpoints, err = configurations.FromProtoEndpoints(s.Endpoints...)
 	if err != nil {
 		return s.CreateError(err)
 	}
@@ -188,7 +188,7 @@ func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any, endpo
 		return nil, s.Wool.Wrapf(err, "base: cannot save configuration")
 	}
 	return &factoryv0.CreateResponse{
-		Endpoints: endpoints,
+		Endpoints: s.Endpoints,
 	}, nil
 }
 
@@ -298,22 +298,26 @@ func (s *Base) EndpointsFromConfiguration(ctx context.Context) ([]*basev0.Endpoi
 	return eps, nil
 }
 
-func (s *Base) Network(ctx context.Context) ([]*runtimev0.NetworkMapping, error) {
+func (s *Base) SetupNetworkMappings(ctx context.Context) error {
 	pm, err := network.NewServicePortManager(ctx)
 	if err != nil {
-		return nil, s.Wool.Wrapf(err, "cannot create default endpoint")
+		return s.Wool.Wrapf(err, "cannot create default endpoint")
 	}
 	for _, endpoint := range s.Endpoints {
 		err = pm.Expose(endpoint)
 		if err != nil {
-			return nil, s.Wool.Wrapf(err, "cannot add grpc endpoint to network manager")
+			return s.Wool.Wrapf(err, "cannot add grpc endpoint to network manager")
 		}
 	}
 	err = pm.Reserve(ctx)
 	if err != nil {
-		return nil, s.Wool.Wrapf(err, "cannot reserve ports")
+		return s.Wool.Wrapf(err, "cannot reserve ports")
 	}
-	return pm.NetworkMapping(ctx)
+	s.NetworkMappings, err = pm.NetworkMapping(ctx)
+	if err != nil {
+		return s.Wool.Wrapf(err, "cannot create network mapping")
+	}
+	return nil
 }
 
 type WatchConfiguration struct {
@@ -410,19 +414,30 @@ type TemplateWrapper struct {
 	dir      shared.Dir
 	fs       *shared.FSReader
 	relative string
-	ignores  []string
+	Ignore   shared.Ignore
+	Override shared.Override
 }
 
-func WithFactory(fs embed.FS, ignores ...string) TemplateWrapper {
-	return TemplateWrapper{fs: shared.Embed(fs), dir: shared.NewDir("templates/factory"), ignores: ignores}
+func (w *TemplateWrapper) WithIgnore(ignore shared.Ignore) *TemplateWrapper {
+	w.Ignore = ignore
+	return w
 }
 
-func WithBuilder(fs embed.FS) TemplateWrapper {
-	return TemplateWrapper{fs: shared.Embed(fs), dir: shared.NewDir("templates/builder"), relative: "codefly/builder"}
+func (w *TemplateWrapper) WithOverride(override shared.Override) *TemplateWrapper {
+	w.Override = override
+	return w
 }
 
-func WithDeployment(fs embed.FS) TemplateWrapper {
-	return TemplateWrapper{
+func WithFactory(fs embed.FS) *TemplateWrapper {
+	return &TemplateWrapper{fs: shared.Embed(fs), dir: shared.NewDir("templates/factory")}
+}
+
+func WithBuilder(fs embed.FS) *TemplateWrapper {
+	return &TemplateWrapper{fs: shared.Embed(fs), dir: shared.NewDir("templates/builder"), relative: "codefly/builder"}
+}
+
+func WithDeployment(fs embed.FS) *TemplateWrapper {
+	return &TemplateWrapper{
 		fs: shared.Embed(fs), dir: shared.NewDir("templates/deployment"), relative: "codefly/deployment"}
 }
 
@@ -442,10 +457,11 @@ func WithDeployment(fs embed.FS) TemplateWrapper {
 //		relative: fmt.Sprintf("codefly/deployment/%s", opt.EndpointDestination)}
 //}
 
-func (s *Base) Templates(ctx context.Context, obj any, ws ...TemplateWrapper) error {
+func (s *Base) Templates(ctx context.Context, obj any, ws ...*TemplateWrapper) error {
 	s.Wool.Debug("templates")
 	for _, w := range ws {
-		err := templates.CopyAndApply(ctx, w.fs, w.dir, shared.NewDir(s.Local(w.relative)), obj)
+		templator := &templates.Templator{Ignore: w.Ignore, Override: w.Override}
+		err := templator.CopyAndApply(ctx, w.fs, w.dir, shared.NewDir(s.Local(w.relative)), obj)
 		if err != nil {
 			return s.Wool.Wrapf(err, "cannot copy and apply template")
 		}

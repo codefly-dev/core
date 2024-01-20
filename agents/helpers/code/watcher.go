@@ -26,7 +26,7 @@ type Change struct {
 }
 
 func NewWatcher(ctx context.Context, events chan<- Change, base string, dependency *builders.Dependency) (*Watcher, error) {
-	w := wool.Get(ctx)
+	w := wool.Get(ctx).In("NewWatcher")
 	// Add new watcher.
 	fswatcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -45,7 +45,6 @@ func NewWatcher(ctx context.Context, events chan<- Change, base string, dependen
 				w.Trace("skipping", wool.Field("path", path))
 				return nil
 			}
-			w.Trace("watching", wool.Field("path", path))
 			err = fswatcher.Add(path)
 			if err != nil {
 				return w.Wrapf(err, "cannot add path: %s", path)
@@ -67,7 +66,7 @@ func NewWatcher(ctx context.Context, events chan<- Change, base string, dependen
 }
 
 func (watcher *Watcher) Start(ctx context.Context) {
-	w := wool.Get(ctx).In("Start")
+	w := wool.Get(ctx).In("Watcher.Start")
 	// Start listening for events.
 	defer watcher.watcher.Close()
 	for {
@@ -77,7 +76,7 @@ func (watcher *Watcher) Start(ctx context.Context) {
 				return
 			}
 			if event.Has(fsnotify.Write) {
-				w.Trace("got event", wool.Field("event", event))
+				w.Debug("got event", wool.Field("event", event))
 				rel, err := filepath.Rel(watcher.base, event.Name)
 				if err != nil {
 					w.Error("cannot get relative path", wool.Field("base", watcher.base), wool.Field("path", event.Name))

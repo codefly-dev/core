@@ -2,11 +2,9 @@ package configurations
 
 import (
 	"context"
-	"fmt"
 	"path"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -37,8 +35,7 @@ type Project struct {
 	Environments []*EnvironmentReference `yaml:"environments"`
 
 	// internal
-	dir               string
-	activeApplication string // internal use
+	dir string
 }
 
 func (project *Project) Proto() *basev0.Project {
@@ -62,35 +59,38 @@ func (project *Project) Unique() string {
 
 // ProjectReference is a reference to a project used by Workspace configuration
 type ProjectReference struct {
-	Name string `yaml:"name"`
-	Path string `yaml:"path"`
+	Name              string                  `yaml:"name"`
+	Path              string                  `yaml:"path"`
+	Applications      []*ApplicationReference `yaml:"applications"`
+	ActiveApplication string                  `yaml:"active-application"`
 }
 
 func (ref *ProjectReference) String() string {
 	return ref.Name
 }
 
-// MarkAsActive marks a project as active using the * convention
-func (ref *ProjectReference) MarkAsActive() {
-	if !strings.HasSuffix(ref.Name, "*") {
-		ref.Name = fmt.Sprintf("%s*", ref.Name)
+func (ref *ProjectReference) GetActiveApplication(ctx context.Context) (*ApplicationReference, error) {
+	w := wool.Get(ctx).In("ProjectReference.GetActiveApplication", wool.NameField(ref.Name))
+	if ref.ActiveApplication == "" {
+		return nil, w.NewError("no active application")
 	}
+	for _, app := range ref.Applications {
+		if app.Name == ref.ActiveApplication {
+			return app, nil
+		}
+	}
+	return nil, w.NewError("cannot find active application")
 }
 
-// MarkAsInactive marks a project as inactive using the * convention
-func (ref *ProjectReference) MarkAsInactive() {
-	if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
-		ref.Name = name
+func (ref *ProjectReference) AddApplication(ctx context.Context, application *ApplicationReference) error {
+	w := wool.Get(ctx).In("ProjectReference.AddApplication", wool.NameField(ref.Name))
+	for _, app := range ref.Applications {
+		if app.Name == application.Name {
+			return w.NewError("application already exists")
+		}
 	}
-}
-
-// IsActive returns true if the project is marked as active
-// and return the clean reference for Loading
-func (ref *ProjectReference) IsActive() (*ProjectReference, bool) {
-	if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
-		return &ProjectReference{Name: name, Path: ref.Path}, true
-	}
-	return ref, false
+	ref.Applications = append(ref.Applications, application)
+	return nil
 }
 
 // NewProject creates a new project in a workspace
@@ -151,7 +151,7 @@ func (project *Project) Save(ctx context.Context) error {
 }
 
 func (project *Project) SaveToDirUnsafe(ctx context.Context, dir string) error {
-	w := wool.Get(ctx).In("SaveProject<%s>", wool.NameField(project.Name))
+	w := wool.Get(ctx).In("SaveProject", wool.NameField(project.Name))
 	w.Debug("applications", wool.SliceCountField(project.Applications))
 	err := project.preSave(ctx)
 	if err != nil {
@@ -172,7 +172,7 @@ Loaders
 func LoadProjectFromDirUnsafe(ctx context.Context, dir string) (*Project, error) {
 	w := wool.Get(ctx).In("LoadProjectFromDirUnsafe")
 	var err error
-	dir, err = SolveDir(dir)
+	dir, err = SolvePath(dir)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -206,22 +206,6 @@ func LoadProjectFromPath(ctx context.Context) (*Project, error) {
 		return nil, nil
 	}
 	return LoadProjectFromDirUnsafe(ctx, *dir)
-}
-
-// LoadActiveApplication decides which application is active:
-// - only 1: it is active
-// - more than 1: use the activeApplication internal field
-func (project *Project) LoadActiveApplication(ctx context.Context) (*Application, error) {
-	if len(project.Applications) == 0 {
-		return nil, fmt.Errorf("no application in project")
-	}
-	if len(project.Applications) == 1 {
-		return project.LoadApplicationFromReference(ctx, project.Applications[0])
-	}
-	if project.activeApplication == "" {
-		return nil, fmt.Errorf("active application not defined")
-	}
-	return project.LoadApplicationFromName(ctx, project.activeApplication)
 }
 
 // LoadApplicationFromReference loads an application from a reference
@@ -286,47 +270,13 @@ func (project *Project) ApplicationPath(_ context.Context, ref *ApplicationRefer
 
 // Internally we keep track of active application differently
 func (project *Project) postLoad(_ context.Context) error {
-	if len(project.Applications) == 1 {
-		project.activeApplication = project.Applications[0].Name
-		return nil
-	}
-	for _, ref := range project.Applications {
-		if name, ok := strings.CutSuffix(ref.Name, "*"); ok {
-			ref.Name = name
-			project.activeApplication = name
-		}
-	}
-	return nil
+	proto := project.Proto()
+	return Validate(proto)
 }
 
-// Internally we keep track of active application differently
 func (project *Project) preSave(_ context.Context) error {
-	if len(project.Applications) == 1 {
-		project.Applications[0].Name = MakeInactive(project.Applications[0].Name)
-		return nil
-	}
-	for _, ref := range project.Applications {
-		if ref.Name == project.activeApplication {
-			ref.Name = MakeActive(ref.Name)
-		} else {
-			ref.Name = MakeInactive(ref.Name)
-		}
-	}
-	return nil
-}
-
-// SetActiveApplication sets the active application
-func (project *Project) SetActiveApplication(_ context.Context, name string) error {
-	project.activeApplication = name
-	return nil
-}
-
-// ActiveApplication returns the active application
-func (project *Project) ActiveApplication(_ context.Context) *string {
-	if project.activeApplication == "" {
-		return nil
-	}
-	return &project.activeApplication
+	proto := project.Proto()
+	return Validate(proto)
 }
 
 // ExistsApplication returns true if the application exists in the project
@@ -355,9 +305,6 @@ func (project *Project) DeleteApplication(ctx context.Context, name string) erro
 	w := wool.Get(ctx).In("Project.DeleteApplication")
 	if !project.ExistsApplication(name) {
 		return w.NewError("application <%s> does not exist in project <%s>", name, project.Name)
-	}
-	if active := project.ActiveApplication(ctx); shared.PointerEqual(active, name) {
-		project.activeApplication = ""
 	}
 	var apps []*ApplicationReference
 	for _, app := range project.Applications {
@@ -402,4 +349,16 @@ func (project *Project) DeleteServiceDependencies(ctx context.Context, ref *Serv
 	}
 
 	return nil
+}
+
+func (project *Project) Reference() *ProjectReference {
+	return &ProjectReference{
+		Name:         project.Name,
+		Path:         project.Dir(),
+		Applications: project.Applications,
+	}
+}
+
+func ReloadProject(ctx context.Context, project *Project) (*Project, error) {
+	return LoadProjectFromDirUnsafe(ctx, project.Dir())
 }

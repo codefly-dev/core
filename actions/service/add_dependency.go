@@ -39,7 +39,7 @@ var _ actions.Action = (*AddServiceDependencyAction)(nil)
 func (action *AddServiceDependencyAction) Run(ctx context.Context) (any, error) {
 	w := wool.Get(ctx).In("AddServiceDependencyAction.Run", wool.NameField(action.Name))
 
-	workspace, err := configurations.LoadWorkspace(ctx)
+	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get current workspace")
 	}

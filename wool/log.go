@@ -206,6 +206,18 @@ func NameField(name string) *LogField {
 	return &LogField{Key: "name", Value: name}
 }
 
+func ProjectField(name string) *LogField {
+	return &LogField{Key: "project", Value: name}
+}
+
+func ApplicationField(name string) *LogField {
+	return &LogField{Key: "application", Value: name}
+}
+
+func ServiceField(name string) *LogField {
+	return &LogField{Key: "service", Value: name}
+}
+
 func TypeOf[T any]() string {
 	var t T
 	return fmt.Sprintf("%T", t)

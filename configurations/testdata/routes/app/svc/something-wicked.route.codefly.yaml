@@ -1,0 +1,10 @@
+path: /something-wicked
+routes:
+  - path: /something-wicked
+    # Keep path here as we can starting putting param, etc...
+    method: GET
+
+  - path: /something-wicked
+    method: POST
+    extension:
+      protected: working

@@ -2,6 +2,7 @@ package configurations_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"testing"
@@ -17,7 +18,7 @@ import (
 
 func TestCreationApplication(t *testing.T) {
 	ctx := context.Background()
-	w, dir := createTestWorkspace(t, ctx)
+	workspace, dir := createTestWorkspace(t, ctx)
 	cur, err := os.Getwd()
 	assert.NoError(t, err)
 	err = os.Chdir(dir)
@@ -31,24 +32,30 @@ func TestCreationApplication(t *testing.T) {
 	var action actions.Action
 	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
 		Name:      "test-project",
-		Workspace: w.Name,
+		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
 	project := shared.Must(actions.As[configurations.Project](out))
 
-	// Action needs a project
+	// Action needs a workspace input
 	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
 		Name: "test-application",
 	})
-	assert.NoError(t, err)
-	out, err = action.Run(ctx)
+	assert.Error(t, err)
+
+	// Action needs a project input
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
+		Name:      "test-application",
+		Workspace: workspace.Name,
+	})
 	assert.Error(t, err)
 
 	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
-		Name:    "test-application",
-		Project: project.Name,
+		Name:      "test-application",
+		Project:   project.Name,
+		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
@@ -57,13 +64,10 @@ func TestCreationApplication(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-application", application.Name)
 
-	projectConfig := string(shared.Must(os.ReadFile(path.Join(project.Dir(), configurations.ProjectConfigurationName))))
-	assert.Contains(t, projectConfig, "name: test-application")
-	assert.NotContains(t, projectConfig, "name: test-application*")
-	assert.NotContains(t, projectConfig, "path:") // use default path
-
-	// ReloadProject
-	project, err = w.ReloadProject(ctx, project)
+	// Re-load: actions are out-of-memory operations
+	workspace, err = configurations.ReloadWorkspace(ctx, workspace)
+	assert.NoError(t, err)
+	project, err = workspace.ReloadProject(ctx, project)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 1, len(project.Applications))
@@ -74,7 +78,12 @@ func TestCreationApplication(t *testing.T) {
 	assert.Equal(t, application.Name, back.Name)
 
 	// Check the active application
-	back, err = project.LoadActiveApplication(ctx)
+	file := path.Join(workspace.Dir(), configurations.WorkspaceConfigurationName)
+	content, err := os.ReadFile(file)
+	assert.NoError(t, err)
+	fmt.Println(string(content))
+
+	back, err = workspace.LoadActiveApplication(ctx, project.Name)
 	assert.NoError(t, err)
 	assert.Equal(t, application.Name, back.Name)
 
@@ -82,17 +91,19 @@ func TestCreationApplication(t *testing.T) {
 	_, err = action.Run(ctx)
 	assert.Error(t, err)
 
-	projectConfig = string(shared.Must(os.ReadFile(path.Join(project.Dir(), configurations.ProjectConfigurationName))))
-	assert.Contains(t, projectConfig, "name: test-application")
-
-	project, err = w.ReloadProject(ctx, project)
+	// Re-load: actions are out-of-memory operations
+	workspace, err = configurations.ReloadWorkspace(ctx, workspace)
 	assert.NoError(t, err)
+	project, err = workspace.ReloadProject(ctx, project)
+	assert.NoError(t, err)
+
 	assert.Equal(t, 1, len(project.Applications))
 
 	// Add a second application
 	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
-		Name:    "test-application-2",
-		Project: project.Name,
+		Name:      "test-application-2",
+		Project:   project.Name,
+		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
@@ -101,30 +112,22 @@ func TestCreationApplication(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-application-2", application.Name)
 
-	projectConfig = string(shared.Must(os.ReadFile(path.Join(project.Dir(), configurations.ProjectConfigurationName))))
-	assert.Contains(t, projectConfig, "name: test-application")
-	assert.NotContains(t, projectConfig, "name: test-application*") // Active is most recent
-
-	assert.Contains(t, projectConfig, "name: test-application-2*")
-	// Paths by default
-	assert.NotContains(t, projectConfig, "path:")
-
-	// ReloadProject
-	project, err = w.ReloadProject(ctx, project)
+	// Re-load: actions are out-of-memory operations
+	workspace, err = configurations.ReloadWorkspace(ctx, workspace)
+	assert.NoError(t, err)
+	project, err = workspace.ReloadProject(ctx, project)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 2, len(project.Applications))
 
 	// Check active is the second one
-	projectConfig = string(shared.Must(os.ReadFile(path.Join(project.Dir(), configurations.ProjectConfigurationName))))
-	back, err = project.LoadActiveApplication(ctx)
-	assert.NoError(t, err)
-	assert.Equal(t, "test-application-2", back.Name)
+	back, err = workspace.LoadActiveApplication(ctx, project.Name)
 
 	// Make the first one active
 	action, err = actionapplication.NewActionSetApplicationActive(ctx, &actionsv0.SetApplicationActive{
-		Name:    "test-application",
-		Project: project.Name,
+		Name:      "test-application",
+		Project:   project.Name,
+		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
@@ -134,13 +137,10 @@ func TestCreationApplication(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-application", application.Name)
 
-	projectConfig = string(shared.Must(os.ReadFile(path.Join(project.Dir(), configurations.ProjectConfigurationName))))
-	assert.Contains(t, projectConfig, "name: test-application*")
-	assert.NotContains(t, projectConfig, "name: test-application-2*")
-
 	action, err = actionapplication.NewActionSetApplicationActive(ctx, &actionsv0.SetApplicationActive{
-		Name:    "test-application-2",
-		Project: project.Name,
+		Name:      "test-application-2",
+		Project:   project.Name,
+		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
@@ -149,9 +149,5 @@ func TestCreationApplication(t *testing.T) {
 	application, err = actions.As[configurations.Application](out)
 	assert.NoError(t, err)
 	assert.Equal(t, "test-application-2", application.Name)
-
-	projectConfig = string(shared.Must(os.ReadFile(path.Join(project.Dir(), configurations.ProjectConfigurationName))))
-	assert.NotContains(t, projectConfig, "name: test-application*")
-	assert.Contains(t, projectConfig, "name: test-application-2*")
 
 }

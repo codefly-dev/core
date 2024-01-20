@@ -43,42 +43,43 @@ var _ actions.Action = (*AddServiceAction)(nil)
 func (action *AddServiceAction) Run(ctx context.Context) (any, error) {
 	w := wool.Get(ctx).In("actions.service.AddServiceAction.Run")
 	if action.Override {
-		ctx = shared.WithOverride(ctx, shared.SilentOverride())
+		ctx = shared.WithOverride(ctx, shared.OverrideAll())
 	}
 
-	ws, err := configurations.LoadWorkspace(ctx)
+	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load worspace")
 	}
 
-	project, err := ws.LoadProjectFromName(ctx, action.Project)
+	project, err := workspace.LoadProjectFromName(ctx, action.Project)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load project")
 	}
 
-	app, err := project.LoadApplicationFromName(ctx, action.Application)
+	application, err := project.LoadApplicationFromName(ctx, action.Application)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load application")
 	}
 
-	service, err := app.NewService(ctx, action.AddService)
+	service, err := application.NewService(ctx, action.AddService)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot app.NewService")
+		return nil, w.Wrapf(err, "cannot application.NewService")
 	}
 
-	// Reload app
-	app, err = configurations.ReloadApplication(ctx, app)
+	// Reload application
+	application, err = configurations.ReloadApplication(ctx, application)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot reload application")
 	}
 
-	err = app.SetActiveService(ctx, service.Name)
+	err = workspace.SetActiveService(ctx, project.Name, application.Name, service.Name)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot set active service")
 	}
-	err = app.Save(ctx)
+
+	err = workspace.Save(ctx)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot save application")
+		return nil, w.Wrapf(err, "cannot save workspace")
 	}
 
 	// Create a provider folder for the service

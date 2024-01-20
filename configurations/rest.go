@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
-	"github.com/codefly-dev/core/wool"
-
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	"github.com/codefly-dev/core/wool"
+	multierror "github.com/hashicorp/go-multierror"
 
 	"github.com/codefly-dev/core/shared"
 	"gopkg.in/yaml.v3"
@@ -27,30 +28,50 @@ const (
 	HTTPMethodHead    HTTPMethod = "HEAD"
 )
 
+// RestRouteGroup is a rpcs of routes corresponding to the SAME path
+// HTTP methods correspond to individual routes
+type RestRouteGroup struct {
+	Path        string       `yaml:"path"`
+	Routes      []*RestRoute `yaml:"routes"`
+	Application string       `yaml:"-"`
+	Service     string       `yaml:"-"`
+}
+
 type RestRoute struct {
-	Path        string
-	Methods     []HTTPMethod
-	Application string `yaml:"-"`
-	Service     string `yaml:"-"`
+	Path   string
+	Method HTTPMethod
 }
 
-func RouteUnique(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
-	return MakeRouteUnique(endpoint.Application, endpoint.Service, route.Path)
+func (g *RestRouteGroup) ServiceUnique() string {
+	return ServiceUnique(g.Application, g.Service)
 }
 
-func (r *RestRoute) ServiceUnique() string {
-	return ServiceUnique(r.Application, r.Service)
+type ExtendedRestRouteGroup[T any] struct {
+	Path        string                  `yaml:"path"`
+	Routes      []*ExtendedRestRoute[T] `yaml:"routes"`
+	Application string                  `yaml:"-"`
+	Service     string                  `yaml:"-"`
 }
 
-func MakeRouteUnique(app string, service string, path string) string {
-	if cut, ok := strings.CutPrefix(path, "/"); ok {
-		path = cut
+func (g *ExtendedRestRouteGroup[T]) ServiceUnique() string {
+	return ServiceUnique(g.Application, g.Service)
+}
+
+func (g *ExtendedRestRouteGroup[T]) Add(route ExtendedRestRoute[T]) {
+	var routes []*ExtendedRestRoute[T]
+	var update bool
+	for _, r := range g.Routes {
+		if r.Path == route.Path && r.Method == route.Method {
+			routes = append(routes, &route)
+			update = true
+		} else {
+			routes = append(routes, r)
+		}
 	}
-	return fmt.Sprintf("%s/%s/%s", app, service, path)
-}
-
-func (r *RestRoute) Unique() string {
-	return MakeRouteUnique(r.Application, r.Service, r.Path)
+	if !update {
+		routes = append(routes, &route)
+	}
+	g.Routes = routes
 }
 
 type ExtendedRestRoute[T any] struct {
@@ -70,28 +91,238 @@ func UnwrapRoute[T any](route *ExtendedRestRoute[T]) *RestRoute {
 	return &route.RestRoute
 }
 
-func UnwrapRoutes[T any](routes []*ExtendedRestRoute[T]) []*RestRoute {
+func UnwrapRouteGroup[T any](group *ExtendedRestRouteGroup[T]) *RestRouteGroup {
 	var rs []*RestRoute
-	for _, r := range routes {
+	for _, r := range group.Routes {
 		rs = append(rs, &r.RestRoute)
 	}
-	return rs
+	return &RestRouteGroup{
+		Path:        group.Path,
+		Application: group.Application,
+		Service:     group.Service,
+		Routes:      rs,
+	}
 }
 
-func (r *RestRoute) String() string {
-	return fmt.Sprintf("%s/%s%s %s", r.Application, r.Service, r.Path, r.Methods)
+// RouteLoader will return all rest route groups in a directory
+type RouteLoader struct {
+	dir    string
+	groups map[string][]*RestRouteGroup
 }
 
-type ApplicationRestRoute struct {
-	ServiceRestRoutes []*ServiceRestRoute
-	Name              string
+func NewRouteLoader(ctx context.Context, dir string) (*RouteLoader, error) {
+	w := wool.Get(ctx).In("NewRouteLoader")
+	exists, err := shared.CheckDirectory(ctx, dir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot check directory")
+	}
+	if !exists {
+		return nil, w.NewError("directory <%s> does not exist", dir)
+	}
+	return &RouteLoader{dir: dir}, nil
 }
 
-type ServiceRestRoute struct {
-	Routes      []*RestRoute
-	Name        string
-	Application string `yaml:"-"`
+const RestRouteFileSuffix = ".route.codefly.yaml"
+
+func (loader *RouteLoader) Load(ctx context.Context) error {
+	w := wool.Get(ctx).In("RouteLoader::Load")
+	groups := make(map[string][]*RestRouteGroup)
+	err := filepath.Walk(loader.dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return w.Wrapf(err, "error walking path <%s>", path)
+		}
+		if info.IsDir() {
+			return nil
+		}
+		unique, err := filepath.Rel(loader.dir, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		ref, err := ParseServiceUnique(unique)
+		if err != nil {
+			return nil
+		}
+		base := filepath.Base(path)
+		var routePath string
+		var ok bool
+		if routePath, ok = strings.CutSuffix(base, RestRouteFileSuffix); !ok {
+			return nil
+		}
+		routePath = fmt.Sprintf("/%s", routePath)
+		group, err := LoadRestRouteGroup(ctx, path)
+		if err != nil {
+			return err
+		}
+		// Validate all paths in routes starts with the generic path!
+		for _, route := range group.Routes {
+			if !strings.HasPrefix(route.Path, group.Path) {
+				return w.NewError("route <%s> does not start with path <%s>", route.Path, group.Path)
+			}
+		}
+		group.Path = routePath
+		group.Application = ref.Application
+		group.Service = ref.Name
+		groups[unique] = append(groups[unique], group)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	loader.groups = groups
+	return nil
 }
+
+func (loader *RouteLoader) All() []*RestRoute {
+	var routes []*RestRoute
+	for _, group := range loader.groups {
+		for _, route := range group {
+			routes = append(routes, route.Routes...)
+		}
+	}
+	return routes
+}
+
+func (loader *RouteLoader) GroupsFor(unique string) []*RestRouteGroup {
+	return loader.groups[unique]
+}
+
+func (loader *RouteLoader) Groups() []*RestRouteGroup {
+	var groups []*RestRouteGroup
+	for _, group := range loader.groups {
+		groups = append(groups, group...)
+	}
+	return groups
+}
+
+func (loader *RouteLoader) GroupFor(unique string, routePath string) *RestRouteGroup {
+	for _, g := range loader.groups[unique] {
+		if g.Path == routePath {
+			return g
+		}
+	}
+	return nil
+}
+
+// ExtendedRouteLoader will return all rest route groups in a directory
+type ExtendedRouteLoader[T any] struct {
+	dir    string
+	groups map[string][]*ExtendedRestRouteGroup[T]
+}
+
+func NewExtendedRouteLoader[T any](ctx context.Context, dir string) (*ExtendedRouteLoader[T], error) {
+	w := wool.Get(ctx).In("NewRouteLoader")
+	exists, err := shared.CheckDirectory(ctx, dir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot check directory")
+	}
+	if !exists {
+		return nil, w.NewError("directory <%s> does not exist", dir)
+	}
+	return &ExtendedRouteLoader[T]{dir: dir}, nil
+}
+
+func (loader *ExtendedRouteLoader[T]) Load(ctx context.Context) error {
+	w := wool.Get(ctx).In("RouteLoader::Load")
+	groups := make(map[string][]*ExtendedRestRouteGroup[T])
+	err := filepath.Walk(loader.dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return w.Wrapf(err, "error walking path <%s>", path)
+		}
+		if info.IsDir() {
+			return nil
+		}
+		unique, err := filepath.Rel(loader.dir, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		ref, err := ParseServiceUnique(unique)
+		if err != nil {
+			return nil
+		}
+		base := filepath.Base(path)
+		var routePath string
+		var ok bool
+		if routePath, ok = strings.CutSuffix(base, RestRouteFileSuffix); !ok {
+			return nil
+		}
+		routePath = fmt.Sprintf("/%s", routePath)
+		group, err := LoadExtendedRestRouteGroup[T](ctx, path)
+		if err != nil {
+			return err
+		}
+		// Validate all paths in routes starts with the generic path!
+		for _, route := range group.Routes {
+			if !strings.HasPrefix(route.Path, group.Path) {
+				return w.NewError("route <%s> does not start with path <%s>", route.Path, group.Path)
+			}
+		}
+		group.Path = routePath
+		group.Application = ref.Application
+		group.Service = ref.Name
+		groups[unique] = append(groups[unique], group)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	loader.groups = groups
+	return nil
+}
+
+func (loader *ExtendedRouteLoader[T]) All() []*ExtendedRestRoute[T] {
+	var routes []*ExtendedRestRoute[T]
+	for _, group := range loader.groups {
+		for _, route := range group {
+			routes = append(routes, route.Routes...)
+		}
+	}
+	return routes
+}
+
+func (loader *ExtendedRouteLoader[T]) Groups() []*ExtendedRestRouteGroup[T] {
+	var groups []*ExtendedRestRouteGroup[T]
+	for _, group := range loader.groups {
+		groups = append(groups, group...)
+	}
+	return groups
+}
+
+func (loader *ExtendedRouteLoader[T]) GroupsFor(unique string) []*ExtendedRestRouteGroup[T] {
+	return loader.groups[unique]
+}
+
+func (loader *ExtendedRouteLoader[T]) GroupFor(unique string, routePath string) *ExtendedRestRouteGroup[T] {
+	for _, g := range loader.groups[unique] {
+		if g.Path == routePath {
+			return g
+		}
+	}
+	return nil
+}
+
+func (loader *ExtendedRouteLoader[T]) AddGroup(group *ExtendedRestRouteGroup[T]) {
+	loader.groups[group.ServiceUnique()] = append(loader.groups[group.ServiceUnique()], group)
+
+}
+
+func (loader *ExtendedRouteLoader[T]) Save(ctx context.Context) error {
+	w := wool.Get(ctx).In("RouteLoader::Save")
+	groups := loader.Groups()
+	w.Debug("saving groups", wool.SliceCountField(groups))
+	var result error
+	for _, group := range groups {
+		err := group.Save(ctx, loader.dir)
+		if err != nil {
+			result = multierror.Append(result, err)
+		}
+	}
+	return result
+}
+
+//
+//func (r *RestRoute) String() string {
+//	return fmt.Sprintf("%s/%s%s %s", r.Application, r.Service, r.Path, r.Method)
+//}
 
 func sanitizeRoute(route string) string {
 	route = strings.TrimPrefix(route, "/")
@@ -103,21 +334,19 @@ func sanitizePath(route string) string {
 	return strings.ReplaceAll(route, "/", "__")
 }
 
-func (r *RestRoute) FilePath(ctx context.Context, dir string) (string, error) {
-	dir = path.Join(dir, r.Application, r.Service)
+func FilePath(ctx context.Context, dir string, unique string, routePath string) (string, error) {
+	dir = path.Join(dir, unique)
 	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return "", err
 	}
-	file := path.Join(dir, fmt.Sprintf("%s.route.yaml", sanitizeRoute(r.Path)))
+	file := path.Join(dir, fmt.Sprintf("%s%s", sanitizeRoute(routePath), RestRouteFileSuffix))
 	return file, nil
 }
 
-// Save a route:
-// The path is inferred from the configuration
-func (r *RestRoute) Save(ctx context.Context, dir string) error {
+func (g *RestRouteGroup) Save(ctx context.Context, dir string) error {
 	w := wool.Get(ctx).In("RestRoute::Save")
-	file, err := r.FilePath(ctx, dir)
+	file, err := FilePath(ctx, dir, g.ServiceUnique(), g.Path)
 	if err != nil {
 		return w.Wrapf(err, "cannot get file path for route to save")
 	}
@@ -132,7 +361,35 @@ func (r *RestRoute) Save(ctx context.Context, dir string) error {
 			w.Error("cannot close file", wool.ErrField(err))
 		}
 	}(f)
-	out, err := yaml.Marshal(r)
+	out, err := yaml.Marshal(g)
+	if err != nil {
+		return w.Wrapf(err, "cannot marshal route")
+	}
+	_, err = f.Write(out)
+	if err != nil {
+		return w.With(wool.FileField(file)).Wrapf(err, "cannot write route")
+	}
+	return nil
+}
+
+func (g *ExtendedRestRouteGroup[T]) Save(ctx context.Context, dir string) error {
+	w := wool.Get(ctx).In("ExtendedRestRoute::Save")
+	file, err := FilePath(ctx, dir, g.ServiceUnique(), g.Path)
+	if err != nil {
+		return w.Wrapf(err, "cannot get file path for route to save")
+	}
+	w.Debug("saving", wool.FileField(file), wool.Field("content", g))
+	f, err := os.Create(file)
+	if err != nil {
+		return w.Wrapf(err, "cannot create file for route")
+	}
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			w.Error("cannot close file", wool.ErrField(err))
+		}
+	}(f)
+	out, err := yaml.Marshal(g)
 	if err != nil {
 		return w.Wrapf(err, "cannot marshal route")
 	}
@@ -144,9 +401,9 @@ func (r *RestRoute) Save(ctx context.Context, dir string) error {
 }
 
 // Delete a route
-func (r *RestRoute) Delete(ctx context.Context, dir string) error {
+func (g *RestRouteGroup) Delete(ctx context.Context, dir string) error {
 	w := wool.Get(ctx).In("RestRoute::Delete")
-	file, err := r.FilePath(ctx, dir)
+	file, err := FilePath(ctx, dir, g.ServiceUnique(), sanitizePath(g.Path))
 	if err != nil {
 		return w.Wrapf(err, "cannot get file path for route to delete")
 	}
@@ -157,185 +414,59 @@ func (r *RestRoute) Delete(ctx context.Context, dir string) error {
 	return nil
 }
 
-func (r *ServiceRestRoute) Save(ctx context.Context, dir string) error {
-	for _, route := range r.Routes {
-		err := route.Save(ctx, dir)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Save as folder structure
-func (r *ApplicationRestRoute) Save(ctx context.Context, dir string) error {
-	for _, s := range r.ServiceRestRoutes {
-		err := s.Save(ctx, dir)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func LoadApplicationRoutes(ctx context.Context, dir string) ([]*RestRoute, error) {
-	var routes []*RestRoute
-	entries, err := os.ReadDir(dir)
+func LoadRestRouteGroup(ctx context.Context, p string) (*RestRouteGroup, error) {
+	var err error
+	p, err = SolvePath(p)
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		r, err := LoadServiceRoutes(ctx, path.Join(dir, name), entry.Name())
-		if err != nil {
-			return nil, err
-		}
-		routes = append(routes, r...)
-	}
-	return routes, nil
-}
-
-func LoadServiceRoutes(ctx context.Context, dir string, app string) ([]*RestRoute, error) {
-	var routes []*RestRoute
-	entries, err := os.ReadDir(dir)
+	r, err := LoadFromPath[RestRouteGroup](ctx, p)
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		r, err := LoadRoutes(ctx, path.Join(dir, name), app, name)
-		if err != nil {
-			return nil, err
-		}
-		routes = append(routes, r...)
-	}
-	return routes, nil
-}
-
-func LoadRoutes(ctx context.Context, dir string, app string, service string) ([]*RestRoute, error) {
-	var routes []*RestRoute
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if !strings.HasSuffix(entry.Name(), "route.yaml") {
-			continue
-		}
-		r, err := LoadRoute(ctx, path.Join(dir, entry.Name()), app, service)
-		if err != nil {
-			return nil, err
-		}
-		routes = append(routes, r)
-	}
-	return routes, nil
-}
-
-func LoadRoute(ctx context.Context, p string, app string, service string) (*RestRoute, error) {
-	r, err := LoadFromPath[RestRoute](ctx, p)
-	if err != nil {
-		return nil, err
-	}
-	r.Application = app
-	r.Service = service
 	return r, nil
 }
 
-// Extension of routes -- can we merge both?
-
-func LoadApplicationExtendedRoutes[T any](_ context.Context, dir string) ([]*ExtendedRestRoute[T], error) {
-	var routes []*ExtendedRestRoute[T]
-	entries, err := os.ReadDir(dir)
+func LoadExtendedRestRoute[T any](p string) (*ExtendedRestRouteGroup[T], error) {
+	var err error
+	p, err = SolvePath(p)
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		r, err := LoadServiceExtendedRoutes[T](path.Join(dir, name), entry.Name())
-		if err != nil {
-			return nil, err
-		}
-		routes = append(routes, r...)
-	}
-	return routes, nil
-}
-
-func LoadServiceExtendedRoutes[T any](dir string, app string) ([]*ExtendedRestRoute[T], error) {
-	var routes []*ExtendedRestRoute[T]
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		r, err := LoadExtendedRoutes[T](path.Join(dir, name), app, name)
-		if err != nil {
-			return nil, err
-		}
-		routes = append(routes, r...)
-	}
-	return routes, nil
-}
-
-func LoadExtendedRoutes[T any](dir string, app string, service string) ([]*ExtendedRestRoute[T], error) {
-	var routes []*ExtendedRestRoute[T]
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if !strings.HasSuffix(entry.Name(), "route.yaml") {
-			continue
-		}
-		r, err := LoadExtendedRestRoute[T](path.Join(dir, entry.Name()), app, service)
-		if err != nil {
-			return nil, err
-		}
-		routes = append(routes, r)
-	}
-	return routes, nil
-}
-
-func LoadExtendedRestRoute[T any](p string, app string, service string) (*ExtendedRestRoute[T], error) {
 	content, err := os.ReadFile(p)
 	if err != nil {
 		return nil, err
 	}
-	var r ExtendedRestRoute[T]
+	var r ExtendedRestRouteGroup[T]
 	err = yaml.Unmarshal(content, &r)
 	if err != nil {
 		return nil, err
 	}
-	r.Application = app
-	r.Service = service
 	return &r, nil
+}
+
+func LoadExtendedRestRouteGroup[T any](ctx context.Context, p string) (*ExtendedRestRouteGroup[T], error) {
+	var err error
+	p, err = SolvePath(p)
+	if err != nil {
+		return nil, err
+	}
+	r, err := LoadFromPath[ExtendedRestRouteGroup[T]](ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 func AsRestRouteEnvironmentVariable(ctx context.Context, endpoint *basev0.Endpoint) []string {
 	w := wool.Get(ctx).In("AsRestRouteEnvironmentVariable")
 	var envs []string
 	if rest := HasRest(context.Background(), endpoint.Api); rest != nil {
-		for _, route := range rest.Routes {
-			w.Debug("adding", wool.Field("route", route))
-			envs = append(envs, RestRoutesAsEnvironmentVariable(endpoint, route))
+		for _, group := range rest.Groups {
+			for _, route := range group.Routes {
+				w.Debug("adding", wool.Field("route", route))
+				envs = append(envs, RestRoutesAsEnvironmentVariable(endpoint, route))
+			}
 		}
 	}
 	return envs
@@ -347,16 +478,7 @@ func AsRestRouteEnvironmentVariable(ctx context.Context, endpoint *basev0.Endpoi
 const RestRoutePrefix = "CODEFLY_RESTROUTE__"
 
 func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
-	return fmt.Sprintf("%s=%s", RestRouteEnvironmentVariableKey(endpoint, route), serializeMethods(route.Methods))
-}
-
-func serializeMethods(methods []basev0.HTTPMethod) string {
-	var ss []string
-	for _, m := range methods {
-		ss = append(ss, m.String())
-	}
-	return strings.Join(ss, ",")
-
+	return fmt.Sprintf("%s=%s", RestRouteEnvironmentVariableKey(endpoint, route), route.String())
 }
 
 func RestRouteEnvironmentVariableKey(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
@@ -368,36 +490,6 @@ func RestRouteEnvironmentVariableKey(endpoint *basev0.Endpoint, route *basev0.Re
 	// Add path
 	unique = fmt.Sprintf("%s____%s", unique, sanitizePath(route.Path))
 	return strings.ToUpper(fmt.Sprintf("%s%s", RestRoutePrefix, unique))
-}
-
-func ContainsRoute(routes []*RestRoute, r *RestRoute) bool {
-	for _, route := range routes {
-		if route.Application == r.Application && route.Service == r.Service && route.Path == r.Path {
-			return true
-		}
-	}
-	return false
-}
-
-func ConvertRoutes(routes []*basev0.RestRoute, app string, service string) []*RestRoute {
-	var rs []*RestRoute
-	for _, r := range routes {
-		rs = append(rs, &RestRoute{
-			Path:        r.Path,
-			Methods:     ConvertMethods(r.Methods),
-			Application: app,
-			Service:     service,
-		})
-	}
-	return rs
-}
-
-func ConvertMethods(methods []basev0.HTTPMethod) []HTTPMethod {
-	var ms []HTTPMethod
-	for _, m := range methods {
-		ms = append(ms, ConvertMethod(m))
-	}
-	return ms
 }
 
 func ConvertMethod(m basev0.HTTPMethod) HTTPMethod {
@@ -418,4 +510,11 @@ func ConvertMethod(m basev0.HTTPMethod) HTTPMethod {
 		return HTTPMethodHead
 	}
 	panic(fmt.Sprintf("unknown HTTP method: <%v>", m))
+}
+
+func RestRouteFromProto(r *basev0.RestRoute) *RestRoute {
+	return &RestRoute{
+		Path:   r.Path,
+		Method: ConvertMethod(r.Method),
+	}
 }

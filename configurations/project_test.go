@@ -34,9 +34,11 @@ func TestBadInputs(t *testing.T) {
 	}
 }
 
-func TestCreation(t *testing.T) {
+func TestCreationProject(t *testing.T) {
 	ctx := context.Background()
-	w, dir := createTestWorkspace(t, ctx)
+
+	workspace, dir := createTestWorkspace(t, ctx)
+
 	cur, err := os.Getwd()
 	assert.NoError(t, err)
 	err = os.Chdir(dir)
@@ -51,45 +53,41 @@ func TestCreation(t *testing.T) {
 
 	projectDir := t.TempDir()
 
-	assert.Equal(t, dir, w.Dir())
+	assert.Equal(t, dir, workspace.Dir())
 
 	projectName := "test-project"
 	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
 		Name:      projectName,
 		Path:      projectDir,
-		Workspace: w.Name,
+		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
 
-	w, err = configurations.ReloadWorkspace(ctx, w)
+	// Re-load: actions are out-of-memory operations
+	workspace, err = configurations.ReloadWorkspace(ctx, workspace)
 	assert.NoError(t, err)
+
+	assert.Equal(t, projectName, workspace.ActiveProject)
+	assert.Equal(t, 1, len(workspace.Projects))
+	assert.Equal(t, projectName, workspace.Projects[0].Name)
 
 	project, err := actions.As[configurations.Project](out)
 	assert.NoError(t, err)
 	assert.Equal(t, projectName, project.Name)
-	assert.Equal(t, 1, len(w.Projects))
-	assert.Equal(t, projectName, w.Projects[0].Name)
 	assert.Equal(t, path.Join(projectDir, projectName), project.Dir())
 
 	// Creating again should return an error
-	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
-		Name: projectName,
-	})
-	assert.NoError(t, err)
 	out, err = action.Run(ctx)
 	assert.Error(t, err)
 
-	assert.Equal(t, 1, len(w.Projects))
-
-	// InitAndWait Back, different ways
-	project, err = w.LoadProjectFromName(ctx, projectName)
+	project, err = workspace.LoadProjectFromName(ctx, projectName)
 	assert.NoError(t, err)
 	assert.Equal(t, projectName, project.Name)
 
-	project, err = w.LoadProjectFromDir(ctx, project.Dir())
+	project, err = workspace.LoadProjectFromDir(ctx, project.Dir())
 	assert.NoError(t, err)
 	assert.Equal(t, projectName, project.Name)
 
@@ -101,38 +99,30 @@ func TestCreation(t *testing.T) {
 	_, err = os.Stat(path.Join(project.Dir(), "README.md"))
 	assert.NoError(t, err)
 
-	// InitAndWait the workspace configuration
-	wsConfig := string(shared.Must(os.ReadFile(path.Join(w.Dir(), configurations.WorkspaceConfigurationName))))
-	assert.NoError(t, err)
-	// We use default path
-	assert.Contains(t, wsConfig, fmt.Sprintf("path: %s", project.Dir()))
-	assert.Contains(t, wsConfig, "name: test-project")
-	assert.NotContains(t, wsConfig, "name: test-project*")
-
 	projectConfig := string(shared.Must(os.ReadFile(path.Join(project.Dir(), configurations.ProjectConfigurationName))))
 	assert.NoError(t, err)
 	// We use default path
 	assert.NotContains(t, projectConfig, "path")
 
-	// InitAndWait -- reference
 	ref := &configurations.ProjectReference{Name: projectName, Path: project.Dir()}
-	back, err := w.LoadProjectFromReference(ctx, ref)
+	back, err := workspace.LoadProjectFromReference(ctx, ref)
 	assert.NoError(t, err)
 	assert.Equal(t, project.Name, back.Name)
 
 	// Check that the active project is the one we created
-	active, fromPath, err := w.LoadActiveProject(ctx)
+	active, err := workspace.LoadActiveProject(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, project.Name, active.Name)
-	assert.False(t, fromPath)
 
-	all, err := w.LoadProjects(ctx)
+	all, err := workspace.LoadProjects(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(all))
 
 	// Add another project
 	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
-		Name: "test-project-2",
+		Name:      "test-project-2",
+		Path:      projectDir,
+		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 
@@ -142,34 +132,26 @@ func TestCreation(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-project-2", recent.Name)
 
-	w, err = configurations.ReloadWorkspace(ctx, w)
+	// Re-load: actions are out-of-memory operations
+	workspace, err = configurations.ReloadWorkspace(ctx, workspace)
 	assert.NoError(t, err)
 
-	//Maintain no * in memory
-	for _, ref := range w.Projects {
-		assert.NotContains(t, ref.Name, "*")
-	}
-
-	assert.Equal(t, 2, len(w.Projects))
-
-	wsConfig = string(shared.Must(os.ReadFile(path.Join(dir, configurations.WorkspaceConfigurationName))))
-	assert.Contains(t, wsConfig, "name: test-project-2*")
-	assert.NotContains(t, wsConfig, "name: test-project*")
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(workspace.Projects))
 
 	// Check that the active project is the latest one
-	active, fromPath, err = w.LoadActiveProject(ctx)
+	active, err = workspace.LoadActiveProject(ctx)
 	assert.NoError(t, err)
-	assert.False(t, fromPath)
 	assert.Equal(t, recent.Name, active.Name)
 
-	all, err = w.LoadProjects(ctx)
+	all, err = workspace.LoadProjects(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(all))
 
 	// Change the active project
 	action, err = actionproject.NewActionSetProjectActive(ctx, &actionproject.SetProjectActive{
 		Name:      projectName,
-		Workspace: w.Name,
+		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 
@@ -213,7 +195,6 @@ func TestProjectLoading(t *testing.T) {
 	assert.Equal(t, 2, len(p.Applications))
 	assert.Equal(t, "web", p.Applications[0].Name)
 	assert.Equal(t, "management", p.Applications[1].Name)
-	assert.Equal(t, "web", *p.ActiveApplication(ctx))
 
 	// Save and make sure we preserve the "active application" convention
 	tmpDir := t.TempDir()
@@ -221,12 +202,8 @@ func TestProjectLoading(t *testing.T) {
 	err = p.SaveToDirUnsafe(ctx, tmpDir)
 	assert.NoError(t, err)
 
-	content, err := os.ReadFile(path.Join(tmpDir, configurations.ProjectConfigurationName))
-	assert.NoError(t, err)
-	assert.Contains(t, string(content), "web*")
 	p, err = ws.LoadProjectFromDir(ctx, tmpDir)
 	assert.NoError(t, err)
-	assert.Equal(t, "web", *p.ActiveApplication(ctx))
 }
 
 func TestProjectLoadingFromPath(t *testing.T) {
@@ -240,14 +217,12 @@ func TestProjectLoadingFromPath(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.Chdir(cur)
 
-	p, fromPath, err := ws.LoadActiveProject(ctx)
+	p, err := configurations.LoadProjectFromPath(ctx)
 	assert.NoError(t, err)
-	assert.True(t, fromPath)
 	assert.Equal(t, "codefly-platform", p.Name)
 	assert.Equal(t, 2, len(p.Applications))
 	assert.Equal(t, "web", p.Applications[0].Name)
 	assert.Equal(t, "management", p.Applications[1].Name)
-	assert.Equal(t, "web", *p.ActiveApplication(ctx))
 
 	// Save and make sure we preserve the "active application" convention
 	tmpDir := t.TempDir()
@@ -255,10 +230,8 @@ func TestProjectLoadingFromPath(t *testing.T) {
 	err = p.SaveToDirUnsafe(ctx, tmpDir)
 	assert.NoError(t, err)
 
-	content, err := os.ReadFile(path.Join(tmpDir, configurations.ProjectConfigurationName))
+	_, err = os.ReadFile(path.Join(tmpDir, configurations.ProjectConfigurationName))
 	assert.NoError(t, err)
-	assert.Contains(t, string(content), "web*")
 	p, err = ws.LoadProjectFromDir(ctx, tmpDir)
 	assert.NoError(t, err)
-	assert.Equal(t, "web", *p.ActiveApplication(ctx))
 }

@@ -1,8 +1,6 @@
 package shared
 
-import (
-	"context"
-)
+import "context"
 
 type Override interface {
 	Replace(p string) bool
@@ -22,7 +20,7 @@ func GetOverride(ctx context.Context) Override {
 	if override, ok := ctx.Value(OverrideKey).(Override); ok {
 		return override
 	}
-	return SilentOverride()
+	return OverrideAll()
 }
 
 /*
@@ -31,22 +29,47 @@ Implementations
 
 */
 
-func SilentOverride() Override {
-	return &SilentOverrideHandler{}
+func OverrideException(ignore Ignore) *OverrideExceptionHandler {
+	return &OverrideExceptionHandler{
+		Ignore: ignore,
+	}
 }
 
-type SilentOverrideHandler struct{}
+type OverrideExceptionHandler struct {
+	Ignore
+}
 
-func (s SilentOverrideHandler) Replace(string) bool {
+var _ Override = &OverrideExceptionHandler{}
+
+func (o *OverrideExceptionHandler) Replace(p string) bool {
+	if o.Ignore != nil && o.Skip(p) {
+		return false
+	}
 	return true
 }
 
-func Skip() Override {
-	return &SkipOverrideHandler{}
+// Override
+func OverrideAll() Override {
+	return &OverrideAllHandler{}
 }
 
-type SkipOverrideHandler struct{}
+type OverrideAllHandler struct{}
 
-func (s SkipOverrideHandler) Replace(string) bool {
+var _ Override = &OverrideAllHandler{}
+
+func (o *OverrideAllHandler) Replace(string) bool {
+	return true
+}
+
+// SkipAll
+func SkipAll() *SkipAllHandler {
+	return &SkipAllHandler{}
+}
+
+type SkipAllHandler struct{}
+
+var _ Override = &SkipAllHandler{}
+
+func (o *SkipAllHandler) Replace(string) bool {
 	return false
 }

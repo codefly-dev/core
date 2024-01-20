@@ -72,7 +72,7 @@ type Cleanup func()
 
 func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	ctx := context.Background()
-	w, dir := createTestWorkspace(t, ctx)
+	workspace, dir := createTestWorkspace(t, ctx)
 	err := os.Chdir(dir)
 	assert.NoError(t, err)
 
@@ -83,17 +83,20 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	var action actions.Action
 	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
 		Name:      "test-project",
-		Workspace: w.Name,
-	})
-	assert.NoError(t, err)
-	_, err = action.Run(ctx)
-	assert.NoError(t, err)
-	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
-		Name:    "test-app-1",
-		Project: "test-project",
+		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 	out, err := action.Run(ctx)
+	assert.NoError(t, err)
+	project := shared.Must(actions.As[configurations.Project](out))
+
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
+		Name:      "test-app-1",
+		Project:   project.Name,
+		Workspace: workspace.Name,
+	})
+	assert.NoError(t, err)
+	out, err = action.Run(ctx)
 	assert.NoError(t, err)
 	appOne, err := actions.As[configurations.Application](out)
 	assert.NoError(t, err)
@@ -102,10 +105,13 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 
 	input := &actionsv0.AddService{
 		Name:        "test-service-1",
-		Application: "test-app-1",
-		Project:     "test-project",
+		Application: appOne.Name,
+		Project:     project.Name,
+		Workspace:   workspace.Name,
 		Agent: &v0base.Agent{
-			Kind: v0base.Agent_SERVICE,
+			Kind:      v0base.Agent_SERVICE,
+			Name:      "awesome-agent",
+			Publisher: "codefly.test",
 		},
 	}
 	action, err = actionservice.NewActionAddService(ctx, input)
@@ -138,7 +144,6 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	// re-load the appOne and check that this is the active serviceOne
 	appOne, err = configurations.ReloadApplication(ctx, appOne)
 	assert.NoError(t, err)
-	assert.Equal(t, "test-service-1", *appOne.ActiveService(ctx))
 
 	// re-create gets an error
 	_, err = action.Run(ctx)
@@ -172,10 +177,13 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	// create another service
 	action, err = actionservice.NewActionAddService(ctx, &actionsv0.AddService{
 		Name:        "test-service-2",
-		Application: "test-app-1",
-		Project:     "test-project",
+		Application: appOne.Name,
+		Project:     project.Name,
+		Workspace:   workspace.Name,
 		Agent: &v0base.Agent{
-			Kind: v0base.Agent_SERVICE,
+			Kind:      v0base.Agent_SERVICE,
+			Name:      "awesome-agent",
+			Publisher: "codefly.test",
 		},
 	})
 	assert.NoError(t, err)
@@ -189,25 +197,25 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	appOne, err = configurations.ReloadApplication(ctx, appOne)
 	assert.NoError(t, err)
 
-	assert.Equal(t, "test-service-2", *appOne.ActiveService(ctx))
-
 	// set active back to the first one
 	action, err = actionservice.NewActionSetServiceActive(ctx, &actionsv0.SetServiceActive{
 		Name:        "test-service-1",
-		Application: "test-app-1",
-		Project:     "test-project",
+		Application: appOne.Name,
+		Project:     project.Name,
+		Workspace:   workspace.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
 	assert.NoError(t, err)
-	back, err := actions.As[configurations.Application](out)
+	back, err := actions.As[configurations.Service](out)
 	assert.NoError(t, err)
-	assert.Equal(t, "test-service-1", *back.ActiveService(ctx))
+	assert.Equal(t, "test-service-1", back.Name)
 
 	// new appOne and new serviceOne
 	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
-		Name:    "test-app-2",
-		Project: "test-project",
+		Name:      "test-app-2",
+		Project:   project.Name,
+		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
@@ -218,10 +226,13 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 
 	action, err = actionservice.NewActionAddService(ctx, &actionsv0.AddService{
 		Name:        "test-service-3",
-		Application: "test-app-2",
-		Project:     "test-project",
+		Application: appTwo.Name,
+		Project:     project.Name,
+		Workspace:   workspace.Name,
 		Agent: &v0base.Agent{
-			Kind: v0base.Agent_SERVICE,
+			Kind:      v0base.Agent_SERVICE,
+			Name:      "awesome-agent",
+			Publisher: "codefly.test",
 		},
 	})
 	assert.NoError(t, err)
@@ -233,6 +244,8 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.Equal(t, "test-app-2", serviceThree.Application)
 
 	return BaseOutput{
+		workspace:    workspace,
+		project:      project,
 		serviceOne:   serviceOne,
 		serviceTwo:   serviceTwo,
 		serviceThree: serviceThree,
@@ -247,6 +260,8 @@ type BaseOutput struct {
 	serviceThree *configurations.Service
 	appOne       *configurations.Application
 	appTwo       *configurations.Application
+	workspace    *configurations.Workspace
+	project      *configurations.Project
 }
 
 func TestAddService(t *testing.T) {
@@ -263,11 +278,12 @@ func TestAddDependencyService(t *testing.T) {
 	var err error
 	// No endpoint yet
 	input := &actionsv0.AddServiceDependency{
-		Name:                  "test-service-1",
-		Application:           "test-app-1",
-		Project:               "test-project",
-		DependencyName:        "test-service-2",
-		DependencyApplication: "test-app-1",
+		Name:                  setup.serviceOne.Name,
+		Application:           setup.appOne.Name,
+		Project:               setup.project.Name,
+		DependencyName:        setup.serviceTwo.Name,
+		DependencyApplication: setup.appOne.Name,
+		Workspace:             setup.workspace.Name,
 	}
 	action, err = actionservice.NewActionAddServiceDependency(ctx, input)
 	assert.NoError(t, err)

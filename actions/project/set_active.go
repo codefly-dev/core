@@ -37,7 +37,7 @@ var _ actions.Action = (*SetProjectActiveAction)(nil)
 
 func (action *SetProjectActiveAction) Run(ctx context.Context) (any, error) {
 	w := wool.Get(ctx).In("SetProjectActiveAction.Run", wool.NameField(action.Name))
-	workspace, err := configurations.LoadWorkspace(ctx)
+	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load workspace")
 	}
@@ -53,7 +53,7 @@ func (action *SetProjectActiveAction) Run(ctx context.Context) (any, error) {
 	}
 
 	// Return the project
-	project, _, err := workspace.LoadActiveProject(ctx)
+	project, err := workspace.LoadActiveProject(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load active project")
 	}

@@ -17,7 +17,7 @@ import (
 
 func TestEnvironment(t *testing.T) {
 	ctx := context.Background()
-	_, dir := createTestWorkspace(t, ctx)
+	workspace, dir := createTestWorkspace(t, ctx)
 	cur, err := os.Getwd()
 	assert.NoError(t, err)
 	err = os.Chdir(dir)
@@ -31,15 +31,17 @@ func TestEnvironment(t *testing.T) {
 	var action actions.Action
 
 	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
-		Name: "test-project",
+		Name:      "test-project",
+		Workspace: workspace.Name,
 	})
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
 	project := shared.Must(actions.As[configurations.Project](out))
 
 	action, err = actionenviroment.NewActionAddEnvironment(ctx, &actionsv0.AddEnvironment{
-		Name:    "test-environment",
-		Project: "test-project",
+		Name:      "test-environment",
+		Project:   "test-project",
+		Workspace: workspace.Name,
 	})
 	_, err = action.Run(ctx)
 	assert.NoError(t, err)

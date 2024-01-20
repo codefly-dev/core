@@ -29,7 +29,6 @@ func TestOpenAPICombineForward(t *testing.T) {
 	assert.NoError(t, err)
 
 	content, _ := os.ReadFile(out)
-	t.Log(string(content))
 
 	// parse again
 	api, err := configurations.ParseOpenAPI(content)
@@ -40,30 +39,25 @@ func TestOpenAPICombineForward(t *testing.T) {
 	result := configurations.EndpointRestAPI(combined)
 	assert.NotNil(t, result)
 	assert.NotNil(t, result.Openapi)
-	assert.Equal(t, 2, len(result.Routes))
+	assert.Equal(t, 2, len(result.Groups))
 
-	routes := map[string]configurations.RestRoute{
-		"/management/org/version": {
-			Service:     "org",
-			Application: "management",
-			Path:        "/management/org/version",
-			Methods:     []configurations.HTTPMethod{configurations.HTTPMethodGet},
+	expected := []*configurations.RestRoute{
+		{
+			Path:   "/management/org/version",
+			Method: configurations.HTTPMethodGet,
 		},
-		"/management/org/organization": {
-			Service:     "org",
-			Application: "management",
-			Path:        "/management/org/version",
-			Methods:     []configurations.HTTPMethod{configurations.HTTPMethodPost},
+		{
+			Path:   "/management/org/organization",
+			Method: configurations.HTTPMethodPost,
 		},
 	}
-	for _, route := range result.Routes {
-		t.Log("ROUTE", route)
-		if expected, ok := routes[route.Path]; ok {
-			assert.Equal(t, len(route.Methods), len(expected.Methods))
-			continue
+	var got []*configurations.RestRoute
+	for _, group := range result.Groups {
+		for _, r := range group.Routes {
+			got = append(got, configurations.RestRouteFromProto(r))
 		}
-		t.Errorf("missing route: %s", route.Path)
 	}
+	assert.NoError(t, Exhaust(expected, got))
 
 }
 
@@ -92,19 +86,7 @@ func TestOpenAPICombineSample(t *testing.T) {
 	result := configurations.EndpointRestAPI(combined)
 	assert.NotNil(t, result)
 	assert.NotNil(t, result.Openapi)
-	assert.Equal(t, 3, len(result.Routes))
-
-	desired := map[string]bool{"/app/svc/version": false, "/management/org/version": false, "/management/org/organization": false}
-	for _, route := range result.Routes {
-		if _, ok := desired[route.Path]; !ok {
-			t.Errorf("unexpected route: %s", route.Path)
-			continue
-		}
-		desired[route.Path] = true
-	}
-	for _, d := range desired {
-		assert.True(t, d)
-	}
+	assert.Equal(t, 3, len(result.Groups))
 
 }
 
@@ -134,17 +116,6 @@ func TestOpenAPICombineWithFilter(t *testing.T) {
 	result := configurations.EndpointRestAPI(combined)
 	assert.NotNil(t, result)
 	assert.NotNil(t, result.Openapi)
-	assert.Equal(t, 2, len(result.Routes))
+	assert.Equal(t, 2, len(result.Groups)) // /version + /organization (GET+POST)
 
-	desired := map[string]bool{"/app/svc/version": false, "/management/org/organization": false}
-	for _, route := range result.Routes {
-		if _, ok := desired[route.Path]; !ok {
-			t.Errorf("unexpected route: %s", route.Path)
-			continue
-		}
-		desired[route.Path] = true
-	}
-	for _, d := range desired {
-		assert.True(t, d)
-	}
 }

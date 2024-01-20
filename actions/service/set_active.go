@@ -38,30 +38,37 @@ var _ actions.Action = (*SetServiceActiveAction)(nil)
 func (action *SetServiceActiveAction) Run(ctx context.Context) (any, error) {
 	w := wool.Get(ctx).In("SetServiceActiveAction.Run", wool.NameField(action.Name))
 
-	ws, err := configurations.LoadWorkspace(ctx)
+	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
 
-	project, err := ws.LoadProjectFromName(ctx, action.Project)
+	project, err := workspace.LoadProjectFromName(ctx, action.Project)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
 
-	app, err := project.LoadApplicationFromName(ctx, action.Application)
+	application, err := project.LoadApplicationFromName(ctx, action.Application)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
 
-	err = app.SetActiveService(ctx, action.Name)
+	service, err := application.LoadServiceFromName(ctx, action.Name)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
-	err = app.Save(ctx)
+
+	err = workspace.SetActiveService(ctx, project.Name, application.Name, service.Name)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
-	return app, nil
+
+	err = workspace.Save(ctx)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+
+	return service, nil
 }
 
 func init() {

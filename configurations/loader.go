@@ -17,41 +17,21 @@ import (
 
 type Configuration interface{}
 
-func SolveDir(dir string) (string, error) {
-	w := wool.Get(context.Background()).In("configurations.SolveDir", wool.Field("dir", dir))
-	if filepath.IsLocal(dir) || strings.HasPrefix(dir, ".") || strings.HasPrefix(dir, "..") {
+func SolvePath(p string) (string, error) {
+	w := wool.Get(context.Background()).In("configurations.SolvePath", wool.PathField(p))
+	if filepath.IsLocal(p) || strings.HasPrefix(p, ".") || strings.HasPrefix(p, "..") {
 		cur, err := os.Getwd()
 		if err != nil {
 			return "", w.Wrapf(err, "cannot get active directory")
 		}
-		dir = filepath.Join(cur, dir)
+		p = filepath.Join(cur, p)
 		w.Trace("solved path")
 	}
 	// Validate
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return "", w.Wrapf(err, "directory doesn't exist")
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		return "", w.Wrapf(err, "path doesn't exist")
 	}
-	return dir, nil
-}
-
-func SolveDirOrCreate(dir string) (string, error) {
-	w := wool.Get(context.Background()).In("configurations.SolveDirOrCreate", wool.Field("dir", dir))
-	if filepath.IsLocal(dir) || strings.HasPrefix(dir, ".") || strings.HasPrefix(dir, "..") {
-		cur, err := os.Getwd()
-		if err != nil {
-			return "", w.Wrapf(err, "cannot get active directory")
-		}
-		dir = filepath.Join(cur, dir)
-		w.Trace("solved path")
-	}
-	// Validate
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		err = os.MkdirAll(dir, 0o755)
-		if err != nil {
-			return "", w.Wrapf(err, "cannot create directory")
-		}
-	}
-	return dir, nil
+	return p, nil
 }
 
 func ConfigurationFile[C Configuration]() string {

@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/configurations/standards"
+	"github.com/codefly-dev/core/wool"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
-	"github.com/codefly-dev/core/wool"
 )
 
 type Visibility = string
@@ -20,7 +20,7 @@ const (
 
 // Endpoint is the fundamental entity that standardize communication between services.
 type Endpoint struct {
-	Name        string `yaml:"name"`
+	Name        string `yaml:"name,omitempty"`
 	Service     string `yaml:"service,omitempty"`
 	Application string `yaml:"application,omitempty"`
 	Description string `yaml:"description,omitempty"`
@@ -266,7 +266,7 @@ func LightAPI(api *basev0.API) *basev0.API {
 	case *basev0.API_Rest:
 		return &basev0.API{
 			Value: &basev0.API_Rest{
-				Rest: &basev0.RestAPI{Routes: api.Value.(*basev0.API_Rest).Rest.Routes},
+				Rest: &basev0.RestAPI{Groups: api.Value.(*basev0.API_Rest).Rest.Groups},
 			},
 		}
 	case *basev0.API_Http:
@@ -291,44 +291,73 @@ func Light(e *basev0.Endpoint) *basev0.Endpoint {
 	}
 }
 
-func FlattenRestRoutes(_ context.Context, endpoints []*basev0.Endpoint) []*basev0.RestRoute {
-	var routes []*basev0.RestRoute
-	for _, ep := range endpoints {
-		if rest := ep.Api.GetRest(); rest != nil {
-			routes = append(routes, rest.Routes...)
-		}
-	}
-	return routes
+type RouteUnique struct {
+	service     string
+	application string
+	path        string
+	method      HTTPMethod
 }
 
-func DetectNewRoutesFromEndpoints(ctx context.Context, known []*RestRoute, endpoints []*basev0.Endpoint) []*RestRoute {
-	w := wool.Get(ctx).In("DetectNewRoutes")
-	// TODO: Don't remember what I wanted to do
-	for _, e := range endpoints {
-		w.Debug("TODO: forgot what it was", wool.Field("endpoint", e))
-	}
+func (r RouteUnique) String() string {
+	return fmt.Sprintf("%s/%s%s[%s]", r.application, r.service, r.path, r.method)
+}
 
-	var newRoutes []*RestRoute
-	for _, endpoint := range endpoints {
-		if rest := HasRest(ctx, endpoint.Api); rest != nil {
-			for _, route := range rest.Routes {
-				potential := &RestRoute{
-					Application: endpoint.Application,
-					Service:     endpoint.Service,
-					Path:        route.Path,
-					Methods:     ConvertMethods(route.Methods),
-				}
-				if !ContainsRoute(known, potential) {
-					newRoutes = append(newRoutes, potential)
+func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpoint, known []*RestRouteGroup) []*RestRouteGroup {
+	w := wool.Get(ctx).In("DetectNewRoutes")
+	knownRoutes := make(map[string]bool)
+	for _, k := range known {
+		for _, r := range k.Routes {
+			w.Debug("adding route", wool.Field("route", r))
+			u := RouteUnique{
+				service:     k.Service,
+				application: k.Application,
+				path:        r.Path,
+				method:      r.Method,
+			}
+			knownRoutes[u.String()] = true
+		}
+	}
+	w.Debug("known routes", wool.Field("count", len(knownRoutes)))
+	newGroups := make(map[string]*RestRouteGroup)
+
+	for _, e := range endpoints {
+		if rest := HasRest(ctx, e.Api); rest != nil {
+			w.Debug("found a REST API", wool.NameField(e.Name))
+			for _, group := range rest.Groups {
+				for _, r := range group.Routes {
+					key := RouteUnique{
+						service:     e.Service,
+						application: e.Application,
+						path:        r.Path,
+						method:      ConvertMethod(r.Method),
+					}
+					if _, ok := knownRoutes[key.String()]; !ok {
+						w.Debug("detected unknown route", wool.Field("route", key.String()))
+						var outputGroup *RestRouteGroup
+						var ok bool
+						if outputGroup, ok = newGroups[group.String()]; !ok {
+							outputGroup = &RestRouteGroup{
+								Application: e.Application,
+								Service:     e.Service,
+								Path:        r.Path,
+							}
+							newGroups[group.String()] = outputGroup
+						}
+						outputGroup.Routes = append(outputGroup.Routes, RestRouteFromProto(r))
+					}
 				}
 			}
 		}
 	}
-
-	return newRoutes
+	var output []*RestRouteGroup
+	for _, g := range newGroups {
+		output = append(output, g)
+	}
+	return output
 }
 
-func FindEndpointForRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *RestRoute) *basev0.Endpoint {
+// FindEndpointForRoute finds the endpoint that matches the route rpcs
+func FindEndpointForRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *RestRouteGroup) *basev0.Endpoint {
 	for _, e := range endpoints {
 		if e.Application == route.Application && e.Service == route.Service && HasRest(ctx, e.Api) != nil {
 			return e

@@ -59,7 +59,6 @@ func NewGrpcAPI(ctx context.Context, endpoint *Endpoint, filename string) (*base
 			}
 		}
 	}
-
 	return WithAPI(ctx, endpoint, &GrpcAPI{filename: filename, content: content, rpcs: rpcs})
 }
 
@@ -81,7 +80,7 @@ func (grpc *GrpcAPI) Proto() (*basev0.API, error) {
 type RestAPI struct {
 	filename string
 	openapi  []byte
-	routes   []*basev0.RestRoute
+	groups   []*basev0.RestRouteGroup
 }
 
 func NewRestAPI(ctx context.Context, endpoint *Endpoint) (*basev0.Endpoint, error) {
@@ -91,7 +90,7 @@ func NewRestAPI(ctx context.Context, endpoint *Endpoint) (*basev0.Endpoint, erro
 func (rest *RestAPI) Proto() (*basev0.API, error) {
 	restAPI := &basev0.RestAPI{
 		Openapi: rest.openapi,
-		Routes:  rest.routes,
+		Groups:  rest.groups,
 	}
 	// Add an API message with the GrpcAPI message
 	api := &basev0.API{
@@ -117,15 +116,26 @@ func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *Endpoint, filename str
 		return nil, w.Wrapf(err, "failed to parse openapi spec")
 	}
 
-	var routes []*basev0.RestRoute
+	groupMap := make(map[string]*basev0.RestRouteGroup)
 	for path := range swagger.Paths.Paths {
+		var group *basev0.RestRouteGroup
+		var ok bool
+		if group, ok = groupMap[path]; !ok {
+			group = &basev0.RestRouteGroup{}
+			groupMap[path] = group
+		}
 		item := swagger.Paths.Paths[path]
-		routes = append(routes, &basev0.RestRoute{
-			Methods: getHTTPMethodsFromPathItem(&item),
-			Path:    path,
-		})
+		methods := getHTTPMethodsFromPathItem(&item)
+		for _, method := range methods {
+			route := &basev0.RestRoute{Path: path, Method: method}
+			group.Routes = append(group.Routes, route)
+		}
 	}
-	return WithAPI(ctx, endpoint, &RestAPI{openapi: content, routes: routes, filename: filename})
+	var groups []*basev0.RestRouteGroup
+	for _, group := range groupMap {
+		groups = append(groups, group)
+	}
+	return WithAPI(ctx, endpoint, &RestAPI{openapi: content, groups: groups, filename: filename})
 }
 
 func EndpointRestAPI(endpoint *basev0.Endpoint) *basev0.RestAPI {

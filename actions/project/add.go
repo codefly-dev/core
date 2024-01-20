@@ -51,7 +51,7 @@ func (action *AddProjectAction) Run(ctx context.Context) (any, error) {
 		return nil, w.Wrap(err)
 	}
 
-	workspace, err := configurations.LoadWorkspace(ctx)
+	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -62,7 +62,8 @@ func (action *AddProjectAction) Run(ctx context.Context) (any, error) {
 	}
 
 	err = workspace.SetProjectActive(ctx, &actionsv0.SetProjectActive{
-		Name: project.Name,
+		Name:      project.Name,
+		Workspace: workspace.Name,
 	})
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot set project as active")

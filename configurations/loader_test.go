@@ -11,5 +11,5 @@ import (
 func TestOverrideFromContext(t *testing.T) {
 	ctx := context.Background()
 	override := shared.GetOverride(ctx)
-	assert.Equal(t, shared.SilentOverride(), override)
+	assert.Equal(t, shared.OverrideAll(), override)
 }

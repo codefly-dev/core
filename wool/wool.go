@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"runtime/debug"
 
+	"google.golang.org/grpc/metadata"
+
 	"github.com/pkg/errors"
 
 	"go.opentelemetry.io/otel/baggage"
@@ -160,6 +162,45 @@ func (w *Wool) Close() {
 	if w.span != nil {
 		w.span.End()
 	}
+}
+
+type NotFoundError struct {
+	what string
+}
+
+func (err *NotFoundError) Error() string {
+	return fmt.Sprintf("<%s> not found", err.what)
+}
+
+func NotFound(what string) error {
+	return &NotFoundError{what: what}
+}
+
+func (w *Wool) lookup(key string) (string, error) {
+	md, ok := metadata.FromIncomingContext(w.ctx)
+	if !ok {
+		return "", fmt.Errorf("cannot get metadata from context")
+	}
+
+	if value, found := md[key]; found && len(value) > 0 && len(value[0]) > 0 {
+		return value[0], nil
+	}
+	return "", NotFound(key)
+
+}
+
+const UserIDKey = "wood:user-id"
+
+// UserID returns the UserID from the context
+func (w *Wool) UserID() (string, error) {
+	return w.lookup(UserIDKey)
+}
+
+const UserEmailKey = "wood:email"
+
+// UserEmail returns the UserEmail from the context
+func (w *Wool) UserEmail() (string, error) {
+	return w.lookup(UserEmailKey)
 }
 
 func (w *Wool) Source() *Identifier {

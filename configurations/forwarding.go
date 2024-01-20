@@ -13,7 +13,6 @@ type Forwarding interface {
 }
 
 type ServiceForwarding struct {
-	base *ServiceReference
 	from *Service
 }
 
@@ -21,9 +20,7 @@ var _ Forwarding = (*ServiceForwarding)(nil)
 
 func (s ServiceForwarding) Forward(r *RestRoute) (*RestRoute, error) {
 	return &RestRoute{
-		Path:        fmt.Sprintf("/%s/%s%s", s.from.Application, s.from.Name, r.Path),
-		Methods:     r.Methods,
-		Application: s.base.Application,
-		Service:     s.base.Name,
+		Path:   fmt.Sprintf("/%s/%s%s", s.from.Application, s.from.Name, r.Path),
+		Method: r.Method,
 	}, nil
 }
