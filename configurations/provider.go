@@ -1,91 +1,13 @@
 package configurations
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
-	"github.com/codefly-dev/core/wool"
 )
 
 const ProjectProviderOrigin = "ProjectProviderOrigin"
-
-func loadFromEnvFile(ctx context.Context, dir string, p string) (*basev0.ProviderInformation, error) {
-	w := wool.Get(ctx).In("provider.loadFromEnvFile")
-
-	// Extract the relative path
-	rel, err := filepath.Rel(dir, p)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot get relative path")
-	}
-	rel = filepath.Dir(rel)
-	origin := ProjectProviderOrigin
-	if rel != "." {
-		parsed, err := ParseServiceUnique(rel)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot parse service unique")
-		}
-		origin = parsed.Unique()
-	}
-	base := filepath.Base(p)
-	var ok bool
-	base, ok = strings.CutSuffix(base, ".env")
-	if !ok {
-		return nil, w.NewError("invalid env file name: %s", base)
-	}
-
-	f, err := os.ReadFile(p)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot read auth0.env")
-	}
-	info := &basev0.ProviderInformation{
-		Name:   base,
-		Origin: origin,
-		Data:   make(map[string]string),
-	}
-	lines := strings.Split(string(f), "\n")
-
-	for _, line := range lines {
-		tokens := strings.Split(line, "=")
-		if len(tokens) != 2 {
-			continue
-		}
-		info.Data[tokens[0]] = tokens[1]
-	}
-	return info, nil
-}
-
-func LoadProviderFromEnvFiles(ctx context.Context, project *Project, env *Environment) ([]*basev0.ProviderInformation, error) {
-	w := wool.Get(ctx).In("provider.loadFromProject")
-	var infos []*basev0.ProviderInformation
-	dir := filepath.Join(project.Dir(), "providers", env.Name)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return nil, w.NewError("path doesn't exist: %s", dir)
-	}
-	// Walk
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if info.IsDir() {
-			return nil
-		}
-		if info.Name() == ".env" {
-			return nil
-		}
-		prov, nerr := loadFromEnvFile(ctx, dir, path)
-		if nerr != nil {
-			return w.Wrapf(nerr, "cannot load provider from env file")
-		}
-		infos = append(infos, prov)
-		return nil
-	})
-
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot walk providers directory")
-	}
-	return infos, nil
-}
 
 const ProviderPrefix = "CODEFLY_PROVIDER__"
 
@@ -95,6 +17,18 @@ func ProviderInformationAsEnvironmentVariables(info *basev0.ProviderInformation)
 		env = append(env, ProviderInformationEnv(info, key, value))
 	}
 	return env
+}
+
+func FindProjectProvider(name string, sources []*basev0.ProviderInformation) (*basev0.ProviderInformation, error) {
+	for _, prov := range sources {
+		if prov.Origin != ProjectProviderOrigin {
+			continue
+		}
+		if prov.Name == name {
+			return prov, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot find provider: %s", name)
 }
 
 func ProviderInformationEnv(info *basev0.ProviderInformation, key string, value string) string {
@@ -112,16 +46,4 @@ func ProviderInformationEnvKey(info *basev0.ProviderInformation, key string) str
 
 func sanitizeUnique(origin string) string {
 	return strings.Replace(origin, "/", "__", 1)
-}
-
-func GetProjectProvider(name string, provs []*basev0.ProviderInformation) (*basev0.ProviderInformation, error) {
-	for _, prov := range provs {
-		if prov.Origin != ProjectProviderOrigin {
-			continue
-		}
-		if prov.Name == name {
-			return prov, nil
-		}
-	}
-	return nil, fmt.Errorf("cannot find provider: %s", name)
 }

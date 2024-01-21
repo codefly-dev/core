@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"path"
 
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
@@ -72,6 +71,15 @@ func (action *AddServiceAction) Run(ctx context.Context) (any, error) {
 		return nil, w.Wrapf(err, "cannot reload application")
 	}
 
+	ref, err := service.Reference()
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot get service reference")
+	}
+	err = workspace.AddService(ctx, project.Name, application.Name, ref)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot add service")
+	}
+
 	err = workspace.SetActiveService(ctx, project.Name, application.Name, service.Name)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot set active service")
@@ -80,13 +88,6 @@ func (action *AddServiceAction) Run(ctx context.Context) (any, error) {
 	err = workspace.Save(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot save workspace")
-	}
-
-	// Create a provider folder for the service
-	providerDir := path.Join(project.Dir(), service.Unique())
-	_, err = shared.CheckDirectoryOrCreate(ctx, providerDir)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot create provider directory")
 	}
 
 	return service, nil

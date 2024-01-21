@@ -9,39 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-//
-//func TestValidOrganizationName(t *testing.T) {
-//	tcs := []struct {
-//		name  string
-//		valid bool
-//	}{
-//		{"codefly.ai", true},
-//		{"codefly", true},
-//		{"01codefly", false},
-//	}
-//	for _, tc := range tcs {
-//		t.Run(tc.name, func(t *testing.T) {
-//			assert.Equal(t, tc.valid, configurations.ExtraValidOrganizationNameCheck(tc.name), tc.name)
-//		})
-//	}
-//}
-//
-//func TestValidOrganizationDomain(t *testing.T) {
-//	tcs := []struct {
-//		name  string
-//		valid bool
-//	}{
-//		{"https://codefly.ai", true},
-//		{"https://codefly.ai/", true},
-//		{"codefly.ai/organization", false},
-//	}
-//	for _, tc := range tcs {
-//		t.Run(tc.name, func(t *testing.T) {
-//			assert.Equal(t, tc.valid, configurations.ValidOrganizationDomain(tc.name))
-//		})
-//	}
-//}
-
 func TestValidOrganization(t *testing.T) {
 	tcs := []struct {
 		name string
@@ -79,4 +46,9 @@ func TestToOrganizationDomain(t *testing.T) {
 			assert.Equal(t, tc.out, configurations.ToOrganizationDomain(tc.in))
 		})
 	}
+}
+
+func TestOrganizationNameFromDomain(t *testing.T) {
+	domain := "github.com/org"
+	assert.Equal(t, "org", configurations.ToOrganizationName(domain))
 }

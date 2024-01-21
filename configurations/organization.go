@@ -40,6 +40,10 @@ func ToOrganizationDomain(name string) string {
 	return fmt.Sprintf("github.com/%s", strings.ToLower(domain))
 }
 
+func ToOrganizationName(domain string) string {
+	return strings.TrimPrefix(domain, "github.com/")
+}
+
 func ValidOrganizationDomain(domain string) bool {
 	// Domain is URL - think about github organization
 	u, err := url.ParseRequestURI(domain)

@@ -10,7 +10,7 @@ import (
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 
-	factoryv0 "github.com/codefly-dev/core/generated/go/services/factory/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/services/factory/v0"
 )
 
 // We mimic the behavior of a agent
@@ -23,8 +23,8 @@ type dataCreate struct {
 	results []string
 }
 
-func (s *agentTest) Create(ctx context.Context, req *factoryv0.CreateRequest) (*dataCreate, error) {
-	if !s.Server.Ready(shared.TypeOf[factoryv0.CreateRequest]()) {
+func (s *agentTest) Create(ctx context.Context, req *builderv0.CreateRequest) (*dataCreate, error) {
+	if !s.Server.Ready(shared.TypeOf[builderv0.CreateRequest]()) {
 		return nil, fmt.Errorf("not ready")
 	}
 	return &dataCreate{}, nil
@@ -35,9 +35,9 @@ func TestSequenceWithoutCommunication(t *testing.T) {
 	// Create a new sequence
 	server := communicate.NewServer(ctx)
 	sequence := agentTest{Server: server}
-	_, ok := server.RequiresCommunication(communicate.Channel[factoryv0.CreateRequest]())
+	_, ok := server.RequiresCommunication(communicate.Channel[builderv0.CreateRequest]())
 	assert.False(t, ok)
-	resp, err := sequence.Create(ctx, &factoryv0.CreateRequest{})
+	resp, err := sequence.Create(ctx, &builderv0.CreateRequest{})
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, 0, len(resp.results))
@@ -92,15 +92,15 @@ func TestSequenceWithCommunication(t *testing.T) {
 	server := communicate.NewServer(ctx)
 	agent := agentTest{Server: server}
 
-	err := server.Register(ctx, communicate.New[factoryv0.CreateRequest](agent.createSequence()))
+	err := server.Register(ctx, communicate.New[builderv0.CreateRequest](agent.createSequence()))
 	assert.NoError(t, err)
-	_, ok := server.RequiresCommunication(communicate.Channel[factoryv0.CreateRequest]())
+	_, ok := server.RequiresCommunication(communicate.Channel[builderv0.CreateRequest]())
 	assert.True(t, ok)
-	_, err = agent.Create(ctx, &factoryv0.CreateRequest{})
+	_, err = agent.Create(ctx, &builderv0.CreateRequest{})
 	assert.Error(t, err)
 
 	answerProvider := &clientHandler{}
-	clientSession := communicate.NewClientSession(communicate.Channel[factoryv0.CreateRequest](), answerProvider)
+	clientSession := communicate.NewClientSession(communicate.Channel[builderv0.CreateRequest](), answerProvider)
 
 	eng, err := clientSession.Engage(ctx, nil)
 	assert.NoError(t, err)
@@ -130,7 +130,7 @@ func TestSequenceWithCommunication(t *testing.T) {
 	assert.True(t, eng.Mode == agentv0.Engage_END)
 
 	// we got the info back
-	session, err := server.Done(ctx, communicate.Channel[factoryv0.CreateRequest]())
+	session, err := server.Done(ctx, communicate.Channel[builderv0.CreateRequest]())
 	assert.NoError(t, err)
 	value, err := session.GetInputString("one")
 	assert.NoError(t, err)
@@ -143,15 +143,15 @@ func TestSequenceWithCommunicationFlow(t *testing.T) {
 	server := communicate.NewServer(ctx)
 	agent := agentTest{Server: server}
 
-	err := server.Register(ctx, communicate.New[factoryv0.CreateRequest](agent.createBiggerSequence()))
+	err := server.Register(ctx, communicate.New[builderv0.CreateRequest](agent.createBiggerSequence()))
 	assert.NoError(t, err)
 
 	answerProvider := &clientHandlerRepeater{}
 
-	err = communicate.Do[factoryv0.CreateRequest](ctx, server, answerProvider)
+	err = communicate.Do[builderv0.CreateRequest](ctx, server, answerProvider)
 	assert.NoError(t, err)
 
-	session, err := server.Done(ctx, communicate.Channel[factoryv0.CreateRequest]())
+	session, err := server.Done(ctx, communicate.Channel[builderv0.CreateRequest]())
 	for _, v := range []string{"one", "two", "three", "four"} {
 		value, err := session.GetInputString(v)
 		assert.NoError(t, err)

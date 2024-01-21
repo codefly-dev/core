@@ -235,12 +235,12 @@ func (docker *Docker) create(ctx context.Context, wait bool) error {
 
 func (docker *Docker) run(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.run")
-	err := docker.client.ContainerStart(ctx, docker.instance.container.ID, types.ContainerStartOptions{})
+	err := docker.client.ContainerStart(ctx, docker.instance.container.ID, container.StartOptions{})
 	if err != nil {
 		return w.Wrapf(err, "cannot start container")
 	}
 	if !docker.silent {
-		options := types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
+		options := container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
 		logReader, err := docker.client.ContainerLogs(ctx, docker.instance.container.ID, options)
 		if err != nil {
 			return w.Wrapf(err, "cannot get container logs")

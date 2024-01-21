@@ -13,7 +13,7 @@ import (
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
-	factoryv0 "github.com/codefly-dev/core/generated/go/services/factory/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/services/factory/v0"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )
@@ -32,52 +32,52 @@ func (m ServiceFactoryAgentContext) Default() plugin.Plugin {
 var _ manager.AgentContext = ServiceFactoryAgentContext{}
 
 type Factory interface {
-	Load(ctx context.Context, req *factoryv0.LoadRequest) (*factoryv0.LoadResponse, error)
-	Init(ctx context.Context, req *factoryv0.InitRequest) (*factoryv0.InitResponse, error)
+	Load(ctx context.Context, req *builderv0.LoadRequest) (*builderv0.LoadResponse, error)
+	Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error)
 
-	Create(ctx context.Context, req *factoryv0.CreateRequest) (*factoryv0.CreateResponse, error)
-	Update(ctx context.Context, req *factoryv0.UpdateRequest) (*factoryv0.UpdateResponse, error)
+	Create(ctx context.Context, req *builderv0.CreateRequest) (*builderv0.CreateResponse, error)
+	Update(ctx context.Context, req *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error)
 
-	Sync(ctx context.Context, req *factoryv0.SyncRequest) (*factoryv0.SyncResponse, error)
+	Sync(ctx context.Context, req *builderv0.SyncRequest) (*builderv0.SyncResponse, error)
 
-	Build(ctx context.Context, req *factoryv0.BuildRequest) (*factoryv0.BuildResponse, error)
-	Deploy(ctx context.Context, req *factoryv0.DeploymentRequest) (*factoryv0.DeploymentResponse, error)
+	Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error)
+	Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error)
 
 	// Communicate is a special method that is used to communicate with the agent
 	communicate.Communicate
 }
 
 type FactoryAgent struct {
-	client  factoryv0.FactoryClient
+	client  builderv0.FactoryClient
 	agent   *configurations.Agent
 	process *manager.ProcessInfo
 }
 
-func (m FactoryAgent) Load(ctx context.Context, req *factoryv0.LoadRequest) (*factoryv0.LoadResponse, error) {
+func (m FactoryAgent) Load(ctx context.Context, req *builderv0.LoadRequest) (*builderv0.LoadResponse, error) {
 	return m.client.Load(ctx, req)
 }
 
-func (m FactoryAgent) Init(ctx context.Context, req *factoryv0.InitRequest) (*factoryv0.InitResponse, error) {
+func (m FactoryAgent) Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error) {
 	return m.client.Init(ctx, req)
 }
 
-func (m FactoryAgent) Create(ctx context.Context, req *factoryv0.CreateRequest) (*factoryv0.CreateResponse, error) {
+func (m FactoryAgent) Create(ctx context.Context, req *builderv0.CreateRequest) (*builderv0.CreateResponse, error) {
 	return m.client.Create(ctx, req)
 }
 
-func (m FactoryAgent) Update(ctx context.Context, req *factoryv0.UpdateRequest) (*factoryv0.UpdateResponse, error) {
+func (m FactoryAgent) Update(ctx context.Context, req *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
 	return m.client.Update(ctx, req)
 }
 
-func (m FactoryAgent) Sync(ctx context.Context, req *factoryv0.SyncRequest) (*factoryv0.SyncResponse, error) {
+func (m FactoryAgent) Sync(ctx context.Context, req *builderv0.SyncRequest) (*builderv0.SyncResponse, error) {
 	return m.client.Sync(ctx, req)
 }
 
-func (m FactoryAgent) Build(ctx context.Context, req *factoryv0.BuildRequest) (*factoryv0.BuildResponse, error) {
+func (m FactoryAgent) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
 	return m.client.Build(ctx, req)
 }
 
-func (m FactoryAgent) Deploy(ctx context.Context, req *factoryv0.DeploymentRequest) (*factoryv0.DeploymentResponse, error) {
+func (m FactoryAgent) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
 	return m.client.Deploy(ctx, req)
 }
 
@@ -92,45 +92,45 @@ type FactoryAgentGRPC struct {
 }
 
 func (p *FactoryAgentGRPC) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
-	factoryv0.RegisterFactoryServer(s, &FactoryServer{Factory: p.Factory})
+	builderv0.RegisterFactoryServer(s, &FactoryServer{Factory: p.Factory})
 	return nil
 }
 
 func (p *FactoryAgentGRPC) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &FactoryAgent{client: factoryv0.NewFactoryClient(c)}, nil
+	return &FactoryAgent{client: builderv0.NewFactoryClient(c)}, nil
 }
 
 // FactoryServer wraps the gRPC protocol Request/Response
 type FactoryServer struct {
-	factoryv0.UnimplementedFactoryServer
+	builderv0.UnimplementedFactoryServer
 	Factory Factory
 }
 
-func (m *FactoryServer) Load(ctx context.Context, req *factoryv0.LoadRequest) (*factoryv0.LoadResponse, error) {
+func (m *FactoryServer) Load(ctx context.Context, req *builderv0.LoadRequest) (*builderv0.LoadResponse, error) {
 	return m.Factory.Load(ctx, req)
 }
 
-func (m *FactoryServer) Init(ctx context.Context, req *factoryv0.InitRequest) (*factoryv0.InitResponse, error) {
+func (m *FactoryServer) Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error) {
 	return m.Factory.Init(ctx, req)
 }
 
-func (m *FactoryServer) Create(ctx context.Context, req *factoryv0.CreateRequest) (*factoryv0.CreateResponse, error) {
+func (m *FactoryServer) Create(ctx context.Context, req *builderv0.CreateRequest) (*builderv0.CreateResponse, error) {
 	return m.Factory.Create(ctx, req)
 }
 
-func (m *FactoryServer) Update(ctx context.Context, req *factoryv0.UpdateRequest) (*factoryv0.UpdateResponse, error) {
+func (m *FactoryServer) Update(ctx context.Context, req *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
 	return m.Factory.Update(ctx, req)
 }
 
-func (m *FactoryServer) Sync(ctx context.Context, req *factoryv0.SyncRequest) (*factoryv0.SyncResponse, error) {
+func (m *FactoryServer) Sync(ctx context.Context, req *builderv0.SyncRequest) (*builderv0.SyncResponse, error) {
 	return m.Factory.Sync(ctx, req)
 }
 
-func (m *FactoryServer) Build(ctx context.Context, req *factoryv0.BuildRequest) (*factoryv0.BuildResponse, error) {
+func (m *FactoryServer) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
 	return m.Factory.Build(ctx, req)
 }
 
-func (m *FactoryServer) Deploy(ctx context.Context, req *factoryv0.DeploymentRequest) (*factoryv0.DeploymentResponse, error) {
+func (m *FactoryServer) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
 	return m.Factory.Deploy(ctx, req)
 }
 

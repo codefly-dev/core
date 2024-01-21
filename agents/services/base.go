@@ -20,7 +20,7 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
-	factoryv0 "github.com/codefly-dev/core/generated/go/services/factory/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/services/factory/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
@@ -143,37 +143,37 @@ func (s *Base) DockerImage() *configurations.DockerImage {
 	}
 }
 
-func (s *FactoryWrapper) LoadResponse(gettingStarted string) (*factoryv0.LoadResponse, error) {
+func (s *FactoryWrapper) LoadResponse(gettingStarted string) (*builderv0.LoadResponse, error) {
 	for _, e := range s.Endpoints {
 		e.Application = s.Identity.Application
 		e.Service = s.Identity.Name
 		e.Namespace = s.Identity.Namespace
 	}
-	return &factoryv0.LoadResponse{
+	return &builderv0.LoadResponse{
 		Version:        s.Version(),
 		Endpoints:      s.Endpoints,
 		GettingStarted: gettingStarted,
-		Status:         &factoryv0.LoadStatus{State: factoryv0.LoadStatus_READY},
+		Status:         &builderv0.LoadStatus{State: builderv0.LoadStatus_READY},
 	}, nil
 }
 
-func (s *FactoryWrapper) LoadError(err error) (*factoryv0.LoadResponse, error) {
-	return &factoryv0.LoadResponse{
-		Status: &factoryv0.LoadStatus{State: factoryv0.LoadStatus_ERROR, Message: err.Error()},
+func (s *FactoryWrapper) LoadError(err error) (*builderv0.LoadResponse, error) {
+	return &builderv0.LoadResponse{
+		Status: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: err.Error()},
 	}, err
 }
 
-func (s *FactoryWrapper) InitResponse(hash string) (*factoryv0.InitResponse, error) {
-	return &factoryv0.InitResponse{RunHash: hash}, nil
+func (s *FactoryWrapper) InitResponse(hash string) (*builderv0.InitResponse, error) {
+	return &builderv0.InitResponse{RunHash: hash}, nil
 }
 
-func (s *FactoryWrapper) InitError(err error) (*factoryv0.InitResponse, error) {
-	return &factoryv0.InitResponse{
-		Status: &factoryv0.InitStatus{Status: factoryv0.InitStatus_ERROR, Message: err.Error()},
+func (s *FactoryWrapper) InitError(err error) (*builderv0.InitResponse, error) {
+	return &builderv0.InitResponse{
+		Status: &builderv0.InitStatus{Status: builderv0.InitStatus_ERROR, Message: err.Error()},
 	}, nil
 }
 
-func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any) (*factoryv0.CreateResponse, error) {
+func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any) (*builderv0.CreateResponse, error) {
 	err := s.Configuration.UpdateSpecFromSettings(settings)
 	if err != nil {
 		return s.CreateError(err)
@@ -187,26 +187,26 @@ func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any) (*fac
 	if err != nil {
 		return nil, s.Wool.Wrapf(err, "base: cannot save configuration")
 	}
-	return &factoryv0.CreateResponse{
+	return &builderv0.CreateResponse{
 		Endpoints: s.Endpoints,
 	}, nil
 }
 
-func (s *FactoryWrapper) CreateError(err error) (*factoryv0.CreateResponse, error) {
-	return &factoryv0.CreateResponse{
-		Status: &factoryv0.CreateStatus{Status: factoryv0.CreateStatus_ERROR, Message: err.Error()},
+func (s *FactoryWrapper) CreateError(err error) (*builderv0.CreateResponse, error) {
+	return &builderv0.CreateResponse{
+		Status: &builderv0.CreateStatus{Status: builderv0.CreateStatus_ERROR, Message: err.Error()},
 	}, err
 }
 
-func (s *FactoryWrapper) SyncError(err error) (*factoryv0.SyncResponse, error) {
-	return &factoryv0.SyncResponse{
-		Status: &factoryv0.SyncStatus{Status: factoryv0.SyncStatus_ERROR, Message: err.Error()}}, err
+func (s *FactoryWrapper) SyncError(err error) (*builderv0.SyncResponse, error) {
+	return &builderv0.SyncResponse{
+		Status: &builderv0.SyncStatus{Status: builderv0.SyncStatus_ERROR, Message: err.Error()}}, err
 }
 
-func (s *FactoryWrapper) BuildError(err error) (*factoryv0.BuildResponse, error) {
+func (s *FactoryWrapper) BuildError(err error) (*builderv0.BuildResponse, error) {
 	return nil, err
-	//return &factoryv0.BuildResponse{
-	//	Status: &factoryv0.BuildStatus{Status: factoryv0.BuildStatus_ERROR, Message: err.Error()}}, err
+	//return &builderv0.BuildResponse{
+	//	Status: &builderv0.BuildStatus{Status: builderv0.BuildStatus_ERROR, Message: err.Error()}}, err
 }
 
 // Runtime

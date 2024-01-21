@@ -70,12 +70,13 @@ func (ref *ProjectReference) String() string {
 }
 
 func (ref *ProjectReference) GetActiveApplication(ctx context.Context) (*ApplicationReference, error) {
+	return ref.GetApplicationFromName(ctx, ref.ActiveApplication)
+}
+
+func (ref *ProjectReference) GetApplicationFromName(ctx context.Context, applicationName string) (*ApplicationReference, error) {
 	w := wool.Get(ctx).In("ProjectReference.GetActiveApplication", wool.NameField(ref.Name))
-	if ref.ActiveApplication == "" {
-		return nil, w.NewError("no active application")
-	}
 	for _, app := range ref.Applications {
-		if app.Name == ref.ActiveApplication {
+		if app.Name == applicationName {
 			return app, nil
 		}
 	}
@@ -137,12 +138,6 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv0.Ad
 		return nil, w.Wrapf(err, "cannot copy and apply template")
 	}
 
-	// Create a provider folder for local development
-	providerDir := path.Join(project.dir, "providers", "local")
-	_, err = shared.CheckDirectoryOrCreate(ctx, providerDir)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot create provider directory")
-	}
 	return project, nil
 }
 

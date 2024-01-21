@@ -61,7 +61,7 @@ type ApplicationReference struct {
 }
 
 func (ref *ApplicationReference) GetActive(ctx context.Context) (*ServiceReference, error) {
-	w := wool.Get(ctx).In("configurations.ApplicationReference.GetActive")
+	w := wool.Get(ctx).In("configurations.ApplicationReference.GetActiveService")
 	if len(ref.Services) == 0 {
 		return nil, w.NewError("no services")
 	}
@@ -72,11 +72,46 @@ func (ref *ApplicationReference) GetActive(ctx context.Context) (*ServiceReferen
 		return nil, w.NewError("no active service")
 	}
 	for _, r := range ref.Services {
-		if ref.Name == ref.ActiveService {
+		if r.Name == ref.ActiveService {
+			w.Debug("found active service", wool.Field("service", r.Name))
 			return r, nil
 		}
 	}
 	return nil, w.NewError("cannot find active service")
+}
+
+func (ref *ApplicationReference) GetActiveService(ctx context.Context) (*ServiceReference, error) {
+	w := wool.Get(ctx).In("configurations.ApplicationReference.GetActiveService")
+	if len(ref.Services) == 0 {
+		return nil, w.NewError("no services")
+	}
+	if len(ref.Services) == 1 {
+		return ref.Services[0], nil
+	}
+	if ref.ActiveService == "" {
+		return nil, w.NewError("no active service")
+	}
+	return ref.GetServiceFromName(ctx, ref.ActiveService)
+}
+
+func (ref *ApplicationReference) GetServiceFromName(ctx context.Context, serviceName string) (*ServiceReference, error) {
+	w := wool.Get(ctx).In("configurations.ApplicationReference.GetActiveService")
+	for _, r := range ref.Services {
+		if r.Name == serviceName {
+			return r, nil
+		}
+	}
+	return nil, w.NewError("cannot find active service")
+}
+
+func (ref *ApplicationReference) AddService(_ context.Context, service *ServiceReference) error {
+	for _, s := range ref.Services {
+		if s.Name == service.Name {
+			return nil
+		}
+	}
+	ref.Services = append(ref.Services, service)
+	return nil
 }
 
 // NewApplication creates an application in a project

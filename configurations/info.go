@@ -18,7 +18,7 @@ type Info struct {
 
 func Version(ctx context.Context) (string, error) {
 	w := wool.Get(ctx).In("Version")
-	conf, err := LoadFromFs[Info](shared.Embed(info))
+	conf, err := LoadFromFs[Info](shared.Embed(infoFS))
 	if err != nil {
 		return "", w.Wrapf(err, "cannot load info from filesystem")
 	}
@@ -31,4 +31,4 @@ func Version(ctx context.Context) (string, error) {
 }
 
 //go:embed info.codefly.yaml
-var info embed.FS
+var infoFS embed.FS

@@ -393,6 +393,23 @@ func (workspace *Workspace) AddApplication(ctx context.Context, projectName stri
 	return workspace.Save(ctx)
 }
 
+func (workspace *Workspace) AddService(ctx context.Context, projectName string, applicationName string, service *ServiceReference) error {
+	w := wool.Get(ctx).In("Workspace::AddApplication", wool.ProjectField(projectName), wool.ApplicationField(applicationName))
+	ref, err := workspace.FindProjectReference(projectName)
+	if err != nil {
+		return w.Wrapf(err, "cannot find project reference")
+	}
+	appRef, err := ref.GetApplicationFromName(ctx, applicationName)
+	if err != nil {
+		return w.Wrapf(err, "cannot add application reference")
+	}
+	err = appRef.AddService(ctx, service)
+	if err != nil {
+		return w.Wrapf(err, "cannot add service reference")
+	}
+	return workspace.Save(ctx)
+}
+
 func (workspace *Workspace) LoadActiveService(ctx context.Context, projectName string, applicationName string) (*Service, error) {
 	w := wool.Get(ctx).In("Workspace::LoadActiveService", wool.ProjectField(projectName), wool.ApplicationField(applicationName))
 	project, err := workspace.LoadProjectFromName(ctx, projectName)
@@ -409,7 +426,7 @@ func (workspace *Workspace) LoadActiveService(ctx context.Context, projectName s
 				if appRef.Name == applicationName {
 					active, err := appRef.GetActive(ctx)
 					if err != nil {
-						return nil, w.Wrapf(err, "cannot get active application")
+						return nil, w.Wrapf(err, "cannot get active service")
 					}
 					return application.LoadServiceFromReference(ctx, active)
 				}
