@@ -30,13 +30,13 @@ func As[T any](t any) (*T, error) {
 	return t.(*T), nil
 }
 
-type FactoryFunc func(content []byte) (Action, error)
+type BuilderFunc func(content []byte) (Action, error)
 
-// Factory registry map
-var factoryRegistry = make(map[string]FactoryFunc)
+// Builder registry map
+var builderRegistry = make(map[string]BuilderFunc)
 
-func RegisterFactory(typeName string, factory FactoryFunc) {
-	factoryRegistry[typeName] = factory
+func RegisterBuilder(typeName string, builder BuilderFunc) {
+	builderRegistry[typeName] = builder
 }
 
 func CreateAction(content []byte) (Action, error) {
@@ -47,14 +47,14 @@ func CreateAction(content []byte) (Action, error) {
 	}
 	typeName := base.Kind
 
-	if factory, ok := factoryRegistry[typeName]; ok {
-		return factory(content)
+	if builder, ok := builderRegistry[typeName]; ok {
+		return builder(content)
 	}
 	return nil, fmt.Errorf("unknown type: %v", typeName)
 }
 
 // Wrap function with a constraint that *T satisfies Action
-func Wrap[T Action]() FactoryFunc {
+func Wrap[T Action]() BuilderFunc {
 	return func(content []byte) (Action, error) {
 		ptr, err := Load[T](content) // Note the pointer type here
 		if err != nil {

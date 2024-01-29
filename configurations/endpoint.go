@@ -1,6 +1,7 @@
 package configurations
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -236,7 +237,7 @@ func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
 }
 
 func EndpointDestination(e *basev0.Endpoint) string {
-	return fmt.Sprintf("%s/%s/%s[%s]", e.Application, e.Service, e.Name, FromProtoAPI(e.Api))
+	return fmt.Sprintf("%s/%s/%s::%s", e.Application, e.Service, e.Name, FromProtoAPI(e.Api))
 }
 
 func FromProtoAPI(api *basev0.API) string {
@@ -398,4 +399,36 @@ func MakeEndpointSummary(endpoints []*basev0.Endpoint) EndpointSummary {
 		sum.Uniques = append(sum.Uniques, EndpointDestination(e))
 	}
 	return sum
+}
+
+// Compute "change" of endpoints
+
+func endpointHash(ctx context.Context, endpoint *basev0.Endpoint) (string, error) {
+	w := wool.Get(ctx).In("configurations.EndpointHash")
+	var buf bytes.Buffer
+	buf.WriteString(endpoint.Name)
+	buf.WriteString(endpoint.Visibility)
+	buf.WriteString(endpoint.Api.String())
+	if rest := EndpointRestAPI(endpoint); rest != nil {
+		w.Debug("hashing rest api TODO: more precise hashing", wool.NameField(endpoint.Name))
+		buf.WriteString(rest.String())
+	}
+	if grpc := EndpointGRPCAPI(endpoint); grpc != nil {
+		w.Debug("hashing grpc api", wool.NameField(endpoint.Name))
+		buf.WriteString(grpc.String())
+	}
+	return Hash(buf.Bytes()), nil
+}
+
+func EndpointHash(ctx context.Context, endpoints ...*basev0.Endpoint) (string, error) {
+	w := wool.Get(ctx).In("configurations.EndpointsHash")
+	hasher := NewHasher()
+	for _, endpoint := range endpoints {
+		hash, err := endpointHash(ctx, endpoint)
+		if err != nil {
+			return "", w.Wrapf(err, "cannot compute endpoint hash")
+		}
+		hasher.Add(hash)
+	}
+	return hasher.Hash(), nil
 }

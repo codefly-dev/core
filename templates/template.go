@@ -28,14 +28,14 @@ func ApplyTemplate(t string, data any) (string, error) {
 	return buf.String(), nil
 }
 
-func Walk(ctx context.Context, fs shared.FileSystem, root shared.Dir, ignore shared.Ignore, files *[]shared.File, dirs *[]shared.Dir) error {
+func Walk(ctx context.Context, fs shared.FileSystem, root shared.Dir, pathSelect shared.PathSelect, files *[]shared.File, dirs *[]shared.Dir) error {
 	w := wool.Get(ctx).In("templates.Walk")
 	entries, err := fs.ReadDir(root)
 	if err != nil {
 		return w.Wrapf(err, "cannot got to target source")
 	}
 	for _, entry := range entries {
-		if ignore.Skip(entry.Name()) {
+		if !pathSelect.Keep(entry.Name()) {
 			continue
 		}
 		p := path.Join(fs.AbsoluteDir(root), entry.Name())
@@ -46,7 +46,7 @@ func Walk(ctx context.Context, fs shared.FileSystem, root shared.Dir, ignore sha
 		dir := shared.NewDir(p)
 		*dirs = append(*dirs, dir)
 		// recurse into subdirectory
-		err = Walk(ctx, fs, dir, ignore, files, dirs)
+		err = Walk(ctx, fs, dir, pathSelect, files, dirs)
 		if err != nil {
 			return w.Wrapf(err, "cannot walk into subdirectory")
 		}
@@ -93,7 +93,7 @@ func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f shared.Fi
 	}
 	out, err := ApplyTemplate(string(data), obj)
 	if err != nil {
-		return w.Wrap(err)
+		return w.Wrapf(err, destination.Relative())
 	}
 	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -110,14 +110,19 @@ func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f shared.Fi
 	return nil
 }
 
-func ApplyTemplateFrom(fs shared.FileSystem, f string, obj any) (string, error) {
+func ApplyTemplateFrom(ctx context.Context, fs shared.FileSystem, f string, obj any) (string, error) {
+	w := wool.Get(ctx).In("templates.ApplyTemplateFrom", wool.Field("from", f))
 	// Read the file from the embedded file system
 	f = fmt.Sprintf("%s.tmpl", f)
 	data, err := fs.ReadFile(shared.NewFile(f))
 	if err != nil {
 		return "", fmt.Errorf("could not read file: %v", err)
 	}
-	return ApplyTemplate(string(data), obj)
+	res, err := ApplyTemplate(string(data), obj)
+	if err != nil {
+		return "", w.Wrap(err)
+	}
+	return res, nil
 }
 
 type Replacer interface {
@@ -151,19 +156,19 @@ func CopyAndReplace(ctx context.Context, fs shared.FileSystem, f shared.File, de
 }
 
 type Templator struct {
-	Ignore   shared.Ignore
-	Override shared.Override
+	PathSelect shared.PathSelect
+	Override   shared.Override
 }
 
-var _ shared.Ignore = &Templator{}
+var _ shared.PathSelect = &Templator{}
 var _ shared.Override = &Templator{}
 
-func (t *Templator) Skip(name string) bool {
-	if t.Ignore == nil {
-		return false
+func (t *Templator) Keep(name string) bool {
+	if t.PathSelect == nil {
+		return true
 
 	}
-	return t.Ignore.Skip(name)
+	return t.PathSelect.Keep(name)
 }
 
 func (t *Templator) Replace(p string) bool {

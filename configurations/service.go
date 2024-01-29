@@ -26,7 +26,7 @@ func init() {
 }
 
 const RuntimeServiceAgent = "codefly:service:runtime"
-const FactoryServiceAgent = "codefly:service:factory"
+const BuilderServiceAgent = "codefly:service:builder"
 
 /*
 A Service

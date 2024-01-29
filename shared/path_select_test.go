@@ -9,8 +9,8 @@ import (
 
 func TestIgnorePattern(t *testing.T) {
 	ign := shared.NewIgnore("*.md")
-	assert.True(t, ign.Skip("file.md"))
-	assert.False(t, ign.Skip("somefile.txt"))
+	assert.False(t, ign.Keep("file.md"))
+	assert.True(t, ign.Keep("somefile.txt"))
 }
 
 func TestSelectPattern(t *testing.T) {

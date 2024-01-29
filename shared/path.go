@@ -153,6 +153,26 @@ func DeleteFile(ctx context.Context, file string) error {
 	return nil
 }
 
+func EmptyDir(dir string) error {
+	// Do nothing if not present
+	if !DirectoryExists(dir) {
+		return nil
+	}
+	// Check if directory is empty
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		err := os.RemoveAll(filepath.Join(dir, file.Name()))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+
+}
+
 // CheckDirectoryOrCreate checks if a directory exists or create it if it doesn't
 // bool: created
 // err: only for unexpected behavior
@@ -216,103 +236,36 @@ type Replacement struct {
 	To   string `yaml:"to"`
 }
 
-//
-//func CopyFileWithReplacement(from string, to string, replacements []Replacement) error {
-//	logger := NewLogger().With("builder.CopyFile<%s><%s>", from, to)
-//	// Open source file for reading
-//	src, err := os.ReadFile(from)
-//	if err != nil {
-//		return logger.Wrapf(err, "cannot open file")
-//	}
-//
-//	dst := fmt.Sprintf("%s.tmpl", to)
-//	dstFile, err := os.Create(dst)
-//	if err != nil {
-//		return logger.Wrapf(err, "cannot create file")
-//	}
-//	defer dstFile.Close()
-//	original := string(src)
-//	for _, rpl := range replacements {
-//		original = strings.Replace(original, rpl.From, rpl.To, -1)
-//	}
-//	_, err = dstFile.WriteString(original)
-//	if err != nil {
-//		return logger.Wrapf(err, "cannot write file")
-//	}
-//	return nil
-//}
-//
-//// CopyDirectory recursively copies a directory
-//func CopyDirectory(ctx context.Context, src, dst string) error {
-//	logger := NewLogger().With("CopyDirectory<%s><%s>", src, dst)
-//	// Check if source directory exists
-//	if err := CheckDirectory(src); err != nil {
-//		return logger.Wrapf(err, "source directory does not exist")
-//	}
-//
-//	// Check if destination directory exists
-//	if err := CheckDirectoryOrCreate(ctx, dst); err != nil {
-//		return logger.Wrapf(err, "destination directory does not exist")
-//	}
-//
-//	// Read the source directory contents
-//	contents, err := os.ReadDir(src)
-//	if err != nil {
-//		return logger.Wrapf(err, "cannot read source directory")
-//	}
-//
-//	// Loop through the contents
-//	for _, content := range contents {
-//		// Construct the source and destination paths
-//		srcPath := filepath.Join(src, content.Name())
-//		dstPath := filepath.Join(dst, content.Name())
-//
-//		// If the content is a directory, recursively copy it
-//		if content.IsDir() {
-//			if err := CopyDirectory(ctx, srcPath, dstPath); err != nil {
-//				return logger.Wrapf(err, "cannot copy directory")
-//			}
-//		} else {
-//			// Otherwise, copy the file
-//			if err := CopyFile(ctx, srcPath, dstPath); err != nil {
-//				return logger.Wrapf(err, "cannot copy file")
-//			}
-//		}
-//	}
-//
-//	return nil
-//}
-//
-//// GenerateTree recursively generates a string representation of the directory tree
-//func GenerateTree(p, indent string) (string, error) {
-//	// Read the directory contents
-//	contents, err := os.ReadDir(p)
-//	if err != nil {
-//		return "", err
-//	}
-//
-//	// Loadialize the tree string
-//	var treeStr string
-//
-//	// Loop through the contents
-//	for i, content := range contents {
-//		// Expose the content name to the tree string
-//		treeStr += fmt.Sprintf("%s|-- %s\n", indent, content.Name())
-//
-//		// If the content is a directory, recursively generate its tree string
-//		if content.IsDir() {
-//			subTree, err := GenerateTree(filepath.Join(p, content.Name()), indent+"    ")
-//			if err != nil {
-//				return "", err
-//			}
-//			treeStr += subTree
-//		}
-//
-//		// If it's the last item, adjust the indent
-//		if i == len(contents)-1 {
-//			treeStr += fmt.Sprintf("%s|\n", indent)
-//		}
-//	}
-//
-//	return treeStr, nil
-//}
+// GenerateTree recursively generates a string representation of the directory tree
+func GenerateTree(p, indent string) (string, error) {
+	// Read the directory contents
+	contents, err := os.ReadDir(p)
+	if err != nil {
+		return "", err
+	}
+
+	// Loadialize the tree string
+	var treeStr string
+
+	// Loop through the contents
+	for i, content := range contents {
+		// Expose the content name to the tree string
+		treeStr += fmt.Sprintf("%s|-- %s\n", indent, content.Name())
+
+		// If the content is a directory, recursively generate its tree string
+		if content.IsDir() {
+			subTree, err := GenerateTree(filepath.Join(p, content.Name()), indent+"    ")
+			if err != nil {
+				return "", err
+			}
+			treeStr += subTree
+		}
+
+		// If it's the last item, adjust the indent
+		if i == len(contents)-1 {
+			treeStr += fmt.Sprintf("%s|\n", indent)
+		}
+	}
+
+	return treeStr, nil
+}

@@ -72,5 +72,5 @@ func (action *SetServiceActiveAction) Run(ctx context.Context) (any, error) {
 }
 
 func init() {
-	actions.RegisterFactory(SetServiceActiveKind, actions.Wrap[*SetServiceActiveAction]())
+	actions.RegisterBuilder(SetServiceActiveKind, actions.Wrap[*SetServiceActiveAction]())
 }

@@ -47,3 +47,15 @@ func ProviderInformationEnvKey(info *basev0.ProviderInformation, key string) str
 func sanitizeUnique(origin string) string {
 	return strings.Replace(origin, "/", "__", 1)
 }
+
+func providerInformationHash(info *basev0.ProviderInformation) string {
+	return HashString(info.String())
+}
+
+func ProviderInformationHash(infos ...*basev0.ProviderInformation) (string, error) {
+	hasher := NewHasher()
+	for _, info := range infos {
+		hasher.Add(providerInformationHash(info))
+	}
+	return hasher.Hash(), nil
+}

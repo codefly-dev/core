@@ -32,28 +32,28 @@ func (v *visitor) Apply(ctx context.Context, p shared.File, to shared.Dir) error
 	return nil
 }
 
-func (v *visitor) Skip(file string) bool {
+func (v *visitor) Keep(file string) bool {
 	if strings.Contains(file, ".idea") {
-		return true
+		return false
 	}
 	if strings.HasSuffix(file, ".sum") {
-		return true
+		return false
 	}
 	if strings.HasSuffix(file, ".lock") {
-		return true
+		return false
 	}
 	if file == "service.codefly.yaml" {
-		return true
+		return false
 	}
 	if file == "service.generation.codefly.yaml" {
-		return true
+		return false
 	}
 	for _, ignore := range v.ignores {
 		if strings.Contains(file, ignore) {
-			return true
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func GenerateServiceTemplate(ctx context.Context, dir string) error {
@@ -71,7 +71,7 @@ func GenerateServiceTemplate(ctx context.Context, dir string) error {
 	w.Trace("ignoring files", wool.Field("ignores", gen.Ignores))
 	replacer := templates.NewServiceReplacer(gen)
 	// For now, we copy everything to template and add .tmpl
-	target := path.Join(dir, "templates/factory")
+	target := path.Join(dir, "templates/builder")
 
 	visitor := &visitor{base: shared.NewDir(base), replacer: replacer, ignores: gen.Ignores}
 	err = templates.CopyAndVisit(ctx, shared.NewDirReader(), shared.NewDir(base), shared.NewDir(target), visitor)

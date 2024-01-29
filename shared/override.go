@@ -23,32 +23,29 @@ func GetOverride(ctx context.Context) Override {
 	return OverrideAll()
 }
 
-/*
+// Implementations
 
-Implementations
-
-*/
-
-func OverrideException(ignore Ignore) *OverrideExceptionHandler {
+func OverrideException(sel PathSelect) *OverrideExceptionHandler {
 	return &OverrideExceptionHandler{
-		Ignore: ignore,
+		PathSelect: sel,
 	}
 }
 
+// OverrideExceptionHandler replaces all paths EXCEPT the ones selected
 type OverrideExceptionHandler struct {
-	Ignore
+	PathSelect
 }
 
 var _ Override = &OverrideExceptionHandler{}
 
-func (o *OverrideExceptionHandler) Replace(p string) bool {
-	if o.Ignore != nil && o.Skip(p) {
-		return false
+func (handler *OverrideExceptionHandler) Replace(p string) bool {
+	if handler.PathSelect == nil {
+		return true
 	}
-	return true
+	return !handler.PathSelect.Keep(p)
 }
 
-// Override
+// OverrideAll overrides all paths
 func OverrideAll() Override {
 	return &OverrideAllHandler{}
 }
@@ -57,11 +54,11 @@ type OverrideAllHandler struct{}
 
 var _ Override = &OverrideAllHandler{}
 
-func (o *OverrideAllHandler) Replace(string) bool {
+func (*OverrideAllHandler) Replace(string) bool {
 	return true
 }
 
-// SkipAll
+// SkipAll skips all paths
 func SkipAll() *SkipAllHandler {
 	return &SkipAllHandler{}
 }
@@ -70,6 +67,6 @@ type SkipAllHandler struct{}
 
 var _ Override = &SkipAllHandler{}
 
-func (o *SkipAllHandler) Replace(string) bool {
+func (*SkipAllHandler) Replace(string) bool {
 	return false
 }

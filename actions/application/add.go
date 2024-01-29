@@ -73,5 +73,5 @@ func (action *AddApplicationAction) Run(ctx context.Context) (any, error) {
 }
 
 func init() {
-	actions.RegisterFactory(AddApplicationKind, actions.Wrap[*AddApplicationAction]())
+	actions.RegisterBuilder(AddApplicationKind, actions.Wrap[*AddApplicationAction]())
 }

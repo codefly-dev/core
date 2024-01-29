@@ -77,6 +77,18 @@ func (grpc *GrpcAPI) Proto() (*basev0.API, error) {
 	return api, nil
 }
 
+func EndpointGRPCAPI(endpoint *basev0.Endpoint) *basev0.GrpcAPI {
+	if endpoint == nil {
+		return nil
+	}
+	switch v := endpoint.Api.Value.(type) {
+	case *basev0.API_Grpc:
+		return v.Grpc
+	default:
+		return nil
+	}
+}
+
 type RestAPI struct {
 	filename string
 	openapi  []byte

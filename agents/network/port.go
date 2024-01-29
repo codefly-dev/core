@@ -6,76 +6,86 @@ import (
 	"encoding/binary"
 	"net"
 
+	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/configurations/standards"
+
 	"github.com/codefly-dev/core/wool"
 )
 
-type RandomStrategy struct{}
-
-func (r RandomStrategy) Reserve(ctx context.Context, host string, endpoints []*ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
-	w := wool.Get(ctx).In("network.RandomStrategy.Reserve")
-	ports, err := GetFreePorts(len(endpoints))
+func GetAllLocalIPs() ([]string, error) {
+	var ips []string
+	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot get free ports")
+		return nil, err
 	}
-	m := &ApplicationEndpointInstances{}
-	for i, port := range ports {
-		m.ApplicationEndpointInstances = append(m.ApplicationEndpointInstances, &ApplicationEndpointInstance{
-			ApplicationEndpoint: endpoints[i],
-			Port:                port,
-			Host:                host,
-		})
+
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				ips = append(ips, ipnet.IP.String())
+			}
+		}
 	}
-	return m, nil
+
+	return ips, nil
 }
 
 type FixedStrategy struct{}
 
-func toThousands(s string) int {
-	// Add a new SHA-256 hash.
+func HashInt(s string, low, high int) int {
 	hasher := sha256.New()
-
-	// Write the string to the hash.
 	hasher.Write([]byte(s))
-
-	// Get the hash sum.
 	hash := hasher.Sum(nil)
-
 	num := binary.BigEndian.Uint32(hash)
-
-	// Map the number to the range [0, 9999].
-	return int(num % 10000)
+	return int(num%uint32(high-low)) + low
 }
 
-func (r FixedStrategy) Reserve(_ context.Context, host string, endpoints []*ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
+func APIInt(api string) int {
+	switch api {
+	case standards.TCP:
+		return 0
+	case standards.HTTP:
+		return 1
+	case standards.REST:
+		return 2
+	case standards.GRPC:
+		return 3
+	default:
+		return 0
+	}
+}
+
+// ToPort strategy:
+// APP-SVC-API
+// Between 1100(0) and 4999(9)
+// First 11 -> 49: hash app
+// Next 0 -> 99: hash svc
+// Last Digit: API
+// 0: TCP
+// 1: HTTP/ REST
+// 2: gRPC
+func ToPort(app string, svc string, api string) int {
+	return HashInt(app, 11, 49)*1000 + HashInt(svc, 0, 99)*10 + APIInt(api)
+}
+
+func (r FixedStrategy) Reserve(ctx context.Context, host string, endpoints []*ApplicationEndpoint) (*ApplicationEndpointInstances, error) {
+	w := wool.Get(ctx).In("FixedStrategy.Reserve")
 	m := &ApplicationEndpointInstances{}
 	for _, endpoint := range endpoints {
-		m.ApplicationEndpointInstances = append(m.ApplicationEndpointInstances, &ApplicationEndpointInstance{
-			ApplicationEndpoint: endpoint,
-			Port:                10000 + toThousands(endpoint.Unique()),
-			Host:                host,
-		})
+		api, err := configurations.WhichAPI(endpoint.Endpoint.Api)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot get api")
+		}
+		port := ToPort(endpoint.Application, endpoint.Service, api)
+		w.Focus("port", wool.ThisField(endpoint), wool.Field("port", port))
+		m.ApplicationEndpointInstances = append(m.ApplicationEndpointInstances,
+			&ApplicationEndpointInstance{
+				ApplicationEndpoint: endpoint,
+				Port:                port,
+				Host:                host,
+			})
 	}
 	return m, nil
-}
-
-// GetFreePorts returns a slice of n free ports
-func GetFreePorts(n int) ([]int, error) {
-	var ports []int
-	for i := 0; i < n; i++ {
-		addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-		if err != nil {
-			return nil, err
-		}
-
-		l, err := net.ListenTCP("tcp", addr)
-		if err != nil {
-			return nil, err
-		}
-		defer l.Close()
-
-		ports = append(ports, l.Addr().(*net.TCPAddr).Port)
-	}
-	return ports, nil
 }
 
 func NewServicePortManager(_ context.Context) (*ServiceManager, error) {

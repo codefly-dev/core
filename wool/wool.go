@@ -64,8 +64,16 @@ func (w *Wool) Catch() {
 	}
 }
 
+func (w *Wool) LogLevel() Loglevel {
+	g := GlobalLogLevel()
+	if w.logLevel > g {
+		return g
+	}
+	return w.logLevel
+}
+
 func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
-	if w.logLevel > l {
+	if w.LogLevel() > l {
 		return
 	}
 	for _, f := range fs {

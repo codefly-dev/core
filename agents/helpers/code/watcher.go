@@ -16,8 +16,7 @@ type Watcher struct {
 	watcher *fsnotify.Watcher
 
 	// internal
-	base       string
-	dependency *builders.Dependency
+	base string
 }
 
 type Change struct {
@@ -25,38 +24,49 @@ type Change struct {
 	IsRelative bool
 }
 
-func NewWatcher(ctx context.Context, events chan<- Change, base string, dependency *builders.Dependency) (*Watcher, error) {
-	w := wool.Get(ctx).In("NewWatcher")
-	// Add new watcher.
-	fswatcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot create fsnotify watcher")
-	}
-	for _, p := range dependency.Components {
+func addDependency(ctx context.Context, base string, dep *builders.Dependency, watcher *fsnotify.Watcher) error {
+	w := wool.Get(ctx).In("addDependency")
+	for _, p := range dep.Components() {
 		fullPath := path.Join(base, p)
-		err = filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
+		err := filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if info.IsDir() {
 				return nil
 			}
-			if dependency.Ignore != nil && dependency.Ignore.Skip(path) {
+			if !dep.Keep(path) {
 				w.Trace("skipping", wool.Field("path", path))
 				return nil
 			}
-			err = fswatcher.Add(path)
+			err = watcher.Add(path)
 			if err != nil {
 				return w.Wrapf(err, "cannot add path: %s", path)
 			}
 			return nil
 		})
 		if err != nil {
-			return nil, err
+			return w.Wrapf(err, "cannot walk path: %s", fullPath)
 		}
 	}
+	return nil
+}
 
-	watcher := &Watcher{watcher: fswatcher, base: base, events: events, dependency: dependency}
+func NewWatcher(ctx context.Context, events chan<- Change, base string, dependencies *builders.Dependencies) (*Watcher, error) {
+	w := wool.Get(ctx).In("NewWatcher")
+	// Add new watcher.
+	fswatcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot create fsnotify watcher")
+	}
+
+	for _, dep := range dependencies.Components {
+		err = addDependency(ctx, base, dep, fswatcher)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot add dependency")
+		}
+	}
+	watcher := &Watcher{watcher: fswatcher, base: base, events: events}
 
 	watcherContext := context.Background()
 	watcherContext = w.Inject(watcherContext)

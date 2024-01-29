@@ -124,7 +124,7 @@ func (p *Agent) Of(kind AgentKind) *Agent {
 }
 
 func (p *Agent) IsService() bool {
-	return slices.Contains([]AgentKind{ServiceAgent, FactoryServiceAgent, RuntimeServiceAgent}, p.Kind)
+	return slices.Contains([]AgentKind{ServiceAgent, BuilderServiceAgent, RuntimeServiceAgent}, p.Kind)
 }
 
 func (p *Agent) Path() (string, error) {

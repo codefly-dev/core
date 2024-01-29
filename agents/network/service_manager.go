@@ -4,7 +4,6 @@ import (
 	"context"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -76,10 +75,10 @@ func (pm *ServiceManager) Reserve(ctx context.Context) error {
 }
 
 // NetworkMapping returns the network mapping for the service to be passed back to codefly
-func (pm *ServiceManager) NetworkMapping(context.Context) ([]*runtimev0.NetworkMapping, error) {
-	var nets []*runtimev0.NetworkMapping
+func (pm *ServiceManager) NetworkMapping(context.Context) ([]*basev0.NetworkMapping, error) {
+	var nets []*basev0.NetworkMapping
 	for _, instance := range pm.reserved.ApplicationEndpointInstances {
-		nets = append(nets, &runtimev0.NetworkMapping{
+		nets = append(nets, &basev0.NetworkMapping{
 			Application: instance.ApplicationEndpoint.Application,
 			Service:     instance.ApplicationEndpoint.Service,
 			Endpoint:    instance.ApplicationEndpoint.Endpoint,

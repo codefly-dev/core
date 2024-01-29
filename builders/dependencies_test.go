@@ -18,8 +18,8 @@ func TestHash(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.RemoveAll(d)
 
-	dep := builders.NewDependency("test", d)
-	dep.WithDir(d)
+	dep := builders.NewDependencies("test", builders.NewDependency(d))
+	dep.Localize(d)
 
 	updated, err := dep.Updated(ctx)
 	assert.NoError(t, err)
@@ -59,8 +59,9 @@ func TestHashWildCardSelect(t *testing.T) {
 	ctx := context.Background()
 	defer os.RemoveAll(d)
 
-	dep := builders.NewDependency("test", d)
-	dep.WithSelect(shared.NewSelect("*.md")).WithDir(d)
+	dep := builders.NewDependencies("test",
+		builders.NewDependency(d).WithPathSelect(shared.NewSelect("*.md")))
+	dep.Localize(d)
 
 	updated, err := dep.Updated(ctx)
 	assert.NoError(t, err)
@@ -106,13 +107,14 @@ func TestHashFolderAndFilter(t *testing.T) {
 	ctx := context.Background()
 	defer os.RemoveAll(d)
 
-	dep := builders.NewDependency("test", d)
-	dep.WithIgnore(shared.NewIgnore("*.md")).WithDir(d)
+	dep := builders.NewDependencies("test", builders.NewDependency(d).WithPathSelect(shared.NewIgnore("*.md")))
+	dep.Localize(d)
 
 	updated, err := dep.Updated(ctx)
 	assert.NoError(t, err)
 	assert.True(t, updated)
 
+	// Adding only a directory shouldn't modify the hash
 	dir := filepath.Join(d, "dir")
 	err = os.Mkdir(dir, 0755)
 	assert.NoError(t, err)
@@ -121,7 +123,7 @@ func TestHashFolderAndFilter(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, updated)
 
-	// Add an ignored file
+	// Add an ignored file shouldn't modify the hash
 	f, err := os.Create(filepath.Join(dir, "tmp.md"))
 	assert.NoError(t, err)
 	_, err = f.Write([]byte("hello world"))

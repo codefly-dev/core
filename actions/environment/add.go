@@ -58,5 +58,5 @@ func (action *AddEnvironmentAction) Run(ctx context.Context) (any, error) {
 }
 
 func init() {
-	actions.RegisterFactory(AddEnvironment, actions.Wrap[*AddEnvironmentAction]())
+	actions.RegisterBuilder(AddEnvironment, actions.Wrap[*AddEnvironmentAction]())
 }

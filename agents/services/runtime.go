@@ -133,11 +133,23 @@ func (m *RuntimeServer) Communicate(ctx context.Context, req *agentv0.Engage) (*
 Loader
 */
 
+var runtimesCache map[string]int
+
+func init() {
+	runtimesCache = make(map[string]int)
+}
+
 func LoadRuntime(ctx context.Context, service *configurations.Service) (*RuntimeAgent, error) {
 	w := wool.Get(ctx).In("services.LoadRuntime", wool.ThisField(service))
 	if service == nil || service.Agent == nil {
 		return nil, w.NewError("agent cannot be nil")
 	}
+
+	if runtimesCache[service.Unique()] > 0 {
+		return nil, w.NewError("already loaded")
+	}
+	runtimesCache[service.Unique()]++
+
 	runtime, process, err := manager.Load[ServiceRuntimeAgentContext, RuntimeAgent](
 		ctx,
 		service.Agent.Of(configurations.RuntimeServiceAgent),
@@ -157,28 +169,10 @@ func NewRuntimeAgent(conf *configurations.Agent, runtime Runtime) agents.AgentIm
 	}
 }
 
-type InformationStatus = runtimev0.InformationResponse_Status
+type InformationStatus struct {
+	Load  *runtimev0.LoadStatus
+	Init  *runtimev0.InitStatus
+	Start *runtimev0.StartStatus
 
-const (
-	UnknownState    = runtimev0.InformationResponse_UNKNOWN
-	LoadInProgress  = runtimev0.InformationResponse_LOAD_IN_PROGRESS
-	LoadSuccess     = runtimev0.InformationResponse_LOADED_SUCCESS
-	LoadFailed      = runtimev0.InformationResponse_LOADED_FAILED
-	InitInProgress  = runtimev0.InformationResponse_INIT_IN_PROGRESS
-	InitSuccess     = runtimev0.InformationResponse_INIT_SUCCESS
-	InitFailed      = runtimev0.InformationResponse_INIT_FAILED
-	StartInProgress = runtimev0.InformationResponse_START_IN_PROGRESS
-	StartSuccess    = runtimev0.InformationResponse_START_SUCCESS
-	StartFailed     = runtimev0.InformationResponse_START_FAILED
-	StopInProgress  = runtimev0.InformationResponse_STOP_IN_PROGRESS
-	StopSuccess     = runtimev0.InformationResponse_STOP_SUCCESS
-	StopFailed      = runtimev0.InformationResponse_STOP_FAILED
-)
-
-type InformationStateDesired = runtimev0.InformationResponse_DesiredState
-
-const (
-	DesiredNOOP    = runtimev0.InformationResponse_NOOP
-	DesiredRestart = runtimev0.InformationResponse_RESTARTED
-	DesiredStop    = runtimev0.InformationResponse_STOPPED
-)
+	DesiredState *runtimev0.DesiredState
+}

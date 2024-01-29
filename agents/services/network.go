@@ -4,12 +4,12 @@ import (
 	"context"
 
 	"github.com/codefly-dev/core/configurations"
-	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	"github.com/codefly-dev/core/wool"
 )
 
 // NetworkMappingForRestRouteGroup finds the proper network mapping for a given route group
-func NetworkMappingForRestRouteGroup(ctx context.Context, group *configurations.RestRouteGroup, mappings []*runtimev0.NetworkMapping) (*runtimev0.NetworkMapping, error) {
+func NetworkMappingForRestRouteGroup(ctx context.Context, group *configurations.RestRouteGroup, mappings []*basev0.NetworkMapping) (*basev0.NetworkMapping, error) {
 	w := wool.Get(ctx).In("services.NetworkMappingForRoute")
 	for _, m := range mappings {
 		if rest := m.Endpoint.Api.GetRest(); rest != nil {

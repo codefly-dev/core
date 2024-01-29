@@ -20,8 +20,6 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/services/factory/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )
@@ -32,19 +30,14 @@ type Information struct {
 	Domain  string
 }
 
-type RuntimeWrapper struct {
-	*Base
-}
-
-type FactoryWrapper struct {
-	*Base
-}
-
 type Base struct {
 	// Agent
 	Agent     *configurations.Agent
 	WoolAgent *wool.Provider
 	Wool      *wool.Wool
+
+	// Continuity check
+	loaded bool
 
 	// Underlying service
 	WoolService *wool.Provider
@@ -52,6 +45,8 @@ type Base struct {
 	// State
 	Identity *configurations.ServiceIdentity
 	Location string
+
+	EnvironmentVariables *configurations.EnvironmentVariableManager
 
 	// codefly configuration
 	ConfigurationLocation string
@@ -65,15 +60,14 @@ type Base struct {
 	Endpoints           []*basev0.Endpoint
 	DependencyEndpoints []*basev0.Endpoint
 
-	NetworkMappings []*runtimev0.NetworkMapping
+	NetworkMappings []*basev0.NetworkMapping
 
 	// Wrappers
 	Runtime *RuntimeWrapper
-	Factory *FactoryWrapper
+	Builder *BuilderWrapper
 
 	// Runtime
-	State        InformationStatus
-	DesiredState InformationStateDesired
+	State InformationStatus
 
 	// Communication
 	Communication *communicate.Server
@@ -86,13 +80,14 @@ type Base struct {
 func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 	provider := agents.NewAgentProvider(ctx, agent)
 	base := &Base{
-		Agent:         agent,
-		Communication: communicate.NewServer(ctx),
-		WoolAgent:     provider,
-		Wool:          provider.Get(ctx),
+		Agent:                agent,
+		EnvironmentVariables: configurations.NewEnvironmentVariableManager(),
+		Communication:        communicate.NewServer(ctx),
+		WoolAgent:            provider,
+		Wool:                 provider.Get(ctx),
 	}
 	base.Runtime = &RuntimeWrapper{Base: base}
-	base.Factory = &FactoryWrapper{Base: base}
+	base.Builder = &BuilderWrapper{Base: base}
 	return base
 }
 
@@ -133,6 +128,7 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 		Domain:  s.Identity.Domain,
 		Agent:   s.Agent,
 	}
+	s.loaded = true
 	return nil
 }
 
@@ -141,137 +137,6 @@ func (s *Base) DockerImage() *configurations.DockerImage {
 		Name: fmt.Sprintf("%s/%s", s.Identity.Application, s.Identity.Name),
 		Tag:  s.Version().Version,
 	}
-}
-
-func (s *FactoryWrapper) LoadResponse(gettingStarted string) (*builderv0.LoadResponse, error) {
-	for _, e := range s.Endpoints {
-		e.Application = s.Identity.Application
-		e.Service = s.Identity.Name
-		e.Namespace = s.Identity.Namespace
-	}
-	return &builderv0.LoadResponse{
-		Version:        s.Version(),
-		Endpoints:      s.Endpoints,
-		GettingStarted: gettingStarted,
-		Status:         &builderv0.LoadStatus{State: builderv0.LoadStatus_READY},
-	}, nil
-}
-
-func (s *FactoryWrapper) LoadError(err error) (*builderv0.LoadResponse, error) {
-	return &builderv0.LoadResponse{
-		Status: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: err.Error()},
-	}, err
-}
-
-func (s *FactoryWrapper) InitResponse(hash string) (*builderv0.InitResponse, error) {
-	return &builderv0.InitResponse{RunHash: hash}, nil
-}
-
-func (s *FactoryWrapper) InitError(err error) (*builderv0.InitResponse, error) {
-	return &builderv0.InitResponse{
-		Status: &builderv0.InitStatus{Status: builderv0.InitStatus_ERROR, Message: err.Error()},
-	}, nil
-}
-
-func (s *FactoryWrapper) CreateResponse(ctx context.Context, settings any) (*builderv0.CreateResponse, error) {
-	err := s.Configuration.UpdateSpecFromSettings(settings)
-	if err != nil {
-		return s.CreateError(err)
-	}
-	s.Configuration.Endpoints, err = configurations.FromProtoEndpoints(s.Endpoints...)
-	if err != nil {
-		return s.CreateError(err)
-	}
-
-	err = s.Configuration.Save(ctx)
-	if err != nil {
-		return nil, s.Wool.Wrapf(err, "base: cannot save configuration")
-	}
-	return &builderv0.CreateResponse{
-		Endpoints: s.Endpoints,
-	}, nil
-}
-
-func (s *FactoryWrapper) CreateError(err error) (*builderv0.CreateResponse, error) {
-	return &builderv0.CreateResponse{
-		Status: &builderv0.CreateStatus{Status: builderv0.CreateStatus_ERROR, Message: err.Error()},
-	}, err
-}
-
-func (s *FactoryWrapper) SyncError(err error) (*builderv0.SyncResponse, error) {
-	return &builderv0.SyncResponse{
-		Status: &builderv0.SyncStatus{Status: builderv0.SyncStatus_ERROR, Message: err.Error()}}, err
-}
-
-func (s *FactoryWrapper) BuildError(err error) (*builderv0.BuildResponse, error) {
-	return nil, err
-	//return &builderv0.BuildResponse{
-	//	Status: &builderv0.BuildStatus{Status: builderv0.BuildStatus_ERROR, Message: err.Error()}}, err
-}
-
-// Runtime
-
-func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
-	// for convenience, add application and service
-	for _, endpoint := range s.Endpoints {
-		endpoint.Application = s.Configuration.Application
-		endpoint.Service = s.Configuration.Name
-	}
-	s.Wool.Debug("load response", wool.NullableField("exposing endpoints", configurations.MakeEndpointSummary(s.Endpoints)))
-	return &runtimev0.LoadResponse{
-		Version:   s.Version(),
-		Endpoints: s.Endpoints,
-		Status:    &runtimev0.LoadStatus{State: runtimev0.LoadStatus_READY},
-	}, nil
-}
-
-func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
-	return &runtimev0.LoadResponse{
-		Status: &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: err.Error()},
-	}, err
-}
-
-func (s *RuntimeWrapper) InitResponse(infos ...*basev0.ProviderInformation) (*runtimev0.InitResponse, error) {
-	s.Wool.Debug("init response", wool.NullableField("exposing network mappings", network.MakeNetworkMappingSummary(s.NetworkMappings)))
-	return &runtimev0.InitResponse{
-		Status:               &runtimev0.InitStatus{State: runtimev0.InitStatus_READY},
-		NetworkMappings:      s.NetworkMappings,
-		ServiceProviderInfos: infos,
-	}, nil
-}
-
-func (s *RuntimeWrapper) InitError(err error, fields ...*wool.LogField) (*runtimev0.InitResponse, error) {
-	message := wool.Log{Message: err.Error(), Fields: fields}
-	s.Wool.Error(err.Error(), fields...)
-	return &runtimev0.InitResponse{
-		Status: &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: message.String()},
-	}, err
-}
-
-func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
-	return &runtimev0.StartResponse{
-		Status: &runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED},
-	}, nil
-}
-
-func (s *RuntimeWrapper) StartError(err error, fields ...*wool.LogField) (*runtimev0.StartResponse, error) {
-	message := wool.Log{Message: err.Error(), Fields: fields}
-	s.Wool.Error(err.Error(), fields...)
-	return &runtimev0.StartResponse{
-		Status: &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: message.String()},
-	}, err
-}
-
-func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
-	resp := &runtimev0.InformationResponse{
-		Status:       s.State,
-		DesiredState: s.DesiredState,
-	}
-	// only send the restart information once
-	if s.DesiredState == DesiredRestart {
-		s.DesiredState = DesiredNOOP
-	}
-	return resp, nil
 }
 
 // EndpointsFromConfiguration from Configuration and data from the service
@@ -304,6 +169,7 @@ func (s *Base) SetupNetworkMappings(ctx context.Context) error {
 		return s.Wool.Wrapf(err, "cannot create default endpoint")
 	}
 	for _, endpoint := range s.Endpoints {
+		s.Wool.Focus("exposing", wool.Field("destination", configurations.EndpointDestination(endpoint)))
 		err = pm.Expose(endpoint)
 		if err != nil {
 			return s.Wool.Wrapf(err, "cannot add grpc endpoint to network manager")
@@ -314,6 +180,7 @@ func (s *Base) SetupNetworkMappings(ctx context.Context) error {
 		return s.Wool.Wrapf(err, "cannot reserve ports")
 	}
 	s.NetworkMappings, err = pm.NetworkMapping(ctx)
+	s.Wool.Focus("network mappings", wool.Field("mappings", configurations.MakeNetworkMappingSummary(s.NetworkMappings)))
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot create network mapping")
 	}
@@ -321,16 +188,12 @@ func (s *Base) SetupNetworkMappings(ctx context.Context) error {
 }
 
 type WatchConfiguration struct {
-	req *builders.Dependency
+	dependencies *builders.Dependencies
 }
 
-func (c *WatchConfiguration) Add(s string) {
-	c.req.Components = append(c.req.Components, s)
-}
-
-func NewWatchConfiguration(requirements *builders.Dependency) *WatchConfiguration {
+func NewWatchConfiguration(dependencies *builders.Dependencies) *WatchConfiguration {
 	return &WatchConfiguration{
-		req: requirements,
+		dependencies: dependencies,
 	}
 }
 
@@ -338,7 +201,7 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 	s.Wool.Debug("watching for changes")
 	s.Events = make(chan code.Change)
 	var err error
-	s.Watcher, err = code.NewWatcher(ctx, s.Events, s.Location, conf.req)
+	s.Watcher, err = code.NewWatcher(ctx, s.Events, s.Location, conf.dependencies)
 	if err != nil {
 		return err
 	}
@@ -358,10 +221,6 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 func (s *Base) Local(f string) string {
 	return path.Join(s.Location, f)
 }
-
-/* Helpers
-
- */
 
 /* Some very important helpers */
 
@@ -393,10 +252,6 @@ func (s *Base) Ready() {
 	//	s.State = LoadState
 }
 
-func (s *Base) WantRestart() {
-	s.DesiredState = DesiredRestart
-}
-
 func (s *Base) WantSync() {
 	//s.State = SyncWantedState
 }
@@ -411,57 +266,52 @@ func (s *Base) Communicate(ctx context.Context, eng *agentv0.Engage) (*agentv0.I
 }
 
 type TemplateWrapper struct {
-	dir      shared.Dir
-	fs       *shared.FSReader
+	dir shared.Dir
+	fs  *shared.FSReader
+
+	// Destination
 	relative string
-	Ignore   shared.Ignore
-	Override shared.Override
+	absolute string
+
+	PathSelect shared.PathSelect
+	Override   shared.Override
 }
 
-func (w *TemplateWrapper) WithIgnore(ignore shared.Ignore) *TemplateWrapper {
-	w.Ignore = ignore
-	return w
+func (wrapper *TemplateWrapper) WithPathSelect(pathSelect shared.PathSelect) *TemplateWrapper {
+	wrapper.PathSelect = pathSelect
+	return wrapper
 }
 
-func (w *TemplateWrapper) WithOverride(override shared.Override) *TemplateWrapper {
-	w.Override = override
-	return w
+func (wrapper *TemplateWrapper) WithOverride(override shared.Override) *TemplateWrapper {
+	wrapper.Override = override
+	return wrapper
 }
 
-func WithFactory(fs embed.FS) *TemplateWrapper {
-	return &TemplateWrapper{fs: shared.Embed(fs), dir: shared.NewDir("templates/factory")}
-}
-
-func WithBuilder(fs embed.FS) *TemplateWrapper {
-	return &TemplateWrapper{fs: shared.Embed(fs), dir: shared.NewDir("templates/builder"), relative: "codefly/builder"}
-}
-
-func WithDeployment(fs embed.FS) *TemplateWrapper {
+func WithTemplate(fs embed.FS, from string, to string) *TemplateWrapper {
 	return &TemplateWrapper{
-		fs: shared.Embed(fs), dir: shared.NewDir("templates/deployment"), relative: "codefly/deployment"}
+		fs: shared.Embed(fs), dir: shared.NewDir("templates/%s", from), relative: to}
 }
 
-//
-//func WithDestination(destination string, args ...any) templates.TemplateOptionFunc {
-//	return func(opt *templates.TemplateOption) {
-//		opt.EndpointDestination = fmt.Sprintf(destination, args...)
-//	}
-//}
-//
-//func WithDeploymentFor(fs embed.FS, relativePath string, opts ...templates.TemplateOptionFunc) TemplateWrapper {
-//	opt := templates.Option(relativePath, opts...)
-//	return TemplateWrapper{
-//		opts:     opts,
-//		fs:       shared.Embed(fs),
-//		dir:      shared.NewDir("templates/deployment/%s", relativePath),
-//		relative: fmt.Sprintf("codefly/deployment/%s", opt.EndpointDestination)}
-//}
+func (wrapper *TemplateWrapper) WithDestination(destination string) *TemplateWrapper {
+	wrapper.absolute = destination
+	return wrapper
 
-func (s *Base) Templates(ctx context.Context, obj any, ws ...*TemplateWrapper) error {
-	s.Wool.Debug("templates")
-	for _, w := range ws {
-		templator := &templates.Templator{Ignore: w.Ignore, Override: w.Override}
-		err := templator.CopyAndApply(ctx, w.fs, w.dir, shared.NewDir(s.Local(w.relative)), obj)
+}
+
+func (wrapper *TemplateWrapper) Destination(s *Base) shared.Dir {
+	if wrapper.absolute != "" {
+		return shared.NewDir(wrapper.absolute)
+	}
+	return shared.NewDir(s.Local(wrapper.relative))
+
+}
+
+func (s *Base) Templates(ctx context.Context, obj any, wrappers ...*TemplateWrapper) error {
+	for _, wrapper := range wrappers {
+		templator := &templates.Templator{PathSelect: wrapper.PathSelect, Override: wrapper.Override}
+		destination := wrapper.Destination(s)
+		s.Wool.Trace("copying and applying template", wool.DirField(destination.Absolute()))
+		err := templator.CopyAndApply(ctx, wrapper.fs, wrapper.dir, destination, obj)
 		if err != nil {
 			return s.Wool.Wrapf(err, "cannot copy and apply template")
 		}

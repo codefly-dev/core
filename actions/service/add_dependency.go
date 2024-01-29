@@ -89,5 +89,5 @@ func (action *AddServiceDependencyAction) Run(ctx context.Context) (any, error) 
 }
 
 func init() {
-	actions.RegisterFactory(AddServiceDependencyKind, actions.Wrap[*AddServiceDependencyAction]())
+	actions.RegisterBuilder(AddServiceDependencyKind, actions.Wrap[*AddServiceDependencyAction]())
 }

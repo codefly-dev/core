@@ -119,7 +119,7 @@ package generator
 //type S = string
 //
 //func (t *TemplatizeVisitor) Apply(p shared.File, to shared.Dir) error {
-//	//if t.Ignore(p) {
+//	//if t.PathSelect(p) {
 //	//	return nil
 //	//}
 //	//logger := shared.NewLogger().With("generator.TemplatizeVisitor.Apply<%s>", path.Base(S(p)))
@@ -143,7 +143,7 @@ package generator
 //}
 //
 ////
-////func (t *TemplatizeVisitor) Ignore(p templates.FilePath) bool {
+////func (t *TemplatizeVisitor) PathSelect(p templates.FilePath) bool {
 ////	if strings.Contains(S(p), "library.generation.codefly.yaml") {
 ////		return true
 ////	}

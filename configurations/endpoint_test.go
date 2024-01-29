@@ -85,3 +85,26 @@ func TestEndpointLoadingFromDir(t *testing.T) {
 	assert.True(t, restFound)
 	assert.True(t, grpcFound)
 }
+
+func TestEndpointSwaggerChange(t *testing.T) {
+	ctx := context.Background()
+	endpoint := &configurations.Endpoint{Application: "app", Service: "svc"}
+	e, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/endpoints/swagger/original.swagger.json")
+	assert.NoError(t, err)
+	hash, err := configurations.EndpointHash(ctx, e)
+	assert.NoError(t, err)
+
+	// Removed path swagger
+	e, err = configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/endpoints/swagger/path_removed.swagger.json")
+	assert.NoError(t, err)
+	updatedHash, err := configurations.EndpointHash(ctx, e)
+	assert.NoError(t, err)
+	assert.NotEqual(t, hash, updatedHash)
+
+	// Changed path swagger
+	e, err = configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/endpoints/swagger/path_name_changed.swagger.json")
+	assert.NoError(t, err)
+	updatedHash, err = configurations.EndpointHash(ctx, e)
+	assert.NoError(t, err)
+	assert.NotEqual(t, hash, updatedHash)
+}

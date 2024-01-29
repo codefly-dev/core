@@ -10,12 +10,8 @@ import (
 )
 
 type FileVisitor interface {
+	shared.PathSelect
 	Apply(ctx context.Context, from shared.File, to shared.Dir) error
-	Skip(file string) bool
-}
-
-type Ignore interface {
-	Ignore(file shared.File) bool
 }
 
 func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, visitor FileVisitor) error {
@@ -38,8 +34,7 @@ func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root shared.Dir, de
 			return w.Wrapf(err, "cannot get relative path")
 		}
 		dest := destination.Join(*rel)
-		// Hack
-		if visitor.Skip(d.Absolute()) {
+		if !visitor.Keep(d.Absolute()) {
 			continue
 		}
 		_, err = shared.CheckDirectoryOrCreate(ctx, dest.Absolute())
@@ -49,7 +44,7 @@ func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root shared.Dir, de
 
 	}
 	for _, f := range files {
-		if visitor.Skip(f.Base()) {
+		if !visitor.Keep(f.Base()) {
 			w.Trace("ignoring", wool.FileField(f.Base()))
 			continue
 		}

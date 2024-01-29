@@ -6,27 +6,19 @@ import (
 	"strings"
 )
 
-type Ignore interface {
-	Skip(p string) bool
-}
-
-type Select interface {
+type PathSelect interface {
 	Keep(p string) bool
 }
 
-type ContextIgnoreKey string
+type ContextPathSelectKey string
 
 const (
-	IgnoreKey ContextIgnoreKey = "ignore"
+	PathSelectKey ContextPathSelectKey = "path-select"
 )
 
-func WithIgnore(ctx context.Context, ignore Ignore) context.Context {
-	return context.WithValue(ctx, IgnoreKey, ignore)
-}
-
-func GetIgnore(ctx context.Context) Ignore {
-	if ignore, ok := ctx.Value(IgnoreKey).(Ignore); ok {
-		return ignore
+func GetPathSelect(ctx context.Context) PathSelect {
+	if sel, ok := ctx.Value(PathSelectKey).(PathSelect); ok {
+		return sel
 	}
 	return IgnoreNone()
 }
@@ -37,14 +29,14 @@ Implementations
 
 */
 
-func IgnoreNone() Ignore {
+func IgnoreNone() PathSelect {
 	return &IgnoreNoneHandler{}
 }
 
 type IgnoreNoneHandler struct{}
 
-func (i *IgnoreNoneHandler) Skip(string) bool {
-	return false
+func (i *IgnoreNoneHandler) Keep(string) bool {
+	return true
 }
 
 func sanitizePattern(pattern string) string {
@@ -64,19 +56,19 @@ func NewIgnore(patterns ...string) *IgnorePatterns {
 	return ign
 }
 
-func (ign *IgnorePatterns) Skip(file string) bool {
+func (ign *IgnorePatterns) Keep(file string) bool {
 	for _, pattern := range ign.patterns {
 		if strings.Contains(file, pattern) {
-			return true
+			return false
 		}
 	}
 	for i := range ign.regex {
 		reg := &ign.regex[i]
 		if reg.MatchString(file) {
-			return true
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 type SelectPatterns struct {

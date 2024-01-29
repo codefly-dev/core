@@ -59,7 +59,13 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 func (r *Runner) Kill(_ context.Context) error {
+	if r == nil {
+		return nil
+	}
 	if r.cmd == nil {
+		return nil
+	}
+	if r.cmd.Process == nil {
 		return nil
 	}
 	err := r.cmd.Process.Kill()

@@ -56,5 +56,5 @@ func (action *AddOrganizationAction) Run(ctx context.Context) (any, error) {
 }
 
 func init() {
-	actions.RegisterFactory(AddOrganizationKind, actions.Wrap[*AddOrganizationAction]())
+	actions.RegisterBuilder(AddOrganizationKind, actions.Wrap[*AddOrganizationAction]())
 }

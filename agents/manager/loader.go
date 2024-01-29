@@ -42,7 +42,8 @@ type ProcessInfo struct {
 }
 
 func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.Agent, unique string) (*Instance, *ProcessInfo, error) {
-	w := wool.Get(ctx).In("agents.InitAndWait", wool.Field("agent", p.Identifier()))
+	w := wool.Get(ctx).In("agents.Load", wool.Field("agent", p.Identifier()))
+
 	if p == nil {
 		return nil, nil, w.NewError("agent cannot be nil")
 	}
@@ -51,7 +52,6 @@ func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.A
 		return nil, nil, w.Wrapf(err, "cannot compute agent path")
 	}
 
-	w.Trace("local", wool.Field("path", bin))
 	// Already loaded or download
 	if _, err := exec.LookPath(bin); err != nil {
 		err := Download(ctx, p)
@@ -59,7 +59,6 @@ func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.A
 			return nil, nil, w.Wrapf(err, "cannot download")
 		}
 	}
-	w.Trace("loading", wool.Field("path", bin))
 
 	var this P
 	placeholder := this.Default()
@@ -72,7 +71,7 @@ func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.A
 		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
 		Logger:           agents.LogHandler().Receiver,
 	})
-	w.Trace("loaded")
+	w.Trace("loaded", wool.PathField(bin), wool.Field("context", this.Key(p, unique)))
 	inUse[unique] = client
 
 	// Connect via gRPC

@@ -130,6 +130,10 @@ func (f *LogField) String() string {
 	if f.Value == nil {
 		return fmt.Sprintf("%s=nil", f.Key)
 	}
+
+	if stringer, ok := f.Value.(fmt.Stringer); ok {
+		return fmt.Sprintf("%s=%s", f.Key, stringer.String())
+	}
 	return fmt.Sprintf("%s=%v", f.Key, f.Value)
 }
 

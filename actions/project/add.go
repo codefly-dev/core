@@ -73,5 +73,5 @@ func (action *AddProjectAction) Run(ctx context.Context) (any, error) {
 }
 
 func init() {
-	actions.RegisterFactory(AddProjectKind, actions.Wrap[*AddProjectAction]())
+	actions.RegisterBuilder(AddProjectKind, actions.Wrap[*AddProjectAction]())
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/assert"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/services/factory/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
 )
 
 // We mimic the behavior of a agent

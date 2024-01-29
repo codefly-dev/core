@@ -18,19 +18,24 @@ type Proto struct {
 	version string
 
 	// Keep the proto hash for cashing
-	dependency *builders.Dependency
+	dependencies *builders.Dependencies
 }
 
 func NewProto(ctx context.Context, dir string) (*Proto, error) {
 	w := wool.Get(ctx).In("proto.NewProto")
-	version, err := version(ctx)
+	v, err := version(ctx)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot get version")
+		return nil, w.Wrapf(err, "cannot get v")
 	}
+	deps := builders.NewDependencies("proto",
+		builders.NewDependency(dir).WithPathSelect(shared.NewSelect("*.proto")),
+	)
+	deps.Localize(dir)
+
 	return &Proto{
-		Dir:        dir,
-		version:    version,
-		dependency: builders.NewDependency("proto", dir).WithSelect(shared.NewSelect("*.proto")).WithDir(dir),
+		Dir:          dir,
+		version:      v,
+		dependencies: deps,
 	}, nil
 }
 
@@ -53,12 +58,12 @@ var info embed.FS
 
 func (g *Proto) Generate(ctx context.Context) error {
 	w := wool.Get(ctx).In("proto.Generate")
-	updated, err := g.dependency.Updated(ctx)
+	updated, err := g.dependencies.Updated(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot check if updated")
 	}
 	if !updated {
-		w.Debug("no change detected")
+		w.Debug("no proto change detected")
 		return nil
 	}
 	w.Info("detected changes to the proto: re-generating code")

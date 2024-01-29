@@ -48,5 +48,5 @@ func (action *AddWorkspaceAction) Run(ctx context.Context) (any, error) {
 }
 
 func init() {
-	actions.RegisterFactory(AddWorkspace, actions.Wrap[*AddWorkspaceAction]())
+	actions.RegisterBuilder(AddWorkspace, actions.Wrap[*AddWorkspaceAction]())
 }

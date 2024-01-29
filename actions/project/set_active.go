@@ -61,5 +61,5 @@ func (action *SetProjectActiveAction) Run(ctx context.Context) (any, error) {
 }
 
 func init() {
-	actions.RegisterFactory(SetProjectActiveKind, actions.Wrap[*SetProjectActiveAction]())
+	actions.RegisterBuilder(SetProjectActiveKind, actions.Wrap[*SetProjectActiveAction]())
 }

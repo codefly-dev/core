@@ -39,10 +39,12 @@ func TestEnvironment(t *testing.T) {
 	project := shared.Must(actions.As[configurations.Project](out))
 
 	action, err = actionenviroment.NewActionAddEnvironment(ctx, &actionsv0.AddEnvironment{
-		Name:      "test-environment",
-		Project:   "test-project",
-		Workspace: workspace.Name,
+		Name:        "test-environment",
+		Project:     "test-project",
+		Workspace:   workspace.Name,
+		NetworkType: configurations.NetworkPort,
 	})
+	assert.NoError(t, err)
 	_, err = action.Run(ctx)
 	assert.NoError(t, err)
 

@@ -3,8 +3,11 @@ package golang
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
+	"path"
+
+	"github.com/codefly-dev/core/builders"
+	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/runners"
 
@@ -12,34 +15,43 @@ import (
 )
 
 type Runner struct {
-	Name  string
-	Dir   string
-	Args  []string
-	Envs  []string
-	Debug bool
+	Name string
+	Dir  string
+	Args []string
+	Envs []string
 
-	clean func()
+	// Build with debug symbols
+	Debug bool
+	// Build with race condition detection
+	RaceConditionDetection bool
+
+	// Used to cache the binary
+	Requirements *builders.Dependencies
 
 	// internal
-	killed bool
-	target string
-	cmd    *exec.Cmd
+	cacheDir string
+	killed   bool
+	target   string
+
+	cmd *exec.Cmd
 }
 
 func (g *Runner) Init(ctx context.Context) error {
 	w := wool.Get(ctx).In("go/runner")
-	g.killed = false
-	var clean func()
-	var err error
+	// Setup cache for binaries
+	g.cacheDir = path.Join(g.Dir, ".cache")
+	_, err := shared.CheckDirectoryOrCreate(ctx, g.cacheDir)
+	if err != nil {
+		return w.Wrapf(err, "cannot create cache directory")
+	}
 	if !g.Debug {
-		clean, err = g.NormalCmd(ctx)
+		err = g.NormalCmd(ctx)
 	} else {
-		clean, err = g.debugCmd(ctx)
+		err = g.debugCmd(ctx)
 	}
 	if err != nil {
 		return w.Wrapf(err, "cannot build binary")
 	}
-	g.clean = clean
 	return nil
 }
 
@@ -68,17 +80,29 @@ func (g *Runner) Start(ctx context.Context) (*runners.WrappedCmdOutput, error) {
 	return out, nil
 }
 
-func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
+func (g *Runner) debugCmd(ctx context.Context) error {
 	w := wool.Get(ctx).In("go/runner")
+	hash, err := g.Requirements.Hash(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot get hash")
+	}
+	g.target = path.Join(g.cacheDir, fmt.Sprintf("%s-%s", hash, "debug"))
+	if shared.FileExists(g.target) {
+		w.Focus("found a cache binary: don't work until we have to!")
+		return nil
+	}
 	w.Info("building binary in debug mode")
-	// Build with debug options
-	tmp := os.TempDir()
-	target := fmt.Sprintf("%s/main", tmp)
-	clean := func() {
-		_ = os.Remove(target)
+	// clean cache
+	err = shared.EmptyDir(g.cacheDir)
+	if err != nil {
+		return w.Wrapf(err, "cannot clean cache")
 	}
 
-	args := []string{"build", "-gcflags", "all=-N -l", "-o", target}
+	args := []string{"build", "-gcflags", "all=-N -l"}
+	if g.RaceConditionDetection {
+		args = append(args, "-race")
+	}
+	args = append(args, "-o", g.target)
 	args = append(args, g.Args...)
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = g.Dir
@@ -87,22 +111,35 @@ func (g *Runner) debugCmd(ctx context.Context) (func(), error) {
 	if err != nil {
 		g.killed = true
 		output := fmt.Errorf(string(out))
-		return nil, output
+		return output
 	}
-	return clean, nil
+	return nil
 }
 
-func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
+func (g *Runner) NormalCmd(ctx context.Context) error {
 	w := wool.Get(ctx).In("go/runner")
-	w.Info("building binary in normal mode")
-	// Build with debug options
-	tmp := os.TempDir()
-	g.target = fmt.Sprintf("%s/main", tmp)
-	clean := func() {
-		_ = os.Remove(g.target)
+	hash, err := g.Requirements.Hash(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot get hash")
+	}
+	g.target = path.Join(g.cacheDir, fmt.Sprintf("%s-%s", hash, "debug"))
+	if shared.FileExists(g.target) {
+		w.Focus("found a cache binary: don't work until we have to!")
+		return nil
+	}
+	w.Info("building go binary")
+	// clean cache
+	err = shared.EmptyDir(g.cacheDir)
+	if err != nil {
+		return w.Wrapf(err, "cannot clean cache")
 	}
 
-	args := []string{"build", "-o", g.target}
+	args := []string{"build"}
+	if g.RaceConditionDetection {
+		args = append(args, "-race")
+	}
+	args = append(args, "-o", g.target)
+
 	args = append(args, g.Args...)
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = g.Dir
@@ -110,10 +147,10 @@ func (g *Runner) NormalCmd(ctx context.Context) (func(), error) {
 	if err != nil {
 		g.killed = true
 		output := fmt.Errorf(string(out))
-		return nil, output
+		return output
 	}
 	w.Info("built", wool.StatusOK())
-	return clean, nil
+	return nil
 }
 
 func (g *Runner) Kill(ctx context.Context) error {
@@ -125,10 +162,11 @@ func (g *Runner) Kill(ctx context.Context) error {
 		return nil
 	}
 	g.killed = true
-	if g.clean != nil {
-		g.clean()
-	}
 	if g.cmd == nil {
+		return nil
+	}
+	// Check if the process is already dead
+	if g.cmd.ProcessState != nil {
 		return nil
 	}
 	err := g.cmd.Process.Kill()

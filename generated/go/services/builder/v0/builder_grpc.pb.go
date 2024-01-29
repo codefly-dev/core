@@ -21,21 +21,21 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	Factory_Load_FullMethodName        = "/services.builder.v0.Factory/Load"
-	Factory_Init_FullMethodName        = "/services.builder.v0.Factory/Init"
-	Factory_Create_FullMethodName      = "/services.builder.v0.Factory/Create"
-	Factory_Update_FullMethodName      = "/services.builder.v0.Factory/Update"
-	Factory_Sync_FullMethodName        = "/services.builder.v0.Factory/Sync"
-	Factory_Build_FullMethodName       = "/services.builder.v0.Factory/Build"
-	Factory_Deploy_FullMethodName      = "/services.builder.v0.Factory/Deploy"
-	Factory_Communicate_FullMethodName = "/services.builder.v0.Factory/Communicate"
+	Builder_Load_FullMethodName        = "/services.builder.v0.Builder/Load"
+	Builder_Init_FullMethodName        = "/services.builder.v0.Builder/Init"
+	Builder_Create_FullMethodName      = "/services.builder.v0.Builder/Create"
+	Builder_Update_FullMethodName      = "/services.builder.v0.Builder/Update"
+	Builder_Sync_FullMethodName        = "/services.builder.v0.Builder/Sync"
+	Builder_Build_FullMethodName       = "/services.builder.v0.Builder/Build"
+	Builder_Deploy_FullMethodName      = "/services.builder.v0.Builder/Deploy"
+	Builder_Communicate_FullMethodName = "/services.builder.v0.Builder/Communicate"
 )
 
-// FactoryClient is the client API for Factory service.
+// BuilderClient is the client API for Builder service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type FactoryClient interface {
-	// Setup
+type BuilderClient interface {
+	// Load the service
 	Load(ctx context.Context, in *LoadRequest, opts ...grpc.CallOption) (*LoadResponse, error)
 	// Init
 	Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error)
@@ -51,91 +51,91 @@ type FactoryClient interface {
 	Communicate(ctx context.Context, in *v0.Engage, opts ...grpc.CallOption) (*v0.InformationRequest, error)
 }
 
-type factoryClient struct {
+type builderClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewFactoryClient(cc grpc.ClientConnInterface) FactoryClient {
-	return &factoryClient{cc}
+func NewBuilderClient(cc grpc.ClientConnInterface) BuilderClient {
+	return &builderClient{cc}
 }
 
-func (c *factoryClient) Load(ctx context.Context, in *LoadRequest, opts ...grpc.CallOption) (*LoadResponse, error) {
+func (c *builderClient) Load(ctx context.Context, in *LoadRequest, opts ...grpc.CallOption) (*LoadResponse, error) {
 	out := new(LoadResponse)
-	err := c.cc.Invoke(ctx, Factory_Load_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Builder_Load_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *factoryClient) Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error) {
+func (c *builderClient) Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error) {
 	out := new(InitResponse)
-	err := c.cc.Invoke(ctx, Factory_Init_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Builder_Init_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *factoryClient) Create(ctx context.Context, in *CreateRequest, opts ...grpc.CallOption) (*CreateResponse, error) {
+func (c *builderClient) Create(ctx context.Context, in *CreateRequest, opts ...grpc.CallOption) (*CreateResponse, error) {
 	out := new(CreateResponse)
-	err := c.cc.Invoke(ctx, Factory_Create_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Builder_Create_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *factoryClient) Update(ctx context.Context, in *UpdateRequest, opts ...grpc.CallOption) (*UpdateResponse, error) {
+func (c *builderClient) Update(ctx context.Context, in *UpdateRequest, opts ...grpc.CallOption) (*UpdateResponse, error) {
 	out := new(UpdateResponse)
-	err := c.cc.Invoke(ctx, Factory_Update_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Builder_Update_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *factoryClient) Sync(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*SyncResponse, error) {
+func (c *builderClient) Sync(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*SyncResponse, error) {
 	out := new(SyncResponse)
-	err := c.cc.Invoke(ctx, Factory_Sync_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Builder_Sync_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *factoryClient) Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error) {
+func (c *builderClient) Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error) {
 	out := new(BuildResponse)
-	err := c.cc.Invoke(ctx, Factory_Build_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Builder_Build_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *factoryClient) Deploy(ctx context.Context, in *DeploymentRequest, opts ...grpc.CallOption) (*DeploymentResponse, error) {
+func (c *builderClient) Deploy(ctx context.Context, in *DeploymentRequest, opts ...grpc.CallOption) (*DeploymentResponse, error) {
 	out := new(DeploymentResponse)
-	err := c.cc.Invoke(ctx, Factory_Deploy_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Builder_Deploy_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *factoryClient) Communicate(ctx context.Context, in *v0.Engage, opts ...grpc.CallOption) (*v0.InformationRequest, error) {
+func (c *builderClient) Communicate(ctx context.Context, in *v0.Engage, opts ...grpc.CallOption) (*v0.InformationRequest, error) {
 	out := new(v0.InformationRequest)
-	err := c.cc.Invoke(ctx, Factory_Communicate_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Builder_Communicate_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// FactoryServer is the server API for Factory service.
-// All implementations must embed UnimplementedFactoryServer
+// BuilderServer is the server API for Builder service.
+// All implementations must embed UnimplementedBuilderServer
 // for forward compatibility
-type FactoryServer interface {
-	// Setup
+type BuilderServer interface {
+	// Load the service
 	Load(context.Context, *LoadRequest) (*LoadResponse, error)
 	// Init
 	Init(context.Context, *InitRequest) (*InitResponse, error)
@@ -149,232 +149,232 @@ type FactoryServer interface {
 	Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error)
 	// Communication helper
 	Communicate(context.Context, *v0.Engage) (*v0.InformationRequest, error)
-	mustEmbedUnimplementedFactoryServer()
+	mustEmbedUnimplementedBuilderServer()
 }
 
-// UnimplementedFactoryServer must be embedded to have forward compatible implementations.
-type UnimplementedFactoryServer struct {
+// UnimplementedBuilderServer must be embedded to have forward compatible implementations.
+type UnimplementedBuilderServer struct {
 }
 
-func (UnimplementedFactoryServer) Load(context.Context, *LoadRequest) (*LoadResponse, error) {
+func (UnimplementedBuilderServer) Load(context.Context, *LoadRequest) (*LoadResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Load not implemented")
 }
-func (UnimplementedFactoryServer) Init(context.Context, *InitRequest) (*InitResponse, error) {
+func (UnimplementedBuilderServer) Init(context.Context, *InitRequest) (*InitResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Init not implemented")
 }
-func (UnimplementedFactoryServer) Create(context.Context, *CreateRequest) (*CreateResponse, error) {
+func (UnimplementedBuilderServer) Create(context.Context, *CreateRequest) (*CreateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Create not implemented")
 }
-func (UnimplementedFactoryServer) Update(context.Context, *UpdateRequest) (*UpdateResponse, error) {
+func (UnimplementedBuilderServer) Update(context.Context, *UpdateRequest) (*UpdateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Update not implemented")
 }
-func (UnimplementedFactoryServer) Sync(context.Context, *SyncRequest) (*SyncResponse, error) {
+func (UnimplementedBuilderServer) Sync(context.Context, *SyncRequest) (*SyncResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Sync not implemented")
 }
-func (UnimplementedFactoryServer) Build(context.Context, *BuildRequest) (*BuildResponse, error) {
+func (UnimplementedBuilderServer) Build(context.Context, *BuildRequest) (*BuildResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Build not implemented")
 }
-func (UnimplementedFactoryServer) Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error) {
+func (UnimplementedBuilderServer) Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Deploy not implemented")
 }
-func (UnimplementedFactoryServer) Communicate(context.Context, *v0.Engage) (*v0.InformationRequest, error) {
+func (UnimplementedBuilderServer) Communicate(context.Context, *v0.Engage) (*v0.InformationRequest, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Communicate not implemented")
 }
-func (UnimplementedFactoryServer) mustEmbedUnimplementedFactoryServer() {}
+func (UnimplementedBuilderServer) mustEmbedUnimplementedBuilderServer() {}
 
-// UnsafeFactoryServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to FactoryServer will
+// UnsafeBuilderServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to BuilderServer will
 // result in compilation errors.
-type UnsafeFactoryServer interface {
-	mustEmbedUnimplementedFactoryServer()
+type UnsafeBuilderServer interface {
+	mustEmbedUnimplementedBuilderServer()
 }
 
-func RegisterFactoryServer(s grpc.ServiceRegistrar, srv FactoryServer) {
-	s.RegisterService(&Factory_ServiceDesc, srv)
+func RegisterBuilderServer(s grpc.ServiceRegistrar, srv BuilderServer) {
+	s.RegisterService(&Builder_ServiceDesc, srv)
 }
 
-func _Factory_Load_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Builder_Load_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(LoadRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FactoryServer).Load(ctx, in)
+		return srv.(BuilderServer).Load(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Factory_Load_FullMethodName,
+		FullMethod: Builder_Load_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FactoryServer).Load(ctx, req.(*LoadRequest))
+		return srv.(BuilderServer).Load(ctx, req.(*LoadRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Factory_Init_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Builder_Init_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InitRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FactoryServer).Init(ctx, in)
+		return srv.(BuilderServer).Init(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Factory_Init_FullMethodName,
+		FullMethod: Builder_Init_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FactoryServer).Init(ctx, req.(*InitRequest))
+		return srv.(BuilderServer).Init(ctx, req.(*InitRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Factory_Create_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Builder_Create_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FactoryServer).Create(ctx, in)
+		return srv.(BuilderServer).Create(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Factory_Create_FullMethodName,
+		FullMethod: Builder_Create_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FactoryServer).Create(ctx, req.(*CreateRequest))
+		return srv.(BuilderServer).Create(ctx, req.(*CreateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Factory_Update_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Builder_Update_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FactoryServer).Update(ctx, in)
+		return srv.(BuilderServer).Update(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Factory_Update_FullMethodName,
+		FullMethod: Builder_Update_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FactoryServer).Update(ctx, req.(*UpdateRequest))
+		return srv.(BuilderServer).Update(ctx, req.(*UpdateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Factory_Sync_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Builder_Sync_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SyncRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FactoryServer).Sync(ctx, in)
+		return srv.(BuilderServer).Sync(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Factory_Sync_FullMethodName,
+		FullMethod: Builder_Sync_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FactoryServer).Sync(ctx, req.(*SyncRequest))
+		return srv.(BuilderServer).Sync(ctx, req.(*SyncRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Factory_Build_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Builder_Build_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(BuildRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FactoryServer).Build(ctx, in)
+		return srv.(BuilderServer).Build(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Factory_Build_FullMethodName,
+		FullMethod: Builder_Build_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FactoryServer).Build(ctx, req.(*BuildRequest))
+		return srv.(BuilderServer).Build(ctx, req.(*BuildRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Factory_Deploy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Builder_Deploy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeploymentRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FactoryServer).Deploy(ctx, in)
+		return srv.(BuilderServer).Deploy(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Factory_Deploy_FullMethodName,
+		FullMethod: Builder_Deploy_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FactoryServer).Deploy(ctx, req.(*DeploymentRequest))
+		return srv.(BuilderServer).Deploy(ctx, req.(*DeploymentRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Factory_Communicate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Builder_Communicate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(v0.Engage)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FactoryServer).Communicate(ctx, in)
+		return srv.(BuilderServer).Communicate(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Factory_Communicate_FullMethodName,
+		FullMethod: Builder_Communicate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FactoryServer).Communicate(ctx, req.(*v0.Engage))
+		return srv.(BuilderServer).Communicate(ctx, req.(*v0.Engage))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// Factory_ServiceDesc is the grpc.ServiceDesc for Factory service.
+// Builder_ServiceDesc is the grpc.ServiceDesc for Builder service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var Factory_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "services.builder.v0.Factory",
-	HandlerType: (*FactoryServer)(nil),
+var Builder_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "services.builder.v0.Builder",
+	HandlerType: (*BuilderServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "Load",
-			Handler:    _Factory_Load_Handler,
+			Handler:    _Builder_Load_Handler,
 		},
 		{
 			MethodName: "Init",
-			Handler:    _Factory_Init_Handler,
+			Handler:    _Builder_Init_Handler,
 		},
 		{
 			MethodName: "Create",
-			Handler:    _Factory_Create_Handler,
+			Handler:    _Builder_Create_Handler,
 		},
 		{
 			MethodName: "Update",
-			Handler:    _Factory_Update_Handler,
+			Handler:    _Builder_Update_Handler,
 		},
 		{
 			MethodName: "Sync",
-			Handler:    _Factory_Sync_Handler,
+			Handler:    _Builder_Sync_Handler,
 		},
 		{
 			MethodName: "Build",
-			Handler:    _Factory_Build_Handler,
+			Handler:    _Builder_Build_Handler,
 		},
 		{
 			MethodName: "Deploy",
-			Handler:    _Factory_Deploy_Handler,
+			Handler:    _Builder_Deploy_Handler,
 		},
 		{
 			MethodName: "Communicate",
-			Handler:    _Factory_Communicate_Handler,
+			Handler:    _Builder_Communicate_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
