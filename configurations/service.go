@@ -43,8 +43,8 @@ type Service struct {
 
 	Agent *Agent `yaml:"agent"`
 
-	// Dependencies are the other services required
-	Dependencies []*ServiceDependency `yaml:"dependencies"`
+	// ServiceDependencies are the other services required
+	ServiceDependencies []*ServiceDependency `yaml:"service-dependencies"`
 
 	// ProviderDependencies are the providers required
 	ProviderDependencies []string `yaml:"provider-dependencies"`
@@ -355,7 +355,7 @@ func (s *Service) AddDependency(ctx context.Context, requirement *Service, requi
 			Name:        requirement.Name,
 			Application: requirement.Application,
 		}
-		s.Dependencies = append(s.Dependencies, dep)
+		s.ServiceDependencies = append(s.ServiceDependencies, dep)
 	}
 	err := dep.UpdateEndpoints(ctx, requiredEndpoints)
 	if err != nil {
@@ -370,7 +370,7 @@ func ReloadService(ctx context.Context, service *Service) (*Service, error) {
 }
 
 func (s *Service) postLoad(_ context.Context) error {
-	for _, ref := range s.Dependencies {
+	for _, ref := range s.ServiceDependencies {
 		if ref.Application == "" {
 			ref.Application = s.Application
 		}
@@ -383,7 +383,7 @@ func (s *Service) postLoad(_ context.Context) error {
 }
 
 func (s *Service) preSave(_ context.Context) error {
-	for _, ref := range s.Dependencies {
+	for _, ref := range s.ServiceDependencies {
 		if ref.Application == s.Application {
 			ref.Application = ""
 		}
@@ -429,7 +429,7 @@ func (s *Service) EndpointsFromNames(endpoints []string) ([]*Endpoint, error) {
 }
 
 func (s *Service) ExistsDependency(requirement *Service) (*ServiceDependency, bool) {
-	for _, dep := range s.Dependencies {
+	for _, dep := range s.ServiceDependencies {
 		if dep.Name == requirement.Name {
 			return dep, true
 		}
@@ -439,12 +439,12 @@ func (s *Service) ExistsDependency(requirement *Service) (*ServiceDependency, bo
 
 func (s *Service) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {
 	var deps []*ServiceDependency
-	for _, dep := range s.Dependencies {
+	for _, dep := range s.ServiceDependencies {
 		if dep.Name != ref.Name && dep.Application != ref.Application {
 			deps = append(deps, dep)
 		}
 	}
-	s.Dependencies = deps
+	s.ServiceDependencies = deps
 	return s.Save(ctx)
 }
 

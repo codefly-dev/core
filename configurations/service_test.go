@@ -325,8 +325,8 @@ func TestAddDependencyService(t *testing.T) {
 
 	service, err = actions.As[configurations.Service](out)
 	assert.NoError(t, err)
-	assert.Equal(t, 1, len(service.Dependencies))
-	assert.Equal(t, 2, len(service.Dependencies[0].Endpoints))
+	assert.Equal(t, 1, len(service.ServiceDependencies))
+	assert.Equal(t, 2, len(service.ServiceDependencies[0].Endpoints))
 
 	// Adding them again should return an error
 	action, err = actionservice.NewActionAddServiceDependency(ctx, input)

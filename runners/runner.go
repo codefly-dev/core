@@ -58,7 +58,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) Kill(_ context.Context) error {
+func (r *Runner) Stop(_ context.Context) error {
 	if r == nil {
 		return nil
 	}

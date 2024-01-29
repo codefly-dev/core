@@ -108,15 +108,33 @@ func FromService(service *configurations.Service, dep string) (*InfoSource, erro
 	return &InfoSource{ServiceWithApplication: parsed, Name: name}, nil
 }
 
-func (provider *Provider) GetProjectProviderInformation(ctx context.Context, name string) (*basev0.ProviderInformation, error) {
-	w := wool.Get(ctx).In("provider.GetProjectProviderInformation")
-	if info, ok := provider.projectInfos[name]; ok {
-		return info, nil
+func (provider *Provider) GetProviderInformations(ctx context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {
+	w := wool.Get(ctx).In("provider.GetProviderInformation")
+	var res []*basev0.ProviderInformation
+	infos, err := provider.GetProjectProviderInformation(ctx, service)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot get project provider information")
 	}
-	return nil, w.NewError("no provider information found for %s", name)
+	res = append(res, infos...)
+	infos, err = provider.GetProviderDependenciesInformations(ctx, service)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot get provider dependencies information")
+	}
+	res = append(res, infos...)
+	return res, nil
 }
 
-func (provider *Provider) GetProviderInformation(ctx context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {
+func (provider *Provider) GetProjectProviderInformation(ctx context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {
+	var res []*basev0.ProviderInformation
+	for _, dep := range service.ProviderDependencies {
+		if info, ok := provider.projectInfos[dep]; ok {
+			res = append(res, info)
+		}
+	}
+	return res, nil
+}
+
+func (provider *Provider) GetProviderDependenciesInformations(ctx context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {
 	w := wool.Get(ctx).In("provider.GetProviderInformation")
 	var res []*basev0.ProviderInformation
 	for _, dep := range service.ProviderDependencies {
@@ -145,19 +163,19 @@ func (provider *Provider) GetProviderInformation(ctx context.Context, service *c
 	if infos, ok := provider.serviceInfos[service.Unique()]; ok {
 		res = append(res, infos...)
 	}
+	if infos, ok := provider.sharedInfos[service.Unique()]; ok {
+		res = append(res, infos...)
+	}
 	return res, nil
 }
 
-func (provider *Provider) GetSharedProviderInformation(_ context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {
-	return provider.sharedInfos[service.Unique()], nil
-}
-
-func (provider *Provider) Share(ctx context.Context, infos []*basev0.ProviderInformation) {
+func (provider *Provider) Share(ctx context.Context, infos []*basev0.ProviderInformation) error {
 	w := wool.Get(ctx).In("provider.Share")
+	w.Debug("sharing", wool.Field("info", configurations.MakeProviderInfosSummary(infos)))
 	for _, info := range infos {
-		w.Debug("adding", wool.Field("info", info))
 		provider.sharedInfos[info.Origin] = append(provider.sharedInfos[info.Origin], info)
 	}
+	return nil
 }
 
 func loadFromEnvFile(ctx context.Context, dir string, p string) (*basev0.ProviderInformation, error) {

@@ -17,7 +17,7 @@ type Server struct {
 func (server *Server) Log(ctx context.Context) {
 	w := wool.Get(ctx).In("communicate.Server.State")
 	for k, v := range server.channels {
-		w.Focus("channel", wool.NameField(k), wool.Field("context", v))
+		w.Debug("channel", wool.NameField(k), wool.Field("context", v))
 	}
 }
 
@@ -34,7 +34,7 @@ func (c *ServerContext) Done() bool {
 func (c *ServerContext) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
 	w := wool.Get(ctx).In("communicate.Server.Communicate")
 	if req.Mode == agentv0.Engage_START {
-		w.Focus("FUCK")
+		w.Debug("starting communication", wool.Field("channel", req.Channel.Kind))
 		c.session = NewServerSession(c.gen)
 	}
 	return c.session.Process(ctx, req)

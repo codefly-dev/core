@@ -88,7 +88,7 @@ func (g *Runner) debugCmd(ctx context.Context) error {
 	}
 	g.target = path.Join(g.cacheDir, fmt.Sprintf("%s-%s", hash, "debug"))
 	if shared.FileExists(g.target) {
-		w.Focus("found a cache binary: don't work until we have to!")
+		w.Debug("found a cache binary: don't work until we have to!")
 		return nil
 	}
 	w.Info("building binary in debug mode")
@@ -124,7 +124,7 @@ func (g *Runner) NormalCmd(ctx context.Context) error {
 	}
 	g.target = path.Join(g.cacheDir, fmt.Sprintf("%s-%s", hash, "debug"))
 	if shared.FileExists(g.target) {
-		w.Focus("found a cache binary: don't work until we have to!")
+		w.Debug("found a cache binary: don't work until we have to!")
 		return nil
 	}
 	w.Info("building go binary")
@@ -153,7 +153,7 @@ func (g *Runner) NormalCmd(ctx context.Context) error {
 	return nil
 }
 
-func (g *Runner) Kill(ctx context.Context) error {
+func (g *Runner) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("go/runner::Kill")
 	if g == nil {
 		return nil

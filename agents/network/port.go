@@ -77,7 +77,7 @@ func (r FixedStrategy) Reserve(ctx context.Context, host string, endpoints []*Ap
 			return nil, w.Wrapf(err, "cannot get api")
 		}
 		port := ToPort(endpoint.Application, endpoint.Service, api)
-		w.Focus("port", wool.ThisField(endpoint), wool.Field("port", port))
+		w.Trace("port", wool.ThisField(endpoint), wool.Field("port", port))
 		m.ApplicationEndpointInstances = append(m.ApplicationEndpointInstances,
 			&ApplicationEndpointInstance{
 				ApplicationEndpoint: endpoint,

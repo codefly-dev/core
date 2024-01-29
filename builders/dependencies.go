@@ -98,6 +98,15 @@ type Dependencies struct {
 	dir string
 }
 
+// MakeDependenciesSummary ouputs a summary of the dependencies
+func MakeDependenciesSummary(deps *Dependencies) string {
+	var sb strings.Builder
+	for _, dep := range deps.Components {
+		sb.WriteString(fmt.Sprintf("  %s\n", strings.Join(dep.Components(), ", ")))
+	}
+	return sb.String()
+}
+
 func NewDependencies(name string, components ...*Dependency) *Dependencies {
 	return &Dependencies{
 		Name:       name,
@@ -167,7 +176,7 @@ func (dep *Dependencies) WriteHash(ctx context.Context, hash string) error {
 }
 
 func (dep *Dependencies) LoadHash(ctx context.Context) string {
-	w := wool.Get(ctx).In("builders.Dependencies.LoadHash")
+	w := wool.Get(ctx).In("builders.ServiceDependencies.LoadHash")
 	if dep.dir == "" {
 		return configurations.Unknown
 	}
@@ -190,7 +199,7 @@ func (dep *Dependencies) LoadHash(ctx context.Context) string {
 }
 
 func (dep *Dependencies) Hash(ctx context.Context) (string, error) {
-	w := wool.Get(ctx).In("builders.Dependencies.Hash")
+	w := wool.Get(ctx).In("builders.ServiceDependencies.Hash")
 	h := sha256.New()
 	for _, component := range dep.Components {
 		hash, err := component.Hash(ctx)

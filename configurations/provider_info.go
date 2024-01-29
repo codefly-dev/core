@@ -59,3 +59,15 @@ func ProviderInformationHash(infos ...*basev0.ProviderInformation) (string, erro
 	}
 	return hasher.Hash(), nil
 }
+
+func ProviderInfoSummary(info *basev0.ProviderInformation) string {
+	return fmt.Sprintf("%s/%s", info.Origin, info.Name)
+}
+
+func MakeProviderInfosSummary(infos []*basev0.ProviderInformation) string {
+	var summary []string
+	for _, info := range infos {
+		summary = append(summary, ProviderInfoSummary(info))
+	}
+	return strings.Join(summary, ", ")
+}
