@@ -124,7 +124,7 @@ func (provider *Provider) GetProviderInformations(ctx context.Context, service *
 	return res, nil
 }
 
-func (provider *Provider) GetProjectProviderInformation(ctx context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {
+func (provider *Provider) GetProjectProviderInformation(_ context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {
 	var res []*basev0.ProviderInformation
 	for _, dep := range service.ProviderDependencies {
 		if info, ok := provider.projectInfos[dep]; ok {
