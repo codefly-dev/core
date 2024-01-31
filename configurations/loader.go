@@ -6,7 +6,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 
 	"github.com/codefly-dev/core/wool"
 
@@ -16,23 +15,6 @@ import (
 )
 
 type Configuration interface{}
-
-func SolvePath(p string) (string, error) {
-	w := wool.Get(context.Background()).In("configurations.SolvePath", wool.PathField(p))
-	if filepath.IsLocal(p) || strings.HasPrefix(p, ".") || strings.HasPrefix(p, "..") {
-		cur, err := os.Getwd()
-		if err != nil {
-			return "", w.Wrapf(err, "cannot get active directory")
-		}
-		p = filepath.Join(cur, p)
-		w.Trace("solved path")
-	}
-	// Validate
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return "", w.Wrapf(err, "path doesn't exist")
-	}
-	return p, nil
-}
 
 func ConfigurationFile[C Configuration]() string {
 	var c C
@@ -98,7 +80,7 @@ func TypeName[C Configuration]() string {
 
 func LoadFromFs[C any](fs shared.FileSystem) (*C, error) {
 	w := wool.Get(context.Background()).In("configurations.LoadFromFs", wool.Field("type", TypeName[C]()))
-	content, err := fs.ReadFile(shared.NewFile(ConfigurationFile[C]()))
+	content, err := fs.ReadFile(ConfigurationFile[C]())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot read file")
 	}

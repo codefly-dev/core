@@ -3,51 +3,90 @@ package golang
 import (
 	"context"
 	"fmt"
-	"os/exec"
+	"io"
 	"path"
+
+	"github.com/codefly-dev/core/runners"
 
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/shared"
-
-	"github.com/codefly-dev/core/runners"
 
 	"github.com/codefly-dev/core/wool"
 )
 
 type Runner struct {
-	Name string
-	Dir  string
-	Args []string
-	Envs []string
+	name string
+	dir  string
+	args []string
+	envs []string
 
 	// Build with debug symbols
-	Debug bool
+	debug bool
 	// Build with race condition detection
-	RaceConditionDetection bool
+	raceConditionDetection bool
 
 	// Used to cache the binary
-	Requirements *builders.Dependencies
+	requirements *builders.Dependencies
+
+	out io.Writer
 
 	// internal
-	cacheDir string
-	killed   bool
-	target   string
-
-	cmd *exec.Cmd
+	cacheDir  string
+	target    string
+	usedCache bool
+	worker    *runners.Runner
 }
 
-func (g *Runner) Init(ctx context.Context) error {
+func NewRunner(ctx context.Context, name string, dir string) (*Runner, error) {
+	if ok, err := shared.CheckDirectory(ctx, dir); err != nil || !ok {
+		return nil, fmt.Errorf("directory %s does not exist", dir)
+	}
+	// Default dependencies
+	requirements := builders.NewDependencies("go", builders.NewDependency(dir).WithPathSelect(shared.NewSelect("*.go")))
+	return &Runner{
+		name:         name,
+		dir:          dir,
+		requirements: requirements,
+	}, nil
+}
+
+func (runner *Runner) WithEnvs(envs []string) *Runner {
+	runner.envs = envs
+	return runner
+}
+
+func (runner *Runner) WithDebug(debug bool) *Runner {
+	runner.debug = debug
+	return runner
+}
+
+func (runner *Runner) WithOut(out io.Writer) *Runner {
+	runner.out = out
+	return runner
+}
+
+func (runner *Runner) WithRaceConditionDetection(raceConditionDection bool) *Runner {
+	runner.raceConditionDetection = raceConditionDection
+	return runner
+}
+
+func (runner *Runner) WithRequirements(requirements *builders.Dependencies) *Runner {
+	runner.requirements = requirements
+	return runner
+}
+
+func (runner *Runner) Init(ctx context.Context) error {
 	w := wool.Get(ctx).In("go/runner")
 	// Setup cache for binaries
-	g.cacheDir = path.Join(g.Dir, ".cache")
-	_, err := shared.CheckDirectoryOrCreate(ctx, g.cacheDir)
+	runner.cacheDir = path.Join(runner.dir, ".cache")
+	_, err := shared.CheckDirectoryOrCreate(ctx, runner.cacheDir)
 	if err != nil {
 		return w.Wrapf(err, "cannot create cache directory")
 	}
-	if !g.Debug {
-		err = g.NormalCmd(ctx)
+	if runner.debug {
+		err = runner.debugCmd(ctx)
 	} else {
-		err = g.debugCmd(ctx)
+		err = runner.NormalCmd(ctx)
 	}
 	if err != nil {
 		return w.Wrapf(err, "cannot build binary")
@@ -55,123 +94,113 @@ func (g *Runner) Init(ctx context.Context) error {
 	return nil
 }
 
-func (g *Runner) Start(ctx context.Context) (*runners.WrappedCmdOutput, error) {
-	w := wool.Get(ctx).In("go/runner")
-	w.Debug("in runner")
-	// #nosec G204
-	cmd := exec.CommandContext(ctx, g.target)
-	g.cmd = cmd
-	cmd.Dir = g.Dir
-	// Setup variables once
-	cmd.Env = g.Envs
-
-	run, err := runners.NewWrappedCmd(cmd, w)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot create wrapped command")
-	}
-	out, err := run.Start(ctx)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot start command")
-	}
-
-	if g.killed {
-		return out, nil
-	}
-	return out, nil
+func (runner *Runner) UsedCache() bool {
+	return runner.usedCache
 }
 
-func (g *Runner) debugCmd(ctx context.Context) error {
-	w := wool.Get(ctx).In("go/runner")
-	hash, err := g.Requirements.Hash(ctx)
+func (runner *Runner) debugCmd(ctx context.Context) error {
+	w := wool.Get(ctx).In("go/builder")
+	runner.usedCache = false
+	hash, err := runner.requirements.Hash(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot get hash")
 	}
-	g.target = path.Join(g.cacheDir, fmt.Sprintf("%s-%s", hash, "debug"))
-	if shared.FileExists(g.target) {
+	runner.target = path.Join(runner.cacheDir, fmt.Sprintf("%s-%s", hash, "debug"))
+	w.Debug("build target", wool.Field("target", runner.target))
+	if shared.FileExists(runner.target) {
 		w.Debug("found a cache binary: don't work until we have to!")
+		runner.usedCache = true
 		return nil
 	}
 	w.Info("building binary in debug mode")
 	// clean cache
-	err = shared.EmptyDir(g.cacheDir)
+	err = shared.EmptyDir(runner.cacheDir)
 	if err != nil {
 		return w.Wrapf(err, "cannot clean cache")
 	}
 
 	args := []string{"build", "-gcflags", "all=-N -l"}
-	if g.RaceConditionDetection {
+	if runner.raceConditionDetection {
 		args = append(args, "-race")
 	}
-	args = append(args, "-o", g.target)
-	args = append(args, g.Args...)
-	cmd := exec.CommandContext(ctx, "go", args...)
-	cmd.Dir = g.Dir
-
-	out, err := cmd.CombinedOutput()
+	args = append(args, "-o", runner.target)
+	args = append(args, runner.args...)
+	// Call a builder!
+	builder, err := runners.NewRunner(ctx, "build-debug-binary", "go", args...)
 	if err != nil {
-		g.killed = true
-		output := fmt.Errorf(string(out))
-		return output
+		return w.Wrapf(err, "can't create runner")
+	}
+	builder.WithDir(runner.dir).WithDebug(runner.debug).WithEnvs(runner.envs).WithOut(runner.out)
+	err = builder.Run()
+	if err != nil {
+		return w.Wrapf(err, "cannot build binary")
 	}
 	return nil
 }
 
-func (g *Runner) NormalCmd(ctx context.Context) error {
-	w := wool.Get(ctx).In("go/runner")
-	hash, err := g.Requirements.Hash(ctx)
+func (runner *Runner) NormalCmd(ctx context.Context) error {
+	w := wool.Get(ctx).In("go/builder")
+	runner.usedCache = false
+	hash, err := runner.requirements.Hash(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot get hash")
 	}
-	g.target = path.Join(g.cacheDir, fmt.Sprintf("%s-%s", hash, "debug"))
-	if shared.FileExists(g.target) {
+	runner.target = path.Join(runner.cacheDir, fmt.Sprintf("%s-%s", hash, "normal"))
+	w.Debug("build target", wool.Field("target", runner.target))
+	if shared.FileExists(runner.target) {
 		w.Debug("found a cache binary: don't work until we have to!")
+		runner.usedCache = true
 		return nil
 	}
-	w.Info("building go binary")
+	w.Info("building binary in debug mode")
 	// clean cache
-	err = shared.EmptyDir(g.cacheDir)
+	err = shared.EmptyDir(runner.cacheDir)
 	if err != nil {
 		return w.Wrapf(err, "cannot clean cache")
 	}
 
 	args := []string{"build"}
-	if g.RaceConditionDetection {
+	if runner.raceConditionDetection {
 		args = append(args, "-race")
 	}
-	args = append(args, "-o", g.target)
-
-	args = append(args, g.Args...)
-	cmd := exec.CommandContext(ctx, "go", args...)
-	cmd.Dir = g.Dir
-	out, err := cmd.CombinedOutput()
+	args = append(args, "-o", runner.target)
+	args = append(args, runner.args...)
+	// Call a builder!
+	builder, err := runners.NewRunner(ctx, "build-normal-binary", "go", args...)
 	if err != nil {
-		g.killed = true
-		output := fmt.Errorf(string(out))
-		return output
+		return w.Wrapf(err, "can't create runner")
 	}
-	w.Info("built", wool.StatusOK())
+	builder.WithDir(runner.dir).WithDebug(runner.debug).WithEnvs(runner.envs).WithOut(runner.out)
+	err = builder.Run()
+	if err != nil {
+		return w.Wrapf(err, "cannot build binary")
+	}
 	return nil
 }
 
-func (g *Runner) Stop(ctx context.Context) error {
-	w := wool.Get(ctx).In("go/runner::Kill")
-	if g == nil {
-		return nil
-	}
-	if g.killed {
-		return nil
-	}
-	g.killed = true
-	if g.cmd == nil {
-		return nil
-	}
-	// Check if the process is already dead
-	if g.cmd.ProcessState != nil {
-		return nil
-	}
-	err := g.cmd.Process.Kill()
+func (runner *Runner) Start(ctx context.Context) error {
+	w := wool.Get(ctx).In("go/runner")
+	worker, err := runners.NewRunner(ctx, runner.name, runner.target)
 	if err != nil {
-		return w.Wrapf(err, "cannot kill process")
+		return w.Wrapf(err, "can't create runner")
+	}
+
+	worker.WithDir(runner.dir).WithEnvs(runner.envs).WithOut(runner.out)
+	runner.worker = worker
+	err = runner.worker.Start()
+	if err != nil {
+		return w.Wrapf(err, "cannot start binary")
 	}
 	return nil
+}
+
+func (runner *Runner) CacheDir() string {
+	return runner.cacheDir
+}
+
+func (runner *Runner) Stop() error {
+	if runner == nil {
+		return fmt.Errorf("stopping a non-running go")
+	}
+	return runner.worker.Stop()
 }

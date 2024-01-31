@@ -70,15 +70,22 @@ func (g *Proto) Generate(ctx context.Context) error {
 
 	image := fmt.Sprintf("codeflydev/companion:%s", g.version)
 	volume := fmt.Sprintf("%s:/workspace", g.Dir)
-	// TODO: Switch to Docker runner
-	runner := runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "mod", "update"}}
-	err = runner.Run(ctx)
+	runner, err := runners.NewRunner(ctx, "buf-update", "docker", "run", "--rm", "-v", volume, image, "buf", "mod", "update")
+	if err != nil {
+		return w.Wrapf(err, "can't create runner")
+	}
+	runner.WithDir(g.Dir)
+	err = runner.Run()
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}
-	runner = runners.Runner{Dir: g.Dir, Bin: "docker", Args: []string{"run", "--rm", "-v", volume, image, "buf", "generate"}}
+	runner, err = runners.NewRunner(ctx, "buf-update", "docker", "run", "--rm", "-v", volume, image, "buf", "generate")
+	if err != nil {
+		return w.Wrapf(err, "can't create runner")
+	}
+	runner.WithDir(g.Dir)
 	w.Debug("Generating code from buf", wool.DirField(g.Dir))
-	err = runner.Run(ctx)
+	err = runner.Run()
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}

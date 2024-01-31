@@ -98,13 +98,18 @@ type Dependencies struct {
 	dir string
 }
 
-// MakeDependenciesSummary ouputs a summary of the dependencies
+// MakeDependencySummary outputs a summary of the dependency
+func MakeDependencySummary(dep *Dependency) string {
+	return fmt.Sprintf("[%s]", strings.Join(dep.Components(), ","))
+}
+
+// MakeDependenciesSummary outputs a summary of the dependencies
 func MakeDependenciesSummary(deps *Dependencies) string {
-	var sb strings.Builder
+	var summary []string
 	for _, dep := range deps.Components {
-		sb.WriteString(fmt.Sprintf("  %s\n", strings.Join(dep.Components(), ", ")))
+		summary = append(summary, MakeDependencySummary(dep))
 	}
-	return sb.String()
+	return strings.Join(summary, ",")
 }
 
 func NewDependencies(name string, components ...*Dependency) *Dependencies {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -28,7 +29,7 @@ func ApplyTemplate(t string, data any) (string, error) {
 	return buf.String(), nil
 }
 
-func Walk(ctx context.Context, fs shared.FileSystem, root shared.Dir, pathSelect shared.PathSelect, files *[]shared.File, dirs *[]shared.Dir) error {
+func Walk(ctx context.Context, fs shared.FileSystem, root string, pathSelect shared.PathSelect, files *[]string, dirs *[]string) error {
 	w := wool.Get(ctx).In("templates.Walk")
 	entries, err := fs.ReadDir(root)
 	if err != nil {
@@ -38,15 +39,14 @@ func Walk(ctx context.Context, fs shared.FileSystem, root shared.Dir, pathSelect
 		if !pathSelect.Keep(entry.Name()) {
 			continue
 		}
-		p := path.Join(fs.AbsoluteDir(root), entry.Name())
+		p := path.Join(root, entry.Name())
 		if !entry.IsDir() {
-			*files = append(*files, shared.NewFile(p))
+			*files = append(*files, p)
 			continue
 		}
-		dir := shared.NewDir(p)
-		*dirs = append(*dirs, dir)
+		*dirs = append(*dirs, p)
 		// recurse into subdirectory
-		err = Walk(ctx, fs, dir, pathSelect, files, dirs)
+		err = Walk(ctx, fs, p, pathSelect, files, dirs)
 		if err != nil {
 			return w.Wrapf(err, "cannot walk into subdirectory")
 		}
@@ -55,21 +55,21 @@ func Walk(ctx context.Context, fs shared.FileSystem, root shared.Dir, pathSelect
 }
 
 type AlreadyExistError struct {
-	file shared.File
+	file string
 }
 
 func (a AlreadyExistError) Error() string {
 	return fmt.Sprintf("file %s already exists", a.file)
 }
 
-func Copy(ctx context.Context, fs shared.FileSystem, f shared.File, destination shared.File) error {
+func Copy(ctx context.Context, fs shared.FileSystem, f string, destination string) error {
 	w := wool.Get(ctx).In("templates.Copy", wool.Field("from", f), wool.Field("to", destination))
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
 	if err != nil {
 		return w.Wrap(err)
 	}
-	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return w.Wrap(err)
 	}
@@ -84,7 +84,7 @@ func Copy(ctx context.Context, fs shared.FileSystem, f shared.File, destination 
 	return nil
 }
 
-func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f shared.File, destination shared.File, obj any) error {
+func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f string, destination string, obj any) error {
 	w := wool.Get(ctx).In("templates.CopyAndApplyTemplate", wool.Field("from", f), wool.Field("to", destination))
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
@@ -93,9 +93,9 @@ func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f shared.Fi
 	}
 	out, err := ApplyTemplate(string(data), obj)
 	if err != nil {
-		return w.Wrapf(err, destination.Relative())
+		return w.Wrapf(err, destination)
 	}
-	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return w.Wrap(err)
 	}
@@ -114,7 +114,7 @@ func ApplyTemplateFrom(ctx context.Context, fs shared.FileSystem, f string, obj 
 	w := wool.Get(ctx).In("templates.ApplyTemplateFrom", wool.Field("from", f))
 	// Read the file from the embedded file system
 	f = fmt.Sprintf("%s.tmpl", f)
-	data, err := fs.ReadFile(shared.NewFile(f))
+	data, err := fs.ReadFile(f)
 	if err != nil {
 		return "", fmt.Errorf("could not read file: %v", err)
 	}
@@ -129,7 +129,7 @@ type Replacer interface {
 	Do([]byte) ([]byte, error)
 }
 
-func CopyAndReplace(ctx context.Context, fs shared.FileSystem, f shared.File, destination shared.File, replacer Replacer) error {
+func CopyAndReplace(ctx context.Context, fs shared.FileSystem, f string, destination string, replacer Replacer) error {
 	w := wool.Get(ctx).In("templates.CopyAndReplace", wool.Field("from", f), wool.Field("to", destination))
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
@@ -140,7 +140,7 @@ func CopyAndReplace(ctx context.Context, fs shared.FileSystem, f shared.File, de
 	if err != nil {
 		return w.Wrap(err)
 	}
-	file, err := os.OpenFile(fs.AbsoluteFile(destination), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return w.Wrap(err)
 	}
@@ -178,21 +178,21 @@ func (t *Templator) Replace(p string) bool {
 	return t.Override.Replace(p)
 }
 
-func CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
+func CopyAndApply(ctx context.Context, fs shared.FileSystem, root string, destination string, obj any) error {
 	t := Templator{}
 	return t.CopyAndApply(ctx, fs, root, destination, obj)
 }
 
-func (t *Templator) CopyAndApply(ctx context.Context, fs shared.FileSystem, root shared.Dir, destination shared.Dir, obj any) error {
+func (t *Templator) CopyAndApply(ctx context.Context, fs shared.FileSystem, root string, destination string, obj any) error {
 	w := wool.Get(ctx).In("templates.CopyAndApply")
 
-	_, err := shared.CheckDirectoryOrCreate(ctx, fs.AbsoluteDir(destination))
+	_, err := shared.CheckDirectoryOrCreate(ctx, destination)
 
 	if err != nil {
 		return w.Wrapf(err, "cannot check or create directory")
 	}
-	var dirs []shared.Dir
-	var files []shared.File
+	var dirs []string
+	var files []string
 	err = Walk(ctx, fs, root, t, &files, &dirs)
 	if err != nil {
 		return fmt.Errorf("cannot read template directory: %v", err)
@@ -200,28 +200,28 @@ func (t *Templator) CopyAndApply(ctx context.Context, fs shared.FileSystem, root
 	w.Trace(fmt.Sprintf("walked %d directories and %d files", len(dirs), len(files)))
 	for _, d := range dirs {
 		// We take the relative path from the root directory
-		rel, err := d.RelativeFrom(root)
+		rel, err := filepath.Rel(root, d)
 		if err != nil {
 			return w.Wrapf(err, "cannot get relative path")
 		}
-		dest := destination.Join(*rel)
-		_, err = shared.CheckDirectoryOrCreate(ctx, dest.Absolute())
+		dest := filepath.Join(destination, rel)
+		_, err = shared.CheckDirectoryOrCreate(ctx, dest)
 		if err != nil {
 			return w.Wrapf(err, "cannot check or create directory for destination")
 		}
 
 	}
 	for _, f := range files {
-		rel, err := f.RelativeFrom(root)
+		rel, err := filepath.Rel(root, f)
 		if err != nil {
 			return w.Wrapf(err, "cannot get relative path")
 		}
 
-		target := path.Join(fs.AbsoluteDir(destination), rel.Relative())
+		target := path.Join(destination, rel)
 
 		d, found := strings.CutSuffix(target, ".tmpl")
 		if !found {
-			err = Copy(ctx, fs, f, shared.NewFile(target))
+			err = Copy(ctx, fs, f, target)
 			if err != nil {
 				return fmt.Errorf("cannot copy file: %v", err)
 			}
@@ -232,10 +232,65 @@ func (t *Templator) CopyAndApply(ctx context.Context, fs shared.FileSystem, root
 			w.Trace("file %s already exists: skipping", wool.FileField(d))
 			continue
 		}
-		err = CopyAndApplyTemplate(ctx, fs, f, shared.NewFile(d), obj)
+		err = CopyAndApplyTemplate(ctx, fs, f, d, obj)
 		w.Trace(fmt.Sprintf("copied template %s to %s", f, destination))
 		if err != nil {
 			return w.Wrapf(err, "cannot copy template")
+		}
+	}
+	return nil
+}
+
+type FileVisitor interface {
+	shared.PathSelect
+	Apply(ctx context.Context, from string, to string) error
+}
+
+func CopyAndVisit(ctx context.Context, fs shared.FileSystem, root string, destination string, visitor FileVisitor) error {
+	w := wool.Get(ctx).In("templates.CopyAndVisit")
+	_, err := shared.CheckDirectoryOrCreate(ctx, destination)
+	if err != nil {
+		return w.Wrapf(err, "cannot check or create directory")
+	}
+	var dirs []string
+	var files []string
+	err = Walk(ctx, fs, root, visitor, &files, &dirs)
+	if err != nil {
+		return fmt.Errorf("cannot read template directory: %v", err)
+	}
+	w.Trace(fmt.Sprintf("walked %d directories and %d files", len(dirs), len(files)))
+	for _, d := range dirs {
+		// We take the relative path from the root directory
+		rel, err := filepath.Rel(root, d)
+		if err != nil {
+			return w.Wrapf(err, "cannot get relative path")
+		}
+		dest := filepath.Join(destination, rel)
+		if !visitor.Keep(dest) {
+			continue
+		}
+		_, err = shared.CheckDirectoryOrCreate(ctx, dest)
+		if err != nil {
+			return w.Wrapf(err, "cannot check or create directory for destination")
+		}
+
+	}
+	for _, f := range files {
+		base := filepath.Base(f)
+		if !visitor.Keep(base) {
+			w.Trace("ignoring", wool.FileField(base))
+			continue
+		}
+
+		rel, err := filepath.Rel(root, f)
+		if err != nil {
+			return w.Wrapf(err, "cannot get relative path")
+		}
+
+		target := path.Join(destination, rel)
+		err = visitor.Apply(ctx, f, target)
+		if err != nil {
+			return w.Wrapf(err, "cannot apply visitor")
 		}
 	}
 	return nil

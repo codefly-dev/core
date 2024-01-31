@@ -93,6 +93,8 @@ func Local() *Environment {
 	}
 }
 
+const EnvironmentAsEnvironmentVariableKey = "CODEFLY_ENVIRONMENT"
+
 func EnvironmentAsEnvironmentVariable(env *Environment) string {
-	return fmt.Sprintf("CODEFLY_ENVIRONMENT=%s", env.Name)
+	return fmt.Sprintf("%s=%s", EnvironmentAsEnvironmentVariableKey, env.Name)
 }

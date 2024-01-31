@@ -34,9 +34,13 @@ func Writer() *LogField {
 	return &LogField{Key: "writer"}
 }
 
-// Writer implements the io.Writer interface
+// Writer implements the io.WriteCloser interface
 func (w *Wool) Write(p []byte) (n int, err error) {
 	return w.Forward(p)
+}
+
+func (w *Wool) Close() error {
+	return nil
 }
 
 func (w *Wool) In(method string, fields ...*LogField) *Wool {
@@ -164,12 +168,6 @@ func (w *Wool) Wrapf(err error, msg string, args ...any) error {
 		return errors.Wrap(err, msg)
 	}
 	return err
-}
-
-func (w *Wool) Close() {
-	if w.span != nil {
-		w.span.End()
-	}
 }
 
 type NotFoundError struct {

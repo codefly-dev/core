@@ -6,80 +6,26 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/codefly-dev/core/wool"
 )
 
-type File struct {
-	file string
-}
-
-func (f *File) Relative() string {
-	return f.file
-}
-
-func NewFile(file string) File {
-	return File{file: file}
-}
-
-func (f *File) RelativeFrom(base Dir) (*File, error) {
-	rel, err := filepath.Rel(base.name, f.file)
-	if err != nil {
-		return nil, err
+func SolvePath(p string) (string, error) {
+	w := wool.Get(context.Background()).In("configurations.SolvePath", wool.PathField(p))
+	if filepath.IsLocal(p) || strings.HasPrefix(p, ".") || strings.HasPrefix(p, "..") {
+		cur, err := os.Getwd()
+		if err != nil {
+			return "", w.Wrapf(err, "cannot get active directory")
+		}
+		p = filepath.Join(cur, p)
+		w.Trace("solved path")
 	}
-	return &File{file: rel}, nil
-}
-
-func (f *File) Base() string {
-	return filepath.Base(f.file)
-}
-
-func (f *File) RelativePath() string {
-	return filepath.Dir(f.file)
-}
-
-type Dir struct {
-	name string
-}
-
-func (d *Dir) Relative() string {
-	return d.name
-}
-
-func (d *Dir) RelativeFrom(base Dir) (*Dir, error) {
-	rel, err := filepath.Rel(base.Absolute(), d.Absolute())
-	if err != nil {
-		return nil, err
+	// Validate
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		return "", w.Wrapf(err, "path doesn't exist")
 	}
-	return &Dir{name: rel}, nil
-}
-
-func (d *Dir) Join(other Dir) Dir {
-	return Dir{name: filepath.Join(d.name, other.name)}
-}
-
-func (d *Dir) Absolute() string {
-	return d.name
-}
-
-func NewDir(dir string, args ...any) Dir {
-	return Dir{name: fmt.Sprintf(dir, args...)}
-}
-
-func Local(dir string) (*Dir, error) {
-	cur, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	return &Dir{name: filepath.Join(cur, dir)}, nil
-}
-
-func MustLocal(dir string) Dir {
-	d, err := Local(dir)
-	if err != nil {
-		panic(err)
-	}
-	return *d
+	return p, nil
 }
 
 func FileExists(file string) bool {

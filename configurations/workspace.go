@@ -100,7 +100,7 @@ func LoadWorkspace(ctx context.Context, name string) (*Workspace, error) {
 func LoadWorkspaceFromDirUnsafe(ctx context.Context, dir string) (*Workspace, error) {
 	w := wool.Get(ctx).In("configurations.LoadWorkspace")
 	var err error
-	dir, err = SolvePath(dir)
+	dir, err = shared.SolvePath(dir)
 	w.With(wool.DirField(dir)).Trace("resolved")
 	if err != nil {
 		return nil, w.Wrap(err)

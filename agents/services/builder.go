@@ -2,9 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
-
-	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/agents/manager"
 
@@ -43,46 +40,46 @@ type Builder interface {
 	Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error)
 	Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error)
 
-	// Communicate is a special method that is used to communicate with the agent
+	// Communicate is a special method that is used to communicate with the Agent
 	communicate.Communicate
 }
 
 type BuilderAgent struct {
-	client  builderv0.BuilderClient
-	agent   *configurations.Agent
-	process *manager.ProcessInfo
+	Client      builderv0.BuilderClient
+	Agent       *configurations.Agent
+	ProcessInfo *manager.ProcessInfo
 }
 
 func (m BuilderAgent) Load(ctx context.Context, req *builderv0.LoadRequest) (*builderv0.LoadResponse, error) {
-	return m.client.Load(ctx, req)
+	return m.Client.Load(ctx, req)
 }
 
 func (m BuilderAgent) Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error) {
-	return m.client.Init(ctx, req)
+	return m.Client.Init(ctx, req)
 }
 
 func (m BuilderAgent) Create(ctx context.Context, req *builderv0.CreateRequest) (*builderv0.CreateResponse, error) {
-	return m.client.Create(ctx, req)
+	return m.Client.Create(ctx, req)
 }
 
 func (m BuilderAgent) Update(ctx context.Context, req *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
-	return m.client.Update(ctx, req)
+	return m.Client.Update(ctx, req)
 }
 
 func (m BuilderAgent) Sync(ctx context.Context, req *builderv0.SyncRequest) (*builderv0.SyncResponse, error) {
-	return m.client.Sync(ctx, req)
+	return m.Client.Sync(ctx, req)
 }
 
 func (m BuilderAgent) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
-	return m.client.Build(ctx, req)
+	return m.Client.Build(ctx, req)
 }
 
 func (m BuilderAgent) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
-	return m.client.Deploy(ctx, req)
+	return m.Client.Deploy(ctx, req)
 }
 
 func (m BuilderAgent) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
-	return m.client.Communicate(ctx, req)
+	return m.Client.Communicate(ctx, req)
 }
 
 type BuilderAgentGRPC struct {
@@ -97,7 +94,7 @@ func (p *BuilderAgentGRPC) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) erro
 }
 
 func (p *BuilderAgentGRPC) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &BuilderAgent{client: builderv0.NewBuilderClient(c)}, nil
+	return &BuilderAgent{Client: builderv0.NewBuilderClient(c)}, nil
 }
 
 // BuilderServer wraps the gRPC protocol Request/Response
@@ -136,34 +133,6 @@ func (m *BuilderServer) Deploy(ctx context.Context, req *builderv0.DeploymentReq
 
 func (m *BuilderServer) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
 	return m.Builder.Communicate(ctx, req)
-}
-
-var buildersCache map[string]int
-
-func init() {
-	buildersCache = make(map[string]int)
-}
-
-func LoadBuilder(ctx context.Context, conf *configurations.Service) (*BuilderAgent, error) {
-	w := wool.Get(ctx).In("services.LoadBuilder", wool.ThisField(conf))
-	if buildersCache[conf.Unique()] > 0 {
-		return nil, fmt.Errorf("already loaded")
-	}
-	buildersCache[conf.Unique()]++
-
-	if conf == nil {
-		return nil, fmt.Errorf("conf cannot be nil")
-	}
-	if conf.Agent == nil {
-		return nil, w.NewError("agent cannot be nil")
-	}
-	builder, process, err := manager.Load[ServiceBuilderAgentContext, BuilderAgent](ctx, conf.Agent.Of(configurations.BuilderServiceAgent), conf.Unique())
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot load service builder conf")
-	}
-	builder.agent = conf.Agent
-	builder.process = process
-	return builder, nil
 }
 
 func NewBuilderAgent(conf *configurations.Agent, builder Builder) agents.AgentImplementation {

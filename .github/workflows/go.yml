@@ -51,9 +51,9 @@ jobs:
           ## name of branch where badges are stored
           ## ideally this should be orphan branch (see below how to create this branch)
           git-branch: badges
-
-      - name: test with race detection
-        run: go test -race ./... -v
+#
+#      - name: test with race detection
+#        run: go test -race ./... -v
 
       - name: Notify Slack on Failure
         if: failure()

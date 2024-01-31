@@ -217,7 +217,7 @@ func EndpointBaseProto(e *Endpoint) *basev0.Endpoint {
 	}
 }
 
-func FromProtoEndpoint(e *basev0.Endpoint) *Endpoint {
+func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
 	return &Endpoint{
 		Name:        e.Name,
 		Application: e.Application,
@@ -231,7 +231,7 @@ func FromProtoEndpoint(e *basev0.Endpoint) *Endpoint {
 func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
 	var endpoints []*Endpoint
 	for _, e := range es {
-		endpoints = append(endpoints, FromProtoEndpoint(e))
+		endpoints = append(endpoints, EndpointFromProto(e))
 	}
 	return endpoints, nil
 }

@@ -416,7 +416,7 @@ func (g *RestRouteGroup) Delete(ctx context.Context, dir string) error {
 
 func LoadRestRouteGroup(ctx context.Context, p string) (*RestRouteGroup, error) {
 	var err error
-	p, err = SolvePath(p)
+	p, err = shared.SolvePath(p)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +429,7 @@ func LoadRestRouteGroup(ctx context.Context, p string) (*RestRouteGroup, error) 
 
 func LoadExtendedRestRoute[T any](p string) (*ExtendedRestRouteGroup[T], error) {
 	var err error
-	p, err = SolvePath(p)
+	p, err = shared.SolvePath(p)
 	if err != nil {
 		return nil, err
 	}
@@ -447,7 +447,7 @@ func LoadExtendedRestRoute[T any](p string) (*ExtendedRestRouteGroup[T], error) 
 
 func LoadExtendedRestRouteGroup[T any](ctx context.Context, p string) (*ExtendedRestRouteGroup[T], error) {
 	var err error
-	p, err = SolvePath(p)
+	p, err = shared.SolvePath(p)
 	if err != nil {
 		return nil, err
 	}
@@ -482,7 +482,7 @@ func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.Re
 }
 
 func RestRouteEnvironmentVariableKey(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
-	unique := FromProtoEndpoint(endpoint).Unique()
+	unique := EndpointFromProto(endpoint).Unique()
 	unique = strings.ToUpper(unique)
 	unique = strings.Replace(unique, "/", "__", 1)
 	unique = strings.Replace(unique, "/", "___", 1)

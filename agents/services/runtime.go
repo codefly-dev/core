@@ -3,8 +3,6 @@ package services
 import (
 	"context"
 
-	"github.com/codefly-dev/core/wool"
-
 	"github.com/codefly-dev/core/agents/manager"
 
 	"github.com/codefly-dev/core/agents/communicate"
@@ -44,44 +42,47 @@ type Runtime interface {
 
 	Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error)
 
-	// Communicate is a special method that is used to communicate with the agent
+	// Communicate is a special method that is used to communicate with the Agent
 	communicate.Communicate
 }
 
 type RuntimeAgent struct {
-	client  runtimev0.RuntimeClient
-	agent   *configurations.Agent
-	process *manager.ProcessInfo
+	Client      runtimev0.RuntimeClient
+	Agent       *configurations.Agent
+	ProcessInfo *manager.ProcessInfo
+
+	// Some service can deal with re-init without restarting
+	HotReload bool
 }
 
 // Load loads the service: it is a NoOp operation and can be called safely
 func (m *RuntimeAgent) Load(ctx context.Context, req *runtimev0.LoadRequest) (*runtimev0.LoadResponse, error) {
-	return m.client.Load(ctx, req)
+	return m.Client.Load(ctx, req)
 }
 
 // Init initializes the service
 func (m *RuntimeAgent) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
-	return m.client.Init(ctx, req)
+	return m.Client.Init(ctx, req)
 }
 
 // Start starts the service
 func (m *RuntimeAgent) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
-	return m.client.Start(ctx, req)
+	return m.Client.Start(ctx, req)
 }
 
 // Information return some useful information about the service
 func (m *RuntimeAgent) Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
-	return m.client.Information(ctx, req)
+	return m.Client.Information(ctx, req)
 }
 
 // Stop stops the service
 func (m *RuntimeAgent) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
-	return m.client.Stop(ctx, req)
+	return m.Client.Stop(ctx, req)
 }
 
 // Communicate helper
 func (m *RuntimeAgent) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
-	return m.client.Communicate(ctx, req)
+	return m.Client.Communicate(ctx, req)
 }
 
 type RuntimeAgentGRPC struct {
@@ -96,7 +97,7 @@ func (p *RuntimeAgentGRPC) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) erro
 }
 
 func (p *RuntimeAgentGRPC) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &RuntimeAgent{client: runtimev0.NewRuntimeClient(c)}, nil
+	return &RuntimeAgent{Client: runtimev0.NewRuntimeClient(c)}, nil
 }
 
 // RuntimeServer wraps the gRPC protocol Request/Response
@@ -127,39 +128,6 @@ func (m *RuntimeServer) Stop(ctx context.Context, req *runtimev0.StopRequest) (*
 
 func (m *RuntimeServer) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
 	return m.Runtime.Communicate(ctx, req)
-}
-
-/*
-Loader
-*/
-
-var runtimesCache map[string]int
-
-func init() {
-	runtimesCache = make(map[string]int)
-}
-
-func LoadRuntime(ctx context.Context, service *configurations.Service) (*RuntimeAgent, error) {
-	w := wool.Get(ctx).In("services.LoadRuntime", wool.ThisField(service))
-	if service == nil || service.Agent == nil {
-		return nil, w.NewError("agent cannot be nil")
-	}
-
-	if runtimesCache[service.Unique()] > 0 {
-		return nil, w.NewError("already loaded")
-	}
-	runtimesCache[service.Unique()]++
-
-	runtime, process, err := manager.Load[ServiceRuntimeAgentContext, RuntimeAgent](
-		ctx,
-		service.Agent.Of(configurations.RuntimeServiceAgent),
-		service.Unique())
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot load service runtime agent")
-	}
-	runtime.agent = service.Agent
-	runtime.process = process
-	return runtime, nil
 }
 
 func NewRuntimeAgent(conf *configurations.Agent, runtime Runtime) agents.AgentImplementation {

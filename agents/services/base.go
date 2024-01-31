@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/codefly-dev/core/agents/network"
 	"github.com/codefly-dev/core/builders"
 
 	"github.com/codefly-dev/core/configurations/standards"
@@ -46,8 +45,6 @@ type Base struct {
 	Identity *configurations.ServiceIdentity
 	Location string
 
-	EnvironmentVariables *configurations.EnvironmentVariableManager
-
 	// codefly configuration
 	ConfigurationLocation string
 
@@ -59,8 +56,6 @@ type Base struct {
 	// Endpoints
 	Endpoints           []*basev0.Endpoint
 	DependencyEndpoints []*basev0.Endpoint
-
-	NetworkMappings []*basev0.NetworkMapping
 
 	// Wrappers
 	Runtime *RuntimeWrapper
@@ -80,11 +75,10 @@ type Base struct {
 func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 	provider := agents.NewAgentProvider(ctx, agent)
 	base := &Base{
-		Agent:                agent,
-		EnvironmentVariables: configurations.NewEnvironmentVariableManager(),
-		Communication:        communicate.NewServer(ctx),
-		WoolAgent:            provider,
-		Wool:                 provider.Get(ctx),
+		Agent:         agent,
+		Communication: communicate.NewServer(ctx),
+		WoolAgent:     provider,
+		Wool:          provider.Get(ctx),
 	}
 	base.Runtime = &RuntimeWrapper{Base: base}
 	base.Builder = &BuilderWrapper{Base: base}
@@ -99,7 +93,7 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	s.Identity = configurations.ServiceIdentityFromProto(identity)
 	s.Location = identity.Location
 
-	// Replace the agent now that we know more!
+	// Replace the Agent now that we know more!
 	s.WoolAgent = agents.NewServiceProvider(ctx, s.Identity)
 
 	s.Wool = s.WoolAgent.Get(ctx)
@@ -128,8 +122,15 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 		Domain:  s.Identity.Domain,
 		Agent:   s.Agent,
 	}
+
 	s.loaded = true
 	return nil
+}
+
+func (s *Base) LoadEnvironmentVariables(environment *basev0.Environment) *configurations.EnvironmentVariableManager {
+	envs := configurations.NewEnvironmentVariableManager()
+	envs.Add(configurations.EnvironmentAsEnvironmentVariable(configurations.EnvironmentFromProto(environment)))
+	return envs
 }
 
 func (s *Base) DockerImage() *configurations.DockerImage {
@@ -161,30 +162,6 @@ func (s *Base) EndpointsFromConfiguration(ctx context.Context) ([]*basev0.Endpoi
 		}
 	}
 	return eps, nil
-}
-
-func (s *Base) SetupNetworkMappings(ctx context.Context) error {
-	pm, err := network.NewServicePortManager(ctx)
-	if err != nil {
-		return s.Wool.Wrapf(err, "cannot create default endpoint")
-	}
-	for _, endpoint := range s.Endpoints {
-		s.Wool.Focus("exposing", wool.Field("destination", configurations.EndpointDestination(endpoint)))
-		err = pm.Expose(endpoint)
-		if err != nil {
-			return s.Wool.Wrapf(err, "cannot add grpc endpoint to network manager")
-		}
-	}
-	err = pm.Reserve(ctx)
-	if err != nil {
-		return s.Wool.Wrapf(err, "cannot reserve ports")
-	}
-	s.NetworkMappings, err = pm.NetworkMapping(ctx)
-	s.Wool.Focus("network mappings", wool.Field("mappings", configurations.MakeNetworkMappingSummary(s.NetworkMappings)))
-	if err != nil {
-		return s.Wool.Wrapf(err, "cannot create network mapping")
-	}
-	return nil
 }
 
 type WatchConfiguration struct {
@@ -266,7 +243,7 @@ func (s *Base) Communicate(ctx context.Context, eng *agentv0.Engage) (*agentv0.I
 }
 
 type TemplateWrapper struct {
-	dir shared.Dir
+	dir string
 	fs  *shared.FSReader
 
 	// Destination
@@ -289,7 +266,7 @@ func (wrapper *TemplateWrapper) WithOverride(override shared.Override) *Template
 
 func WithTemplate(fs embed.FS, from string, to string) *TemplateWrapper {
 	return &TemplateWrapper{
-		fs: shared.Embed(fs), dir: shared.NewDir("templates/%s", from), relative: to}
+		fs: shared.Embed(fs), dir: fmt.Sprintf("templates/%s", from), relative: to}
 }
 
 func (wrapper *TemplateWrapper) WithDestination(destination string) *TemplateWrapper {
@@ -298,11 +275,11 @@ func (wrapper *TemplateWrapper) WithDestination(destination string) *TemplateWra
 
 }
 
-func (wrapper *TemplateWrapper) Destination(s *Base) shared.Dir {
+func (wrapper *TemplateWrapper) Destination(s *Base) string {
 	if wrapper.absolute != "" {
-		return shared.NewDir(wrapper.absolute)
+		return wrapper.absolute
 	}
-	return shared.NewDir(s.Local(wrapper.relative))
+	return s.Local(wrapper.relative)
 
 }
 
@@ -310,7 +287,7 @@ func (s *Base) Templates(ctx context.Context, obj any, wrappers ...*TemplateWrap
 	for _, wrapper := range wrappers {
 		templator := &templates.Templator{PathSelect: wrapper.PathSelect, Override: wrapper.Override}
 		destination := wrapper.Destination(s)
-		s.Wool.Trace("copying and applying template", wool.DirField(destination.Absolute()))
+		s.Wool.Trace("copying and applying template", wool.DirField(destination))
 		err := templator.CopyAndApply(ctx, wrapper.fs, wrapper.dir, destination, obj)
 		if err != nil {
 			return s.Wool.Wrapf(err, "cannot copy and apply template")

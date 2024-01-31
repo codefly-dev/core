@@ -2,11 +2,8 @@ package services
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/codefly-dev/core/agents/manager"
-
-	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/configurations"
@@ -33,15 +30,15 @@ func (m ServiceAgentContext) Default() plugin.Plugin {
 var _ manager.AgentContext = ServiceAgentContext{}
 
 type ServiceAgent struct {
-	client  agentv0.AgentClient
-	agent   *configurations.Agent
-	process *manager.ProcessInfo
+	Client      agentv0.AgentClient
+	Agent       *configurations.Agent
+	ProcessInfo *manager.ProcessInfo
 }
 
 // GetAgentInformation provides
 // - capabilities
 func (m *ServiceAgent) GetAgentInformation(ctx context.Context, req *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
-	return m.client.GetAgentInformation(ctx, req)
+	return m.Client.GetAgentInformation(ctx, req)
 }
 
 type ServiceAgentGRPC struct {
@@ -56,7 +53,7 @@ func (p *ServiceAgentGRPC) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) erro
 }
 
 func (p *ServiceAgentGRPC) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &ServiceAgent{client: agentv0.NewAgentClient(c)}, nil
+	return &ServiceAgent{Client: agentv0.NewAgentClient(c)}, nil
 }
 
 // ServiceAgentServer wraps the gRPC protocol Request/Response
@@ -69,31 +66,7 @@ func (m *ServiceAgentServer) GetAgentInformation(ctx context.Context, req *agent
 	return m.Service.GetAgentInformation(ctx, req)
 }
 
-func LoadAgent(ctx context.Context, agent *configurations.Agent) (*ServiceAgent, error) {
-	if agent == nil {
-		return nil, fmt.Errorf("service cannot be nil")
-	}
-	w := wool.Get(ctx).In("services.LoadAgent", wool.Field("agent", agent.Name))
-	w.Debug("loading service agent")
-	if agent.Version == "latest" {
-		err := manager.PinToLatestRelease(ctx, agent)
-		if err != nil {
-			return nil, w.Wrap(err)
-		}
-	}
-	loaded, process, err := manager.Load[ServiceAgentContext, ServiceAgent](
-		ctx,
-		agent.Of(configurations.ServiceAgent),
-		agent.Unique())
-	if err != nil {
-		return nil, w.Wrap(err)
-	}
-	loaded.agent = agent
-	loaded.process = process
-	return loaded, nil
-}
-
-// NewServiceAgent binds the agent implementation to the agent
+// NewServiceAgent binds the Agent implementation to the Agent
 func NewServiceAgent(conf *configurations.Agent, service Agent) agents.AgentImplementation {
 	return agents.AgentImplementation{
 		Configuration: conf,

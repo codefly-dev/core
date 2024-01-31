@@ -142,7 +142,7 @@ func (project *Project) NewApplication(ctx context.Context, action *actionsv0.Ad
 		return nil, w.Wrapf(err, "cannot save application configuration")
 	}
 	// Templatize as usual
-	err = templates.CopyAndApply(ctx, shared.Embed(fs), shared.NewDir("templates/application"), shared.NewDir(dir), app)
+	err = templates.CopyAndApply(ctx, shared.Embed(fs), "templates/application", dir, app)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot copy and apply template")
 	}

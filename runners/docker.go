@@ -32,6 +32,9 @@ type Docker struct {
 
 	workingDir string
 	silent     bool
+
+	RunningContext context.Context
+	Cancel         func()
 }
 
 type DockerRunOption struct {
@@ -163,13 +166,11 @@ func (docker *Docker) Run(ctx context.Context, cmds ...*Command) error {
 	return nil
 }
 
-func (docker *Docker) Start(ctx context.Context) error {
-	w := wool.Get(ctx).In("Docker.Run")
-	// New context
-	runningContext := context.Background()
-	runningContext = w.Inject(runningContext)
+func (docker *Docker) Start() error {
+
+	w := wool.Get(docker.RunningContext).In("Docker.Run")
 	go func() {
-		err := docker.run(runningContext)
+		err := docker.run(docker.RunningContext)
 		if err != nil {
 			w.Error(err.Error())
 		}
@@ -177,13 +178,10 @@ func (docker *Docker) Start(ctx context.Context) error {
 	return nil
 }
 
-func (docker *Docker) StartWithCommand(ctx context.Context, cmd *Command) error {
-	w := wool.Get(ctx).In("Docker.Run")
-	// New context
-	runningContext := context.Background()
-	runningContext = w.Inject(runningContext)
+func (docker *Docker) StartWithCommand(cmd *Command) error {
+	w := wool.Get(docker.RunningContext).In("Docker.Run")
 	go func() {
-		err := docker.runWithCommand(runningContext, cmd)
+		err := docker.runWithCommand(docker.RunningContext, cmd)
 		if err != nil {
 			w.Error(err.Error())
 		}
@@ -352,6 +350,9 @@ func (docker *Docker) portBindings() nat.PortMap {
 }
 
 func (docker *Docker) Stop() error {
+	if docker.Cancel != nil {
+		docker.Cancel()
+	}
 	go func() {
 		err := docker.client.ContainerStop(context.Background(), docker.instance.container.ID, container.StopOptions{})
 		if err != nil {

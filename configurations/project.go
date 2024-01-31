@@ -133,7 +133,7 @@ func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv0.Ad
 	}
 
 	// Templatize as usual
-	err = templates.CopyAndApply(ctx, shared.Embed(fs), shared.NewDir("templates/project"), shared.NewDir(project.dir), project)
+	err = templates.CopyAndApply(ctx, shared.Embed(fs), "templates/project", project.dir, project)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot copy and apply template")
 	}
@@ -167,7 +167,7 @@ Loaders
 func LoadProjectFromDirUnsafe(ctx context.Context, dir string) (*Project, error) {
 	w := wool.Get(ctx).In("LoadProjectFromDirUnsafe")
 	var err error
-	dir, err = SolvePath(dir)
+	dir, err = shared.SolvePath(dir)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}

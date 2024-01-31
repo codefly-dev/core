@@ -3,8 +3,6 @@ package services
 import (
 	"context"
 
-	"github.com/codefly-dev/core/agents/network"
-
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/configurations"
@@ -45,11 +43,9 @@ func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
 }
 
 func (s *RuntimeWrapper) InitResponse(infos ...*basev0.ProviderInformation) (*runtimev0.InitResponse, error) {
-	s.Wool.Debug("init response", wool.NullableField("exposing network mappings", network.MakeNetworkMappingSummary(s.NetworkMappings)))
 	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_READY}
 	return &runtimev0.InitResponse{
 		Status:               s.InitStatus,
-		NetworkMappings:      s.NetworkMappings,
 		ServiceProviderInfos: infos,
 	}, nil
 }
