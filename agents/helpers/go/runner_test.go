@@ -35,7 +35,7 @@ func (sw *SliceWriter) Close() error {
 func TestBuildNormal(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
-	runner, err := golang.NewRunner(ctx, "test", shared.Must(shared.SolvePath("testdata/good")))
+	runner, err := golang.NewRunner(ctx, shared.Must(shared.SolvePath("testdata/good")))
 	defer func() {
 		err := os.RemoveAll(runner.CacheDir())
 		assert.NoError(t, err)
@@ -63,7 +63,7 @@ func TestBuildNormal(t *testing.T) {
 func TestBuildDebug(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
-	runner, err := golang.NewRunner(ctx, "test", shared.Must(shared.SolvePath("testdata/good")))
+	runner, err := golang.NewRunner(ctx, shared.Must(shared.SolvePath("testdata/good")))
 	defer func() {
 		err := os.RemoveAll(runner.CacheDir())
 		assert.NoError(t, err)

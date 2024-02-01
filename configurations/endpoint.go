@@ -129,6 +129,19 @@ type EndpointInstance struct {
 	Addresses []string
 }
 
+func DefaultEndpointInstance(unique string) *EndpointInstance {
+	// Try to figure out the API from unique
+	endpoint, err := ParseEndpoint(unique)
+	if err != nil {
+		return &EndpointInstance{
+			Addresses: []string{standards.StandardPortAddress(standards.TCP)},
+		}
+	}
+	return &EndpointInstance{
+		Addresses: []string{standards.StandardPortAddress(endpoint.API)},
+	}
+}
+
 func (instance *EndpointInstance) Address() (string, error) {
 	if len(instance.Addresses) != 1 {
 		return "", fmt.Errorf("endpoint instance has more than one address")

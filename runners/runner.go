@@ -18,7 +18,6 @@ Still not quite correct
 */
 
 type Runner struct {
-	name  string
 	bin   string
 	args  []string
 	dir   string
@@ -44,11 +43,13 @@ type Runner struct {
 	wg sync.WaitGroup
 }
 
-func NewRunner(ctx context.Context, name string, bin string, args ...string) (*Runner, error) {
+func NewRunner(ctx context.Context, bin string, args ...string) (*Runner, error) {
 	w := wool.Get(ctx).In("runner")
+	if _, err := exec.LookPath(bin); err != nil {
+		return nil, w.Wrapf(err, "cannot find <%s>", bin)
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	runner := &Runner{
-		name:     name,
 		bin:      bin,
 		args:     args,
 		finished: false,
@@ -115,6 +116,9 @@ func (runner *Runner) Run() error {
 }
 
 func (runner *Runner) Wait() error {
+	if runner.finished {
+		return nil
+	}
 	return runner.cmd.Wait()
 }
 

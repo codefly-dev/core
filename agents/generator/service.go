@@ -2,9 +2,7 @@ package generator
 
 import (
 	"context"
-	"fmt"
 	"path"
-	"path/filepath"
 	"strings"
 
 	"github.com/codefly-dev/core/wool"
@@ -23,11 +21,8 @@ type visitor struct {
 
 func (v *visitor) Apply(ctx context.Context, p string, to string) error {
 	w := wool.Get(ctx).In("visitor.Apply", wool.Field("from", p), wool.Field("to", to))
-	base := filepath.Base(p)
-	tmpl := fmt.Sprintf("%s.%s", base, "tmpl")
-	target := path.Join(to, tmpl)
 	w.Trace("copying")
-	err := templates.CopyAndReplace(ctx, shared.NewDirReader(), p, target, v.replacer)
+	err := templates.CopyAndReplace(ctx, shared.NewDirReader(), p, to, v.replacer)
 	if err != nil {
 		return w.Wrapf(err, "cannot copy and apply template")
 	}
@@ -72,11 +67,12 @@ func GenerateServiceTemplate(ctx context.Context, dir string) error {
 	}
 	w.Trace("ignoring files", wool.Field("ignores", gen.Ignores))
 	replacer := templates.NewServiceReplacer(gen)
-	// For now, we copy everything to template and add .tmpl
-	target := path.Join(dir, "templates/builder")
 
-	visitor := &visitor{base: base, replacer: replacer, ignores: gen.Ignores}
-	err = templates.CopyAndVisit(ctx, shared.NewDirReader(), base, target, visitor)
+	//Copy and add .tmpl
+	target := path.Join(dir, "templates/factory")
+
+	v := &visitor{base: base, replacer: replacer, ignores: gen.Ignores}
+	err = templates.CopyAndVisit(ctx, shared.NewDirReader(), base, target, templates.AddTemplateSuffix{}, v)
 	if err != nil {
 		return w.Wrapf(err, "cannot copy and apply template")
 	}

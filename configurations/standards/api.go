@@ -27,6 +27,10 @@ func SupportedAPI(kind string) error {
 	return fmt.Errorf("unsupported api: %s", kind)
 }
 
+func StandardPortAddress(api string) string {
+	return fmt.Sprintf(":%d", StandardPort(api))
+}
+
 func StandardPort(api string) int {
 	switch api {
 	case GRPC:

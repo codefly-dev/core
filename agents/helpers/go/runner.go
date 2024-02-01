@@ -15,7 +15,6 @@ import (
 )
 
 type Runner struct {
-	name string
 	dir  string
 	args []string
 	envs []string
@@ -37,14 +36,13 @@ type Runner struct {
 	worker    *runners.Runner
 }
 
-func NewRunner(ctx context.Context, name string, dir string) (*Runner, error) {
+func NewRunner(ctx context.Context, dir string) (*Runner, error) {
 	if ok, err := shared.CheckDirectory(ctx, dir); err != nil || !ok {
 		return nil, fmt.Errorf("directory %s does not exist", dir)
 	}
 	// Default dependencies
 	requirements := builders.NewDependencies("go", builders.NewDependency(dir).WithPathSelect(shared.NewSelect("*.go")))
 	return &Runner{
-		name:         name,
 		dir:          dir,
 		requirements: requirements,
 	}, nil
@@ -126,7 +124,7 @@ func (runner *Runner) debugCmd(ctx context.Context) error {
 	args = append(args, "-o", runner.target)
 	args = append(args, runner.args...)
 	// Call a builder!
-	builder, err := runners.NewRunner(ctx, "build-debug-binary", "go", args...)
+	builder, err := runners.NewRunner(ctx, "go", args...)
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
@@ -166,7 +164,7 @@ func (runner *Runner) NormalCmd(ctx context.Context) error {
 	args = append(args, "-o", runner.target)
 	args = append(args, runner.args...)
 	// Call a builder!
-	builder, err := runners.NewRunner(ctx, "build-normal-binary", "go", args...)
+	builder, err := runners.NewRunner(ctx, "go", args...)
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
@@ -180,7 +178,7 @@ func (runner *Runner) NormalCmd(ctx context.Context) error {
 
 func (runner *Runner) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("go/runner")
-	worker, err := runners.NewRunner(ctx, runner.name, runner.target)
+	worker, err := runners.NewRunner(ctx, runner.target)
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
@@ -199,8 +197,8 @@ func (runner *Runner) CacheDir() string {
 }
 
 func (runner *Runner) Stop() error {
-	if runner == nil {
-		return fmt.Errorf("stopping a non-running go")
+	if runner == nil || runner.worker == nil {
+		return nil
 	}
 	return runner.worker.Stop()
 }

@@ -70,7 +70,7 @@ func (g *Proto) Generate(ctx context.Context) error {
 
 	image := fmt.Sprintf("codeflydev/companion:%s", g.version)
 	volume := fmt.Sprintf("%s:/workspace", g.Dir)
-	runner, err := runners.NewRunner(ctx, "buf-update", "docker", "run", "--rm", "-v", volume, image, "buf", "mod", "update")
+	runner, err := runners.NewRunner(ctx, "docker", "run", "--rm", "-v", volume, image, "buf", "mod", "update")
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
@@ -79,7 +79,7 @@ func (g *Proto) Generate(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}
-	runner, err = runners.NewRunner(ctx, "buf-update", "docker", "run", "--rm", "-v", volume, image, "buf", "generate")
+	runner, err = runners.NewRunner(ctx, "docker", "run", "--rm", "-v", volume, image, "buf", "generate")
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}

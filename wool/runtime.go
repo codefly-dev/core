@@ -3,7 +3,7 @@ package wool
 import "sync"
 
 func IsDebug() bool {
-	return globalLogLevel >= DEBUG
+	return globalLogLevel == DEBUG || globalLogLevel == TRACE
 }
 
 var lock *sync.Mutex

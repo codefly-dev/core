@@ -45,6 +45,9 @@ func (holder *EnvironmentVariableManager) GetServiceProvider(_ context.Context, 
 
 func (holder *EnvironmentVariableManager) GetEndpoint(ctx context.Context, unique string) (*EndpointInstance, error) {
 	w := wool.Get(ctx).In("configurations.GetEndpoint")
+	if holder == nil {
+		return DefaultEndpointInstance(unique), nil
+	}
 	endpoint, err := ParseEndpoint(unique)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot parse endpoint")

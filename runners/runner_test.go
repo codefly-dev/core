@@ -13,6 +13,14 @@ import (
 	"github.com/codefly-dev/core/runners"
 )
 
+func TestCheckBin(t *testing.T) {
+	_, err := runners.NewRunner(context.Background(), "echo")
+	assert.NoError(t, err)
+	_, err = runners.NewRunner(context.Background(), "doesntexist")
+	assert.Error(t, err)
+
+}
+
 type SliceWriter struct {
 	sync.RWMutex
 	data []string
@@ -43,7 +51,7 @@ func (sw *SliceWriter) Close() error {
 
 func testRun(t *testing.T) {
 	ctx := context.Background()
-	runner, err := runners.NewRunner(ctx, "test", "echo", "hello")
+	runner, err := runners.NewRunner(ctx, "echo", "hello")
 	assert.NoError(t, err)
 	out := NewSliceWriter()
 	runner.WithOut(out)
@@ -61,31 +69,10 @@ func TestRunSuccess(t *testing.T) {
 	}
 }
 
-func testRunError(t *testing.T) {
-	ctx := context.Background()
-	runner, err := runners.NewRunner(ctx, "test", "doesntexist")
-	assert.NoError(t, err)
-	out := NewSliceWriter()
-	runner.WithOut(out)
-	err = runner.Run()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "executable file not found in $PATH")
-	assert.Equal(t, 0, len(out.Data()))
-	for _, o := range out.Data() {
-		assert.NotContains(t, o, "file already closed")
-	}
-}
-
-func TestRunError(t *testing.T) {
-	for i := 0; i < 10; i++ {
-		go testRunError(t)
-	}
-}
-
 func testStart(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
-	runner, err := runners.NewRunner(ctx, "test", "go", "run", "main.go")
+	runner, err := runners.NewRunner(ctx, "go", "run", "main.go")
 	assert.NoError(t, err)
 	runner.WithDir(shared.Must(shared.SolvePath("testdata/good")))
 	out := NewSliceWriter()
@@ -114,7 +101,7 @@ func TestStart(t *testing.T) {
 
 func testStartWithStop(t *testing.T) {
 	ctx := context.Background()
-	runner, err := runners.NewRunner(ctx, "test", "go", "run", "main.go")
+	runner, err := runners.NewRunner(ctx, "go", "run", "main.go")
 	assert.NoError(t, err)
 	runner.WithDir(shared.Must(shared.SolvePath("testdata/good")))
 	out := NewSliceWriter()
@@ -144,7 +131,7 @@ func TestStartWithStop(t *testing.T) {
 func testStartError(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
-	runner, err := runners.NewRunner(ctx, "test", "go", "run", "main.go")
+	runner, err := runners.NewRunner(ctx, "go", "run", "main.go")
 	assert.NoError(t, err)
 	runner.WithDir(shared.Must(shared.SolvePath("testdata/bad")))
 	out := NewSliceWriter()
@@ -173,7 +160,7 @@ func TestStartError(t *testing.T) {
 
 func testStartCrash(t *testing.T) {
 	ctx := context.Background()
-	runner, err := runners.NewRunner(ctx, "test", "go", "run", "main.go")
+	runner, err := runners.NewRunner(ctx, "go", "run", "main.go")
 	assert.NoError(t, err)
 	runner.WithDir(shared.Must(shared.SolvePath("testdata/crashing")))
 	out := NewSliceWriter()
