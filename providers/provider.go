@@ -163,15 +163,24 @@ func (provider *Provider) GetProviderDependenciesInformations(ctx context.Contex
 	if infos, ok := provider.serviceInfos[service.Unique()]; ok {
 		res = append(res, infos...)
 	}
-	if infos, ok := provider.sharedInfos[service.Unique()]; ok {
-		res = append(res, infos...)
+	return res, nil
+}
+
+func (provider *Provider) GetSharedInformation(ctx context.Context, uniques ...string) ([]*basev0.ProviderInformation, error) {
+	w := wool.Get(ctx).In("provider.GetSharedInformation")
+	var res []*basev0.ProviderInformation
+	for _, unique := range uniques {
+		if infos, ok := provider.sharedInfos[unique]; ok {
+			res = append(res, infos...)
+		}
 	}
+	w.Debug("got shared information", wool.Field("got", configurations.MakeProviderInformationSummary(res)))
 	return res, nil
 }
 
 func (provider *Provider) Share(ctx context.Context, infos []*basev0.ProviderInformation) error {
 	w := wool.Get(ctx).In("provider.Share")
-	w.Debug("sharing", wool.Field("info", configurations.MakeProviderInfosSummary(infos)))
+	w.Debug("sharing", wool.Field("info", configurations.MakeProviderInformationSummary(infos)))
 	for _, info := range infos {
 		provider.sharedInfos[info.Origin] = append(provider.sharedInfos[info.Origin], info)
 	}

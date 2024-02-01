@@ -36,16 +36,16 @@ package runners
 //
 //type WrappedCmd struct {
 //	cmd            *exec.Cmd
-//	writer         io.WriteCloser
+//	out         io.WriteCloser
 //	wg             sync.WaitGroup
 //	runningContext context.Context
 //}
 //
-//func NewWrappedCmd(cmd *exec.Cmd, runningContext context.Context, writer io.WriteCloser) (*WrappedCmd, error) {
+//func NewWrappedCmd(cmd *exec.Cmd, runningContext context.Context, out io.WriteCloser) (*WrappedCmd, error) {
 //	w := &WrappedCmd{
 //		cmd:            cmd,
 //		runningContext: runningContext,
-//		writer:         writer,
+//		out:         out,
 //	}
 //	return w, nil
 //}
@@ -81,11 +81,11 @@ package runners
 //	out := &WrappedCmdOutput{Events: events}
 //
 //	var b bytes.Buffer
-//	writer := bufio.NewWriter(&b)
-//	errWriter := &BufferedWriterCloser{Writer: writer}
+//	out := bufio.NewWriter(&b)
+//	errWriter := &BufferedWriterCloser{Writer: out}
 //
-//	go ForwardLogs(run.runningContext, &run.wg, stdout, run.writer)
-//	go ForwardLogs(run.runningContext, &run.wg, stderr, run.writer, errWriter)
+//	go ForwardLogs(run.runningContext, &run.wg, stdout, run.out)
+//	go ForwardLogs(run.runningContext, &run.wg, stderr, run.out, errWriter)
 //
 //	err = run.cmd.Start()
 //	if err != nil {
@@ -113,8 +113,8 @@ package runners
 //		return errors.Wrap(err, "cannot create stderr pipe")
 //	}
 //
-//	go ForwardLogs(run.runningContext, &run.wg, stdout, run.writer)
-//	go ForwardLogs(run.runningContext, &run.wg, stderr, run.writer)
+//	go ForwardLogs(run.runningContext, &run.wg, stdout, run.out)
+//	go ForwardLogs(run.runningContext, &run.wg, stderr, run.out)
 //
 //	return run.cmd.Run()
 //}

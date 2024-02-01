@@ -478,7 +478,7 @@ func AsRestRouteEnvironmentVariable(ctx context.Context, endpoint *basev0.Endpoi
 const RestRoutePrefix = "CODEFLY_RESTROUTE__"
 
 func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
-	return fmt.Sprintf("%s=%s", RestRouteEnvironmentVariableKey(endpoint, route), route.String())
+	return fmt.Sprintf("%s=%s", RestRouteEnvironmentVariableKey(endpoint, route), ConvertMethod(route.Method))
 }
 
 func RestRouteEnvironmentVariableKey(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {

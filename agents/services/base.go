@@ -285,7 +285,7 @@ func (wrapper *TemplateWrapper) Destination(s *Base) string {
 
 func (s *Base) Templates(ctx context.Context, obj any, wrappers ...*TemplateWrapper) error {
 	for _, wrapper := range wrappers {
-		templator := &templates.Templator{PathSelect: wrapper.PathSelect, Override: wrapper.Override}
+		templator := &templates.Templator{PathSelect: wrapper.PathSelect, Override: wrapper.Override, NameReplacer: templates.CutTemplateSuffix{}}
 		destination := wrapper.Destination(s)
 		s.Wool.Trace("copying and applying template", wool.DirField(destination))
 		err := templator.CopyAndApply(ctx, wrapper.fs, wrapper.dir, destination, obj)

@@ -28,13 +28,13 @@ func (s *BuilderWrapper) LoadResponse(gettingStarted string) (*builderv0.LoadRes
 		Version:        s.Version(),
 		Endpoints:      s.Endpoints,
 		GettingStarted: gettingStarted,
-		Status:         &builderv0.LoadStatus{Status: builderv0.LoadStatus_READY},
+		State:          &builderv0.LoadStatus{State: builderv0.LoadStatus_READY},
 	}, nil
 }
 
 func (s *BuilderWrapper) LoadError(err error) (*builderv0.LoadResponse, error) {
 	return &builderv0.LoadResponse{
-		Status: &builderv0.LoadStatus{Status: builderv0.LoadStatus_ERROR, Message: err.Error()},
+		State: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: err.Error()},
 	}, err
 }
 
@@ -43,7 +43,7 @@ func (s *BuilderWrapper) InitResponse(hash string) (*builderv0.InitResponse, err
 		return s.InitError(fmt.Errorf("not loaded"))
 	}
 	return &builderv0.InitResponse{RunHash: hash,
-		Status: &builderv0.InitStatus{Status: builderv0.InitStatus_SUCCESS}}, nil
+		State: &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS}}, nil
 }
 
 func (s *BuilderWrapper) InitError(err error) (*builderv0.InitResponse, error) {
@@ -51,7 +51,7 @@ func (s *BuilderWrapper) InitError(err error) (*builderv0.InitResponse, error) {
 		return s.InitError(fmt.Errorf("not loaded"))
 	}
 	return &builderv0.InitResponse{
-		Status: &builderv0.InitStatus{Status: builderv0.InitStatus_ERROR, Message: err.Error()},
+		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: err.Error()},
 	}, err
 }
 
@@ -79,7 +79,7 @@ func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*bui
 
 func (s *BuilderWrapper) CreateError(err error) (*builderv0.CreateResponse, error) {
 	return &builderv0.CreateResponse{
-		Status: &builderv0.CreateStatus{Status: builderv0.CreateStatus_ERROR, Message: err.Error()},
+		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error()},
 	}, err
 }
 
@@ -88,12 +88,12 @@ func (s *BuilderWrapper) SyncResponse() (*builderv0.SyncResponse, error) {
 		return s.SyncError(fmt.Errorf("not loaded"))
 	}
 	return &builderv0.SyncResponse{
-		Status: &builderv0.SyncStatus{Status: builderv0.SyncStatus_SUCCESS}}, nil
+		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_SUCCESS}}, nil
 }
 
 func (s *BuilderWrapper) SyncError(err error) (*builderv0.SyncResponse, error) {
 	return &builderv0.SyncResponse{
-		Status: &builderv0.SyncStatus{Status: builderv0.SyncStatus_ERROR, Message: err.Error()}}, err
+		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}}, err
 }
 
 func (s *BuilderWrapper) BuildResponse() (*builderv0.BuildResponse, error) {
@@ -105,7 +105,7 @@ func (s *BuilderWrapper) BuildResponse() (*builderv0.BuildResponse, error) {
 
 func (s *BuilderWrapper) BuildError(err error) (*builderv0.BuildResponse, error) {
 	return &builderv0.BuildResponse{
-		Status: &builderv0.BuildStatus{Status: builderv0.BuildStatus_ERROR, Message: err.Error()}}, err
+		State: &builderv0.BuildStatus{State: builderv0.BuildStatus_ERROR, Message: err.Error()}}, err
 }
 
 func (s *BuilderWrapper) DeployResponse() (*builderv0.DeploymentResponse, error) {
@@ -117,7 +117,7 @@ func (s *BuilderWrapper) DeployResponse() (*builderv0.DeploymentResponse, error)
 
 func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, error) {
 	return &builderv0.DeploymentResponse{
-		Status: &builderv0.DeploymentStatus{Status: builderv0.DeploymentStatus_ERROR, Message: err.Error()}}, err
+		State: &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_ERROR, Message: err.Error()}}, err
 }
 
 type DeploymentBase struct {

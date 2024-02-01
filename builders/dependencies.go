@@ -226,6 +226,14 @@ func (dep *Dependencies) Clone() *Dependencies {
 	}
 }
 
+func (dep *Dependencies) All() []string {
+	var all []string
+	for _, c := range dep.Components {
+		all = append(all, c.Components()...)
+	}
+	return all
+}
+
 func addFileHash(ctx context.Context, h io.Writer, path string) error {
 	w := wool.Get(ctx).In("builders.addFileHash")
 	f, err := os.Open(path)

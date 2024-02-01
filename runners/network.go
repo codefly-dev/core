@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// WaitForPortUnbound waits for the port to be unbound
+// WaitForPortUnbound waits for the portMapping to be unbound
 func WaitForPortUnbound(ctx context.Context, port int) error {
 	// Create a new context that will be done after 5 seconds
 	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -16,7 +16,7 @@ func WaitForPortUnbound(ctx context.Context, port int) error {
 	for {
 		select {
 		case <-timeoutCtx.Done():
-			return fmt.Errorf("waited for port to unbound but timed out after 5 seconds")
+			return fmt.Errorf("waited for portMapping to unbound but timed out after 5 seconds")
 		default:
 			_, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
 			if err != nil {
@@ -24,7 +24,15 @@ func WaitForPortUnbound(ctx context.Context, port int) error {
 					return nil
 				}
 				time.Sleep(100 * time.Millisecond)
+			} else {
+				return nil
+
 			}
 		}
 	}
+}
+
+func IsFreePort(port int) bool {
+	_, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	return err == nil
 }

@@ -16,6 +16,7 @@ type RuntimeWrapper struct {
 	LoadStatus  *runtimev0.LoadStatus
 	InitStatus  *runtimev0.InitStatus
 	StartStatus *runtimev0.StartStatus
+	StopStatus  *runtimev0.StopStatus
 
 	DesiredState *runtimev0.DesiredState
 }
@@ -76,6 +77,19 @@ func (s *RuntimeWrapper) StartError(err error, fields ...*wool.LogField) (*runti
 	}, err
 }
 
+func (s *RuntimeWrapper) StopResponse() (*runtimev0.StopResponse, error) {
+	return &runtimev0.StopResponse{}, nil
+}
+
+func (s *RuntimeWrapper) StopError(err error, fields ...*wool.LogField) (*runtimev0.StopResponse, error) {
+	message := wool.Log{Message: err.Error(), Fields: fields}
+	s.Wool.Error(err.Error(), fields...)
+	s.StopStatus = &runtimev0.StopStatus{State: runtimev0.StopStatus_ERROR, Message: message.String()}
+	return &runtimev0.StopResponse{
+		Status: s.StopStatus,
+	}, err
+}
+
 func NOOP() *runtimev0.DesiredState {
 	return &runtimev0.DesiredState{
 		Stage: runtimev0.DesiredState_NOOP,
@@ -94,6 +108,7 @@ func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev0.Inf
 		LoadStatus:   s.LoadStatus,
 		InitStatus:   s.InitStatus,
 		StartStatus:  s.StartStatus,
+		StopStatus:   s.StopStatus,
 		DesiredState: s.DesiredState,
 	}
 	return resp, nil

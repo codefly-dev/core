@@ -33,7 +33,3 @@ func Register(agents ...AgentImplementation) {
 		GRPCServer:      plugin.DefaultGRPCServer,
 	})
 }
-
-func ClearAgents() {
-	plugin.CleanupClients()
-}
