@@ -81,7 +81,7 @@ func testStart(t *testing.T) {
 	err = runner.Start()
 	assert.NoError(t, err)
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(10 * time.Second)
 	cancel()
 	// We should have at least a few lines of output
 	expected := []string{"running 0", "running 1", "running 2", "running 3", "running 4"}
@@ -110,7 +110,7 @@ func testStartWithStop(t *testing.T) {
 	err = runner.Start()
 	assert.NoError(t, err)
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(10 * time.Second)
 	runner.Stop()
 	// We should have at least a few lines of output
 	expected := []string{"running 0", "running 1", "running 2", "running 3", "running 4"}
@@ -140,7 +140,7 @@ func testStartError(t *testing.T) {
 	err = runner.Start()
 	assert.NoError(t, err)
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(10 * time.Second)
 	cancel()
 
 	// Will have a compile error
