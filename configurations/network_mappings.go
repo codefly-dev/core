@@ -41,11 +41,15 @@ func GetMappingInstance(mappings []*basev0.NetworkMapping) (*MappingInstance, er
 	if len(mappings) == 0 {
 		return nil, fmt.Errorf("no network mappings")
 	}
-	m := mappings[0]
-	if len(m.Addresses) == 0 {
+	return BuildMappingInstance(mappings[0])
+
+}
+
+func BuildMappingInstance(mapping *basev0.NetworkMapping) (*MappingInstance, error) {
+	if len(mapping.Addresses) == 0 {
 		return nil, fmt.Errorf("no network addresses")
 	}
-	address := m.Addresses[0]
+	address := mapping.Addresses[0]
 	tokens := strings.Split(address, ":")
 	if len(tokens) != 2 {
 		return nil, fmt.Errorf("invalid network address")
@@ -58,6 +62,25 @@ func GetMappingInstance(mappings []*basev0.NetworkMapping) (*MappingInstance, er
 		Address: address,
 		Port:    port,
 	}, nil
+}
+
+// GetMappingInstance returns the network mapping instance when there is only one
+// Really a convenience function for Agent
+func GetMappingInstanceFor(mappings []*basev0.NetworkMapping, api string) (*MappingInstance, error) {
+	if len(mappings) == 0 {
+		return nil, fmt.Errorf("no network mappings")
+	}
+	for _, m := range mappings {
+		endpointAPI, err := APIAsStandard(m.Endpoint.Api)
+		if err != nil {
+			return nil, err
+		}
+		if endpointAPI != api {
+			continue
+		}
+		return BuildMappingInstance(m)
+	}
+	return nil, fmt.Errorf("no network mappings for api: %s", api)
 }
 
 func MakeNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
@@ -102,4 +125,15 @@ func ExtractRestRoutesEnvironmentVariables(ctx context.Context, nets []*basev0.N
 		envs = append(envs, AsRestRouteEnvironmentVariable(ctx, net.Endpoint)...)
 	}
 	return envs, nil
+}
+
+func ExtractPublicNetworkMappings(mappings []*basev0.NetworkMapping) []*basev0.NetworkMapping {
+	var publicMappings []*basev0.NetworkMapping
+	for _, mapping := range mappings {
+		if mapping.Endpoint.Visibility == VisibilityPublic {
+			publicMappings = append(publicMappings, mapping)
+		}
+	}
+	return publicMappings
+
 }

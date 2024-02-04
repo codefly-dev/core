@@ -24,6 +24,8 @@ func TestHash(t *testing.T) {
 	updated, err := dep.Updated(ctx)
 	assert.NoError(t, err)
 	assert.True(t, updated)
+	err = dep.UpdateCache(ctx)
+	assert.NoError(t, err)
 
 	// create a file inside the temporary directory
 	f, err := os.CreateTemp(d, "tmp")
@@ -35,6 +37,8 @@ func TestHash(t *testing.T) {
 	updated, err = dep.Updated(ctx)
 	assert.NoError(t, err)
 	assert.True(t, updated)
+	err = dep.UpdateCache(ctx)
+	assert.NoError(t, err)
 
 	// To write to the file, you need to open it with write access
 	f, err = os.OpenFile(f.Name(), os.O_APPEND|os.O_WRONLY, 0600)
@@ -66,6 +70,8 @@ func TestHashWildCardSelect(t *testing.T) {
 	updated, err := dep.Updated(ctx)
 	assert.NoError(t, err)
 	assert.True(t, updated)
+	err = dep.UpdateCache(ctx)
+	assert.NoError(t, err)
 
 	dir := filepath.Join(d, "dir")
 	err = os.Mkdir(dir, 0755)
@@ -74,6 +80,8 @@ func TestHashWildCardSelect(t *testing.T) {
 	updated, err = dep.Updated(ctx)
 	assert.NoError(t, err)
 	assert.False(t, updated)
+	err = dep.UpdateCache(ctx)
+	assert.NoError(t, err)
 
 	// Add a selected file
 	f, err := os.Create(filepath.Join(dir, "tmp.md"))
@@ -86,6 +94,8 @@ func TestHashWildCardSelect(t *testing.T) {
 	updated, err = dep.Updated(ctx)
 	assert.NoError(t, err)
 	assert.True(t, updated)
+	err = dep.UpdateCache(ctx)
+	assert.NoError(t, err)
 
 	// Add a non-select file
 	f, err = os.CreateTemp(dir, "tmp.txt")
@@ -113,6 +123,8 @@ func TestHashFolderAndFilter(t *testing.T) {
 	updated, err := dep.Updated(ctx)
 	assert.NoError(t, err)
 	assert.True(t, updated)
+	err = dep.UpdateCache(ctx)
+	assert.NoError(t, err)
 
 	// Adding only a directory shouldn't modify the hash
 	dir := filepath.Join(d, "dir")
@@ -122,6 +134,8 @@ func TestHashFolderAndFilter(t *testing.T) {
 	updated, err = dep.Updated(ctx)
 	assert.NoError(t, err)
 	assert.False(t, updated)
+	err = dep.UpdateCache(ctx)
+	assert.NoError(t, err)
 
 	// Add an ignored file shouldn't modify the hash
 	f, err := os.Create(filepath.Join(dir, "tmp.md"))
@@ -134,6 +148,8 @@ func TestHashFolderAndFilter(t *testing.T) {
 	updated, err = dep.Updated(ctx)
 	assert.NoError(t, err)
 	assert.False(t, updated)
+	err = dep.UpdateCache(ctx)
+	assert.NoError(t, err)
 
 	// Add a non-ignored file
 	f, err = os.CreateTemp(dir, "tmp.txt")

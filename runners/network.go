@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strings"
 	"time"
 )
 
@@ -18,21 +17,22 @@ func WaitForPortUnbound(ctx context.Context, port int) error {
 		case <-timeoutCtx.Done():
 			return fmt.Errorf("waited for portMapping to unbound but timed out after 5 seconds")
 		default:
-			_, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
-			if err != nil {
-				if strings.Contains(err.Error(), "connection refused") {
-					return nil
-				}
-				time.Sleep(100 * time.Millisecond)
-			} else {
+			if IsFreePort(port) {
 				return nil
-
 			}
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
 
 func IsFreePort(port int) bool {
-	_, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	return err == nil
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		// If the function returns an error, the port is not available
+		return false
+	}
+
+	// Be sure to close the listener if the function does not return an error
+	listener.Close()
+	return true
 }

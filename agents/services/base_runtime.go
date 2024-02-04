@@ -28,7 +28,7 @@ func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
 		endpoint.Service = s.Configuration.Name
 	}
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_READY}
-	s.Wool.Debug("load response", wool.NullableField("exposing endpoints", configurations.MakeEndpointSummary(s.Endpoints)))
+	s.Wool.Focus("load response", wool.NullableField("endpoints", configurations.MakeEndpointSummary(s.Endpoints)))
 	return &runtimev0.LoadResponse{
 		Version:   s.Version(),
 		Endpoints: s.Endpoints,
@@ -40,7 +40,7 @@ func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: err.Error()}
 	return &runtimev0.LoadResponse{
 		Status: s.LoadStatus,
-	}, err
+	}, nil
 }
 
 func (s *RuntimeWrapper) InitResponse(infos ...*basev0.ProviderInformation) (*runtimev0.InitResponse, error) {
@@ -58,7 +58,7 @@ func (s *RuntimeWrapper) InitError(err error, fields ...*wool.LogField) (*runtim
 
 	return &runtimev0.InitResponse{
 		Status: s.InitStatus,
-	}, err
+	}, nil
 }
 
 func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
@@ -74,7 +74,7 @@ func (s *RuntimeWrapper) StartError(err error, fields ...*wool.LogField) (*runti
 	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: message.String()}
 	return &runtimev0.StartResponse{
 		Status: s.StartStatus,
-	}, err
+	}, nil
 }
 
 func (s *RuntimeWrapper) StopResponse() (*runtimev0.StopResponse, error) {
@@ -87,7 +87,7 @@ func (s *RuntimeWrapper) StopError(err error, fields ...*wool.LogField) (*runtim
 	s.StopStatus = &runtimev0.StopStatus{State: runtimev0.StopStatus_ERROR, Message: message.String()}
 	return &runtimev0.StopResponse{
 		Status: s.StopStatus,
-	}, err
+	}, nil
 }
 
 func NOOP() *runtimev0.DesiredState {

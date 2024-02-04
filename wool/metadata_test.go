@@ -11,8 +11,8 @@ func TestSanitizeForward(t *testing.T) {
 		header string
 		wanted string
 	}{
-		{"User-Agent", "wool:user-agent"},
-		{"X-Forwarded-For", "wool:forwarded-for"},
+		{"User-Agent", "user-agent"},
+		{"X-Codefly-Forwarded-For", "wool:forwarded-for"},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.header, func(t *testing.T) {

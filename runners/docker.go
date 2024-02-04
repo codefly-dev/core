@@ -25,7 +25,8 @@ type Docker struct {
 
 	name string
 
-	mounts []mount.Mount
+	workDir string
+	mounts  []mount.Mount
 
 	envs []string
 	cmd  []string
@@ -161,9 +162,10 @@ func (docker *Docker) SetCommand(bin string, args ...string) {
 func (docker *Docker) create(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.create")
 	containerConfig := &container.Config{
-		Image: docker.image.Image(),
-		Env:   docker.envs,
-		Tty:   true,
+		Image:      docker.image.Image(),
+		Env:        docker.envs,
+		Tty:        true,
+		WorkingDir: docker.workDir,
 	}
 	if len(docker.cmd) > 0 {
 		containerConfig.Cmd = docker.cmd
@@ -293,3 +295,28 @@ func (docker *Docker) Stop() error {
 func (docker *Docker) Silence() {
 	docker.silent = true
 }
+
+func (docker *Docker) WithWorkDir(dir string) {
+	docker.workDir = dir
+
+}
+
+//
+//func (docker *Docker) Run() error {
+//	// Start the container
+//	err := docker.Start(docker.ctx)
+//	if err != nil {
+//		return 0, err
+//	}
+//
+//	// Wait for the container to finish
+//	resultC, errC := docker.client.ContainerWait(docker.ctx, docker.instance.container.ID, container.WaitConditionNotRunning)
+//	select {
+//	case err := <-errC:
+//		if err != nil {
+//			return 0, err
+//		}
+//	case result := <-resultC:
+//		return result.StatusCode, nil
+//	}
+//}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/codefly-dev/core/configurations/standards"
@@ -150,15 +151,23 @@ func (instance *EndpointInstance) Address() (string, error) {
 }
 
 func (instance *EndpointInstance) PortAddress() (string, error) {
-	address, err := instance.Address()
+	port, err := instance.Port()
 	if err != nil {
 		return "", err
 	}
+	return fmt.Sprintf(":%d", port), nil
+}
+
+func (instance *EndpointInstance) Port() (int, error) {
+	address, err := instance.Address()
+	if err != nil {
+		return standards.StandardPort(standards.TCP), err
+	}
 	tokens := strings.Split(address, ":")
 	if len(tokens) == 2 {
-		return fmt.Sprintf(":%s", tokens[1]), nil
+		return strconv.Atoi(tokens[1])
 	}
-	return "", fmt.Errorf("endpoint instance address does not have a port")
+	return standards.StandardPort(standards.TCP), fmt.Errorf("endpoint instance address does not have a port")
 }
 
 type NilAPIError struct {
@@ -181,10 +190,10 @@ func WhichAPIFromEndpoint(endpoint *basev0.Endpoint) (string, error) {
 	if endpoint.Api == nil {
 		return "", &NilAPIError{name: endpoint.Name}
 	}
-	return WhichAPI(endpoint.Api)
+	return APIAsStandard(endpoint.Api)
 }
 
-func WhichAPI(api *basev0.API) (string, error) {
+func APIAsStandard(api *basev0.API) (string, error) {
 	switch api.Value.(type) {
 	case *basev0.API_Grpc:
 		return standards.GRPC, nil
@@ -444,4 +453,44 @@ func EndpointHash(ctx context.Context, endpoints ...*basev0.Endpoint) (string, e
 		hasher.Add(hash)
 	}
 	return hasher.Hash(), nil
+}
+
+func CloneEndpoint(_ context.Context, endpoint *basev0.Endpoint) *basev0.Endpoint {
+	return &basev0.Endpoint{
+		Name:        endpoint.Name,
+		Application: endpoint.Application,
+		Service:     endpoint.Service,
+		Visibility:  endpoint.Visibility,
+		Description: endpoint.Description,
+		Api:         CloneAPI(endpoint.Api),
+	}
+
+}
+
+func CloneAPI(api *basev0.API) *basev0.API {
+	if api == nil {
+		return nil
+	}
+	switch v := api.Value.(type) {
+	case *basev0.API_Grpc:
+		return &basev0.API{
+			Value: &basev0.API_Grpc{},
+		}
+	case *basev0.API_Rest:
+		return &basev0.API{
+			Value: &basev0.API_Rest{
+				Rest: &basev0.RestAPI{Groups: v.Rest.Groups},
+			},
+		}
+	case *basev0.API_Http:
+		return &basev0.API{
+			Value: &basev0.API_Http{},
+		}
+	case *basev0.API_Tcp:
+		return &basev0.API{
+			Value: &basev0.API_Tcp{},
+		}
+	default:
+		return nil
+	}
 }

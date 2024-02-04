@@ -14,13 +14,18 @@ type Action interface {
 var tracker *ActionTracker
 
 func Run(ctx context.Context, action Action) (any, error) {
+
+	res, err := action.Run(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if tracker != nil {
 		err := tracker.Save(action)
 		if err != nil {
 			return nil, err
 		}
 	}
-	return action.Run(ctx)
+	return res, nil
 }
 
 func As[T any](t any) (*T, error) {

@@ -58,6 +58,10 @@ var info embed.FS
 
 func (g *Proto) Generate(ctx context.Context) error {
 	w := wool.Get(ctx).In("proto.Generate")
+	// Check if Docker is running
+	if !runners.DockerRunning(ctx) {
+		return w.NewError("docker is not running")
+	}
 	updated, err := g.dependencies.Updated(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot check if updated")
@@ -66,11 +70,11 @@ func (g *Proto) Generate(ctx context.Context) error {
 		w.Debug("no proto change detected")
 		return nil
 	}
-	w.Info("detected changes to the proto: re-generating code")
+	w.Info("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
 
 	image := fmt.Sprintf("codeflydev/companion:%s", g.version)
 	volume := fmt.Sprintf("%s:/workspace", g.Dir)
-	runner, err := runners.NewRunner(ctx, "docker", "run", "--rm", "-v", volume, image, "buf", "mod", "update")
+	runner, err := runners.NewRunner(ctx, "docker", "run", "--rm", "-v", volume, "-w", "/workspace/proto", image, "buf", "mod", "update")
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
@@ -79,7 +83,7 @@ func (g *Proto) Generate(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}
-	runner, err = runners.NewRunner(ctx, "docker", "run", "--rm", "-v", volume, image, "buf", "generate")
+	runner, err = runners.NewRunner(ctx, "docker", "run", "--rm", "-v", volume, "-w", "/workspace/proto", image, "buf", "generate")
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
@@ -89,5 +93,20 @@ func (g *Proto) Generate(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}
+	err = g.dependencies.UpdateCache(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot update cache")
+	}
 	return nil
 }
+
+//func (g *Proto) Valid() bool {
+//	runner, err := runners.NewDocker(context.Background())
+//	if err != nil {
+//		return false
+//	}
+//	runner.WithWorkDir(path.Join(g.Dir, "proto")
+//	runner.WithCommand("buf", "generate")
+//	err = runner.Run()
+//
+//}

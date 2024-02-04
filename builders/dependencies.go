@@ -95,7 +95,8 @@ type Dependencies struct {
 	Name       string
 	Components []*Dependency
 
-	dir string
+	dir     string
+	current string
 }
 
 // MakeDependencySummary outputs a summary of the dependency
@@ -131,7 +132,7 @@ func (dep *Dependencies) Localize(dir string) *Dependencies {
 	return dep
 }
 
-// AddDependency adds a dependency to the list of dependencies
+// AddDependencies adds dependencies
 func (dep *Dependencies) AddDependencies(dependencies ...*Dependency) *Dependencies {
 	for _, dependency := range dependencies {
 		dependency.Localize(dep.dir)
@@ -139,6 +140,8 @@ func (dep *Dependencies) AddDependencies(dependencies ...*Dependency) *Dependenc
 	}
 	return dep
 }
+
+type AcceptChange func(ctx context.Context) error
 
 func (dep *Dependencies) Updated(ctx context.Context) (bool, error) {
 	hash, err := dep.Hash(ctx)
@@ -149,12 +152,16 @@ func (dep *Dependencies) Updated(ctx context.Context) (bool, error) {
 	if current == hash {
 		return false, nil
 	}
-	err = dep.WriteHash(ctx, hash)
-	if err != nil {
-		return true, err
-	}
-
+	dep.current = hash
 	return true, nil
+}
+
+func (dep *Dependencies) UpdateCache(ctx context.Context) error {
+	err := dep.WriteHash(ctx, dep.current)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (dep *Dependencies) WriteHash(ctx context.Context, hash string) error {

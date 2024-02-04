@@ -23,7 +23,8 @@ type ActionSave struct {
 }
 
 type ActionTracker struct {
-	Dir string
+	Dir    string
+	Replay bool
 }
 
 func NewActionTracker(ctx context.Context, group string) (*ActionTracker, error) {
@@ -76,6 +77,9 @@ func (tracker *ActionTracker) NextStep() int {
 }
 
 func (tracker *ActionTracker) Save(action Action) error {
+	if tracker.Replay {
+		return nil
+	}
 	cmd := action.Command()
 	data, err := json.Marshal(action)
 	if err != nil {

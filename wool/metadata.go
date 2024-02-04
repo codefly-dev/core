@@ -8,9 +8,11 @@ import (
 // HeaderKey sanitizes the header name to be used in metadata
 // Append wool:
 // Lower case
-// Suppress X-
+// Suppress X-Codefly
 func HeaderKey(header string) string {
 	header = strings.ToLower(header)
-	header = strings.TrimPrefix(header, "x-")
-	return fmt.Sprintf("wool:%s", header)
+	if codeflyHeader, ok := strings.CutPrefix(header, "x-codefly-"); ok {
+		return fmt.Sprintf("wool:%s", codeflyHeader)
+	}
+	return header
 }

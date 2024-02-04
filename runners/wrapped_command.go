@@ -134,7 +134,7 @@ package runners
 //		// The WaitGroup finished in time, wait for the command to finish
 //		return run.cmd.Wait()
 //	case <-time.After(5 * time.Second):
-//		w.Focus("we waited like morons")
+//		w.Debug("we waited like morons")
 //
 //		// The WaitGroup did not finish in time, kill the command
 //		if err := run.cmd.Process.Kill(); err != nil {
@@ -152,7 +152,7 @@ package runners
 //	for {
 //		select {
 //		case <-ctx.Done():
-//			w.Focus("LOG FORWARD GOT A CANCEL")
+//			w.Debug("LOG FORWARD GOT A CANCEL")
 //			return
 //		default:
 //			for scanner.Scan() {
