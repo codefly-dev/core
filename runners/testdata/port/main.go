@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"net"
 	"os/signal"
 	"syscall"
 	"time"
@@ -12,6 +14,10 @@ func main() {
 	ctx := context.Background()
 	// Signal handling
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	_, err := net.Listen("tcp", ":33333")
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer stop()
 	i := 0
 	for {

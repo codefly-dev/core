@@ -36,6 +36,7 @@ type Service struct {
 	Description string `yaml:"description,omitempty"`
 	Version     string `yaml:"version"`
 	Application string `yaml:"application"`
+	Project     string `yaml:"project"`
 	Domain      string `yaml:"domain"`
 	Namespace   string `yaml:"namespace"`
 
@@ -68,6 +69,7 @@ func (s *Service) Proto() *basev0.Service {
 		Name:        s.Name,
 		Description: s.Description,
 		Application: s.Application,
+		Project:     s.Project,
 	}
 }
 
@@ -89,6 +91,7 @@ func (s *Service) Identity() *ServiceIdentity {
 	return &ServiceIdentity{
 		Name:        s.Name,
 		Application: s.Application,
+		Project:     s.Project,
 		Domain:      s.Domain,
 		Namespace:   s.Namespace,
 	}
@@ -141,6 +144,7 @@ func (app *Application) NewService(ctx context.Context, action *actionsv0.AddSer
 		Name:        action.Name,
 		Version:     "0.0.0",
 		Application: app.Name,
+		Project:     app.Project,
 		Domain:      app.ServiceDomain(action.Name),
 		Namespace:   shared.DefaultTo(action.Namespace, app.Name),
 		Agent:       agent,
@@ -210,6 +214,7 @@ func ParseServiceReference(input string) (*ServiceReference, error) {
 type ServiceIdentity struct {
 	Name        string
 	Application string
+	Project     string
 	Namespace   string
 	Domain      string
 }
@@ -218,6 +223,7 @@ func Identity(conf *Service) *ServiceIdentity {
 	return &ServiceIdentity{
 		Name:        conf.Name,
 		Application: conf.Application,
+		Project:     conf.Project,
 		Namespace:   conf.Namespace,
 		Domain:      conf.Domain,
 	}
@@ -241,6 +247,7 @@ func ServiceIdentityFromProto(proto *basev0.ServiceIdentity) *ServiceIdentity {
 	return &ServiceIdentity{
 		Name:        proto.Name,
 		Application: proto.Application,
+		Project:     proto.Project,
 		Namespace:   proto.Namespace,
 		Domain:      proto.Domain,
 	}

@@ -14,7 +14,7 @@ type LogProcessor interface {
 }
 
 type LogProcessorWithSource interface {
-	ProcessWithSource(msg *Log, source *Identifier)
+	ProcessWithSource(source *Identifier, msg *Log)
 }
 
 var system *Identifier

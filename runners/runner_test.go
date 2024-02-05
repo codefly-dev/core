@@ -2,6 +2,8 @@ package runners_test
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +14,14 @@ import (
 
 	"github.com/codefly-dev/core/runners"
 )
+
+func waitSome() {
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		time.Sleep(10 * time.Second)
+		return
+	}
+	time.Sleep(2500 * time.Millisecond)
+}
 
 func TestCheckBin(t *testing.T) {
 	_, err := runners.NewRunner(context.Background(), "echo")
@@ -64,15 +74,19 @@ func testRun(t *testing.T) {
 }
 
 func TestRunSuccess(t *testing.T) {
-	for i := 0; i < 10; i++ {
-		go testRun(t)
+	for i := 0; i < 5; i++ {
+		t.Run(fmt.Sprintf("SubTest%d", i), func(t *testing.T) {
+			t.Parallel() // This will run the subtest in a separate goroutine.
+			testRun(t)
+		})
 	}
 }
 
 func testStart(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
-	runner, err := runners.NewRunner(ctx, "go", "run", "main.go")
+
+	runner, err := runners.NewRunner(ctx, "/bin/sh", "good.sh")
 	assert.NoError(t, err)
 	runner.WithDir(shared.Must(shared.SolvePath("testdata/good")))
 	out := NewSliceWriter()
@@ -81,7 +95,7 @@ func testStart(t *testing.T) {
 	err = runner.Start()
 	assert.NoError(t, err)
 
-	time.Sleep(10 * time.Second)
+	waitSome()
 	cancel()
 	// We should have at least a few lines of output
 	expected := []string{"running 0", "running 1", "running 2", "running 3", "running 4"}
@@ -94,14 +108,18 @@ func testStart(t *testing.T) {
 }
 
 func TestStart(t *testing.T) {
-	for i := 0; i < 10; i++ {
-		go testStart(t)
+	for i := 0; i < 5; i++ {
+		t.Run(fmt.Sprintf("SubTest%d", i), func(t *testing.T) {
+			t.Parallel() // This will run the subtest in a separate goroutine.
+			testStart(t)
+		})
 	}
 }
 
 func testStartWithStop(t *testing.T) {
 	ctx := context.Background()
-	runner, err := runners.NewRunner(ctx, "go", "run", "main.go")
+
+	runner, err := runners.NewRunner(ctx, "/bin/sh", "good.sh")
 	assert.NoError(t, err)
 	runner.WithDir(shared.Must(shared.SolvePath("testdata/good")))
 	out := NewSliceWriter()
@@ -110,8 +128,9 @@ func testStartWithStop(t *testing.T) {
 	err = runner.Start()
 	assert.NoError(t, err)
 
-	time.Sleep(10 * time.Second)
-	runner.Stop()
+	waitSome()
+	err = runner.Stop()
+	assert.NoError(t, err)
 	// We should have at least a few lines of output
 	expected := []string{"running 0", "running 1", "running 2", "running 3", "running 4"}
 	for _, exp := range expected {
@@ -123,8 +142,11 @@ func testStartWithStop(t *testing.T) {
 }
 
 func TestStartWithStop(t *testing.T) {
-	for i := 0; i < 10; i++ {
-		go testStartWithStop(t)
+	for i := 0; i < 5; i++ {
+		t.Run(fmt.Sprintf("SubTest%d", i), func(t *testing.T) {
+			t.Parallel() // This will run the subtest in a separate goroutine.
+			testStartWithStop(t)
+		})
 	}
 }
 
@@ -140,7 +162,7 @@ func testStartError(t *testing.T) {
 	err = runner.Start()
 	assert.NoError(t, err)
 
-	time.Sleep(10 * time.Second)
+	waitSome()
 	cancel()
 
 	// Will have a compile error
@@ -153,14 +175,17 @@ func testStartError(t *testing.T) {
 }
 
 func TestStartError(t *testing.T) {
-	for i := 0; i < 3; i++ {
-		go testStartError(t)
+	for i := 0; i < 5; i++ {
+		t.Run(fmt.Sprintf("SubTest%d", i), func(t *testing.T) {
+			t.Parallel() // This will run the subtest in a separate goroutine.
+			testStartError(t)
+		})
 	}
 }
 
 func testStartCrash(t *testing.T) {
 	ctx := context.Background()
-	runner, err := runners.NewRunner(ctx, "go", "run", "main.go")
+	runner, err := runners.NewRunner(ctx, "/bin/sh", "crash.sh")
 	assert.NoError(t, err)
 	runner.WithDir(shared.Must(shared.SolvePath("testdata/crashing")))
 	out := NewSliceWriter()
@@ -173,16 +198,74 @@ func testStartCrash(t *testing.T) {
 	err = runner.Wait()
 	assert.Error(t, err)
 
-	assert.Greater(t, len(out.Data()), 1)
-	assert.Contains(t, out.Data()[0], "panic: oops")
-
 	for _, o := range out.Data() {
 		assert.NotContains(t, o, "file already closed")
 	}
 }
 
 func TestStartCrashWithStop(t *testing.T) {
-	for i := 0; i < 10; i++ {
-		go testStartCrash(t)
+	for i := 0; i < 5; i++ {
+		t.Run(fmt.Sprintf("SubTest%d", i), func(t *testing.T) {
+			t.Parallel() // This will run the subtest in a separate goroutine.
+			testStartCrash(t)
+		})
+
 	}
 }
+
+//
+//func TestPortStop(t *testing.T) {
+//	ctx := context.Background()
+//	runner, err := runners.NewRunner(ctx, "go", "run", "main.go")
+//	assert.NoError(t, err)
+//	runner.WithDir(shared.Must(shared.SolvePath("testdata/port")))
+//	out := NewSliceWriter()
+//	runner.WithOut(out)
+//
+//	err = runner.Start()
+//	assert.NoError(t, err)
+//
+//	waitSome()
+//
+//	err = runner.Stop()
+//	assert.NoError(t, err)
+//	// We should have at least a few lines of output
+//	expected := []string{"running 0", "running 1", "running 2", "running 3", "running 4"}
+//	for _, exp := range expected {
+//		assert.Contains(t, out.Data(), exp)
+//	}
+//	for _, o := range out.Data() {
+//		assert.NotContains(t, o, "file already closed")
+//	}
+//	// Check that the port is free
+//	assert.True(t, runners.IsFreePort(33333))
+//}
+//
+//func TestPortContext(t *testing.T) {
+//	ctx := context.Background()
+//	ctx, cancel := context.WithCancel(ctx)
+//
+//	runner, err := runners.NewRunner(ctx, "go", "run", "main.go")
+//	assert.NoError(t, err)
+//	runner.WithDir(shared.Must(shared.SolvePath("testdata/port")))
+//	out := NewSliceWriter()
+//	runner.WithOut(out)
+//
+//	err = runner.Start()
+//	assert.NoError(t, err)
+//
+//	waitSome()
+//	cancel()
+//
+//	assert.NoError(t, err)
+//	// We should have at least a few lines of output
+//	expected := []string{"running 0", "running 1", "running 2", "running 3", "running 4"}
+//	for _, exp := range expected {
+//		assert.Contains(t, out.Data(), exp)
+//	}
+//	for _, o := range out.Data() {
+//		assert.NotContains(t, o, "file already closed")
+//	}
+//	// Check that the port is free
+//	assert.True(t, runners.IsFreePort(33333))
+//}

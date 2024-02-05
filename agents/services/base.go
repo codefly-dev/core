@@ -98,6 +98,8 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 
 	s.Wool = s.WoolAgent.Get(ctx)
 
+	s.Wool.Focus("loading", wool.ProjectField(s.Identity.Project), wool.ServiceField(s.Identity.Name))
+
 	ctx = s.Wool.Inject(ctx)
 
 	s.ConfigurationLocation = path.Join(s.Location, "codefly")
@@ -135,7 +137,7 @@ func (s *Base) LoadEnvironmentVariables(environment *basev0.Environment) *config
 
 func (s *Base) DockerImage() *configurations.DockerImage {
 	return &configurations.DockerImage{
-		Name: fmt.Sprintf("%s/%s", s.Identity.Application, s.Identity.Name),
+		Name: fmt.Sprintf("%s/%s/%s", s.Identity.Project, s.Identity.Application, s.Identity.Name),
 		Tag:  s.Version().Version,
 	}
 }
@@ -195,8 +197,8 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 	return nil
 }
 
-func (s *Base) Local(f string) string {
-	return path.Join(s.Location, f)
+func (s *Base) Local(f string, args ...any) string {
+	return path.Join(s.Location, fmt.Sprintf(f, args...))
 }
 
 /* Some very important helpers */
@@ -269,8 +271,8 @@ func WithTemplate(fs embed.FS, from string, to string) *TemplateWrapper {
 		fs: shared.Embed(fs), dir: fmt.Sprintf("templates/%s", from), relative: to}
 }
 
-func (wrapper *TemplateWrapper) WithDestination(destination string) *TemplateWrapper {
-	wrapper.absolute = destination
+func (wrapper *TemplateWrapper) WithDestination(destination string, args ...any) *TemplateWrapper {
+	wrapper.absolute = fmt.Sprintf(destination, args...)
 	return wrapper
 
 }

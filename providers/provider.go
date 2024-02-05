@@ -111,7 +111,7 @@ func FromService(service *configurations.Service, dep string) (*InfoSource, erro
 func (provider *Provider) GetProviderInformations(ctx context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {
 	w := wool.Get(ctx).In("provider.GetProviderInformation")
 	var res []*basev0.ProviderInformation
-	infos, err := provider.GetProjectProviderInformation(ctx, service)
+	infos, err := provider.GetProjectProviderInformations(ctx, service)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get project provider information")
 	}
@@ -124,7 +124,7 @@ func (provider *Provider) GetProviderInformations(ctx context.Context, service *
 	return res, nil
 }
 
-func (provider *Provider) GetProjectProviderInformation(_ context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {
+func (provider *Provider) GetProjectProviderInformations(_ context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {
 	var res []*basev0.ProviderInformation
 	for _, dep := range service.ProviderDependencies {
 		if info, ok := provider.projectInfos[dep]; ok {
@@ -132,6 +132,14 @@ func (provider *Provider) GetProjectProviderInformation(_ context.Context, servi
 		}
 	}
 	return res, nil
+}
+
+func (provider *Provider) GetProjectProviderInformation(ctx context.Context, name string) (*basev0.ProviderInformation, error) {
+	w := wool.Get(ctx).In("provider.GetProjectProviderInformation")
+	if info, ok := provider.projectInfos[name]; ok {
+		return info, nil
+	}
+	return nil, w.NewError("cannot find provider: %s", name)
 }
 
 func (provider *Provider) GetProviderDependenciesInformations(ctx context.Context, service *configurations.Service) ([]*basev0.ProviderInformation, error) {

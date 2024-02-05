@@ -53,7 +53,7 @@ func (h *ClientLogHandler) Write(p []byte) (n int, err error) {
 	msg := &HCLogMessageIn{}
 	err = json.Unmarshal(p, msg)
 	if err != nil {
-		h.process(wool.LogError(err, "unmarshalling in message"), wool.System())
+		h.process(wool.System(), wool.LogError(err, "unmarshalling in message"))
 		return 0, err
 	}
 	// message is a JSON representation of a wool.Log
@@ -61,19 +61,19 @@ func (h *ClientLogHandler) Write(p []byte) (n int, err error) {
 	var log HCLogMessageOut
 	err = json.Unmarshal([]byte(msg.Message), &log)
 	if err != nil {
-		h.process(&wool.Log{Level: wool.TRACE, Message: msg.Message, Header: "plugin"}, wool.System())
+		h.process(wool.System(), &wool.Log{Level: wool.TRACE, Message: msg.Message, Header: "plugin"})
 		return 0, err
 	}
 	// Drop non-wool logs
 	if msg.Message == "" {
 		return 0, nil
 	}
-	h.process(log.Log, log.Source)
+	h.process(log.Source, log.Log)
 	return len(p), nil
 }
 
-func (h *ClientLogHandler) process(log *wool.Log, identifier *wool.Identifier) {
+func (h *ClientLogHandler) process(identifier *wool.Identifier, log *wool.Log) {
 	for _, processor := range h.processors {
-		processor.ProcessWithSource(log, identifier)
+		processor.ProcessWithSource(identifier, log)
 	}
 }

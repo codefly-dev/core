@@ -123,6 +123,7 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 
 	assert.Equal(t, "test-service-1", serviceOne.Name)
 	assert.Equal(t, "test-app-1", serviceOne.Application)
+	assert.Equal(t, "test-project", serviceOne.Project)
 	assert.Equal(t, "test-app-1", serviceOne.Namespace)
 	assert.Equal(t, "0.0.0", serviceOne.Version)
 

@@ -31,6 +31,18 @@ func FindProjectProvider(name string, sources []*basev0.ProviderInformation) (*b
 	return nil, fmt.Errorf("cannot find provider: %s", name)
 }
 
+func FindServiceProvider(unique string, name string, sources []*basev0.ProviderInformation) (*basev0.ProviderInformation, error) {
+	for _, prov := range sources {
+		if prov.Origin == ProjectProviderOrigin {
+			continue
+		}
+		if prov.Name == name && prov.Origin == unique {
+			return prov, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot find provider: %s", name)
+}
+
 func ProviderInformationEnv(info *basev0.ProviderInformation, key string, value string) string {
 	key = ProviderInformationEnvKey(info, key)
 	return fmt.Sprintf("%s=%s", key, value)

@@ -88,3 +88,29 @@ func TestBuildDebug(t *testing.T) {
 	cancel()
 
 }
+
+//
+//func TestPort(t *testing.T) {
+//	ctx := context.Background()
+//	runner, err := golang.NewRunner(ctx, shared.Must(shared.SolvePath("testdata/port")))
+//	defer func() {
+//		err := os.RemoveAll(runner.CacheDir())
+//		assert.NoError(t, err)
+//	}()
+//	assert.NoError(t, err)
+//	err = runner.Init(ctx)
+//	assert.NoError(t, err)
+//	assert.False(t, runner.UsedCache())
+//	// Start
+//	// Setup the out
+//	out := NewSliceWriter()
+//	runner.WithOut(out)
+//	err = runner.Start(ctx)
+//	assert.NoError(t, err)
+//	// Stop
+//	err = runner.Stop()
+//	assert.NoError(t, err)
+//
+//	//	assert.True(t, runners.IsFreePort(33333))
+//
+//}

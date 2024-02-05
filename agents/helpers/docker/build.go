@@ -27,6 +27,7 @@ type BuilderConfiguration struct {
 	Root        string
 	Dockerfile  string
 	Destination *configurations.DockerImage
+	Output      io.Writer
 }
 
 type Builder struct {
@@ -89,7 +90,8 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 			if len(out) == 0 {
 				continue
 			}
-			w.Debug(out)
+			_, _ = builder.Output.Write([]byte(out))
+
 		}
 	}
 

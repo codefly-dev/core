@@ -277,7 +277,13 @@ func (app *Application) ServicePath(_ context.Context, ref *ServiceReference) st
 
 func (app *Application) LoadServiceFromReference(ctx context.Context, ref *ServiceReference) (*Service, error) {
 	dir := app.ServicePath(ctx, ref)
-	return LoadServiceFromDirUnsafe(ctx, dir)
+	service, err := LoadServiceFromDirUnsafe(ctx, dir)
+	if err != nil {
+		return nil, wool.Get(ctx).In("configurations.LoadServiceFromReference", wool.DirField(dir)).Wrap(err)
+	}
+	service.Project = app.Project
+	service.Application = app.Name
+	return service, nil
 }
 
 func (app *Application) LoadServiceFromName(ctx context.Context, name string) (*Service, error) {
@@ -336,7 +342,6 @@ func (app *Application) PublicEndpoints(ctx context.Context) ([]*basev0.Endpoint
 		return nil, w.Wrapf(err, "cannot load services")
 	}
 	for _, service := range services {
-		// InitAndWait groups
 		for _, endpoint := range service.Endpoints {
 			if endpoint.Visibility != VisibilityPublic {
 				continue

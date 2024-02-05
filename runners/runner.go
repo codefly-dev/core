@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -40,7 +42,8 @@ type Runner struct {
 	cancel func()
 
 	// wait for the logs to be written
-	wg sync.WaitGroup
+	wg  sync.WaitGroup
+	pid int
 }
 
 func NewRunner(ctx context.Context, bin string, args ...string) (*Runner, error) {
@@ -162,7 +165,26 @@ func (runner *Runner) Finish() {
 }
 
 func (runner *Runner) Stop() error {
+	err := runner.cmd.Process.Signal(syscall.SIGTERM)
+	if err != nil {
+		return runner.w.Wrapf(err, "cannot sigterm process")
+	}
+	// Wait  bit
+	<-time.After(1 * time.Second)
 	runner.cancel()
+
+	// Kill the process to be sure
+
+	// Check if the process is still running
+	err = runner.cmd.Process.Signal(syscall.Signal(0))
+	if err == nil {
+		// Process is still running, send SIGKILL
+		err = runner.cmd.Process.Kill()
+		if err != nil {
+			return runner.w.Wrapf(err, "cannot kill process")
+		}
+	}
+
 	return nil
 }
 
@@ -189,7 +211,7 @@ func (mrc *MultiReader) Read(p []byte) (n int, err error) {
 	return 0, io.EOF
 }
 
-// Start execute in a go-routine
+// Start executing and return
 func (runner *Runner) Start() error {
 	stdout, err := runner.cmd.StdoutPipe()
 	if err != nil {
@@ -209,5 +231,7 @@ func (runner *Runner) Start() error {
 	if err != nil {
 		return runner.w.Wrapf(err, "cannot run command")
 	}
+	runner.pid = runner.cmd.Process.Pid
+	runner.w.Debug("started process", wool.Field("pid", runner.pid))
 	return nil
 }
