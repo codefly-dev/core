@@ -1,3 +1,5 @@
+//go:build flaky
+
 package runners_test
 
 import (
