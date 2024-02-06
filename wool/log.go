@@ -143,22 +143,22 @@ const (
 	DEFAULT Loglevel = iota
 	TRACE
 	DEBUG
+	FOCUS
 	INFO
 	WARN
 	ERROR
 	FATAL
-	FOCUS
 	FORWARD
 )
 
 var levelToString = map[Loglevel]string{
 	TRACE:   "TRACE",
 	DEBUG:   "DEBUG",
+	FOCUS:   "FOCUS",
 	INFO:    "INFO",
 	WARN:    "WARN",
 	ERROR:   "ERROR",
 	FATAL:   "FATAL",
-	FOCUS:   "FOCUS",
 	FORWARD: "FORWARD",
 }
 

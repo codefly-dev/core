@@ -28,7 +28,7 @@ func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
 		endpoint.Service = s.Configuration.Name
 	}
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_READY}
-	s.Wool.Focus("load response", wool.NullableField("endpoints", configurations.MakeEndpointSummary(s.Endpoints)))
+	s.Wool.Debug("load response", wool.NullableField("endpoints", configurations.MakeEndpointSummary(s.Endpoints)))
 	return &runtimev0.LoadResponse{
 		Version:   s.Version(),
 		Endpoints: s.Endpoints,
