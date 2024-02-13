@@ -40,6 +40,10 @@ func (endpoint *Endpoint) ServiceUnique() string {
 	return ServiceUnique(endpoint.Application, endpoint.Service)
 }
 
+func ServiceUniqueFromEndpoint(endpoint *basev0.Endpoint) string {
+	return ServiceUnique(endpoint.Application, endpoint.Service)
+}
+
 func (endpoint *Endpoint) UnknownAPI() bool {
 	return endpoint.API == Unknown || endpoint.API == ""
 }
@@ -344,10 +348,11 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 	newGroups := make(map[string]*RestRouteGroup)
 
 	for _, e := range endpoints {
-		if rest := HasRest(ctx, e.Api); rest != nil {
+		if rest := IsRest(ctx, e.Api); rest != nil {
 			w.Debug("found a REST API", wool.NameField(e.Name))
 			for _, group := range rest.Groups {
 				for _, r := range group.Routes {
+					w.Focus("route", wool.Field("route", e.Application))
 					key := RouteUnique{
 						service:     e.Service,
 						application: e.Application,
@@ -382,20 +387,32 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 // FindEndpointForRoute finds the endpoint that matches the route rpcs
 func FindEndpointForRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *RestRouteGroup) *basev0.Endpoint {
 	for _, e := range endpoints {
-		if e.Application == route.Application && e.Service == route.Service && HasRest(ctx, e.Api) != nil {
+		if e.Application == route.Application && e.Service == route.Service && IsRest(ctx, e.Api) != nil {
 			return e
 		}
 	}
 	return nil
 }
 
-func HasRest(_ context.Context, api *basev0.API) *basev0.RestAPI {
+func IsRest(_ context.Context, api *basev0.API) *basev0.RestAPI {
 	if api == nil {
 		return nil
 	}
 	switch v := api.Value.(type) {
 	case *basev0.API_Rest:
 		return v.Rest
+	default:
+		return nil
+	}
+}
+
+func IsGRPC(_ context.Context, api *basev0.API) *basev0.GrpcAPI {
+	if api == nil {
+		return nil
+	}
+	switch v := api.Value.(type) {
+	case *basev0.API_Grpc:
+		return v.Grpc
 	default:
 		return nil
 	}

@@ -249,6 +249,9 @@ func LoadProviderFromEnvFiles(ctx context.Context, project *configurations.Proje
 	}
 	// Walk
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return w.Wrapf(err, "cannot walk path")
+		}
 		if info.IsDir() {
 			return nil
 		}

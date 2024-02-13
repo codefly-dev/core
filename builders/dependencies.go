@@ -91,6 +91,15 @@ func (dep *Dependency) Keep(path string) bool {
 	return dep.pathSelect.Keep(path)
 }
 
+func (dep *Dependency) Hashable(_ context.Context) bool {
+	for _, path := range dep.components {
+		if !shared.FileExists(path) && !shared.DirectoryExists(path) {
+			return false
+		}
+	}
+	return true
+}
+
 type Dependencies struct {
 	Name       string
 	Components []*Dependency
@@ -214,6 +223,9 @@ func (dep *Dependencies) Hash(ctx context.Context) (string, error) {
 	w := wool.Get(ctx).In("builders.ServiceDependencies.Hash")
 	h := sha256.New()
 	for _, component := range dep.Components {
+		if !component.Hashable(ctx) {
+			continue
+		}
 		hash, err := component.Hash(ctx)
 		if err != nil {
 			return "", w.Wrapf(err, "cannot get hash for component %s", component.components)

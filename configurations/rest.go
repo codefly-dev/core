@@ -461,7 +461,7 @@ func LoadExtendedRestRouteGroup[T any](ctx context.Context, p string) (*Extended
 func AsRestRouteEnvironmentVariable(ctx context.Context, endpoint *basev0.Endpoint) []string {
 	w := wool.Get(ctx).In("AsRestRouteEnvironmentVariable")
 	var envs []string
-	if rest := HasRest(context.Background(), endpoint.Api); rest != nil {
+	if rest := IsRest(context.Background(), endpoint.Api); rest != nil {
 		for _, group := range rest.Groups {
 			for _, route := range group.Routes {
 				w.Debug("adding", wool.Field("route", route))

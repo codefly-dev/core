@@ -50,7 +50,7 @@ func (tracker *ActionTracker) WithDir(dir string) {
 func (tracker *ActionTracker) NextStep() int {
 	// Walk all files in the directory and extract the step number
 	var num int
-	_ = filepath.Walk(tracker.Dir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(tracker.Dir, func(_ string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -111,7 +111,10 @@ type ActionStep struct {
 
 func (tracker *ActionTracker) GetActions(_ context.Context) ([]Action, error) {
 	var steps []ActionStep
-	err := filepath.Walk(tracker.Dir, func(path string, info os.FileInfo, e error) error {
+	err := filepath.Walk(tracker.Dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		if info.IsDir() {
 			return nil
 		}

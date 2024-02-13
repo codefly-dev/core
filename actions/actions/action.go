@@ -14,7 +14,6 @@ type Action interface {
 var tracker *ActionTracker
 
 func Run(ctx context.Context, action Action) (any, error) {
-
 	res, err := action.Run(ctx)
 	if err != nil {
 		return nil, err

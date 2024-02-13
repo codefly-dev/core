@@ -53,6 +53,15 @@ func version(ctx context.Context) (string, error) {
 	return v.String(), nil
 }
 
+func CompanionImage(ctx context.Context) (string, error) {
+	w := wool.Get(ctx).In("proto.CompanionImage")
+	v, err := version(ctx)
+	if err != nil {
+		return "", w.Wrapf(err, "cannot get version")
+	}
+	return fmt.Sprintf("codeflydev/companion:%s", v), nil
+}
+
 //go:embed info.codefly.yaml
 var info embed.FS
 
@@ -71,8 +80,10 @@ func (g *Proto) Generate(ctx context.Context) error {
 		return nil
 	}
 	w.Info("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
-
-	image := fmt.Sprintf("codeflydev/companion:%s", g.version)
+	image, err := CompanionImage(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot get companion image")
+	}
 	volume := fmt.Sprintf("%s:/workspace", g.Dir)
 	runner, err := runners.NewRunner(ctx, "docker", "run", "--rm", "-v", volume, "-w", "/workspace/proto", image, "buf", "mod", "update")
 	if err != nil {

@@ -11,6 +11,20 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestHashMissingFile(t *testing.T) {
+	ctx := context.Background()
+	// create a temporary directory
+	d, err := os.MkdirTemp("", "example")
+	assert.NoError(t, err)
+	defer os.RemoveAll(d)
+
+	dep := builders.NewDependencies("test", builders.NewDependency("nothin"))
+	dep.Localize(d)
+
+	_, err = dep.Updated(ctx)
+	assert.NoError(t, err)
+}
+
 func TestHash(t *testing.T) {
 	ctx := context.Background()
 	// create a temporary directory

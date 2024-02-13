@@ -1,9 +1,7 @@
 package configurations
 
 import (
-	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/codefly-dev/core/shared"
 )
@@ -27,21 +25,7 @@ func OverridePath(defaultPath string, path string) *string {
 }
 
 func ReferenceMatch(entry string, name string) bool {
-	return entry == name || entry == fmt.Sprintf("%s*", name)
-}
-
-func MakeActive(entry string) string {
-	if strings.HasSuffix(entry, "*") {
-		return entry
-	}
-	return fmt.Sprintf("%s*", entry)
-}
-
-func MakeInactive(entry string) string {
-	if name, ok := strings.CutSuffix(entry, "*"); ok {
-		return name
-	}
-	return entry
+	return entry == name
 }
 
 // Application reference services

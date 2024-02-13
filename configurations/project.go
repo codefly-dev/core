@@ -354,6 +354,15 @@ func (project *Project) Reference() *ProjectReference {
 	}
 }
 
+func (project *Project) LoadService(ctx context.Context, input *ServiceWithApplication) (*Service, error) {
+	w := wool.Get(ctx).In("Project.LoadService", wool.NameField(input.Name))
+	app, err := project.LoadApplicationFromName(ctx, input.Application)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load application")
+	}
+	return app.LoadServiceFromName(ctx, input.Name)
+}
+
 func ReloadProject(ctx context.Context, project *Project) (*Project, error) {
 	return LoadProjectFromDirUnsafe(ctx, project.Dir())
 }

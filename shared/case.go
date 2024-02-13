@@ -11,12 +11,13 @@ import (
 )
 
 type Case struct {
-	LowerCase string
-	SnakeCase string
-	CamelCase string
-	KebabCase string
-	DNSCase   string
-	Title     string
+	LowerCase    string
+	SnakeCase    string
+	CamelCase    string
+	KebabCase    string
+	DNSCase      string
+	Title        string
+	DotSeparated string
 }
 
 // ToSnakeCase converts a string to snake_case
@@ -71,14 +72,27 @@ func ToDNSCase(s string) string {
 	return strings.ToLower(fmt.Sprintf("%s-%s", svc, app))
 }
 
+func ToDotSeparatedCase(s string) string {
+	// MakeUnique is of the convention /app/service
+	// For DNS we invert and follow a subdomain convention service-app
+	tokens := strings.Split(s, "/")
+	if len(tokens) == 1 {
+		return strings.ToLower(s)
+	}
+	app := tokens[0]
+	svc := tokens[1]
+	return strings.ToLower(fmt.Sprintf("%s.%s", svc, app))
+}
+
 func ToCase(s string) Case {
 	return Case{
-		LowerCase: ToLowerCase(s),
-		DNSCase:   ToDNSCase(s),
-		SnakeCase: ToSnakeCase(s),
-		CamelCase: ToCamelCase(s),
-		KebabCase: ToKebabCase(s),
-		Title:     ToTitle(s),
+		LowerCase:    ToLowerCase(s),
+		DotSeparated: ToDotSeparatedCase(s),
+		DNSCase:      ToDNSCase(s),
+		SnakeCase:    ToSnakeCase(s),
+		CamelCase:    ToCamelCase(s),
+		KebabCase:    ToKebabCase(s),
+		Title:        ToTitle(s),
 	}
 }
 

@@ -109,6 +109,7 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 		return s.Wool.Wrapf(err, "cannot create configuration directory")
 	}
 
+	s.Wool.Focus("loading service", wool.DirField(s.Location))
 	s.Configuration, err = configurations.LoadServiceFromDirUnsafe(ctx, s.Location)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot load service configuration")
