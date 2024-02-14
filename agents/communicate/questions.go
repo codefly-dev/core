@@ -24,6 +24,19 @@ func NewConfirm(msg *agentv0.Message, defaultConfirm bool) *agentv0.Question {
 	}
 }
 
+func NewIntInput(msg *agentv0.Message, defaultValue int) *agentv0.Question {
+	return &agentv0.Question{
+		Message: msg,
+		Value: &agentv0.Question_Input{
+			Input: &agentv0.Input{
+				Default: &agentv0.Input_IntDefault{
+					IntDefault: int32(defaultValue),
+				},
+			},
+		},
+	}
+}
+
 func NewStringInput(msg *agentv0.Message, defaultValue string) *agentv0.Question {
 	return &agentv0.Question{
 		Message: msg,

@@ -6,6 +6,8 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/codefly-dev/core/shared"
+
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/wool"
 	"github.com/fsnotify/fsnotify"
@@ -28,10 +30,16 @@ func addDependency(ctx context.Context, base string, dep *builders.Dependency, w
 	w := wool.Get(ctx).In("addDependency")
 	for _, p := range dep.Components() {
 		fullPath := path.Join(base, p)
+		// If path doesn't exist we skip
+		if !shared.FileExists(fullPath) && !shared.DirectoryExists(fullPath) {
+			w.Trace("skipping", wool.Field("path", fullPath))
+			continue
+		}
 		err := filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
+			// If path doesn't exist we skip
 			if info.IsDir() {
 				return nil
 			}

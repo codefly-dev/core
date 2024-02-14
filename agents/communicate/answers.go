@@ -39,6 +39,14 @@ func (session *ServerSession) GetInputString(stage string) (string, error) {
 	return answer.GetStringValue(), nil
 }
 
+func (session *ServerSession) GetIntString(stage string) (int, error) {
+	answer, err := session.Input(stage)
+	if err != nil {
+		return 0, fmt.Errorf("cannot find stage %s", stage)
+	}
+	return int(answer.GetIntValue()), nil
+}
+
 func (session *ServerSession) Choice(stage string) (*agentv0.ChoiceAnswer, error) {
 	answer := session.states[stage]
 	if answer == nil {

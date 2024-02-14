@@ -49,7 +49,7 @@ func (dep *Dependency) Hash(ctx context.Context) (string, error) {
 			continue
 		}
 		if !shared.DirectoryExists(path) {
-			return "", fmt.Errorf("path %s does not exist", path)
+			continue
 		}
 		err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -91,15 +91,6 @@ func (dep *Dependency) Keep(path string) bool {
 	return dep.pathSelect.Keep(path)
 }
 
-func (dep *Dependency) Hashable(_ context.Context) bool {
-	for _, path := range dep.components {
-		if !shared.FileExists(path) && !shared.DirectoryExists(path) {
-			return false
-		}
-	}
-	return true
-}
-
 type Dependencies struct {
 	Name       string
 	Components []*Dependency
@@ -129,16 +120,19 @@ func NewDependencies(name string, components ...*Dependency) *Dependencies {
 	}
 }
 
+func (dep *Dependencies) String() string {
+	return MakeDependenciesSummary(dep)
+}
+
 func (dep *Dependencies) hashFile() string {
 	return filepath.Join(dep.dir, fmt.Sprintf(".%s.hash", strings.ToLower(dep.Name)))
 }
 
-func (dep *Dependencies) Localize(dir string) *Dependencies {
+func (dep *Dependencies) Localize(dir string) {
 	dep.dir = dir
 	for _, c := range dep.Components {
 		c.Localize(dir)
 	}
-	return dep
 }
 
 // AddDependencies adds dependencies
@@ -223,9 +217,7 @@ func (dep *Dependencies) Hash(ctx context.Context) (string, error) {
 	w := wool.Get(ctx).In("builders.ServiceDependencies.Hash")
 	h := sha256.New()
 	for _, component := range dep.Components {
-		if !component.Hashable(ctx) {
-			continue
-		}
+		w.Focus("hashing component", wool.Field("component", component.components))
 		hash, err := component.Hash(ctx)
 		if err != nil {
 			return "", w.Wrapf(err, "cannot get hash for component %s", component.components)
@@ -249,6 +241,22 @@ func (dep *Dependencies) All() []string {
 	var all []string
 	for _, c := range dep.Components {
 		all = append(all, c.Components()...)
+	}
+	return all
+}
+
+func (dep *Dependencies) Present(dir string) []string {
+	var all []string
+	for _, c := range dep.Components {
+		for _, cc := range c.Components() {
+			if !strings.Contains(cc, "*") {
+				p := filepath.Join(dir, cc)
+				if !shared.FileExists(p) && !shared.DirectoryExists(p) {
+					continue
+				}
+			}
+			all = append(all, cc)
+		}
 	}
 	return all
 }

@@ -81,6 +81,18 @@ func (runner *Runner) Init(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot create cache directory")
 	}
+	// Run go mod tidy
+	helper := Go{Dir: runner.dir}
+	err = helper.ModTidy(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot run go mod tidy")
+	}
+	// Run go mod download
+	err = helper.ModDowload(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot run go mod download")
+	}
+
 	if runner.debug {
 		err = runner.debugCmd(ctx)
 	} else {

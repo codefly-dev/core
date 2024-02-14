@@ -243,6 +243,16 @@ func (s *ServiceIdentity) AsResource() *wool.Resource {
 		Resource: r}
 }
 
+func (s *ServiceIdentity) Clone() *ServiceIdentity {
+	return &ServiceIdentity{
+		Name:        s.Name,
+		Application: s.Application,
+		Project:     s.Project,
+		Namespace:   s.Namespace,
+		Domain:      s.Domain,
+	}
+}
+
 func ServiceIdentityFromProto(proto *basev0.ServiceIdentity) *ServiceIdentity {
 	return &ServiceIdentity{
 		Name:        proto.Name,

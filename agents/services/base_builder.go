@@ -3,10 +3,13 @@ package services
 import (
 	"context"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"path"
+	"strings"
 
 	"github.com/codefly-dev/core/configurations"
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
 	"github.com/codefly-dev/core/shared"
 )
@@ -38,12 +41,14 @@ func (s *BuilderWrapper) LoadError(err error) (*builderv0.LoadResponse, error) {
 	}, err
 }
 
-func (s *BuilderWrapper) InitResponse(hash string) (*builderv0.InitResponse, error) {
+func (s *BuilderWrapper) InitResponse(networMappings []*basev0.NetworkMapping, hash string) (*builderv0.InitResponse, error) {
 	if !s.loaded {
 		return s.InitError(fmt.Errorf("not loaded"))
 	}
-	return &builderv0.InitResponse{RunHash: hash,
-		State: &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS}}, nil
+	return &builderv0.InitResponse{
+		NetworkMappings: networMappings,
+		RunHash:         hash,
+		State:           &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS}}, nil
 }
 
 func (s *BuilderWrapper) InitError(err error) (*builderv0.InitResponse, error) {
@@ -137,6 +142,35 @@ func (s *BuilderWrapper) CreateDeploymentBase(env *configurations.Environment) *
 		Image:       s.DockerImage(),
 		Replicas:    1,
 	}
+}
+
+type EnvironmentMap map[string]string
+
+type DeploymentParameter struct {
+	ConfigMap EnvironmentMap
+	SecretMap EnvironmentMap
+}
+
+func EnvsAsConfigMapData(envs []string) map[string]string {
+	m := make(map[string]string)
+	for _, env := range envs {
+		split := strings.SplitN(env, "=", 2)
+		if len(split) == 2 {
+			m[split[0]] = split[1]
+		}
+	}
+	return m
+}
+
+func EnvsAsSecretData(envs []string) map[string]string {
+	m := make(map[string]string)
+	for _, env := range envs {
+		split := strings.SplitN(env, "=", 2)
+		if len(split) == 2 {
+			m[split[0]] = base64.StdEncoding.EncodeToString([]byte(split[1]))
+		}
+	}
+	return m
 }
 
 func (s *BuilderWrapper) Deploy(ctx context.Context, req *builderv0.DeploymentRequest, fs embed.FS, params any) error {

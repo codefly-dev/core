@@ -93,6 +93,13 @@ func Local() *Environment {
 	}
 }
 
+func LocalProto() *basev0.Environment {
+	return &basev0.Environment{
+		Name:        "local",
+		NetworkType: basev0.Environment_PORT,
+	}
+}
+
 const EnvironmentAsEnvironmentVariableKey = "CODEFLY_ENVIRONMENT"
 
 func EnvironmentAsEnvironmentVariable(env *Environment) string {

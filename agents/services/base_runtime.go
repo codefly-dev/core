@@ -43,10 +43,11 @@ func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
 	}, nil
 }
 
-func (s *RuntimeWrapper) InitResponse(infos ...*basev0.ProviderInformation) (*runtimev0.InitResponse, error) {
+func (s *RuntimeWrapper) InitResponse(networkMappings []*basev0.NetworkMapping, infos ...*basev0.ProviderInformation) (*runtimev0.InitResponse, error) {
 	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_READY}
 	return &runtimev0.InitResponse{
 		Status:               s.InitStatus,
+		NetworkMappings:      networkMappings,
 		ServiceProviderInfos: infos,
 	}, nil
 }

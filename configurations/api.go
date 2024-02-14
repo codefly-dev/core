@@ -24,6 +24,7 @@ func WithAPI(ctx context.Context, endpoint *Endpoint, source APISource) (*basev0
 	}
 	base := EndpointBaseProto(endpoint)
 	base.Api = api
+	base.Replicas = 1
 	return base, nil
 }
 

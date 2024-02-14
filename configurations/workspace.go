@@ -277,6 +277,127 @@ func (workspace *Workspace) LoadProjectFromDir(ctx context.Context, dir string) 
 	return project, nil
 }
 
+func (workspace *Workspace) DeleteProject(ctx context.Context, name string) error {
+	w := wool.Get(ctx).In("Workspace::DeleteProject", wool.ThisField(workspace), wool.NameField(name))
+	project, err := workspace.LoadProjectFromName(ctx, name)
+	if err != nil {
+		return err
+	}
+	var projects []*ProjectReference
+	for _, p := range workspace.Projects {
+		if p.Name == name {
+			continue
+		}
+		projects = append(projects, p)
+	}
+	workspace.Projects = projects
+	err = workspace.Save(ctx)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	err = os.RemoveAll(project.Dir())
+	if err != nil {
+		return w.Wrapf(err, "cannot remove project directory")
+	}
+	return nil
+}
+
+func (workspace *Workspace) DeleteApplication(ctx context.Context, projectName string, name string) error {
+	w := wool.Get(ctx).In("Workspace::DeleteApplication", wool.ThisField(workspace), wool.NameField(name))
+	project, err := workspace.LoadProjectFromName(ctx, projectName)
+	if err != nil {
+		return err
+	}
+	app, err := project.LoadApplicationFromName(ctx, name)
+	if err != nil {
+		return w.Wrapf(err, "cannot load application")
+	}
+	var ref *ProjectReference
+	for _, p := range workspace.Projects {
+		if p.Name == name {
+			ref = p
+		}
+	}
+	if ref == nil {
+		return w.NewError("cannot find project reference")
+	}
+	var applications []*ApplicationReference
+	for _, a := range ref.Applications {
+		if a.Name == name {
+			continue
+		}
+		applications = append(applications, a)
+	}
+	ref.Applications = applications
+	if ref.ActiveApplication == name {
+		ref.ActiveApplication = ""
+	}
+	err = workspace.Save(ctx)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	err = os.RemoveAll(app.Dir())
+	if err != nil {
+		return w.Wrapf(err, "cannot remove project directory")
+	}
+	return nil
+}
+
+func (workspace *Workspace) DeleteService(ctx context.Context, projectName string, appName string, name string) error {
+	w := wool.Get(ctx).In("Workspace::DeleteService", wool.ThisField(workspace), wool.NameField(name))
+	project, err := workspace.LoadProjectFromName(ctx, projectName)
+	if err != nil {
+		return err
+	}
+	app, err := project.LoadApplicationFromName(ctx, appName)
+	if err != nil {
+		return w.Wrapf(err, "cannot load application")
+	}
+	svc, err := app.LoadServiceFromName(ctx, name)
+	if err != nil {
+		return w.Wrapf(err, "cannot load service")
+	}
+	var ref *ProjectReference
+	for _, p := range workspace.Projects {
+		if p.Name == name {
+			ref = p
+		}
+	}
+	if ref == nil {
+		return w.NewError("cannot find project reference")
+	}
+
+	var appRef *ApplicationReference
+	for _, a := range ref.Applications {
+		if a.Name == name {
+			appRef = a
+		}
+	}
+	if appRef == nil {
+		return w.NewError("cannot find application reference")
+	}
+	var services []*ServiceReference
+	for _, s := range appRef.Services {
+		if s.Name == name {
+			continue
+		}
+		services = append(services, s)
+	}
+	appRef.Services = services
+	if appRef.ActiveService == name {
+		appRef.ActiveService = ""
+	}
+	err = workspace.Save(ctx)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	err = os.RemoveAll(svc.Dir())
+	if err != nil {
+		return w.Wrapf(err, "cannot remove project directory")
+	}
+	return nil
+}
+
 /*
 Global Workspace Configuration
 */
@@ -312,31 +433,6 @@ CLEAN
 
 
 */
-
-func (workspace *Workspace) DeleteProject(ctx context.Context, name string) error {
-	w := wool.Get(ctx).In("Workspace::DeleteProject", wool.ThisField(workspace), wool.NameField(name))
-	project, err := workspace.LoadProjectFromName(ctx, name)
-	if err != nil {
-		return err
-	}
-	var projects []*ProjectReference
-	for _, p := range workspace.Projects {
-		if p.Name == name {
-			continue
-		}
-		projects = append(projects, p)
-	}
-	workspace.Projects = projects
-	err = workspace.Save(ctx)
-	if err != nil {
-		return w.Wrap(err)
-	}
-	err = os.RemoveAll(project.Dir())
-	if err != nil {
-		return w.Wrapf(err, "cannot remove project directory")
-	}
-	return nil
-}
 
 func (workspace *Workspace) SetActiveApplication(ctx context.Context, project string, name string) error {
 	for _, p := range workspace.Projects {
