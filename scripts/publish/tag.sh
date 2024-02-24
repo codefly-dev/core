@@ -1,5 +1,8 @@
 #!/bin/bash
 
+./scripts/build/build_companion.sh
+
+
 YAML_FILE="version/info.codefly.yaml"
 
 if [ ! -f "$YAML_FILE" ]; then
