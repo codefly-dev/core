@@ -17,11 +17,11 @@ import (
 
 func GenerateOpenAPI(ctx context.Context, language languages.Language, destination string, _ string, endpoints ...*basev0.Endpoint) error {
 	w := wool.Get(ctx).In("generateOpenAPI", wool.Field("destination", destination))
-	// call the companion
 	_, err := shared.CheckDirectoryOrCreate(ctx, destination)
 	if err != nil {
 		return w.Wrapf(err, "can't create directory for destination")
 	}
+	// call the companion
 	image, err := version.CompanionImage(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
