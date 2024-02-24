@@ -1,13 +1,12 @@
-package proto
+package generate
 
 import (
 	"context"
-	"embed"
 	"fmt"
 
-	"github.com/Masterminds/semver"
+	"github.com/codefly-dev/core/version"
+
 	"github.com/codefly-dev/core/builders"
-	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/runners"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
@@ -23,7 +22,7 @@ type Proto struct {
 
 func NewProto(ctx context.Context, dir string) (*Proto, error) {
 	w := wool.Get(ctx).In("proto.NewProto")
-	v, err := version(ctx)
+	v, err := version.Version(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get v")
 	}
@@ -39,36 +38,10 @@ func NewProto(ctx context.Context, dir string) (*Proto, error) {
 	}, nil
 }
 
-func version(ctx context.Context) (string, error) {
-	w := wool.Get(ctx).In("proto.version")
-	conf, err := configurations.LoadFromFs[configurations.Info](shared.Embed(info))
-	if err != nil {
-		return "", w.Wrapf(err, "cannot load info for companion")
-	}
-	// check we have a valid semantic version
-	v, err := semver.NewVersion(conf.Version)
-	if err != nil {
-		return "", w.Wrapf(err, "cannot parse version <%s>", conf.Version)
-	}
-	return v.String(), nil
-}
-
-func CompanionImage(ctx context.Context) (string, error) {
-	w := wool.Get(ctx).In("proto.CompanionImage")
-	v, err := version(ctx)
-	if err != nil {
-		return "", w.Wrapf(err, "cannot get version")
-	}
-	return fmt.Sprintf("codeflydev/companion:%s", v), nil
-}
-
-//go:embed info.codefly.yaml
-var info embed.FS
-
 func (g *Proto) Generate(ctx context.Context) error {
 	w := wool.Get(ctx).In("proto.Generate")
 	// Check if Docker is running
-	if !runners.DockerRunning(ctx) {
+	if !runners.DockerEngineRunning(ctx) {
 		return w.NewError("docker is not running")
 	}
 	updated, err := g.dependencies.Updated(ctx)
@@ -80,7 +53,7 @@ func (g *Proto) Generate(ctx context.Context) error {
 		return nil
 	}
 	w.Info("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
-	image, err := CompanionImage(ctx)
+	image, err := version.CompanionImage(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
 	}

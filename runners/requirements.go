@@ -12,7 +12,7 @@ func CheckForRuntimes(ctx context.Context, requirements []*agentv0.Runtime) erro
 	for _, req := range requirements {
 		switch req.Type {
 		case agentv0.Runtime_DOCKER:
-			ok := DockerRunning(ctx)
+			ok := DockerEngineRunning(ctx)
 			if !ok {
 				return fmt.Errorf("Docker is required and is not running")
 			}

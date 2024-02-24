@@ -77,7 +77,7 @@ func (provider *Provider) Done() {
 
 func (provider *Provider) Inject(ctx context.Context) context.Context {
 	// TODO: ADD TO BAGGAGE
-	return context.WithValue(ctx, KeyInContext, provider)
+	return context.WithValue(ctx, ProviderKey, provider)
 }
 
 func (provider *Provider) WithLogger(l LogProcessor) *Provider {
@@ -87,7 +87,7 @@ func (provider *Provider) WithLogger(l LogProcessor) *Provider {
 
 // TODO: MOVE TO BAGGAGE
 func get(ctx context.Context) (*Provider, error) {
-	w := ctx.Value(KeyInContext)
+	w := ctx.Value(ProviderKey)
 	if w == nil {
 		return nil, fmt.Errorf("no wool in context")
 	}

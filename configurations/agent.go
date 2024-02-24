@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/codefly-dev/core/version"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
 
@@ -39,7 +41,7 @@ func init() {
 		Kind:      "codefly:cli",
 		Publisher: "codefly.dev",
 		Name:      "cli",
-		Version:   shared.Must(Version(context.Background())),
+		Version:   shared.Must(version.Version(context.Background())),
 	}
 }
 

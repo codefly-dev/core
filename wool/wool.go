@@ -171,42 +171,57 @@ func (w *Wool) Wrapf(err error, msg string, args ...any) error {
 }
 
 type NotFoundError struct {
-	what string
+	what ContextKey
 }
 
 func (err *NotFoundError) Error() string {
 	return fmt.Sprintf("<%s> not found", err.what)
 }
 
-func NotFound(what string) error {
+func NotFound(what ContextKey) error {
 	return &NotFoundError{what: what}
 }
 
-func (w *Wool) lookup(key string) (string, error) {
+func (w *Wool) lookup(key ContextKey) (string, error) {
 	md, ok := metadata.FromIncomingContext(w.ctx)
 	if !ok {
 		return "", fmt.Errorf("cannot get metadata from context")
 	}
 
-	if value, found := md[key]; found && len(value) > 0 && len(value[0]) > 0 {
+	if value, found := md[string(key)]; found && len(value) > 0 && len(value[0]) > 0 {
 		return value[0], nil
 	}
 	return "", NotFound(key)
-
 }
 
-const UserIDKey = "wood:user-id"
+type ContextKey string
 
-// UserID returns the UserID from the context
-func (w *Wool) UserID() (string, error) {
-	return w.lookup(UserIDKey)
+const UserAuthIDKey ContextKey = "codefly.user.auth.id"
+
+// UserAuthID returns the ID from the Auth process from the context
+func (w *Wool) UserAuthID() (string, error) {
+	return w.lookup(UserAuthIDKey)
 }
 
-const UserEmailKey = "wood:email"
+const UserEmailKey ContextKey = "codefly.user.email"
 
 // UserEmail returns the UserEmail from the context
 func (w *Wool) UserEmail() (string, error) {
 	return w.lookup(UserEmailKey)
+}
+
+const UserNameKey ContextKey = "codefly.user.name"
+
+// UserName returns the UserName from the context
+func (w *Wool) UserName() (string, error) {
+	return w.lookup(UserNameKey)
+}
+
+const UserGivenNameKey ContextKey = "codefly.user.given_name"
+
+// UserGivenName returns the UserGivenName from the context
+func (w *Wool) UserGivenName() (string, error) {
+	return w.lookup(UserGivenNameKey)
 }
 
 func (w *Wool) Source() *Identifier {
@@ -230,9 +245,7 @@ func (w *Wool) StackTrace() []CodePath {
 	return toCodePaths(m)
 }
 
-type ContextKey string
-
-const KeyInContext = ContextKey("provider")
+const ProviderKey = ContextKey("provider")
 
 type Resource struct {
 	Resource *resource.Resource

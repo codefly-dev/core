@@ -18,7 +18,8 @@ type Watcher struct {
 	watcher *fsnotify.Watcher
 
 	// internal
-	base string
+	base  string
+	pause bool
 }
 
 type Change struct {
@@ -100,11 +101,12 @@ func (watcher *Watcher) Start(ctx context.Context) {
 					w.Error("cannot get relative path", wool.Field("base", watcher.base), wool.Field("path", event.Name))
 					continue
 				}
-
-				watcher.events <- Change{
+				change := Change{
 					Path:       rel,
 					IsRelative: true,
 				}
+				watcher.Handle(change)
+
 				continue
 			}
 		case _, ok := <-watcher.watcher.Errors:
@@ -113,4 +115,19 @@ func (watcher *Watcher) Start(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (watcher *Watcher) Handle(event Change) {
+	if watcher.pause {
+		return
+	}
+	watcher.events <- event
+}
+
+func (watcher *Watcher) Pause() {
+	watcher.pause = true
+}
+
+func (watcher *Watcher) Resume() {
+	watcher.pause = false
 }

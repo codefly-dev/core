@@ -2,6 +2,7 @@ package headers
 
 const (
 	UserID            = "X-Codefly-User-ID"
+	UserAuthID        = "X-Codefly-User-Auth-ID"
 	UserEmail         = "X-Codefly-User-Email"
 	UserVerifiedEmail = "X-Codefly-User-Verified-Email"
 	UserName          = "X-Codefly-User-Name"
@@ -17,6 +18,7 @@ const (
 func UserHeaders() []string {
 	return []string{
 		UserID,
+		UserAuthID,
 		UserEmail,
 		UserVerifiedEmail,
 		UserName,

@@ -384,10 +384,41 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 	return output
 }
 
-// FindEndpointForRoute finds the endpoint that matches the route rpcs
-func FindEndpointForRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *RestRouteGroup) *basev0.Endpoint {
+func DetectNewGRPCRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpoint, known []*GRPCRoute) []*GRPCRoute {
+	w := wool.Get(ctx).In("DetectNewGRPCRoutes")
+	knownRoutes := make(map[string]bool)
+	for _, k := range known {
+		knownRoutes[k.Name] = true
+	}
+	var newRoutes []*GRPCRoute
+	for _, e := range endpoints {
+		if grpc := IsGRPC(ctx, e.Api); grpc != nil {
+			for _, rpc := range grpc.Rpcs {
+				w.Debug("found a GRPC API", wool.NameField(rpc.Name))
+				if _, ok := knownRoutes[rpc.Name]; !ok {
+					w.Debug("detected unknown RPC", wool.NameField(rpc.Name))
+					newRoutes = append(newRoutes, GRPCRouteFromProto(e, grpc, rpc))
+				}
+			}
+		}
+	}
+	return newRoutes
+}
+
+// FindEndpointForRestRoute finds the endpoint that matches the route rpcs
+func FindEndpointForRestRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *RestRouteGroup) *basev0.Endpoint {
 	for _, e := range endpoints {
 		if e.Application == route.Application && e.Service == route.Service && IsRest(ctx, e.Api) != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// FindEndpointForGRPCRoute finds the endpoint that matches the route rpcs
+func FindEndpointForGRPCRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *GRPCRoute) *basev0.Endpoint {
+	for _, e := range endpoints {
+		if e.Application == route.Application && e.Service == route.Service && IsGRPC(ctx, e.Api) != nil {
 			return e
 		}
 	}

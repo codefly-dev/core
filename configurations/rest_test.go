@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type Extension struct {
+type Auth struct {
 	Protected string `yaml:"protected"`
 }
 
@@ -34,7 +34,7 @@ func Exhaust[T comparable](desired []*T, got []*T) error {
 
 func TestRouteLoading(t *testing.T) {
 	ctx := context.Background()
-	r, err := configurations.LoadRestRouteGroup(ctx, "testdata/routes/app/svc/something-wicked.route.codefly.yaml")
+	r, err := configurations.LoadRestRouteGroup(ctx, "testdata/rests/app/svc/something-wicked.rest.codefly.yaml")
 	assert.NoError(t, err)
 	assert.Equal(t, "/something-wicked", r.Path)
 	assert.Equal(t, 2, len(r.Routes))
@@ -45,8 +45,8 @@ func TestRouteLoading(t *testing.T) {
 	assert.NoError(t, Exhaust(expected, r.Routes))
 }
 
-type extendedRoute = configurations.ExtendedRestRoute[Extension]
-type extendedRouteGroup = configurations.ExtendedRestRouteGroup[Extension]
+type extendedRoute = configurations.ExtendedRestRoute[Auth]
+type extendedRouteGroup = configurations.ExtendedRestRouteGroup[Auth]
 
 func TestRouteExtended(t *testing.T) {
 	ctx := context.Background()
@@ -62,7 +62,7 @@ func TestRouteExtended(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Reload
-	loader, err := configurations.NewExtendedRouteLoader[Extension](ctx, tmpDir)
+	loader, err := configurations.NewExtendedRestRouteLoader[Auth](ctx, tmpDir)
 	assert.NoError(t, err)
 
 	err = loader.Load(ctx)
@@ -79,11 +79,12 @@ func TestRouteExtended(t *testing.T) {
 }
 
 func TestRouteExtendedLoading(t *testing.T) {
-	r, err := configurations.LoadExtendedRestRoute[Extension]("testdata/routes/app/svc/something-wicked.route.codefly.yaml")
+	ctx := context.Background()
+	r, err := configurations.LoadExtendedRestRouteGroup[Auth](ctx, "testdata/rests/app/svc/something-wicked.rest.codefly.yaml")
 	assert.NoError(t, err)
 	expected := []*extendedRoute{
 		{RestRoute: configurations.RestRoute{Path: "/something-wicked", Method: configurations.HTTPMethodGet}},
-		{RestRoute: configurations.RestRoute{Path: "/something-wicked", Method: configurations.HTTPMethodPost}, Extension: Extension{Protected: "working"}},
+		{RestRoute: configurations.RestRoute{Path: "/something-wicked", Method: configurations.HTTPMethodPost}, Extension: Auth{Protected: "working"}},
 	}
 	assert.NoError(t, Exhaust(expected, r.Routes))
 }
@@ -91,7 +92,7 @@ func TestRouteExtendedLoading(t *testing.T) {
 func TestLoadingRoute(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
-	loader, err := configurations.NewRouteLoader(ctx, "testdata/routes")
+	loader, err := configurations.NewRestRouteLoader(ctx, "testdata/rests")
 	assert.NoError(t, err)
 	err = loader.Load(ctx)
 	assert.NoError(t, err)
@@ -119,7 +120,7 @@ func TestLoadingRoute(t *testing.T) {
 func TestLoadingExtendedRoute(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
-	loader, err := configurations.NewExtendedRouteLoader[Extension](ctx, "testdata/routes")
+	loader, err := configurations.NewExtendedRestRouteLoader[Auth](ctx, "testdata/rests")
 	assert.NoError(t, err)
 	err = loader.Load(ctx)
 	assert.NoError(t, err)

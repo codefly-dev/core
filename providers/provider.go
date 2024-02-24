@@ -25,7 +25,7 @@ type Provider struct {
 func New(ctx context.Context, project *configurations.Project) (*Provider, error) {
 	w := wool.Get(ctx).In("Project.CreateLocalProvider")
 	// Create a provider folder for local development
-	providerDir := path.Join(project.Dir(), "providers", "local")
+	providerDir := path.Join(project.Dir(), "_providers", "local")
 	_, err := shared.CheckDirectoryOrCreate(ctx, providerDir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create provider directory")
@@ -195,7 +195,13 @@ func (provider *Provider) Share(ctx context.Context, infos []*basev0.ProviderInf
 	return nil
 }
 
-func loadFromEnvFile(ctx context.Context, dir string, p string) (*basev0.ProviderInformation, error) {
+type ProviderInformationWrapper struct {
+	*basev0.ProviderInformation
+	relativePath string
+	name         string
+}
+
+func loadFromEnvFile(ctx context.Context, dir string, p string) (*ProviderInformationWrapper, error) {
 	w := wool.Get(ctx).In("provider.loadFromEnvFile")
 
 	// Extract the relative path
@@ -204,14 +210,7 @@ func loadFromEnvFile(ctx context.Context, dir string, p string) (*basev0.Provide
 		return nil, w.Wrapf(err, "cannot get relative path")
 	}
 	rel = filepath.Dir(rel)
-	origin := configurations.ProjectProviderOrigin
-	if rel != "." {
-		parsed, err := configurations.ParseServiceUnique(rel)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot parse service unique")
-		}
-		origin = parsed.Unique()
-	}
+
 	base := filepath.Base(p)
 	var ok bool
 	base, ok = strings.CutSuffix(base, ".env")
@@ -224,9 +223,8 @@ func loadFromEnvFile(ctx context.Context, dir string, p string) (*basev0.Provide
 		return nil, w.Wrapf(err, "cannot read auth0.env")
 	}
 	info := &basev0.ProviderInformation{
-		Name:   base,
-		Origin: origin,
-		Data:   make(map[string]string),
+		Name: base,
+		Data: make(map[string]string),
 	}
 	lines := strings.Split(string(f), "\n")
 
@@ -237,32 +235,60 @@ func loadFromEnvFile(ctx context.Context, dir string, p string) (*basev0.Provide
 		}
 		info.Data[tokens[0]] = tokens[1]
 	}
-	return info, nil
+	return &ProviderInformationWrapper{
+		ProviderInformation: info,
+		relativePath:        rel,
+		name:                base,
+	}, nil
 }
 
 func LoadProviderFromEnvFiles(ctx context.Context, project *configurations.Project, env *configurations.Environment) ([]*basev0.ProviderInformation, error) {
 	w := wool.Get(ctx).In("provider.loadFromProject")
-	var infos []*basev0.ProviderInformation
-	dir := filepath.Join(project.Dir(), "providers", env.Name)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return nil, w.NewError("path doesn't exist: %s", dir)
+	dir := filepath.Join(project.Dir(), "_providers", env.Name)
+	if !shared.DirectoryExists(dir) {
+		return nil, w.NewError("providers directory doesn't exist: %s", dir)
 	}
-	// Walk
+	return LoadProviderFromDir(ctx, dir)
+}
+
+func LoadProjectProviderFromDir(ctx context.Context, dir string) ([]*basev0.ProviderInformation, error) {
+	w := wool.Get(ctx).In("provider.loadFromProject")
+	dir = filepath.Join(dir, "_project")
+	w.Debug("loading providers from directory", wool.DirField(dir))
+	var infos []*basev0.ProviderInformation
+	if !shared.DirectoryExists(dir) {
+		return nil, w.NewError("providers directory doesn't exist: %s", dir)
+	}
+	// Walk directories recursively
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return w.Wrapf(err, "cannot walk path")
 		}
-		if info.IsDir() {
+		if path == dir {
 			return nil
 		}
-		if info.Name() == ".env" {
+		if !info.IsDir() {
+			if info.Name() == ".env" {
+				return nil
+			}
+			prov, err := loadFromEnvFile(ctx, dir, path)
+			if err != nil {
+				return w.Wrapf(err, "cannot load provider from env file")
+			}
+			prov.ProviderInformation.Origin = configurations.ProjectProviderOrigin
+			if prov.relativePath == "." {
+				prov.ProviderInformation.Name = prov.Name
+			} else {
+
+				prov.ProviderInformation.Name = fmt.Sprintf("%s/%s", prov.relativePath, prov.Name)
+			}
+			w.Debug("loaded provider", wool.Field("info", prov.ProviderInformation.Name))
+			if err != nil {
+				return w.Wrapf(err, "cannot match origin")
+			}
+			infos = append(infos, prov.ProviderInformation)
 			return nil
 		}
-		prov, nerr := loadFromEnvFile(ctx, dir, path)
-		if nerr != nil {
-			return w.Wrapf(nerr, "cannot load provider from env file")
-		}
-		infos = append(infos, prov)
 		return nil
 	})
 
@@ -270,4 +296,72 @@ func LoadProviderFromEnvFiles(ctx context.Context, project *configurations.Proje
 		return nil, w.Wrapf(err, "cannot walk providers directory")
 	}
 	return infos, nil
+}
+
+func LoadServiceProviderFromDir(ctx context.Context, dir string) ([]*basev0.ProviderInformation, error) {
+	w := wool.Get(ctx).In("provider.loadFromProject")
+	w.Debug("loading providers from directory", wool.DirField(dir))
+	var infos []*basev0.ProviderInformation
+	if !shared.DirectoryExists(dir) {
+		return nil, w.NewError("providers directory doesn't exist: %s", dir)
+	}
+	// Walk directories recursively
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return w.Wrapf(err, "cannot walk path")
+		}
+		if path == dir {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return w.Wrapf(err, "cannot get relative path")
+		}
+		if strings.HasPrefix(rel, "_project") {
+			return nil
+		}
+		// Check that we have a valid unique
+		unique := filepath.Dir(rel)
+		_, err = configurations.ParseService(unique)
+		if err != nil {
+			return w.Wrapf(err, "cannot parse service")
+		}
+		if !info.IsDir() {
+			if info.Name() == ".env" {
+				return nil
+			}
+			prov, err := loadFromEnvFile(ctx, dir, path)
+			if err != nil {
+				return w.Wrapf(err, "cannot load provider from env file")
+			}
+			prov.ProviderInformation.Origin = unique
+			prov.ProviderInformation.Name = prov.name
+			w.Debug("loaded provider", wool.Field("info", info))
+			if err != nil {
+				return w.Wrapf(err, "cannot match origin")
+			}
+			infos = append(infos, prov.ProviderInformation)
+			return nil
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot walk providers directory")
+	}
+	return infos, nil
+}
+
+func LoadProviderFromDir(ctx context.Context, dir string) ([]*basev0.ProviderInformation, error) {
+	w := wool.Get(ctx).In("provider.loadFromProject")
+	projectInfos, err := LoadProjectProviderFromDir(ctx, dir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load project providers")
+	}
+	serviceInfos, err := LoadServiceProviderFromDir(ctx, dir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load service providers")
+	}
+	return append(projectInfos, serviceInfos...), nil
+
 }

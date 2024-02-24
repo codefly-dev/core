@@ -42,6 +42,7 @@ type Docker struct {
 	outLock sync.Mutex
 	wg      sync.WaitGroup
 	ctx     context.Context
+	running bool
 }
 
 type DockerPortMapping struct {
@@ -49,7 +50,7 @@ type DockerPortMapping struct {
 	Container int
 }
 
-func DockerRunning(ctx context.Context) bool {
+func DockerEngineRunning(ctx context.Context) bool {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return false
@@ -210,6 +211,7 @@ func (docker *Docker) Start(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot start container")
 	}
+	docker.running = true
 	if !docker.silent {
 		options := container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
 		logReader, err := docker.client.ContainerLogs(ctx, docker.instance.container.ID, options)
@@ -280,11 +282,14 @@ func (docker *Docker) portBindings() nat.PortMap {
 }
 
 func (docker *Docker) Stop() error {
-	defer func() {
-		if docker.reader != nil {
+	if docker.reader != nil {
+		defer func() {
 			docker.reader.Close()
-		}
-	}()
+		}()
+	}
+	if docker.instance == nil || docker.instance.container.ID == "" {
+		return nil
+	}
 	err := docker.client.ContainerStop(context.Background(), docker.instance.container.ID, container.StopOptions{Timeout: shared.Pointer(3)})
 	if err != nil {
 		_ = docker.client.ContainerKill(context.Background(), docker.instance.container.ID, "SIGKILL")
@@ -298,6 +303,11 @@ func (docker *Docker) Silence() {
 
 func (docker *Docker) WithWorkDir(dir string) {
 	docker.workDir = dir
+
+}
+
+func (docker *Docker) Running() bool {
+	return docker.running
 
 }
 

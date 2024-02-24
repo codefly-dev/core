@@ -1,7 +1,12 @@
 package wool_test
 
 import (
+	"context"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"google.golang.org/grpc/metadata"
 
 	"github.com/codefly-dev/core/wool"
 )
@@ -11,8 +16,8 @@ func TestSanitizeForward(t *testing.T) {
 		header string
 		wanted string
 	}{
-		{"User-Agent", "user-agent"},
-		{"X-Codefly-Forwarded-For", "wool:forwarded-for"},
+		{"User-Agent", "user.agent"},
+		{"X-Codefly-Forwarded-For", "codefly.forwarded.for"},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.header, func(t *testing.T) {
@@ -23,4 +28,32 @@ func TestSanitizeForward(t *testing.T) {
 		})
 	}
 
+}
+
+func TestInjectMetaData(t *testing.T) {
+	tcs := []struct {
+		md     map[string]string
+		authID string
+		email  string
+	}{
+		{
+			md: map[string]string{
+				"codefly.user.auth.id": "123",
+				"codefly.user.email":   "test@test.com",
+			},
+		},
+	}
+	for _, tc := range tcs {
+		t.Run("InjectMetadata", func(t *testing.T) {
+			ctx := metadata.NewIncomingContext(context.Background(), metadata.New(tc.md))
+			ctx = wool.InjectMetadata(ctx)
+			w := wool.Get(ctx)
+			authID, err := w.UserAuthID()
+			assert.NoError(t, err)
+			assert.Equal(t, "123", authID)
+			email, err := w.UserEmail()
+			assert.NoError(t, err)
+			assert.Equal(t, "test@test.com", email)
+		})
+	}
 }

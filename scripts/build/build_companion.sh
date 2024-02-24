@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-YAML_FILE="agents/helpers/proto/info.codefly.yaml"
+YAML_FILE="version/info.codefly.yaml"
 
 if [ ! -f "$YAML_FILE" ]; then
     echo "Error: YAML file $YAML_FILE does not exist."
@@ -9,4 +9,4 @@ fi
 
 CURRENT_VERSION=$(yq eval '.version' "$YAML_FILE")
 
-docker build -f agents/helpers/proto/Dockerfile -t codeflydev/companion:"$CURRENT_VERSION" .
+docker build -f generate/companion/Dockerfile -t codeflydev/companion:"$CURRENT_VERSION" .

@@ -33,9 +33,10 @@ type APISource interface {
 }
 
 type GrpcAPI struct {
-	filename string
-	content  []byte
-	rpcs     []*basev0.RPC
+	filename    string
+	content     []byte
+	packageName string
+	rpcs        []*basev0.RPC
 }
 
 func NewGrpcAPI(ctx context.Context, endpoint *Endpoint, filename string) (*basev0.Endpoint, error) {
@@ -51,23 +52,28 @@ func NewGrpcAPI(ctx context.Context, endpoint *Endpoint, filename string) (*base
 	}
 
 	var rpcs []*basev0.RPC
+	var packageName string
 	for _, element := range got.ProtoBody {
-		if service, ok := element.(*parser.Service); ok {
-			for _, inside := range service.ServiceBody {
+		switch element := element.(type) {
+		case *parser.Package:
+			packageName = element.Name
+		case *parser.Service:
+			for _, inside := range element.ServiceBody {
 				if rpc, ok := inside.(*parser.RPC); ok {
-					rpcs = append(rpcs, &basev0.RPC{Name: rpc.RPCName})
+					rpcs = append(rpcs, &basev0.RPC{Name: rpc.RPCName, ServiceName: element.ServiceName})
 				}
 			}
 		}
 	}
-	return WithAPI(ctx, endpoint, &GrpcAPI{filename: filename, content: content, rpcs: rpcs})
+	return WithAPI(ctx, endpoint, &GrpcAPI{filename: filename, content: content, packageName: packageName, rpcs: rpcs})
 }
 
 func (grpc *GrpcAPI) Proto() (*basev0.API, error) {
 	// Add a GrpcAPI message with the file content
 	grpcAPI := &basev0.GrpcAPI{
-		Proto: grpc.content,
-		Rpcs:  grpc.rpcs,
+		Proto:   grpc.content,
+		Rpcs:    grpc.rpcs,
+		Package: grpc.packageName,
 	}
 	// Add an API message with the GrpcAPI message
 	api := &basev0.API{

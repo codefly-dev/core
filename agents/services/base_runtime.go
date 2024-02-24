@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"sync"
 
 	"github.com/codefly-dev/core/wool"
 
@@ -19,6 +20,8 @@ type RuntimeWrapper struct {
 	StopStatus  *runtimev0.StopStatus
 
 	DesiredState *runtimev0.DesiredState
+
+	sync.RWMutex
 }
 
 func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
@@ -37,7 +40,20 @@ func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
 }
 
 func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
-	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: err.Error()}
+	s.LoadStatus = &runtimev0.LoadStatus{
+		State:   runtimev0.LoadStatus_ERROR,
+		Message: err.Error()}
+	return &runtimev0.LoadResponse{
+		Status: s.LoadStatus,
+	}, nil
+}
+
+func (s *RuntimeWrapper) LoadErrorWithDetails(err error, details string) (*runtimev0.LoadResponse, error) {
+	s.LoadStatus = &runtimev0.LoadStatus{
+		State:   runtimev0.LoadStatus_ERROR,
+		Message: err.Error(),
+		Details: details,
+	}
 	return &runtimev0.LoadResponse{
 		Status: s.LoadStatus,
 	}, nil
@@ -98,11 +114,13 @@ func NOOP() *runtimev0.DesiredState {
 }
 
 func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
+	s.RLock()
 	if s.DesiredState == nil {
 		s.DesiredState = NOOP()
 	}
 	// After "read", we are back to normal state
 	defer func() {
+		s.RUnlock()
 		s.DesiredState = NOOP()
 	}()
 	resp := &runtimev0.InformationResponse{
@@ -116,18 +134,24 @@ func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev0.Inf
 }
 
 func (s *RuntimeWrapper) DesiredLoad() {
+	s.Lock()
+	defer s.Unlock()
 	s.DesiredState = &runtimev0.DesiredState{
 		Stage: runtimev0.DesiredState_LOAD,
 	}
 }
 
 func (s *RuntimeWrapper) DesiredInit() {
+	s.Lock()
+	defer s.Unlock()
 	s.DesiredState = &runtimev0.DesiredState{
 		Stage: runtimev0.DesiredState_INIT,
 	}
 }
 
 func (s *RuntimeWrapper) DesiredStart() {
+	s.Lock()
+	defer s.Unlock()
 	s.DesiredState = &runtimev0.DesiredState{
 		Stage: runtimev0.DesiredState_START,
 	}

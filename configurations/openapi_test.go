@@ -14,7 +14,7 @@ func TestOpenAPICombineForward(t *testing.T) {
 	ctx := context.Background()
 
 	endpoint := &configurations.Endpoint{Service: "org", Application: "management"}
-	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/swagger/one/org.swagger.json")
+	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/api/swagger/one/org.swagger.json")
 	assert.NoError(t, err)
 
 	gateway := &configurations.Endpoint{Service: "api", Application: "public"}
@@ -64,11 +64,11 @@ func TestOpenAPICombineForward(t *testing.T) {
 func TestOpenAPICombineSample(t *testing.T) {
 	ctx := context.Background()
 	endpoint := &configurations.Endpoint{Service: "svc", Application: "app"}
-	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/swagger/sample/server.swagger.json")
+	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/api/swagger/sample/server.swagger.json")
 	assert.NoError(t, err)
 
 	otherEndpoint := &configurations.Endpoint{Service: "org", Application: "management"}
-	otherRest, err := configurations.NewRestAPIFromOpenAPI(ctx, otherEndpoint, "testdata/swagger/sample/org.swagger.json")
+	otherRest, err := configurations.NewRestAPIFromOpenAPI(ctx, otherEndpoint, "testdata/api/swagger/sample/org.swagger.json")
 	assert.NoError(t, err)
 
 	gateway := &configurations.Endpoint{Service: "api", Application: "public"}
@@ -93,11 +93,11 @@ func TestOpenAPICombineSample(t *testing.T) {
 func TestOpenAPICombineWithFilter(t *testing.T) {
 	ctx := context.Background()
 	endpoint := &configurations.Endpoint{Service: "svc", Application: "app"}
-	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/swagger/sample/server.swagger.json")
+	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/api/swagger/sample/server.swagger.json")
 	assert.NoError(t, err)
 
 	otherEndpoint := &configurations.Endpoint{Service: "org", Application: "management"}
-	otherRest, err := configurations.NewRestAPIFromOpenAPI(ctx, otherEndpoint, "testdata/swagger/sample/org.swagger.json")
+	otherRest, err := configurations.NewRestAPIFromOpenAPI(ctx, otherEndpoint, "testdata/api/swagger/sample/org.swagger.json")
 	assert.NoError(t, err)
 
 	gateway := &configurations.Endpoint{Service: "api", Application: "public"}
