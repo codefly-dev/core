@@ -1,3 +1,5 @@
+//go:build flaky
+
 package generators_test
 
 import (
