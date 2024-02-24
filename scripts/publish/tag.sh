@@ -1,6 +1,6 @@
 #!/bin/bash
 
-./scripts/build/build_companion.sh
+
 
 
 YAML_FILE="version/info.codefly.yaml"
@@ -20,6 +20,8 @@ NEW_VERSION=$(semver bump "$NEW_VERSION_TYPE" "$CURRENT_VERSION")
 # Update the version in the YAML file (for macOS)
 sed -i '' "s/version:.*/version: $NEW_VERSION/" "$YAML_FILE"
 
+./scripts/build/build_companion.sh
+
 # Add the changes to git
 git add "$YAML_FILE"
 
@@ -32,3 +34,6 @@ git tag -a "v$NEW_VERSION" -m "Version $NEW_VERSION" -f
 # Force push the commit and tag to the remote repository
 git push -f
 git push origin "v$NEW_VERSION" -f
+
+
+./scripts/build/push_companion.sh
