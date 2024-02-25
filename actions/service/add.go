@@ -75,21 +75,23 @@ func (action *AddServiceAction) Run(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get service reference")
 	}
-	err = workspace.AddService(ctx, project.Name, application.Name, ref)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot add service")
-	}
 
-	err = workspace.SetActiveService(ctx, project.Name, application.Name, service.Name)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot set active service")
-	}
+	if workspace != nil {
+		err = workspace.AddService(ctx, project.Name, application.Name, ref)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot add service")
+		}
 
-	err = workspace.Save(ctx)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot save workspace")
-	}
+		err = workspace.SetActiveService(ctx, project.Name, application.Name, service.Name)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot set active service")
+		}
 
+		err = workspace.Save(ctx)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot save workspace")
+		}
+	}
 	return service, nil
 }
 
