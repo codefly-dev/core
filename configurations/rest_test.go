@@ -144,3 +144,13 @@ func TestLoadingExtendedRoute(t *testing.T) {
 	assert.Equal(t, "svc", group.Service)
 	assert.Equal(t, 2, len(group.Routes))
 }
+
+func TestRestEnvironmentVariable(t *testing.T) {
+	endpoint := &configurations.Endpoint{Application: "app", Service: "svc", Name: "api", Visibility: configurations.VisibilityPublic}
+	route := &configurations.RestRoute{
+		Path:   "/something-wicked",
+		Method: configurations.HTTPMethodGet,
+	}
+	env := configurations.RestRoutesAsEnvironmentVariable(endpoint.Proto(), route.Proto())
+	assert.Equal(t, "CODEFLY_RESTROUTE__APP__SVC___API____SOMETHING-WICKED_____GET=public", env)
+}

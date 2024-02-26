@@ -346,7 +346,7 @@ func (app *Application) PublicEndpoints(ctx context.Context) ([]*basev0.Endpoint
 			if endpoint.Visibility != VisibilityPublic {
 				continue
 			}
-			publicEndpoints = append(publicEndpoints, EndpointBaseProto(endpoint))
+			publicEndpoints = append(publicEndpoints, endpoint.Proto())
 		}
 	}
 	return publicEndpoints, nil

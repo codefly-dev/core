@@ -11,7 +11,6 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	"github.com/codefly-dev/core/runners"
 	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/core/version"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -22,7 +21,7 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 		return w.Wrapf(err, "can't create directory for destination")
 	}
 	// call the companion
-	image, err := version.CompanionImage(ctx)
+	image, err := CompanionImage(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
 	}

@@ -42,6 +42,13 @@ type RestRoute struct {
 	Method HTTPMethod
 }
 
+func (r RestRoute) Proto() *basev0.RestRoute {
+	return &basev0.RestRoute{
+		Path:   r.Path,
+		Method: ConvertHTTPMethodToProto(r.Method),
+	}
+}
+
 type ExtendedRestRoute[T any] struct {
 	RestRoute `yaml:",inline"`
 
@@ -455,7 +462,7 @@ func AsRestRouteEnvironmentVariable(ctx context.Context, endpoint *basev0.Endpoi
 const RestRoutePrefix = "CODEFLY_RESTROUTE__"
 
 func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
-	return fmt.Sprintf("%s=%s", RestRouteEnvironmentVariableKey(endpoint, route), ConvertMethod(route.Method))
+	return fmt.Sprintf("%s=%s", RestRouteEnvironmentVariableKey(endpoint, route), endpoint.Visibility)
 }
 
 func RestRouteEnvironmentVariableKey(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
@@ -466,10 +473,31 @@ func RestRouteEnvironmentVariableKey(endpoint *basev0.Endpoint, route *basev0.Re
 	unique = strings.Replace(unique, "::", "____", 1)
 	// Add path
 	unique = fmt.Sprintf("%s____%s", unique, sanitizePath(route.Path))
+	unique = fmt.Sprintf("%s_____%s", unique, ConvertHTTPMethodFromProto(route.Method))
 	return strings.ToUpper(fmt.Sprintf("%s%s", RestRoutePrefix, unique))
 }
 
-func ConvertMethod(m basev0.HTTPMethod) HTTPMethod {
+func ConvertHTTPMethodToProto(m HTTPMethod) basev0.HTTPMethod {
+	switch m {
+	case HTTPMethodGet:
+		return basev0.HTTPMethod_GET
+	case HTTPMethodPost:
+		return basev0.HTTPMethod_POST
+	case HTTPMethodPut:
+		return basev0.HTTPMethod_PUT
+	case HTTPMethodDelete:
+		return basev0.HTTPMethod_DELETE
+	case HTTPMethodPatch:
+		return basev0.HTTPMethod_PATCH
+	case HTTPMethodOptions:
+		return basev0.HTTPMethod_OPTIONS
+	case HTTPMethodHead:
+		return basev0.HTTPMethod_HEAD
+	}
+	panic(fmt.Sprintf("unknown HTTP method: <%v>", m))
+}
+
+func ConvertHTTPMethodFromProto(m basev0.HTTPMethod) HTTPMethod {
 	switch m {
 	case basev0.HTTPMethod_GET:
 		return HTTPMethodGet
@@ -492,7 +520,7 @@ func ConvertMethod(m basev0.HTTPMethod) HTTPMethod {
 func RestRouteFromProto(r *basev0.RestRoute) *RestRoute {
 	return &RestRoute{
 		Path:   r.Path,
-		Method: ConvertMethod(r.Method),
+		Method: ConvertHTTPMethodFromProto(r.Method),
 	}
 }
 

@@ -101,6 +101,16 @@ func (endpoint *Endpoint) AsReference() *EndpointReference {
 	}
 }
 
+func (endpoint *Endpoint) Proto() *basev0.Endpoint {
+	return &basev0.Endpoint{
+		Name:        endpoint.Name,
+		Application: endpoint.Application,
+		Service:     endpoint.Service,
+		Visibility:  endpoint.Visibility,
+		Description: endpoint.Description,
+	}
+}
+
 /* For runtime */
 
 const EndpointIdentifier = "ENDPOINT"
@@ -233,16 +243,6 @@ func (n NilEndpointError) Error() string {
 	return "endpoint is nil"
 }
 
-func EndpointBaseProto(e *Endpoint) *basev0.Endpoint {
-	return &basev0.Endpoint{
-		Name:        e.Name,
-		Application: e.Application,
-		Service:     e.Service,
-		Visibility:  e.Visibility,
-		Description: e.Description,
-	}
-}
-
 func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
 	return &Endpoint{
 		Name:        e.Name,
@@ -357,7 +357,7 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 						service:     e.Service,
 						application: e.Application,
 						path:        r.Path,
-						method:      ConvertMethod(r.Method),
+						method:      ConvertHTTPMethodFromProto(r.Method),
 					}
 					if _, ok := knownRoutes[key.String()]; !ok {
 						w.Debug("detected unknown route", wool.Field("route", key.String()))

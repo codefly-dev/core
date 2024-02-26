@@ -22,7 +22,7 @@ func WithAPI(ctx context.Context, endpoint *Endpoint, source APISource) (*basev0
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create grpc api: %v")
 	}
-	base := EndpointBaseProto(endpoint)
+	base := endpoint.Proto()
 	base.Api = api
 	base.Replicas = 1
 	return base, nil

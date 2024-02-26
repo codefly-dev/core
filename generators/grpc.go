@@ -11,14 +11,13 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	"github.com/codefly-dev/core/runners"
 	"github.com/codefly-dev/core/templates"
-	"github.com/codefly-dev/core/version"
 	"github.com/codefly-dev/core/wool"
 )
 
 func GenerateGRPC(ctx context.Context, language languages.Language, destination string, service string, endpoints ...*basev0.Endpoint) error {
 	w := wool.Get(ctx).In("generateGRPC", wool.Field("destination", destination))
 	// call the companion
-	image, err := version.CompanionImage(ctx)
+	image, err := CompanionImage(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
 	}

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/codefly-dev/core/version"
-
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/runners"
 	"github.com/codefly-dev/core/shared"
@@ -13,8 +11,7 @@ import (
 )
 
 type Proto struct {
-	Dir     string
-	version string
+	Dir string
 
 	// Keep the proto hash for cashing
 	dependencies *builders.Dependencies
@@ -22,18 +19,13 @@ type Proto struct {
 
 func NewProto(ctx context.Context, dir string) (*Proto, error) {
 	w := wool.Get(ctx).In("proto.NewProto")
-	v, err := version.Version(ctx)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot get v")
-	}
+	w.Debug("Creating new proto generator", wool.DirField(dir))
 	deps := builders.NewDependencies("proto",
 		builders.NewDependency(dir).WithPathSelect(shared.NewSelect("*.proto")),
 	)
 	deps.Localize(dir)
-
 	return &Proto{
 		Dir:          dir,
-		version:      v,
 		dependencies: deps,
 	}, nil
 }
@@ -53,7 +45,7 @@ func (g *Proto) Generate(ctx context.Context) error {
 		return nil
 	}
 	w.Info("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
-	image, err := version.CompanionImage(ctx)
+	image, err := CompanionImage(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
 	}
