@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
+
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
@@ -29,7 +30,7 @@ type Application struct {
 	Domain      string `yaml:"domain"`
 	Description string `yaml:"description,omitempty"`
 
-	Services []*ServiceReference `yaml:"services"`
+	ServiceReferences []*ServiceReference `yaml:"services"`
 
 	// internal
 	dir string
@@ -114,26 +115,37 @@ func (ref *ApplicationReference) AddService(_ context.Context, service *ServiceR
 	return nil
 }
 
+type NewApplicationInput struct {
+	Name string
+}
+
 // NewApplication creates an application in a project
-func (project *Project) NewApplication(ctx context.Context, action *actionsv0.AddApplication) (*Application, error) {
+func (project *Project) NewApplication(ctx context.Context, action *actionsv0.NewApplication) (*Application, error) {
 	w := wool.Get(ctx).In("configurations.NewApplication", wool.NameField(action.Name))
 	if project.ExistsApplication(action.Name) {
 		return nil, w.NewError("project already exists")
 	}
 
 	app := &Application{
-		Kind:    ApplicationKind,
-		Name:    action.Name,
-		Domain:  ExtendDomain(project.Organization.Domain, action.Name),
+		Kind: ApplicationKind,
+		Name: action.Name,
+		//SourceVersionControl:  ExtendDomain(project.Organization.SourceVersionControl, action.Name),
 		Project: project.Name,
 	}
-
-	ref := &ApplicationReference{Name: action.Name, PathOverride: OverridePath(action.Name, action.Path)}
-	dir := project.ApplicationPath(ctx, ref)
+	dir := path.Join(project.Dir(), "applications", action.Name)
 
 	app.dir = dir
 
-	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
+	exists, err := shared.CheckDirectory(ctx, dir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot check directory")
+	}
+	if exists {
+		return nil, w.NewError("directory already exists")
+	}
+
+	_, err = shared.CheckDirectoryOrCreate(ctx, dir)
+
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create application directory")
 	}
@@ -146,12 +158,17 @@ func (project *Project) NewApplication(ctx context.Context, action *actionsv0.Ad
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot copy and apply template")
 	}
-	// Add application to project
-	project.Applications = append(project.Applications, ref)
+
+	err = project.AddApplicationReference(app.Reference())
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot add application to project")
+	}
+
 	err = project.Save(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot save project configuration")
 	}
+
 	return app, nil
 }
 
@@ -185,7 +202,7 @@ func LoadApplicationFromPath(ctx context.Context) (*Application, error) {
 }
 
 func (app *Application) postLoad(_ context.Context) error {
-	for _, ref := range app.Services {
+	for _, ref := range app.ServiceReferences {
 		ref.Application = app.Name
 	}
 	return app.Validate()
@@ -206,25 +223,22 @@ func (app *Application) Save(ctx context.Context) error {
 
 // Pre-save deals with some optimization
 func (app *Application) preSave(_ context.Context) error {
-	for _, ref := range app.Services {
+	for _, ref := range app.ServiceReferences {
 		// Don't write Application in yaml
 		ref.Application = ""
 	}
 	return nil
 }
 
-func (app *Application) AddService(_ context.Context, service *Service) error {
-	w := wool.Get(context.Background()).In("configurations.AddService", wool.NameField(service.Name))
-	for _, s := range app.Services {
-		if s.Name == service.Name {
+func (app *Application) AddServiceReference(_ context.Context, ref *ServiceReference) error {
+	w := wool.Get(context.Background()).In("configurations.AddServiceReference", wool.NameField(ref.Name))
+	w.Trace("adding service reference", wool.Field("service", ref))
+	for _, s := range app.ServiceReferences {
+		if s.Name == ref.Name {
 			return nil
 		}
 	}
-	reference, err := service.Reference()
-	if err != nil {
-		return w.Wrapf(err, "cannot get service reference")
-	}
-	app.Services = append(app.Services, reference)
+	app.ServiceReferences = append(app.ServiceReferences, ref)
 	return nil
 }
 
@@ -233,7 +247,7 @@ func (app *Application) ServiceDomain(name string) string {
 }
 
 func (app *Application) GetServiceReferences(name string) (*ServiceReference, error) {
-	for _, ref := range app.Services {
+	for _, ref := range app.ServiceReferences {
 		if ref.Name == name {
 			return ref, nil
 		}
@@ -251,12 +265,12 @@ func (app *Application) Reference() *ApplicationReference {
 // ExistsService returns true if the service exists in the application
 func (app *Application) ExistsService(ctx context.Context, name string) bool {
 	w := wool.Get(ctx).In("configurations.ExistsService", wool.NameField(name))
-	for _, s := range app.Services {
+	for _, s := range app.ServiceReferences {
 		if s.Name == name {
 			return true
 		}
 	}
-	w.Debug("current services", wool.Field("services", app.Services))
+	w.Debug("current services", wool.Field("services", app.ServiceReferences))
 	return false
 }
 
@@ -267,28 +281,27 @@ func (app *Application) ExistsService(ctx context.Context, name string) bool {
 // /abs: absolute path
 func (app *Application) ServicePath(_ context.Context, ref *ServiceReference) string {
 	if ref.PathOverride == nil {
-		return path.Join(app.Dir(), ref.Name)
+		return path.Join(app.Dir(), "services", ref.Name)
 	}
 	if filepath.IsAbs(*ref.PathOverride) {
 		return *ref.PathOverride
 	}
-	return path.Join(app.Dir(), *ref.PathOverride)
+	return path.Join(app.Dir(), "services", *ref.PathOverride)
 }
 
 func (app *Application) LoadServiceFromReference(ctx context.Context, ref *ServiceReference) (*Service, error) {
 	dir := app.ServicePath(ctx, ref)
-	service, err := LoadServiceFromDirUnsafe(ctx, dir)
+	service, err := LoadServiceFromDir(ctx, dir)
 	if err != nil {
 		return nil, wool.Get(ctx).In("configurations.LoadServiceFromReference", wool.DirField(dir)).Wrap(err)
 	}
-	service.Project = app.Project
 	service.Application = app.Name
 	return service, nil
 }
 
 func (app *Application) LoadServiceFromName(ctx context.Context, name string) (*Service, error) {
 	w := wool.Get(ctx).In("configurations.LoadServiceFromName", wool.NameField(name))
-	for _, ref := range app.Services {
+	for _, ref := range app.ServiceReferences {
 		if ReferenceMatch(ref.Name, name) {
 			return app.LoadServiceFromReference(ctx, ref)
 		}
@@ -298,7 +311,7 @@ func (app *Application) LoadServiceFromName(ctx context.Context, name string) (*
 
 func (app *Application) LoadServices(ctx context.Context) ([]*Service, error) {
 	var services []*Service
-	for _, ref := range app.Services {
+	for _, ref := range app.ServiceReferences {
 		service, err := app.LoadServiceFromReference(ctx, ref)
 		if err != nil {
 			return nil, err
@@ -316,12 +329,12 @@ func ReloadApplication(ctx context.Context, app *Application) (*Application, err
 func (app *Application) DeleteService(ctx context.Context, name string) error {
 	w := wool.Get(ctx).In("configurations.DeleteService", wool.NameField(name))
 	var services []*ServiceReference
-	for _, s := range app.Services {
+	for _, s := range app.ServiceReferences {
 		if s.Name != name {
 			services = append(services, s)
 		}
 	}
-	app.Services = services
+	app.ServiceReferences = services
 	err := app.Save(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot save application")
@@ -354,7 +367,7 @@ func (app *Application) PublicEndpoints(ctx context.Context) ([]*basev0.Endpoint
 
 func (app *Application) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {
 	w := wool.Get(ctx).In("Application::DeleteServiceDependencies", wool.ThisField(app), wool.Field("service", ref))
-	for _, serviceRef := range app.Services {
+	for _, serviceRef := range app.ServiceReferences {
 		service, err := app.LoadServiceFromReference(ctx, serviceRef)
 		if err != nil {
 			return w.Wrapf(err, "can't load service from ref")

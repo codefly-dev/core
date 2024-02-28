@@ -3,6 +3,7 @@ package configurations
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/codefly-dev/core/configurations/standards"
@@ -36,7 +37,7 @@ type Service struct {
 	Description string `yaml:"description,omitempty"`
 	Version     string `yaml:"version"`
 	Application string `yaml:"application"`
-	Project     string `yaml:"project"`
+	Project     string `yaml:"project,omitempty"`
 	Domain      string `yaml:"domain"`
 	Namespace   string `yaml:"namespace"`
 
@@ -140,6 +141,7 @@ func (app *Application) NewService(ctx context.Context, action *actionsv0.AddSer
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load agent")
 	}
+
 	service := &Service{
 		Name:        action.Name,
 		Version:     "0.0.0",
@@ -151,9 +153,7 @@ func (app *Application) NewService(ctx context.Context, action *actionsv0.AddSer
 		Spec:        make(map[string]any),
 	}
 
-	ref := &ServiceReference{Name: action.Name, PathOverride: OverridePath(action.Name, action.Path), Application: app.Name}
-	dir := app.ServicePath(ctx, ref)
-
+	dir := path.Join(app.Dir(), "services", action.Name)
 	service.dir = dir
 
 	_, err = shared.CheckDirectoryOrCreate(ctx, dir)
@@ -164,7 +164,8 @@ func (app *Application) NewService(ctx context.Context, action *actionsv0.AddSer
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
-	err = app.AddService(ctx, service)
+
+	err = app.AddServiceReference(ctx, service.Reference())
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -219,16 +220,6 @@ type ServiceIdentity struct {
 	Domain      string
 }
 
-func Identity(conf *Service) *ServiceIdentity {
-	return &ServiceIdentity{
-		Name:        conf.Name,
-		Application: conf.Application,
-		Project:     conf.Project,
-		Namespace:   conf.Namespace,
-		Domain:      conf.Domain,
-	}
-}
-
 func (s *ServiceIdentity) Unique() string {
 	return fmt.Sprintf("%s/%s", s.Application, s.Name)
 }
@@ -243,32 +234,21 @@ func (s *ServiceIdentity) AsResource() *wool.Resource {
 		Resource: r}
 }
 
-func (s *ServiceIdentity) Clone() *ServiceIdentity {
-	return &ServiceIdentity{
-		Name:        s.Name,
-		Application: s.Application,
-		Project:     s.Project,
-		Namespace:   s.Namespace,
-		Domain:      s.Domain,
-	}
-}
-
 func ServiceIdentityFromProto(proto *basev0.ServiceIdentity) *ServiceIdentity {
 	return &ServiceIdentity{
 		Name:        proto.Name,
 		Application: proto.Application,
-		Project:     proto.Project,
 		Namespace:   proto.Namespace,
 		Domain:      proto.Domain,
 	}
 }
 
-func (s *Service) Reference() (*ServiceReference, error) {
+func (s *Service) Reference() *ServiceReference {
 	entry := &ServiceReference{
 		Name:         s.Name,
 		PathOverride: s.PathOverride,
 	}
-	return entry, nil
+	return entry
 }
 
 func (s *Service) Endpoint() string {
@@ -279,9 +259,9 @@ func (s *Service) Dir() string {
 	return s.dir
 }
 
-// LoadServiceFromDirUnsafe loads a service from a directory
-func LoadServiceFromDirUnsafe(ctx context.Context, dir string) (*Service, error) {
-	w := wool.Get(ctx).In("LoadServiceFromDirUnsafe", wool.DirField(dir))
+// LoadServiceFromDir loads a service from a directory
+func LoadServiceFromDir(ctx context.Context, dir string) (*Service, error) {
+	w := wool.Get(ctx).In("LoadServiceFromDir", wool.DirField(dir))
 	service, err := LoadFromDir[Service](ctx, dir)
 	if err != nil {
 		return nil, w.Wrap(err)
@@ -310,7 +290,7 @@ func LoadServiceFromPath(ctx context.Context) (*Service, error) {
 	if dir == nil {
 		return nil, nil
 	}
-	return LoadServiceFromDirUnsafe(ctx, *dir)
+	return LoadServiceFromDir(ctx, *dir)
 }
 
 func (s *Service) SaveAtDir(ctx context.Context, dir string) error {
@@ -383,7 +363,7 @@ func (s *Service) AddDependency(ctx context.Context, requirement *Service, requi
 
 // ReloadService from directory
 func ReloadService(ctx context.Context, service *Service) (*Service, error) {
-	return LoadServiceFromDirUnsafe(ctx, service.Dir())
+	return LoadServiceFromDir(ctx, service.Dir())
 }
 
 func (s *Service) postLoad(_ context.Context) error {

@@ -16,7 +16,7 @@ func NewServiceReplacer(gen *generation.Service) *ServiceReplacer {
 		replacements[gen.Base.Name] = "{{.Service.Name.Title}}"
 	}
 	if gen.Base.Domain != "" {
-		replacements[gen.Base.Domain] = "{{.Domain}}"
+		replacements[gen.Base.Domain] = "{{.SourceVersionControl}}"
 	}
 	return &ServiceReplacer{replacements: replacements}
 }

@@ -43,7 +43,7 @@ func TestToOrganizationDomain(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.out, configurations.ToOrganizationDomain(tc.in))
+			assert.Equal(t, tc.out, configurations.ToOrganizationSourceVersionControl(tc.in))
 		})
 	}
 }

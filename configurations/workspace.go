@@ -44,7 +44,7 @@ func NewWorkspace(ctx context.Context, action *actionsv0.AddWorkspace) (*Workspa
 	ws := &Workspace{
 		Name:         action.Name,
 		Organization: *org,
-		Domain:       org.Domain,
+		Domain:       org.SourceVersionControl,
 	}
 	if action.Dir != "" {
 		ws.dir = action.Dir
@@ -55,37 +55,25 @@ func NewWorkspace(ctx context.Context, action *actionsv0.AddWorkspace) (*Workspa
 	return ws, nil
 }
 
-func (workspace *Workspace) AddProjectReference(ctx context.Context, project *Project) error {
-	w := wool.Get(ctx).In("Workspace::AddProject", wool.ThisField(workspace), wool.NameField(project.Name))
-	if workspace.ExistsProject(project.Name) {
+func (workspace *Workspace) AddProjectReference(ctx context.Context, ref *ProjectReference) error {
+	w := wool.Get(ctx).In("Workspace::AddProject", wool.ThisField(workspace), wool.NameField(ref.Name))
+	if workspace.HasProject(ref.Name) {
 		return w.NewError("project already exists")
 	}
 	workspace.Projects = append(workspace.Projects, &ProjectReference{
-		Name: project.Name,
-		Path: project.Dir(),
+		Name: ref.Name,
+		Path: ref.Path,
 	})
-	return nil
-}
+	return workspace.Save(ctx)
 
-func (workspace *Workspace) AddProject(ctx context.Context, project *Project) error {
-	w := wool.Get(ctx).In("Workspace::AddProject", wool.ThisField(workspace), wool.NameField(project.Name))
-	err := workspace.AddProjectReference(ctx, project)
-	if err != nil {
-		return w.Wrapf(err, "cannot add project reference")
-	}
-	err = workspace.Save(ctx)
-	if err != nil {
-		return w.Wrap(err)
-	}
-	return nil
 }
 
 const LocalWorkspace = "local"
 
 // LoadWorkspace returns the active Workspace configuration
 func LoadWorkspace(ctx context.Context, name string) (*Workspace, error) {
-	if workspace != nil {
-		return workspace, nil
+	if _workspace != nil {
+		return _workspace, nil
 	}
 	w := wool.Get(ctx).In("configurations.LoadWorkspace")
 	w.Trace("loading active", wool.DirField(WorkspaceConfigurationDir()))
@@ -140,11 +128,6 @@ func ReloadWorkspace(ctx context.Context, workspace *Workspace) (*Workspace, err
 	return updated, nil
 }
 
-// ReloadProject a project configuration
-func (workspace *Workspace) ReloadProject(ctx context.Context, project *Project) (*Project, error) {
-	return workspace.LoadProjectFromName(ctx, project.Name)
-}
-
 // LoadProjectFromReference loads a project from  a reference
 func (workspace *Workspace) LoadProjectFromReference(ctx context.Context, ref *ProjectReference) (*Project, error) {
 	w := wool.Get(ctx).In("configurations.LoadProjectFromReference", wool.Field("ref", ref))
@@ -183,15 +166,18 @@ Workspaces have a active project, so we don't always have to specify it
 */
 
 // SetProjectActive sets the active project
-func (workspace *Workspace) SetProjectActive(ctx context.Context, input *actionsv0.SetProjectActive) error {
-	workspace.ActiveProject = input.Name
+func (workspace *Workspace) SetProjectActive(ctx context.Context, project string) error {
+	workspace.ActiveProject = project
 	return workspace.Save(ctx)
 }
 
+// GetActiveProject returns the active project
+// If no projects in workspace, returns nil
 func (workspace *Workspace) GetActiveProject(ctx context.Context) (*ProjectReference, error) {
 	w := wool.Get(ctx).In("configurations.ActiveProject")
 	if len(workspace.Projects) == 0 {
-		return nil, w.NewError("no projects in Workspace configuration")
+		w.Debug("no projects")
+		return nil, nil
 	}
 	if len(workspace.Projects) == 1 {
 		return workspace.Projects[0], nil
@@ -201,15 +187,21 @@ func (workspace *Workspace) GetActiveProject(ctx context.Context) (*ProjectRefer
 			return p, nil
 		}
 	}
-	return nil, w.NewError("no active project in Workspace configuration")
+	// Pick the first one
+	w.Warn("no active project: picking the first one")
+	return workspace.Projects[0], nil
 }
 
-// LoadActiveProject load the active project
+// LoadActiveProject load the active project if exists
+// returns nil if no active project
 func (workspace *Workspace) LoadActiveProject(ctx context.Context) (*Project, error) {
 	w := wool.Get(ctx).In("configurations.LoadActiveProject")
 	ref, err := workspace.GetActiveProject(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load active project")
+	}
+	if ref == nil {
+		return nil, nil
 	}
 	project, err := workspace.LoadProjectFromReference(ctx, ref)
 	if err != nil {
@@ -407,8 +399,8 @@ func WorkspaceConfigurationDir() string {
 	return workspaceConfigDir
 }
 
-// ExistsProject returns true if the project exists
-func (workspace *Workspace) ExistsProject(name string) bool {
+// HasProject returns true if the project exists
+func (workspace *Workspace) HasProject(name string) bool {
 	for _, p := range workspace.Projects {
 		if p.Name == name {
 			return true
@@ -434,7 +426,7 @@ CLEAN
 
 */
 
-func (workspace *Workspace) SetActiveApplication(ctx context.Context, project string, name string) error {
+func (workspace *Workspace) SetApplicationActive(ctx context.Context, project string, name string) error {
 	for _, p := range workspace.Projects {
 		if p.Name == project {
 			p.ActiveApplication = name
@@ -444,15 +436,23 @@ func (workspace *Workspace) SetActiveApplication(ctx context.Context, project st
 	return fmt.Errorf("cannot find project <%s>", project)
 }
 
+// LoadActiveApplication loads the active application
+// If no active application, returns nil
 func (workspace *Workspace) LoadActiveApplication(ctx context.Context, projectName string) (*Application, error) {
 	w := wool.Get(ctx).In("Workspace::LoadActiveApplication", wool.ProjectField(projectName))
 	ref, err := workspace.FindProjectReference(projectName)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot find project reference")
 	}
+	if ref == nil {
+		return nil, nil
+	}
 	active, err := ref.GetActiveApplication(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get active application")
+	}
+	if active == nil {
+		return nil, nil
 	}
 	project, err := workspace.LoadProjectFromName(ctx, projectName)
 	if err != nil {
@@ -476,8 +476,8 @@ func (workspace *Workspace) SetActiveService(ctx context.Context, projectName st
 	return w.NewError("cannot set active service")
 }
 
-func (workspace *Workspace) AddApplication(ctx context.Context, projectName string, application *ApplicationReference) error {
-	w := wool.Get(ctx).In("Workspace::AddApplication", wool.ProjectField(projectName), wool.ApplicationField(application.Name))
+func (workspace *Workspace) AddApplicationReference(ctx context.Context, projectName string, application *ApplicationReference) error {
+	w := wool.Get(ctx).In("Workspace::AddApplicationReference", wool.ProjectField(projectName), wool.ApplicationField(application.Name))
 	ref, err := workspace.FindProjectReference(projectName)
 	if err != nil {
 		return w.Wrapf(err, "cannot find project reference")
@@ -490,7 +490,7 @@ func (workspace *Workspace) AddApplication(ctx context.Context, projectName stri
 }
 
 func (workspace *Workspace) AddService(ctx context.Context, projectName string, applicationName string, service *ServiceReference) error {
-	w := wool.Get(ctx).In("Workspace::AddApplication", wool.ProjectField(projectName), wool.ApplicationField(applicationName))
+	w := wool.Get(ctx).In("Workspace::AddApplicationReference", wool.ProjectField(projectName), wool.ApplicationField(applicationName))
 	ref, err := workspace.FindProjectReference(projectName)
 	if err != nil {
 		return w.Wrapf(err, "cannot find project reference")
@@ -532,8 +532,8 @@ func (workspace *Workspace) LoadActiveService(ctx context.Context, projectName s
 	return nil, w.NewError("cannot find active service")
 }
 
-var workspace *Workspace
+var _workspace *Workspace
 
 func SetLoadWorkspaceUnsafe(w *Workspace) {
-	workspace = w
+	_workspace = w
 }

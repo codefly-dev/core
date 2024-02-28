@@ -15,14 +15,14 @@ type Organization struct {
 	// ID must be globally unique
 	ID string `yaml:"id"`
 
-	Name   string `yaml:"name"`
-	Domain string `yaml:"domain"`
+	Name                 string `yaml:"name"`
+	SourceVersionControl string `yaml:"domain"`
 }
 
 func (organization *Organization) Proto() *basev0.Organization {
 	return &basev0.Organization{
-		Name:   organization.Name,
-		Domain: organization.Domain,
+		Name:                 organization.Name,
+		SourceVersionControl: organization.SourceVersionControl,
 	}
 }
 
@@ -34,18 +34,18 @@ func ExtraValidOrganizationName(name string) bool {
 	return re.MatchString(name)
 }
 
-func ToOrganizationDomain(name string) string {
+func ToOrganizationSourceVersionControl(name string) string {
 	domain := strings.Replace(name, " ", ".", -1)
 	domain = strings.Replace(domain, ".", "-", -1)
 	return fmt.Sprintf("github.com/%s", strings.ToLower(domain))
 }
 
-func ToOrganizationName(domain string) string {
-	return strings.TrimPrefix(domain, "github.com/")
+func ToOrganizationName(svc string) string {
+	return strings.TrimPrefix(svc, "github.com/")
 }
 
-func ValidOrganizationDomain(domain string) bool {
-	// Domain is URL - think about github organization
+func ValidOrganizationSourceVersionControl(domain string) bool {
+	// SourceVersionControl is URL - think about github organization
 	u, err := url.ParseRequestURI(domain)
 	if err != nil {
 		return false
@@ -66,7 +66,7 @@ func ValidOrganization(org *basev0.Organization) error {
 
 func OrganizationFromProto(_ context.Context, m *basev0.Organization) (*Organization, error) {
 	return &Organization{
-		Name:   m.Name,
-		Domain: m.Domain,
+		Name:                 m.Name,
+		SourceVersionControl: m.SourceVersionControl,
 	}, nil
 }

@@ -37,7 +37,7 @@ type Service struct {
 	Description string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
 	// Application to which the service belongs
 	Application string `protobuf:"bytes,3,opt,name=application,proto3" json:"application,omitempty"`
-	// Project the service belongs to
+	// Project to which the service belongs
 	Project string `protobuf:"bytes,4,opt,name=project,proto3" json:"project,omitempty"`
 	// Agent that represents the service
 	Agent *Agent `protobuf:"bytes,5,opt,name=agent,proto3" json:"agent,omitempty"`

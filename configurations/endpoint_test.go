@@ -65,7 +65,7 @@ func TestEndpointUniqueParsing(t *testing.T) {
 
 func TestEndpointLoadingFromDir(t *testing.T) {
 	ctx := context.Background()
-	conf, err := configurations.LoadServiceFromDirUnsafe(ctx, "testdata/service")
+	conf, err := configurations.LoadServiceFromDir(ctx, "testdata/service")
 	assert.NoError(t, err)
 
 	assert.Equal(t, 2, len(conf.Endpoints))

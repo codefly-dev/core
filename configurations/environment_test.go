@@ -17,22 +17,18 @@ import (
 
 func TestEnvironment(t *testing.T) {
 	ctx := context.Background()
-	workspace, dir := createTestWorkspace(t, ctx)
-	cur, err := os.Getwd()
-	assert.NoError(t, err)
-	err = os.Chdir(dir)
-	assert.NoError(t, err)
+	projectDir := t.TempDir()
 
 	defer func() {
-		os.RemoveAll(dir)
-		os.Chdir(cur)
+		os.RemoveAll(projectDir)
 	}()
 
 	var action actions.Action
+	var err error
 
-	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
-		Name:      "test-project",
-		Workspace: workspace.Name,
+	action, err = actionproject.NewActionNewProject(ctx, &actionsv0.NewProject{
+		Name: "test-project",
+		Path: projectDir,
 	})
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
@@ -40,8 +36,7 @@ func TestEnvironment(t *testing.T) {
 
 	action, err = actionenviroment.NewActionAddEnvironment(ctx, &actionsv0.AddEnvironment{
 		Name:        "test-environment",
-		Project:     "test-project",
-		Workspace:   workspace.Name,
+		ProjectPath: project.Dir(),
 		NetworkType: configurations.NetworkPort,
 	})
 	assert.NoError(t, err)

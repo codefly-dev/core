@@ -72,28 +72,26 @@ type Cleanup func()
 
 func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	ctx := context.Background()
-	workspace, dir := createTestWorkspace(t, ctx)
-	err := os.Chdir(dir)
-	assert.NoError(t, err)
+
+	projectDir := t.TempDir()
 
 	cleanup := func() {
-		os.RemoveAll(dir)
+		os.RemoveAll(projectDir)
 	}
-
 	var action actions.Action
-	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
-		Name:      "test-project",
-		Workspace: workspace.Name,
+	var err error
+	action, err = actionproject.NewActionNewProject(ctx, &actionsv0.NewProject{
+		Name: "test-project",
+		Path: projectDir,
 	})
 	assert.NoError(t, err)
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
 	project := shared.Must(actions.As[configurations.Project](out))
 
-	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
-		Name:      "test-app-1",
-		Project:   project.Name,
-		Workspace: workspace.Name,
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.NewApplication{
+		Name:        "test-app-1",
+		ProjectPath: project.Dir(),
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
@@ -101,13 +99,11 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	appOne, err := actions.As[configurations.Application](out)
 	assert.NoError(t, err)
 	assert.Equal(t, "test-app-1", appOne.Name)
-	assert.Equal(t, 0, len(appOne.Services))
+	assert.Equal(t, 0, len(appOne.ServiceReferences))
 
 	input := &actionsv0.AddService{
-		Name:        "test-service-1",
-		Application: appOne.Name,
-		Project:     project.Name,
-		Workspace:   workspace.Name,
+		Name:            "test-service-1",
+		ApplicationPath: appOne.Dir(),
 		Agent: &v0base.Agent{
 			Kind:      v0base.Agent_SERVICE,
 			Name:      "awesome-agent",
@@ -126,6 +122,7 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.Equal(t, "test-project", serviceOne.Project)
 	assert.Equal(t, "test-app-1", serviceOne.Namespace)
 	assert.Equal(t, "0.0.0", serviceOne.Version)
+	assert.Equal(t, path.Join(appOne.Dir(), "services", "test-service-1"), serviceOne.Dir())
 
 	// Check configurations
 	serviceConfig := string(shared.Must(os.ReadFile(path.Join(serviceOne.Dir(), configurations.ServiceConfigurationName))))
@@ -177,10 +174,8 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 
 	// create another service
 	action, err = actionservice.NewActionAddService(ctx, &actionsv0.AddService{
-		Name:        "test-service-2",
-		Application: appOne.Name,
-		Project:     project.Name,
-		Workspace:   workspace.Name,
+		Name:            "test-service-2",
+		ApplicationPath: appOne.Dir(),
 		Agent: &v0base.Agent{
 			Kind:      v0base.Agent_SERVICE,
 			Name:      "awesome-agent",
@@ -198,25 +193,10 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	appOne, err = configurations.ReloadApplication(ctx, appOne)
 	assert.NoError(t, err)
 
-	// set active back to the first one
-	action, err = actionservice.NewActionSetServiceActive(ctx, &actionsv0.SetServiceActive{
-		Name:        "test-service-1",
-		Application: appOne.Name,
-		Project:     project.Name,
-		Workspace:   workspace.Name,
-	})
-	assert.NoError(t, err)
-	out, err = action.Run(ctx)
-	assert.NoError(t, err)
-	back, err := actions.As[configurations.Service](out)
-	assert.NoError(t, err)
-	assert.Equal(t, "test-service-1", back.Name)
-
 	// new appOne and new serviceOne
-	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
-		Name:      "test-app-2",
-		Project:   project.Name,
-		Workspace: workspace.Name,
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.NewApplication{
+		Name:        "test-app-2",
+		ProjectPath: project.Dir(),
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
@@ -226,10 +206,8 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.Equal(t, "test-app-2", appTwo.Name)
 
 	action, err = actionservice.NewActionAddService(ctx, &actionsv0.AddService{
-		Name:        "test-service-3",
-		Application: appTwo.Name,
-		Project:     project.Name,
-		Workspace:   workspace.Name,
+		Name:            "test-service-3",
+		ApplicationPath: appTwo.Dir(),
 		Agent: &v0base.Agent{
 			Kind:      v0base.Agent_SERVICE,
 			Name:      "awesome-agent",
@@ -245,7 +223,6 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.Equal(t, "test-app-2", serviceThree.Application)
 
 	return BaseOutput{
-		workspace:    workspace,
 		project:      project,
 		serviceOne:   serviceOne,
 		serviceTwo:   serviceTwo,
@@ -261,7 +238,6 @@ type BaseOutput struct {
 	serviceThree *configurations.Service
 	appOne       *configurations.Application
 	appTwo       *configurations.Application
-	workspace    *configurations.Workspace
 	project      *configurations.Project
 }
 
@@ -281,10 +257,9 @@ func TestAddDependencyService(t *testing.T) {
 	input := &actionsv0.AddServiceDependency{
 		Name:                  setup.serviceOne.Name,
 		Application:           setup.appOne.Name,
-		Project:               setup.project.Name,
+		ProjectPath:           setup.project.Dir(),
 		DependencyName:        setup.serviceTwo.Name,
 		DependencyApplication: setup.appOne.Name,
-		Workspace:             setup.workspace.Name,
 	}
 	action, err = actionservice.NewActionAddServiceDependency(ctx, input)
 	assert.NoError(t, err)

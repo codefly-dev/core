@@ -98,7 +98,7 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 
 	s.Wool = s.WoolAgent.Get(ctx)
 
-	s.Wool.Debug("loading", wool.ProjectField(s.Identity.Project), wool.ServiceField(s.Identity.Name))
+	s.Wool.Debug("loading", wool.ServiceField(s.Identity.Name))
 
 	ctx = s.Wool.Inject(ctx)
 
@@ -110,7 +110,7 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	}
 
 	s.Wool.Focus("loading service", wool.DirField(s.Location))
-	s.Configuration, err = configurations.LoadServiceFromDirUnsafe(ctx, s.Location)
+	s.Configuration, err = configurations.LoadServiceFromDir(ctx, s.Location)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot load service configuration")
 	}

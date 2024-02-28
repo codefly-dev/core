@@ -45,17 +45,7 @@ func (action *AddServiceAction) Run(ctx context.Context) (any, error) {
 		ctx = shared.WithOverride(ctx, shared.OverrideAll())
 	}
 
-	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot load worspace")
-	}
-
-	project, err := workspace.LoadProjectFromName(ctx, action.Project)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot load project")
-	}
-
-	application, err := project.LoadApplicationFromName(ctx, action.Application)
+	application, err := configurations.LoadApplicationFromDirUnsafe(ctx, action.ApplicationPath)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load application")
 	}
@@ -65,33 +55,6 @@ func (action *AddServiceAction) Run(ctx context.Context) (any, error) {
 		return nil, w.Wrapf(err, "cannot application.NewService")
 	}
 
-	// Reload application
-	application, err = configurations.ReloadApplication(ctx, application)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot reload application")
-	}
-
-	ref, err := service.Reference()
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot get service reference")
-	}
-
-	if workspace != nil {
-		err = workspace.AddService(ctx, project.Name, application.Name, ref)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot add service")
-		}
-
-		err = workspace.SetActiveService(ctx, project.Name, application.Name, service.Name)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot set active service")
-		}
-
-		err = workspace.Save(ctx)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot save workspace")
-		}
-	}
 	return service, nil
 }
 

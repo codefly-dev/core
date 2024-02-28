@@ -97,12 +97,13 @@ func FindUp[C Configuration](ctx context.Context) (*string, error) {
 		return nil, w.Wrapf(err, "cannot get active directory")
 	}
 	for {
-		// Look for a service configuration
+		// Look for a configuration
 		p, err := Path[C](ctx, cur)
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot get path")
 		}
 		if _, err := os.Stat(p); err == nil {
+			w.Debug("found", wool.DirField(p))
 			return &cur, nil
 		}
 		// Move up one directory

@@ -49,8 +49,8 @@ func (action *AddOrganizationAction) Run(ctx context.Context) (any, error) {
 	}
 
 	org := &configurations.Organization{
-		Name:   action.Name,
-		Domain: action.Domain,
+		Name:                 action.Name,
+		SourceVersionControl: action.SourceVersionControl,
 	}
 	return org, nil
 }

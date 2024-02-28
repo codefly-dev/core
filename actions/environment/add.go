@@ -37,11 +37,8 @@ var _ actions.Action = (*AddEnvironmentAction)(nil)
 func (action *AddEnvironmentAction) Run(ctx context.Context) (any, error) {
 	w := wool.Get(ctx).In("AddEnvironmentAction.Run", wool.NameField(action.Name))
 	// Get project
-	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
-	if err != nil {
-		return nil, w.Wrap(err)
-	}
-	project, err := workspace.LoadProjectFromName(ctx, action.Project)
+
+	project, err := configurations.LoadProjectFromDirUnsafe(ctx, action.ProjectPath)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}

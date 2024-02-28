@@ -42,7 +42,7 @@ func (action *SetProjectActiveAction) Run(ctx context.Context) (any, error) {
 		return nil, w.Wrapf(err, "cannot load workspace")
 	}
 
-	err = workspace.SetProjectActive(ctx, action.SetProjectActive)
+	err = workspace.SetProjectActive(ctx, action.SetProjectActive.Name)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot set project active")
 	}
@@ -52,12 +52,7 @@ func (action *SetProjectActiveAction) Run(ctx context.Context) (any, error) {
 		return nil, w.Wrapf(err, "cannot reload workspace")
 	}
 
-	// Return the project
-	project, err := workspace.LoadActiveProject(ctx)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot load active project")
-	}
-	return project, nil
+	return workspace, nil
 }
 
 func init() {

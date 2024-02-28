@@ -15,7 +15,7 @@ import (
 
 const AddApplicationKind = "application.add"
 
-type AddApplication = actionsv0.AddApplication
+type AddApplication = actionsv0.NewApplication
 type AddApplicationAction struct {
 	*AddApplication
 }
@@ -40,31 +40,14 @@ var _ actions.Action = (*AddApplicationAction)(nil)
 func (action *AddApplicationAction) Run(ctx context.Context) (any, error) {
 	w := wool.Get(ctx).In("AddApplicationAction.Run", wool.NameField(action.Name))
 
-	if action.Project == "" {
-		return nil, w.NewError("missing project in action")
-	}
+	project, err := configurations.LoadProjectFromDirUnsafe(ctx, action.ProjectPath)
 
-	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
-	if err != nil {
-		return nil, w.Wrap(err)
-	}
-
-	project, err := workspace.LoadProjectFromName(ctx, action.Project)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
 
 	application, err := project.NewApplication(ctx, action.AddApplication)
-	if err != nil {
-		return nil, w.Wrap(err)
-	}
 
-	err = workspace.AddApplication(ctx, project.Name, application.Reference())
-	if err != nil {
-		return nil, w.Wrap(err)
-	}
-
-	err = workspace.SetActiveApplication(ctx, project.Name, application.Name)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}

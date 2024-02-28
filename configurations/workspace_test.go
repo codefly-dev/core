@@ -18,8 +18,8 @@ func createTestWorkspace(t *testing.T, ctx context.Context) (*configurations.Wor
 	tmpDir := t.TempDir()
 
 	org := &v0base.Organization{
-		Name:   "codefly",
-		Domain: "https://github/codefly-dev",
+		Name:                 "codefly",
+		SourceVersionControl: "https://github/codefly-dev",
 	}
 
 	action, err := actionworkspace.NewActionAddWorkspace(ctx, &actionsv0.AddWorkspace{

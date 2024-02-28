@@ -4,7 +4,6 @@ import (
 	"context"
 	"path"
 	"path/filepath"
-	"slices"
 
 	"github.com/google/uuid"
 
@@ -24,9 +23,8 @@ type Project struct {
 	// ID must be globally unique
 	ID string `yaml:"id,omitempty"`
 
-	Organization Organization `yaml:"organization"`
-	Domain       string       `yaml:"domain,omitempty"`
-	Description  string       `yaml:"description,omitempty"`
+	Domain      string `yaml:"domain,omitempty"`
+	Description string `yaml:"description,omitempty"`
 
 	// Applications in the project
 	Applications []*ApplicationReference `yaml:"applications"`
@@ -35,14 +33,14 @@ type Project struct {
 	Environments []*EnvironmentReference `yaml:"environments"`
 
 	// internal
-	dir string
+	dir                  string
+	applicationsRelative string
 }
 
 func (project *Project) Proto() *basev0.Project {
 	return &basev0.Project{
-		Name:         project.Name,
-		Organization: project.Organization.Proto(),
-		Description:  project.Description,
+		Name:        project.Name,
+		Description: project.Description,
 	}
 }
 
@@ -69,7 +67,12 @@ func (ref *ProjectReference) String() string {
 	return ref.Name
 }
 
+// GetActiveApplication returns the active application
+// returns nil if no active application
 func (ref *ProjectReference) GetActiveApplication(ctx context.Context) (*ApplicationReference, error) {
+	if ref.ActiveApplication == "" {
+		return nil, nil
+	}
 	return ref.GetApplicationFromName(ctx, ref.ActiveApplication)
 }
 
@@ -84,7 +87,7 @@ func (ref *ProjectReference) GetApplicationFromName(ctx context.Context, applica
 }
 
 func (ref *ProjectReference) AddApplication(ctx context.Context, application *ApplicationReference) error {
-	w := wool.Get(ctx).In("ProjectReference.AddApplication", wool.NameField(ref.Name))
+	w := wool.Get(ctx).In("ProjectReference.AddApplicationReference", wool.NameField(ref.Name))
 	for _, app := range ref.Applications {
 		if app.Name == application.Name {
 			return w.NewError("application already exists")
@@ -94,39 +97,36 @@ func (ref *ProjectReference) AddApplication(ctx context.Context, application *Ap
 	return nil
 }
 
-// NewProject creates a new project in a workspace
-func (workspace *Workspace) NewProject(ctx context.Context, action *actionsv0.AddProject) (*Project, error) {
-	w := wool.Get(ctx).In("NewProject", wool.NameField(action.Name), wool.DirField(workspace.Dir()))
-	if slices.Contains(workspace.ProjectNames(), action.Name) {
-		return nil, w.NewError("project already exists")
-	}
+// NewProject creates a new project
+func NewProject(ctx context.Context, action *actionsv0.NewProject) (*Project, error) {
+	w := wool.Get(ctx).In("NewProject", wool.NameField(action.Name))
 
 	w.Trace("action", wool.PathField(action.Path))
 	dir := path.Join(action.Path, action.Name)
 
-	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
+	exists, err := shared.CheckDirectory(ctx, dir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot check project directory")
+	}
+	if exists {
+		return nil, w.NewError("project directory already exists")
+	}
+
+	_, err = shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create project directory")
 	}
 
-	// Generate UUID
-	id, err := uuid.NewUUID()
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot generate UUID")
-	}
+	//// Generate UUID
+	//id, err := uuid.NewUUID()
+	//if err != nil {
+	//	return nil, w.Wrapf(err, "cannot generate UUID")
+	//}
 	project := &Project{
-		ID:           id.String(),
-		Name:         action.Name,
-		Organization: workspace.Organization,
-		Domain:       ExtendDomain(workspace.Domain, action.Name),
-		dir:          dir,
+		Name:                 action.Name,
+		dir:                  dir,
+		applicationsRelative: "applications",
 	}
-
-	err = workspace.AddProject(ctx, project)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot add project to workspace")
-	}
-
 	err = project.Save(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot save project")
@@ -193,13 +193,16 @@ func LoadProjectFromDirUnsafe(ctx context.Context, dir string) (*Project, error)
 }
 
 func LoadProjectFromPath(ctx context.Context) (*Project, error) {
+	w := wool.Get(ctx).In("LoadProjectFromPath")
 	dir, err := FindUp[Project](ctx)
 	if err != nil {
 		return nil, err
 	}
 	if dir == nil {
+		w.Debug("no project found from path")
 		return nil, nil
 	}
+
 	return LoadProjectFromDirUnsafe(ctx, *dir)
 }
 
@@ -255,7 +258,7 @@ func (project *Project) ApplicationsNames() []string {
 // /abs: absolute path
 func (project *Project) ApplicationPath(_ context.Context, ref *ApplicationReference) string {
 	if ref.PathOverride == nil {
-		return path.Join(project.Dir(), ref.Name)
+		return path.Join(project.Dir(), "applications", ref.Name)
 	}
 	if filepath.IsAbs(*ref.PathOverride) {
 		return *ref.PathOverride
@@ -284,8 +287,8 @@ func (project *Project) ExistsApplication(name string) bool {
 	return false
 }
 
-// AddApplication adds an application to the project
-func (project *Project) AddApplication(app *ApplicationReference) error {
+// AddApplicationReference adds an application to the project
+func (project *Project) AddApplicationReference(app *ApplicationReference) error {
 	for _, a := range project.Applications {
 		if a.Name == app.Name {
 			return nil

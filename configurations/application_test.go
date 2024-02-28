@@ -2,9 +2,8 @@ package configurations_test
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/codefly-dev/core/actions/actions"
@@ -17,6 +16,73 @@ import (
 )
 
 func TestCreationApplication(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	defer func() {
+		os.RemoveAll(tmpDir)
+	}()
+	ctx := context.Background()
+
+	var action actions.Action
+	var err error
+
+	action, err = actionproject.NewActionNewProject(ctx, &actionsv0.NewProject{
+		Name: "test-project",
+		Path: tmpDir,
+	})
+	assert.NoError(t, err)
+	out, err := action.Run(ctx)
+	assert.NoError(t, err)
+	project := shared.Must(actions.As[configurations.Project](out))
+
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.NewApplication{
+		Name:        "test-application",
+		ProjectPath: project.Dir(),
+	})
+	assert.NoError(t, err)
+	out, err = action.Run(ctx)
+	assert.NoError(t, err)
+
+	app, err := actions.As[configurations.Application](out)
+	assert.NoError(t, err)
+	assert.Equal(t, "test-application", app.Name)
+
+	// Check that there is a configuration file
+	_, err = os.Stat(filepath.Join(project.Dir(), "applications/test-application", configurations.ApplicationConfigurationName))
+
+	// Run again should produce error
+	_, err = action.Run(ctx)
+	assert.Error(t, err)
+
+	// Re-load the project
+	project, err = configurations.ReloadProject(ctx, project)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(project.Applications))
+
+	// Check that we have the configuration
+	back, err := project.LoadApplicationFromName(ctx, "test-application")
+	assert.NoError(t, err)
+	assert.Equal(t, app.Name, back.Name)
+
+	// Add a second application
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.NewApplication{
+		Name:        "test-application-2",
+		ProjectPath: project.Dir(),
+	})
+	assert.NoError(t, err)
+	out, err = action.Run(ctx)
+	assert.NoError(t, err)
+	app, err = actions.As[configurations.Application](out)
+	assert.NoError(t, err)
+	assert.Equal(t, "test-application-2", app.Name)
+
+	project, err = configurations.ReloadProject(ctx, project)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 2, len(project.Applications))
+}
+
+func TestCreationApplicationWithWorkspace(t *testing.T) {
 	ctx := context.Background()
 	workspace, dir := createTestWorkspace(t, ctx)
 	cur, err := os.Getwd()
@@ -30,95 +96,110 @@ func TestCreationApplication(t *testing.T) {
 	}()
 
 	var action actions.Action
-	action, err = actionproject.NewActionAddProject(ctx, &actionsv0.AddProject{
-		Name:      "test-project",
-		Workspace: workspace.Name,
+	action, err = actionproject.NewActionNewProject(ctx, &actionsv0.NewProject{
+		Name: "test-project",
+		Path: workspace.Dir(),
 	})
 	assert.NoError(t, err)
 	out, err := action.Run(ctx)
 	assert.NoError(t, err)
 	project := shared.Must(actions.As[configurations.Project](out))
 
-	// Action needs a workspace input
-	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
-		Name: "test-application",
-	})
-	assert.Error(t, err)
-
-	// Action needs a project input
-	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
-		Name:      "test-application",
+	// Add to workspace
+	action, err = actionproject.NewActionAddProjectToWorkspace(ctx, &actionsv0.AddProjectToWorkspace{
+		Name:      project.Name,
 		Workspace: workspace.Name,
-	})
-	assert.Error(t, err)
-
-	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
-		Name:      "test-application",
-		Project:   project.Name,
-		Workspace: workspace.Name,
+		Path:      project.Dir(),
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
 	assert.NoError(t, err)
-	application, err := actions.As[configurations.Application](out)
-	assert.NoError(t, err)
-	assert.Equal(t, "test-application", application.Name)
 
-	// Re-load: actions are out-of-memory operations
-	workspace, err = configurations.ReloadWorkspace(ctx, workspace)
+	workspace = shared.Must(actions.As[configurations.Workspace](out))
+
+	assert.Equal(t, "test-project", workspace.ActiveProject)
+
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.NewApplication{
+		Name:        "test-application",
+		ProjectPath: project.Dir(),
+	})
 	assert.NoError(t, err)
-	project, err = workspace.ReloadProject(ctx, project)
+	out, err = action.Run(ctx)
 	assert.NoError(t, err)
 
-	assert.Equal(t, 1, len(project.Applications))
+	app := shared.Must(actions.As[configurations.Application](out))
+	assert.Equal(t, "test-application", app.Name)
+	assert.Equal(t, project.Name, app.Project)
+	assert.Equal(t, filepath.Join(project.Dir(), "applications/test-application"), app.Dir())
 
-	// Check that we have the configuration
-	back, err := project.LoadApplicationFromName(ctx, "test-application")
-	assert.NoError(t, err)
-	assert.Equal(t, application.Name, back.Name)
-
-	// Check the active application
-	file := path.Join(workspace.Dir(), configurations.WorkspaceConfigurationName)
-	content, err := os.ReadFile(file)
-	assert.NoError(t, err)
-	fmt.Println(string(content))
-
-	back, err = workspace.LoadActiveApplication(ctx, project.Name)
-	assert.NoError(t, err)
-	assert.Equal(t, application.Name, back.Name)
-
-	// Adding the same application should return an error
+	// Running again should produce an error
 	_, err = action.Run(ctx)
 	assert.Error(t, err)
 
-	// Re-load: actions are out-of-memory operations
-	workspace, err = configurations.ReloadWorkspace(ctx, workspace)
-	assert.NoError(t, err)
-	project, err = workspace.ReloadProject(ctx, project)
-	assert.NoError(t, err)
-
-	assert.Equal(t, 1, len(project.Applications))
-
-	// Add a second application
-	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.AddApplication{
-		Name:      "test-application-2",
+	// Add app to workspace
+	action, err = actionapplication.NewActionAddApplicationToWorkspace(ctx, &actionsv0.AddApplicationToWorkspace{
+		Name:      app.Name,
 		Project:   project.Name,
 		Workspace: workspace.Name,
 	})
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
 	assert.NoError(t, err)
-	application, err = actions.As[configurations.Application](out)
-	assert.NoError(t, err)
-	assert.Equal(t, "test-application-2", application.Name)
+	workspace = shared.Must(actions.As[configurations.Workspace](out))
 
-	// Re-load: actions are out-of-memory operations
-	workspace, err = configurations.ReloadWorkspace(ctx, workspace)
+	project, err = configurations.ReloadProject(ctx, project)
 	assert.NoError(t, err)
-	project, err = workspace.ReloadProject(ctx, project)
+
+	// Check that we have the app
+	back, err := project.LoadApplicationFromName(ctx, "test-application")
+	assert.NoError(t, err)
+	assert.Equal(t, app.Name, back.Name)
+
+	// One app should be active
+
+	// Check the active application
+	back, err = workspace.LoadActiveApplication(ctx, project.Name)
+	assert.NoError(t, err)
+	assert.Equal(t, app.Name, back.Name)
+
+	// Add a second application
+	action, err = actionapplication.NewActionAddApplication(ctx, &actionsv0.NewApplication{
+		Name:        "test-application-2",
+		ProjectPath: project.Name,
+	})
+	assert.NoError(t, err)
+	out, err = action.Run(ctx)
+	assert.NoError(t, err)
+	app, err = actions.As[configurations.Application](out)
+	assert.NoError(t, err)
+	assert.Equal(t, "test-application-2", app.Name)
+
+	project, err = configurations.ReloadProject(ctx, project)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 2, len(project.Applications))
+
+	// Add workspace
+	action, err = actionapplication.NewActionAddApplicationToWorkspace(ctx, &actionsv0.AddApplicationToWorkspace{
+		Name:      app.Name,
+		Project:   project.Name,
+		Workspace: workspace.Name,
+	})
+	assert.NoError(t, err)
+	out, err = action.Run(ctx)
+	assert.NoError(t, err)
+	workspace = shared.Must(actions.As[configurations.Workspace](out))
+
+	// Set active
+	action, err = actionapplication.NewActionSetApplicationActive(ctx, &actionsv0.SetApplicationActive{
+		Name:      app.Name,
+		Project:   project.Name,
+		Workspace: workspace.Name,
+	})
+	assert.NoError(t, err)
+	out, err = action.Run(ctx)
+	assert.NoError(t, err)
+	workspace = shared.Must(actions.As[configurations.Workspace](out))
 
 	// Check active is the second one
 	back, err = workspace.LoadActiveApplication(ctx, project.Name)
@@ -133,9 +214,10 @@ func TestCreationApplication(t *testing.T) {
 	out, err = action.Run(ctx)
 	assert.NoError(t, err)
 
-	application, err = actions.As[configurations.Application](out)
+	workspace, err = actions.As[configurations.Workspace](out)
 	assert.NoError(t, err)
-	assert.Equal(t, "test-application", application.Name)
+	active, err := workspace.LoadActiveApplication(ctx, project.Name)
+	assert.Equal(t, "test-application", active.Name)
 
 	action, err = actionapplication.NewActionSetApplicationActive(ctx, &actionsv0.SetApplicationActive{
 		Name:      "test-application-2",
@@ -145,9 +227,9 @@ func TestCreationApplication(t *testing.T) {
 	assert.NoError(t, err)
 	out, err = action.Run(ctx)
 	assert.NoError(t, err)
-
-	application, err = actions.As[configurations.Application](out)
+	workspace, err = actions.As[configurations.Workspace](out)
 	assert.NoError(t, err)
-	assert.Equal(t, "test-application-2", application.Name)
 
+	active, err = workspace.LoadActiveApplication(ctx, project.Name)
+	assert.Equal(t, "test-application-2", active.Name)
 }

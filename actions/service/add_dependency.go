@@ -39,14 +39,9 @@ var _ actions.Action = (*AddServiceDependencyAction)(nil)
 func (action *AddServiceDependencyAction) Run(ctx context.Context) (any, error) {
 	w := wool.Get(ctx).In("AddServiceDependencyAction.Run", wool.NameField(action.Name))
 
-	workspace, err := configurations.LoadWorkspace(ctx, action.Workspace)
+	project, err := configurations.LoadProjectFromDirUnsafe(ctx, action.ProjectPath)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot get current workspace")
-	}
-
-	project, err := workspace.LoadProjectFromName(ctx, action.Project)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot load project %s", action.Project)
+		return nil, w.Wrapf(err, "cannot load project %s", action.ProjectPath)
 	}
 
 	app, err := project.LoadApplicationFromName(ctx, action.Application)

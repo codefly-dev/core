@@ -39,7 +39,7 @@ type RunningOptions struct {
 
 // Projects reference Applications
 
-// Services reference Endpoints
+// ServiceReferences reference Endpoints
 
 // An EndpointReference
 type EndpointReference struct {
