@@ -21,6 +21,10 @@ type visitor struct {
 
 func (v *visitor) Apply(ctx context.Context, p string, to string) error {
 	w := wool.Get(ctx).In("visitor.Apply", wool.Field("from", p), wool.Field("to", to))
+	if !v.Keep(p) {
+		w.Trace("ignoring")
+		return nil
+	}
 	w.Trace("copying")
 	err := templates.CopyAndReplace(ctx, shared.NewDirReader(), p, to, v.replacer)
 	if err != nil {

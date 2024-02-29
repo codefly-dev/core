@@ -194,12 +194,12 @@ func WithFactory(fs embed.FS) *TemplateWrapper {
 }
 
 func WithBuilder(fs embed.FS) *TemplateWrapper {
-	return &TemplateWrapper{fs: shared.Embed(fs), dir: "templates/builder", relative: "codefly/builder"}
+	return &TemplateWrapper{fs: shared.Embed(fs), dir: "templates/builder", relative: "builder"}
 }
 
 func WithDeployment(fs embed.FS, sub string) *TemplateWrapper {
 	return &TemplateWrapper{
-		fs: shared.Embed(fs), dir: fmt.Sprintf("templates/deployment/%s", sub), relative: "codefly/deployment"}
+		fs: shared.Embed(fs), dir: fmt.Sprintf("templates/deployment/%s", sub), relative: "deployment"}
 }
 
 type DeploymentWrapper struct {

@@ -24,9 +24,9 @@ import (
 )
 
 type Information struct {
-	Service *configurations.ServiceWithCase
-	Agent   *configurations.Agent
-	Domain  string
+	Service              *configurations.ServiceWithCase
+	Agent                *configurations.Agent
+	SourceVersionControl string
 }
 
 type Base struct {
@@ -102,14 +102,9 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 
 	ctx = s.Wool.Inject(ctx)
 
-	s.ConfigurationLocation = path.Join(s.Location, "codefly")
-	_, err := shared.CheckDirectoryOrCreate(ctx, s.ConfigurationLocation)
+	s.Wool.Debug("loading service", wool.DirField(s.Location))
+	var err error
 
-	if err != nil {
-		return s.Wool.Wrapf(err, "cannot create configuration directory")
-	}
-
-	s.Wool.Focus("loading service", wool.DirField(s.Location))
 	s.Configuration, err = configurations.LoadServiceFromDir(ctx, s.Location)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot load service configuration")
@@ -121,9 +116,9 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	}
 
 	s.Information = &Information{
-		Service: configurations.ToServiceWithCase(s.Configuration),
-		Domain:  s.Identity.Domain,
-		Agent:   s.Agent,
+		Service:              configurations.ToServiceWithCase(s.Configuration),
+		SourceVersionControl: s.Identity.SourceVersionControl,
+		Agent:                s.Agent,
 	}
 
 	s.loaded = true
@@ -200,6 +195,15 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 
 func (s *Base) Local(f string, args ...any) string {
 	return path.Join(s.Location, fmt.Sprintf(f, args...))
+}
+
+func (s *Base) LocalDirCreate(ctx context.Context, f string, args ...any) (string, error) {
+	dir := path.Join(s.Location, fmt.Sprintf(f, args...))
+	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
+	if err != nil {
+		return "", s.Wool.Wrapf(err, "cannot create dir")
+	}
+	return dir, nil
 }
 
 /* Some very important helpers */

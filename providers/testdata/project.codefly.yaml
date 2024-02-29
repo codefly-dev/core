@@ -1,0 +1,4 @@
+name: codefly-platform
+domain: github.com/codefly-ai/codefly-platform
+applications:
+  - name: app

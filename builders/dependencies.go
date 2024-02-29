@@ -12,8 +12,6 @@ import (
 
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/core/configurations"
-
 	"github.com/codefly-dev/core/shared"
 )
 
@@ -95,8 +93,10 @@ type Dependencies struct {
 	Name       string
 	Components []*Dependency
 
-	dir     string
+	root    string
 	current string
+
+	cache string
 }
 
 // MakeDependencySummary outputs a summary of the dependency
@@ -125,20 +125,20 @@ func (dep *Dependencies) String() string {
 }
 
 func (dep *Dependencies) hashFile() string {
-	return filepath.Join(dep.dir, fmt.Sprintf(".%s.hash", strings.ToLower(dep.Name)))
+	return filepath.Join(dep.cache, fmt.Sprintf("%s.hash", strings.ToLower(dep.Name)))
 }
 
-func (dep *Dependencies) Localize(dir string) {
-	dep.dir = dir
+func (dep *Dependencies) Localize(root string) {
+	dep.root = root
 	for _, c := range dep.Components {
-		c.Localize(dir)
+		c.Localize(root)
 	}
 }
 
 // AddDependencies adds dependencies
 func (dep *Dependencies) AddDependencies(dependencies ...*Dependency) *Dependencies {
 	for _, dependency := range dependencies {
-		dependency.Localize(dep.dir)
+		dependency.Localize(dep.root)
 		dep.Components = append(dep.Components, dependency)
 	}
 	return dep
@@ -146,12 +146,19 @@ func (dep *Dependencies) AddDependencies(dependencies ...*Dependency) *Dependenc
 
 type AcceptChange func(ctx context.Context) error
 
+func (dep *Dependencies) WithCache(location string) {
+	dep.cache = location
+}
+
 func (dep *Dependencies) Updated(ctx context.Context) (bool, error) {
+	w := wool.Get(ctx).In("builders.ServiceDependencies.Updated")
 	hash, err := dep.Hash(ctx)
 	if err != nil {
 		return true, err
 	}
+	w.Debug("calculate hash", wool.Field("hash", hash))
 	current := dep.LoadHash(ctx)
+	w.Debug("current hash", wool.Field("hash", current))
 	if current == hash {
 		return false, nil
 	}
@@ -169,8 +176,9 @@ func (dep *Dependencies) UpdateCache(ctx context.Context) error {
 
 func (dep *Dependencies) WriteHash(ctx context.Context, hash string) error {
 	w := wool.Get(ctx).In("builders.Dependency.WriteHash")
-	if dep.dir == "" {
-		return nil
+	if dep.cache == "" {
+		w.Warn("no cache location: in directory")
+		dep.cache = dep.root
 	}
 	// New or overwrite
 	f, err := os.Create(dep.hashFile())
@@ -178,7 +186,7 @@ func (dep *Dependencies) WriteHash(ctx context.Context, hash string) error {
 		return err
 	}
 	defer func(f *os.File) {
-		err := f.Close()
+		err = f.Close()
 		if err != nil {
 			w.Error("cannot close hash file", wool.Field("path", f.Name()), wool.Field("error", err))
 		}
@@ -187,20 +195,22 @@ func (dep *Dependencies) WriteHash(ctx context.Context, hash string) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot write hash")
 	}
+	w.Debug("wrote hash to", wool.FileField(f.Name()))
 	return nil
 }
 
 func (dep *Dependencies) LoadHash(ctx context.Context) string {
 	w := wool.Get(ctx).In("builders.ServiceDependencies.LoadHash")
-	if dep.dir == "" {
-		return configurations.Unknown
+	if dep.cache == "" {
+		w.Warn("no cache location: in directory")
+		dep.cache = dep.root
 	}
 	f, err := os.Open(dep.hashFile())
 	if err != nil {
 		return ""
 	}
 	defer func(f *os.File) {
-		err := f.Close()
+		err = f.Close()
 		if err != nil {
 			w.Error("cannot close hash file", wool.Field("path", f.Name()), wool.Field("error", err))
 		}
@@ -208,8 +218,10 @@ func (dep *Dependencies) LoadHash(ctx context.Context) string {
 	var hash string
 	_, err = fmt.Fscanf(f, "%s", &hash)
 	if err != nil {
+		w.Error("cannot read hash", wool.Field("error", err))
 		return ""
 	}
+	w.Debug("read hash from", wool.FileField(f.Name()), wool.Field("hash", hash))
 	return strings.TrimSpace(hash)
 }
 
@@ -217,7 +229,7 @@ func (dep *Dependencies) Hash(ctx context.Context) (string, error) {
 	w := wool.Get(ctx).In("builders.ServiceDependencies.Hash")
 	h := sha256.New()
 	for _, component := range dep.Components {
-		w.Focus("hashing component", wool.Field("component", component.components))
+		w.Debug("hashing component", wool.Field("component", component.components))
 		hash, err := component.Hash(ctx)
 		if err != nil {
 			return "", w.Wrapf(err, "cannot get hash for component %s", component.components)
@@ -268,7 +280,7 @@ func addFileHash(ctx context.Context, h io.Writer, path string) error {
 		return err
 	}
 	defer func(f *os.File) {
-		err := f.Close()
+		err = f.Close()
 		if err != nil {
 			w.Error("cannot close hash file", wool.Field("path", f.Name()), wool.Field("error", err))
 		}

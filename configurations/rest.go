@@ -448,7 +448,7 @@ func AsRestRouteEnvironmentVariable(ctx context.Context, endpoint *basev0.Endpoi
 	if rest := IsRest(context.Background(), endpoint.Api); rest != nil {
 		for _, group := range rest.Groups {
 			for _, route := range group.Routes {
-				w.Focus("adding", wool.Field("route", route))
+				w.Debug("adding", wool.Field("route", route))
 				envs = append(envs, RestRoutesAsEnvironmentVariable(endpoint, route))
 			}
 		}

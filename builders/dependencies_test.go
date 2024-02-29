@@ -91,6 +91,7 @@ func TestHashWildCardSelect(t *testing.T) {
 	err = os.Mkdir(dir, 0755)
 	assert.NoError(t, err)
 
+	// New Dir no update
 	updated, err = dep.Updated(ctx)
 	assert.NoError(t, err)
 	assert.False(t, updated)

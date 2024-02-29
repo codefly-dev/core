@@ -257,7 +257,7 @@ func TestAddingExistingProjectAbsolutePath(t *testing.T) {
 	workspace, dir := createTestWorkspace(t, ctx)
 	defer os.RemoveAll(dir)
 
-	project, err := configurations.LoadProjectFromDirUnsafe(ctx, "testdata/project")
+	project, err := configurations.LoadProjectFromDir(ctx, "testdata/project")
 	assert.NoError(t, err)
 	assert.Equal(t, "codefly-platform", project.Name)
 	cur, _ := os.Getwd()

@@ -40,7 +40,7 @@ var _ actions.Action = (*AddApplicationAction)(nil)
 func (action *AddApplicationAction) Run(ctx context.Context) (any, error) {
 	w := wool.Get(ctx).In("AddApplicationAction.Run", wool.NameField(action.Name))
 
-	project, err := configurations.LoadProjectFromDirUnsafe(ctx, action.ProjectPath)
+	project, err := configurations.LoadProjectFromDir(ctx, action.ProjectPath)
 
 	if err != nil {
 		return nil, w.Wrap(err)

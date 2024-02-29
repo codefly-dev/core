@@ -13,7 +13,7 @@ func ToServiceWithCase(svc *Service) *ServiceWithCase {
 	return &ServiceWithCase{
 		Name:      shared.ToCase(svc.Name),
 		Unique:    shared.ToCase(svc.Unique()),
-		Domain:    svc.Domain,
+		Domain:    svc.SourceVersionControl,
 		Namespace: svc.Namespace,
 	}
 }

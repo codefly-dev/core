@@ -147,7 +147,7 @@ func GetMappingInstanceForName(ctx context.Context, mappings []*basev0.NetworkMa
 		return nil, fmt.Errorf("no network mappings")
 	}
 	for _, m := range mappings {
-		w.Focus("mapping", wool.Field("endpoint", m.Endpoint.Name))
+		w.Debug("mapping", wool.Field("endpoint", m.Endpoint.Name))
 		if m.Endpoint.Name != name {
 			continue
 		}

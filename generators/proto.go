@@ -15,6 +15,9 @@ type Proto struct {
 
 	// Keep the proto hash for cashing
 	dependencies *builders.Dependencies
+
+	// internal cache for hash
+	cache string
 }
 
 func NewProto(ctx context.Context, dir string) (*Proto, error) {
@@ -27,15 +30,20 @@ func NewProto(ctx context.Context, dir string) (*Proto, error) {
 	return &Proto{
 		Dir:          dir,
 		dependencies: deps,
+		cache:        dir,
 	}, nil
 }
 
 func (g *Proto) Generate(ctx context.Context) error {
 	w := wool.Get(ctx).In("proto.Generate")
-	// Check if Docker is running
+
+	// Match cache
+	g.dependencies.WithCache(g.cache)
+
 	if !runners.DockerEngineRunning(ctx) {
 		return w.NewError("docker is not running")
 	}
+
 	updated, err := g.dependencies.Updated(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot check if updated")
@@ -50,6 +58,7 @@ func (g *Proto) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "cannot get companion image")
 	}
 	volume := fmt.Sprintf("%s:/workspace", g.Dir)
+
 	runner, err := runners.NewRunner(ctx, "docker", "run", "--rm", "-v", volume, "-w", "/workspace/proto", image, "buf", "mod", "update")
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
@@ -59,12 +68,14 @@ func (g *Proto) Generate(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}
+
 	runner, err = runners.NewRunner(ctx, "docker", "run", "--rm", "-v", volume, "-w", "/workspace/proto", image, "buf", "generate")
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
 	runner.WithDir(g.Dir)
 	w.Debug("Generating code from buf", wool.DirField(g.Dir))
+
 	err = runner.Run()
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
@@ -76,13 +87,7 @@ func (g *Proto) Generate(ctx context.Context) error {
 	return nil
 }
 
-//func (g *Proto) Valid() bool {
-//	runner, err := runners.NewDocker(context.Background())
-//	if err != nil {
-//		return false
-//	}
-//	runner.WithWorkDir(path.Join(g.Dir, "proto")
-//	runner.WithCommand("buf", "generate")
-//	err = runner.Run()
-//
-//}
+func (g *Proto) WithCache(location string) {
+	g.cache = location
+
+}

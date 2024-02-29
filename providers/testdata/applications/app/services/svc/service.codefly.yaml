@@ -1,0 +1,13 @@
+kind: service
+name: svc
+version: 0.0.0
+application: app
+project: codefly-platform
+namespace: management
+domain: github.com/codefly-ai/codefly-platform/management/organization
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+dependencies: []

@@ -163,9 +163,9 @@ func (project *Project) SaveToDirUnsafe(ctx context.Context, dir string) error {
 Loaders
 */
 
-// LoadProjectFromDirUnsafe loads a Project configuration from a directory
-func LoadProjectFromDirUnsafe(ctx context.Context, dir string) (*Project, error) {
-	w := wool.Get(ctx).In("LoadProjectFromDirUnsafe")
+// LoadProjectFromDir loads a Project configuration from a directory
+func LoadProjectFromDir(ctx context.Context, dir string) (*Project, error) {
+	w := wool.Get(ctx).In("LoadProjectFromDir")
 	var err error
 	dir, err = shared.SolvePath(dir)
 	if err != nil {
@@ -203,7 +203,7 @@ func LoadProjectFromPath(ctx context.Context) (*Project, error) {
 		return nil, nil
 	}
 
-	return LoadProjectFromDirUnsafe(ctx, *dir)
+	return LoadProjectFromDir(ctx, *dir)
 }
 
 // LoadApplicationFromReference loads an application from a reference
@@ -367,5 +367,5 @@ func (project *Project) LoadService(ctx context.Context, input *ServiceWithAppli
 }
 
 func ReloadProject(ctx context.Context, project *Project) (*Project, error) {
-	return LoadProjectFromDirUnsafe(ctx, project.Dir())
+	return LoadProjectFromDir(ctx, project.Dir())
 }

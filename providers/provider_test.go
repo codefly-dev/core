@@ -49,7 +49,7 @@ func TestLoadingProjectProviderInfoFromEnv(t *testing.T) {
 	dir, err := shared.SolvePath("testdata")
 	assert.NoError(t, err)
 	ctx := context.Background()
-	infos, err := providers.LoadProjectProviderFromDir(ctx, dir)
+	infos, err := providers.LoadProjectProviderFromDir(ctx, dir, configurations.Local())
 	assert.NoError(t, err)
 	assert.Len(t, infos, 2)
 	info, err := configurations.FindProjectProvider("auth0/frontend", infos)
@@ -68,7 +68,7 @@ func TestLoadingServiceProviderInfoFromEnv(t *testing.T) {
 	dir, err := shared.SolvePath("testdata")
 	assert.NoError(t, err)
 	ctx := context.Background()
-	infos, err := providers.LoadServiceProviderFromDir(ctx, dir)
+	infos, err := providers.LoadServiceProvidersFromDir(ctx, dir, configurations.Local())
 	assert.NoError(t, err)
 	assert.Len(t, infos, 1)
 	info, err := configurations.FindServiceProvider("app/svc", "something", infos)
@@ -82,7 +82,7 @@ func TestLoadingProviderInfoFromEnv(t *testing.T) {
 	dir, err := shared.SolvePath("testdata")
 	assert.NoError(t, err)
 	ctx := context.Background()
-	infos, err := providers.LoadProviderFromDir(ctx, dir)
+	infos, err := providers.LoadProviderFromEnvFiles(ctx, dir, configurations.Local())
 	assert.NoError(t, err)
 	assert.Len(t, infos, 3)
 	info, err := configurations.FindProjectProvider("auth0/frontend", infos)
@@ -99,4 +99,10 @@ func TestLoadingProviderInfoFromEnv(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "something", info.Name)
 	assert.Equal(t, "true", info.Data["in_service"])
+}
+
+func TestExtract(t *testing.T) {
+	p := "applications/app/services/svc"
+	out := providers.ExtractFromPath(p)
+	assert.Equal(t, "app/svc", out)
 }

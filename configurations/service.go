@@ -6,6 +6,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/codefly-dev/core/templates"
+
 	"github.com/codefly-dev/core/configurations/standards"
 
 	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
@@ -33,13 +35,13 @@ const BuilderServiceAgent = "codefly:service:builder"
 A Service
 */
 type Service struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description,omitempty"`
-	Version     string `yaml:"version"`
-	Application string `yaml:"application"`
-	Project     string `yaml:"project,omitempty"`
-	Domain      string `yaml:"domain"`
-	Namespace   string `yaml:"namespace"`
+	Name                 string `yaml:"name"`
+	Description          string `yaml:"description,omitempty"`
+	Version              string `yaml:"version"`
+	Application          string `yaml:"application"`
+	Project              string `yaml:"project,omitempty"`
+	SourceVersionControl string `yaml:"source-version-control"`
+	Namespace            string `yaml:"namespace"`
 
 	PathOverride *string `yaml:"path,omitempty"`
 
@@ -90,11 +92,11 @@ func ServiceUnique(app string, service string) string {
 // Identity is the proto version of Unique
 func (s *Service) Identity() *ServiceIdentity {
 	return &ServiceIdentity{
-		Name:        s.Name,
-		Application: s.Application,
-		Project:     s.Project,
-		Domain:      s.Domain,
-		Namespace:   s.Namespace,
+		Name:                 s.Name,
+		Application:          s.Application,
+		Project:              s.Project,
+		SourceVersionControl: s.SourceVersionControl,
+		Namespace:            s.Namespace,
 	}
 }
 
@@ -143,14 +145,14 @@ func (app *Application) NewService(ctx context.Context, action *actionsv0.AddSer
 	}
 
 	service := &Service{
-		Name:        action.Name,
-		Version:     "0.0.0",
-		Application: app.Name,
-		Project:     app.Project,
-		Domain:      app.ServiceDomain(action.Name),
-		Namespace:   shared.DefaultTo(action.Namespace, app.Name),
-		Agent:       agent,
-		Spec:        make(map[string]any),
+		Name:                 action.Name,
+		Version:              "0.0.0",
+		Application:          app.Name,
+		Project:              app.Project,
+		SourceVersionControl: app.ServiceDomain(action.Name),
+		Namespace:            shared.DefaultTo(action.Namespace, app.Name),
+		Agent:                agent,
+		Spec:                 make(map[string]any),
 	}
 
 	dir := path.Join(app.Dir(), "services", action.Name)
@@ -163,6 +165,12 @@ func (app *Application) NewService(ctx context.Context, action *actionsv0.AddSer
 	err = service.Save(ctx)
 	if err != nil {
 		return nil, w.Wrap(err)
+	}
+
+	// Templatize as usual
+	err = templates.CopyAndApply(ctx, shared.Embed(fs), "templates/service", service.dir, service)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot copy and apply template")
 	}
 
 	err = app.AddServiceReference(ctx, service.Reference())
@@ -210,14 +218,14 @@ func ParseServiceReference(input string) (*ServiceReference, error) {
 // This is a logical partitioning
 // Namespace: the namespace the service belongs to
 // This is a resource partitioning
-// Domain: the domain of the service belongs to
+// SourceVersionControl: the domain of the service belongs to
 // This is a responsibility partitioning
 type ServiceIdentity struct {
-	Name        string
-	Application string
-	Project     string
-	Namespace   string
-	Domain      string
+	Name                 string
+	Application          string
+	Project              string
+	Namespace            string
+	SourceVersionControl string
 }
 
 func (s *ServiceIdentity) Unique() string {
@@ -236,10 +244,11 @@ func (s *ServiceIdentity) AsResource() *wool.Resource {
 
 func ServiceIdentityFromProto(proto *basev0.ServiceIdentity) *ServiceIdentity {
 	return &ServiceIdentity{
-		Name:        proto.Name,
-		Application: proto.Application,
-		Namespace:   proto.Namespace,
-		Domain:      proto.Domain,
+		Name:                 proto.Name,
+		Application:          proto.Application,
+		Project:              proto.Project,
+		Namespace:            proto.Namespace,
+		SourceVersionControl: proto.SourceVersionControl,
 	}
 }
 

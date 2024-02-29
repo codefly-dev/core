@@ -352,7 +352,7 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 			w.Debug("found a REST API", wool.NameField(e.Name))
 			for _, group := range rest.Groups {
 				for _, r := range group.Routes {
-					w.Focus("route", wool.Field("route", e.Application))
+					w.Debug("route", wool.Field("route", e.Application))
 					key := RouteUnique{
 						service:     e.Service,
 						application: e.Application,

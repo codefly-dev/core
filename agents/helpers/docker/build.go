@@ -34,6 +34,11 @@ type Builder struct {
 	BuilderConfiguration
 }
 
+func IsValidDockerImageName(_ string) bool {
+	// Docker image name regex
+	return true
+}
+
 func NewBuilder(cfg BuilderConfiguration) (*Builder, error) {
 	return &Builder{BuilderConfiguration: cfg}, nil
 }

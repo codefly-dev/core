@@ -44,6 +44,7 @@ func NewRunner(ctx context.Context, dir string) (*Runner, error) {
 	requirements := builders.NewDependencies("go", builders.NewDependency(dir).WithPathSelect(shared.NewSelect("*.go")))
 	return &Runner{
 		dir:          dir,
+		cacheDir:     path.Join(dir, ".cache/binaries"),
 		requirements: requirements,
 	}, nil
 }
@@ -76,7 +77,6 @@ func (runner *Runner) WithRequirements(requirements *builders.Dependencies) *Run
 func (runner *Runner) Init(ctx context.Context) error {
 	w := wool.Get(ctx).In("go/runner")
 	// Setup cache for binaries
-	runner.cacheDir = path.Join(runner.dir, ".cache")
 	_, err := shared.CheckDirectoryOrCreate(ctx, runner.cacheDir)
 	if err != nil {
 		return w.Wrapf(err, "cannot create cache directory")
@@ -213,4 +213,8 @@ func (runner *Runner) Stop() error {
 		return nil
 	}
 	return runner.worker.Stop()
+}
+
+func (runner *Runner) WithCache(location string) {
+	runner.cacheDir = path.Join(location, "binaries")
 }
