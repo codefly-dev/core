@@ -209,7 +209,7 @@ type DeploymentWrapper struct {
 
 func (s *BuilderWrapper) GenerateKustomize(ctx context.Context, fs embed.FS, destination string, base *DeploymentBase, params any) error {
 	wrapper := &DeploymentWrapper{DeploymentBase: base, Parameters: params}
-	destination = path.Join(destination, s.Configuration.Unique())
+	destination = path.Join(destination, "applications", s.Configuration.Application, "services", s.Configuration.Name)
 	err := s.Templates(ctx, wrapper,
 		WithDeployment(fs, "kustomize/base").WithDestination(path.Join(destination, "base")),
 		WithDeployment(fs, "kustomize/overlays/environment").WithDestination(path.Join(destination, "overlays", base.Environment.Name)),
