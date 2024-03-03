@@ -135,11 +135,12 @@ type DeploymentBase struct {
 	Parameters any
 }
 
-func (s *BuilderWrapper) CreateDeploymentBase(env *configurations.Environment) *DeploymentBase {
+func (s *BuilderWrapper) CreateDeploymentBase(env *basev0.Environment, builderContext *builderv0.BuildContext) *DeploymentBase {
+	envInfo := configurations.EnvironmentFromProto(env)
 	return &DeploymentBase{
 		Information: s.Information,
-		Environment: env,
-		Image:       s.DockerImage(),
+		Environment: envInfo,
+		Image:       s.DockerImage(builderContext),
 		Replicas:    1,
 	}
 }
@@ -175,15 +176,12 @@ func EnvsAsSecretData(envs []string) map[string]string {
 
 func (s *BuilderWrapper) Deploy(ctx context.Context, req *builderv0.DeploymentRequest, fs embed.FS, params any) error {
 	defer s.Wool.Catch()
-	env := configurations.EnvironmentFromProto(req.Environment)
-	base := s.CreateDeploymentBase(env)
-	for _, kind := range req.Deployments {
-		switch v := kind.Deployment.(type) {
-		case *builderv0.Deployment_Kustomize:
-			err := s.Builder.GenerateKustomize(ctx, fs, v.Kustomize.Destination, base, params)
-			if err != nil {
-				return err
-			}
+	base := s.CreateDeploymentBase(req.Environment, req.BuildContext)
+	switch v := req.Deployment.Kind.(type) {
+	case *builderv0.Deployment_Kustomize:
+		err := s.Builder.GenerateKustomize(ctx, fs, v.Kustomize.Destination, base, params)
+		if err != nil {
+			return err
 		}
 	}
 	return nil

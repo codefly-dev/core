@@ -26,9 +26,9 @@ type Application struct {
 	Name         string  `yaml:"name"`
 	PathOverride *string `yaml:"path,omitempty"`
 
-	Project     string `yaml:"project"`
-	Domain      string `yaml:"domain"`
-	Description string `yaml:"description,omitempty"`
+	Project              string `yaml:"project"`
+	SourceVersionControl string `yaml:"source-version-control"`
+	Description          string `yaml:"description,omitempty"`
 
 	ServiceReferences []*ServiceReference `yaml:"services"`
 
@@ -242,8 +242,8 @@ func (app *Application) AddServiceReference(_ context.Context, ref *ServiceRefer
 	return nil
 }
 
-func (app *Application) ServiceDomain(name string) string {
-	return path.Join(app.Domain, name)
+func (app *Application) SourceVersionControlForService(name string) string {
+	return path.Join(app.SourceVersionControl, name)
 }
 
 func (app *Application) GetServiceReferences(name string) (*ServiceReference, error) {

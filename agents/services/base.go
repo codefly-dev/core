@@ -19,6 +19,7 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )
@@ -131,9 +132,16 @@ func (s *Base) LoadEnvironmentVariables(environment *basev0.Environment) *config
 	return envs
 }
 
-func (s *Base) DockerImage() *configurations.DockerImage {
+func (s *Base) DockerImage(req *builderv0.BuildContext) *configurations.DockerImage {
+	var repo string
+	if req.Kind != nil {
+		switch kind := req.Kind.(type) {
+		case *builderv0.BuildContext_DockerBuildContext:
+			repo = kind.DockerBuildContext.DockerRepository
+		}
+	}
 	return &configurations.DockerImage{
-		Name: fmt.Sprintf("%s/%s/%s", s.Identity.Project, s.Identity.Application, s.Identity.Name),
+		Name: path.Join(repo, s.Identity.Project, s.Identity.Application, s.Identity.Name),
 		Tag:  s.Version().Version,
 	}
 }

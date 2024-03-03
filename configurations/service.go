@@ -149,7 +149,7 @@ func (app *Application) NewService(ctx context.Context, action *actionsv0.AddSer
 		Version:              "0.0.0",
 		Application:          app.Name,
 		Project:              app.Project,
-		SourceVersionControl: app.ServiceDomain(action.Name),
+		SourceVersionControl: app.SourceVersionControlForService(action.Name),
 		Namespace:            shared.DefaultTo(action.Namespace, app.Name),
 		Agent:                agent,
 		Spec:                 make(map[string]any),
