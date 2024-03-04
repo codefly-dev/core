@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -172,16 +173,27 @@ func (instance *EndpointInstance) PortAddress() (string, error) {
 	return fmt.Sprintf(":%d", port), nil
 }
 
-func (instance *EndpointInstance) Port() (int, error) {
-	address, err := instance.Address()
-	if err != nil {
-		return standards.StandardPort(standards.TCP), err
+func PortFromAddress(address string) (int, error) {
+	u, err := url.Parse(address)
+	if err == nil {
+		port := u.Port()
+		if port != "" {
+			return strconv.Atoi(port)
+		}
 	}
 	tokens := strings.Split(address, ":")
 	if len(tokens) == 2 {
 		return strconv.Atoi(tokens[1])
 	}
 	return standards.StandardPort(standards.TCP), fmt.Errorf("endpoint instance address does not have a port")
+}
+
+func (instance *EndpointInstance) Port() (int, error) {
+	address, err := instance.Address()
+	if err != nil {
+		return standards.StandardPort(standards.TCP), err
+	}
+	return PortFromAddress(address)
 }
 
 type NilAPIError struct {
@@ -434,6 +446,20 @@ func IsRest(_ context.Context, api *basev0.API) *basev0.RestAPI {
 		return v.Rest
 	default:
 		return nil
+	}
+}
+
+func IsHTTP(_ context.Context, api *basev0.API) bool {
+	if api == nil {
+		return false
+	}
+	switch api.Value.(type) {
+	case *basev0.API_Rest:
+		return true
+	case *basev0.API_Http:
+		return true
+	default:
+		return false
 	}
 }
 
