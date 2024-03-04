@@ -449,17 +449,15 @@ func IsRest(_ context.Context, api *basev0.API) *basev0.RestAPI {
 	}
 }
 
-func IsHTTP(_ context.Context, api *basev0.API) bool {
+func IsHTTP(_ context.Context, api *basev0.API) *basev0.HttpAPI {
 	if api == nil {
-		return false
+		return nil
 	}
-	switch api.Value.(type) {
-	case *basev0.API_Rest:
-		return true
+	switch v := api.Value.(type) {
 	case *basev0.API_Http:
-		return true
+		return v.Http
 	default:
-		return false
+		return nil
 	}
 }
 

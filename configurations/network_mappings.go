@@ -3,7 +3,6 @@ package configurations
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
@@ -59,11 +58,7 @@ func BuildMappingInstance(mapping *basev0.NetworkMapping) (*MappingInstance, err
 		return nil, fmt.Errorf("no network addresses")
 	}
 	address := mapping.Addresses[0]
-	tokens := strings.Split(address, ":")
-	if len(tokens) != 2 {
-		return nil, fmt.Errorf("invalid network address")
-	}
-	port, err := strconv.Atoi(tokens[1])
+	port, err := PortFromAddress(address)
 	if err != nil {
 		return nil, fmt.Errorf("invalid network port")
 	}
@@ -92,7 +87,7 @@ func GetMappingInstanceFor(mappings []*basev0.NetworkMapping, api string) (*Mapp
 	return nil, fmt.Errorf("no network mappings for api: %s", api)
 }
 
-// GetMappingInstances returns the network mapping instances
+// GetMappingInstancesFor returns the network mapping instances
 func GetMappingInstancesFor(mappings []*basev0.NetworkMapping, api string) ([]*MappingInstance, error) {
 	if len(mappings) == 0 {
 		return nil, fmt.Errorf("no network mappings")
