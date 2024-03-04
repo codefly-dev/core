@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/docker/go-connections/nat"
@@ -21,7 +22,7 @@ import (
 
 type Docker struct {
 	client *client.Client
-	image  DockerImage
+	image  *configurations.DockerImage
 
 	name string
 
@@ -89,19 +90,7 @@ func (docker *Docker) WithOut(writer io.Writer) {
 	docker.out = writer
 }
 
-type DockerImage struct {
-	Name string
-	Tag  string
-}
-
-func (image *DockerImage) Image() string {
-	if image.Tag == "" {
-		return image.Name
-	}
-	return fmt.Sprintf("%s:%s", image.Name, image.Tag)
-}
-
-func (docker *Docker) Init(ctx context.Context, image DockerImage) error {
+func (docker *Docker) Init(ctx context.Context, image *configurations.DockerImage) error {
 	w := wool.Get(ctx).In("Docker.Start")
 
 	// Pull the image if needed
@@ -113,7 +102,7 @@ func (docker *Docker) Init(ctx context.Context, image DockerImage) error {
 	return nil
 }
 
-func (docker *Docker) ImageExists(ctx context.Context, image DockerImage) (bool, error) {
+func (docker *Docker) ImageExists(ctx context.Context, image *configurations.DockerImage) (bool, error) {
 	w := wool.Get(ctx).In("Docker.ImageExists")
 	images, err := docker.client.ImageList(ctx, types.ImageListOptions{})
 	if err != nil {
@@ -122,7 +111,7 @@ func (docker *Docker) ImageExists(ctx context.Context, image DockerImage) (bool,
 	for i := range images {
 		img := &images[i]
 		for _, repoTag := range img.RepoTags {
-			if repoTag == image.Image() {
+			if repoTag == image.FullName() {
 				return true, nil
 			}
 		}
@@ -130,7 +119,7 @@ func (docker *Docker) ImageExists(ctx context.Context, image DockerImage) (bool,
 	return false, nil
 }
 
-func (docker *Docker) GetImage(ctx context.Context, image DockerImage) error {
+func (docker *Docker) GetImage(ctx context.Context, image *configurations.DockerImage) error {
 	w := wool.Get(ctx).In("Docker.GetImage")
 	if exists, err := docker.ImageExists(ctx, image); err != nil {
 		return w.Wrapf(err, "cannot check if image exists")
@@ -139,7 +128,7 @@ func (docker *Docker) GetImage(ctx context.Context, image DockerImage) error {
 		return nil
 	}
 	w.Debug("pulling Docker image")
-	out, err := docker.client.ImagePull(ctx, image.Image(), types.ImagePullOptions{})
+	out, err := docker.client.ImagePull(ctx, image.FullName(), types.ImagePullOptions{})
 	if err != nil {
 		return w.Wrapf(err, "cannot pull image")
 	}
@@ -163,7 +152,7 @@ func (docker *Docker) SetCommand(bin string, args ...string) {
 func (docker *Docker) create(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.create")
 	containerConfig := &container.Config{
-		Image:      docker.image.Image(),
+		Image:      docker.image.FullName(),
 		Env:        docker.envs,
 		Tty:        true,
 		WorkingDir: docker.workDir,
