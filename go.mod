@@ -10,8 +10,8 @@ require (
 	github.com/docker/docker v25.0.3+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/fsnotify/fsnotify v1.7.0
-	github.com/go-openapi/loads v0.21.5
-	github.com/go-openapi/spec v0.20.14
+	github.com/go-openapi/loads v0.21.6
+	github.com/go-openapi/spec v0.20.15
 	github.com/google/go-github/v37 v37.0.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-hclog v1.6.2
@@ -21,7 +21,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pkg/errors v0.9.1
 	github.com/shirou/gopsutil/v3 v3.24.2
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	github.com/yoheimuta/go-protoparser/v4 v4.9.0
 	go.opentelemetry.io/otel v1.24.0
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.24.0
@@ -49,12 +49,12 @@ require (
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
-	github.com/go-openapi/analysis v0.22.2 // indirect
-	github.com/go-openapi/errors v0.21.0 // indirect
-	github.com/go-openapi/jsonpointer v0.20.2 // indirect
-	github.com/go-openapi/jsonreference v0.20.4 // indirect
-	github.com/go-openapi/strfmt v0.22.1 // indirect
-	github.com/go-openapi/swag v0.22.9 // indirect
+	github.com/go-openapi/analysis v0.22.3 // indirect
+	github.com/go-openapi/errors v0.21.1 // indirect
+	github.com/go-openapi/jsonpointer v0.20.3 // indirect
+	github.com/go-openapi/jsonreference v0.20.5 // indirect
+	github.com/go-openapi/strfmt v0.22.2 // indirect
+	github.com/go-openapi/swag v0.22.10 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
