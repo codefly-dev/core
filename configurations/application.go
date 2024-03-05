@@ -61,6 +61,10 @@ type ApplicationReference struct {
 	ActiveService string              `yaml:"active-service,omitempty"`
 }
 
+func (ref *ApplicationReference) String() string {
+	return ref.Name
+}
+
 func (ref *ApplicationReference) GetActive(ctx context.Context) (*ServiceReference, error) {
 	w := wool.Get(ctx).In("configurations.ApplicationReference.GetActiveService")
 	if len(ref.Services) == 0 {

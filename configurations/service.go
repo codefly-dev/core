@@ -464,6 +464,19 @@ func (s *Service) DeleteServiceDependencies(ctx context.Context, ref *ServiceRef
 	return s.Save(ctx)
 }
 
+func (s *Service) ProviderDirectory(ctx context.Context, env *Environment) (string, error) {
+	w := wool.Get(ctx).In("Service::ProviderDirectory", wool.NameField(s.Name))
+	dir := path.Join(s.Dir(), "providers", env.Name)
+	exists, err := shared.CheckDirectory(ctx, dir)
+	if err != nil {
+		return "", w.Wrapf(err, "cannot check directory")
+	}
+	if !exists {
+		return "", nil
+	}
+	return dir, nil
+}
+
 func (s *ServiceDependency) AsReference() *ServiceReference {
 	return &ServiceReference{
 		Name:        s.Name,

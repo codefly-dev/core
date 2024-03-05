@@ -245,7 +245,7 @@ func loadFromEnvFile(ctx context.Context, dir string, p string) (*ProviderInform
 }
 
 func LoadProviderFromEnvFiles(ctx context.Context, projectDir string, env *configurations.Environment) ([]*basev0.ProviderInformation, error) {
-	w := wool.Get(ctx).In("provider.loadFromProject")
+	w := wool.Get(ctx).In("provider.LoadProviderFromEnvFiles")
 	projectInfos, err := LoadProjectProviderFromDir(ctx, projectDir, env)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load project providers")
@@ -258,7 +258,7 @@ func LoadProviderFromEnvFiles(ctx context.Context, projectDir string, env *confi
 }
 
 func LoadServiceProvidersFromDir(ctx context.Context, projectDir string, env *configurations.Environment) ([]*basev0.ProviderInformation, error) {
-	w := wool.Get(ctx).In("provider.loadFromProject")
+	w := wool.Get(ctx).In("provider.LoadServiceProvidersFromDir")
 	project, err := configurations.LoadProjectFromDir(ctx, projectDir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load project from directory")
@@ -266,31 +266,38 @@ func LoadServiceProvidersFromDir(ctx context.Context, projectDir string, env *co
 	var infos []*basev0.ProviderInformation
 	w.Debug("loading service providers from project", wool.Field("project", project.Name), wool.Field("apps", project.Applications))
 	for _, appRef := range project.Applications {
-		w.Debug("loading service providers from application", wool.Field("app", appRef.Name))
-		app, err := project.LoadApplicationFromReference(ctx, appRef)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot load application from reference")
+		app, errProject := project.LoadApplicationFromReference(ctx, appRef)
+		if errProject != nil {
+			return nil, w.Wrapf(errProject, "cannot load application from reference")
 		}
-		w.Debug("loaded application", wool.ApplicationField(app.Name), wool.Field("services", app.ServiceReferences))
+		w.Focus("loaded application", wool.ApplicationField(app.Name), wool.Field("services", app.ServiceReferences))
 		for _, svcRef := range app.ServiceReferences {
-			w.Debug("loading service providers from service", wool.Field("service", svcRef.Name))
-			svc, err := app.LoadServiceFromReference(ctx, svcRef)
-			if err != nil {
-				return nil, w.Wrapf(err, "cannot load service from reference")
+			var serviceInfos []*basev0.ProviderInformation
+			w.Focus("loading service providers from service", wool.Field("service", svcRef.Name))
+			svc, errApp := app.LoadServiceFromReference(ctx, svcRef)
+			if errApp != nil {
+				return nil, w.Wrapf(errApp, "cannot load service from reference")
 			}
-			serviceProviderDir := path.Join(svc.Dir(), "providers", env.Name)
+			serviceProviderDir, errProv := svc.ProviderDirectory(ctx, env)
+			if errProv != nil {
+				return nil, w.Wrapf(errProv, "cannot get provider directory")
+			}
+			if serviceProviderDir == "" {
+				continue
+			}
 			wrapped, loadErr := loadProviderInfos(ctx, serviceProviderDir)
 			if loadErr != nil {
-				return nil, w.Wrapf(err, "cannot load service providers from service")
+				return nil, w.Wrapf(loadErr, "cannot load service providers from service")
 			}
 			for _, info := range wrapped {
 				info.Origin = svc.Unique()
-				infos = append(infos, info.ProviderInformation)
+				serviceInfos = append(serviceInfos, info.ProviderInformation)
 			}
-			w.Debug("loaded service providers from service", wool.Field("count", len(wrapped)))
+			w.Focus("loaded service providers from service", wool.Field("info", configurations.MakeProviderInformationSummary(serviceInfos)))
+			infos = append(infos, serviceInfos...)
 		}
 	}
-	w.Debug("loaded service providers", wool.Field("count", len(infos)))
+	w.Debug("loaded service providers", wool.Field("info", configurations.MakeProviderInformationSummary(infos)))
 	return infos, nil
 
 }
