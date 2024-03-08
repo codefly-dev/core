@@ -88,6 +88,22 @@ func (s *BuilderWrapper) CreateError(err error) (*builderv0.CreateResponse, erro
 	}, err
 }
 
+func (s *BuilderWrapper) UpdateResponse() (*builderv0.UpdateResponse, error) {
+	if !s.loaded {
+		return s.UpdateError(fmt.Errorf("not loaded"))
+	}
+	return &builderv0.UpdateResponse{
+		State: &builderv0.UpdateStatus{State: builderv0.UpdateStatus_SUCCESS},
+	}, nil
+
+}
+
+func (s *BuilderWrapper) UpdateError(err error) (*builderv0.UpdateResponse, error) {
+	return &builderv0.UpdateResponse{
+		State: &builderv0.UpdateStatus{State: builderv0.UpdateStatus_ERROR, Message: err.Error()},
+	}, err
+}
+
 func (s *BuilderWrapper) SyncResponse() (*builderv0.SyncResponse, error) {
 	if !s.loaded {
 		return s.SyncError(fmt.Errorf("not loaded"))

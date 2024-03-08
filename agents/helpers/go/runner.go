@@ -140,7 +140,10 @@ func (runner *Runner) debugCmd(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
-	builder.WithDir(runner.dir).WithDebug(runner.debug).WithEnvs(runner.envs).WithOut(runner.out)
+	builder.WithDir(runner.dir)
+	builder.WithDebug(runner.debug)
+	builder.WithEnvs(runner.envs...)
+	builder.WithOut(runner.out)
 	err = builder.Run()
 	if err != nil {
 		return w.Wrapf(err, "cannot build binary")
@@ -180,7 +183,10 @@ func (runner *Runner) NormalCmd(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
-	builder.WithDir(runner.dir).WithDebug(runner.debug).WithEnvs(runner.envs).WithOut(runner.out)
+	builder.WithDir(runner.dir)
+	builder.WithDebug(runner.debug)
+	builder.WithEnvs(runner.envs...)
+	builder.WithOut(runner.out)
 	err = builder.Run()
 	if err != nil {
 		return w.Wrapf(err, "cannot build binary")
@@ -188,16 +194,18 @@ func (runner *Runner) NormalCmd(ctx context.Context) error {
 	return nil
 }
 
-func (runner *Runner) Start(ctx context.Context) error {
+func (runner *Runner) Start(ctx context.Context, args ...string) error {
 	w := wool.Get(ctx).In("go/runner")
 	worker, err := runners.NewRunner(ctx, runner.target)
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
 
-	worker.WithDir(runner.dir).WithEnvs(runner.envs).WithOut(runner.out)
+	worker.WithDir(runner.dir)
+	worker.WithEnvs(runner.envs...)
+	worker.WithOut(runner.out)
 	runner.worker = worker
-	err = runner.worker.Start()
+	err = runner.worker.Start(args...)
 	if err != nil {
 		return w.Wrapf(err, "cannot start binary")
 	}

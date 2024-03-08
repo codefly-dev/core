@@ -72,8 +72,8 @@ func (runner *Runner) WithDir(dir string) *Runner {
 	return runner
 }
 
-func (runner *Runner) WithEnvs(envs []string) *Runner {
-	runner.envs = envs
+func (runner *Runner) WithEnvs(envs ...string) *Runner {
+	runner.envs = append(runner.envs, envs...)
 	runner.cmd.Env = envs
 	return runner
 }
@@ -212,7 +212,7 @@ func (mrc *MultiReader) Read(p []byte) (n int, err error) {
 }
 
 // Start executing and return
-func (runner *Runner) Start() error {
+func (runner *Runner) Start(args ...string) error {
 	stdout, err := runner.cmd.StdoutPipe()
 	if err != nil {
 		return errors.Wrap(err, "cannot create stdout pipe")
@@ -227,6 +227,7 @@ func (runner *Runner) Start() error {
 	runner.ForwardLogs(reader)
 
 	// When we are done, we want to close the ForwardLogs
+	runner.cmd.Args = append(runner.cmd.Args, args...)
 	err = runner.cmd.Start()
 	if err != nil {
 		return runner.w.Wrapf(err, "cannot run command")

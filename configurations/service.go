@@ -59,6 +59,9 @@ type Service struct {
 	// Spec is the specialized configuration of the service
 	Spec map[string]any `yaml:"spec"`
 
+	// RuntimeSpec are additional specs passed on by the runtime
+	RuntimeSpec map[string]any `yam:"-"`
+
 	// internal
 	dir string
 }
@@ -276,6 +279,10 @@ func (s *Service) Endpoint() string {
 
 func (s *Service) Dir() string {
 	return s.dir
+}
+
+func (s *Service) WithDir(dir string) {
+	s.dir = dir
 }
 
 // LoadServiceFromDir loads a service from a directory

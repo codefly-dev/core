@@ -90,6 +90,28 @@ func (s *Base) Unique() string {
 	return s.Configuration.Unique()
 }
 
+func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {
+	s.Identity = configurations.ServiceIdentityFromProto(identity)
+	s.Location = identity.Location
+
+	// Replace the Agent now that we know more!
+	s.WoolAgent = agents.NewServiceProvider(ctx, s.Identity)
+
+	s.Wool = s.WoolAgent.Get(ctx)
+
+	s.Wool.Debug("loading", wool.ServiceField(s.Identity.Name))
+
+	s.Wool.Debug("loading service", wool.DirField(s.Location))
+
+	s.Information = &Information{
+		SourceVersionControl: s.Identity.SourceVersionControl,
+		Agent:                s.Agent,
+	}
+
+	s.loaded = true
+	return nil
+}
+
 func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, settings any) error {
 	s.Identity = configurations.ServiceIdentityFromProto(identity)
 	s.Location = identity.Location
