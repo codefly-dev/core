@@ -76,3 +76,12 @@ func (holder *EnvironmentVariableManager) GetBase() []string {
 	}
 	return envs
 }
+
+func (holder *EnvironmentVariableManager) Find(key string) string {
+	for _, env := range holder.envs {
+		if strings.HasPrefix(env, key) {
+			return env
+		}
+	}
+	return ""
+}

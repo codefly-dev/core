@@ -92,7 +92,7 @@ func (docker *Docker) WithOut(writer io.Writer) {
 
 func (docker *Docker) Init(ctx context.Context, image *configurations.DockerImage) error {
 	w := wool.Get(ctx).In("Docker.Start")
-
+	docker.ctx = ctx
 	// Pull the image if needed
 	err := docker.GetImage(ctx, image)
 	if err != nil {
@@ -127,7 +127,7 @@ func (docker *Docker) GetImage(ctx context.Context, image *configurations.Docker
 		w.Trace("found Docker image locally")
 		return nil
 	}
-	w.Debug("pulling Docker image")
+	w.Debug("pulling Docker image", wool.Field("name", image.FullName()))
 	out, err := docker.client.ImagePull(ctx, image.FullName(), types.ImagePullOptions{})
 	if err != nil {
 		return w.Wrapf(err, "cannot pull image")
@@ -135,6 +135,11 @@ func (docker *Docker) GetImage(ctx context.Context, image *configurations.Docker
 
 	docker.ForwardLogs(out)
 
+	// Wait for the image pull operation to be completed
+	if _, err := io.Copy(io.Discard, out); err != nil {
+		return w.Wrapf(err, "error while waiting for image pull operation to be completed")
+	}
+	w.Debug("done pulling")
 	return nil
 }
 
@@ -217,6 +222,9 @@ func (docker *Docker) Start(ctx context.Context) error {
 }
 
 func (docker *Docker) ForwardLogs(reader io.Reader) {
+	if docker.out == nil {
+		return
+	}
 	docker.wg.Add(1)
 	scanner := bufio.NewScanner(reader)
 	output := make(chan []byte)
@@ -230,10 +238,9 @@ func (docker *Docker) ForwardLogs(reader io.Reader) {
 				for scanner.Scan() {
 					output <- []byte(strings.TrimSpace(scanner.Text()))
 				}
-				//
-				//if err := scanner.Err(); err != nil {
-				//	output <- []byte(strings.TrimSpace(err.Error()))
-				//}
+				if err := scanner.Err(); err != nil {
+					output <- []byte(strings.TrimSpace(err.Error()))
+				}
 
 			}
 		}

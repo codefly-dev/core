@@ -74,7 +74,7 @@ func (runner *Runner) WithDir(dir string) *Runner {
 
 func (runner *Runner) WithEnvs(envs ...string) *Runner {
 	runner.envs = append(runner.envs, envs...)
-	runner.cmd.Env = envs
+	runner.cmd.Env = runner.envs
 	return runner
 }
 

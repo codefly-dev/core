@@ -232,10 +232,10 @@ func loadFromEnvFile(ctx context.Context, dir string, p string) (*ProviderInform
 
 	for _, line := range lines {
 		tokens := strings.Split(line, "=")
-		if len(tokens) != 2 {
+		if len(tokens) < 2 {
 			continue
 		}
-		info.Data[tokens[0]] = tokens[1]
+		info.Data[tokens[0]] = strings.Join(tokens[1:], "=")
 	}
 	return &ProviderInformationWrapper{
 		ProviderInformation: info,

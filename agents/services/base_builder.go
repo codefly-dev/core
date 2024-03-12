@@ -179,7 +179,7 @@ func EnvsAsConfigMapData(envs []string) map[string]string {
 	return m
 }
 
-func EnvsAsSecretData(envs []string) map[string]string {
+func EnvsAsSecretData(envs ...string) map[string]string {
 	m := make(map[string]string)
 	for _, env := range envs {
 		split := strings.SplitN(env, "=", 2)

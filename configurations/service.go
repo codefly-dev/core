@@ -60,7 +60,7 @@ type Service struct {
 	Spec map[string]any `yaml:"spec"`
 
 	// RuntimeSpec are additional specs passed on by the runtime
-	RuntimeSpec map[string]any `yam:"-"`
+	RuntimeSpec map[string]any `yaml:"-"`
 
 	// internal
 	dir string

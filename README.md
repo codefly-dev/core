@@ -19,6 +19,16 @@
  ./scripts/build/generate.sh
 ```
 
+
+## Tests
+
+### Wither runner tests
+
+Flaky for now.
+
+```shell
+go test -tags runner -v ./...
+
 ### Publish
 
 TODO: When needed, move to PR system for versioning

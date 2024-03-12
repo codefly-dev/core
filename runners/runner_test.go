@@ -1,4 +1,4 @@
-//go:build flaky
+//go:build runner
 
 package runners_test
 

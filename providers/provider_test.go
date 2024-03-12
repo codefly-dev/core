@@ -94,6 +94,7 @@ func TestLoadingProviderInfoFromEnv(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "global", info.Name)
 	assert.Equal(t, "value", info.Data["key"])
+	assert.Equal(t, "postgresql://user:password@localhost:30140/counter-python-nextjs-postgres?sslmode=disable", info.Data["another_key"])
 
 	info, err = configurations.FindServiceProvider("app/svc", "something", infos)
 	assert.NoError(t, err)
