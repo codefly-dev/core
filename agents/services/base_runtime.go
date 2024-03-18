@@ -7,7 +7,6 @@ import (
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/configurations"
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 )
 
@@ -59,12 +58,12 @@ func (s *RuntimeWrapper) LoadErrorWithDetails(err error, details string) (*runti
 	}, nil
 }
 
-func (s *RuntimeWrapper) InitResponse(networkMappings []*basev0.NetworkMapping, infos ...*basev0.ProviderInformation) (*runtimev0.InitResponse, error) {
+func (s *RuntimeWrapper) InitResponse() (*runtimev0.InitResponse, error) {
 	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_READY}
 	return &runtimev0.InitResponse{
 		Status:               s.InitStatus,
-		NetworkMappings:      networkMappings,
-		ServiceProviderInfos: infos,
+		NetworkMappings:      s.NetworkMappings,
+		ServiceProviderInfos: s.ServiceProviderInfos,
 	}, nil
 }
 

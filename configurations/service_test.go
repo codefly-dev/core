@@ -253,7 +253,7 @@ func TestAddDependencyService(t *testing.T) {
 	ctx := context.Background()
 	var action actions.Action
 	var err error
-	// No endpoint yet
+	// No info yet
 	input := &actionsv0.AddServiceDependency{
 		Name:                  setup.serviceOne.Name,
 		Application:           setup.appOne.Name,
@@ -266,7 +266,7 @@ func TestAddDependencyService(t *testing.T) {
 	_, err = action.Run(ctx)
 	assert.NoError(t, err)
 
-	// Same action with endpoint that doesn't exist yet
+	// Same action with info that doesn't exist yet
 	input.Endpoints = []string{"not-existing"}
 	action, err = actionservice.NewActionAddServiceDependency(ctx, input)
 	assert.NoError(t, err)
@@ -277,10 +277,10 @@ func TestAddDependencyService(t *testing.T) {
 	service := setup.serviceTwo
 	service.Endpoints = []*configurations.Endpoint{
 		{
-			Name: "test-endpoint-private",
+			Name: "test-info-private",
 		},
 		{
-			Name:       "test-endpoint-application",
+			Name:       "test-info-application",
 			Visibility: "application",
 		},
 	}
@@ -292,7 +292,7 @@ func TestAddDependencyService(t *testing.T) {
 	assert.Equal(t, 2, len(service.Endpoints))
 
 	// Both endpoints will work because we are inside the same application
-	input.Endpoints = []string{"test-endpoint-private", "test-endpoint-application"}
+	input.Endpoints = []string{"test-info-private", "test-info-application"}
 	action, err = actionservice.NewActionAddServiceDependency(ctx, input)
 	assert.NoError(t, err)
 

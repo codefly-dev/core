@@ -3,12 +3,18 @@ package golang
 import (
 	"context"
 	"os/exec"
+	"path"
+
+	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/wool"
 )
 
 func (g *Go) ModTidy(ctx context.Context) error {
 	w := wool.Get(ctx).In("go.ModTidy")
+	if !shared.FileExists(path.Join(g.Dir, "go.mod")) {
+		return nil
+	}
 	cmd := exec.Command("go", "mod", "tidy")
 	cmd.Dir = g.Dir
 	out, err := cmd.CombinedOutput()
@@ -20,6 +26,9 @@ func (g *Go) ModTidy(ctx context.Context) error {
 
 func (g *Go) ModDowload(ctx context.Context) error {
 	w := wool.Get(ctx).In("go.ModTidy")
+	if !shared.FileExists(path.Join(g.Dir, "go.mod")) {
+		return nil
+	}
 	cmd := exec.Command("go", "mod", "download")
 	cmd.Dir = g.Dir
 	out, err := cmd.CombinedOutput()

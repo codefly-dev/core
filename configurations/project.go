@@ -37,11 +37,15 @@ type Project struct {
 	applicationsRelative string
 }
 
-func (project *Project) Proto() *basev0.Project {
-	return &basev0.Project{
+func (project *Project) Proto() (*basev0.Project, error) {
+	proto := &basev0.Project{
 		Name:        project.Name,
 		Description: project.Description,
 	}
+	if err := Validate(proto); err != nil {
+		return nil, err
+	}
+	return proto, nil
 }
 
 // Dir is the directory of the project
@@ -97,9 +101,19 @@ func (ref *ProjectReference) AddApplication(ctx context.Context, application *Ap
 	return nil
 }
 
-// NewProject creates a new project
-func NewProject(ctx context.Context, action *actionsv0.NewProject) (*Project, error) {
-	w := wool.Get(ctx).In("NewProject", wool.NameField(action.Name))
+func NewProject(ctx context.Context, name string) (*Project, error) {
+	w := wool.Get(ctx).In("NewProject", wool.NameField(name))
+	project := &Project{Name: name}
+	_, err := project.Proto()
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot validate project name")
+	}
+	return project, nil
+}
+
+// CreateProject creates a new project
+func CreateProject(ctx context.Context, action *actionsv0.NewProject) (*Project, error) {
+	w := wool.Get(ctx).In("CreateProject", wool.NameField(action.Name))
 
 	w.Trace("action", wool.PathField(action.Path))
 	dir := path.Join(action.Path, action.Name)
@@ -117,16 +131,14 @@ func NewProject(ctx context.Context, action *actionsv0.NewProject) (*Project, er
 		return nil, w.Wrapf(err, "cannot create project directory")
 	}
 
-	//// Generate UUID
-	//id, err := uuid.NewUUID()
-	//if err != nil {
-	//	return nil, w.Wrapf(err, "cannot generate UUID")
-	//}
-	project := &Project{
-		Name:                 action.Name,
-		dir:                  dir,
-		applicationsRelative: "applications",
+	project, err := NewProject(ctx, action.Name)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot create project")
+
 	}
+	project.dir = dir
+	project.applicationsRelative = "applications"
+
 	err = project.Save(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot save project")
@@ -225,7 +237,7 @@ func (project *Project) LoadApplicationFromName(ctx context.Context, name string
 			return project.LoadApplicationFromReference(ctx, ref)
 		}
 	}
-	return nil, w.NewError("cannot find application")
+	return nil, w.NewError("cannot find application <%s> in project <%s>", name, project.Name)
 }
 
 // LoadApplications returns the applications in the project
@@ -268,13 +280,13 @@ func (project *Project) ApplicationPath(_ context.Context, ref *ApplicationRefer
 
 // Internally we keep track of active application differently
 func (project *Project) postLoad(_ context.Context) error {
-	proto := project.Proto()
-	return Validate(proto)
+	_, err := project.Proto()
+	return err
 }
 
 func (project *Project) preSave(_ context.Context) error {
-	proto := project.Proto()
-	return Validate(proto)
+	_, err := project.Proto()
+	return err
 }
 
 // ExistsApplication returns true if the application exists in the project

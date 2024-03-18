@@ -13,11 +13,14 @@ import (
 func TestOpenAPICombineForward(t *testing.T) {
 	ctx := context.Background()
 
-	endpoint := &configurations.Endpoint{Service: "org", Application: "management"}
+	endpoint := &configurations.Endpoint{Service: "org", Application: "management", Name: "rest"}
+	endpoint.WithDefault()
 	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/api/swagger/one/org.swagger.json")
 	assert.NoError(t, err)
 
-	gateway := &configurations.Endpoint{Service: "api", Application: "public"}
+	gateway := &configurations.Endpoint{Service: "api", Application: "public", Name: "rest"}
+	gateway.WithDefault()
+
 	combinator, err := configurations.NewOpenAPICombinator(ctx, gateway, rest)
 	assert.NoError(t, err)
 
@@ -63,15 +66,18 @@ func TestOpenAPICombineForward(t *testing.T) {
 
 func TestOpenAPICombineSample(t *testing.T) {
 	ctx := context.Background()
-	endpoint := &configurations.Endpoint{Service: "svc", Application: "app"}
+	endpoint := &configurations.Endpoint{Service: "svc", Application: "app", Name: "rest"}
+	endpoint.WithDefault()
 	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/api/swagger/sample/server.swagger.json")
 	assert.NoError(t, err)
 
-	otherEndpoint := &configurations.Endpoint{Service: "org", Application: "management"}
+	otherEndpoint := &configurations.Endpoint{Service: "org", Application: "management", Name: "rest"}
+	otherEndpoint.WithDefault()
 	otherRest, err := configurations.NewRestAPIFromOpenAPI(ctx, otherEndpoint, "testdata/api/swagger/sample/org.swagger.json")
 	assert.NoError(t, err)
 
-	gateway := &configurations.Endpoint{Service: "api", Application: "public"}
+	gateway := &configurations.Endpoint{Service: "api", Application: "public", Name: "rest"}
+	gateway.WithDefault()
 	combinator, err := configurations.NewOpenAPICombinator(ctx, gateway, rest, otherRest)
 	assert.NoError(t, err)
 
@@ -92,15 +98,18 @@ func TestOpenAPICombineSample(t *testing.T) {
 
 func TestOpenAPICombineWithFilter(t *testing.T) {
 	ctx := context.Background()
-	endpoint := &configurations.Endpoint{Service: "svc", Application: "app"}
+	endpoint := &configurations.Endpoint{Service: "svc", Application: "app", Name: "rest"}
+	endpoint.WithDefault()
 	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/api/swagger/sample/server.swagger.json")
 	assert.NoError(t, err)
 
-	otherEndpoint := &configurations.Endpoint{Service: "org", Application: "management"}
+	otherEndpoint := &configurations.Endpoint{Service: "org", Application: "management", Name: "rest"}
+	otherEndpoint.WithDefault()
 	otherRest, err := configurations.NewRestAPIFromOpenAPI(ctx, otherEndpoint, "testdata/api/swagger/sample/org.swagger.json")
 	assert.NoError(t, err)
 
-	gateway := &configurations.Endpoint{Service: "api", Application: "public"}
+	gateway := &configurations.Endpoint{Service: "api", Application: "public", Name: "rest"}
+	gateway.WithDefault()
 	combinator, err := configurations.NewOpenAPICombinator(ctx, gateway, rest, otherRest)
 	assert.NoError(t, err)
 	combinator.Only(otherEndpoint.ServiceUnique(), "/organization")

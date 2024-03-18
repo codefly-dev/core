@@ -51,7 +51,7 @@ func (action *NewProjectAction) Run(ctx context.Context) (any, error) {
 		return nil, w.Wrap(err)
 	}
 
-	project, err := configurations.NewProject(ctx, action.AddProject)
+	project, err := configurations.CreateProject(ctx, action.AddProject)
 	if err != nil {
 		return nil, err
 	}

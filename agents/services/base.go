@@ -54,9 +54,21 @@ type Base struct {
 	// Information convenience
 	Information *Information
 
+	// Environment
+	Environment *basev0.Environment
+
 	// Endpoints
 	Endpoints           []*basev0.Endpoint
 	DependencyEndpoints []*basev0.Endpoint
+
+	// NetworkMappings
+	NetworkMappings []*basev0.NetworkMapping
+
+	// ServiceInfo
+	ServiceProviderInfos []*basev0.ProviderInformation
+
+	// EnvironmentVariables
+	EnvironmentVariables *configurations.EnvironmentVariableManager
 
 	// Wrappers
 	Runtime *RuntimeWrapper
@@ -76,10 +88,11 @@ type Base struct {
 func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 	provider := agents.NewAgentProvider(ctx, agent)
 	base := &Base{
-		Agent:         agent,
-		Communication: communicate.NewServer(ctx),
-		WoolAgent:     provider,
-		Wool:          provider.Get(ctx),
+		Agent:                agent,
+		Communication:        communicate.NewServer(ctx),
+		WoolAgent:            provider,
+		Wool:                 provider.Get(ctx),
+		EnvironmentVariables: configurations.NewEnvironmentVariableManager(),
 	}
 	base.Runtime = &RuntimeWrapper{Base: base}
 	base.Builder = &BuilderWrapper{Base: base}

@@ -6,5 +6,5 @@ const (
 	PROJECT     = "project"
 	APPLICATION = "application"
 	SERVICE     = "service"
-	ENDPOINT    = "endpoint"
+	ENDPOINT    = "info"
 )

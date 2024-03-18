@@ -32,14 +32,14 @@ func TestPortFromAddress(t *testing.T) {
 
 func TestEndpointConventionEnv(t *testing.T) {
 	tcs := []struct {
-		endpoint *configurations.Endpoint
-		key      string
+		info *configurations.EndpointInformation
+		key  string
 	}{
-		{&configurations.Endpoint{Application: "app", Service: "svc", API: configurations.Unknown}, "CODEFLY_ENDPOINT__APP__SVC"},
+		{&configurations.EndpointInformation{Application: "app", Service: "svc", API: configurations.Unknown}, "CODEFLY_ENDPOINT__APP__SVC"},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.key, func(t *testing.T) {
-			assert.Equal(t, tc.key, configurations.EndpointEnvironmentVariableKey(tc.endpoint))
+			assert.Equal(t, tc.key, configurations.EndpointEnvironmentVariableKey(tc.info))
 		})
 	}
 }
@@ -64,11 +64,11 @@ func TestEndpointUniqueParsing(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		unique   string
-		expected *configurations.Endpoint
+		expected *configurations.EndpointInformation
 	}{
-		{"app + svc", "app/svc", &configurations.Endpoint{Application: "app", Service: "svc", API: configurations.Unknown}},
-		{"app + svc + endpoint", "app/svc/endpoint", &configurations.Endpoint{Application: "app", Service: "svc", Name: "endpoint", API: configurations.Unknown}},
-		{"ap + svc + endpoint + api", "app/svc/endpoint::rest", &configurations.Endpoint{Application: "app", Service: "svc", Name: "endpoint", API: standards.REST}},
+		{"app + svc", "app/svc", &configurations.EndpointInformation{Application: "app", Service: "svc", API: configurations.Unknown}},
+		{"app + svc + info", "app/svc/info", &configurations.EndpointInformation{Application: "app", Service: "svc", Name: "info", API: configurations.Unknown}},
+		{"ap + svc + info + api", "app/svc/info::rest", &configurations.EndpointInformation{Application: "app", Service: "svc", Name: "info", API: standards.REST}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, err := configurations.ParseEndpoint(tc.unique)
@@ -106,7 +106,9 @@ func TestEndpointLoadingFromDir(t *testing.T) {
 
 func TestEndpointSwaggerChange(t *testing.T) {
 	ctx := context.Background()
-	endpoint := &configurations.Endpoint{Application: "app", Service: "svc"}
+	endpoint := &configurations.Endpoint{Application: "app", Service: "svc", Name: "rest"}
+	endpoint.WithDefault()
+
 	e, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/endpoints/swagger/original.swagger.json")
 	assert.NoError(t, err)
 	hash, err := configurations.EndpointHash(ctx, e)

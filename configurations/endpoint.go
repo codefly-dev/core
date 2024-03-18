@@ -17,23 +17,33 @@ import (
 type Visibility = string
 
 const (
+	// VisibilityPublic represents an info that is externally visible
+	VisibilityPublic Visibility = "public"
+	// VisibilityApplication represents an application info: accessible from other applications
 	VisibilityApplication Visibility = "application"
-	VisibilityPublic      Visibility = "public"
+	// VisibilityPrivate represents an info that is only accessible within the application
+	VisibilityPrivate Visibility = "private"
 )
 
 // Endpoint is the fundamental entity that standardize communication between services.
 type Endpoint struct {
-	Name        string `yaml:"name,omitempty"`
-	Service     string `yaml:"service,omitempty"`
-	Application string `yaml:"application,omitempty"`
-	Description string `yaml:"description,omitempty"`
-	Visibility  string `yaml:"visibility,omitempty"`
+	Name        string `yaml:"name"`
+	Service     string `yaml:"service"`
+	Application string `yaml:"application"`
+	Description string `yaml:"description"`
+	Visibility  string `yaml:"visibility"`
 	API         string `yaml:"api,omitempty"`
+}
+
+func (endpoint *Endpoint) WithDefault() {
+	if endpoint.Visibility == "" {
+		endpoint.Visibility = VisibilityPrivate
+	}
 }
 
 func (endpoint *Endpoint) Unique() string {
 	unique := endpoint.ServiceUnique()
-	unique += endpoint.Identifier()
+	unique += endpoint.Information().Identifier()
 	return unique
 }
 
@@ -45,14 +55,14 @@ func ServiceUniqueFromEndpoint(endpoint *basev0.Endpoint) string {
 	return ServiceUnique(endpoint.Application, endpoint.Service)
 }
 
-func (endpoint *Endpoint) UnknownAPI() bool {
+func (endpoint *EndpointInformation) UnknownAPI() bool {
 	return endpoint.API == Unknown || endpoint.API == ""
 }
 
 // Identifier satisfies this format:
 // - name::api if name != api
 // - api if name == api or name == ""
-func (endpoint *Endpoint) Identifier() string {
+func (endpoint *EndpointInformation) Identifier() string {
 	if endpoint.UnknownAPI() {
 		if endpoint.Name == "" {
 			return ""
@@ -65,13 +75,20 @@ func (endpoint *Endpoint) Identifier() string {
 	return fmt.Sprintf("/%s::%s", endpoint.Name, endpoint.API)
 }
 
-func ParseEndpoint(unique string) (*Endpoint, error) {
+type EndpointInformation struct {
+	Application string
+	Service     string
+	Name        string
+	API         string
+}
+
+func ParseEndpoint(unique string) (*EndpointInformation, error) {
 	// Do we have the explicit APIva
-	endpoint := &Endpoint{}
+	endpoint := &EndpointInformation{}
 	if strings.Contains(unique, "::") {
 		tokens := strings.Split(unique, "::")
 		if len(tokens) != 2 {
-			return nil, fmt.Errorf("endpoint needs to be of the form app/svc/endpoint::api")
+			return nil, fmt.Errorf("info needs to be of the form app/svc/info::api")
 		}
 		endpoint.API = tokens[1]
 		endpoint.Name = endpoint.API
@@ -102,13 +119,27 @@ func (endpoint *Endpoint) AsReference() *EndpointReference {
 	}
 }
 
-func (endpoint *Endpoint) Proto() *basev0.Endpoint {
-	return &basev0.Endpoint{
+func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
+	e := &basev0.Endpoint{
 		Name:        endpoint.Name,
 		Application: endpoint.Application,
 		Service:     endpoint.Service,
 		Visibility:  endpoint.Visibility,
 		Description: endpoint.Description,
+	}
+	// Validate
+	if err := Validate(e); err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
+func (endpoint *Endpoint) Information() *EndpointInformation {
+	return &EndpointInformation{
+		Application: endpoint.Application,
+		Service:     endpoint.Service,
+		Name:        endpoint.Name,
+		API:         endpoint.API,
 	}
 }
 
@@ -125,7 +156,7 @@ func DeserializeAddresses(data string) ([]string, error) {
 	return strings.Split(string(data), ","), nil
 }
 
-func EndpointEnvironmentVariableKey(endpoint *Endpoint) string {
+func EndpointEnvironmentVariableKey(endpoint *EndpointInformation) string {
 	key := IdentifierKey(EndpointIdentifier, endpoint.Application, endpoint.Service)
 	id := strings.ToUpper(endpoint.Identifier())
 	id = strings.Replace(id, "/", "___", 1)
@@ -133,8 +164,8 @@ func EndpointEnvironmentVariableKey(endpoint *Endpoint) string {
 	return fmt.Sprintf("%s%s", key, id)
 }
 
-func AsEndpointEnvironmentVariable(_ context.Context, endpoint *Endpoint, addresses []string) string {
-	return fmt.Sprintf("%s=%s", EndpointEnvironmentVariableKey(endpoint), SerializeAddresses(addresses))
+func AsEndpointEnvironmentVariable(_ context.Context, endpoint *Endpoint, address string) string {
+	return fmt.Sprintf("%s=%s", EndpointEnvironmentVariableKey(endpoint.Information()), address)
 }
 
 const Unknown = "unknown"
@@ -142,7 +173,7 @@ const NA = "NA"
 
 type EndpointInstance struct {
 	*Endpoint
-	Addresses []string
+	Address string
 }
 
 func DefaultEndpointInstance(unique string) *EndpointInstance {
@@ -150,19 +181,12 @@ func DefaultEndpointInstance(unique string) *EndpointInstance {
 	endpoint, err := ParseEndpoint(unique)
 	if err != nil {
 		return &EndpointInstance{
-			Addresses: []string{standards.StandardPortAddress(standards.TCP)},
+			Address: standards.PortAddress(standards.TCP),
 		}
 	}
 	return &EndpointInstance{
-		Addresses: []string{standards.StandardPortAddress(endpoint.API)},
+		Address: standards.PortAddress(endpoint.API),
 	}
-}
-
-func (instance *EndpointInstance) Address() (string, error) {
-	if len(instance.Addresses) != 1 {
-		return "", fmt.Errorf("endpoint instance has more than one address")
-	}
-	return instance.Addresses[0], nil
 }
 
 func (instance *EndpointInstance) PortAddress() (string, error) {
@@ -185,15 +209,11 @@ func PortFromAddress(address string) (int, error) {
 	if len(tokens) == 2 {
 		return strconv.Atoi(tokens[1])
 	}
-	return standards.StandardPort(standards.TCP), fmt.Errorf("endpoint instance address does not have a port")
+	return standards.Port(standards.TCP), fmt.Errorf("info instance address does not have a port")
 }
 
 func (instance *EndpointInstance) Port() (int, error) {
-	address, err := instance.Address()
-	if err != nil {
-		return standards.StandardPort(standards.TCP), err
-	}
-	return PortFromAddress(address)
+	return PortFromAddress(instance.Address)
 }
 
 type NilAPIError struct {
@@ -201,7 +221,7 @@ type NilAPIError struct {
 }
 
 func (err *NilAPIError) Error() string {
-	return fmt.Sprintf("endpoint <%s> api is nil", err.name)
+	return fmt.Sprintf("info <%s> api is nil", err.name)
 }
 
 type UnknownAPIError struct {
@@ -234,7 +254,7 @@ func APIAsStandard(api *basev0.API) (string, error) {
 	}
 }
 
-func StandardPort(api *basev0.API) (int, error) {
+func Port(api *basev0.API) (int, error) {
 	switch api.Value.(type) {
 	case *basev0.API_Grpc:
 		return 9090, nil
@@ -252,7 +272,7 @@ func StandardPort(api *basev0.API) (int, error) {
 type NilEndpointError struct{}
 
 func (n NilEndpointError) Error() string {
-	return "endpoint is nil"
+	return "info is nil"
 }
 
 func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
@@ -341,12 +361,15 @@ func (r RouteUnique) String() string {
 	return fmt.Sprintf("%s/%s%s[%s]", r.application, r.service, r.path, r.method)
 }
 
+func GroupKey(endpoint *basev0.Endpoint, group *basev0.RestRouteGroup) string {
+	return fmt.Sprintf("%s_%s_%s_%s", endpoint.Application, endpoint.Service, endpoint.Name, group.Path)
+}
+
 func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpoint, known []*RestRouteGroup) []*RestRouteGroup {
 	w := wool.Get(ctx).In("DetectNewRoutes")
 	knownRoutes := make(map[string]bool)
 	for _, k := range known {
 		for _, r := range k.Routes {
-			w.Debug("adding route", wool.Field("route", r))
 			u := RouteUnique{
 				service:     k.Service,
 				application: k.Application,
@@ -356,15 +379,14 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 			knownRoutes[u.String()] = true
 		}
 	}
-	w.Debug("known routes", wool.Field("count", len(knownRoutes)))
+	w.Debug("known routes", wool.Field("all", knownRoutes))
 	newGroups := make(map[string]*RestRouteGroup)
 
 	for _, e := range endpoints {
 		if rest := IsRest(ctx, e.Api); rest != nil {
-			w.Debug("found a REST API", wool.NameField(e.Name))
 			for _, group := range rest.Groups {
+				groupKey := GroupKey(e, group)
 				for _, r := range group.Routes {
-					w.Debug("route", wool.Field("route", e.Application))
 					key := RouteUnique{
 						service:     e.Service,
 						application: e.Application,
@@ -374,14 +396,14 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 					if _, ok := knownRoutes[key.String()]; !ok {
 						w.Debug("detected unknown route", wool.Field("route", key.String()))
 						var outputGroup *RestRouteGroup
-						var ok bool
-						if outputGroup, ok = newGroups[group.String()]; !ok {
+						var groupKnown bool
+						if outputGroup, groupKnown = newGroups[groupKey]; !groupKnown {
 							outputGroup = &RestRouteGroup{
 								Application: e.Application,
 								Service:     e.Service,
 								Path:        r.Path,
 							}
-							newGroups[group.String()] = outputGroup
+							newGroups[groupKey] = outputGroup
 						}
 						outputGroup.Routes = append(outputGroup.Routes, RestRouteFromProto(r))
 					}
@@ -391,6 +413,7 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 	}
 	var output []*RestRouteGroup
 	for _, g := range newGroups {
+		w.Focus("new group", wool.ApplicationField(g.Application), wool.ServiceField(g.Service), wool.Field("path", g.Path))
 		output = append(output, g)
 	}
 	return output
@@ -417,7 +440,7 @@ func DetectNewGRPCRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.E
 	return newRoutes
 }
 
-// FindEndpointForRestRoute finds the endpoint that matches the route rpcs
+// FindEndpointForRestRoute finds the info that matches the route rpcs
 func FindEndpointForRestRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *RestRouteGroup) *basev0.Endpoint {
 	for _, e := range endpoints {
 		if e.Application == route.Application && e.Service == route.Service && IsRest(ctx, e.Api) != nil {
@@ -427,7 +450,7 @@ func FindEndpointForRestRoute(ctx context.Context, endpoints []*basev0.Endpoint,
 	return nil
 }
 
-// FindEndpointForGRPCRoute finds the endpoint that matches the route rpcs
+// FindEndpointForGRPCRoute finds the info that matches the route rpcs
 func FindEndpointForGRPCRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *GRPCRoute) *basev0.Endpoint {
 	for _, e := range endpoints {
 		if e.Application == route.Application && e.Service == route.Service && IsGRPC(ctx, e.Api) != nil {
@@ -520,7 +543,7 @@ func EndpointHash(ctx context.Context, endpoints ...*basev0.Endpoint) (string, e
 	for _, endpoint := range endpoints {
 		hash, err := endpointHash(ctx, endpoint)
 		if err != nil {
-			return "", w.Wrapf(err, "cannot compute endpoint hash")
+			return "", w.Wrapf(err, "cannot compute info hash")
 		}
 		hasher.Add(hash)
 	}

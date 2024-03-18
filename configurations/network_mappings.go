@@ -9,25 +9,14 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
-func LocalizeMappings(nm []*basev0.NetworkMapping, local string) []*basev0.NetworkMapping {
-	var localized []*basev0.NetworkMapping
+func LocalizeMappings(nm []*basev0.NetworkMapping, local string) {
 	for _, mapping := range nm {
-		localized = append(localized, LocalizeMapping(mapping, local))
+		LocalizeMapping(mapping, local)
 	}
-	return localized
 }
 
-func LocalizeMapping(mapping *basev0.NetworkMapping, local string) *basev0.NetworkMapping {
-	var addresses []string
-	for _, addr := range mapping.Addresses {
-		addresses = append(addresses, strings.Replace(addr, "localhost", local, 1))
-	}
-	return &basev0.NetworkMapping{
-		Application: mapping.Application,
-		Service:     mapping.Service,
-		Endpoint:    mapping.Endpoint,
-		Addresses:   addresses,
-	}
+func LocalizeMapping(mapping *basev0.NetworkMapping, local string) {
+	mapping.Address = strings.Replace(mapping.Address, "localhost", local, 1)
 }
 
 func FindMapping(mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) *basev0.NetworkMapping {
@@ -44,20 +33,8 @@ type MappingInstance struct {
 	Port    int
 }
 
-// GetMappingInstance returns the network mapping instance when there is only one
-// Really a convenience function for Agent
-func GetMappingInstance(mappings []*basev0.NetworkMapping) (*MappingInstance, error) {
-	if len(mappings) == 0 {
-		return nil, fmt.Errorf("no network mappings")
-	}
-	return BuildMappingInstance(mappings[0])
-}
-
 func BuildMappingInstance(mapping *basev0.NetworkMapping) (*MappingInstance, error) {
-	if len(mapping.Addresses) == 0 {
-		return nil, fmt.Errorf("no network addresses")
-	}
-	address := mapping.Addresses[0]
+	address := mapping.Address
 	port, err := PortFromAddress(address)
 	if err != nil {
 		return nil, fmt.Errorf("invalid network port")
@@ -142,7 +119,7 @@ func GetMappingInstanceForName(ctx context.Context, mappings []*basev0.NetworkMa
 		return nil, fmt.Errorf("no network mappings")
 	}
 	for _, m := range mappings {
-		w.Debug("mapping", wool.Field("endpoint", m.Endpoint.Name))
+		w.Debug("mapping", wool.Field("info", m.Endpoint.Name))
 		if m.Endpoint.Name != name {
 			continue
 		}
@@ -167,7 +144,7 @@ func MakeNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
 }
 
 func NetworkMappingInfo(mapping *basev0.NetworkMapping) string {
-	return fmt.Sprintf("%s:%s", EndpointDestination(mapping.Endpoint), mapping.Addresses)
+	return fmt.Sprintf("%s:%s", EndpointDestination(mapping.Endpoint), mapping.Address)
 }
 
 func networkMappingHash(n *basev0.NetworkMapping) string {
@@ -182,18 +159,18 @@ func NetworkMappingHash(networkMappings ...*basev0.NetworkMapping) (string, erro
 	return hasher.Hash(), nil
 }
 
-// ExtractEndpointEnvironmentVariables converts NetworkMapping endpoint data to environment variables
+// ExtractEndpointEnvironmentVariables converts NetworkMapping info data to environment variables
 func ExtractEndpointEnvironmentVariables(ctx context.Context, nets []*basev0.NetworkMapping) ([]string, error) {
 	var envs []string
 	for _, net := range nets {
 		e := EndpointFromProto(net.Endpoint)
-		endpoint := AsEndpointEnvironmentVariable(ctx, e, net.Addresses)
+		endpoint := AsEndpointEnvironmentVariable(ctx, e, net.Address)
 		envs = append(envs, endpoint)
 	}
 	return envs, nil
 }
 
-// ExtractRestRoutesEnvironmentVariables converts NetworkMapping endpoint REST data to environment variables
+// ExtractRestRoutesEnvironmentVariables converts NetworkMapping info REST data to environment variables
 func ExtractRestRoutesEnvironmentVariables(ctx context.Context, nets []*basev0.NetworkMapping) ([]string, error) {
 	var envs []string
 	for _, net := range nets {

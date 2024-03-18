@@ -22,9 +22,11 @@ func WithAPI(ctx context.Context, endpoint *Endpoint, source APISource) (*basev0
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create grpc api: %v")
 	}
-	base := endpoint.Proto()
+	base, err := endpoint.Proto()
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot create info")
+	}
 	base.Api = api
-	base.Replicas = 1
 	return base, nil
 }
 
@@ -86,6 +88,9 @@ func (grpc *GrpcAPI) Proto() (*basev0.API, error) {
 
 func EndpointGRPCAPI(endpoint *basev0.Endpoint) *basev0.GrpcAPI {
 	if endpoint == nil {
+		return nil
+	}
+	if endpoint.Api == nil {
 		return nil
 	}
 	switch v := endpoint.Api.Value.(type) {
@@ -159,6 +164,9 @@ func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *Endpoint, filename str
 
 func EndpointRestAPI(endpoint *basev0.Endpoint) *basev0.RestAPI {
 	if endpoint == nil {
+		return nil
+	}
+	if endpoint.Api == nil {
 		return nil
 	}
 	switch v := endpoint.Api.Value.(type) {

@@ -444,7 +444,7 @@ func (s *Service) EndpointsFromNames(endpoints []string) ([]*Endpoint, error) {
 	var out []*Endpoint
 	for _, endpoint := range endpoints {
 		if known[endpoint] == nil {
-			return nil, fmt.Errorf("unknown endpoint: %s", endpoint)
+			return nil, fmt.Errorf("unknown info: %s", endpoint)
 		}
 		out = append(out, known[endpoint])
 	}
@@ -514,9 +514,9 @@ func (s *ServiceDependency) UpdateEndpoints(ctx context.Context, endpoints []*En
 	}
 	for _, endpoint := range endpoints {
 		if _, exists := known[endpoint.Name]; exists {
-			return fmt.Errorf("endpoint already exists: %s", endpoint.Name)
+			return fmt.Errorf("info already exists: %s", endpoint.Name)
 		}
-		w.Debug("adding endpoint %s", wool.NameField(endpoint.Name))
+		w.Debug("adding info %s", wool.NameField(endpoint.Name))
 		s.Endpoints = append(s.Endpoints, endpoint.AsReference())
 	}
 	return nil

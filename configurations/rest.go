@@ -28,10 +28,13 @@ const (
 	HTTPMethodHead    HTTPMethod = "HEAD"
 )
 
-// RestRouteGroup is a rpcs of routes corresponding to the SAME path
+// RestRouteGroup holds all the routes corresponding to the SAME path
+// Each Route corresponds to a DIFFERENT HTTP method
 // HTTP methods correspond to individual routes
 type RestRouteGroup struct {
-	Path        string       `yaml:"path"`
+	// HTTP Path
+	Path string `yaml:"path"`
+	// Routes for each HTTP Method
 	Routes      []*RestRoute `yaml:"routes"`
 	Application string       `yaml:"-"`
 	Service     string       `yaml:"-"`
@@ -42,11 +45,16 @@ type RestRoute struct {
 	Method HTTPMethod
 }
 
-func (r RestRoute) Proto() *basev0.RestRoute {
-	return &basev0.RestRoute{
-		Path:   r.Path,
-		Method: ConvertHTTPMethodToProto(r.Method),
+func (route *RestRoute) Proto() (*basev0.RestRoute, error) {
+	proto := &basev0.RestRoute{
+		Path:   route.Path,
+		Method: ConvertHTTPMethodToProto(route.Method),
 	}
+	err := Validate(proto)
+	if err != nil {
+		return nil, err
+	}
+	return proto, nil
 }
 
 type ExtendedRestRoute[T any] struct {

@@ -363,7 +363,11 @@ func (app *Application) PublicEndpoints(ctx context.Context) ([]*basev0.Endpoint
 			if endpoint.Visibility != VisibilityPublic {
 				continue
 			}
-			publicEndpoints = append(publicEndpoints, endpoint.Proto())
+			proto, err := endpoint.Proto()
+			if err != nil {
+				return nil, w.Wrapf(err, "cannot create info")
+			}
+			publicEndpoints = append(publicEndpoints, proto)
 		}
 	}
 	return publicEndpoints, nil

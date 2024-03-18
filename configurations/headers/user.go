@@ -12,7 +12,7 @@ const (
 	UserNickname      = "X-Codefly-User-Nickname"
 	UserProfile       = "X-Codefly-User-Profile"
 	UserLocale        = "X-Codefly-User-Locale"
-	UserZoneInfo      = "X-Codefly-User-Zone-Info"
+	UserZoneInfo      = "X-Codefly-User-Zone-Information"
 )
 
 func UserHeaders() []string {

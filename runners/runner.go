@@ -165,6 +165,12 @@ func (runner *Runner) Finish() {
 }
 
 func (runner *Runner) Stop() error {
+	if runner == nil {
+		return nil
+	}
+	if runner.cmd == nil {
+		return nil
+	}
 	err := runner.cmd.Process.Signal(syscall.SIGTERM)
 	if err != nil {
 		return runner.w.Wrapf(err, "cannot sigterm process")

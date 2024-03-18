@@ -13,7 +13,8 @@ import (
 
 func TestREST(t *testing.T) {
 	ctx := context.Background()
-	endpoint := &configurations.Endpoint{Application: "app", Service: "svc"}
+	endpoint := &configurations.Endpoint{Application: "app", Service: "svc", Name: "rest"}
+	endpoint.WithDefault()
 	e, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/api/swagger/one/org.swagger.json")
 	assert.NoError(t, err)
 	rest := configurations.EndpointRestAPI(e)
@@ -28,7 +29,8 @@ func TestREST(t *testing.T) {
 
 func TestGRPC(t *testing.T) {
 	ctx := context.Background()
-	endpoint := &configurations.Endpoint{Application: "app", Service: "svc"}
+	endpoint := &configurations.Endpoint{Application: "app", Service: "svc", Name: "gprc"}
+	endpoint.WithDefault()
 	e, err := configurations.NewGrpcAPI(ctx, endpoint, "testdata/api/grpc/api.proto")
 	assert.NoError(t, err)
 	grpc := configurations.EndpointGRPCAPI(e)

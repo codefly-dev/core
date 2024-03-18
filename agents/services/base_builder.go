@@ -25,7 +25,6 @@ func (s *BuilderWrapper) LoadResponse(gettingStarted string) (*builderv0.LoadRes
 	for _, e := range s.Endpoints {
 		e.Application = s.Identity.Application
 		e.Service = s.Identity.Name
-		e.Namespace = s.Identity.Namespace
 	}
 	return &builderv0.LoadResponse{
 		Version:        s.Version(),
@@ -41,14 +40,14 @@ func (s *BuilderWrapper) LoadError(err error) (*builderv0.LoadResponse, error) {
 	}, err
 }
 
-func (s *BuilderWrapper) InitResponse(networMappings []*basev0.NetworkMapping, hash string) (*builderv0.InitResponse, error) {
+func (s *BuilderWrapper) InitResponse() (*builderv0.InitResponse, error) {
 	if !s.loaded {
 		return s.InitError(fmt.Errorf("not loaded"))
 	}
 	return &builderv0.InitResponse{
-		NetworkMappings: networMappings,
-		RunHash:         hash,
-		State:           &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS}}, nil
+		NetworkMappings:      s.Base.NetworkMappings,
+		ServiceProviderInfos: s.Base.ServiceProviderInfos,
+		State:                &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS}}, nil
 }
 
 func (s *BuilderWrapper) InitError(err error) (*builderv0.InitResponse, error) {

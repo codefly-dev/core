@@ -27,11 +27,15 @@ func SupportedAPI(kind string) error {
 	return fmt.Errorf("unsupported api: %s", kind)
 }
 
-func StandardPortAddress(api string) string {
-	return fmt.Sprintf(":%d", StandardPort(api))
+func PortAddress(api string) string {
+	return fmt.Sprintf(":%d", Port(api))
 }
 
-func StandardPort(api string) int {
+func LocalhostAddress(api string) string {
+	return fmt.Sprintf("localhost:%d", Port(api))
+}
+
+func Port(api string) int {
 	switch api {
 	case GRPC:
 		return 9090
@@ -41,12 +45,12 @@ func StandardPort(api string) int {
 	return 80
 }
 
-func PortAddress(endpoint string) string {
+func PortAddressForEndpoint(endpoint string) string {
 	if strings.HasSuffix(endpoint, GRPC) {
-		return ":" + strconv.Itoa(StandardPort(GRPC))
+		return ":" + strconv.Itoa(Port(GRPC))
 	}
 	if strings.HasSuffix(endpoint, REST) {
-		return ":" + strconv.Itoa(StandardPort(REST))
+		return ":" + strconv.Itoa(Port(REST))
 	}
 	return ":80"
 }

@@ -16,19 +16,39 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBadInputs(t *testing.T) {
+func TestProjectValidation(t *testing.T) {
 	ctx := context.Background()
+
 	tcs := []struct {
 		name    string
 		project string
 	}{
-		{"too short", "pr"},
+		{"normal", "project"},
+		{"with -", "my-project"},
+		{"ending in 0", "my-project0"},
+		{"ending in -0", "my-project-0"},
+		{"start with 0", "0-project"},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := actionproject.NewActionNewProject(ctx, &actionsv0.NewProject{
-				Name: tc.project,
-			})
+			_, err := configurations.NewProject(ctx, tc.project)
+			assert.NoError(t, err)
+		})
+	}
+
+	tcs = []struct {
+		name    string
+		project string
+	}{
+		{"too short", "pr"},
+		{"with _", "my_project"},
+		{"with .", "my.project"},
+		{"with spaces", "my project"},
+		{"with two --", "my--project"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := configurations.NewProject(ctx, tc.project)
 			assert.Error(t, err)
 		})
 	}

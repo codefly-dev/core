@@ -50,16 +50,15 @@ func (holder *EnvironmentVariableManager) GetEndpoint(ctx context.Context, uniqu
 	}
 	endpoint, err := ParseEndpoint(unique)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot parse endpoint")
+		return nil, w.Wrapf(err, "cannot parse info")
 	}
 	key := EndpointEnvironmentVariableKey(endpoint)
 	for _, env := range holder.envs {
 		if value, ok := strings.CutPrefix(env, key); ok {
-			addresses := strings.Split(value[1:], ",")
-			return &EndpointInstance{Addresses: addresses}, nil
+			return &EndpointInstance{Address: value[1:]}, nil
 		}
 	}
-	return nil, fmt.Errorf("cannot find endpoint env variable: %s", key)
+	return nil, fmt.Errorf("cannot find info env variable: %s", key)
 }
 
 func (holder *EnvironmentVariableManager) Get() []string {

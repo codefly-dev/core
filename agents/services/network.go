@@ -13,7 +13,7 @@ func NetworkMappingForRestRouteGroup(ctx context.Context, group *configurations.
 	w := wool.Get(ctx).In("services.NetworkMappingForRoute")
 	for _, m := range mappings {
 		if rest := m.Endpoint.Api.GetRest(); rest != nil {
-			if m.Application == group.Application || m.Service == group.Service {
+			if m.Endpoint.Application == group.Application || m.Endpoint.Service == group.Service {
 				return m, nil
 			}
 		}
@@ -26,7 +26,7 @@ func NetworkMappingForGRPCRoute(ctx context.Context, grpc *configurations.GRPCRo
 	w := wool.Get(ctx).In("services.NetworkMappingForRoute")
 	for _, m := range mappings {
 		if g := m.Endpoint.Api.GetGrpc(); g != nil {
-			if m.Application == grpc.Application || m.Service == grpc.Service {
+			if m.Endpoint.Application == grpc.Application || m.Endpoint.Service == grpc.Service {
 				return m, nil
 			}
 		}
