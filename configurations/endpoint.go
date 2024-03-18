@@ -173,28 +173,42 @@ const NA = "NA"
 
 type EndpointInstance struct {
 	*Endpoint
-	Address string
+	Address     string
+	PortAddress string
+	Port        int
 }
 
-func DefaultEndpointInstance(unique string) *EndpointInstance {
+func (instance *EndpointInstance) WithAddress(address string) error {
+	instance.Address = address
+	port, portAddress, err := PortAndPortAddressFromAddress(instance.Address)
+	if err != nil {
+		return err
+	}
+	instance.PortAddress = portAddress
+	instance.Port = port
+	return nil
+}
+
+func DefaultEndpointInstance(unique string) (*EndpointInstance, error) {
 	// Try to figure out the API from unique
 	endpoint, err := ParseEndpoint(unique)
 	if err != nil {
 		return &EndpointInstance{
 			Address: standards.PortAddress(standards.TCP),
-		}
+		}, err
 	}
-	return &EndpointInstance{
-		Address: standards.PortAddress(endpoint.API),
-	}
+	instance := &EndpointInstance{}
+	err = instance.WithAddress(standards.LocalhostAddress(endpoint.API))
+	return instance, err
 }
 
-func (instance *EndpointInstance) PortAddress() (string, error) {
-	port, err := instance.Port()
+func PortAndPortAddressFromAddress(address string) (int, string, error) {
+	port, err := PortFromAddress(address)
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
-	return fmt.Sprintf(":%d", port), nil
+	portAddress := fmt.Sprintf(":%d", port)
+	return port, portAddress, nil
 }
 
 func PortFromAddress(address string) (int, error) {
@@ -210,10 +224,6 @@ func PortFromAddress(address string) (int, error) {
 		return strconv.Atoi(tokens[1])
 	}
 	return standards.Port(standards.TCP), fmt.Errorf("info instance address does not have a port")
-}
-
-func (instance *EndpointInstance) Port() (int, error) {
-	return PortFromAddress(instance.Address)
 }
 
 type NilAPIError struct {

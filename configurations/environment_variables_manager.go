@@ -46,7 +46,7 @@ func (holder *EnvironmentVariableManager) GetServiceProvider(_ context.Context, 
 func (holder *EnvironmentVariableManager) GetEndpoint(ctx context.Context, unique string) (*EndpointInstance, error) {
 	w := wool.Get(ctx).In("configurations.GetEndpoint")
 	if holder == nil {
-		return DefaultEndpointInstance(unique), nil
+		return DefaultEndpointInstance(unique)
 	}
 	endpoint, err := ParseEndpoint(unique)
 	if err != nil {
@@ -55,7 +55,9 @@ func (holder *EnvironmentVariableManager) GetEndpoint(ctx context.Context, uniqu
 	key := EndpointEnvironmentVariableKey(endpoint)
 	for _, env := range holder.envs {
 		if value, ok := strings.CutPrefix(env, key); ok {
-			return &EndpointInstance{Address: value[1:]}, nil
+			instance := &EndpointInstance{}
+			err = instance.WithAddress(value[1:])
+			return instance, err
 		}
 	}
 	return nil, fmt.Errorf("cannot find info env variable: %s", key)
