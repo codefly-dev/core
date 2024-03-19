@@ -24,11 +24,6 @@ type RuntimeWrapper struct {
 }
 
 func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
-	// for convenience, add application and service
-	for _, endpoint := range s.Endpoints {
-		endpoint.Application = s.Configuration.Application
-		endpoint.Service = s.Configuration.Name
-	}
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_READY}
 	s.Wool.Debug("load response", wool.NullableField("endpoints", configurations.MakeEndpointSummary(s.Endpoints)))
 	return &runtimev0.LoadResponse{

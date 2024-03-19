@@ -28,9 +28,9 @@ const (
 // Endpoint is the fundamental entity that standardize communication between services.
 type Endpoint struct {
 	Name        string `yaml:"name"`
-	Service     string `yaml:"service"`
-	Application string `yaml:"application"`
-	Description string `yaml:"description"`
+	Service     string `yaml:"service,omitempty"`
+	Application string `yaml:"application,omitempty"`
+	Description string `yaml:"description,omitempty"`
 	Visibility  string `yaml:"visibility"`
 	API         string `yaml:"api,omitempty"`
 }

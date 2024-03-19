@@ -25,9 +25,8 @@ import (
 )
 
 type Information struct {
-	Service              *configurations.ServiceWithCase
-	Agent                *configurations.Agent
-	SourceVersionControl string
+	Service *configurations.ServiceWithCase
+	Agent   *configurations.Agent
 }
 
 type Base struct {
@@ -103,6 +102,10 @@ func (s *Base) Unique() string {
 	return s.Configuration.Unique()
 }
 
+func (s *Base) Global() string {
+	return s.Configuration.Global()
+}
+
 func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {
 	s.Identity = configurations.ServiceIdentityFromProto(identity)
 	s.Location = identity.Location
@@ -117,8 +120,7 @@ func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentit
 	s.Wool.Debug("loading service", wool.DirField(s.Location))
 
 	s.Information = &Information{
-		SourceVersionControl: s.Identity.SourceVersionControl,
-		Agent:                s.Agent,
+		Agent: s.Agent,
 	}
 
 	s.loaded = true
@@ -152,9 +154,8 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	}
 
 	s.Information = &Information{
-		Service:              configurations.ToServiceWithCase(s.Configuration),
-		SourceVersionControl: s.Identity.SourceVersionControl,
-		Agent:                s.Agent,
+		Service: configurations.ToServiceWithCase(s.Configuration),
+		Agent:   s.Agent,
 	}
 
 	s.loaded = true

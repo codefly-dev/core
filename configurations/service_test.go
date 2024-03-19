@@ -120,7 +120,6 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	assert.Equal(t, "test-service-1", serviceOne.Name)
 	assert.Equal(t, "test-app-1", serviceOne.Application)
 	assert.Equal(t, "test-project", serviceOne.Project)
-	assert.Equal(t, "test-app-1", serviceOne.Namespace)
 	assert.Equal(t, "0.0.0", serviceOne.Version)
 	assert.Equal(t, path.Join(appOne.Dir(), "services", "test-service-1"), serviceOne.Dir())
 
@@ -165,12 +164,10 @@ func BaseSetup(t *testing.T) (BaseOutput, Cleanup) {
 	serviceOne, err = actions.As[configurations.Service](out)
 	assert.NoError(t, err)
 	assert.Equal(t, "test-service-1", serviceOne.Name)
-	assert.Equal(t, "overwritten", serviceOne.Namespace)
 
 	// re-load
 	serviceOne, err = configurations.ReloadService(ctx, serviceOne)
 	assert.NoError(t, err)
-	assert.Equal(t, "overwritten", serviceOne.Namespace)
 
 	// create another service
 	action, err = actionservice.NewActionAddService(ctx, &actionsv0.AddService{

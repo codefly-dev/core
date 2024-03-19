@@ -18,7 +18,6 @@ const WorkspaceConfigurationName = "workspace.codefly.yaml"
 type Workspace struct {
 	Name         string       `yaml:"name"`
 	Organization Organization `yaml:"organization,omitempty"`
-	Domain       string       `yaml:"domain,omitempty"`
 
 	// Projects in the Workspace configuration
 	Projects []*ProjectReference `yaml:"projects"`
@@ -44,7 +43,6 @@ func NewWorkspace(ctx context.Context, action *actionsv0.AddWorkspace) (*Workspa
 	ws := &Workspace{
 		Name:         action.Name,
 		Organization: *org,
-		Domain:       org.SourceVersionControl,
 	}
 	if action.Dir != "" {
 		ws.dir = action.Dir

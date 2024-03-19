@@ -24,7 +24,7 @@ type Docker struct {
 	client *client.Client
 	image  *configurations.DockerImage
 
-	name string
+	containerName string
 
 	workDir string
 	mounts  []mount.Mount
@@ -36,9 +36,10 @@ type Docker struct {
 
 	instance *DockerContainerInstance
 
-	silent bool
-	out    io.Writer
-	reader io.ReadCloser
+	persist bool
+	silent  bool
+	out     io.Writer
+	reader  io.ReadCloser
 
 	outLock sync.Mutex
 	wg      sync.WaitGroup
@@ -47,8 +48,8 @@ type Docker struct {
 }
 
 type DockerPortMapping struct {
-	Host      int
-	Container int
+	Host      int32
+	Container int32
 }
 
 func DockerEngineRunning(ctx context.Context) bool {
@@ -83,11 +84,39 @@ func (docker *Docker) WithMount(sourceDir string, targetDir string) *Docker {
 }
 
 func (docker *Docker) WithName(name string) {
-	docker.name = name
+	docker.containerName = fmt.Sprintf("codefly-%s", strings.Replace(name, "/", "-", -1))
+}
+
+func (docker *Docker) WithPersistence() {
+	docker.persist = true
+}
+
+func (docker *Docker) WithSilence() {
+	docker.silent = true
+}
+
+func (docker *Docker) WithWorkDir(dir string) {
+	docker.workDir = dir
+}
+
+func (docker *Docker) Running() bool {
+	return docker.running
 }
 
 func (docker *Docker) WithOut(writer io.Writer) {
 	docker.out = writer
+}
+
+func (docker *Docker) WithPort(port DockerPortMapping) {
+	docker.portMapping = &port
+}
+
+func (docker *Docker) WithEnvironmentVariables(envs ...string) {
+	docker.envs = append(docker.envs, envs...)
+}
+
+func (docker *Docker) WithCommand(cmd ...string) {
+	docker.cmd = cmd
 }
 
 func (docker *Docker) Init(ctx context.Context, image *configurations.DockerImage) error {
@@ -144,7 +173,7 @@ func (docker *Docker) GetImage(ctx context.Context, image *configurations.Docker
 }
 
 type DockerContainerInstance struct {
-	container container.CreateResponse
+	ID string
 }
 
 // SetCommand to run
@@ -154,8 +183,31 @@ func (docker *Docker) SetCommand(bin string, args ...string) {
 	docker.cmd = cmd
 }
 
-func (docker *Docker) create(ctx context.Context) error {
+func (docker *Docker) IsRunningContainer(ctx context.Context) (bool, error) {
+	// List all containers
+	containers, err := docker.client.ContainerList(ctx, container.ListOptions{})
+	if err != nil {
+		return false, err
+	}
+
+	// Check if a container with the given name is running
+	for i := range containers {
+		c := containers[i]
+		for _, name := range c.Names {
+			if name == "/"+docker.containerName {
+				docker.instance = &DockerContainerInstance{
+					ID: c.ID,
+				}
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func (docker *Docker) start(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.create")
+
 	containerConfig := &container.Config{
 		Image:      docker.image.FullName(),
 		Env:        docker.envs,
@@ -179,36 +231,52 @@ func (docker *Docker) create(ctx context.Context) error {
 	if docker.portMapping != nil {
 		hostConfig.PortBindings = docker.portBindings()
 	}
-
+	w.Focus("creating container", wool.Field("config", containerConfig.ExposedPorts), wool.Field("hostConfig", hostConfig.PortBindings))
 	// Create the container
-	w.Trace("creating container")
-	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, docker.name)
+	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, docker.containerName)
 	if err != nil {
 		return w.Wrapf(err, "cannot create container")
 	}
-	w.Trace("created container", wool.Field("id", resp.ID))
+
+	w.Focus("created container", wool.Field("id", resp.ID))
 	docker.instance = &DockerContainerInstance{
-		container: resp,
+		ID: resp.ID,
 	}
+	err = docker.client.ContainerStart(ctx, docker.instance.ID, container.StartOptions{})
+	if err != nil {
+		return w.Wrapf(err, "cannot start container")
+	}
+	docker.running = true
 	return nil
 }
 
 func (docker *Docker) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.run")
+	create := true
+	// Look up the container name only if we persist
+	if docker.containerName != "" && docker.persist {
+		ok, err := docker.IsRunningContainer(ctx)
+		if err != nil {
+			return w.Wrapf(err, "cannot check if container is running")
+		}
+		if ok {
+			create = false
+		}
+	}
+
 	// Create
-	docker.ctx = ctx
-	err := docker.create(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot create container")
+	if create {
+		docker.ctx = ctx
+		err := docker.start(ctx)
+		if err != nil {
+			return w.Wrapf(err, "cannot create container")
+		}
 	}
-	err = docker.client.ContainerStart(ctx, docker.instance.container.ID, container.StartOptions{})
-	if err != nil {
-		return w.Wrapf(err, "cannot start container")
-	}
-	docker.running = true
+
 	if !docker.silent {
+		w.Focus("instance", wool.Field("intance", docker.instance))
 		options := container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
-		logReader, err := docker.client.ContainerLogs(ctx, docker.instance.container.ID, options)
+		logReader, err := docker.client.ContainerLogs(ctx, docker.instance.ID, options)
 		if err != nil {
 			return w.Wrapf(err, "cannot get container logs")
 		}
@@ -254,18 +322,6 @@ func (docker *Docker) ForwardLogs(reader io.Reader) {
 	}()
 }
 
-func (docker *Docker) WithPort(port DockerPortMapping) {
-	docker.portMapping = &port
-}
-
-func (docker *Docker) WithEnvironmentVariables(envs ...string) {
-	docker.envs = append(docker.envs, envs...)
-}
-
-func (docker *Docker) WithCommand(cmd ...string) {
-	docker.cmd = cmd
-}
-
 func (docker *Docker) portBindings() nat.PortMap {
 	return nat.PortMap{
 		nat.Port(fmt.Sprintf("%d/tcp", docker.portMapping.Container)): []nat.PortBinding{
@@ -283,28 +339,35 @@ func (docker *Docker) Stop() error {
 			docker.reader.Close()
 		}()
 	}
-	if docker.instance == nil || docker.instance.container.ID == "" {
+	if docker.persist {
 		return nil
 	}
-	err := docker.client.ContainerStop(context.Background(), docker.instance.container.ID, container.StopOptions{Timeout: shared.Pointer(3)})
+	if docker.instance == nil || docker.instance.ID == "" {
+		return nil
+	}
+	err := docker.client.ContainerStop(context.Background(), docker.instance.ID, container.StopOptions{Timeout: shared.Pointer(3)})
 	if err != nil {
-		_ = docker.client.ContainerKill(context.Background(), docker.instance.container.ID, "SIGKILL")
+		_ = docker.client.ContainerKill(context.Background(), docker.instance.ID, "SIGKILL")
 	}
 	return nil
 }
 
-func (docker *Docker) Silence() {
-	docker.silent = true
-}
-
-func (docker *Docker) WithWorkDir(dir string) {
-	docker.workDir = dir
-
-}
-
-func (docker *Docker) Running() bool {
-	return docker.running
-
+// KillAll kills all Docker containers started by codefly: container name = /codefly-...
+func (docker *Docker) KillAll(ctx context.Context) error {
+	containers, err := docker.client.ContainerList(ctx, container.ListOptions{})
+	if err != nil {
+		return err
+	}
+	for i := range containers {
+		c := containers[i]
+		if strings.HasPrefix(c.Names[0], "/codefly-") {
+			err := docker.client.ContainerStop(ctx, c.ID, container.StopOptions{})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 //

@@ -63,10 +63,13 @@ func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*bui
 	if !s.loaded {
 		return s.CreateError(fmt.Errorf("not loaded"))
 	}
+	// Save settings
 	err := s.Configuration.UpdateSpecFromSettings(settings)
 	if err != nil {
 		return s.CreateError(err)
 	}
+
+	// Save endpoints
 	s.Configuration.Endpoints, err = configurations.FromProtoEndpoints(s.Endpoints...)
 	if err != nil {
 		return s.CreateError(err)
@@ -142,6 +145,7 @@ func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, 
 
 type DeploymentBase struct {
 	*Information
+	Namespace   string
 	Environment *configurations.Environment
 	Image       *configurations.DockerImage
 	Replicas    int
@@ -150,9 +154,10 @@ type DeploymentBase struct {
 	Parameters any
 }
 
-func (s *BuilderWrapper) CreateDeploymentBase(env *basev0.Environment, builderContext *builderv0.BuildContext) *DeploymentBase {
+func (s *BuilderWrapper) CreateDeploymentBase(env *basev0.Environment, namespace string, builderContext *builderv0.BuildContext) *DeploymentBase {
 	envInfo := configurations.EnvironmentFromProto(env)
 	return &DeploymentBase{
+		Namespace:   namespace,
 		Information: s.Information,
 		Environment: envInfo,
 		Image:       s.DockerImage(builderContext),
@@ -162,36 +167,57 @@ func (s *BuilderWrapper) CreateDeploymentBase(env *basev0.Environment, builderCo
 
 type EnvironmentMap map[string]string
 
-type DeploymentParameter struct {
-	ConfigMap EnvironmentMap
-	SecretMap EnvironmentMap
+type DeploymentConfiguration struct {
+	Replicas int
+	// TODO:
+	// - Resources limits
 }
 
-func EnvsAsConfigMapData(envs []string) map[string]string {
-	m := make(map[string]string)
-	for _, env := range envs {
-		split := strings.SplitN(env, "=", 2)
-		if len(split) == 2 {
-			m[split[0]] = split[1]
-		}
-	}
-	return m
+type DeploymentTemplateInput struct {
+	Image                   *configurations.DockerImage
+	Information             *Information
+	DeploymentConfiguration DeploymentConfiguration
+	ConfigMap               EnvironmentMap
+	SecretMap               EnvironmentMap
+	Parameters              any
 }
 
-func EnvsAsSecretData(envs ...string) map[string]string {
-	m := make(map[string]string)
+func EnvsAsConfigMapData(envs []string) (EnvironmentMap, error) {
+	m := make(EnvironmentMap)
 	for _, env := range envs {
-		split := strings.SplitN(env, "=", 2)
-		if len(split) == 2 {
-			m[split[0]] = base64.StdEncoding.EncodeToString([]byte(split[1]))
+		key, value, err := ToKeyAndValue(env)
+		if err != nil {
+			return nil, err
 		}
+		m[key] = value
 	}
-	return m
+	return m, nil
+}
+
+func ToKeyAndValue(env string) (string, string, error) {
+	split := strings.SplitN(env, "=", 2)
+	if len(split) != 2 {
+		return "", "", fmt.Errorf("invalid env: %s", env)
+	}
+	return split[0], split[1], nil
+}
+
+func EnvsAsSecretData(envs ...string) (EnvironmentMap, error) {
+	m := make(EnvironmentMap)
+	for _, env := range envs {
+		key, value, err := ToKeyAndValue(env)
+		if err != nil {
+			return nil, err
+		}
+		m[key] = base64.StdEncoding.EncodeToString([]byte(value))
+	}
+	return m, nil
 }
 
 func (s *BuilderWrapper) Deploy(ctx context.Context, req *builderv0.DeploymentRequest, fs embed.FS, params any) error {
 	defer s.Wool.Catch()
-	base := s.CreateDeploymentBase(req.Environment, req.BuildContext)
+	base := s.CreateDeploymentBase(req.Environment, req.Deployment.Namespace, req.BuildContext)
+
 	switch v := req.Deployment.Kind.(type) {
 	case *builderv0.Deployment_Kustomize:
 		err := s.Builder.GenerateKustomize(ctx, fs, v.Kustomize.Destination, base, params)
