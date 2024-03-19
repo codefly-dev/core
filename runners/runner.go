@@ -109,7 +109,7 @@ func (runner *Runner) Run() error {
 	err = runner.cmd.Run()
 
 	if err != nil {
-		return runner.w.Wrapf(err, "cannot run command")
+		return runner.w.Wrapf(err, "cannot run command: %s %s", runner.cmd.Path, runner.cmd.Args)
 	}
 	runner.cancel()
 

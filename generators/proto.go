@@ -74,12 +74,13 @@ func (g *Proto) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "can't create runner")
 	}
 	runner.WithDir(g.Dir)
-	w.Debug("Generating code from buf", wool.DirField(g.Dir))
+	w.Debug("generating code from buf", wool.DirField(g.Dir))
 
 	err = runner.Run()
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}
+
 	err = g.dependencies.UpdateCache(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot update cache")

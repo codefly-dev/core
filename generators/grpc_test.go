@@ -20,7 +20,7 @@ func TestGenerateGRPC(t *testing.T) {
 	ctx := context.Background()
 	dir, err := shared.SolvePath("testdata/api.proto")
 	assert.NoError(t, err)
-	grpc, err := configurations.NewGrpcAPI(ctx, &configurations.Endpoint{Application: "app", Service: "svc", Name: "api"}, dir)
+	grpc, err := configurations.NewGrpcAPI(ctx, &configurations.Endpoint{Application: "app", Service: "svc", Name: "api", Visibility: "private"}, dir)
 	assert.NoError(t, err)
 	destination := t.TempDir()
 	defer os.RemoveAll(destination)

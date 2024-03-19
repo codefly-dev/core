@@ -22,7 +22,7 @@ func TestGenerateSwagger(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	dir, err := shared.SolvePath("testdata/swagger.json")
 	assert.NoError(t, err)
-	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, &configurations.Endpoint{Application: "web", Service: "api", Name: "api"}, dir)
+	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, &configurations.Endpoint{Application: "web", Service: "api", Name: "api", Visibility: "private"}, dir)
 	assert.NoError(t, err)
 
 	// Destination needs to be inside this package
