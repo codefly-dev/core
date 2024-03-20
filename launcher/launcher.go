@@ -23,7 +23,7 @@ type Launcher struct {
 }
 
 func LaunchUpTo(ctx context.Context) (*Launcher, error) {
-	cmd := exec.CommandContext(ctx, "codefly", "run", "service", "-d", "--exclude-root", "--server")
+	cmd := exec.CommandContext(ctx, "codefly", "run", "service", "--exclude-root", "--server")
 	cmd.Stdout = os.Stdout // log stdout
 	cmd.Stderr = os.Stderr // log stderr
 	err := cmd.Start()

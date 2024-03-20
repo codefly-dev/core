@@ -264,16 +264,13 @@ func LoadServiceProvidersFromDir(ctx context.Context, projectDir string, env *co
 		return nil, w.Wrapf(err, "cannot load project from directory")
 	}
 	var infos []*basev0.ProviderInformation
-	w.Debug("loading service providers from project", wool.Field("project", project.Name), wool.Field("apps", project.Applications))
 	for _, appRef := range project.Applications {
 		app, errProject := project.LoadApplicationFromReference(ctx, appRef)
 		if errProject != nil {
 			return nil, w.Wrapf(errProject, "cannot load application from reference")
 		}
-		w.Focus("loaded application", wool.ApplicationField(app.Name), wool.Field("services", app.ServiceReferences))
 		for _, svcRef := range app.ServiceReferences {
 			var serviceInfos []*basev0.ProviderInformation
-			w.Focus("loading service providers from service", wool.Field("service", svcRef.Name))
 			svc, errApp := app.LoadServiceFromReference(ctx, svcRef)
 			if errApp != nil {
 				return nil, w.Wrapf(errApp, "cannot load service from reference")
@@ -293,7 +290,6 @@ func LoadServiceProvidersFromDir(ctx context.Context, projectDir string, env *co
 				info.Origin = svc.Unique()
 				serviceInfos = append(serviceInfos, info.ProviderInformation)
 			}
-			w.Focus("loaded service providers from service", wool.Field("info", configurations.MakeProviderInformationSummary(serviceInfos)))
 			infos = append(infos, serviceInfos...)
 		}
 	}

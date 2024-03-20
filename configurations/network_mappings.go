@@ -8,14 +8,21 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
-func LocalizeMappings(nm []*basev0.NetworkMapping, local string) {
+func LocalizeMappings(nm []*basev0.NetworkMapping, local string) []*basev0.NetworkMapping {
+	var localized []*basev0.NetworkMapping
 	for _, mapping := range nm {
-		LocalizeMapping(mapping, local)
+		localized = append(localized, LocalizeMapping(mapping, local))
 	}
+	return localized
 }
 
-func LocalizeMapping(mapping *basev0.NetworkMapping, local string) {
-	mapping.Address = strings.Replace(mapping.Address, "localhost", local, 1)
+func LocalizeMapping(mapping *basev0.NetworkMapping, local string) *basev0.NetworkMapping {
+	return &basev0.NetworkMapping{
+		Endpoint: mapping.Endpoint,
+		Address:  strings.Replace(mapping.Address, "localhost", local, 1),
+		Host:     strings.Replace(mapping.Host, "localhost", local, 1),
+		Port:     mapping.Port,
+	}
 }
 
 func FindNetworkMapping(endpoint *basev0.Endpoint, mappings []*basev0.NetworkMapping) (*basev0.NetworkMapping, error) {

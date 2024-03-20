@@ -8,6 +8,16 @@ import (
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 )
 
+func CheckPythonPath() (string, error) {
+	pythonVersions := []string{"python", "python3"}
+	for _, version := range pythonVersions {
+		if _, err := exec.LookPath(version); err == nil {
+			return version, nil
+		}
+	}
+	return "", fmt.Errorf("python/python3 is required and is not installed")
+}
+
 func CheckForRuntimes(ctx context.Context, requirements []*agentv0.Runtime) error {
 	for _, req := range requirements {
 		switch req.Type {
@@ -27,9 +37,9 @@ func CheckForRuntimes(ctx context.Context, requirements []*agentv0.Runtime) erro
 				return fmt.Errorf("npm is required and is not installed")
 			}
 		case agentv0.Runtime_PYTHON:
-			_, err := exec.LookPath("python")
+			_, err := CheckPythonPath()
 			if err != nil {
-				return fmt.Errorf("Python is required and is not installed")
+				return err
 			}
 		case agentv0.Runtime_PYTHON_POETRY:
 			_, err := exec.LookPath("poetry")

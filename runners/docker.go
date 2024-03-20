@@ -231,14 +231,13 @@ func (docker *Docker) start(ctx context.Context) error {
 	if docker.portMapping != nil {
 		hostConfig.PortBindings = docker.portBindings()
 	}
-	w.Focus("creating container", wool.Field("config", containerConfig.ExposedPorts), wool.Field("hostConfig", hostConfig.PortBindings))
+	w.Debug("creating container", wool.Field("config", containerConfig.ExposedPorts), wool.Field("hostConfig", hostConfig.PortBindings))
 	// Create the container
 	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, docker.containerName)
 	if err != nil {
 		return w.Wrapf(err, "cannot create container")
 	}
 
-	w.Focus("created container", wool.Field("id", resp.ID))
 	docker.instance = &DockerContainerInstance{
 		ID: resp.ID,
 	}
@@ -274,7 +273,7 @@ func (docker *Docker) Start(ctx context.Context) error {
 	}
 
 	if !docker.silent {
-		w.Focus("instance", wool.Field("intance", docker.instance))
+		w.Debug("instance", wool.Field("intance", docker.instance))
 		options := container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
 		logReader, err := docker.client.ContainerLogs(ctx, docker.instance.ID, options)
 		if err != nil {

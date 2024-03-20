@@ -423,7 +423,7 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 	}
 	var output []*RestRouteGroup
 	for _, g := range newGroups {
-		w.Focus("new group", wool.ApplicationField(g.Application), wool.ServiceField(g.Service), wool.Field("path", g.Path))
+		w.Debug("new group", wool.ApplicationField(g.Application), wool.ServiceField(g.Service), wool.Field("path", g.Path))
 		output = append(output, g)
 	}
 	return output
