@@ -99,6 +99,7 @@ func DeleteFile(ctx context.Context, file string) error {
 	return nil
 }
 
+// EmptyDir delete the content of a directory
 func EmptyDir(dir string) error {
 	// Do nothing if not present
 	if !DirectoryExists(dir) {

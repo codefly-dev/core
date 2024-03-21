@@ -36,6 +36,15 @@ func FindNetworkMapping(endpoint *basev0.Endpoint, mappings []*basev0.NetworkMap
 	return nil, fmt.Errorf("no network mapping for name: %s", EndpointFromProto(endpoint).Unique())
 }
 
+func PrefixNetworkMapping(mapping *basev0.NetworkMapping, prefix string) *basev0.NetworkMapping {
+	return &basev0.NetworkMapping{
+		Endpoint: mapping.Endpoint,
+		Address:  fmt.Sprintf("%s-%s", prefix, mapping.Address),
+		Host:     fmt.Sprintf("%s-%s", prefix, mapping.Host),
+		Port:     mapping.Port,
+	}
+}
+
 type MappingInstance struct {
 	Address string
 	Port    int

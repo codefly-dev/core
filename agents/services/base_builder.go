@@ -167,22 +167,17 @@ func (s *BuilderWrapper) CreateDeploymentBase(env *basev0.Environment, namespace
 
 type EnvironmentMap map[string]string
 
-type DeploymentConfiguration struct {
-	Replicas int
-	// TODO:
-	// - Resources limits
+type Parameters struct {
+	Values map[string]string
 }
 
-type DeploymentTemplateInput struct {
-	Image                   *configurations.DockerImage
-	Information             *Information
-	DeploymentConfiguration DeploymentConfiguration
-	ConfigMap               EnvironmentMap
-	SecretMap               EnvironmentMap
-	Parameters              any
+type DeploymentParameters struct {
+	ConfigMap  EnvironmentMap
+	SecretMap  EnvironmentMap
+	Parameters any
 }
 
-func EnvsAsConfigMapData(envs []string) (EnvironmentMap, error) {
+func EnvsAsConfigMapData(envs ...string) (EnvironmentMap, error) {
 	m := make(EnvironmentMap)
 	for _, env := range envs {
 		key, value, err := ToKeyAndValue(env)
@@ -214,27 +209,14 @@ func EnvsAsSecretData(envs ...string) (EnvironmentMap, error) {
 	return m, nil
 }
 
-func (s *BuilderWrapper) Deploy(ctx context.Context, req *builderv0.DeploymentRequest, fs embed.FS, params any) error {
+// GenericServiceDeploy is a generic deployment method that can be used to deploy many kind of service
+func (s *BuilderWrapper) GenericServiceDeploy(ctx context.Context, req *builderv0.DeploymentRequest, fs embed.FS, params any) error {
 	defer s.Wool.Catch()
 	base := s.CreateDeploymentBase(req.Environment, req.Deployment.Namespace, req.BuildContext)
 
 	switch v := req.Deployment.Kind.(type) {
 	case *builderv0.Deployment_Kustomize:
-		err := s.Builder.GenerateKustomize(ctx, fs, v.Kustomize, base, params)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *BuilderWrapper) DeployWithWrappers(ctx context.Context, req *builderv0.DeploymentRequest, fs embed.FS, params any) error {
-	defer s.Wool.Catch()
-	base := s.CreateDeploymentBase(req.Environment, req.Deployment.Namespace, req.BuildContext)
-
-	switch v := req.Deployment.Kind.(type) {
-	case *builderv0.Deployment_Kustomize:
-		err := s.Builder.GenerateKustomize(ctx, fs, v.Kustomize, base, params)
+		err := s.Builder.GenerateGenericKustomize(ctx, fs, v.Kustomize, base, params)
 		if err != nil {
 			return err
 		}
@@ -260,10 +242,15 @@ type DeploymentWrapper struct {
 	Parameters any
 }
 
-func (s *BuilderWrapper) GenerateKustomize(ctx context.Context, fs embed.FS, kust *builderv0.KustomizeDeployment, base *DeploymentBase, params any) error {
+func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.FS, kust *builderv0.KustomizeDeployment, base *DeploymentBase, params any) error {
 	wrapper := &DeploymentWrapper{DeploymentBase: base, Parameters: params}
 	destination := path.Join(kust.Destination, "applications", s.Configuration.Application, "services", s.Configuration.Name)
-	err := s.Templates(ctx, wrapper,
+	// Delete
+	err := shared.EmptyDir(destination)
+	if err != nil {
+		return s.Wool.Wrapf(err, "cannot empty destination")
+	}
+	err = s.Templates(ctx, wrapper,
 		WithDeployment(fs, "kustomize/base").WithDestination(path.Join(destination, "base")),
 		WithDeployment(fs, "kustomize/overlays/environment").WithDestination(path.Join(destination, "overlays", base.Environment.Name)),
 	)
