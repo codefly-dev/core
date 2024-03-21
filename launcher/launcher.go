@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"time"
 
+	"google.golang.org/grpc/credentials/insecure"
+
 	"github.com/codefly-dev/core/configurations"
 
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -17,9 +19,8 @@ import (
 )
 
 type Launcher struct {
-	cmd  *exec.Cmd
-	port int
-	cli  v0.CLIClient
+	cmd *exec.Cmd
+	cli v0.CLIClient
 }
 
 func LaunchUpTo(ctx context.Context) (*Launcher, error) {
@@ -35,7 +36,7 @@ func LaunchUpTo(ctx context.Context) (*Launcher, error) {
 	wait := 5 * time.Second
 	for {
 		time.Sleep(time.Second)
-		conn, err = grpc.Dial(fmt.Sprintf("localhost:%d", port), grpc.WithInsecure())
+		conn, err = grpc.Dial(fmt.Sprintf("localhost:%d", port), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
 			break
 		}
