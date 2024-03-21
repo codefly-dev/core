@@ -312,6 +312,9 @@ func FromProtoAPI(api *basev0.API) string {
 	if api == nil {
 		return Unknown
 	}
+	if api.Value == nil {
+		return Unknown
+	}
 	switch api.Value.(type) {
 	case *basev0.API_Grpc:
 		return standards.GRPC

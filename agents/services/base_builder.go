@@ -220,7 +220,21 @@ func (s *BuilderWrapper) Deploy(ctx context.Context, req *builderv0.DeploymentRe
 
 	switch v := req.Deployment.Kind.(type) {
 	case *builderv0.Deployment_Kustomize:
-		err := s.Builder.GenerateKustomize(ctx, fs, v.Kustomize.Destination, base, params)
+		err := s.Builder.GenerateKustomize(ctx, fs, v.Kustomize, base, params)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *BuilderWrapper) DeployWithWrappers(ctx context.Context, req *builderv0.DeploymentRequest, fs embed.FS, params any) error {
+	defer s.Wool.Catch()
+	base := s.CreateDeploymentBase(req.Environment, req.Deployment.Namespace, req.BuildContext)
+
+	switch v := req.Deployment.Kind.(type) {
+	case *builderv0.Deployment_Kustomize:
+		err := s.Builder.GenerateKustomize(ctx, fs, v.Kustomize, base, params)
 		if err != nil {
 			return err
 		}
@@ -246,9 +260,9 @@ type DeploymentWrapper struct {
 	Parameters any
 }
 
-func (s *BuilderWrapper) GenerateKustomize(ctx context.Context, fs embed.FS, destination string, base *DeploymentBase, params any) error {
+func (s *BuilderWrapper) GenerateKustomize(ctx context.Context, fs embed.FS, kust *builderv0.KustomizeDeployment, base *DeploymentBase, params any) error {
 	wrapper := &DeploymentWrapper{DeploymentBase: base, Parameters: params}
-	destination = path.Join(destination, "applications", s.Configuration.Application, "services", s.Configuration.Name)
+	destination := path.Join(kust.Destination, "applications", s.Configuration.Application, "services", s.Configuration.Name)
 	err := s.Templates(ctx, wrapper,
 		WithDeployment(fs, "kustomize/base").WithDestination(path.Join(destination, "base")),
 		WithDeployment(fs, "kustomize/overlays/environment").WithDestination(path.Join(destination, "overlays", base.Environment.Name)),

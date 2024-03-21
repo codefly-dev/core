@@ -30,10 +30,11 @@ type Runner struct {
 	out io.Writer
 
 	// internal
-	cacheDir  string
-	target    string
-	usedCache bool
-	worker    *runners.Runner
+	cacheDir    string
+	target      string
+	usedCache   bool
+	worker      *runners.Runner
+	withModules bool
 }
 
 func NewRunner(ctx context.Context, dir string) (*Runner, error) {
@@ -83,12 +84,15 @@ func (runner *Runner) Init(ctx context.Context) error {
 	}
 	// Run go mod tidy
 	helper := Go{Dir: runner.dir}
-	err = helper.ModTidy(ctx)
+	runner.withModules, err = helper.ModTidy(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot run go mod tidy")
 	}
+	if !runner.withModules {
+		w.Warn("running without go modules: we make not guarantee!")
+	}
 	// Run go mod download
-	err = helper.ModDowload(ctx)
+	_, err = helper.ModDowload(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot run go mod download")
 	}
@@ -143,6 +147,9 @@ func (runner *Runner) debugCmd(ctx context.Context) error {
 	builder.WithDir(runner.dir)
 	builder.WithDebug(runner.debug)
 	builder.WithEnvs(runner.envs...)
+	if !runner.withModules {
+		builder.WithEnvs("GO111MODULE=off", "GOCACHE="+runner.cacheDir)
+	}
 	builder.WithOut(runner.out)
 	err = builder.Run()
 	if err != nil {
@@ -186,6 +193,9 @@ func (runner *Runner) NormalCmd(ctx context.Context) error {
 	builder.WithDir(runner.dir)
 	builder.WithDebug(runner.debug)
 	builder.WithEnvs(runner.envs...)
+	if !runner.withModules {
+		builder.WithEnvs("GO111MODULE=off", "GOCACHE="+runner.cacheDir)
+	}
 	builder.WithOut(runner.out)
 	err = builder.Run()
 	if err != nil {
