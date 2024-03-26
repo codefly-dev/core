@@ -8,8 +8,6 @@ import (
 
 	"github.com/codefly-dev/core/builders"
 
-	"github.com/codefly-dev/core/configurations/standards"
-
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/agents/communicate"
@@ -48,7 +46,7 @@ type Base struct {
 	// codefly configuration
 	ConfigurationLocation string
 
-	Configuration *configurations.Service
+	Service *configurations.Service
 
 	// Information convenience
 	Information *Information
@@ -63,11 +61,14 @@ type Base struct {
 	// NetworkMappings
 	NetworkMappings []*basev0.NetworkMapping
 
-	// ServiceInfo
-	ServiceProviderInfos []*basev0.ProviderInformation
-
 	// EnvironmentVariables
 	EnvironmentVariables *configurations.EnvironmentVariableManager
+
+	// ServiceConfiguration
+	Configuration *basev0.Configuration
+
+	// ExportedConfigurations
+	ExportedConfigurations []*basev0.Configuration
 
 	// Wrappers
 	Runtime *RuntimeWrapper
@@ -99,11 +100,11 @@ func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 }
 
 func (s *Base) Unique() string {
-	return s.Configuration.Unique()
+	return s.Service.Unique()
 }
 
 func (s *Base) Global() string {
-	return s.Configuration.Global()
+	return s.Service.Global()
 }
 
 func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {
@@ -140,32 +141,29 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 
 	ctx = s.Wool.Inject(ctx)
 
-	s.Wool.Debug("loading service", wool.DirField(s.Location))
 	var err error
 
-	s.Configuration, err = configurations.LoadServiceFromDir(ctx, s.Location)
+	s.Wool.Debug("loading service", wool.DirField(s.Location))
+
+	s.Service, err = configurations.LoadServiceFromDir(ctx, s.Location)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot load service configuration")
 	}
 
-	err = s.Configuration.LoadSettingsFromSpec(settings)
+	s.EnvironmentVariables = configurations.NewEnvironmentVariableManager()
+
+	err = s.Service.LoadSettingsFromSpec(settings)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot load settings from spec")
 	}
 
 	s.Information = &Information{
-		Service: configurations.ToServiceWithCase(s.Configuration),
+		Service: configurations.ToServiceWithCase(s.Service),
 		Agent:   s.Agent,
 	}
 
 	s.loaded = true
 	return nil
-}
-
-func (s *Base) LoadEnvironmentVariables(environment *basev0.Environment) *configurations.EnvironmentVariableManager {
-	envs := configurations.NewEnvironmentVariableManager()
-	envs.Add(configurations.EnvironmentAsEnvironmentVariable(configurations.EnvironmentFromProto(environment)))
-	return envs
 }
 
 func (s *Base) DockerImage(req *builderv0.BuildContext) *configurations.DockerImage {
@@ -180,30 +178,6 @@ func (s *Base) DockerImage(req *builderv0.BuildContext) *configurations.DockerIm
 		Name: path.Join(repo, s.Identity.Project, s.Identity.Application, s.Identity.Name),
 		Tag:  s.Version().Version,
 	}
-}
-
-// EndpointsFromConfiguration from Configuration and data from the service
-func (s *Base) EndpointsFromConfiguration(ctx context.Context) ([]*basev0.Endpoint, error) {
-	var eps []*basev0.Endpoint
-	for _, e := range s.Configuration.Endpoints {
-		if e.API == standards.GRPC {
-			endpoint, err := configurations.NewGrpcAPI(ctx, e, s.Local("api.proto"))
-			if err != nil {
-				return nil, s.Wool.Wrapf(err, "cannot create grpc api")
-			}
-			eps = append(eps, endpoint)
-			continue
-		}
-		if e.API == standards.REST {
-			endpoint, err := configurations.NewRestAPIFromOpenAPI(ctx, e, s.Local("api.swagger.json"))
-			if err != nil {
-				return nil, s.Wool.Wrapf(err, "cannot create grpc api")
-			}
-			eps = append(eps, endpoint)
-			continue
-		}
-	}
-	return eps, nil
 }
 
 type WatchConfiguration struct {
@@ -273,7 +247,7 @@ func (s *Base) LogForward(msg string, args ...any) {
 }
 
 func (s *Base) Version() *basev0.Version {
-	return &basev0.Version{Version: s.Configuration.Version}
+	return &basev0.Version{Version: s.Service.Version}
 }
 
 func (s *Base) Ready() {

@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+const ProtoPath = "proto/api.proto"
+const OpenAPIPath = "openapi/api.json"
+
 var (
 	GRPC = "grpc"
 	REST = "rest"
@@ -20,7 +23,11 @@ func init() {
 	supportedAPI = []string{GRPC, REST, TCP, HTTP}
 }
 
-func SupportedAPI(kind string) error {
+func APIS() []string {
+	return supportedAPI
+}
+
+func IsSupportedAPI(kind string) error {
 	if slices.Contains(supportedAPI, kind) {
 		return nil
 	}

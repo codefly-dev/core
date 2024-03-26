@@ -453,7 +453,7 @@ func LoadExtendedRestRouteGroup[T any](ctx context.Context, p string) (*Extended
 func AsRestRouteEnvironmentVariable(ctx context.Context, endpoint *basev0.Endpoint) []string {
 	w := wool.Get(ctx).In("AsRestRouteEnvironmentVariable")
 	var envs []string
-	if rest := IsRest(context.Background(), endpoint.Api); rest != nil {
+	if rest := IsRest(context.Background(), endpoint); rest != nil {
 		for _, group := range rest.Groups {
 			for _, route := range group.Routes {
 				w.Debug("adding", wool.Field("route", route))
@@ -540,4 +540,114 @@ func GRPCRouteFromProto(e *basev0.Endpoint, grpc *basev0.GrpcAPI, rpc *basev0.RP
 		Service:     e.Service,
 		Application: e.Application,
 	}
+}
+
+type RouteUnique struct {
+	service     string
+	application string
+	path        string
+	method      HTTPMethod
+}
+
+func (r RouteUnique) String() string {
+	return fmt.Sprintf("%s/%s%s[%s]", r.application, r.service, r.path, r.method)
+}
+
+func GroupKey(endpoint *basev0.Endpoint, group *basev0.RestRouteGroup) string {
+	return fmt.Sprintf("%s_%s_%s_%s", endpoint.Application, endpoint.Service, endpoint.Name, group.Path)
+}
+
+func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpoint, known []*RestRouteGroup) []*RestRouteGroup {
+	w := wool.Get(ctx).In("DetectNewRoutes")
+	knownRoutes := make(map[string]bool)
+	for _, k := range known {
+		for _, r := range k.Routes {
+			u := RouteUnique{
+				service:     k.Service,
+				application: k.Application,
+				path:        r.Path,
+				method:      r.Method,
+			}
+			knownRoutes[u.String()] = true
+		}
+	}
+	w.Debug("known routes", wool.Field("all", knownRoutes))
+	newGroups := make(map[string]*RestRouteGroup)
+
+	for _, e := range endpoints {
+		if rest := IsRest(ctx, e); rest != nil {
+			for _, group := range rest.Groups {
+				groupKey := GroupKey(e, group)
+				for _, r := range group.Routes {
+					key := RouteUnique{
+						service:     e.Service,
+						application: e.Application,
+						path:        r.Path,
+						method:      ConvertHTTPMethodFromProto(r.Method),
+					}
+					if _, ok := knownRoutes[key.String()]; !ok {
+						w.Debug("detected unknown route", wool.Field("route", key.String()))
+						var outputGroup *RestRouteGroup
+						var groupKnown bool
+						if outputGroup, groupKnown = newGroups[groupKey]; !groupKnown {
+							outputGroup = &RestRouteGroup{
+								Application: e.Application,
+								Service:     e.Service,
+								Path:        r.Path,
+							}
+							newGroups[groupKey] = outputGroup
+						}
+						outputGroup.Routes = append(outputGroup.Routes, RestRouteFromProto(r))
+					}
+				}
+			}
+		}
+	}
+	var output []*RestRouteGroup
+	for _, g := range newGroups {
+		w.Debug("new group", wool.ApplicationField(g.Application), wool.ServiceField(g.Service), wool.Field("path", g.Path))
+		output = append(output, g)
+	}
+	return output
+}
+
+func DetectNewGRPCRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpoint, known []*GRPCRoute) []*GRPCRoute {
+	w := wool.Get(ctx).In("DetectNewGRPCRoutes")
+	knownRoutes := make(map[string]bool)
+	for _, k := range known {
+		knownRoutes[k.Name] = true
+	}
+	var newRoutes []*GRPCRoute
+	for _, e := range endpoints {
+		if grpc := IsGRPC(ctx, e); grpc != nil {
+			for _, rpc := range grpc.Rpcs {
+				w.Debug("found a GRPC API", wool.NameField(rpc.Name))
+				if _, ok := knownRoutes[rpc.Name]; !ok {
+					w.Debug("detected unknown RPC", wool.NameField(rpc.Name))
+					newRoutes = append(newRoutes, GRPCRouteFromProto(e, grpc, rpc))
+				}
+			}
+		}
+	}
+	return newRoutes
+}
+
+// FindEndpointForRestRoute finds the info that matches the route rpcs
+func FindEndpointForRestRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *RestRouteGroup) *basev0.Endpoint {
+	for _, e := range endpoints {
+		if e.Application == route.Application && e.Service == route.Service && IsRest(ctx, e) != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// FindEndpointForGRPCRoute finds the info that matches the route rpcs
+func FindEndpointForGRPCRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *GRPCRoute) *basev0.Endpoint {
+	for _, e := range endpoints {
+		if e.Application == route.Application && e.Service == route.Service && IsGRPC(ctx, e) != nil {
+			return e
+		}
+	}
+	return nil
 }

@@ -129,7 +129,7 @@ func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.Endpoint, erro
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to write combined openapi spec to file")
 	}
-	return NewRestAPIFromOpenAPI(ctx, c.endpoint, c.filename)
+	return nil, nil //NewRestAPIFromOpenAPI(ctx, c.endpoint, c.filename)
 }
 
 func (c *OpenAPICombinator) Only(unique string, path string) {

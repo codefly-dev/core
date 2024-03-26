@@ -33,7 +33,7 @@ type Runner struct {
 	cacheDir    string
 	target      string
 	usedCache   bool
-	worker      *runners.Runner
+	worker      runners.Runner
 	withModules bool
 }
 
@@ -140,18 +140,18 @@ func (runner *Runner) debugCmd(ctx context.Context) error {
 	args = append(args, "-o", runner.target)
 	args = append(args, runner.args...)
 	// Call a builder!
-	builder, err := runners.NewRunner(ctx, "go", args...)
+	builder, err := runners.NewProcess(ctx, "go", args...)
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
 	builder.WithDir(runner.dir)
 	builder.WithDebug(runner.debug)
-	builder.WithEnvs(runner.envs...)
+	builder.WithEnvironmentVariables(runner.envs...)
 	if !runner.withModules {
-		builder.WithEnvs("GO111MODULE=off", "GOCACHE="+runner.cacheDir)
+		builder.WithEnvironmentVariables("GO111MODULE=off", "GOCACHE="+runner.cacheDir)
 	}
 	builder.WithOut(runner.out)
-	err = builder.Run()
+	err = builder.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot build binary")
 	}
@@ -186,18 +186,18 @@ func (runner *Runner) NormalCmd(ctx context.Context) error {
 	args = append(args, "-o", runner.target)
 	args = append(args, runner.args...)
 	// Call a builder!
-	builder, err := runners.NewRunner(ctx, "go", args...)
+	builder, err := runners.NewProcess(ctx, "go", args...)
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
 	builder.WithDir(runner.dir)
 	builder.WithDebug(runner.debug)
-	builder.WithEnvs(runner.envs...)
+	builder.WithEnvironmentVariables(runner.envs...)
 	if !runner.withModules {
-		builder.WithEnvs("GO111MODULE=off", "GOCACHE="+runner.cacheDir)
+		builder.WithEnvironmentVariables("GO111MODULE=off", "GOCACHE="+runner.cacheDir)
 	}
 	builder.WithOut(runner.out)
-	err = builder.Run()
+	err = builder.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot build binary")
 	}
@@ -206,16 +206,16 @@ func (runner *Runner) NormalCmd(ctx context.Context) error {
 
 func (runner *Runner) Start(ctx context.Context, args ...string) error {
 	w := wool.Get(ctx).In("go/runner")
-	worker, err := runners.NewRunner(ctx, runner.target)
+	worker, err := runners.NewProcess(ctx, runner.target, args...)
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}
 
 	worker.WithDir(runner.dir)
-	worker.WithEnvs(runner.envs...)
+	worker.WithEnvironmentVariables(runner.envs...)
 	worker.WithOut(runner.out)
 	runner.worker = worker
-	err = runner.worker.Start(args...)
+	err = runner.worker.Start(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot start binary")
 	}

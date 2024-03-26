@@ -9,6 +9,7 @@ import (
 	"github.com/yoheimuta/go-protoparser/v4"
 	"github.com/yoheimuta/go-protoparser/v4/parser"
 
+	standards "github.com/codefly-dev/core/configurations/standards"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
@@ -16,32 +17,49 @@ import (
 	openapispec "github.com/go-openapi/spec"
 )
 
-func WithAPI(ctx context.Context, endpoint *Endpoint, source APISource) (*basev0.Endpoint, error) {
-	w := wool.Get(ctx).In("endpoints.WithAPI")
-	api, err := source.Proto()
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot create grpc api: %v")
+func NewAPI(_ context.Context, endpoint *Endpoint, api *basev0.API) (*basev0.Endpoint, error) {
+	if endpoint == nil {
+		return nil, fmt.Errorf("endpoint is nil")
 	}
-	base, err := endpoint.Proto()
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot create info")
+	return &basev0.Endpoint{
+		Application: endpoint.Application,
+		Service:     endpoint.Service,
+		Name:        endpoint.Name,
+		Api:         APIString(api),
+		ApiDetails:  api,
+		Visibility:  endpoint.Visibility,
+	}, nil
+}
+
+func APIString(api *basev0.API) string {
+	if api == nil {
+		return Unknown
 	}
-	base.Api = api
-	return base, nil
+	if api.Value == nil {
+		return Unknown
+	}
+	switch api.Value.(type) {
+	case *basev0.API_Grpc:
+		return standards.GRPC
+	case *basev0.API_Rest:
+		return standards.REST
+	case *basev0.API_Http:
+		return standards.HTTP
+	case *basev0.API_Tcp:
+		return standards.TCP
+	}
+	return Unknown
 }
 
-type APISource interface {
-	Proto() (*basev0.API, error)
+func ToGrpcAPI(grpc *basev0.GrpcAPI) *basev0.API {
+	return &basev0.API{
+		Value: &basev0.API_Grpc{
+			Grpc: grpc,
+		},
+	}
 }
 
-type GrpcAPI struct {
-	filename    string
-	content     []byte
-	packageName string
-	rpcs        []*basev0.RPC
-}
-
-func NewGrpcAPI(ctx context.Context, endpoint *Endpoint, filename string) (*basev0.Endpoint, error) {
+func LoadGrpcAPI(_ context.Context, filename string) (*basev0.GrpcAPI, error) {
 	// Read the file content
 	content, err := os.ReadFile(filename)
 	if err != nil {
@@ -67,65 +85,18 @@ func NewGrpcAPI(ctx context.Context, endpoint *Endpoint, filename string) (*base
 			}
 		}
 	}
-	return WithAPI(ctx, endpoint, &GrpcAPI{filename: filename, content: content, packageName: packageName, rpcs: rpcs})
+	return &basev0.GrpcAPI{Proto: content, Package: packageName, Rpcs: rpcs}, nil
 }
 
-func (grpc *GrpcAPI) Proto() (*basev0.API, error) {
-	// Add a GrpcAPI message with the file content
-	grpcAPI := &basev0.GrpcAPI{
-		Proto:   grpc.content,
-		Rpcs:    grpc.rpcs,
-		Package: grpc.packageName,
-	}
-	// Add an API message with the GrpcAPI message
-	api := &basev0.API{
-		Value: &basev0.API_Grpc{
-			Grpc: grpcAPI,
-		},
-	}
-	return api, nil
-}
-
-func EndpointGRPCAPI(endpoint *basev0.Endpoint) *basev0.GrpcAPI {
-	if endpoint == nil {
-		return nil
-	}
-	if endpoint.Api == nil {
-		return nil
-	}
-	switch v := endpoint.Api.Value.(type) {
-	case *basev0.API_Grpc:
-		return v.Grpc
-	default:
-		return nil
-	}
-}
-
-type RestAPI struct {
-	filename string
-	openapi  []byte
-	groups   []*basev0.RestRouteGroup
-}
-
-func NewRestAPI(ctx context.Context, endpoint *Endpoint) (*basev0.Endpoint, error) {
-	return WithAPI(ctx, endpoint, &RestAPI{})
-}
-
-func (rest *RestAPI) Proto() (*basev0.API, error) {
-	restAPI := &basev0.RestAPI{
-		Openapi: rest.openapi,
-		Groups:  rest.groups,
-	}
-	// Add an API message with the GrpcAPI message
-	api := &basev0.API{
+func ToRestAPI(rest *basev0.RestAPI) *basev0.API {
+	return &basev0.API{
 		Value: &basev0.API_Rest{
-			Rest: restAPI,
+			Rest: rest,
 		},
 	}
-	return api, nil
 }
 
-func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *Endpoint, filename string) (*basev0.Endpoint, error) {
+func LoadRestAPI(ctx context.Context, filename string) (*basev0.RestAPI, error) {
 	w := wool.Get(ctx).In("endpoints.NewRestAPIFromOpenAPI")
 	if !shared.FileExists(filename) {
 		return nil, w.NewError("file does not exist: %s", filename)
@@ -159,17 +130,17 @@ func NewRestAPIFromOpenAPI(ctx context.Context, endpoint *Endpoint, filename str
 	for _, group := range groupMap {
 		groups = append(groups, group)
 	}
-	return WithAPI(ctx, endpoint, &RestAPI{openapi: content, groups: groups, filename: filename})
+	return &basev0.RestAPI{Openapi: content, Groups: groups}, nil
 }
 
 func EndpointRestAPI(endpoint *basev0.Endpoint) *basev0.RestAPI {
 	if endpoint == nil {
 		return nil
 	}
-	if endpoint.Api == nil {
+	if endpoint.ApiDetails == nil {
 		return nil
 	}
-	switch v := endpoint.Api.Value.(type) {
+	switch v := endpoint.ApiDetails.Value.(type) {
 	case *basev0.API_Rest:
 		return v.Rest
 	default:
@@ -186,8 +157,16 @@ func (h *HTTPAPI) Proto() (*basev0.API, error) {
 	}, nil
 }
 
-func NewHTTPApi(ctx context.Context, endpoint *Endpoint) (*basev0.Endpoint, error) {
-	return WithAPI(ctx, endpoint, &HTTPAPI{})
+func LoadHTTPAPI(_ context.Context) (*basev0.HttpAPI, error) {
+	return &basev0.HttpAPI{}, nil
+}
+
+func ToHTTPAPI(http *basev0.HttpAPI) *basev0.API {
+	return &basev0.API{
+		Value: &basev0.API_Http{
+			Http: http,
+		},
+	}
 }
 
 type TCP struct{}
@@ -208,8 +187,16 @@ func (*TCP) Proto() (*basev0.API, error) {
 	return api, nil
 }
 
-func NewTCPAPI(ctx context.Context, endpoint *Endpoint) (*basev0.Endpoint, error) {
-	return WithAPI(ctx, endpoint, &TCP{})
+func LoadTCPAPI(_ context.Context) (*basev0.TcpAPI, error) {
+	return &basev0.TcpAPI{}, nil
+}
+
+func ToTCPAPI(tcp *basev0.TcpAPI) *basev0.API {
+	return &basev0.API{
+		Value: &basev0.API_Tcp{
+			Tcp: tcp,
+		},
+	}
 }
 
 /* Helpers */

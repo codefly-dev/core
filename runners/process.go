@@ -1,137 +1,256 @@
 package runners
 
 import (
-	"bytes"
+	"bufio"
 	"context"
-	"fmt"
-	"os"
+	"io"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/codefly-dev/core/wool"
-
-	"github.com/shirou/gopsutil/v3/process"
 )
 
-func (ps ProcessState) String() string {
-	return [...]string{
-		"Unknown",
-		"NotFound",
-		"Running",
-		"Interruptible Sleep",
-		"Uninterruptible Sleep",
-		"Stopped",
-		"Zombie",
-		"Dead",
-		"Tracing Stop",
-		"Idle",
-		"Parked",
-		"Waking",
-	}[ps]
+/*
+Still not quite correct
+*/
+
+type Process struct {
+	bin   string
+	args  []string
+	dir   string
+	debug bool
+	envs  []string
+
+	// internal
+	cmd      *exec.Cmd
+	finished bool
+
+	// for logging
+	w *wool.Wool
+
+	// for output
+	outLock sync.Mutex
+	out     io.Writer
+
+	// context
+	ctx    context.Context
+	cancel func()
+
+	// wait for the logs to be written
+	wg  sync.WaitGroup
+	pid int
 }
 
-type TrackedProcess struct {
-	PID    int
-	Killed bool
+func NewProcess(ctx context.Context, bin string, args ...string) (*Process, error) {
+	w := wool.Get(ctx).In("runner")
+	if _, err := exec.LookPath(bin); err != nil {
+		return nil, w.Wrapf(err, "cannot find <%s>", bin)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	runner := &Process{
+		bin:      bin,
+		args:     args,
+		finished: false,
+		w:        w,
+		out:      w,
+		ctx:      ctx,
+		cancel:   cancel,
+	}
+	return runner, nil
 }
 
-func (p *TrackedProcess) GetState(ctx context.Context) (ProcessState, error) {
-	w := wool.Get(ctx).In("TrackedProcess.Status", wool.Field("pid", p.PID))
-	// Check for PID
-	proc, err := os.FindProcess(p.PID)
-	if err != nil {
-		return NotFound, nil
-	}
-	// Sending signal 0 to a pid will return an error if the pid is not running
-	// and do nothing if it is.
-	err = proc.Signal(syscall.Signal(0))
-	if err == nil {
-		state, err := findState(ctx, p.PID)
-		if err != nil {
-			return Unknown, w.Wrapf(err, "cannot check if proc is defunct")
-		}
-		return state, nil
-	}
-	return Dead, nil
+func (runner *Process) WithDir(dir string) *Process {
+	runner.dir = dir
+	return runner
 }
 
-func (p *TrackedProcess) GetCPU(ctx context.Context) (*CPU, error) {
-	w := wool.Get(ctx).In("TrackedProcess.Usage", wool.Field("pid", p.PID))
-	proc, err := process.NewProcess(int32(p.PID))
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot createAndWait process")
-	}
-
-	// Get CPU percent
-	cpuPercent, err := proc.CPUPercent()
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot get cpu percent")
-	}
-
-	return &CPU{usage: cpuPercent}, nil
+func (runner *Process) WithEnvironmentVariables(envs ...string) *Process {
+	runner.envs = append(runner.envs, envs...)
+	return runner
 }
 
-func (p *TrackedProcess) GetMemory(ctx context.Context) (*Memory, error) {
-	w := wool.Get(ctx).In("TrackedProcess.Usage", wool.Field("pid", p.PID))
-	proc, err := process.NewProcess(int32(p.PID))
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot createAndWait process")
-	}
-
-	// Get memory info
-	memInfo, err := proc.MemoryInfo()
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot get memory info")
-	}
-	return &Memory{used: (memInfo.RSS) / 1024.0}, nil
+func (runner *Process) WithDebug(debug bool) *Process {
+	runner.debug = debug
+	return runner
 }
 
-func parseState(out string) (string, bool) {
-	state := strings.TrimSpace(out)
-	// Can we the S+ version
-	if regular, ok := strings.CutSuffix(state, "+"); ok {
-		return regular, false
-	}
-	return state, true
+func (runner *Process) WithOut(out io.Writer) {
+	runner.out = out
 }
 
-func findState(ctx context.Context, pid int) (ProcessState, error) {
-	w := wool.Get(ctx).In("findState", wool.Field("pid", pid))
+func (runner *Process) Init(_ context.Context) error {
+	return nil
+}
+
+// Run execute and wait: great for tasks that we expect to finish
+func (runner *Process) Run(ctx context.Context) error {
 	// #nosec G204
-	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid), "-o", "state=")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
+	runner.cmd = exec.CommandContext(ctx, runner.bin, runner.args...)
+	stdout, err := runner.cmd.StdoutPipe()
 	if err != nil {
-		return Unknown, err
+		return errors.Wrap(err, "cannot create stdout pipe")
 	}
-	state, tts := parseState(out.String())
-	if tts {
-		w.Debug("process %d is in TTS")
+	defer stdout.Close()
+
+	stderr, err := runner.cmd.StderrPipe()
+	if err != nil {
+		return errors.Wrap(err, "cannot create stderr pipe")
 	}
-	switch state {
-	case "R":
-		return Running, nil
-	case "S":
-		return InterruptibleSleep, nil
-	case "D":
-		return UninterruptibleSleep, nil
-	case "T":
-		return Stopped, nil
-	case "Z":
-		return Zombie, nil
-	case "X":
-		return Dead, nil
-	case "t":
-		return TracingStop, nil
-	case "I":
-		return Idle, nil
-	case "P":
-		return Parked, nil
-	case "W":
-		return Waking, nil
-	default:
-		return Unknown, w.NewError("unknown state: %s", out.String())
+	defer stderr.Close()
+
+	reader := NewMultiReader(stdout, stderr)
+
+	// When we are done, we want to close the ForwardLogs
+	runner.ForwardLogs(reader)
+
+	if runner.dir != "" {
+		runner.cmd.Dir = runner.dir
 	}
+	runner.cmd.Env = runner.envs
+
+	err = runner.cmd.Run()
+
+	if err != nil {
+		return runner.w.Wrapf(err, "cannot run command: %s %s", runner.cmd.Path, runner.cmd.Args)
+	}
+	runner.cancel()
+
+	runner.wg.Wait()
+
+	return nil
+}
+
+func (runner *Process) Wait() error {
+	if runner.finished {
+		return nil
+	}
+	return runner.cmd.Wait()
+}
+
+func (runner *Process) Finished() bool {
+	return false
+}
+
+func (runner *Process) ForwardLogs(reader io.Reader) {
+	runner.wg.Add(1)
+	scanner := bufio.NewScanner(reader)
+	output := make(chan []byte)
+	go func() {
+		defer runner.wg.Done()
+		for {
+			select {
+			case <-runner.ctx.Done():
+				return
+			default:
+				for scanner.Scan() {
+					output <- []byte(strings.TrimSpace(scanner.Text()))
+				}
+				if err := scanner.Err(); err != nil {
+					output <- []byte(strings.TrimSpace(err.Error()))
+				}
+
+			}
+		}
+	}()
+	go func() {
+		for out := range output {
+			runner.outLock.Lock()
+			_, _ = runner.out.Write(out)
+			runner.outLock.Unlock()
+		}
+	}()
+}
+
+func (runner *Process) Finish() {
+	runner.finished = true
+}
+
+func (runner *Process) Stop() error {
+	if runner == nil {
+		return nil
+	}
+	if runner.cmd == nil {
+		return nil
+	}
+	err := runner.cmd.Process.Signal(syscall.SIGTERM)
+	if err != nil {
+		return runner.w.Wrapf(err, "cannot sigterm process")
+	}
+	// Wait  bit
+	<-time.After(1 * time.Second)
+	runner.cancel()
+
+	// Kill the process to be sure
+
+	// Check if the process is still running
+	err = runner.cmd.Process.Signal(syscall.Signal(0))
+	if err == nil {
+		// Process is still running, send SIGKILL
+		err = runner.cmd.Process.Kill()
+		if err != nil {
+			return runner.w.Wrapf(err, "cannot kill process")
+		}
+	}
+
+	return nil
+}
+
+type MultiReader struct {
+	readers []io.Reader
+	index   int
+}
+
+func NewMultiReader(readers ...io.Reader) *MultiReader {
+	return &MultiReader{
+		readers: readers,
+		index:   0,
+	}
+}
+
+func (mrc *MultiReader) Read(p []byte) (n int, err error) {
+	for mrc.index < len(mrc.readers) {
+		n, err = mrc.readers[mrc.index].Read(p)
+		if err != io.EOF {
+			return n, err
+		}
+		mrc.index++
+	}
+	return 0, io.EOF
+}
+
+// Start executing and return
+func (runner *Process) Start(ctx context.Context) error {
+	// #nosec G204
+	runner.cmd = exec.CommandContext(ctx, runner.bin, runner.args...)
+	stdout, err := runner.cmd.StdoutPipe()
+	if err != nil {
+		return errors.Wrap(err, "cannot create stdout pipe")
+	}
+
+	stderr, err := runner.cmd.StderrPipe()
+	if err != nil {
+		return errors.Wrap(err, "cannot create stderr pipe")
+	}
+	reader := NewMultiReader(stdout, stderr)
+
+	runner.ForwardLogs(reader)
+
+	if runner.dir != "" {
+		runner.cmd.Dir = runner.dir
+	}
+
+	runner.cmd.Env = runner.envs
+
+	err = runner.cmd.Start()
+	if err != nil {
+		return runner.w.Wrapf(err, "cannot run command")
+	}
+	runner.pid = runner.cmd.Process.Pid
+	runner.w.Debug("started process", wool.Field("pid", runner.pid))
+	return nil
 }

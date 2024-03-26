@@ -1,0 +1,68 @@
+syntax = "proto3";
+package management.organization;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+message VersionRequest {
+}
+
+message VersionResponse {
+    string version = 1;
+}
+
+message User {
+    string id = 1;
+    string signup_auth_id = 2;
+    string name = 3;
+    string email = 4;
+    string given_name = 5;
+}
+
+message GetUserResponse {
+    User user = 1;
+}
+
+message Organization {
+    string id = 1;
+    string name = 2;
+    // Domain corresponds vaguely to the organization URL in Github
+    string domain = 3;
+}
+
+message CreateOrganizationRequest {
+    string name = 1;
+    string domain = 2;
+}
+
+message CreateOrganizationResponse {
+    Organization org = 1;
+}
+
+service OrganizationService {
+    rpc Version(VersionRequest) returns (VersionResponse) {
+        option (google.api.http) = {
+            get: "/version"
+        };
+    }
+
+    rpc CreateSelf(google.protobuf.Empty) returns (GetUserResponse) {
+        option (google.api.http) = {
+            post: "/user"
+        };
+    }
+
+    rpc GetSelf(google.protobuf.Empty) returns (GetUserResponse) {
+        option (google.api.http) = {
+            get: "/user"
+        };
+    }
+
+    rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse) {
+        option (google.api.http) = {
+            post: "/organization"
+            body: "*"
+        };
+    }
+
+}

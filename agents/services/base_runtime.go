@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/configurations"
@@ -12,6 +14,10 @@ import (
 
 type RuntimeWrapper struct {
 	*Base
+
+	Scope basev0.RuntimeScope
+
+	ExposedConfigurations []*basev0.Configuration
 
 	LoadStatus  *runtimev0.LoadStatus
 	InitStatus  *runtimev0.InitStatus
@@ -25,7 +31,7 @@ type RuntimeWrapper struct {
 
 func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_READY}
-	s.Wool.Debug("load response", wool.NullableField("endpoints", configurations.MakeEndpointSummary(s.Endpoints)))
+	s.Wool.Debug("load response", wool.NullableField("endpoints", configurations.MakeManyEndpointSummary(s.Endpoints)))
 	return &runtimev0.LoadResponse{
 		Version:   s.Version(),
 		Endpoints: s.Endpoints,
@@ -56,9 +62,9 @@ func (s *RuntimeWrapper) LoadErrorWithDetails(err error, details string) (*runti
 func (s *RuntimeWrapper) InitResponse() (*runtimev0.InitResponse, error) {
 	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_READY}
 	return &runtimev0.InitResponse{
-		Status:               s.InitStatus,
-		NetworkMappings:      s.NetworkMappings,
-		ServiceProviderInfos: s.ServiceProviderInfos,
+		Status:          s.InitStatus,
+		NetworkMappings: s.NetworkMappings,
+		Configurations:  s.ExportedConfigurations,
 	}, nil
 }
 
@@ -149,4 +155,8 @@ func (s *RuntimeWrapper) DesiredStart() {
 	s.DesiredState = &runtimev0.DesiredState{
 		Stage: runtimev0.DesiredState_START,
 	}
+}
+
+func (s *RuntimeWrapper) NetworkInstance(mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkInstance, error) {
+	return configurations.FindNetworkInstance(mappings, endpoint, s.Scope)
 }

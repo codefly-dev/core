@@ -16,6 +16,9 @@ import (
 
 type BuilderWrapper struct {
 	*Base
+
+	// Builder only has one configuration
+	Configuration *basev0.Configuration
 }
 
 func (s *BuilderWrapper) LoadResponse(gettingStarted string) (*builderv0.LoadResponse, error) {
@@ -45,9 +48,9 @@ func (s *BuilderWrapper) InitResponse() (*builderv0.InitResponse, error) {
 		return s.InitError(fmt.Errorf("not loaded"))
 	}
 	return &builderv0.InitResponse{
-		NetworkMappings:      s.Base.NetworkMappings,
-		ServiceProviderInfos: s.Base.ServiceProviderInfos,
-		State:                &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS}}, nil
+		NetworkMappings: s.Base.NetworkMappings,
+		Configuration:   s.Configuration,
+		State:           &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS}}, nil
 }
 
 func (s *BuilderWrapper) InitError(err error) (*builderv0.InitResponse, error) {
@@ -64,18 +67,18 @@ func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*bui
 		return s.CreateError(fmt.Errorf("not loaded"))
 	}
 	// Save settings
-	err := s.Configuration.UpdateSpecFromSettings(settings)
+	err := s.Service.UpdateSpecFromSettings(settings)
 	if err != nil {
 		return s.CreateError(err)
 	}
 
 	// Save endpoints
-	s.Configuration.Endpoints, err = configurations.FromProtoEndpoints(s.Endpoints...)
+	s.Service.Endpoints, err = configurations.FromProtoEndpoints(s.Endpoints...)
 	if err != nil {
 		return s.CreateError(err)
 	}
 
-	err = s.Configuration.Save(ctx)
+	err = s.Service.Save(ctx)
 	if err != nil {
 		return nil, s.Wool.Wrapf(err, "base: cannot save configuration")
 	}
@@ -244,7 +247,7 @@ type DeploymentWrapper struct {
 
 func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.FS, kust *builderv0.KustomizeDeployment, base *DeploymentBase, params any) error {
 	wrapper := &DeploymentWrapper{DeploymentBase: base, Parameters: params}
-	destination := path.Join(kust.Destination, "applications", s.Configuration.Application, "services", s.Configuration.Name)
+	destination := path.Join(kust.Destination, "applications", s.Service.Application, "services", s.Service.Name)
 	// Delete
 	err := shared.EmptyDir(destination)
 	if err != nil {

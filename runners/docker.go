@@ -48,8 +48,8 @@ type Docker struct {
 }
 
 type DockerPortMapping struct {
-	Host      int32
-	Container int32
+	Host      uint16
+	Container uint16
 }
 
 func DockerEngineRunning(ctx context.Context) bool {
@@ -62,7 +62,7 @@ func DockerEngineRunning(ctx context.Context) bool {
 }
 
 // NewDocker creates a new docker runner
-func NewDocker(ctx context.Context) (*Docker, error) {
+func NewDocker(ctx context.Context, image *configurations.DockerImage) (*Docker, error) {
 	w := wool.Get(ctx).In("NewDockerRunner")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -71,6 +71,7 @@ func NewDocker(ctx context.Context) (*Docker, error) {
 	return &Docker{
 		client: cli,
 		out:    w,
+		image:  image,
 	}, nil
 }
 
@@ -119,15 +120,14 @@ func (docker *Docker) WithCommand(cmd ...string) {
 	docker.cmd = cmd
 }
 
-func (docker *Docker) Init(ctx context.Context, image *configurations.DockerImage) error {
+func (docker *Docker) Init(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.Start")
 	docker.ctx = ctx
 	// Pull the image if needed
-	err := docker.GetImage(ctx, image)
+	err := docker.GetImage(ctx, docker.image)
 	if err != nil {
 		return w.Wrapf(err, "cannot get image")
 	}
-	docker.image = image
 	return nil
 }
 
@@ -233,7 +233,11 @@ func (docker *Docker) start(ctx context.Context) error {
 	}
 	w.Debug("creating container", wool.Field("config", containerConfig.ExposedPorts), wool.Field("hostConfig", hostConfig.PortBindings))
 	// Create the container
-	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, docker.containerName)
+	var containerName string
+	if docker.persist {
+		containerName = docker.containerName
+	}
+	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, containerName)
 	if err != nil {
 		return w.Wrapf(err, "cannot create container")
 	}
@@ -250,7 +254,7 @@ func (docker *Docker) start(ctx context.Context) error {
 }
 
 func (docker *Docker) Start(ctx context.Context) error {
-	w := wool.Get(ctx).In("Docker.run")
+	w := wool.Get(ctx).In("Docker.start")
 	create := true
 	// Look up the container name only if we persist
 	if docker.containerName != "" && docker.persist {
@@ -268,7 +272,7 @@ func (docker *Docker) Start(ctx context.Context) error {
 		docker.ctx = ctx
 		err := docker.start(ctx)
 		if err != nil {
-			return w.Wrapf(err, "cannot create container")
+			return w.Wrapf(err, "cannot start container")
 		}
 	}
 
@@ -284,6 +288,47 @@ func (docker *Docker) Start(ctx context.Context) error {
 		docker.ForwardLogs(logReader)
 	} else {
 		_, _ = w.Forward([]byte("silent mode"))
+	}
+	return nil
+}
+
+func (docker *Docker) Run(ctx context.Context) error {
+	w := wool.Get(ctx).In("Docker.run")
+	err := docker.start(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot start container")
+	}
+	if !docker.silent {
+		w.Debug("instance", wool.Field("intance", docker.instance))
+		options := container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
+		logReader, err := docker.client.ContainerLogs(ctx, docker.instance.ID, options)
+		if err != nil {
+			return w.Wrapf(err, "cannot get container logs")
+		}
+		docker.reader = logReader
+
+		docker.ForwardLogs(logReader)
+	}
+	return docker.WaitForStop()
+}
+
+func (docker *Docker) WaitForStop() error {
+	if docker.instance == nil || docker.instance.ID == "" {
+		return fmt.Errorf("no running instance to wait for")
+	}
+
+	resultC, errC := docker.client.ContainerWait(context.Background(), docker.instance.ID, container.WaitConditionNotRunning)
+	select {
+	case err := <-errC:
+		if err != nil {
+			return err
+		}
+	case result := <-resultC:
+		statusCode := result.StatusCode
+		if statusCode != 0 {
+			return fmt.Errorf("container exited with status %d", statusCode)
+		}
+		return nil
 	}
 	return nil
 }
@@ -333,6 +378,9 @@ func (docker *Docker) portBindings() nat.PortMap {
 }
 
 func (docker *Docker) Stop() error {
+	if docker == nil {
+		return nil
+	}
 	if docker.reader != nil {
 		defer func() {
 			docker.reader.Close()

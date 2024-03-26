@@ -6,6 +6,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/hashicorp/go-multierror"
+
 	"github.com/codefly-dev/core/templates"
 
 	"github.com/codefly-dev/core/configurations/standards"
@@ -48,8 +50,8 @@ type Service struct {
 	// ServiceDependencies are the other services required
 	ServiceDependencies []*ServiceDependency `yaml:"service-dependencies"`
 
-	// ProviderDependencies are the providers required
-	ProviderDependencies []string `yaml:"provider-dependencies"`
+	// ProjectDependencies
+	ProjectConfigurationDependencies []string `yaml:"project-configuration-dependencies"`
 
 	// Endpoints exposed by the service
 	Endpoints []*Endpoint `yaml:"endpoints"`
@@ -381,6 +383,7 @@ func (s *Service) postLoad(_ context.Context) error {
 	for _, endpoint := range s.Endpoints {
 		endpoint.Application = s.Application
 		endpoint.Service = s.Name
+		endpoint.postLoad()
 	}
 	return nil
 }
@@ -395,6 +398,7 @@ func (s *Service) preSave(_ context.Context) error {
 	for _, endpoint := range s.Endpoints {
 		endpoint.Application = ""
 		endpoint.Service = ""
+		endpoint.preSave()
 	}
 	return nil
 }
@@ -473,6 +477,58 @@ func (s *Service) BaseEndpoint(name string) *Endpoint {
 	return &Endpoint{Name: name, Application: s.Application, Service: s.Name, Visibility: VisibilityPrivate}
 }
 
+func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
+	var multi error
+	var out []*basev0.Endpoint
+	for _, ed := range s.Endpoints {
+		base, err := ed.Proto()
+		if err != nil {
+			multi = multierror.Append(multi, err)
+			continue
+		}
+		switch ed.API {
+		case standards.REST:
+			rest, err := LoadRestAPI(ctx, s.Local(standards.OpenAPIPath))
+			if err != nil {
+				multi = multierror.Append(multi, err)
+				continue
+			}
+			base.ApiDetails = ToRestAPI(rest)
+			out = append(out, base)
+		case standards.GRPC:
+			grpc, err := LoadGrpcAPI(ctx, s.Local(standards.ProtoPath))
+			if err != nil {
+				multi = multierror.Append(multi, err)
+				continue
+			}
+			base.Api = standards.GRPC
+			base.ApiDetails = ToGrpcAPI(grpc)
+			out = append(out, base)
+		case standards.HTTP:
+			http, err := LoadHTTPAPI(ctx)
+			if err != nil {
+				multi = multierror.Append(multi, err)
+			}
+			base.Api = standards.HTTP
+			base.ApiDetails = ToHTTPAPI(http)
+			out = append(out, base)
+		case standards.TCP:
+			tcp, err := LoadTCPAPI(ctx)
+			if err != nil {
+				multi = multierror.Append(multi, err)
+			}
+			base.Api = standards.TCP
+			base.ApiDetails = ToTCPAPI(tcp)
+			out = append(out, base)
+		}
+	}
+	return out, multi
+}
+
+func (s *Service) Local(f string) string {
+	return path.Join(s.Dir(), f)
+}
+
 func (s *ServiceDependency) AsReference() *ServiceReference {
 	return &ServiceReference{
 		Name:        s.Name,
@@ -518,7 +574,7 @@ type ClientEntry struct {
 
 func (c *ClientEntry) Validate() error {
 	for _, api := range c.APIs {
-		if err := standards.SupportedAPI(api); err != nil {
+		if err := standards.IsSupportedAPI(api); err != nil {
 			return err
 		}
 	}

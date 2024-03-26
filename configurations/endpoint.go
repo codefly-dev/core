@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"net/url"
-	"strconv"
+	"slices"
 	"strings"
 
 	"github.com/codefly-dev/core/configurations/standards"
@@ -35,9 +34,21 @@ type Endpoint struct {
 	API         string `yaml:"api,omitempty"`
 }
 
-func (endpoint *Endpoint) WithDefault() {
+func (endpoint *Endpoint) postLoad() {
 	if endpoint.Visibility == "" {
 		endpoint.Visibility = VisibilityPrivate
+	}
+	if endpoint.API == "" && slices.Contains(standards.APIS(), endpoint.Name) {
+		endpoint.API = endpoint.Name
+	}
+}
+
+func (endpoint *Endpoint) preSave() {
+	if endpoint.Visibility == VisibilityPrivate {
+		endpoint.Visibility = ""
+	}
+	if endpoint.API == endpoint.Name {
+		endpoint.API = ""
 	}
 }
 
@@ -120,10 +131,14 @@ func (endpoint *Endpoint) AsReference() *EndpointReference {
 }
 
 func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
+	if err := standards.IsSupportedAPI(endpoint.API); err != nil {
+		return nil, fmt.Errorf("unsupported api: %s", endpoint.API)
+	}
 	e := &basev0.Endpoint{
 		Name:        endpoint.Name,
 		Application: endpoint.Application,
 		Service:     endpoint.Service,
+		Api:         endpoint.API,
 		Visibility:  endpoint.Visibility,
 		Description: endpoint.Description,
 	}
@@ -202,30 +217,6 @@ func DefaultEndpointInstance(unique string) (*EndpointInstance, error) {
 	return instance, err
 }
 
-func PortAndPortAddressFromAddress(address string) (int, string, error) {
-	port, err := PortFromAddress(address)
-	if err != nil {
-		return 0, "", err
-	}
-	portAddress := fmt.Sprintf(":%d", port)
-	return port, portAddress, nil
-}
-
-func PortFromAddress(address string) (int, error) {
-	u, err := url.Parse(address)
-	if err == nil {
-		port := u.Port()
-		if port != "" {
-			return strconv.Atoi(port)
-		}
-	}
-	tokens := strings.Split(address, ":")
-	if len(tokens) == 2 {
-		return strconv.Atoi(tokens[1])
-	}
-	return standards.Port(standards.TCP), fmt.Errorf("info instance address does not have a port")
-}
-
 type NilAPIError struct {
 	name string
 }
@@ -240,13 +231,6 @@ type UnknownAPIError struct {
 
 func (err *UnknownAPIError) Error() string {
 	return fmt.Sprintf("unknow api: <%v>", err.api)
-}
-
-func WhichAPIFromEndpoint(endpoint *basev0.Endpoint) (string, error) {
-	if endpoint.Api == nil {
-		return "", &NilAPIError{name: endpoint.Name}
-	}
-	return APIAsStandard(endpoint.Api)
 }
 
 func APIAsStandard(api *basev0.API) (string, error) {
@@ -264,7 +248,7 @@ func APIAsStandard(api *basev0.API) (string, error) {
 	}
 }
 
-func Port(api *basev0.API) (int, error) {
+func Port(api *basev0.API) (int32, error) {
 	switch api.Value.(type) {
 	case *basev0.API_Grpc:
 		return 9090, nil
@@ -292,7 +276,7 @@ func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
 		Service:     e.Service,
 		Visibility:  e.Visibility,
 		Description: e.Description,
-		API:         FromProtoAPI(e.Api),
+		API:         e.Api,
 	}
 }
 
@@ -304,30 +288,13 @@ func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
 	return endpoints, nil
 }
 
-func EndpointDestination(e *basev0.Endpoint) string {
-	return fmt.Sprintf("%s/%s/%s::%s", e.Application, e.Service, e.Name, FromProtoAPI(e.Api))
-}
-
-func FromProtoAPI(api *basev0.API) string {
-	if api == nil {
-		return Unknown
-	}
-	if api.Value == nil {
-		return Unknown
-	}
-	switch api.Value.(type) {
-	case *basev0.API_Grpc:
-		return standards.GRPC
-	case *basev0.API_Rest:
-		return standards.REST
-	case *basev0.API_Http:
-		return standards.HTTP
-	case *basev0.API_Tcp:
-		return standards.TCP
-	default:
-		return Unknown
-	}
-}
+//
+//	e
+//	if e.Name == e.Api {
+//		return fmt.Sprintf("%s/%s/%s", e.Application, e.Service, e.Name)
+//	}
+//	return fmt.Sprintf("%s/%s/%s::%s", e.Application, e.Service, e.Name, e.Api)
+//}
 
 func LightAPI(api *basev0.API) *basev0.API {
 	switch api.Value.(type) {
@@ -363,121 +330,14 @@ func Light(e *basev0.Endpoint) *basev0.Endpoint {
 	}
 }
 
-type RouteUnique struct {
-	service     string
-	application string
-	path        string
-	method      HTTPMethod
-}
-
-func (r RouteUnique) String() string {
-	return fmt.Sprintf("%s/%s%s[%s]", r.application, r.service, r.path, r.method)
-}
-
-func GroupKey(endpoint *basev0.Endpoint, group *basev0.RestRouteGroup) string {
-	return fmt.Sprintf("%s_%s_%s_%s", endpoint.Application, endpoint.Service, endpoint.Name, group.Path)
-}
-
-func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpoint, known []*RestRouteGroup) []*RestRouteGroup {
-	w := wool.Get(ctx).In("DetectNewRoutes")
-	knownRoutes := make(map[string]bool)
-	for _, k := range known {
-		for _, r := range k.Routes {
-			u := RouteUnique{
-				service:     k.Service,
-				application: k.Application,
-				path:        r.Path,
-				method:      r.Method,
-			}
-			knownRoutes[u.String()] = true
-		}
-	}
-	w.Debug("known routes", wool.Field("all", knownRoutes))
-	newGroups := make(map[string]*RestRouteGroup)
-
-	for _, e := range endpoints {
-		if rest := IsRest(ctx, e.Api); rest != nil {
-			for _, group := range rest.Groups {
-				groupKey := GroupKey(e, group)
-				for _, r := range group.Routes {
-					key := RouteUnique{
-						service:     e.Service,
-						application: e.Application,
-						path:        r.Path,
-						method:      ConvertHTTPMethodFromProto(r.Method),
-					}
-					if _, ok := knownRoutes[key.String()]; !ok {
-						w.Debug("detected unknown route", wool.Field("route", key.String()))
-						var outputGroup *RestRouteGroup
-						var groupKnown bool
-						if outputGroup, groupKnown = newGroups[groupKey]; !groupKnown {
-							outputGroup = &RestRouteGroup{
-								Application: e.Application,
-								Service:     e.Service,
-								Path:        r.Path,
-							}
-							newGroups[groupKey] = outputGroup
-						}
-						outputGroup.Routes = append(outputGroup.Routes, RestRouteFromProto(r))
-					}
-				}
-			}
-		}
-	}
-	var output []*RestRouteGroup
-	for _, g := range newGroups {
-		w.Debug("new group", wool.ApplicationField(g.Application), wool.ServiceField(g.Service), wool.Field("path", g.Path))
-		output = append(output, g)
-	}
-	return output
-}
-
-func DetectNewGRPCRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpoint, known []*GRPCRoute) []*GRPCRoute {
-	w := wool.Get(ctx).In("DetectNewGRPCRoutes")
-	knownRoutes := make(map[string]bool)
-	for _, k := range known {
-		knownRoutes[k.Name] = true
-	}
-	var newRoutes []*GRPCRoute
-	for _, e := range endpoints {
-		if grpc := IsGRPC(ctx, e.Api); grpc != nil {
-			for _, rpc := range grpc.Rpcs {
-				w.Debug("found a GRPC API", wool.NameField(rpc.Name))
-				if _, ok := knownRoutes[rpc.Name]; !ok {
-					w.Debug("detected unknown RPC", wool.NameField(rpc.Name))
-					newRoutes = append(newRoutes, GRPCRouteFromProto(e, grpc, rpc))
-				}
-			}
-		}
-	}
-	return newRoutes
-}
-
-// FindEndpointForRestRoute finds the info that matches the route rpcs
-func FindEndpointForRestRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *RestRouteGroup) *basev0.Endpoint {
-	for _, e := range endpoints {
-		if e.Application == route.Application && e.Service == route.Service && IsRest(ctx, e.Api) != nil {
-			return e
-		}
-	}
-	return nil
-}
-
-// FindEndpointForGRPCRoute finds the info that matches the route rpcs
-func FindEndpointForGRPCRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *GRPCRoute) *basev0.Endpoint {
-	for _, e := range endpoints {
-		if e.Application == route.Application && e.Service == route.Service && IsGRPC(ctx, e.Api) != nil {
-			return e
-		}
-	}
-	return nil
-}
-
-func IsRest(_ context.Context, api *basev0.API) *basev0.RestAPI {
-	if api == nil {
+func IsRest(_ context.Context, endpoint *basev0.Endpoint) *basev0.RestAPI {
+	if endpoint == nil {
 		return nil
 	}
-	switch v := api.Value.(type) {
+	if endpoint.Api != standards.REST {
+		return nil
+	}
+	switch v := endpoint.ApiDetails.Value.(type) {
 	case *basev0.API_Rest:
 		return v.Rest
 	default:
@@ -485,23 +345,14 @@ func IsRest(_ context.Context, api *basev0.API) *basev0.RestAPI {
 	}
 }
 
-func IsHTTP(_ context.Context, api *basev0.API) *basev0.HttpAPI {
-	if api == nil {
+func IsGRPC(_ context.Context, endpoint *basev0.Endpoint) *basev0.GrpcAPI {
+	if endpoint == nil {
 		return nil
 	}
-	switch v := api.Value.(type) {
-	case *basev0.API_Http:
-		return v.Http
-	default:
+	if endpoint.Api != standards.GRPC {
 		return nil
 	}
-}
-
-func IsGRPC(_ context.Context, api *basev0.API) *basev0.GrpcAPI {
-	if api == nil {
-		return nil
-	}
-	switch v := api.Value.(type) {
+	switch v := endpoint.ApiDetails.Value.(type) {
 	case *basev0.API_Grpc:
 		return v.Grpc
 	default:
@@ -509,12 +360,34 @@ func IsGRPC(_ context.Context, api *basev0.API) *basev0.GrpcAPI {
 	}
 }
 
-func Condensed(es []*basev0.Endpoint) []string {
-	var outs []string
-	for _, e := range es {
-		outs = append(outs, EndpointDestination(e))
+func IsHTTP(_ context.Context, endpoint *basev0.Endpoint) *basev0.HttpAPI {
+	if endpoint == nil {
+		return nil
 	}
-	return outs
+	if endpoint.Api != standards.HTTP {
+		return nil
+	}
+	switch v := endpoint.ApiDetails.Value.(type) {
+	case *basev0.API_Http:
+		return v.Http
+	default:
+		return nil
+	}
+}
+
+func IsTCP(_ context.Context, endpoint *basev0.Endpoint) *basev0.TcpAPI {
+	if endpoint == nil {
+		return nil
+	}
+	if endpoint.Api != standards.TCP {
+		return nil
+	}
+	switch v := endpoint.ApiDetails.Value.(type) {
+	case *basev0.API_Tcp:
+		return v.Tcp
+	default:
+		return nil
+	}
 }
 
 type EndpointSummary struct {
@@ -522,31 +395,43 @@ type EndpointSummary struct {
 	Uniques []string
 }
 
-func MakeEndpointSummary(endpoints []*basev0.Endpoint) EndpointSummary {
+func MakeManyEndpointSummary(endpoints []*basev0.Endpoint) EndpointSummary {
 	sum := EndpointSummary{}
 	sum.Count = len(endpoints)
 	for _, e := range endpoints {
-		sum.Uniques = append(sum.Uniques, EndpointDestination(e))
+		sum.Uniques = append(sum.Uniques, MakeEndpointSummary(e))
 	}
 	return sum
 }
 
+func MakeEndpointSummary(endpoint *basev0.Endpoint) string {
+	if endpoint == nil {
+		return "NIL"
+	}
+	return EndpointDestination(endpoint)
+}
+
+func EndpointDestination(e *basev0.Endpoint) string {
+	return EndpointFromProto(e).Unique()
+}
+
 // Compute "change" of endpoints
 
-func endpointHash(ctx context.Context, endpoint *basev0.Endpoint) (string, error) {
-	w := wool.Get(ctx).In("configurations.EndpointHash")
+func endpointHash(_ context.Context, endpoint *basev0.Endpoint) (string, error) {
+	//w := wool.Get(ctx).In("configurations.EndpointHash")
 	var buf bytes.Buffer
 	buf.WriteString(endpoint.Name)
 	buf.WriteString(endpoint.Visibility)
-	buf.WriteString(endpoint.Api.String())
-	if rest := EndpointRestAPI(endpoint); rest != nil {
-		w.Debug("hashing rest api TODO: more precise hashing", wool.NameField(endpoint.Name))
-		buf.WriteString(rest.String())
-	}
-	if grpc := EndpointGRPCAPI(endpoint); grpc != nil {
-		w.Debug("hashing grpc api", wool.NameField(endpoint.Name))
-		buf.WriteString(grpc.String())
-	}
+	buf.WriteString(endpoint.Api)
+	buf.WriteString(endpoint.ApiDetails.String())
+	//if rest := EndpointRestAPI(endpoint); rest != nil {
+	//	w.Debug("hashing rest api TODO: more precise hashing", wool.NameField(endpoint.Name))
+	//	buf.WriteString(rest.String())
+	//}
+	//if grpc := EndpointGRPCAPI(endpoint); grpc != nil {
+	//	w.Debug("hashing grpc api", wool.NameField(endpoint.Name))
+	//	buf.WriteString(grpc.String())
+	//}
 	return Hash(buf.Bytes()), nil
 }
 
@@ -563,17 +448,18 @@ func EndpointHash(ctx context.Context, endpoints ...*basev0.Endpoint) (string, e
 	return hasher.Hash(), nil
 }
 
-func CloneEndpoint(_ context.Context, endpoint *basev0.Endpoint) *basev0.Endpoint {
-	return &basev0.Endpoint{
-		Name:        endpoint.Name,
-		Application: endpoint.Application,
-		Service:     endpoint.Service,
-		Visibility:  endpoint.Visibility,
-		Description: endpoint.Description,
-		Api:         CloneAPI(endpoint.Api),
-	}
-
-}
+//
+//func CloneEndpoint(_ context.Context, endpoint *basev0.Endpoint) *basev0.Endpoint {
+//	return &basev0.Endpoint{
+//		Name:        endpoint.Name,
+//		Application: endpoint.Application,
+//		Service:     endpoint.Service,
+//		Visibility:  endpoint.Visibility,
+//		Description: endpoint.Description,
+//		Api:         CloneAPI(endpoint.Api),
+//	}
+//
+//}
 
 func CloneAPI(api *basev0.API) *basev0.API {
 	if api == nil {
@@ -601,4 +487,22 @@ func CloneAPI(api *basev0.API) *basev0.API {
 	default:
 		return nil
 	}
+}
+
+func FindRestEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	for _, e := range endpoints {
+		if IsRest(ctx, e) != nil {
+			return e, nil
+		}
+	}
+	return nil, fmt.Errorf("no rest endpoint found")
+}
+
+func FindTCPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	for _, e := range endpoints {
+		if IsTCP(ctx, e) != nil {
+			return e, nil
+		}
+	}
+	return nil, fmt.Errorf("no tcp endpoint found")
 }

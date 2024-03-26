@@ -37,7 +37,6 @@ func TestEnvironment(t *testing.T) {
 	action, err = actionenviroment.NewActionAddEnvironment(ctx, &actionsv0.AddEnvironment{
 		Name:        "test-environment",
 		ProjectPath: project.Dir(),
-		NetworkType: configurations.NetworkPort,
 	})
 	assert.NoError(t, err)
 	_, err = action.Run(ctx)

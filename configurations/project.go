@@ -381,3 +381,20 @@ func (project *Project) LoadService(ctx context.Context, input *ServiceWithAppli
 func ReloadProject(ctx context.Context, project *Project) (*Project, error) {
 	return LoadProjectFromDir(ctx, project.Dir())
 }
+
+func (project *Project) LoadServices(ctx context.Context) ([]*Service, error) {
+	w := wool.Get(ctx).In("Project.LoadServices")
+	var services []*Service
+	for _, appRef := range project.Applications {
+		app, err := project.LoadApplicationFromReference(ctx, appRef)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot load application")
+		}
+		appServices, err := app.LoadServices(ctx)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot load services")
+		}
+		services = append(services, appServices...)
+	}
+	return services, nil
+}

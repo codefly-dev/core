@@ -33,7 +33,7 @@ const (
 	CLI_LogHistory_FullMethodName                                  = "/observability.v0.CLI/LogHistory"
 	CLI_GetActive_FullMethodName                                   = "/observability.v0.CLI/GetActive"
 	CLI_GetAddresses_FullMethodName                                = "/observability.v0.CLI/GetAddresses"
-	CLI_GetServiceProviderInformation_FullMethodName               = "/observability.v0.CLI/GetServiceProviderInformation"
+	CLI_GetSharedConfiguration_FullMethodName                      = "/observability.v0.CLI/GetSharedConfiguration"
 	CLI_Logs_FullMethodName                                        = "/observability.v0.CLI/Logs"
 	CLI_ActiveLogHistory_FullMethodName                            = "/observability.v0.CLI/ActiveLogHistory"
 	CLI_GetFlowStatus_FullMethodName                               = "/observability.v0.CLI/GetFlowStatus"
@@ -53,7 +53,7 @@ type CLIClient interface {
 	LogHistory(ctx context.Context, in *v02.LogRequest, opts ...grpc.CallOption) (*v02.LogResponse, error)
 	GetActive(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ActiveResponse, error)
 	GetAddresses(ctx context.Context, in *GetAddressRequest, opts ...grpc.CallOption) (*GetAddressResponse, error)
-	GetServiceProviderInformation(ctx context.Context, in *GetServiceProviderInfoRequest, opts ...grpc.CallOption) (*GetServiceProviderInfoResponse, error)
+	GetSharedConfiguration(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationResponse, error)
 	Logs(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (CLI_LogsClient, error)
 	ActiveLogHistory(ctx context.Context, in *v02.LogRequest, opts ...grpc.CallOption) (*v02.LogResponse, error)
 	GetFlowStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FlowStatus, error)
@@ -149,9 +149,9 @@ func (c *cLIClient) GetAddresses(ctx context.Context, in *GetAddressRequest, opt
 	return out, nil
 }
 
-func (c *cLIClient) GetServiceProviderInformation(ctx context.Context, in *GetServiceProviderInfoRequest, opts ...grpc.CallOption) (*GetServiceProviderInfoResponse, error) {
-	out := new(GetServiceProviderInfoResponse)
-	err := c.cc.Invoke(ctx, CLI_GetServiceProviderInformation_FullMethodName, in, out, opts...)
+func (c *cLIClient) GetSharedConfiguration(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationResponse, error) {
+	out := new(GetConfigurationResponse)
+	err := c.cc.Invoke(ctx, CLI_GetSharedConfiguration_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +230,7 @@ type CLIServer interface {
 	LogHistory(context.Context, *v02.LogRequest) (*v02.LogResponse, error)
 	GetActive(context.Context, *emptypb.Empty) (*ActiveResponse, error)
 	GetAddresses(context.Context, *GetAddressRequest) (*GetAddressResponse, error)
-	GetServiceProviderInformation(context.Context, *GetServiceProviderInfoRequest) (*GetServiceProviderInfoResponse, error)
+	GetSharedConfiguration(context.Context, *GetConfigurationRequest) (*GetConfigurationResponse, error)
 	Logs(*emptypb.Empty, CLI_LogsServer) error
 	ActiveLogHistory(context.Context, *v02.LogRequest) (*v02.LogResponse, error)
 	GetFlowStatus(context.Context, *emptypb.Empty) (*FlowStatus, error)
@@ -269,8 +269,8 @@ func (UnimplementedCLIServer) GetActive(context.Context, *emptypb.Empty) (*Activ
 func (UnimplementedCLIServer) GetAddresses(context.Context, *GetAddressRequest) (*GetAddressResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAddresses not implemented")
 }
-func (UnimplementedCLIServer) GetServiceProviderInformation(context.Context, *GetServiceProviderInfoRequest) (*GetServiceProviderInfoResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetServiceProviderInformation not implemented")
+func (UnimplementedCLIServer) GetSharedConfiguration(context.Context, *GetConfigurationRequest) (*GetConfigurationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSharedConfiguration not implemented")
 }
 func (UnimplementedCLIServer) Logs(*emptypb.Empty, CLI_LogsServer) error {
 	return status.Errorf(codes.Unimplemented, "method Logs not implemented")
@@ -459,20 +459,20 @@ func _CLI_GetAddresses_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
-func _CLI_GetServiceProviderInformation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetServiceProviderInfoRequest)
+func _CLI_GetSharedConfiguration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetConfigurationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(CLIServer).GetServiceProviderInformation(ctx, in)
+		return srv.(CLIServer).GetSharedConfiguration(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: CLI_GetServiceProviderInformation_FullMethodName,
+		FullMethod: CLI_GetSharedConfiguration_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CLIServer).GetServiceProviderInformation(ctx, req.(*GetServiceProviderInfoRequest))
+		return srv.(CLIServer).GetSharedConfiguration(ctx, req.(*GetConfigurationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -596,8 +596,8 @@ var CLI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _CLI_GetAddresses_Handler,
 		},
 		{
-			MethodName: "GetServiceProviderInformation",
-			Handler:    _CLI_GetServiceProviderInformation_Handler,
+			MethodName: "GetSharedConfiguration",
+			Handler:    _CLI_GetSharedConfiguration_Handler,
 		},
 		{
 			MethodName: "ActiveLogHistory",

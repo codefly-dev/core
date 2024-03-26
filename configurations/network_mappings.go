@@ -1,127 +1,121 @@
 package configurations
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
-func LocalizeMappings(nm []*basev0.NetworkMapping, local string) []*basev0.NetworkMapping {
-	var localized []*basev0.NetworkMapping
-	for _, mapping := range nm {
-		localized = append(localized, LocalizeMapping(mapping, local))
+func FindNetworkInstance(mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint, scope basev0.RuntimeScope) (*basev0.NetworkInstance, error) {
+	if endpoint == nil {
+		return nil, fmt.Errorf("can't find network instance for a nil endpoint")
 	}
-	return localized
-}
-
-func LocalizeMapping(mapping *basev0.NetworkMapping, local string) *basev0.NetworkMapping {
-	return &basev0.NetworkMapping{
-		Endpoint: mapping.Endpoint,
-		Address:  strings.Replace(mapping.Address, "localhost", local, 1),
-		Host:     strings.Replace(mapping.Host, "localhost", local, 1),
-		Port:     mapping.Port,
-	}
-}
-
-func FindNetworkMapping(endpoint *basev0.Endpoint, mappings []*basev0.NetworkMapping) (*basev0.NetworkMapping, error) {
 	for _, mapping := range mappings {
 		if mapping.Endpoint.Application == endpoint.Application &&
 			mapping.Endpoint.Service == endpoint.Service &&
+			mapping.Endpoint.Api == endpoint.Api &&
 			mapping.Endpoint.Name == endpoint.Name {
-			return mapping, nil
+			for _, instance := range mapping.Instances {
+				if instance.Scope == scope {
+					return instance, nil
+				}
+			}
 		}
 	}
-	return nil, fmt.Errorf("no network mapping for name: %s", EndpointFromProto(endpoint).Unique())
+	return nil, fmt.Errorf("no network endpoint for name: %s", EndpointFromProto(endpoint).Unique())
 }
 
-func PrefixNetworkMapping(mapping *basev0.NetworkMapping, prefix string) *basev0.NetworkMapping {
-	return &basev0.NetworkMapping{
-		Endpoint: mapping.Endpoint,
-		Address:  fmt.Sprintf("%s-%s", prefix, mapping.Address),
-		Host:     fmt.Sprintf("%s-%s", prefix, mapping.Host),
-		Port:     mapping.Port,
+func FindNetworkMapping(mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkMapping, error) {
+	if endpoint == nil {
+		return nil, fmt.Errorf("can't find network instance for a nil endpoint")
 	}
-}
+	for _, mapping := range mappings {
+		if mapping.Endpoint.Application == endpoint.Application &&
+			mapping.Endpoint.Service == endpoint.Service &&
+			mapping.Endpoint.Api == endpoint.Api &&
+			mapping.Endpoint.Name == endpoint.Name {
+			return mapping, nil
 
-type MappingInstance struct {
-	Address string
-	Port    int
-}
-
-func BuildMappingInstance(mapping *basev0.NetworkMapping) (*MappingInstance, error) {
-	address := mapping.Address
-	port, err := PortFromAddress(address)
-	if err != nil {
-		return nil, fmt.Errorf("invalid network port")
+		}
 	}
-	return &MappingInstance{
-		Address: address,
-		Port:    port,
-	}, nil
+	return nil, fmt.Errorf("no network mapping for endpoint: %s", EndpointFromProto(endpoint).Unique())
 }
 
-func MakeNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
+//	func BuildMappingInstance(mapping *basev0.NetworkMapping) (*MappingInstance, error) {
+//		address := mapping.Address
+//		port, err := PortFromAddress(address)
+//		if err != nil {
+//			return nil, fmt.Errorf("invalid network port")
+//		}
+//		return &MappingInstance{
+//			Address: address,
+//			Port:    port,
+//		}, nil
+//	}
+func MakeManyNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
 	var results []string
 	for _, mapping := range mappings {
-		results = append(results, NetworkMappingInfo(mapping))
+		results = append(results, MakeNetworkMappingSummary(mapping))
 	}
 	return strings.Join(results, ", ")
 }
 
-func NetworkMappingInfo(mapping *basev0.NetworkMapping) string {
-	return fmt.Sprintf("%s:%s", EndpointDestination(mapping.Endpoint), mapping.Address)
-}
-
-func networkMappingHash(n *basev0.NetworkMapping) string {
-	return HashString(n.String())
-}
-
-func NetworkMappingHash(networkMappings ...*basev0.NetworkMapping) (string, error) {
-	hasher := NewHasher()
-	for _, networkMapping := range networkMappings {
-		hasher.Add(networkMappingHash(networkMapping))
+func MakeNetworkMappingSummary(mapping *basev0.NetworkMapping) string {
+	var summaries []string
+	for _, instance := range mapping.Instances {
+		summaries = append(summaries, NetworkInstanceInfo(instance))
 	}
-	return hasher.Hash(), nil
+	return fmt.Sprintf("%s:%s", EndpointDestination(mapping.Endpoint), strings.Join(summaries, ", "))
 }
 
-// ExtractEndpointEnvironmentVariables converts NetworkMapping info data to environment variables
-func ExtractEndpointEnvironmentVariables(ctx context.Context, nets []*basev0.NetworkMapping) ([]string, error) {
-	var envs []string
-	for _, net := range nets {
-		e := EndpointFromProto(net.Endpoint)
-		endpoint := AsEndpointEnvironmentVariable(ctx, e, net.Address)
-		envs = append(envs, endpoint)
-	}
-	return envs, nil
+func ScopeString(scope basev0.RuntimeScope) string {
+	return basev0.RuntimeScope_name[int32(scope)]
 }
 
-// ExtractRestRoutesEnvironmentVariables converts NetworkMapping info REST data to environment variables
-func ExtractRestRoutesEnvironmentVariables(ctx context.Context, nets []*basev0.NetworkMapping) ([]string, error) {
-	var envs []string
-	for _, net := range nets {
-		envs = append(envs, AsRestRouteEnvironmentVariable(ctx, net.Endpoint)...)
-	}
-	return envs, nil
+func NetworkInstanceInfo(value *basev0.NetworkInstance) string {
+	return fmt.Sprintf("%s:%d (%s)", value.Host, value.Port, ScopeString(value.Scope))
 }
 
-func ExtractPublicNetworkMappings(mappings []*basev0.NetworkMapping) []*basev0.NetworkMapping {
-	var publicMappings []*basev0.NetworkMapping
-	for _, mapping := range mappings {
-		if mapping.Endpoint.Visibility == VisibilityPublic {
-			publicMappings = append(publicMappings, mapping)
-		}
-	}
-	return publicMappings
-
-}
-
-// Split address in host and port
-func SplitAddress(address string) (string, string, error) {
-	tokens := strings.Split(address, ":")
-	if len(tokens) != 2 {
-		return "", "", fmt.Errorf("invalid address")
-	}
-	return tokens[0], tokens[1], nil
-}
+//
+//func networkMappingHash(n *basev0.NetworkMapping) string {
+//	return HashString(n.String())
+//}
+//
+//func NetworkMappingHash(networkMappings ...*basev0.NetworkMapping) (string, error) {
+//	hasher := NewHasher()
+//	for _, networkMapping := range networkMappings {
+//		hasher.Add(networkMappingHash(networkMapping))
+//	}
+//	return hasher.Hash(), nil
+//}
+//
+//// ExtractEndpointEnvironmentVariables converts NetworkMapping info data to environment variables
+//func ExtractEndpointEnvironmentVariables(ctx context.Context, nets []*basev0.NetworkMapping) ([]string, error) {
+//	var envs []string
+//	for _, net := range nets {
+//		e := EndpointFromProto(net.Endpoint)
+//		endpoint := AsEndpointEnvironmentVariable(ctx, e, net.Address)
+//		envs = append(envs, endpoint)
+//	}
+//	return envs, nil
+//}
+//
+//// ExtractRestRoutesEnvironmentVariables converts NetworkMapping info REST data to environment variables
+//func ExtractRestRoutesEnvironmentVariables(ctx context.Context, nets []*basev0.NetworkMapping) ([]string, error) {
+//	var envs []string
+//	for _, net := range nets {
+//		envs = append(envs, AsRestRouteEnvironmentVariable(ctx, net.Endpoint)...)
+//	}
+//	return envs, nil
+//}
+//
+//func ExtractPublicNetworkMappings(mappings []*basev0.NetworkMapping) []*basev0.NetworkMapping {
+//	var publicMappings []*basev0.NetworkMapping
+//	for _, mapping := range mappings {
+//		if mapping.Endpoint.Visibility == VisibilityPublic {
+//			publicMappings = append(publicMappings, mapping)
+//		}
+//	}
+//	return publicMappings
+//}

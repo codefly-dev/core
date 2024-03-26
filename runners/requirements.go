@@ -18,14 +18,9 @@ func CheckPythonPath() (string, error) {
 	return "", fmt.Errorf("python/python3 is required and is not installed")
 }
 
-func CheckForRuntimes(ctx context.Context, requirements []*agentv0.Runtime) error {
+func CheckForRuntimes(_ context.Context, requirements []*agentv0.Runtime) error {
 	for _, req := range requirements {
 		switch req.Type {
-		case agentv0.Runtime_DOCKER:
-			ok := DockerEngineRunning(ctx)
-			if !ok {
-				return fmt.Errorf("Docker is required and is not running")
-			}
 		case agentv0.Runtime_GO:
 			_, err := exec.LookPath("go")
 			if err != nil {

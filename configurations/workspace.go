@@ -389,7 +389,7 @@ func (workspace *Workspace) DeleteService(ctx context.Context, projectName strin
 }
 
 /*
-Global Workspace Configuration
+Global Workspace Service
 */
 
 // WorkspaceConfigurationDir returns the directory where the Workspace configuration is stored

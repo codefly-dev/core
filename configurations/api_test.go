@@ -13,12 +13,8 @@ import (
 
 func TestREST(t *testing.T) {
 	ctx := context.Background()
-	endpoint := &configurations.Endpoint{Application: "app", Service: "svc", Name: "rest"}
-	endpoint.WithDefault()
-	e, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/api/swagger/one/org.swagger.json")
+	rest, err := configurations.LoadRestAPI(ctx, "testdata/endpoints/basic/openapi/api.json")
 	assert.NoError(t, err)
-	rest := configurations.EndpointRestAPI(e)
-	assert.NotNil(t, rest)
 	assert.Equal(t, 2, len(rest.Groups)) // 2 Paths
 	var routes []*basev0.RestRoute
 	for _, group := range rest.Groups {
@@ -29,12 +25,8 @@ func TestREST(t *testing.T) {
 
 func TestGRPC(t *testing.T) {
 	ctx := context.Background()
-	endpoint := &configurations.Endpoint{Application: "app", Service: "svc", Name: "gprc"}
-	endpoint.WithDefault()
-	e, err := configurations.NewGrpcAPI(ctx, endpoint, "testdata/api/grpc/api.proto")
+	grpc, err := configurations.LoadGrpcAPI(ctx, "testdata/endpoints/basic/proto/api.proto")
 	assert.NoError(t, err)
-	grpc := configurations.EndpointGRPCAPI(e)
-	assert.NotNil(t, grpc)
 	assert.Equal(t, "management.organization", grpc.Package)
 	assert.Equal(t, 4, len(grpc.Rpcs)) // 4 RPCs
 	for _, rpc := range grpc.Rpcs {

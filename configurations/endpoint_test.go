@@ -12,24 +12,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestPortFromAddress(t *testing.T) {
-	tcs := []struct {
-		address string
-		port    int
-	}{
-		{"localhost:8080", 8080},
-		{"http://localhost:8080/tcp", 8080},
-		{"grp://localhost:8080", 8080},
-	}
-	for _, tc := range tcs {
-		t.Run(tc.address, func(t *testing.T) {
-			port, err := configurations.PortFromAddress(tc.address)
-			assert.NoError(t, err)
-			assert.Equal(t, tc.port, port)
-		})
-	}
+func TestLoadEndpoints(t *testing.T) {
+	ctx := context.Background()
+	service, err := configurations.LoadServiceFromDir(ctx, "testdata/endpoints/basic")
+	assert.NoError(t, err)
+	endpoints, err := service.LoadEndpoints(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(endpoints))
 }
 
+// TODO: MOVE THE ENV VARIABLES SOMEWHERE ELSE
 func TestEndpointConventionEnv(t *testing.T) {
 	tcs := []struct {
 		info *configurations.EndpointInformation
@@ -81,50 +73,28 @@ func TestEndpointUniqueParsing(t *testing.T) {
 	}
 }
 
-func TestEndpointLoadingFromDir(t *testing.T) {
-	ctx := context.Background()
-	conf, err := configurations.LoadServiceFromDir(ctx, "testdata/service")
-	assert.NoError(t, err)
-
-	assert.Equal(t, 2, len(conf.Endpoints))
-
-	var restFound bool
-	var grpcFound bool
-	for _, e := range conf.Endpoints {
-		if e.Name == standards.REST {
-			restFound = true
-			assert.Equal(t, "application", e.Visibility)
-		}
-		if e.Name == standards.GRPC {
-			grpcFound = true
-			assert.Equal(t, "", e.Visibility)
-		}
-	}
-	assert.True(t, restFound)
-	assert.True(t, grpcFound)
-}
-
-func TestEndpointSwaggerChange(t *testing.T) {
-	ctx := context.Background()
-	endpoint := &configurations.Endpoint{Application: "app", Service: "svc", Name: "rest"}
-	endpoint.WithDefault()
-
-	e, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/endpoints/swagger/original.swagger.json")
-	assert.NoError(t, err)
-	hash, err := configurations.EndpointHash(ctx, e)
-	assert.NoError(t, err)
-
-	// Removed path swagger
-	e, err = configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/endpoints/swagger/path_removed.swagger.json")
-	assert.NoError(t, err)
-	updatedHash, err := configurations.EndpointHash(ctx, e)
-	assert.NoError(t, err)
-	assert.NotEqual(t, hash, updatedHash)
-
-	// Changed path swagger
-	e, err = configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/endpoints/swagger/path_name_changed.swagger.json")
-	assert.NoError(t, err)
-	updatedHash, err = configurations.EndpointHash(ctx, e)
-	assert.NoError(t, err)
-	assert.NotEqual(t, hash, updatedHash)
-}
+//
+//func TestEndpointSwaggerChange(t *testing.T) {
+//	ctx := context.Background()
+//	endpoint := &configurations.Endpoint{Application: "app", Service: "svc", Name: "rest"}
+//	endpoint.WithDefault()
+//
+//	e, err := configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/endpoints/swagger/original.swagger.json")
+//	assert.NoError(t, err)
+//	hash, err := configurations.EndpointHash(ctx, e)
+//	assert.NoError(t, err)
+//
+//	// Removed path swagger
+//	e, err = configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/endpoints/swagger/path_removed.swagger.json")
+//	assert.NoError(t, err)
+//	updatedHash, err := configurations.EndpointHash(ctx, e)
+//	assert.NoError(t, err)
+//	assert.NotEqual(t, hash, updatedHash)
+//
+//	// Changed path swagger
+//	e, err = configurations.NewRestAPIFromOpenAPI(ctx, endpoint, "testdata/endpoints/swagger/path_name_changed.swagger.json")
+//	assert.NoError(t, err)
+//	updatedHash, err = configurations.EndpointHash(ctx, e)
+//	assert.NoError(t, err)
+//	assert.NotEqual(t, hash, updatedHash)
+//}

@@ -1,0 +1,14 @@
+kind: service
+name: organization
+application: management
+project: codefly-platform
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+dependencies: []
+endpoints:
+  - name: grpc
+  - name: rest
+    visibility: public
