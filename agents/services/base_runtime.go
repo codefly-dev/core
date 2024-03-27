@@ -160,3 +160,12 @@ func (s *RuntimeWrapper) DesiredStart() {
 func (s *RuntimeWrapper) NetworkInstance(mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkInstance, error) {
 	return configurations.FindNetworkInstance(mappings, endpoint, s.Scope)
 }
+
+func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {
+	w := s.Wool.In("runtime::init")
+	w.Focus("input",
+		wool.Field("configurations", configurations.MakeConfigurationSummary(req.Configuration)),
+		wool.Field("dependencies configurations", configurations.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
+		wool.Field("depedendency endpoints", configurations.MakeManyEndpointSummary(req.DependenciesEndpoints)),
+		wool.Field("network mapping", configurations.MakeManyNetworkMappingSummary(req.ProposedNetworkMappings)))
+}

@@ -506,3 +506,15 @@ func FindTCPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0
 	}
 	return nil, fmt.Errorf("no tcp endpoint found")
 }
+
+func FindTCPEndpointWithName(ctx context.Context, name string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	for _, e := range endpoints {
+		if e.Name != name {
+			continue
+		}
+		if IsTCP(ctx, e) != nil {
+			return e, nil
+		}
+	}
+	return nil, fmt.Errorf("no tcp endpoint found")
+}

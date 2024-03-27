@@ -3,10 +3,12 @@ package runners
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
@@ -148,6 +150,45 @@ func (docker *Docker) ImageExists(ctx context.Context, image *configurations.Doc
 	return false, nil
 }
 
+type ProgressDetail struct {
+	Current int `json:"current"`
+	Total   int `json:"total"`
+}
+
+type DockerPullResponse struct {
+	ID             string         `json:"id"`
+	Status         string         `json:"status"`
+	ProgressDetail ProgressDetail `json:"progressDetail"`
+}
+
+func PrintDownloadPercentage(reader io.ReadCloser, out io.Writer) {
+	scanner := bufio.NewScanner(reader)
+	scanner.Split(bufio.ScanLines)
+
+	progressMap := make(map[string]DockerPullResponse)
+
+	ticker := time.NewTicker(5 * time.Second)
+	go func() {
+		for range ticker.C {
+			var totalCurrent int
+			for _, progress := range progressMap {
+				totalCurrent += progress.ProgressDetail.Current
+			}
+			totalCurrentMB := float64(totalCurrent) / 1024 / 1024
+			_, _ = out.Write([]byte(fmt.Sprintf("Downloaded: %.2f MB", totalCurrentMB)))
+		}
+	}()
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		var pullResponse DockerPullResponse
+		json.Unmarshal([]byte(line), &pullResponse)
+		progressMap[pullResponse.ID] = pullResponse
+	}
+
+	ticker.Stop()
+}
+
 func (docker *Docker) GetImage(ctx context.Context, image *configurations.DockerImage) error {
 	w := wool.Get(ctx).In("Docker.GetImage")
 	if exists, err := docker.ImageExists(ctx, image); err != nil {
@@ -156,18 +197,19 @@ func (docker *Docker) GetImage(ctx context.Context, image *configurations.Docker
 		w.Trace("found Docker image locally")
 		return nil
 	}
-	w.Debug("pulling Docker image", wool.Field("name", image.FullName()))
-	out, err := docker.client.ImagePull(ctx, image.FullName(), types.ImagePullOptions{})
+	_, _ = w.Forward([]byte(fmt.Sprintf("pulling Docker image %s. Will show progress every 5 seconds.", image.FullName())))
+	progress, err := docker.client.ImagePull(ctx, image.FullName(), types.ImagePullOptions{})
 	if err != nil {
 		return w.Wrapf(err, "cannot pull image")
 	}
 
-	docker.ForwardLogs(out)
+	PrintDownloadPercentage(progress, docker.out)
 
 	// Wait for the image pull operation to be completed
-	if _, err := io.Copy(io.Discard, out); err != nil {
+	if _, err := io.Copy(io.Discard, progress); err != nil {
 		return w.Wrapf(err, "error while waiting for image pull operation to be completed")
 	}
+	_, _ = w.Forward([]byte("Docker image pulled."))
 	w.Debug("done pulling")
 	return nil
 }

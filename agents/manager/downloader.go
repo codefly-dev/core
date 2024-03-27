@@ -56,7 +56,7 @@ func Download(ctx context.Context, p *configurations.Agent) error {
 	if !ValidURL(releaseURL) {
 		return w.NewError("invalid download URL: %s", releaseURL)
 	}
-	w.Info("Downloading agent")
+	w.Info(fmt.Sprintf("Downloading agent %s", p.Identifier()))
 	w.Debug("downloading", wool.Field("agent", p.Identifier()), wool.Field("url", releaseURL).Debug())
 
 	// #nosec G107
