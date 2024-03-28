@@ -182,7 +182,7 @@ func PrintDownloadPercentage(reader io.ReadCloser, out io.Writer) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		var pullResponse DockerPullResponse
-		json.Unmarshal([]byte(line), &pullResponse)
+		_ = json.Unmarshal([]byte(line), &pullResponse)
 		progressMap[pullResponse.ID] = pullResponse
 	}
 
@@ -458,23 +458,3 @@ func (docker *Docker) KillAll(ctx context.Context) error {
 	}
 	return nil
 }
-
-//
-//func (docker *Docker) Run() error {
-//	// Start the container
-//	err := docker.Start(docker.ctx)
-//	if err != nil {
-//		return 0, err
-//	}
-//
-//	// Wait for the container to finish
-//	resultC, errC := docker.client.ContainerWait(docker.ctx, docker.instance.container.ID, container.WaitConditionNotRunning)
-//	select {
-//	case err := <-errC:
-//		if err != nil {
-//			return 0, err
-//		}
-//	case result := <-resultC:
-//		return result.StatusCode, nil
-//	}
-//}

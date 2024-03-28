@@ -43,6 +43,11 @@ or
 ./scripts/publish/re_tag.sh
 ```
 
+
+### Environment Variables
+
+
+
 ### Tips for a Cool README:
 
 1. **Engaging Visuals**: Include badges for build status, code quality, etc., and consider adding a project logo or screenshots/gifs of your project in action.

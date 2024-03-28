@@ -465,26 +465,6 @@ func AsRestRouteEnvironmentVariable(ctx context.Context, endpoint *basev0.Endpoi
 
 }
 
-/* For runtime */
-
-const RestRoutePrefix = "CODEFLY_RESTROUTE__"
-
-func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
-	return fmt.Sprintf("%s=%s", RestRouteEnvironmentVariableKey(endpoint, route), endpoint.Visibility)
-}
-
-func RestRouteEnvironmentVariableKey(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
-	unique := EndpointFromProto(endpoint).Unique()
-	unique = strings.ToUpper(unique)
-	unique = strings.Replace(unique, "/", "__", 1)
-	unique = strings.Replace(unique, "/", "___", 1)
-	unique = strings.Replace(unique, "::", "____", 1)
-	// Add path
-	unique = fmt.Sprintf("%s____%s", unique, sanitizePath(route.Path))
-	unique = fmt.Sprintf("%s_____%s", unique, ConvertHTTPMethodFromProto(route.Method))
-	return strings.ToUpper(fmt.Sprintf("%s%s", RestRoutePrefix, unique))
-}
-
 func ConvertHTTPMethodToProto(m HTTPMethod) basev0.HTTPMethod {
 	switch m {
 	case HTTPMethodGet:

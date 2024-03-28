@@ -8,8 +8,6 @@ import (
 	"net"
 
 	"github.com/codefly-dev/core/configurations/standards"
-
-	"github.com/codefly-dev/core/wool"
 )
 
 type FixedStrategy struct {
@@ -48,12 +46,10 @@ func APIInt(api string) int {
 // 0: TCP
 // 1: HTTP/ REST
 // 2: gRPC
-func ToNamedPort(ctx context.Context, app string, svc string, name string, api string) uint16 {
-	w := wool.Get(ctx).In("ToNamedPort")
+func ToNamedPort(_ context.Context, app string, svc string, name string, api string) uint16 {
 	appPart := HashInt(app, 11, 49) * 1000
 	svcPart := HashInt(app+svc, 0, 9) * 100
 	namePart := HashInt(name, 0, 9) * 10
-	w.Debug("port", wool.Field("app", appPart), wool.Field("svc", svcPart), wool.Field("name", namePart), wool.Field("api", APIInt(api)))
 	port := appPart + svcPart + namePart + APIInt(api)
 	return uint16(port)
 }

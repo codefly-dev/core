@@ -54,14 +54,14 @@ func TestConfigurationEnvironmentVariableKey(t *testing.T) {
 }
 
 func TestProjectConfigurationsAsEnvironmentVariables(t *testing.T) {
-	env := configurations.ManyConfigurationAsEnvironmentVariables(projectConf)
+	env := configurations.ConfigurationAsEnvironmentVariables(projectConf)
 	assert.Len(t, env, 1)
 	needs := fmt.Sprintf("CODEFLY__PROJECT_CONFIGURATION__SOMETHING__GLOBAL=%s", configurations.EncodeValue("true"))
 	assert.Contains(t, env, needs)
 }
 
 func TestServiceConfigurationsAsEnvironmentVariables(t *testing.T) {
-	env := configurations.ManyConfigurationAsEnvironmentVariables(serviceConf)
+	env := configurations.ConfigurationAsEnvironmentVariables(serviceConf)
 	assert.Len(t, env, 2)
 	needs := []string{
 		fmt.Sprintf("CODEFLY__SERVICE_CONFIGURATION__APP__SVC__CONNECTION__URL=%s", configurations.EncodeValue("http://localhost:8080")),

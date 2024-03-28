@@ -35,27 +35,41 @@ func Native(port uint16) *basev0.NetworkInstance {
 	return instance
 }
 
+func Public(port uint16) *basev0.NetworkInstance {
+	instance := &basev0.NetworkInstance{
+		Scope: basev0.RuntimeScope_Public,
+		Port:  uint32(port),
+		Host:  "localhost",
+	}
+	instance.Address = fmt.Sprintf("%s:%d", instance.Host, instance.Port)
+	return instance
+}
+
 // GenerateNetworkMappings generates network mappings for a service endpoints
 func (m RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *configurations.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
 	var out []*basev0.NetworkMapping
-	if m.DNSManager == nil {
-		for _, endpoint := range endpoints {
-			// Generate Port
-			port := ToNamedPort(ctx, service.Application, service.Name, endpoint.Name, endpoint.Api)
-			if _, ok := m.allocatedPorts[port]; ok {
-				// Port already allocated
-				return nil, w.NewError("port %d already allocated for service %s (TODO: randomize? force override?)", port, service.Unique())
-			}
-			m.allocatedPorts[port] = true
-			out = append(out, &basev0.NetworkMapping{
-				Endpoint: endpoint,
-				Instances: []*basev0.NetworkInstance{
-					Container(port),
-					Native(port),
-				},
-			})
+	for _, endpoint := range endpoints {
+		// Generate Port
+		port := ToNamedPort(ctx, service.Application, service.Name, endpoint.Name, endpoint.Api)
+		if _, ok := m.allocatedPorts[port]; ok {
+			// Port already allocated
+			return nil, w.NewError("port %d already allocated for service %s (TODO: randomize? force override?)", port, service.Unique())
 		}
+		m.allocatedPorts[port] = true
+		nm := &basev0.NetworkMapping{
+			Endpoint: endpoint,
+			Instances: []*basev0.NetworkInstance{
+				Container(port),
+				Native(port),
+			},
+		}
+		if endpoint.Visibility == configurations.VisibilityPublic {
+			// DEAL WITH DNS
+			// Assign Native for now
+			nm.Instances = append(nm.Instances, Public(port))
+		}
+		out = append(out, nm)
 	}
 	return out, nil
 }

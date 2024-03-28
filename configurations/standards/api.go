@@ -11,10 +11,11 @@ const ProtoPath = "proto/api.proto"
 const OpenAPIPath = "openapi/api.json"
 
 var (
-	GRPC = "grpc"
-	REST = "rest"
-	HTTP = "http"
-	TCP  = "tcp"
+	Unknown = "unknown"
+	GRPC    = "grpc"
+	REST    = "rest"
+	HTTP    = "http"
+	TCP     = "tcp"
 )
 
 var supportedAPI []string

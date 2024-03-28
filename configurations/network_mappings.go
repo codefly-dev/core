@@ -7,6 +7,13 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
+func NewNetworkInstance(host string, port uint16) *basev0.NetworkInstance {
+	return &basev0.NetworkInstance{
+		Host: host,
+		Port: uint32(port),
+	}
+}
+
 func FindNetworkInstance(mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint, scope basev0.RuntimeScope) (*basev0.NetworkInstance, error) {
 	if endpoint == nil {
 		return nil, fmt.Errorf("can't find network instance for a nil endpoint")

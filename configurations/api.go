@@ -33,10 +33,10 @@ func NewAPI(_ context.Context, endpoint *Endpoint, api *basev0.API) (*basev0.End
 
 func APIString(api *basev0.API) string {
 	if api == nil {
-		return Unknown
+		return standards.Unknown
 	}
 	if api.Value == nil {
-		return Unknown
+		return standards.Unknown
 	}
 	switch api.Value.(type) {
 	case *basev0.API_Grpc:
@@ -48,7 +48,7 @@ func APIString(api *basev0.API) string {
 	case *basev0.API_Tcp:
 		return standards.TCP
 	}
-	return Unknown
+	return standards.Unknown
 }
 
 func ToGrpcAPI(grpc *basev0.GrpcAPI) *basev0.API {
@@ -99,7 +99,7 @@ func ToRestAPI(rest *basev0.RestAPI) *basev0.API {
 func LoadRestAPI(ctx context.Context, filename string) (*basev0.RestAPI, error) {
 	w := wool.Get(ctx).In("endpoints.NewRestAPIFromOpenAPI")
 	if !shared.FileExists(filename) {
-		return nil, w.NewError("file does not exist: %s", filename)
+		return &basev0.RestAPI{}, nil
 	}
 	// Read the file content
 	content, err := os.ReadFile(filename)
@@ -234,4 +234,57 @@ func getHTTPMethodsFromPathItem(pathItem *openapispec.PathItem) []basev0.HTTPMet
 		methods = append(methods, basev0.HTTPMethod_PATCH)
 	}
 	return methods
+}
+
+func CloneAPI(api *basev0.API) *basev0.API {
+	if api == nil {
+		return nil
+	}
+	switch v := api.Value.(type) {
+	case *basev0.API_Grpc:
+		return &basev0.API{
+			Value: &basev0.API_Grpc{},
+		}
+	case *basev0.API_Rest:
+		return &basev0.API{
+			Value: &basev0.API_Rest{
+				Rest: &basev0.RestAPI{Groups: v.Rest.Groups},
+			},
+		}
+	case *basev0.API_Http:
+		return &basev0.API{
+			Value: &basev0.API_Http{},
+		}
+	case *basev0.API_Tcp:
+		return &basev0.API{
+			Value: &basev0.API_Tcp{},
+		}
+	default:
+		return nil
+	}
+}
+
+func LightAPI(api *basev0.API) *basev0.API {
+	switch api.Value.(type) {
+	case *basev0.API_Grpc:
+		return &basev0.API{
+			Value: &basev0.API_Grpc{},
+		}
+	case *basev0.API_Rest:
+		return &basev0.API{
+			Value: &basev0.API_Rest{
+				Rest: &basev0.RestAPI{Groups: api.Value.(*basev0.API_Rest).Rest.Groups},
+			},
+		}
+	case *basev0.API_Http:
+		return &basev0.API{
+			Value: &basev0.API_Http{},
+		}
+	case *basev0.API_Tcp:
+		return &basev0.API{
+			Value: &basev0.API_Tcp{},
+		}
+	default:
+		return nil
+	}
 }

@@ -169,3 +169,10 @@ func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {
 		wool.Field("depedendency endpoints", configurations.MakeManyEndpointSummary(req.DependenciesEndpoints)),
 		wool.Field("network mapping", configurations.MakeManyNetworkMappingSummary(req.ProposedNetworkMappings)))
 }
+
+func (s *RuntimeWrapper) LogStartRequest(req *runtimev0.StartRequest) {
+	w := s.Wool.In("runtime::init")
+	w.Focus("input",
+		wool.Field("other network mappings", configurations.MakeManyNetworkMappingSummary(req.OtherNetworkMappings)),
+	)
+}

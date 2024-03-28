@@ -82,13 +82,3 @@ func LocalProto() *basev0.Environment {
 		Name: "local",
 	}
 }
-
-const EnvironmentAsEnvironmentVariableKey = "CODEFLY_ENVIRONMENT"
-
-func EnvironmentAsEnvironmentVariable(env *basev0.Environment) string {
-	return fmt.Sprintf("%s=%s", EnvironmentAsEnvironmentVariableKey, env.Name)
-}
-
-func IsLocal(environment *basev0.Environment) bool {
-	return environment.Name == "local"
-}

@@ -2,7 +2,6 @@ package configurations
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -37,52 +36,6 @@ func FindConfigurations(configurations []*basev0.Configuration, scope basev0.Run
 		}
 	}
 	return found
-}
-
-func ManyConfigurationAsEnvironmentVariables(confs ...*basev0.Configuration) []string {
-	var envs []string
-	for _, conf := range confs {
-		envs = append(envs, ConfigurationAsEnvironmentVariables(conf)...)
-	}
-	return envs
-}
-
-// EncodeValue base64 encode
-func EncodeValue(s string) string {
-	return base64.StdEncoding.EncodeToString([]byte(s))
-}
-
-func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration) []string {
-	var env []string
-	confKey := ConfigurationEnvironmentKeyPrefix(conf)
-	for _, info := range conf.Configurations {
-		infoKey := fmt.Sprintf("%s__%s", confKey, NameToKey(info.Name))
-		for _, value := range info.ConfigurationValues {
-			key := fmt.Sprintf("%s__%s", infoKey, NameToKey(value.Key))
-			if value.Secret {
-				key = strings.Replace(key, "_CONFIGURATION__", "_SECRET_CONFIGURATION__", 1)
-			}
-			env = append(env, fmt.Sprintf("%s=%s", key, EncodeValue(value.Value)))
-		}
-	}
-	return env
-}
-
-func NameToKey(name string) string {
-	return strings.ToUpper(name)
-}
-
-func ConfigurationEnvironmentKeyPrefix(conf *basev0.Configuration) string {
-	if conf.Origin == ConfigurationProjectOrigin {
-		return ProjectConfigurationPrefix
-	}
-	return fmt.Sprintf("%s__%s", ServiceConfigurationPrefix, UniqueToKey(conf.Origin))
-}
-
-func UniqueToKey(origin string) string {
-	origin = strings.Replace(origin, "/", "__", 1)
-	origin = strings.Replace(origin, "-", "_", -1)
-	return strings.ToUpper(origin)
 }
 
 func ConfigurationInformationHash(info *basev0.ConfigurationInformation) string {

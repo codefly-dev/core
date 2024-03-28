@@ -68,6 +68,9 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	serviceConfs := make(map[string]*basev0.Configuration)
 	for _, svc := range services {
 		serviceDir := path.Join(svc.Dir(), "configurations", env.Name)
+		if !shared.DirectoryExists(serviceDir) {
+			continue
+		}
 		projectConfs, err = LoadConfigurationsFromEnvFiles(ctx, serviceDir)
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot load service configurations")
