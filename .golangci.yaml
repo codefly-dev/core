@@ -3,11 +3,6 @@ run:
   # Timeout for analysis, e.g. "5m", "10m30s" or "2h"
   deadline: 5m
 
-  # Files and directories to exclude from linting
-  exclude-files:
-    - ".*\\.pb\\.go"
-    - ".*_test\\.go"
-
 # Output settings
 output:
   formats: colored-line-number # Output format (e.g., colored-line-number, json, checkstyle...)
@@ -50,6 +45,10 @@ linters-settings:
 
 # Service settings
 issues:
+  exclude-files:
+    - ".*\\.pb\\.go"
+    - ".*_test\\.go"
+
   exclude-rules:
     - linters:
         - govet

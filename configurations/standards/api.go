@@ -43,22 +43,26 @@ func LocalhostAddress(api string) string {
 	return fmt.Sprintf("localhost:%d", Port(api))
 }
 
-func Port(api string) int {
+func Port(api string) uint16 {
 	switch api {
 	case GRPC:
 		return 9090
 	case REST:
 		return 8080
+	case HTTP:
+		return 8080
+	case TCP:
+		return 80
 	}
 	return 80
 }
 
 func PortAddressForEndpoint(endpoint string) string {
 	if strings.HasSuffix(endpoint, GRPC) {
-		return ":" + strconv.Itoa(Port(GRPC))
+		return ":" + strconv.Itoa(int(Port(GRPC)))
 	}
 	if strings.HasSuffix(endpoint, REST) {
-		return ":" + strconv.Itoa(Port(REST))
+		return ":" + strconv.Itoa(int(Port(REST)))
 	}
 	return ":80"
 }

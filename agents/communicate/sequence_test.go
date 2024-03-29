@@ -23,7 +23,7 @@ type dataCreate struct {
 	results []string
 }
 
-func (s *agentTest) Create(ctx context.Context, req *builderv0.CreateRequest) (*dataCreate, error) {
+func (s *agentTest) Create(_ context.Context, req *builderv0.CreateRequest) (*dataCreate, error) {
 	if !s.Server.Ready(shared.TypeOf[builderv0.CreateRequest]()) {
 		return nil, fmt.Errorf("not ready")
 	}
@@ -64,7 +64,7 @@ func (s *agentTest) Communicate(ctx context.Context, req *agentv0.Engage) (*agen
 
 type clientHandler struct{}
 
-func (*clientHandler) Answer(ctx context.Context, question *agentv0.Question) (*agentv0.Answer, error) {
+func (*clientHandler) Answer(_ context.Context, question *agentv0.Question) (*agentv0.Answer, error) {
 	return &agentv0.Answer{
 		Value: &agentv0.Answer_Input{
 			Input: &agentv0.InputAnswer{
@@ -76,7 +76,7 @@ func (*clientHandler) Answer(ctx context.Context, question *agentv0.Question) (*
 
 type clientHandlerRepeater struct{}
 
-func (*clientHandlerRepeater) Answer(ctx context.Context, question *agentv0.Question) (*agentv0.Answer, error) {
+func (*clientHandlerRepeater) Answer(_ context.Context, question *agentv0.Question) (*agentv0.Answer, error) {
 	return &agentv0.Answer{
 		Value: &agentv0.Answer_Input{
 			Input: &agentv0.InputAnswer{
@@ -152,6 +152,7 @@ func TestSequenceWithCommunicationFlow(t *testing.T) {
 	assert.NoError(t, err)
 
 	session, err := server.Done(ctx, communicate.Channel[builderv0.CreateRequest]())
+	assert.NoError(t, err)
 	for _, v := range []string{"one", "two", "three", "four"} {
 		value, err := session.GetInputString(v)
 		assert.NoError(t, err)

@@ -9,7 +9,7 @@ import (
 	"github.com/codefly-dev/core/configurations/standards"
 )
 
-func PortAndPortAddressFromAddress(address string) (int, string, error) {
+func PortAndPortAddressFromAddress(address string) (uint16, string, error) {
 	port, err := PortFromAddress(address)
 	if err != nil {
 		return 0, "", err
@@ -18,17 +18,25 @@ func PortAndPortAddressFromAddress(address string) (int, string, error) {
 	return port, portAddress, nil
 }
 
-func PortFromAddress(address string) (int, error) {
+func PortFromAddress(address string) (uint16, error) {
 	u, err := url.Parse(address)
 	if err == nil {
 		port := u.Port()
 		if port != "" {
-			return strconv.Atoi(port)
+			v, err := strconv.Atoi(port)
+			if err != nil {
+				return 0, err
+			}
+			return uint16(v), nil
 		}
 	}
 	tokens := strings.Split(address, ":")
 	if len(tokens) == 2 {
-		return strconv.Atoi(tokens[1])
+		v, err := strconv.Atoi(tokens[1])
+		if err != nil {
+			return 0, err
+		}
+		return uint16(v), nil
 	}
 	return standards.Port(standards.TCP), fmt.Errorf("info instance address does not have a port")
 }

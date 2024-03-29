@@ -10,7 +10,7 @@ import (
 func TestPortFromAddress(t *testing.T) {
 	tcs := []struct {
 		address string
-		port    int
+		port    uint16
 	}{
 		{"localhost:8080", 8080},
 		{"http://localhost:8080/tcp", 8080},

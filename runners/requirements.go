@@ -6,6 +6,7 @@ import (
 	"os/exec"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
+	"github.com/codefly-dev/core/wool"
 )
 
 func CheckPythonPath() (string, error) {
@@ -18,28 +19,29 @@ func CheckPythonPath() (string, error) {
 	return "", fmt.Errorf("python/python3 is required and is not installed")
 }
 
-func CheckForRuntimes(_ context.Context, requirements []*agentv0.Runtime) error {
+func CheckForRuntimes(ctx context.Context, requirements []*agentv0.Runtime) error {
+	w := wool.Get(ctx).In("CheckForRuntimes")
 	for _, req := range requirements {
 		switch req.Type {
 		case agentv0.Runtime_GO:
 			_, err := exec.LookPath("go")
 			if err != nil {
-				return fmt.Errorf("Go is required and is not installed")
+				w.Warn("Go is required to run in native mode. But don't worry, you can still run in container mode!")
 			}
 		case agentv0.Runtime_NPM:
 			_, err := exec.LookPath("npm")
 			if err != nil {
-				return fmt.Errorf("npm is required and is not installed")
+				w.Warn("NPM is required to run in native mode. But don't worry, you can still run in container mode!")
 			}
 		case agentv0.Runtime_PYTHON:
 			_, err := CheckPythonPath()
 			if err != nil {
-				return err
+				w.Warn("Python is required to run in native mode. But don't worry, you can still run in container mode!")
 			}
 		case agentv0.Runtime_PYTHON_POETRY:
 			_, err := exec.LookPath("poetry")
 			if err != nil {
-				return fmt.Errorf("Poetry is required and is not installed")
+				w.Warn("Poetry is required to run in native mode. But don't worry, you can still run in container mode!")
 			}
 		}
 	}

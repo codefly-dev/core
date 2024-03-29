@@ -19,14 +19,14 @@ type testData struct {
 
 type replacer struct{}
 
-func (t replacer) Apply(ctx context.Context, from string, to string) error {
+func (t replacer) Apply(_ context.Context, from string, to string) error {
 	// replace est by oast
 	content, err := os.ReadFile(from)
 	if err != nil {
 		return err
 	}
 	content = []byte(strings.ReplaceAll(string(content), "est", "oast"))
-	return os.WriteFile(to, content, 0644)
+	return os.WriteFile(to, content, 0600)
 }
 
 func testCopyAndApplyTemplateToDir(t *testing.T, fs shared.FileSystem, dir string) {
@@ -59,9 +59,11 @@ func testCopyAndApplyTemplateToDir(t *testing.T, fs shared.FileSystem, dir strin
 	assert.Equal(t, "other test", string(content))
 }
 
+const testdata = "testdata"
+
 func TestCopyAndApplyTemplateToDirEmbed(t *testing.T) {
 	fs := shared.Embed(test)
-	dir := "testdata"
+	dir := testdata
 	testCopyAndApplyTemplateToDir(t, fs, dir)
 }
 
@@ -69,7 +71,7 @@ func TestCopyAndApplyTemplateToDirEmbed(t *testing.T) {
 var test embed.FS
 
 func TestCopyAndApplyTemplateToDirLocal(t *testing.T) {
-	dir := "testdata"
+	dir := testdata
 	fs := shared.NewDirReader()
 	testCopyAndApplyTemplateToDir(t, fs, dir)
 }
@@ -106,12 +108,12 @@ func testCopyAndReplaceToDir(t *testing.T, fs shared.FileSystem, dir string) {
 
 func TestCopyAndVisitEmbed(t *testing.T) {
 	fs := shared.Embed(test)
-	dir := "testdata"
+	dir := testdata
 	testCopyAndReplaceToDir(t, fs, dir)
 }
 
 func TestCopyAndVisitLocal(t *testing.T) {
-	dir := "testdata"
+	dir := testdata
 	fs := shared.NewDirReader()
 	testCopyAndReplaceToDir(t, fs, dir)
 }
