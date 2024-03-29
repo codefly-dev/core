@@ -19,6 +19,7 @@ type EnvironmentVariableManager struct {
 	endpoints []*EndpointAccess
 
 	restRoutes []*RestRouteAccess
+	running    bool
 }
 
 func NewEnvironmentVariableManager() *EnvironmentVariableManager {
@@ -34,15 +35,16 @@ func (holder *EnvironmentVariableManager) SetRuntimeScope(scope basev0.RuntimeSc
 	holder.runtimeScope = scope
 }
 
-func (holder *EnvironmentVariableManager) Get() []string {
+func (holder *EnvironmentVariableManager) getBase() []string {
 	var envs []string
+	if holder.running {
+		envs = append(envs, "CODEFLY__RUNNING=true")
+
+	}
 	if holder.environment != nil {
 		envs = append(envs, EnvironmentAsEnvironmentVariable(holder.environment))
 	}
-	confs := FindConfigurations(holder.configurations, holder.runtimeScope)
-	for _, conf := range confs {
-		envs = append(envs, ConfigurationAsEnvironmentVariables(conf)...)
-	}
+
 	for _, endpoint := range holder.endpoints {
 		envs = append(envs, EndpointAsEnvironmentVariable(endpoint.Endpoint, endpoint.NetworkInstance))
 	}
@@ -52,8 +54,37 @@ func (holder *EnvironmentVariableManager) Get() []string {
 	return envs
 }
 
+func (holder *EnvironmentVariableManager) All() []string {
+	envs := holder.getBase()
+	for _, conf := range holder.configurations {
+		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
+		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, true)...)
+	}
+	return envs
+}
+
+func (holder *EnvironmentVariableManager) Configurations() []string {
+	envs := holder.getBase()
+	for _, conf := range holder.configurations {
+		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
+	}
+	return envs
+}
+
+func (holder *EnvironmentVariableManager) Secrets() []string {
+	var envs []string
+	for _, conf := range holder.configurations {
+		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
+	}
+	return envs
+}
+
 func (holder *EnvironmentVariableManager) AddConfigurations(configurations ...*basev0.Configuration) error {
-	holder.configurations = append(holder.configurations, configurations...)
+	for _, conf := range configurations {
+		if conf != nil {
+			holder.configurations = append(holder.configurations, conf)
+		}
+	}
 	return nil
 }
 
@@ -62,7 +93,7 @@ type EndpointAccess struct {
 	*basev0.NetworkInstance
 }
 
-func (holder *EnvironmentVariableManager) AddPublicEndpoints(ctx context.Context, mappings []*basev0.NetworkMapping) error {
+func (holder *EnvironmentVariableManager) AddPublicEndpoints(_ context.Context, mappings []*basev0.NetworkMapping) error {
 	for _, mp := range mappings {
 		for _, instance := range mp.Instances {
 			if instance.Scope == basev0.RuntimeScope_Public {
@@ -104,6 +135,11 @@ func (holder *EnvironmentVariableManager) AddPublicRestRoutes(ctx context.Contex
 
 }
 
+func (holder *EnvironmentVariableManager) SetRunning(b bool) {
+	holder.running = b
+
+}
+
 const EnvironmentPrefix = "CODEFLY_ENVIRONMENT"
 
 func EnvironmentAsEnvironmentVariable(env *basev0.Environment) string {
@@ -122,7 +158,7 @@ func EndpointAsEnvironmentVariableKey(endpoint *EndpointInformation) string {
 
 func EndpointAsEnvironmentVariable(endpoint *basev0.Endpoint, instance *basev0.NetworkInstance) string {
 	value := EncodeValue(instance.Address)
-	env := fmt.Sprintf("%s_%s=%s", EnvironmentPrefix, EndpointAsEnvironmentVariableKey(EndpointInformationFromProto(endpoint)), value)
+	env := fmt.Sprintf("%s__%s=%s", EndpointPrefix, EndpointAsEnvironmentVariableKey(EndpointInformationFromProto(endpoint)), value)
 	return strings.ToUpper(env)
 }
 
@@ -131,20 +167,34 @@ func EncodeValue(s string) string {
 	return base64.StdEncoding.EncodeToString([]byte(s))
 }
 
-func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration) []string {
+// ConfigurationAsEnvironmentVariables converts a configuration to a list of environment variables
+// the secret flag decides if we return clear or secret variable
+func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool) []string {
 	var env []string
 	confKey := ConfigurationEnvironmentKeyPrefix(conf)
 	for _, info := range conf.Configurations {
 		infoKey := fmt.Sprintf("%s__%s", confKey, NameToKey(info.Name))
 		for _, value := range info.ConfigurationValues {
 			key := fmt.Sprintf("%s__%s", infoKey, NameToKey(value.Key))
-			if value.Secret {
-				key = strings.Replace(key, "_CONFIGURATION__", "_SECRET_CONFIGURATION__", 1)
+			if secret {
+				if value.Secret {
+					key = strings.Replace(key, "_CONFIGURATION__", "_SECRET_CONFIGURATION__", 1)
+					env = append(env, fmt.Sprintf("%s=%s", key, EncodeValue(value.Value)))
+				}
+			} else {
+				env = append(env, fmt.Sprintf("%s=%s", key, EncodeValue(value.Value)))
 			}
-			env = append(env, fmt.Sprintf("%s=%s", key, EncodeValue(value.Value)))
 		}
 	}
 	return env
+}
+
+func ConfigurationKey(service *Service, name string, key string) string {
+	return strings.ToUpper(fmt.Sprintf("%s__%s__%s__%s", "CONFIGURATION", UniqueToKey(service.Unique()), name, key))
+}
+
+func SecretKey(service *Service, name string, key string) string {
+	return strings.ToUpper(fmt.Sprintf("%s__%s__%s__%s", "SECRET_CONFIGURATION", UniqueToKey(service.Unique()), name, key))
 }
 
 func NameToKey(name string) string {
@@ -159,8 +209,8 @@ func ConfigurationEnvironmentKeyPrefix(conf *basev0.Configuration) string {
 }
 
 func UniqueToKey(origin string) string {
-	origin = strings.Replace(origin, "/", "__", 1)
-	origin = strings.Replace(origin, "-", "_", -1)
+	origin = strings.ReplaceAll(origin, "/", "__")
+	origin = strings.ReplaceAll(origin, "-", "_")
 	return strings.ToUpper(origin)
 }
 

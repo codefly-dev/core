@@ -95,6 +95,8 @@ func CreateBufConfiguration(ctx context.Context, bufDir string, service string, 
 			return w.Wrapf(err, "cannot templatize")
 		}
 		return nil
+	case languages.NotSupported:
+		return w.NewError("language not supported")
 	}
 	return w.NewError("unknown language")
 }

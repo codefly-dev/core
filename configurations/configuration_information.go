@@ -84,3 +84,13 @@ func MakeConfigurationValueSummary(value *basev0.ConfigurationValue) string {
 	}
 	return fmt.Sprintf("%s=%s", value.Key, value.Value)
 }
+
+func FilterConfigurations(configurations []*basev0.Configuration, scope basev0.RuntimeScope) []*basev0.Configuration {
+	var out []*basev0.Configuration
+	for _, conf := range configurations {
+		if conf.Scope == scope {
+			out = append(out, conf)
+		}
+	}
+	return out
+}

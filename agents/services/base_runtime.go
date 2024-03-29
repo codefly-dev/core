@@ -176,3 +176,15 @@ func (s *RuntimeWrapper) LogStartRequest(req *runtimev0.StartRequest) {
 		wool.Field("other network mappings", configurations.MakeManyNetworkMappingSummary(req.OtherNetworkMappings)),
 	)
 }
+
+func (s *RuntimeWrapper) SetScope(req *runtimev0.LoadRequest) {
+	s.Scope = req.Scope
+}
+
+func (s *RuntimeWrapper) Container() bool {
+	return s.Scope == basev0.RuntimeScope_Container
+}
+
+func (s *RuntimeWrapper) Native() bool {
+	return s.Scope == basev0.RuntimeScope_Native
+}

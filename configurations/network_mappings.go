@@ -84,45 +84,14 @@ func NetworkInstanceInfo(value *basev0.NetworkInstance) string {
 	return fmt.Sprintf("%s:%d (%s)", value.Host, value.Port, ScopeString(value.Scope))
 }
 
-//
-//func networkMappingHash(n *basev0.NetworkMapping) string {
-//	return HashString(n.String())
-//}
-//
-//func NetworkMappingHash(networkMappings ...*basev0.NetworkMapping) (string, error) {
-//	hasher := NewHasher()
-//	for _, networkMapping := range networkMappings {
-//		hasher.Add(networkMappingHash(networkMapping))
-//	}
-//	return hasher.Hash(), nil
-//}
-//
-//// ExtractEndpointEnvironmentVariables converts NetworkMapping info data to environment variables
-//func ExtractEndpointEnvironmentVariables(ctx context.Context, nets []*basev0.NetworkMapping) ([]string, error) {
-//	var envs []string
-//	for _, net := range nets {
-//		e := EndpointFromProto(net.Endpoint)
-//		endpoint := AsEndpointEnvironmentVariable(ctx, e, net.Address)
-//		envs = append(envs, endpoint)
-//	}
-//	return envs, nil
-//}
-//
-//// ExtractRestRoutesEnvironmentVariables converts NetworkMapping info REST data to environment variables
-//func ExtractRestRoutesEnvironmentVariables(ctx context.Context, nets []*basev0.NetworkMapping) ([]string, error) {
-//	var envs []string
-//	for _, net := range nets {
-//		envs = append(envs, AsRestRouteEnvironmentVariable(ctx, net.Endpoint)...)
-//	}
-//	return envs, nil
-//}
-//
-//func ExtractPublicNetworkMappings(mappings []*basev0.NetworkMapping) []*basev0.NetworkMapping {
-//	var publicMappings []*basev0.NetworkMapping
-//	for _, mapping := range mappings {
-//		if mapping.Endpoint.Visibility == VisibilityPublic {
-//			publicMappings = append(publicMappings, mapping)
-//		}
-//	}
-//	return publicMappings
-//}
+func networkMappingHash(n *basev0.NetworkMapping) string {
+	return HashString(n.String())
+}
+
+func NetworkMappingHash(networkMappings ...*basev0.NetworkMapping) (string, error) {
+	hasher := NewHasher()
+	for _, networkMapping := range networkMappings {
+		hasher.Add(networkMappingHash(networkMapping))
+	}
+	return hasher.Hash(), nil
+}

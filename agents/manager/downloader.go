@@ -26,7 +26,7 @@ type GithubSource struct {
 
 func toGithubSource(p *configurations.Agent) GithubSource {
 	return GithubSource{
-		Owner: strings.Replace(p.Publisher, ".", "-", -1),
+		Owner: strings.ReplaceAll(p.Publisher, ".", "-"),
 		Repo:  fmt.Sprintf("service-%s", p.Name),
 	}
 }

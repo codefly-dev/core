@@ -87,7 +87,7 @@ func (docker *Docker) WithMount(sourceDir string, targetDir string) *Docker {
 }
 
 func (docker *Docker) WithName(name string) {
-	docker.containerName = fmt.Sprintf("codefly-%s", strings.Replace(name, "/", "-", -1))
+	docker.containerName = fmt.Sprintf("codefly-%s", strings.ReplaceAll(name, "/", "-"))
 }
 
 func (docker *Docker) WithPersistence() {

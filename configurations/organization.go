@@ -23,8 +23,8 @@ func (organization *Organization) Proto() *basev0.Organization {
 }
 
 func ToOrganizationSourceVersionControl(name string) string {
-	domain := strings.Replace(name, " ", ".", -1)
-	domain = strings.Replace(domain, ".", "-", -1)
+	domain := strings.ReplaceAll(name, " ", ".")
+	domain = strings.ReplaceAll(domain, ".", "-")
 	return fmt.Sprintf("github.com/%s", strings.ToLower(domain))
 }
 

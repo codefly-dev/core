@@ -19,6 +19,6 @@ func PinToLatestRelease(ctx context.Context, agent *configurations.Agent) error 
 		return w.Wrapf(err, "cannot get latest release")
 	}
 	tag := release.GetTagName()
-	agent.Version = strings.Replace(tag, "v", "", -1)
+	agent.Version = strings.ReplaceAll(tag, "v", "")
 	return nil
 }

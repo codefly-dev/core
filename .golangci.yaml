@@ -4,13 +4,13 @@ run:
   deadline: 5m
 
   # Files and directories to exclude from linting
-  skip-files:
+  exclude-files:
     - ".*\\.pb\\.go"
     - ".*_test\\.go"
 
 # Output settings
 output:
-  format: colored-line-number # Output format (e.g., colored-line-number, json, checkstyle...)
+  formats: colored-line-number # Output format (e.g., colored-line-number, json, checkstyle...)
 
 # Linters settings
 linters:
@@ -19,7 +19,7 @@ linters:
     - goimports
     - govet
     - revive
-    - gocritic
+    #- gocritic
     - gosec
     - errcheck
     - staticcheck

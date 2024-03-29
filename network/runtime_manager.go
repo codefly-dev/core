@@ -11,7 +11,6 @@ import (
 )
 
 type RuntimeManager struct {
-	DNSManager     DNSManager
 	allocatedPorts map[uint16]bool
 }
 
@@ -46,7 +45,7 @@ func Public(port uint16) *basev0.NetworkInstance {
 }
 
 // GenerateNetworkMappings generates network mappings for a service endpoints
-func (m RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *configurations.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
+func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *configurations.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
 	var out []*basev0.NetworkMapping
 	for _, endpoint := range endpoints {
@@ -74,7 +73,7 @@ func (m RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *co
 	return out, nil
 }
 
-func NewManager(_ context.Context) (*RuntimeManager, error) {
+func NewRuntimeManager(_ context.Context) (*RuntimeManager, error) {
 	return &RuntimeManager{
 		allocatedPorts: make(map[uint16]bool),
 	}, nil

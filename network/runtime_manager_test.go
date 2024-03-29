@@ -19,7 +19,7 @@ func TestRuntimeNetworkMappingGenerationNoDNS(t *testing.T) {
 	assert.Equal(t, 2, len(endpoints))
 
 	// Generate runtime mapping
-	manager, err := network.NewManager(ctx)
+	manager, err := network.NewRuntimeManager(ctx)
 	assert.NoError(t, err)
 	mappings, err := manager.GenerateNetworkMappings(ctx, service, endpoints)
 	assert.NoError(t, err)

@@ -23,16 +23,21 @@ func TestLoadingDirectoryFromEnv(t *testing.T) {
 	assert.Len(t, wrappers, 7)
 }
 
-func TestLocalLoaderFromEnv(t *testing.T) {
+func TestLocalLoader(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 	project, err := configurations.LoadProjectFromDir(ctx, "testdata")
 	assert.NoError(t, err)
 	loader, err := providers.NewConfigurationLocalReader(ctx, project)
 	assert.NoError(t, err)
-	confs, err := loader.Load(ctx, configurations.Local())
+	err = loader.Load(ctx, configurations.Local())
 	assert.NoError(t, err)
-	assert.Equal(t, 3, len(confs))
+	assert.Equal(t, 3, len(loader.Configurations()))
+	assert.Equal(t, 1, len(loader.DNS()))
+	dns := loader.DNS()[0]
+	assert.Equal(t, "localhost", dns.Host)
+	assert.Equal(t, uint32(8080), dns.Port)
+	assert.Equal(t, "rest", dns.Endpoint)
 }
 
 func TestFromService(t *testing.T) {

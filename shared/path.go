@@ -196,7 +196,7 @@ func GenerateTree(p, indent string) (string, error) {
 
 	// Loop through the contents
 	for i, content := range contents {
-		// Expose the content name to the tree string
+		// ExposeConfiguration the content name to the tree string
 		treeStr += fmt.Sprintf("%s|-- %s\n", indent, content.Name())
 
 		// If the content is a directory, recursively generate its tree string

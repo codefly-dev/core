@@ -22,16 +22,16 @@ func TestLoader(t *testing.T) {
 	loader, err := providers.NewConfigurationLocalReader(ctx, project)
 	assert.NoError(t, err)
 
-	configurationInfo, err := providers.NewConfigurationInformation(ctx, project)
+	manager, err := providers.NewManager(ctx, project)
 	assert.NoError(t, err)
 
-	configurationInfo.WithLoader(loader)
+	manager.WithLoader(loader)
 
 	env := configurations.Local()
 
-	assert.NoError(t, configurationInfo.Load(ctx, env))
+	assert.NoError(t, manager.Load(ctx, env))
 
-	confs, err := configurationInfo.GetConfigurations(ctx)
+	confs, err := manager.GetConfigurations(ctx)
 	assert.NoError(t, err)
 	for _, conf := range confs {
 		fmt.Println(configurations.MakeConfigurationSummary(conf))
@@ -45,23 +45,27 @@ func TestLoader(t *testing.T) {
 
 	// Get Project configuration value for some key
 
-	conf, err := configurationInfo.GetProjectConfiguration(ctx, "global")
+	conf, err := manager.GetProjectConfiguration(ctx, "global")
 	assert.NoError(t, err)
 	assert.NotNil(t, conf)
 
-	conf, err = configurationInfo.GetProjectConfiguration(ctx, "auth0/frontend")
+	conf, err = manager.GetProjectConfiguration(ctx, "auth0/frontend")
 	assert.NoError(t, err)
 	assert.NotNil(t, conf)
 
-	conf, err = configurationInfo.GetProjectConfiguration(ctx, "not-exist")
+	conf, err = manager.GetProjectConfiguration(ctx, "not-exist")
 	assert.NoError(t, err)
 	assert.Nil(t, conf)
 
 	// For a service
 	svc, err := configurations.LoadServiceFromDir(ctx, "testdata/applications/app/services/svc")
 	assert.NoError(t, err)
-	conf, err = configurationInfo.GetServiceConfiguration(ctx, svc)
+	conf, err = manager.GetServiceConfiguration(ctx, svc)
 	assert.NoError(t, err)
 	assert.NotNil(t, conf)
 
+	// Get DNS for service and endpoint name
+	dns, err := manager.GetDNS(ctx, svc, "rest")
+	assert.NoError(t, err)
+	assert.Equal(t, "localhost", dns.Host)
 }

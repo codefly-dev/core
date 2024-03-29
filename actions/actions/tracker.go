@@ -95,7 +95,7 @@ func (tracker *ActionTracker) Save(action Action) error {
 	}
 	step := tracker.NextStep()
 	actionName := strings.ToLower(fmt.Sprintf("%T", action))
-	filename := fmt.Sprintf("%d_%s.codefly.action.json", step, strings.Replace(actionName, "*", "", -1))
+	filename := fmt.Sprintf("%d_%s.codefly.action.json", step, strings.ReplaceAll(actionName, "*", ""))
 	err = os.WriteFile(path.Join(tracker.Dir, filename), data, 0600)
 	if err != nil {
 		return err

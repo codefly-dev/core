@@ -236,10 +236,7 @@ func getHTTPMethodsFromPathItem(pathItem *openapispec.PathItem) []basev0.HTTPMet
 	return methods
 }
 
-func CloneAPI(api *basev0.API) *basev0.API {
-	if api == nil {
-		return nil
-	}
+func LightAPI(api *basev0.API) *basev0.API {
 	switch v := api.Value.(type) {
 	case *basev0.API_Grpc:
 		return &basev0.API{
@@ -249,31 +246,6 @@ func CloneAPI(api *basev0.API) *basev0.API {
 		return &basev0.API{
 			Value: &basev0.API_Rest{
 				Rest: &basev0.RestAPI{Groups: v.Rest.Groups},
-			},
-		}
-	case *basev0.API_Http:
-		return &basev0.API{
-			Value: &basev0.API_Http{},
-		}
-	case *basev0.API_Tcp:
-		return &basev0.API{
-			Value: &basev0.API_Tcp{},
-		}
-	default:
-		return nil
-	}
-}
-
-func LightAPI(api *basev0.API) *basev0.API {
-	switch api.Value.(type) {
-	case *basev0.API_Grpc:
-		return &basev0.API{
-			Value: &basev0.API_Grpc{},
-		}
-	case *basev0.API_Rest:
-		return &basev0.API{
-			Value: &basev0.API_Rest{
-				Rest: &basev0.RestAPI{Groups: api.Value.(*basev0.API_Rest).Rest.Groups},
 			},
 		}
 	case *basev0.API_Http:

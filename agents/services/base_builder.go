@@ -8,6 +8,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/codefly-dev/core/configurations"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
@@ -223,6 +225,9 @@ func (s *BuilderWrapper) GenericServiceDeploy(ctx context.Context, req *builderv
 		if err != nil {
 			return err
 		}
+	default:
+		return s.Wool.Wrapf(fmt.Errorf("unsupported deployment kind: %T", v), "cannot deploy")
+
 	}
 	return nil
 }
@@ -261,4 +266,20 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.
 		return err
 	}
 	return nil
+}
+
+func (s *BuilderWrapper) LogInitRequest(req *builderv0.InitRequest) {
+	w := s.Wool.In("builder::init")
+	w.Focus("input",
+		wool.Field("configurations", configurations.MakeConfigurationSummary(req.Configuration)),
+		wool.Field("dependencies configurations", configurations.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
+		wool.Field("dependency endpoints", configurations.MakeManyEndpointSummary(req.DependenciesEndpoints)),
+		wool.Field("network mapping", configurations.MakeManyNetworkMappingSummary(req.ProposedNetworkMappings)))
+}
+
+func (s *BuilderWrapper) LogDeployRequest(req *builderv0.DeploymentRequest) {
+	w := s.Wool.In("runtime::init")
+	w.Focus("input",
+		wool.Field("other network mappings", configurations.MakeManyNetworkMappingSummary(req.OtherNetworkMappings)),
+	)
 }

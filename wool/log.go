@@ -50,17 +50,17 @@ type Log struct {
 }
 
 func eventOption(f *LogField) attribute.KeyValue {
-	switch f.Value.(type) {
+	switch v := f.Value.(type) {
 	case string:
-		return attribute.String(f.Key, f.Value.(string))
+		return attribute.String(f.Key, v)
 	case int:
-		return attribute.Int(f.Key, f.Value.(int))
+		return attribute.Int(f.Key, v)
 	case int64:
-		return attribute.Int64(f.Key, f.Value.(int64))
+		return attribute.Int64(f.Key, v)
 	case float64:
-		return attribute.Float64(f.Key, f.Value.(float64))
+		return attribute.Float64(f.Key, v)
 	case bool:
-		return attribute.Bool(f.Key, f.Value.(bool))
+		return attribute.Bool(f.Key, v)
 	default:
 		return attribute.String(f.Key, "unknown")
 	}

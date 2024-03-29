@@ -138,7 +138,7 @@ func createTarArchive(srcDir string) (*bytes.Buffer, error) {
 			return err
 		}
 
-		header.Name = filepath.Join(rel)
+		header.Name = rel
 
 		// Write the header.
 		if err := tw.WriteHeader(header); err != nil {

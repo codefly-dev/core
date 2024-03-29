@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/configurations"
@@ -20,32 +22,41 @@ type ConfigurationInformationWrapper struct {
 }
 
 type ConfigurationInformationLocalReader struct {
-	project *configurations.Project
+	project        *configurations.Project
+	dns            []*basev0.DNS
+	configurations []*basev0.Configuration
+}
+
+func (local *ConfigurationInformationLocalReader) DNS() []*basev0.DNS {
+	return local.dns
+}
+
+func (local *ConfigurationInformationLocalReader) Configurations() []*basev0.Configuration {
+	return local.configurations
 }
 
 func NewConfigurationLocalReader(_ context.Context, project *configurations.Project) (*ConfigurationInformationLocalReader, error) {
 	return &ConfigurationInformationLocalReader{project: project}, nil
 }
 
-func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env *configurations.Environment) ([]*basev0.Configuration, error) {
+func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env *configurations.Environment) error {
 	w := wool.Get(ctx).In("provider.Load")
 	// Create a provider folder for local development
 	configurationDir := path.Join(local.project.Dir(), "configurations", env.Name)
 	_, err := shared.CheckDirectoryOrCreate(ctx, configurationDir)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot create configuration directory")
+		return w.Wrapf(err, "cannot create configuration directory")
 	}
 	projectConfs, err := LoadConfigurationsFromEnvFiles(ctx, configurationDir)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot load configurations")
+		return w.Wrapf(err, "cannot load configurations")
 	}
 
-	var out []*basev0.Configuration
+	var confs []*basev0.Configuration
 
 	projectConfsMap := make(map[string]*basev0.Configuration)
 
 	for _, conf := range projectConfs {
-		fmt.Println(conf.Name)
 		if _, ok := projectConfsMap[conf.Name]; !ok {
 			projectConfsMap[conf.Name] = &basev0.Configuration{
 				Origin: configurations.ConfigurationProjectOrigin,
@@ -57,23 +68,23 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 
 	for _, conf := range projectConfsMap {
 		w.Debug("adding project conf")
-		out = append(out, conf)
+		confs = append(confs, conf)
 	}
 	// Load services configurations
 	services, err := local.project.LoadServices(ctx)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot load services")
+		return w.Wrapf(err, "cannot load services")
 	}
 
 	serviceConfs := make(map[string]*basev0.Configuration)
 	for _, svc := range services {
-		serviceDir := path.Join(svc.Dir(), "configurations", env.Name)
-		if !shared.DirectoryExists(serviceDir) {
+		serviceConfDir := path.Join(svc.Dir(), "configurations", env.Name)
+		if !shared.DirectoryExists(serviceConfDir) {
 			continue
 		}
-		projectConfs, err = LoadConfigurationsFromEnvFiles(ctx, serviceDir)
+		projectConfs, err = LoadConfigurationsFromEnvFiles(ctx, serviceConfDir)
 		if err != nil {
-			return nil, w.Wrapf(err, "cannot load service configurations")
+			return w.Wrapf(err, "cannot load service configurations")
 		}
 		if len(projectConfs) == 0 {
 			continue
@@ -86,12 +97,43 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 		for _, conf := range projectConfs {
 			serviceConfs[svc.Unique()].Configurations = append(serviceConfs[svc.Unique()].Configurations, conf)
 		}
+		// Load DNS
+		serviceDNSDir := path.Join(svc.Dir(), "dns", env.Name)
+		dnsFile := path.Join(serviceDNSDir, "dns.codefly.yaml")
+		if shared.FileExists(dnsFile) {
+			dns, err := loadDNS(ctx, dnsFile)
+			if err != nil {
+				return w.Wrapf(err, "cannot load dns")
+			}
+			for _, d := range dns {
+				d.Service = svc.Name
+				d.Application = svc.Application
+				d.Project = svc.Project
+				local.dns = append(local.dns, d)
+			}
+		}
 	}
 	for _, conf := range serviceConfs {
 		w.Debug("adding service conf")
-		out = append(out, conf)
+		confs = append(confs, conf)
 	}
-	return out, nil
+	local.configurations = confs
+	return nil
+}
+
+func loadDNS(_ context.Context, file string) ([]*basev0.DNS, error) {
+	var dns []*basev0.DNS
+	f, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	err = yaml.Unmarshal(f, &dns)
+	if err != nil {
+		return nil, err
+
+	}
+	return dns, nil
+
 }
 
 type ConfigurationSource struct {

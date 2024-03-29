@@ -103,7 +103,7 @@ func EndpointInformationFromProto(endpoint *basev0.Endpoint) *EndpointInformatio
 
 // This is the format to override endpoints
 //
-//func ParseEndpoint(unique string) (*EndpointInformation, error) {
+// func ParseEndpoint(unique string) (*EndpointInformation, error) {
 //	// Do we have the explicit APIva
 //	endpoint := &EndpointInformation{}
 //	if strings.Contains(unique, "::") {
@@ -129,7 +129,7 @@ func EndpointInformationFromProto(endpoint *basev0.Endpoint) *EndpointInformatio
 //	endpoint.Application = in.Application
 //
 //	return endpoint, nil
-//}
+// }
 
 func (endpoint *Endpoint) AsReference() *EndpointReference {
 	return &EndpointReference{
@@ -285,20 +285,20 @@ func EndpointDestination(e *basev0.Endpoint) string {
 // Compute "change" of endpoints
 
 func endpointHash(_ context.Context, endpoint *basev0.Endpoint) (string, error) {
-	//w := wool.Get(ctx).In("configurations.EndpointHash")
+	// w := wool.Get(ctx).In("configurations.EndpointHash")
 	var buf bytes.Buffer
 	buf.WriteString(endpoint.Name)
 	buf.WriteString(endpoint.Visibility)
 	buf.WriteString(endpoint.Api)
 	buf.WriteString(endpoint.ApiDetails.String())
-	//if rest := EndpointRestAPI(endpoint); rest != nil {
+	// if rest := EndpointRestAPI(endpoint); rest != nil {
 	//	w.Debug("hashing rest api TODO: more precise hashing", wool.NameField(endpoint.Name))
 	//	buf.WriteString(rest.String())
-	//}
-	//if grpc := EndpointGRPCAPI(endpoint); grpc != nil {
+	// }
+	// if grpc := EndpointGRPCAPI(endpoint); grpc != nil {
 	//	w.Debug("hashing grpc api", wool.NameField(endpoint.Name))
 	//	buf.WriteString(grpc.String())
-	//}
+	// }
 	return Hash(buf.Bytes()), nil
 }
 

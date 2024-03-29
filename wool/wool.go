@@ -47,7 +47,7 @@ func (w *Wool) In(method string, fields ...*LogField) *Wool {
 	w.name = method
 	w.fields = fields
 	// We keep track of the stack
-	//stack := c.Stack()
+	// stack := c.Stack()
 	return w
 }
 
@@ -87,7 +87,7 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 	}
 	// If LogLevel is ERROR, always add the code reference information
 
-	//if l >= ERROR {
+	// if l >= ERROR {
 	//	ref, err := getFileInfo(3)
 	//	if err == nil {
 	//		fs = append(fs, &LogField{
@@ -95,7 +95,7 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 	//			Value: ref,
 	//		})
 	//	}
-	//}
+	// }
 
 	log := &Log{Message: msg, Fields: fs, Level: l, Header: w.name}
 	log.Fields = append(log.Fields, w.fields...)
@@ -108,7 +108,7 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 	}
 }
 
-//func getFileInfo(depth int) (*CodeReference, error) {
+// func getFileInfo(depth int) (*CodeReference, error) {
 //	_, file, line, ok := runtime.Caller(depth)
 //	if !ok {
 //		return nil, errors.New("cannot get caller information")
@@ -117,7 +117,7 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 //		Line: line,
 //		File: file,
 //	}, nil
-//}
+// }
 
 func (w *Wool) Forward(p []byte) (n int, err error) {
 	w.process(FORWARD, string(p))

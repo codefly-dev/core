@@ -72,26 +72,6 @@ func (l *Launcher) WaitForReady(ctx context.Context) error {
 	return nil
 }
 
-// func (l *Launcher) GetServiceInformationProvider(tx context.Context, app string, svc string, name string, key string) (string, error) {
-//infos, err := l.cli.GetServiceConfigurationInformation(ctx, &v0.GetServiceProviderInfoRequest{
-//	Application: app,
-//	Service:     svc,
-//})
-//if err != nil {
-//	return "", err
-//}
-//// Find name, key
-//info, err := configurations.FindServiceProvider(configurations.ServiceUnique(app, svc), name, infos.ProviderInfos)
-//if err != nil {
-//	return "", err
-//}
-//if val, ok := info.Data[key]; ok {
-//	return val, nil
-//}
-//return "", fmt.Errorf("couldn't find key")
-//	return "", fmt.Errorf("not implemented")
-//}
-
 func (l *Launcher) Close(ctx context.Context) error {
 	_, err := l.cli.StopFlow(ctx, &emptypb.Empty{})
 	return err

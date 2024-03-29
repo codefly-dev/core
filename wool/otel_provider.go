@@ -3,7 +3,7 @@ package wool
 //
 //// SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 //// If it does not return an error, make sure to call shutdown for proper cleanup.
-//func setupOTelSDK(ctx context.Context, serviceName, serviceVersion string) (shutdown func(context.Context) error, err error) {
+// func setupOTelSDK(ctx context.Context, serviceName, serviceVersion string) (shutdown func(context.Context) error, err error) {
 //	var shutdownFuncs []func(context.Context) error
 //
 //	// shutdown calls cleanup functions registered via shutdownFuncs.
@@ -53,24 +53,24 @@ package wool
 //	otel.SetMeterProvider(meterProvider)
 //
 //	return
-//}
+// }
 //
-//func newResource(serviceName, serviceVersion string) (*resource.Resource, error) {
+// func newResource(serviceName, serviceVersion string) (*resource.Resource, error) {
 //	return resource.Merge(resource.Default(),
 //		resource.NewWithAttributes(semconv.SchemaURL,
 //			semconv.ServiceName(serviceName),
 //			semconv.ServiceVersion(serviceVersion),
 //		))
-//}
+// }
 //
-//func newPropagator() propagation.TextMapPropagator {
+// func newPropagator() propagation.TextMapPropagator {
 //	return propagation.NewCompositeTextMapPropagator(
 //		propagation.TraceContext{},
 //		propagation.Baggage{},
 //	)
-//}
+// }
 //
-//func newTraceProvider(res *resource.Resource) (*trace.TracerProvider, error) {
+// func newTraceProvider(res *resource.Resource) (*trace.TracerProvider, error) {
 //	traceExporter, err := stdouttrace.New(
 //		stdouttrace.WithPrettyPrint())
 //	if err != nil {
@@ -84,9 +84,9 @@ package wool
 //		trace.WithResource(res),
 //	)
 //	return traceProvider, nil
-//}
+// }
 //
-//func newMeterProvider(res *resource.Resource) (*metric.MeterProvider, error) {
+// func newMeterProvider(res *resource.Resource) (*metric.MeterProvider, error) {
 //	metricExporter, err := stdoutmetric.New()
 //	if err != nil {
 //		return nil, err
@@ -99,4 +99,4 @@ package wool
 //			metric.WithInterval(3*time.Second))),
 //	)
 //	return meterProvider, nil
-//}
+// }

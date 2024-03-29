@@ -6,6 +6,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 
 	"github.com/codefly-dev/core/configurations/standards"
 )
@@ -63,75 +67,43 @@ func IsPortAvailable(port int) bool {
 	return true
 }
 
-//
-//func killProcessUsingPort(port int) error {
-//	pid, err := getPidUsingPort(port)
-//	if err != nil {
-//		return err
-//	}
-//	if pid != "" {
-//		return killProcess(pid)
-//	}
-//	return nil
-//}
+func KillProcessUsingPort(port int) error {
+	pid, err := GetPidUsingPort(port)
+	if err != nil {
+		return err
+	}
+	if pid != "" {
+		return KillProcess(pid)
+	}
+	return nil
+}
 
-//
-//func getPidUsingPort(port int) (string, error) {
-//	cmd := exec.Command("lsof", "-n", fmt.Sprintf("-i4TCP:%d", port))
-//	output, err := cmd.CombinedOutput()
-//	if err != nil {
-//		return "", err
-//	}
-//	lines := strings.Split(string(output), "\n")
-//	if len(lines) > 1 {
-//		fields := strings.Fields(lines[1])
-//		if len(fields) >= 2 {
-//			return fields[1], nil // PID is the second field
-//		}
-//	}
-//	return "", nil
-//}
+func GetPidUsingPort(port int) (string, error) {
+	// #nosec G204
+	cmd := exec.Command("lsof", "-n", fmt.Sprintf("-i4TCP:%d", port))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(string(output), "\n")
+	if len(lines) > 1 {
+		fields := strings.Fields(lines[1])
+		if len(fields) >= 2 {
+			return fields[1], nil // PID is the second field
+		}
+	}
+	return "", nil
+}
 
-//func killProcess(pid string) error {
-//	pidInt, _ := strconv.Atoi(pid)
-//	process, err := os.FindProcess(pidInt)
-//	if err != nil {
-//		return err
-//	}
-//	err = process.Kill()
-//	if err != nil {
-//		return err
-//	}
-//	return nil
-//}
-
-//
-//func (r FixedStrategy) Reserve(ctx context.Context, host string, mappings []*ApplicationMapping) (*ApplicationEndpointInstances, error) {
-//	w := wool.Get(ctx).In("FixedStrategy.Reserve")
-//	m := &ApplicationEndpointInstances{}
-//	for _, mapping := range mappings {
-//		api, err := configurations.APIAsStandard(mapping.Endpoint.Api)
-//		if err != nil {
-//			return nil, w.Wrapf(err, "cannot get api")
-//		}
-//		port := ToNamedPort(ctx, mapping.Endpoint.Application, mapping.Endpoint.Service, mapping.Endpoint.Name, api)
-//		w.Debug("reserving", wool.ApplicationField(mapping.Endpoint.Application), wool.ServiceField(mapping.Endpoint.Service), wool.Field("port", port))
-//		w.Trace("port", wool.ThisField(mapping), wool.Field("port", port))
-//		m.ApplicationMappingInstances = append(m.ApplicationMappingInstances,
-//			&ApplicationEndpointInstance{
-//				ApplicationMapping: mapping,
-//				Port:               port,
-//				Host:               host,
-//			})
-//	}
-//	return m, nil
-//}
-//
-//// NewServicePortManager manages the ports for a service
-//func NewServicePortManager(_ context.Context) (*ServiceManager, error) {
-//	return &ServiceManager{
-//		strategy: &FixedStrategy{},
-//		ids:      make(map[string]int),
-//		host:     "localhost",
-//	}, nil
-//}
+func KillProcess(pid string) error {
+	pidInt, _ := strconv.Atoi(pid)
+	process, err := os.FindProcess(pidInt)
+	if err != nil {
+		return err
+	}
+	err = process.Kill()
+	if err != nil {
+		return err
+	}
+	return nil
+}
