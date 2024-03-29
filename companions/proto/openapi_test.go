@@ -8,9 +8,9 @@ import (
 	"path"
 	"testing"
 
+	"github.com/codefly-dev/core/companions/proto"
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/configurations/languages"
-	"github.com/codefly-dev/core/generators"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/assert"
@@ -31,7 +31,7 @@ func TestGenerateSwagger(t *testing.T) {
 	destination = path.Join(destination, "swagger")
 
 	defer os.RemoveAll(destination)
-	err = generators.GenerateOpenAPI(ctx, languages.GO, destination, "web/api", rest)
+	err = proto.GenerateOpenAPI(ctx, languages.GO, destination, "web/api", rest)
 	assert.NoError(t, err)
 
 	// Make sure we have the dirs
