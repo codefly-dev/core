@@ -5,6 +5,7 @@ go 1.22.0
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.33.0-20240221180331-f05a6f4403ce.1
 	github.com/Masterminds/semver v1.5.0
+	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/bufbuild/protovalidate-go v0.6.0
 	github.com/cheggaaa/pb/v3 v3.1.5
 	github.com/docker/docker v25.0.5+incompatible
@@ -40,7 +41,6 @@ require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
-	github.com/brianvoe/gofakeit/v6 v6.28.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/distribution/reference v0.5.0 // indirect
