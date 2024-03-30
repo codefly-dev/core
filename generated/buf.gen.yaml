@@ -16,3 +16,5 @@ plugins:
   - name: grpc-gateway
     out: go
     opt: paths=source_relative
+#  - name: python_betterproto
+#    out: python
