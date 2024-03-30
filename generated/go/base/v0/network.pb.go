@@ -184,7 +184,7 @@ type NetworkInstance struct {
 	unknownFields protoimpl.UnknownFields
 
 	// The scope of the mapping
-	Scope RuntimeScope `protobuf:"varint,1,opt,name=scope,proto3,enum=base.v0.RuntimeScope" json:"scope,omitempty"`
+	Scope NetworkScope `protobuf:"varint,1,opt,name=scope,proto3,enum=base.v0.NetworkScope" json:"scope,omitempty"`
 	// The host for the instance
 	Host string `protobuf:"bytes,3,opt,name=host,proto3" json:"host,omitempty"`
 	// The port for the instance
@@ -225,11 +225,11 @@ func (*NetworkInstance) Descriptor() ([]byte, []int) {
 	return file_base_v0_network_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *NetworkInstance) GetScope() RuntimeScope {
+func (x *NetworkInstance) GetScope() NetworkScope {
 	if x != nil {
 		return x.Scope
 	}
-	return RuntimeScope_All
+	return NetworkScope_All
 }
 
 func (x *NetworkInstance) GetHost() string {
@@ -281,7 +281,7 @@ var file_base_v0_network_proto_rawDesc = []byte{
 	0x28, 0x0d, 0x52, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x22, 0x80, 0x01, 0x0a, 0x0f, 0x4e, 0x65, 0x74,
 	0x77, 0x6f, 0x72, 0x6b, 0x49, 0x6e, 0x73, 0x74, 0x61, 0x6e, 0x63, 0x65, 0x12, 0x2b, 0x0a, 0x05,
 	0x73, 0x63, 0x6f, 0x70, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x15, 0x2e, 0x62, 0x61,
-	0x73, 0x65, 0x2e, 0x76, 0x30, 0x2e, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x53, 0x63, 0x6f,
+	0x73, 0x65, 0x2e, 0x76, 0x30, 0x2e, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x63, 0x6f,
 	0x70, 0x65, 0x52, 0x05, 0x73, 0x63, 0x6f, 0x70, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x68, 0x6f, 0x73,
 	0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x68, 0x6f, 0x73, 0x74, 0x12, 0x12, 0x0a,
 	0x04, 0x70, 0x6f, 0x72, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x04, 0x70, 0x6f, 0x72,
@@ -316,12 +316,12 @@ var file_base_v0_network_proto_goTypes = []interface{}{
 	(*DNS)(nil),             // 1: base.v0.DNS
 	(*NetworkInstance)(nil), // 2: base.v0.NetworkInstance
 	(*Endpoint)(nil),        // 3: base.v0.Endpoint
-	(RuntimeScope)(0),       // 4: base.v0.RuntimeScope
+	(NetworkScope)(0),       // 4: base.v0.NetworkScope
 }
 var file_base_v0_network_proto_depIdxs = []int32{
 	3, // 0: base.v0.NetworkMapping.endpoint:type_name -> base.v0.Endpoint
 	2, // 1: base.v0.NetworkMapping.instances:type_name -> base.v0.NetworkInstance
-	4, // 2: base.v0.NetworkInstance.scope:type_name -> base.v0.RuntimeScope
+	4, // 2: base.v0.NetworkInstance.scope:type_name -> base.v0.NetworkScope
 	3, // [3:3] is the sub-list for method output_type
 	3, // [3:3] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name

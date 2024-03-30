@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"fmt"
+	"runtime"
 
 	"github.com/codefly-dev/core/wool"
 
@@ -10,37 +11,64 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
+const Localhost = "localhost"
+
 type RuntimeManager struct {
 	allocatedPorts map[uint16]bool
+	dnsManager     DNSManager
+}
+
+func (m *RuntimeManager) GetNamespace(context.Context, *configurations.Service, *configurations.Environment) (string, error) {
+	return "", fmt.Errorf("namespace don't make sense locally. something went wrong")
 }
 
 func Container(port uint16) *basev0.NetworkInstance {
-	instance := &basev0.NetworkInstance{
-		Scope: basev0.RuntimeScope_Container,
-		Port:  uint32(port),
-		Host:  "host.docker.internal",
+	host := "host.docker.internal"
+	// Set network mode to "host" only for Linux builds
+	if runtime.GOOS == "linux" {
+		host = Localhost
 	}
-	instance.Address = fmt.Sprintf("%s:%d", instance.Host, instance.Port)
+	instance := configurations.NewNetworkInstance(host, port)
+	instance.Scope = basev0.NetworkScope_Container
 	return instance
 }
 
 func Native(port uint16) *basev0.NetworkInstance {
-	instance := &basev0.NetworkInstance{
-		Scope: basev0.RuntimeScope_Native,
-		Port:  uint32(port),
-		Host:  "localhost",
-	}
-	instance.Address = fmt.Sprintf("%s:%d", instance.Host, instance.Port)
+	host := Localhost
+	instance := configurations.NewNetworkInstance(host, port)
+	instance.Scope = basev0.NetworkScope_Native
 	return instance
 }
 
-func Public(port uint16) *basev0.NetworkInstance {
-	instance := &basev0.NetworkInstance{
-		Scope: basev0.RuntimeScope_Public,
-		Port:  uint32(port),
-		Host:  "localhost",
-	}
-	instance.Address = fmt.Sprintf("%s:%d", instance.Host, instance.Port)
+func PublicDefault(port uint16) *basev0.NetworkInstance {
+	host := Localhost
+	instance := configurations.NewNetworkInstance(host, port)
+	instance.Scope = basev0.NetworkScope_Public
+	return instance
+}
+
+func DNS(_ *configurations.Service, dns *basev0.DNS) *basev0.NetworkInstance {
+	instance := configurations.NewNetworkInstance(dns.Host, uint16(dns.Port))
+	return instance
+}
+
+func ContainerInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+	instance.Scope = basev0.NetworkScope_Container
+	return instance
+}
+
+func NativeInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+	instance.Scope = basev0.NetworkScope_Native
+	return instance
+}
+
+func PublicInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+	instance.Scope = basev0.NetworkScope_Public
+	return instance
+}
+
+func ExternalInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+	instance.Scope = basev0.NetworkScope_External
 	return instance
 }
 
@@ -49,6 +77,23 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *c
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
 	var out []*basev0.NetworkMapping
 	for _, endpoint := range endpoints {
+		nm := &basev0.NetworkMapping{
+			Endpoint: endpoint,
+		}
+		// External endpoints
+		if endpoint.Visibility == configurations.VisibilityExternal {
+			dns, err := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
+			if err != nil {
+				w.Warn("no DNS found for external endpoint: will use the `public` version if possible")
+			}
+			if dns != nil {
+				nm.Instances = append(nm.Instances,
+					ContainerInstance(DNS(service, dns)),
+					NativeInstance(DNS(service, dns)),
+				)
+				continue
+			}
+		}
 		// Generate Port
 		port := ToNamedPort(ctx, service.Application, service.Name, endpoint.Name, endpoint.Api)
 		if _, ok := m.allocatedPorts[port]; ok {
@@ -56,25 +101,21 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *c
 			return nil, w.NewError("port %d already allocated for service %s (TODO: randomize? force override?)", port, service.Unique())
 		}
 		m.allocatedPorts[port] = true
-		nm := &basev0.NetworkMapping{
-			Endpoint: endpoint,
-			Instances: []*basev0.NetworkInstance{
-				Container(port),
-				Native(port),
-			},
+		nm.Instances = []*basev0.NetworkInstance{
+			Container(port),
+			Native(port),
 		}
 		if endpoint.Visibility == configurations.VisibilityPublic {
-			// DEAL WITH DNS
-			// Assign Native for now
-			nm.Instances = append(nm.Instances, Public(port))
+			nm.Instances = append(nm.Instances, PublicDefault(port))
 		}
 		out = append(out, nm)
 	}
 	return out, nil
 }
 
-func NewRuntimeManager(_ context.Context) (*RuntimeManager, error) {
+func NewRuntimeManager(_ context.Context, dnsManager DNSManager) (*RuntimeManager, error) {
 	return &RuntimeManager{
+		dnsManager:     dnsManager,
 		allocatedPorts: make(map[uint16]bool),
 	}, nil
 }

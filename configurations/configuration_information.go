@@ -13,7 +13,7 @@ const ConfigurationProjectOrigin = "_project.configuration"
 const ProjectConfigurationPrefix = "CODEFLY__PROJECT_CONFIGURATION"
 const ProjectSecretConfigurationPrefix = "CODEFLY__PROJECT_SECRET_CONFIGURATION"
 const ServiceConfigurationPrefix = "CODEFLY__SERVICE_CONFIGURATION"
-const SecretSecretConfigurationPrefix = "CODEFLY__SERVICE_SECRET_CONFIGURATION"
+const ServiceSecretConfigurationPrefix = "CODEFLY__SERVICE_SECRET_CONFIGURATION"
 
 func GetConfigurationValue(_ context.Context, configuration *basev0.Configuration, name string, key string) (string, error) {
 	for _, info := range configuration.Configurations {
@@ -28,7 +28,7 @@ func GetConfigurationValue(_ context.Context, configuration *basev0.Configuratio
 	return "", fmt.Errorf("cannot find configuration value: %s", key)
 }
 
-func FindConfigurations(configurations []*basev0.Configuration, scope basev0.RuntimeScope) []*basev0.Configuration {
+func FindConfigurations(configurations []*basev0.Configuration, scope basev0.NetworkScope) []*basev0.Configuration {
 	var found []*basev0.Configuration
 	for _, conf := range configurations {
 		if conf.Scope == scope {
@@ -85,7 +85,7 @@ func MakeConfigurationValueSummary(value *basev0.ConfigurationValue) string {
 	return fmt.Sprintf("%s=%s", value.Key, value.Value)
 }
 
-func FilterConfigurations(configurations []*basev0.Configuration, scope basev0.RuntimeScope) []*basev0.Configuration {
+func FilterConfigurations(configurations []*basev0.Configuration, scope basev0.NetworkScope) []*basev0.Configuration {
 	var out []*basev0.Configuration
 	for _, conf := range configurations {
 		if conf.Scope == scope {

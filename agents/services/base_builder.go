@@ -18,9 +18,6 @@ import (
 
 type BuilderWrapper struct {
 	*Base
-
-	// Builder only has one configuration
-	Configuration *basev0.Configuration
 }
 
 func (s *BuilderWrapper) LoadResponse(gettingStarted string) (*builderv0.LoadResponse, error) {
@@ -50,9 +47,7 @@ func (s *BuilderWrapper) InitResponse() (*builderv0.InitResponse, error) {
 		return s.InitError(fmt.Errorf("not loaded"))
 	}
 	return &builderv0.InitResponse{
-		NetworkMappings: s.Base.NetworkMappings,
-		Configuration:   s.Configuration,
-		State:           &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS}}, nil
+		State: &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS}}, nil
 }
 
 func (s *BuilderWrapper) InitError(err error) (*builderv0.InitResponse, error) {
@@ -140,7 +135,9 @@ func (s *BuilderWrapper) DeployResponse() (*builderv0.DeploymentResponse, error)
 	if !s.loaded {
 		return s.DeployError(fmt.Errorf("not loaded"))
 	}
-	return &builderv0.DeploymentResponse{}, nil
+	return &builderv0.DeploymentResponse{
+		Configuration: s.Configuration,
+	}, nil
 }
 
 func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, error) {
@@ -268,18 +265,22 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.
 	return nil
 }
 
-func (s *BuilderWrapper) LogInitRequest(req *builderv0.InitRequest) {
-	w := s.Wool.In("builder::init")
-	w.Focus("input",
-		wool.Field("configurations", configurations.MakeConfigurationSummary(req.Configuration)),
-		wool.Field("dependencies configurations", configurations.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
-		wool.Field("dependency endpoints", configurations.MakeManyEndpointSummary(req.DependenciesEndpoints)),
-		wool.Field("network mapping", configurations.MakeManyNetworkMappingSummary(req.ProposedNetworkMappings)))
+func (s *BuilderWrapper) NetworkInstance(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkInstance, error) {
+	return configurations.FindNetworkInstance(ctx, mappings, endpoint, basev0.NetworkScope_Container)
 }
 
-func (s *BuilderWrapper) LogDeployRequest(req *builderv0.DeploymentRequest) {
-	w := s.Wool.In("runtime::init")
-	w.Focus("input",
-		wool.Field("other network mappings", configurations.MakeManyNetworkMappingSummary(req.OtherNetworkMappings)),
+func (s *BuilderWrapper) LogInitRequest(req *builderv0.InitRequest) {
+	w := s.Wool.In("builder::init")
+	w.Debug("input",
+		wool.Field("dependency endpoints", configurations.MakeManyEndpointSummary(req.DependenciesEndpoints)),
+	)
+}
+
+func (s *BuilderWrapper) LogDeployRequest(req *builderv0.DeploymentRequest, log wool.LogFunc) {
+	log("input",
+		wool.Field("configuration", configurations.MakeConfigurationSummary(req.Configuration)),
+		wool.Field("dependencies configurations", configurations.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
+		wool.Field("network mappings", configurations.MakeManyNetworkMappingSummary(req.NetworkMappings)),
+		wool.Field("dependencies network mappings", configurations.MakeManyNetworkMappingSummary(req.DependenciesNetworkMappings)),
 	)
 }

@@ -30,6 +30,8 @@ type Wool struct {
 	logLevel Loglevel
 }
 
+type LogFunc func(string, ...*LogField)
+
 func Writer() *LogField {
 	return &LogField{Key: "writer"}
 }

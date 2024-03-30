@@ -79,23 +79,22 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	serviceConfs := make(map[string]*basev0.Configuration)
 	for _, svc := range services {
 		serviceConfDir := path.Join(svc.Dir(), "configurations", env.Name)
-		if !shared.DirectoryExists(serviceConfDir) {
-			continue
-		}
-		projectConfs, err = LoadConfigurationsFromEnvFiles(ctx, serviceConfDir)
-		if err != nil {
-			return w.Wrapf(err, "cannot load service configurations")
-		}
-		if len(projectConfs) == 0 {
-			continue
-		}
-		if _, ok := serviceConfs[svc.Unique()]; !ok {
-			serviceConfs[svc.Unique()] = &basev0.Configuration{
-				Origin: svc.Unique(),
+		if shared.DirectoryExists(serviceConfDir) {
+			projectConfs, err = LoadConfigurationsFromEnvFiles(ctx, serviceConfDir)
+			if err != nil {
+				return w.Wrapf(err, "cannot load service configurations")
 			}
-		}
-		for _, conf := range projectConfs {
-			serviceConfs[svc.Unique()].Configurations = append(serviceConfs[svc.Unique()].Configurations, conf)
+			if len(projectConfs) == 0 {
+				continue
+			}
+			if _, ok := serviceConfs[svc.Unique()]; !ok {
+				serviceConfs[svc.Unique()] = &basev0.Configuration{
+					Origin: svc.Unique(),
+				}
+			}
+			for _, conf := range projectConfs {
+				serviceConfs[svc.Unique()].Configurations = append(serviceConfs[svc.Unique()].Configurations, conf)
+			}
 		}
 		// Load DNS
 		serviceDNSDir := path.Join(svc.Dir(), "dns", env.Name)

@@ -15,11 +15,13 @@ import (
 type Visibility = string
 
 const (
-	// VisibilityPublic represents an info that is externally visible
+	// VisibilityExternal represents an endpoint that exists outside the system
+	VisibilityExternal Visibility = "external"
+	// VisibilityPublic represents a deployed endpoint that is accessible from outside the system
 	VisibilityPublic Visibility = "public"
-	// VisibilityApplication represents an application info: accessible from other applications
+	// VisibilityApplication represents an endpoint from other applications inside the system
 	VisibilityApplication Visibility = "application"
-	// VisibilityPrivate represents an info that is only accessible within the application
+	// VisibilityPrivate represents an endpoint that is only accessible within the application
 	VisibilityPrivate Visibility = "private"
 )
 

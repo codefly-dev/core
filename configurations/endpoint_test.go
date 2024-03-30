@@ -53,12 +53,11 @@ func TestEnvironmentVariables(t *testing.T) {
 	assert.Equal(t, 2, len(endpoints))
 
 	instance := configurations.NewNetworkInstance("localhost", 8080)
-	encoded := configurations.EncodeValue(instance.Address)
 
 	rest, err := configurations.FindRestEndpoint(ctx, endpoints)
 	assert.NoError(t, err)
 
 	env := configurations.EndpointAsEnvironmentVariable(rest, instance)
-	assert.Equal(t, fmt.Sprintf("CODEFLY__ENDPOINT__MANAGEMENT__ORGANIZATION__REST__REST=%s", encoded), env)
+	assert.Equal(t, fmt.Sprintf("CODEFLY__ENDPOINT__MANAGEMENT__ORGANIZATION__REST__REST=%s", instance.Address), env)
 
 }

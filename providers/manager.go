@@ -135,7 +135,7 @@ func (manager *Manager) GetConfigurations(ctx context.Context) ([]*basev0.Config
 
 func (manager *Manager) ExposeConfiguration(ctx context.Context, service *configurations.Service, confs ...*basev0.Configuration) error {
 	w := wool.Get(ctx).In("Manager.ExposeConfiguration", wool.ThisField(service))
-	w.Focus("exposing", wool.Field("configurations", configurations.MakeManyConfigurationSummary(confs)))
+	w.Debug("exposing", wool.Field("configurations", configurations.MakeManyConfigurationSummary(confs)))
 	if _, exists := manager.exposedFromServiceConfigurations[service.Unique()]; exists {
 		return w.NewError("service already exposed")
 	}

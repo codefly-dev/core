@@ -2,15 +2,15 @@ package configurations
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	"github.com/codefly-dev/core/wool"
 )
 
 type EnvironmentVariableManager struct {
-	runtimeScope basev0.RuntimeScope
+	networkScope basev0.NetworkScope
 
 	environment *basev0.Environment
 
@@ -31,8 +31,8 @@ func (holder *EnvironmentVariableManager) SetEnvironment(environment *basev0.Env
 
 }
 
-func (holder *EnvironmentVariableManager) SetRuntimeScope(scope basev0.RuntimeScope) {
-	holder.runtimeScope = scope
+func (holder *EnvironmentVariableManager) SetNetworkScope(scope basev0.NetworkScope) {
+	holder.networkScope = scope
 }
 
 func (holder *EnvironmentVariableManager) getBase() []string {
@@ -74,7 +74,7 @@ func (holder *EnvironmentVariableManager) Configurations() []string {
 func (holder *EnvironmentVariableManager) Secrets() []string {
 	var envs []string
 	for _, conf := range holder.configurations {
-		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
+		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, true)...)
 	}
 	return envs
 }
@@ -93,10 +93,11 @@ type EndpointAccess struct {
 	*basev0.NetworkInstance
 }
 
-func (holder *EnvironmentVariableManager) AddPublicEndpoints(_ context.Context, mappings []*basev0.NetworkMapping) error {
+func (holder *EnvironmentVariableManager) AddPublicEndpoints(ctx context.Context, mappings []*basev0.NetworkMapping) error {
+	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddPublicEndpoints")
 	for _, mp := range mappings {
 		for _, instance := range mp.Instances {
-			if instance.Scope == basev0.RuntimeScope_Public {
+			if instance.Scope == basev0.NetworkScope_Public {
 				holder.endpoints = append(holder.endpoints, &EndpointAccess{
 					Endpoint:        mp.Endpoint,
 					NetworkInstance: instance,
@@ -104,6 +105,7 @@ func (holder *EnvironmentVariableManager) AddPublicEndpoints(_ context.Context, 
 			}
 		}
 	}
+	w.Debug("added # public endpoints", wool.SliceCountField(holder.endpoints))
 	return nil
 }
 
@@ -119,7 +121,7 @@ func (holder *EnvironmentVariableManager) AddPublicRestRoutes(ctx context.Contex
 			continue
 		}
 		for _, instance := range mp.Instances {
-			if instance.Scope == basev0.RuntimeScope_Public {
+			if instance.Scope == basev0.NetworkScope_Public {
 				for _, group := range rest.Groups {
 					for _, route := range group.Routes {
 						holder.restRoutes = append(holder.restRoutes, &RestRouteAccess{
@@ -153,22 +155,19 @@ func IsLocal(environment *basev0.Environment) bool {
 const EndpointPrefix = "CODEFLY__ENDPOINT"
 
 func EndpointAsEnvironmentVariableKey(endpoint *EndpointInformation) string {
-	return fmt.Sprintf("%s__%s__%s__%s", endpoint.Application, endpoint.Service, endpoint.Name, endpoint.API)
+	return strings.ToUpper(fmt.Sprintf("%s__%s__%s__%s", endpoint.Application, endpoint.Service, endpoint.Name, endpoint.API))
 }
 
 func EndpointAsEnvironmentVariable(endpoint *basev0.Endpoint, instance *basev0.NetworkInstance) string {
-	value := EncodeValue(instance.Address)
+	value := instance.Address
 	env := fmt.Sprintf("%s__%s=%s", EndpointPrefix, EndpointAsEnvironmentVariableKey(EndpointInformationFromProto(endpoint)), value)
-	return strings.ToUpper(env)
+	return env
 }
 
-// EncodeValue base64 encode
-func EncodeValue(s string) string {
-	return base64.StdEncoding.EncodeToString([]byte(s))
-}
+const ConfigurationPrefix = "CODEFLY__CONFIGURATION"
 
 // ConfigurationAsEnvironmentVariables converts a configuration to a list of environment variables
-// the secret flag decides if we return clear or secret variable
+// the secret flag decides if we return secret or regular values
 func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool) []string {
 	var env []string
 	confKey := ConfigurationEnvironmentKeyPrefix(conf)
@@ -176,25 +175,30 @@ func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool
 		infoKey := fmt.Sprintf("%s__%s", confKey, NameToKey(info.Name))
 		for _, value := range info.ConfigurationValues {
 			key := fmt.Sprintf("%s__%s", infoKey, NameToKey(value.Key))
+			// if secret: only add secret values
 			if secret {
 				if value.Secret {
 					key = strings.Replace(key, "_CONFIGURATION__", "_SECRET_CONFIGURATION__", 1)
-					env = append(env, fmt.Sprintf("%s=%s", key, EncodeValue(value.Value)))
+					env = append(env, fmt.Sprintf("%s=%s", key, value.Value))
 				}
 			} else {
-				env = append(env, fmt.Sprintf("%s=%s", key, EncodeValue(value.Value)))
+				if !value.Secret {
+					env = append(env, fmt.Sprintf("%s=%s", key, value.Value))
+				}
 			}
 		}
 	}
 	return env
 }
 
-func ConfigurationKey(service *Service, name string, key string) string {
-	return strings.ToUpper(fmt.Sprintf("%s__%s__%s__%s", "CONFIGURATION", UniqueToKey(service.Unique()), name, key))
+func ServiceConfigurationKey(service *Service, name string, key string) string {
+	k := fmt.Sprintf("%s__%s__%s", ServiceConfigurationEnvironmentKeyPrefixFromUnique(service.Unique()), name, key)
+	return strings.ToUpper(k)
 }
 
-func SecretKey(service *Service, name string, key string) string {
-	return strings.ToUpper(fmt.Sprintf("%s__%s__%s__%s", "SECRET_CONFIGURATION", UniqueToKey(service.Unique()), name, key))
+func ServiceSecretConfigurationKey(service *Service, name string, key string) string {
+	k := fmt.Sprintf("%s__%s__%s", ServiceSecretConfigurationEnvironmentKeyPrefixFromUnique(service.Unique()), name, key)
+	return strings.ToUpper(k)
 }
 
 func NameToKey(name string) string {
@@ -205,7 +209,15 @@ func ConfigurationEnvironmentKeyPrefix(conf *basev0.Configuration) string {
 	if conf.Origin == ConfigurationProjectOrigin {
 		return ProjectConfigurationPrefix
 	}
-	return fmt.Sprintf("%s__%s", ServiceConfigurationPrefix, UniqueToKey(conf.Origin))
+	return ServiceConfigurationEnvironmentKeyPrefixFromUnique(conf.Origin)
+}
+
+func ServiceConfigurationEnvironmentKeyPrefixFromUnique(unique string) string {
+	return fmt.Sprintf("%s__%s", ServiceConfigurationPrefix, UniqueToKey(unique))
+}
+
+func ServiceSecretConfigurationEnvironmentKeyPrefixFromUnique(unique string) string {
+	return fmt.Sprintf("%s__%s", ServiceSecretConfigurationPrefix, UniqueToKey(unique))
 }
 
 func UniqueToKey(origin string) string {

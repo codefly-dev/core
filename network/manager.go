@@ -9,4 +9,5 @@ import (
 
 type Manager interface {
 	GenerateNetworkMappings(ctx context.Context, service *configurations.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error)
+	GetNamespace(ctx context.Context, service *configurations.Service, env *configurations.Environment) (string, error)
 }

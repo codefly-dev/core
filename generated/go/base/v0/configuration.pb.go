@@ -145,7 +145,7 @@ type Configuration struct {
 	unknownFields protoimpl.UnknownFields
 
 	Origin         string                      `protobuf:"bytes,1,opt,name=origin,proto3" json:"origin,omitempty"`
-	Scope          RuntimeScope                `protobuf:"varint,2,opt,name=scope,proto3,enum=base.v0.RuntimeScope" json:"scope,omitempty"`
+	Scope          NetworkScope                `protobuf:"varint,2,opt,name=scope,proto3,enum=base.v0.NetworkScope" json:"scope,omitempty"`
 	Configurations []*ConfigurationInformation `protobuf:"bytes,3,rep,name=configurations,proto3" json:"configurations,omitempty"`
 }
 
@@ -188,11 +188,11 @@ func (x *Configuration) GetOrigin() string {
 	return ""
 }
 
-func (x *Configuration) GetScope() RuntimeScope {
+func (x *Configuration) GetScope() NetworkScope {
 	if x != nil {
 		return x.Scope
 	}
-	return RuntimeScope_All
+	return NetworkScope_All
 }
 
 func (x *Configuration) GetConfigurations() []*ConfigurationInformation {
@@ -226,7 +226,7 @@ var file_base_v0_configuration_proto_rawDesc = []byte{
 	0x69, 0x6f, 0x6e, 0x12, 0x16, 0x0a, 0x06, 0x6f, 0x72, 0x69, 0x67, 0x69, 0x6e, 0x18, 0x01, 0x20,
 	0x01, 0x28, 0x09, 0x52, 0x06, 0x6f, 0x72, 0x69, 0x67, 0x69, 0x6e, 0x12, 0x2b, 0x0a, 0x05, 0x73,
 	0x63, 0x6f, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x15, 0x2e, 0x62, 0x61, 0x73,
-	0x65, 0x2e, 0x76, 0x30, 0x2e, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x53, 0x63, 0x6f, 0x70,
+	0x65, 0x2e, 0x76, 0x30, 0x2e, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x63, 0x6f, 0x70,
 	0x65, 0x52, 0x05, 0x73, 0x63, 0x6f, 0x70, 0x65, 0x12, 0x49, 0x0a, 0x0e, 0x63, 0x6f, 0x6e, 0x66,
 	0x69, 0x67, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b,
 	0x32, 0x21, 0x2e, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x76, 0x30, 0x2e, 0x43, 0x6f, 0x6e, 0x66, 0x69,
@@ -261,11 +261,11 @@ var file_base_v0_configuration_proto_goTypes = []interface{}{
 	(*ConfigurationValue)(nil),       // 0: base.v0.ConfigurationValue
 	(*ConfigurationInformation)(nil), // 1: base.v0.ConfigurationInformation
 	(*Configuration)(nil),            // 2: base.v0.Configuration
-	(RuntimeScope)(0),                // 3: base.v0.RuntimeScope
+	(NetworkScope)(0),                // 3: base.v0.NetworkScope
 }
 var file_base_v0_configuration_proto_depIdxs = []int32{
 	0, // 0: base.v0.ConfigurationInformation.configuration_values:type_name -> base.v0.ConfigurationValue
-	3, // 1: base.v0.Configuration.scope:type_name -> base.v0.RuntimeScope
+	3, // 1: base.v0.Configuration.scope:type_name -> base.v0.NetworkScope
 	1, // 2: base.v0.Configuration.configurations:type_name -> base.v0.ConfigurationInformation
 	3, // [3:3] is the sub-list for method output_type
 	3, // [3:3] is the sub-list for method input_type

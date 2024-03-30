@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -269,6 +270,10 @@ func (docker *Docker) start(ctx context.Context) error {
 	hostConfig := &container.HostConfig{
 		Mounts:     docker.mounts,
 		AutoRemove: true,
+	}
+	// Set network mode to "host" only for Linux builds
+	if runtime.GOOS == "linux" {
+		hostConfig.NetworkMode = container.NetworkMode("host")
 	}
 	if docker.portMapping != nil {
 		hostConfig.PortBindings = docker.portBindings()

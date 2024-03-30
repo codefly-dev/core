@@ -1,6 +1,7 @@
 package configurations
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -9,12 +10,13 @@ import (
 
 func NewNetworkInstance(host string, port uint16) *basev0.NetworkInstance {
 	return &basev0.NetworkInstance{
-		Host: host,
-		Port: uint32(port),
+		Host:    host,
+		Port:    uint32(port),
+		Address: fmt.Sprintf("%s:%d", host, port),
 	}
 }
 
-func FindNetworkInstance(mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint, scope basev0.RuntimeScope) (*basev0.NetworkInstance, error) {
+func FindNetworkInstance(_ context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint, scope basev0.NetworkScope) (*basev0.NetworkInstance, error) {
 	if endpoint == nil {
 		return nil, fmt.Errorf("can't find network instance for a nil endpoint")
 	}
@@ -30,10 +32,10 @@ func FindNetworkInstance(mappings []*basev0.NetworkMapping, endpoint *basev0.End
 			}
 		}
 	}
-	return nil, fmt.Errorf("no network endpoint for name: %s", EndpointFromProto(endpoint).Unique())
+	return nil, fmt.Errorf("no network instance for endpoint: %s", EndpointFromProto(endpoint).Unique())
 }
 
-func FindNetworkMapping(mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkMapping, error) {
+func FindNetworkMapping(_ context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkMapping, error) {
 	if endpoint == nil {
 		return nil, fmt.Errorf("can't find network instance for a nil endpoint")
 	}
@@ -68,19 +70,24 @@ func MakeManyNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
 	return strings.Join(results, ", ")
 }
 
+func ScopeAsString(scope basev0.NetworkScope) string {
+	return basev0.NetworkScope_name[int32(scope)]
+
+}
+
 func MakeNetworkMappingSummary(mapping *basev0.NetworkMapping) string {
 	var summaries []string
 	for _, instance := range mapping.Instances {
-		summaries = append(summaries, NetworkInstanceInfo(instance))
+		summaries = append(summaries, NetworkInstanceSummary(instance))
 	}
 	return fmt.Sprintf("%s:%s", EndpointDestination(mapping.Endpoint), strings.Join(summaries, ", "))
 }
 
-func ScopeString(scope basev0.RuntimeScope) string {
-	return basev0.RuntimeScope_name[int32(scope)]
+func ScopeString(scope basev0.NetworkScope) string {
+	return basev0.NetworkScope_name[int32(scope)]
 }
 
-func NetworkInstanceInfo(value *basev0.NetworkInstance) string {
+func NetworkInstanceSummary(value *basev0.NetworkInstance) string {
 	return fmt.Sprintf("%s:%d (%s)", value.Host, value.Port, ScopeString(value.Scope))
 }
 

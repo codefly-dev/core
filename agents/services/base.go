@@ -64,11 +64,8 @@ type Base struct {
 	// EnvironmentVariables
 	EnvironmentVariables *configurations.EnvironmentVariableManager
 
-	// ServiceConfiguration
+	// Configuration
 	Configuration *basev0.Configuration
-
-	// ExportedConfigurations
-	ExportedConfigurations []*basev0.Configuration
 
 	// Wrappers
 	Runtime *RuntimeWrapper
@@ -228,18 +225,6 @@ func (s *Base) LocalDirCreate(ctx context.Context, f string, args ...any) (strin
 
 func (s *Base) Errorf(format string, args ...any) error {
 	return s.Wool.NewError(format, args...)
-}
-
-func (s *Base) Info(msg string, fields ...*wool.LogField) {
-	s.Wool.Info(msg, fields...)
-}
-
-func (s *Base) Debug(msg string, fields ...*wool.LogField) {
-	s.Wool.Debug(msg, fields...)
-}
-
-func (s *Base) Focus(msg string, fields ...*wool.LogField) {
-	s.Wool.Focus(msg, fields...)
 }
 
 func (s *Base) LogForward(msg string, args ...any) {

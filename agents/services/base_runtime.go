@@ -15,9 +15,9 @@ import (
 type RuntimeWrapper struct {
 	*Base
 
-	Scope basev0.RuntimeScope
+	Scope basev0.NetworkScope
 
-	ExposedConfigurations []*basev0.Configuration
+	ExportedConfigurations []*basev0.Configuration
 
 	LoadStatus  *runtimev0.LoadStatus
 	InitStatus  *runtimev0.InitStatus
@@ -157,23 +157,23 @@ func (s *RuntimeWrapper) DesiredStart() {
 	}
 }
 
-func (s *RuntimeWrapper) NetworkInstance(mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkInstance, error) {
-	return configurations.FindNetworkInstance(mappings, endpoint, s.Scope)
+func (s *RuntimeWrapper) NetworkInstance(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkInstance, error) {
+	return configurations.FindNetworkInstance(ctx, mappings, endpoint, s.Scope)
 }
 
 func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {
 	w := s.Wool.In("runtime::init")
-	w.Focus("input",
+	w.Debug("input",
 		wool.Field("configurations", configurations.MakeConfigurationSummary(req.Configuration)),
 		wool.Field("dependencies configurations", configurations.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
-		wool.Field("depedendency endpoints", configurations.MakeManyEndpointSummary(req.DependenciesEndpoints)),
+		wool.Field("dependency endpoints", configurations.MakeManyEndpointSummary(req.DependenciesEndpoints)),
 		wool.Field("network mapping", configurations.MakeManyNetworkMappingSummary(req.ProposedNetworkMappings)))
 }
 
 func (s *RuntimeWrapper) LogStartRequest(req *runtimev0.StartRequest) {
 	w := s.Wool.In("runtime::init")
-	w.Focus("input",
-		wool.Field("other network mappings", configurations.MakeManyNetworkMappingSummary(req.OtherNetworkMappings)),
+	w.Debug("input",
+		wool.Field("other network mappings", configurations.MakeManyNetworkMappingSummary(req.DependenciesNetworkMappings)),
 	)
 }
 
@@ -182,9 +182,9 @@ func (s *RuntimeWrapper) SetScope(req *runtimev0.LoadRequest) {
 }
 
 func (s *RuntimeWrapper) Container() bool {
-	return s.Scope == basev0.RuntimeScope_Container
+	return s.Scope == basev0.NetworkScope_Container
 }
 
 func (s *RuntimeWrapper) Native() bool {
-	return s.Scope == basev0.RuntimeScope_Native
+	return s.Scope == basev0.NetworkScope_Native
 }
