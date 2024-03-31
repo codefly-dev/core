@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/codefly-dev/core/configurations/standards"
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/configurations"
@@ -40,9 +41,14 @@ func Native(port uint16) *basev0.NetworkInstance {
 	return instance
 }
 
-func PublicDefault(port uint16) *basev0.NetworkInstance {
+func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := Localhost
-	instance := configurations.NewNetworkInstance(host, port)
+	var instance *basev0.NetworkInstance
+	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+		instance = configurations.NewHTTPNetworkInstance(host, port)
+	} else {
+		instance = configurations.NewNetworkInstance(host, port)
+	}
 	instance.Scope = basev0.NetworkScope_Public
 	return instance
 }
@@ -106,7 +112,7 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *c
 			Native(port),
 		}
 		if endpoint.Visibility == configurations.VisibilityPublic {
-			nm.Instances = append(nm.Instances, PublicDefault(port))
+			nm.Instances = append(nm.Instances, PublicDefault(endpoint, port))
 		}
 		out = append(out, nm)
 	}
