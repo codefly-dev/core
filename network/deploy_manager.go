@@ -20,15 +20,15 @@ func (m *DeployManager) GetNamespace(_ context.Context, service *configurations.
 	return fmt.Sprintf("%s-%s", service.Project, service.Application), nil
 }
 
-func Namespace(service *configurations.Service) string {
-	return service.Application
-}
-
-func KubernetesService(service *configurations.Service, port uint16) *basev0.NetworkInstance {
-	host := fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, Namespace(service))
-	instance := configurations.NewNetworkInstance(host, port)
+func (m *DeployManager) KubernetesService(service *configurations.Service, endpoint *basev0.Endpoint, namespace string, port uint16) *basev0.NetworkInstance {
+	host := fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, namespace)
+	var instance *basev0.NetworkInstance
+	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+		instance = configurations.NewHTTPNetworkInstance(host, port)
+	} else {
+		instance = configurations.NewNetworkInstance(host, port)
+	}
 	instance.Scope = basev0.NetworkScope_Container
-	instance.Address = fmt.Sprintf("%s:%d", instance.Host, instance.Port)
 	return instance
 }
 
@@ -70,7 +70,11 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *co
 		}
 		// Get canonical port
 		port := standards.Port(endpoint.Api)
-		nm.Instances = append(nm.Instances, ContainerInstance(KubernetesService(service, port)))
+		namespace, err := m.GetNamespace(ctx, service, nil)
+		if err != nil {
+			return nil, err
+		}
+		nm.Instances = append(nm.Instances, ContainerInstance(m.KubernetesService(service, endpoint, namespace, port)))
 		out = append(out, nm)
 	}
 	return out, nil

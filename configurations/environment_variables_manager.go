@@ -93,11 +93,11 @@ type EndpointAccess struct {
 	*basev0.NetworkInstance
 }
 
-func (holder *EnvironmentVariableManager) AddPublicEndpoints(ctx context.Context, mappings []*basev0.NetworkMapping) error {
+func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mappings []*basev0.NetworkMapping, scope basev0.NetworkScope) error {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddPublicEndpoints")
 	for _, mp := range mappings {
 		for _, instance := range mp.Instances {
-			if instance.Scope == basev0.NetworkScope_Public {
+			if instance.Scope == scope {
 				holder.endpoints = append(holder.endpoints, &EndpointAccess{
 					Endpoint:        mp.Endpoint,
 					NetworkInstance: instance,
@@ -114,14 +114,14 @@ type RestRouteAccess struct {
 	route    *basev0.RestRoute
 }
 
-func (holder *EnvironmentVariableManager) AddPublicRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping) error {
+func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, scope basev0.NetworkScope) error {
 	for _, mp := range mappings {
 		rest := IsRest(ctx, mp.Endpoint)
 		if rest == nil {
 			continue
 		}
 		for _, instance := range mp.Instances {
-			if instance.Scope == basev0.NetworkScope_Public {
+			if instance.Scope == scope {
 				for _, group := range rest.Groups {
 					for _, route := range group.Routes {
 						holder.restRoutes = append(holder.restRoutes, &RestRouteAccess{

@@ -39,9 +39,11 @@ func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 
 func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := Localhost
-	instance := configurations.NewNetworkInstance(host, port)
+	var instance *basev0.NetworkInstance
 	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
 		instance = configurations.NewHTTPNetworkInstance(host, port)
+	} else {
+		instance = configurations.NewNetworkInstance(host, port)
 	}
 	instance.Scope = basev0.NetworkScope_Native
 	return instance
