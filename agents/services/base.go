@@ -108,6 +108,8 @@ func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentit
 	s.Identity = configurations.ServiceIdentityFromProto(identity)
 	s.Location = identity.Location
 
+	s.EnvironmentVariables = configurations.NewEnvironmentVariableManager()
+
 	// Replace the Agent now that we know more!
 	s.WoolAgent = agents.NewServiceProvider(ctx, s.Identity)
 

@@ -11,13 +11,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types/image"
+
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/docker/go-connections/nat"
 
 	"github.com/codefly-dev/core/wool"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
@@ -134,16 +135,16 @@ func (docker *Docker) Init(ctx context.Context) error {
 	return nil
 }
 
-func (docker *Docker) ImageExists(ctx context.Context, image *configurations.DockerImage) (bool, error) {
+func (docker *Docker) ImageExists(ctx context.Context, imag *configurations.DockerImage) (bool, error) {
 	w := wool.Get(ctx).In("Docker.ImageExists")
-	images, err := docker.client.ImageList(ctx, types.ImageListOptions{})
+	images, err := docker.client.ImageList(ctx, image.ListOptions{})
 	if err != nil {
 		return false, w.Wrapf(err, "cannot list images")
 	}
 	for i := range images {
 		img := &images[i]
 		for _, repoTag := range img.RepoTags {
-			if repoTag == image.FullName() {
+			if repoTag == imag.FullName() {
 				return true, nil
 			}
 		}
@@ -190,16 +191,16 @@ func PrintDownloadPercentage(reader io.ReadCloser, out io.Writer) {
 	ticker.Stop()
 }
 
-func (docker *Docker) GetImage(ctx context.Context, image *configurations.DockerImage) error {
+func (docker *Docker) GetImage(ctx context.Context, imag *configurations.DockerImage) error {
 	w := wool.Get(ctx).In("Docker.GetImage")
-	if exists, err := docker.ImageExists(ctx, image); err != nil {
+	if exists, err := docker.ImageExists(ctx, imag); err != nil {
 		return w.Wrapf(err, "cannot check if image exists")
 	} else if exists {
 		w.Trace("found Docker image locally")
 		return nil
 	}
-	_, _ = w.Forward([]byte(fmt.Sprintf("pulling Docker image %s. Will show progress every 5 seconds.", image.FullName())))
-	progress, err := docker.client.ImagePull(ctx, image.FullName(), types.ImagePullOptions{})
+	_, _ = w.Forward([]byte(fmt.Sprintf("pulling Docker image %s. Will show progress every 5 seconds.", imag.FullName())))
+	progress, err := docker.client.ImagePull(ctx, imag.FullName(), image.PullOptions{})
 	if err != nil {
 		return w.Wrapf(err, "cannot pull image")
 	}

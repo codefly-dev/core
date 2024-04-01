@@ -23,20 +23,26 @@ func (m *RuntimeManager) GetNamespace(context.Context, *configurations.Service, 
 	return "", fmt.Errorf("namespace don't make sense locally. something went wrong")
 }
 
-func Container(port uint16) *basev0.NetworkInstance {
+func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := "host.docker.internal"
 	// Set network mode to "host" only for Linux builds
 	if runtime.GOOS == "linux" {
 		host = Localhost
 	}
 	instance := configurations.NewNetworkInstance(host, port)
+	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+		instance = configurations.NewHTTPNetworkInstance(host, port)
+	}
 	instance.Scope = basev0.NetworkScope_Container
 	return instance
 }
 
-func Native(port uint16) *basev0.NetworkInstance {
+func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := Localhost
 	instance := configurations.NewNetworkInstance(host, port)
+	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+		instance = configurations.NewHTTPNetworkInstance(host, port)
+	}
 	instance.Scope = basev0.NetworkScope_Native
 	return instance
 }
@@ -80,6 +86,9 @@ func ExternalInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance 
 
 // GenerateNetworkMappings generates network mappings for a service endpoints
 func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *configurations.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
+	if m == nil {
+		return nil, nil
+	}
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
 	var out []*basev0.NetworkMapping
 	for _, endpoint := range endpoints {
@@ -108,8 +117,8 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *c
 		}
 		m.allocatedPorts[port] = true
 		nm.Instances = []*basev0.NetworkInstance{
-			Container(port),
-			Native(port),
+			Container(endpoint, port),
+			Native(endpoint, port),
 		}
 		if endpoint.Visibility == configurations.VisibilityPublic {
 			nm.Instances = append(nm.Instances, PublicDefault(endpoint, port))

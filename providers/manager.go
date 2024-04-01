@@ -51,6 +51,9 @@ func (manager *Manager) WithLoader(loader Loader) *Manager {
 }
 
 func (manager *Manager) Load(ctx context.Context, env *configurations.Environment) error {
+	if manager == nil {
+		return nil
+	}
 	var agg error
 	for _, loader := range manager.loaders {
 		err := loader.Load(ctx, env)
@@ -101,6 +104,9 @@ func (manager *Manager) LoadConfigurations(_ context.Context) error {
 }
 
 func (manager *Manager) GetProjectConfiguration(_ context.Context, name string) (*basev0.Configuration, error) {
+	if manager == nil {
+		return nil, nil
+	}
 	if conf, ok := manager.projectConfigurations[name]; ok {
 		return conf, nil
 	}
@@ -108,6 +114,9 @@ func (manager *Manager) GetProjectConfiguration(_ context.Context, name string) 
 }
 
 func (manager *Manager) GetServiceConfiguration(_ context.Context, service *configurations.Service) (*basev0.Configuration, error) {
+	if manager == nil {
+		return nil, nil
+	}
 	if conf, ok := manager.serviceConfigurations[service.Unique()]; ok {
 		return conf, nil
 	}
@@ -115,6 +124,9 @@ func (manager *Manager) GetServiceConfiguration(_ context.Context, service *conf
 }
 
 func (manager *Manager) GetConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
+	if manager == nil {
+		return nil, nil
+	}
 	w := wool.Get(ctx).In("providers.GetConfigurations")
 	var out []*basev0.Configuration
 	for _, conf := range manager.projectConfigurations {
@@ -134,6 +146,9 @@ func (manager *Manager) GetConfigurations(ctx context.Context) ([]*basev0.Config
 }
 
 func (manager *Manager) ExposeConfiguration(ctx context.Context, service *configurations.Service, confs ...*basev0.Configuration) error {
+	if manager == nil {
+		return nil
+	}
 	w := wool.Get(ctx).In("Manager.ExposeConfiguration", wool.ThisField(service))
 	w.Debug("exposing", wool.Field("configurations", configurations.MakeManyConfigurationSummary(confs)))
 	if _, exists := manager.exposedFromServiceConfigurations[service.Unique()]; exists {
@@ -144,10 +159,16 @@ func (manager *Manager) ExposeConfiguration(ctx context.Context, service *config
 }
 
 func (manager *Manager) GetSharedServiceConfiguration(_ context.Context, unique string) ([]*basev0.Configuration, error) {
+	if manager == nil {
+		return nil, nil
+	}
 	return manager.exposedFromServiceConfigurations[unique], nil
 }
 
 func (manager *Manager) Restrict(_ context.Context, values []*configurations.Service) error {
+	if manager == nil {
+		return nil
+	}
 	manager.doReduce = true
 	for _, svc := range values {
 		manager.reduced = append(manager.reduced, svc.Unique())
@@ -167,10 +188,16 @@ func (manager *Manager) LoadDNS(_ context.Context) error {
 }
 
 func (manager *Manager) DNS() []*basev0.DNS {
+	if manager == nil {
+		return nil
+	}
 	return manager.dns
 }
 
 func (manager *Manager) GetDNS(_ context.Context, svc *configurations.Service, endpointName string) (*basev0.DNS, error) {
+	if manager == nil {
+		return nil, nil
+	}
 	for _, dns := range manager.dns {
 		if svc.Project == dns.Project &&
 			svc.Application == dns.Application &&
