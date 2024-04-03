@@ -18,6 +18,9 @@ import (
 
 type BuilderWrapper struct {
 	*Base
+
+	BuildResult  *builderv0.BuildResult
+	DeployOutput *builderv0.DeploymentOutput
 }
 
 func (s *BuilderWrapper) LoadResponse(gettingStarted string) (*builderv0.LoadResponse, error) {
@@ -119,11 +122,30 @@ func (s *BuilderWrapper) SyncError(err error) (*builderv0.SyncResponse, error) {
 		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}}, err
 }
 
+func (s *BuilderWrapper) WithDockerImages(ims ...*configurations.DockerImage) {
+	var imgs []string
+	for _, im := range ims {
+		imgs = append(imgs, im.FullName())
+
+	}
+	s.Builder.BuildResult = &builderv0.BuildResult{
+		Kind: &builderv0.BuildResult_DockerBuildResult{
+			DockerBuildResult: &builderv0.DockerBuildResult{
+				Images: imgs,
+			},
+		},
+	}
+}
+
 func (s *BuilderWrapper) BuildResponse() (*builderv0.BuildResponse, error) {
 	if !s.loaded {
 		return s.BuildError(fmt.Errorf("not loaded"))
 	}
-	return &builderv0.BuildResponse{}, nil
+	resp := &builderv0.BuildResponse{}
+	if s.BuildResult != nil {
+		resp.Result = s.BuildResult
+	}
+	return resp, nil
 }
 
 func (s *BuilderWrapper) BuildError(err error) (*builderv0.BuildResponse, error) {
@@ -137,6 +159,7 @@ func (s *BuilderWrapper) DeployResponse() (*builderv0.DeploymentResponse, error)
 	}
 	return &builderv0.DeploymentResponse{
 		Configuration: s.Configuration,
+		Deployment:    s.DeployOutput,
 	}, nil
 }
 
@@ -156,7 +179,7 @@ type DeploymentBase struct {
 	Parameters any
 }
 
-func (s *BuilderWrapper) CreateDeploymentBase(env *basev0.Environment, namespace string, builderContext *builderv0.BuildContext) *DeploymentBase {
+func (s *BuilderWrapper) CreateKubernetesBase(env *basev0.Environment, namespace string, builderContext *builderv0.DockerBuildContext) *DeploymentBase {
 	envInfo := configurations.EnvironmentFromProto(env)
 	return &DeploymentBase{
 		Namespace:   namespace,
@@ -211,20 +234,28 @@ func EnvsAsSecretData(envs ...string) (EnvironmentMap, error) {
 	return m, nil
 }
 
-// GenericServiceDeploy is a generic deployment method that can be used to deploy many kind of service
-func (s *BuilderWrapper) GenericServiceDeploy(ctx context.Context, req *builderv0.DeploymentRequest, fs embed.FS, params any) error {
-	defer s.Wool.Catch()
-	base := s.CreateDeploymentBase(req.Environment, req.Deployment.Namespace, req.BuildContext)
-
+func (s *BuilderWrapper) KubernetesDeploymentRequest(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, error) {
 	switch v := req.Deployment.Kind.(type) {
-	case *builderv0.Deployment_Kustomize:
-		err := s.Builder.GenerateGenericKustomize(ctx, fs, v.Kustomize, base, params)
-		if err != nil {
-			return err
-		}
+	case *builderv0.Deployment_Kubernetes:
+		return v.Kubernetes, nil
 	default:
-		return s.Wool.Wrapf(fmt.Errorf("unsupported deployment kind: %T", v), "cannot deploy")
+		return nil, s.Wool.Wrapf(fmt.Errorf("unsupported deployment kind: %T", v), "cannot deploy")
+	}
+}
 
+func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Environment, req *builderv0.KubernetesDeployment, fs embed.FS, params any) error {
+	defer s.Wool.Catch()
+	base := s.CreateKubernetesBase(env, req.Namespace, req.BuildContext)
+	err := s.Builder.GenerateGenericKustomize(ctx, fs, req, base, params)
+	if err != nil {
+		return err
+	}
+	s.DeployOutput = &builderv0.DeploymentOutput{
+		Kind: &builderv0.DeploymentOutput_Kubernetes{
+			Kubernetes: &builderv0.KubernetesDeploymentOutput{
+				Kind: builderv0.KubernetesDeploymentOutput_Kustomize,
+			},
+		},
 	}
 	return nil
 }
@@ -247,9 +278,9 @@ type DeploymentWrapper struct {
 	Parameters any
 }
 
-func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.FS, kust *builderv0.KustomizeDeployment, base *DeploymentBase, params any) error {
+func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.FS, k *builderv0.KubernetesDeployment, base *DeploymentBase, params any) error {
 	wrapper := &DeploymentWrapper{DeploymentBase: base, Parameters: params}
-	destination := path.Join(kust.Destination, "applications", s.Service.Application, "services", s.Service.Name)
+	destination := path.Join(k.Destination, "applications", s.Service.Application, "services", s.Service.Name)
 	// Delete
 	err := shared.EmptyDir(destination)
 	if err != nil {
@@ -283,4 +314,13 @@ func (s *BuilderWrapper) LogDeployRequest(req *builderv0.DeploymentRequest, log 
 		wool.Field("network mappings", configurations.MakeManyNetworkMappingSummary(req.NetworkMappings)),
 		wool.Field("dependencies network mappings", configurations.MakeManyNetworkMappingSummary(req.DependenciesNetworkMappings)),
 	)
+}
+
+func (s *BuilderWrapper) DockerBuildRequest(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.DockerBuildContext, error) {
+	switch v := req.BuildContext.Kind.(type) {
+	case *builderv0.BuildContext_DockerBuildContext:
+		return v.DockerBuildContext, nil
+	default:
+		return nil, s.Wool.Wrapf(fmt.Errorf("unsupported build context kind: %T", v), "cannot build")
+	}
 }

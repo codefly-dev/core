@@ -165,14 +165,8 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	return nil
 }
 
-func (s *Base) DockerImage(req *builderv0.BuildContext) *configurations.DockerImage {
-	var repo string
-	if req.Kind != nil {
-		if kind, ok := req.Kind.(*builderv0.BuildContext_DockerBuildContext); ok {
-			repo = kind.DockerBuildContext.DockerRepository
-		}
-	}
-
+func (s *Base) DockerImage(req *builderv0.DockerBuildContext) *configurations.DockerImage {
+	repo := req.DockerRepository
 	return &configurations.DockerImage{
 		Name: path.Join(repo, s.Identity.Project, s.Identity.Application, s.Identity.Name),
 		Tag:  s.Version().Version,

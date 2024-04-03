@@ -16,8 +16,14 @@ type DeployManager struct {
 	dnsManager DNSManager
 }
 
-func (m *DeployManager) GetNamespace(_ context.Context, service *configurations.Service, _ *configurations.Environment) (string, error) {
-	return fmt.Sprintf("%s-%s", service.Project, service.Application), nil
+var loadBalancer string
+
+func SetLoadBalancer(lb string) {
+	loadBalancer = lb
+}
+
+func (m *DeployManager) GetNamespace(_ context.Context, service *configurations.Service, env *configurations.Environment) (string, error) {
+	return fmt.Sprintf("%s-%s-%s", service.Project, service.Application, env.Name), nil
 }
 
 func (m *DeployManager) KubernetesService(service *configurations.Service, endpoint *basev0.Endpoint, namespace string, port uint16) *basev0.NetworkInstance {
@@ -33,7 +39,7 @@ func (m *DeployManager) KubernetesService(service *configurations.Service, endpo
 }
 
 // GenerateNetworkMappings generates network mappings for a service endpoints
-func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *configurations.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
+func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *configurations.Service, endpoints []*basev0.Endpoint, env *configurations.Environment) ([]*basev0.NetworkMapping, error) {
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
 	var out []*basev0.NetworkMapping
 	for _, endpoint := range endpoints {
@@ -50,27 +56,34 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *co
 				return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)
 			}
 			nm.Instances = []*basev0.NetworkInstance{
-				ExternalInstance(DNS(service, dns)),
+				ExternalInstance(DNS(service, endpoint, dns)),
 			}
 			out = append(out, nm)
 			continue
 		}
-		if endpoint.Visibility == configurations.VisibilityPublic {
-			dns, err := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
-			if err != nil {
-				return nil, err
-			}
-			if dns == nil {
-				return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)
-			}
-			nm.Instances = []*basev0.NetworkInstance{
-				PublicInstance(DNS(service, dns)),
-			}
-			out = append(out, nm)
-		}
 		// Get canonical port
 		port := standards.Port(endpoint.Api)
-		namespace, err := m.GetNamespace(ctx, service, nil)
+		if endpoint.Visibility == configurations.VisibilityPublic {
+
+			if loadBalancer != "" {
+				nm.Instances = []*basev0.NetworkInstance{
+					PublicInstance(LoadBalanced(service, loadBalancer, endpoint, port)),
+				}
+				out = append(out, nm)
+			} else {
+				dns, err := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
+				if err != nil {
+					return nil, err
+				}
+				if dns == nil {
+					return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)
+				}
+				nm.Instances = []*basev0.NetworkInstance{
+					PublicInstance(DNS(service, endpoint, dns)),
+				}
+			}
+		}
+		namespace, err := m.GetNamespace(ctx, service, env)
 		if err != nil {
 			return nil, err
 		}
@@ -78,6 +91,17 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *co
 		out = append(out, nm)
 	}
 	return out, nil
+}
+
+func LoadBalanced(service *configurations.Service, balancer string, endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
+	host := fmt.Sprintf("%s-%s-%s.%s", service.Name, service.Application, service.Project, balancer)
+	var instance *basev0.NetworkInstance
+	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+		instance = configurations.NewHTTPNetworkInstance(host, port)
+	} else {
+		instance = configurations.NewNetworkInstance(host, port)
+	}
+	return instance
 }
 
 func NewDeployManager(_ context.Context, dnsManager DNSManager) (*DeployManager, error) {

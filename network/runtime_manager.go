@@ -61,8 +61,13 @@ func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstan
 	return instance
 }
 
-func DNS(_ *configurations.Service, dns *basev0.DNS) *basev0.NetworkInstance {
-	instance := configurations.NewNetworkInstance(dns.Host, uint16(dns.Port))
+func DNS(_ *configurations.Service, endpoint *basev0.Endpoint, dns *basev0.DNS) *basev0.NetworkInstance {
+	var instance *basev0.NetworkInstance
+	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+		instance = configurations.NewHTTPNetworkInstance(dns.Host, uint16(dns.Port))
+	} else {
+		instance = configurations.NewNetworkInstance(dns.Host, uint16(dns.Port))
+	}
 	return instance
 }
 
@@ -87,7 +92,7 @@ func ExternalInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance 
 }
 
 // GenerateNetworkMappings generates network mappings for a service endpoints
-func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *configurations.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
+func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *configurations.Service, endpoints []*basev0.Endpoint, _ *configurations.Environment) ([]*basev0.NetworkMapping, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -105,8 +110,8 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *c
 			}
 			if dns != nil {
 				nm.Instances = append(nm.Instances,
-					ContainerInstance(DNS(service, dns)),
-					NativeInstance(DNS(service, dns)),
+					ContainerInstance(DNS(service, endpoint, dns)),
+					NativeInstance(DNS(service, endpoint, dns)),
 				)
 				continue
 			}

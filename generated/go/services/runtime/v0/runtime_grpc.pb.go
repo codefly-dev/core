@@ -25,6 +25,7 @@ const (
 	Runtime_Init_FullMethodName        = "/services.runtime.v0.Runtime/Init"
 	Runtime_Start_FullMethodName       = "/services.runtime.v0.Runtime/Start"
 	Runtime_Stop_FullMethodName        = "/services.runtime.v0.Runtime/Stop"
+	Runtime_Test_FullMethodName        = "/services.runtime.v0.Runtime/Test"
 	Runtime_Information_FullMethodName = "/services.runtime.v0.Runtime/Information"
 	Runtime_Communicate_FullMethodName = "/services.runtime.v0.Runtime/Communicate"
 )
@@ -42,6 +43,8 @@ type RuntimeClient interface {
 	Start(ctx context.Context, in *StartRequest, opts ...grpc.CallOption) (*StartResponse, error)
 	// Stop the underlying service and cleanup
 	Stop(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
+	// Test the service
+	Test(ctx context.Context, in *TestRequest, opts ...grpc.CallOption) (*TestResponse, error)
 	// Information about the state of the service
 	Information(ctx context.Context, in *InformationRequest, opts ...grpc.CallOption) (*InformationResponse, error)
 	// Communication helper
@@ -92,6 +95,15 @@ func (c *runtimeClient) Stop(ctx context.Context, in *StopRequest, opts ...grpc.
 	return out, nil
 }
 
+func (c *runtimeClient) Test(ctx context.Context, in *TestRequest, opts ...grpc.CallOption) (*TestResponse, error) {
+	out := new(TestResponse)
+	err := c.cc.Invoke(ctx, Runtime_Test_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *runtimeClient) Information(ctx context.Context, in *InformationRequest, opts ...grpc.CallOption) (*InformationResponse, error) {
 	out := new(InformationResponse)
 	err := c.cc.Invoke(ctx, Runtime_Information_FullMethodName, in, out, opts...)
@@ -123,6 +135,8 @@ type RuntimeServer interface {
 	Start(context.Context, *StartRequest) (*StartResponse, error)
 	// Stop the underlying service and cleanup
 	Stop(context.Context, *StopRequest) (*StopResponse, error)
+	// Test the service
+	Test(context.Context, *TestRequest) (*TestResponse, error)
 	// Information about the state of the service
 	Information(context.Context, *InformationRequest) (*InformationResponse, error)
 	// Communication helper
@@ -145,6 +159,9 @@ func (UnimplementedRuntimeServer) Start(context.Context, *StartRequest) (*StartR
 }
 func (UnimplementedRuntimeServer) Stop(context.Context, *StopRequest) (*StopResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Stop not implemented")
+}
+func (UnimplementedRuntimeServer) Test(context.Context, *TestRequest) (*TestResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Test not implemented")
 }
 func (UnimplementedRuntimeServer) Information(context.Context, *InformationRequest) (*InformationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Information not implemented")
@@ -237,6 +254,24 @@ func _Runtime_Stop_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Runtime_Test_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServer).Test(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Runtime_Test_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServer).Test(ctx, req.(*TestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Runtime_Information_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InformationRequest)
 	if err := dec(in); err != nil {
@@ -295,6 +330,10 @@ var Runtime_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Stop",
 			Handler:    _Runtime_Stop_Handler,
+		},
+		{
+			MethodName: "Test",
+			Handler:    _Runtime_Test_Handler,
 		},
 		{
 			MethodName: "Information",

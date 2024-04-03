@@ -40,6 +40,8 @@ type Runtime interface {
 
 	Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error)
 
+	Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error)
+
 	Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error)
 
 	// Communicate is a special method that is used to communicate with the Agent
@@ -78,6 +80,11 @@ func (m *RuntimeAgent) Information(ctx context.Context, req *runtimev0.Informati
 // Stop stops the service
 func (m *RuntimeAgent) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
 	return m.Client.Stop(ctx, req)
+}
+
+// Test tests the service
+func (m *RuntimeAgent) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
+	return m.Client.Test(ctx, req)
 }
 
 // Communicate helper
@@ -124,6 +131,10 @@ func (m *RuntimeServer) Information(ctx context.Context, req *runtimev0.Informat
 
 func (m *RuntimeServer) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
 	return m.Runtime.Stop(ctx, req)
+}
+
+func (m *RuntimeServer) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
+	return m.Runtime.Test(ctx, req)
 }
 
 func (m *RuntimeServer) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
