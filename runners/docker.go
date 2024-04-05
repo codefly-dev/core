@@ -386,22 +386,23 @@ func (docker *Docker) ForwardLogs(reader io.Reader) {
 		return
 	}
 	docker.wg.Add(1)
-	scanner := bufio.NewScanner(reader)
 	output := make(chan []byte)
 	go func() {
 		defer docker.wg.Done()
+		r := bufio.NewReader(reader)
 		for {
 			select {
 			case <-docker.ctx.Done():
 				return
 			default:
-				for scanner.Scan() {
-					output <- []byte(strings.TrimSpace(scanner.Text()))
-				}
-				if err := scanner.Err(); err != nil {
+				line, err := r.ReadBytes('\n')
+				if err != nil && err != io.EOF {
 					output <- []byte(strings.TrimSpace(err.Error()))
+					return
 				}
-
+				if err == nil {
+					output <- []byte(strings.TrimSpace(string(line)))
+				}
 			}
 		}
 	}()
@@ -426,7 +427,7 @@ func (docker *Docker) portBindings() nat.PortMap {
 }
 
 func (docker *Docker) Stop() error {
-	if docker == nil {
+	if docker == nil || docker.client == nil {
 		return nil
 	}
 	if docker.reader != nil {

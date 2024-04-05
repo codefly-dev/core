@@ -103,7 +103,7 @@ func FindUp[C Configuration](ctx context.Context) (*string, error) {
 			return nil, w.Wrapf(err, "cannot get path")
 		}
 		if _, err := os.Stat(p); err == nil {
-			w.Debug("found", wool.DirField(p))
+			w.Trace("found", wool.DirField(p))
 			return &cur, nil
 		}
 		// Move up one directory

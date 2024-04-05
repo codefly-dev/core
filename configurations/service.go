@@ -478,6 +478,7 @@ func (s *Service) BaseEndpoint(name string) *Endpoint {
 }
 
 func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
+	w := wool.Get(ctx).In("Service::LoadEndpoints", wool.NameField(s.Name))
 	var multi error
 	var out []*basev0.Endpoint
 	for _, ed := range s.Endpoints {
@@ -494,6 +495,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 				continue
 			}
 			base.ApiDetails = ToRestAPI(rest)
+			w.Focus("loaded rest api", wool.Field("routes", RestRoutes(rest)))
 			out = append(out, base)
 		case standards.GRPC:
 			grpc, err := LoadGrpcAPI(ctx, s.Local(standards.ProtoPath))

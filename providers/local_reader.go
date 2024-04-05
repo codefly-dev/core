@@ -164,7 +164,7 @@ func FromService(service *configurations.Service, dep string) (*ConfigurationSou
 
 func LoadConfigurationsFromEnvFiles(ctx context.Context, dir string) ([]*basev0.ConfigurationInformation, error) {
 	w := wool.Get(ctx).In("provider.LoadConfigurationsFromEnvFiles")
-	w.Debug("loading configurations from directory", wool.DirField(dir))
+	w.Trace("loading configurations from directory", wool.DirField(dir))
 	if !shared.DirectoryExists(dir) {
 		return nil, w.NewError("configuration directory doesn't exist: %s", dir)
 	}
@@ -185,7 +185,7 @@ func LoadConfigurationsFromEnvFiles(ctx context.Context, dir string) ([]*basev0.
 			if err != nil {
 				return w.Wrapf(err, "cannot load provider from env file")
 			}
-			w.Debug("loaded configuration", wool.Field("configuration", conf.Name))
+			w.Trace("loaded configuration", wool.Field("configuration", conf.Name))
 			confs = append(confs, conf)
 			return nil
 		}
@@ -195,7 +195,7 @@ func LoadConfigurationsFromEnvFiles(ctx context.Context, dir string) ([]*basev0.
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot walk providers directory")
 	}
-	w.Debug("loaded confs", wool.SliceCountField(confs))
+	w.Trace("loaded confs", wool.SliceCountField(confs))
 	return confs, nil
 }
 

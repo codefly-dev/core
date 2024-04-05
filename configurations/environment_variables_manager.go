@@ -115,6 +115,7 @@ type RestRouteAccess struct {
 }
 
 func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, scope basev0.NetworkScope) error {
+	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddRestRoutes")
 	for _, mp := range mappings {
 		rest := IsRest(ctx, mp.Endpoint)
 		if rest == nil {
@@ -124,6 +125,10 @@ func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, map
 			if instance.Scope == scope {
 				for _, group := range rest.Groups {
 					for _, route := range group.Routes {
+						w.Debug("adding rest route",
+							wool.NameField(route.Path),
+							wool.ApplicationField(mp.Endpoint.Application),
+							wool.ServiceField(mp.Endpoint.Service))
 						holder.restRoutes = append(holder.restRoutes, &RestRouteAccess{
 							route:    route,
 							endpoint: mp.Endpoint,

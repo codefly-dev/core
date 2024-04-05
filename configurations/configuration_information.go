@@ -16,6 +16,9 @@ const ServiceConfigurationPrefix = "CODEFLY__SERVICE_CONFIGURATION"
 const ServiceSecretConfigurationPrefix = "CODEFLY__SERVICE_SECRET_CONFIGURATION"
 
 func GetConfigurationValue(_ context.Context, configuration *basev0.Configuration, name string, key string) (string, error) {
+	if configuration == nil {
+		return "", fmt.Errorf("configuration is nil")
+	}
 	for _, info := range configuration.Configurations {
 		if info.Name == name {
 			for _, value := range info.ConfigurationValues {

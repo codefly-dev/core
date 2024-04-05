@@ -31,7 +31,7 @@ type Endpoint struct {
 	Service     string `yaml:"service,omitempty"`
 	Application string `yaml:"application,omitempty"`
 	Description string `yaml:"description,omitempty"`
-	Visibility  string `yaml:"visibility"`
+	Visibility  string `yaml:"visibility,omitempty"`
 	API         string `yaml:"api,omitempty"`
 }
 

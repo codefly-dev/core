@@ -28,6 +28,7 @@ type BuilderConfiguration struct {
 	Dockerfile  string
 	Destination *configurations.DockerImage
 	Output      io.Writer
+	Ignores     []string
 }
 
 type Builder struct {
@@ -52,7 +53,7 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
 
-	buildContextBuffer, err := createTarArchive(builder.Root)
+	buildContextBuffer, err := builder.createTarArchive()
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create tar archive")
 	}
@@ -113,7 +114,7 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 }
 
 // createTarArchive creates a tar archive from the provided directory and returns it as a bytes buffer.
-func createTarArchive(srcDir string) (*bytes.Buffer, error) {
+func (builder *Builder) createTarArchive() (*bytes.Buffer, error) {
 	// Add a buffer to write our archive to.
 	buf := new(bytes.Buffer)
 
@@ -121,7 +122,7 @@ func createTarArchive(srcDir string) (*bytes.Buffer, error) {
 	tw := tar.NewWriter(buf)
 
 	// Walk through each file/folder in the path and add it to the tar archive.
-	err := filepath.Walk(srcDir, func(file string, fi os.FileInfo, err error) error {
+	err := filepath.Walk(builder.Root, func(file string, fi os.FileInfo, err error) error {
 		// Return any error.
 		if err != nil {
 			return err
@@ -133,11 +134,16 @@ func createTarArchive(srcDir string) (*bytes.Buffer, error) {
 			return err
 		}
 
-		rel, err := filepath.Rel(srcDir, file)
+		rel, err := filepath.Rel(builder.Root, file)
 		if err != nil {
 			return err
 		}
 
+		for _, ignore := range builder.Ignores {
+			if strings.Contains(rel, ignore) {
+				return nil
+			}
+		}
 		header.Name = rel
 
 		// Write the header.

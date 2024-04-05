@@ -51,9 +51,6 @@ type Base struct {
 	// Information convenience
 	Information *Information
 
-	// Environment
-	Environment *basev0.Environment
-
 	// Endpoints
 	Endpoints           []*basev0.Endpoint
 	DependencyEndpoints []*basev0.Endpoint

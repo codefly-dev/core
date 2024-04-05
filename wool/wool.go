@@ -46,11 +46,19 @@ func (w *Wool) Close() error {
 }
 
 func (w *Wool) In(method string, fields ...*LogField) *Wool {
-	w.name = method
-	w.fields = fields
+	newW := &Wool{
+		source:   w.source,
+		ref:      w.ref,
+		ctx:      w.ctx,
+		provider: w.provider,
+		logger:   w.logger,
+		logLevel: w.logLevel,
+	}
+	newW.name = method
+	newW.fields = fields
 	// We keep track of the stack
 	// stack := c.Stack()
-	return w
+	return newW
 }
 
 func (w *Wool) With(fields ...*LogField) *Wool {

@@ -237,9 +237,20 @@ func EnvsAsSecretData(envs ...string) (EnvironmentMap, error) {
 func (s *BuilderWrapper) KubernetesDeploymentRequest(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, error) {
 	switch v := req.Deployment.Kind.(type) {
 	case *builderv0.Deployment_Kubernetes:
+		s.DeployOutput = KustomizeOutput()
 		return v.Kubernetes, nil
 	default:
 		return nil, s.Wool.Wrapf(fmt.Errorf("unsupported deployment kind: %T", v), "cannot deploy")
+	}
+}
+
+func KustomizeOutput() *builderv0.DeploymentOutput {
+	return &builderv0.DeploymentOutput{
+		Kind: &builderv0.DeploymentOutput_Kubernetes{
+			Kubernetes: &builderv0.KubernetesDeploymentOutput{
+				Kind: builderv0.KubernetesDeploymentOutput_Kustomize,
+			},
+		},
 	}
 }
 
@@ -249,13 +260,6 @@ func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Enviro
 	err := s.Builder.GenerateGenericKustomize(ctx, fs, req, base, params)
 	if err != nil {
 		return err
-	}
-	s.DeployOutput = &builderv0.DeploymentOutput{
-		Kind: &builderv0.DeploymentOutput_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeploymentOutput{
-				Kind: builderv0.KubernetesDeploymentOutput_Kustomize,
-			},
-		},
 	}
 	return nil
 }

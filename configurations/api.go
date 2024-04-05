@@ -260,3 +260,11 @@ func LightAPI(api *basev0.API) *basev0.API {
 		return nil
 	}
 }
+
+func RestRoutes(rest *basev0.RestAPI) string {
+	if rest == nil {
+		return ""
+	}
+	// display only all the rest groups
+	return fmt.Sprintf("%v", rest.Groups)
+}

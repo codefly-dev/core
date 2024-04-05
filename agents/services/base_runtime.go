@@ -171,7 +171,7 @@ func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {
 }
 
 func (s *RuntimeWrapper) LogStartRequest(req *runtimev0.StartRequest) {
-	w := s.Wool.In("runtime::init")
+	w := s.Wool.In("runtime::start")
 	w.Debug("input",
 		wool.Field("other network mappings", configurations.MakeManyNetworkMappingSummary(req.DependenciesNetworkMappings)),
 	)

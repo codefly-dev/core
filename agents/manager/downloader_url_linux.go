@@ -9,5 +9,5 @@ import (
 )
 
 func DownloadURL(p *configurations.Agent) string {
-	return fmt.Sprintf("https://github.com/codefly-dev/service-%s/releases/download/v%s/service-%s_%s_linux_x86_64.tar.gz", p.Name, p.Version, p.Name, p.Version)
+	return fmt.Sprintf("https://github.com/codefly-dev/service-%s/releases/download/v%s/service-%s_%s_linux_amd64.tar.gz", p.Name, p.Version, p.Name, p.Version)
 }
