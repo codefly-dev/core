@@ -234,7 +234,7 @@ func EnvsAsSecretData(envs ...string) (EnvironmentMap, error) {
 	return m, nil
 }
 
-func (s *BuilderWrapper) KubernetesDeploymentRequest(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, error) {
+func (s *BuilderWrapper) KubernetesDeploymentRequest(_ context.Context, req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, error) {
 	switch v := req.Deployment.Kind.(type) {
 	case *builderv0.Deployment_Kubernetes:
 		s.DeployOutput = KustomizeOutput()
@@ -320,7 +320,7 @@ func (s *BuilderWrapper) LogDeployRequest(req *builderv0.DeploymentRequest, log 
 	)
 }
 
-func (s *BuilderWrapper) DockerBuildRequest(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.DockerBuildContext, error) {
+func (s *BuilderWrapper) DockerBuildRequest(_ context.Context, req *builderv0.BuildRequest) (*builderv0.DockerBuildContext, error) {
 	switch v := req.BuildContext.Kind.(type) {
 	case *builderv0.BuildContext_DockerBuildContext:
 		return v.DockerBuildContext, nil

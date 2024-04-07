@@ -95,7 +95,7 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *co
 	return out, nil
 }
 
-func LoadBalanced(ctx context.Context, env *configurations.Environment, service *configurations.Service, endpoint *basev0.Endpoint) *basev0.NetworkInstance {
+func LoadBalanced(_ context.Context, env *configurations.Environment, service *configurations.Service, endpoint *basev0.Endpoint) *basev0.NetworkInstance {
 	host := fmt.Sprintf("kopkfeqwuk-%s-%s-%s-%s.%s", env.Name, service.Name, service.Application, service.Project, env.LoadBalancer)
 	var instance *basev0.NetworkInstance
 	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {

@@ -18,9 +18,8 @@ type RuntimeManager struct {
 	dnsManager     DNSManager
 }
 
-func (m *RuntimeManager) SetLoadBalancer(loadBalancer string) {
-	//TODO implement me
-	panic("implement me")
+func (m *RuntimeManager) SetLoadBalancer(string) {
+	panic("N/A")
 }
 
 func (m *RuntimeManager) GetNamespace(context.Context, *configurations.Service, *configurations.Environment) (string, error) {
