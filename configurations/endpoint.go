@@ -355,3 +355,12 @@ func FindTCPEndpointWithName(ctx context.Context, name string, endpoints []*base
 	}
 	return nil, fmt.Errorf("no tcp endpoint found")
 }
+
+func HasPublicEndoints(endpoints []*basev0.Endpoint) bool {
+	for _, endpoint := range endpoints {
+		if endpoint.Visibility == VisibilityPublic {
+			return true
+		}
+	}
+	return false
+}

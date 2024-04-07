@@ -3,7 +3,6 @@ package network
 import (
 	"context"
 	"fmt"
-	"runtime"
 
 	"github.com/codefly-dev/core/configurations/standards"
 	"github.com/codefly-dev/core/wool"
@@ -19,19 +18,20 @@ type RuntimeManager struct {
 	dnsManager     DNSManager
 }
 
+func (m *RuntimeManager) SetLoadBalancer(loadBalancer string) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m *RuntimeManager) GetNamespace(context.Context, *configurations.Service, *configurations.Environment) (string, error) {
 	return "", fmt.Errorf("namespace don't make sense locally. something went wrong")
 }
 
 func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := "host.docker.internal"
-	// Set network mode to "host" only for Linux builds
-	if runtime.GOOS == "linux" {
-		host = Localhost
-	}
 	instance := configurations.NewNetworkInstance(host, port)
 	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
-		instance = configurations.NewHTTPNetworkInstance(host, port)
+		instance = configurations.NewHTTPNetworkInstance(host, port, false)
 	}
 	instance.Scope = basev0.NetworkScope_Container
 	return instance
@@ -41,7 +41,7 @@ func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := Localhost
 	var instance *basev0.NetworkInstance
 	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
-		instance = configurations.NewHTTPNetworkInstance(host, port)
+		instance = configurations.NewHTTPNetworkInstance(host, port, false)
 	} else {
 		instance = configurations.NewNetworkInstance(host, port)
 	}
@@ -53,7 +53,7 @@ func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstan
 	host := Localhost
 	var instance *basev0.NetworkInstance
 	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
-		instance = configurations.NewHTTPNetworkInstance(host, port)
+		instance = configurations.NewHTTPNetworkInstance(host, port, false)
 	} else {
 		instance = configurations.NewNetworkInstance(host, port)
 	}
@@ -64,7 +64,7 @@ func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstan
 func DNS(_ *configurations.Service, endpoint *basev0.Endpoint, dns *basev0.DNS) *basev0.NetworkInstance {
 	var instance *basev0.NetworkInstance
 	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
-		instance = configurations.NewHTTPNetworkInstance(dns.Host, uint16(dns.Port))
+		instance = configurations.NewHTTPNetworkInstance(dns.Host, uint16(dns.Port), dns.Secured)
 	} else {
 		instance = configurations.NewNetworkInstance(dns.Host, uint16(dns.Port))
 	}

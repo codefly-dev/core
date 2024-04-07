@@ -272,12 +272,13 @@ func (docker *Docker) start(ctx context.Context) error {
 		Mounts:     docker.mounts,
 		AutoRemove: true,
 	}
-	// Set network mode to "host" only for Linux builds
-	if runtime.GOOS == "linux" {
-		hostConfig.NetworkMode = container.NetworkMode("host")
-	}
 	if docker.portMapping != nil {
 		hostConfig.PortBindings = docker.portBindings()
+	}
+
+	// Add extra host only for Linux
+	if runtime.GOOS == "linux" {
+		hostConfig.ExtraHosts = []string{"host.docker.internal:172.17.0.1"}
 	}
 	w.Debug("creating container", wool.Field("config", containerConfig.ExposedPorts), wool.Field("hostConfig", hostConfig.PortBindings))
 	// Create the container

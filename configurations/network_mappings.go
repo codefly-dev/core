@@ -15,12 +15,17 @@ func NewNetworkInstance(host string, port uint16) *basev0.NetworkInstance {
 		Address: fmt.Sprintf("%s:%d", host, port),
 	}
 }
-func NewHTTPNetworkInstance(host string, port uint16) *basev0.NetworkInstance {
-	return &basev0.NetworkInstance{
-		Host:    host,
-		Port:    uint32(port),
-		Address: fmt.Sprintf("http://%s:%d", host, port),
+func NewHTTPNetworkInstance(host string, port uint16, secured bool) *basev0.NetworkInstance {
+	instance := &basev0.NetworkInstance{
+		Host: host,
+		Port: uint32(port),
 	}
+	if secured {
+		instance.Address = fmt.Sprintf("https://%s:%d", host, port)
+	} else {
+		instance.Address = fmt.Sprintf("http://%s:%d", host, port)
+	}
+	return instance
 }
 
 func FindNetworkInstance(_ context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint, scope basev0.NetworkScope) (*basev0.NetworkInstance, error) {

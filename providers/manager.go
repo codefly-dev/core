@@ -194,10 +194,11 @@ func (manager *Manager) DNS() []*basev0.DNS {
 	return manager.dns
 }
 
-func (manager *Manager) GetDNS(_ context.Context, svc *configurations.Service, endpointName string) (*basev0.DNS, error) {
+func (manager *Manager) GetDNS(ctx context.Context, svc *configurations.Service, endpointName string) (*basev0.DNS, error) {
 	if manager == nil {
 		return nil, nil
 	}
+	w := wool.Get(ctx).In("providers.GetDNS", wool.ThisField(svc))
 	for _, dns := range manager.dns {
 		if svc.Project == dns.Project &&
 			svc.Application == dns.Application &&
@@ -206,5 +207,5 @@ func (manager *Manager) GetDNS(_ context.Context, svc *configurations.Service, e
 			return dns, nil
 		}
 	}
-	return nil, nil
+	return nil, w.NewError("no DNS found")
 }

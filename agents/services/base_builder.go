@@ -279,11 +279,11 @@ func WithDeployment(fs embed.FS, sub string) *TemplateWrapper {
 
 type DeploymentWrapper struct {
 	*DeploymentBase
-	Parameters any
+	Deployment any
 }
 
 func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.FS, k *builderv0.KubernetesDeployment, base *DeploymentBase, params any) error {
-	wrapper := &DeploymentWrapper{DeploymentBase: base, Parameters: params}
+	wrapper := &DeploymentWrapper{DeploymentBase: base, Deployment: params}
 	destination := path.Join(k.Destination, "applications", s.Service.Application, "services", s.Service.Name)
 	// Delete
 	err := shared.EmptyDir(destination)

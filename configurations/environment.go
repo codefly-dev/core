@@ -26,12 +26,15 @@ func (err *EnvironmentExistsError) Error() string {
 type Environment struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
+
+	LoadBalancer string `yaml:"loadBalancer,omitempty"`
 }
 
 func (env *Environment) Proto() (*basev0.Environment, error) {
 	proto := &basev0.Environment{
-		Name:        env.Name,
-		Description: env.Description,
+		Name:         env.Name,
+		Description:  env.Description,
+		LoadBalancer: env.LoadBalancer,
 	}
 	err := Validate(proto)
 	if err != nil {
@@ -40,10 +43,11 @@ func (env *Environment) Proto() (*basev0.Environment, error) {
 	return proto, nil
 }
 
-func EnvironmentFromProto(environment *basev0.Environment) *Environment {
+func EnvironmentFromProto(env *basev0.Environment) *Environment {
 	return &Environment{
-		Name:        environment.Name,
-		Description: environment.Description,
+		Name:         env.Name,
+		Description:  env.Description,
+		LoadBalancer: env.LoadBalancer,
 	}
 }
 
