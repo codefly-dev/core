@@ -91,7 +91,7 @@ func TestCreationProject(t *testing.T) {
 	// Check that we have the applications and providers folders
 	_, err = os.Stat(path.Join(project.Dir(), "applications"))
 	assert.NoError(t, err)
-	_, err = os.Stat(path.Join(project.Dir(), "providers"))
+	_, err = os.Stat(path.Join(project.Dir(), "configurations"))
 	assert.NoError(t, err)
 
 	// Check that we have a README

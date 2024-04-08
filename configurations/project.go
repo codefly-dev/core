@@ -2,6 +2,7 @@ package configurations
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"path/filepath"
 
@@ -397,4 +398,33 @@ func (project *Project) LoadServices(ctx context.Context) ([]*Service, error) {
 		services = append(services, appServices...)
 	}
 	return services, nil
+}
+
+type NonUniqueServiceNameError struct {
+	name string
+}
+
+func (n NonUniqueServiceNameError) Error() string {
+	return fmt.Sprintf("service name %s is not unique in project", n.name)
+}
+
+func (project *Project) FindUniqueService(ctx context.Context, name string) (*Service, error) {
+	w := wool.Get(ctx).In("Project.FindUniqueService", wool.NameField(name))
+	svcs, err := project.LoadServices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var found *Service
+	for _, svc := range svcs {
+		if svc.Name == name {
+			if found != nil {
+				return nil, w.Wrap(&NonUniqueServiceNameError{name: name})
+			}
+			found = svc
+		}
+	}
+	if found == nil {
+		return nil, w.NewError("service <%s> not found", name)
+	}
+	return found, nil
 }

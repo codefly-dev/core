@@ -332,7 +332,7 @@ func FindHTTPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev
 			return e, nil
 		}
 	}
-	return nil, fmt.Errorf("no rest endpoint found")
+	return nil, fmt.Errorf("no http endpoint found")
 }
 
 func FindTCPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {

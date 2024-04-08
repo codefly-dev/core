@@ -1,13 +1,33 @@
 # Welcome to Project {{.Name}}!
 
+## What is a project?
+
+A project is meant to be represent a monorepo of applications that are related to each other.
+
+See [Documentation](https://docs.codefly.dev/concepts/project/) for more information.
+
 ## Structure of the project
 
-The project is structured as follows:
+A project is structured as follows:
+```shell
+.
+├── applications
+│   └── foo
+│       └── services
+│           └── api
+│           └── storage
+│       └── ...
+│   └── bar
+│       └── services
+│           └── web
+│           └── auth
+├── configurations
+│   └── ...
+├── deployments
+│   └── ....
+```
+where `foo` and `bar` are applications of the project.
 
-- `./applications`
+`configurations` contains the shared configurations of the project.
 
-Contains the applications of the project. An application is a set of services that provide a specific functionality.
-
-- `./providers`
-
-Contains the providers of the project. These are global configurations can be shared by all applications and services in the project.
+`deployments` contains the deployment manifests of the project for self-managed deployments.

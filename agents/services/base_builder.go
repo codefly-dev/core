@@ -21,9 +21,11 @@ type BuilderWrapper struct {
 
 	BuildResult  *builderv0.BuildResult
 	DeployOutput *builderv0.DeploymentOutput
+
+	GettingStarted string
 }
 
-func (s *BuilderWrapper) LoadResponse(gettingStarted string) (*builderv0.LoadResponse, error) {
+func (s *BuilderWrapper) LoadResponse() (*builderv0.LoadResponse, error) {
 	if !s.loaded {
 		return s.LoadError(fmt.Errorf("not loaded"))
 	}
@@ -34,7 +36,7 @@ func (s *BuilderWrapper) LoadResponse(gettingStarted string) (*builderv0.LoadRes
 	return &builderv0.LoadResponse{
 		Version:        s.Version(),
 		Endpoints:      s.Endpoints,
-		GettingStarted: gettingStarted,
+		GettingStarted: s.GettingStarted,
 		State:          &builderv0.LoadStatus{State: builderv0.LoadStatus_READY},
 	}, nil
 }

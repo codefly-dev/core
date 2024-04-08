@@ -116,7 +116,7 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *c
 			}
 		}
 		// Generate Port
-		port := ToNamedPort(ctx, service.Application, service.Name, endpoint.Name, endpoint.Api)
+		port := ToNamedPort(ctx, service.Project, service.Application, service.Name, endpoint.Name, endpoint.Api)
 		if _, ok := m.allocatedPorts[port]; ok {
 			// Port already allocated
 			return nil, w.NewError("port %d already allocated for service %s (TODO: randomize? force override?)", port, service.Unique())

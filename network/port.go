@@ -50,8 +50,8 @@ func APIInt(api string) int {
 // 0: TCP
 // 1: HTTP/ REST
 // 2: gRPC
-func ToNamedPort(_ context.Context, app string, svc string, name string, api string) uint16 {
-	appPart := HashInt(app, 11, 49) * 1000
+func ToNamedPort(_ context.Context, project string, app string, svc string, name string, api string) uint16 {
+	appPart := HashInt(app+project, 11, 49) * 1000
 	svcPart := HashInt(app+svc, 0, 9) * 100
 	namePart := HashInt(name, 0, 9) * 10
 	port := appPart + svcPart + namePart + APIInt(api)

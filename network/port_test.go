@@ -38,7 +38,7 @@ func TestPortGeneration(t *testing.T) {
 		for j := 0; j < 10; j++ {
 			for _, api := range []string{standards.TCP, standards.HTTP, standards.GRPC} {
 				svc := gofakeit.Adjective()
-				v := network.ToNamedPort(ctx, app, svc, "test", api)
+				v := network.ToNamedPort(ctx, "project", app, svc, "test", api)
 				assert.GreaterOrEqual(t, v, uint16(11000))
 				assert.LessOrEqual(t, v, uint16(49999))
 				if appPart == nil {
@@ -53,24 +53,30 @@ func TestPortGeneration(t *testing.T) {
 		appPart = nil
 	}
 }
+func TestPortDifferentAPIName(t *testing.T) {
+	ctx := context.Background()
+	one := network.ToNamedPort(ctx, "project", "guestbook", "redis", standards.TCP, "read")
+	two := network.ToNamedPort(ctx, "project", "guestbook", "redis", standards.GRPC, "write")
+	assert.NotEqual(t, one, two)
+}
 
 func TestPortDifferentApp(t *testing.T) {
 	ctx := context.Background()
-	one := network.ToNamedPort(ctx, "test-application", "test", standards.GRPC, "grpc")
-	two := network.ToNamedPort(ctx, "test-application", "go-test", standards.GRPC, "grpc")
+	one := network.ToNamedPort(ctx, "project", "counter-python-nextjs-postgres", "store", standards.TCP, "tpc")
+	two := network.ToNamedPort(ctx, "project", "customers", "store", standards.TCP, "tpc")
 	assert.NotEqual(t, one, two)
 }
 
-func TestPortDifferentNameName(t *testing.T) {
+func TestPortDifferentService(t *testing.T) {
 	ctx := context.Background()
-	one := network.ToNamedPort(ctx, "guestbook", "redis", standards.TCP, "read")
-	two := network.ToNamedPort(ctx, "guestbook", "redis", standards.GRPC, "write")
+	one := network.ToNamedPort(ctx, "project", "customers", "other-store", standards.TCP, "tpc")
+	two := network.ToNamedPort(ctx, "project", "customers", "store", standards.TCP, "tpc")
 	assert.NotEqual(t, one, two)
 }
 
-func TestPortDifferent(t *testing.T) {
+func TestPortDifferentProject(t *testing.T) {
 	ctx := context.Background()
-	one := network.ToNamedPort(ctx, "counter-python-nextjs-postgres", "store", standards.TCP, "tpc")
-	two := network.ToNamedPort(ctx, "customers", "store", standards.TCP, "tpc")
+	one := network.ToNamedPort(ctx, "other-project", "customers", "store", standards.TCP, "tpc")
+	two := network.ToNamedPort(ctx, "project", "customers", "store", standards.TCP, "tpc")
 	assert.NotEqual(t, one, two)
 }
