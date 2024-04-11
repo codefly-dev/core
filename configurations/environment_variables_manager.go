@@ -2,6 +2,7 @@ package configurations
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -20,6 +21,10 @@ func (v EnvironmentVariable) String() string {
 
 func (v EnvironmentVariable) ValueAsString() string {
 	return fmt.Sprintf("%v", v.Value)
+}
+
+func (v EnvironmentVariable) ValueAsEncodedString() string {
+	return base64.StdEncoding.EncodeToString([]byte(v.ValueAsString()))
 }
 
 func EnvironmentVariableAsStrings(envs []EnvironmentVariable) []string {

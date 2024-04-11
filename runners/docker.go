@@ -116,8 +116,8 @@ func (docker *Docker) WithPort(port DockerPortMapping) {
 	docker.portMapping = &port
 }
 
-func (docker *Docker) WithEnvironmentVariables(envs ...string) {
-	docker.envs = append(docker.envs, envs...)
+func (docker *Docker) WithEnvironmentVariables(envs ...configurations.EnvironmentVariable) {
+	docker.envs = append(docker.envs, configurations.EnvironmentVariableAsStrings(envs)...)
 }
 
 func (docker *Docker) WithCommand(cmd ...string) {

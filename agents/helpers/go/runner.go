@@ -6,6 +6,8 @@ import (
 	"io"
 	"path"
 
+	"github.com/codefly-dev/core/configurations"
+
 	"github.com/codefly-dev/core/runners"
 
 	"github.com/codefly-dev/core/builders"
@@ -17,7 +19,7 @@ import (
 type Runner struct {
 	dir  string
 	args []string
-	envs []string
+	envs []configurations.EnvironmentVariable
 
 	// Build with debug symbols
 	debug bool
@@ -55,8 +57,8 @@ func NewRunner(ctx context.Context, dir string) (*Runner, error) {
 	}, nil
 }
 
-func (runner *Runner) WithEnvs(envs []string) *Runner {
-	runner.envs = envs
+func (runner *Runner) WithEnvs(envs []configurations.EnvironmentVariable) *Runner {
+	runner.envs = append(runner.envs, envs...)
 	return runner
 }
 
@@ -153,7 +155,9 @@ func (runner *Runner) debugCmd(ctx context.Context) error {
 	builder.WithDebug(runner.debug)
 	builder.WithEnvironmentVariables(runner.envs...)
 	if !runner.withModules {
-		builder.WithEnvironmentVariables("GO111MODULE=off", "GOCACHE="+runner.cacheDir)
+		builder.WithEnvironmentVariables(
+			configurations.Env("GO111MODULE", "off"),
+			configurations.Env("GOCACHE", runner.cacheDir))
 	}
 	builder.WithOut(runner.out)
 	err = builder.Run(ctx)
@@ -199,7 +203,9 @@ func (runner *Runner) NormalCmd(ctx context.Context) error {
 	builder.WithDebug(runner.debug)
 	builder.WithEnvironmentVariables(runner.envs...)
 	if !runner.withModules {
-		builder.WithEnvironmentVariables("GO111MODULE=off", "GOCACHE="+runner.cacheDir)
+		builder.WithEnvironmentVariables(
+			configurations.Env("GO111MODULE", "off"),
+			configurations.Env("GOCACHE", runner.cacheDir))
 	}
 	builder.WithOut(runner.out)
 	err = builder.Run(ctx)
@@ -240,4 +246,8 @@ func (runner *Runner) Stop() error {
 
 func (runner *Runner) WithCache(location string) {
 	runner.cacheDir = path.Join(location, "binaries")
+}
+
+func (runner *Runner) WithArgs(args []string) {
+	runner.args = append(runner.args, args...)
 }

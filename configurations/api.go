@@ -59,7 +59,11 @@ func ToGrpcAPI(grpc *basev0.GrpcAPI) *basev0.API {
 	}
 }
 
-func LoadGrpcAPI(_ context.Context, filename string) (*basev0.GrpcAPI, error) {
+func LoadGrpcAPI(_ context.Context, f *string) (*basev0.GrpcAPI, error) {
+	if f == nil {
+		return &basev0.GrpcAPI{}, nil
+	}
+	filename := *f
 	// Read the file content
 	content, err := os.ReadFile(filename)
 	if err != nil {
@@ -96,10 +100,14 @@ func ToRestAPI(rest *basev0.RestAPI) *basev0.API {
 	}
 }
 
-func LoadRestAPI(ctx context.Context, filename string) (*basev0.RestAPI, error) {
+func LoadRestAPI(ctx context.Context, f *string) (*basev0.RestAPI, error) {
 	w := wool.Get(ctx).In("endpoints.NewRestAPIFromOpenAPI")
-	if !shared.FileExists(filename) {
+	if f == nil {
 		return &basev0.RestAPI{}, nil
+	}
+	filename := *f
+	if !shared.FileExists(filename) {
+		return &basev0.RestAPI{}, w.NewError("file does not exist")
 	}
 	// Read the file content
 	content, err := os.ReadFile(filename)

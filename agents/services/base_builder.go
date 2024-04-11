@@ -3,10 +3,8 @@ package services
 import (
 	"context"
 	"embed"
-	"encoding/base64"
 	"fmt"
 	"path"
-	"strings"
 
 	"github.com/codefly-dev/core/wool"
 
@@ -204,34 +202,18 @@ type DeploymentParameters struct {
 	Parameters any
 }
 
-func EnvsAsConfigMapData(envs ...string) (EnvironmentMap, error) {
+func EnvsAsConfigMapData(envs ...configurations.EnvironmentVariable) (EnvironmentMap, error) {
 	m := make(EnvironmentMap)
 	for _, env := range envs {
-		key, value, err := ToKeyAndValue(env)
-		if err != nil {
-			return nil, err
-		}
-		m[key] = value
+		m[env.Key] = env.ValueAsString()
 	}
 	return m, nil
 }
 
-func ToKeyAndValue(env string) (string, string, error) {
-	split := strings.SplitN(env, "=", 2)
-	if len(split) != 2 {
-		return "", "", fmt.Errorf("invalid env: %s", env)
-	}
-	return split[0], split[1], nil
-}
-
-func EnvsAsSecretData(envs ...string) (EnvironmentMap, error) {
+func EnvsAsSecretData(envs ...configurations.EnvironmentVariable) (EnvironmentMap, error) {
 	m := make(EnvironmentMap)
 	for _, env := range envs {
-		key, value, err := ToKeyAndValue(env)
-		if err != nil {
-			return nil, err
-		}
-		m[key] = base64.StdEncoding.EncodeToString([]byte(value))
+		m[env.Key] = env.ValueAsEncodedString()
 	}
 	return m, nil
 }

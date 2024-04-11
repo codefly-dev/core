@@ -12,6 +12,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -69,8 +70,8 @@ func (runner *Process) WithDir(dir string) *Process {
 	return runner
 }
 
-func (runner *Process) WithEnvironmentVariables(envs ...string) *Process {
-	runner.envs = append(runner.envs, envs...)
+func (runner *Process) WithEnvironmentVariables(envs ...configurations.EnvironmentVariable) *Process {
+	runner.envs = append(runner.envs, configurations.EnvironmentVariableAsStrings(envs)...)
 	return runner
 }
 

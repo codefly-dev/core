@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	"github.com/codefly-dev/core/wool"
 )
 
 const ConfigurationProjectOrigin = "_project.configuration"
@@ -15,11 +16,21 @@ const ProjectSecretConfigurationPrefix = "CODEFLY__PROJECT_SECRET_CONFIGURATION"
 const ServiceConfigurationPrefix = "CODEFLY__SERVICE_CONFIGURATION"
 const ServiceSecretConfigurationPrefix = "CODEFLY__SERVICE_SECRET_CONFIGURATION"
 
-func GetConfigurationValue(_ context.Context, configuration *basev0.Configuration, name string, key string) (string, error) {
-	if configuration == nil {
-		return "", fmt.Errorf("configuration is nil")
+func HasConfigurationInformation(_ context.Context, conf *basev0.Configuration, name string) bool {
+	for _, info := range conf.Configurations {
+		if info.Name == name {
+			return true
+		}
 	}
-	for _, info := range configuration.Configurations {
+	return false
+}
+
+func GetConfigurationValue(ctx context.Context, conf *basev0.Configuration, name string, key string) (string, error) {
+	w := wool.Get(ctx).In("GetConfigurationValue")
+	if conf == nil {
+		return "", w.NewError("configuration is nil")
+	}
+	for _, info := range conf.Configurations {
 		if info.Name == name {
 			for _, value := range info.ConfigurationValues {
 				if value.Key == key {

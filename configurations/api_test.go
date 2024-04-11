@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/codefly-dev/core/shared"
+
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 
 	"github.com/stretchr/testify/assert"
@@ -13,7 +15,7 @@ import (
 
 func TestREST(t *testing.T) {
 	ctx := context.Background()
-	rest, err := configurations.LoadRestAPI(ctx, "testdata/endpoints/basic/openapi/api.json")
+	rest, err := configurations.LoadRestAPI(ctx, shared.Pointer("testdata/endpoints/basic/openapi/api.json"))
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(rest.Groups)) // 2 Paths
 	var routes []*basev0.RestRoute
@@ -25,7 +27,7 @@ func TestREST(t *testing.T) {
 
 func TestGRPC(t *testing.T) {
 	ctx := context.Background()
-	grpc, err := configurations.LoadGrpcAPI(ctx, "testdata/endpoints/basic/proto/api.proto")
+	grpc, err := configurations.LoadGrpcAPI(ctx, shared.Pointer("testdata/endpoints/basic/proto/api.proto"))
 	assert.NoError(t, err)
 	assert.Equal(t, "management.organization", grpc.Package)
 	assert.Equal(t, 4, len(grpc.Rpcs)) // 4 RPCs

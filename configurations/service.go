@@ -490,7 +490,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 		switch ed.API {
 		case standards.REST:
 			w.Debug("loading rest endpoint", wool.PathField(standards.OpenAPIPath))
-			rest, err := LoadRestAPI(ctx, s.Local(standards.OpenAPIPath))
+			rest, err := LoadRestAPI(ctx, shared.Pointer(s.Local(standards.OpenAPIPath)))
 			if err != nil {
 				multi = multierror.Append(multi, err)
 				continue
@@ -499,7 +499,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 			out = append(out, base)
 		case standards.GRPC:
 			w.Debug("loading grpc endpoint", wool.PathField(standards.ProtoPath))
-			grpc, err := LoadGrpcAPI(ctx, s.Local(standards.ProtoPath))
+			grpc, err := LoadGrpcAPI(ctx, shared.Pointer(s.Local(standards.ProtoPath)))
 			if err != nil {
 				multi = multierror.Append(multi, err)
 				continue

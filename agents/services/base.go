@@ -55,7 +55,6 @@ type Base struct {
 	Endpoints           []*basev0.Endpoint
 	DependencyEndpoints []*basev0.Endpoint
 
-	// NetworkMappings
 	NetworkMappings []*basev0.NetworkMapping
 
 	// EnvironmentVariables
