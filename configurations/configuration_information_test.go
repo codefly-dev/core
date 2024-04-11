@@ -54,21 +54,19 @@ func TestConfigurationEnvironmentVariableKey(t *testing.T) {
 }
 
 func TestProjectConfigurationsAsEnvironmentVariables(t *testing.T) {
-	env := configurations.ConfigurationAsEnvironmentVariables(projectConf, false)
-	assert.Len(t, env, 1)
+	envs := configurations.ConfigurationAsEnvironmentVariables(projectConf, false)
+	assert.Len(t, envs, 1)
 	needs := fmt.Sprintf("CODEFLY__PROJECT_CONFIGURATION__SOMETHING__GLOBAL=%s", "true")
-	assert.Contains(t, env, needs)
+	assert.Contains(t, configurations.EnvironmentVariableAsStrings(envs), needs)
 }
 
 func TestServiceConfigurationsAsEnvironmentVariables(t *testing.T) {
-	env := configurations.ConfigurationAsEnvironmentVariables(serviceConf, true)
-	assert.Len(t, env, 1)
-	env = append(env, configurations.ConfigurationAsEnvironmentVariables(serviceConf, false)...)
+	envs := configurations.ConfigurationAsEnvironmentVariables(serviceConf, true)
+	assert.Len(t, envs, 1)
+	envs = append(envs, configurations.ConfigurationAsEnvironmentVariables(serviceConf, false)...)
 	needs := []string{
 		fmt.Sprintf("CODEFLY__SERVICE_CONFIGURATION__APP__SVC__CONNECTION__URL=%s", "http://localhost:8080"),
 		fmt.Sprintf("CODEFLY__SERVICE_SECRET_CONFIGURATION__APP__SVC__CONNECTION__PASSWORD=%s", "admin"),
 	}
-	for _, need := range needs {
-		assert.Contains(t, env, need)
-	}
+	assert.ElementsMatch(t, configurations.EnvironmentVariableAsStrings(envs), needs)
 }

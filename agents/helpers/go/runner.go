@@ -37,6 +37,11 @@ type Runner struct {
 	withModules bool
 }
 
+func (runner *Runner) Run(_ context.Context) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 func NewRunner(ctx context.Context, dir string) (*Runner, error) {
 	if ok, err := shared.CheckDirectory(ctx, dir); err != nil || !ok {
 		return nil, fmt.Errorf("directory %s does not exist", dir)
@@ -204,9 +209,9 @@ func (runner *Runner) NormalCmd(ctx context.Context) error {
 	return nil
 }
 
-func (runner *Runner) Start(ctx context.Context, args ...string) error {
+func (runner *Runner) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("go/runner")
-	worker, err := runners.NewProcess(ctx, runner.target, args...)
+	worker, err := runners.NewProcess(ctx, runner.target, runner.args...)
 	if err != nil {
 		return w.Wrapf(err, "can't create runner")
 	}

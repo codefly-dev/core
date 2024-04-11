@@ -5,30 +5,54 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/codefly-dev/core/configurations/standards"
+
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
-func NewNetworkInstance(host string, port uint16) *basev0.NetworkInstance {
-	return &basev0.NetworkInstance{
-		Host:    host,
-		Port:    uint32(port),
-		Address: fmt.Sprintf("%s:%d", host, port),
-	}
+type NetworkInstance struct {
+	Port     uint16
+	Hostname string
+	Host     string
+	Address  string
 }
-func NewHTTPNetworkInstance(host string, port uint16, secured bool) *basev0.NetworkInstance {
-	instance := &basev0.NetworkInstance{
-		Host: host,
-		Port: uint32(port),
+
+func DefaultNetworkInstance(api string) *NetworkInstance {
+	instance := &NetworkInstance{
+		Port:     standards.Port(api),
+		Hostname: "localhost",
+		Host:     fmt.Sprintf("localhost:%d", standards.Port(api)),
+		Address:  fmt.Sprintf("localhost:%d", standards.Port(api)),
 	}
-	if secured {
-		instance.Address = fmt.Sprintf("https://%s:%d", host, port)
-	} else {
-		instance.Address = fmt.Sprintf("http://%s:%d", host, port)
+	if api == standards.REST || api == standards.HTTP {
+		instance.Address = fmt.Sprintf("http://localhost:%d", standards.Port(api))
 	}
 	return instance
 }
 
-func FindNetworkInstance(_ context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint, scope basev0.NetworkScope) (*basev0.NetworkInstance, error) {
+func NewNetworkInstance(hostname string, port uint16) *basev0.NetworkInstance {
+	return &basev0.NetworkInstance{
+		Hostname: hostname,
+		Host:     fmt.Sprintf("%s:%d", hostname, port),
+		Port:     uint32(port),
+		Address:  fmt.Sprintf("%s:%d", hostname, port),
+	}
+}
+func NewHTTPNetworkInstance(hostname string, port uint16, secured bool) *basev0.NetworkInstance {
+	instance := &basev0.NetworkInstance{
+		Hostname: hostname,
+		Port:     uint32(port),
+		Host:     fmt.Sprintf("%s:%d", hostname, port),
+	}
+	if secured {
+		instance.Address = fmt.Sprintf("https://%s:%d", hostname, port)
+	} else {
+		instance.Address = fmt.Sprintf("http://%s:%d", hostname, port)
+	}
+	return instance
+}
+
+func FindNetworkInstanceInNetworkMappings(_ context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint, scope basev0.NetworkScope) (*basev0.NetworkInstance, error) {
 	if endpoint == nil {
 		return nil, fmt.Errorf("can't find network instance for a nil endpoint")
 	}

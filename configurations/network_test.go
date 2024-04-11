@@ -7,20 +7,21 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestPortFromAddress(t *testing.T) {
+func TestParsingFromAddress(t *testing.T) {
 	tcs := []struct {
-		address string
-		port    uint16
+		address  string
+		hostname string
+		port     uint16
 	}{
-		{"localhost:8080", 8080},
-		{"http://localhost:8080/tcp", 8080},
-		{"grp://localhost:8080", 8080},
+		{"localhost:8080", "localhost", 8080},
+		{"http://localhost:8080", "localhost", 8080},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.address, func(t *testing.T) {
-			port, err := configurations.PortFromAddress(tc.address)
+			add, err := configurations.ParseAddress(tc.address)
 			assert.NoError(t, err)
-			assert.Equal(t, tc.port, port)
+			assert.Equal(t, tc.port, add.Port)
+			assert.Equal(t, tc.hostname, add.Hostname)
 		})
 	}
 }

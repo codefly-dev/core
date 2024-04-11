@@ -58,6 +58,6 @@ func TestEnvironmentVariables(t *testing.T) {
 	assert.NoError(t, err)
 
 	env := configurations.EndpointAsEnvironmentVariable(rest, instance)
-	assert.Equal(t, fmt.Sprintf("CODEFLY__ENDPOINT__MANAGEMENT__ORGANIZATION__REST__REST=%s", instance.Address), env)
+	assert.Equal(t, fmt.Sprintf("CODEFLY__ENDPOINT__MANAGEMENT__ORGANIZATION__REST__REST=%s", instance.Address), env.String())
 
 }

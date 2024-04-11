@@ -303,7 +303,7 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.
 }
 
 func (s *BuilderWrapper) NetworkInstance(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkInstance, error) {
-	return configurations.FindNetworkInstance(ctx, mappings, endpoint, basev0.NetworkScope_Container)
+	return configurations.FindNetworkInstanceInNetworkMappings(ctx, mappings, endpoint, basev0.NetworkScope_Container)
 }
 
 func (s *BuilderWrapper) LogInitRequest(req *builderv0.InitRequest) {

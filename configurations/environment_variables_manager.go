@@ -9,6 +9,27 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
+type EnvironmentVariable struct {
+	Key   string
+	Value any
+}
+
+func (v EnvironmentVariable) String() string {
+	return fmt.Sprintf("%s=%v", v.Key, v.Value)
+}
+
+func (v EnvironmentVariable) ValueAsString() string {
+	return fmt.Sprintf("%v", v.Value)
+}
+
+func EnvironmentVariableAsStrings(envs []EnvironmentVariable) []string {
+	var result []string
+	for _, env := range envs {
+		result = append(result, env.String())
+	}
+	return result
+}
+
 type EnvironmentVariableManager struct {
 	networkScope basev0.NetworkScope
 
@@ -28,17 +49,25 @@ func NewEnvironmentVariableManager() *EnvironmentVariableManager {
 
 func (holder *EnvironmentVariableManager) SetEnvironment(environment *basev0.Environment) {
 	holder.environment = environment
+}
 
+const RunningPrefix = "CODEFLY__RUNNING"
+
+func Env(key string, value any) EnvironmentVariable {
+	return EnvironmentVariable{
+		Key:   key,
+		Value: value,
+	}
 }
 
 func (holder *EnvironmentVariableManager) SetNetworkScope(scope basev0.NetworkScope) {
 	holder.networkScope = scope
 }
 
-func (holder *EnvironmentVariableManager) getBase() []string {
-	var envs []string
+func (holder *EnvironmentVariableManager) getBase() []EnvironmentVariable {
+	var envs []EnvironmentVariable
 	if holder.running {
-		envs = append(envs, "CODEFLY__RUNNING=true")
+		envs = append(envs, Env(RunningPrefix, true))
 
 	}
 	if holder.environment != nil {
@@ -54,7 +83,7 @@ func (holder *EnvironmentVariableManager) getBase() []string {
 	return envs
 }
 
-func (holder *EnvironmentVariableManager) All() []string {
+func (holder *EnvironmentVariableManager) All() []EnvironmentVariable {
 	envs := holder.getBase()
 	for _, conf := range holder.configurations {
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
@@ -63,7 +92,7 @@ func (holder *EnvironmentVariableManager) All() []string {
 	return envs
 }
 
-func (holder *EnvironmentVariableManager) Configurations() []string {
+func (holder *EnvironmentVariableManager) Configurations() []EnvironmentVariable {
 	envs := holder.getBase()
 	for _, conf := range holder.configurations {
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
@@ -71,8 +100,8 @@ func (holder *EnvironmentVariableManager) Configurations() []string {
 	return envs
 }
 
-func (holder *EnvironmentVariableManager) Secrets() []string {
-	var envs []string
+func (holder *EnvironmentVariableManager) Secrets() []EnvironmentVariable {
+	var envs []EnvironmentVariable
 	for _, conf := range holder.configurations {
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, true)...)
 	}
@@ -107,6 +136,29 @@ func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mapp
 	}
 	w.Debug("added # public endpoints", wool.SliceCountField(holder.endpoints))
 	return nil
+}
+
+func FindNetworkInstanceInEnvironmentVariables(ctx context.Context, endpointInfo *EndpointInformation, envs []string) (*NetworkInstance, error) {
+	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.FindNetworkInstance")
+	// Create the env key
+	key := EndpointAsEnvironmentVariableKey(endpointInfo)
+	w.Trace("searching for network instance", wool.NameField(key))
+	for _, env := range envs {
+		if after, found := strings.CutPrefix(env, fmt.Sprintf("%s=", key)); found {
+			return ParseAddress(after)
+		}
+	}
+	return nil, w.NewError("no network instance found")
+}
+
+func FindValueInEnvironmentVariables(ctx context.Context, key string, envs []string) (string, error) {
+	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.FindValueInEnvironmentVariables")
+	for _, env := range envs {
+		if after, found := strings.CutPrefix(env, fmt.Sprintf("%s=", key)); found {
+			return after, nil
+		}
+	}
+	return "", w.NewError("no value found")
 }
 
 type RestRouteAccess struct {
@@ -149,8 +201,8 @@ func (holder *EnvironmentVariableManager) SetRunning(b bool) {
 
 const EnvironmentPrefix = "CODEFLY_ENVIRONMENT"
 
-func EnvironmentAsEnvironmentVariable(env *basev0.Environment) string {
-	return fmt.Sprintf("%s=%s", EnvironmentPrefix, env.Name)
+func EnvironmentAsEnvironmentVariable(env *basev0.Environment) EnvironmentVariable {
+	return Env(EnvironmentPrefix, env.Name)
 }
 
 func IsLocal(environment *basev0.Environment) bool {
@@ -159,22 +211,26 @@ func IsLocal(environment *basev0.Environment) bool {
 
 const EndpointPrefix = "CODEFLY__ENDPOINT"
 
-func EndpointAsEnvironmentVariableKey(endpoint *EndpointInformation) string {
-	return strings.ToUpper(fmt.Sprintf("%s__%s__%s__%s", endpoint.Application, endpoint.Service, endpoint.Name, endpoint.API))
+func EndpointAsEnvironmentVariableKeyBase(info *EndpointInformation) string {
+	return strings.ToUpper(fmt.Sprintf("%s__%s__%s__%s", info.Application, info.Service, info.Name, info.API))
 }
 
-func EndpointAsEnvironmentVariable(endpoint *basev0.Endpoint, instance *basev0.NetworkInstance) string {
+func EndpointAsEnvironmentVariableKey(info *EndpointInformation) string {
+	return strings.ToUpper(fmt.Sprintf("%s__%s", EndpointPrefix, EndpointAsEnvironmentVariableKeyBase(info)))
+}
+
+func EndpointAsEnvironmentVariable(endpoint *basev0.Endpoint, instance *basev0.NetworkInstance) EnvironmentVariable {
 	value := instance.Address
-	env := fmt.Sprintf("%s__%s=%s", EndpointPrefix, EndpointAsEnvironmentVariableKey(EndpointInformationFromProto(endpoint)), value)
-	return env
+	key := EndpointAsEnvironmentVariableKey(EndpointInformationFromProto(endpoint))
+	return Env(key, value)
 }
 
 const ConfigurationPrefix = "CODEFLY__CONFIGURATION"
 
 // ConfigurationAsEnvironmentVariables converts a configuration to a list of environment variables
 // the secret flag decides if we return secret or regular values
-func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool) []string {
-	var env []string
+func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool) []EnvironmentVariable {
+	var env []EnvironmentVariable
 	confKey := ConfigurationEnvironmentKeyPrefix(conf)
 	for _, info := range conf.Configurations {
 		infoKey := fmt.Sprintf("%s__%s", confKey, NameToKey(info.Name))
@@ -184,11 +240,11 @@ func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool
 			if secret {
 				if value.Secret {
 					key = strings.Replace(key, "_CONFIGURATION__", "_SECRET_CONFIGURATION__", 1)
-					env = append(env, fmt.Sprintf("%s=%s", key, value.Value))
+					env = append(env, Env(key, value.Value))
 				}
 			} else {
 				if !value.Secret {
-					env = append(env, fmt.Sprintf("%s=%s", key, value.Value))
+					env = append(env, Env(key, value.Value))
 				}
 			}
 		}
@@ -196,14 +252,22 @@ func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool
 	return env
 }
 
+func ServiceConfigurationKeyFromUnique(unique string, name string, key string) string {
+	k := fmt.Sprintf("%s__%s__%s", ServiceConfigurationEnvironmentKeyPrefixFromUnique(unique), name, key)
+	return strings.ToUpper(k)
+}
+
 func ServiceConfigurationKey(service *Service, name string, key string) string {
-	k := fmt.Sprintf("%s__%s__%s", ServiceConfigurationEnvironmentKeyPrefixFromUnique(service.Unique()), name, key)
+	return ServiceConfigurationKeyFromUnique(service.Unique(), name, key)
+}
+
+func ServiceSecretConfigurationKeyFromUnique(unique string, name string, key string) string {
+	k := fmt.Sprintf("%s__%s__%s", ServiceSecretConfigurationEnvironmentKeyPrefixFromUnique(unique), name, key)
 	return strings.ToUpper(k)
 }
 
 func ServiceSecretConfigurationKey(service *Service, name string, key string) string {
-	k := fmt.Sprintf("%s__%s__%s", ServiceSecretConfigurationEnvironmentKeyPrefixFromUnique(service.Unique()), name, key)
-	return strings.ToUpper(k)
+	return ServiceSecretConfigurationKeyFromUnique(service.Unique(), name, key)
 }
 
 func NameToKey(name string) string {
@@ -233,12 +297,12 @@ func UniqueToKey(origin string) string {
 
 const RestRoutePrefix = "CODEFLY__REST_ROUTE"
 
-func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.RestRoute) string {
-	return fmt.Sprintf("%s=%s", RestRouteEnvironmentVariableKey(EndpointInformationFromProto(endpoint), route), endpoint.Visibility)
+func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.RestRoute) EnvironmentVariable {
+	return Env(RestRouteEnvironmentVariableKey(EndpointInformationFromProto(endpoint), route), endpoint.Visibility)
 }
 
-func RestRouteEnvironmentVariableKey(endpoint *EndpointInformation, route *basev0.RestRoute) string {
-	key := EndpointAsEnvironmentVariableKey(endpoint)
+func RestRouteEnvironmentVariableKey(info *EndpointInformation, route *basev0.RestRoute) string {
+	key := EndpointAsEnvironmentVariableKeyBase(info)
 	// Add path
 	key = fmt.Sprintf("%s__%s", RestRoutePrefix, key)
 	key = fmt.Sprintf("%s___%s", key, sanitizePath(route.Path))

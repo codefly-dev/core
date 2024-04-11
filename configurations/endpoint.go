@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/codefly-dev/core/configurations/standards"
 	"github.com/codefly-dev/core/wool"
@@ -104,34 +105,34 @@ func EndpointInformationFromProto(endpoint *basev0.Endpoint) *EndpointInformatio
 }
 
 // This is the format to override endpoints
-//
-// func ParseEndpoint(unique string) (*EndpointInformation, error) {
-//	// Do we have the explicit APIva
-//	endpoint := &EndpointInformation{}
-//	if strings.Contains(unique, "::") {
-//		tokens := strings.Split(unique, "::")
-//		if len(tokens) != 2 {
-//			return nil, fmt.Errorf("info needs to be of the form app/svc/info::api")
-//		}
-//		endpoint.API = tokens[1]
-//		endpoint.Name = endpoint.API
-//		unique = tokens[0]
-//	}
-//
-//	tokens := strings.Split(unique, "/")
-//	if len(tokens) == 3 {
-//		unique = strings.Join(tokens[:2], "/")
-//		endpoint.Name = tokens[2]
-//	}
-//	in, err := ParseServiceUnique(unique)
-//	if err != nil {
-//		return nil, err
-//	}
-//	endpoint.Service = in.Name
-//	endpoint.Application = in.Application
-//
-//	return endpoint, nil
-// }
+
+func ParseEndpoint(unique string) (*EndpointInformation, error) {
+	// Do we have the explicit APIva
+	endpoint := &EndpointInformation{}
+	if strings.Contains(unique, "::") {
+		tokens := strings.Split(unique, "::")
+		if len(tokens) != 2 {
+			return nil, fmt.Errorf("info needs to be of the form app/svc/info::api")
+		}
+		endpoint.API = tokens[1]
+		endpoint.Name = endpoint.API
+		unique = tokens[0]
+	}
+
+	tokens := strings.Split(unique, "/")
+	if len(tokens) == 3 {
+		unique = strings.Join(tokens[:2], "/")
+		endpoint.Name = tokens[2]
+	}
+	in, err := ParseServiceUnique(unique)
+	if err != nil {
+		return nil, err
+	}
+	endpoint.Service = in.Name
+	endpoint.Application = in.Application
+
+	return endpoint, nil
+}
 
 func (endpoint *Endpoint) AsReference() *EndpointReference {
 	return &EndpointReference{
@@ -317,6 +318,15 @@ func EndpointHash(ctx context.Context, endpoints ...*basev0.Endpoint) (string, e
 	return hasher.Hash(), nil
 }
 
+func FindGRPCEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	for _, e := range endpoints {
+		if IsGRPC(ctx, e) != nil {
+			return e, nil
+		}
+	}
+	return nil, fmt.Errorf("no grpc endpoint found")
+}
+
 func FindRestEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
 	for _, e := range endpoints {
 		if IsRest(ctx, e) != nil {
@@ -356,7 +366,7 @@ func FindTCPEndpointWithName(ctx context.Context, name string, endpoints []*base
 	return nil, fmt.Errorf("no tcp endpoint found")
 }
 
-func HasPublicEndoints(endpoints []*basev0.Endpoint) bool {
+func HasPublicEndpoints(endpoints []*basev0.Endpoint) bool {
 	for _, endpoint := range endpoints {
 		if endpoint.Visibility == VisibilityPublic {
 			return true

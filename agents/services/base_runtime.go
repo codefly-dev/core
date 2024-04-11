@@ -158,7 +158,7 @@ func (s *RuntimeWrapper) DesiredStart() {
 }
 
 func (s *RuntimeWrapper) NetworkInstance(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkInstance, error) {
-	return configurations.FindNetworkInstance(ctx, mappings, endpoint, s.Scope)
+	return configurations.FindNetworkInstanceInNetworkMappings(ctx, mappings, endpoint, s.Scope)
 }
 
 func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {

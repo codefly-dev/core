@@ -181,21 +181,21 @@ func parseAgent(ctx context.Context, k AgentKind, s string) (*basev0.Agent, erro
 	}
 	tokens = strings.Split(rest, ":")
 	if len(tokens) > 2 || len(tokens) == 0 {
-		return nil, fmt.Errorf("invalid agent Name (should be of the form identifier:version): %s", s)
+		return nil, fmt.Errorf("invalid agent Name (should be of the form identifier:ver): %s", s)
 	}
 	identifier := tokens[0]
-	version := "latest"
+	ver := "latest"
 	if len(tokens) == 1 {
-		w.Warn("no version specified, using latest")
+		w.Warn("no version for agent specified, using latest")
 	} else {
-		version = tokens[1]
+		ver = tokens[1]
 	}
 	kind, err := agentKindFromProto(k)
 	if err != nil {
 		return nil, err
 	}
 
-	agent := &basev0.Agent{Kind: kind, Publisher: pub, Name: identifier, Version: version}
+	agent := &basev0.Agent{Kind: kind, Publisher: pub, Name: identifier, Version: ver}
 	v, err := protovalidate.New()
 	if err != nil {
 		return nil, err
