@@ -235,6 +235,16 @@ func (s *ServiceIdentity) AsResource() *wool.Resource {
 		Resource: r}
 }
 
+func (s *ServiceIdentity) AsAgentResource() *wool.Resource {
+	r := resource.NewSchemaless()
+	return &wool.Resource{
+		Identifier: &wool.Identifier{
+			Kind:   "agent",
+			Unique: s.Unique(),
+		},
+		Resource: r}
+}
+
 func (s *ServiceIdentity) Clone() *ServiceIdentity {
 	return &ServiceIdentity{
 		Name:        s.Name,

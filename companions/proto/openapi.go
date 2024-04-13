@@ -26,7 +26,7 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 		return w.Wrapf(err, "cannot get companion image")
 	}
 	// Create a tmp dir for the proto
-	swaggerDir, err := os.MkdirTemp("", "openapi")
+	openapiDir, err := os.MkdirTemp("", "openapi")
 	if err != nil {
 		return w.Wrapf(err, "cannot create tmp dir")
 	}
@@ -35,7 +35,7 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 		if err != nil {
 			w.Error("cannot remove tmp dir", wool.Field("path", path))
 		}
-	}(swaggerDir)
+	}(openapiDir)
 
 	// Add the proto stuff
 	var files []string
@@ -46,7 +46,7 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 			unique = fmt.Sprintf("%s_%s", endpoint.Application, endpoint.Service)
 			file = fmt.Sprintf("%s_%s.rest", unique, endpoint.Name)
 			files = append(files, file)
-			err = os.WriteFile(filepath.Join(swaggerDir, file), rest.Openapi, 0600)
+			err = os.WriteFile(filepath.Join(openapiDir, file), rest.Openapi, 0600)
 			if err != nil {
 				return w.Wrapf(err, "cannot write open api file")
 			}
@@ -61,13 +61,13 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 	}
 	switch language {
 	case languages.GO:
-		return generateOpenAPIGo(ctx, unique, image, destination, swaggerDir, file)
+		return generateOpenAPIGo(ctx, unique, image, destination, openapiDir, file)
 	default:
 		return w.Wrapf(err, "language not supported")
 	}
 }
 
-func generateOpenAPIGo(ctx context.Context, unique string, image string, destinationDir string, swaggerDir, file string) error {
+func generateOpenAPIGo(ctx context.Context, unique string, image *configurations.DockerImage, destinationDir string, openapiDir, file string) error {
 	w := wool.Get(ctx).In("generateOpenAPIGo", wool.Field("destinationDir", destinationDir))
 	w.Info("generating openapi go client", wool.Field("file", file))
 	// We need to go back to the root to find the go mod and mount this as a volume
@@ -81,30 +81,27 @@ func generateOpenAPIGo(ctx context.Context, unique string, image string, destina
 		return w.Wrapf(err, "cannot find relative path")
 	}
 
-	fileVolume := fmt.Sprintf("%s:/workspace/swagger", swaggerDir)
-	rootVolume := fmt.Sprintf("%s:/workspace", root)
+	openapiFile := filepath.Join("/workspace/openapi", file)
 
-	swaggerFile := filepath.Join("/workspace/swagger", file)
+	runner, err := runners.NewDocker(ctx, image)
+	if err != nil {
+		return w.Wrapf(err, "cannot create docker runner")
+	}
+	runner.WithMount(openapiDir, "/workspace/openapi")
+	runner.WithMount(root, "/workspace")
+	runner.WithWorkDir("/workspace")
 
-	runner, err := runners.NewProcess(ctx, "docker", "run", "--rm",
-		"-v", rootVolume,
-		"-v", fileVolume,
-		"-w", "/workspace",
-		image,
+	runner.WithCommand(
 		"swagger",
 		"generate",
 		"client",
 		"-f",
-		swaggerFile,
+		openapiFile,
 		"-A",
 		unique,
 		"--target",
 		target,
 	)
-	if err != nil {
-		return w.Wrapf(err, "can't create runner")
-	}
-	runner.WithDir(root)
 	err = runner.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")

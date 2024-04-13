@@ -3,7 +3,9 @@ package runners
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -80,8 +82,12 @@ func (runner *Process) WithDebug(debug bool) *Process {
 	return runner
 }
 
-func (runner *Process) WithOut(out io.Writer) {
+func (runner *Process) WithOut(out io.Writer) error {
+	if out == nil {
+		return fmt.Errorf("cannot set nil writer")
+	}
 	runner.out = out
+	return nil
 }
 
 func (runner *Process) Init(_ context.Context) error {
@@ -112,7 +118,8 @@ func (runner *Process) Run(ctx context.Context) error {
 	if runner.dir != "" {
 		runner.cmd.Dir = runner.dir
 	}
-	runner.cmd.Env = runner.envs
+	runner.cmd.Env = os.Environ()
+	runner.cmd.Env = append(runner.cmd.Env, runner.envs...)
 
 	err = runner.cmd.Run()
 
@@ -151,9 +158,9 @@ func (runner *Process) ForwardLogs(reader io.Reader) {
 				for scanner.Scan() {
 					output <- []byte(strings.TrimSpace(scanner.Text()))
 				}
-				if err := scanner.Err(); err != nil {
-					output <- []byte(strings.TrimSpace(err.Error()))
-				}
+				//if err := scanner.Err(); err != nil {
+				//	output <- []byte(strings.TrimSpace(err.Error()))
+				//}
 
 			}
 		}
@@ -245,7 +252,8 @@ func (runner *Process) Start(ctx context.Context) error {
 		runner.cmd.Dir = runner.dir
 	}
 
-	runner.cmd.Env = runner.envs
+	runner.cmd.Env = os.Environ()
+	runner.cmd.Env = append(runner.cmd.Env, runner.envs...)
 
 	err = runner.cmd.Start()
 	if err != nil {

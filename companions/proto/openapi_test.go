@@ -1,5 +1,3 @@
-//go:build flaky
-
 package proto_test
 
 import (
@@ -20,18 +18,22 @@ func TestGenerateSwagger(t *testing.T) {
 	// Load some endpoints
 	ctx := context.Background()
 	wool.SetGlobalLogLevel(wool.DEBUG)
-	dir, err := shared.SolvePath("testdata/swagger.json")
+	f, err := shared.SolvePath("testdata/api.json")
 	assert.NoError(t, err)
-	rest, err := configurations.NewRestAPIFromOpenAPI(ctx, &configurations.Endpoint{Application: "web", Service: "api", Name: "api", Visibility: "private"}, dir)
+
+	ep := &configurations.Endpoint{Application: "web", Service: "api", Name: "api", Visibility: "private"}
+	rest, err := configurations.LoadRestAPI(ctx, shared.Pointer(f))
+	assert.NoError(t, err)
+	api, err := configurations.NewAPI(ctx, ep, configurations.ToRestAPI(rest))
 	assert.NoError(t, err)
 
 	// Destination needs to be inside this package
 	destination, err := shared.SolvePath("testdata")
 	assert.NoError(t, err)
-	destination = path.Join(destination, "swagger")
+	destination = path.Join(destination, "openapi")
 
 	defer os.RemoveAll(destination)
-	err = proto.GenerateOpenAPI(ctx, languages.GO, destination, "web/api", rest)
+	err = proto.GenerateOpenAPI(ctx, languages.GO, destination, "web/api", api)
 	assert.NoError(t, err)
 
 	// Make sure we have the dirs

@@ -43,6 +43,10 @@ func (env *Environment) Proto() (*basev0.Environment, error) {
 	return proto, nil
 }
 
+func (env *Environment) Local() bool {
+	return env.Name == "local"
+}
+
 func EnvironmentFromProto(env *basev0.Environment) *Environment {
 	return &Environment{
 		Name:         env.Name,

@@ -1,5 +1,3 @@
-//go:build flaky
-
 package proto_test
 
 import (
@@ -7,6 +5,8 @@ import (
 	"os"
 	"path"
 	"testing"
+
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/companions/proto"
 	"github.com/codefly-dev/core/configurations"
@@ -16,11 +16,15 @@ import (
 )
 
 func TestGenerateGRPC(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
 	// Load some endpoints
 	ctx := context.Background()
-	dir, err := shared.SolvePath("testdata/api.proto")
+	f, err := shared.SolvePath("testdata/api.proto")
 	assert.NoError(t, err)
-	grpc, err := configurations.NewGrpcAPI(ctx, &configurations.Endpoint{Application: "app", Service: "svc", Name: "api", Visibility: "private"}, dir)
+	ep := &configurations.Endpoint{Application: "app", Service: "svc", Name: "api", Visibility: "private"}
+	api, err := configurations.LoadGrpcAPI(ctx, shared.Pointer(f))
+	assert.NoError(t, err)
+	grpc, err := configurations.NewAPI(ctx, ep, configurations.ToGrpcAPI(api))
 	assert.NoError(t, err)
 	destination := t.TempDir()
 	defer os.RemoveAll(destination)

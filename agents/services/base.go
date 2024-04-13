@@ -29,15 +29,14 @@ type Information struct {
 
 type Base struct {
 	// Agent
-	Agent     *configurations.Agent
-	WoolAgent *wool.Provider
-	Wool      *wool.Wool
+	Agent *configurations.Agent
+	Wool  *wool.Wool
+
+	// Service logger
+	Logger *wool.Wool
 
 	// Continuity check
 	loaded bool
-
-	// Underlying service
-	WoolService *wool.Provider
 
 	// State
 	Identity *configurations.ServiceIdentity
@@ -83,7 +82,6 @@ func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
 	base := &Base{
 		Agent:                agent,
 		Communication:        communicate.NewServer(ctx),
-		WoolAgent:            provider,
 		Wool:                 provider.Get(ctx),
 		EnvironmentVariables: configurations.NewEnvironmentVariableManager(),
 	}
@@ -107,9 +105,11 @@ func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentit
 	s.EnvironmentVariables = configurations.NewEnvironmentVariableManager()
 
 	// Replace the Agent now that we know more!
-	s.WoolAgent = agents.NewServiceProvider(ctx, s.Identity)
+	agentProvider := agents.NewServiceAgentProvider(ctx, s.Identity)
+	serviceProvicer := agents.NewServiceProvider(ctx, s.Identity)
 
-	s.Wool = s.WoolAgent.Get(ctx)
+	s.Wool = agentProvider.Get(ctx)
+	s.Logger = serviceProvicer.Get(ctx)
 
 	s.Wool.Debug("loading", wool.ServiceField(s.Identity.Name))
 
@@ -128,9 +128,11 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	s.Location = identity.Location
 
 	// Replace the Agent now that we know more!
-	s.WoolAgent = agents.NewServiceProvider(ctx, s.Identity)
+	agentProvider := agents.NewServiceAgentProvider(ctx, s.Identity)
+	serviceProvider := agents.NewServiceProvider(ctx, s.Identity)
 
-	s.Wool = s.WoolAgent.Get(ctx)
+	s.Wool = agentProvider.Get(ctx)
+	s.Logger = serviceProvider.Get(ctx)
 
 	s.Wool.Debug("loading", wool.ServiceField(s.Identity.Name))
 

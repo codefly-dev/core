@@ -151,9 +151,6 @@ func (manager *Manager) ExposeConfiguration(ctx context.Context, service *config
 	}
 	w := wool.Get(ctx).In("Manager.ExposeConfiguration", wool.ThisField(service))
 	w.Debug("exposing", wool.Field("configurations", configurations.MakeManyConfigurationSummary(confs)))
-	if _, exists := manager.exposedFromServiceConfigurations[service.Unique()]; exists {
-		return w.NewError("service already exposed")
-	}
 	manager.exposedFromServiceConfigurations[service.Unique()] = confs
 	return nil
 }

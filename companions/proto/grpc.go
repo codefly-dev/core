@@ -32,7 +32,6 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 			w.Error("cannot remove tmp dir", wool.Field("path", path))
 		}
 	}(tmpDir)
-	destinationVolume := fmt.Sprintf("%s:/workspace/output", destination)
 	w.Debug("generating code from buf", wool.DirField(tmpDir), wool.DirField(destination))
 	// Buf configuration
 	err = CreateBufConfiguration(ctx, tmpDir, service, language)
@@ -49,30 +48,20 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 			}
 		}
 	}
-	bufVolume := fmt.Sprintf("%s:/workspace", tmpDir)
-	runner, err := runners.NewProcess(ctx, "docker", "run", "--rm",
-		"-v", destinationVolume,
-		"-v", bufVolume,
-		"-w", "/workspace",
-		image, "buf", "mod", "update")
+	runner, err := runners.NewDocker(ctx, image)
 	if err != nil {
-		return w.Wrapf(err, "can't create runner")
+		return w.Wrapf(err, "cannot create docker runner")
 	}
-	runner.WithDir(tmpDir)
+	runner.WithMount(destination, "/workspace/output")
+	runner.WithMount(tmpDir, "/workspace")
+	runner.WithWorkDir("/workspace")
+	runner.WithCommand("buf", "mod", "update")
 	err = runner.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}
-	runner, err = runners.NewProcess(ctx, "docker", "run", "--rm",
-		"-v", destinationVolume,
-		"-v", bufVolume,
-		"-w", "/workspace",
-		image, "buf", "generate")
-	if err != nil {
-		return w.Wrapf(err, "can't create runner")
-	}
-	runner.WithDir(tmpDir)
 	w.Debug("Generating code from buf", wool.DirField(destination))
+	runner.WithCommand("buf", "generate")
 	err = runner.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")

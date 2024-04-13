@@ -251,6 +251,7 @@ func (docker *Docker) IsRunningContainer(ctx context.Context) (bool, error) {
 
 func (docker *Docker) start(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.create")
+	w.Debug("creating container", wool.Field("image", docker.image.FullName()))
 
 	containerConfig := &container.Config{
 		Image:      docker.image.FullName(),
@@ -280,7 +281,9 @@ func (docker *Docker) start(ctx context.Context) error {
 	if runtime.GOOS == "linux" {
 		hostConfig.ExtraHosts = []string{"host.docker.internal:172.17.0.1"}
 	}
-	w.Debug("creating container", wool.Field("config", containerConfig.ExposedPorts), wool.Field("hostConfig", hostConfig.PortBindings))
+	w.Debug("creating container",
+		wool.Field("config", containerConfig.ExposedPorts),
+		wool.Field("host config", hostConfig.PortBindings))
 	// Create the container
 	var containerName string
 	if docker.persist {
@@ -348,7 +351,7 @@ func (docker *Docker) Run(ctx context.Context) error {
 		return w.Wrapf(err, "cannot start container")
 	}
 	if !docker.silent {
-		w.Debug("instance", wool.Field("intance", docker.instance))
+		w.Debug("instance", wool.Field("instance", docker.instance))
 		options := container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
 		logReader, err := docker.client.ContainerLogs(ctx, docker.instance.ID, options)
 		if err != nil {
@@ -382,6 +385,13 @@ func (docker *Docker) WaitForStop() error {
 	return nil
 }
 
+func (docker *Docker) Done() <-chan struct{} {
+	if docker.ctx != nil {
+		return docker.ctx.Done()
+	}
+	return nil
+}
+
 func (docker *Docker) ForwardLogs(reader io.Reader) {
 	if docker.out == nil {
 		return
@@ -393,7 +403,7 @@ func (docker *Docker) ForwardLogs(reader io.Reader) {
 		r := bufio.NewReader(reader)
 		for {
 			select {
-			case <-docker.ctx.Done():
+			case <-docker.Done():
 				return
 			default:
 				line, err := r.ReadBytes('\n')

@@ -138,3 +138,25 @@ func NetworkMappingHash(networkMappings ...*basev0.NetworkMapping) (string, erro
 	}
 	return hasher.Hash(), nil
 }
+
+func LocalizeNetworkMapping(mappings []*basev0.NetworkMapping, hostname string) []*basev0.NetworkMapping {
+	var results []*basev0.NetworkMapping
+	for _, mapping := range mappings {
+		var instances []*basev0.NetworkInstance
+		for _, instance := range mapping.Instances {
+			instances = append(instances, &basev0.NetworkInstance{
+				Hostname: hostname,
+				Host:     fmt.Sprintf("%s:%d", hostname, instance.Port),
+				Port:     instance.Port,
+				Address:  fmt.Sprintf("%s:%d", hostname, instance.Port),
+				Scope:    instance.Scope,
+			})
+		}
+		results = append(results, &basev0.NetworkMapping{
+			Endpoint:  mapping.Endpoint,
+			Instances: instances,
+		})
+	}
+	return results
+
+}

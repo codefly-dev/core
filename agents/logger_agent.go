@@ -11,9 +11,8 @@ import (
 )
 
 type AgentLogger struct {
-	agent    *configurations.Agent
-	identity *configurations.ServiceIdentity
-	writer   io.Writer
+	source *wool.Identifier
+	writer io.Writer
 }
 
 type HCLogMessageOut struct {
@@ -23,19 +22,7 @@ type HCLogMessageOut struct {
 
 func (w *AgentLogger) Process(log *wool.Log) {
 	msg := &HCLogMessageOut{Log: log}
-	if w.agent != nil {
-		msg.Source = &wool.Identifier{
-			Kind:   "agent",
-			Unique: w.agent.Unique(),
-		}
-	}
-	if w.identity != nil {
-		msg.Source = &wool.Identifier{
-			Kind:   "service",
-			Unique: w.identity.Unique(),
-		}
-
-	}
+	msg.Source = w.source
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return
@@ -50,22 +37,40 @@ func NewAgentLogger(agent *configurations.Agent) wool.LogProcessor {
 	logger := hclog.New(&hclog.LoggerOptions{
 		JSONFormat: true,
 	})
+	source := agent.AsResource().Identifier
 	writer := logger.StandardWriter(&hclog.StandardLoggerOptions{})
-	return &AgentLogger{agent: agent, writer: writer}
+	return &AgentLogger{source: source, writer: writer}
+}
+
+func NewAgentServiceLogger(identity *configurations.ServiceIdentity) wool.LogProcessor {
+	logger := hclog.New(&hclog.LoggerOptions{
+		JSONFormat: true,
+	})
+	source := identity.AsAgentResource().Identifier
+	writer := logger.StandardWriter(&hclog.StandardLoggerOptions{})
+	return &AgentLogger{source: source, writer: writer}
 }
 
 func NewServiceLogger(identity *configurations.ServiceIdentity) wool.LogProcessor {
 	logger := hclog.New(&hclog.LoggerOptions{
 		JSONFormat: true,
 	})
+	source := identity.AsResource().Identifier
 	writer := logger.StandardWriter(&hclog.StandardLoggerOptions{})
-	return &AgentLogger{identity: identity, writer: writer}
+	return &AgentLogger{source: source, writer: writer}
 }
 
 func NewAgentProvider(ctx context.Context, agent *configurations.Agent) *wool.Provider {
 	res := agent.AsResource()
 	provider := wool.New(ctx, res)
 	provider.WithLogger(NewAgentLogger(agent))
+	return provider
+}
+
+func NewServiceAgentProvider(ctx context.Context, identity *configurations.ServiceIdentity) *wool.Provider {
+	res := identity.AsAgentResource()
+	provider := wool.New(ctx, res)
+	provider.WithLogger(NewAgentServiceLogger(identity))
 	return provider
 }
 

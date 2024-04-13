@@ -12,3 +12,7 @@ plugins:
   - plugin: buf.build/grpc/go
     out: {{.Destination}}
     opt: paths=source_relative
+  - name: openapiv2
+    out: {{.Destination}}/../openapi
+    opt: logtostderr=true
+    path: protoc-gen-openapiv2

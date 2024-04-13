@@ -32,10 +32,11 @@ type Runner struct {
 	out io.Writer
 
 	// internal
-	cacheDir    string
-	target      string
-	usedCache   bool
-	worker      runners.Runner
+	cacheDir  string
+	target    string
+	usedCache bool
+	worker    runners.Runner
+
 	withModules bool
 }
 
@@ -159,7 +160,10 @@ func (runner *Runner) debugCmd(ctx context.Context) error {
 			configurations.Env("GO111MODULE", "off"),
 			configurations.Env("GOCACHE", runner.cacheDir))
 	}
-	builder.WithOut(runner.out)
+	err = builder.WithOut(runner.out)
+	if err != nil {
+		return w.Wrapf(err, "cannot set output")
+	}
 	err = builder.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot build binary")
@@ -207,7 +211,10 @@ func (runner *Runner) NormalCmd(ctx context.Context) error {
 			configurations.Env("GO111MODULE", "off"),
 			configurations.Env("GOCACHE", runner.cacheDir))
 	}
-	builder.WithOut(runner.out)
+	err = builder.WithOut(runner.out)
+	if err != nil {
+		return w.Wrapf(err, "cannot set output")
+	}
 	err = builder.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot build binary")
@@ -224,7 +231,10 @@ func (runner *Runner) Start(ctx context.Context) error {
 
 	worker.WithDir(runner.dir)
 	worker.WithEnvironmentVariables(runner.envs...)
-	worker.WithOut(runner.out)
+	err = worker.WithOut(runner.out)
+	if err != nil {
+		return w.Wrapf(err, "cannot set output")
+	}
 	runner.worker = worker
 	err = runner.worker.Start(ctx)
 	if err != nil {

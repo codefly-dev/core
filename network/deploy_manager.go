@@ -83,7 +83,7 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *co
 					PublicInstance(DNS(service, endpoint, dns)),
 				}
 			}
-			w.Focus("will expose public endpoint to load balancer", wool.Field("dns", dns))
+			w.Debug("will expose public endpoint to load balancer", wool.Field("dns", dns))
 		}
 		namespace, err := m.GetNamespace(ctx, service, env)
 		if err != nil {

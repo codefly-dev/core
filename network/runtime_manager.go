@@ -14,7 +14,7 @@ import (
 const Localhost = "localhost"
 
 type RuntimeManager struct {
-	allocatedPorts map[uint16]bool
+	allocatedPorts map[uint16]string
 	dnsManager     DNSManager
 }
 
@@ -117,11 +117,11 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *c
 		}
 		// Generate Port
 		port := ToNamedPort(ctx, service.Project, service.Application, service.Name, endpoint.Name, endpoint.Api)
-		if _, ok := m.allocatedPorts[port]; ok {
+		if unique, found := m.allocatedPorts[port]; found && unique != service.Unique() {
 			// Port already allocated
 			return nil, w.NewError("port %d already allocated for service %s (TODO: randomize? force override?)", port, service.Unique())
 		}
-		m.allocatedPorts[port] = true
+		m.allocatedPorts[port] = service.Unique()
 		nm.Instances = []*basev0.NetworkInstance{
 			Container(endpoint, port),
 			Native(endpoint, port),
@@ -137,6 +137,6 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, service *c
 func NewRuntimeManager(_ context.Context, dnsManager DNSManager) (*RuntimeManager, error) {
 	return &RuntimeManager{
 		dnsManager:     dnsManager,
-		allocatedPorts: make(map[uint16]bool),
+		allocatedPorts: make(map[uint16]string),
 	}, nil
 }

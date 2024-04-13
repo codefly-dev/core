@@ -3,8 +3,9 @@ package proto
 import (
 	"context"
 	"embed"
-	"fmt"
 	"io/fs"
+
+	"github.com/codefly-dev/core/configurations"
 
 	"gopkg.in/yaml.v3"
 
@@ -31,13 +32,13 @@ func version(ctx context.Context) (string, error) {
 	return v.String(), nil
 }
 
-func CompanionImage(ctx context.Context) (string, error) {
+func CompanionImage(ctx context.Context) (*configurations.DockerImage, error) {
 	w := wool.Get(ctx).In("proto.CompanionImage")
 	v, err := version(ctx)
 	if err != nil {
-		return "", w.Wrapf(err, "cannot get version")
+		return nil, w.Wrapf(err, "cannot get version")
 	}
-	return fmt.Sprintf("codeflydev/companion:%s", v), nil
+	return &configurations.DockerImage{Name: "codeflydev/proto", Tag: v}, nil
 }
 
 //go:embed info.codefly.yaml
