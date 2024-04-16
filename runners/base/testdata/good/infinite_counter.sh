@@ -3,5 +3,5 @@ counter=0
 while true; do
   echo $counter
   counter=$(expr $counter + 1)
-  sleep 0.1
+  sleep 0.01
 done

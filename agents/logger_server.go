@@ -2,6 +2,7 @@ package agents
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/codefly-dev/core/wool"
@@ -60,6 +61,7 @@ func (h *ClientLogHandler) Write(p []byte) (n int, err error) {
 	// other messages come from the plugin framework
 	var log HCLogMessageOut
 	err = json.Unmarshal([]byte(msg.Message), &log)
+	msg.Message = strings.TrimSpace(msg.Message)
 	if err != nil {
 		h.process(wool.System(), &wool.Log{Level: wool.TRACE, Message: msg.Message, Header: "plugin"})
 		return 0, err

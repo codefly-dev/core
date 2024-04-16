@@ -479,8 +479,8 @@ func (s *Service) ProviderDirectory(ctx context.Context, env *Environment) (stri
 	return dir, nil
 }
 
-func (s *Service) Global() string {
-	return fmt.Sprintf("%s/%s", s.Project, s.Unique())
+func (s *Service) UniqueWithProject() string {
+	return fmt.Sprintf("%s-%s", s.Project, s.Unique())
 }
 
 func (s *Service) BaseEndpoint(name string) *Endpoint {
@@ -500,7 +500,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 		switch ed.API {
 		case standards.REST:
 			w.Debug("loading rest endpoint", wool.PathField(standards.OpenAPIPath))
-			rest, err := LoadRestAPI(ctx, shared.Pointer(s.Local(standards.OpenAPIPath)))
+			rest, err := LoadRestAPI(ctx, s.LocalOrNil(standards.OpenAPIPath))
 			if err != nil {
 				multi = multierror.Append(multi, err)
 				continue
@@ -509,7 +509,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 			out = append(out, base)
 		case standards.GRPC:
 			w.Debug("loading grpc endpoint", wool.PathField(standards.ProtoPath))
-			grpc, err := LoadGrpcAPI(ctx, shared.Pointer(s.Local(standards.ProtoPath)))
+			grpc, err := LoadGrpcAPI(ctx, s.LocalOrNil(standards.ProtoPath))
 			if err != nil {
 				multi = multierror.Append(multi, err)
 				continue
@@ -540,6 +540,14 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 
 func (s *Service) Local(f string) string {
 	return path.Join(s.Dir(), f)
+}
+
+func (s *Service) LocalOrNil(f string) *string {
+	p := path.Join(s.Dir(), f)
+	if shared.FileExists(p) {
+		return shared.Pointer(p)
+	}
+	return nil
 }
 
 func (s *ServiceDependency) AsReference() *ServiceReference {

@@ -1,4 +1,4 @@
-package runners
+package base
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// WaitForPortUnbound waits for the portMapping to be unbound
+// WaitForPortUnbound waits for the portMappings to be unbound
 func WaitForPortUnbound(ctx context.Context, port int) error {
 	// Create a new context that will be done after 5 seconds
 	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -15,7 +15,7 @@ func WaitForPortUnbound(ctx context.Context, port int) error {
 	for {
 		select {
 		case <-timeoutCtx.Done():
-			return fmt.Errorf("waited for portMapping to unbound but timed out after 5 seconds")
+			return fmt.Errorf("waited for portMappings to unbound but timed out after 5 seconds")
 		default:
 			if IsFreePort(port) {
 				return nil

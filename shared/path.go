@@ -11,6 +11,14 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
+func MustSolvePath(p string) string {
+	path, err := SolvePath(p)
+	if err != nil {
+		panic(err)
+	}
+	return path
+}
+
 func SolvePath(p string) (string, error) {
 	w := wool.Get(context.Background()).In("configurations.SolvePath", wool.PathField(p))
 	if filepath.IsLocal(p) || strings.HasPrefix(p, ".") || strings.HasPrefix(p, "..") {
@@ -75,6 +83,20 @@ func CheckEmptyDirectoryOrCreate(ctx context.Context, dir string) (bool, error) 
 	if !exists {
 		return false, nil
 	}
+	// Check if directory is empty
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return false, w.Wrapf(err, "cannot read directory")
+	}
+	if len(files) > 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
+// CheckEmptyDirectory checks if a directory exists and is empty
+func CheckEmptyDirectory(ctx context.Context, dir string) (bool, error) {
+	w := wool.Get(ctx).In("shared.CheckEmptyDirectory", wool.DirField(dir))
 	// Check if directory is empty
 	files, err := os.ReadDir(dir)
 	if err != nil {

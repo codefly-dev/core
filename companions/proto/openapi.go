@@ -9,7 +9,7 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/configurations/languages"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
-	"github.com/codefly-dev/core/runners"
+	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -83,7 +83,7 @@ func generateOpenAPIGo(ctx context.Context, unique string, image *configurations
 
 	openapiFile := filepath.Join("/workspace/openapi", file)
 
-	runner, err := runners.NewDocker(ctx, image)
+	runner, err := runners.NewDockerEnvironment(ctx, image, root, "openapi")
 	if err != nil {
 		return w.Wrapf(err, "cannot create docker runner")
 	}
@@ -91,7 +91,12 @@ func generateOpenAPIGo(ctx context.Context, unique string, image *configurations
 	runner.WithMount(root, "/workspace")
 	runner.WithWorkDir("/workspace")
 
-	runner.WithCommand(
+	err = runner.Init(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot init runner")
+	}
+
+	proc, err := runner.NewProcess(
 		"swagger",
 		"generate",
 		"client",
@@ -102,7 +107,10 @@ func generateOpenAPIGo(ctx context.Context, unique string, image *configurations
 		"--target",
 		target,
 	)
-	err = runner.Run(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot create process")
+	}
+	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}

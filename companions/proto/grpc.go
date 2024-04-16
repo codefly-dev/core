@@ -9,7 +9,7 @@ import (
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/configurations/languages"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
-	"github.com/codefly-dev/core/runners"
+	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
 )
@@ -48,23 +48,35 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 			}
 		}
 	}
-	runner, err := runners.NewDocker(ctx, image)
+	runner, err := runners.NewDockerEnvironment(ctx, image, tmpDir, "proto")
 	if err != nil {
 		return w.Wrapf(err, "cannot create docker runner")
 	}
 	runner.WithMount(destination, "/workspace/output")
 	runner.WithMount(tmpDir, "/workspace")
 	runner.WithWorkDir("/workspace")
-	runner.WithCommand("buf", "mod", "update")
-	err = runner.Run(ctx)
+	runner.WithPause()
+
+	err = runner.Init(ctx)
 	if err != nil {
-		return w.Wrapf(err, "cannot generate code from buf")
+		return w.Wrapf(err, "cannot init runner")
 	}
-	w.Debug("Generating code from buf", wool.DirField(destination))
-	runner.WithCommand("buf", "generate")
-	err = runner.Run(ctx)
+	proc, err := runner.NewProcess("buf", "mod", "update")
 	if err != nil {
-		return w.Wrapf(err, "cannot generate code from buf")
+		return w.Wrapf(err, "cannot create process")
+	}
+	err = proc.Run(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot update buf")
+	}
+
+	proc, err = runner.NewProcess("buf", "generate")
+	if err != nil {
+		return w.Wrapf(err, "cannot create process")
+	}
+	err = proc.Run(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot generate with buf")
 	}
 	return nil
 }

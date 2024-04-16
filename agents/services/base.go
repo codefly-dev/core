@@ -94,8 +94,8 @@ func (s *Base) Unique() string {
 	return s.Service.Unique()
 }
 
-func (s *Base) Global() string {
-	return s.Service.Global()
+func (s *Base) UniqueWithProject() string {
+	return s.Service.UniqueWithProject()
 }
 
 func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {

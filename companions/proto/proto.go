@@ -7,7 +7,7 @@ import (
 
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/configurations/standards"
-	"github.com/codefly-dev/core/runners"
+	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -61,23 +61,34 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "cannot get companion image")
 	}
 
-	runner, err := runners.NewDocker(ctx, image)
+	runner, err := runners.NewDockerEnvironment(ctx, image, g.Dir, "proto")
 	if err != nil {
 		return w.Wrapf(err, "cannot create docker runner")
 	}
 	runner.WithMount(g.Dir, "/workspace")
 	runner.WithWorkDir("/workspace/proto")
+	runner.WithPause()
 
-	runner.WithCommand("buf", "mod", "update")
-	err = runner.Run(ctx)
+	err = runner.Init(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot init runner")
+	}
+	proc, err := runner.NewProcess("buf", "mod", "update")
+	if err != nil {
+		return w.Wrapf(err, "cannot create process")
+	}
+	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot update buf")
 	}
 
-	runner.WithCommand("buf", "generate")
-	err = runner.Run(ctx)
+	proc, err = runner.NewProcess("buf", "generate")
 	if err != nil {
-		return w.Wrapf(err, "cannot generate code from buf")
+		return w.Wrapf(err, "cannot create process")
+	}
+	err = proc.Run(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot generate with buf")
 	}
 
 	// Move the result

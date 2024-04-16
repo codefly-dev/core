@@ -3,31 +3,28 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-	"net"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
+	logrus.SetOutput(os.Stdout)
 	ctx := context.Background()
 	// Signal handling
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	_, err := net.Listen("tcp", ":33333")
-	if err != nil {
-		log.Fatal(err)
-	}
 	defer stop()
-	i := 0
 	for {
 		select {
 		case <-ctx.Done():
 			fmt.Println("signal received")
+			os.Exit(0)
 
 		default:
-			fmt.Printf("running %d\n", i)
-			i++
+			logrus.Infof("running")
 			time.Sleep(100 * time.Millisecond)
 		}
 	}

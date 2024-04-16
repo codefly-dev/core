@@ -1,6 +1,6 @@
 //go:build runner
 
-package runners_test
+package base_test
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/codefly-dev/core/runners"
+	runners "github.com/codefly-dev/core/runners/base"
 )
 
 func waitSome() {

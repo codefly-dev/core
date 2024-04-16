@@ -96,6 +96,7 @@ func FindUp[C Configuration](ctx context.Context) (*string, error) {
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get active directory")
 	}
+	var atRoot bool
 	for {
 		// Look for a configuration
 		p, err := Path[C](ctx, cur)
@@ -111,7 +112,10 @@ func FindUp[C Configuration](ctx context.Context) (*string, error) {
 
 		// Stop if we reach the root directory
 		if cur == "/" || cur == "." {
-			return nil, nil
+			if atRoot {
+				return nil, nil
+			}
+			atRoot = true
 		}
 	}
 }
