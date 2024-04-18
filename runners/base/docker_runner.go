@@ -52,8 +52,6 @@ type DockerEnvironment struct {
 	out    io.Writer
 	reader io.ReadCloser
 
-	ctx context.Context
-
 	firstInit bool
 }
 
@@ -66,7 +64,7 @@ func NewDockerEnvironment(ctx context.Context, image *configurations.DockerImage
 	w := wool.Get(ctx).In("NewDockerRunner")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot createAndWait docker client")
+		return nil, w.Wrapf(err, "cannot create docker client")
 	}
 	env := &DockerEnvironment{
 		firstInit:  true,
@@ -78,6 +76,11 @@ func NewDockerEnvironment(ctx context.Context, image *configurations.DockerImage
 	}
 	// Will mount the local directory on /codefly the workDir
 	env.WithDir(dir)
+	// Pull the image if needed
+	err = env.GetImageIfNotPresent(ctx, image)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot get image")
+	}
 	return env, nil
 }
 
@@ -95,6 +98,11 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *configurations.Doc
 		image:      image,
 		name:       ContainerName(name),
 		workingDir: "/codefly",
+	}
+	// Pull the image if needed
+	err = env.GetImageIfNotPresent(ctx, image)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot get image")
 	}
 	return env, nil
 }
@@ -129,14 +137,8 @@ func (docker *DockerEnvironment) WithDir(dir string) {
 
 func (docker *DockerEnvironment) Init(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.Start")
-	docker.ctx = ctx
-	// Pull the image if needed
-	err := docker.GetImage(ctx, docker.image)
-	if err != nil {
-		return w.Wrapf(err, "cannot get image")
-	}
 	// Get the container
-	err = docker.GetContainer(ctx)
+	err := docker.GetContainer(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot create container")
 	}
@@ -266,7 +268,6 @@ func (docker *DockerEnvironment) startContainer(ctx context.Context, containerID
 			break
 		}
 		w.Debug("container not running yet", wool.Field("status", inspect.State.Status))
-
 		// If the container is not running, wait for a while before checking again
 		time.Sleep(time.Second)
 		if time.Now().After(deadline) {
@@ -523,8 +524,8 @@ func (docker *DockerEnvironment) ImageExists(ctx context.Context, imag *configur
 	return false, nil
 }
 
-func (docker *DockerEnvironment) GetImage(ctx context.Context, imag *configurations.DockerImage) error {
-	w := wool.Get(ctx).In("Docker.GetImage")
+func (docker *DockerEnvironment) GetImageIfNotPresent(ctx context.Context, imag *configurations.DockerImage) error {
+	w := wool.Get(ctx).In("Docker.GetImageIfNotPresent")
 	if exists, err := docker.ImageExists(ctx, imag); err != nil {
 		return w.Wrapf(err, "cannot check if image exists")
 	} else if exists {

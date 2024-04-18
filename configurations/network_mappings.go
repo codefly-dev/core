@@ -131,12 +131,12 @@ func networkMappingHash(n *basev0.NetworkMapping) string {
 	return HashString(n.String())
 }
 
-func NetworkMappingHash(networkMappings ...*basev0.NetworkMapping) (string, error) {
+func NetworkMappingHash(networkMappings ...*basev0.NetworkMapping) string {
 	hasher := NewHasher()
 	for _, networkMapping := range networkMappings {
 		hasher.Add(networkMappingHash(networkMapping))
 	}
-	return hasher.Hash(), nil
+	return hasher.Hash()
 }
 
 func LocalizeNetworkMapping(mappings []*basev0.NetworkMapping, hostname string) []*basev0.NetworkMapping {

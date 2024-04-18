@@ -52,6 +52,23 @@ func FindConfigurations(configurations []*basev0.Configuration, scope basev0.Net
 	return found
 }
 
+//nolint:revive
+func ConfigurationsHash(confs ...*basev0.Configuration) string {
+	hasher := NewHasher()
+	for _, conf := range confs {
+		hasher.Add(ConfigurationHash(conf))
+	}
+	return hasher.Hash()
+}
+
+func ConfigurationHash(conf *basev0.Configuration) string {
+	hasher := NewHasher()
+	for _, info := range conf.Configurations {
+		hasher.Add(ConfigurationInformationHash(info))
+	}
+	return hasher.Hash()
+}
+
 func ConfigurationInformationHash(info *basev0.ConfigurationInformation) string {
 	return HashString(info.String())
 }
