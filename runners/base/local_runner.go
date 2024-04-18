@@ -3,9 +3,12 @@ package base
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os/exec"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/wool"
@@ -176,12 +179,28 @@ func (proc *LocalProc) WithOutput(output io.Writer) {
 func (proc *LocalProc) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("LocalProc.Stop")
 	w.Debug("stopping process")
+	// Attempt to gracefully terminate the process
+	err := proc.exec.Process.Signal(syscall.SIGTERM)
+	if err != nil {
+		return fmt.Errorf("failed to send SIGTERM: %w", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	// Check if the process has exited
+	if err := proc.exec.Process.Signal(syscall.Signal(0)); err == nil {
+		// Process is still alive after SIGTERM and waiting period, force kill
+		if killErr := proc.exec.Process.Kill(); killErr != nil {
+			return fmt.Errorf("failed to force kill process: %w", killErr)
+		}
+	} else {
+		// Process has exited, or an error occurred when checking the process status
+		if !strings.Contains(err.Error(), "process already finished") {
+			// Handle or log this error if it's not the expected "already finished" error
+		}
+	}
 	go func() {
 		proc.stopped <- struct{}{}
 	}()
-	err := proc.exec.Process.Kill()
-	if err != nil {
-		return w.Wrapf(err, "cannot kill process")
-	}
 	return nil
+
 }

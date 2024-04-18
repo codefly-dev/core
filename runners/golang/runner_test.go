@@ -2,7 +2,6 @@ package golang_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -67,10 +66,7 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) 
 	err = proc.Run(ctx)
 	assert.NoError(t, err)
 
-	assert.True(t, len(output.Data) > 0, "running")
-	for _, line := range output.Data {
-		assert.Contains(t, line, "running")
-	}
+	testOutput(t, output)
 
 	// Start and stop
 	otherProc, err := env.NewProcess()
@@ -82,20 +78,14 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) 
 
 	err = otherProc.Start(ctx)
 	assert.NoError(t, err)
-	fmt.Println("after start")
-	timeout := time.NewTimer(5 * time.Second)
+	timeout := time.NewTimer(time.Second)
 
 	for {
 		select {
 		case <-otherOutput.Signal():
-			fmt.Println("got some data")
-			// Data has been written to the output
-			assert.True(t, len(data.Data) > 0, "running")
-			for _, line := range data.Data {
-				assert.Contains(t, line, "running")
-				assert.NotContains(t, line, "running\n")
-			}
 			err = otherProc.Stop(ctx)
+			time.Sleep(100 * time.Millisecond)
+			testOutput(t, data)
 			assert.NoError(t, err)
 			return
 		case <-timeout.C:
@@ -104,6 +94,17 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) 
 		}
 
 	}
+}
+
+func testOutput(t *testing.T, data *shared.SliceWriter) {
+	// Data has been written to the output
+	assert.True(t, len(data.Data) > 1, "running")
+	for _, line := range data.Data[:len(data.Data)-2] {
+		assert.Contains(t, line, "running")
+		assert.NotContains(t, line, "running\n")
+	}
+	// last line should be "signal received"
+	assert.Contains(t, data.Data[len(data.Data)-1], "signal received")
 }
 
 func TestLocalRunWithMod(t *testing.T) {

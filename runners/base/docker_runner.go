@@ -2,10 +2,12 @@ package base
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,7 +91,7 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *configurations.Doc
 	w := wool.Get(ctx).In("NewDockerRunner")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot createAndWait docker client")
+		return nil, w.Wrapf(err, "cannot create docker client")
 	}
 	env := &DockerEnvironment{
 		firstInit:  true,
@@ -147,6 +149,7 @@ func (docker *DockerEnvironment) Init(ctx context.Context) error {
 }
 
 func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, error) {
+	w := wool.Get(ctx).In("Docker.IsContainerPresent")
 	// List all containers
 	containers, err := docker.client.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
@@ -161,6 +164,7 @@ func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, 
 				docker.instance = &DockerContainerInstance{
 					ID: c.ID,
 				}
+				w.Debug("container found", wool.Field("id", c.ID))
 				return true, nil
 			}
 		}
@@ -360,12 +364,11 @@ type DockerProc struct {
 	output io.Writer
 	cmd    []string
 
-	execID string
-	envs   []string
+	envs []string
 }
 
-func (docker *DockerProc) WithEnvironmentVariables(envs ...configurations.EnvironmentVariable) {
-	docker.envs = append(docker.envs, configurations.EnvironmentVariableAsStrings(envs)...)
+func (proc *DockerProc) WithEnvironmentVariables(envs ...configurations.EnvironmentVariable) {
+	proc.envs = append(proc.envs, configurations.EnvironmentVariableAsStrings(envs)...)
 }
 
 func (docker *DockerEnvironment) NewProcess(bin string, args ...string) (Proc, error) {
@@ -373,61 +376,95 @@ func (docker *DockerEnvironment) NewProcess(bin string, args ...string) (Proc, e
 	return &DockerProc{env: docker, cmd: cmd, output: docker.out}, nil
 }
 
-func (docker *DockerEnvironment) IsStopped(ctx context.Context) (bool, error) {
-	if docker.instance == nil || docker.instance.ID == "" {
-		return true, nil
-	}
-	inspect, err := docker.client.ContainerInspect(ctx, docker.instance.ID)
-	if err != nil {
-		return true, err
-	}
-	return !inspect.State.Running, nil
-}
-
-func (docker *DockerProc) Run(ctx context.Context) error {
+func (proc *DockerProc) Run(ctx context.Context) error {
 	w := wool.Get(ctx).In("DockerProc.Run")
-	w.Debug("running process", wool.Field("cmd", docker.cmd))
-	err := docker.start(ctx)
+	w.Debug("running process", wool.Field("cmd", proc.cmd))
+	err := proc.start(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot start process")
 	}
-	w.Debug("waiting for process to finish")
-	// Wait for the container to be stopped
-	// or the exec process to be exited
+	// Periodically check if the process with docker.execPID is still running
 	for {
-		stopped, err := docker.env.IsStopped(ctx)
-		if err != nil {
-			return w.Wrapf(err, "cannot check if environment is stopped")
-		}
-		if stopped {
-			break
-		}
-		inspect, err := docker.env.client.ContainerExecInspect(ctx, docker.execID)
-		if err != nil {
-			return err
-		}
-		if !inspect.Running {
-			if inspect.ExitCode != 0 {
-				return fmt.Errorf("command exited with code: %d", inspect.ExitCode)
-			}
-			break
-		}
+		// Sleep for a bit before checking again
 		time.Sleep(time.Second)
+		// Check if the process is still active
+		active, err := proc.isProcessActive(ctx)
+		if err != nil {
+			return w.Wrapf(err, "error checking process status")
+		}
+		if !active {
+			w.Debug("process has exited")
+			break
+		}
 	}
 	w.Debug("done")
 	return nil
 }
+func (proc *DockerProc) FindPid(ctx context.Context, command []string) (int, error) {
+	// Construct the command to execute 'ps' inside the container
+	psCmd := []string{"ps", "aux"}
+	execConfig := types.ExecConfig{
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          psCmd,
+	}
 
-func (docker *DockerProc) Start(ctx context.Context) error {
-	w := wool.Get(ctx).In("DockerProc.Start")
-	w.Debug("starting process", wool.Field("cmd", docker.cmd))
-	return docker.start(ctx)
+	// Create an exec instance inside the container to run the command
+	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
+	if err != nil {
+		return 0, fmt.Errorf("cannot create exec to list processes: %w", err)
+	}
+
+	// Attach to the exec instance to capture the output
+	execAttachResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, types.ExecStartCheck{})
+	if err != nil {
+		return 0, fmt.Errorf("cannot attach to exec for listing processes: %w", err)
+	}
+	defer execAttachResp.Close()
+
+	// Capture and process the command output
+	var outBuf, errBuf strings.Builder
+	if _, err := stdcopy.StdCopy(&outBuf, &errBuf, execAttachResp.Reader); err != nil {
+		return 0, fmt.Errorf("error reading output from exec: %w", err)
+	}
+	// Parse the output from 'ps' to find the process by command
+	lines := strings.Split(outBuf.String(), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) >= 4 { // Ensure there are enough fields for PID and CMD
+			cmdPart := strings.Join(fields[3:], " ")
+			if strings.Join(command, " ") == cmdPart {
+				pid, err := strconv.Atoi(fields[0])
+				if err != nil {
+					return 0, fmt.Errorf("error converting PID to int: %w", err)
+				}
+				return pid, nil
+			}
+		}
+	}
+	return 0, nil
 }
 
-func (docker *DockerProc) start(ctx context.Context) error {
+// isProcessActive checks if a process with the given PID is still running in the container.
+func (proc *DockerProc) isProcessActive(ctx context.Context) (bool, error) {
+	pid, err := proc.FindPid(ctx, proc.cmd)
+	if err != nil {
+		return false, err
+	}
+	return pid != 0, nil
+
+}
+
+func (proc *DockerProc) Start(ctx context.Context) error {
+	w := wool.Get(ctx).In("DockerProc.Start")
+	w.Debug("starting process", wool.Field("cmd", proc.cmd))
+	return proc.start(ctx)
+}
+
+func (proc *DockerProc) start(ctx context.Context) error {
 	w := wool.Get(ctx).In("DockerProc.start")
 	// Ensure the container is running
-	err := docker.env.GetContainer(ctx)
+	err := proc.env.GetContainer(ctx)
 	if err != nil {
 		return err
 	}
@@ -436,36 +473,80 @@ func (docker *DockerProc) start(ctx context.Context) error {
 	execConfig := types.ExecConfig{
 		AttachStdout: true,
 		AttachStderr: true,
-		Env:          docker.envs,
-		Cmd:          docker.cmd,
+		Env:          proc.envs,
+		Cmd:          proc.cmd,
 	}
-	w.Debug("creating exec", wool.Field("cmd", docker.cmd))
+	w.Debug("creating exec", wool.Field("cmd", proc.cmd))
 	// Create an exec instance
-	execIDResp, err := docker.env.client.ContainerExecCreate(ctx, docker.env.instance.ID, execConfig)
+	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
 	if err != nil {
 		return err
 	}
-	docker.execID = execIDResp.ID
-
 	// Start the exec instance
 	execStartCheck := types.ExecStartCheck{
 		Detach: false,
 		Tty:    false,
 	}
-	execResp, err := docker.env.client.ContainerExecAttach(ctx, execIDResp.ID, execStartCheck)
+	execResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, execStartCheck)
 	if err != nil {
 		return err
 	}
+
 	go func() {
 		defer execResp.Close()
 
 		// Wrap the reader with stdcopy to demultiplex stdout and stderr
-		stdOutWriter := newCustomWriter(docker.output)
+		stdOutWriter := newCustomWriter(proc.output)
 		_, err := stdcopy.StdCopy(stdOutWriter, stdOutWriter, execResp.Reader)
 		if err != nil {
 			w.Error("cannot copy output", wool.ErrField(err))
 		}
 	}()
+	return nil
+}
+
+func (proc *DockerProc) Stop(ctx context.Context) error {
+	w := wool.Get(ctx).In("DockerProc.Stop")
+	pid, err := proc.FindPid(ctx, proc.cmd)
+	if err != nil {
+		return err
+	}
+
+	w.Debug("killing process", wool.Field("pid", pid), wool.Field("cmd", proc.cmd))
+
+	killCmd := []string{"sh", "-c", fmt.Sprintf("kill %d", pid)}
+	execConfig := types.ExecConfig{
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          killCmd,
+	}
+	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
+	if err != nil {
+		return w.Wrapf(err, "cannot create exec to kill")
+	}
+
+	execStartCheck := types.ExecStartCheck{Detach: false, Tty: false}
+	execResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, execStartCheck)
+	if err != nil {
+		return w.Wrapf(err, "cannot kill process")
+	}
+
+	// Capture and log the output from the exec command, which might include error messages from 'kill'
+	var stdout, stderr bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, execResp.Reader); err != nil {
+		w.Error("error capturing output from kill command", wool.ErrField(err))
+		// Depending on the severity, decide whether to return an error
+	}
+
+	// Log the outputs for diagnostics
+	if stdout.Len() > 0 {
+		w.Debug("stdout from kill command", wool.Field("output", stdout.String()))
+	}
+	if stderr.Len() > 0 {
+		w.Debug("stderr from kill command", wool.Field("output", stderr.String()))
+	}
+	w.Debug("killed process")
+	// Process is killed; you might want to handle output or errors
 	return nil
 }
 
@@ -493,18 +574,8 @@ func (cw *customWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (docker *DockerProc) WithOutput(output io.Writer) {
-	docker.output = output
-}
-
-func (docker *DockerProc) Stop(ctx context.Context) error {
-	w := wool.Get(ctx).In("DockerProc.Stop")
-	err := docker.env.Stop(ctx)
-	if err != nil {
-		return err
-	}
-	w.Debug("done")
-	return nil
+func (proc *DockerProc) WithOutput(output io.Writer) {
+	proc.output = output
 }
 
 func (docker *DockerEnvironment) ImageExists(ctx context.Context, imag *configurations.DockerImage) (bool, error) {

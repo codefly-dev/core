@@ -146,8 +146,9 @@ func (dep *Dependencies) AddDependencies(dependencies ...*Dependency) *Dependenc
 
 type AcceptChange func(ctx context.Context) error
 
-func (dep *Dependencies) WithCache(location string) {
+func (dep *Dependencies) WithCache(location string) *Dependencies {
 	dep.cache = location
+	return dep
 }
 
 func (dep *Dependencies) Updated(ctx context.Context) (bool, error) {
@@ -180,6 +181,7 @@ func (dep *Dependencies) WriteHash(ctx context.Context, hash string) error {
 		w.Warn("no cache location: in directory")
 		dep.cache = dep.root
 	}
+	w.Debug("write hash", wool.FileField(dep.hashFile()))
 	// New or overwrite
 	f, err := os.Create(dep.hashFile())
 	if err != nil {
