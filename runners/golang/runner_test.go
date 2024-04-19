@@ -2,22 +2,22 @@ package golang_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/codefly-dev/core/configurations"
-
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/golang"
 
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/codefly-dev/core/shared"
 )
 
-func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) {
+func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment, withModule bool) {
 
 	cacheDir, _ := os.MkdirTemp("", "cache")
 	env.WithLocalCacheDir(cacheDir)
@@ -26,106 +26,96 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) 
 
 	defer func() {
 		err := env.Shutdown(ctx)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		err = os.RemoveAll(cacheDir)
-		assert.NoError(t, err)
-		os.RemoveAll(goModDir)
+		require.NoError(t, err)
 	}()
 
 	// Init
 	err := env.Init(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Check that the go mod has some modules
-	assert.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, goModDir)))
+	if withModule {
+		require.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, goModDir)))
+	}
 
 	// Check that the binary is there
-	assert.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, cacheDir)))
+	require.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, cacheDir)))
 
-	assert.False(t, env.UsedCache())
+	require.False(t, env.UsedCache())
 
 	// Re-init
 	err = env.Init(ctx)
-	assert.NoError(t, err)
-	assert.True(t, env.UsedCache())
+	require.NoError(t, err)
+	require.True(t, env.UsedCache())
 
 	// Run and stop
-	proc, err := env.NewProcess()
-	assert.NoError(t, err)
-
-	output := shared.NewSliceWriter()
-	proc.WithOutput(output)
-
-	go func() {
-		wait := time.NewTimer(time.Second)
-		<-wait.C
-		err := proc.Stop(ctx)
-		assert.NoError(t, err)
-	}()
-
-	err = proc.Run(ctx)
-	assert.NoError(t, err)
-
-	testOutput(t, output)
-
-	// Start and stop
-	otherProc, err := env.NewProcess()
-	assert.NoError(t, err)
+	proc, err := env.Runner()
+	require.NoError(t, err)
 
 	data := shared.NewSliceWriter()
-	otherOutput := shared.NewSignalWriter(data)
-	otherProc.WithOutput(otherOutput)
+	output := shared.NewSignalWriter(data)
+	proc.WithOutput(output)
 
-	err = otherProc.Start(ctx)
-	assert.NoError(t, err)
-	timeout := time.NewTimer(time.Second)
+	err = proc.Start(ctx)
+	require.NoError(t, err)
 
-	for {
-		select {
-		case <-otherOutput.Signal():
-			err = otherProc.Stop(ctx)
-			time.Sleep(100 * time.Millisecond)
-			testOutput(t, data)
-			assert.NoError(t, err)
-			return
-		case <-timeout.C:
-			// One second has passed
-			t.Fatal("timeout")
-		}
-
-	}
+	time.Sleep(1 * time.Second)
+	err = proc.Stop(ctx)
+	time.Sleep(100 * time.Millisecond)
+	testOutput(t, data)
+	require.NoError(t, err)
 }
 
 func testOutput(t *testing.T, data *shared.SliceWriter) {
 	// Data has been written to the output
-	assert.True(t, len(data.Data) > 1, "running")
+	require.True(t, len(data.Data) > 1)
 	for _, line := range data.Data[:len(data.Data)-2] {
-		assert.Contains(t, line, "running")
-		assert.NotContains(t, line, "running\n")
+		require.Contains(t, line, "running")
+		require.NotContains(t, line, "running\n")
 	}
 	// last line should be "signal received"
-	assert.Contains(t, data.Data[len(data.Data)-1], "signal received")
+	require.Contains(t, data.Data[len(data.Data)-1], "signal received")
 }
 
-func TestLocalRunWithMod(t *testing.T) {
+func TestNativeRunWithMod(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
-	env, err := golang.NewLocalGoRunner(ctx, shared.MustSolvePath("testdata/mod"))
-	assert.NoError(t, err)
-	testGo(t, ctx, env)
+	env, err := golang.NewNativeGoRunner(ctx, shared.MustSolvePath("testdata/mod"))
+	require.NoError(t, err)
+	testGo(t, ctx, env, true)
 }
 
 func TestDockerRunWithMod(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
+	name := fmt.Sprintf("test-mod-%d", time.Now().UnixMilli())
 	env, err := golang.NewDockerGoRunner(ctx,
-		configurations.NewDockerImage("golang:alpine"),
+		resources.NewDockerImage("golang:1.22.2-alpine"),
 		shared.MustSolvePath("testdata/mod"),
-		"test")
-	assert.NoError(t, err)
+		name)
+	require.NoError(t, err)
 
-	err = env.Clear(ctx)
-	assert.NoError(t, err)
+	testGo(t, ctx, env, true)
 
-	testGo(t, ctx, env)
+	err = env.Shutdown(ctx)
+	require.NoError(t, err)
+
+}
+
+func TestDockerRunNoMod(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	name := fmt.Sprintf("test-no-mod-%d", time.Now().UnixMilli())
+	ctx := context.Background()
+	env, err := golang.NewDockerGoRunner(ctx,
+		resources.NewDockerImage("golang:1.22.2-alpine"),
+		shared.MustSolvePath("testdata/no_mod"),
+		name)
+	require.NoError(t, err)
+
+	testGo(t, ctx, env, false)
+
+	err = env.Shutdown(ctx)
+	require.NoError(t, err)
 }

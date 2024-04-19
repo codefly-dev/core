@@ -7,6 +7,38 @@ import (
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 )
 
+// Default values
+
+func GetDefaultConfirm(options []*agentv0.Question, name string) (bool, error) {
+	for _, opt := range options {
+		if opt.Message.Name == name {
+			// check Oneof is confirm
+			if confirm, ok := opt.Value.(*agentv0.Question_Confirm); ok {
+				return confirm.Confirm.Default, nil
+			}
+			return false, fmt.Errorf("wrong type in %s for %T", name, opt.Value)
+		}
+	}
+	return false, fmt.Errorf("confirm %s not found", name)
+}
+
+func GetDefaultStringInput(options []*agentv0.Question, name string) (string, error) {
+	for _, opt := range options {
+		if opt.Message.Name == name {
+			// check Oneof is confirm
+			if input, ok := opt.Value.(*agentv0.Question_Input); ok {
+				if s, ok := input.Input.Default.(*agentv0.Input_StringDefault); ok {
+					return s.StringDefault, nil
+				}
+			}
+			return "", fmt.Errorf("wrong type in %s for %T", name, opt.Value)
+		}
+	}
+	return "", fmt.Errorf("confirm %s not found", name)
+}
+
+// Sessions
+
 func (session *ServerSession) Confirm(stage string) (bool, error) {
 	answer := session.states[stage]
 	if answer == nil {

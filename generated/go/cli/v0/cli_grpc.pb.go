@@ -24,20 +24,18 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	CLI_Ping_FullMethodName                                        = "/observability.v0.CLI/Ping"
-	CLI_GetAgentInformation_FullMethodName                         = "/observability.v0.CLI/GetAgentInformation"
-	CLI_GetProjects_FullMethodName                                 = "/observability.v0.CLI/GetProjects"
-	CLI_GetProjectInventory_FullMethodName                         = "/observability.v0.CLI/GetProjectInventory"
-	CLI_GetProjectServiceDependencyGraph_FullMethodName            = "/observability.v0.CLI/GetProjectServiceDependencyGraph"
-	CLI_GetProjectPublicApplicationsDependencyGraph_FullMethodName = "/observability.v0.CLI/GetProjectPublicApplicationsDependencyGraph"
-	CLI_LogHistory_FullMethodName                                  = "/observability.v0.CLI/LogHistory"
-	CLI_GetActive_FullMethodName                                   = "/observability.v0.CLI/GetActive"
-	CLI_GetAddresses_FullMethodName                                = "/observability.v0.CLI/GetAddresses"
-	CLI_GetSharedConfiguration_FullMethodName                      = "/observability.v0.CLI/GetSharedConfiguration"
-	CLI_Logs_FullMethodName                                        = "/observability.v0.CLI/Logs"
-	CLI_ActiveLogHistory_FullMethodName                            = "/observability.v0.CLI/ActiveLogHistory"
-	CLI_GetFlowStatus_FullMethodName                               = "/observability.v0.CLI/GetFlowStatus"
-	CLI_StopFlow_FullMethodName                                    = "/observability.v0.CLI/StopFlow"
+	CLI_Ping_FullMethodName                                     = "/observability.v0.CLI/Ping"
+	CLI_GetAgentInformation_FullMethodName                      = "/observability.v0.CLI/GetAgentInformation"
+	CLI_GetWorkspaceInventory_FullMethodName                    = "/observability.v0.CLI/GetWorkspaceInventory"
+	CLI_GetWorkspaceServiceDependencyGraph_FullMethodName       = "/observability.v0.CLI/GetWorkspaceServiceDependencyGraph"
+	CLI_GetWorkspacePublicModulesDependencyGraph_FullMethodName = "/observability.v0.CLI/GetWorkspacePublicModulesDependencyGraph"
+	CLI_GetActive_FullMethodName                                = "/observability.v0.CLI/GetActive"
+	CLI_GetAddresses_FullMethodName                             = "/observability.v0.CLI/GetAddresses"
+	CLI_GetSharedConfiguration_FullMethodName                   = "/observability.v0.CLI/GetSharedConfiguration"
+	CLI_Logs_FullMethodName                                     = "/observability.v0.CLI/Logs"
+	CLI_ActiveLogHistory_FullMethodName                         = "/observability.v0.CLI/ActiveLogHistory"
+	CLI_GetFlowStatus_FullMethodName                            = "/observability.v0.CLI/GetFlowStatus"
+	CLI_StopFlow_FullMethodName                                 = "/observability.v0.CLI/StopFlow"
 )
 
 // CLIClient is the client API for CLI service.
@@ -46,11 +44,9 @@ const (
 type CLIClient interface {
 	Ping(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetAgentInformation(ctx context.Context, in *GetAgentInformationRequest, opts ...grpc.CallOption) (*v0.AgentInformation, error)
-	GetProjects(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetProjectsResponse, error)
-	GetProjectInventory(ctx context.Context, in *ProjectRequest, opts ...grpc.CallOption) (*v01.Project, error)
-	GetProjectServiceDependencyGraph(ctx context.Context, in *ProjectRequest, opts ...grpc.CallOption) (*v02.GraphResponse, error)
-	GetProjectPublicApplicationsDependencyGraph(ctx context.Context, in *ProjectRequest, opts ...grpc.CallOption) (*MultiGraphResponse, error)
-	LogHistory(ctx context.Context, in *v02.LogRequest, opts ...grpc.CallOption) (*v02.LogResponse, error)
+	GetWorkspaceInventory(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*v01.Workspace, error)
+	GetWorkspaceServiceDependencyGraph(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*v02.GraphResponse, error)
+	GetWorkspacePublicModulesDependencyGraph(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MultiGraphResponse, error)
 	GetActive(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ActiveResponse, error)
 	GetAddresses(ctx context.Context, in *GetAddressRequest, opts ...grpc.CallOption) (*GetAddressResponse, error)
 	GetSharedConfiguration(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationResponse, error)
@@ -86,45 +82,27 @@ func (c *cLIClient) GetAgentInformation(ctx context.Context, in *GetAgentInforma
 	return out, nil
 }
 
-func (c *cLIClient) GetProjects(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetProjectsResponse, error) {
-	out := new(GetProjectsResponse)
-	err := c.cc.Invoke(ctx, CLI_GetProjects_FullMethodName, in, out, opts...)
+func (c *cLIClient) GetWorkspaceInventory(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*v01.Workspace, error) {
+	out := new(v01.Workspace)
+	err := c.cc.Invoke(ctx, CLI_GetWorkspaceInventory_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *cLIClient) GetProjectInventory(ctx context.Context, in *ProjectRequest, opts ...grpc.CallOption) (*v01.Project, error) {
-	out := new(v01.Project)
-	err := c.cc.Invoke(ctx, CLI_GetProjectInventory_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *cLIClient) GetProjectServiceDependencyGraph(ctx context.Context, in *ProjectRequest, opts ...grpc.CallOption) (*v02.GraphResponse, error) {
+func (c *cLIClient) GetWorkspaceServiceDependencyGraph(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*v02.GraphResponse, error) {
 	out := new(v02.GraphResponse)
-	err := c.cc.Invoke(ctx, CLI_GetProjectServiceDependencyGraph_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, CLI_GetWorkspaceServiceDependencyGraph_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *cLIClient) GetProjectPublicApplicationsDependencyGraph(ctx context.Context, in *ProjectRequest, opts ...grpc.CallOption) (*MultiGraphResponse, error) {
+func (c *cLIClient) GetWorkspacePublicModulesDependencyGraph(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MultiGraphResponse, error) {
 	out := new(MultiGraphResponse)
-	err := c.cc.Invoke(ctx, CLI_GetProjectPublicApplicationsDependencyGraph_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *cLIClient) LogHistory(ctx context.Context, in *v02.LogRequest, opts ...grpc.CallOption) (*v02.LogResponse, error) {
-	out := new(v02.LogResponse)
-	err := c.cc.Invoke(ctx, CLI_LogHistory_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, CLI_GetWorkspacePublicModulesDependencyGraph_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -223,11 +201,9 @@ func (c *cLIClient) StopFlow(ctx context.Context, in *emptypb.Empty, opts ...grp
 type CLIServer interface {
 	Ping(context.Context, *emptypb.Empty) (*emptypb.Empty, error)
 	GetAgentInformation(context.Context, *GetAgentInformationRequest) (*v0.AgentInformation, error)
-	GetProjects(context.Context, *emptypb.Empty) (*GetProjectsResponse, error)
-	GetProjectInventory(context.Context, *ProjectRequest) (*v01.Project, error)
-	GetProjectServiceDependencyGraph(context.Context, *ProjectRequest) (*v02.GraphResponse, error)
-	GetProjectPublicApplicationsDependencyGraph(context.Context, *ProjectRequest) (*MultiGraphResponse, error)
-	LogHistory(context.Context, *v02.LogRequest) (*v02.LogResponse, error)
+	GetWorkspaceInventory(context.Context, *emptypb.Empty) (*v01.Workspace, error)
+	GetWorkspaceServiceDependencyGraph(context.Context, *emptypb.Empty) (*v02.GraphResponse, error)
+	GetWorkspacePublicModulesDependencyGraph(context.Context, *emptypb.Empty) (*MultiGraphResponse, error)
 	GetActive(context.Context, *emptypb.Empty) (*ActiveResponse, error)
 	GetAddresses(context.Context, *GetAddressRequest) (*GetAddressResponse, error)
 	GetSharedConfiguration(context.Context, *GetConfigurationRequest) (*GetConfigurationResponse, error)
@@ -248,20 +224,14 @@ func (UnimplementedCLIServer) Ping(context.Context, *emptypb.Empty) (*emptypb.Em
 func (UnimplementedCLIServer) GetAgentInformation(context.Context, *GetAgentInformationRequest) (*v0.AgentInformation, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAgentInformation not implemented")
 }
-func (UnimplementedCLIServer) GetProjects(context.Context, *emptypb.Empty) (*GetProjectsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetProjects not implemented")
+func (UnimplementedCLIServer) GetWorkspaceInventory(context.Context, *emptypb.Empty) (*v01.Workspace, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWorkspaceInventory not implemented")
 }
-func (UnimplementedCLIServer) GetProjectInventory(context.Context, *ProjectRequest) (*v01.Project, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetProjectInventory not implemented")
+func (UnimplementedCLIServer) GetWorkspaceServiceDependencyGraph(context.Context, *emptypb.Empty) (*v02.GraphResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWorkspaceServiceDependencyGraph not implemented")
 }
-func (UnimplementedCLIServer) GetProjectServiceDependencyGraph(context.Context, *ProjectRequest) (*v02.GraphResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetProjectServiceDependencyGraph not implemented")
-}
-func (UnimplementedCLIServer) GetProjectPublicApplicationsDependencyGraph(context.Context, *ProjectRequest) (*MultiGraphResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetProjectPublicApplicationsDependencyGraph not implemented")
-}
-func (UnimplementedCLIServer) LogHistory(context.Context, *v02.LogRequest) (*v02.LogResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method LogHistory not implemented")
+func (UnimplementedCLIServer) GetWorkspacePublicModulesDependencyGraph(context.Context, *emptypb.Empty) (*MultiGraphResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWorkspacePublicModulesDependencyGraph not implemented")
 }
 func (UnimplementedCLIServer) GetActive(context.Context, *emptypb.Empty) (*ActiveResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetActive not implemented")
@@ -333,92 +303,56 @@ func _CLI_GetAgentInformation_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _CLI_GetProjects_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _CLI_GetWorkspaceInventory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(CLIServer).GetProjects(ctx, in)
+		return srv.(CLIServer).GetWorkspaceInventory(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: CLI_GetProjects_FullMethodName,
+		FullMethod: CLI_GetWorkspaceInventory_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CLIServer).GetProjects(ctx, req.(*emptypb.Empty))
+		return srv.(CLIServer).GetWorkspaceInventory(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _CLI_GetProjectInventory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ProjectRequest)
+func _CLI_GetWorkspaceServiceDependencyGraph_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(CLIServer).GetProjectInventory(ctx, in)
+		return srv.(CLIServer).GetWorkspaceServiceDependencyGraph(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: CLI_GetProjectInventory_FullMethodName,
+		FullMethod: CLI_GetWorkspaceServiceDependencyGraph_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CLIServer).GetProjectInventory(ctx, req.(*ProjectRequest))
+		return srv.(CLIServer).GetWorkspaceServiceDependencyGraph(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _CLI_GetProjectServiceDependencyGraph_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ProjectRequest)
+func _CLI_GetWorkspacePublicModulesDependencyGraph_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(CLIServer).GetProjectServiceDependencyGraph(ctx, in)
+		return srv.(CLIServer).GetWorkspacePublicModulesDependencyGraph(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: CLI_GetProjectServiceDependencyGraph_FullMethodName,
+		FullMethod: CLI_GetWorkspacePublicModulesDependencyGraph_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CLIServer).GetProjectServiceDependencyGraph(ctx, req.(*ProjectRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _CLI_GetProjectPublicApplicationsDependencyGraph_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ProjectRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CLIServer).GetProjectPublicApplicationsDependencyGraph(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: CLI_GetProjectPublicApplicationsDependencyGraph_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CLIServer).GetProjectPublicApplicationsDependencyGraph(ctx, req.(*ProjectRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _CLI_LogHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(v02.LogRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CLIServer).LogHistory(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: CLI_LogHistory_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CLIServer).LogHistory(ctx, req.(*v02.LogRequest))
+		return srv.(CLIServer).GetWorkspacePublicModulesDependencyGraph(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -568,24 +502,16 @@ var CLI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _CLI_GetAgentInformation_Handler,
 		},
 		{
-			MethodName: "GetProjects",
-			Handler:    _CLI_GetProjects_Handler,
+			MethodName: "GetWorkspaceInventory",
+			Handler:    _CLI_GetWorkspaceInventory_Handler,
 		},
 		{
-			MethodName: "GetProjectInventory",
-			Handler:    _CLI_GetProjectInventory_Handler,
+			MethodName: "GetWorkspaceServiceDependencyGraph",
+			Handler:    _CLI_GetWorkspaceServiceDependencyGraph_Handler,
 		},
 		{
-			MethodName: "GetProjectServiceDependencyGraph",
-			Handler:    _CLI_GetProjectServiceDependencyGraph_Handler,
-		},
-		{
-			MethodName: "GetProjectPublicApplicationsDependencyGraph",
-			Handler:    _CLI_GetProjectPublicApplicationsDependencyGraph_Handler,
-		},
-		{
-			MethodName: "LogHistory",
-			Handler:    _CLI_LogHistory_Handler,
+			MethodName: "GetWorkspacePublicModulesDependencyGraph",
+			Handler:    _CLI_GetWorkspacePublicModulesDependencyGraph_Handler,
 		},
 		{
 			MethodName: "GetActive",

@@ -7,6 +7,7 @@ import (
 	"path"
 
 	"github.com/codefly-dev/core/builders"
+	"github.com/codefly-dev/core/resources"
 
 	"github.com/codefly-dev/core/wool"
 
@@ -14,7 +15,6 @@ import (
 	"github.com/codefly-dev/core/agents/helpers/code"
 
 	"github.com/codefly-dev/core/agents"
-	"github.com/codefly-dev/core/configurations"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
@@ -23,13 +23,13 @@ import (
 )
 
 type Information struct {
-	Service *configurations.ServiceWithCase
-	Agent   *configurations.Agent
+	Service *resources.ServiceWithCase
+	Agent   *resources.Agent
 }
 
 type Base struct {
 	// Agent
-	Agent *configurations.Agent
+	Agent *resources.Agent
 	Wool  *wool.Wool
 
 	// Service logger
@@ -39,13 +39,13 @@ type Base struct {
 	loaded bool
 
 	// State
-	Identity *configurations.ServiceIdentity
+	Identity *resources.ServiceIdentity
 	Location string
 
 	// codefly configuration
 	ConfigurationLocation string
 
-	Service *configurations.Service
+	Service *resources.Service
 
 	// Information convenience
 	Information *Information
@@ -57,7 +57,7 @@ type Base struct {
 	NetworkMappings []*basev0.NetworkMapping
 
 	// EnvironmentVariables
-	EnvironmentVariables *configurations.EnvironmentVariableManager
+	EnvironmentVariables *resources.EnvironmentVariableManager
 
 	// Configuration
 	Configuration *basev0.Configuration
@@ -77,13 +77,13 @@ type Base struct {
 	Events  chan code.Change
 }
 
-func NewServiceBase(ctx context.Context, agent *configurations.Agent) *Base {
+func NewServiceBase(ctx context.Context, agent *resources.Agent) *Base {
 	provider := agents.NewAgentProvider(ctx, agent)
 	base := &Base{
 		Agent:                agent,
 		Communication:        communicate.NewServer(ctx),
 		Wool:                 provider.Get(ctx),
-		EnvironmentVariables: configurations.NewEnvironmentVariableManager(),
+		EnvironmentVariables: resources.NewEnvironmentVariableManager(),
 	}
 	base.Runtime = &RuntimeWrapper{Base: base}
 	base.Builder = &BuilderWrapper{Base: base}
@@ -94,21 +94,21 @@ func (s *Base) Unique() string {
 	return s.Service.Unique()
 }
 
-func (s *Base) UniqueWithProject() string {
-	return s.Service.UniqueWithProject()
+func (s *Base) UniqueWithWorkspace() string {
+	return s.Service.UniqueWith()
 }
 
 func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {
-	s.Identity = configurations.ServiceIdentityFromProto(identity)
+	// Information about what we run
+	s.Identity = resources.ServiceIdentityFromProto(identity)
 	s.Location = identity.Location
 
-	s.EnvironmentVariables = configurations.NewEnvironmentVariableManager()
+	s.EnvironmentVariables = resources.NewEnvironmentVariableManager()
 
-	// Replace the Agent now that we know more!
 	agentProvider := agents.NewServiceAgentProvider(ctx, s.Identity)
-	serviceProvicer := agents.NewServiceProvider(ctx, s.Identity)
-
 	s.Wool = agentProvider.Get(ctx)
+
+	serviceProvicer := agents.NewServiceProvider(ctx, s.Identity)
 	s.Logger = serviceProvicer.Get(ctx)
 
 	s.Wool.Debug("loading", wool.ServiceField(s.Identity.Name))
@@ -124,7 +124,7 @@ func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentit
 }
 
 func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, settings any) error {
-	s.Identity = configurations.ServiceIdentityFromProto(identity)
+	s.Identity = resources.ServiceIdentityFromProto(identity)
 	s.Location = identity.Location
 
 	// Replace the Agent now that we know more!
@@ -142,12 +142,12 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 
 	s.Wool.Debug("loading service", wool.DirField(s.Location))
 
-	s.Service, err = configurations.LoadServiceFromDir(ctx, s.Location)
+	s.Service, err = resources.LoadServiceFromDir(ctx, s.Location)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot load service configuration")
 	}
 
-	s.EnvironmentVariables = configurations.NewEnvironmentVariableManager()
+	s.EnvironmentVariables = resources.NewEnvironmentVariableManager()
 
 	err = s.Service.LoadSettingsFromSpec(settings)
 	if err != nil {
@@ -155,7 +155,7 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	}
 
 	s.Information = &Information{
-		Service: configurations.ToServiceWithCase(s.Service),
+		Service: resources.ToServiceWithCase(s.Service),
 		Agent:   s.Agent,
 	}
 
@@ -163,10 +163,10 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	return nil
 }
 
-func (s *Base) DockerImage(req *builderv0.DockerBuildContext) *configurations.DockerImage {
+func (s *Base) DockerImage(req *builderv0.DockerBuildContext) *resources.DockerImage {
 	repo := req.DockerRepository
-	return &configurations.DockerImage{
-		Name: path.Join(repo, s.Identity.Project, s.Identity.Application, s.Identity.Name),
+	return &resources.DockerImage{
+		Name: path.Join(repo, s.Identity.Workspace, s.Identity.Module, s.Identity.Name),
 		Tag:  s.Version().Version,
 	}
 }
@@ -221,11 +221,14 @@ func (s *Base) Errorf(format string, args ...any) error {
 	return s.Wool.NewError(format, args...)
 }
 
-func (s *Base) LogForward(msg string, args ...any) {
+func (s *Base) Infof(msg string, args ...any) {
 	_, _ = s.Wool.Forward([]byte(fmt.Sprintf(msg, args...)))
 }
 
 func (s *Base) Version() *basev0.Version {
+	if s == nil || s.Service == nil {
+		return &basev0.Version{}
+	}
 	return &basev0.Version{Version: s.Service.Version}
 }
 

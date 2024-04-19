@@ -5,24 +5,29 @@ import (
 	"sync"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	"github.com/codefly-dev/core/resources"
 
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/core/configurations"
 	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 )
 
 type RuntimeWrapper struct {
 	*Base
 
-	Scope basev0.NetworkScope
+	Environment *basev0.Environment
 
-	ExportedConfigurations []*basev0.Configuration
+	RuntimeContext *basev0.RuntimeContext
+
+	RuntimeConfigurations []*basev0.Configuration
 
 	LoadStatus  *runtimev0.LoadStatus
 	InitStatus  *runtimev0.InitStatus
 	StartStatus *runtimev0.StartStatus
 	StopStatus  *runtimev0.StopStatus
+	ResetStatus *runtimev0.ResetStatus
+
+	TestStatus *runtimev0.TestStatus
 
 	DesiredState *runtimev0.DesiredState
 
@@ -30,8 +35,12 @@ type RuntimeWrapper struct {
 }
 
 func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
+	// Validate
+	if s.Environment == nil {
+		return s.LoadError(s.Wool.NewError("environment is nil"))
+	}
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_READY}
-	s.Wool.Debug("load response", wool.NullableField("endpoints", configurations.MakeManyEndpointSummary(s.Endpoints)))
+	s.Wool.Debug("load response", wool.NullableField("endpoints", resources.MakeManyEndpointSummary(s.Endpoints)))
 	return &runtimev0.LoadResponse{
 		Version:   s.Version(),
 		Endpoints: s.Endpoints,
@@ -45,37 +54,42 @@ func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
 		Message: err.Error()}
 	return &runtimev0.LoadResponse{
 		Status: s.LoadStatus,
-	}, nil
+	}, err
 }
 
-func (s *RuntimeWrapper) LoadErrorWithDetails(err error, details string) (*runtimev0.LoadResponse, error) {
+func (s *RuntimeWrapper) LoadErrorf(err error, msg string, args ...any) (*runtimev0.LoadResponse, error) {
 	s.LoadStatus = &runtimev0.LoadStatus{
 		State:   runtimev0.LoadStatus_ERROR,
-		Message: err.Error(),
-		Details: details,
+		Message: ErrorMessage(err, msg, args...),
 	}
 	return &runtimev0.LoadResponse{
 		Status: s.LoadStatus,
-	}, nil
+	}, err
 }
 
 func (s *RuntimeWrapper) InitResponse() (*runtimev0.InitResponse, error) {
 	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_READY}
 	return &runtimev0.InitResponse{
-		Status:          s.InitStatus,
-		NetworkMappings: s.NetworkMappings,
-		Configurations:  s.ExportedConfigurations,
+		Status:                s.InitStatus,
+		NetworkMappings:       s.NetworkMappings,
+		RuntimeConfigurations: s.RuntimeConfigurations,
 	}, nil
 }
 
-func (s *RuntimeWrapper) InitError(err error, fields ...*wool.LogField) (*runtimev0.InitResponse, error) {
-	message := wool.Log{Message: err.Error(), Fields: fields}
-	s.Wool.Error(err.Error(), fields...)
-	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: message.String()}
+func (s *RuntimeWrapper) InitError(err error) (*runtimev0.InitResponse, error) {
+	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: err.Error()}
 
 	return &runtimev0.InitResponse{
 		Status: s.InitStatus,
-	}, nil
+	}, err
+}
+
+func (s *RuntimeWrapper) InitErrorf(err error, msg string, args ...any) (*runtimev0.InitResponse, error) {
+	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
+
+	return &runtimev0.InitResponse{
+		Status: s.InitStatus,
+	}, err
 }
 
 func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
@@ -85,26 +99,64 @@ func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
 	}, nil
 }
 
-func (s *RuntimeWrapper) StartError(err error, fields ...*wool.LogField) (*runtimev0.StartResponse, error) {
-	message := wool.Log{Message: err.Error(), Fields: fields}
-	s.Wool.Error(err.Error(), fields...)
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: message.String()}
+func (s *RuntimeWrapper) StartError(err error) (*runtimev0.StartResponse, error) {
+	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: err.Error()}
 	return &runtimev0.StartResponse{
 		Status: s.StartStatus,
-	}, nil
+	}, err
+}
+
+func (s *RuntimeWrapper) StartErrorf(err error, msg string, args ...any) (*runtimev0.StartResponse, error) {
+	s.StartStatus = &runtimev0.StartStatus{
+		State:   runtimev0.StartStatus_ERROR,
+		Message: ErrorMessage(err, msg, args...),
+	}
+	return &runtimev0.StartResponse{
+		Status: s.StartStatus,
+	}, err
 }
 
 func (s *RuntimeWrapper) StopResponse() (*runtimev0.StopResponse, error) {
 	return &runtimev0.StopResponse{}, nil
 }
 
-func (s *RuntimeWrapper) StopError(err error, fields ...*wool.LogField) (*runtimev0.StopResponse, error) {
-	message := wool.Log{Message: err.Error(), Fields: fields}
-	s.Wool.Error(err.Error(), fields...)
-	s.StopStatus = &runtimev0.StopStatus{State: runtimev0.StopStatus_ERROR, Message: message.String()}
+func (s *RuntimeWrapper) StopError(err error) (*runtimev0.StopResponse, error) {
+	s.StopStatus = &runtimev0.StopStatus{
+		State: runtimev0.StopStatus_ERROR, Message: err.Error()}
 	return &runtimev0.StopResponse{
 		Status: s.StopStatus,
-	}, nil
+	}, err
+}
+
+func (s *RuntimeWrapper) StopErrorf(err error, msg string, args ...any) (*runtimev0.StopResponse, error) {
+	s.StopStatus = &runtimev0.StopStatus{
+		State: runtimev0.StopStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
+	return &runtimev0.StopResponse{
+		Status: s.StopStatus,
+	}, err
+}
+
+func (s *RuntimeWrapper) ResetResponse() (*runtimev0.ResetResponse, error) {
+	return &runtimev0.ResetResponse{}, nil
+}
+
+func (s *RuntimeWrapper) ResetError(err error) (*runtimev0.ResetResponse, error) {
+	s.ResetStatus = &runtimev0.ResetStatus{
+		State:   runtimev0.ResetStatus_ERROR,
+		Message: err.Error()}
+	return &runtimev0.ResetResponse{
+		Status: s.ResetStatus,
+	}, err
+}
+
+func (s *RuntimeWrapper) ResetErrorf(err error, msg string, args ...any) (*runtimev0.ResetResponse, error) {
+	s.ResetStatus = &runtimev0.ResetStatus{
+		State:   runtimev0.ResetStatus_ERROR,
+		Message: ErrorMessage(err, msg, args...),
+	}
+	return &runtimev0.ResetResponse{
+		Status: s.ResetStatus,
+	}, err
 }
 
 func NOOP() *runtimev0.DesiredState {
@@ -128,6 +180,8 @@ func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev0.Inf
 		InitStatus:   s.InitStatus,
 		StartStatus:  s.StartStatus,
 		StopStatus:   s.StopStatus,
+		ResetStatus:  s.ResetStatus,
+		TestStatus:   s.TestStatus,
 		DesiredState: s.DesiredState,
 	}
 	return resp, nil
@@ -157,34 +211,32 @@ func (s *RuntimeWrapper) DesiredStart() {
 	}
 }
 
-func (s *RuntimeWrapper) NetworkInstance(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkInstance, error) {
-	return configurations.FindNetworkInstanceInNetworkMappings(ctx, mappings, endpoint, s.Scope)
-}
-
 func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {
 	w := s.Wool.In("runtime::init")
 	w.Debug("input",
-		wool.Field("configurations", configurations.MakeConfigurationSummary(req.Configuration)),
-		wool.Field("dependencies configurations", configurations.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
-		wool.Field("dependency endpoints", configurations.MakeManyEndpointSummary(req.DependenciesEndpoints)),
-		wool.Field("network mapping", configurations.MakeManyNetworkMappingSummary(req.ProposedNetworkMappings)))
+		wool.Field("configurations", resources.MakeConfigurationSummary(req.Configuration)),
+		wool.Field("dependencies configurations", resources.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
+		wool.Field("dependency endpoints", resources.MakeManyEndpointSummary(req.DependenciesEndpoints)),
+		wool.Field("network mapping", resources.MakeManyNetworkMappingSummary(req.ProposedNetworkMappings)))
 }
 
 func (s *RuntimeWrapper) LogStartRequest(req *runtimev0.StartRequest) {
 	w := s.Wool.In("runtime::start")
 	w.Debug("input",
-		wool.Field("other network mappings", configurations.MakeManyNetworkMappingSummary(req.DependenciesNetworkMappings)),
+		wool.Field("other network mappings", resources.MakeManyNetworkMappingSummary(req.DependenciesNetworkMappings)),
 	)
 }
 
-func (s *RuntimeWrapper) SetScope(req *runtimev0.LoadRequest) {
-	s.Scope = req.Scope
+func (s *RuntimeWrapper) IsContainerRuntime() bool {
+	return s.RuntimeContext.Kind == basev0.RuntimeContext_Container
+
 }
 
-func (s *RuntimeWrapper) Container() bool {
-	return s.Scope == basev0.NetworkScope_Container
+func (s *RuntimeWrapper) WithContext(runtimeContext *basev0.RuntimeContext) {
+	s.RuntimeContext = runtimeContext
 }
 
-func (s *RuntimeWrapper) Native() bool {
-	return s.Scope == basev0.NetworkScope_Native
+func (s *RuntimeWrapper) SetEnvironment(environment *basev0.Environment) {
+	s.Environment = environment
+	s.EnvironmentVariables.SetEnvironment(environment)
 }

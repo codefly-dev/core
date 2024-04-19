@@ -25,6 +25,7 @@ const (
 	Runtime_Init_FullMethodName        = "/services.runtime.v0.Runtime/Init"
 	Runtime_Start_FullMethodName       = "/services.runtime.v0.Runtime/Start"
 	Runtime_Stop_FullMethodName        = "/services.runtime.v0.Runtime/Stop"
+	Runtime_Reset_FullMethodName       = "/services.runtime.v0.Runtime/Reset"
 	Runtime_Test_FullMethodName        = "/services.runtime.v0.Runtime/Test"
 	Runtime_Information_FullMethodName = "/services.runtime.v0.Runtime/Information"
 	Runtime_Communicate_FullMethodName = "/services.runtime.v0.Runtime/Communicate"
@@ -41,8 +42,10 @@ type RuntimeClient interface {
 	Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error)
 	// Start the underlying service
 	Start(ctx context.Context, in *StartRequest, opts ...grpc.CallOption) (*StartResponse, error)
-	// Stop the underlying service and cleanup
+	// Stop the underlying service
 	Stop(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
+	// Reset the underlying service
+	Reset(ctx context.Context, in *ResetRequest, opts ...grpc.CallOption) (*ResetResponse, error)
 	// Test the service
 	Test(ctx context.Context, in *TestRequest, opts ...grpc.CallOption) (*TestResponse, error)
 	// Information about the state of the service
@@ -95,6 +98,15 @@ func (c *runtimeClient) Stop(ctx context.Context, in *StopRequest, opts ...grpc.
 	return out, nil
 }
 
+func (c *runtimeClient) Reset(ctx context.Context, in *ResetRequest, opts ...grpc.CallOption) (*ResetResponse, error) {
+	out := new(ResetResponse)
+	err := c.cc.Invoke(ctx, Runtime_Reset_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *runtimeClient) Test(ctx context.Context, in *TestRequest, opts ...grpc.CallOption) (*TestResponse, error) {
 	out := new(TestResponse)
 	err := c.cc.Invoke(ctx, Runtime_Test_FullMethodName, in, out, opts...)
@@ -133,8 +145,10 @@ type RuntimeServer interface {
 	Init(context.Context, *InitRequest) (*InitResponse, error)
 	// Start the underlying service
 	Start(context.Context, *StartRequest) (*StartResponse, error)
-	// Stop the underlying service and cleanup
+	// Stop the underlying service
 	Stop(context.Context, *StopRequest) (*StopResponse, error)
+	// Reset the underlying service
+	Reset(context.Context, *ResetRequest) (*ResetResponse, error)
 	// Test the service
 	Test(context.Context, *TestRequest) (*TestResponse, error)
 	// Information about the state of the service
@@ -159,6 +173,9 @@ func (UnimplementedRuntimeServer) Start(context.Context, *StartRequest) (*StartR
 }
 func (UnimplementedRuntimeServer) Stop(context.Context, *StopRequest) (*StopResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Stop not implemented")
+}
+func (UnimplementedRuntimeServer) Reset(context.Context, *ResetRequest) (*ResetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Reset not implemented")
 }
 func (UnimplementedRuntimeServer) Test(context.Context, *TestRequest) (*TestResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Test not implemented")
@@ -254,6 +271,24 @@ func _Runtime_Stop_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Runtime_Reset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServer).Reset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Runtime_Reset_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServer).Reset(ctx, req.(*ResetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Runtime_Test_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TestRequest)
 	if err := dec(in); err != nil {
@@ -330,6 +365,10 @@ var Runtime_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Stop",
 			Handler:    _Runtime_Stop_Handler,
+		},
+		{
+			MethodName: "Reset",
+			Handler:    _Runtime_Reset_Handler,
 		},
 		{
 			MethodName: "Test",

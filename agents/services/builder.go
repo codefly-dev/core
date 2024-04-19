@@ -4,11 +4,11 @@ import (
 	"context"
 
 	"github.com/codefly-dev/core/agents/manager"
+	"github.com/codefly-dev/core/resources"
 
 	"github.com/codefly-dev/core/agents/communicate"
 
 	"github.com/codefly-dev/core/agents"
-	"github.com/codefly-dev/core/configurations"
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
 	"github.com/hashicorp/go-plugin"
@@ -18,8 +18,8 @@ import (
 type ServiceBuilderAgentContext struct {
 }
 
-func (m ServiceBuilderAgentContext) Key(p *configurations.Agent, unique string) string {
-	return p.Key(configurations.BuilderServiceAgent, unique)
+func (m ServiceBuilderAgentContext) Key(p *resources.Agent, unique string) string {
+	return p.Key(resources.BuilderServiceAgent, unique)
 }
 
 func (m ServiceBuilderAgentContext) Default() plugin.Plugin {
@@ -46,7 +46,7 @@ type Builder interface {
 
 type BuilderAgent struct {
 	Client      builderv0.BuilderClient
-	Agent       *configurations.Agent
+	Agent       *resources.Agent
 	ProcessInfo *manager.ProcessInfo
 }
 
@@ -135,7 +135,7 @@ func (m *BuilderServer) Communicate(ctx context.Context, req *agentv0.Engage) (*
 	return m.Builder.Communicate(ctx, req)
 }
 
-func NewBuilderAgent(conf *configurations.Agent, builder Builder) agents.AgentImplementation {
+func NewBuilderAgent(conf *resources.Agent, builder Builder) agents.AgentImplementation {
 	return agents.AgentImplementation{
 		Configuration: conf,
 		Agent:         &BuilderAgentGRPC{Builder: builder},

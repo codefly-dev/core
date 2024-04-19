@@ -276,7 +276,11 @@ func (t *Templator) WalkAndVisit(ctx context.Context, fs shared.FileSystem, root
 		base = t.NewName(base)
 		target := path.Join(destinationDir, base)
 
-		if shared.FileExists(target) && !t.Replace(target) {
+		exists, err := shared.FileExists(ctx, target)
+		if err != nil {
+			return w.Wrapf(err, "cannot check if file exists")
+		}
+		if exists && !t.Replace(target) {
 			w.Trace("file %s already exists: skipping", wool.FileField(target))
 			continue
 		}

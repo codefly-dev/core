@@ -116,12 +116,20 @@ func (provider *Provider) Get(ctx context.Context) *Wool {
 }
 
 type Console struct {
-	level Loglevel
+	level       Loglevel
+	messageOnly bool
+}
+
+func NewMessageConsole() *Console {
+	return &Console{level: globalLogLevel, messageOnly: true}
 }
 
 func (c Console) Process(msg *Log) {
 	if msg.Level < c.level {
 		return
+	}
+	if c.messageOnly {
+		fmt.Println(msg.Message)
 	}
 	fmt.Println(msg)
 }

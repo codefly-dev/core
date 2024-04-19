@@ -8,7 +8,7 @@ import (
 	"github.com/codefly-dev/core/agents/communicate"
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 	"github.com/codefly-dev/core/shared"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
 )
@@ -36,11 +36,11 @@ func TestSequenceWithoutCommunication(t *testing.T) {
 	server := communicate.NewServer(ctx)
 	sequence := agentTest{Server: server}
 	_, ok := server.RequiresCommunication(communicate.Channel[builderv0.CreateRequest]())
-	assert.False(t, ok)
+	require.False(t, ok)
 	resp, err := sequence.Create(ctx, &builderv0.CreateRequest{})
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.Equal(t, 0, len(resp.results))
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Equal(t, 0, len(resp.results))
 }
 
 func (s *agentTest) createSequence() *communicate.Sequence {
@@ -93,48 +93,48 @@ func TestSequenceWithCommunication(t *testing.T) {
 	agent := agentTest{Server: server}
 
 	err := server.Register(ctx, communicate.New[builderv0.CreateRequest](agent.createSequence()))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	_, ok := server.RequiresCommunication(communicate.Channel[builderv0.CreateRequest]())
-	assert.True(t, ok)
+	require.True(t, ok)
 	_, err = agent.Create(ctx, &builderv0.CreateRequest{})
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	answerProvider := &clientHandler{}
 	clientSession := communicate.NewClientSession(communicate.Channel[builderv0.CreateRequest](), answerProvider)
 
 	eng, err := clientSession.Engage(ctx, nil)
-	assert.NoError(t, err)
-	assert.True(t, eng.Mode == agentv0.Engage_START)
+	require.NoError(t, err)
+	require.True(t, eng.Mode == agentv0.Engage_START)
 
 	// Send that to the server
 	res, err := server.Communicate(ctx, eng)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// We should have the confirmation question
-	assert.NotNil(t, res.Question.GetInput())
+	require.NotNil(t, res.Question.GetInput())
 
 	// generator handles this
 	eng, err = clientSession.Engage(ctx, res)
-	assert.NoError(t, err)
-	assert.Equal(t, "one", eng.Stage)
-	assert.Equal(t, "working", eng.Answer.GetInput().GetStringValue())
+	require.NoError(t, err)
+	require.Equal(t, "one", eng.Stage)
+	require.Equal(t, "working", eng.Answer.GetInput().GetStringValue())
 
 	// sent that to the server
 	res, err = server.Communicate(ctx, eng)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// we are done
-	assert.True(t, res.Done)
+	require.True(t, res.Done)
 
 	// we will send that back to the generator
 	eng, err = clientSession.Engage(ctx, res)
-	assert.NoError(t, err)
-	assert.True(t, eng.Mode == agentv0.Engage_END)
+	require.NoError(t, err)
+	require.True(t, eng.Mode == agentv0.Engage_END)
 
 	// we got the info back
 	session, err := server.Done(ctx, communicate.Channel[builderv0.CreateRequest]())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	value, err := session.GetInputString("one")
-	assert.NoError(t, err)
-	assert.Equal(t, "working", value)
+	require.NoError(t, err)
+	require.Equal(t, "working", value)
 }
 
 func TestSequenceWithCommunicationFlow(t *testing.T) {
@@ -144,18 +144,18 @@ func TestSequenceWithCommunicationFlow(t *testing.T) {
 	agent := agentTest{Server: server}
 
 	err := server.Register(ctx, communicate.New[builderv0.CreateRequest](agent.createBiggerSequence()))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	answerProvider := &clientHandlerRepeater{}
 
 	err = communicate.Do[builderv0.CreateRequest](ctx, server, answerProvider)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	session, err := server.Done(ctx, communicate.Channel[builderv0.CreateRequest]())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	for _, v := range []string{"one", "two", "three", "four"} {
 		value, err := session.GetInputString(v)
-		assert.NoError(t, err)
-		assert.Equal(t, v, value)
+		require.NoError(t, err)
+		require.Equal(t, v, value)
 	}
 }

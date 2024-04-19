@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+# Hash/cache
+*.hash
+
 # Test binary, built with `go test -c`
 *.test
 

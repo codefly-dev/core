@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/resources"
 )
 
 /*
@@ -18,47 +18,31 @@ type RunnerEnvironment interface {
 	// Init setup the environment
 	Init(ctx context.Context) error
 
-	// Clear removes all resources
-	Clear(ctx context.Context) error
-
 	// NewProcess creates a new process for the environment
 	NewProcess(bin string, args ...string) (Proc, error)
 
 	// Stop the environment: can potentially be restarted
 	Stop(ctx context.Context) error
 
-	// Shutdown the environment: all resources will be deleted
+	// Shutdown the environment: stop and remove all resources
 	Shutdown(ctx context.Context) error
 
 	// WithEnvironmentVariables sets the environment variables
-	WithEnvironmentVariables(envs ...configurations.EnvironmentVariable)
+	WithEnvironmentVariables(envs ...resources.EnvironmentVariable)
 }
 
+// Proc is a generic process interface
+// Implementations:
+// - LocalEnvironment process: obtained from a local environment
+// - Docker process: obtained by running in a Docker environment
 type Proc interface {
 	Start(ctx context.Context) error
 	Run(ctx context.Context) error
 	Stop(ctx context.Context) error
 
-	WithOutput(w io.Writer)
-	WithEnvironmentVariables(envs ...configurations.EnvironmentVariable)
-}
-
-type Runner interface {
-
-	// Setting parameters
-
-	WithDir(dir string)
-	WithEnvironmentVariables(envs ...configurations.EnvironmentVariable)
-	WithBin(bin string)
-	WithArguments(args ...string)
+	// WithOutput output to send the logs
 	WithOutput(w io.Writer)
 
-	// Interface
-
-	Init(ctx context.Context) error
-
-	Run(ctx context.Context) error
-	Start(ctx context.Context) error
-
-	Stop() error
+	// WithEnvironmentVariables adds environment variables
+	WithEnvironmentVariables(envs ...resources.EnvironmentVariable)
 }

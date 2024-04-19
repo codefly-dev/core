@@ -32,7 +32,7 @@ func addDependency(ctx context.Context, base string, dep *builders.Dependency, w
 	for _, p := range dep.Components() {
 		fullPath := path.Join(base, p)
 		// If path doesn't exist we skip
-		if !shared.FileExists(fullPath) && !shared.DirectoryExists(fullPath) {
+		if exists, err := shared.FileExists(ctx, fullPath); err != nil || !exists {
 			w.Trace("skipping", wool.Field("path", fullPath))
 			continue
 		}

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/core/configurations"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
 	"github.com/codefly-dev/core/shared"
@@ -21,6 +21,12 @@ type BuilderWrapper struct {
 	DeployOutput *builderv0.DeploymentOutput
 
 	GettingStarted string
+	CreationMode   *builderv0.CreationMode
+}
+
+func ErrorMessage(err error, msg string, args ...any) string {
+	msg = fmt.Sprintf(msg, args...)
+	return fmt.Sprintf("%s: %s", msg, err)
 }
 
 func (s *BuilderWrapper) LoadResponse() (*builderv0.LoadResponse, error) {
@@ -28,7 +34,7 @@ func (s *BuilderWrapper) LoadResponse() (*builderv0.LoadResponse, error) {
 		return s.LoadError(fmt.Errorf("not loaded"))
 	}
 	for _, e := range s.Endpoints {
-		e.Application = s.Identity.Application
+		e.Module = s.Identity.Module
 		e.Service = s.Identity.Name
 	}
 	return &builderv0.LoadResponse{
@@ -45,20 +51,30 @@ func (s *BuilderWrapper) LoadError(err error) (*builderv0.LoadResponse, error) {
 	}, err
 }
 
+func (s *BuilderWrapper) LoadErrorf(err error, msg string, args ...any) (*builderv0.LoadResponse, error) {
+	return &builderv0.LoadResponse{
+		State: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
+	}, err
+}
+
 func (s *BuilderWrapper) InitResponse() (*builderv0.InitResponse, error) {
 	if !s.loaded {
 		return s.InitError(fmt.Errorf("not loaded"))
 	}
 	return &builderv0.InitResponse{
-		State: &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS}}, nil
+		State: &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS},
+	}, nil
 }
 
 func (s *BuilderWrapper) InitError(err error) (*builderv0.InitResponse, error) {
-	if !s.loaded {
-		return s.InitError(fmt.Errorf("not loaded"))
-	}
 	return &builderv0.InitResponse{
 		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: err.Error()},
+	}, err
+}
+
+func (s *BuilderWrapper) InitErrorf(err error, msg string, args ...any) (*builderv0.InitResponse, error) {
+	return &builderv0.InitResponse{
+		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
 	}, err
 }
 
@@ -73,7 +89,7 @@ func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*bui
 	}
 
 	// Save endpoints
-	s.Service.Endpoints, err = configurations.FromProtoEndpoints(s.Endpoints...)
+	s.Service.Endpoints, err = resources.FromProtoEndpoints(s.Endpoints...)
 	if err != nil {
 		return s.CreateError(err)
 	}
@@ -90,6 +106,12 @@ func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*bui
 func (s *BuilderWrapper) CreateError(err error) (*builderv0.CreateResponse, error) {
 	return &builderv0.CreateResponse{
 		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error()},
+	}, err
+}
+
+func (s *BuilderWrapper) CreateErrorf(err error, msg string, args ...any) (*builderv0.CreateResponse, error) {
+	return &builderv0.CreateResponse{
+		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
 	}, err
 }
 
@@ -122,7 +144,7 @@ func (s *BuilderWrapper) SyncError(err error) (*builderv0.SyncResponse, error) {
 		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}}, err
 }
 
-func (s *BuilderWrapper) WithDockerImages(ims ...*configurations.DockerImage) {
+func (s *BuilderWrapper) WithDockerImages(ims ...*resources.DockerImage) {
 	var imgs []string
 	for _, im := range ims {
 		imgs = append(imgs, im.FullName())
@@ -171,8 +193,8 @@ func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, 
 type DeploymentBase struct {
 	*Information
 	Namespace   string
-	Environment *configurations.Environment
-	Image       *configurations.DockerImage
+	Environment *resources.Environment
+	Image       *resources.DockerImage
 	Replicas    int
 
 	// Specialization
@@ -180,7 +202,7 @@ type DeploymentBase struct {
 }
 
 func (s *BuilderWrapper) CreateKubernetesBase(env *basev0.Environment, namespace string, builderContext *builderv0.DockerBuildContext) *DeploymentBase {
-	envInfo := configurations.EnvironmentFromProto(env)
+	envInfo := resources.EnvironmentFromProto(env)
 	return &DeploymentBase{
 		Namespace:   namespace,
 		Information: s.Information,
@@ -202,7 +224,7 @@ type DeploymentParameters struct {
 	Parameters any
 }
 
-func EnvsAsConfigMapData(envs ...configurations.EnvironmentVariable) (EnvironmentMap, error) {
+func EnvsAsConfigMapData(envs ...resources.EnvironmentVariable) (EnvironmentMap, error) {
 	m := make(EnvironmentMap)
 	for _, env := range envs {
 		m[env.Key] = env.ValueAsString()
@@ -210,7 +232,7 @@ func EnvsAsConfigMapData(envs ...configurations.EnvironmentVariable) (Environmen
 	return m, nil
 }
 
-func EnvsAsSecretData(envs ...configurations.EnvironmentVariable) (EnvironmentMap, error) {
+func EnvsAsSecretData(envs ...resources.EnvironmentVariable) (EnvironmentMap, error) {
 	m := make(EnvironmentMap)
 	for _, env := range envs {
 		m[env.Key] = env.ValueAsEncodedString()
@@ -268,9 +290,9 @@ type DeploymentWrapper struct {
 
 func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.FS, k *builderv0.KubernetesDeployment, base *DeploymentBase, params any) error {
 	wrapper := &DeploymentWrapper{DeploymentBase: base, Deployment: params}
-	destination := path.Join(k.Destination, "applications", s.Service.Application, "services", s.Service.Name)
+	destination := path.Join(k.Destination, "modules", s.Service.Module, "services", s.Service.Name)
 	// Delete
-	err := shared.EmptyDir(destination)
+	err := shared.EmptyDir(ctx, destination)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot empty destination")
 	}
@@ -285,22 +307,22 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.
 }
 
 func (s *BuilderWrapper) NetworkInstance(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkInstance, error) {
-	return configurations.FindNetworkInstanceInNetworkMappings(ctx, mappings, endpoint, basev0.NetworkScope_Container)
+	return nil, nil // resources.FindNetworkInstanceInNetworkMappings(ctx, mappings, endpoint, basev0.NetworkScope_Container)
 }
 
 func (s *BuilderWrapper) LogInitRequest(req *builderv0.InitRequest) {
 	w := s.Wool.In("builder::init")
 	w.Debug("input",
-		wool.Field("dependency endpoints", configurations.MakeManyEndpointSummary(req.DependenciesEndpoints)),
+		wool.Field("dependency endpoints", resources.MakeManyEndpointSummary(req.DependenciesEndpoints)),
 	)
 }
 
 func (s *BuilderWrapper) LogDeployRequest(req *builderv0.DeploymentRequest, log wool.LogFunc) {
 	log("input",
-		wool.Field("configuration", configurations.MakeConfigurationSummary(req.Configuration)),
-		wool.Field("dependencies configurations", configurations.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
-		wool.Field("network mappings", configurations.MakeManyNetworkMappingSummary(req.NetworkMappings)),
-		wool.Field("dependencies network mappings", configurations.MakeManyNetworkMappingSummary(req.DependenciesNetworkMappings)),
+		wool.Field("configuration", resources.MakeConfigurationSummary(req.Configuration)),
+		wool.Field("dependencies configurations", resources.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
+		wool.Field("network mappings", resources.MakeManyNetworkMappingSummary(req.NetworkMappings)),
+		wool.Field("dependencies network mappings", resources.MakeManyNetworkMappingSummary(req.DependenciesNetworkMappings)),
 	)
 }
 

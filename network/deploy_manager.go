@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/core/configurations/standards"
+	"github.com/codefly-dev/core/standards"
 
-	"github.com/codefly-dev/core/configurations"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
@@ -16,24 +16,26 @@ type DeployManager struct {
 	dnsManager DNSManager
 }
 
-func (m *DeployManager) GetNamespace(_ context.Context, service *configurations.Service, env *configurations.Environment) (string, error) {
-	return fmt.Sprintf("%s-%s-%s", service.Project, service.Application, env.Name), nil
+var _ Manager = &DeployManager{}
+
+func (m *DeployManager) GetNamespace(_ context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.Service) (string, error) {
+	return fmt.Sprintf("%s-%s-%s", workspace.Name, service.Module, env.Name), nil
 }
 
-func (m *DeployManager) KubernetesService(service *configurations.Service, endpoint *basev0.Endpoint, namespace string, port uint16) *basev0.NetworkInstance {
+func (m *DeployManager) KubernetesService(service *resources.Service, endpoint *basev0.Endpoint, namespace string, port uint16) *basev0.NetworkInstance {
 	host := fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, namespace)
 	var instance *basev0.NetworkInstance
 	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
-		instance = configurations.NewHTTPNetworkInstance(host, port, false)
+		instance = resources.NewHTTPNetworkInstance(host, port, false)
 	} else {
-		instance = configurations.NewNetworkInstance(host, port)
+		instance = resources.NewNetworkInstance(host, port)
 	}
-	instance.Scope = basev0.NetworkScope_Container
+	instance.Access = resources.ContainerNetworkAccess()
 	return instance
 }
 
 // GenerateNetworkMappings generates network mappings for a service endpoints
-func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *configurations.Service, endpoints []*basev0.Endpoint, env *configurations.Environment) ([]*basev0.NetworkMapping, error) {
+func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
 	var out []*basev0.NetworkMapping
 	for _, endpoint := range endpoints {
@@ -41,7 +43,7 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *co
 			Endpoint: endpoint,
 		}
 		// Get DNS name for external endpoints
-		if endpoint.Visibility == configurations.VisibilityExternal {
+		if endpoint.Visibility == resources.VisibilityExternal {
 			dns, err := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
 			if err != nil {
 				return nil, err
@@ -57,19 +59,19 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *co
 		}
 		// Get canonical port
 		port := standards.Port(endpoint.Api)
-		if endpoint.Visibility == configurations.VisibilityPublic {
+		if endpoint.Visibility == resources.VisibilityPublic {
 			var dns *basev0.DNS
 			var err error
-			if env.LoadBalancer != "" {
-				host := fmt.Sprintf("kopkfeqwuk-%s-%s-%s-%s.%s", env.Name, service.Name, service.Application, service.Project, env.LoadBalancer)
-				dns = &basev0.DNS{
-					Host:    host,
-					Port:    443,
-					Secured: true,
-				}
-				nm.Instances = []*basev0.NetworkInstance{
-					PublicInstance(LoadBalanced(ctx, env, service, endpoint)),
-				}
+			if false { //env.LoadBalancer != "" {
+				//host := fmt.Sprintf("kopkfeqwuk-%s-%s-%s-%s.%s", env.Name, service.Name, service.Module, service., env.LoadBalancer)
+				//dns = &basev0.DNS{
+				//	Host:    host,
+				//	Port:    443,
+				//	Secured: true,
+				//}
+				//nm.Instances = []*basev0.NetworkInstance{
+				//	PublicInstance(LoadBalanced(ctx, env, service, endpoint)),
+				//}
 			} else {
 				// Case without Load Balancer
 				dns, err = m.dnsManager.GetDNS(ctx, service, endpoint.Name)
@@ -85,7 +87,7 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *co
 			}
 			w.Debug("will expose public endpoint to load balancer", wool.Field("dns", dns))
 		}
-		namespace, err := m.GetNamespace(ctx, service, env)
+		namespace, err := m.GetNamespace(ctx, env, workspace, service)
 		if err != nil {
 			return nil, err
 		}
@@ -95,16 +97,17 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, service *co
 	return out, nil
 }
 
-func LoadBalanced(_ context.Context, env *configurations.Environment, service *configurations.Service, endpoint *basev0.Endpoint) *basev0.NetworkInstance {
-	host := fmt.Sprintf("kopkfeqwuk-%s-%s-%s-%s.%s", env.Name, service.Name, service.Application, service.Project, env.LoadBalancer)
-	var instance *basev0.NetworkInstance
-	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
-		instance = configurations.NewHTTPNetworkInstance(host, 443, true)
-	} else {
-		panic("only load balance http and rest for now")
-	}
-	return instance
-}
+//
+//func LoadBalanced(_ context.Context, env *resources.Environment, service *resources.Service, endpoint *basev0.Endpoint) *basev0.NetworkInstance {
+//	host := fmt.Sprintf("kopkfeqwuk-%s-%s-%s-%s.%s", env.Name, service.Name, service.Module, service., env.LoadBalancer)
+//	var instance *basev0.NetworkInstance
+//	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+//		instance = resources.NewHTTPNetworkInstance(host, 443, true)
+//	} else {
+//		panic("only load balance http and rest for now")
+//	}
+//	return instance
+//}
 
 func NewDeployManager(_ context.Context, dnsManager DNSManager) (*DeployManager, error) {
 	return &DeployManager{dnsManager: dnsManager}, nil

@@ -103,212 +103,56 @@ func local_request_CLI_GetAgentInformation_0(ctx context.Context, marshaler runt
 
 }
 
-func request_CLI_GetProjects_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_CLI_GetWorkspaceInventory_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq emptypb.Empty
 	var metadata runtime.ServerMetadata
 
-	msg, err := client.GetProjects(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.GetWorkspaceInventory(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_CLI_GetProjects_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_CLI_GetWorkspaceInventory_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq emptypb.Empty
 	var metadata runtime.ServerMetadata
 
-	msg, err := server.GetProjects(ctx, &protoReq)
+	msg, err := server.GetWorkspaceInventory(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
-func request_CLI_GetProjectInventory_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ProjectRequest
+func request_CLI_GetWorkspaceServiceDependencyGraph_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq emptypb.Empty
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["project"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "project")
-	}
-
-	protoReq.Project, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "project", err)
-	}
-
-	msg, err := client.GetProjectInventory(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.GetWorkspaceServiceDependencyGraph(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_CLI_GetProjectInventory_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ProjectRequest
+func local_request_CLI_GetWorkspaceServiceDependencyGraph_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq emptypb.Empty
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["project"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "project")
-	}
-
-	protoReq.Project, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "project", err)
-	}
-
-	msg, err := server.GetProjectInventory(ctx, &protoReq)
+	msg, err := server.GetWorkspaceServiceDependencyGraph(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
-func request_CLI_GetProjectServiceDependencyGraph_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ProjectRequest
+func request_CLI_GetWorkspacePublicModulesDependencyGraph_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq emptypb.Empty
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["project"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "project")
-	}
-
-	protoReq.Project, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "project", err)
-	}
-
-	msg, err := client.GetProjectServiceDependencyGraph(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.GetWorkspacePublicModulesDependencyGraph(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_CLI_GetProjectServiceDependencyGraph_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ProjectRequest
+func local_request_CLI_GetWorkspacePublicModulesDependencyGraph_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq emptypb.Empty
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["project"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "project")
-	}
-
-	protoReq.Project, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "project", err)
-	}
-
-	msg, err := server.GetProjectServiceDependencyGraph(ctx, &protoReq)
-	return msg, metadata, err
-
-}
-
-func request_CLI_GetProjectPublicApplicationsDependencyGraph_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ProjectRequest
-	var metadata runtime.ServerMetadata
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["project"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "project")
-	}
-
-	protoReq.Project, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "project", err)
-	}
-
-	msg, err := client.GetProjectPublicApplicationsDependencyGraph(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
-	return msg, metadata, err
-
-}
-
-func local_request_CLI_GetProjectPublicApplicationsDependencyGraph_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ProjectRequest
-	var metadata runtime.ServerMetadata
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["project"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "project")
-	}
-
-	protoReq.Project, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "project", err)
-	}
-
-	msg, err := server.GetProjectPublicApplicationsDependencyGraph(ctx, &protoReq)
-	return msg, metadata, err
-
-}
-
-var (
-	filter_CLI_LogHistory_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
-)
-
-func request_CLI_LogHistory_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq v0_1.LogRequest
-	var metadata runtime.ServerMetadata
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_CLI_LogHistory_0); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-
-	msg, err := client.LogHistory(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
-	return msg, metadata, err
-
-}
-
-func local_request_CLI_LogHistory_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq v0_1.LogRequest
-	var metadata runtime.ServerMetadata
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_CLI_LogHistory_0); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-
-	msg, err := server.LogHistory(ctx, &protoReq)
+	msg, err := server.GetWorkspacePublicModulesDependencyGraph(ctx, &protoReq)
 	return msg, metadata, err
 
 }
@@ -342,14 +186,14 @@ func request_CLI_GetAddresses_0(ctx context.Context, marshaler runtime.Marshaler
 		_   = err
 	)
 
-	val, ok = pathParams["application"]
+	val, ok = pathParams["module"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "application")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "module")
 	}
 
-	protoReq.Application, err = runtime.String(val)
+	protoReq.Module, err = runtime.String(val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "application", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "module", err)
 	}
 
 	val, ok = pathParams["service"]
@@ -388,14 +232,14 @@ func local_request_CLI_GetAddresses_0(ctx context.Context, marshaler runtime.Mar
 		_   = err
 	)
 
-	val, ok = pathParams["application"]
+	val, ok = pathParams["module"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "application")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "module")
 	}
 
-	protoReq.Application, err = runtime.String(val)
+	protoReq.Module, err = runtime.String(val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "application", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "module", err)
 	}
 
 	val, ok = pathParams["service"]
@@ -434,14 +278,14 @@ func request_CLI_GetSharedConfiguration_0(ctx context.Context, marshaler runtime
 		_   = err
 	)
 
-	val, ok = pathParams["application"]
+	val, ok = pathParams["module"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "application")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "module")
 	}
 
-	protoReq.Application, err = runtime.String(val)
+	protoReq.Module, err = runtime.String(val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "application", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "module", err)
 	}
 
 	val, ok = pathParams["service"]
@@ -470,14 +314,14 @@ func local_request_CLI_GetSharedConfiguration_0(ctx context.Context, marshaler r
 		_   = err
 	)
 
-	val, ok = pathParams["application"]
+	val, ok = pathParams["module"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "application")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "module")
 	}
 
-	protoReq.Application, err = runtime.String(val)
+	protoReq.Module, err = runtime.String(val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "application", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "module", err)
 	}
 
 	val, ok = pathParams["service"]
@@ -623,7 +467,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetAgentInformation", runtime.WithHTTPPathPattern("/overall/agent/{agent}/information"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetAgentInformation", runtime.WithHTTPPathPattern("/agent/{agent}/information"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -640,7 +484,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 
 	})
 
-	mux.Handle("GET", pattern_CLI_GetProjects_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_CLI_GetWorkspaceInventory_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -648,12 +492,12 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetProjects", runtime.WithHTTPPathPattern("/overall/project/information"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetWorkspaceInventory", runtime.WithHTTPPathPattern("/workspace/inventory"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_CLI_GetProjects_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_CLI_GetWorkspaceInventory_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -661,11 +505,11 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 			return
 		}
 
-		forward_CLI_GetProjects_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_CLI_GetWorkspaceInventory_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_CLI_GetProjectInventory_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_CLI_GetWorkspaceServiceDependencyGraph_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -673,12 +517,12 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetProjectInventory", runtime.WithHTTPPathPattern("/overall/project/{project}/inventory"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetWorkspaceServiceDependencyGraph", runtime.WithHTTPPathPattern("/workspace/service-dependency-graph"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_CLI_GetProjectInventory_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_CLI_GetWorkspaceServiceDependencyGraph_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -686,11 +530,11 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 			return
 		}
 
-		forward_CLI_GetProjectInventory_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_CLI_GetWorkspaceServiceDependencyGraph_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_CLI_GetProjectServiceDependencyGraph_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_CLI_GetWorkspacePublicModulesDependencyGraph_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -698,12 +542,12 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetProjectServiceDependencyGraph", runtime.WithHTTPPathPattern("/overall/project/{project}/service-dependency-graph"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetWorkspacePublicModulesDependencyGraph", runtime.WithHTTPPathPattern("/workspace/public-modules-graph"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_CLI_GetProjectServiceDependencyGraph_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_CLI_GetWorkspacePublicModulesDependencyGraph_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -711,57 +555,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 			return
 		}
 
-		forward_CLI_GetProjectServiceDependencyGraph_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
-	})
-
-	mux.Handle("GET", pattern_CLI_GetProjectPublicApplicationsDependencyGraph_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		var stream runtime.ServerTransportStream
-		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetProjectPublicApplicationsDependencyGraph", runtime.WithHTTPPathPattern("/overall/project/{project}/public-applications-graph"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := local_request_CLI_GetProjectPublicApplicationsDependencyGraph_0(annotatedContext, inboundMarshaler, server, req, pathParams)
-		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-
-		forward_CLI_GetProjectPublicApplicationsDependencyGraph_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
-	})
-
-	mux.Handle("GET", pattern_CLI_LogHistory_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		var stream runtime.ServerTransportStream
-		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/LogHistory", runtime.WithHTTPPathPattern("/overall/project/logs/history"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := local_request_CLI_LogHistory_0(annotatedContext, inboundMarshaler, server, req, pathParams)
-		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-
-		forward_CLI_LogHistory_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_CLI_GetWorkspacePublicModulesDependencyGraph_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -773,7 +567,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetActive", runtime.WithHTTPPathPattern("/active/project/information"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetActive", runtime.WithHTTPPathPattern("/workspace/information"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -798,7 +592,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetAddresses", runtime.WithHTTPPathPattern("/active/project/network-mapping/{application}/{service}/{endpoint}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetAddresses", runtime.WithHTTPPathPattern("/workspace/network-mapping/{module}/{service}/{endpoint}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -823,7 +617,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetSharedConfiguration", runtime.WithHTTPPathPattern("/active/project/shared-configuration/{application}/{service}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetSharedConfiguration", runtime.WithHTTPPathPattern("/workspace/shared-configuration/{module}/{service}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -855,7 +649,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/ActiveLogHistory", runtime.WithHTTPPathPattern("/active/project/logs/history"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/ActiveLogHistory", runtime.WithHTTPPathPattern("/workspace/logs/history"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -880,7 +674,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetFlowStatus", runtime.WithHTTPPathPattern("/active/project/flow/status"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetFlowStatus", runtime.WithHTTPPathPattern("/workspace/flow/status"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -905,7 +699,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/StopFlow", runtime.WithHTTPPathPattern("/active/project/flow/stop"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/StopFlow", runtime.WithHTTPPathPattern("/workspace/flow/stop"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -991,7 +785,7 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetAgentInformation", runtime.WithHTTPPathPattern("/overall/agent/{agent}/information"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetAgentInformation", runtime.WithHTTPPathPattern("/agent/{agent}/information"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1007,113 +801,69 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 
 	})
 
-	mux.Handle("GET", pattern_CLI_GetProjects_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_CLI_GetWorkspaceInventory_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetProjects", runtime.WithHTTPPathPattern("/overall/project/information"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetWorkspaceInventory", runtime.WithHTTPPathPattern("/workspace/inventory"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_CLI_GetProjects_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_CLI_GetWorkspaceInventory_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_CLI_GetProjects_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_CLI_GetWorkspaceInventory_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_CLI_GetProjectInventory_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_CLI_GetWorkspaceServiceDependencyGraph_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetProjectInventory", runtime.WithHTTPPathPattern("/overall/project/{project}/inventory"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetWorkspaceServiceDependencyGraph", runtime.WithHTTPPathPattern("/workspace/service-dependency-graph"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_CLI_GetProjectInventory_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_CLI_GetWorkspaceServiceDependencyGraph_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_CLI_GetProjectInventory_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_CLI_GetWorkspaceServiceDependencyGraph_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_CLI_GetProjectServiceDependencyGraph_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_CLI_GetWorkspacePublicModulesDependencyGraph_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetProjectServiceDependencyGraph", runtime.WithHTTPPathPattern("/overall/project/{project}/service-dependency-graph"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetWorkspacePublicModulesDependencyGraph", runtime.WithHTTPPathPattern("/workspace/public-modules-graph"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_CLI_GetProjectServiceDependencyGraph_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_CLI_GetWorkspacePublicModulesDependencyGraph_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_CLI_GetProjectServiceDependencyGraph_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
-	})
-
-	mux.Handle("GET", pattern_CLI_GetProjectPublicApplicationsDependencyGraph_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetProjectPublicApplicationsDependencyGraph", runtime.WithHTTPPathPattern("/overall/project/{project}/public-applications-graph"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := request_CLI_GetProjectPublicApplicationsDependencyGraph_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-
-		forward_CLI_GetProjectPublicApplicationsDependencyGraph_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
-	})
-
-	mux.Handle("GET", pattern_CLI_LogHistory_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/LogHistory", runtime.WithHTTPPathPattern("/overall/project/logs/history"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := request_CLI_LogHistory_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-
-		forward_CLI_LogHistory_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_CLI_GetWorkspacePublicModulesDependencyGraph_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1123,7 +873,7 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetActive", runtime.WithHTTPPathPattern("/active/project/information"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetActive", runtime.WithHTTPPathPattern("/workspace/information"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1145,7 +895,7 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetAddresses", runtime.WithHTTPPathPattern("/active/project/network-mapping/{application}/{service}/{endpoint}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetAddresses", runtime.WithHTTPPathPattern("/workspace/network-mapping/{module}/{service}/{endpoint}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1167,7 +917,7 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetSharedConfiguration", runtime.WithHTTPPathPattern("/active/project/shared-configuration/{application}/{service}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetSharedConfiguration", runtime.WithHTTPPathPattern("/workspace/shared-configuration/{module}/{service}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1189,7 +939,7 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/Logs", runtime.WithHTTPPathPattern("/active/project/logs"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/Logs", runtime.WithHTTPPathPattern("/workspace/logs"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1211,7 +961,7 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/ActiveLogHistory", runtime.WithHTTPPathPattern("/active/project/logs/history"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/ActiveLogHistory", runtime.WithHTTPPathPattern("/workspace/logs/history"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1233,7 +983,7 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetFlowStatus", runtime.WithHTTPPathPattern("/active/project/flow/status"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetFlowStatus", runtime.WithHTTPPathPattern("/workspace/flow/status"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1255,7 +1005,7 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/StopFlow", runtime.WithHTTPPathPattern("/active/project/flow/stop"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/StopFlow", runtime.WithHTTPPathPattern("/workspace/flow/stop"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1277,31 +1027,27 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 var (
 	pattern_CLI_Ping_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0}, []string{"ping"}, ""))
 
-	pattern_CLI_GetAgentInformation_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 1, 2, 2}, []string{"overall", "agent", "information"}, ""))
+	pattern_CLI_GetAgentInformation_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 1, 0, 4, 1, 5, 0, 2, 1}, []string{"agent", "information"}, ""))
 
-	pattern_CLI_GetProjects_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"overall", "project", "information"}, ""))
+	pattern_CLI_GetWorkspaceInventory_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"workspace", "inventory"}, ""))
 
-	pattern_CLI_GetProjectInventory_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 1, 2, 2}, []string{"overall", "project", "inventory"}, ""))
+	pattern_CLI_GetWorkspaceServiceDependencyGraph_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"workspace", "service-dependency-graph"}, ""))
 
-	pattern_CLI_GetProjectServiceDependencyGraph_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 1, 2, 2}, []string{"overall", "project", "service-dependency-graph"}, ""))
+	pattern_CLI_GetWorkspacePublicModulesDependencyGraph_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"workspace", "public-modules-graph"}, ""))
 
-	pattern_CLI_GetProjectPublicApplicationsDependencyGraph_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 1, 2, 2}, []string{"overall", "project", "public-applications-graph"}, ""))
+	pattern_CLI_GetActive_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"workspace", "information"}, ""))
 
-	pattern_CLI_LogHistory_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"overall", "project", "logs", "history"}, ""))
+	pattern_CLI_GetAddresses_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4}, []string{"workspace", "network-mapping", "module", "service", "endpoint"}, ""))
 
-	pattern_CLI_GetActive_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"active", "project", "information"}, ""))
+	pattern_CLI_GetSharedConfiguration_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2, 1, 0, 4, 1, 5, 3}, []string{"workspace", "shared-configuration", "module", "service"}, ""))
 
-	pattern_CLI_GetAddresses_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5}, []string{"active", "project", "network-mapping", "application", "service", "endpoint"}, ""))
+	pattern_CLI_Logs_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"workspace", "logs"}, ""))
 
-	pattern_CLI_GetSharedConfiguration_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4}, []string{"active", "project", "shared-configuration", "application", "service"}, ""))
+	pattern_CLI_ActiveLogHistory_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"workspace", "logs", "history"}, ""))
 
-	pattern_CLI_Logs_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"active", "project", "logs"}, ""))
+	pattern_CLI_GetFlowStatus_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"workspace", "flow", "status"}, ""))
 
-	pattern_CLI_ActiveLogHistory_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"active", "project", "logs", "history"}, ""))
-
-	pattern_CLI_GetFlowStatus_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"active", "project", "flow", "status"}, ""))
-
-	pattern_CLI_StopFlow_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"active", "project", "flow", "stop"}, ""))
+	pattern_CLI_StopFlow_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"workspace", "flow", "stop"}, ""))
 )
 
 var (
@@ -1309,15 +1055,11 @@ var (
 
 	forward_CLI_GetAgentInformation_0 = runtime.ForwardResponseMessage
 
-	forward_CLI_GetProjects_0 = runtime.ForwardResponseMessage
+	forward_CLI_GetWorkspaceInventory_0 = runtime.ForwardResponseMessage
 
-	forward_CLI_GetProjectInventory_0 = runtime.ForwardResponseMessage
+	forward_CLI_GetWorkspaceServiceDependencyGraph_0 = runtime.ForwardResponseMessage
 
-	forward_CLI_GetProjectServiceDependencyGraph_0 = runtime.ForwardResponseMessage
-
-	forward_CLI_GetProjectPublicApplicationsDependencyGraph_0 = runtime.ForwardResponseMessage
-
-	forward_CLI_LogHistory_0 = runtime.ForwardResponseMessage
+	forward_CLI_GetWorkspacePublicModulesDependencyGraph_0 = runtime.ForwardResponseMessage
 
 	forward_CLI_GetActive_0 = runtime.ForwardResponseMessage
 

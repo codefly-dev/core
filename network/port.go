@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/codefly-dev/core/configurations/standards"
+	"github.com/codefly-dev/core/standards"
 )
 
 type FixedStrategy struct {
@@ -50,11 +50,11 @@ func APIInt(api string) int {
 // 0: TCP
 // 1: HTTP/ REST
 // 2: gRPC
-func ToNamedPort(_ context.Context, project string, app string, svc string, name string, api string) uint16 {
-	appPart := HashInt(app+project, 11, 49) * 1000
-	svcPart := HashInt(app+svc, 0, 9) * 100
+func ToNamedPort(_ context.Context, ws string, mod string, svc string, name string, api string) uint16 {
+	modPart := HashInt(mod+ws, 11, 49) * 1000
+	svcPart := HashInt(mod+svc, 0, 9) * 100
 	namePart := HashInt(name, 0, 9) * 10
-	port := appPart + svcPart + namePart + APIInt(api)
+	port := modPart + svcPart + namePart + APIInt(api)
 	return uint16(port)
 }
 

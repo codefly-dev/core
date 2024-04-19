@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/cheggaaa/pb/v3"
-	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"github.com/mholt/archiver"
@@ -24,7 +24,7 @@ type GithubSource struct {
 	Repo  string
 }
 
-func toGithubSource(p *configurations.Agent) GithubSource {
+func toGithubSource(p *resources.Agent) GithubSource {
 	return GithubSource{
 		Owner: strings.ReplaceAll(p.Publisher, ".", "-"),
 		Repo:  fmt.Sprintf("service-%s", p.Name),
@@ -42,15 +42,20 @@ func ValidURL(s string) bool {
 	return true
 }
 
-func Downloaded(p *configurations.Agent) bool {
+func Downloaded(ctx context.Context, p *resources.Agent) (bool, error) {
+	w := wool.Get(ctx).In("agents.Downloaded", wool.Field("agent", p.Identifier()))
 	bin, err := p.Path()
 	if err != nil {
-		return false
+		return false, w.Wrapf(err, "cannot compute agent path")
 	}
-	return shared.FileExists(bin)
+	exists, err := shared.FileExists(ctx, bin)
+	if err != nil {
+		return false, w.Wrapf(err, "cannot check if file exists")
+	}
+	return exists, nil
 }
 
-func Download(ctx context.Context, p *configurations.Agent) error {
+func Download(ctx context.Context, p *resources.Agent) error {
 	w := wool.Get(ctx).In("agents.Download", wool.Field("agent", p.Identifier()))
 	releaseURL := DownloadURL(p)
 	if !ValidURL(releaseURL) {
@@ -111,14 +116,17 @@ func Download(ctx context.Context, p *configurations.Agent) error {
 		return w.Wrapf(err, "cannot unarchive")
 	}
 	bin, err := p.Path()
-
-	binary := path.Join(dest, fmt.Sprintf("service-%s", p.Name))
-	if !shared.FileExists(binary) {
-		content, _ := os.ReadDir(dest)
-		fmt.Println("content ", content)
-	}
 	if err != nil {
 		return w.Wrapf(err, "cannot compute agent path")
+	}
+	binary := path.Join(dest, fmt.Sprintf("service-%s", p.Name))
+	exists, err := shared.FileExists(ctx, binary)
+	if err != nil {
+		return w.Wrapf(err, "cannot check if file exists")
+	}
+	if exists {
+		content, _ := os.ReadDir(dest)
+		fmt.Println("content ", content)
 	}
 	target, err := p.Path()
 	if err != nil {

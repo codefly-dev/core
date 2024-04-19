@@ -5,10 +5,11 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"time"
 
-	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/configurations/languages"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	"github.com/codefly-dev/core/languages"
+	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
@@ -40,15 +41,16 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 	}
 	// Add the proto stuff
 	for _, endpoint := range endpoints {
-		if grpc := configurations.IsGRPC(ctx, endpoint); grpc != nil {
-			unique := fmt.Sprintf("%s_%s", endpoint.Application, endpoint.Service)
+		if grpc := resources.IsGRPC(ctx, endpoint); grpc != nil {
+			unique := fmt.Sprintf("%s_%s", endpoint.Module, endpoint.Service)
 			err = os.WriteFile(fmt.Sprintf("%s/%s_%s.proto", tmpDir, unique, endpoint.Name), grpc.Proto, 0600)
 			if err != nil {
 				return w.Wrapf(err, "cannot write proto file")
 			}
 		}
 	}
-	runner, err := runners.NewDockerEnvironment(ctx, image, tmpDir, "proto")
+	name := fmt.Sprintf("proto-%s-%d", service, time.Now().UnixMilli())
+	runner, err := runners.NewDockerEnvironment(ctx, image, tmpDir, name)
 	if err != nil {
 		return w.Wrapf(err, "cannot create docker runner")
 	}
@@ -56,6 +58,13 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 	runner.WithMount(tmpDir, "/workspace")
 	runner.WithWorkDir("/workspace")
 	runner.WithPause()
+
+	defer func() {
+		err = runner.Shutdown(ctx)
+		if err != nil {
+			w.Warn("cannot shutdown runner", wool.ErrField(err))
+		}
+	}()
 
 	err = runner.Init(ctx)
 	if err != nil {

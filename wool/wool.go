@@ -26,8 +26,9 @@ type Wool struct {
 	provider *Provider
 	span     trace.Span
 
-	logger   LogProcessor
-	logLevel Loglevel
+	logger       LogProcessor
+	logLevel     Loglevel
+	disableCatch bool
 }
 
 type LogFunc func(string, ...*LogField)
@@ -72,6 +73,12 @@ func (w *Wool) Inject(ctx context.Context) context.Context {
 
 // Catch recovers from a panic and logs the error
 func (w *Wool) Catch() {
+	if w == nil {
+		return
+	}
+	if w.disableCatch {
+		return
+	}
 	if r := recover(); r != nil {
 		w.Warn("PANIC CAUGHT INSIDE THE AGENT CODE ", Field("panic", r))
 		w.Warn(string(debug.Stack()))
@@ -277,6 +284,10 @@ func (w *Wool) WithLogger(l LogProcessor) *Wool {
 
 func (w *Wool) WithLoglevel(level Loglevel) {
 	w.logLevel = level
+}
+
+func (w *Wool) DisableCatch() {
+	w.disableCatch = true
 }
 
 const LogEvent = "log"

@@ -1,0 +1,6 @@
+kind: module
+name: app
+project: codefly-platform
+domain: github.com/codefly-dev/codefly-platform/management
+services:
+    - name: svc

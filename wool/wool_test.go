@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/resources"
 	wool "github.com/codefly-dev/core/wool"
 	"github.com/codefly-dev/core/wool/adapters/log"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testLogger struct {
@@ -23,7 +23,7 @@ func TestDefault(t *testing.T) {
 	ctx := context.Background()
 
 	w := wool.Get(ctx)
-	assert.NotNil(t, w)
+	require.NotNil(t, w)
 
 	logger := &testLogger{}
 	w.WithLogger(logger)
@@ -32,17 +32,17 @@ func TestDefault(t *testing.T) {
 
 	werr := w.Wrap(err)
 
-	assert.EqualError(t, werr, "test error")
+	require.EqualError(t, werr, "test error")
 
 	log.AsLog(w).Info("hello %s", "world")
 
-	assert.Equal(t, 1, len(logger.logs))
-	assert.Equal(t, "hello world", logger.logs[0].Message)
+	require.Equal(t, 1, len(logger.logs))
+	require.Equal(t, "hello world", logger.logs[0].Message)
 }
 
 func TestWoolBasics(t *testing.T) {
 	ctx := context.Background()
-	provider := wool.New(ctx, configurations.CLI.AsResource())
+	provider := wool.New(ctx, resources.CLI.AsResource())
 
 	logger := &testLogger{}
 	provider.WithLogger(logger)
@@ -52,24 +52,24 @@ func TestWoolBasics(t *testing.T) {
 
 	w := wool.Get(ctx).In("testBasics", wool.Field("test", "test"))
 
-	assert.NotNil(t, w)
+	require.NotNil(t, w)
 
 	err := fmt.Errorf("test error")
 	werr := w.Wrap(err)
-	assert.EqualError(t, werr, "testBasics: test error")
+	require.EqualError(t, werr, "testBasics: test error")
 
 	// Use the standard logger interface
 	log.AsLog(w).Info("hello %s", "world")
 
 	w.Close()
 
-	assert.Equal(t, 1, len(logger.logs))
-	assert.Equal(t, "hello world", logger.logs[0].Message)
+	require.Equal(t, 1, len(logger.logs))
+	require.Equal(t, "hello world", logger.logs[0].Message)
 }
 
 func TestWoolWithContext(t *testing.T) {
 	ctx := context.Background()
-	provider := wool.New(ctx, configurations.CLI.AsResource())
+	provider := wool.New(ctx, resources.CLI.AsResource())
 
 	logger := &testLogger{}
 	provider.WithLogger(logger)
@@ -79,15 +79,15 @@ func TestWoolWithContext(t *testing.T) {
 
 	w := wool.Get(ctx)
 
-	assert.NotNil(t, w)
+	require.NotNil(t, w)
 
 	// Use the standard logger interface
 	log.AsLog(w).Info("hello %s", "world")
 
 	w.Close()
 
-	assert.Equal(t, 1, len(logger.logs))
-	assert.Equal(t, "hello world", logger.logs[0].Message)
+	require.Equal(t, 1, len(logger.logs))
+	require.Equal(t, "hello world", logger.logs[0].Message)
 }
 
 //

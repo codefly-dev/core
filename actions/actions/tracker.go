@@ -13,7 +13,6 @@ import (
 
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/shared"
 )
 
@@ -27,17 +26,16 @@ type ActionTracker struct {
 	Replay bool
 }
 
-func NewActionTracker(ctx context.Context, group string) (*ActionTracker, error) {
+func NewActionTracker(ctx context.Context, location string, group string) (*ActionTracker, error) {
 	w := wool.Get(ctx).In("actions.NewActionTracker", wool.Field("group", group))
-	dir := path.Join(configurations.WorkspaceConfigurationDir(), "actions", group)
-	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
+	_, err := shared.CheckDirectoryOrCreate(ctx, location)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create directory")
 	}
-	tracker = &ActionTracker{
-		Dir: dir,
+	trac := &ActionTracker{
+		Dir: location,
 	}
-	return tracker, nil
+	return trac, nil
 }
 
 func (tracker *ActionTracker) WithDir(dir string) {
@@ -158,13 +156,15 @@ func (tracker *ActionTracker) GetActions(_ context.Context) ([]Action, error) {
 	sort.Slice(steps, func(i, j int) bool {
 		return steps[i].Step < steps[j].Step
 	})
-	var actions []Action
+	var as []Action
 	for _, step := range steps {
-		actions = append(actions, step.Action)
+		as = append(as, step.Action)
 	}
-	return actions, nil
+	return as, nil
 }
 
 func SetActionTracker(actionTracker *ActionTracker) {
 	tracker = actionTracker
 }
+
+var tracker *ActionTracker

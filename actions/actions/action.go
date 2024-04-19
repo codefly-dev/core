@@ -4,17 +4,30 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/codefly-dev/core/resources"
 )
 
 type Action interface {
-	Run(ctx context.Context) (any, error)
+	Run(ctx context.Context, space *Space) (any, error)
 	Command() string
 }
 
-var tracker *ActionTracker
+type Space struct {
+	Workspace *resources.Workspace
+	Module    *resources.Module
+}
 
-func Run(ctx context.Context, action Action) (any, error) {
-	res, err := action.Run(ctx)
+func (space *Space) OnWorkspace(workspace *resources.Workspace) {
+	space.Workspace = workspace
+}
+
+func (space *Space) OnModule(module *resources.Module) {
+	space.Module = module
+}
+
+func Run(ctx context.Context, action Action, space *Space) (any, error) {
+	res, err := action.Run(ctx, space)
 	if err != nil {
 		return nil, err
 	}

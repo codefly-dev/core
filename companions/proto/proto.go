@@ -2,13 +2,15 @@ package proto
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
+	"time"
 
 	"github.com/codefly-dev/core/builders"
-	"github.com/codefly-dev/core/configurations/standards"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -61,13 +63,22 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "cannot get companion image")
 	}
 
-	runner, err := runners.NewDockerEnvironment(ctx, image, g.Dir, "proto")
+	// Create a timestamp so we don't clubber docker environments
+	name := fmt.Sprintf("proto-%d", time.Now().UnixMilli())
+	runner, err := runners.NewDockerEnvironment(ctx, image, g.Dir, name)
 	if err != nil {
 		return w.Wrapf(err, "cannot create docker runner")
 	}
 	runner.WithMount(g.Dir, "/workspace")
 	runner.WithWorkDir("/workspace/proto")
 	runner.WithPause()
+
+	defer func() {
+		err = runner.Shutdown(ctx)
+		if err != nil {
+			w.Warn("cannot shutdown runner", wool.ErrField(err))
+		}
+	}()
 
 	err = runner.Init(ctx)
 	if err != nil {

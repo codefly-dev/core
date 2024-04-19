@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
@@ -26,7 +26,7 @@ type Env struct {
 type BuilderConfiguration struct {
 	Root        string
 	Dockerfile  string
-	Destination *configurations.DockerImage
+	Destination *resources.DockerImage
 	Output      io.Writer
 	Ignores     []string
 }
