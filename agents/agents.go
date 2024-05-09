@@ -1,12 +1,12 @@
 package agents
 
 import (
-	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/resources"
 	"github.com/hashicorp/go-plugin"
 )
 
 type Agent struct {
-	Configuration  *configurations.Agent
+	Configuration  *resources.Agent
 	Type           string
 	Implementation plugin.Plugin
 }
@@ -19,7 +19,7 @@ var HandshakeConfig = plugin.HandshakeConfig{
 
 type AgentImplementation struct {
 	Agent         plugin.Plugin
-	Configuration *configurations.Agent
+	Configuration *resources.Agent
 }
 
 func Register(agents ...AgentImplementation) {

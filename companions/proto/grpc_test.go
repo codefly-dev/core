@@ -6,13 +6,13 @@ import (
 	"path"
 	"testing"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/companions/proto"
-	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/configurations/languages"
+	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/shared"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateGRPC(t *testing.T) {
@@ -20,21 +20,22 @@ func TestGenerateGRPC(t *testing.T) {
 	// Load some endpoints
 	ctx := context.Background()
 	f, err := shared.SolvePath("testdata/api.proto")
-	assert.NoError(t, err)
-	ep := &configurations.Endpoint{Application: "app", Service: "svc", Name: "api", Visibility: "private"}
-	api, err := configurations.LoadGrpcAPI(ctx, shared.Pointer(f))
-	assert.NoError(t, err)
-	grpc, err := configurations.NewAPI(ctx, ep, configurations.ToGrpcAPI(api))
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	ep := &resources.Endpoint{Module: "app", Service: "svc", Name: "api", Visibility: "private"}
+	api, err := resources.LoadGrpcAPI(ctx, shared.Pointer(f))
+	require.NoError(t, err)
+	grpc, err := resources.NewAPI(ctx, ep, resources.ToGrpcAPI(api))
+	require.NoError(t, err)
 	destination := t.TempDir()
 	defer os.RemoveAll(destination)
+
 	err = proto.GenerateGRPC(ctx, languages.GO, destination, "app/svc", grpc)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// Make sure we have the files
 	files := []string{"app_svc_api.pb.go", "app_svc_api_grpc.pb.go"}
 	for _, f := range files {
 		p := path.Join(destination, f)
-		assert.NoError(t, err)
-		assert.FileExists(t, p)
+		require.NoError(t, err)
+		require.FileExists(t, p)
 	}
 }

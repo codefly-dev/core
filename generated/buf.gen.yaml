@@ -16,5 +16,7 @@ plugins:
   - name: grpc-gateway
     out: go
     opt: paths=source_relative
-#  - name: python_betterproto
-#    out: python
+  - plugin: buf.build/protocolbuffers/python
+    out: python/codefly-cli
+  - plugin: buf.build/grpc/python
+    out: python/codefly-cli

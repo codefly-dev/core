@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/codefly-dev/core/agents/manager"
+	"github.com/codefly-dev/core/resources"
 
 	"github.com/codefly-dev/core/agents"
-	"github.com/codefly-dev/core/configurations"
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
@@ -19,8 +19,8 @@ type Agent interface {
 type ServiceAgentContext struct {
 }
 
-func (m ServiceAgentContext) Key(p *configurations.Agent, unique string) string {
-	return p.Key(configurations.ServiceAgent, unique)
+func (m ServiceAgentContext) Key(p *resources.Agent, unique string) string {
+	return p.Key(resources.ServiceAgent, unique)
 }
 
 func (m ServiceAgentContext) Default() plugin.Plugin {
@@ -31,7 +31,7 @@ var _ manager.AgentContext = ServiceAgentContext{}
 
 type ServiceAgent struct {
 	Client      agentv0.AgentClient
-	Agent       *configurations.Agent
+	Agent       *resources.Agent
 	ProcessInfo *manager.ProcessInfo
 }
 
@@ -67,7 +67,7 @@ func (m *ServiceAgentServer) GetAgentInformation(ctx context.Context, req *agent
 }
 
 // NewServiceAgent binds the Agent implementation to the Agent
-func NewServiceAgent(conf *configurations.Agent, service Agent) agents.AgentImplementation {
+func NewServiceAgent(conf *resources.Agent, service Agent) agents.AgentImplementation {
 	return agents.AgentImplementation{
 		Configuration: conf,
 		Agent:         &ServiceAgentGRPC{Service: service},

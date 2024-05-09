@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"google.golang.org/grpc/metadata"
 
@@ -49,11 +49,11 @@ func TestInjectMetaData(t *testing.T) {
 			ctx = wool.InjectMetadata(ctx)
 			w := wool.Get(ctx)
 			authID, err := w.UserAuthID()
-			assert.NoError(t, err)
-			assert.Equal(t, "123", authID)
+			require.NoError(t, err)
+			require.Equal(t, "123", authID)
 			email, err := w.UserEmail()
-			assert.NoError(t, err)
-			assert.Equal(t, "test@test.com", email)
+			require.NoError(t, err)
+			require.Equal(t, "test@test.com", email)
 		})
 	}
 }

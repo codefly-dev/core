@@ -3,7 +3,7 @@ package templates
 import (
 	"bytes"
 
-	"github.com/codefly-dev/core/configurations/generation"
+	"github.com/codefly-dev/core/generation"
 )
 
 type ServiceReplacer struct {

@@ -1,5 +1,5 @@
 # First stage: Build environment
-FROM golang:alpine as builder
+FROM golang:1.22-alpine as builder
 
 # Install dependencies
 RUN apk add --no-cache git python3 py3-pip nodejs npm protobuf

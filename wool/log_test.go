@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/wool"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFields(t *testing.T) {
@@ -14,7 +14,7 @@ func TestFields(t *testing.T) {
 		Fields:  []*wool.LogField{field},
 	}
 	debug := log.AtLevel(wool.DEBUG)
-	assert.Equal(t, 1, len(debug.Fields))
+	require.Equal(t, 1, len(debug.Fields))
 
 	field = wool.Field("key", "string").Debug()
 	log = wool.Log{
@@ -22,5 +22,5 @@ func TestFields(t *testing.T) {
 		Fields:  []*wool.LogField{field},
 	}
 	info := log.AtLevel(wool.INFO)
-	assert.Equal(t, 0, len(info.Fields))
+	require.Equal(t, 0, len(info.Fields))
 }

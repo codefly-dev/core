@@ -6,7 +6,6 @@ import (
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/actions/actions"
-	"github.com/codefly-dev/core/configurations"
 
 	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
 )
@@ -36,17 +35,12 @@ func NewActionAddServiceDependency(ctx context.Context, in *AddServiceDependency
 
 var _ actions.Action = (*AddServiceDependencyAction)(nil)
 
-func (action *AddServiceDependencyAction) Run(ctx context.Context) (any, error) {
+func (action *AddServiceDependencyAction) Run(ctx context.Context, space *actions.Space) (any, error) {
 	w := wool.Get(ctx).In("AddServiceDependencyAction.Run", wool.NameField(action.Name))
 
-	project, err := configurations.LoadProjectFromDir(ctx, action.ProjectPath)
+	app, err := space.Workspace.LoadModuleFromName(ctx, action.Module)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot load project %s", action.ProjectPath)
-	}
-
-	app, err := project.LoadApplicationFromName(ctx, action.Application)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot load application %s", action.Application)
+		return nil, w.Wrapf(err, "cannot load module %s", action.Module)
 	}
 
 	service, err := app.LoadServiceFromName(ctx, action.Name)
@@ -54,19 +48,22 @@ func (action *AddServiceDependencyAction) Run(ctx context.Context) (any, error) 
 		return nil, w.Wrapf(err, "cannot load service %s", action.Name)
 	}
 
-	appDep, err := project.LoadApplicationFromName(ctx, action.DependencyApplication)
+	appDep, err := space.Workspace.LoadModuleFromName(ctx, action.DependencyModule)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot load dependent application %s", action.DependencyApplication)
+		return nil, w.Wrapf(err, "cannot load dependent module %s", action.DependencyModule)
 	}
+
 	serviceDependency, err := appDep.LoadServiceFromName(ctx, action.DependencyName)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load dependent service %s", action.DependencyName)
 	}
+
 	// Validate that the endpoints exists
 	unknowns, err := serviceDependency.HasEndpoints(ctx, action.Endpoints)
 	if err != nil {
 		return nil, w.Wrapf(err, "unknown endpoints %s for service %s", unknowns, action.DependencyName)
 	}
+
 	dependencyEndpoints, err := serviceDependency.EndpointsFromNames(action.Endpoints)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get endpoints %s for service %s", action.Endpoints, action.DependencyName)

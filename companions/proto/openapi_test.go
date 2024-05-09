@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/companions/proto"
-	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/configurations/languages"
+	"github.com/codefly-dev/core/languages"
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateSwagger(t *testing.T) {
@@ -19,28 +19,29 @@ func TestGenerateSwagger(t *testing.T) {
 	ctx := context.Background()
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	f, err := shared.SolvePath("testdata/api.json")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	ep := &configurations.Endpoint{Application: "web", Service: "api", Name: "api", Visibility: "private"}
-	rest, err := configurations.LoadRestAPI(ctx, shared.Pointer(f))
-	assert.NoError(t, err)
-	api, err := configurations.NewAPI(ctx, ep, configurations.ToRestAPI(rest))
-	assert.NoError(t, err)
+	ep := &resources.Endpoint{Module: "web", Service: "api", Name: "api", Visibility: "private"}
+	rest, err := resources.LoadRestAPI(ctx, shared.Pointer(f))
+	require.NoError(t, err)
+	api, err := resources.NewAPI(ctx, ep, resources.ToRestAPI(rest))
+	require.NoError(t, err)
 
 	// Destination needs to be inside this package
 	destination, err := shared.SolvePath("testdata")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	destination = path.Join(destination, "openapi")
 
 	defer os.RemoveAll(destination)
+
 	err = proto.GenerateOpenAPI(ctx, languages.GO, destination, "web/api", api)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Make sure we have the dirs
 	dirs := []string{"models", "client"}
 	for _, f := range dirs {
 		p := path.Join(destination, f)
-		assert.NoError(t, err)
-		assert.DirExists(t, p)
+		require.NoError(t, err)
+		require.DirExists(t, p)
 	}
 }

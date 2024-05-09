@@ -5,9 +5,9 @@ package manager
 import (
 	"fmt"
 
-	"github.com/codefly-dev/core/configurations"
+	"github.com/codefly-dev/core/resources"
 )
 
-func DownloadURL(p *configurations.Agent) string {
+func DownloadURL(p *resources.Agent) string {
 	return fmt.Sprintf("https://github.com/codefly-dev/service-%s/releases/download/v%s/service-%s_%s_darwin_arm64.tar.gz", p.Name, p.Version, p.Name, p.Version)
 }

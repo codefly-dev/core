@@ -1,0 +1,5 @@
+kind: module
+name: mod
+services:
+    - name: svc
+    - name: svc2

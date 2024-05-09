@@ -39,17 +39,25 @@ func (dep *Dependency) Hash(ctx context.Context) (string, error) {
 		if !filepath.IsAbs(path) && dep.dir != "" {
 			path = filepath.Join(dep.dir, path)
 		}
-		if shared.FileExists(path) {
+		exists, err := shared.FileExists(ctx, path)
+		if err != nil {
+			return "", w.Wrapf(err, "cannot check if file exists %s", path)
+		}
+		if exists {
 			err := addFileHash(ctx, h, path)
 			if err != nil {
 				return "", err
 			}
 			continue
 		}
-		if !shared.DirectoryExists(path) {
+		exists, err = shared.DirectoryExists(ctx, path)
+		if err != nil {
+			return "", w.Wrapf(err, "cannot check if directory exists %s", path)
+		}
+		if !exists {
 			continue
 		}
-		err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+		err = filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
@@ -259,13 +267,14 @@ func (dep *Dependencies) All() []string {
 	return all
 }
 
-func (dep *Dependencies) Present(dir string) []string {
+func (dep *Dependencies) Present(ctx context.Context, dir string) []string {
 	var all []string
 	for _, c := range dep.Components {
 		for _, cc := range c.Components() {
 			if !strings.Contains(cc, "*") {
 				p := filepath.Join(dir, cc)
-				if !shared.FileExists(p) && !shared.DirectoryExists(p) {
+				exists, err := shared.Exists(ctx, p)
+				if err != nil || !exists {
 					continue
 				}
 			}

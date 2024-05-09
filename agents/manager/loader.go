@@ -6,14 +6,14 @@ import (
 	"strconv"
 
 	"github.com/codefly-dev/core/agents"
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/core/configurations"
 	"github.com/hashicorp/go-plugin"
 )
 
 type AgentContext interface {
-	Key(p *configurations.Agent, unique string) string
+	Key(p *resources.Agent, unique string) string
 	Default() plugin.Plugin
 }
 
@@ -41,7 +41,7 @@ type ProcessInfo struct {
 	PID int
 }
 
-func Load[P AgentContext, Instance any](ctx context.Context, p *configurations.Agent, unique string) (*Instance, *ProcessInfo, error) {
+func Load[P AgentContext, Instance any](ctx context.Context, p *resources.Agent, unique string) (*Instance, *ProcessInfo, error) {
 	w := wool.Get(ctx).In("agents.Load", wool.Field("agent", p.Identifier()))
 
 	if p == nil {

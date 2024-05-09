@@ -5,11 +5,10 @@ import (
 	"embed"
 	"io/fs"
 
-	"github.com/codefly-dev/core/configurations"
-
 	"gopkg.in/yaml.v3"
 
 	"github.com/Masterminds/semver"
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -32,13 +31,13 @@ func version(ctx context.Context) (string, error) {
 	return v.String(), nil
 }
 
-func CompanionImage(ctx context.Context) (*configurations.DockerImage, error) {
+func CompanionImage(ctx context.Context) (*resources.DockerImage, error) {
 	w := wool.Get(ctx).In("proto.CompanionImage")
 	v, err := version(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get version")
 	}
-	return &configurations.DockerImage{Name: "codeflydev/proto", Tag: v}, nil
+	return &resources.DockerImage{Name: "codeflydev/proto", Tag: v}, nil
 }
 
 //go:embed info.codefly.yaml

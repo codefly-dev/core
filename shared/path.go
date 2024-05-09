@@ -36,26 +36,41 @@ func SolvePath(p string) (string, error) {
 	return p, nil
 }
 
-func FileExists(file string) bool {
-	info, err := os.Stat(file)
-	return !os.IsNotExist(err) && !info.IsDir()
-}
-
-func DirectoryExists(p string) bool {
-	info, err := os.Stat(p)
-	return !os.IsNotExist(err) && info.IsDir()
-}
-
-type CopyInstruction struct {
-	Name string
-	Path string
-}
-
-// CheckDirectory is a safer version of DirectoryExists
-// return bool, err
+// Exists checks for existence of file/folder
 // err only for unexpected behavior
-func CheckDirectory(ctx context.Context, dir string) (bool, error) {
-	w := wool.Get(ctx).In("shared.CheckDirectory", wool.Field("dir", dir))
+func Exists(ctx context.Context, p string) (bool, error) {
+	w := wool.Get(ctx).In("shared.FileExists", wool.PathField(p))
+	_, err := os.Stat(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, w.Wrapf(err, "cannot check directory")
+	}
+	return true, nil
+}
+
+// FileExists checks for existence of folder
+// err only for unexpected behavior
+func FileExists(ctx context.Context, file string) (bool, error) {
+	w := wool.Get(ctx).In("shared.FileExists", wool.FileField(file))
+	info, err := os.Stat(file)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, w.Wrapf(err, "cannot check directory")
+	}
+	return !info.IsDir(), nil
+}
+
+// DirectoryExists checks for existence of folder
+// err only for unexpected behavior
+func DirectoryExists(ctx context.Context, dir string) (bool, error) {
+	w := wool.Get(ctx).In("shared.DirectoryExists", wool.Field("dir", dir))
+	if dir == "" {
+		return false, w.NewError("empty directory")
+	}
 	info, err := os.Stat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -76,7 +91,10 @@ func CheckDirectory(ctx context.Context, dir string) (bool, error) {
 // err only for unexpected behavior or if exists
 func CheckEmptyDirectoryOrCreate(ctx context.Context, dir string) (bool, error) {
 	w := wool.Get(ctx).In("shared.CheckEmptyDirectoryOrCreate", wool.DirField(dir))
-	exists, err := CheckDirectory(ctx, dir)
+	if dir == "" {
+		return false, w.NewError("empty directory")
+	}
+	exists, err := DirectoryExists(ctx, dir)
 	if err != nil {
 		return CheckDirectoryOrCreate(ctx, dir)
 	}
@@ -97,6 +115,9 @@ func CheckEmptyDirectoryOrCreate(ctx context.Context, dir string) (bool, error) 
 // CheckEmptyDirectory checks if a directory exists and is empty
 func CheckEmptyDirectory(ctx context.Context, dir string) (bool, error) {
 	w := wool.Get(ctx).In("shared.CheckEmptyDirectory", wool.DirField(dir))
+	if dir == "" {
+		return false, w.NewError("empty directory")
+	}
 	// Check if directory is empty
 	files, err := os.ReadDir(dir)
 	if err != nil {
@@ -109,12 +130,15 @@ func CheckEmptyDirectory(ctx context.Context, dir string) (bool, error) {
 }
 
 func DeleteFile(ctx context.Context, file string) error {
-	// Do nothing if not present
-	if !FileExists(file) {
+	w := wool.Get(ctx).In("shared.DeleteFile", wool.FileField(file))
+	exists, err := FileExists(ctx, file)
+	if err != nil {
+		return w.Wrapf(err, "can't check existence of file")
+	}
+	if !exists {
 		return nil
 	}
-	w := wool.Get(ctx).In("shared.DeleteFile", wool.FileField(file))
-	err := os.Remove(file)
+	err = os.Remove(file)
 	if err != nil {
 		return w.Wrapf(err, "cannot delete file")
 	}
@@ -122,9 +146,13 @@ func DeleteFile(ctx context.Context, file string) error {
 }
 
 // EmptyDir delete the content of a directory
-func EmptyDir(dir string) error {
-	// Do nothing if not present
-	if !DirectoryExists(dir) {
+func EmptyDir(ctx context.Context, dir string) error {
+	w := wool.Get(ctx).In("shared.EmptyDir", wool.DirField(dir))
+	exists, err := DirectoryExists(ctx, dir)
+	if err != nil {
+		return w.Wrapf(err, "cannot check directory")
+	}
+	if !exists {
 		return nil
 	}
 	// Check if directory is empty
@@ -147,7 +175,10 @@ func EmptyDir(dir string) error {
 // err: only for unexpected behavior
 func CheckDirectoryOrCreate(ctx context.Context, dir string) (bool, error) {
 	w := wool.Get(ctx).In("shared.CheckDirectoryOrCreate", wool.Field("dir", dir))
-	exists, err := CheckDirectory(ctx, dir)
+	if dir == "" {
+		return false, w.NewError("empty directory")
+	}
+	exists, err := DirectoryExists(ctx, dir)
 	if err != nil {
 		return false, err
 	}
@@ -157,7 +188,7 @@ func CheckDirectoryOrCreate(ctx context.Context, dir string) (bool, error) {
 
 	err = os.MkdirAll(dir, 0755)
 	if err != nil {
-		return false, w.Wrapf(err, "cannot create directory")
+		return false, w.Wrapf(err, "cannot create directory: %s", dir)
 	}
 	return true, nil
 }
@@ -237,4 +268,9 @@ func GenerateTree(p, indent string) (string, error) {
 	}
 
 	return treeStr, nil
+}
+
+type CopyInstruction struct {
+	Name string
+	Path string
 }

@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+# Hash/cache
+*.hash
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -22,3 +25,6 @@ go.work
 
 # Test coverage
 cover.out
+
+__pycache__
+dist

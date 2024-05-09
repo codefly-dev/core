@@ -96,7 +96,7 @@ package generator
 //		return logger.Wrap(err, "cannot load library generation from <%s>", dir)
 //	}
 //	logger.Debugf("loaded libraries generation at <%s>", dir)
-//	root := path.Join(dir, gen.Root)
+//	root := path.Join(dir, gen.root)
 //	evaluation, err := EvaluateBase(root, gen)
 //	if err != nil {
 //		return logger.Wrap(err, "cannot evaluate base")

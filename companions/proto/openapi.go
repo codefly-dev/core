@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
-	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/configurations/languages"
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	"github.com/codefly-dev/core/languages"
+	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
@@ -42,8 +43,8 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 	var file string
 	var unique string
 	for _, endpoint := range endpoints {
-		if rest := configurations.IsRest(ctx, endpoint); rest != nil {
-			unique = fmt.Sprintf("%s_%s", endpoint.Application, endpoint.Service)
+		if rest := resources.IsRest(ctx, endpoint); rest != nil {
+			unique = fmt.Sprintf("%s_%s", endpoint.Module, endpoint.Service)
 			file = fmt.Sprintf("%s_%s.rest", unique, endpoint.Name)
 			files = append(files, file)
 			err = os.WriteFile(filepath.Join(openapiDir, file), rest.Openapi, 0600)
@@ -67,7 +68,7 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 	}
 }
 
-func generateOpenAPIGo(ctx context.Context, unique string, image *configurations.DockerImage, destinationDir string, openapiDir, file string) error {
+func generateOpenAPIGo(ctx context.Context, unique string, image *resources.DockerImage, destinationDir string, openapiDir, file string) error {
 	w := wool.Get(ctx).In("generateOpenAPIGo", wool.Field("destinationDir", destinationDir))
 	w.Info("generating openapi go client", wool.Field("file", file))
 	// We need to go back to the root to find the go mod and mount this as a volume
@@ -83,13 +84,20 @@ func generateOpenAPIGo(ctx context.Context, unique string, image *configurations
 
 	openapiFile := filepath.Join("/workspace/openapi", file)
 
-	runner, err := runners.NewDockerEnvironment(ctx, image, root, "openapi")
+	name := fmt.Sprintf("openapi-%s-%d", unique, time.Now().UnixMilli())
+	runner, err := runners.NewDockerEnvironment(ctx, image, root, name)
 	if err != nil {
 		return w.Wrapf(err, "cannot create docker runner")
 	}
 	runner.WithMount(openapiDir, "/workspace/openapi")
 	runner.WithMount(root, "/workspace")
 	runner.WithWorkDir("/workspace")
+	defer func() {
+		err = runner.Shutdown(ctx)
+		if err != nil {
+			w.Warn("cannot shutdown runner", wool.ErrField(err))
+		}
+	}()
 
 	err = runner.Init(ctx)
 	if err != nil {

@@ -4,11 +4,11 @@ import (
 	"context"
 
 	"github.com/codefly-dev/core/agents/manager"
+	"github.com/codefly-dev/core/resources"
 
 	"github.com/codefly-dev/core/agents/communicate"
 
 	"github.com/codefly-dev/core/agents"
-	"github.com/codefly-dev/core/configurations"
 	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
 	"github.com/hashicorp/go-plugin"
@@ -18,8 +18,8 @@ import (
 type ServiceRuntimeAgentContext struct {
 }
 
-func (m ServiceRuntimeAgentContext) Key(p *configurations.Agent, unique string) string {
-	return p.Key(configurations.RuntimeServiceAgent, unique)
+func (m ServiceRuntimeAgentContext) Key(p *resources.Agent, unique string) string {
+	return p.Key(resources.RuntimeServiceAgent, unique)
 }
 
 func (m ServiceRuntimeAgentContext) Default() plugin.Plugin {
@@ -40,6 +40,8 @@ type Runtime interface {
 
 	Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error)
 
+	Reset(ctx context.Context, req *runtimev0.ResetRequest) (*runtimev0.ResetResponse, error)
+
 	Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error)
 
 	Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error)
@@ -50,7 +52,7 @@ type Runtime interface {
 
 type RuntimeAgent struct {
 	Client      runtimev0.RuntimeClient
-	Agent       *configurations.Agent
+	Agent       *resources.Agent
 	ProcessInfo *manager.ProcessInfo
 
 	// Some service can deal with re-init without restarting
@@ -80,6 +82,11 @@ func (m *RuntimeAgent) Information(ctx context.Context, req *runtimev0.Informati
 // Stop stops the service
 func (m *RuntimeAgent) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
 	return m.Client.Stop(ctx, req)
+}
+
+// Reset resets the service
+func (m *RuntimeAgent) Reset(ctx context.Context, req *runtimev0.ResetRequest) (*runtimev0.ResetResponse, error) {
+	return m.Client.Reset(ctx, req)
 }
 
 // Test tests the service
@@ -133,6 +140,10 @@ func (m *RuntimeServer) Stop(ctx context.Context, req *runtimev0.StopRequest) (*
 	return m.Runtime.Stop(ctx, req)
 }
 
+func (m *RuntimeServer) Reset(ctx context.Context, req *runtimev0.ResetRequest) (*runtimev0.ResetResponse, error) {
+	return m.Runtime.Reset(ctx, req)
+}
+
 func (m *RuntimeServer) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
 	return m.Runtime.Test(ctx, req)
 }
@@ -141,7 +152,7 @@ func (m *RuntimeServer) Communicate(ctx context.Context, req *agentv0.Engage) (*
 	return m.Runtime.Communicate(ctx, req)
 }
 
-func NewRuntimeAgent(conf *configurations.Agent, runtime Runtime) agents.AgentImplementation {
+func NewRuntimeAgent(conf *resources.Agent, runtime Runtime) agents.AgentImplementation {
 	return agents.AgentImplementation{
 		Configuration: conf,
 		Agent:         &RuntimeAgentGRPC{Runtime: runtime},

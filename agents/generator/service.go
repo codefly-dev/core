@@ -5,10 +5,10 @@ import (
 	"path"
 	"strings"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/core/configurations"
-	"github.com/codefly-dev/core/configurations/generation"
+	"github.com/codefly-dev/core/generation"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )
@@ -60,12 +60,12 @@ func (v *visitor) Keep(file string) bool {
 func GenerateServiceTemplate(ctx context.Context, dir string) error {
 	w := wool.Get(ctx).In("GenerateServiceTemplate", wool.DirField(dir))
 	base := path.Join(dir, "base")
-	_, err := shared.CheckDirectory(ctx, base)
+	_, err := shared.DirectoryExists(ctx, base)
 	if err != nil {
 		return w.Wrapf(err, "we expect to find a working service in </base> folder")
 	}
 	w.Trace("found base to generate new agent templates")
-	gen, err := configurations.LoadFromDir[generation.Service](ctx, base)
+	gen, err := resources.LoadFromDir[generation.Service](ctx, base)
 	if err != nil {
 		return w.Wrapf(err, "cannot load generation configuration")
 	}
