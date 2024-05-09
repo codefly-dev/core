@@ -211,6 +211,13 @@ func (s *RuntimeWrapper) DesiredStart() {
 	}
 }
 
+func (s *RuntimeWrapper) LogLoadRequest(req *runtimev0.LoadRequest) {
+	w := s.Wool.In("runtime::load")
+	w.Debug("input",
+		wool.Field("environment", req.Environment),
+		wool.Field("identity", req.Identity))
+}
+
 func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {
 	w := s.Wool.In("runtime::init")
 	w.Debug("input",

@@ -9,10 +9,10 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
-const ConfigurationOrigin = "_.configuration"
+const ConfigurationWorkspace = "workspace"
 
-const ConfigurationPrefix = "CODEFLY___CONFIGURATION"
-const SecretConfigurationPrefix = "CODEFLY___SECRET_CONFIGURATION"
+const ConfigurationPrefix = "CODEFLY__WORKSPACE_CONFIGURATION"
+const SecretConfigurationPrefix = "CODEFLY__WORKSPACE_SECRET_CONFIGURATION"
 const ServiceConfigurationPrefix = "CODEFLY__SERVICE_CONFIGURATION"
 const ServiceSecretConfigurationPrefix = "CODEFLY__SERVICE_SECRET_CONFIGURATION"
 

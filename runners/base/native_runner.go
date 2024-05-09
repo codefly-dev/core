@@ -117,7 +117,7 @@ func (proc *NativeProc) Start(ctx context.Context) error {
 
 }
 func (proc *NativeProc) start(ctx context.Context) error {
-	w := wool.Get(ctx).In("NativeProc.start")
+	w := wool.Get(ctx).In("NativeProc.start", wool.DirField(proc.env.dir))
 	// #nosec G204
 	cmd := exec.CommandContext(ctx, proc.cmd[0], proc.cmd[1:]...)
 	cmd.Dir = proc.env.dir

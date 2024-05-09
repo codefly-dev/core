@@ -338,17 +338,32 @@ func Reload(ctx context.Context, workspace *Workspace) (*Workspace, error) {
 
 func (workspace *Workspace) LoadServices(ctx context.Context) ([]*Service, error) {
 	w := wool.Get(ctx).In("Workspace.LoadServices")
+	refs, err := workspace.LoadServiceWithModules(ctx)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load service references")
+	}
 	var services []*Service
+	for _, ref := range refs {
+		svc, err := workspace.LoadService(ctx, ref)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot load service: %s", ref.Name)
+		}
+		services = append(services, svc)
+	}
+	return services, nil
+}
+
+func (workspace *Workspace) LoadServiceWithModules(ctx context.Context) ([]*ServiceWithModule, error) {
+	w := wool.Get(ctx).In("Workspace.LoadServices")
+	var services []*ServiceWithModule
 	for _, modRef := range workspace.Modules {
 		mod, err := workspace.LoadModuleFromReference(ctx, modRef)
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot load module")
 		}
-		servicesInModules, err := mod.LoadServices(ctx)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot load services")
+		for _, svc := range mod.ServiceReferences {
+			services = append(services, &ServiceWithModule{Name: svc.Name, Module: mod.Name})
 		}
-		services = append(services, servicesInModules...)
 	}
 	return services, nil
 }
@@ -361,20 +376,20 @@ func (n NonUniqueServiceNameError) Error() string {
 	return fmt.Sprintf("service name %s is not unique in ", n.name)
 }
 
-// FindUniqueServiceByName finds a service by name
+// FindUniqueServiceAndModuleByName finds a service by name
 // returns ResourceNotFound error if not found
-func (workspace *Workspace) FindUniqueServiceByName(ctx context.Context, name string) (*Service, error) {
+func (workspace *Workspace) FindUniqueServiceAndModuleByName(ctx context.Context, name string) (*ServiceWithModule, error) {
 	w := wool.Get(ctx).In("Workspace::FindUniqueServiceByName", wool.NameField(name))
 	svcRef, err := ParseServiceWithOptionalModule(name)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot parse service name")
 	}
 	if svcRef.Module != "" {
-		return workspace.LoadService(ctx, svcRef)
+		return svcRef, nil
 	}
 	// We look at all the services and check if the name is unique
-	var found *Service
-	svcs, err := workspace.LoadServices(ctx)
+	var found *ServiceWithModule
+	svcs, err := workspace.LoadServiceWithModules(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load services")
 	}
@@ -386,7 +401,26 @@ func (workspace *Workspace) FindUniqueServiceByName(ctx context.Context, name st
 			found = s
 		}
 	}
+	if found == nil {
+		return nil, shared.NewErrorResourceNotFound("service", name)
+	}
 	return found, nil
+}
+
+// FindUniqueServiceByName finds a service by name
+// returns ResourceNotFound error if not found
+func (workspace *Workspace) FindUniqueServiceByName(ctx context.Context, name string) (*Service, error) {
+	w := wool.Get(ctx).In("Workspace::FindUniqueServiceByName", wool.NameField(name))
+	unique, err := workspace.FindUniqueServiceAndModuleByName(ctx, name)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot find unique service")
+	}
+	svc, err := workspace.LoadService(ctx, unique)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load service")
+	}
+	return svc, nil
+
 }
 
 // Valid checks if the workspace is valid

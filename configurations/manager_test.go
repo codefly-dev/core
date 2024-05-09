@@ -75,4 +75,11 @@ func testLoader(t *testing.T, dir string) {
 	dns, err := manager.GetDNS(ctx, svc, "rest")
 	require.NoError(t, err)
 	require.Equal(t, "localhost", dns.Host)
+
+	// Get DNS for service and endpoint name
+	svc2, err := workspace.FindUniqueServiceByName(ctx, "svc2")
+	require.NoError(t, err)
+	dns, err = manager.GetDNS(ctx, svc2, "rest")
+	require.NoError(t, err)
+	require.Equal(t, "aws.magic", dns.Host)
 }

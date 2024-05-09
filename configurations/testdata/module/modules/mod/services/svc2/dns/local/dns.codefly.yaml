@@ -1,0 +1,3 @@
+- endpoint: rest
+  host: aws.magic
+  port: 8080

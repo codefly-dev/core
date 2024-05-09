@@ -39,6 +39,12 @@ type EnvironmentVariableManager struct {
 	// Environment
 	environment *basev0.Environment
 
+	// What we are running
+	workspace string
+	module    string
+	service   string
+	version   string
+
 	// How we are running
 	runtimeContext *basev0.RuntimeContext
 
@@ -67,6 +73,36 @@ func Env(key string, value any) EnvironmentVariable {
 	}
 }
 
+func (holder *EnvironmentVariableManager) SetIdentity(identity *basev0.ServiceIdentity) {
+	holder.module = identity.Module
+	holder.service = identity.Name
+	holder.workspace = identity.Workspace
+}
+
+const WorkspacePrefix = "CODEFLY__WORKSPACE"
+
+func WorkspaceAsEnvironmentVariable(workspace string) EnvironmentVariable {
+	return Env(WorkspacePrefix, workspace)
+}
+
+const ModulePrefix = "CODEFLY__MODULE"
+
+func ModuleAsEnvironmentVariable(module string) EnvironmentVariable {
+	return Env(ModulePrefix, module)
+}
+
+const ServicePrefix = "CODEFLY__SERVICE"
+
+func ServiceAsEnvironmentVariable(service string) EnvironmentVariable {
+	return Env(ServicePrefix, service)
+}
+
+const VersionPrefix = "CODEFLY__SERVICE_VERSION"
+
+func VersionAsEnvironmentVariable(version string) EnvironmentVariable {
+	return Env(VersionPrefix, version)
+}
+
 func (holder *EnvironmentVariableManager) SetRuntimeContext(runtimeContext *basev0.RuntimeContext) {
 	holder.runtimeContext = runtimeContext
 }
@@ -79,6 +115,22 @@ func (holder *EnvironmentVariableManager) getBase() []EnvironmentVariable {
 	}
 	if holder.environment != nil {
 		envs = append(envs, EnvironmentAsEnvironmentVariable(holder.environment))
+	}
+
+	if holder.workspace != "" {
+		envs = append(envs, WorkspaceAsEnvironmentVariable(holder.workspace))
+	}
+
+	if holder.module != "" {
+		envs = append(envs, ModuleAsEnvironmentVariable(holder.module))
+	}
+
+	if holder.service != "" {
+		envs = append(envs, ServiceAsEnvironmentVariable(holder.service))
+	}
+
+	if holder.version != "" {
+		envs = append(envs, VersionAsEnvironmentVariable(holder.version))
 	}
 
 	for _, endpoint := range holder.endpoints {
@@ -141,7 +193,7 @@ func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mapp
 			}
 		}
 	}
-	w.Debug("added # public endpoints", wool.SliceCountField(holder.endpoints))
+	w.Debug("added public endpoints", wool.SliceCountField(holder.endpoints))
 	return nil
 }
 
@@ -206,7 +258,7 @@ func (holder *EnvironmentVariableManager) SetRunning(b bool) {
 
 }
 
-const EnvironmentPrefix = "CODEFLY_ENVIRONMENT"
+const EnvironmentPrefix = "CODEFLY__ENVIRONMENT"
 
 func EnvironmentAsEnvironmentVariable(env *basev0.Environment) EnvironmentVariable {
 	return Env(EnvironmentPrefix, env.Name)
@@ -280,7 +332,7 @@ func NameToKey(name string) string {
 }
 
 func ConfigurationEnvironmentKeyPrefix(conf *basev0.Configuration) string {
-	if conf.Origin == ConfigurationOrigin {
+	if conf.Origin == ConfigurationWorkspace {
 		return ConfigurationPrefix
 	}
 	return ServiceConfigurationEnvironmentKeyPrefixFromUnique(conf.Origin)

@@ -31,3 +31,15 @@ func HasPythonPoetryRuntime(_ *GoRuntimeConfiguration) bool {
 	}
 	return false
 }
+
+type NodeRuntimeConfiguration struct {
+}
+
+// HasNodeRuntime checks if the Go runtime is available on the system.
+// and verify minimum version.
+func HasNodeRuntime(_ *NodeRuntimeConfiguration) bool {
+	if _, err := exec.LookPath("node"); err == nil {
+		return true
+	}
+	return false
+}

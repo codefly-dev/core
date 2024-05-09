@@ -127,7 +127,7 @@ func MakeNetworkMappingSummary(mapping *basev0.NetworkMapping) string {
 }
 
 func NetworkInstanceSummary(value *basev0.NetworkInstance) string {
-	return fmt.Sprintf("%s:%d (%s)", value.Host, value.Port, NetworkAccessAsString(value.Access))
+	return fmt.Sprintf("%s:%d (%s)", value.Hostname, value.Port, NetworkAccessAsString(value.Access))
 }
 
 func networkMappingHash(n *basev0.NetworkMapping) string {

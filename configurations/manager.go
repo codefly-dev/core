@@ -69,6 +69,9 @@ func (manager *Manager) Load(ctx context.Context, env *resources.Environment) er
 	if err != nil {
 		return w.Wrapf(err, "cannot load DNS")
 	}
+	w.Focus("loaded",
+		wool.Field("dns", resources.MakeManyDnsSummary(manager.dns)))
+
 	return nil
 }
 
@@ -76,11 +79,11 @@ func (manager *Manager) LoadConfigurations(_ context.Context) error {
 	for _, loader := range manager.loaders {
 		confs := loader.Configurations()
 		for _, conf := range confs {
-			if conf.Origin == resources.ConfigurationOrigin {
+			if conf.Origin == resources.ConfigurationWorkspace {
 				for _, info := range conf.Configurations {
 					if _, ok := manager.Configurations[info.Name]; !ok {
 						manager.Configurations[info.Name] = &basev0.Configuration{
-							Origin: resources.ConfigurationOrigin,
+							Origin: resources.ConfigurationWorkspace,
 						}
 					}
 					manager.Configurations[info.Name].Configurations = append(manager.Configurations[info.Name].Configurations, info)
@@ -203,5 +206,5 @@ func (manager *Manager) GetDNS(ctx context.Context, svc *resources.Service, endp
 			return dns, nil
 		}
 	}
-	return nil, w.NewError("no DNS found")
+	return nil, w.NewError("no DNS found: %s::%s. Available: %s", svc.Unique(), endpointName, resources.MakeManyDnsSummary(manager.dns))
 }

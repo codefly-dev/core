@@ -140,7 +140,8 @@ func (docker *DockerEnvironment) WithDir(dir string) {
 func (docker *DockerEnvironment) Init(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.Init")
 	docker.firstInit = false
-	err := docker.GetContainer(ctx)
+	containerContext := context.Background()
+	err := docker.GetContainer(containerContext)
 	if err != nil {
 		return w.Wrapf(err, "cannot get container")
 	}
@@ -215,7 +216,7 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 			return nil
 		}
 		w.Debug("container was found but not running: starting it again")
-		err = docker.startContainer(context.Background(), docker.instance.ID)
+		err = docker.startContainer(ctx, docker.instance.ID)
 		if err != nil {
 			w.Debug("cannot start container")
 			return w.Wrapf(err, "cannot start container")
@@ -254,7 +255,7 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		wool.Field("host config", hostConfig.PortBindings))
 
 	// Create the container
-	resp, err := docker.client.ContainerCreate(context.Background(), containerConfig, hostConfig, nil, nil, docker.name)
+	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, docker.name)
 	if err != nil {
 		return w.Wrapf(err, "cannot create container")
 	}
@@ -740,7 +741,7 @@ func Forward(ctx context.Context, reader io.Reader, writer io.Writer) {
 
 				// Check if the scanner encountered any errors
 				if err := scanner.Err(); err != nil {
-					_, _ = writer.Write([]byte("Error while scanning container logs"))
+					_, _ = writer.Write([]byte(fmt.Sprintf("Error while scanning container logs: %s", err)))
 				}
 			}
 		}

@@ -95,7 +95,8 @@ func (s *Base) Unique() string {
 }
 
 func (s *Base) UniqueWithWorkspace() string {
-	return s.Service.UniqueWith()
+	s.Wool.Debug("unique with workspace", wool.Field("workspace", s.Identity.Workspace))
+	return s.Service.UniqueWithWorspace(s.Identity.Workspace)
 }
 
 func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {
@@ -149,6 +150,8 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 
 	s.EnvironmentVariables = resources.NewEnvironmentVariableManager()
 
+	s.EnvironmentVariables.SetIdentity(identity)
+
 	err = s.Service.LoadSettingsFromSpec(settings)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot load settings from spec")
@@ -166,7 +169,7 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 func (s *Base) DockerImage(req *builderv0.DockerBuildContext) *resources.DockerImage {
 	repo := req.DockerRepository
 	return &resources.DockerImage{
-		Name: path.Join(repo, s.Identity.Workspace, s.Identity.Module, s.Identity.Name),
+		Name: path.Join(repo, s.Identity.Module, s.Identity.Name),
 		Tag:  s.Version().Version,
 	}
 }

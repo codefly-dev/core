@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "codefly-cli"
+version = "0.0.0"
+description = "Interact with the CLI"
+authors = ["Your Name <you@example.com>"]
+packages = [{include = "codefly_cli"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+protobuf = "^5.26.1"
+protovalidate = "^0.3.1"
+grpcio = "^1.63.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^8.2.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

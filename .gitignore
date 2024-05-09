@@ -25,3 +25,6 @@ go.work
 
 # Test coverage
 cover.out
+
+__pycache__
+dist

@@ -47,16 +47,16 @@ type Service struct {
 	Agent *Agent `yaml:"agent"`
 
 	// ServiceDependencies are the other services required
-	ServiceDependencies []*ServiceDependency `yaml:"service-dependencies"`
+	ServiceDependencies []*ServiceDependency `yaml:"service-dependencies,omitempty"`
 
 	// Dependencies
-	ConfigurationDependencies []string `yaml:"-configuration-dependencies"`
+	ConfigurationDependencies []string `yaml:"workspace-configuration-dependencies,omitempty"`
 
 	// Endpoints exposed by the service
-	Endpoints []*Endpoint `yaml:"endpoints"`
+	Endpoints []*Endpoint `yaml:"endpoints,omitempty"`
 
 	// Spec is the specialized configuration of the service
-	Spec map[string]any `yaml:"spec"`
+	Spec map[string]any `yaml:"spec,omitempty"`
 
 	// internal
 	dir string
@@ -113,6 +113,10 @@ func ParseServiceWithOptionalModule(input string) (*ServiceWithModule, error) {
 
 func (s ServiceWithModule) Unique() string {
 	return fmt.Sprintf("%s/%s", s.Module, s.Name)
+}
+
+func (s ServiceWithModule) String() string {
+	return s.Unique()
 }
 
 // NewService creates a service in an module
@@ -201,6 +205,7 @@ func ParseServiceReference(input string) (*ServiceReference, error) {
 // Workspace: the name of the workspace the service belongs to
 type ServiceIdentity struct {
 	Name      string
+	Version   string
 	Module    string
 	Workspace string
 }
@@ -231,15 +236,19 @@ func (s *ServiceIdentity) AsAgentResource() *wool.Resource {
 
 func (s *ServiceIdentity) Clone() *ServiceIdentity {
 	return &ServiceIdentity{
-		Name:   s.Name,
-		Module: s.Module,
+		Name:      s.Name,
+		Module:    s.Module,
+		Workspace: s.Workspace,
+		Version:   s.Version,
 	}
 }
 
 func ServiceIdentityFromProto(proto *basev0.ServiceIdentity) *ServiceIdentity {
 	return &ServiceIdentity{
-		Name:   proto.Name,
-		Module: proto.Module,
+		Name:      proto.Name,
+		Module:    proto.Module,
+		Workspace: proto.Workspace,
+		Version:   proto.Version,
 	}
 }
 
@@ -446,8 +455,11 @@ func (s *Service) DeleteServiceDependencies(ctx context.Context, ref *ServiceRef
 	return s.Save(ctx)
 }
 
-func (s *Service) UniqueWith() string {
-	return fmt.Sprintf("%s-%s", s.Module, s.Unique())
+func (s *Service) UniqueWithWorspace(workspace string) string {
+	if workspace == s.Module {
+		return s.Unique()
+	}
+	return fmt.Sprintf("%s-%s", workspace, s.Unique())
 }
 
 func (s *Service) BaseEndpoint(name string) *Endpoint {
@@ -568,4 +580,12 @@ func (c *ClientEntry) Validate() error {
 		}
 	}
 	return nil
+}
+
+func MakeManyServicesSummary(services []*Service) string {
+	var out []string
+	for _, service := range services {
+		out = append(out, service.Unique())
+	}
+	return strings.Join(out, ", ")
 }

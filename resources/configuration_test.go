@@ -10,7 +10,7 @@ import (
 )
 
 var Conf = &basev0.Configuration{
-	Origin: resources.ConfigurationOrigin,
+	Origin: resources.ConfigurationWorkspace,
 	Configurations: []*basev0.ConfigurationInformation{
 		{
 			Name: "something",

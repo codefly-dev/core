@@ -19,6 +19,9 @@ type DeployManager struct {
 var _ Manager = &DeployManager{}
 
 func (m *DeployManager) GetNamespace(_ context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.Service) (string, error) {
+	if workspace.Layout == resources.LayoutKindFlat {
+		return fmt.Sprintf("%s-%s", workspace.Name, env.Name), nil
+	}
 	return fmt.Sprintf("%s-%s-%s", workspace.Name, service.Module, env.Name), nil
 }
 

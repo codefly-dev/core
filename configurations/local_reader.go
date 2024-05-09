@@ -63,7 +63,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	for _, conf := range workspaceConfs {
 		if _, ok := workspaceConfsMap[conf.Name]; !ok {
 			workspaceConfsMap[conf.Name] = &basev0.Configuration{
-				Origin: resources.ConfigurationOrigin,
+				Origin: resources.ConfigurationWorkspace,
 			}
 			continue
 		}
@@ -71,7 +71,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	}
 
 	for _, conf := range workspaceConfsMap {
-		w.Debug("adding  conf")
+		w.Debug("adding workspace conf")
 		confs = append(confs, conf)
 	}
 	// Load services configurations
@@ -79,6 +79,8 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	if err != nil {
 		return w.Wrapf(err, "cannot load services")
 	}
+
+	w.Focus("loaded services", wool.Field("svcs", resources.MakeManyServicesSummary(services)))
 
 	serviceConfs := make(map[string]*basev0.Configuration)
 	for _, svc := range services {
@@ -92,16 +94,16 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			if err != nil {
 				return w.Wrapf(err, "cannot load service configurations")
 			}
-			if len(workspaceConfs) == 0 {
-				continue
-			}
-			if _, ok := serviceConfs[svc.Unique()]; !ok {
-				serviceConfs[svc.Unique()] = &basev0.Configuration{
-					Origin: svc.Unique(),
+			if len(workspaceConfs) > 0 {
+
+				if _, ok := serviceConfs[svc.Unique()]; !ok {
+					serviceConfs[svc.Unique()] = &basev0.Configuration{
+						Origin: svc.Unique(),
+					}
 				}
-			}
-			for _, conf := range workspaceConfs {
-				serviceConfs[svc.Unique()].Configurations = append(serviceConfs[svc.Unique()].Configurations, conf)
+				for _, conf := range workspaceConfs {
+					serviceConfs[svc.Unique()].Configurations = append(serviceConfs[svc.Unique()].Configurations, conf)
+				}
 			}
 		}
 		// Load DNS
@@ -119,6 +121,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			for _, d := range dns {
 				d.Service = svc.Name
 				d.Module = svc.Module
+				w.Focus("found DNS", wool.Field("dns", resources.MakeDnsSummary(d)))
 				local.dns = append(local.dns, d)
 			}
 		}
