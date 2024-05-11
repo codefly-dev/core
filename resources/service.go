@@ -89,8 +89,9 @@ func ServiceUnique(app string, service string) string {
 // Identity is the proto version of Unique
 func (s *Service) Identity() *ServiceIdentity {
 	return &ServiceIdentity{
-		Name:   s.Name,
-		Module: s.Module,
+		Name:    s.Name,
+		Module:  s.Module,
+		Version: s.Version,
 	}
 }
 

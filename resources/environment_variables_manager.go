@@ -84,6 +84,7 @@ func (holder *EnvironmentVariableManager) SetIdentity(identity *basev0.ServiceId
 	holder.module = identity.Module
 	holder.service = identity.Name
 	holder.workspace = identity.Workspace
+	holder.version = identity.Version
 }
 
 const WorkspacePrefix = "CODEFLY__WORKSPACE"
