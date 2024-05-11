@@ -54,10 +54,20 @@ class CLIStub(object):
                 request_serializer=cli_dot_v0_dot_cli__pb2.GetAddressRequest.SerializeToString,
                 response_deserializer=cli_dot_v0_dot_cli__pb2.GetAddressResponse.FromString,
                 _registered_method=True)
-        self.GetSharedConfiguration = channel.unary_unary(
-                '/observability.v0.CLI/GetSharedConfiguration',
+        self.GetConfiguration = channel.unary_unary(
+                '/observability.v0.CLI/GetConfiguration',
                 request_serializer=cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.SerializeToString,
                 response_deserializer=cli_dot_v0_dot_cli__pb2.GetConfigurationResponse.FromString,
+                _registered_method=True)
+        self.GetDependenciesConfigurations = channel.unary_unary(
+                '/observability.v0.CLI/GetDependenciesConfigurations',
+                request_serializer=cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.SerializeToString,
+                response_deserializer=cli_dot_v0_dot_cli__pb2.GetConfigurationsResponse.FromString,
+                _registered_method=True)
+        self.GetRuntimeConfigurations = channel.unary_unary(
+                '/observability.v0.CLI/GetRuntimeConfigurations',
+                request_serializer=cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.SerializeToString,
+                response_deserializer=cli_dot_v0_dot_cli__pb2.GetConfigurationsResponse.FromString,
                 _registered_method=True)
         self.Logs = channel.unary_stream(
                 '/observability.v0.CLI/Logs',
@@ -76,8 +86,13 @@ class CLIStub(object):
                 _registered_method=True)
         self.StopFlow = channel.unary_unary(
                 '/observability.v0.CLI/StopFlow',
-                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                request_serializer=cli_dot_v0_dot_cli__pb2.StopFlowRequest.SerializeToString,
+                response_deserializer=cli_dot_v0_dot_cli__pb2.StopFlowResponse.FromString,
+                _registered_method=True)
+        self.DestroyFlow = channel.unary_unary(
+                '/observability.v0.CLI/DestroyFlow',
+                request_serializer=cli_dot_v0_dot_cli__pb2.DestroyFlowRequest.SerializeToString,
+                response_deserializer=cli_dot_v0_dot_cli__pb2.DestroyFlowResponse.FromString,
                 _registered_method=True)
 
 
@@ -128,7 +143,19 @@ class CLIServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def GetSharedConfiguration(self, request, context):
+    def GetConfiguration(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetDependenciesConfigurations(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetRuntimeConfigurations(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -153,6 +180,12 @@ class CLIServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def StopFlow(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DestroyFlow(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -196,10 +229,20 @@ def add_CLIServicer_to_server(servicer, server):
                     request_deserializer=cli_dot_v0_dot_cli__pb2.GetAddressRequest.FromString,
                     response_serializer=cli_dot_v0_dot_cli__pb2.GetAddressResponse.SerializeToString,
             ),
-            'GetSharedConfiguration': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetSharedConfiguration,
+            'GetConfiguration': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetConfiguration,
                     request_deserializer=cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.FromString,
                     response_serializer=cli_dot_v0_dot_cli__pb2.GetConfigurationResponse.SerializeToString,
+            ),
+            'GetDependenciesConfigurations': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetDependenciesConfigurations,
+                    request_deserializer=cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.FromString,
+                    response_serializer=cli_dot_v0_dot_cli__pb2.GetConfigurationsResponse.SerializeToString,
+            ),
+            'GetRuntimeConfigurations': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetRuntimeConfigurations,
+                    request_deserializer=cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.FromString,
+                    response_serializer=cli_dot_v0_dot_cli__pb2.GetConfigurationsResponse.SerializeToString,
             ),
             'Logs': grpc.unary_stream_rpc_method_handler(
                     servicer.Logs,
@@ -218,8 +261,13 @@ def add_CLIServicer_to_server(servicer, server):
             ),
             'StopFlow': grpc.unary_unary_rpc_method_handler(
                     servicer.StopFlow,
-                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+                    request_deserializer=cli_dot_v0_dot_cli__pb2.StopFlowRequest.FromString,
+                    response_serializer=cli_dot_v0_dot_cli__pb2.StopFlowResponse.SerializeToString,
+            ),
+            'DestroyFlow': grpc.unary_unary_rpc_method_handler(
+                    servicer.DestroyFlow,
+                    request_deserializer=cli_dot_v0_dot_cli__pb2.DestroyFlowRequest.FromString,
+                    response_serializer=cli_dot_v0_dot_cli__pb2.DestroyFlowResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -421,7 +469,7 @@ class CLI(object):
             _registered_method=True)
 
     @staticmethod
-    def GetSharedConfiguration(request,
+    def GetConfiguration(request,
             target,
             options=(),
             channel_credentials=None,
@@ -434,9 +482,63 @@ class CLI(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/observability.v0.CLI/GetSharedConfiguration',
+            '/observability.v0.CLI/GetConfiguration',
             cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.SerializeToString,
             cli_dot_v0_dot_cli__pb2.GetConfigurationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetDependenciesConfigurations(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/observability.v0.CLI/GetDependenciesConfigurations',
+            cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.SerializeToString,
+            cli_dot_v0_dot_cli__pb2.GetConfigurationsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetRuntimeConfigurations(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/observability.v0.CLI/GetRuntimeConfigurations',
+            cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.SerializeToString,
+            cli_dot_v0_dot_cli__pb2.GetConfigurationsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -543,8 +645,35 @@ class CLI(object):
             request,
             target,
             '/observability.v0.CLI/StopFlow',
-            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            cli_dot_v0_dot_cli__pb2.StopFlowRequest.SerializeToString,
+            cli_dot_v0_dot_cli__pb2.StopFlowResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DestroyFlow(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/observability.v0.CLI/DestroyFlow',
+            cli_dot_v0_dot_cli__pb2.DestroyFlowRequest.SerializeToString,
+            cli_dot_v0_dot_cli__pb2.DestroyFlowResponse.FromString,
             options,
             channel_credentials,
             insecure,

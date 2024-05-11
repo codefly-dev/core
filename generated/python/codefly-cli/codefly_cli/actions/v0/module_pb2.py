@@ -11,6 +11,10 @@ from google.protobuf.internal import builder as _builder
 
 _sym_db = _symbol_database.Default()
 
+
+from buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
+
+
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61\x63tions/v0/module.proto\x12\nactions.v0\x1a\x1b\x62uf/validate/validate.proto\"`\n\tNewModule\x12\x12\n\x04kind\x18\x01 \x01(\tR\x04kind\x12\x1d\n\x04name\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x04name\x12 \n\x0b\x64\x65scription\x18\x03 \x01(\tR\x0b\x64\x65scriptionB\x9b\x01\n\x0e\x63om.actions.v0B\x0bModuleProtoP\x01Z3github.com/codefly-dev/core/generated/go/actions/v0\xa2\x02\x03\x41VX\xaa\x02\nActions.V0\xca\x02\nActions\\V0\xe2\x02\x16\x41\x63tions\\V0\\GPBMetadata\xea\x02\x0b\x41\x63tions::V0b\x06proto3')
 
 _globals = globals()

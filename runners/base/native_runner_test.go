@@ -26,12 +26,14 @@ func TestLocalEnvironment(t *testing.T) {
 	// Now, run something in it
 	proc, err := env.NewProcess("ls")
 	require.NoError(t, err)
+
 	output := shared.NewSliceWriter()
 	proc.WithOutput(output)
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
+	time.Sleep(500 * time.Millisecond)
 	require.Contains(t, output.Data, "good")
 	require.Contains(t, output.Data, "crashing")
 

@@ -10,21 +10,21 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
 
-func NativeNetworkAccess() *basev0.NetworkAccess {
+func NewNativeNetworkAccess() *basev0.NetworkAccess {
 	return &basev0.NetworkAccess{
-		Kind: basev0.NetworkAccess_FromNative,
+		Kind: NetworkAccessNative,
 	}
 }
 
-func ContainerNetworkAccess() *basev0.NetworkAccess {
+func NewContainerNetworkAccess() *basev0.NetworkAccess {
 	return &basev0.NetworkAccess{
-		Kind: basev0.NetworkAccess_FromContainer,
+		Kind: NetworkAccessContainer,
 	}
 }
 
-func PublicNetworkAccess() *basev0.NetworkAccess {
+func NewPublicNetworkAccess() *basev0.NetworkAccess {
 	return &basev0.NetworkAccess{
-		Kind: basev0.NetworkAccess_Public,
+		Kind: NetworkAccessPublic,
 	}
 }
 
@@ -113,11 +113,6 @@ func MakeManyNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
 	return strings.Join(results, ", ")
 }
 
-func NetworkAccessAsString(networkAccess *basev0.NetworkAccess) string {
-	return basev0.NetworkAccess_Kind_name[int32(networkAccess.Kind)]
-
-}
-
 func MakeNetworkMappingSummary(mapping *basev0.NetworkMapping) string {
 	var summaries []string
 	for _, instance := range mapping.Instances {
@@ -127,7 +122,7 @@ func MakeNetworkMappingSummary(mapping *basev0.NetworkMapping) string {
 }
 
 func NetworkInstanceSummary(value *basev0.NetworkInstance) string {
-	return fmt.Sprintf("%s:%d (%s)", value.Hostname, value.Port, NetworkAccessAsString(value.Access))
+	return fmt.Sprintf("%s:%d (%s)", value.Hostname, value.Port, value.Access.Kind)
 }
 
 func networkMappingHash(n *basev0.NetworkMapping) string {

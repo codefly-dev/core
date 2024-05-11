@@ -11,6 +11,11 @@ from google.protobuf.internal import builder as _builder
 
 _sym_db = _symbol_database.Default()
 
+
+from buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
+from base.v0 import module_pb2 as base_dot_v0_dot_module__pb2
+
+
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x62\x61se/v0/workspace.proto\x12\x07\x62\x61se.v0\x1a\x1b\x62uf/validate/validate.proto\x1a\x14\x62\x61se/v0/module.proto\"\xc2\x01\n\tWorkspace\x12\x32\n\x04name\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x19\x32\x0c^[a-z0-9-]+$h\x01\xba\x01\x02--R\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12)\n\x07modules\x18\x03 \x03(\x0b\x32\x0f.base.v0.ModuleR\x07modules\x12\x34\n\x06layout\x18\x04 \x01(\tB\x1c\xbaH\x19r\x17R\x04\x66latR\x07modulesR\x06hybridR\x06layout\"\xb8\x01\n\x10ManagedWorkspace\x12;\n\x0forganization_id\x18\x01 \x01(\tB\x12\xbaH\x0fr\r2\x0b^[a-z]{10}$R\x0eorganizationId\x12\x35\n\x0cworkspace_id\x18\x02 \x01(\tB\x12\xbaH\x0fr\r2\x0b^[a-z]{10}$R\x0bworkspaceId\x12\x30\n\tworkspace\x18\x03 \x01(\x0b\x32\x12.base.v0.WorkspaceR\tworkspaceB\x8c\x01\n\x0b\x63om.base.v0B\x0eWorkspaceProtoP\x01Z0github.com/codefly-dev/core/generated/go/base/v0\xa2\x02\x03\x42VX\xaa\x02\x07\x42\x61se.V0\xca\x02\x07\x42\x61se\\V0\xe2\x02\x13\x42\x61se\\V0\\GPBMetadata\xea\x02\x08\x42\x61se::V0b\x06proto3')
 
 _globals = globals()

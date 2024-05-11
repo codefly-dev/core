@@ -11,6 +11,10 @@ from google.protobuf.internal import builder as _builder
 
 _sym_db = _symbol_database.Default()
 
+
+from base.v0 import endpoint_pb2 as base_dot_v0_dot_endpoint__pb2
+
+
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n observability/v0/inventory.proto\x12\x10observability.v0\x1a\x16\x62\x61se/v0/endpoint.proto\";\n\x1bWorkspaceInformationRequest\x12\x1c\n\tworkspace\x18\x01 \x01(\tR\tworkspaceB\xc2\x01\n\x14\x63om.observability.v0B\x0eInventoryProtoP\x01Z9github.com/codefly-dev/core/generated/go/observability/v0\xa2\x02\x03OVX\xaa\x02\x10Observability.V0\xca\x02\x10Observability\\V0\xe2\x02\x1cObservability\\V0\\GPBMetadata\xea\x02\x11Observability::V0b\x06proto3')
 
 _globals = globals()

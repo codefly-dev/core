@@ -40,7 +40,7 @@ func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
 		instance = resources.NewHTTPNetworkInstance(host, port, false)
 	}
-	instance.Access = AccessContainer()
+	instance.Access = resources.NewContainerNetworkAccess()
 	return instance
 }
 
@@ -52,16 +52,8 @@ func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	} else {
 		instance = resources.NewNetworkInstance(host, port)
 	}
-	instance.Access = AccessNative()
+	instance.Access = resources.NewNativeNetworkAccess()
 	return instance
-}
-
-func AccessContainer() *basev0.NetworkAccess {
-	return &basev0.NetworkAccess{Kind: basev0.NetworkAccess_FromContainer}
-}
-
-func AccessNative() *basev0.NetworkAccess {
-	return &basev0.NetworkAccess{Kind: basev0.NetworkAccess_FromNative}
 }
 
 func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
@@ -72,7 +64,7 @@ func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstan
 	} else {
 		instance = resources.NewNetworkInstance(host, port)
 	}
-	instance.Access = resources.PublicNetworkAccess()
+	instance.Access = resources.NewPublicNetworkAccess()
 	return instance
 }
 
@@ -83,7 +75,7 @@ func DNS(_ *resources.Service, endpoint *basev0.Endpoint, dns *basev0.DNS) *base
 	} else {
 		instance = resources.NewNetworkInstance(dns.Host, uint16(dns.Port))
 	}
-	instance.Access = resources.PublicNetworkAccess()
+	instance.Access = resources.NewPublicNetworkAccess()
 	return instance
 }
 
@@ -104,7 +96,7 @@ func ExternalInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance 
 }
 
 // GenerateNetworkMappings generates network mappings for a service endpoints
-func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
+func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, _ *resources.Environment, workspace *resources.Workspace, service *resources.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
 	if m == nil {
 		return nil, nil
 	}

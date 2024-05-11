@@ -42,10 +42,10 @@ class RuntimeStub(object):
                 request_serializer=services_dot_runtime_dot_v0_dot_runtime__pb2.StopRequest.SerializeToString,
                 response_deserializer=services_dot_runtime_dot_v0_dot_runtime__pb2.StopResponse.FromString,
                 _registered_method=True)
-        self.Reset = channel.unary_unary(
-                '/services.runtime.v0.Runtime/Reset',
-                request_serializer=services_dot_runtime_dot_v0_dot_runtime__pb2.ResetRequest.SerializeToString,
-                response_deserializer=services_dot_runtime_dot_v0_dot_runtime__pb2.ResetResponse.FromString,
+        self.Destroy = channel.unary_unary(
+                '/services.runtime.v0.Runtime/Destroy',
+                request_serializer=services_dot_runtime_dot_v0_dot_runtime__pb2.DestroyRequest.SerializeToString,
+                response_deserializer=services_dot_runtime_dot_v0_dot_runtime__pb2.DestroyResponse.FromString,
                 _registered_method=True)
         self.Test = channel.unary_unary(
                 '/services.runtime.v0.Runtime/Test',
@@ -105,8 +105,8 @@ class RuntimeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Reset(self, request, context):
-        """Reset the underlying service
+    def Destroy(self, request, context):
+        """Destroy the underlying service
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -156,10 +156,10 @@ def add_RuntimeServicer_to_server(servicer, server):
                     request_deserializer=services_dot_runtime_dot_v0_dot_runtime__pb2.StopRequest.FromString,
                     response_serializer=services_dot_runtime_dot_v0_dot_runtime__pb2.StopResponse.SerializeToString,
             ),
-            'Reset': grpc.unary_unary_rpc_method_handler(
-                    servicer.Reset,
-                    request_deserializer=services_dot_runtime_dot_v0_dot_runtime__pb2.ResetRequest.FromString,
-                    response_serializer=services_dot_runtime_dot_v0_dot_runtime__pb2.ResetResponse.SerializeToString,
+            'Destroy': grpc.unary_unary_rpc_method_handler(
+                    servicer.Destroy,
+                    request_deserializer=services_dot_runtime_dot_v0_dot_runtime__pb2.DestroyRequest.FromString,
+                    response_serializer=services_dot_runtime_dot_v0_dot_runtime__pb2.DestroyResponse.SerializeToString,
             ),
             'Test': grpc.unary_unary_rpc_method_handler(
                     servicer.Test,
@@ -302,7 +302,7 @@ class Runtime(object):
             _registered_method=True)
 
     @staticmethod
-    def Reset(request,
+    def Destroy(request,
             target,
             options=(),
             channel_credentials=None,
@@ -315,9 +315,9 @@ class Runtime(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/services.runtime.v0.Runtime/Reset',
-            services_dot_runtime_dot_v0_dot_runtime__pb2.ResetRequest.SerializeToString,
-            services_dot_runtime_dot_v0_dot_runtime__pb2.ResetResponse.FromString,
+            '/services.runtime.v0.Runtime/Destroy',
+            services_dot_runtime_dot_v0_dot_runtime__pb2.DestroyRequest.SerializeToString,
+            services_dot_runtime_dot_v0_dot_runtime__pb2.DestroyResponse.FromString,
             options,
             channel_credentials,
             insecure,

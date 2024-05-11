@@ -267,7 +267,7 @@ func local_request_CLI_GetAddresses_0(ctx context.Context, marshaler runtime.Mar
 
 }
 
-func request_CLI_GetSharedConfiguration_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_CLI_GetConfiguration_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq GetConfigurationRequest
 	var metadata runtime.ServerMetadata
 
@@ -298,12 +298,12 @@ func request_CLI_GetSharedConfiguration_0(ctx context.Context, marshaler runtime
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "service", err)
 	}
 
-	msg, err := client.GetSharedConfiguration(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.GetConfiguration(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_CLI_GetSharedConfiguration_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_CLI_GetConfiguration_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq GetConfigurationRequest
 	var metadata runtime.ServerMetadata
 
@@ -334,7 +334,151 @@ func local_request_CLI_GetSharedConfiguration_0(ctx context.Context, marshaler r
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "service", err)
 	}
 
-	msg, err := server.GetSharedConfiguration(ctx, &protoReq)
+	msg, err := server.GetConfiguration(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
+func request_CLI_GetDependenciesConfigurations_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq GetConfigurationRequest
+	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["module"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "module")
+	}
+
+	protoReq.Module, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "module", err)
+	}
+
+	val, ok = pathParams["service"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "service")
+	}
+
+	protoReq.Service, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "service", err)
+	}
+
+	msg, err := client.GetDependenciesConfigurations(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_CLI_GetDependenciesConfigurations_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq GetConfigurationRequest
+	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["module"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "module")
+	}
+
+	protoReq.Module, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "module", err)
+	}
+
+	val, ok = pathParams["service"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "service")
+	}
+
+	protoReq.Service, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "service", err)
+	}
+
+	msg, err := server.GetDependenciesConfigurations(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
+func request_CLI_GetRuntimeConfigurations_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq GetConfigurationRequest
+	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["module"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "module")
+	}
+
+	protoReq.Module, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "module", err)
+	}
+
+	val, ok = pathParams["service"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "service")
+	}
+
+	protoReq.Service, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "service", err)
+	}
+
+	msg, err := client.GetRuntimeConfigurations(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_CLI_GetRuntimeConfigurations_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq GetConfigurationRequest
+	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["module"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "module")
+	}
+
+	protoReq.Module, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "module", err)
+	}
+
+	val, ok = pathParams["service"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "service")
+	}
+
+	protoReq.Service, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "service", err)
+	}
+
+	msg, err := server.GetRuntimeConfigurations(ctx, &protoReq)
 	return msg, metadata, err
 
 }
@@ -411,7 +555,7 @@ func local_request_CLI_GetFlowStatus_0(ctx context.Context, marshaler runtime.Ma
 }
 
 func request_CLI_StopFlow_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq emptypb.Empty
+	var protoReq StopFlowRequest
 	var metadata runtime.ServerMetadata
 
 	msg, err := client.StopFlow(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
@@ -420,10 +564,28 @@ func request_CLI_StopFlow_0(ctx context.Context, marshaler runtime.Marshaler, cl
 }
 
 func local_request_CLI_StopFlow_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq emptypb.Empty
+	var protoReq StopFlowRequest
 	var metadata runtime.ServerMetadata
 
 	msg, err := server.StopFlow(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
+func request_CLI_DestroyFlow_0(ctx context.Context, marshaler runtime.Marshaler, client CLIClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq DestroyFlowRequest
+	var metadata runtime.ServerMetadata
+
+	msg, err := client.DestroyFlow(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_CLI_DestroyFlow_0(ctx context.Context, marshaler runtime.Marshaler, server CLIServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq DestroyFlowRequest
+	var metadata runtime.ServerMetadata
+
+	msg, err := server.DestroyFlow(ctx, &protoReq)
 	return msg, metadata, err
 
 }
@@ -609,7 +771,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 
 	})
 
-	mux.Handle("GET", pattern_CLI_GetSharedConfiguration_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_CLI_GetConfiguration_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -617,12 +779,12 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetSharedConfiguration", runtime.WithHTTPPathPattern("/workspace/shared-configuration/{module}/{service}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetConfiguration", runtime.WithHTTPPathPattern("/workspace/configuration/{module}/{service}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_CLI_GetSharedConfiguration_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_CLI_GetConfiguration_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -630,7 +792,57 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 			return
 		}
 
-		forward_CLI_GetSharedConfiguration_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_CLI_GetConfiguration_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("GET", pattern_CLI_GetDependenciesConfigurations_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetDependenciesConfigurations", runtime.WithHTTPPathPattern("/workspace/dependencies-configurations/{module}/{service}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_CLI_GetDependenciesConfigurations_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_CLI_GetDependenciesConfigurations_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("GET", pattern_CLI_GetRuntimeConfigurations_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetRuntimeConfigurations", runtime.WithHTTPPathPattern("/workspace/runtime-configurations/{module}/{service}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_CLI_GetRuntimeConfigurations_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_CLI_GetRuntimeConfigurations_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -713,6 +925,31 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		}
 
 		forward_CLI_StopFlow_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("POST", pattern_CLI_DestroyFlow_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/DestroyFlow", runtime.WithHTTPPathPattern("/workspace/flow/destroy"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_CLI_DestroyFlow_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_CLI_DestroyFlow_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -911,25 +1148,69 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 
 	})
 
-	mux.Handle("GET", pattern_CLI_GetSharedConfiguration_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_CLI_GetConfiguration_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetSharedConfiguration", runtime.WithHTTPPathPattern("/workspace/shared-configuration/{module}/{service}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetConfiguration", runtime.WithHTTPPathPattern("/workspace/configuration/{module}/{service}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_CLI_GetSharedConfiguration_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_CLI_GetConfiguration_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_CLI_GetSharedConfiguration_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_CLI_GetConfiguration_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("GET", pattern_CLI_GetDependenciesConfigurations_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetDependenciesConfigurations", runtime.WithHTTPPathPattern("/workspace/dependencies-configurations/{module}/{service}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_CLI_GetDependenciesConfigurations_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_CLI_GetDependenciesConfigurations_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("GET", pattern_CLI_GetRuntimeConfigurations_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetRuntimeConfigurations", runtime.WithHTTPPathPattern("/workspace/runtime-configurations/{module}/{service}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_CLI_GetRuntimeConfigurations_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_CLI_GetRuntimeConfigurations_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1021,6 +1302,28 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 
 	})
 
+	mux.Handle("POST", pattern_CLI_DestroyFlow_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/DestroyFlow", runtime.WithHTTPPathPattern("/workspace/flow/destroy"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_CLI_DestroyFlow_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_CLI_DestroyFlow_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	return nil
 }
 
@@ -1039,7 +1342,11 @@ var (
 
 	pattern_CLI_GetAddresses_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4}, []string{"workspace", "network-mapping", "module", "service", "endpoint"}, ""))
 
-	pattern_CLI_GetSharedConfiguration_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2, 1, 0, 4, 1, 5, 3}, []string{"workspace", "shared-configuration", "module", "service"}, ""))
+	pattern_CLI_GetConfiguration_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2, 1, 0, 4, 1, 5, 3}, []string{"workspace", "configuration", "module", "service"}, ""))
+
+	pattern_CLI_GetDependenciesConfigurations_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2, 1, 0, 4, 1, 5, 3}, []string{"workspace", "dependencies-configurations", "module", "service"}, ""))
+
+	pattern_CLI_GetRuntimeConfigurations_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2, 1, 0, 4, 1, 5, 3}, []string{"workspace", "runtime-configurations", "module", "service"}, ""))
 
 	pattern_CLI_Logs_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"workspace", "logs"}, ""))
 
@@ -1048,6 +1355,8 @@ var (
 	pattern_CLI_GetFlowStatus_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"workspace", "flow", "status"}, ""))
 
 	pattern_CLI_StopFlow_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"workspace", "flow", "stop"}, ""))
+
+	pattern_CLI_DestroyFlow_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"workspace", "flow", "destroy"}, ""))
 )
 
 var (
@@ -1065,7 +1374,11 @@ var (
 
 	forward_CLI_GetAddresses_0 = runtime.ForwardResponseMessage
 
-	forward_CLI_GetSharedConfiguration_0 = runtime.ForwardResponseMessage
+	forward_CLI_GetConfiguration_0 = runtime.ForwardResponseMessage
+
+	forward_CLI_GetDependenciesConfigurations_0 = runtime.ForwardResponseMessage
+
+	forward_CLI_GetRuntimeConfigurations_0 = runtime.ForwardResponseMessage
 
 	forward_CLI_Logs_0 = runtime.ForwardResponseStream
 
@@ -1074,4 +1387,6 @@ var (
 	forward_CLI_GetFlowStatus_0 = runtime.ForwardResponseMessage
 
 	forward_CLI_StopFlow_0 = runtime.ForwardResponseMessage
+
+	forward_CLI_DestroyFlow_0 = runtime.ForwardResponseMessage
 )

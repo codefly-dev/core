@@ -1,40 +1,68 @@
 package resources
 
-import basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+import (
+	"fmt"
+
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+)
+
+const (
+	RuntimeContextNative    = "native"
+	RuntimeContextContainer = "container"
+	RuntimeContextFree      = "free"
+
+	NetworkAccessContainer = "container"
+	NetworkAccessNative    = "native"
+	NetworkAccessPublic    = "public"
+)
+
+func RuntimeContexts() []string {
+	return []string{RuntimeContextContainer, RuntimeContextNative, RuntimeContextFree}
+}
+
+func NewRuntimeContext(runtimeContext string) (*basev0.RuntimeContext, error) {
+	switch runtimeContext {
+	case RuntimeContextContainer:
+		return NewRuntimeContextContainer(), nil
+	case RuntimeContextNative:
+		return NewRuntimeContextNative(), nil
+	case RuntimeContextFree:
+		return NewRuntimeContextFree(), nil
+	default:
+		return nil, fmt.Errorf("unknown runtime context: %s", runtimeContext)
+	}
+}
 
 // RuntimeContextFromInstance returns a runtime context from a network instance.
 func RuntimeContextFromInstance(instance *basev0.NetworkInstance) *basev0.RuntimeContext {
 	switch instance.Access.Kind {
-	case basev0.NetworkAccess_FromNative:
-		return RuntimeContextNative()
-	case basev0.NetworkAccess_FromContainer:
-		return RuntimeContextContainer()
+	case NetworkAccessNative:
+		return NewRuntimeContextNative()
+	case NetworkAccessContainer:
+		return NewRuntimeContextContainer()
 	default:
-		return RuntimeContextFree()
+		return NewRuntimeContextFree()
 	}
 }
 
 // NetworkAccessFromRuntimeContext returns a NetworkAccess from a runtime instance
 func NetworkAccessFromRuntimeContext(runtimeContext *basev0.RuntimeContext) *basev0.NetworkAccess {
 	switch runtimeContext.Kind {
-	case basev0.RuntimeContext_Container:
-		return ContainerNetworkAccess()
+	case RuntimeContextContainer:
+		return NewContainerNetworkAccess()
 	default:
-		return NativeNetworkAccess()
+		return NewNativeNetworkAccess()
 	}
 }
 
-// ContainerRuntimeContext returns a new container runtime context.
-func RuntimeContextContainer() *basev0.RuntimeContext {
-	return &basev0.RuntimeContext{Kind: basev0.RuntimeContext_Container}
+func NewRuntimeContextContainer() *basev0.RuntimeContext {
+	return &basev0.RuntimeContext{Kind: RuntimeContextContainer}
 }
 
-// NativeRuntimeContext returns a new native runtime context.
-func RuntimeContextNative() *basev0.RuntimeContext {
-	return &basev0.RuntimeContext{Kind: basev0.RuntimeContext_Native}
+func NewRuntimeContextNative() *basev0.RuntimeContext {
+	return &basev0.RuntimeContext{Kind: RuntimeContextNative}
 }
 
-// FreeRuntimeContext returns a new free runtime context.
-func RuntimeContextFree() *basev0.RuntimeContext {
-	return &basev0.RuntimeContext{Kind: basev0.RuntimeContext_Free}
+func NewRuntimeContextFree() *basev0.RuntimeContext {
+	return &basev0.RuntimeContext{Kind: RuntimeContextFree}
 }

@@ -11,6 +11,10 @@ from google.protobuf.internal import builder as _builder
 
 _sym_db = _symbol_database.Default()
 
+
+from base.v0 import scope_pb2 as base_dot_v0_dot_scope__pb2
+
+
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1b\x62\x61se/v0/configuration.proto\x12\x07\x62\x61se.v0\x1a\x13\x62\x61se/v0/scope.proto\"T\n\x12\x43onfigurationValue\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value\x12\x16\n\x06secret\x18\x03 \x01(\x08R\x06secret\"~\n\x18\x43onfigurationInformation\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12N\n\x14\x63onfiguration_values\x18\x04 \x03(\x0b\x32\x1b.base.v0.ConfigurationValueR\x13\x63onfigurationValues\"\xb4\x01\n\rConfiguration\x12\x16\n\x06origin\x18\x01 \x01(\tR\x06origin\x12@\n\x0fruntime_context\x18\x02 \x01(\x0b\x32\x17.base.v0.RuntimeContextR\x0eruntimeContext\x12I\n\x0e\x63onfigurations\x18\x03 \x03(\x0b\x32!.base.v0.ConfigurationInformationR\x0e\x63onfigurationsB\x90\x01\n\x0b\x63om.base.v0B\x12\x43onfigurationProtoP\x01Z0github.com/codefly-dev/core/generated/go/base/v0\xa2\x02\x03\x42VX\xaa\x02\x07\x42\x61se.V0\xca\x02\x07\x42\x61se\\V0\xe2\x02\x13\x42\x61se\\V0\\GPBMetadata\xea\x02\x08\x42\x61se::V0b\x06proto3')
 
 _globals = globals()

@@ -33,7 +33,7 @@ func (m *DeployManager) KubernetesService(service *resources.Service, endpoint *
 	} else {
 		instance = resources.NewNetworkInstance(host, port)
 	}
-	instance.Access = resources.ContainerNetworkAccess()
+	instance.Access = resources.NewContainerNetworkAccess()
 	return instance
 }
 

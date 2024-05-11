@@ -19,11 +19,12 @@ type Loader interface {
 
 type Manager struct {
 	workspace *resources.Workspace
+	services  map[string]*resources.Service
 
 	loaders []Loader
 
 	// Per Name in
-	Configurations map[string]*basev0.Configuration
+	configurations map[string]*basev0.Configuration
 
 	// Per service
 	serviceConfigurations map[string]*basev0.Configuration
@@ -39,7 +40,8 @@ type Manager struct {
 func NewManager(_ context.Context, workspace *resources.Workspace) (*Manager, error) {
 	return &Manager{
 		workspace:                        workspace,
-		Configurations:                   make(map[string]*basev0.Configuration),
+		services:                         make(map[string]*resources.Service),
+		configurations:                   make(map[string]*basev0.Configuration),
 		serviceConfigurations:            make(map[string]*basev0.Configuration),
 		exposedFromServiceConfigurations: make(map[string][]*basev0.Configuration),
 	}, nil
@@ -70,7 +72,7 @@ func (manager *Manager) Load(ctx context.Context, env *resources.Environment) er
 		return w.Wrapf(err, "cannot load DNS")
 	}
 	w.Focus("loaded",
-		wool.Field("dns", resources.MakeManyDnsSummary(manager.dns)))
+		wool.Field("dns", resources.MakeManyDNSSummary(manager.dns)))
 
 	return nil
 }
@@ -81,12 +83,12 @@ func (manager *Manager) LoadConfigurations(_ context.Context) error {
 		for _, conf := range confs {
 			if conf.Origin == resources.ConfigurationWorkspace {
 				for _, info := range conf.Configurations {
-					if _, ok := manager.Configurations[info.Name]; !ok {
-						manager.Configurations[info.Name] = &basev0.Configuration{
+					if _, ok := manager.configurations[info.Name]; !ok {
+						manager.configurations[info.Name] = &basev0.Configuration{
 							Origin: resources.ConfigurationWorkspace,
 						}
 					}
-					manager.Configurations[info.Name].Configurations = append(manager.Configurations[info.Name].Configurations, info)
+					manager.configurations[info.Name].Configurations = append(manager.configurations[info.Name].Configurations, info)
 				}
 			} else {
 				if manager.skip(conf.Origin) {
@@ -110,7 +112,7 @@ func (manager *Manager) GetConfiguration(_ context.Context, name string) (*basev
 	if manager == nil {
 		return nil, nil
 	}
-	if conf, ok := manager.Configurations[name]; ok {
+	if conf, ok := manager.configurations[name]; ok {
 		return conf, nil
 	}
 	return nil, nil
@@ -132,7 +134,7 @@ func (manager *Manager) GetConfigurations(ctx context.Context) ([]*basev0.Config
 	}
 	w := wool.Get(ctx).In("providers.GetConfigurations")
 	var out []*basev0.Configuration
-	for _, conf := range manager.Configurations {
+	for _, conf := range manager.configurations {
 		w.Debug(" configuration", wool.Field("got", conf))
 		out = append(out, conf)
 	}
@@ -206,5 +208,5 @@ func (manager *Manager) GetDNS(ctx context.Context, svc *resources.Service, endp
 			return dns, nil
 		}
 	}
-	return nil, w.NewError("no DNS found: %s::%s. Available: %s", svc.Unique(), endpointName, resources.MakeManyDnsSummary(manager.dns))
+	return nil, w.NewError("no DNS found: %s::%s. Available: %s", svc.Unique(), endpointName, resources.MakeManyDNSSummary(manager.dns))
 }

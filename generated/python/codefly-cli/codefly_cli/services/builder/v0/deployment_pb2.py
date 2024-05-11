@@ -11,6 +11,10 @@ from google.protobuf.internal import builder as _builder
 
 _sym_db = _symbol_database.Default()
 
+
+from services.builder.v0 import docker_pb2 as services_dot_builder_dot_v0_dot_docker__pb2
+
+
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n$services/builder/v0/deployment.proto\x12\x13services.builder.v0\x1a services/builder/v0/docker.proto\"\x86\x01\n\nDeployment\x12K\n\nkubernetes\x18\x02 \x01(\x0b\x32).services.builder.v0.KubernetesDeploymentH\x00R\nkubernetes\x12#\n\rload_balancer\x18\x03 \x01(\x08R\x0cloadBalancerB\x06\n\x04kind\"\xa4\x01\n\x14KubernetesDeployment\x12\x1c\n\tnamespace\x18\x01 \x01(\tR\tnamespace\x12 \n\x0b\x64\x65stination\x18\x02 \x01(\tR\x0b\x64\x65stination\x12L\n\rbuild_context\x18\x03 \x01(\x0b\x32\'.services.builder.v0.DockerBuildContextR\x0c\x62uildContext\"m\n\x10\x44\x65ploymentOutput\x12Q\n\nkubernetes\x18\x02 \x01(\x0b\x32/.services.builder.v0.KubernetesDeploymentOutputH\x00R\nkubernetesB\x06\n\x04kind\"}\n\x1aKubernetesDeploymentOutput\x12H\n\x04kind\x18\x01 \x01(\x0e\x32\x34.services.builder.v0.KubernetesDeploymentOutput.KindR\x04kind\"\x15\n\x04Kind\x12\r\n\tKustomize\x10\x00*\x1f\n\x0e\x44\x65ploymentKind\x12\r\n\tKUSTOMIZE\x10\x00\x42\xd6\x01\n\x17\x63om.services.builder.v0B\x0f\x44\x65ploymentProtoP\x01Z<github.com/codefly-dev/core/generated/go/services/builder/v0\xa2\x02\x03SBV\xaa\x02\x13Services.Builder.V0\xca\x02\x13Services\\Builder\\V0\xe2\x02\x1fServices\\Builder\\V0\\GPBMetadata\xea\x02\x15Services::Builder::V0b\x06proto3')
 
 _globals = globals()

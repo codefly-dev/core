@@ -17,6 +17,6 @@ plugins:
     out: go
     opt: paths=source_relative
   - plugin: buf.build/protocolbuffers/python
-    out: python/codefly-cli
+    out: python/codefly-cli/codefly_cli
   - plugin: buf.build/grpc/python
-    out: python/codefly-cli
+    out: python/codefly-cli/codefly_cli

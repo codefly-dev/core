@@ -56,7 +56,7 @@ type NativeProc struct {
 	envs    []string
 }
 
-func (proc *NativeProc) WithRunningCmd(cmd string) {
+func (proc *NativeProc) WithRunningCmd(_ string) {
 }
 
 func (proc *NativeProc) WithEnvironmentVariables(envs ...resources.EnvironmentVariable) {

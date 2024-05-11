@@ -12,9 +12,10 @@ from google.protobuf.internal import builder as _builder
 _sym_db = _symbol_database.Default()
 
 
+from buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13\x62\x61se/v0/scope.proto\x12\x07\x62\x61se.v0\"o\n\x0eRuntimeContext\x12\x30\n\x04kind\x18\x01 \x01(\x0e\x32\x1c.base.v0.RuntimeContext.KindR\x04kind\"+\n\x04Kind\x12\x08\n\x04\x46ree\x10\x00\x12\r\n\tContainer\x10\x01\x12\n\n\x06Native\x10\x02\"w\n\rNetworkAccess\x12/\n\x04kind\x18\x01 \x01(\x0e\x32\x1b.base.v0.NetworkAccess.KindR\x04kind\"5\n\x04Kind\x12\x11\n\rFromContainer\x10\x00\x12\x0e\n\nFromNative\x10\x02\x12\n\n\x06Public\x10\x03\x42\x88\x01\n\x0b\x63om.base.v0B\nScopeProtoP\x01Z0github.com/codefly-dev/core/generated/go/base/v0\xa2\x02\x03\x42VX\xaa\x02\x07\x42\x61se.V0\xca\x02\x07\x42\x61se\\V0\xe2\x02\x13\x42\x61se\\V0\\GPBMetadata\xea\x02\x08\x42\x61se::V0b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13\x62\x61se/v0/scope.proto\x12\x07\x62\x61se.v0\x1a\x1b\x62uf/validate/validate.proto\"X\n\x0eRuntimeContext\x12\x32\n\x04kind\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19R\x04\x66reeR\tcontainerR\x06nativeR\x04kind\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\"E\n\rNetworkAccess\x12\x34\n\x04kind\x18\x01 \x01(\tB \xbaH\x1dr\x1bR\tcontainerR\x06nativeR\x06publicR\x04kindB\x88\x01\n\x0b\x63om.base.v0B\nScopeProtoP\x01Z0github.com/codefly-dev/core/generated/go/base/v0\xa2\x02\x03\x42VX\xaa\x02\x07\x42\x61se.V0\xca\x02\x07\x42\x61se\\V0\xe2\x02\x13\x42\x61se\\V0\\GPBMetadata\xea\x02\x08\x42\x61se::V0b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -22,12 +23,12 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'base.v0.scope_pb2', _global
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\013com.base.v0B\nScopeProtoP\001Z0github.com/codefly-dev/core/generated/go/base/v0\242\002\003BVX\252\002\007Base.V0\312\002\007Base\\V0\342\002\023Base\\V0\\GPBMetadata\352\002\010Base::V0'
-  _globals['_RUNTIMECONTEXT']._serialized_start=32
-  _globals['_RUNTIMECONTEXT']._serialized_end=143
-  _globals['_RUNTIMECONTEXT_KIND']._serialized_start=100
-  _globals['_RUNTIMECONTEXT_KIND']._serialized_end=143
-  _globals['_NETWORKACCESS']._serialized_start=145
-  _globals['_NETWORKACCESS']._serialized_end=264
-  _globals['_NETWORKACCESS_KIND']._serialized_start=211
-  _globals['_NETWORKACCESS_KIND']._serialized_end=264
+  _globals['_RUNTIMECONTEXT'].fields_by_name['kind']._loaded_options = None
+  _globals['_RUNTIMECONTEXT'].fields_by_name['kind']._serialized_options = b'\272H\033r\031R\004freeR\tcontainerR\006native'
+  _globals['_NETWORKACCESS'].fields_by_name['kind']._loaded_options = None
+  _globals['_NETWORKACCESS'].fields_by_name['kind']._serialized_options = b'\272H\035r\033R\tcontainerR\006nativeR\006public'
+  _globals['_RUNTIMECONTEXT']._serialized_start=61
+  _globals['_RUNTIMECONTEXT']._serialized_end=149
+  _globals['_NETWORKACCESS']._serialized_start=151
+  _globals['_NETWORKACCESS']._serialized_end=220
 # @@protoc_insertion_point(module_scope)

@@ -31,11 +31,14 @@ const (
 	CLI_GetWorkspacePublicModulesDependencyGraph_FullMethodName = "/observability.v0.CLI/GetWorkspacePublicModulesDependencyGraph"
 	CLI_GetActive_FullMethodName                                = "/observability.v0.CLI/GetActive"
 	CLI_GetAddresses_FullMethodName                             = "/observability.v0.CLI/GetAddresses"
-	CLI_GetSharedConfiguration_FullMethodName                   = "/observability.v0.CLI/GetSharedConfiguration"
+	CLI_GetConfiguration_FullMethodName                         = "/observability.v0.CLI/GetConfiguration"
+	CLI_GetDependenciesConfigurations_FullMethodName            = "/observability.v0.CLI/GetDependenciesConfigurations"
+	CLI_GetRuntimeConfigurations_FullMethodName                 = "/observability.v0.CLI/GetRuntimeConfigurations"
 	CLI_Logs_FullMethodName                                     = "/observability.v0.CLI/Logs"
 	CLI_ActiveLogHistory_FullMethodName                         = "/observability.v0.CLI/ActiveLogHistory"
 	CLI_GetFlowStatus_FullMethodName                            = "/observability.v0.CLI/GetFlowStatus"
 	CLI_StopFlow_FullMethodName                                 = "/observability.v0.CLI/StopFlow"
+	CLI_DestroyFlow_FullMethodName                              = "/observability.v0.CLI/DestroyFlow"
 )
 
 // CLIClient is the client API for CLI service.
@@ -49,11 +52,14 @@ type CLIClient interface {
 	GetWorkspacePublicModulesDependencyGraph(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MultiGraphResponse, error)
 	GetActive(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ActiveResponse, error)
 	GetAddresses(ctx context.Context, in *GetAddressRequest, opts ...grpc.CallOption) (*GetAddressResponse, error)
-	GetSharedConfiguration(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationResponse, error)
+	GetConfiguration(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationResponse, error)
+	GetDependenciesConfigurations(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationsResponse, error)
+	GetRuntimeConfigurations(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationsResponse, error)
 	Logs(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (CLI_LogsClient, error)
 	ActiveLogHistory(ctx context.Context, in *v02.LogRequest, opts ...grpc.CallOption) (*v02.LogResponse, error)
 	GetFlowStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FlowStatus, error)
-	StopFlow(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	StopFlow(ctx context.Context, in *StopFlowRequest, opts ...grpc.CallOption) (*StopFlowResponse, error)
+	DestroyFlow(ctx context.Context, in *DestroyFlowRequest, opts ...grpc.CallOption) (*DestroyFlowResponse, error)
 }
 
 type cLIClient struct {
@@ -127,9 +133,27 @@ func (c *cLIClient) GetAddresses(ctx context.Context, in *GetAddressRequest, opt
 	return out, nil
 }
 
-func (c *cLIClient) GetSharedConfiguration(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationResponse, error) {
+func (c *cLIClient) GetConfiguration(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationResponse, error) {
 	out := new(GetConfigurationResponse)
-	err := c.cc.Invoke(ctx, CLI_GetSharedConfiguration_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, CLI_GetConfiguration_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *cLIClient) GetDependenciesConfigurations(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationsResponse, error) {
+	out := new(GetConfigurationsResponse)
+	err := c.cc.Invoke(ctx, CLI_GetDependenciesConfigurations_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *cLIClient) GetRuntimeConfigurations(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationsResponse, error) {
+	out := new(GetConfigurationsResponse)
+	err := c.cc.Invoke(ctx, CLI_GetRuntimeConfigurations_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -186,9 +210,18 @@ func (c *cLIClient) GetFlowStatus(ctx context.Context, in *emptypb.Empty, opts .
 	return out, nil
 }
 
-func (c *cLIClient) StopFlow(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	out := new(emptypb.Empty)
+func (c *cLIClient) StopFlow(ctx context.Context, in *StopFlowRequest, opts ...grpc.CallOption) (*StopFlowResponse, error) {
+	out := new(StopFlowResponse)
 	err := c.cc.Invoke(ctx, CLI_StopFlow_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *cLIClient) DestroyFlow(ctx context.Context, in *DestroyFlowRequest, opts ...grpc.CallOption) (*DestroyFlowResponse, error) {
+	out := new(DestroyFlowResponse)
+	err := c.cc.Invoke(ctx, CLI_DestroyFlow_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -206,11 +239,14 @@ type CLIServer interface {
 	GetWorkspacePublicModulesDependencyGraph(context.Context, *emptypb.Empty) (*MultiGraphResponse, error)
 	GetActive(context.Context, *emptypb.Empty) (*ActiveResponse, error)
 	GetAddresses(context.Context, *GetAddressRequest) (*GetAddressResponse, error)
-	GetSharedConfiguration(context.Context, *GetConfigurationRequest) (*GetConfigurationResponse, error)
+	GetConfiguration(context.Context, *GetConfigurationRequest) (*GetConfigurationResponse, error)
+	GetDependenciesConfigurations(context.Context, *GetConfigurationRequest) (*GetConfigurationsResponse, error)
+	GetRuntimeConfigurations(context.Context, *GetConfigurationRequest) (*GetConfigurationsResponse, error)
 	Logs(*emptypb.Empty, CLI_LogsServer) error
 	ActiveLogHistory(context.Context, *v02.LogRequest) (*v02.LogResponse, error)
 	GetFlowStatus(context.Context, *emptypb.Empty) (*FlowStatus, error)
-	StopFlow(context.Context, *emptypb.Empty) (*emptypb.Empty, error)
+	StopFlow(context.Context, *StopFlowRequest) (*StopFlowResponse, error)
+	DestroyFlow(context.Context, *DestroyFlowRequest) (*DestroyFlowResponse, error)
 	mustEmbedUnimplementedCLIServer()
 }
 
@@ -239,8 +275,14 @@ func (UnimplementedCLIServer) GetActive(context.Context, *emptypb.Empty) (*Activ
 func (UnimplementedCLIServer) GetAddresses(context.Context, *GetAddressRequest) (*GetAddressResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAddresses not implemented")
 }
-func (UnimplementedCLIServer) GetSharedConfiguration(context.Context, *GetConfigurationRequest) (*GetConfigurationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetSharedConfiguration not implemented")
+func (UnimplementedCLIServer) GetConfiguration(context.Context, *GetConfigurationRequest) (*GetConfigurationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetConfiguration not implemented")
+}
+func (UnimplementedCLIServer) GetDependenciesConfigurations(context.Context, *GetConfigurationRequest) (*GetConfigurationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDependenciesConfigurations not implemented")
+}
+func (UnimplementedCLIServer) GetRuntimeConfigurations(context.Context, *GetConfigurationRequest) (*GetConfigurationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRuntimeConfigurations not implemented")
 }
 func (UnimplementedCLIServer) Logs(*emptypb.Empty, CLI_LogsServer) error {
 	return status.Errorf(codes.Unimplemented, "method Logs not implemented")
@@ -251,8 +293,11 @@ func (UnimplementedCLIServer) ActiveLogHistory(context.Context, *v02.LogRequest)
 func (UnimplementedCLIServer) GetFlowStatus(context.Context, *emptypb.Empty) (*FlowStatus, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetFlowStatus not implemented")
 }
-func (UnimplementedCLIServer) StopFlow(context.Context, *emptypb.Empty) (*emptypb.Empty, error) {
+func (UnimplementedCLIServer) StopFlow(context.Context, *StopFlowRequest) (*StopFlowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopFlow not implemented")
+}
+func (UnimplementedCLIServer) DestroyFlow(context.Context, *DestroyFlowRequest) (*DestroyFlowResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DestroyFlow not implemented")
 }
 func (UnimplementedCLIServer) mustEmbedUnimplementedCLIServer() {}
 
@@ -393,20 +438,56 @@ func _CLI_GetAddresses_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
-func _CLI_GetSharedConfiguration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _CLI_GetConfiguration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetConfigurationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(CLIServer).GetSharedConfiguration(ctx, in)
+		return srv.(CLIServer).GetConfiguration(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: CLI_GetSharedConfiguration_FullMethodName,
+		FullMethod: CLI_GetConfiguration_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CLIServer).GetSharedConfiguration(ctx, req.(*GetConfigurationRequest))
+		return srv.(CLIServer).GetConfiguration(ctx, req.(*GetConfigurationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CLI_GetDependenciesConfigurations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetConfigurationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CLIServer).GetDependenciesConfigurations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CLI_GetDependenciesConfigurations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CLIServer).GetDependenciesConfigurations(ctx, req.(*GetConfigurationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CLI_GetRuntimeConfigurations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetConfigurationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CLIServer).GetRuntimeConfigurations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CLI_GetRuntimeConfigurations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CLIServer).GetRuntimeConfigurations(ctx, req.(*GetConfigurationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -469,7 +550,7 @@ func _CLI_GetFlowStatus_Handler(srv interface{}, ctx context.Context, dec func(i
 }
 
 func _CLI_StopFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(emptypb.Empty)
+	in := new(StopFlowRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -481,7 +562,25 @@ func _CLI_StopFlow_Handler(srv interface{}, ctx context.Context, dec func(interf
 		FullMethod: CLI_StopFlow_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CLIServer).StopFlow(ctx, req.(*emptypb.Empty))
+		return srv.(CLIServer).StopFlow(ctx, req.(*StopFlowRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CLI_DestroyFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DestroyFlowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CLIServer).DestroyFlow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CLI_DestroyFlow_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CLIServer).DestroyFlow(ctx, req.(*DestroyFlowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -522,8 +621,16 @@ var CLI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _CLI_GetAddresses_Handler,
 		},
 		{
-			MethodName: "GetSharedConfiguration",
-			Handler:    _CLI_GetSharedConfiguration_Handler,
+			MethodName: "GetConfiguration",
+			Handler:    _CLI_GetConfiguration_Handler,
+		},
+		{
+			MethodName: "GetDependenciesConfigurations",
+			Handler:    _CLI_GetDependenciesConfigurations_Handler,
+		},
+		{
+			MethodName: "GetRuntimeConfigurations",
+			Handler:    _CLI_GetRuntimeConfigurations_Handler,
 		},
 		{
 			MethodName: "ActiveLogHistory",
@@ -536,6 +643,10 @@ var CLI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopFlow",
 			Handler:    _CLI_StopFlow_Handler,
+		},
+		{
+			MethodName: "DestroyFlow",
+			Handler:    _CLI_DestroyFlow_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

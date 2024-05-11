@@ -49,7 +49,7 @@ func testLocalLoader(t *testing.T, dir string) {
 	err = loader.Load(ctx, resources.LocalEnvironment())
 	require.NoError(t, err)
 	require.Equal(t, 3, len(loader.Configurations()))
-	require.Equal(t, 1, len(loader.DNS()))
+	require.Equal(t, 2, len(loader.DNS()))
 	dns := loader.DNS()[0]
 	require.Equal(t, "localhost", dns.Host)
 	require.Equal(t, uint32(8080), dns.Port)

@@ -11,6 +11,10 @@ from google.protobuf.internal import builder as _builder
 
 _sym_db = _symbol_database.Default()
 
+
+from buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
+
+
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1a\x61\x63tions/v0/workspace.proto\x12\nactions.v0\x1a\x1b\x62uf/validate/validate.proto\"\xb6\x01\n\x0cNewWorkspace\x12\x12\n\x04kind\x18\x01 \x01(\tR\x04kind\x12\x1d\n\x04name\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x04name\x12 \n\x0b\x64\x65scription\x18\x03 \x01(\tR\x0b\x64\x65scription\x12\x1b\n\x04path\x18\x04 \x01(\tB\x07\xbaH\x04r\x02\x10\x03R\x04path\x12\x34\n\x06layout\x18\x05 \x01(\tB\x1c\xbaH\x19r\x17R\x04\x66latR\x07modulesR\x06hybridR\x06layoutB\x9e\x01\n\x0e\x63om.actions.v0B\x0eWorkspaceProtoP\x01Z3github.com/codefly-dev/core/generated/go/actions/v0\xa2\x02\x03\x41VX\xaa\x02\nActions.V0\xca\x02\nActions\\V0\xe2\x02\x16\x41\x63tions\\V0\\GPBMetadata\xea\x02\x0b\x41\x63tions::V0b\x06proto3')
 
 _globals = globals()

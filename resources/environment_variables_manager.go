@@ -10,6 +10,13 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
+const WorkspaceConfigurationPrefix = "CODEFLY__WORKSPACE_CONFIGURATION"
+
+// #nosec G101
+const WorkspaceSecretConfigurationPrefix = "CODEFLY__WORKSPACE_SECRET_CONFIGURATION"
+const ServiceConfigurationPrefix = "CODEFLY__SERVICE_CONFIGURATION"
+const ServiceSecretConfigurationPrefix = "CODEFLY__SERVICE_SECRET_CONFIGURATION"
+
 type EnvironmentVariable struct {
 	Key   string
 	Value any
@@ -103,6 +110,12 @@ func VersionAsEnvironmentVariable(version string) EnvironmentVariable {
 	return Env(VersionPrefix, version)
 }
 
+const RuntimeContextPrefix = "CODEFLY__RUNTIME_CONTEXT"
+
+func RuntimeContextAsEnvironmentVariable(runtimeContext *basev0.RuntimeContext) EnvironmentVariable {
+	return Env(RuntimeContextPrefix, runtimeContext.Kind)
+}
+
 func (holder *EnvironmentVariableManager) SetRuntimeContext(runtimeContext *basev0.RuntimeContext) {
 	holder.runtimeContext = runtimeContext
 }
@@ -131,6 +144,10 @@ func (holder *EnvironmentVariableManager) getBase() []EnvironmentVariable {
 
 	if holder.version != "" {
 		envs = append(envs, VersionAsEnvironmentVariable(holder.version))
+	}
+
+	if holder.runtimeContext != nil {
+		envs = append(envs, RuntimeContextAsEnvironmentVariable(holder.runtimeContext))
 	}
 
 	for _, endpoint := range holder.endpoints {
@@ -296,7 +313,8 @@ func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool
 			// if secret: only add secret values
 			if secret {
 				if value.Secret {
-					key = strings.Replace(key, "_CONFIGURATION__", "_SECRET_CONFIGURATION__", 1)
+					key = strings.Replace(key, WorkspaceConfigurationPrefix, WorkspaceSecretConfigurationPrefix, 1)
+					key = strings.Replace(key, ServiceConfigurationPrefix, ServiceSecretConfigurationPrefix, 1)
 					env = append(env, Env(key, value.Value))
 				}
 			} else {
@@ -333,7 +351,7 @@ func NameToKey(name string) string {
 
 func ConfigurationEnvironmentKeyPrefix(conf *basev0.Configuration) string {
 	if conf.Origin == ConfigurationWorkspace {
-		return ConfigurationPrefix
+		return WorkspaceConfigurationPrefix
 	}
 	return ServiceConfigurationEnvironmentKeyPrefixFromUnique(conf.Origin)
 }

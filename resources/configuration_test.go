@@ -46,7 +46,7 @@ var serviceConf = &basev0.Configuration{
 
 func TestConfigurationEnvironmentVariableKey(t *testing.T) {
 	key := resources.ConfigurationEnvironmentKeyPrefix(Conf)
-	require.Equal(t, "CODEFLY___CONFIGURATION", key)
+	require.Equal(t, "CODEFLY__WORKSPACE_CONFIGURATION", key)
 
 	key = resources.ConfigurationEnvironmentKeyPrefix(serviceConf)
 	require.Equal(t, "CODEFLY__SERVICE_CONFIGURATION__APP__SVC", key)
@@ -55,7 +55,7 @@ func TestConfigurationEnvironmentVariableKey(t *testing.T) {
 func TestConfigurationsAsEnvironmentVariables(t *testing.T) {
 	envs := resources.ConfigurationAsEnvironmentVariables(Conf, false)
 	require.Len(t, envs, 1)
-	needs := fmt.Sprintf("CODEFLY___CONFIGURATION__SOMETHING__GLOBAL=%s", "true")
+	needs := fmt.Sprintf("CODEFLY__WORKSPACE_CONFIGURATION__SOMETHING__GLOBAL=%s", "true")
 	require.Contains(t, resources.EnvironmentVariableAsStrings(envs), needs)
 }
 

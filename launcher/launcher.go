@@ -72,7 +72,8 @@ func (l *Launcher) WaitForReady(ctx context.Context) error {
 	return nil
 }
 
-func (l *Launcher) Close(ctx context.Context) error {
-	_, err := l.cli.StopFlow(ctx, &emptypb.Empty{})
-	return err
-}
+//
+//func (l *Launcher) Close(ctx context.Context) error {
+//	_, err := l.cli.StopFlow(ctx, &emptypb.Empty{})
+//	return err
+//}

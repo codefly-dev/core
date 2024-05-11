@@ -121,7 +121,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			for _, d := range dns {
 				d.Service = svc.Name
 				d.Module = svc.Module
-				w.Focus("found DNS", wool.Field("dns", resources.MakeDnsSummary(d)))
+				w.Focus("found DNS", wool.Field("dns", resources.MakeDNSSummary(d)))
 				local.dns = append(local.dns, d)
 			}
 		}

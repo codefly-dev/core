@@ -11,6 +11,11 @@ from google.protobuf.internal import builder as _builder
 
 _sym_db = _symbol_database.Default()
 
+
+from buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
+from base.v0 import service_pb2 as base_dot_v0_dot_service__pb2
+
+
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x62\x61se/v0/module.proto\x12\x07\x62\x61se.v0\x1a\x1b\x62uf/validate/validate.proto\x1a\x15\x62\x61se/v0/service.proto\"\x91\x01\n\x06Module\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12,\n\x08services\x18\x04 \x03(\x0b\x32\x10.base.v0.ServiceR\x08services\x12#\n\rservice_entry\x18\x05 \x01(\tR\x0cserviceEntry\"\\\n\rManagedModule\x12\"\n\x02id\x18\x01 \x01(\tB\x12\xbaH\x0fr\r2\x0b^[a-z]{10}$R\x02id\x12\'\n\x06module\x18\x02 \x01(\x0b\x32\x0f.base.v0.ModuleR\x06moduleB\x89\x01\n\x0b\x63om.base.v0B\x0bModuleProtoP\x01Z0github.com/codefly-dev/core/generated/go/base/v0\xa2\x02\x03\x42VX\xaa\x02\x07\x42\x61se.V0\xca\x02\x07\x42\x61se\\V0\xe2\x02\x13\x42\x61se\\V0\\GPBMetadata\xea\x02\x08\x42\x61se::V0b\x06proto3')
 
 _globals = globals()

@@ -21,11 +21,11 @@ type RuntimeWrapper struct {
 
 	RuntimeConfigurations []*basev0.Configuration
 
-	LoadStatus  *runtimev0.LoadStatus
-	InitStatus  *runtimev0.InitStatus
-	StartStatus *runtimev0.StartStatus
-	StopStatus  *runtimev0.StopStatus
-	ResetStatus *runtimev0.ResetStatus
+	LoadStatus    *runtimev0.LoadStatus
+	InitStatus    *runtimev0.InitStatus
+	StartStatus   *runtimev0.StartStatus
+	StopStatus    *runtimev0.StopStatus
+	DestroyStatus *runtimev0.DestroyStatus
 
 	TestStatus *runtimev0.TestStatus
 
@@ -116,6 +116,29 @@ func (s *RuntimeWrapper) StartErrorf(err error, msg string, args ...any) (*runti
 	}, err
 }
 
+func (s *RuntimeWrapper) TestResponse() (*runtimev0.TestResponse, error) {
+	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_SUCCESS}
+	return &runtimev0.TestResponse{
+		Status: s.TestStatus,
+	}, nil
+}
+
+func (s *RuntimeWrapper) TestError(err error) (*runtimev0.TestResponse, error) {
+	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: err.Error()}
+	return &runtimev0.TestResponse{
+		Status: s.TestStatus,
+	}, err
+}
+
+func (s *RuntimeWrapper) TestErrorf(err error, msg string, args ...any) (*runtimev0.TestResponse, error) {
+	s.TestStatus = &runtimev0.TestStatus{
+		State:   runtimev0.TestStatus_ERROR,
+		Message: ErrorMessage(err, msg, args...)}
+	return &runtimev0.TestResponse{
+		Status: s.TestStatus,
+	}, err
+}
+
 func (s *RuntimeWrapper) StopResponse() (*runtimev0.StopResponse, error) {
 	return &runtimev0.StopResponse{}, nil
 }
@@ -136,26 +159,26 @@ func (s *RuntimeWrapper) StopErrorf(err error, msg string, args ...any) (*runtim
 	}, err
 }
 
-func (s *RuntimeWrapper) ResetResponse() (*runtimev0.ResetResponse, error) {
-	return &runtimev0.ResetResponse{}, nil
+func (s *RuntimeWrapper) DestroyResponse() (*runtimev0.DestroyResponse, error) {
+	return &runtimev0.DestroyResponse{}, nil
 }
 
-func (s *RuntimeWrapper) ResetError(err error) (*runtimev0.ResetResponse, error) {
-	s.ResetStatus = &runtimev0.ResetStatus{
-		State:   runtimev0.ResetStatus_ERROR,
+func (s *RuntimeWrapper) DestroyError(err error) (*runtimev0.DestroyResponse, error) {
+	s.DestroyStatus = &runtimev0.DestroyStatus{
+		State:   runtimev0.DestroyStatus_ERROR,
 		Message: err.Error()}
-	return &runtimev0.ResetResponse{
-		Status: s.ResetStatus,
+	return &runtimev0.DestroyResponse{
+		Status: s.DestroyStatus,
 	}, err
 }
 
-func (s *RuntimeWrapper) ResetErrorf(err error, msg string, args ...any) (*runtimev0.ResetResponse, error) {
-	s.ResetStatus = &runtimev0.ResetStatus{
-		State:   runtimev0.ResetStatus_ERROR,
+func (s *RuntimeWrapper) DestroyErrorf(err error, msg string, args ...any) (*runtimev0.DestroyResponse, error) {
+	s.DestroyStatus = &runtimev0.DestroyStatus{
+		State:   runtimev0.DestroyStatus_ERROR,
 		Message: ErrorMessage(err, msg, args...),
 	}
-	return &runtimev0.ResetResponse{
-		Status: s.ResetStatus,
+	return &runtimev0.DestroyResponse{
+		Status: s.DestroyStatus,
 	}, err
 }
 
@@ -176,13 +199,13 @@ func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev0.Inf
 		s.DesiredState = NOOP()
 	}()
 	resp := &runtimev0.InformationResponse{
-		LoadStatus:   s.LoadStatus,
-		InitStatus:   s.InitStatus,
-		StartStatus:  s.StartStatus,
-		StopStatus:   s.StopStatus,
-		ResetStatus:  s.ResetStatus,
-		TestStatus:   s.TestStatus,
-		DesiredState: s.DesiredState,
+		LoadStatus:    s.LoadStatus,
+		InitStatus:    s.InitStatus,
+		StartStatus:   s.StartStatus,
+		StopStatus:    s.StopStatus,
+		DestroyStatus: s.DestroyStatus,
+		TestStatus:    s.TestStatus,
+		DesiredState:  s.DesiredState,
 	}
 	return resp, nil
 }
@@ -221,6 +244,7 @@ func (s *RuntimeWrapper) LogLoadRequest(req *runtimev0.LoadRequest) {
 func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {
 	w := s.Wool.In("runtime::init")
 	w.Debug("input",
+		wool.Field("runtime-context", req.RuntimeContext.Kind),
 		wool.Field("configurations", resources.MakeConfigurationSummary(req.Configuration)),
 		wool.Field("dependencies configurations", resources.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
 		wool.Field("dependency endpoints", resources.MakeManyEndpointSummary(req.DependenciesEndpoints)),
@@ -235,7 +259,7 @@ func (s *RuntimeWrapper) LogStartRequest(req *runtimev0.StartRequest) {
 }
 
 func (s *RuntimeWrapper) IsContainerRuntime() bool {
-	return s.RuntimeContext.Kind == basev0.RuntimeContext_Container
+	return s.RuntimeContext.Kind == resources.RuntimeContextContainer
 
 }
 

@@ -25,7 +25,7 @@ const (
 	Runtime_Init_FullMethodName        = "/services.runtime.v0.Runtime/Init"
 	Runtime_Start_FullMethodName       = "/services.runtime.v0.Runtime/Start"
 	Runtime_Stop_FullMethodName        = "/services.runtime.v0.Runtime/Stop"
-	Runtime_Reset_FullMethodName       = "/services.runtime.v0.Runtime/Reset"
+	Runtime_Destroy_FullMethodName     = "/services.runtime.v0.Runtime/Destroy"
 	Runtime_Test_FullMethodName        = "/services.runtime.v0.Runtime/Test"
 	Runtime_Information_FullMethodName = "/services.runtime.v0.Runtime/Information"
 	Runtime_Communicate_FullMethodName = "/services.runtime.v0.Runtime/Communicate"
@@ -44,8 +44,8 @@ type RuntimeClient interface {
 	Start(ctx context.Context, in *StartRequest, opts ...grpc.CallOption) (*StartResponse, error)
 	// Stop the underlying service
 	Stop(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
-	// Reset the underlying service
-	Reset(ctx context.Context, in *ResetRequest, opts ...grpc.CallOption) (*ResetResponse, error)
+	// Destroy the underlying service
+	Destroy(ctx context.Context, in *DestroyRequest, opts ...grpc.CallOption) (*DestroyResponse, error)
 	// Test the service
 	Test(ctx context.Context, in *TestRequest, opts ...grpc.CallOption) (*TestResponse, error)
 	// Information about the state of the service
@@ -98,9 +98,9 @@ func (c *runtimeClient) Stop(ctx context.Context, in *StopRequest, opts ...grpc.
 	return out, nil
 }
 
-func (c *runtimeClient) Reset(ctx context.Context, in *ResetRequest, opts ...grpc.CallOption) (*ResetResponse, error) {
-	out := new(ResetResponse)
-	err := c.cc.Invoke(ctx, Runtime_Reset_FullMethodName, in, out, opts...)
+func (c *runtimeClient) Destroy(ctx context.Context, in *DestroyRequest, opts ...grpc.CallOption) (*DestroyResponse, error) {
+	out := new(DestroyResponse)
+	err := c.cc.Invoke(ctx, Runtime_Destroy_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -147,8 +147,8 @@ type RuntimeServer interface {
 	Start(context.Context, *StartRequest) (*StartResponse, error)
 	// Stop the underlying service
 	Stop(context.Context, *StopRequest) (*StopResponse, error)
-	// Reset the underlying service
-	Reset(context.Context, *ResetRequest) (*ResetResponse, error)
+	// Destroy the underlying service
+	Destroy(context.Context, *DestroyRequest) (*DestroyResponse, error)
 	// Test the service
 	Test(context.Context, *TestRequest) (*TestResponse, error)
 	// Information about the state of the service
@@ -174,8 +174,8 @@ func (UnimplementedRuntimeServer) Start(context.Context, *StartRequest) (*StartR
 func (UnimplementedRuntimeServer) Stop(context.Context, *StopRequest) (*StopResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Stop not implemented")
 }
-func (UnimplementedRuntimeServer) Reset(context.Context, *ResetRequest) (*ResetResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Reset not implemented")
+func (UnimplementedRuntimeServer) Destroy(context.Context, *DestroyRequest) (*DestroyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Destroy not implemented")
 }
 func (UnimplementedRuntimeServer) Test(context.Context, *TestRequest) (*TestResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Test not implemented")
@@ -271,20 +271,20 @@ func _Runtime_Stop_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Runtime_Reset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ResetRequest)
+func _Runtime_Destroy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DestroyRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RuntimeServer).Reset(ctx, in)
+		return srv.(RuntimeServer).Destroy(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Runtime_Reset_FullMethodName,
+		FullMethod: Runtime_Destroy_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuntimeServer).Reset(ctx, req.(*ResetRequest))
+		return srv.(RuntimeServer).Destroy(ctx, req.(*DestroyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -367,8 +367,8 @@ var Runtime_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Runtime_Stop_Handler,
 		},
 		{
-			MethodName: "Reset",
-			Handler:    _Runtime_Reset_Handler,
+			MethodName: "Destroy",
+			Handler:    _Runtime_Destroy_Handler,
 		},
 		{
 			MethodName: "Test",

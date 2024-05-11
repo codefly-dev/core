@@ -141,6 +141,10 @@ func (w *Wool) Forward(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
+func (w *Wool) Forwardf(msg string, args ...any) {
+	w.process(FORWARD, fmt.Sprintf(msg, args...))
+}
+
 func (w *Wool) Trace(msg string, fields ...*LogField) {
 	w.process(TRACE, msg, fields...)
 }

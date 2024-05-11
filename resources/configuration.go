@@ -11,11 +11,6 @@ import (
 
 const ConfigurationWorkspace = "workspace"
 
-const ConfigurationPrefix = "CODEFLY__WORKSPACE_CONFIGURATION"
-const SecretConfigurationPrefix = "CODEFLY__WORKSPACE_SECRET_CONFIGURATION"
-const ServiceConfigurationPrefix = "CODEFLY__SERVICE_CONFIGURATION"
-const ServiceSecretConfigurationPrefix = "CODEFLY__SERVICE_SECRET_CONFIGURATION"
-
 func HasConfigurationInformation(_ context.Context, conf *basev0.Configuration, name string) bool {
 	for _, info := range conf.Configurations {
 		if info.Name == name {

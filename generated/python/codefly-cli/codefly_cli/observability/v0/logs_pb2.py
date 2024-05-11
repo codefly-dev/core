@@ -11,6 +11,12 @@ from google.protobuf.internal import builder as _builder
 
 _sym_db = _symbol_database.Default()
 
+
+from base.v0 import endpoint_pb2 as base_dot_v0_dot_endpoint__pb2
+from observability.v0 import sessions_pb2 as observability_dot_v0_dot_sessions__pb2
+from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
+
+
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1bobservability/v0/logs.proto\x12\x10observability.v0\x1a\x16\x62\x61se/v0/endpoint.proto\x1a\x1fobservability/v0/sessions.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x91\x01\n\x03Log\x12*\n\x02\x61t\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.TimestampR\x02\x61t\x12\x16\n\x06module\x18\x02 \x01(\tR\x06module\x12\x18\n\x07service\x18\x03 \x01(\tR\x07service\x12\x12\n\x04kind\x18\x04 \x01(\tR\x04kind\x12\x18\n\x07message\x18\x05 \x01(\tR\x07message\"q\n\x0fLogSessionGroup\x12\x33\n\x07session\x18\x01 \x01(\x0b\x32\x19.observability.v0.SessionR\x07session\x12)\n\x04logs\x18\x02 \x03(\x0b\x32\x15.observability.v0.LogR\x04logs\"h\n\nLogRequest\x12.\n\x04\x66rom\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.TimestampR\x04\x66rom\x12*\n\x02to\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.TimestampR\x02to\"H\n\x0bLogResponse\x12\x39\n\x06groups\x18\x01 \x03(\x0b\x32!.observability.v0.LogSessionGroupR\x06groupsB\xbd\x01\n\x14\x63om.observability.v0B\tLogsProtoP\x01Z9github.com/codefly-dev/core/generated/go/observability/v0\xa2\x02\x03OVX\xaa\x02\x10Observability.V0\xca\x02\x10Observability\\V0\xe2\x02\x1cObservability\\V0\\GPBMetadata\xea\x02\x11Observability::V0b\x06proto3')
 
 _globals = globals()

@@ -40,7 +40,7 @@ type Runtime interface {
 
 	Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error)
 
-	Reset(ctx context.Context, req *runtimev0.ResetRequest) (*runtimev0.ResetResponse, error)
+	Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*runtimev0.DestroyResponse, error)
 
 	Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error)
 
@@ -84,9 +84,9 @@ func (m *RuntimeAgent) Stop(ctx context.Context, req *runtimev0.StopRequest) (*r
 	return m.Client.Stop(ctx, req)
 }
 
-// Reset resets the service
-func (m *RuntimeAgent) Reset(ctx context.Context, req *runtimev0.ResetRequest) (*runtimev0.ResetResponse, error) {
-	return m.Client.Reset(ctx, req)
+// Destroy Destroys the service
+func (m *RuntimeAgent) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*runtimev0.DestroyResponse, error) {
+	return m.Client.Destroy(ctx, req)
 }
 
 // Test tests the service
@@ -140,8 +140,8 @@ func (m *RuntimeServer) Stop(ctx context.Context, req *runtimev0.StopRequest) (*
 	return m.Runtime.Stop(ctx, req)
 }
 
-func (m *RuntimeServer) Reset(ctx context.Context, req *runtimev0.ResetRequest) (*runtimev0.ResetResponse, error) {
-	return m.Runtime.Reset(ctx, req)
+func (m *RuntimeServer) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*runtimev0.DestroyResponse, error) {
+	return m.Runtime.Destroy(ctx, req)
 }
 
 func (m *RuntimeServer) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
