@@ -8,7 +8,7 @@ import (
 )
 
 const ProtoPath = "proto/api.proto"
-const OpenAPIPath = "openapi/api.json"
+const OpenAPIPath = "openapi/api.swagger.json"
 
 var (
 	Unknown = "unknown"
