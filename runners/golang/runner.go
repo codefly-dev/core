@@ -150,19 +150,36 @@ func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
 		// Build
 		r.docker.WithMount(r.LocalCacheDir(ctx), "/build")
 		if r.goModCache != "" {
+			_, err := shared.CheckDirectoryOrCreate(ctx, r.goModCache)
+			if err != nil {
+				wool.Get(ctx).Warn("cannot create go mod cache", wool.ErrField(err))
+			}
 			r.docker.WithMount(r.goModCache, "/go/pkg/mod")
 			return
 		}
 		// Setup up the proper environment
 		if v, ok := os.LookupEnv("GOMODCACHE"); ok {
 			// Mount
+			_, err := shared.CheckDirectoryOrCreate(ctx, v)
+			if err != nil {
+				wool.Get(ctx).Warn("cannot create go mod cache", wool.ErrField(err))
+			}
 			r.docker.WithMount(v, "/go/pkg/mod")
 		} else if v, ok := os.LookupEnv("GOPATH"); ok {
 			// Mount
-			r.docker.WithMount(path.Join(v, "pkg/mod"), "/go/pkg/mod")
+			dir := path.Join(v, "pkg/mod")
+			_, err := shared.CheckDirectoryOrCreate(ctx, dir)
+			if err != nil {
+				wool.Get(ctx).Warn("cannot create go mod cache", wool.ErrField(err))
+			}
+			r.docker.WithMount(dir, "/go/pkg/mod")
 		} else {
 			// Use codefly configuration path
 			goModCache := path.Join(resources.CodeflyDir(), "go/pkg/mod")
+			_, err := shared.CheckDirectoryOrCreate(ctx, goModCache)
+			if err != nil {
+				wool.Get(ctx).Warn("cannot create go mod cache", wool.ErrField(err))
+			}
 			r.docker.WithMount(goModCache, "/go/pkg/mod")
 		}
 	}
