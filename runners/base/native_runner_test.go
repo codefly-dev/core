@@ -23,6 +23,10 @@ func TestLocalEnvironment(t *testing.T) {
 	err = env.Init(ctx)
 	require.NoError(t, err)
 
+	// Check that the ls binary is there
+	err = env.WithBinary("ls")
+	require.NoError(t, err)
+
 	// Now, run something in it
 	proc, err := env.NewProcess("ls")
 	require.NoError(t, err)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -17,12 +18,14 @@ import (
 type NativeEnvironment struct {
 	dir string
 
-	envs []string
+	envs []*resources.EnvironmentVariable
 
 	out io.Writer
 
 	ctx context.Context
 }
+
+var _ RunnerEnvironment = &NativeEnvironment{}
 
 // NewNativeEnvironment creates a new docker runner
 func NewNativeEnvironment(ctx context.Context, dir string) (*NativeEnvironment, error) {
@@ -39,28 +42,52 @@ func (native *NativeEnvironment) Init(ctx context.Context) error {
 }
 
 func (native *NativeEnvironment) WithEnvironmentVariables(envs ...resources.EnvironmentVariable) {
-	native.envs = append(native.envs, resources.EnvironmentVariableAsStrings(envs)...)
+	for _, env := range envs {
+		native.envs = append(native.envs, &env)
+	}
 }
 
-func (native *NativeEnvironment) Shutdown(context.Context) error {
-
+func (native *NativeEnvironment) WithBinary(bin string) error {
+	p, err := exec.LookPath(bin)
+	if err != nil {
+		return err
+	}
+	// Get the PATH environment variable
+	for _, env := range native.envs {
+		if env.Key == "PATH" {
+			env.Value = fmt.Sprintf("%s:%s", env.Value, filepath.Dir(p))
+			return nil
+		}
+	}
+	native.envs = append(native.envs, &resources.EnvironmentVariable{Key: "PATH", Value: filepath.Dir(p)})
 	return nil
 }
 
+func (native *NativeEnvironment) Shutdown(context.Context) error {
+	return nil
+}
+
+/*
+Proc
+*/
+
 type NativeProc struct {
-	env     *NativeEnvironment
-	output  io.Writer
-	cmd     []string
-	exec    *exec.Cmd
+	env    *NativeEnvironment
+	output io.Writer
+	cmd    []string
+	exec   *exec.Cmd
+	envs   []*resources.EnvironmentVariable
+
 	stopped chan interface{}
-	envs    []string
 }
 
 func (proc *NativeProc) WithRunningCmd(_ string) {
 }
 
 func (proc *NativeProc) WithEnvironmentVariables(envs ...resources.EnvironmentVariable) {
-	proc.envs = append(proc.envs, resources.EnvironmentVariableAsStrings(envs)...)
+	for _, env := range envs {
+		proc.envs = append(proc.envs, &env)
+	}
 }
 
 func (native *NativeEnvironment) NewProcess(bin string, args ...string) (Proc, error) {
@@ -121,8 +148,9 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	// #nosec G204
 	cmd := exec.CommandContext(ctx, proc.cmd[0], proc.cmd[1:]...)
 	cmd.Dir = proc.env.dir
-	cmd.Env = proc.env.envs
-	cmd.Env = append(cmd.Env, proc.envs...)
+	cmd.Env = resources.EnvironmentVariableAsStrings(proc.env.envs)
+	w.Focus("envs", wool.Field("envs", cmd.Env))
+	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
 
 	// start and get the logs
 	stdout, err := cmd.StdoutPipe()

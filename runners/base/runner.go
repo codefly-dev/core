@@ -27,6 +27,9 @@ type RunnerEnvironment interface {
 	// Shutdown the environment: stop and remove all resources
 	Shutdown(ctx context.Context) error
 
+	// WithBinary ensures a binary is visible in the environment
+	WithBinary(bin string) error
+
 	// WithEnvironmentVariables sets the environment variables
 	WithEnvironmentVariables(envs ...resources.EnvironmentVariable)
 }

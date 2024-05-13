@@ -1,13 +1,12 @@
-import sys
-import os
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'codefly_cli')))
+import os, sys
+file_dir = os.path.dirname(os.path.abspath(__file__))
+# Add the directory to sys.path
+sys.path.append(file_dir)
 
 import subprocess
 import time
 import grpc
 from typing import Optional, List
-from google.protobuf.empty_pb2 import Empty
 
 from codefly_sdk.codefly import init
 
@@ -17,18 +16,21 @@ import cli.v0.cli_pb2_grpc as cli_grpc
 import cli.v0.cli_pb2 as cli
 import base.v0.configuration_pb2 as configuration
 
+from google.protobuf.empty_pb2 import Empty
+
 
 def filter_configurations(configurations: List[configuration.Configuration], runtime_context: str) -> List[configuration.Configuration]:
     return [conf for conf in configurations if conf.runtime_context.kind == runtime_context]
 
 class Launcher:
-    def __init__(self, root: str = "..", scope: str = "", show_cli_output: bool = False):
+    def __init__(self, root: str = "..", scope: str = "", show_cli_output: bool = False, keep_alive: bool = False):
         self.cmd = None
         self.cli = None
         self.show_cli_output = show_cli_output
         self.dir = find_service_dir(os.path.abspath(root))
         print(f"running in {self.dir}")
         self.scope = scope
+        self.keep_alive = keep_alive
         self.module = "python-visitors" #codefly.get_module()
         self.service = "visits" #codefly.get_service()
         self.unique = "python-visitors/visits" #codefly.get_unique()
@@ -40,6 +42,8 @@ class Launcher:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.keep_alive:
+            return
         self.destroy()
 
     def start(self):

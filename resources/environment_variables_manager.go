@@ -34,7 +34,7 @@ func (v EnvironmentVariable) ValueAsEncodedString() string {
 	return base64.StdEncoding.EncodeToString([]byte(v.ValueAsString()))
 }
 
-func EnvironmentVariableAsStrings(envs []EnvironmentVariable) []string {
+func EnvironmentVariableAsStrings(envs []*EnvironmentVariable) []string {
 	var result []string
 	for _, env := range envs {
 		result = append(result, env.String())

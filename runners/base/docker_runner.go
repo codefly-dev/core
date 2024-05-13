@@ -44,7 +44,7 @@ type DockerEnvironment struct {
 
 	mounts []mount.Mount
 
-	envs []string
+	envs []*resources.EnvironmentVariable
 
 	portMappings []*DockerPortMapping
 
@@ -57,8 +57,13 @@ type DockerEnvironment struct {
 	running   bool
 }
 
+var _ RunnerEnvironment = &DockerEnvironment{}
+
 func (docker *DockerEnvironment) WithEnvironmentVariables(envs ...resources.EnvironmentVariable) {
-	docker.envs = append(docker.envs, resources.EnvironmentVariableAsStrings(envs)...)
+	for _, env := range envs {
+
+		docker.envs = append(docker.envs, &env)
+	}
 }
 
 // NewDockerEnvironment creates a new docker runner
@@ -229,7 +234,7 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 
 	containerConfig := &container.Config{
 		Image:        docker.image.FullName(),
-		Env:          docker.envs,
+		Env:          resources.EnvironmentVariableAsStrings(docker.envs),
 		Tty:          true,
 		WorkingDir:   docker.workingDir,
 		ExposedPorts: docker.exposedPortSet(),
@@ -336,6 +341,16 @@ func (docker *DockerEnvironment) Stop(ctx context.Context) error {
 	return nil
 }
 
+func (docker *DockerEnvironment) WithBinary(bin string) error {
+	proc, err := docker.NewProcess("which", bin)
+	if err != nil {
+		return err
+	}
+	err = proc.Run(context.Background())
+	return err
+
+}
+
 func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.Shutdown")
 	exists, err := docker.IsContainerPresent(ctx)
@@ -370,17 +385,20 @@ func (docker *DockerEnvironment) remove() error {
 /*
 DockerProc is a process running inside a Docker container
 */
+
 type DockerProc struct {
 	env    *DockerEnvironment
 	output io.Writer
 
-	envs []string
+	envs []*resources.EnvironmentVariable
 
 	cmd []string
 }
 
 func (proc *DockerProc) WithEnvironmentVariables(envs ...resources.EnvironmentVariable) {
-	proc.envs = append(proc.envs, resources.EnvironmentVariableAsStrings(envs)...)
+	for _, env := range envs {
+		proc.envs = append(proc.envs, &env)
+	}
 }
 
 func (docker *DockerEnvironment) NewProcess(bin string, args ...string) (Proc, error) {
@@ -513,7 +531,7 @@ func (proc *DockerProc) start(ctx context.Context) error {
 	execConfig := types.ExecConfig{
 		AttachStdout: true,
 		AttachStderr: true,
-		Env:          proc.envs,
+		Env:          resources.EnvironmentVariableAsStrings(proc.envs),
 		Cmd:          proc.cmd,
 	}
 	w.Debug("creating exec", wool.Field("cmd", proc.cmd))
