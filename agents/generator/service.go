@@ -37,12 +37,6 @@ func (v *visitor) Keep(file string) bool {
 	if strings.Contains(file, ".idea") {
 		return false
 	}
-	if strings.HasSuffix(file, ".sum") {
-		return false
-	}
-	if strings.HasSuffix(file, ".lock") {
-		return false
-	}
 	if file == "service.codefly.yaml" {
 		return false
 	}

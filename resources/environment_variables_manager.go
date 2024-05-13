@@ -160,6 +160,10 @@ func (holder *EnvironmentVariableManager) getBase() []EnvironmentVariable {
 	return envs
 }
 
+func (holder *EnvironmentVariableManager) Endpoints() []*EndpointAccess {
+	return holder.endpoints
+}
+
 func (holder *EnvironmentVariableManager) All() []EnvironmentVariable {
 	envs := holder.getBase()
 	for _, conf := range holder.configurations {
@@ -199,6 +203,22 @@ type EndpointAccess struct {
 	*basev0.NetworkInstance
 }
 
+func MakeManyEndpointAccessSummary(endointAccess []*EndpointAccess) string {
+	var result []string
+	for _, ea := range endointAccess {
+		result = append(result, MakeEndpointAccessSummary(ea))
+	}
+	return strings.Join(result, ", ")
+}
+
+func MakeEndpointAccessSummary(endointAccess *EndpointAccess) string {
+	return fmt.Sprintf("%s::%s", MakeEndpointSummary(endointAccess.Endpoint), MakeNetworkInstanceSummary(endointAccess.NetworkInstance))
+}
+
+func MakeNetworkInstanceSummary(instance *basev0.NetworkInstance) string {
+	return fmt.Sprintf("%s::%s", instance.Address, instance.Access.Kind)
+}
+
 func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess) error {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddEndpoints")
 	for _, mp := range mappings {
@@ -211,7 +231,7 @@ func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mapp
 			}
 		}
 	}
-	w.Debug("added public endpoints", wool.SliceCountField(holder.endpoints))
+	w.Debug("added endpoints", wool.SliceCountField(holder.endpoints))
 	return nil
 }
 

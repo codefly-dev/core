@@ -704,7 +704,7 @@ func RegisterCLIHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetWorkspacePublicModulesDependencyGraph", runtime.WithHTTPPathPattern("/workspace/public-modules-graph"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/observability.v0.CLI/GetWorkspacePublicModulesDependencyGraph", runtime.WithHTTPPathPattern("/workspace/public-endpoints-graph"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1088,7 +1088,7 @@ func RegisterCLIHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetWorkspacePublicModulesDependencyGraph", runtime.WithHTTPPathPattern("/workspace/public-modules-graph"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/observability.v0.CLI/GetWorkspacePublicModulesDependencyGraph", runtime.WithHTTPPathPattern("/workspace/public-endpoints-graph"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1336,7 +1336,7 @@ var (
 
 	pattern_CLI_GetWorkspaceServiceDependencyGraph_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"workspace", "service-dependency-graph"}, ""))
 
-	pattern_CLI_GetWorkspacePublicModulesDependencyGraph_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"workspace", "public-modules-graph"}, ""))
+	pattern_CLI_GetWorkspacePublicModulesDependencyGraph_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"workspace", "public-endpoints-graph"}, ""))
 
 	pattern_CLI_GetActive_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"workspace", "information"}, ""))
 
