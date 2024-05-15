@@ -164,3 +164,25 @@ loopReallyLastTime:
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)
 }
+
+func TestCrashing(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
+	require.NoError(t, err)
+
+	err = env.Init(ctx)
+	require.NoError(t, err)
+
+	proc, err := env.NewProcess("sh", "not_there.sh")
+	require.NoError(t, err)
+
+	err = proc.Run(ctx)
+	require.Error(t, err)
+
+	proc, err = env.NewProcess("sh", "crashing/crash.sh")
+	require.NoError(t, err)
+
+	err = proc.Run(ctx)
+	require.Error(t, err)
+}

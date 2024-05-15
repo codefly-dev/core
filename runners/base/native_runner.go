@@ -3,6 +3,7 @@ package base
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -120,7 +121,11 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 	select {
 	case err := <-done:
 		if err != nil {
-			if strings.Contains(err.Error(), "signal: terminated") {
+			var exitError *exec.ExitError
+			if errors.As(err, &exitError) {
+				// The program has exited with an exit code != 0
+				return exitError
+			} else if strings.Contains(err.Error(), "signal: terminated") {
 				return nil
 			}
 			return w.Wrapf(err, "cannot wait for process")
@@ -128,7 +133,6 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 	case <-proc.stopped:
 		w.Debug("process was killed")
 	}
-
 	w.Debug("done")
 	return nil
 }
