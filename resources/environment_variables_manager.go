@@ -263,8 +263,9 @@ type RestRouteAccess struct {
 	route    *basev0.RestRoute
 }
 
-func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess) error {
-	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddRestRoutes")
+func ExtractRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess) ([]*RestRouteAccess, error) {
+	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.ExtractRestRoutes")
+	var result []*RestRouteAccess
 	for _, mp := range mappings {
 		rest := IsRest(ctx, mp.Endpoint)
 		if rest == nil {
@@ -278,7 +279,7 @@ func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, map
 							wool.NameField(route.Path),
 							wool.ModuleField(mp.Endpoint.Module),
 							wool.ServiceField(mp.Endpoint.Service))
-						holder.restRoutes = append(holder.restRoutes, &RestRouteAccess{
+						result = append(result, &RestRouteAccess{
 							route:    route,
 							endpoint: mp.Endpoint,
 						})
@@ -287,8 +288,18 @@ func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, map
 			}
 		}
 	}
-	return nil
+	w.Debug("got rest routes", wool.SliceCountField(result))
+	return result, nil
+}
 
+func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess) error {
+	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddRestRoutes")
+	routes, err := ExtractRestRoutes(ctx, mappings, networkAccess)
+	if err != nil {
+		return w.Wrapf(err, "failed to extract rest routes")
+	}
+	holder.restRoutes = append(holder.restRoutes, routes...)
+	return nil
 }
 
 func (holder *EnvironmentVariableManager) SetRunning(b bool) {

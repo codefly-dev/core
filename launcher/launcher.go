@@ -7,6 +7,11 @@ import (
 	"os/exec"
 	"time"
 
+	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+
+	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/wool"
+
 	"google.golang.org/grpc/credentials/insecure"
 
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -17,12 +22,24 @@ import (
 )
 
 type Launcher struct {
-	cmd *exec.Cmd
-	cli v0.CLIClient
+	cmd            *exec.Cmd
+	cli            v0.CLIClient
+	runtimeContext *basev0.RuntimeContext
 }
 
-func LaunchUpTo(ctx context.Context) (*Launcher, error) {
-	cmd := exec.CommandContext(ctx, "codefly", "run", "service", "--exclude-root", "--server")
+type Option struct {
+	Debug bool
+}
+
+func New(ctx context.Context, opt *Option) (*Launcher, error) {
+	args := []string{"run", "service"}
+	if opt != nil {
+		if opt.Debug {
+			args = append(args, "-d")
+		}
+	}
+	args = append(args, "--exclude-root", "--cli-server")
+	cmd := exec.CommandContext(ctx, "codefly", args...)
 	cmd.Stdout = os.Stdout // log stdout
 	cmd.Stderr = os.Stderr // log stderr
 	err := cmd.Start()
@@ -49,7 +66,16 @@ func LaunchUpTo(ctx context.Context) (*Launcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Launcher{cmd: cmd, cli: cli}, nil
+	l := &Launcher{cmd: cmd, cli: cli, runtimeContext: resources.NewRuntimeContextNative()}
+	err = l.WaitForReady(ctx)
+	if err != nil {
+		return nil, err
+	}
+	err = l.SetEnvironment(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return l, nil
 }
 
 func (l *Launcher) WaitForReady(ctx context.Context) error {
@@ -60,7 +86,7 @@ func (l *Launcher) WaitForReady(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err == nil && status.Ready {
+		if status.Ready {
 			break
 		}
 		wait -= 500 * time.Millisecond
@@ -72,8 +98,72 @@ func (l *Launcher) WaitForReady(ctx context.Context) error {
 	return nil
 }
 
-//
-//func (l *Launcher) Close(ctx context.Context) error {
-//	_, err := l.cli.StopFlow(ctx, &emptypb.Empty{})
-//	return err
-//}
+var runningService *resources.Service
+
+func LoadService(ctx context.Context) error {
+	w := wool.Get(ctx).In("codefly.LoadService")
+	dir, errFind := resources.FindUp[resources.Service](ctx)
+	if errFind != nil {
+		return errFind
+	}
+	if dir != nil {
+		svc, err := resources.LoadServiceFromDir(ctx, *dir)
+		if err != nil {
+			return err
+		}
+		w.Debug("loaded service", wool.Field("service", svc.Unique()))
+		runningService = svc
+		return nil
+	}
+	return w.NewError("no service found")
+}
+
+func Service() (*resources.Service, error) {
+	if runningService == nil {
+		err := LoadService(context.Background())
+		if err != nil {
+			return nil, err
+		}
+	}
+	return runningService, nil
+}
+
+func (l *Launcher) SetEnvironment(ctx context.Context) error {
+	w := wool.Get(ctx).In("codefly.SetEnvironment")
+	svc, err := Service()
+	if err != nil {
+		return err
+	}
+	request := &v0.GetConfigurationRequest{
+		Module:  svc.Module,
+		Service: svc.Name,
+	}
+	resp, err := l.cli.GetDependenciesConfigurations(ctx, request)
+	if err != nil {
+		return w.Wrapf(err, "failed to get dependencies configurations")
+	}
+	dependenciesConfigurations := resources.FilterConfigurations(resp.Configurations, l.runtimeContext)
+	for _, conf := range dependenciesConfigurations {
+		envs := resources.ConfigurationAsEnvironmentVariables(conf, false)
+		secrets := resources.ConfigurationAsEnvironmentVariables(conf, true)
+		envs = append(envs, secrets...)
+		for _, env := range envs {
+			k := env.Key
+			v := fmt.Sprintf("%s", env.Value)
+			w.Focus("setting environment variable", wool.Field("key", k), wool.Field("value", v))
+			err = os.Setenv(k, v)
+		}
+	}
+	return nil
+}
+
+func (l *Launcher) Close(ctx context.Context) error {
+	_, err := l.cli.StopFlow(ctx, &v0.StopFlowRequest{})
+	err = l.cmd.Process.Kill()
+	return err
+}
+
+func (l *Launcher) Destroy(ctx context.Context) error {
+	_, err := l.cli.DestroyFlow(ctx, &v0.DestroyFlowRequest{})
+	return err
+}

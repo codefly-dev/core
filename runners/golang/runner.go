@@ -222,6 +222,7 @@ func (r *GoRunnerEnvironment) Init(ctx context.Context) error {
 func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	w := wool.Get(ctx).In("goModuleHandling")
 	req := builders.NewDependencies("gomod", builders.NewDependency("go.mod", "go.sum").Localize(r.dir))
+	req.WithCache(r.LocalCacheDir(ctx))
 	updated, err := req.Updated(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot check go mod")
