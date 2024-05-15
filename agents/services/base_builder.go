@@ -224,7 +224,7 @@ type DeploymentParameters struct {
 	Parameters any
 }
 
-func EnvsAsConfigMapData(envs ...resources.EnvironmentVariable) (EnvironmentMap, error) {
+func EnvsAsConfigMapData(envs ...*resources.EnvironmentVariable) (EnvironmentMap, error) {
 	m := make(EnvironmentMap)
 	for _, env := range envs {
 		m[env.Key] = env.ValueAsString()
@@ -232,7 +232,7 @@ func EnvsAsConfigMapData(envs ...resources.EnvironmentVariable) (EnvironmentMap,
 	return m, nil
 }
 
-func EnvsAsSecretData(envs ...resources.EnvironmentVariable) (EnvironmentMap, error) {
+func EnvsAsSecretData(envs ...*resources.EnvironmentVariable) (EnvironmentMap, error) {
 	m := make(EnvironmentMap)
 	for _, env := range envs {
 		m[env.Key] = env.ValueAsEncodedString()
