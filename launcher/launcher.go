@@ -152,18 +152,33 @@ func (l *Launcher) SetEnvironment(ctx context.Context) error {
 			v := fmt.Sprintf("%s", env.Value)
 			w.Focus("setting environment variable", wool.Field("key", k), wool.Field("value", v))
 			err = os.Setenv(k, v)
+			if err != nil {
+				return w.Wrapf(err, "failed to set environment variable")
+			}
 		}
 	}
 	return nil
 }
 
-func (l *Launcher) Close(ctx context.Context) error {
+func (l *Launcher) Stop(ctx context.Context) error {
+	w := wool.Get(ctx).In("codefly.Stop")
 	_, err := l.cli.StopFlow(ctx, &v0.StopFlowRequest{})
+	if err != nil {
+		w.Warn("failed to stop flow", wool.Field("error", err))
+	}
 	err = l.cmd.Process.Kill()
+	if err != nil {
+		return w.Wrapf(err, "failed to kill process")
+	}
 	return err
 }
 
 func (l *Launcher) Destroy(ctx context.Context) error {
-	_, err := l.cli.DestroyFlow(ctx, &v0.DestroyFlowRequest{})
+	w := wool.Get(ctx).In("codefly.Destroy")
+	err := l.Stop(ctx)
+	if err != nil {
+		return w.Wrapf(err, "failed to close")
+	}
+	_, err = l.cli.DestroyFlow(ctx, &v0.DestroyFlowRequest{})
 	return err
 }

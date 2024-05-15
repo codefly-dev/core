@@ -65,28 +65,27 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, env *resour
 		if endpoint.Visibility == resources.VisibilityPublic {
 			var dns *basev0.DNS
 			var err error
-			if false { //env.LoadBalancer != "" {
-				//host := fmt.Sprintf("kopkfeqwuk-%s-%s-%s-%s.%s", env.Name, service.Name, service.Module, service., env.LoadBalancer)
-				//dns = &basev0.DNS{
-				//	Host:    host,
-				//	Port:    443,
-				//	Secured: true,
-				//}
-				//nm.Instances = []*basev0.NetworkInstance{
-				//	PublicInstance(LoadBalanced(ctx, env, service, endpoint)),
-				//}
-			} else {
-				// Case without Load Balancer
-				dns, err = m.dnsManager.GetDNS(ctx, service, endpoint.Name)
-				if err != nil {
-					return nil, err
-				}
-				if dns == nil {
-					return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)
-				}
-				nm.Instances = []*basev0.NetworkInstance{
-					PublicInstance(DNS(service, endpoint, dns)),
-				}
+			//if false { //env.LoadBalancer != "" {
+			//	host := fmt.Sprintf("kopkfeqwuk-%s-%s-%s-%s.%s", env.Name, service.Name, service.Module, service., env.LoadBalancer)
+			//	dns = &basev0.DNS{
+			//		Host:    host,
+			//		Port:    443,
+			//		Secured: true,
+			//	}
+			//	nm.Instances = []*basev0.NetworkInstance{
+			//		PublicInstance(LoadBalanced(ctx, env, service, endpoint)),
+			//	}
+			//} else {
+			// Case without Load Balancer
+			dns, err = m.dnsManager.GetDNS(ctx, service, endpoint.Name)
+			if err != nil {
+				return nil, err
+			}
+			if dns == nil {
+				return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)
+			}
+			nm.Instances = []*basev0.NetworkInstance{
+				PublicInstance(DNS(service, endpoint, dns)),
 			}
 			w.Debug("will expose public endpoint to load balancer", wool.Field("dns", dns))
 		}

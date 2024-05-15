@@ -56,11 +56,7 @@ func TestConfigurationsAsEnvironmentVariables(t *testing.T) {
 	envs := resources.ConfigurationAsEnvironmentVariables(Conf, false)
 	require.Len(t, envs, 1)
 	needs := fmt.Sprintf("CODEFLY__WORKSPACE_CONFIGURATION__SOMETHING__GLOBAL=%s", "true")
-	var in []*resources.EnvironmentVariable
-	for _, env := range envs {
-		in = append(in, &env)
-	}
-	require.Contains(t, resources.EnvironmentVariableAsStrings(in), needs)
+	require.Contains(t, resources.EnvironmentVariableAsStrings(envs), needs)
 }
 
 func TestServiceConfigurationsAsEnvironmentVariables(t *testing.T) {
@@ -71,9 +67,5 @@ func TestServiceConfigurationsAsEnvironmentVariables(t *testing.T) {
 		fmt.Sprintf("CODEFLY__SERVICE_CONFIGURATION__APP__SVC__CONNECTION__URL=%s", "http://localhost:8080"),
 		fmt.Sprintf("CODEFLY__SERVICE_SECRET_CONFIGURATION__APP__SVC__CONNECTION__PASSWORD=%s", "admin"),
 	}
-	var in []*resources.EnvironmentVariable
-	for _, env := range envs {
-		in = append(in, &env)
-	}
-	require.ElementsMatch(t, resources.EnvironmentVariableAsStrings(in), needs)
+	require.ElementsMatch(t, resources.EnvironmentVariableAsStrings(envs), needs)
 }

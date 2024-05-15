@@ -354,7 +354,7 @@ func (r *GoRunnerEnvironment) WithRaceConditionDetection(b bool) {
 
 }
 
-func (r *GoRunnerEnvironment) WithEnvironmentVariables(envs ...resources.EnvironmentVariable) {
+func (r *GoRunnerEnvironment) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
 	r.Env().WithEnvironmentVariables(envs...)
 }
 

@@ -31,7 +31,7 @@ type RunnerEnvironment interface {
 	WithBinary(bin string) error
 
 	// WithEnvironmentVariables sets the environment variables
-	WithEnvironmentVariables(envs ...resources.EnvironmentVariable)
+	WithEnvironmentVariables(envs ...*resources.EnvironmentVariable)
 }
 
 // Proc is a generic process interface
@@ -47,5 +47,5 @@ type Proc interface {
 	WithOutput(w io.Writer)
 
 	// WithEnvironmentVariables adds environment variables
-	WithEnvironmentVariables(envs ...resources.EnvironmentVariable)
+	WithEnvironmentVariables(envs ...*resources.EnvironmentVariable)
 }

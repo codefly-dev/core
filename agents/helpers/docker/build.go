@@ -173,7 +173,7 @@ func (builder *Builder) createTarArchive() (*bytes.Buffer, error) {
 		return nil, err
 	}
 
-	// Make sure to check the error on Close.
+	// Make sure to check the error on Stop.
 	if err := tw.Close(); err != nil {
 		return nil, err
 	}

@@ -73,8 +73,8 @@ func (holder *EnvironmentVariableManager) SetEnvironment(environment *basev0.Env
 
 const RunningPrefix = "CODEFLY__RUNNING"
 
-func Env(key string, value any) EnvironmentVariable {
-	return EnvironmentVariable{
+func Env(key string, value any) *EnvironmentVariable {
+	return &EnvironmentVariable{
 		Key:   key,
 		Value: value,
 	}
@@ -89,31 +89,31 @@ func (holder *EnvironmentVariableManager) SetIdentity(identity *basev0.ServiceId
 
 const WorkspacePrefix = "CODEFLY__WORKSPACE"
 
-func WorkspaceAsEnvironmentVariable(workspace string) EnvironmentVariable {
+func WorkspaceAsEnvironmentVariable(workspace string) *EnvironmentVariable {
 	return Env(WorkspacePrefix, workspace)
 }
 
 const ModulePrefix = "CODEFLY__MODULE"
 
-func ModuleAsEnvironmentVariable(module string) EnvironmentVariable {
+func ModuleAsEnvironmentVariable(module string) *EnvironmentVariable {
 	return Env(ModulePrefix, module)
 }
 
 const ServicePrefix = "CODEFLY__SERVICE"
 
-func ServiceAsEnvironmentVariable(service string) EnvironmentVariable {
+func ServiceAsEnvironmentVariable(service string) *EnvironmentVariable {
 	return Env(ServicePrefix, service)
 }
 
 const VersionPrefix = "CODEFLY__SERVICE_VERSION"
 
-func VersionAsEnvironmentVariable(version string) EnvironmentVariable {
+func VersionAsEnvironmentVariable(version string) *EnvironmentVariable {
 	return Env(VersionPrefix, version)
 }
 
 const RuntimeContextPrefix = "CODEFLY__RUNTIME_CONTEXT"
 
-func RuntimeContextAsEnvironmentVariable(runtimeContext *basev0.RuntimeContext) EnvironmentVariable {
+func RuntimeContextAsEnvironmentVariable(runtimeContext *basev0.RuntimeContext) *EnvironmentVariable {
 	return Env(RuntimeContextPrefix, runtimeContext.Kind)
 }
 
@@ -121,8 +121,8 @@ func (holder *EnvironmentVariableManager) SetRuntimeContext(runtimeContext *base
 	holder.runtimeContext = runtimeContext
 }
 
-func (holder *EnvironmentVariableManager) getBase() []EnvironmentVariable {
-	var envs []EnvironmentVariable
+func (holder *EnvironmentVariableManager) getBase() []*EnvironmentVariable {
+	var envs []*EnvironmentVariable
 	if holder.running {
 		envs = append(envs, Env(RunningPrefix, true))
 
@@ -164,7 +164,7 @@ func (holder *EnvironmentVariableManager) Endpoints() []*EndpointAccess {
 	return holder.endpoints
 }
 
-func (holder *EnvironmentVariableManager) All() []EnvironmentVariable {
+func (holder *EnvironmentVariableManager) All() []*EnvironmentVariable {
 	envs := holder.getBase()
 	for _, conf := range holder.configurations {
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
@@ -173,7 +173,7 @@ func (holder *EnvironmentVariableManager) All() []EnvironmentVariable {
 	return envs
 }
 
-func (holder *EnvironmentVariableManager) Configurations() []EnvironmentVariable {
+func (holder *EnvironmentVariableManager) Configurations() []*EnvironmentVariable {
 	envs := holder.getBase()
 	for _, conf := range holder.configurations {
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
@@ -181,8 +181,8 @@ func (holder *EnvironmentVariableManager) Configurations() []EnvironmentVariable
 	return envs
 }
 
-func (holder *EnvironmentVariableManager) Secrets() []EnvironmentVariable {
-	var envs []EnvironmentVariable
+func (holder *EnvironmentVariableManager) Secrets() []*EnvironmentVariable {
+	var envs []*EnvironmentVariable
 	for _, conf := range holder.configurations {
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, true)...)
 	}
@@ -203,9 +203,9 @@ type EndpointAccess struct {
 	*basev0.NetworkInstance
 }
 
-func MakeManyEndpointAccessSummary(endointAccess []*EndpointAccess) string {
+func MakeManyEndpointAccessSummary(endpointAccesses []*EndpointAccess) string {
 	var result []string
-	for _, ea := range endointAccess {
+	for _, ea := range endpointAccesses {
 		result = append(result, MakeEndpointAccessSummary(ea))
 	}
 	return strings.Join(result, ", ")
@@ -309,7 +309,7 @@ func (holder *EnvironmentVariableManager) SetRunning(b bool) {
 
 const EnvironmentPrefix = "CODEFLY__ENVIRONMENT"
 
-func EnvironmentAsEnvironmentVariable(env *basev0.Environment) EnvironmentVariable {
+func EnvironmentAsEnvironmentVariable(env *basev0.Environment) *EnvironmentVariable {
 	return Env(EnvironmentPrefix, env.Name)
 }
 
@@ -327,7 +327,7 @@ func EndpointAsEnvironmentVariableKey(info *EndpointInformation) string {
 	return strings.ToUpper(fmt.Sprintf("%s__%s", EndpointPrefix, EndpointAsEnvironmentVariableKeyBase(info)))
 }
 
-func EndpointAsEnvironmentVariable(endpoint *basev0.Endpoint, instance *basev0.NetworkInstance) EnvironmentVariable {
+func EndpointAsEnvironmentVariable(endpoint *basev0.Endpoint, instance *basev0.NetworkInstance) *EnvironmentVariable {
 	value := instance.Address
 	key := EndpointAsEnvironmentVariableKey(EndpointInformationFromProto(endpoint))
 	return Env(key, value)
@@ -335,8 +335,8 @@ func EndpointAsEnvironmentVariable(endpoint *basev0.Endpoint, instance *basev0.N
 
 // ConfigurationAsEnvironmentVariables converts a configuration to a list of environment variables
 // the secret flag decides if we return secret or regular values
-func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool) []EnvironmentVariable {
-	var env []EnvironmentVariable
+func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool) []*EnvironmentVariable {
+	var env []*EnvironmentVariable
 	confKey := ConfigurationEnvironmentKeyPrefix(conf)
 	for _, info := range conf.Configurations {
 		infoKey := fmt.Sprintf("%s__%s", confKey, NameToKey(info.Name))
@@ -404,7 +404,7 @@ func UniqueToKey(origin string) string {
 
 const RestRoutePrefix = "CODEFLY__REST_ROUTE"
 
-func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.RestRoute) EnvironmentVariable {
+func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.RestRoute) *EnvironmentVariable {
 	return Env(RestRouteEnvironmentVariableKey(EndpointInformationFromProto(endpoint), route), endpoint.Visibility)
 }
 

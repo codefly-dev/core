@@ -306,10 +306,6 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.
 	return nil
 }
 
-func (s *BuilderWrapper) NetworkInstance(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkInstance, error) {
-	return nil, nil // resources.FindNetworkInstanceInNetworkMappings(ctx, mappings, endpoint, basev0.NetworkScope_Container)
-}
-
 func (s *BuilderWrapper) LogInitRequest(req *builderv0.InitRequest) {
 	w := s.Wool.In("builder::init")
 	w.Debug("input",

@@ -59,11 +59,8 @@ type DockerEnvironment struct {
 
 var _ RunnerEnvironment = &DockerEnvironment{}
 
-func (docker *DockerEnvironment) WithEnvironmentVariables(envs ...resources.EnvironmentVariable) {
-	for _, env := range envs {
-
-		docker.envs = append(docker.envs, &env)
-	}
+func (docker *DockerEnvironment) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
+	docker.envs = append(docker.envs, envs...)
 }
 
 // NewDockerEnvironment creates a new docker runner
@@ -395,10 +392,8 @@ type DockerProc struct {
 	cmd []string
 }
 
-func (proc *DockerProc) WithEnvironmentVariables(envs ...resources.EnvironmentVariable) {
-	for _, env := range envs {
-		proc.envs = append(proc.envs, &env)
-	}
+func (proc *DockerProc) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
+	proc.envs = append(proc.envs, envs...)
 }
 
 func (docker *DockerEnvironment) NewProcess(bin string, args ...string) (Proc, error) {

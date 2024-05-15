@@ -41,10 +41,8 @@ func (native *NativeEnvironment) Init(ctx context.Context) error {
 	return nil
 }
 
-func (native *NativeEnvironment) WithEnvironmentVariables(envs ...resources.EnvironmentVariable) {
-	for _, env := range envs {
-		native.envs = append(native.envs, &env)
-	}
+func (native *NativeEnvironment) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
+	native.envs = append(native.envs, envs...)
 }
 
 func (native *NativeEnvironment) WithBinary(bin string) error {
@@ -84,10 +82,8 @@ type NativeProc struct {
 func (proc *NativeProc) WithRunningCmd(_ string) {
 }
 
-func (proc *NativeProc) WithEnvironmentVariables(envs ...resources.EnvironmentVariable) {
-	for _, env := range envs {
-		proc.envs = append(proc.envs, &env)
-	}
+func (proc *NativeProc) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
+	proc.envs = append(proc.envs, envs...)
 }
 
 func (native *NativeEnvironment) NewProcess(bin string, args ...string) (Proc, error) {

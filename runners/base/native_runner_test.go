@@ -31,15 +31,27 @@ func TestLocalEnvironment(t *testing.T) {
 	proc, err := env.NewProcess("ls")
 	require.NoError(t, err)
 
-	output := shared.NewSliceWriter()
+	d := shared.NewSliceWriter()
+	output := shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
-	require.Contains(t, output.Data, "good")
-	require.Contains(t, output.Data, "crashing")
+	timeout := time.NewTimer(3 * time.Second)
+loop:
+	for {
+		select {
+		case <-output.Signal():
+			break loop
+		case <-timeout.C:
+			// One second has passed
+			t.Fatal("timeout")
+		}
+
+	}
+	require.Contains(t, d.Data, "good")
+	require.Contains(t, d.Data, "crashing")
 
 	// re-init should give the same id
 	err = env.Init(ctx)
@@ -48,29 +60,58 @@ func TestLocalEnvironment(t *testing.T) {
 	// Now, run something in it
 	proc, err = env.NewProcess("ls")
 	require.NoError(t, err)
-	output = shared.NewSliceWriter()
+	d = shared.NewSliceWriter()
+	output = shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
-	require.Contains(t, output.Data, "good")
-	require.Contains(t, output.Data, "crashing")
+loopAgain:
+	for {
+		select {
+		case <-output.Signal():
+			break loopAgain
+		case <-timeout.C:
+			// One second has passed
+			t.Fatal("timeout")
+		}
+
+	}
+
+	require.Contains(t, d.Data, "good")
+	require.Contains(t, d.Data, "crashing")
 
 	// Run a finite script
 	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
 	require.NoError(t, err)
-	output = shared.NewSliceWriter()
+
+	d = shared.NewSliceWriter()
+	output = shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-	require.Contains(t, output.Data, "1")
+
+loopFirst:
+	for {
+		select {
+		case <-output.Signal():
+			break loopFirst
+		case <-timeout.C:
+			// One second has passed
+			t.Fatal("timeout")
+		}
+
+	}
+	require.Contains(t, d.Data, "1")
 
 	// Run an infinite script and stop it after 2 seconds
 	proc, err = env.NewProcess("sh", "good/infinite_counter.sh")
 	require.NoError(t, err)
-	output = shared.NewSliceWriter()
+
+	d = shared.NewSliceWriter()
+	output = shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
 	go func() {
@@ -83,16 +124,42 @@ func TestLocalEnvironment(t *testing.T) {
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
-	require.Contains(t, output.Data, "1")
+loopLastTime:
+	for {
+		select {
+		case <-output.Signal():
+			break loopLastTime
+		case <-timeout.C:
+			// One second has passed
+			t.Fatal("timeout")
+		}
+
+	}
+
+	require.Contains(t, d.Data, "1")
 
 	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
 	require.NoError(t, err)
-	output = shared.NewSliceWriter()
+
+	d = shared.NewSliceWriter()
+	output = shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-	require.Contains(t, output.Data, "1")
+
+loopReallyLastTime:
+	for {
+		select {
+		case <-output.Signal():
+			break loopReallyLastTime
+		case <-timeout.C:
+			// One second has passed
+			t.Fatal("timeout")
+		}
+
+	}
+	require.Contains(t, d.Data, "1")
 
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)
