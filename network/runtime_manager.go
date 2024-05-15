@@ -108,9 +108,15 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, _ *resourc
 		}
 		// External endpoints
 		if endpoint.Visibility == resources.VisibilityExternal {
-			dns, err := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
-			if err != nil {
-				w.Warn("no DNS found for external endpoint: will use the `public` version if possible")
+			var dns *basev0.DNS
+			var err error
+			if m.dnsManager == nil {
+				w.Warn("no DNS manager found for external endpoint: will use the `public` version if possible")
+			} else {
+				dns, err = m.dnsManager.GetDNS(ctx, service, endpoint.Name)
+				if err != nil {
+					w.Warn("no DNS found for external endpoint: will use the `public` version if possible")
+				}
 			}
 			if dns != nil {
 				nm.Instances = append(nm.Instances,
