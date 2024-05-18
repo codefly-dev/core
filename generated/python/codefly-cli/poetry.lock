@@ -13,13 +13,13 @@ files = [
 
 [[package]]
 name = "codefly-sdk"
-version = "0.0.12"
+version = "0.0.14"
 description = ""
 optional = false
 python-versions = "<4.0,>=3.10"
 files = [
-    {file = "codefly_sdk-0.0.12-py3-none-any.whl", hash = "sha256:3f5f578d0dd838d8a8ab2bf25ee9b48990fccb583059a5cb2bf86487d5935460"},
-    {file = "codefly_sdk-0.0.12.tar.gz", hash = "sha256:2ffcff6e6c586cf7c3660cd8428c0cb5d7055e2a9b059186af12aad1b51f01e8"},
+    {file = "codefly_sdk-0.0.14-py3-none-any.whl", hash = "sha256:4a8e7a6177a76ab27f675f8c57cca558b33cef96c8fcefa8348c1746e65e2406"},
+    {file = "codefly_sdk-0.0.14.tar.gz", hash = "sha256:320674972fa46c757d141d40af13970a2e6e49bb56340d2129454723d0fed2d8"},
 ]
 
 [package.dependencies]
@@ -536,4 +536,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "55f8918879460d9d2cf59a8f287f70645ef7840e22622996b7ae677ae40ffc8a"
+content-hash = "efd00babbfc1cba2be4f6f1f4ee0913ecb9bee9aed4c9a8d7a49e13773a9975a"

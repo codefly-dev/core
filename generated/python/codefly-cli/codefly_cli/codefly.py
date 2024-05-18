@@ -22,6 +22,14 @@ from google.protobuf.empty_pb2 import Empty
 def filter_configurations(configurations: List[configuration.Configuration], runtime_context: str) -> List[configuration.Configuration]:
     return [conf for conf in configurations if conf.runtime_context.kind == runtime_context]
 
+@pytest.fixture
+def with_dependencies():
+    launcher = Launcher(show_cli_output=True)
+    launcher.start()
+    codefly.init("..")
+    yield
+    launcher.close()
+
 class Launcher:
     def __init__(self, root: str = "..", scope: str = "", show_cli_output: bool = False, keep_alive: bool = False):
         self.cmd = None
@@ -31,10 +39,10 @@ class Launcher:
         print(f"running in {self.dir}")
         self.scope = scope
         self.keep_alive = keep_alive
-        self.module = "python-visitors" #codefly.get_module()
-        self.service = "visits" #codefly.get_service()
-        self.unique = "python-visitors/visits" #codefly.get_unique()
-        self.runtime_context = "native" # TODO: fix
+        self.module = codefly.get_module()
+        self.service = codefly.get_service()
+        self.unique = codefly.get_unique()
+        self.runtime_context = codefly.runtime_context()
 
 
     def __enter__(self):

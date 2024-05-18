@@ -393,6 +393,7 @@ type DockerProc struct {
 
 	// optional override
 	dir string
+	ID  string
 }
 
 func (proc *DockerProc) WithDir(dir string) {
@@ -419,6 +420,17 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 	for {
 		// Sleep for a bit before checking again
 		time.Sleep(time.Second)
+		inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
+		if err != nil {
+			return w.Wrapf(err, "cannot inspect process")
+		}
+
+		if !inspect.Running {
+			if inspect.ExitCode == 0 {
+				return nil
+			}
+			return fmt.Errorf("process exited with code %d", inspect.ExitCode)
+		}
 		// Check if the process is still active
 		active, err := proc.isProcessActive(ctx)
 		if err != nil {
@@ -554,6 +566,7 @@ func (proc *DockerProc) start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	proc.ID = execIDResp.ID
 
 	go func() {
 		defer execResp.Close()

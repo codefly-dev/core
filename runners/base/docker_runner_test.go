@@ -42,6 +42,9 @@ func TestNewDockerEnvironment(t *testing.T) {
 	err = env.WithBinary("redis-server")
 	require.NoError(t, err)
 
+	err = env.WithBinary("nooooo")
+	require.Error(t, err)
+
 	timeout := time.NewTimer(3 * time.Second)
 
 	for {

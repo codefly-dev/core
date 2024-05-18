@@ -75,7 +75,6 @@ func testOutput(t *testing.T, data *shared.SliceWriter) {
 		require.Contains(t, line, "running")
 		require.NotContains(t, line, "running\n")
 	}
-	// last line should be "signal received"
 	require.Contains(t, data.Data[len(data.Data)-1], "signal received")
 }
 
