@@ -131,6 +131,9 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 			var exitError *exec.ExitError
 			if errors.As(err, &exitError) {
 				// The program has exited with an exit code != 0
+				if strings.Contains(exitError.String(), "signal: terminated") {
+					return nil
+				}
 				return exitError
 			} else if strings.Contains(err.Error(), "signal: terminated") {
 				return nil

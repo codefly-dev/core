@@ -51,7 +51,7 @@ func New(ctx context.Context, opt *Option) (*Launcher, error) {
 	wait := 5 * time.Second
 	for {
 		time.Sleep(time.Second)
-		conn, err = grpc.Dial(fmt.Sprintf("localhost:%d", port), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err = grpc.NewClient(fmt.Sprintf("localhost:%d", port), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
 			break
 		}
