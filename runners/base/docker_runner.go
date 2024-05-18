@@ -390,6 +390,13 @@ type DockerProc struct {
 	envs []*resources.EnvironmentVariable
 
 	cmd []string
+
+	// optional override
+	dir string
+}
+
+func (proc *DockerProc) WithDir(dir string) {
+	proc.dir = dir
 }
 
 func (proc *DockerProc) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
@@ -528,6 +535,9 @@ func (proc *DockerProc) start(ctx context.Context) error {
 		AttachStderr: true,
 		Env:          resources.EnvironmentVariableAsStrings(proc.envs),
 		Cmd:          proc.cmd,
+	}
+	if proc.dir != "" {
+		execConfig.WorkingDir = proc.dir
 	}
 	w.Debug("creating exec", wool.Field("cmd", proc.cmd))
 	// Create an exec instance

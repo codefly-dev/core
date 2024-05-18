@@ -73,6 +73,10 @@ func (holder *EnvironmentVariableManager) SetEnvironment(environment *basev0.Env
 
 const RunningPrefix = "CODEFLY__RUNNING"
 
+func (holder *EnvironmentVariableManager) SetRunning() {
+	holder.running = true
+}
+
 func Env(key string, value any) *EnvironmentVariable {
 	return &EnvironmentVariable{
 		Key:   key,
@@ -300,11 +304,6 @@ func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, map
 	}
 	holder.restRoutes = append(holder.restRoutes, routes...)
 	return nil
-}
-
-func (holder *EnvironmentVariableManager) SetRunning(b bool) {
-	holder.running = b
-
 }
 
 const EnvironmentPrefix = "CODEFLY__ENVIRONMENT"

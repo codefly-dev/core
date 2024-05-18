@@ -78,6 +78,13 @@ type NativeProc struct {
 	envs   []*resources.EnvironmentVariable
 
 	stopped chan interface{}
+
+	// optional override
+	dir string
+}
+
+func (proc *NativeProc) WithDir(dir string) {
+	proc.dir = dir
 }
 
 func (proc *NativeProc) WithRunningCmd(_ string) {
@@ -148,6 +155,9 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	// #nosec G204
 	cmd := exec.CommandContext(ctx, proc.cmd[0], proc.cmd[1:]...)
 	cmd.Dir = proc.env.dir
+	if proc.dir != "" {
+		cmd.Dir = proc.dir
+	}
 	cmd.Env = resources.EnvironmentVariableAsStrings(proc.env.envs)
 	w.Focus("envs", wool.Field("envs", cmd.Env))
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)

@@ -4,6 +4,9 @@ RUN apk update && \
     apk add --no-cache procps libpq && \
     rm -rf /var/cache/apk/*
 
+RUN adduser -D codefly
+USER codefly
+
 RUN pip install --upgrade pip
 
 RUN pip install poetry

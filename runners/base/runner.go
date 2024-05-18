@@ -43,6 +43,9 @@ type Proc interface {
 	Run(ctx context.Context) error
 	Stop(ctx context.Context) error
 
+	// WithDir overrides the location where the Proc runs
+	WithDir(local string)
+
 	// WithOutput output to send the logs
 	WithOutput(w io.Writer)
 

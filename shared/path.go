@@ -231,6 +231,16 @@ func CopyFile(_ context.Context, from string, to string) error {
 	return nil
 }
 
+// RenameDir renames a directory
+func RenameDir(ctx context.Context, from string, to string) error {
+	w := wool.Get(ctx).In("shared.RenameDir", wool.Field("from", from), wool.Field("to", to))
+	err := os.Rename(from, to)
+	if err != nil {
+		return w.Wrapf(err, "cannot rename directory")
+	}
+	return nil
+}
+
 type Replacement struct {
 	From string `yaml:"from"`
 	To   string `yaml:"to"`
@@ -273,4 +283,14 @@ func GenerateTree(p, indent string) (string, error) {
 type CopyInstruction struct {
 	Name string
 	Path string
+}
+
+// Create is equivalent of "touch"
+func CreateFile(ctx context.Context, path string) error {
+	w := wool.Get(ctx).In("shared.CreateFile", wool.FileField(path))
+	_, err := os.Create(path)
+	if err != nil {
+		return w.Wrapf(err, "cannot create file")
+	}
+	return nil
 }
