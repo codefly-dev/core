@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "codefly-cli"
-version = "0.0.7"
+version = "0.0.8"
 description = ""
 authors = ["Antoine Toussaint <antoine.toussaint@codefly.ai>"]
 packages = [{include = "codefly_cli"}]
@@ -13,9 +13,6 @@ grpcio = "^1.63.0"
 protobuf = "^5.26.1"
 grpclib = "^0.4.7"
 codefly-sdk = "^0.0.14"
-
-
-[tool.poetry.dev-dependencies]
 pytest = "^8.2.0"
 
 [build-system]

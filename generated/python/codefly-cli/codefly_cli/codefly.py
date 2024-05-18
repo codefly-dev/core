@@ -1,8 +1,3 @@
-import os, sys
-file_dir = os.path.dirname(os.path.abspath(__file__))
-# Add the directory to sys.path
-sys.path.append(file_dir)
-
 import subprocess
 import time
 import grpc
@@ -17,6 +12,8 @@ import cli.v0.cli_pb2 as cli
 import base.v0.configuration_pb2 as configuration
 
 from google.protobuf.empty_pb2 import Empty
+
+import pytest
 
 
 def filter_configurations(configurations: List[configuration.Configuration], runtime_context: str) -> List[configuration.Configuration]:

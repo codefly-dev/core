@@ -34,6 +34,7 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 		}
 	}(tmpDir)
 	w.Debug("generating code from buf", wool.DirField(tmpDir), wool.DirField(destination))
+
 	// Buf configuration
 	err = CreateBufConfiguration(ctx, tmpDir, service, language)
 	if err != nil {
@@ -70,7 +71,7 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 	if err != nil {
 		return w.Wrapf(err, "cannot init runner")
 	}
-	proc, err := runner.NewProcess("buf", "mod", "update")
+	proc, err := runner.NewProcess("buf", "dep", "update")
 	if err != nil {
 		return w.Wrapf(err, "cannot create process")
 	}

@@ -38,7 +38,7 @@ func TestLocalEnvironment(t *testing.T) {
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
-	timeout := time.NewTimer(3 * time.Second)
+	timeout := time.NewTimer(time.Second)
 loop:
 	for {
 		select {
@@ -67,6 +67,7 @@ loop:
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
+	timeout = time.NewTimer(time.Second)
 loopAgain:
 	for {
 		select {
@@ -93,6 +94,7 @@ loopAgain:
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
+	timeout = time.NewTimer(time.Second)
 loopFirst:
 	for {
 		select {
@@ -124,6 +126,8 @@ loopFirst:
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
+	timeout = time.NewTimer(time.Second)
+
 loopLastTime:
 	for {
 		select {
@@ -148,6 +152,7 @@ loopLastTime:
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
+	timeout = time.NewTimer(time.Second)
 loopReallyLastTime:
 	for {
 		select {

@@ -57,7 +57,7 @@ type GoRunnerEnvironment struct {
 func (r *GoRunnerEnvironment) LocalCacheDir(ctx context.Context) string {
 	var p string
 	if r.docker != nil {
-		p = path.Join(r.localCacheDir, "docker")
+		p = path.Join(r.localCacheDir, "container")
 	} else {
 		p = path.Join(r.localCacheDir, "native")
 	}
@@ -72,19 +72,23 @@ func (r *GoRunnerEnvironment) WithDebugSymbol(debug bool) {
 func NewNativeGoRunner(ctx context.Context, dir string) (*GoRunnerEnvironment, error) {
 	w := wool.Get(ctx).In("NewNativeGoRunner")
 	w.Debug("creating native go runner", wool.Field("dir", dir))
+
 	// Check that go in the path
 	_, err := exec.LookPath("go")
 	if err != nil {
 		return nil, w.NewError("cannot find go in the path")
 	}
+
 	local, err := runners.NewNativeEnvironment(ctx, dir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create go local environment")
 	}
+
 	withGoModules, err := shared.FileExists(ctx, path.Join(dir, "go.mod"))
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot check go modules")
 	}
+
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
 	} else {
@@ -110,6 +114,7 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 	w := wool.Get(ctx).In("NewDockerGoRunner")
 
 	name = fmt.Sprintf("goland-%s", name)
+
 	w.Debug("creating docker go runner", wool.Field("image", image), wool.Field("dir", dir), wool.Field("name", name))
 
 	docker, err := runners.NewDockerEnvironment(ctx, image, dir, name)
@@ -123,6 +128,7 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot check go modules")
 	}
+
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
 	}
@@ -145,6 +151,8 @@ func (r *GoRunnerEnvironment) Env() runners.RunnerEnvironment {
 func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
 	if !r.withGoModules {
 		r.Env().WithEnvironmentVariables(resources.Env("GO111MODULE", "off"))
+	} else {
+		r.Env().WithEnvironmentVariables(resources.Env("GO111MODULE", "on"))
 	}
 	if r.docker != nil {
 		// Build
@@ -223,10 +231,12 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	w := wool.Get(ctx).In("goModuleHandling")
 	req := builders.NewDependencies("gomod", builders.NewDependency("go.mod", "go.sum").Localize(r.dir))
 	req.WithCache(r.LocalCacheDir(ctx))
+
 	updated, err := req.Updated(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot check go mod")
 	}
+
 	if !updated {
 		w.Debug("go modules have been cached")
 		return nil
@@ -235,6 +245,7 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot update go mod cache")
 	}
+
 	proc, err := r.Env().NewProcess("go", "mod", "download")
 	if err != nil {
 		return w.Wrapf(err, "cannot create go mod download process")
@@ -269,6 +280,7 @@ func (r *GoRunnerEnvironment) BuildTargetPath(ctx context.Context, hash string) 
 
 func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	w := wool.Get(ctx).In("buildBinary")
+
 	// Setup the requirements
 	r.requirements = builders.NewDependencies("go",
 		builders.NewDependency(r.dir).WithPathSelect(shared.NewSelect("*.go")))

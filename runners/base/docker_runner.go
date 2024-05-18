@@ -66,6 +66,7 @@ func (docker *DockerEnvironment) WithEnvironmentVariables(envs ...*resources.Env
 // NewDockerEnvironment creates a new docker runner
 func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir string, name string) (*DockerEnvironment, error) {
 	w := wool.Get(ctx).In("NewDockerRunner")
+	w.Debug("creating new docker runner", wool.Field("image", image.FullName()), wool.Field("dir", dir))
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
@@ -79,6 +80,7 @@ func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir
 		workingDir: "/codefly",
 	}
 	// Will mount the local directory on /codefly the workDir
+	w.Debug("mounting local directory", wool.Field("dir", dir))
 	env.WithDir(dir)
 	// Pull the image if needed
 	err = env.GetImageIfNotPresent(ctx, image)

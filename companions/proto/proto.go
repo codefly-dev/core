@@ -58,6 +58,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return nil
 	}
 	w.Info("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
+
 	image, err := CompanionImage(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
@@ -65,10 +66,12 @@ func (g *Buf) Generate(ctx context.Context) error {
 
 	// Create a timestamp so we don't clubber docker environments
 	name := fmt.Sprintf("proto-%d", time.Now().UnixMilli())
+
 	runner, err := runners.NewDockerEnvironment(ctx, image, g.Dir, name)
 	if err != nil {
 		return w.Wrapf(err, "cannot create docker runner")
 	}
+
 	runner.WithMount(g.Dir, "/workspace")
 	runner.WithWorkDir("/workspace/proto")
 	runner.WithPause()
@@ -84,10 +87,12 @@ func (g *Buf) Generate(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot init runner")
 	}
-	proc, err := runner.NewProcess("buf", "mod", "update")
+
+	proc, err := runner.NewProcess("buf", "dep", "update")
 	if err != nil {
 		return w.Wrapf(err, "cannot create process")
 	}
+
 	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot update buf")
@@ -97,6 +102,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot create process")
 	}
+
 	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot generate with buf")
