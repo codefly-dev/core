@@ -243,9 +243,16 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 	} else if docker.pause {
 		containerConfig.Cmd = []string{"sleep", "infinity"}
 	}
-
+	mounts := []mount.Mount{
+		{
+			Type:   mount.TypeBind,
+			Source: "/var/run/docker.sock",
+			Target: "/var/run/docker.sock",
+		},
+	}
+	mounts = append(mounts, docker.mounts...)
 	hostConfig := &container.HostConfig{
-		Mounts:       docker.mounts,
+		Mounts:       mounts,
 		AutoRemove:   false,
 		PortBindings: docker.portBindings(),
 	}
@@ -394,8 +401,13 @@ type DockerProc struct {
 	cmd []string
 
 	// optional override
-	dir string
-	ID  string
+	dir    string
+	ID     string
+	waitOn string
+}
+
+func (proc *DockerProc) WaitOn(bin string) {
+	proc.waitOn = bin
 }
 
 func (proc *DockerProc) WithDir(dir string) {
@@ -448,6 +460,7 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 }
 
 func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
+	w := wool.Get(ctx).In("DockerProc.FindPid")
 	// Construct the command to execute 'ps' inside the container
 	psCmd := []string{"/bin/ps"}
 	execConfig := types.ExecConfig{
@@ -507,6 +520,7 @@ func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
 		}
 		// Only match on the first one -- hack for now
 		cmd := fs[cmdIndex:]
+		w.Debug("matching", wool.Field("cmd", cmd))
 		if proc.Match(cmd) {
 			pid, err := strconv.Atoi(fs[pidIndex])
 			if err != nil {
@@ -684,6 +698,9 @@ func (proc *DockerProc) WithOutput(output io.Writer) {
 }
 
 func (proc *DockerProc) Match(cmd []string) bool {
+	if proc.waitOn != "" {
+		return cmd[0] == proc.waitOn
+	}
 	return proc.cmd[0] == cmd[0]
 }
 

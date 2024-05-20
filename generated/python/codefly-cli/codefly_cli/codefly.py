@@ -58,6 +58,12 @@ def with_cli_logs():
     global _with_cli_logs
     _with_cli_logs = True
 
+_debug = False
+def with_debug():
+    global _debug
+    _debug = True
+
+
 
 class Launcher:
     def __init__(self, root: str = "..", scope: str = "", keep_alive: bool = False):
@@ -87,7 +93,11 @@ class Launcher:
         self.destroy()
 
     def start(self):
-        cmd = ["codefly", "run", "service",  "--exclude-root", "--cli-server"]
+        cmd = ["codefly", "run", "service"]
+        global _debug
+        if _debug:
+            cmd.append("-d")
+        cmd.extend("--exclude-root", "--cli-server")
         if self.scope:
             cmd.extend(["--scope", self.scope])
         options = {"stdout": subprocess.PIPE}
@@ -95,7 +105,7 @@ class Launcher:
             options = {}
         self.cmd = subprocess.Popen(cmd, cwd=self.dir, **options)
         port = 10000
-        wait = 5
+        wait = 60
         while True:
             time.sleep(1)
             try:

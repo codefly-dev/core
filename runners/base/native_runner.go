@@ -80,7 +80,12 @@ type NativeProc struct {
 	stopped chan interface{}
 
 	// optional override
-	dir string
+	dir    string
+	waitOn string
+}
+
+func (proc *NativeProc) WaitOn(bin string) {
+	proc.waitOn = bin
 }
 
 func (proc *NativeProc) WithDir(dir string) {
@@ -118,6 +123,7 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 		return err
 	}
 	w.Debug("waiting for process to finish or be killed")
+	// TODO: handle waitOn
 	// Create a channel to receive the result of proc.exec.Wait()
 	done := make(chan error, 1)
 	go func() {

@@ -18,7 +18,3 @@ WORKDIR /codefly
 
 
 COPY bin/codefly /usr/local/bin/codefly
-
-
-RUN adduser -D codefly
-USER codefly

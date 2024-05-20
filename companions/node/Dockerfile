@@ -5,6 +5,3 @@ RUN apk update && \
     rm -rf /var/cache/apk/*
 
 WORKDIR /codefly
-
-RUN adduser -D codefly
-USER codefly
