@@ -1,3 +1,10 @@
+import os, sys
+
+# Add the codefly_cli path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../codefly_cli')))
+
+import codefly_sdk.codefly as codefly
+
 import subprocess
 import time
 import grpc
@@ -21,17 +28,45 @@ def filter_configurations(configurations: List[configuration.Configuration], run
 
 @pytest.fixture
 def with_dependencies():
-    launcher = Launcher(show_cli_output=True)
+    launcher = Launcher()
     launcher.start()
     codefly.init("..")
     yield
     launcher.close()
 
+
+def configuration_key(conf: configuration.Configuration, info: configuration.ConfigurationInformation, value: configuration.ConfigurationValue):
+    secret_prefix = ""
+    if value.secret:
+        secret_prefix = "SECRET_"
+    if conf.origin == "workspace":
+        k = f"CODEFLY__WORKSPACE_{secret_prefix}CONFIGURATION"
+    else:
+        k = f"CODEFLY__SERVICE_{secret_prefix}CONFIGURATION__{unique_to_env_key(conf.origin)}"
+    return f"{k}__{info.name}__{value.key}".upper()
+
+
+def setup_environment_with_configuration(conf: configuration.Configuration):
+    for info in conf.configurations:
+        for val in info.configuration_values:
+            key = configuration_key(conf, info, val)
+            os.environ[key] = val.value
+
+_with_cli_logs = False
+
+def with_cli_logs():
+    global _with_cli_logs
+    _with_cli_logs = True
+
+
 class Launcher:
-    def __init__(self, root: str = "..", scope: str = "", show_cli_output: bool = False, keep_alive: bool = False):
+    def __init__(self, root: str = "..", scope: str = "", keep_alive: bool = False):
         self.cmd = None
         self.cli = None
-        self.show_cli_output = show_cli_output
+
+        global _with_cli_logs
+        self.show_cli_output = _with_cli_logs
+
         self.dir = find_service_dir(os.path.abspath(root))
         print(f"running in {self.dir}")
         self.scope = scope
@@ -52,7 +87,7 @@ class Launcher:
         self.destroy()
 
     def start(self):
-        cmd = ["codefly", "run", "service", "-d",  "--exclude-root", "--cli-server"]
+        cmd = ["codefly", "run", "service",  "--exclude-root", "--cli-server"]
         if self.scope:
             cmd.extend(["--scope", self.scope])
         options = {"stdout": subprocess.PIPE}
@@ -94,27 +129,7 @@ class Launcher:
         resp = self.cli.GetDependenciesConfigurations(request)
         dependencies_configurations = filter_configurations(resp.configurations, self.runtime_context)
         for conf in dependencies_configurations:
-            self.setup_environment_with_configuration(conf)
-
-
-    def configuration_key(self, conf: configuration.Configuration, info: configuration.ConfigurationInformation, value: configuration.ConfigurationValue):
-        secret_prefix = ""
-        if value.secret:
-            secret_prefix = "SECRET_"
-        if conf.origin == "workspace":
-            k = f"CODEFLY__WORKSPACE_{secret_prefix}CONFIGURATION"
-        else:
-            k = f"CODEFLY__SERVICE_{secret_prefix}CONFIGURATION__{unique_to_env_key(conf.origin)}"
-        return f"{k}__{info.name}__{value.key}".upper()
-
-    def setup_environment_with_configuration(self, conf: configuration.Configuration):
-        for info in conf.configurations:
-            for val in info.configuration_values:
-                key = self.configuration_key(conf, info, val)
-                os.environ[key] = val.value
-
-
-
+            setup_environment_with_configuration(conf)
 
     def close(self):
         self.cli.StopFlow(Empty())
