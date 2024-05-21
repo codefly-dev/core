@@ -2,6 +2,7 @@ package resources
 
 import (
 	"fmt"
+	"slices"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
 )
@@ -65,4 +66,11 @@ func NewRuntimeContextNative() *basev0.RuntimeContext {
 
 func NewRuntimeContextFree() *basev0.RuntimeContext {
 	return &basev0.RuntimeContext{Kind: RuntimeContextFree}
+}
+
+func ValidateRuntimeContext(rc string) error {
+	if !slices.Contains(RuntimeContexts(), rc) {
+		return fmt.Errorf("invalid runtime context: %s", rc)
+	}
+	return nil
 }

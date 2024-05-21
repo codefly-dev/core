@@ -40,6 +40,8 @@ type Base struct {
 
 	// State
 	Identity *resources.ServiceIdentity
+
+	// Location of the service
 	Location string
 
 	// codefly configuration
@@ -102,7 +104,7 @@ func (s *Base) UniqueWithWorkspace() string {
 func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {
 	// Information about what we run
 	s.Identity = resources.ServiceIdentityFromProto(identity)
-	s.Location = identity.Location
+	s.Location = path.Join(identity.WorkspacePath, identity.RelativeToWorkspace)
 
 	s.EnvironmentVariables = resources.NewEnvironmentVariableManager()
 
@@ -126,7 +128,8 @@ func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentit
 
 func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, settings any) error {
 	s.Identity = resources.ServiceIdentityFromProto(identity)
-	s.Location = identity.Location
+
+	s.Location = path.Join(identity.WorkspacePath, identity.RelativeToWorkspace)
 
 	// Replace the Agent now that we know more!
 	agentProvider := agents.NewServiceAgentProvider(ctx, s.Identity)

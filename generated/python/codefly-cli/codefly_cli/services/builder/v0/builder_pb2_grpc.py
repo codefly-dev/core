@@ -169,6 +169,7 @@ def add_BuilderServicer_to_server(servicer, server):
     generic_handler = grpc.method_handlers_generic_handler(
             'services.builder.v0.Builder', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('services.builder.v0.Builder', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.

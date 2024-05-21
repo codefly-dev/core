@@ -450,3 +450,7 @@ func (workspace *Workspace) Clone() *Workspace {
 	clone := *workspace
 	return &clone
 }
+
+func (workspace *Workspace) RelativeDir(service *Service) (string, error) {
+	return filepath.Rel(workspace.Dir(), service.Dir())
+}

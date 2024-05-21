@@ -30,7 +30,8 @@ def filter_configurations(configurations: List[configuration.Configuration], run
 def with_dependencies():
     launcher = Launcher()
     launcher.start()
-    codefly.init("..")
+    global _code_path
+    codefly.init(_code_path)
     yield
     launcher.close()
 
@@ -51,6 +52,11 @@ def setup_environment_with_configuration(conf: configuration.Configuration):
         for val in info.configuration_values:
             key = configuration_key(conf, info, val)
             os.environ[key] = val.value
+
+_code_path = None
+def with_code_path(p: str):
+    global _code_path
+    _code_path = p
 
 _with_cli_logs = False
 
@@ -97,7 +103,7 @@ class Launcher:
         global _debug
         if _debug:
             cmd.append("-d")
-        cmd.extend("--exclude-root", "--cli-server")
+        cmd.extend(["--exclude-root", "--cli-server", "--runtime-context", self.runtime_context])
         if self.scope:
             cmd.extend(["--scope", self.scope])
         options = {"stdout": subprocess.PIPE}

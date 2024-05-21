@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 
 	"github.com/codefly-dev/core/version"
@@ -129,7 +130,24 @@ func (p *Agent) IsService() bool {
 	return slices.Contains([]AgentKind{ServiceAgent, BuilderServiceAgent, RuntimeServiceAgent}, p.Kind)
 }
 
-func (p *Agent) Path() (string, error) {
+func isRunningInDocker() bool {
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	return false
+}
+
+func AgentBase(ctx context.Context) string {
+	w := wool.Get(ctx).In("AgentBase")
+	if isRunningInDocker() {
+		w.Info("running inside docker")
+		return path.Join(CodeflyDir(), "containers")
+	}
+	w.Info("running natively")
+	return CodeflyDir()
+}
+
+func (p *Agent) Path(ctx context.Context) (string, error) {
 	var subdir string
 	if p.IsService() {
 		subdir = "services"
@@ -139,7 +157,7 @@ func (p *Agent) Path() (string, error) {
 	name := p.Identifier()
 	// Replace : by __ for compatibility of file names
 	name = strings.Replace(name, ":", "__", 1)
-	return path.Join(CodeflyDir(), "agents", subdir, name), nil
+	return path.Join(AgentBase(ctx), "agents", subdir, name), nil
 }
 
 func (p *Agent) Patch() (*Agent, error) {

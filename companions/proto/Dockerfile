@@ -41,6 +41,3 @@ COPY --from=builder /go/bin/swagger /usr/local/bin/
 
 # Set the working directory
 WORKDIR /workspace
-
-RUN adduser -D codefly
-USER codefly

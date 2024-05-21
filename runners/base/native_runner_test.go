@@ -37,6 +37,7 @@ func TestLocalEnvironment(t *testing.T) {
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
 
 	timeout := time.NewTimer(time.Second)
 loop:
@@ -50,6 +51,7 @@ loop:
 		}
 
 	}
+	time.Sleep(100 * time.Millisecond)
 	require.Contains(t, d.Data, "good")
 	require.Contains(t, d.Data, "crashing")
 
@@ -66,7 +68,7 @@ loop:
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	timeout = time.NewTimer(time.Second)
 loopAgain:
 	for {
@@ -79,7 +81,7 @@ loopAgain:
 		}
 
 	}
-
+	time.Sleep(100 * time.Millisecond)
 	require.Contains(t, d.Data, "good")
 	require.Contains(t, d.Data, "crashing")
 
@@ -93,7 +95,7 @@ loopAgain:
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	timeout = time.NewTimer(time.Second)
 loopFirst:
 	for {
@@ -104,8 +106,8 @@ loopFirst:
 			// One second has passed
 			t.Fatal("timeout")
 		}
-
 	}
+	time.Sleep(100 * time.Millisecond)
 	require.Contains(t, d.Data, "1")
 
 	// Run an infinite script and stop it after 2 seconds
@@ -139,7 +141,7 @@ loopLastTime:
 		}
 
 	}
-
+	time.Sleep(100 * time.Millisecond)
 	require.Contains(t, d.Data, "1")
 
 	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
@@ -162,8 +164,8 @@ loopReallyLastTime:
 			// One second has passed
 			t.Fatal("timeout")
 		}
-
 	}
+	time.Sleep(100 * time.Millisecond)
 	require.Contains(t, d.Data, "1")
 
 	err = env.Shutdown(ctx)

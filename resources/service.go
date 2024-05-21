@@ -205,10 +205,12 @@ func ParseServiceReference(input string) (*ServiceReference, error) {
 // Recall that module names are unique within a workspace
 // Workspace: the name of the workspace the service belongs to
 type ServiceIdentity struct {
-	Name      string
-	Version   string
-	Module    string
-	Workspace string
+	Name                string
+	Version             string
+	Module              string
+	Workspace           string
+	WorkspacePath       string
+	RelativeToWorkspace string
 }
 
 func (s *ServiceIdentity) Unique() string {
@@ -237,19 +239,23 @@ func (s *ServiceIdentity) AsAgentResource() *wool.Resource {
 
 func (s *ServiceIdentity) Clone() *ServiceIdentity {
 	return &ServiceIdentity{
-		Name:      s.Name,
-		Module:    s.Module,
-		Workspace: s.Workspace,
-		Version:   s.Version,
+		Name:                s.Name,
+		Module:              s.Module,
+		Workspace:           s.Workspace,
+		WorkspacePath:       s.WorkspacePath,
+		RelativeToWorkspace: s.RelativeToWorkspace,
+		Version:             s.Version,
 	}
 }
 
 func ServiceIdentityFromProto(proto *basev0.ServiceIdentity) *ServiceIdentity {
 	return &ServiceIdentity{
-		Name:      proto.Name,
-		Module:    proto.Module,
-		Workspace: proto.Workspace,
-		Version:   proto.Version,
+		Name:                proto.Name,
+		Module:              proto.Module,
+		Workspace:           proto.Workspace,
+		WorkspacePath:       proto.WorkspacePath,
+		RelativeToWorkspace: proto.RelativeToWorkspace,
+		Version:             proto.Version,
 	}
 }
 

@@ -52,6 +52,9 @@ type GoRunnerEnvironment struct {
 	usedCache bool
 
 	out io.Writer
+
+	// Source directory
+	sourceDir string
 }
 
 func (r *GoRunnerEnvironment) LocalCacheDir(ctx context.Context) string {
@@ -69,7 +72,7 @@ func (r *GoRunnerEnvironment) WithDebugSymbol(debug bool) {
 	r.withDebugSymbol = debug
 }
 
-func NewNativeGoRunner(ctx context.Context, dir string) (*GoRunnerEnvironment, error) {
+func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (*GoRunnerEnvironment, error) {
 	w := wool.Get(ctx).In("NewNativeGoRunner")
 	w.Debug("creating native go runner", wool.Field("dir", dir))
 
@@ -84,7 +87,8 @@ func NewNativeGoRunner(ctx context.Context, dir string) (*GoRunnerEnvironment, e
 		return nil, w.Wrapf(err, "cannot create go local environment")
 	}
 
-	withGoModules, err := shared.FileExists(ctx, path.Join(dir, "go.mod"))
+	sourceDir := path.Join(dir, relativeSource)
+	withGoModules, err := shared.FileExists(ctx, path.Join(sourceDir, "go.mod"))
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot check go modules")
 	}
@@ -100,17 +104,18 @@ func NewNativeGoRunner(ctx context.Context, dir string) (*GoRunnerEnvironment, e
 				local.WithEnvironmentVariables(resources.Env("GOPATH", v))
 			}
 		}
-
 	}
+
 	return &GoRunnerEnvironment{
 		dir:           dir,
 		local:         local,
 		withGoModules: withGoModules,
-		localCacheDir: path.Join(dir, "cache"),
+		localCacheDir: path.Join(sourceDir, "cache"),
+		sourceDir:     sourceDir,
 	}, nil
 }
 
-func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir string, name string) (*GoRunnerEnvironment, error) {
+func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir string, relativeSource string, name string) (*GoRunnerEnvironment, error) {
 	w := wool.Get(ctx).In("NewDockerGoRunner")
 
 	name = fmt.Sprintf("goland-%s", name)
@@ -124,7 +129,9 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 
 	docker.WithPause()
 
-	withGoModules, err := shared.FileExists(ctx, path.Join(dir, "go.mod"))
+	sourceDir := path.Join(dir, relativeSource)
+
+	withGoModules, err := shared.FileExists(ctx, path.Join(sourceDir, "go.mod"))
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot check go modules")
 	}
@@ -137,7 +144,8 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 		dir:           dir,
 		docker:        docker,
 		withGoModules: withGoModules,
-		localCacheDir: path.Join(dir, "cache"),
+		localCacheDir: path.Join(sourceDir, "cache"),
+		sourceDir:     sourceDir,
 	}, nil
 }
 
@@ -229,7 +237,7 @@ func (r *GoRunnerEnvironment) Init(ctx context.Context) error {
 
 func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	w := wool.Get(ctx).In("goModuleHandling")
-	req := builders.NewDependencies("gomod", builders.NewDependency("go.mod", "go.sum").Localize(r.dir))
+	req := builders.NewDependencies("gomod", builders.NewDependency("go.mod", "go.sum").Localize(r.sourceDir))
 	req.WithCache(r.LocalCacheDir(ctx))
 
 	updated, err := req.Updated(ctx)
@@ -253,6 +261,8 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	if r.out != nil {
 		proc.WithOutput(r.out)
 	}
+	proc.WithDir(r.sourceDir)
+
 	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot run go mod download")
@@ -283,7 +293,7 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 
 	// Setup the requirements
 	r.requirements = builders.NewDependencies("go",
-		builders.NewDependency(r.dir).WithPathSelect(shared.NewSelect("*.go")))
+		builders.NewDependency(r.sourceDir).WithPathSelect(shared.NewSelect("*.go")))
 
 	w.Debug("start building")
 	r.usedCache = false
@@ -330,6 +340,8 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	if r.out != nil {
 		proc.WithOutput(r.out)
 	}
+	proc.WithDir(r.sourceDir)
+
 	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot run go build")
@@ -354,7 +366,12 @@ func (r *GoRunnerEnvironment) WithLocalCacheDir(dir string) {
 }
 
 func (r *GoRunnerEnvironment) Runner(args ...string) (runners.Proc, error) {
-	return r.Env().NewProcess(r.targetPath, args...)
+	proc, err := r.Env().NewProcess(r.targetPath, args...)
+	if err != nil {
+		return nil, err
+	}
+	proc.WithDir(r.sourceDir)
+	return proc, nil
 }
 
 func (r *GoRunnerEnvironment) UsedCache() bool {

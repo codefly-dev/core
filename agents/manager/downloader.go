@@ -44,10 +44,11 @@ func ValidURL(s string) bool {
 
 func Downloaded(ctx context.Context, p *resources.Agent) (bool, error) {
 	w := wool.Get(ctx).In("agents.Downloaded", wool.Field("agent", p.Identifier()))
-	bin, err := p.Path()
+	bin, err := p.Path(ctx)
 	if err != nil {
 		return false, w.Wrapf(err, "cannot compute agent path")
 	}
+	w.Focus("checking if agent is downloaded", wool.Field("path", bin))
 	exists, err := shared.FileExists(ctx, bin)
 	if err != nil {
 		return false, w.Wrapf(err, "cannot check if file exists")
@@ -115,7 +116,7 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot unarchive")
 	}
-	bin, err := p.Path()
+	bin, err := p.Path(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot compute agent path")
 	}
@@ -126,9 +127,9 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	}
 	if exists {
 		content, _ := os.ReadDir(dest)
-		fmt.Println("content ", content)
+		w.Debug("content ", wool.Field("content", content))
 	}
-	target, err := p.Path()
+	target, err := p.Path(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot compute agent path")
 	}

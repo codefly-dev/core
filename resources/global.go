@@ -2,8 +2,10 @@ package resources
 
 import (
 	"context"
+	"os"
 	"os/user"
 	"path"
+	"path/filepath"
 
 	wool "github.com/codefly-dev/core/wool"
 
@@ -39,6 +41,38 @@ var (
 	// default to ~/.codefly
 )
 
+func FindConfigDir() (*string, error) {
+	cur, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	var atRoot bool
+	for {
+		p := path.Join(cur, ".codefly")
+		exists, err := shared.DirectoryExists(context.Background(), p)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			return &p, nil
+		}
+		// Move up one directory
+		cur = filepath.Dir(cur)
+
+		// Stop if we reach the root directory
+		if cur == "/" || cur == "." {
+			if atRoot {
+				return nil, nil
+			}
+			atRoot = true
+		}
+	}
+}
+
 func init() {
-	codeflyDir = path.Join(shared.Must(HomeDir()), ".codefly")
+	found := shared.Must(FindConfigDir())
+	if found != nil {
+		codeflyDir = *found
+		return
+	}
 }

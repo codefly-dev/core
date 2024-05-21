@@ -43,7 +43,9 @@ type Proc interface {
 	Run(ctx context.Context) error
 	Stop(ctx context.Context) error
 
-	// For Run, optional, we can wait on another process
+	IsRunning(ctx context.Context) (bool, error)
+
+	// WaitOn For Run, optional, we can wait on another process
 	WaitOn(s string)
 
 	// WithDir overrides the location where the Proc runs

@@ -77,9 +77,8 @@ func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir
 		out:        w,
 		image:      image,
 		name:       ContainerName(name),
-		workingDir: "/codefly",
+		workingDir: dir,
 	}
-	// Will mount the local directory on /codefly the workDir
 	w.Debug("mounting local directory", wool.Field("dir", dir))
 	env.WithDir(dir)
 	// Pull the image if needed
@@ -244,6 +243,7 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		containerConfig.Cmd = []string{"sleep", "infinity"}
 	}
 	mounts := []mount.Mount{
+		// Docker
 		{
 			Type:   mount.TypeBind,
 			Source: "/var/run/docker.sock",
@@ -251,6 +251,11 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		},
 	}
 	mounts = append(mounts, docker.mounts...)
+
+	for _, m := range mounts {
+		w.Focus("mount", wool.Field("source", m.Source), wool.Field("target", m.Target))
+	}
+
 	hostConfig := &container.HostConfig{
 		Mounts:       mounts,
 		AutoRemove:   false,
@@ -406,6 +411,14 @@ type DockerProc struct {
 	waitOn string
 }
 
+func (proc *DockerProc) IsRunning(ctx context.Context) (bool, error) {
+	pid, err := proc.FindPid(ctx)
+	if err != nil {
+		return false, err
+	}
+	return pid > 0, nil
+}
+
 func (proc *DockerProc) WaitOn(bin string) {
 	proc.waitOn = bin
 }
@@ -472,20 +485,20 @@ func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
 	// Create an exec instance inside the container to run the command
 	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
 	if err != nil {
-		return 0, fmt.Errorf("cannot create exec to list processes: %w", err)
+		return 0, w.Wrapf(err, "cannot create exec to list processes")
 	}
 
 	// Attach to the exec instance to capture the output
 	execAttachResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, types.ExecStartCheck{})
 	if err != nil {
-		return 0, fmt.Errorf("cannot attach to exec for listing processes: %w", err)
+		return 0, w.Wrapf(err, "cannot attach to exec")
 	}
 	defer execAttachResp.Close()
 
 	// Capture and process the command output
 	var outBuf, errBuf strings.Builder
 	if _, err := stdcopy.StdCopy(&outBuf, &errBuf, execAttachResp.Reader); err != nil {
-		return 0, fmt.Errorf("error reading output from exec: %w", err)
+		return 0, w.Wrapf(err, "cannot copy output from exec")
 	}
 	// Parse the output from 'ps' to find the process by command
 	lines := strings.Split(outBuf.String(), "\n")
@@ -518,13 +531,13 @@ func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
 		if len(fs) < max(pidIndex, cmdIndex) {
 			continue // Ensure there are enough fs for PID and CMD
 		}
-		// Only match on the first one -- hack for now
 		cmd := fs[cmdIndex:]
-		w.Debug("matching", wool.Field("cmd", cmd))
+		w.Debug("checking process", wool.Field("cmd", cmd), wool.Field("proc", proc.cmd))
+
 		if proc.Match(cmd) {
 			pid, err := strconv.Atoi(fs[pidIndex])
 			if err != nil {
-				return 0, fmt.Errorf("error converting PID to int: %w", err)
+				return 0, w.Wrapf(err, "cannot parse PID")
 			}
 			return pid, nil
 
@@ -701,7 +714,7 @@ func (proc *DockerProc) Match(cmd []string) bool {
 	if proc.waitOn != "" {
 		return cmd[0] == proc.waitOn
 	}
-	return proc.cmd[0] == cmd[0]
+	return strings.Contains(proc.cmd[0], cmd[0])
 }
 
 func (docker *DockerEnvironment) ImageExists(ctx context.Context, imag *resources.DockerImage) (bool, error) {

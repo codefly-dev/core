@@ -47,7 +47,7 @@ func Load[P AgentContext, Instance any](ctx context.Context, p *resources.Agent,
 	if p == nil {
 		return nil, nil, w.NewError("agent cannot be nil")
 	}
-	bin, err := p.Path()
+	bin, err := p.Path(ctx)
 	if err != nil {
 		return nil, nil, w.Wrapf(err, "cannot compute agent path")
 	}

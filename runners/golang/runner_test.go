@@ -62,10 +62,16 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment, 
 	require.NoError(t, err)
 
 	time.Sleep(1 * time.Second)
+	require.True(t, shared.Must(proc.IsRunning(ctx)))
+
 	err = proc.Stop(ctx)
-	time.Sleep(100 * time.Millisecond)
-	testOutput(t, data)
 	require.NoError(t, err)
+
+	time.Sleep(2 * time.Second)
+
+	testOutput(t, data)
+
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
 }
 
 func testOutput(t *testing.T, data *shared.SliceWriter) {
@@ -81,7 +87,7 @@ func testOutput(t *testing.T, data *shared.SliceWriter) {
 func TestNativeRunWithMod(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
-	env, err := golang.NewNativeGoRunner(ctx, shared.MustSolvePath("testdata/mod"))
+	env, err := golang.NewNativeGoRunner(ctx, shared.MustSolvePath("testdata"), "mod")
 	require.NoError(t, err)
 	testGo(t, ctx, env, true)
 }
@@ -92,7 +98,7 @@ func TestDockerRunWithMod(t *testing.T) {
 	name := fmt.Sprintf("test-mod-%d", time.Now().UnixMilli())
 	env, err := golang.NewDockerGoRunner(ctx,
 		resources.NewDockerImage("golang:1.22.2-alpine"),
-		shared.MustSolvePath("testdata/mod"),
+		shared.MustSolvePath("testdata"), "mod",
 		name)
 	require.NoError(t, err)
 
@@ -109,7 +115,7 @@ func TestDockerRunNoMod(t *testing.T) {
 	ctx := context.Background()
 	env, err := golang.NewDockerGoRunner(ctx,
 		resources.NewDockerImage("golang:1.22.2-alpine"),
-		shared.MustSolvePath("testdata/no_mod"),
+		shared.MustSolvePath("testdata"), "no_mod",
 		name)
 	require.NoError(t, err)
 

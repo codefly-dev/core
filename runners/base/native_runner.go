@@ -84,6 +84,29 @@ type NativeProc struct {
 	waitOn string
 }
 
+// IsRunning checks if the exec is still running
+func (proc *NativeProc) IsRunning(ctx context.Context) (bool, error) {
+	w := wool.Get(ctx).In("NativeProc.IsRunning")
+	// Check the PID
+	if proc.exec == nil || proc.exec.Process == nil {
+		return false, nil
+	}
+	pid := proc.exec.Process.Pid
+	w.Debug("checking if process is running", wool.Field("pid", pid))
+	// #nosec G204
+	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		w.Debug("error checking if process is running", wool.Field("error", err))
+		return false, err
+	}
+	if strings.Contains(string(output), fmt.Sprintf("%d", pid)) &&
+		!strings.Contains(string(output), "defunct") {
+		return true, nil
+	}
+	return false, nil
+}
+
 func (proc *NativeProc) WaitOn(bin string) {
 	proc.waitOn = bin
 }
@@ -227,24 +250,29 @@ func (proc *NativeProc) WithOutput(output io.Writer) {
 func (proc *NativeProc) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Stop")
 	w.Debug("stopping process")
+
 	// Attempt to gracefully terminate the process
+	w.Debug("sending SIGTERM to process")
 	err := proc.exec.Process.Signal(syscall.SIGTERM)
 	if err != nil {
 		return fmt.Errorf("failed to send SIGTERM: %w", err)
 	}
-	time.Sleep(1 * time.Second)
+	time.Sleep(time.Second)
 
 	// Check if the process has exited
 	if err := proc.exec.Process.Signal(syscall.Signal(0)); err == nil {
+		w.Debug("process is still alive after SIGTERM, sending SIGKILL")
 		// Process is still alive after SIGTERM and waiting period, force kill
 		if killErr := proc.exec.Process.Kill(); killErr != nil {
+			w.Debug("failed to force kill process", wool.Field("error", killErr))
 			return fmt.Errorf("failed to force kill process: %w", killErr)
 		}
 	} else {
 		// Process has exited, or an error occurred when checking the process status
+		w.Debug("process has exited after SIGTERM")
 		if !strings.Contains(err.Error(), "process already finished") {
 			// Handle or log this error if it's not the expected "already finished" error
-			w.Trace("error checking process status", wool.Field("error", err))
+			w.Debug("error checking process status", wool.Field("error", err))
 		}
 	}
 	go func() {

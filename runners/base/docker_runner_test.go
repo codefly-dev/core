@@ -105,6 +105,8 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
+
 	// We should have an ID now
 	id, err := env.ContainerID()
 	require.NoError(t, err)
@@ -124,6 +126,7 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
 
 	require.Contains(t, output.Data, "good")
 	require.Contains(t, output.Data, "crashing")
@@ -138,6 +141,8 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, output.Data, "1")
 
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
+
 	// Run an infinite script and stop it after 2 seconds
 	proc, err = env.NewProcess("sh", "good/infinite_counter.sh")
 	require.NoError(t, err)
@@ -146,6 +151,9 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 
 	err = proc.Start(ctx)
 	require.NoError(t, err)
+
+	require.True(t, shared.Must(proc.IsRunning(ctx)))
+
 	wait := time.NewTimer(time.Second)
 	<-wait.C
 	err = proc.Stop(ctx)
@@ -161,4 +169,6 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 	require.Contains(t, output.Data, "1")
+
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
 }
