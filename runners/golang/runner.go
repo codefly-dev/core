@@ -227,11 +227,6 @@ func (r *GoRunnerEnvironment) Init(ctx context.Context) error {
 			return w.Wrapf(err, "cannot handle go modules")
 		}
 	}
-
-	err = r.BuildBinary(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot build binary")
-	}
 	return nil
 }
 

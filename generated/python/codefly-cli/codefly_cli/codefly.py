@@ -112,12 +112,11 @@ class Launcher:
         cmd.extend(["--exclude-root", "--cli-server", "--runtime-context", self.runtime_context])
         if self.scope:
             cmd.extend(["--scope", self.scope])
+        if len(self.silent_services) > 0:
+            cmd.extend(["--silent", ",".join(self.silent_services)])
         options = {}
         if self.show_cli_output:
             options["stdout"] = subprocess.PIPE
-
-        if len(self.silent_services):
-            options["silent"] = ",".join(self.silent_services)
 
         self.cmd = subprocess.Popen(cmd, cwd=self.dir, **options)
         port = 10000
