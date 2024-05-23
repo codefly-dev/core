@@ -69,7 +69,10 @@ def with_debug():
     global _debug
     _debug = True
 
-
+_silent_services = []
+def with_silent(services):
+    global _silent_services
+    _silent_services = services
 
 class Launcher:
     def __init__(self, root: str = "..", scope: str = "", keep_alive: bool = False):
@@ -78,6 +81,9 @@ class Launcher:
 
         global _with_cli_logs
         self.show_cli_output = _with_cli_logs
+
+        global _silent_services
+        self.silent_services = _silent_services
 
         self.dir = find_service_dir(os.path.abspath(root))
         print(f"running in {self.dir}")
@@ -106,9 +112,13 @@ class Launcher:
         cmd.extend(["--exclude-root", "--cli-server", "--runtime-context", self.runtime_context])
         if self.scope:
             cmd.extend(["--scope", self.scope])
-        options = {"stdout": subprocess.PIPE}
+        options = {}
         if self.show_cli_output:
-            options = {}
+            options["stdout"] = subprocess.PIPE
+
+        if len(self.silent_services):
+            options["silent"] = ",".join(self.silent_services)
+
         self.cmd = subprocess.Popen(cmd, cwd=self.dir, **options)
         port = 10000
         wait = 60

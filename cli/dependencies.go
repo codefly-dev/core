@@ -1,4 +1,4 @@
-package launcher
+package cli
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	codefly "github.com/codefly-dev/sdk-go"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
@@ -21,7 +22,7 @@ import (
 	v0 "github.com/codefly-dev/core/generated/go/cli/v0"
 )
 
-type Launcher struct {
+type Dependencies struct {
 	cmd            *exec.Cmd
 	cli            v0.CLIClient
 	runtimeContext *basev0.RuntimeContext
@@ -31,7 +32,7 @@ type Option struct {
 	Debug bool
 }
 
-func New(ctx context.Context, opt *Option) (*Launcher, error) {
+func WithDependencies(ctx context.Context, opt *Option) (*Dependencies, error) {
 	args := []string{"run", "service"}
 	if opt != nil {
 		if opt.Debug {
@@ -66,7 +67,7 @@ func New(ctx context.Context, opt *Option) (*Launcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &Launcher{cmd: cmd, cli: cli, runtimeContext: resources.NewRuntimeContextNative()}
+	l := &Dependencies{cmd: cmd, cli: cli, runtimeContext: resources.NewRuntimeContextNative()}
 	err = l.WaitForReady(ctx)
 	if err != nil {
 		return nil, err
@@ -75,10 +76,14 @@ func New(ctx context.Context, opt *Option) (*Launcher, error) {
 	if err != nil {
 		return nil, err
 	}
+	_, err = codefly.Init(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return l, nil
 }
 
-func (l *Launcher) WaitForReady(ctx context.Context) error {
+func (l *Dependencies) WaitForReady(ctx context.Context) error {
 	time.Sleep(time.Second)
 	wait := 5 * time.Second
 	for {
@@ -128,7 +133,7 @@ func Service() (*resources.Service, error) {
 	return runningService, nil
 }
 
-func (l *Launcher) SetEnvironment(ctx context.Context) error {
+func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 	w := wool.Get(ctx).In("codefly.SetEnvironment")
 	svc, err := Service()
 	if err != nil {
@@ -160,7 +165,7 @@ func (l *Launcher) SetEnvironment(ctx context.Context) error {
 	return nil
 }
 
-func (l *Launcher) Stop(ctx context.Context) error {
+func (l *Dependencies) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("codefly.Stop")
 	_, err := l.cli.StopFlow(ctx, &v0.StopFlowRequest{})
 	if err != nil {
@@ -173,12 +178,15 @@ func (l *Launcher) Stop(ctx context.Context) error {
 	return err
 }
 
-func (l *Launcher) Destroy(ctx context.Context) error {
-	w := wool.Get(ctx).In("codefly.Destroy")
-	err := l.Stop(ctx)
+func (l *Dependencies) Destroy(ctx context.Context) error {
+	w := wool.Get(ctx).In("codefly.Stop")
+	_, err := l.cli.DestroyFlow(ctx, &v0.DestroyFlowRequest{})
 	if err != nil {
-		return w.Wrapf(err, "failed to close")
+		w.Warn("failed to stop flow", wool.Field("error", err))
 	}
-	_, err = l.cli.DestroyFlow(ctx, &v0.DestroyFlowRequest{})
+	err = l.cmd.Process.Kill()
+	if err != nil {
+		return w.Wrapf(err, "failed to kill process")
+	}
 	return err
 }

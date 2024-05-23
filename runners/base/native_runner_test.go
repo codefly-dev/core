@@ -9,9 +9,8 @@ import (
 
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/codefly-dev/core/runners/base"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLocalEnvironment(t *testing.T) {
@@ -37,7 +36,6 @@ func TestLocalEnvironment(t *testing.T) {
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-	require.False(t, shared.Must(proc.IsRunning(ctx)))
 
 	timeout := time.NewTimer(time.Second)
 loop:
@@ -52,6 +50,7 @@ loop:
 
 	}
 	time.Sleep(100 * time.Millisecond)
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	require.Contains(t, d.Data, "good")
 	require.Contains(t, d.Data, "crashing")
 
@@ -68,7 +67,6 @@ loop:
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	timeout = time.NewTimer(time.Second)
 loopAgain:
 	for {
@@ -82,6 +80,7 @@ loopAgain:
 
 	}
 	time.Sleep(100 * time.Millisecond)
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	require.Contains(t, d.Data, "good")
 	require.Contains(t, d.Data, "crashing")
 
@@ -95,7 +94,6 @@ loopAgain:
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	timeout = time.NewTimer(time.Second)
 loopFirst:
 	for {
@@ -108,6 +106,7 @@ loopFirst:
 		}
 	}
 	time.Sleep(100 * time.Millisecond)
+	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	require.Contains(t, d.Data, "1")
 
 	// Run an infinite script and stop it after 2 seconds

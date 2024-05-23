@@ -97,9 +97,13 @@ func (proc *NativeProc) IsRunning(ctx context.Context) (bool, error) {
 	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		w.Debug("error checking if process is running", wool.Field("error", err))
+		if strings.Contains(err.Error(), "exit") {
+			return false, nil
+		}
+		w.Debug("error checking if process is running", wool.Field("error", err), wool.Field("output", string(output)))
 		return false, err
 	}
+	w.Debug("process is running", wool.Field("output", string(output)))
 	if strings.Contains(string(output), fmt.Sprintf("%d", pid)) &&
 		!strings.Contains(string(output), "defunct") {
 		return true, nil

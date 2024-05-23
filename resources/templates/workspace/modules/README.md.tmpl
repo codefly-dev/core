@@ -1,3 +1,22 @@
-# Workspace {{.Name}}
+# Welcome to your Workspace {{.Name}}
 
 See [Documentation](https://docs.codefly.dev/concepts/workspace/) for more information on Workspace.
+
+
+## Structure
+
+```
+workspace/
+├── 📂 configurations
+|   ├── 📂 ${dev}
+│   └── 📂 ${prod}
+└── 📂 modules
+│   └── 📂 ${management}
+|       └── 📂services
+|           ├── 📂 ${backend}
+|           ├── 📂 ${cache}
+|           └── 📂 ${database}
+│   └── 📂 ${external}
+|           ├── 📂 ${frontend}
+|           └── 📂 ${api}
+```

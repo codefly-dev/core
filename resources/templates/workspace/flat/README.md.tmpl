@@ -1,33 +1,23 @@
-# Welcome to Project {{.Name}}!
+# Welcome to your workspace {{.Name}}!
 
-## What is a project?
+## What is a workspace?
 
-A project is meant to be represent a monorepo of applications that are related to each other.
+A workspace is meant to be represent a monorepo of applications that are related to each other.
 
-See [Documentation](https://docs.codefly.dev/concepts/project/) for more information.
+See [Documentation](https://docs.codefly.dev/concepts/workspace/) for more information.
 
-## Structure of the project
+## Structure of the workspace
 
-A project is structured as follows:
+The workspace is structured as follows:
 ```shell
-.
-├── applications
-│   └── foo
-│       └── services
-│           └── api
-│           └── storage
-│       └── ...
-│   └── bar
-│       └── services
-│           └── web
-│           └── auth
-├── configurations
-│   └── ...
-├── deployments
-│   └── ....
+workspace/
+├── 📂 configurations
+|   ├── 📂 ${dev}
+│   └── 📂 ${production}
+└── 📂 services
+│   ├── 📂 ${frontend}
+│   ├── 📂 ${backend}
+│   └── 📂 ${database}
 ```
-where `foo` and `bar` are applications of the project.
 
-`configurations` contains the shared configurations of the project.
-
-`deployments` contains the deployment manifests of the project for self-managed deployments.
+`configurations` contains the shared configurations for the workspace.
