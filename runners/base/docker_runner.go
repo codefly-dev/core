@@ -253,7 +253,7 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 	mounts = append(mounts, docker.mounts...)
 
 	for _, m := range mounts {
-		w.Focus("mount", wool.Field("source", m.Source), wool.Field("target", m.Target))
+		w.Debug("mount", wool.Field("source", m.Source), wool.Field("target", m.Target))
 	}
 
 	hostConfig := &container.HostConfig{

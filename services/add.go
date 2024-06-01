@@ -63,7 +63,7 @@ func Add(ctx context.Context, workspace *resources.Workspace, module *resources.
 		fmt.Println(rendered)
 	}
 
-	_, err = instance.Builder.LoadForCreate(ctx)
+	_, err = instance.Builder.Load(ctx, ForCreate)
 	if err != nil {
 		return w.Wrapf(err, "builder failed in load")
 	}

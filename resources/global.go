@@ -75,4 +75,5 @@ func init() {
 		codeflyDir = *found
 		return
 	}
+	panic("cannot find codefly config")
 }

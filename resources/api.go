@@ -106,6 +106,7 @@ func LoadRestAPI(ctx context.Context, f *string) (*basev0.RestAPI, error) {
 		return &basev0.RestAPI{}, nil
 	}
 	filename := *f
+	w.Debug("loading REST API from file", wool.FileField(filename))
 	exists, err := shared.FileExists(ctx, filename)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to check file existence")
@@ -118,20 +119,21 @@ func LoadRestAPI(ctx context.Context, f *string) (*basev0.RestAPI, error) {
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to read file")
 	}
-	swagger, err := ParseOpenAPI(content)
+	openapi, err := ParseOpenAPI(content)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to parse openapi spec")
 	}
 
+	w.Debug("found paths", wool.Field("path", openapi.Paths.Paths))
 	groupMap := make(map[string]*basev0.RestRouteGroup)
-	for path := range swagger.Paths.Paths {
+	for path := range openapi.Paths.Paths {
 		var group *basev0.RestRouteGroup
 		var ok bool
 		if group, ok = groupMap[path]; !ok {
 			group = &basev0.RestRouteGroup{}
 			groupMap[path] = group
 		}
-		item := swagger.Paths.Paths[path]
+		item := openapi.Paths.Paths[path]
 		methods := getHTTPMethodsFromPathItem(&item)
 		for _, method := range methods {
 			route := &basev0.RestRoute{Path: path, Method: method}

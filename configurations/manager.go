@@ -71,9 +71,7 @@ func (manager *Manager) Load(ctx context.Context, env *resources.Environment) er
 	if err != nil {
 		return w.Wrapf(err, "cannot load DNS")
 	}
-	w.Focus("loaded",
-		wool.Field("dns", resources.MakeManyDNSSummary(manager.dns)))
-
+	w.Debug("loaded", wool.Field("dns", resources.MakeManyDNSSummary(manager.dns)))
 	return nil
 }
 

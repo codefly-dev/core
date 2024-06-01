@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"github.com/go-openapi/spec"
 )
@@ -64,7 +65,7 @@ func (c *OpenAPICombinator) LoadEndpoints(ctx context.Context, endpoints ...*bas
 	return nil
 }
 
-func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.Endpoint, error) {
+func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.RestAPI, error) {
 	w := wool.Get(ctx).In("configurations.CombineOpenAPI")
 
 	combined := &spec.Swagger{
@@ -130,7 +131,11 @@ func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.Endpoint, erro
 		return nil, w.Wrapf(err, "failed to write combined openapi spec to file")
 	}
 
-	return nil, nil
+	rest, err := LoadRestAPI(ctx, shared.Pointer(c.filename))
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot create REST endpoint from filename")
+	}
+	return rest, nil
 }
 
 func (c *OpenAPICombinator) Only(unique string, path string) {

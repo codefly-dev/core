@@ -1,7 +1,7 @@
 FROM python:3.11-alpine as builder
 
 RUN apk update && \
-    apk add --no-cache procps libpq && \
+    apk add --no-cache procps && \
     rm -rf /var/cache/apk/*
 
 RUN pip install --upgrade pip

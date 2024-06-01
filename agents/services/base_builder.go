@@ -21,7 +21,9 @@ type BuilderWrapper struct {
 	DeployOutput *builderv0.DeploymentOutput
 
 	GettingStarted string
-	CreationMode   *builderv0.CreationMode
+
+	CreationMode *builderv0.CreationMode
+	SyncMode     *builderv0.SyncMode
 }
 
 func ErrorMessage(err error, msg string, args ...any) string {

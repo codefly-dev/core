@@ -195,7 +195,7 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		cmd.Dir = proc.dir
 	}
 	cmd.Env = resources.EnvironmentVariableAsStrings(proc.env.envs)
-	w.Focus("envs", wool.Field("envs", cmd.Env))
+	w.Debug("envs", wool.Field("envs", cmd.Env))
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
 
 	// start and get the logs

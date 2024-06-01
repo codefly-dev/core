@@ -1,6 +1,13 @@
 package languages
 
-import "os/exec"
+import (
+	"context"
+	"os"
+
+	"os/exec"
+
+	"github.com/codefly-dev/core/wool"
+)
 
 type VersionRequirement struct {
 	Minimum string
@@ -42,4 +49,27 @@ func HasNodeRuntime(_ *NodeRuntimeConfiguration) bool {
 		return true
 	}
 	return false
+}
+
+type RailsRuntimeConfiguration struct {
+}
+
+// HasRailsRuntime checks if the Go runtime is available on the system.
+// and verify minimum version.
+func HasRailsRuntime(ctx context.Context, _ *RailsRuntimeConfiguration) bool {
+	w := wool.Get(ctx).In("HasRails")
+	if _, err := exec.LookPath("ruby"); err != nil {
+		return false
+	}
+	cmd := exec.Command("ruby", "-v")
+	cmd.Env = os.Environ()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+	w.Debug("out", wool.Field("out", string(out)))
+	if _, err := exec.LookPath("rails"); err != nil {
+		return false
+	}
+	return true
 }

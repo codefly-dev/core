@@ -75,24 +75,38 @@ func (instance *BuilderInstance) loadRequest(ctx context.Context) (*builderv0.Lo
 	return req, nil
 }
 
-func (instance *BuilderInstance) Load(ctx context.Context) (*builderv0.LoadResponse, error) {
-	w := wool.Get(ctx).In("BuilderInstance::Load", wool.NameField(instance.Service.Unique()))
-	w.Debug("loading", wool.ModuleField(instance.Service.Module))
-	req, err := instance.loadRequest(ctx)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot create load request")
-	}
-	return instance.Builder.Load(ctx, req)
+type BuilderLoadOptions struct {
+	create bool
+	sync   bool
 }
 
-func (instance *BuilderInstance) LoadForCreate(ctx context.Context) (*builderv0.LoadResponse, error) {
+type BuilderLoadOption func(opt *BuilderLoadOptions)
+
+func ForCreate(opt *BuilderLoadOptions) {
+	opt.create = true
+}
+
+func ForSync(opt *BuilderLoadOptions) {
+	opt.sync = true
+}
+
+func (instance *BuilderInstance) Load(ctx context.Context, opts ...BuilderLoadOption) (*builderv0.LoadResponse, error) {
+	opt := &BuilderLoadOptions{}
+	for _, o := range opts {
+		o(opt)
+	}
 	w := wool.Get(ctx).In("BuilderInstance::Load", wool.NameField(instance.Service.Unique()))
 	w.Debug("loading", wool.ModuleField(instance.Service.Module))
 	req, err := instance.loadRequest(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create load request")
 	}
-	req.CreationMode = &builderv0.CreationMode{Communicate: true}
+	if opt.create {
+		req.CreationMode = &builderv0.CreationMode{Communicate: true}
+	}
+	if opt.sync {
+		req.SyncMode = &builderv0.SyncMode{Communicate: true}
+	}
 	return instance.Builder.Load(ctx, req)
 }
 

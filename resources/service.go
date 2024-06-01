@@ -474,7 +474,8 @@ func (s *Service) BaseEndpoint(name string) *Endpoint {
 }
 
 func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
-	w := wool.Get(ctx).In("Service::LoadEndpoints", wool.NameField(s.Name))
+	w := wool.Get(ctx).In("core.resources.Service.LoadEndpoints", wool.NameField(s.Name))
+	w.Debug("processing endpoints", wool.SliceCountField(s.Endpoints))
 	var multi error
 	var out []*basev0.Endpoint
 	for _, ed := range s.Endpoints {
@@ -485,16 +486,17 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 		}
 		switch ed.API {
 		case standards.REST:
-			w.Debug("loading rest endpoint", wool.PathField(standards.OpenAPIPath))
+			w.Debug("loading REST endpoint", wool.PathField(standards.OpenAPIPath))
 			rest, err := LoadRestAPI(ctx, s.LocalOrNil(ctx, standards.OpenAPIPath))
 			if err != nil {
 				multi = multierror.Append(multi, err)
+				w.Debug("couldn't load endpoints", wool.ErrField(err))
 				continue
 			}
 			base.ApiDetails = ToRestAPI(rest)
 			out = append(out, base)
 		case standards.GRPC:
-			w.Debug("loading grpc endpoint", wool.PathField(standards.ProtoPath))
+			w.Debug("loading gRPC endpoint", wool.PathField(standards.ProtoPath))
 			grpc, err := LoadGrpcAPI(ctx, s.LocalOrNil(ctx, standards.ProtoPath))
 			if err != nil {
 				multi = multierror.Append(multi, err)
@@ -521,6 +523,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 			out = append(out, base)
 		}
 	}
+	w.Debug("loaded endpoints", wool.SliceCountField(out))
 	return out, multi
 }
 

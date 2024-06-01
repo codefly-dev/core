@@ -80,7 +80,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 		return w.Wrapf(err, "cannot load services")
 	}
 
-	w.Focus("loaded services", wool.Field("svcs", resources.MakeManyServicesSummary(services)))
+	w.Debug("loaded services", wool.Field("svcs", resources.MakeManyServicesSummary(services)))
 
 	serviceConfs := make(map[string]*basev0.Configuration)
 	for _, svc := range services {
@@ -121,7 +121,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			for _, d := range dns {
 				d.Service = svc.Name
 				d.Module = svc.Module
-				w.Focus("found DNS", wool.Field("dns", resources.MakeDNSSummary(d)))
+				w.Debug("found DNS", wool.Field("dns", resources.MakeDNSSummary(d)))
 				local.dns = append(local.dns, d)
 			}
 		}

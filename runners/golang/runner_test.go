@@ -35,6 +35,9 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment, 
 	err := env.Init(ctx)
 	require.NoError(t, err)
 
+	err = env.BuildBinary(ctx)
+	require.NoError(t, err)
+
 	// Check that the go mod has some modules
 	if withModule {
 		require.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, goModDir)))
@@ -45,8 +48,7 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment, 
 
 	require.False(t, env.UsedCache())
 
-	// Re-init
-	err = env.Init(ctx)
+	err = env.BuildBinary(ctx)
 	require.NoError(t, err)
 	require.True(t, env.UsedCache())
 

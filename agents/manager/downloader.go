@@ -48,7 +48,7 @@ func Downloaded(ctx context.Context, p *resources.Agent) (bool, error) {
 	if err != nil {
 		return false, w.Wrapf(err, "cannot compute agent path")
 	}
-	w.Focus("checking if agent is downloaded", wool.Field("path", bin))
+	w.Debug("checking if agent is downloaded", wool.Field("path", bin))
 	exists, err := shared.FileExists(ctx, bin)
 	if err != nil {
 		return false, w.Wrapf(err, "cannot check if file exists")

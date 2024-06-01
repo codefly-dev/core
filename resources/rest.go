@@ -539,6 +539,7 @@ func GroupKey(endpoint *basev0.Endpoint, group *basev0.RestRouteGroup) string {
 
 func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpoint, known []*RestRouteGroup) []*RestRouteGroup {
 	w := wool.Get(ctx).In("DetectNewRoutes")
+	w.Debug("processing endpoints", wool.SliceCountField(endpoints))
 	knownRoutes := make(map[string]bool)
 	for _, k := range known {
 		for _, r := range k.Routes {
@@ -555,33 +556,39 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 	newGroups := make(map[string]*RestRouteGroup)
 
 	for _, e := range endpoints {
-		if rest := IsRest(ctx, e); rest != nil {
-			for _, group := range rest.Groups {
-				groupKey := GroupKey(e, group)
-				for _, r := range group.Routes {
-					key := RouteUnique{
-						service: e.Service,
-						module:  e.Module,
-						path:    r.Path,
-						method:  ConvertHTTPMethodFromProto(r.Method),
-					}
-					if _, ok := knownRoutes[key.String()]; !ok {
-						w.Debug("detected unknown route", wool.Field("route", key.String()))
-						var outputGroup *RestRouteGroup
-						var groupKnown bool
-						if outputGroup, groupKnown = newGroups[groupKey]; !groupKnown {
-							outputGroup = &RestRouteGroup{
-								Module:  e.Module,
-								Service: e.Service,
-								Path:    r.Path,
-							}
-							newGroups[groupKey] = outputGroup
+		rest := IsRest(ctx, e)
+		if rest == nil {
+			w.Debug("endpoint not REST", wool.Field("name", e.Name), wool.Field("api", e.Api))
+			continue
+		}
+		w.Debug("found a REST endpoint", wool.Field("name", e.Name), wool.Field("api", e.Api), wool.SliceCountField(rest.Groups))
+		for _, group := range rest.Groups {
+			groupKey := GroupKey(e, group)
+			w.Debug("processing group", wool.Field("key", groupKey), wool.SliceCountField(group.Routes))
+			for _, r := range group.Routes {
+				key := RouteUnique{
+					service: e.Service,
+					module:  e.Module,
+					path:    r.Path,
+					method:  ConvertHTTPMethodFromProto(r.Method),
+				}
+				if _, ok := knownRoutes[key.String()]; !ok {
+					w.Debug("detected unknown route", wool.Field("route", key.String()))
+					var outputGroup *RestRouteGroup
+					var groupKnown bool
+					if outputGroup, groupKnown = newGroups[groupKey]; !groupKnown {
+						outputGroup = &RestRouteGroup{
+							Module:  e.Module,
+							Service: e.Service,
+							Path:    r.Path,
 						}
-						outputGroup.Routes = append(outputGroup.Routes, RestRouteFromProto(r))
+						newGroups[groupKey] = outputGroup
 					}
+					outputGroup.Routes = append(outputGroup.Routes, RestRouteFromProto(r))
 				}
 			}
 		}
+
 	}
 	var output []*RestRouteGroup
 	for _, g := range newGroups {

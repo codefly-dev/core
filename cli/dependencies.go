@@ -155,7 +155,7 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 		for _, env := range envs {
 			k := env.Key
 			v := fmt.Sprintf("%s", env.Value)
-			w.Focus("setting environment variable", wool.Field("key", k), wool.Field("value", v))
+			w.Debug("setting environment variable", wool.Field("key", k), wool.Field("value", v))
 			err = os.Setenv(k, v)
 			if err != nil {
 				return w.Wrapf(err, "failed to set environment variable")
