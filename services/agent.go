@@ -47,6 +47,7 @@ func LoadAgent(ctx context.Context, agent *resources.Agent) (*coreservices.Servi
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
+
 	agentsPid[agent.Unique()] = process.PID
 
 	loaded.Agent = agent

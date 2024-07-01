@@ -24,6 +24,7 @@ import (
 
 type Information struct {
 	Service *resources.ServiceWithCase
+	Module  *resources.ModuleWithCase
 	Agent   *resources.Agent
 }
 
@@ -162,6 +163,7 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 
 	s.Information = &Information{
 		Service: resources.ToServiceWithCase(s.Service),
+		Module:  resources.ToModuleWithCase(s.Service),
 		Agent:   s.Agent,
 	}
 

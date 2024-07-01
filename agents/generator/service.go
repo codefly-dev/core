@@ -60,6 +60,7 @@ func GenerateServiceTemplate(ctx context.Context, dir string) error {
 	}
 	w.Trace("found base to generate new agent templates")
 	gen, err := resources.LoadFromDir[generation.Service](ctx, base)
+
 	if err != nil {
 		return w.Wrapf(err, "cannot load generation configuration")
 	}

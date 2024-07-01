@@ -175,9 +175,10 @@ func Load(ctx context.Context, service *resources.Service) (*Instance, error) {
 	if instance, ok := instances[service.Unique()]; ok {
 		return instance, nil
 	}
+
 	agent, err := LoadAgent(ctx, service.Agent)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot load agent")
+		return nil, w.Wrapf(err, "cannot load agent: %s", service.Agent)
 	}
 	// Init capabilities
 	instance := &Instance{
@@ -188,7 +189,7 @@ func Load(ctx context.Context, service *resources.Service) (*Instance, error) {
 
 	info, err := agent.GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot get agent information")
+		return nil, w.Wrapf(err, "cannot get agent information: %v", service.Agent)
 	}
 
 	instance.Capabilities = info.Capabilities

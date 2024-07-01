@@ -2,12 +2,12 @@ package generation
 
 const ServiceGenerationConfigurationName = "service.generation.codefly.yaml"
 
-type Base struct {
-	Domain string `yaml:"domain"`
-	Name   string `yaml:"name"`
+type Replacement struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
 }
 
 type Service struct {
-	Base    Base     `yaml:"base"`
-	Ignores []string `yaml:"ignores"`
+	Replacements []Replacement `yaml:"replacements"`
+	Ignores      []string      `yaml:"ignores"`
 }

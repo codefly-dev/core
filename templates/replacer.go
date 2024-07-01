@@ -12,8 +12,8 @@ type ServiceReplacer struct {
 
 func NewServiceReplacer(gen *generation.Service) *ServiceReplacer {
 	replacements := make(map[string]string)
-	if gen.Base.Name != "" {
-		replacements[gen.Base.Name] = "{{.Service.Name.Title}}"
+	for _, replacement := range gen.Replacements {
+		replacements[replacement.From] = replacement.To
 	}
 	return &ServiceReplacer{replacements: replacements}
 }

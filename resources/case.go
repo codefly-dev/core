@@ -13,3 +13,13 @@ func ToServiceWithCase(svc *Service) *ServiceWithCase {
 		Unique: shared.ToCase(svc.Unique()),
 	}
 }
+
+type ModuleWithCase struct {
+	Name shared.Case
+}
+
+func ToModuleWithCase(svc *Service) *ModuleWithCase {
+	return &ModuleWithCase{
+		Name: shared.ToCase(svc.Module),
+	}
+}

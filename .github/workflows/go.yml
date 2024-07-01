@@ -40,7 +40,7 @@ jobs:
 #          version: v1.55
 
       - name: generate test generate coverage
-        run: mkdir .codefly && go test ./... -coverprofile=cover.out -covermode=atomic -coverpkg=./...
+        run: go test ./... -coverprofile=cover.out -covermode=atomic -coverpkg=./...
 
       - name: check test coverage
         id: coverage

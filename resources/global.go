@@ -75,5 +75,11 @@ func init() {
 		codeflyDir = *found
 		return
 	}
-	panic("cannot find codefly config")
+	// Or use current path
+	cur, err := os.Getwd()
+	if err != nil {
+		codeflyDir = ".codefly"
+		return
+	}
+	codeflyDir = path.Join(cur, ".codefly")
 }
