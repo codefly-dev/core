@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	observabilityv0 "github.com/codefly-dev/core/generated/go/observability/v0"
+	observabilityv0 "github.com/codefly-dev/core/generated/go/codefly/observability/v0"
 )
 
 type DAG struct {
@@ -251,6 +251,9 @@ func (g *DAG) TopologicalSortTo(endNode string) ([]Node, error) {
 	}
 	sub = sub.Invert()
 	sorted, err := sub.TopologicalSortFrom(endNode)
+	if err != nil {
+		return nil, fmt.Errorf("cannot sort graph to endNode %s", endNode)
+	}
 	slices.Reverse(sorted)
 	return sorted, nil
 }

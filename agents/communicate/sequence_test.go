@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/communicate"
-	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
+	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/require"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
 
 // We mimic the behavior of a agent

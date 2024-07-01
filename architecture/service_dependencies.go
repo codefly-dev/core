@@ -162,7 +162,7 @@ func (d *ServiceDependencies) DirectDependents(ctx context.Context, unique strin
 }
 
 // Restrict restricts the dependencies to the services required by the service identified by unique
-func (d *ServiceDependencies) Restrict(ctx context.Context, unique string) (*ServiceDependencies, error) {
+func (d *ServiceDependencies) Restrict(_ context.Context, unique string) (*ServiceDependencies, error) {
 	// B is required by A if A <- ... <- B
 	sub, err := d.Graph.SubGraphTo(unique)
 	if err != nil {

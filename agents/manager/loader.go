@@ -71,7 +71,7 @@ func Load[P AgentContext, Instance any](ctx context.Context, p *resources.Agent,
 		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
 		Logger:           agents.LogHandler().Receiver,
 	})
-	w.Trace("loaded", wool.PathField(bin), wool.Field("context", this.Key(p, unique)))
+	w.Trace("loaded", wool.Path(bin), wool.Field("context", this.Key(p, unique)))
 	inUse[unique] = client
 
 	// Connect via gRPC

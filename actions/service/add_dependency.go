@@ -7,7 +7,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 
-	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
+	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
 )
 
 const AddServiceDependencyKind = "service.add_dependency"

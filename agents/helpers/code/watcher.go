@@ -32,8 +32,8 @@ func addDependency(ctx context.Context, base string, dep *builders.Dependency, w
 	for _, p := range dep.Components() {
 		fullPath := path.Join(base, p)
 		// If path doesn't exist we skip
-		if exists, err := shared.FileExists(ctx, fullPath); err != nil || !exists {
-			w.Trace("skipping", wool.Field("path", fullPath))
+		if exists, err := shared.Exists(ctx, fullPath); err != nil || !exists {
+			w.Trace("skipping", wool.Path(fullPath))
 			continue
 		}
 		err := filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
@@ -45,9 +45,10 @@ func addDependency(ctx context.Context, base string, dep *builders.Dependency, w
 				return nil
 			}
 			if !dep.Keep(path) {
-				w.Trace("skipping", wool.Field("path", path))
+				w.Trace("skipping", wool.Path(path))
 				return nil
 			}
+			w.Trace("adding", wool.Path(path))
 			err = watcher.Add(path)
 			if err != nil {
 				return w.Wrapf(err, "cannot add path: %s", path)

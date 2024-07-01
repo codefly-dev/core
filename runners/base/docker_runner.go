@@ -59,7 +59,9 @@ type DockerEnvironment struct {
 
 var _ RunnerEnvironment = &DockerEnvironment{}
 
-func (docker *DockerEnvironment) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
+func (docker *DockerEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
+	w := wool.Get(ctx).In("WithEnvironmentVariables")
+	w.Debug("adding", wool.Field("envs", envs))
 	docker.envs = append(docker.envs, envs...)
 }
 
@@ -427,7 +429,9 @@ func (proc *DockerProc) WithDir(dir string) {
 	proc.dir = dir
 }
 
-func (proc *DockerProc) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
+func (proc *DockerProc) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
+	w := wool.Get(ctx).In("WithEnvironmentVariables")
+	w.Debug("adding", wool.Field("envs", envs))
 	proc.envs = append(proc.envs, envs...)
 }
 

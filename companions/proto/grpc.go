@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"

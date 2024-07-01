@@ -98,10 +98,10 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 	} else {
 		// Setup up the proper environment
 		if v, ok := os.LookupEnv("GOMODCACHE"); ok {
-			local.WithEnvironmentVariables(resources.Env("GOMODCACHE", v))
+			local.WithEnvironmentVariables(ctx, resources.Env("GOMODCACHE", v))
 		} else {
 			if v, ok := os.LookupEnv("GOPATH"); ok {
-				local.WithEnvironmentVariables(resources.Env("GOPATH", v))
+				local.WithEnvironmentVariables(ctx, resources.Env("GOPATH", v))
 			}
 		}
 	}
@@ -158,9 +158,9 @@ func (r *GoRunnerEnvironment) Env() runners.RunnerEnvironment {
 
 func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
 	if !r.withGoModules {
-		r.Env().WithEnvironmentVariables(resources.Env("GO111MODULE", "off"))
+		r.Env().WithEnvironmentVariables(ctx, resources.Env("GO111MODULE", "off"))
 	} else {
-		r.Env().WithEnvironmentVariables(resources.Env("GO111MODULE", "on"))
+		r.Env().WithEnvironmentVariables(ctx, resources.Env("GO111MODULE", "on"))
 	}
 	if r.docker != nil {
 		// Build
@@ -201,9 +201,9 @@ func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
 	}
 	if r.local != nil {
 		if r.goModCache != "" {
-			r.Env().WithEnvironmentVariables(resources.Env("GOMODCACHE", r.goModCache))
+			r.Env().WithEnvironmentVariables(ctx, resources.Env("GOMODCACHE", r.goModCache))
 		}
-		r.Env().WithEnvironmentVariables(resources.Env("HOME", os.Getenv("HOME")))
+		r.Env().WithEnvironmentVariables(ctx, resources.Env("HOME", os.Getenv("HOME")))
 	}
 }
 
@@ -378,8 +378,8 @@ func (r *GoRunnerEnvironment) WithRaceConditionDetection(b bool) {
 
 }
 
-func (r *GoRunnerEnvironment) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
-	r.Env().WithEnvironmentVariables(envs...)
+func (r *GoRunnerEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
+	r.Env().WithEnvironmentVariables(ctx, envs...)
 }
 
 func (r *GoRunnerEnvironment) WithFile(file string, location string) {

@@ -6,11 +6,11 @@ import (
 	"path"
 	"path/filepath"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 
 	"github.com/codefly-dev/core/templates"
 
-	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
+	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -228,7 +228,7 @@ func (workspace *Workspace) ModulePath(ctx context.Context, ref *ModuleReference
 	w := wool.Get(ctx).In("Workspace::ModulePath", wool.Field("module ref", ref))
 	if ref.PathOverride == nil {
 		p := workspace.layout.ModulePath(ref.Name)
-		w.Trace("no path override", wool.PathField(p))
+		w.Trace("no path override", wool.Path(p))
 		return p
 	}
 	if filepath.IsAbs(*ref.PathOverride) {

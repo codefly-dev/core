@@ -9,7 +9,7 @@ import (
 	"github.com/codefly-dev/core/agents/manager"
 	coreservices "github.com/codefly-dev/core/agents/services"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
+	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 )
 
 /*

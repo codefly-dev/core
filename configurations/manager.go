@@ -7,7 +7,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
 
 type Loader interface {

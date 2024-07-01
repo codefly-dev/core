@@ -9,7 +9,7 @@ import (
 	"github.com/yoheimuta/go-protoparser/v4"
 	"github.com/yoheimuta/go-protoparser/v4/parser"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"

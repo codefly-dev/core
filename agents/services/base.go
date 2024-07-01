@@ -15,9 +15,9 @@ import (
 	"github.com/codefly-dev/core/agents/helpers/code"
 
 	"github.com/codefly-dev/core/agents"
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
-	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )
@@ -188,7 +188,7 @@ func NewWatchConfiguration(dependencies *builders.Dependencies) *WatchConfigurat
 }
 
 func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handler func(event code.Change) error) error {
-	s.Wool.Debug("watching for changes", wool.Field("dependencies", builders.MakeDependenciesSummary(conf.dependencies)))
+	s.Wool.Focus("watching for changes", wool.Field("dependencies", builders.MakeDependenciesSummary(conf.dependencies)))
 	s.Events = make(chan code.Change)
 	var err error
 	s.Watcher, err = code.NewWatcher(ctx, s.Events, s.Location, conf.dependencies)

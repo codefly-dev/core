@@ -16,7 +16,7 @@ import (
 	"path"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/Masterminds/semver"

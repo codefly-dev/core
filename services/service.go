@@ -9,17 +9,15 @@ import (
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/codefly-dev/cli/pkg/cli"
-	clicommunicate "github.com/codefly-dev/cli/pkg/cli/communicate"
 	"github.com/codefly-dev/core/agents/communicate"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/services/runtime/v0"
+	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
-	resources "github.com/codefly-dev/core/resources"
+	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	"github.com/codefly-dev/core/resources"
 )
 
 type ProcessInfo struct {
@@ -110,24 +108,20 @@ func (instance *BuilderInstance) Load(ctx context.Context, opts ...BuilderLoadOp
 	return instance.Builder.Load(ctx, req)
 }
 
-func (instance *BuilderInstance) Create(ctx context.Context, req *builderv0.CreateRequest) (*builderv0.CreateResponse, error) {
+func (instance *BuilderInstance) Create(ctx context.Context, req *builderv0.CreateRequest, handler communicate.AnswerProvider) (*builderv0.CreateResponse, error) {
 	w := wool.Get(ctx).In("BuilderInstance::Create", wool.NameField(instance.Service.Unique()))
-	err := communicate.Do[builderv0.CreateRequest](ctx, instance.Builder, clicommunicate.NewPrompt())
+	err := communicate.Do[builderv0.CreateRequest](ctx, instance.Builder, handler)
 	if err != nil {
 		return &builderv0.CreateResponse{State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error()}},
 			w.Wrapf(err, "cannot communicate")
 	}
-	cli.Header(1, "Going to work!")
-	s := cli.Spinner()
-	s.Start()
-	defer s.Stop()
 	return instance.Builder.Create(ctx, req)
 }
 
-func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRequest) (*builderv0.SyncResponse, error) {
+func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRequest, handler communicate.AnswerProvider) (*builderv0.SyncResponse, error) {
 	w := wool.Get(ctx).In("BuilderInstance::Sync", wool.NameField(instance.Service.Unique()))
 	// Communicate always
-	err := communicate.Do[builderv0.SyncRequest](ctx, instance.Builder, clicommunicate.NewPrompt())
+	err := communicate.Do[builderv0.SyncRequest](ctx, instance.Builder, handler)
 	if err != nil {
 		return &builderv0.SyncResponse{State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}},
 			w.Wrapf(err, "cannot communicate")

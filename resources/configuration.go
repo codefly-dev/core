@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -18,6 +18,15 @@ func HasConfigurationInformation(_ context.Context, conf *basev0.Configuration, 
 		}
 	}
 	return false
+}
+
+func FindServiceConfiguration(_ context.Context, confs []*basev0.Configuration, runtimeContext *basev0.RuntimeContext, unique string) (*basev0.Configuration, error) {
+	for _, conf := range confs {
+		if conf.RuntimeContext.Kind == runtimeContext.Kind && conf.Origin == unique {
+			return conf, nil
+		}
+	}
+	return nil, fmt.Errorf("couldn't find service configuration: %s", unique)
 }
 
 func GetConfigurationValue(ctx context.Context, conf *basev0.Configuration, name string, key string) (string, error) {

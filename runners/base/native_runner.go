@@ -42,7 +42,9 @@ func (native *NativeEnvironment) Init(ctx context.Context) error {
 	return nil
 }
 
-func (native *NativeEnvironment) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
+func (native *NativeEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
+	w := wool.Get(ctx).In("WithEnvironmentVariables")
+	w.Debug("adding", wool.Field("envs", envs))
 	native.envs = append(native.envs, envs...)
 }
 
@@ -122,7 +124,9 @@ func (proc *NativeProc) WithDir(dir string) {
 func (proc *NativeProc) WithRunningCmd(_ string) {
 }
 
-func (proc *NativeProc) WithEnvironmentVariables(envs ...*resources.EnvironmentVariable) {
+func (proc *NativeProc) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
+	w := wool.Get(ctx).In("WithEnvironmentVariables")
+	w.Debug("adding", wool.Field("envs", envs))
 	proc.envs = append(proc.envs, envs...)
 }
 
@@ -195,8 +199,8 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		cmd.Dir = proc.dir
 	}
 	cmd.Env = resources.EnvironmentVariableAsStrings(proc.env.envs)
-	w.Debug("envs", wool.Field("envs", cmd.Env))
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
+	w.Debug("envs", wool.Field("envs", cmd.Env))
 
 	// start and get the logs
 	stdout, err := cmd.StdoutPipe()

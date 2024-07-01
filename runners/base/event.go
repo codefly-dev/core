@@ -1,6 +1,6 @@
 package base
 
-import observabilityv0 "github.com/codefly-dev/core/generated/go/observability/v0"
+import observabilityv0 "github.com/codefly-dev/core/generated/go/codefly/observability/v0"
 
 // Event represents data of a **running** service
 // Generic so most fields will be nil

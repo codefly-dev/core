@@ -7,9 +7,9 @@ import (
 	"path"
 	"path/filepath"
 
-	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
+	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"

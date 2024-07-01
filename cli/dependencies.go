@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codefly "github.com/codefly-dev/sdk-go"
 
 	"github.com/codefly-dev/core/resources"
@@ -19,7 +19,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	v0 "github.com/codefly-dev/core/generated/go/cli/v0"
+	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
 )
 
 type Dependencies struct {
@@ -29,15 +29,35 @@ type Dependencies struct {
 }
 
 type Option struct {
-	Debug bool
+	Debug   bool
+	Timeout time.Duration
 }
 
-func WithDependencies(ctx context.Context, opt *Option) (*Dependencies, error) {
+type OptionFunc func(*Option)
+
+func WithDebug() OptionFunc {
+	return func(o *Option) {
+		o.Debug = true
+	}
+}
+
+func WithTimeout(timeout time.Duration) OptionFunc {
+	return func(o *Option) {
+		o.Timeout = timeout
+	}
+}
+
+func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, error) {
+	opt := &Option{
+		Debug:   false,
+		Timeout: 10 * time.Second,
+	}
+	for _, o := range opts {
+		o(opt)
+	}
 	args := []string{"run", "service"}
-	if opt != nil {
-		if opt.Debug {
-			args = append(args, "-d")
-		}
+	if opt.Debug {
+		args = append(args, "-d")
 	}
 	args = append(args, "--exclude-root", "--cli-server")
 	cmd := exec.CommandContext(ctx, "codefly", args...)
@@ -49,7 +69,7 @@ func WithDependencies(ctx context.Context, opt *Option) (*Dependencies, error) {
 	}
 	port := 10000
 	var conn *grpc.ClientConn
-	wait := 5 * time.Second
+	wait := opt.Timeout
 	for {
 		time.Sleep(time.Second)
 		conn, err = grpc.NewClient(fmt.Sprintf("127.0.0.1:%d", port), grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -68,7 +88,7 @@ func WithDependencies(ctx context.Context, opt *Option) (*Dependencies, error) {
 		return nil, err
 	}
 	l := &Dependencies{cmd: cmd, cli: cli, runtimeContext: resources.NewRuntimeContextNative()}
-	err = l.WaitForReady(ctx)
+	err = l.WaitForReady(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -83,9 +103,9 @@ func WithDependencies(ctx context.Context, opt *Option) (*Dependencies, error) {
 	return l, nil
 }
 
-func (l *Dependencies) WaitForReady(ctx context.Context) error {
+func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
 	time.Sleep(time.Second)
-	wait := 5 * time.Second
+	wait := opt.Timeout
 	for {
 		status, err := l.cli.GetFlowStatus(ctx, &emptypb.Empty{})
 		if err != nil {

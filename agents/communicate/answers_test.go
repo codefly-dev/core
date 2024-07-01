@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/communicate"
-	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
+	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/stretchr/testify/require"
 )
 

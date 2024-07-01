@@ -262,7 +262,7 @@ func DirField(dir string) *LogField {
 	return &LogField{Key: "dir", Value: dir}
 }
 
-func PathField(dir string) *LogField {
+func Path(dir string) *LogField {
 	return &LogField{Key: "path", Value: dir}
 }
 

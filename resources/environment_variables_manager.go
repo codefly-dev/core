@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -414,4 +414,9 @@ func RestRouteEnvironmentVariableKey(info *EndpointInformation, route *basev0.Re
 	key = fmt.Sprintf("%s___%s", key, sanitizePath(route.Path))
 	key = fmt.Sprintf("%s___%s", key, ConvertHTTPMethodFromProto(route.Method))
 	return strings.ToUpper(key)
+}
+
+func ParseEnv(env string) *EnvironmentVariable {
+	tokens := strings.Split(env, "=")
+	return Env(tokens[0], tokens[1])
 }

@@ -9,8 +9,8 @@ import (
 	"github.com/codefly-dev/core/agents/communicate"
 
 	"github.com/codefly-dev/core/agents"
-	agentv0 "github.com/codefly-dev/core/generated/go/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/services/builder/v0"
+	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )

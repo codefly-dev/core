@@ -7,6 +7,7 @@ managed:
       - buf.build/googleapis/googleapis
       - buf.build/bufbuild/protovalidate
 plugins:
+  # GO
   - plugin: buf.build/protocolbuffers/go
     out: go
     opt: paths=source_relative
@@ -16,6 +17,8 @@ plugins:
   - name: grpc-gateway
     out: go
     opt: paths=source_relative
+
+  # PYTHON
   - plugin: buf.build/protocolbuffers/python
     out: python/codefly-cli/codefly_cli
   - plugin: buf.build/grpc/python

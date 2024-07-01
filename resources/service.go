@@ -12,8 +12,8 @@ import (
 
 	"github.com/codefly-dev/core/standards"
 
-	actionsv0 "github.com/codefly-dev/core/generated/go/actions/v0"
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/wool"
 	"go.opentelemetry.io/otel/sdk/resource"
 
@@ -486,7 +486,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 		}
 		switch ed.API {
 		case standards.REST:
-			w.Debug("loading REST endpoint", wool.PathField(standards.OpenAPIPath))
+			w.Debug("loading REST endpoint", wool.Path(standards.OpenAPIPath))
 			rest, err := LoadRestAPI(ctx, s.LocalOrNil(ctx, standards.OpenAPIPath))
 			if err != nil {
 				multi = multierror.Append(multi, err)
@@ -496,7 +496,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 			base.ApiDetails = ToRestAPI(rest)
 			out = append(out, base)
 		case standards.GRPC:
-			w.Debug("loading gRPC endpoint", wool.PathField(standards.ProtoPath))
+			w.Debug("loading gRPC endpoint", wool.Path(standards.ProtoPath))
 			grpc, err := LoadGrpcAPI(ctx, s.LocalOrNil(ctx, standards.ProtoPath))
 			if err != nil {
 				multi = multierror.Append(multi, err)

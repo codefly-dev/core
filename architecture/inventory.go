@@ -8,7 +8,7 @@ import (
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 
-	basev0 "github.com/codefly-dev/core/generated/go/base/v0"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
 
 func LoadWorkspace(ctx context.Context, workspace *resources.Workspace) (*basev0.Workspace, error) {

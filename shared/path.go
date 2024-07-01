@@ -2,8 +2,10 @@ package shared
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +22,7 @@ func MustSolvePath(p string) string {
 }
 
 func SolvePath(p string) (string, error) {
-	w := wool.Get(context.Background()).In("configurations.SolvePath", wool.PathField(p))
+	w := wool.Get(context.Background()).In("configurations.SolvePath", wool.Path(p))
 	if filepath.IsLocal(p) || strings.HasPrefix(p, ".") || strings.HasPrefix(p, "..") {
 		cur, err := os.Getwd()
 		if err != nil {
@@ -39,7 +41,7 @@ func SolvePath(p string) (string, error) {
 // Exists checks for existence of file/folder
 // err only for unexpected behavior
 func Exists(ctx context.Context, p string) (bool, error) {
-	w := wool.Get(ctx).In("shared.FileExists", wool.PathField(p))
+	w := wool.Get(ctx).In("shared.FileExists", wool.Path(p))
 	_, err := os.Stat(p)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -69,16 +71,16 @@ func FileExists(ctx context.Context, file string) (bool, error) {
 func DirectoryExists(ctx context.Context, dir string) (bool, error) {
 	w := wool.Get(ctx).In("shared.DirectoryExists", wool.Field("dir", dir))
 	if dir == "" {
-		return false, w.NewError("empty directory")
+		return false, w.NewError("nil directory input")
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
 		}
+
 		return false, w.Wrapf(err, "cannot check directory")
 	}
-
 	// Check if it's actually a directory
 	if !info.IsDir() {
 		return false, nil
