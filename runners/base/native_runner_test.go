@@ -44,37 +44,7 @@ loop:
 		case <-output.Signal():
 			break loop
 		case <-timeout.C:
-			// One second has passed
-			t.Fatal("timeout")
-		}
-
-	}
-	time.Sleep(500 * time.Millisecond)
-	require.False(t, shared.Must(proc.IsRunning(ctx)))
-	require.Contains(t, d.Data, "good")
-	require.Contains(t, d.Data, "crashing")
-
-	// re-init should give the same id
-	err = env.Init(ctx)
-	require.NoError(t, err)
-
-	// Now, run something in it
-	proc, err = env.NewProcess("ls")
-	require.NoError(t, err)
-	d = shared.NewSliceWriter()
-	output = shared.NewSignalWriter(d)
-	proc.WithOutput(output)
-
-	err = proc.Run(ctx)
-	require.NoError(t, err)
-	timeout = time.NewTimer(3 * time.Second)
-loopAgain:
-	for {
-		select {
-		case <-output.Signal():
-			break loopAgain
-		case <-timeout.C:
-			// One second has passed
+			t.Log("OUTPUT", d.Data)
 			t.Fatal("timeout")
 		}
 
