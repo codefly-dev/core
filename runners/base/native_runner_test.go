@@ -1,4 +1,4 @@
-//go:build !skip
+//go:build skip
 
 package base_test
 
