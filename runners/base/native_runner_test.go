@@ -1,3 +1,5 @@
+//go:build !skip
+
 package base_test
 
 import (
@@ -15,18 +17,18 @@ import (
 
 func TestLocalEnvironmentLs(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
 	require.NoError(t, err)
 
 	err = env.Init(ctx)
 	require.NoError(t, err)
 
-	// Check that the ls binary is there
 	err = env.WithBinary("ls")
 	require.NoError(t, err)
 
-	// Now, run something in it
 	proc, err := env.NewProcess("ls")
 	require.NoError(t, err)
 
@@ -34,22 +36,30 @@ func TestLocalEnvironmentLs(t *testing.T) {
 	output := shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
-	err = proc.Run(ctx)
-	require.NoError(t, err)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- proc.Run(ctx)
+	}()
 
-	timeout := time.NewTimer(3 * time.Second)
-loop:
-	for {
-		select {
-		case <-output.Signal():
-			break loop
-		case <-timeout.C:
-			t.Log("OUTPUT", d.Data)
-			t.Fatal("timeout")
-		}
-
+	select {
+	case <-output.Signal():
+		// Data received, continue processing
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for output")
+	case err := <-errCh:
+		t.Fatalf("process exited unexpectedly: %v", err)
 	}
-	time.Sleep(500 * time.Millisecond)
+
+	// Wait for the process to finish
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for process to finish")
+	}
+
+	d.Close() // Ensure any remaining data is flushed
+
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	require.Contains(t, d.Data, "good")
 	require.Contains(t, d.Data, "crashing")
@@ -57,15 +67,15 @@ loop:
 }
 
 func TestLocalEnvironmentFinite(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
 	require.NoError(t, err)
 
 	err = env.Init(ctx)
 	require.NoError(t, err)
 
-	// Run a finite script
 	proc, err := env.NewProcess("sh", "good/finite_counter.sh")
 	require.NoError(t, err)
 
@@ -73,35 +83,45 @@ func TestLocalEnvironmentFinite(t *testing.T) {
 	output := shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
-	err = proc.Run(ctx)
-	require.NoError(t, err)
-	timeout := time.NewTimer(5 * time.Second)
-loopFirst:
-	for {
-		select {
-		case <-output.Signal():
-			break loopFirst
-		case <-timeout.C:
-			// One second has passed
-			t.Fatal("timeout")
-		}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- proc.Run(ctx)
+	}()
+
+	select {
+	case <-output.Signal():
+		// Data received, continue processing
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for output")
+	case err := <-errCh:
+		t.Fatalf("process exited unexpectedly: %v", err)
 	}
-	time.Sleep(500 * time.Millisecond)
+
+	// Wait for the process to finish
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for process to finish")
+	}
+
+	d.Close() // Ensure any remaining data is flushed
+
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	require.Contains(t, d.Data, "1")
-
+	t.Log("Output:", d.Data)
 }
 
-func TestLocalEnvironment(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
+func TestLocalEnvironmentInfinite(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
 	require.NoError(t, err)
 
 	err = env.Init(ctx)
 	require.NoError(t, err)
 
-	// Run an infinite script and stop it after a bit
 	proc, err := env.NewProcess("sh", "good/infinite_counter.sh")
 	require.NoError(t, err)
 
@@ -109,53 +129,68 @@ func TestLocalEnvironment(t *testing.T) {
 	output := shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
+	errCh := make(chan error, 1)
 	go func() {
-		wait := time.NewTimer(3 * time.Second)
-		<-wait.C
-		err := proc.Stop(ctx)
-		require.NoError(t, err)
+		errCh <- proc.Run(ctx)
 	}()
 
-	err = proc.Run(ctx)
-	require.NoError(t, err)
-
-	timeout := time.NewTimer(5 * time.Second)
-
-loopLastTime:
-	for {
-		select {
-		case <-output.Signal():
-			break loopLastTime
-		case <-timeout.C:
-			t.Fatal("timeout")
-		}
-
+	// Wait for initial output
+	select {
+	case <-output.Signal():
+		// Data received, continue processing
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for initial output")
+	case err := <-errCh:
+		t.Fatalf("process exited unexpectedly: %v", err)
 	}
-	time.Sleep(500 * time.Millisecond)
-	require.Contains(t, d.Data, "1")
 
+	// Stop the process after 3 seconds
+	time.AfterFunc(3*time.Second, func() {
+		err := proc.Stop(ctx)
+		require.NoError(t, err)
+	})
+
+	// Wait for the process to finish
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for process to stop")
+	}
+
+	d.Close() // Ensure any remaining data is flushed
+
+	require.Contains(t, d.Data, "1")
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)
 }
 
 func TestCrashing(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
 	require.NoError(t, err)
 
 	err = env.Init(ctx)
 	require.NoError(t, err)
 
-	proc, err := env.NewProcess("sh", "not_there.sh")
+	t.Run("NonExistentScript", func(t *testing.T) {
+		proc, err := env.NewProcess("sh", "not_there.sh")
+		require.NoError(t, err)
+
+		err = proc.Run(ctx)
+		require.Error(t, err)
+	})
+
+	t.Run("CrashingScript", func(t *testing.T) {
+		proc, err := env.NewProcess("sh", "crashing/crash.sh")
+		require.NoError(t, err)
+
+		err = proc.Run(ctx)
+		require.Error(t, err)
+	})
+
+	err = env.Shutdown(ctx)
 	require.NoError(t, err)
-
-	err = proc.Run(ctx)
-	require.Error(t, err)
-
-	proc, err = env.NewProcess("sh", "crashing/crash.sh")
-	require.NoError(t, err)
-
-	err = proc.Run(ctx)
-	require.Error(t, err)
 }

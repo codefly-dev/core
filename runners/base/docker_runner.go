@@ -30,64 +30,49 @@ import (
 type DockerEnvironment struct {
 	client *client.Client
 	image  *resources.DockerImage
-
-	// Name of the environment
-	name string
+	name   string
 
 	localDir   string
 	workingDir string
 
-	// Override default cmd of the Docker Image
-	cmd []string
-	// or "pause": don't run the cmd
+	cmd   []string
 	pause bool
 
-	mounts []mount.Mount
-
-	envs []*resources.EnvironmentVariable
-
+	mounts       []mount.Mount
+	envs         []*resources.EnvironmentVariable
 	portMappings []*DockerPortMapping
 
 	instance *DockerContainerInstance
+	out      io.Writer
+	reader   io.ReadCloser
 
-	out    io.Writer
-	reader io.ReadCloser
-
-	firstInit bool
 	running   bool
+	firstInit bool
 }
 
 var _ RunnerEnvironment = &DockerEnvironment{}
 
-func (docker *DockerEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
-	w := wool.Get(ctx).In("WithEnvironmentVariables")
-	w.Debug("adding", wool.Field("envs", envs))
-	docker.envs = append(docker.envs, envs...)
-}
-
-// NewDockerEnvironment creates a new docker runner
-func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir string, name string) (*DockerEnvironment, error) {
-	w := wool.Get(ctx).In("NewDockerRunner")
-	w.Debug("creating new docker runner", wool.Field("image", image.FullName()), wool.Field("dir", dir))
+// NewDockerEnvironment creates a new docker environment
+func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir, name string) (*DockerEnvironment, error) {
+	w := wool.Get(ctx).In("NewDockerEnvironment")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
+
 	env := &DockerEnvironment{
-		firstInit:  true,
 		client:     cli,
 		out:        w,
 		image:      image,
 		name:       ContainerName(name),
 		workingDir: dir,
 	}
-	w.Debug("mounting local directory", wool.Field("dir", dir))
+
 	env.WithDir(dir)
-	// Pull the image if needed
-	err = env.GetImageIfNotPresent(ctx, image)
-	if err != nil {
+	if err := env.GetImageIfNotPresent(ctx, image); err != nil {
 		return nil, w.Wrapf(err, "cannot get image")
 	}
+
 	return env, nil
 }
 
@@ -112,6 +97,154 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerIm
 		return nil, w.Wrapf(err, "cannot get image")
 	}
 	return env, nil
+}
+
+func (docker *DockerEnvironment) Init(ctx context.Context) error {
+	return docker.GetContainer(ctx)
+}
+
+func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
+	w := wool.Get(ctx).In("Docker.GetContainer")
+
+	exists, err := docker.IsContainerPresent(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot check if container is present")
+	}
+	defer func() {
+		err := docker.GetLogs(ctx)
+		if err != nil {
+			w.Error("cannot get logs", wool.ErrField(err))
+		}
+	}()
+
+	if exists {
+		return docker.ensureContainerRunning(ctx)
+	}
+
+	return docker.createAndStartContainer(ctx)
+}
+
+func (docker *DockerEnvironment) ensureContainerRunning(ctx context.Context) error {
+	w := wool.Get(ctx).In("Docker.ensureContainerRunning")
+
+	inspect, err := docker.client.ContainerInspect(ctx, docker.instance.ID)
+	if err != nil {
+		return w.Wrapf(err, "cannot inspect container")
+	}
+
+	if inspect.State.Running {
+		docker.running = true
+		return nil
+	}
+
+	w.Debug("container found but not running: starting it again")
+	if err := docker.startContainer(ctx, docker.instance.ID); err != nil {
+		return w.Wrapf(err, "cannot start container")
+	}
+
+	docker.running = true
+	return nil
+}
+
+func (docker *DockerEnvironment) createAndStartContainer(ctx context.Context) error {
+	w := wool.Get(ctx).In("Docker.createAndStartContainer")
+
+	containerConfig := docker.createContainerConfig()
+	hostConfig := docker.createHostConfig()
+
+	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, docker.name)
+	if err != nil {
+		return w.Wrapf(err, "cannot create container")
+	}
+
+	docker.instance = &DockerContainerInstance{ID: resp.ID}
+	w.Debug("created container", wool.Field("id", resp.ID))
+
+	if err := docker.startContainer(ctx, resp.ID); err != nil {
+		return w.Wrapf(err, "cannot start container")
+	}
+
+	docker.running = true
+	return nil
+}
+
+func (docker *DockerEnvironment) createContainerConfig() *container.Config {
+	config := &container.Config{
+		Image:        docker.image.FullName(),
+		Env:          resources.EnvironmentVariableAsStrings(docker.envs),
+		Tty:          true,
+		WorkingDir:   docker.workingDir,
+		ExposedPorts: docker.exposedPortSet(),
+	}
+
+	if len(docker.cmd) > 0 {
+		config.Cmd = docker.cmd
+	} else if docker.pause {
+		config.Cmd = []string{"sleep", "infinity"}
+	}
+
+	return config
+}
+
+func (docker *DockerEnvironment) createHostConfig() *container.HostConfig {
+	mounts := append([]mount.Mount{
+		{
+			Type:   mount.TypeBind,
+			Source: "/var/run/docker.sock",
+			Target: "/var/run/docker.sock",
+		},
+	}, docker.mounts...)
+
+	hostConfig := &container.HostConfig{
+		Mounts:       mounts,
+		AutoRemove:   false,
+		PortBindings: docker.portBindings(),
+	}
+
+	if runtime.GOOS == "linux" {
+		hostConfig.ExtraHosts = []string{"host.docker.internal:172.17.0.1"}
+	}
+
+	return hostConfig
+}
+
+func (docker *DockerEnvironment) startContainer(ctx context.Context, containerID string) error {
+	w := wool.Get(ctx).In("Docker.startContainer")
+
+	if err := docker.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		return w.Wrapf(err, "cannot start container")
+	}
+
+	return docker.waitForContainerToRun(ctx, containerID)
+}
+
+func (docker *DockerEnvironment) waitForContainerToRun(ctx context.Context, containerID string) error {
+	w := wool.Get(ctx).In("Docker.waitForContainerToRun")
+
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		inspect, err := docker.client.ContainerInspect(ctx, containerID)
+		if err != nil {
+			return w.Wrapf(err, "cannot inspect container")
+		}
+
+		if inspect.State.Running {
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			return w.NewError("container did not start in time")
+		}
+
+		w.Debug("container not running yet", wool.Field("status", inspect.State.Status))
+		time.Sleep(time.Second)
+	}
+}
+
+func (docker *DockerEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
+	w := wool.Get(ctx).In("WithEnvironmentVariables")
+	w.Debug("adding", wool.Field("envs", envs))
+	docker.envs = append(docker.envs, envs...)
 }
 
 func (docker *DockerEnvironment) ContainerID() (string, error) {
@@ -140,17 +273,6 @@ func ContainerName(name string) string {
 func (docker *DockerEnvironment) WithDir(dir string) {
 	docker.localDir = dir
 	docker.WithMount(dir, docker.workingDir)
-}
-
-func (docker *DockerEnvironment) Init(ctx context.Context) error {
-	w := wool.Get(ctx).In("Docker.Init")
-	docker.firstInit = false
-	containerContext := context.Background()
-	err := docker.GetContainer(containerContext)
-	if err != nil {
-		return w.Wrapf(err, "cannot get container")
-	}
-	return nil
 }
 
 func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, error) {
@@ -194,131 +316,6 @@ func (docker *DockerEnvironment) GetLogs(ctx context.Context) error {
 	return nil
 }
 
-func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
-	w := wool.Get(ctx).In("Docker.GetContainer")
-	defer func() {
-		err := docker.GetLogs(ctx)
-		if err != nil {
-			w.Error("cannot get logs", wool.ErrField(err))
-		}
-	}()
-	w.Debug("getting container", wool.Field("image", docker.image.FullName()), wool.Field("name", docker.name))
-	exists, err := docker.IsContainerPresent(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot check if container is running")
-	}
-	if exists {
-		w.Debug("container found", wool.Field("id", docker.instance.ID))
-		// make sure it's running
-		inspect, err := docker.client.ContainerInspect(ctx, docker.instance.ID)
-		if err != nil {
-			w.Debug("cannot inspect container")
-			return w.Wrapf(err, "cannot inspect container")
-		}
-		if inspect.State.Running {
-			w.Debug("container is running")
-			docker.running = true
-			return nil
-		}
-		w.Debug("container was found but not running: starting it again")
-		err = docker.startContainer(ctx, docker.instance.ID)
-		if err != nil {
-			w.Debug("cannot start container")
-			return w.Wrapf(err, "cannot start container")
-		}
-		w.Debug("container should be running now")
-		docker.running = true
-		return nil
-	}
-	w.Debug("container not found: creating it")
-
-	containerConfig := &container.Config{
-		Image:        docker.image.FullName(),
-		Env:          resources.EnvironmentVariableAsStrings(docker.envs),
-		Tty:          true,
-		WorkingDir:   docker.workingDir,
-		ExposedPorts: docker.exposedPortSet(),
-	}
-	if len(docker.cmd) > 0 {
-		containerConfig.Cmd = docker.cmd
-	} else if docker.pause {
-		containerConfig.Cmd = []string{"sleep", "infinity"}
-	}
-	mounts := []mount.Mount{
-		// Docker
-		{
-			Type:   mount.TypeBind,
-			Source: "/var/run/docker.sock",
-			Target: "/var/run/docker.sock",
-		},
-	}
-	mounts = append(mounts, docker.mounts...)
-
-	for _, m := range mounts {
-		w.Debug("mount", wool.Field("source", m.Source), wool.Field("target", m.Target))
-	}
-
-	hostConfig := &container.HostConfig{
-		Mounts:       mounts,
-		AutoRemove:   false,
-		PortBindings: docker.portBindings(),
-	}
-
-	// Add extra host only for Linux
-	if runtime.GOOS == "linux" {
-		hostConfig.ExtraHosts = []string{"host.docker.internal:172.17.0.1"}
-	}
-	w.Debug("creating container",
-		wool.Field("config", containerConfig.ExposedPorts),
-		wool.Field("host config", hostConfig.PortBindings))
-
-	// Create the container
-	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, docker.name)
-	if err != nil {
-		return w.Wrapf(err, "cannot create container")
-	}
-	w.Debug("created container", wool.Field("id", resp.ID))
-
-	docker.instance = &DockerContainerInstance{
-		ID: resp.ID,
-	}
-
-	// Start the container
-	err = docker.startContainer(ctx, resp.ID)
-	if err != nil {
-		return w.Wrapf(err, "cannot start container")
-	}
-
-	docker.running = true
-	return nil
-}
-
-func (docker *DockerEnvironment) startContainer(ctx context.Context, containerID string) error {
-	w := wool.Get(ctx).In("Docker.startContainer")
-	err := docker.client.ContainerStart(ctx, containerID, container.StartOptions{})
-	if err != nil {
-		return w.Wrapf(err, "cannot start container")
-	}
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		inspect, err := docker.client.ContainerInspect(ctx, containerID)
-		if err != nil {
-			return err
-		}
-
-		if inspect.State.Running {
-			break
-		}
-		w.Debug("container not running yet", wool.Field("status", inspect.State.Status))
-		// If the container is not running, wait for a while before checking again
-		time.Sleep(time.Second)
-		if time.Now().After(deadline) {
-			return w.NewError("container did not start in time")
-		}
-	}
-	w.Debug("container running")
-	return nil
-}
 func (docker *DockerEnvironment) exposedPortSet() nat.PortSet {
 	set := nat.PortSet{}
 	for _, portMapping := range docker.portMappings {
@@ -439,41 +436,44 @@ func (docker *DockerEnvironment) NewProcess(bin string, args ...string) (Proc, e
 	cmd := append([]string{bin}, args...)
 	return &DockerProc{env: docker, cmd: cmd, output: docker.out}, nil
 }
-
 func (proc *DockerProc) Run(ctx context.Context) error {
 	w := wool.Get(ctx).In("DockerProc.Run")
 	w.Debug("running process", wool.Field("cmd", proc.cmd))
-	err := proc.start(ctx)
-	if err != nil {
+
+	if err := proc.start(ctx); err != nil {
 		return w.Wrapf(err, "cannot start process")
 	}
-	// Periodically check if the process with docker.execPID is still running
-	for {
-		// Sleep for a bit before checking again
-		time.Sleep(time.Second)
-		inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
-		if err != nil {
-			return w.Wrapf(err, "cannot inspect process")
-		}
 
-		if !inspect.Running {
-			if inspect.ExitCode == 0 {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
+			if err != nil {
+				return w.Wrapf(err, "cannot inspect process")
+			}
+
+			if !inspect.Running {
+				if inspect.ExitCode == 0 {
+					return nil
+				}
+				return fmt.Errorf("process exited with code %d", inspect.ExitCode)
+			}
+
+			active, err := proc.isProcessActive(ctx)
+			if err != nil {
+				return w.Wrapf(err, "error checking process status")
+			}
+			if !active {
+				w.Debug("process has exited")
 				return nil
 			}
-			return fmt.Errorf("process exited with code %d", inspect.ExitCode)
-		}
-		// Check if the process is still active
-		active, err := proc.isProcessActive(ctx)
-		if err != nil {
-			return w.Wrapf(err, "error checking process status")
-		}
-		if !active {
-			w.Debug("process has exited")
-			break
 		}
 	}
-	w.Debug("done")
-	return nil
 }
 
 func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
@@ -721,23 +721,6 @@ func (proc *DockerProc) Match(cmd []string) bool {
 	return strings.Contains(proc.cmd[0], cmd[0])
 }
 
-func (docker *DockerEnvironment) ImageExists(ctx context.Context, imag *resources.DockerImage) (bool, error) {
-	w := wool.Get(ctx).In("Docker.ImageExists")
-	images, err := docker.client.ImageList(ctx, image.ListOptions{})
-	if err != nil {
-		return false, w.Wrapf(err, "cannot list images")
-	}
-	for i := range images {
-		img := &images[i]
-		for _, repoTag := range img.RepoTags {
-			if repoTag == imag.FullName() {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
-}
-
 func (docker *DockerEnvironment) GetImageIfNotPresent(ctx context.Context, imag *resources.DockerImage) error {
 	w := wool.Get(ctx).In("Docker.GetImageIfNotPresent")
 	if exists, err := docker.ImageExists(ctx, imag); err != nil {
@@ -777,18 +760,6 @@ func (docker *DockerEnvironment) WithPortMapping(ctx context.Context, local uint
 	})
 }
 
-func (docker *DockerEnvironment) WithOutput(w io.Writer) {
-	docker.out = w
-}
-
-func (docker *DockerEnvironment) WithCommand(cmd ...string) {
-	docker.cmd = cmd
-}
-
-func (docker *DockerEnvironment) WithWorkDir(dir string) {
-	docker.workingDir = dir
-}
-
 func Forward(ctx context.Context, reader io.Reader, writer io.Writer) {
 	// Create a new scanner for the buffer
 	scanner := bufio.NewScanner(reader)
@@ -820,6 +791,18 @@ func Forward(ctx context.Context, reader io.Reader, writer io.Writer) {
 	}()
 }
 
+func (docker *DockerEnvironment) WithOutput(w io.Writer) {
+	docker.out = w
+}
+
+func (docker *DockerEnvironment) WithCommand(cmd ...string) {
+	docker.cmd = cmd
+}
+
+func (docker *DockerEnvironment) WithWorkDir(dir string) {
+	docker.workingDir = dir
+}
+
 // ContainerDeleted checks if the container with ID is gone
 func (docker *DockerEnvironment) ContainerDeleted() (bool, error) {
 	containers, err := docker.client.ContainerList(context.Background(), container.ListOptions{All: true})
@@ -832,4 +815,21 @@ func (docker *DockerEnvironment) ContainerDeleted() (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func (docker *DockerEnvironment) ImageExists(ctx context.Context, imag *resources.DockerImage) (bool, error) {
+	w := wool.Get(ctx).In("Docker.ImageExists")
+	images, err := docker.client.ImageList(ctx, image.ListOptions{})
+	if err != nil {
+		return false, w.Wrapf(err, "cannot list images")
+	}
+	for i := range images {
+		img := &images[i]
+		for _, repoTag := range img.RepoTags {
+			if repoTag == imag.FullName() {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }

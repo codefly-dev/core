@@ -3,9 +3,9 @@ package base
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -145,42 +145,44 @@ func (native *NativeEnvironment) NewProcess(bin string, args ...string) (Proc, e
 func (native *NativeEnvironment) Stop(context.Context) error {
 	return nil
 }
-
 func (proc *NativeProc) Run(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Run")
 	w.Debug("running process", wool.Field("cmd", proc.cmd), wool.Field("envs", proc.env.envs))
-	err := proc.start(ctx)
-	if err != nil {
-		return err
+
+	if err := proc.start(ctx); err != nil {
+		return w.Wrapf(err, "failed to start process")
 	}
+
 	w.Debug("waiting for process to finish or be killed")
-	// TODO: handle waitOn
-	// Create a channel to receive the result of proc.exec.Wait()
+
 	done := make(chan error, 1)
 	go func() {
 		done <- proc.exec.Wait()
 	}()
 
-	// Use a select statement to wait for either the process to finish or the context to be cancelled
 	select {
+	case <-ctx.Done():
+		w.Debug("context cancelled, stopping process")
+		if err := proc.Stop(ctx); err != nil {
+			w.Debug("error stopping process", wool.Field("error", err))
+		}
+		return ctx.Err()
 	case err := <-done:
 		if err != nil {
-			var exitError *exec.ExitError
-			if errors.As(err, &exitError) {
-				// The program has exited with an exit code != 0
-				if strings.Contains(exitError.String(), "signal: terminated") {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				if exitErr.ExitCode() == -1 && strings.Contains(exitErr.Error(), "signal: terminated") {
+					w.Debug("process was terminated")
 					return nil
 				}
-				return exitError
-			} else if strings.Contains(err.Error(), "signal: terminated") {
-				return nil
+				return w.Wrapf(exitErr, "process exited with non-zero status: %d", exitErr.ExitCode())
 			}
-			return w.Wrapf(err, "cannot wait for process")
+			return w.Wrapf(err, "error waiting for process")
 		}
 	case <-proc.stopped:
-		w.Debug("process was killed")
+		w.Debug("process was manually stopped")
 	}
-	w.Debug("done")
+
+	w.Debug("process finished")
 	return nil
 }
 
@@ -192,62 +194,60 @@ func (proc *NativeProc) Start(ctx context.Context) error {
 }
 func (proc *NativeProc) start(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.start", wool.DirField(proc.env.dir))
-	// #nosec G204
+
 	cmd := exec.CommandContext(ctx, proc.cmd[0], proc.cmd[1:]...)
 	cmd.Dir = proc.env.dir
 	if proc.dir != "" {
 		cmd.Dir = proc.dir
 	}
-	cmd.Env = resources.EnvironmentVariableAsStrings(proc.env.envs)
+	cmd.Env = append(os.Environ(), resources.EnvironmentVariableAsStrings(proc.env.envs)...)
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
+
 	w.Debug("envs", wool.Field("envs", cmd.Env))
 
-	// start and get the logs
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return w.Wrapf(err, "failed to create stdout pipe")
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return err
+		return w.Wrapf(err, "failed to create stderr pipe")
 	}
 
-	err = cmd.Start()
-	if err != nil {
-		return err
+	if err := cmd.Start(); err != nil {
+		return w.Wrapf(err, "failed to start command")
 	}
 	proc.exec = cmd
 
-	go func() {
-		defer stdout.Close()
-		proc.Forward(ctx, stdout)
-	}()
-	go func() {
-		defer stderr.Close()
-		proc.Forward(ctx, stderr)
-	}()
-	w.Debug("done")
+	go proc.Forward(ctx, stdout)
+	go proc.Forward(ctx, stderr)
+
+	w.Debug("process started")
 	return nil
 }
 
-func (proc *NativeProc) Forward(_ context.Context, w io.Reader) {
-	// Create a new scanner and set the split function to bufio.ScanLines
-	scanner := bufio.NewScanner(w)
+func (proc *NativeProc) Forward(ctx context.Context, r io.Reader) {
+	w := wool.Get(ctx).In("NativeProc.Forward")
+	scanner := bufio.NewScanner(r)
 	scanner.Split(bufio.ScanLines)
 
-	// Scan the standard output line by line
 	for scanner.Scan() {
-		line := scanner.Text()
-		// Write each line to the output
-		_, err := proc.output.Write([]byte(strings.TrimSpace(line)))
-		if err != nil {
-			_, _ = proc.output.Write([]byte(err.Error()))
+		select {
+		case <-ctx.Done():
+			w.Debug("context cancelled, stopping log forwarding")
 			return
+		default:
+			line := strings.TrimSpace(scanner.Text())
+			if line != "" { // Only write non-empty lines
+				if _, err := fmt.Fprintln(proc.output, line); err != nil {
+					w.Error("failed to write log line", wool.Field("error", err))
+				}
+			}
 		}
 	}
 
-	if scanner.Err() != nil {
-		return
+	if err := scanner.Err(); err != nil {
+		w.Error("error scanning logs", wool.Field("error", err))
 	}
 }
 
@@ -259,33 +259,43 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Stop")
 	w.Debug("stopping process")
 
-	// Attempt to gracefully terminate the process
-	w.Debug("sending SIGTERM to process")
-	err := proc.exec.Process.Signal(syscall.SIGTERM)
-	if err != nil {
+	if proc.exec == nil || proc.exec.Process == nil {
+		w.Debug("process not running")
+		return nil
+	}
+
+	// Send SIGTERM
+	if err := proc.exec.Process.Signal(syscall.SIGTERM); err != nil {
+		w.Debug("failed to send SIGTERM", wool.Field("error", err))
 		return fmt.Errorf("failed to send SIGTERM: %w", err)
 	}
-	time.Sleep(time.Second)
 
-	// Check if the process has exited
-	if err := proc.exec.Process.Signal(syscall.Signal(0)); err == nil {
-		w.Debug("process is still alive after SIGTERM, sending SIGKILL")
-		// Process is still alive after SIGTERM and waiting period, force kill
-		if killErr := proc.exec.Process.Kill(); killErr != nil {
-			w.Debug("failed to force kill process", wool.Field("error", killErr))
-			return fmt.Errorf("failed to force kill process: %w", killErr)
+	// Wait for process to exit with a timeout
+	gracefulShutdownTimeout := 5 * time.Second
+	timer := time.NewTimer(gracefulShutdownTimeout)
+	defer timer.Stop()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := proc.exec.Process.Wait()
+		done <- err
+	}()
+
+	select {
+	case <-timer.C:
+		w.Debug("graceful shutdown timed out, force killing")
+		if err := proc.exec.Process.Kill(); err != nil {
+			w.Debug("failed to force kill process", wool.Field("error", err))
+			return fmt.Errorf("failed to force kill process: %w", err)
 		}
-	} else {
-		// Process has exited, or an error occurred when checking the process status
-		w.Debug("process has exited after SIGTERM")
-		if !strings.Contains(err.Error(), "process already finished") {
-			// Handle or log this error if it's not the expected "already finished" error
-			w.Debug("error checking process status", wool.Field("error", err))
+	case err := <-done:
+		if err != nil {
+			w.Debug("process exited with error", wool.Field("error", err))
+		} else {
+			w.Debug("process exited gracefully")
 		}
 	}
-	go func() {
-		proc.stopped <- struct{}{}
-	}()
-	return nil
 
+	close(proc.stopped)
+	return nil
 }

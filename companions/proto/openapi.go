@@ -27,7 +27,7 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 		return w.Wrapf(err, "cannot get companion image")
 	}
 	// Create a tmp dir for the proto
-	openapiDir, err := os.MkdirTemp(destination, "openapi")
+	openapiDir, err := os.MkdirTemp("", "openapi")
 	if err != nil {
 		return w.Wrapf(err, "cannot create tmp dir")
 	}

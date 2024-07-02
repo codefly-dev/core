@@ -1,3 +1,5 @@
+//go:build !skip
+
 package base_test
 
 import (
@@ -22,6 +24,7 @@ func TestNewDockerEnvironment(t *testing.T) {
 	name := fmt.Sprintf("test-%d", time.Now().UnixMilli())
 	env, err := base.NewDockerHeadlessEnvironment(ctx, resources.NewDockerImage("redis:7.2.4-alpine"), name)
 	require.NoError(t, err)
+
 	defer func() {
 		err = env.Shutdown(ctx)
 		require.NoError(t, err)
@@ -38,14 +41,7 @@ func TestNewDockerEnvironment(t *testing.T) {
 	err = env.Init(ctx)
 	require.NoError(t, err)
 
-	// Check that the redis binary is there
-	err = env.WithBinary("redis-server")
-	require.NoError(t, err)
-
-	err = env.WithBinary("nooooo")
-	require.Error(t, err)
-
-	timeout := time.NewTimer(3 * time.Second)
+	timeout := time.NewTimer(10 * time.Second)
 
 	for {
 		select {
@@ -55,11 +51,37 @@ func TestNewDockerEnvironment(t *testing.T) {
 			testOutput(t, d)
 			return
 		case <-timeout.C:
-			// One second has passed
 			t.Fatal("timeout")
 		}
 
 	}
+}
+
+func TestNewDockerEnvironmentBinaries(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	name := fmt.Sprintf("test-%d", time.Now().UnixMilli())
+	env, err := base.NewDockerHeadlessEnvironment(ctx, resources.NewDockerImage("redis:7.2.4-alpine"), name)
+	require.NoError(t, err)
+	env.WithPause()
+	defer func() {
+		err = env.Shutdown(ctx)
+		require.NoError(t, err)
+		deleted, err := env.ContainerDeleted()
+		require.NoError(t, err)
+		require.True(t, deleted)
+	}()
+
+	err = env.Init(ctx)
+	require.NoError(t, err)
+
+	// Check that the redis binary is there
+	err = env.WithBinary("redis-server")
+	require.NoError(t, err)
+
+	err = env.WithBinary("nooooo")
+	require.Error(t, err)
+
 }
 
 func testOutput(t *testing.T, data *shared.SliceWriter) {

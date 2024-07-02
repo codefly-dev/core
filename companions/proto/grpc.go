@@ -23,7 +23,7 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 		return w.Wrapf(err, "cannot get companion image")
 	}
 	// Create a tmp dir for the proto
-	tmpDir, err := os.MkdirTemp(destination, "proto")
+	tmpDir, err := os.MkdirTemp("", "proto")
 	if err != nil {
 		return w.Wrapf(err, "cannot create tmp dir")
 	}
