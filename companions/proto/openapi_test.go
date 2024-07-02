@@ -18,6 +18,7 @@ func TestGenerateSwagger(t *testing.T) {
 	// Load some endpoints
 	ctx := context.Background()
 	wool.SetGlobalLogLevel(wool.DEBUG)
+
 	f, err := shared.SolvePath("testdata/api.json")
 	require.NoError(t, err)
 

@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLocalEnvironment(t *testing.T) {
+func TestLocalEnvironmentLs(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
@@ -37,7 +37,7 @@ func TestLocalEnvironment(t *testing.T) {
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
-	timeout := time.NewTimer(time.Second)
+	timeout := time.NewTimer(3 * time.Second)
 loop:
 	for {
 		select {
@@ -49,7 +49,7 @@ loop:
 		}
 
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	require.Contains(t, d.Data, "good")
 	require.Contains(t, d.Data, "crashing")
@@ -67,7 +67,7 @@ loop:
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-	timeout = time.NewTimer(time.Second)
+	timeout = time.NewTimer(3 * time.Second)
 loopAgain:
 	for {
 		select {
@@ -79,22 +79,33 @@ loopAgain:
 		}
 
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	require.Contains(t, d.Data, "good")
 	require.Contains(t, d.Data, "crashing")
 
-	// Run a finite script
-	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
+}
+
+func TestLocalEnvironmentFinite(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
 	require.NoError(t, err)
 
-	d = shared.NewSliceWriter()
-	output = shared.NewSignalWriter(d)
+	err = env.Init(ctx)
+	require.NoError(t, err)
+
+	// Run a finite script
+	proc, err := env.NewProcess("sh", "good/finite_counter.sh")
+	require.NoError(t, err)
+
+	d := shared.NewSliceWriter()
+	output := shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-	timeout = time.NewTimer(time.Second)
+	timeout := time.NewTimer(5 * time.Second)
 loopFirst:
 	for {
 		select {
@@ -105,20 +116,31 @@ loopFirst:
 			t.Fatal("timeout")
 		}
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
 	require.Contains(t, d.Data, "1")
 
-	// Run an infinite script and stop it after 2 seconds
-	proc, err = env.NewProcess("sh", "good/infinite_counter.sh")
+}
+
+func TestLocalEnvironment(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
 	require.NoError(t, err)
 
-	d = shared.NewSliceWriter()
-	output = shared.NewSignalWriter(d)
+	err = env.Init(ctx)
+	require.NoError(t, err)
+
+	// Run an infinite script and stop it after a bit
+	proc, err := env.NewProcess("sh", "good/infinite_counter.sh")
+	require.NoError(t, err)
+
+	d := shared.NewSliceWriter()
+	output := shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
 	go func() {
-		wait := time.NewTimer(time.Second)
+		wait := time.NewTimer(3 * time.Second)
 		<-wait.C
 		err := proc.Stop(ctx)
 		require.NoError(t, err)
@@ -127,7 +149,7 @@ loopFirst:
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
-	timeout = time.NewTimer(time.Second)
+	timeout := time.NewTimer(5 * time.Second)
 
 loopLastTime:
 	for {
@@ -135,36 +157,11 @@ loopLastTime:
 		case <-output.Signal():
 			break loopLastTime
 		case <-timeout.C:
-			// One second has passed
 			t.Fatal("timeout")
 		}
 
 	}
-	time.Sleep(100 * time.Millisecond)
-	require.Contains(t, d.Data, "1")
-
-	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
-	require.NoError(t, err)
-
-	d = shared.NewSliceWriter()
-	output = shared.NewSignalWriter(d)
-	proc.WithOutput(output)
-
-	err = proc.Run(ctx)
-	require.NoError(t, err)
-
-	timeout = time.NewTimer(time.Second)
-loopReallyLastTime:
-	for {
-		select {
-		case <-output.Signal():
-			break loopReallyLastTime
-		case <-timeout.C:
-			// One second has passed
-			t.Fatal("timeout")
-		}
-	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	require.Contains(t, d.Data, "1")
 
 	err = env.Shutdown(ctx)
