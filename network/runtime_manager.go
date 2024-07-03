@@ -134,6 +134,7 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, _ *resourc
 			port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, endpoint.Name, endpoint.Api)
 
 		}
+		w.Debug("allocating port", wool.Field("port", port), wool.Field("service", service.Unique()))
 		if unique, found := m.allocatedPorts[port]; found && unique != service.Unique() {
 			// Port already allocated
 			return nil, w.NewError("port %d already allocated for service %s (TODO: randomize? force override?)", port, service.Unique())

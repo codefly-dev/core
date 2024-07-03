@@ -22,7 +22,7 @@ func HomeDir() (string, error) {
 
 func Init(ctx context.Context) (bool, error) {
 	w := wool.Get(ctx)
-	w.Trace("checking if workspace is initialized")
+	w.Trace("checking if codefly is initialized")
 	return shared.CheckEmptyDirectoryOrCreate(ctx, CodeflyDir())
 }
 

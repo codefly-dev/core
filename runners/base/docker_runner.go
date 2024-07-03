@@ -111,7 +111,8 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		return w.Wrapf(err, "cannot check if container is present")
 	}
 	defer func() {
-		err := docker.GetLogs(ctx)
+		logContext := context.Background()
+		err := docker.GetLogs(logContext)
 		if err != nil {
 			w.Error("cannot get logs", wool.ErrField(err))
 		}
