@@ -10,13 +10,6 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
-const WorkspaceConfigurationPrefix = "CODEFLY__WORKSPACE_CONFIGURATION"
-
-// #nosec G101
-const WorkspaceSecretConfigurationPrefix = "CODEFLY__WORKSPACE_SECRET_CONFIGURATION"
-const ServiceConfigurationPrefix = "CODEFLY__SERVICE_CONFIGURATION"
-const ServiceSecretConfigurationPrefix = "CODEFLY__SERVICE_SECRET_CONFIGURATION"
-
 type EnvironmentVariable struct {
 	Key   string
 	Value any
@@ -61,6 +54,7 @@ type EnvironmentVariableManager struct {
 
 	restRoutes []*RestRouteAccess
 	running    bool
+	fixture    string
 }
 
 func NewEnvironmentVariableManager() *EnvironmentVariableManager {
@@ -71,12 +65,6 @@ func (holder *EnvironmentVariableManager) SetEnvironment(environment *basev0.Env
 	holder.environment = environment
 }
 
-const RunningPrefix = "CODEFLY__RUNNING"
-
-func (holder *EnvironmentVariableManager) SetRunning() {
-	holder.running = true
-}
-
 func Env(key string, value any) *EnvironmentVariable {
 	return &EnvironmentVariable{
 		Key:   key,
@@ -84,53 +72,16 @@ func Env(key string, value any) *EnvironmentVariable {
 	}
 }
 
-func (holder *EnvironmentVariableManager) SetIdentity(identity *basev0.ServiceIdentity) {
-	holder.module = identity.Module
-	holder.service = identity.Name
-	holder.workspace = identity.Workspace
-	holder.version = identity.Version
-}
-
-const WorkspacePrefix = "CODEFLY__WORKSPACE"
-
-func WorkspaceAsEnvironmentVariable(workspace string) *EnvironmentVariable {
-	return Env(WorkspacePrefix, workspace)
-}
-
-const ModulePrefix = "CODEFLY__MODULE"
-
-func ModuleAsEnvironmentVariable(module string) *EnvironmentVariable {
-	return Env(ModulePrefix, module)
-}
-
-const ServicePrefix = "CODEFLY__SERVICE"
-
-func ServiceAsEnvironmentVariable(service string) *EnvironmentVariable {
-	return Env(ServicePrefix, service)
-}
-
-const VersionPrefix = "CODEFLY__SERVICE_VERSION"
-
-func VersionAsEnvironmentVariable(version string) *EnvironmentVariable {
-	return Env(VersionPrefix, version)
-}
-
-const RuntimeContextPrefix = "CODEFLY__RUNTIME_CONTEXT"
-
-func RuntimeContextAsEnvironmentVariable(runtimeContext *basev0.RuntimeContext) *EnvironmentVariable {
-	return Env(RuntimeContextPrefix, runtimeContext.Kind)
-}
-
-func (holder *EnvironmentVariableManager) SetRuntimeContext(runtimeContext *basev0.RuntimeContext) {
-	holder.runtimeContext = runtimeContext
-}
-
 func (holder *EnvironmentVariableManager) getBase() []*EnvironmentVariable {
 	var envs []*EnvironmentVariable
 	if holder.running {
 		envs = append(envs, Env(RunningPrefix, true))
-
 	}
+
+	if holder.fixture != "" {
+		envs = append(envs, FixtureAsEnvironmentVariable(holder.fixture))
+	}
+
 	if holder.environment != nil {
 		envs = append(envs, EnvironmentAsEnvironmentVariable(holder.environment))
 	}
@@ -177,6 +128,70 @@ func (holder *EnvironmentVariableManager) All() []*EnvironmentVariable {
 	return envs
 }
 
+func (holder *EnvironmentVariableManager) SetIdentity(identity *basev0.ServiceIdentity) {
+	holder.module = identity.Module
+	holder.service = identity.Name
+	holder.workspace = identity.Workspace
+	holder.version = identity.Version
+}
+
+const RunningPrefix = "CODEFLY__RUNNING"
+
+func (holder *EnvironmentVariableManager) SetRunning() {
+	holder.running = true
+}
+
+const FixturePrefix = "CODEFLY__FIXTURE"
+
+func (holder *EnvironmentVariableManager) SetFixture(fixture string) {
+	holder.fixture = fixture
+}
+
+func FixtureAsEnvironmentVariable(fixture string) *EnvironmentVariable {
+	return Env(FixturePrefix, fixture)
+}
+
+const WorkspacePrefix = "CODEFLY__WORKSPACE"
+
+func WorkspaceAsEnvironmentVariable(workspace string) *EnvironmentVariable {
+	return Env(WorkspacePrefix, workspace)
+}
+
+const ModulePrefix = "CODEFLY__MODULE"
+
+func ModuleAsEnvironmentVariable(module string) *EnvironmentVariable {
+	return Env(ModulePrefix, module)
+}
+
+const ServicePrefix = "CODEFLY__SERVICE"
+
+func ServiceAsEnvironmentVariable(service string) *EnvironmentVariable {
+	return Env(ServicePrefix, service)
+}
+
+const VersionPrefix = "CODEFLY__SERVICE_VERSION"
+
+func VersionAsEnvironmentVariable(version string) *EnvironmentVariable {
+	return Env(VersionPrefix, version)
+}
+
+const RuntimeContextPrefix = "CODEFLY__RUNTIME_CONTEXT"
+
+func RuntimeContextAsEnvironmentVariable(runtimeContext *basev0.RuntimeContext) *EnvironmentVariable {
+	return Env(RuntimeContextPrefix, runtimeContext.Kind)
+}
+
+func (holder *EnvironmentVariableManager) SetRuntimeContext(runtimeContext *basev0.RuntimeContext) {
+	holder.runtimeContext = runtimeContext
+}
+
+const WorkspaceConfigurationPrefix = "CODEFLY__WORKSPACE_CONFIGURATION"
+
+// #nosec G101
+const WorkspaceSecretConfigurationPrefix = "CODEFLY__WORKSPACE_SECRET_CONFIGURATION"
+const ServiceConfigurationPrefix = "CODEFLY__SERVICE_CONFIGURATION"
+const ServiceSecretConfigurationPrefix = "CODEFLY__SERVICE_SECRET_CONFIGURATION"
+
 func (holder *EnvironmentVariableManager) Configurations() []*EnvironmentVariable {
 	envs := holder.getBase()
 	for _, conf := range holder.configurations {
@@ -215,8 +230,8 @@ func MakeManyEndpointAccessSummary(endpointAccesses []*EndpointAccess) string {
 	return strings.Join(result, ", ")
 }
 
-func MakeEndpointAccessSummary(endointAccess *EndpointAccess) string {
-	return fmt.Sprintf("%s::%s", MakeEndpointSummary(endointAccess.Endpoint), MakeNetworkInstanceSummary(endointAccess.NetworkInstance))
+func MakeEndpointAccessSummary(endpointAccess *EndpointAccess) string {
+	return fmt.Sprintf("%s::%s", MakeEndpointSummary(endpointAccess.Endpoint), MakeNetworkInstanceSummary(endpointAccess.NetworkInstance))
 }
 
 func MakeNetworkInstanceSummary(instance *basev0.NetworkInstance) string {
