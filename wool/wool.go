@@ -209,7 +209,6 @@ func (w *Wool) lookup(key ContextKey) (string, error) {
 		return "", fmt.Errorf("cannot get metadata from context")
 	}
 
-	w.Info("looking up data in incoming context", Field("ctx", w.ctx), Field("metadata", md))
 	if value, found := md[string(key)]; found && len(value) > 0 && len(value[0]) > 0 {
 		return value[0], nil
 	}

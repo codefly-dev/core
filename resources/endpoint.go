@@ -327,6 +327,20 @@ func FindGRPCEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev
 	return nil, fmt.Errorf("no grpc endpoint found")
 }
 
+func FindGRPCEndpointFromService(ctx context.Context, service *ServiceDependency, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	w := wool.Get(ctx).In("resources.FindGRPCEndpointFromService")
+	for _, e := range endpoints {
+		w.Debug("endpoint", wool.NameField(e.Name), wool.Field("service", service.Name), wool.Field("module", service.Module))
+		if e.Service != service.Name || e.Module != service.Module {
+			continue
+		}
+		if IsGRPC(ctx, e) != nil {
+			return e, nil
+		}
+	}
+	return nil, nil
+}
+
 func FindRestEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
 	for _, e := range endpoints {
 		if IsRest(ctx, e) != nil {

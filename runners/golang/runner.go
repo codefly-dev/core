@@ -326,7 +326,7 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	if r.withRaceConditionDetection {
 		args = append(args, "-race")
 	}
-	args = append(args, "-o", r.targetPath, "main.go")
+	args = append(args, "-o", r.targetPath)
 
 	proc, err := r.Env().NewProcess("go", args...)
 	if err != nil {

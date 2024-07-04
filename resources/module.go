@@ -38,11 +38,15 @@ func (mod *Module) Unique() string {
 	return mod.Name
 }
 
-func (mod *Module) Proto() *basev0.Module {
-	return &basev0.Module{
+func (mod *Module) Proto(ctx context.Context) (*basev0.Module, error) {
+	proto := &basev0.Module{
 		Name:        mod.Name,
 		Description: mod.Description,
 	}
+	if err := Validate(proto); err != nil {
+		return nil, err
+	}
+	return proto, nil
 }
 
 // Dir returns the directory of the module
@@ -225,11 +229,12 @@ func LoadModuleFromPath(ctx context.Context) (*Module, error) {
 	return LoadModuleFromDirUnsafe(ctx, *dir)
 }
 
-func (mod *Module) postLoad(_ context.Context) error {
+func (mod *Module) postLoad(ctx context.Context) error {
 	for _, ref := range mod.ServiceReferences {
 		ref.Module = mod.Name
 	}
-	return mod.Validate()
+	_, err := mod.Proto(ctx)
+	return err
 }
 
 func (mod *Module) SaveToDir(ctx context.Context, dir string) error {
@@ -407,11 +412,6 @@ func (mod *Module) DeleteServiceDependencies(ctx context.Context, ref *ServiceRe
 		}
 	}
 	return nil
-}
-
-func (mod *Module) Validate() error {
-	proto := mod.Proto()
-	return Validate(proto)
 }
 
 func (mod *Module) WithDir(dir string) {

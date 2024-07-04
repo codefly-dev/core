@@ -37,13 +37,17 @@ type RunningOptions struct {
 	Persistence bool `yaml:"persistence,omitempty"`
 }
 
-// s reference Modules
-
 // ServiceReferences reference Endpoints
 
 // An EndpointReference
 type EndpointReference struct {
+	Api  string `yaml:"api"`
 	Name string `yaml:"name"`
 }
 
-// s reference Environments
+func (e *EndpointReference) API() string {
+	if e.Api != "" {
+		return e.Api
+	}
+	return e.Name
+}

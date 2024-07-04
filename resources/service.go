@@ -62,15 +62,15 @@ type Service struct {
 	dir string
 }
 
-func (s *Service) Validate() error {
-	return Validate(s.Proto())
-}
-
-func (s *Service) Proto() *basev0.Service {
-	return &basev0.Service{
+func (s *Service) Proto(ctx context.Context) (*basev0.Service, error) {
+	proto := &basev0.Service{
 		Name:        s.Name,
 		Description: s.Description,
 	}
+	if err := Validate(proto); err != nil {
+		return nil, err
+	}
+	return proto, nil
 }
 
 // Unique identifies a service within a
@@ -287,7 +287,7 @@ func LoadServiceFromDir(ctx context.Context, dir string) (*Service, error) {
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
-	err = service.Validate()
+	_, err = service.Proto(ctx)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}

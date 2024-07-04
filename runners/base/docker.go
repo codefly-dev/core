@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/docker/docker/client"
 )
 
@@ -66,4 +67,22 @@ func PrintDownloadPercentage(reader io.ReadCloser, out io.Writer) {
 
 type DockerContainerInstance struct {
 	ID string
+}
+
+func GetImageID(im *resources.DockerImage) (string, error) {
+	ctx := context.Background()
+
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return "", fmt.Errorf("failed to create Docker client: %v", err)
+	}
+	defer cli.Close()
+
+	// Inspect the im
+	inspect, _, err := cli.ImageInspectWithRaw(ctx, im.FullName())
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect im: %v", err)
+	}
+
+	return inspect.ID, nil
 }

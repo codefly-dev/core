@@ -139,13 +139,9 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	s.Wool = agentProvider.Get(ctx)
 	s.Logger = serviceProvider.Get(ctx)
 
-	s.Wool.Debug("loading", wool.ServiceField(s.Identity.Name))
-
 	ctx = s.Wool.Inject(ctx)
 
 	var err error
-
-	s.Wool.Debug("loading service", wool.DirField(s.Location))
 
 	s.Service, err = resources.LoadServiceFromDir(ctx, s.Location)
 	if err != nil {

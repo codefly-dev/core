@@ -5,8 +5,10 @@ import (
 	"embed"
 	"fmt"
 	"path"
+	"strings"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -194,6 +196,7 @@ func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, 
 
 type DeploymentBase struct {
 	*Information
+	Sha         string
 	Namespace   string
 	Environment *resources.Environment
 	Image       *resources.DockerImage
@@ -203,15 +206,27 @@ type DeploymentBase struct {
 	Parameters any
 }
 
-func (s *BuilderWrapper) CreateKubernetesBase(env *basev0.Environment, namespace string, builderContext *builderv0.DockerBuildContext) *DeploymentBase {
+func (s *BuilderWrapper) CreateKubernetesBase(ctx context.Context, env *basev0.Environment, namespace string, builderContext *builderv0.DockerBuildContext) (*DeploymentBase, error) {
 	envInfo := resources.EnvironmentFromProto(env)
+	dockerImage := s.DockerImage(builderContext)
+	id, err := base.GetImageID(dockerImage)
+	if err != nil {
+		s.Wool.Error("cannot get image id", wool.Field("image", dockerImage), wool.Field("error", err))
+	}
+	sha, ok := strings.CutPrefix(id, "sha256:")
+	if !ok {
+		s.Wool.Error("cannot get sha", wool.Field("image", dockerImage), wool.Field("id", id))
+	}
+	// Trim
+	sha = sha[:12]
 	return &DeploymentBase{
+		Sha:         sha,
 		Namespace:   namespace,
 		Information: s.Information,
 		Environment: envInfo,
-		Image:       s.DockerImage(builderContext),
+		Image:       dockerImage,
 		Replicas:    1,
-	}
+	}, nil
 }
 
 type EnvironmentMap map[string]string
@@ -264,8 +279,12 @@ func KustomizeOutput() *builderv0.DeploymentOutput {
 
 func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Environment, req *builderv0.KubernetesDeployment, fs embed.FS, params any) error {
 	defer s.Wool.Catch()
-	base := s.CreateKubernetesBase(env, req.Namespace, req.BuildContext)
-	err := s.Builder.GenerateGenericKustomize(ctx, fs, req, base, params)
+
+	b, err := s.CreateKubernetesBase(ctx, env, req.Namespace, req.BuildContext)
+	if err != nil {
+		return s.Wool.Wrapf(err, "cannot create base")
+	}
+	err = s.Builder.GenerateGenericKustomize(ctx, fs, req, b, params)
 	if err != nil {
 		return err
 	}

@@ -40,3 +40,12 @@ func InjectMetadata(ctx context.Context) context.Context {
 	}
 	return metadata.NewIncomingContext(ctx, md)
 }
+
+func GRPCOut(ctx context.Context) context.Context {
+	// Add Metadata from gRPC
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+	return ctx
+}

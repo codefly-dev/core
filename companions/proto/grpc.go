@@ -11,6 +11,7 @@ import (
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
 )
@@ -55,6 +56,12 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 	if err != nil {
 		return w.Wrapf(err, "cannot create docker runner")
 	}
+
+	_, err = shared.CheckDirectoryOrCreate(ctx, destination)
+	if err != nil {
+		return w.Wrapf(err, "cannot create destination")
+	}
+
 	runner.WithMount(destination, "/workspace/output")
 	runner.WithMount(tmpDir, "/workspace")
 	runner.WithWorkDir("/workspace")

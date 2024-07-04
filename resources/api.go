@@ -124,7 +124,6 @@ func LoadRestAPI(ctx context.Context, f *string) (*basev0.RestAPI, error) {
 		return nil, w.Wrapf(err, "failed to parse openapi spec")
 	}
 
-	w.Debug("found paths", wool.Field("path", openapi.Paths.Paths))
 	groupMap := make(map[string]*basev0.RestRouteGroup)
 	for path := range openapi.Paths.Paths {
 		var group *basev0.RestRouteGroup

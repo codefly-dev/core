@@ -13,7 +13,7 @@ import (
 
 func LoadWorkspace(ctx context.Context, workspace *resources.Workspace) (*basev0.Workspace, error) {
 	w := wool.Get(ctx).In("overview.LoadWorkspace")
-	out, err := workspace.Proto()
+	out, err := workspace.Proto(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to load workspace")
 	}
@@ -33,7 +33,10 @@ func LoadWorkspace(ctx context.Context, workspace *resources.Workspace) (*basev0
 
 func LoadModule(ctx context.Context, workspace *resources.Workspace, mod *resources.Module) (*basev0.Module, error) {
 	w := wool.Get(ctx).In("overview.LoadModule")
-	out := mod.Proto()
+	out, err := mod.Proto(ctx)
+	if err != nil {
+		return nil, w.Wrapf(err, "failed to load module")
+	}
 	svcs, err := mod.LoadServices(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to load svcs")
@@ -50,7 +53,7 @@ func LoadModule(ctx context.Context, workspace *resources.Workspace, mod *resour
 
 func LoadService(ctx context.Context, workspace *resources.Workspace, service *resources.Service) (*basev0.Service, error) {
 	w := wool.Get(ctx).In("overview.LoadService")
-	out := service.Proto()
+	out, err := service.Proto(ctx)
 	// Get endpoints from services
 	instance, err := services.Load(ctx, service)
 	if err != nil {

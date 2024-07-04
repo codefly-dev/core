@@ -34,7 +34,7 @@ type Workspace struct {
 	layout Layout `yaml:"-"`
 }
 
-func (workspace *Workspace) Proto() (*basev0.Workspace, error) {
+func (workspace *Workspace) Proto(ctx context.Context) (*basev0.Workspace, error) {
 	proto := &basev0.Workspace{
 		Name:        workspace.Name,
 		Description: workspace.Description,
@@ -54,7 +54,7 @@ func (workspace *Workspace) Dir() string {
 func NewWorkspace(ctx context.Context, name string, layout string) (*Workspace, error) {
 	w := wool.Get(ctx).In("New", wool.NameField(name))
 	workspace := &Workspace{Name: name, Layout: layout}
-	_, err := workspace.Proto()
+	_, err := workspace.Proto(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot validate  name")
 	}
@@ -240,7 +240,7 @@ func (workspace *Workspace) ModulePath(ctx context.Context, ref *ModuleReference
 // postLoad ensures the workspace is valid after loading
 func (workspace *Workspace) postLoad(ctx context.Context) error {
 	w := wool.Get(ctx).In("Workspace::postLoad", wool.NameField(workspace.Name))
-	_, err := workspace.Proto()
+	_, err := workspace.Proto(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot validate proto")
 	}
@@ -256,7 +256,7 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 
 func (workspace *Workspace) preSave(ctx context.Context) (*Workspace, error) {
 	w := wool.Get(ctx).In("preSave", wool.NameField(workspace.Name))
-	_, err := workspace.Proto()
+	_, err := workspace.Proto(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot validate proto")
 	}
