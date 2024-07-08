@@ -41,18 +41,18 @@ func APIInt(api string) int {
 }
 
 // ToNamedPort strategy:
-// APP-SVC-API
+// APP-SVC-GetAPI
 // Between 1100(0) and 5(9)
 // First 11 -> 49: hash mod
 // Next 0 -> 9: hash svc
 // Next 0 - 9: hash name
-// Last Digit: API
+// Last Digit: GetAPI
 // 0: TCP
 // 1: HTTP/ REST
 // 2: gRPC
 
-func ToNamedPort(ctx context.Context, ws, mod, svc, name, api string) uint16 {
-	// Combine all inputs except API into a single string
+func ToNamedPort(_ context.Context, ws, mod, svc, name, api string) uint16 {
+	// Combine all inputs except GetAPI into a single string
 	combined := strings.Join([]string{ws, mod, svc, name}, "-")
 
 	// Use SHA-256 to get a more uniformly distributed hash
@@ -61,13 +61,13 @@ func ToNamedPort(ctx context.Context, ws, mod, svc, name, api string) uint16 {
 	// Use the first 6 bytes of the hash to get a large number
 	num := binary.BigEndian.Uint64(hash[:8])
 
-	// Map this number to the range 1024-65525 (leaving room for API type)
+	// Map this number to the range 1024-65525 (leaving room for GetAPI type)
 	basePort := 1024 + (num % 64502) // 64502 is 65525 - 1024 + 1
 
-	// Ensure the last digit is 0 to make room for the API type
+	// Ensure the last digit is 0 to make room for the GetAPI type
 	basePort = basePort - (basePort % 10)
 
-	// Add the API type to the last digit
+	// Add the GetAPI type to the last digit
 	return uint16(basePort) + uint16(APIInt(api))
 }
 

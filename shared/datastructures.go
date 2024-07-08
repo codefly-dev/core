@@ -19,6 +19,9 @@ func NewSliceWriter() *SliceWriter {
 
 func (sw *SliceWriter) Write(p []byte) (n int, err error) {
 	n, err = sw.buf.Write(p)
+	if err != nil {
+		return n, err
+	}
 	for {
 		line, err := sw.buf.ReadString('\n')
 		if err == io.EOF {

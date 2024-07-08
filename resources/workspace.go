@@ -34,7 +34,7 @@ type Workspace struct {
 	layout Layout `yaml:"-"`
 }
 
-func (workspace *Workspace) Proto(ctx context.Context) (*basev0.Workspace, error) {
+func (workspace *Workspace) Proto(_ context.Context) (*basev0.Workspace, error) {
 	proto := &basev0.Workspace{
 		Name:        workspace.Name,
 		Description: workspace.Description,

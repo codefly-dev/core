@@ -38,7 +38,7 @@ func (mod *Module) Unique() string {
 	return mod.Name
 }
 
-func (mod *Module) Proto(ctx context.Context) (*basev0.Module, error) {
+func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
 	proto := &basev0.Module{
 		Name:        mod.Name,
 		Description: mod.Description,

@@ -33,6 +33,7 @@ const (
 	CLI_GetAddresses_FullMethodName                             = "/codefly.cli.v0.CLI/GetAddresses"
 	CLI_GetConfiguration_FullMethodName                         = "/codefly.cli.v0.CLI/GetConfiguration"
 	CLI_GetDependenciesConfigurations_FullMethodName            = "/codefly.cli.v0.CLI/GetDependenciesConfigurations"
+	CLI_GetDependenciesNetworkMappings_FullMethodName           = "/codefly.cli.v0.CLI/GetDependenciesNetworkMappings"
 	CLI_GetRuntimeConfigurations_FullMethodName                 = "/codefly.cli.v0.CLI/GetRuntimeConfigurations"
 	CLI_Logs_FullMethodName                                     = "/codefly.cli.v0.CLI/Logs"
 	CLI_ActiveLogHistory_FullMethodName                         = "/codefly.cli.v0.CLI/ActiveLogHistory"
@@ -41,7 +42,7 @@ const (
 	CLI_DestroyFlow_FullMethodName                              = "/codefly.cli.v0.CLI/DestroyFlow"
 )
 
-// CLIClient is the client API for CLI service.
+// CLIClient is the client GetAPI for CLI service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CLIClient interface {
@@ -54,6 +55,7 @@ type CLIClient interface {
 	GetAddresses(ctx context.Context, in *GetAddressRequest, opts ...grpc.CallOption) (*GetAddressResponse, error)
 	GetConfiguration(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationResponse, error)
 	GetDependenciesConfigurations(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationsResponse, error)
+	GetDependenciesNetworkMappings(ctx context.Context, in *GetNetworkMappingsRequest, opts ...grpc.CallOption) (*GetNetworkMappingsResponse, error)
 	GetRuntimeConfigurations(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationsResponse, error)
 	Logs(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (CLI_LogsClient, error)
 	ActiveLogHistory(ctx context.Context, in *v02.LogRequest, opts ...grpc.CallOption) (*v02.LogResponse, error)
@@ -160,6 +162,16 @@ func (c *cLIClient) GetDependenciesConfigurations(ctx context.Context, in *GetCo
 	return out, nil
 }
 
+func (c *cLIClient) GetDependenciesNetworkMappings(ctx context.Context, in *GetNetworkMappingsRequest, opts ...grpc.CallOption) (*GetNetworkMappingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetNetworkMappingsResponse)
+	err := c.cc.Invoke(ctx, CLI_GetDependenciesNetworkMappings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *cLIClient) GetRuntimeConfigurations(ctx context.Context, in *GetConfigurationRequest, opts ...grpc.CallOption) (*GetConfigurationsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetConfigurationsResponse)
@@ -243,7 +255,7 @@ func (c *cLIClient) DestroyFlow(ctx context.Context, in *DestroyFlowRequest, opt
 	return out, nil
 }
 
-// CLIServer is the server API for CLI service.
+// CLIServer is the server GetAPI for CLI service.
 // All implementations must embed UnimplementedCLIServer
 // for forward compatibility
 type CLIServer interface {
@@ -256,6 +268,7 @@ type CLIServer interface {
 	GetAddresses(context.Context, *GetAddressRequest) (*GetAddressResponse, error)
 	GetConfiguration(context.Context, *GetConfigurationRequest) (*GetConfigurationResponse, error)
 	GetDependenciesConfigurations(context.Context, *GetConfigurationRequest) (*GetConfigurationsResponse, error)
+	GetDependenciesNetworkMappings(context.Context, *GetNetworkMappingsRequest) (*GetNetworkMappingsResponse, error)
 	GetRuntimeConfigurations(context.Context, *GetConfigurationRequest) (*GetConfigurationsResponse, error)
 	Logs(*emptypb.Empty, CLI_LogsServer) error
 	ActiveLogHistory(context.Context, *v02.LogRequest) (*v02.LogResponse, error)
@@ -295,6 +308,9 @@ func (UnimplementedCLIServer) GetConfiguration(context.Context, *GetConfiguratio
 }
 func (UnimplementedCLIServer) GetDependenciesConfigurations(context.Context, *GetConfigurationRequest) (*GetConfigurationsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDependenciesConfigurations not implemented")
+}
+func (UnimplementedCLIServer) GetDependenciesNetworkMappings(context.Context, *GetNetworkMappingsRequest) (*GetNetworkMappingsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDependenciesNetworkMappings not implemented")
 }
 func (UnimplementedCLIServer) GetRuntimeConfigurations(context.Context, *GetConfigurationRequest) (*GetConfigurationsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRuntimeConfigurations not implemented")
@@ -489,6 +505,24 @@ func _CLI_GetDependenciesConfigurations_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CLI_GetDependenciesNetworkMappings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetNetworkMappingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CLIServer).GetDependenciesNetworkMappings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CLI_GetDependenciesNetworkMappings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CLIServer).GetDependenciesNetworkMappings(ctx, req.(*GetNetworkMappingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _CLI_GetRuntimeConfigurations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetConfigurationRequest)
 	if err := dec(in); err != nil {
@@ -642,6 +676,10 @@ var CLI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDependenciesConfigurations",
 			Handler:    _CLI_GetDependenciesConfigurations_Handler,
+		},
+		{
+			MethodName: "GetDependenciesNetworkMappings",
+			Handler:    _CLI_GetDependenciesNetworkMappings_Handler,
 		},
 		{
 			MethodName: "GetRuntimeConfigurations",

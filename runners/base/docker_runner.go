@@ -13,8 +13,6 @@ import (
 
 	"github.com/docker/docker/pkg/stdcopy"
 
-	"github.com/docker/docker/api/types"
-
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 
@@ -481,7 +479,7 @@ func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
 	w := wool.Get(ctx).In("DockerProc.FindPid")
 	// Construct the command to execute 'ps' inside the container
 	psCmd := []string{"/bin/ps"}
-	execConfig := types.ExecConfig{
+	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          psCmd,
@@ -494,7 +492,7 @@ func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
 	}
 
 	// Attach to the exec instance to capture the output
-	execAttachResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, types.ExecStartCheck{})
+	execAttachResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, container.ExecAttachOptions{})
 	if err != nil {
 		return 0, w.Wrapf(err, "cannot attach to exec")
 	}
@@ -576,7 +574,7 @@ func (proc *DockerProc) start(ctx context.Context) error {
 	}
 
 	// Create an exec configuration
-	execConfig := types.ExecConfig{
+	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Env:          resources.EnvironmentVariableAsStrings(proc.envs),
@@ -592,7 +590,7 @@ func (proc *DockerProc) start(ctx context.Context) error {
 		return err
 	}
 	// Start the exec instance
-	execStartCheck := types.ExecStartCheck{
+	execStartCheck := container.ExecStartOptions{
 		Detach: false,
 		Tty:    false,
 	}
@@ -652,7 +650,7 @@ func (proc *DockerProc) stop(ctx context.Context, pid int, force bool) error {
 	if force {
 		killCmd = append(killCmd, "-9")
 	}
-	execConfig := types.ExecConfig{
+	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          killCmd,
@@ -662,7 +660,7 @@ func (proc *DockerProc) stop(ctx context.Context, pid int, force bool) error {
 		return w.Wrapf(err, "cannot create exec to kill")
 	}
 
-	execStartCheck := types.ExecStartCheck{Detach: false, Tty: false}
+	execStartCheck := container.ExecStartOptions{Detach: false, Tty: false}
 	execResp, err := proc.env.client.ContainerExecAttach(context.Background(), execIDResp.ID, execStartCheck)
 	if err != nil {
 		return w.Wrapf(err, "cannot kill process")

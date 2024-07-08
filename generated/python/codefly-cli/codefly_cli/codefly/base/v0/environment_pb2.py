@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!codefly/base/v0/environment.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x62uf/validate/validate.proto\"C\n\x0b\x45nvironment\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\"8\n\x12ManagedEnvironment\x12\"\n\x02id\x18\x01 \x01(\tB\x12\xbaH\x0fr\r2\x0b^[a-z]{10}$R\x02idB\xbf\x01\n\x13\x63om.codefly.base.v0B\x10\x45nvironmentProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03\x43\x42V\xaa\x02\x0f\x43odefly.Base.V0\xca\x02\x0f\x43odefly\\Base\\V0\xe2\x02\x1b\x43odefly\\Base\\V0\\GPBMetadata\xea\x02\x11\x43odefly::Base::V0b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!codefly/base/v0/environment.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x62uf/validate/validate.proto\"f\n\x0b\x45nvironment\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12!\n\x0cnaming_scope\x18\x03 \x01(\tR\x0bnamingScope\"8\n\x12ManagedEnvironment\x12\"\n\x02id\x18\x01 \x01(\tB\x12\xbaH\x0fr\r2\x0b^[a-z]{10}$R\x02idB\xbf\x01\n\x13\x63om.codefly.base.v0B\x10\x45nvironmentProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03\x43\x42V\xaa\x02\x0f\x43odefly.Base.V0\xca\x02\x0f\x43odefly\\Base\\V0\xe2\x02\x1b\x43odefly\\Base\\V0\\GPBMetadata\xea\x02\x11\x43odefly::Base::V0b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -36,7 +36,7 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_MANAGEDENVIRONMENT'].fields_by_name['id']._loaded_options = None
   _globals['_MANAGEDENVIRONMENT'].fields_by_name['id']._serialized_options = b'\272H\017r\r2\013^[a-z]{10}$'
   _globals['_ENVIRONMENT']._serialized_start=83
-  _globals['_ENVIRONMENT']._serialized_end=150
-  _globals['_MANAGEDENVIRONMENT']._serialized_start=152
-  _globals['_MANAGEDENVIRONMENT']._serialized_end=208
+  _globals['_ENVIRONMENT']._serialized_end=185
+  _globals['_MANAGEDENVIRONMENT']._serialized_start=187
+  _globals['_MANAGEDENVIRONMENT']._serialized_end=243
 # @@protoc_insertion_point(module_scope)

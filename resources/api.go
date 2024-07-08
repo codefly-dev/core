@@ -106,7 +106,7 @@ func LoadRestAPI(ctx context.Context, f *string) (*basev0.RestAPI, error) {
 		return &basev0.RestAPI{}, nil
 	}
 	filename := *f
-	w.Debug("loading REST API from file", wool.FileField(filename))
+	w.Debug("loading REST GetAPI from file", wool.FileField(filename))
 	exists, err := shared.FileExists(ctx, filename)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to check file existence")
@@ -191,7 +191,7 @@ func NewTCP() (*TCP, error) {
 func (*TCP) Proto() (*basev0.API, error) {
 	// Add a GrpcAPI message with the file content
 	tcp := &basev0.TcpAPI{}
-	// Add an API message with the GrpcAPI message
+	// Add an GetAPI message with the GrpcAPI message
 	api := &basev0.API{
 		Value: &basev0.API_Tcp{
 			Tcp: tcp,

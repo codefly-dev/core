@@ -24,12 +24,14 @@ func (err *EnvironmentExistsError) Error() string {
 type Environment struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
+	NamingScope string `yaml:"naming-scope,omitempty"`
 }
 
 func (env *Environment) Proto() (*basev0.Environment, error) {
 	proto := &basev0.Environment{
 		Name:        env.Name,
 		Description: env.Description,
+		NamingScope: env.NamingScope,
 	}
 	err := Validate(proto)
 	if err != nil {
@@ -46,6 +48,7 @@ func EnvironmentFromProto(env *basev0.Environment) *Environment {
 	return &Environment{
 		Name:        env.Name,
 		Description: env.Description,
+		NamingScope: env.NamingScope,
 	}
 }
 

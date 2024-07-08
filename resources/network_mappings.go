@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/codefly-dev/core/wool"
+
 	"github.com/codefly-dev/core/standards"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -70,9 +72,19 @@ func NewHTTPNetworkInstance(hostname string, port uint16, secured bool) *basev0.
 	return instance
 }
 
-func FindNetworkInstanceInNetworkMappings(_ context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint, networkAccess *basev0.NetworkAccess) (*basev0.NetworkInstance, error) {
+func FilterNetworkInstance(_ context.Context, instances []*basev0.NetworkInstance, networkAccess *basev0.NetworkAccess) *basev0.NetworkInstance {
+	for _, instance := range instances {
+		if instance.Access.Kind == networkAccess.Kind {
+			return instance
+		}
+	}
+	return nil
+}
+
+func FindNetworkInstanceInNetworkMappings(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint, networkAccess *basev0.NetworkAccess) (*basev0.NetworkInstance, error) {
+	w := wool.Get(ctx).In("FindNetworkInstanceInNetworkMappings")
 	if endpoint == nil {
-		return nil, fmt.Errorf("can't find network instance for a nil endpoint")
+		return nil, w.NewError("can't find network instance for a nil endpoint")
 	}
 	for _, mapping := range mappings {
 		if mapping.Endpoint.Module == endpoint.Module &&
@@ -86,12 +98,13 @@ func FindNetworkInstanceInNetworkMappings(_ context.Context, mappings []*basev0.
 			}
 		}
 	}
-	return nil, fmt.Errorf("no network instance for endpoint: %s", EndpointFromProto(endpoint).Unique())
+	return nil, w.NewError("no network instance for endpoint: %s", EndpointFromProto(endpoint).Unique())
 }
 
-func FindNetworkMapping(_ context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkMapping, error) {
+func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkMapping, error) {
+	w := wool.Get(ctx).In("FindNetworkMapping")
 	if endpoint == nil {
-		return nil, fmt.Errorf("can't find network instance for a nil endpoint")
+		return nil, w.NewError("can't find network instance for a nil endpoint")
 	}
 	for _, mapping := range mappings {
 		if mapping.Endpoint.Module == endpoint.Module &&
@@ -102,7 +115,7 @@ func FindNetworkMapping(_ context.Context, mappings []*basev0.NetworkMapping, en
 
 		}
 	}
-	return nil, fmt.Errorf("no network mapping for endpoint: %s", EndpointFromProto(endpoint).Unique())
+	return nil, w.NewError("no network mapping for endpoint: %s", EndpointFromProto(endpoint).Unique())
 }
 
 func MakeManyNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {

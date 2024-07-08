@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"google.golang.org/grpc/metadata"
-
 	"github.com/pkg/errors"
 
 	"go.opentelemetry.io/otel/baggage"
@@ -203,47 +201,21 @@ func NotFound(what ContextKey) error {
 	return &NotFoundError{what: what}
 }
 
-func (w *Wool) lookup(key ContextKey) (string, error) {
-	md, ok := metadata.FromIncomingContext(w.ctx)
-	if !ok {
-		return "", fmt.Errorf("cannot get metadata from context")
-	}
+func (w *Wool) lookup(key ContextKey) (string, bool) {
+	// Check context Key first
 
-	if value, found := md[string(key)]; found && len(value) > 0 && len(value[0]) > 0 {
-		return value[0], nil
+	if value, ok := w.ctx.Value(key).(string); ok {
+		return value, true
 	}
-	return "", NotFound(key)
+	return "", false
+}
+
+func (w *Wool) with(key ContextKey, value string) {
+	// Add to context values
+	w.ctx = context.WithValue(w.ctx, key, value)
 }
 
 type ContextKey string
-
-const UserAuthIDKey ContextKey = "codefly.user.auth.id"
-
-// UserAuthID returns the ID from the Auth process from the context
-func (w *Wool) UserAuthID() (string, error) {
-	return w.lookup(UserAuthIDKey)
-}
-
-const UserEmailKey ContextKey = "codefly.user.email"
-
-// UserEmail returns the UserEmail from the context
-func (w *Wool) UserEmail() (string, error) {
-	return w.lookup(UserEmailKey)
-}
-
-const UserNameKey ContextKey = "codefly.user.name"
-
-// UserName returns the UserName from the context
-func (w *Wool) UserName() (string, error) {
-	return w.lookup(UserNameKey)
-}
-
-const UserGivenNameKey ContextKey = "codefly.user.given_name"
-
-// UserGivenName returns the UserGivenName from the context
-func (w *Wool) UserGivenName() (string, error) {
-	return w.lookup(UserGivenNameKey)
-}
 
 func (w *Wool) Source() *Identifier {
 	return w.source
@@ -292,6 +264,18 @@ func (w *Wool) WithLoglevel(level Loglevel) {
 
 func (w *Wool) DisableCatch() {
 	w.disableCatch = true
+}
+
+func (w *Wool) HTTP() *HTTP {
+	return &HTTP{w: w}
+}
+
+func (w *Wool) GRPC() *GRPC {
+	return &GRPC{w: w}
+}
+
+func (w *Wool) Context() context.Context {
+	return w.ctx
 }
 
 const LogEvent = "log"

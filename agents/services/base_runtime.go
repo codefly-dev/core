@@ -15,8 +15,6 @@ import (
 type RuntimeWrapper struct {
 	*Base
 
-	Environment *basev0.Environment
-
 	RuntimeContext *basev0.RuntimeContext
 
 	RuntimeConfigurations []*basev0.Configuration

@@ -41,13 +41,13 @@ type RunningOptions struct {
 
 // An EndpointReference
 type EndpointReference struct {
-	Api  string `yaml:"api"`
+	API  string `yaml:"api"`
 	Name string `yaml:"name"`
 }
 
-func (e *EndpointReference) API() string {
-	if e.Api != "" {
-		return e.Api
+func (e *EndpointReference) GetAPI() string {
+	if e.API != "" {
+		return e.API
 	}
 	return e.Name
 }

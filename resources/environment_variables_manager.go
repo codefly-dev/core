@@ -352,7 +352,7 @@ func EndpointAsEnvironmentVariable(endpoint *basev0.Endpoint, instance *basev0.N
 func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool) []*EnvironmentVariable {
 	var env []*EnvironmentVariable
 	confKey := ConfigurationEnvironmentKeyPrefix(conf)
-	for _, info := range conf.Configurations {
+	for _, info := range conf.Infos {
 		infoKey := fmt.Sprintf("%s__%s", confKey, NameToKey(info.Name))
 		for _, value := range info.ConfigurationValues {
 			key := fmt.Sprintf("%s__%s", infoKey, NameToKey(value.Key))

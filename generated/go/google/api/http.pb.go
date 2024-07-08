@@ -35,15 +35,15 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Defines the HTTP configuration for an API service. It contains a list of
+// Defines the HTTP configuration for an GetAPI service. It contains a list of
 // [HttpRule][google.api.HttpRule], each specifying the mapping of an RPC method
-// to one or more HTTP REST API methods.
+// to one or more HTTP REST GetAPI methods.
 type Http struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// A list of HTTP configuration rules that apply to individual API methods.
+	// A list of HTTP configuration rules that apply to individual GetAPI methods.
 	//
 	// **NOTE:** All service configuration rules follow "last one wins" order.
 	Rules []*HttpRule `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
@@ -105,7 +105,7 @@ func (x *Http) GetFullyDecodeReservedExpansion() bool {
 // # gRPC Transcoding
 //
 // gRPC Transcoding is a feature for mapping between a gRPC method and one or
-// more HTTP REST endpoints. It allows developers to build a single API service
+// more HTTP REST endpoints. It allows developers to build a single GetAPI service
 // that supports both gRPC APIs and REST APIs. Many systems, including [Google
 // APIs](https://github.com/googleapis/googleapis),
 // [Cloud Endpoints](https://cloud.google.com/endpoints), [gRPC
@@ -323,9 +323,9 @@ func (x *Http) GetFullyDecodeReservedExpansion() bool {
 // Document](https://developers.google.com/discovery/v1/reference/apis) as
 // `{+var}`.
 //
-// ## Using gRPC API Service Configuration
+// ## Using gRPC GetAPI Service Configuration
 //
-// gRPC API Service Configuration (service config) is a configuration language
+// gRPC GetAPI Service Configuration (service config) is a configuration language
 // for configuring a gRPC service to become a user-facing product. The
 // service config is simply the YAML representation of the `google.api.Service`
 // proto message.
@@ -370,7 +370,7 @@ func (x *Http) GetFullyDecodeReservedExpansion() bool {
 // Repeated message fields must not be mapped to URL query parameters, because
 // no client library can support such complicated mapping.
 //
-// If an API needs to use a JSON array for request or response body, it can map
+// If an GetAPI needs to use a JSON array for request or response body, it can map
 // the request or response body to a repeated field. However, some gRPC
 // Transcoding implementations may not support this feature.
 type HttpRule struct {

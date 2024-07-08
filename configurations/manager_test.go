@@ -2,8 +2,9 @@ package configurations_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
+
+	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/resources"
@@ -38,35 +39,30 @@ func testLoader(t *testing.T, dir string) {
 
 	require.NoError(t, manager.Load(ctx, env))
 
-	confs, err := manager.GetConfigurations(ctx)
+	confs, err := manager.GetWorkspaceConfigurations(ctx)
 	require.NoError(t, err)
-	for _, conf := range confs {
-		fmt.Println(resources.MakeConfigurationSummary(conf))
-	}
-	//
 	// - auth0/frontend
 	// - global
-	// app/ServiceWithModule
-	// - something
+	// - other_global
 	require.Equal(t, 3, len(confs))
 
 	// Get  configuration value for some key
-
-	conf, err := manager.GetConfiguration(ctx, "global")
+	conf, err := resources.FindWorkspaceConfiguration(ctx, confs, "global")
 	require.NoError(t, err)
 	require.NotNil(t, conf)
+	require.Equal(t, "value", shared.Must(resources.GetConfigurationValue(ctx, conf, "global", "key")))
 
-	conf, err = manager.GetConfiguration(ctx, "auth0/frontend")
-	require.NoError(t, err)
-	require.NotNil(t, conf)
+	confs, err = manager.GetServiceConfigurations(ctx)
 
-	conf, err = manager.GetConfiguration(ctx, "not-exist")
 	require.NoError(t, err)
-	require.Nil(t, conf)
+	// app/ServiceWithModule
+	// - something
+	require.Equal(t, 1, len(confs))
 
 	// For a service
 	svc, err := workspace.FindUniqueServiceByName(ctx, "svc")
 	require.NoError(t, err)
+
 	conf, err = manager.GetServiceConfiguration(ctx, svc)
 	require.NoError(t, err)
 	require.NotNil(t, conf)

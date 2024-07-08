@@ -608,7 +608,7 @@ func DetectNewGRPCRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.E
 	for _, e := range endpoints {
 		if grpc := IsGRPC(ctx, e); grpc != nil {
 			for _, rpc := range grpc.Rpcs {
-				w.Debug("found a GRPC API", wool.NameField(rpc.Name))
+				w.Debug("found a GRPC GetAPI", wool.NameField(rpc.Name))
 				if _, ok := knownRoutes[rpc.Name]; !ok {
 					w.Debug("detected unknown RPC", wool.NameField(rpc.Name))
 					newRoutes = append(newRoutes, GRPCRouteFromProto(e, grpc, rpc))

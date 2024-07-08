@@ -1,0 +1,5 @@
+top: on_top
+nested:
+  value: in_nested
+  deeper:
+    value: in_deep

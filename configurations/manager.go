@@ -24,7 +24,7 @@ type Manager struct {
 	loaders []Loader
 
 	// Per Name in
-	configurations map[string]*basev0.Configuration
+	worspaceConfigurations map[string]*basev0.Configuration
 
 	// Per service
 	serviceConfigurations map[string]*basev0.Configuration
@@ -41,7 +41,7 @@ func NewManager(_ context.Context, workspace *resources.Workspace) (*Manager, er
 	return &Manager{
 		workspace:                        workspace,
 		services:                         make(map[string]*resources.Service),
-		configurations:                   make(map[string]*basev0.Configuration),
+		worspaceConfigurations:           make(map[string]*basev0.Configuration),
 		serviceConfigurations:            make(map[string]*basev0.Configuration),
 		exposedFromServiceConfigurations: make(map[string][]*basev0.Configuration),
 	}, nil
@@ -57,6 +57,7 @@ func (manager *Manager) Load(ctx context.Context, env *resources.Environment) er
 		return nil
 	}
 	w := wool.Get(ctx).In("providers.Load")
+
 	for _, loader := range manager.loaders {
 		err := loader.Load(ctx, env)
 		if err != nil {
@@ -67,53 +68,85 @@ func (manager *Manager) Load(ctx context.Context, env *resources.Environment) er
 	if err != nil {
 		return w.Wrapf(err, "cannot load configurations")
 	}
+
 	err = manager.LoadDNS(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot load DNS")
 	}
+
 	w.Debug("loaded", wool.Field("dns", resources.MakeManyDNSSummary(manager.dns)))
 	return nil
 }
 
+// LoadConfigurations fetch different loaders and consolidate
 func (manager *Manager) LoadConfigurations(_ context.Context) error {
 	for _, loader := range manager.loaders {
 		confs := loader.Configurations()
 		for _, conf := range confs {
 			if conf.Origin == resources.ConfigurationWorkspace {
-				for _, info := range conf.Configurations {
-					if _, ok := manager.configurations[info.Name]; !ok {
-						manager.configurations[info.Name] = &basev0.Configuration{
+				for _, info := range conf.Infos {
+					if _, ok := manager.worspaceConfigurations[info.Name]; !ok {
+						manager.worspaceConfigurations[info.Name] = &basev0.Configuration{
 							Origin: resources.ConfigurationWorkspace,
 						}
 					}
-					manager.configurations[info.Name].Configurations = append(manager.configurations[info.Name].Configurations, info)
+					manager.worspaceConfigurations[info.Name].Infos = append(manager.worspaceConfigurations[info.Name].Infos, info)
 				}
-			} else {
-				if manager.skip(conf.Origin) {
-					continue
-				}
-				for _, info := range conf.Configurations {
-					if _, ok := manager.serviceConfigurations[conf.Origin]; !ok {
-						manager.serviceConfigurations[conf.Origin] = &basev0.Configuration{
-							Origin: conf.Origin,
-						}
+				continue
+			}
+			if manager.skip(conf.Origin) {
+				continue
+			}
+			for _, info := range conf.Infos {
+				if _, ok := manager.serviceConfigurations[conf.Origin]; !ok {
+					manager.serviceConfigurations[conf.Origin] = &basev0.Configuration{
+						Origin: conf.Origin,
 					}
-					manager.serviceConfigurations[conf.Origin].Configurations = append(manager.serviceConfigurations[conf.Origin].Configurations, info)
 				}
+				manager.serviceConfigurations[conf.Origin].Infos = append(manager.serviceConfigurations[conf.Origin].Infos, info)
 			}
 		}
 	}
 	return nil
 }
 
-func (manager *Manager) GetConfiguration(_ context.Context, name string) (*basev0.Configuration, error) {
+func (manager *Manager) GetWorkspaceConfigurations(_ context.Context) ([]*basev0.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
-	if conf, ok := manager.configurations[name]; ok {
-		return conf, nil
+	var out []*basev0.Configuration
+	for _, conf := range manager.worspaceConfigurations {
+		out = append(out, conf)
 	}
-	return nil, nil
+	return out, nil
+}
+
+func (manager *Manager) GetWorkspaceDependenciesConfigurations(ctx context.Context, deps ...string) ([]*basev0.Configuration, error) {
+	if manager == nil {
+		return nil, nil
+	}
+	w := wool.Get(ctx).In("Manager.GetWorkspaceDependenciesConfigurations", wool.Field("dependencies", deps))
+	var out []*basev0.Configuration
+	for _, dep := range deps {
+		if conf, ok := manager.worspaceConfigurations[dep]; ok {
+			out = append(out, conf)
+			continue
+		}
+		return nil, w.NewError("no configuration found for %s", dep)
+
+	}
+	return out, nil
+}
+
+func (manager *Manager) GetServiceConfigurations(_ context.Context) ([]*basev0.Configuration, error) {
+	if manager == nil {
+		return nil, nil
+	}
+	var out []*basev0.Configuration
+	for _, conf := range manager.serviceConfigurations {
+		out = append(out, conf)
+	}
+	return out, nil
 }
 
 func (manager *Manager) GetServiceConfiguration(_ context.Context, service *resources.Service) (*basev0.Configuration, error) {
@@ -124,28 +157,6 @@ func (manager *Manager) GetServiceConfiguration(_ context.Context, service *reso
 		return conf, nil
 	}
 	return nil, nil
-}
-
-func (manager *Manager) GetConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
-	if manager == nil {
-		return nil, nil
-	}
-	w := wool.Get(ctx).In("providers.GetConfigurations")
-	var out []*basev0.Configuration
-	for _, conf := range manager.configurations {
-		w.Debug(" configuration", wool.Field("got", conf))
-		out = append(out, conf)
-	}
-	for svc, confs := range manager.serviceConfigurations {
-		w.Debug("service configuration", wool.ServiceField(svc))
-		out = append(out, confs)
-
-	}
-	for svc, confs := range manager.exposedFromServiceConfigurations {
-		w.Debug("exposed service configuration", wool.ServiceField(svc))
-		out = append(out, confs...)
-	}
-	return out, nil
 }
 
 func (manager *Manager) ExposeConfiguration(ctx context.Context, service *resources.Service, confs ...*basev0.Configuration) error {

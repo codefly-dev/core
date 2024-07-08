@@ -64,6 +64,11 @@ class CLIStub(object):
                 request_serializer=codefly_dot_cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.SerializeToString,
                 response_deserializer=codefly_dot_cli_dot_v0_dot_cli__pb2.GetConfigurationsResponse.FromString,
                 _registered_method=True)
+        self.GetDependenciesNetworkMappings = channel.unary_unary(
+                '/codefly.cli.v0.CLI/GetDependenciesNetworkMappings',
+                request_serializer=codefly_dot_cli_dot_v0_dot_cli__pb2.GetNetworkMappingsRequest.SerializeToString,
+                response_deserializer=codefly_dot_cli_dot_v0_dot_cli__pb2.GetNetworkMappingsResponse.FromString,
+                _registered_method=True)
         self.GetRuntimeConfigurations = channel.unary_unary(
                 '/codefly.cli.v0.CLI/GetRuntimeConfigurations',
                 request_serializer=codefly_dot_cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.SerializeToString,
@@ -155,6 +160,12 @@ class CLIServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetDependenciesNetworkMappings(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetRuntimeConfigurations(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -238,6 +249,11 @@ def add_CLIServicer_to_server(servicer, server):
                     servicer.GetDependenciesConfigurations,
                     request_deserializer=codefly_dot_cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.FromString,
                     response_serializer=codefly_dot_cli_dot_v0_dot_cli__pb2.GetConfigurationsResponse.SerializeToString,
+            ),
+            'GetDependenciesNetworkMappings': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetDependenciesNetworkMappings,
+                    request_deserializer=codefly_dot_cli_dot_v0_dot_cli__pb2.GetNetworkMappingsRequest.FromString,
+                    response_serializer=codefly_dot_cli_dot_v0_dot_cli__pb2.GetNetworkMappingsResponse.SerializeToString,
             ),
             'GetRuntimeConfigurations': grpc.unary_unary_rpc_method_handler(
                     servicer.GetRuntimeConfigurations,
@@ -513,6 +529,33 @@ class CLI(object):
             '/codefly.cli.v0.CLI/GetDependenciesConfigurations',
             codefly_dot_cli_dot_v0_dot_cli__pb2.GetConfigurationRequest.SerializeToString,
             codefly_dot_cli_dot_v0_dot_cli__pb2.GetConfigurationsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetDependenciesNetworkMappings(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.cli.v0.CLI/GetDependenciesNetworkMappings',
+            codefly_dot_cli_dot_v0_dot_cli__pb2.GetNetworkMappingsRequest.SerializeToString,
+            codefly_dot_cli_dot_v0_dot_cli__pb2.GetNetworkMappingsResponse.FromString,
             options,
             channel_credentials,
             insecure,

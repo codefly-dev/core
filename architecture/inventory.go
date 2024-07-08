@@ -54,6 +54,9 @@ func LoadModule(ctx context.Context, workspace *resources.Workspace, mod *resour
 func LoadService(ctx context.Context, workspace *resources.Workspace, service *resources.Service) (*basev0.Service, error) {
 	w := wool.Get(ctx).In("overview.LoadService")
 	out, err := service.Proto(ctx)
+	if err != nil {
+		return nil, w.Wrapf(err, "failed to load service")
+	}
 	// Get endpoints from services
 	instance, err := services.Load(ctx, service)
 	if err != nil {

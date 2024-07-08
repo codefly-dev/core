@@ -50,7 +50,7 @@ type Service struct {
 	ServiceDependencies []*ServiceDependency `yaml:"service-dependencies,omitempty"`
 
 	// Dependencies
-	ConfigurationDependencies []string `yaml:"workspace-configuration-dependencies,omitempty"`
+	WorkspaceConfigurationDependencies []string `yaml:"workspace-configuration-dependencies,omitempty"`
 
 	// Endpoints exposed by the service
 	Endpoints []*Endpoint `yaml:"endpoints,omitempty"`
@@ -62,7 +62,7 @@ type Service struct {
 	dir string
 }
 
-func (s *Service) Proto(ctx context.Context) (*basev0.Service, error) {
+func (s *Service) Proto(_ context.Context) (*basev0.Service, error) {
 	proto := &basev0.Service{
 		Name:        s.Name,
 		Description: s.Description,
@@ -467,6 +467,10 @@ func (s *Service) UniqueWithWorspace(workspace string) string {
 		return s.Unique()
 	}
 	return fmt.Sprintf("%s-%s", workspace, s.Unique())
+}
+
+func (s *Service) UniqueWithWorspaceAndScope(workspace string, scope string) string {
+	return fmt.Sprintf("%s-%s", s.UniqueWithWorspace(workspace), scope)
 }
 
 func (s *Service) BaseEndpoint(name string) *Endpoint {

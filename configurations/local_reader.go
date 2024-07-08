@@ -44,35 +44,28 @@ func NewConfigurationLocalReader(_ context.Context, workspace *resources.Workspa
 }
 
 func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env *resources.Environment) error {
-	w := wool.Get(ctx).In("provider.Load")
+	w := wool.Get(ctx).In("ConfigurationInformationLocalReader.Load")
+
 	// Create a provider folder for local development
 	configurationDir := path.Join(local.workspace.Dir(), "configurations", env.Name)
 	_, err := shared.CheckDirectoryOrCreate(ctx, configurationDir)
 	if err != nil {
 		return w.Wrapf(err, "cannot create configuration directory")
 	}
-	workspaceConfs, err := LoadConfigurationsFromEnvFiles(ctx, configurationDir)
+
+	workspaceInfos, err := LoadConfigurationInformationsFromFiles(ctx, configurationDir)
 	if err != nil {
 		return w.Wrapf(err, "cannot load configurations")
 	}
 
 	var confs []*basev0.Configuration
 
-	workspaceConfsMap := make(map[string]*basev0.Configuration)
-
-	for _, conf := range workspaceConfs {
-		if _, ok := workspaceConfsMap[conf.Name]; !ok {
-			workspaceConfsMap[conf.Name] = &basev0.Configuration{
-				Origin: resources.ConfigurationWorkspace,
-			}
-			continue
-		}
-		workspaceConfsMap[conf.Name].Configurations = append(workspaceConfsMap[conf.Name].Configurations, conf)
-	}
-
-	for _, conf := range workspaceConfsMap {
-		w.Debug("adding workspace conf")
-		confs = append(confs, conf)
+	// For workspace configurations, we add one configuration per info
+	for _, info := range workspaceInfos {
+		confs = append(confs, &basev0.Configuration{
+			Origin: resources.ConfigurationWorkspace,
+			Infos:  []*basev0.ConfigurationInformation{info},
+		})
 	}
 	// Load services configurations
 	services, err := local.workspace.LoadServices(ctx)
@@ -90,19 +83,19 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			return w.Wrapf(err, "cannot check service configuration directory")
 		}
 		if exists {
-			workspaceConfs, err = LoadConfigurationsFromEnvFiles(ctx, serviceConfDir)
+			serviceInfos, err := LoadConfigurationInformationsFromFiles(ctx, serviceConfDir)
 			if err != nil {
 				return w.Wrapf(err, "cannot load service configurations")
 			}
-			if len(workspaceConfs) > 0 {
 
+			if len(serviceInfos) > 0 {
 				if _, ok := serviceConfs[svc.Unique()]; !ok {
 					serviceConfs[svc.Unique()] = &basev0.Configuration{
 						Origin: svc.Unique(),
 					}
 				}
-				for _, conf := range workspaceConfs {
-					serviceConfs[svc.Unique()].Configurations = append(serviceConfs[svc.Unique()].Configurations, conf)
+				for _, info := range serviceInfos {
+					serviceConfs[svc.Unique()].Infos = append(serviceConfs[svc.Unique()].Infos, info)
 				}
 			}
 		}
@@ -127,7 +120,6 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 		}
 	}
 	for _, conf := range serviceConfs {
-		w.Debug("adding service conf")
 		confs = append(confs, conf)
 	}
 	local.configurations = confs
@@ -176,8 +168,11 @@ func FromService(service *resources.Service, dep string) (*ConfigurationSource, 
 	return &ConfigurationSource{ServiceWithModule: parsed, Name: name}, nil
 }
 
-func LoadConfigurationsFromEnvFiles(ctx context.Context, dir string) ([]*basev0.ConfigurationInformation, error) {
+// LoadConfigurationInformationsFromFiles returns all configurations infos
+// Naming is path based with respect to dir
+func LoadConfigurationInformationsFromFiles(ctx context.Context, dir string) ([]*basev0.ConfigurationInformation, error) {
 	w := wool.Get(ctx).In("provider.LoadConfigurationsFromEnvFiles")
+
 	w.Trace("loading configurations from directory", wool.DirField(dir))
 	exists, err := shared.DirectoryExists(ctx, dir)
 	if err != nil {
@@ -186,8 +181,10 @@ func LoadConfigurationsFromEnvFiles(ctx context.Context, dir string) ([]*basev0.
 	if !exists {
 		return nil, w.NewError("configuration directory doesn't exist: %s", dir)
 	}
-	var confs []*basev0.ConfigurationInformation
+
+	var infos []*basev0.ConfigurationInformation
 	// Walk directories recursively
+
 	err = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return w.Wrapf(err, "cannot walk p")
@@ -196,16 +193,30 @@ func LoadConfigurationsFromEnvFiles(ctx context.Context, dir string) ([]*basev0.
 			return nil
 		}
 		if !info.IsDir() {
-			if !strings.HasSuffix(p, ".env") {
+			base := path.Base(p)
+			if strings.Contains(base, ".codefly.") {
+				// Specific codefly files are ignored
 				return nil
 			}
-			conf, err := loadFromEnvFile(ctx, dir, p)
-			if err != nil {
-				return w.Wrapf(err, "cannot load provider from env file")
+
+			if strings.HasSuffix(p, ".env") {
+				confInfo, err := loadFromEnvFile(ctx, dir, p)
+				if err != nil {
+					return w.Wrapf(err, "cannot load provider from env file: %s", p)
+				}
+				w.Trace("loaded configuration", wool.Field("configuration", confInfo.Name))
+				infos = append(infos, confInfo)
+				return nil
 			}
-			w.Trace("loaded configuration", wool.Field("configuration", conf.Name))
-			confs = append(confs, conf)
-			return nil
+			if strings.HasSuffix(p, ".yaml") {
+				confInfo, err := loadFromYamlFile(ctx, dir, p)
+				if err != nil {
+					return w.Wrapf(err, "cannot load provider from yaml file: %s", p)
+				}
+				w.Trace("loaded configuration", wool.Field("configuration", confInfo.Name))
+				infos = append(infos, confInfo)
+				return nil
+			}
 		}
 		return nil
 	})
@@ -213,8 +224,9 @@ func LoadConfigurationsFromEnvFiles(ctx context.Context, dir string) ([]*basev0.
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot walk providers directory")
 	}
-	w.Trace("loaded confs", wool.SliceCountField(confs))
-	return confs, nil
+	consolidated := ConsolidateInfo(infos)
+	w.Trace("loaded infos", wool.SliceCountField(consolidated))
+	return consolidated, nil
 }
 
 func loadFromEnvFile(ctx context.Context, dir string, p string) (*basev0.ConfigurationInformation, error) {
@@ -255,6 +267,64 @@ func loadFromEnvFile(ctx context.Context, dir string, p string) (*basev0.Configu
 	return info, nil
 }
 
+func loadFromYamlFile(ctx context.Context, dir string, p string) (*basev0.ConfigurationInformation, error) {
+	w := wool.Get(ctx).In("provider.loadFromYamlFile")
+
+	base, err := filepath.Rel(dir, p)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot get relative path")
+	}
+	var ok bool
+	base, ok = strings.CutSuffix(base, ".yaml")
+	if !ok {
+		return nil, w.NewError("invalid yaml file Name: %s", base)
+	}
+	var isSecret bool
+	base, isSecret = strings.CutSuffix(base, ".secret")
+
+	f, err := os.ReadFile(p)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot read auth0.env")
+	}
+	info := &basev0.ConfigurationInformation{
+		Name: base,
+	}
+
+	var data map[string]interface{}
+	err = yaml.Unmarshal(f, &data)
+	if err != nil {
+		return nil, w.Wrapf(err, "Error unmarshalling YAML: %s data: %s", p, string(f))
+	}
+
+	flattened := make(map[string]string)
+	flattenMap("", data, flattened)
+
+	for key, value := range flattened {
+		info.ConfigurationValues = append(info.ConfigurationValues, &basev0.ConfigurationValue{
+			Key:    key,
+			Value:  value,
+			Secret: isSecret,
+		})
+	}
+	return info, nil
+}
+
+func flattenMap(prefix string, m map[string]interface{}, result map[string]string) {
+	for k, v := range m {
+		newKey := k
+		if prefix != "" {
+			newKey = prefix + "." + k
+		}
+
+		switch vv := v.(type) {
+		case map[string]interface{}:
+			flattenMap(newKey, vv, result)
+		default:
+			result[newKey] = fmt.Sprintf("%v", v)
+		}
+	}
+}
+
 // ExtractFromPath gets modules/app/services/ServiceWithModule and we want to extract app/ServiceWithModule
 func ExtractFromPath(p string) string {
 	tokens := strings.Split(p, "/")
@@ -262,4 +332,22 @@ func ExtractFromPath(p string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/%s", tokens[1], tokens[3])
+}
+
+// ConsolidateInfo consolidate informations values per name
+func ConsolidateInfo(infos []*basev0.ConfigurationInformation) []*basev0.ConfigurationInformation {
+	consolidated := make(map[string]*basev0.ConfigurationInformation)
+	for _, info := range infos {
+		if _, ok := consolidated[info.Name]; !ok {
+			consolidated[info.Name] = &basev0.ConfigurationInformation{
+				Name: info.Name,
+			}
+		}
+		consolidated[info.Name].ConfigurationValues = append(consolidated[info.Name].ConfigurationValues, info.ConfigurationValues...)
+	}
+	var result []*basev0.ConfigurationInformation
+	for _, info := range consolidated {
+		result = append(result, info)
+	}
+	return result
 }

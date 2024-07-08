@@ -29,8 +29,9 @@ type Dependencies struct {
 }
 
 type Option struct {
-	Debug   bool
-	Timeout time.Duration
+	Debug       bool
+	Timeout     time.Duration
+	NamingScope string
 }
 
 type OptionFunc func(*Option)
@@ -47,6 +48,13 @@ func WithTimeout(timeout time.Duration) OptionFunc {
 	}
 }
 
+func WithNamingScope(scope string) OptionFunc {
+	return func(o *Option) {
+		o.NamingScope = scope
+	}
+
+}
+
 func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, error) {
 	opt := &Option{
 		Debug:   false,
@@ -59,8 +67,12 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if opt.Debug {
 		args = append(args, "-d")
 	}
+	if opt.NamingScope != "" {
+		args = append(args, "--naming-scope", opt.NamingScope)
+	}
 	args = append(args, "--exclude-root", "--cli-server")
 	cmd := exec.CommandContext(ctx, "codefly", args...)
+	fmt.Println("CMD", args)
 	cmd.Stdout = os.Stdout // log stdout
 	cmd.Stderr = os.Stderr // log stderr
 	err := cmd.Start()
@@ -159,26 +171,57 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	request := &v0.GetConfigurationRequest{
-		Module:  svc.Module,
-		Service: svc.Name,
-	}
-	resp, err := l.cli.GetDependenciesConfigurations(ctx, request)
-	if err != nil {
-		return w.Wrapf(err, "failed to get dependencies configurations")
-	}
-	dependenciesConfigurations := resources.FilterConfigurations(resp.Configurations, l.runtimeContext)
-	for _, conf := range dependenciesConfigurations {
-		envs := resources.ConfigurationAsEnvironmentVariables(conf, false)
-		secrets := resources.ConfigurationAsEnvironmentVariables(conf, true)
-		envs = append(envs, secrets...)
-		for _, env := range envs {
+	// Setup Networking
+	{
+		networkAccess := resources.NetworkAccessFromRuntimeContext(l.runtimeContext)
+		if networkAccess == nil {
+			return w.NewError("no network access found")
+		}
+		req := &v0.GetNetworkMappingsRequest{Module: svc.Module, Service: svc.Name}
+
+		resp, err := l.cli.GetDependenciesNetworkMappings(ctx, req)
+		if err != nil {
+			return w.Wrapf(err, "failed to get dependencies network mappings")
+		}
+		for _, np := range resp.NetworkMappings {
+			inst := resources.FilterNetworkInstance(ctx, np.Instances, networkAccess)
+			if inst == nil {
+				return w.NewError("no network instance found")
+			}
+			env := resources.EndpointAsEnvironmentVariable(np.Endpoint, inst)
 			k := env.Key
 			v := fmt.Sprintf("%s", env.Value)
 			w.Debug("setting environment variable", wool.Field("key", k), wool.Field("value", v))
 			err = os.Setenv(k, v)
 			if err != nil {
 				return w.Wrapf(err, "failed to set environment variable")
+			}
+
+		}
+	}
+	// Setup Configuration
+	{
+		req := &v0.GetConfigurationRequest{
+			Module:  svc.Module,
+			Service: svc.Name,
+		}
+		resp, err := l.cli.GetDependenciesConfigurations(ctx, req)
+		if err != nil {
+			return w.Wrapf(err, "failed to get dependencies configurations")
+		}
+		dependenciesConfigurations := resources.FilterConfigurations(resp.Configurations, l.runtimeContext)
+		for _, conf := range dependenciesConfigurations {
+			envs := resources.ConfigurationAsEnvironmentVariables(conf, false)
+			secrets := resources.ConfigurationAsEnvironmentVariables(conf, true)
+			envs = append(envs, secrets...)
+			for _, env := range envs {
+				k := env.Key
+				v := fmt.Sprintf("%s", env.Value)
+				w.Debug("setting environment variable", wool.Field("key", k), wool.Field("value", v))
+				err = os.Setenv(k, v)
+				if err != nil {
+					return w.Wrapf(err, "failed to set environment variable")
+				}
 			}
 		}
 	}

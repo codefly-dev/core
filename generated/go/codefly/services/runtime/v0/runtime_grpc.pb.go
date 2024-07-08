@@ -31,7 +31,7 @@ const (
 	Runtime_Communicate_FullMethodName = "/codefly.services.runtime.v0.Runtime/Communicate"
 )
 
-// RuntimeClient is the client API for Runtime service.
+// RuntimeClient is the client GetAPI for Runtime service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RuntimeClient interface {
@@ -142,7 +142,7 @@ func (c *runtimeClient) Communicate(ctx context.Context, in *v0.Engage, opts ...
 	return out, nil
 }
 
-// RuntimeServer is the server API for Runtime service.
+// RuntimeServer is the server GetAPI for Runtime service.
 // All implementations must embed UnimplementedRuntimeServer
 // for forward compatibility
 type RuntimeServer interface {

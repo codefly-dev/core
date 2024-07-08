@@ -96,7 +96,7 @@ func ExternalInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance 
 }
 
 // GenerateNetworkMappings generates network mappings for a service endpoints
-func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, _ *resources.Environment, workspace *resources.Workspace, service *resources.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
+func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -128,10 +128,14 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, _ *resourc
 		}
 		// Generate Port
 		var port uint16
+		name := endpoint.Name
+		if env.NamingScope != "" {
+			name = fmt.Sprintf("%s-%s", endpoint.Name, env.NamingScope)
+		}
 		if m.withTemporaryPorts {
 			port = m.GetFreePort()
 		} else {
-			port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, endpoint.Name, endpoint.Api)
+			port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, name, endpoint.Api)
 
 		}
 		w.Debug("allocating port", wool.Field("port", port), wool.Field("service", service.Unique()))

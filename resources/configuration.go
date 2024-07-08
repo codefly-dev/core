@@ -9,10 +9,10 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
-const ConfigurationWorkspace = "workspace"
+const ConfigurationWorkspace = "_workspace_origin"
 
 func HasConfigurationInformation(_ context.Context, conf *basev0.Configuration, name string) bool {
-	for _, info := range conf.Configurations {
+	for _, info := range conf.Infos {
 		if info.Name == name {
 			return true
 		}
@@ -34,7 +34,7 @@ func GetConfigurationValue(ctx context.Context, conf *basev0.Configuration, name
 	if conf == nil {
 		return "", w.NewError("configuration is nil")
 	}
-	for _, info := range conf.Configurations {
+	for _, info := range conf.Infos {
 		if info.Name == name {
 			for _, value := range info.ConfigurationValues {
 				if value.Key == key {
@@ -44,6 +44,18 @@ func GetConfigurationValue(ctx context.Context, conf *basev0.Configuration, name
 		}
 	}
 	return "", fmt.Errorf("cannot find configuration value: %s", key)
+}
+
+func FindWorkspaceConfiguration(_ context.Context, confs []*basev0.Configuration, name string) (*basev0.Configuration, error) {
+	for _, conf := range confs {
+		if conf.Origin != ConfigurationWorkspace {
+			continue
+		}
+		if conf.Infos[0].Name == name {
+			return conf, nil
+		}
+	}
+	return nil, fmt.Errorf("couldn't find workspace configuration: %s", name)
 }
 
 func FindConfigurations(configurations []*basev0.Configuration, runtime *basev0.RuntimeContext) []*basev0.Configuration {
@@ -66,7 +78,7 @@ func ConfigurationsHash(confs ...*basev0.Configuration) string {
 
 func ConfigurationHash(conf *basev0.Configuration) string {
 	hasher := NewHasher()
-	for _, info := range conf.Configurations {
+	for _, info := range conf.Infos {
 		hasher.Add(ConfigurationInformationHash(info))
 	}
 	return hasher.Hash()
@@ -97,8 +109,8 @@ func MakeConfigurationSummary(conf *basev0.Configuration) string {
 		return ""
 	}
 	var summary []string
-	for _, c := range conf.Configurations {
-		summary = append(summary, MakeConfigurationInformationSummary(c))
+	for _, info := range conf.Infos {
+		summary = append(summary, MakeConfigurationInformationSummary(info))
 	}
 	return fmt.Sprintf("%s: %s", conf.Origin, strings.Join(summary, ", "))
 
@@ -140,17 +152,4 @@ func ExtractConfiguration(configurations []*basev0.Configuration, runtimeContext
 		}
 	}
 	return out, nil
-}
-
-func FindConfigurationValue(conf *basev0.Configuration, name string, key string) (string, error) {
-	for _, info := range conf.Configurations {
-		if info.Name == name {
-			for _, value := range info.ConfigurationValues {
-				if value.Key == key {
-					return value.Value, nil
-				}
-			}
-		}
-	}
-	return "", fmt.Errorf("cannot find configuration value: %s", key)
 }

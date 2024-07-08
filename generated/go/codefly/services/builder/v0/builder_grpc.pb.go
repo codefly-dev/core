@@ -31,7 +31,7 @@ const (
 	Builder_Communicate_FullMethodName = "/codefly.services.builder.v0.Builder/Communicate"
 )
 
-// BuilderClient is the client API for Builder service.
+// BuilderClient is the client GetAPI for Builder service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
@@ -144,7 +144,7 @@ func (c *builderClient) Communicate(ctx context.Context, in *v0.Engage, opts ...
 	return out, nil
 }
 
-// BuilderServer is the server API for Builder service.
+// BuilderServer is the server GetAPI for Builder service.
 // All implementations must embed UnimplementedBuilderServer
 // for forward compatibility
 //

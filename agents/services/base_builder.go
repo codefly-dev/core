@@ -206,7 +206,7 @@ type DeploymentBase struct {
 	Parameters any
 }
 
-func (s *BuilderWrapper) CreateKubernetesBase(ctx context.Context, env *basev0.Environment, namespace string, builderContext *builderv0.DockerBuildContext) (*DeploymentBase, error) {
+func (s *BuilderWrapper) CreateKubernetesBase(_ context.Context, env *basev0.Environment, namespace string, builderContext *builderv0.DockerBuildContext) (*DeploymentBase, error) {
 	envInfo := resources.EnvironmentFromProto(env)
 	dockerImage := s.DockerImage(builderContext)
 	id, err := base.GetImageID(dockerImage)

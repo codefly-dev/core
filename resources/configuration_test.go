@@ -11,7 +11,7 @@ import (
 
 var Conf = &basev0.Configuration{
 	Origin: resources.ConfigurationWorkspace,
-	Configurations: []*basev0.ConfigurationInformation{
+	Infos: []*basev0.ConfigurationInformation{
 		{
 			Name: "something",
 			ConfigurationValues: []*basev0.ConfigurationValue{
@@ -26,7 +26,7 @@ var Conf = &basev0.Configuration{
 
 var serviceConf = &basev0.Configuration{
 	Origin: "app/svc",
-	Configurations: []*basev0.ConfigurationInformation{
+	Infos: []*basev0.ConfigurationInformation{
 		{
 			Name: "connection",
 			ConfigurationValues: []*basev0.ConfigurationValue{

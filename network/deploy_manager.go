@@ -38,7 +38,11 @@ func (m *DeployManager) KubernetesService(service *resources.Service, endpoint *
 }
 
 // GenerateNetworkMappings generates network mappings for a service endpoints
-func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
+func (m *DeployManager) GenerateNetworkMappings(ctx context.Context,
+	env *resources.Environment,
+	workspace *resources.Workspace,
+	service *resources.Service,
+	endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
 	var out []*basev0.NetworkMapping
 	for _, endpoint := range endpoints {
@@ -103,7 +107,7 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context, env *resour
 //func LoadBalanced(_ context.Context, env *resources.Environment, service *resources.Service, endpoint *basev0.Endpoint) *basev0.NetworkInstance {
 //	host := fmt.Sprintf("kopkfeqwuk-%s-%s-%s-%s.%s", env.Name, service.Name, service.Module, service., env.LoadBalancer)
 //	var instance *basev0.NetworkInstance
-//	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+//	if endpoint.API == standards.HTTP || endpoint.API == standards.REST {
 //		instance = resources.NewHTTPNetworkInstance(host, 443, true)
 //	} else {
 //		panic("only load balance http and rest for now")

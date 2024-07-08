@@ -137,6 +137,7 @@ func Get(ctx context.Context) *Wool {
 	if ctx == nil {
 		panic("nil context")
 	}
+
 	base := &Wool{ctx: ctx, logger: &Console{level: globalLogLevel}}
 	if _, file, line, ok := runtime.Caller(1); ok {
 		base.ref = &CodeReference{File: file, Line: line}

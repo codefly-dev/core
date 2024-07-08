@@ -13,22 +13,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadingDirectoryFromEnvFlat(t *testing.T) {
-	testLoadConfigurationsFromEnvFiles(t, "testdata/flat")
+func TestLoadingDirectoryFromFilesFlat(t *testing.T) {
+	testLoadConfigurationsFromFiles(t, "testdata/flat")
 }
 
-func TestLoadingDirectoryFromEnvModules(t *testing.T) {
-	testLoadConfigurationsFromEnvFiles(t, "testdata/module")
+func TestLoadingDirectoryFromFilesModules(t *testing.T) {
+	testLoadConfigurationsFromFiles(t, "testdata/module")
 }
 
-func testLoadConfigurationsFromEnvFiles(t *testing.T, dir string) {
+func testLoadConfigurationsFromFiles(t *testing.T, dir string) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	dir, err := shared.SolvePath(dir)
 	require.NoError(t, err)
 	ctx := context.Background()
-	wrappers, err := configurations.LoadConfigurationsFromEnvFiles(ctx, dir)
+	infos, err := configurations.LoadConfigurationInformationsFromFiles(ctx, dir)
 	require.NoError(t, err)
-	require.Len(t, wrappers, 7)
+	// workspace
+	// auth0/frontend global other_global
+	// service
+	// nested/other something
+	require.Len(t, infos, 5)
 }
 
 func TestLocalLoaderFlatLayout(t *testing.T) {
@@ -44,12 +48,24 @@ func testLocalLoader(t *testing.T, dir string) {
 	ctx := context.Background()
 	ws, err := resources.LoadWorkspaceFromDir(ctx, dir)
 	require.NoError(t, err)
+
 	loader, err := configurations.NewConfigurationLocalReader(ctx, ws)
 	require.NoError(t, err)
+
 	err = loader.Load(ctx, resources.LocalEnvironment())
 	require.NoError(t, err)
-	require.Equal(t, 3, len(loader.Configurations()))
+
+	// config
+	// global
+	// - frontend
+	// - global
+	// - other_global
+	// services
+	// - svc1
+
+	require.Equal(t, 4, len(loader.Configurations()))
 	require.Equal(t, 2, len(loader.DNS()))
+
 	dns := loader.DNS()[0]
 	require.Equal(t, "localhost", dns.Host)
 	require.Equal(t, uint32(8080), dns.Port)

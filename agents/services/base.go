@@ -50,6 +50,8 @@ type Base struct {
 
 	Service *resources.Service
 
+	Environment *basev0.Environment
+
 	// Information convenience
 	Information *Information
 
@@ -99,7 +101,10 @@ func (s *Base) Unique() string {
 
 func (s *Base) UniqueWithWorkspace() string {
 	s.Wool.Debug("unique with workspace", wool.Field("workspace", s.Identity.Workspace))
-	return s.Service.UniqueWithWorspace(s.Identity.Workspace)
+	if s.Environment.NamingScope == "" {
+		return s.Service.UniqueWithWorspace(s.Identity.Workspace)
+	}
+	return s.Service.UniqueWithWorspaceAndScope(s.Identity.Workspace, s.Environment.NamingScope)
 }
 
 func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {
