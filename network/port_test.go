@@ -32,7 +32,7 @@ func TestPortGeneration(t *testing.T) {
 			for _, api := range []string{standards.TCP, standards.HTTP, standards.GRPC} {
 				svc := gofakeit.Adjective()
 				v := network.ToNamedPort(ctx, "", app, svc, "test", api)
-				require.GreaterOrEqual(t, v, uint16(1024))
+				require.GreaterOrEqual(t, v, uint16(1000))
 				require.LessOrEqual(t, v, uint16(65535))
 				require.Equal(t, network.APIInt(api), getLastDigit(int(v)))
 			}

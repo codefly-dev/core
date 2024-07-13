@@ -11,10 +11,10 @@ import (
 
 // Folder -> Request
 
-// CreateDirectoryRequest walks through the given directory and creates a DirectoryRequest
+// SerializeDirectory walks through the given directory and creates a DirectoryRequest
 // containing FileInfo for files with the specified extensions.
-func CreateDirectoryRequest(rootPath string, extensions []string) (*utils.DirectoryRequest, error) {
-	request := &utils.DirectoryRequest{}
+func SerializeDirectory(rootPath string, extensions []string) (*utils.Directory, error) {
+	request := &utils.Directory{}
 
 	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -77,7 +77,7 @@ func HasValidExtension(path string, extensions []string) bool {
 
 // Request -> Folder
 
-func RecreateDirectoryFromRequest(request *utils.DirectoryRequest, destPath string) error {
+func RecreateDirectory(request *utils.Directory, destPath string) error {
 	for _, file := range request.Files {
 		fullPath := filepath.Join(destPath, file.Path)
 

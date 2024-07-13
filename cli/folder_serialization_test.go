@@ -42,7 +42,7 @@ func TestDirectoryRequestRoundTrip(t *testing.T) {
 	extensions := []string{".txt", ".go", ".json"}
 
 	// Create DirectoryRequest
-	request, err := cli.CreateDirectoryRequest(tempDir, extensions)
+	request, err := cli.SerializeDirectory(tempDir, extensions)
 	require.NoError(t, err)
 
 	// Recreate directory from request
@@ -51,7 +51,7 @@ func TestDirectoryRequestRoundTrip(t *testing.T) {
 
 	defer os.RemoveAll(recreatedDir)
 
-	err = cli.RecreateDirectoryFromRequest(request, recreatedDir)
+	err = cli.RecreateDirectory(request, recreatedDir)
 	require.NoError(t, err)
 
 	// Compare original and recreated directories
