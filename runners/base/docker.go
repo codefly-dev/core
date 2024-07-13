@@ -78,7 +78,10 @@ func GetImageID(im *resources.DockerImage) (string, error) {
 	}
 	defer cli.Close()
 
-	// Inspect the im
+	// Pull the image if necessary
+
+	// Inspect the image
+
 	inspect, _, err := cli.ImageInspectWithRaw(ctx, im.FullName())
 	if err != nil {
 		return "", fmt.Errorf("failed to inspect im: %v", err)

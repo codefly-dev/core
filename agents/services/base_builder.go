@@ -211,11 +211,11 @@ func (s *BuilderWrapper) CreateKubernetesBase(_ context.Context, env *basev0.Env
 	dockerImage := s.DockerImage(builderContext)
 	id, err := base.GetImageID(dockerImage)
 	if err != nil {
-		s.Wool.Error("cannot get image id", wool.Field("image", dockerImage), wool.Field("error", err))
+		return nil, s.Wool.Wrapf(err, "cannot get image id: %s", dockerImage.FullName())
 	}
 	sha, ok := strings.CutPrefix(id, "sha256:")
 	if !ok {
-		s.Wool.Error("cannot get sha", wool.Field("image", dockerImage), wool.Field("id", id))
+		return nil, s.Wool.NewError("cannot get sha for %s ID: %s", dockerImage.FullName(), id)
 	}
 	// Trim
 	sha = sha[:12]

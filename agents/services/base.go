@@ -80,6 +80,9 @@ type Base struct {
 	// Code Watcher
 	Watcher *code.Watcher
 	Events  chan code.Change
+
+	// Docker Image for simple deployment convenience
+	image *resources.DockerImage
 }
 
 func NewServiceBase(ctx context.Context, agent *resources.Agent) *Base {
@@ -172,12 +175,23 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	return nil
 }
 
-func (s *Base) DockerImage(req *builderv0.DockerBuildContext) *resources.DockerImage {
+func (s *Base) SetDefaultDockerImage(req *builderv0.DockerBuildContext) {
 	repo := req.DockerRepository
-	return &resources.DockerImage{
+	s.image = &resources.DockerImage{
 		Name: path.Join(repo, s.Identity.Module, s.Identity.Name),
 		Tag:  s.Version().Version,
 	}
+}
+
+func (s *Base) SetDockerImage(image *resources.DockerImage) {
+	s.image = image
+}
+
+func (s *Base) DockerImage(req *builderv0.DockerBuildContext) *resources.DockerImage {
+	if s.image == nil {
+		s.SetDefaultDockerImage(req)
+	}
+	return s.image
 }
 
 type WatchConfiguration struct {

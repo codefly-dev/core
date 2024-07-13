@@ -42,7 +42,7 @@ const (
 	CLI_DestroyFlow_FullMethodName                              = "/codefly.cli.v0.CLI/DestroyFlow"
 )
 
-// CLIClient is the client GetAPI for CLI service.
+// CLIClient is the client API for CLI service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CLIClient interface {
@@ -255,7 +255,7 @@ func (c *cLIClient) DestroyFlow(ctx context.Context, in *DestroyFlowRequest, opt
 	return out, nil
 }
 
-// CLIServer is the server GetAPI for CLI service.
+// CLIServer is the server API for CLI service.
 // All implementations must embed UnimplementedCLIServer
 // for forward compatibility
 type CLIServer interface {

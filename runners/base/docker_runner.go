@@ -148,8 +148,8 @@ func (docker *DockerEnvironment) ensureContainerRunning(ctx context.Context) err
 func (docker *DockerEnvironment) createAndStartContainer(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.createAndStartContainer")
 
-	containerConfig := docker.createContainerConfig()
-	hostConfig := docker.createHostConfig()
+	containerConfig := docker.createContainerConfig(ctx)
+	hostConfig := docker.createHostConfig(ctx)
 
 	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, docker.name)
 	if err != nil {
@@ -167,7 +167,8 @@ func (docker *DockerEnvironment) createAndStartContainer(ctx context.Context) er
 	return nil
 }
 
-func (docker *DockerEnvironment) createContainerConfig() *container.Config {
+func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *container.Config {
+	w := wool.Get(ctx).In("Docker.createContainerConfig")
 	config := &container.Config{
 		Image:        docker.image.FullName(),
 		Env:          resources.EnvironmentVariableAsStrings(docker.envs),
@@ -177,6 +178,7 @@ func (docker *DockerEnvironment) createContainerConfig() *container.Config {
 	}
 
 	if len(docker.cmd) > 0 {
+		w.Debug("overriding command", wool.Field("cmd", docker.cmd))
 		config.Cmd = docker.cmd
 	} else if docker.pause {
 		config.Cmd = []string{"sleep", "infinity"}
@@ -185,7 +187,7 @@ func (docker *DockerEnvironment) createContainerConfig() *container.Config {
 	return config
 }
 
-func (docker *DockerEnvironment) createHostConfig() *container.HostConfig {
+func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.HostConfig {
 	mounts := append([]mount.Mount{
 		{
 			Type:   mount.TypeBind,
@@ -721,20 +723,24 @@ func (proc *DockerProc) Match(cmd []string) bool {
 }
 
 func (docker *DockerEnvironment) GetImageIfNotPresent(ctx context.Context, imag *resources.DockerImage) error {
+	return GetImageIfNotPresent(ctx, docker.client, imag, docker.out)
+}
+
+func GetImageIfNotPresent(ctx context.Context, c *client.Client, imag *resources.DockerImage, out io.Writer) error {
 	w := wool.Get(ctx).In("Docker.GetImageIfNotPresent")
-	if exists, err := docker.ImageExists(ctx, imag); err != nil {
+	if exists, err := ImageExists(ctx, c, imag); err != nil {
 		return w.Wrapf(err, "cannot check if image exists")
 	} else if exists {
 		w.Trace("found Docker image locally")
 		return nil
 	}
 	_, _ = w.Forward([]byte(fmt.Sprintf("pulling Docker image %s. Will show progress every 5 seconds.", imag.FullName())))
-	progress, err := docker.client.ImagePull(ctx, imag.FullName(), image.PullOptions{})
+	progress, err := c.ImagePull(ctx, imag.FullName(), image.PullOptions{})
 	if err != nil {
 		return w.Wrapf(err, "cannot pull image: %s", imag.FullName())
 	}
 
-	PrintDownloadPercentage(progress, docker.out)
+	PrintDownloadPercentage(progress, out)
 
 	// Wait for the image pull operation to be completed
 	if _, err := io.Copy(io.Discard, progress); err != nil {
@@ -817,8 +823,13 @@ func (docker *DockerEnvironment) ContainerDeleted() (bool, error) {
 }
 
 func (docker *DockerEnvironment) ImageExists(ctx context.Context, imag *resources.DockerImage) (bool, error) {
+	return ImageExists(ctx, docker.client, imag)
+
+}
+
+func ImageExists(ctx context.Context, c *client.Client, imag *resources.DockerImage) (bool, error) {
 	w := wool.Get(ctx).In("Docker.ImageExists")
-	images, err := docker.client.ImageList(ctx, image.ListOptions{})
+	images, err := c.ImageList(ctx, image.ListOptions{})
 	if err != nil {
 		return false, w.Wrapf(err, "cannot list images")
 	}

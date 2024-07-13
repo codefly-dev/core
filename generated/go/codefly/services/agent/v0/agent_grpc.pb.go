@@ -23,7 +23,7 @@ const (
 	Agent_GetAgentInformation_FullMethodName = "/codefly.services.agent.v0.Agent/GetAgentInformation"
 )
 
-// AgentClient is the client GetAPI for Agent service.
+// AgentClient is the client API for Agent service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AgentClient interface {
@@ -48,7 +48,7 @@ func (c *agentClient) GetAgentInformation(ctx context.Context, in *AgentInformat
 	return out, nil
 }
 
-// AgentServer is the server GetAPI for Agent service.
+// AgentServer is the server API for Agent service.
 // All implementations must embed UnimplementedAgentServer
 // for forward compatibility
 type AgentServer interface {

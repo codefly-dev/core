@@ -50,3 +50,11 @@ func (http *HTTP) Headers() http.Header {
 	}
 	return out
 }
+
+func Headers() []string {
+	out := make([]string, 0, len(HTTPMappings))
+	for header := range HTTPMappings {
+		out = append(out, header)
+	}
+	return out
+}

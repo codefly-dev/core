@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"slices"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -108,9 +109,13 @@ func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.RestAPI, error
 		}
 		//nolint:gocritic
 		for name, definition := range s.swagger.Definitions {
-			if _, exists := combined.Definitions[name]; exists {
+			if existDefinition, exists := combined.Definitions[name]; exists {
 				// Handle definition conflict
-				return nil, fmt.Errorf("definition conflict: %s", name)
+				if !reflect.DeepEqual(definition, existDefinition) {
+					return nil, fmt.Errorf("definition conflict for %s", name)
+				}
+				// Definitions are the same, so we can skip
+				continue
 			}
 			combined.Definitions[name] = definition
 		}

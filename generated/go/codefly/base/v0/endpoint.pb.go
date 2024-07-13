@@ -230,7 +230,7 @@ func (x *API) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetAPI.ProtoReflect.Descriptor instead.
+// Deprecated: Use API.ProtoReflect.Descriptor instead.
 func (*API) Descriptor() ([]byte, []int) {
 	return file_codefly_base_v0_endpoint_proto_rawDescGZIP(), []int{1}
 }
@@ -842,7 +842,7 @@ var file_codefly_base_v0_endpoint_proto_msgTypes = make([]protoimpl.MessageInfo,
 var file_codefly_base_v0_endpoint_proto_goTypes = []any{
 	(HTTPMethod)(0),        // 0: codefly.base.v0.HTTPMethod
 	(*Endpoint)(nil),       // 1: codefly.base.v0.Endpoint
-	(*API)(nil),            // 2: codefly.base.v0.GetAPI
+	(*API)(nil),            // 2: codefly.base.v0.API
 	(*RestRouteGroup)(nil), // 3: codefly.base.v0.RestRouteGroup
 	(*RestRoute)(nil),      // 4: codefly.base.v0.RestRoute
 	(*RestAPI)(nil),        // 5: codefly.base.v0.RestAPI
@@ -852,11 +852,11 @@ var file_codefly_base_v0_endpoint_proto_goTypes = []any{
 	(*TcpAPI)(nil),         // 9: codefly.base.v0.TcpAPI
 }
 var file_codefly_base_v0_endpoint_proto_depIdxs = []int32{
-	2, // 0: codefly.base.v0.Endpoint.api_details:type_name -> codefly.base.v0.GetAPI
-	9, // 1: codefly.base.v0.GetAPI.tcp:type_name -> codefly.base.v0.TcpAPI
-	8, // 2: codefly.base.v0.GetAPI.http:type_name -> codefly.base.v0.HttpAPI
-	5, // 3: codefly.base.v0.GetAPI.rest:type_name -> codefly.base.v0.RestAPI
-	7, // 4: codefly.base.v0.GetAPI.grpc:type_name -> codefly.base.v0.GrpcAPI
+	2, // 0: codefly.base.v0.Endpoint.api_details:type_name -> codefly.base.v0.API
+	9, // 1: codefly.base.v0.API.tcp:type_name -> codefly.base.v0.TcpAPI
+	8, // 2: codefly.base.v0.API.http:type_name -> codefly.base.v0.HttpAPI
+	5, // 3: codefly.base.v0.API.rest:type_name -> codefly.base.v0.RestAPI
+	7, // 4: codefly.base.v0.API.grpc:type_name -> codefly.base.v0.GrpcAPI
 	4, // 5: codefly.base.v0.RestRouteGroup.routes:type_name -> codefly.base.v0.RestRoute
 	0, // 6: codefly.base.v0.RestRoute.method:type_name -> codefly.base.v0.HTTPMethod
 	3, // 7: codefly.base.v0.RestAPI.groups:type_name -> codefly.base.v0.RestRouteGroup
