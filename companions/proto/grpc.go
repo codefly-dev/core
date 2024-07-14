@@ -78,6 +78,7 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 	if err != nil {
 		return w.Wrapf(err, "cannot init runner")
 	}
+
 	proc, err := runner.NewProcess("buf", "dep", "update")
 	if err != nil {
 		return w.Wrapf(err, "cannot create process")

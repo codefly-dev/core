@@ -281,48 +281,8 @@ func loadFromYamlFile(ctx context.Context, dir string, p string) (*basev0.Config
 	}
 	var isSecret bool
 	base, isSecret = strings.CutSuffix(base, ".secret")
+	return ConfigurationInformationFromYaml(ctx, base, p, isSecret)
 
-	f, err := os.ReadFile(p)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot read auth0.env")
-	}
-	info := &basev0.ConfigurationInformation{
-		Name: base,
-	}
-
-	var data map[string]interface{}
-	err = yaml.Unmarshal(f, &data)
-	if err != nil {
-		return nil, w.Wrapf(err, "Error unmarshalling YAML: %s data: %s", p, string(f))
-	}
-
-	flattened := make(map[string]string)
-	flattenMap("", data, flattened)
-
-	for key, value := range flattened {
-		info.ConfigurationValues = append(info.ConfigurationValues, &basev0.ConfigurationValue{
-			Key:    key,
-			Value:  value,
-			Secret: isSecret,
-		})
-	}
-	return info, nil
-}
-
-func flattenMap(prefix string, m map[string]interface{}, result map[string]string) {
-	for k, v := range m {
-		newKey := k
-		if prefix != "" {
-			newKey = prefix + "." + k
-		}
-
-		switch vv := v.(type) {
-		case map[string]interface{}:
-			flattenMap(newKey, vv, result)
-		default:
-			result[newKey] = fmt.Sprintf("%v", v)
-		}
-	}
 }
 
 // ExtractFromPath gets modules/app/services/ServiceWithModule and we want to extract app/ServiceWithModule

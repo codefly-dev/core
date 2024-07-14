@@ -311,15 +311,14 @@ type DeploymentWrapper struct {
 
 func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.FS, k *builderv0.KubernetesDeployment, base *DeploymentBase, params any) error {
 	wrapper := &DeploymentWrapper{DeploymentBase: base, Deployment: params}
-	destination := path.Join(k.Destination, "modules", s.Service.Module, "services", s.Service.Name)
 	// Delete
-	err := shared.EmptyDir(ctx, destination)
+	err := shared.EmptyDir(ctx, k.Destination)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot empty destination")
 	}
 	err = s.Templates(ctx, wrapper,
-		WithDeployment(fs, "kustomize/base").WithDestination(path.Join(destination, "base")),
-		WithDeployment(fs, "kustomize/overlays/environment").WithDestination(path.Join(destination, "overlays", base.Environment.Name)),
+		WithDeployment(fs, "kustomize/base").WithDestination(path.Join(k.Destination, "base")),
+		WithDeployment(fs, "kustomize/overlays/environment").WithDestination(path.Join(k.Destination, "overlays", base.Environment.Name)),
 	)
 	if err != nil {
 		return err

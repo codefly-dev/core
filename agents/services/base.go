@@ -205,7 +205,7 @@ func NewWatchConfiguration(dependencies *builders.Dependencies) *WatchConfigurat
 }
 
 func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handler func(event code.Change) error) error {
-	s.Wool.Focus("watching for changes", wool.Field("dependencies", builders.MakeDependenciesSummary(conf.dependencies)))
+	s.Wool.Debug("watching for changes", wool.Field("dependencies", builders.MakeDependenciesSummary(conf.dependencies)))
 	s.Events = make(chan code.Change)
 	var err error
 	s.Watcher, err = code.NewWatcher(ctx, s.Events, s.Location, conf.dependencies)

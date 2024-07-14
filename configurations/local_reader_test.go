@@ -108,3 +108,19 @@ func TestExtract(t *testing.T) {
 	out := configurations.ExtractFromPath(p)
 	require.Equal(t, "app/ServiceWithModule", out)
 }
+
+type testConfig struct {
+	Top    string
+	Nested struct {
+		Value string
+	}
+}
+
+func TestYaml(t *testing.T) {
+	ctx := context.Background()
+	p := shared.MustSolvePath("testdata/configurations/config.yaml")
+	conf, err := configurations.ConfigurationInformationFromYaml(ctx, "test", p, false)
+	require.NoError(t, err)
+	require.Equal(t, "test", conf.Name)
+
+}

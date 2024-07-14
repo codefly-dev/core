@@ -43,7 +43,20 @@ func GetConfigurationValue(ctx context.Context, conf *basev0.Configuration, name
 			}
 		}
 	}
-	return "", fmt.Errorf("cannot find configuration value: %s", key)
+	return "", nil
+}
+
+func GetConfigurationInformation(ctx context.Context, conf *basev0.Configuration, name string) (*basev0.ConfigurationInformation, error) {
+	w := wool.Get(ctx).In("GetConfigurationValue")
+	if conf == nil {
+		return nil, w.NewError("configuration is nil")
+	}
+	for _, info := range conf.Infos {
+		if info.Name == name {
+			return info, nil
+		}
+	}
+	return nil, nil
 }
 
 func FindWorkspaceConfiguration(_ context.Context, confs []*basev0.Configuration, name string) (*basev0.Configuration, error) {
