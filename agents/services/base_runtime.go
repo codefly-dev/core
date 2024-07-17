@@ -131,7 +131,8 @@ func (s *RuntimeWrapper) TestError(err error) (*runtimev0.TestResponse, error) {
 func (s *RuntimeWrapper) TestErrorf(err error, msg string, args ...any) (*runtimev0.TestResponse, error) {
 	s.TestStatus = &runtimev0.TestStatus{
 		State:   runtimev0.TestStatus_ERROR,
-		Message: ErrorMessage(err, msg, args...)}
+		Message: ErrorMessage(err, msg, args...),
+	}
 	return &runtimev0.TestResponse{
 		Status: s.TestStatus,
 	}, err

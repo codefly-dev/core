@@ -359,7 +359,6 @@ func (docker *DockerEnvironment) WithBinary(bin string) error {
 	}
 	err = proc.Run(context.Background())
 	return err
-
 }
 
 func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
