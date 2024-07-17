@@ -9,6 +9,7 @@ import (
 	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	codefly "github.com/codefly-dev/sdk-go"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
@@ -117,7 +118,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err != nil {
 		return nil, err
 	}
-	//_, err = codefly.Init(ctx)
+	_, err = codefly.Init(ctx)
 	if err != nil {
 		return nil, err
 	}

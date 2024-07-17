@@ -3,11 +3,12 @@ module github.com/codefly-dev/core
 go 1.22.0
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.34.2-20240508200655-46a4cf4ba109.2
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.34.2-20240717164558-a6c49f84cc0f.2
 	github.com/Masterminds/semver v1.5.0
 	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/bufbuild/protovalidate-go v0.6.3
 	github.com/cheggaaa/pb/v3 v3.1.5
+	github.com/codefly-dev/sdk-go v0.1.34
 	github.com/docker/docker v27.0.3+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/fsnotify/fsnotify v1.7.0
