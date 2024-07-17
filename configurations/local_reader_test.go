@@ -2,6 +2,7 @@ package configurations_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
@@ -33,6 +34,20 @@ func testLoadConfigurationsFromFiles(t *testing.T, dir string) {
 	// service
 	// nested/other something
 	require.Len(t, infos, 5)
+	// Some values
+
+	for _, info := range infos {
+		fmt.Println(info.Name, info.Data)
+	}
+	// Some data
+	{
+		info, err := resources.FilterConfigurationInformation(ctx, "configurations/local/other_global", infos...)
+		require.NoError(t, err)
+		require.NotNil(t, info)
+		require.NotNil(t, info.Data)
+		require.Equal(t, "yaml", info.Data.Kind)
+		require.NotNil(t, info.Data.Content)
+	}
 }
 
 func TestLocalLoaderFlatLayout(t *testing.T) {
@@ -74,9 +89,9 @@ func testLocalLoader(t *testing.T, dir string) {
 
 func TestFromService(t *testing.T) {
 	service := &resources.Service{
-		Name:   "ServiceWithModule",
-		Module: "app",
+		Name: "ServiceWithModule",
 	}
+	service.WithModule("mod")
 	tcs := []struct {
 		in      string
 		service string
@@ -85,12 +100,13 @@ func TestFromService(t *testing.T) {
 	}{
 		{in: "auth0", name: "auth0"},
 		{in: "other_app/store:postgres", name: "postgres", service: "store", module: "other_app"},
-		{in: "store:postgres", name: "postgres", service: "store", module: "app"},
+		{in: "store:postgres", name: "postgres", service: "store", module: "mod"},
 	}
 
 	for _, tc := range tcs {
 		t.Run(tc.in, func(t *testing.T) {
-			res, err := configurations.FromService(service, tc.in)
+			identity, err := service.Identity()
+			res, err := configurations.FromService(identity, tc.in)
 			require.NoError(t, err)
 			require.Equal(t, res.Name, tc.name)
 			if tc.service != "" {
@@ -114,13 +130,4 @@ type testConfig struct {
 	Nested struct {
 		Value string
 	}
-}
-
-func TestYaml(t *testing.T) {
-	ctx := context.Background()
-	p := shared.MustSolvePath("testdata/configurations/config.yaml")
-	conf, err := configurations.ConfigurationInformationFromYaml(ctx, "test", p, false)
-	require.NoError(t, err)
-	require.Equal(t, "test", conf.Name)
-
 }

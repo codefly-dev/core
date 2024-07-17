@@ -2,6 +2,7 @@ package architecture_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/codefly-dev/core/architecture"
@@ -54,7 +55,7 @@ func TestServiceDependenciesModulesLayout(t *testing.T) {
 	frontend := shared.Must(workspace.FindUniqueServiceByName(ctx, "web/frontend"))
 	require.NotNil(t, frontend)
 
-	testServiceGraph(t, workspace, organization.Unique(), accounts.Unique(), gateway.Unique(), frontend.Unique())
+	testServiceGraph(t, workspace, organization.MustUnique(), accounts.MustUnique(), gateway.MustUnique(), frontend.MustUnique())
 }
 
 func TestServiceDependenciesFlatLayout(t *testing.T) {
@@ -74,7 +75,7 @@ func TestServiceDependenciesFlatLayout(t *testing.T) {
 	frontend := shared.Must(workspace.FindUniqueServiceByName(ctx, "frontend"))
 	require.NotNil(t, frontend)
 
-	testServiceGraph(t, workspace, organization.Unique(), accounts.Unique(), gateway.Unique(), frontend.Unique())
+	testServiceGraph(t, workspace, organization.MustUnique(), accounts.MustUnique(), gateway.MustUnique(), frontend.MustUnique())
 }
 
 func testServiceGraph(t *testing.T, workspace *resources.Workspace, organization, accounts, gateway, frontend string) {
@@ -87,7 +88,11 @@ func testServiceGraph(t *testing.T, workspace *resources.Workspace, organization
 		svc, err := dep.ServiceFromUnique(service)
 		require.NoError(t, err)
 		require.NotNil(t, svc)
-		require.Equal(t, service, svc.Unique())
+		require.Equal(t, service, svc.MustUnique())
+	}
+
+	for _, d := range dep.Services() {
+		fmt.Println("DEP", d)
 	}
 
 	require.Equal(t, 4, len(dep.Services()))

@@ -55,7 +55,7 @@ func testLoader(t *testing.T, dir string) {
 	confs, err = manager.GetServiceConfigurations(ctx)
 
 	require.NoError(t, err)
-	// app/ServiceWithModule
+	// mod/ServiceWithModule
 	// - something
 	require.Equal(t, 1, len(confs))
 
@@ -63,19 +63,26 @@ func testLoader(t *testing.T, dir string) {
 	svc, err := workspace.FindUniqueServiceByName(ctx, "svc")
 	require.NoError(t, err)
 
-	conf, err = manager.GetServiceConfiguration(ctx, svc)
+	identity, err := svc.Identity()
+	require.NoError(t, err)
+
+	conf, err = manager.GetServiceConfiguration(ctx, identity)
 	require.NoError(t, err)
 	require.NotNil(t, conf)
 
 	// Get DNS for service and endpoint name
-	dns, err := manager.GetDNS(ctx, svc, "rest")
+	dns, err := manager.GetDNS(ctx, identity, "rest")
 	require.NoError(t, err)
 	require.Equal(t, "localhost", dns.Host)
 
 	// Get DNS for service and endpoint name
 	svc2, err := workspace.FindUniqueServiceByName(ctx, "svc2")
 	require.NoError(t, err)
-	dns, err = manager.GetDNS(ctx, svc2, "rest")
+
+	identity2, err := svc2.Identity()
+	require.NoError(t, err)
+
+	dns, err = manager.GetDNS(ctx, identity2, "rest")
 	require.NoError(t, err)
 	require.Equal(t, "aws.magic", dns.Host)
 }

@@ -1,0 +1,7 @@
+top: on_top
+nested:
+  objects:
+    - key: one
+      value: first
+    - key: two
+      value: second

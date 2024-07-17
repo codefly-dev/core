@@ -1,7 +1,6 @@
 kind: service
 name: gateway
 version: 0.0.0
-module: web
 agent:
     kind: runtime::service
     name: krakend
@@ -12,6 +11,7 @@ service-dependencies:
       module: management
     - name: accounts
       module: billing
+
 endpoints:
     - name: rest
       visibility: public

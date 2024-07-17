@@ -1,6 +1,5 @@
 kind: service
 name: accounts
-module: codefly-platform
 version: 0.0.0
 agent:
     kind: runtime::service

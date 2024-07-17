@@ -1,7 +1,6 @@
 kind: service
 name: accounts
 version: 0.0.0
-module: billing
 agent:
     kind: runtime::service
     name: go-grpc

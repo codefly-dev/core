@@ -189,11 +189,15 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 			if err != nil {
 				return w.Wrapf(err, "cannot load svc <%s>", serviceRef.Name)
 			}
-			d.uniqueToService[svc.Unique()] = svc
-			graph.AddNode(svc.Unique()).WithType(resources.SERVICE)
+			identity, err := svc.Identity()
+			if err != nil {
+				return w.Wrapf(err, "cannot get service identity")
+			}
+			d.uniqueToService[identity.Unique()] = svc
+			graph.AddNode(identity.Unique()).WithType(resources.SERVICE)
 			for _, dep := range svc.ServiceDependencies {
 				graph.AddNode(dep.Unique()).WithType(resources.SERVICE)
-				graph.AddEdge(dep.Unique(), svc.Unique())
+				graph.AddEdge(dep.Unique(), identity.Unique())
 			}
 		}
 	}

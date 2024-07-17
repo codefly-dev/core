@@ -1,46 +1,57 @@
 package configurations_test
 
 import (
+	"context"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/codefly-dev/core/configurations"
-
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	"github.com/codefly-dev/core/shared"
+	"github.com/stretchr/testify/require"
 )
 
-func TestConfigurationSerialization(t *testing.T) {
+type testObject struct {
+	Key   string
+	Value string
+}
 
-	// Assuming you have your ConfigurationValues in 'info.ConfigurationValues'
-	info := &basev0.ConfigurationInformation{
-		ConfigurationValues: []*basev0.ConfigurationValue{
-			{Key: "server.host", Value: "localhost"},
-			{Key: "server.port", Value: "8080"},
-			{Key: "database.name", Value: "mydb"},
-			{Key: "database.credentials.username", Value: "admin"},
-			{Key: "database.credentials.password", Value: "secret"},
-		},
+type testUnmarshal struct {
+	Top    string
+	Nested struct {
+		Value   string
+		Values  []string
+		Objects []testObject
 	}
+}
 
-	type Config struct {
-		Server struct {
-			Host string `yaml:"host"`
-			Port string `yaml:"port"`
-		} `yaml:"server"`
-		Database struct {
-			Name        string `yaml:"name"`
-			Credentials struct {
-				Username string `yaml:"username"`
-				Password string `yaml:"password"`
-			} `yaml:"credentials"`
-		} `yaml:"database"`
-	}
-
-	var config Config
-	err := configurations.InformationUnmarshal(info, &config)
+func TestYaml(t *testing.T) {
+	ctx := context.Background()
+	p := shared.MustSolvePath("testdata/configurations/config.yaml")
+	info, err := configurations.ConfigurationInformationDataFromFile(ctx, "test", p, false)
 	require.NoError(t, err)
+	require.Equal(t, "test", info.Name)
+	var config testUnmarshal
+	err = configurations.InformationUnmarshal(info, &config)
+	require.NoError(t, err)
+}
 
-	require.Equal(t, "localhost", config.Server.Host)
-	require.Equal(t, "admin", config.Database.Credentials.Username)
+func TestYamlArray(t *testing.T) {
+	ctx := context.Background()
+	p := shared.MustSolvePath("testdata/configurations/config_array.yaml")
+	info, err := configurations.ConfigurationInformationDataFromFile(ctx, "test", p, false)
+	require.NoError(t, err)
+	var config testUnmarshal
+	err = configurations.InformationUnmarshal(info, &config)
+	require.NoError(t, err)
+	require.Len(t, config.Nested.Values, 2)
+}
+
+func TestYamlArrayWithStruct(t *testing.T) {
+	ctx := context.Background()
+	p := shared.MustSolvePath("testdata/configurations/config_array_of_struct.yaml")
+	info, err := configurations.ConfigurationInformationDataFromFile(ctx, "test", p, false)
+	require.NoError(t, err)
+	var config testUnmarshal
+	err = configurations.InformationUnmarshal(info, &config)
+	require.NoError(t, err)
+	require.Len(t, config.Nested.Objects, 2)
 }

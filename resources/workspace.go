@@ -415,11 +415,35 @@ func (workspace *Workspace) FindUniqueServiceByName(ctx context.Context, name st
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot find unique service")
 	}
-	svc, err := workspace.LoadService(ctx, unique)
+	mod, err := workspace.LoadModuleFromName(ctx, unique.Module)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load module")
+	}
+	svc, err := mod.LoadServiceFromName(ctx, unique.Name)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load service")
 	}
 	return svc, nil
+
+}
+
+// FindUniqueModuleServiceByName finds a service by name
+// returns ResourceNotFound error if not found
+func (workspace *Workspace) FindUniqueModuleServiceByName(ctx context.Context, name string) (*Service, *Module, error) {
+	w := wool.Get(ctx).In("Workspace::FindUniqueServiceByName", wool.NameField(name))
+	unique, err := workspace.FindUniqueServiceAndModuleByName(ctx, name)
+	if err != nil {
+		return nil, nil, w.Wrapf(err, "cannot find unique service")
+	}
+	mod, err := workspace.LoadModuleFromName(ctx, unique.Module)
+	if err != nil {
+		return nil, nil, w.Wrapf(err, "cannot load module")
+	}
+	svc, err := mod.LoadServiceFromName(ctx, unique.Name)
+	if err != nil {
+		return nil, nil, w.Wrapf(err, "cannot load service")
+	}
+	return svc, mod, nil
 
 }
 

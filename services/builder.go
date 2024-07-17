@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/codefly-dev/core/agents"
 	resources "github.com/codefly-dev/core/resources"
@@ -20,33 +19,37 @@ func init() {
 	buildersPid = make(map[string]int)
 }
 
-func LoadBuilder(ctx context.Context, conf *resources.Service) (*coreservices.BuilderAgent, error) {
-	w := wool.Get(ctx).In("services.LoadBuilder", wool.ThisField(conf))
-
-	if conf == nil {
-		return nil, fmt.Errorf("conf cannot be nil")
+func LoadBuilder(ctx context.Context, service *resources.Service) (*coreservices.BuilderAgent, error) {
+	if service == nil {
+		return nil, wool.Get(ctx).NewError("service cannot be nil")
 	}
-	if conf.Agent == nil {
-		return nil, w.NewError("agent cannot be nil")
+	if service.Agent == nil {
+		return nil, wool.Get(ctx).NewError("agent cannot be nil")
+	}
+	w := wool.Get(ctx).In("services.LoadBuilder", wool.ServiceField(service.Name))
+
+	identity, err := service.Identity()
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot get service identity")
 	}
 
-	if builder, ok := buildersCache[conf.Unique()]; ok {
+	if builder, ok := buildersCache[identity.Unique()]; ok {
 		return builder, nil
 	}
 
-	builder, process, err := manager.Load[coreservices.ServiceBuilderAgentContext, coreservices.BuilderAgent](ctx, conf.Agent.Of(resources.BuilderServiceAgent), conf.Unique())
+	builder, process, err := manager.Load[coreservices.ServiceBuilderAgentContext, coreservices.BuilderAgent](ctx, service.Agent.Of(resources.BuilderServiceAgent), identity.Unique())
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot load service builder conf")
+		return nil, w.Wrapf(err, "cannot load service builder service")
 	}
 
-	buildersPid[conf.Unique()] = process.PID
+	buildersPid[identity.Unique()] = process.PID
 
-	builder.Agent = conf.Agent
+	builder.Agent = service.Agent
 	builder.ProcessInfo = process
 
 	w.Debug("loaded builder", wool.Field("builder-pid", process.PID))
 
-	buildersCache[conf.Unique()] = builder
+	buildersCache[identity.Unique()] = builder
 	return builder, nil
 }
 

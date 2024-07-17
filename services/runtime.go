@@ -25,31 +25,39 @@ func init() {
 }
 
 func LoadRuntime(ctx context.Context, service *resources.Service) (*coreservices.RuntimeAgent, error) {
-	w := wool.Get(ctx).In("services.LoadRuntime", wool.ThisField(service))
-	if service == nil || service.Agent == nil {
-		return nil, w.NewError("agent cannot be nil")
+	if service == nil {
+		return nil, wool.Get(ctx).NewError("service cannot be nil")
+	}
+	if service.Agent == nil {
+		return nil, wool.Get(ctx).NewError("agent cannot be nil")
+	}
+	w := wool.Get(ctx).In("services.LoadRuntime", wool.ServiceField(service.Name))
+
+	identity, err := service.Identity()
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot get service identity")
 	}
 
-	if runtime, ok := runtimesCache[service.Unique()]; ok {
+	if runtime, ok := runtimesCache[identity.Unique()]; ok {
 		return runtime, nil
 	}
 
 	runtime, process, err := manager.Load[coreservices.ServiceRuntimeAgentContext, coreservices.RuntimeAgent](
 		ctx,
 		service.Agent.Of(resources.RuntimeServiceAgent),
-		service.Unique())
+		identity.Unique())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load service runtime agent")
 	}
 
-	runtimesPid[service.Unique()] = process.PID
+	runtimesPid[identity.Unique()] = process.PID
 
 	runtime.Agent = service.Agent
 	runtime.ProcessInfo = process
 
 	w.Debug("loaded runtime", wool.Field("runtime-pid", process.PID))
 
-	runtimesCache[service.Unique()] = runtime
+	runtimesCache[identity.Unique()] = runtime
 
 	return runtime, nil
 }

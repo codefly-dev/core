@@ -7,7 +7,7 @@ type ServiceWithCase struct {
 	Unique shared.Case
 }
 
-func ToServiceWithCase(svc *Service) *ServiceWithCase {
+func ToServiceWithCase(svc *ServiceIdentity) *ServiceWithCase {
 	return &ServiceWithCase{
 		Name:   shared.ToCase(svc.Name),
 		Unique: shared.ToCase(svc.Unique()),
@@ -18,7 +18,7 @@ type ModuleWithCase struct {
 	Name shared.Case
 }
 
-func ToModuleWithCase(svc *Service) *ModuleWithCase {
+func ToModuleWithCase(svc *ServiceIdentity) *ModuleWithCase {
 	return &ModuleWithCase{
 		Name: shared.ToCase(svc.Module),
 	}

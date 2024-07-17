@@ -34,7 +34,7 @@ func Add(ctx context.Context, workspace *resources.Workspace, module *resources.
 		return nil, w.Wrapf(err, "cannot add service")
 	}
 
-	instance, err := Load(ctx, service)
+	instance, err := Load(ctx, module, service)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load service instance")
 	}

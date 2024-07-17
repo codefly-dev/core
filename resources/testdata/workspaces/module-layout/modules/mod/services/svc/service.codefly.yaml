@@ -1,7 +1,6 @@
 kind: service
 name: svc
 version: 0.0.0
-module: mod
 agent:
   kind: runtime::service
   name: go-grpc

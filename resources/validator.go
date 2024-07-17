@@ -1,7 +1,12 @@
 package resources
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
+	"strings"
+
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 
 	"github.com/bufbuild/protovalidate-go"
 	"google.golang.org/grpc/codes"
@@ -12,17 +17,39 @@ import (
 var validator *protovalidate.Validator
 
 func init() {
-	v, err := protovalidate.New()
-	if err != nil {
-		panic(fmt.Errorf("failed to create validator: %w", err))
+	var initErr error
+	validator, initErr = protovalidate.New()
+	if initErr != nil {
+		panic(initErr)
 	}
-	validator = v
 }
 
 func Validate(req proto.Message) error {
 	err := validator.Validate(req)
 	if err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
+		msgType := reflect.TypeOf(req).Elem().Name()
+		var vErr *protovalidate.ValidationError
+		if errors.As(err, &vErr) {
+			var errDetails []string
+			var fieldsViolation []*errdetails.BadRequest_FieldViolation
+			for _, violation := range vErr.Violations {
+				errDetails = append(errDetails, fmt.Sprintf("field '%s': %s", violation.FieldPath, violation.Message))
+				fieldsViolation = append(fieldsViolation, &errdetails.BadRequest_FieldViolation{
+					Field:       violation.FieldPath,
+					Description: violation.Message,
+				})
+			}
+			detailedErr := fmt.Errorf("invalid %s: %s", msgType, strings.Join(errDetails, "; "))
+
+			st := status.New(codes.InvalidArgument, detailedErr.Error())
+			st, _ = st.WithDetails(&errdetails.BadRequest{
+				FieldViolations: fieldsViolation,
+			})
+			return st.Err()
+		}
+
+		// If it's not a ValidationError, return a generic error
+		return status.Errorf(codes.InvalidArgument, "invalid %s: %v", msgType, err)
 	}
 	return nil
 }

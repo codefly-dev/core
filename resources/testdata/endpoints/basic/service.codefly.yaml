@@ -1,6 +1,5 @@
 kind: service
 name: organization
-module: management
 project: codefly-platform
 agent:
   kind: runtime::service

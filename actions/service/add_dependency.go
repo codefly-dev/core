@@ -48,12 +48,12 @@ func (action *AddServiceDependencyAction) Run(ctx context.Context, space *action
 		return nil, w.Wrapf(err, "cannot load service %s", action.Name)
 	}
 
-	appDep, err := space.Workspace.LoadModuleFromName(ctx, action.DependencyModule)
+	modDep, err := space.Workspace.LoadModuleFromName(ctx, action.DependencyModule)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load dependent module %s", action.DependencyModule)
 	}
 
-	serviceDependency, err := appDep.LoadServiceFromName(ctx, action.DependencyName)
+	serviceDependency, err := modDep.LoadServiceFromName(ctx, action.DependencyName)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load dependent service %s", action.DependencyName)
 	}
@@ -68,7 +68,11 @@ func (action *AddServiceDependencyAction) Run(ctx context.Context, space *action
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get endpoints %s for service %s", action.Endpoints, action.DependencyName)
 	}
-	err = service.AddDependency(ctx, serviceDependency, dependencyEndpoints)
+	depIdentity, err := serviceDependency.Identity()
+	if err != nil {
+		return nil, w.Wrapf(err, "cannote get identity")
+	}
+	err = service.AddDependency(ctx, depIdentity, dependencyEndpoints)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot add dependency %s to service %s", action.DependencyName, action.Name)
 	}

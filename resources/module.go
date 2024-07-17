@@ -318,12 +318,16 @@ func (mod *Module) ServicePath(_ context.Context, ref *ServiceReference) string 
 }
 
 func (mod *Module) LoadServiceFromReference(ctx context.Context, ref *ServiceReference) (*Service, error) {
+	w := wool.Get(ctx).In("configurations.LoadServiceFromReference", wool.Field("service", ref))
 	dir := mod.ServicePath(ctx, ref)
 	service, err := LoadServiceFromDir(ctx, dir)
 	if err != nil {
-		return nil, wool.Get(ctx).In("configurations.LoadServiceFromReference", wool.DirField(dir)).Wrap(err)
+		return nil, w.Wrap(err)
 	}
-	service.Module = mod.Name
+	service.module = mod.Name
+	if err = service.postLoad(ctx); err != nil {
+		return nil, w.Wrap(err)
+	}
 	return service, nil
 }
 
@@ -389,6 +393,7 @@ func (mod *Module) PublicEndpoints(ctx context.Context) ([]*basev0.Endpoint, err
 			if endpoint.Visibility != VisibilityPublic {
 				continue
 			}
+			endpoint.Module = mod.Name
 			proto, err := endpoint.Proto()
 			if err != nil {
 				return nil, w.Wrapf(err, "cannot create info")

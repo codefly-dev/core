@@ -1,7 +1,6 @@
 kind: service
 name: frontend
 version: 0.0.0
-module: web
 agent:
     kind: runtime::service
     name: nextjs-auth0

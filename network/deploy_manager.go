@@ -18,14 +18,14 @@ type DeployManager struct {
 
 var _ Manager = &DeployManager{}
 
-func (m *DeployManager) GetNamespace(_ context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.Service) (string, error) {
+func (m *DeployManager) GetNamespace(_ context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.ServiceIdentity) (string, error) {
 	if workspace.Layout == resources.LayoutKindFlat {
 		return fmt.Sprintf("%s-%s", workspace.Name, env.Name), nil
 	}
 	return fmt.Sprintf("%s-%s-%s", workspace.Name, service.Module, env.Name), nil
 }
 
-func (m *DeployManager) KubernetesService(service *resources.Service, endpoint *basev0.Endpoint, namespace string, port uint16) *basev0.NetworkInstance {
+func (m *DeployManager) KubernetesService(service *resources.ServiceIdentity, endpoint *basev0.Endpoint, namespace string, port uint16) *basev0.NetworkInstance {
 	host := fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, namespace)
 	var instance *basev0.NetworkInstance
 	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
@@ -41,7 +41,7 @@ func (m *DeployManager) KubernetesService(service *resources.Service, endpoint *
 func (m *DeployManager) GenerateNetworkMappings(ctx context.Context,
 	env *resources.Environment,
 	workspace *resources.Workspace,
-	service *resources.Service,
+	service *resources.ServiceIdentity,
 	endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
 	var out []*basev0.NetworkMapping
@@ -69,18 +69,6 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context,
 		if endpoint.Visibility == resources.VisibilityPublic {
 			var dns *basev0.DNS
 			var err error
-			//if false { //env.LoadBalancer != "" {
-			//	host := fmt.Sprintf("kopkfeqwuk-%s-%s-%s-%s.%s", env.Name, service.Name, service.Module, service., env.LoadBalancer)
-			//	dns = &basev0.DNS{
-			//		Host:    host,
-			//		Port:    443,
-			//		Secured: true,
-			//	}
-			//	nm.Instances = []*basev0.NetworkInstance{
-			//		PublicInstance(LoadBalanced(ctx, env, service, endpoint)),
-			//	}
-			//} else {
-			// Case without Load Balancer
 			dns, err = m.dnsManager.GetDNS(ctx, service, endpoint.Name)
 			if err != nil {
 				return nil, err

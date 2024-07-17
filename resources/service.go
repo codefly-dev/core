@@ -40,7 +40,6 @@ type Service struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
 	Version     string `yaml:"version"`
-	Module      string `yaml:"module"`
 
 	PathOverride *string `yaml:"path,omitempty"`
 
@@ -59,7 +58,8 @@ type Service struct {
 	Spec map[string]any `yaml:"spec,omitempty"`
 
 	// internal
-	dir string
+	dir    string
+	module string
 }
 
 func (s *Service) Proto(_ context.Context) (*basev0.Service, error) {
@@ -73,26 +73,20 @@ func (s *Service) Proto(_ context.Context) (*basev0.Service, error) {
 	return proto, nil
 }
 
-// Unique identifies a service within a
-// We use a REST like convention rather then a subdomain one
-func (s *Service) Unique() string {
-	if wool.IsDebug() && s.Module == "" {
-		panic(fmt.Sprintf("module is empty in unique %s", s.Name))
-	}
-	return ServiceUnique(s.Module, s.Name)
-}
-
-func ServiceUnique(app string, service string) string {
-	return fmt.Sprintf("%s/%s", app, service)
+func ServiceUnique(module string, service string) string {
+	return fmt.Sprintf("%s/%s", module, service)
 }
 
 // Identity is the proto version of Unique
-func (s *Service) Identity() *ServiceIdentity {
+func (s *Service) Identity() (*ServiceIdentity, error) {
+	if s.module == "" {
+		return nil, fmt.Errorf("module not set")
+	}
 	return &ServiceIdentity{
 		Name:    s.Name,
-		Module:  s.Module,
+		Module:  s.module,
 		Version: s.Version,
-	}
+	}, nil
 }
 
 type ServiceWithModule struct {
@@ -138,7 +132,6 @@ func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService)
 	service := &Service{
 		Name:    action.Name,
 		Version: "0.0.0",
-		Module:  mod.Name,
 		Agent:   agent,
 		Spec:    make(map[string]any),
 	}
@@ -357,7 +350,7 @@ func (s *Service) LoadSettingsFromSpec(t any) error {
 }
 
 // AddDependency adds a dependency to the service
-func (s *Service) AddDependency(ctx context.Context, requirement *Service, requiredEndpoints []*Endpoint) error {
+func (s *Service) AddDependency(ctx context.Context, requirement *ServiceIdentity, requiredEndpoints []*Endpoint) error {
 	w := wool.Get(ctx).In("Service::AddDependency", wool.NameField(s.Name))
 	dep, ok := s.ExistsDependency(requirement)
 	if !ok {
@@ -380,13 +373,12 @@ func ReloadService(ctx context.Context, service *Service) (*Service, error) {
 }
 
 func (s *Service) postLoad(_ context.Context) error {
-	for _, ref := range s.ServiceDependencies {
-		if ref.Module == "" {
-			ref.Module = s.Module
+	for _, dep := range s.ServiceDependencies {
+		if dep.Module == "" && s.module != "" {
+			dep.Module = s.module
 		}
 	}
 	for _, endpoint := range s.Endpoints {
-		endpoint.Module = s.Module
 		endpoint.Service = s.Name
 		endpoint.postLoad()
 	}
@@ -394,10 +386,9 @@ func (s *Service) postLoad(_ context.Context) error {
 }
 
 func (s *Service) preSave(_ context.Context) error {
-	// Don't include redundant information
-	for _, ref := range s.ServiceDependencies {
-		if ref.Module == s.Module {
-			ref.Module = ""
+	for _, dep := range s.ServiceDependencies {
+		if dep.Module == s.module {
+			dep.Module = ""
 		}
 	}
 	for _, endpoint := range s.Endpoints {
@@ -441,7 +432,7 @@ func (s *Service) EndpointsFromNames(endpoints []string) ([]*Endpoint, error) {
 	return out, nil
 }
 
-func (s *Service) ExistsDependency(requirement *Service) (*ServiceDependency, bool) {
+func (s *Service) ExistsDependency(requirement *ServiceIdentity) (*ServiceDependency, bool) {
 	for _, dep := range s.ServiceDependencies {
 		if dep.Name == requirement.Name {
 			return dep, true
@@ -462,27 +453,43 @@ func (s *Service) DeleteServiceDependencies(ctx context.Context, ref *ServiceRef
 	return s.Save(ctx)
 }
 
-func (s *Service) UniqueWithWorspace(workspace string) string {
+type MustServiceUnique struct {
+	*Service
+}
+
+func (m *MustServiceUnique) Unique() string {
+	return m.Service.MustUnique()
+}
+
+func WithUnique(s *Service) *MustServiceUnique {
+	return &MustServiceUnique{s}
+}
+
+func (s *ServiceIdentity) UniqueWithWorkspace(workspace string) string {
 	if workspace == s.Module {
 		return s.Unique()
 	}
 	return fmt.Sprintf("%s-%s", workspace, s.Unique())
 }
 
-func (s *Service) UniqueWithWorspaceAndScope(workspace string, scope string) string {
-	return fmt.Sprintf("%s-%s", s.UniqueWithWorspace(workspace), scope)
+func (s *ServiceIdentity) UniqueWithWorkspaceAndScope(workspace string, scope string) string {
+	return fmt.Sprintf("%s-%s", s.UniqueWithWorkspace(workspace), scope)
 }
 
-func (s *Service) BaseEndpoint(name string) *Endpoint {
+func (s *ServiceIdentity) BaseEndpoint(name string) *Endpoint {
 	return &Endpoint{Name: name, Module: s.Module, Service: s.Name, Visibility: VisibilityPrivate}
 }
 
 func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
 	w := wool.Get(ctx).In("core.resources.Service.LoadEndpoints", wool.NameField(s.Name))
 	w.Debug("processing endpoints", wool.SliceCountField(s.Endpoints))
+	if s.module == "" {
+		return nil, fmt.Errorf("module not set")
+	}
 	var multi error
 	var out []*basev0.Endpoint
 	for _, ed := range s.Endpoints {
+		ed.Module = s.module
 		base, err := ed.Proto()
 		if err != nil {
 			multi = multierror.Append(multi, err)
@@ -544,6 +551,18 @@ func (s *Service) LocalOrNil(ctx context.Context, f string) *string {
 	return nil
 }
 
+func (s *Service) WithModule(mod string) {
+	s.module = mod
+
+}
+
+func (s *Service) MustUnique() string {
+	if s.module == "" {
+		panic("module can no be empty")
+	}
+	return fmt.Sprintf("%s/%s", s.module, s.Name)
+}
+
 func (s *ServiceDependency) AsReference() *ServiceReference {
 	return &ServiceReference{
 		Name:   s.Name,
@@ -596,7 +615,7 @@ func (c *ClientEntry) Validate() error {
 	return nil
 }
 
-func MakeManyServicesSummary(services []*Service) string {
+func MakeManyServicesSummary(services []*ServiceIdentity) string {
 	var out []string
 	for _, service := range services {
 		out = append(out, service.Unique())

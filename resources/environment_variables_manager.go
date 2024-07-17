@@ -378,7 +378,7 @@ func ServiceConfigurationKeyFromUnique(unique string, name string, key string) s
 	return strings.ToUpper(k)
 }
 
-func ServiceConfigurationKey(service *Service, name string, key string) string {
+func ServiceConfigurationKey(service *ServiceIdentity, name string, key string) string {
 	return ServiceConfigurationKeyFromUnique(service.Unique(), name, key)
 }
 
@@ -387,7 +387,7 @@ func ServiceSecretConfigurationKeyFromUnique(unique string, name string, key str
 	return strings.ToUpper(k)
 }
 
-func ServiceSecretConfigurationKey(service *Service, name string, key string) string {
+func ServiceSecretConfigurationKey(service *ServiceIdentity, name string, key string) string {
 	return ServiceSecretConfigurationKeyFromUnique(service.Unique(), name, key)
 }
 

@@ -31,18 +31,18 @@ func LoadWorkspace(ctx context.Context, workspace *resources.Workspace) (*basev0
 	return out, nil
 }
 
-func LoadModule(ctx context.Context, workspace *resources.Workspace, mod *resources.Module) (*basev0.Module, error) {
+func LoadModule(ctx context.Context, workspace *resources.Workspace, module *resources.Module) (*basev0.Module, error) {
 	w := wool.Get(ctx).In("overview.LoadModule")
-	out, err := mod.Proto(ctx)
+	out, err := module.Proto(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to load module")
 	}
-	svcs, err := mod.LoadServices(ctx)
+	svcs, err := module.LoadServices(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to load svcs")
 	}
 	for _, service := range svcs {
-		s, err := LoadService(ctx, workspace, service)
+		s, err := LoadService(ctx, workspace, module, service)
 		if err != nil {
 			return nil, w.Wrapf(err, "failed to load service: %s", service.Name)
 		}
@@ -51,14 +51,14 @@ func LoadModule(ctx context.Context, workspace *resources.Workspace, mod *resour
 	return out, nil
 }
 
-func LoadService(ctx context.Context, workspace *resources.Workspace, service *resources.Service) (*basev0.Service, error) {
+func LoadService(ctx context.Context, workspace *resources.Workspace, module *resources.Module, service *resources.Service) (*basev0.Service, error) {
 	w := wool.Get(ctx).In("overview.LoadService")
 	out, err := service.Proto(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to load service")
 	}
 	// Get endpoints from services
-	instance, err := services.Load(ctx, service)
+	instance, err := services.Load(ctx, module, service)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to load service: %s", service.Name)
 	}

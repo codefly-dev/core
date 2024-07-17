@@ -149,7 +149,7 @@ func (manager *Manager) GetServiceConfigurations(_ context.Context) ([]*basev0.C
 	return out, nil
 }
 
-func (manager *Manager) GetServiceConfiguration(_ context.Context, service *resources.Service) (*basev0.Configuration, error) {
+func (manager *Manager) GetServiceConfiguration(_ context.Context, service *resources.ServiceIdentity) (*basev0.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
@@ -159,7 +159,7 @@ func (manager *Manager) GetServiceConfiguration(_ context.Context, service *reso
 	return nil, nil
 }
 
-func (manager *Manager) ExposeConfiguration(ctx context.Context, service *resources.Service, confs ...*basev0.Configuration) error {
+func (manager *Manager) ExposeConfiguration(ctx context.Context, service *resources.ServiceIdentity, confs ...*basev0.Configuration) error {
 	if manager == nil {
 		return nil
 	}
@@ -176,7 +176,7 @@ func (manager *Manager) GetSharedServiceConfiguration(_ context.Context, unique 
 	return manager.exposedFromServiceConfigurations[unique], nil
 }
 
-func (manager *Manager) Restrict(_ context.Context, values []*resources.Service) error {
+func (manager *Manager) Restrict(_ context.Context, values []*resources.ServiceIdentity) error {
 	if manager == nil {
 		return nil
 	}
@@ -205,7 +205,7 @@ func (manager *Manager) DNS() []*basev0.DNS {
 	return manager.dns
 }
 
-func (manager *Manager) GetDNS(ctx context.Context, svc *resources.Service, endpointName string) (*basev0.DNS, error) {
+func (manager *Manager) GetDNS(ctx context.Context, svc *resources.ServiceIdentity, endpointName string) (*basev0.DNS, error) {
 	if manager == nil {
 		return nil, nil
 	}

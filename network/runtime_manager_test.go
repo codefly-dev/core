@@ -14,7 +14,7 @@ import (
 
 type testDnsManager struct{}
 
-func (t testDnsManager) GetDNS(ctx context.Context, svc *resources.Service, endpointName string) (*basev0.DNS, error) {
+func (t testDnsManager) GetDNS(ctx context.Context, svc *resources.ServiceIdentity, endpointName string) (*basev0.DNS, error) {
 	return nil, nil
 }
 
@@ -25,6 +25,8 @@ func TestRuntimeNetworkMappingGenerationNoDNS(t *testing.T) {
 	}
 	service, err := resources.LoadServiceFromDir(ctx, "testdata/endpoints/basic")
 	require.NoError(t, err)
+	service.WithModule("test-module")
+
 	endpoints, err := service.LoadEndpoints(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(endpoints))
@@ -32,9 +34,12 @@ func TestRuntimeNetworkMappingGenerationNoDNS(t *testing.T) {
 	// Generate runtime mapping
 	dnsManager := &testDnsManager{}
 
+	identity, err := service.Identity()
+	require.NoError(t, err)
+
 	manager, err := network.NewRuntimeManager(ctx, dnsManager)
 	require.NoError(t, err)
-	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, service, endpoints)
+	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, endpoints)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(mappings))
 

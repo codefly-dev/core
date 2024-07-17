@@ -45,12 +45,14 @@ func testLoadingFromPath(t *testing.T, dir string) {
 }
 
 func TestServiceUnique(t *testing.T) {
-	svc := resources.Service{Name: "svc", Module: "app"}
-	unique := svc.Unique()
-	inf, err := resources.ParseServiceWithOptionalModule(unique)
+	svc := resources.Service{Name: "svc"}
+	svc.WithModule("mod")
+	identity, err := svc.Identity()
+	require.NoError(t, err)
+	inf, err := resources.ParseServiceWithOptionalModule(identity.Unique())
 	require.NoError(t, err)
 	require.Equal(t, "svc", inf.Name)
-	require.Equal(t, "app", inf.Module)
+	require.Equal(t, "mod", inf.Module)
 }
 
 type testServiceSpec struct {

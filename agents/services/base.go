@@ -99,15 +99,15 @@ func NewServiceBase(ctx context.Context, agent *resources.Agent) *Base {
 }
 
 func (s *Base) Unique() string {
-	return s.Service.Unique()
+	return s.Identity.Unique()
 }
 
 func (s *Base) UniqueWithWorkspace() string {
 	s.Wool.Debug("unique with workspace", wool.Field("workspace", s.Identity.Workspace))
 	if s.Environment.NamingScope == "" {
-		return s.Service.UniqueWithWorspace(s.Identity.Workspace)
+		return s.Identity.UniqueWithWorkspace(s.Identity.Workspace)
 	}
-	return s.Service.UniqueWithWorspaceAndScope(s.Identity.Workspace, s.Environment.NamingScope)
+	return s.Identity.UniqueWithWorkspaceAndScope(s.Identity.Workspace, s.Environment.NamingScope)
 }
 
 func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {
@@ -120,8 +120,8 @@ func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentit
 	agentProvider := agents.NewServiceAgentProvider(ctx, s.Identity)
 	s.Wool = agentProvider.Get(ctx)
 
-	serviceProvicer := agents.NewServiceProvider(ctx, s.Identity)
-	s.Logger = serviceProvicer.Get(ctx)
+	serviceProvider := agents.NewServiceProvider(ctx, s.Identity)
+	s.Logger = serviceProvider.Get(ctx)
 
 	s.Wool.Debug("loading", wool.ServiceField(s.Identity.Name))
 
@@ -139,7 +139,6 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	s.Identity = resources.ServiceIdentityFromProto(identity)
 
 	s.Location = path.Join(identity.WorkspacePath, identity.RelativeToWorkspace)
-
 	// Replace the Agent now that we know more!
 	agentProvider := agents.NewServiceAgentProvider(ctx, s.Identity)
 	serviceProvider := agents.NewServiceProvider(ctx, s.Identity)
@@ -156,6 +155,8 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 		return s.Wool.Wrapf(err, "cannot load service configuration")
 	}
 
+	s.Service.WithModule(s.Identity.Module)
+
 	s.EnvironmentVariables = resources.NewEnvironmentVariableManager()
 
 	s.EnvironmentVariables.SetIdentity(identity)
@@ -166,8 +167,8 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	}
 
 	s.Information = &Information{
-		Service: resources.ToServiceWithCase(s.Service),
-		Module:  resources.ToModuleWithCase(s.Service),
+		Service: resources.ToServiceWithCase(s.Identity),
+		Module:  resources.ToModuleWithCase(s.Identity),
 		Agent:   s.Agent,
 	}
 
@@ -324,4 +325,9 @@ func (s *Base) Templates(ctx context.Context, obj any, wrappers ...*TemplateWrap
 		}
 	}
 	return nil
+}
+
+func (s *Base) BaseEndpoint(api string) *resources.Endpoint {
+	return s.Identity.BaseEndpoint(api)
+
 }

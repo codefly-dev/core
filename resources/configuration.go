@@ -51,7 +51,11 @@ func GetConfigurationInformation(ctx context.Context, conf *basev0.Configuration
 	if conf == nil {
 		return nil, w.NewError("configuration is nil")
 	}
-	for _, info := range conf.Infos {
+	return FilterConfigurationInformation(ctx, name, conf.Infos...)
+}
+
+func FilterConfigurationInformation(_ context.Context, name string, infos ...*basev0.ConfigurationInformation) (*basev0.ConfigurationInformation, error) {
+	for _, info := range infos {
 		if info.Name == name {
 			return info, nil
 		}

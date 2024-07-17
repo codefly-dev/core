@@ -30,7 +30,7 @@ func (m *RuntimeManager) SetLoadBalancer(string) {
 	panic("N/A")
 }
 
-func (m *RuntimeManager) GetNamespace(context.Context, *resources.Environment, *resources.Workspace, *resources.Service) (string, error) {
+func (m *RuntimeManager) GetNamespace(context.Context, *resources.Environment, *resources.Workspace, *resources.ServiceIdentity) (string, error) {
 	return "", fmt.Errorf("namespaces don't make sense locally. something went wrong")
 }
 
@@ -68,7 +68,7 @@ func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstan
 	return instance
 }
 
-func DNS(_ *resources.Service, endpoint *basev0.Endpoint, dns *basev0.DNS) *basev0.NetworkInstance {
+func DNS(_ *resources.ServiceIdentity, endpoint *basev0.Endpoint, dns *basev0.DNS) *basev0.NetworkInstance {
 	var instance *basev0.NetworkInstance
 	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
 		instance = resources.NewHTTPNetworkInstance(dns.Host, uint16(dns.Port), dns.Secured)
@@ -96,7 +96,11 @@ func ExternalInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance 
 }
 
 // GenerateNetworkMappings generates network mappings for a service endpoints
-func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.Service, endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
+func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
+	env *resources.Environment,
+	workspace *resources.Workspace,
+	service *resources.ServiceIdentity,
+	endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
 	if m == nil {
 		return nil, nil
 	}

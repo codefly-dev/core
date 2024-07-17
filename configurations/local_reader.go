@@ -73,10 +73,12 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 		return w.Wrapf(err, "cannot load services")
 	}
 
-	w.Debug("loaded services", wool.Field("svcs", resources.MakeManyServicesSummary(services)))
-
 	serviceConfs := make(map[string]*basev0.Configuration)
 	for _, svc := range services {
+		identity, err := svc.Identity()
+		if err != nil {
+			return w.Wrapf(err, "cannot get service identity")
+		}
 		serviceConfDir := path.Join(svc.Dir(), "configurations", env.Name)
 		exists, err := shared.DirectoryExists(ctx, serviceConfDir)
 		if err != nil {
@@ -89,13 +91,13 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			}
 
 			if len(serviceInfos) > 0 {
-				if _, ok := serviceConfs[svc.Unique()]; !ok {
-					serviceConfs[svc.Unique()] = &basev0.Configuration{
-						Origin: svc.Unique(),
+				if _, ok := serviceConfs[identity.Unique()]; !ok {
+					serviceConfs[identity.Unique()] = &basev0.Configuration{
+						Origin: identity.Unique(),
 					}
 				}
 				for _, info := range serviceInfos {
-					serviceConfs[svc.Unique()].Infos = append(serviceConfs[svc.Unique()].Infos, info)
+					serviceConfs[identity.Unique()].Infos = append(serviceConfs[identity.Unique()].Infos, info)
 				}
 			}
 		}
@@ -112,8 +114,8 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 				return w.Wrapf(err, "cannot load dns")
 			}
 			for _, d := range dns {
-				d.Service = svc.Name
-				d.Module = svc.Module
+				d.Service = identity.Name
+				d.Module = identity.Module
 				w.Debug("found DNS", wool.Field("dns", resources.MakeDNSSummary(d)))
 				local.dns = append(local.dns, d)
 			}
@@ -149,7 +151,7 @@ type ConfigurationSource struct {
 // FromService satisfies this format
 // - Name
 // - unique:Name
-func FromService(service *resources.Service, dep string) (*ConfigurationSource, error) {
+func FromService(service *resources.ServiceIdentity, dep string) (*ConfigurationSource, error) {
 	if !strings.Contains(dep, ":") {
 		return &ConfigurationSource{Name: dep}, nil
 	}
@@ -224,7 +226,10 @@ func LoadConfigurationInformationsFromFiles(ctx context.Context, dir string) ([]
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot walk providers directory")
 	}
-	consolidated := ConsolidateInfo(infos)
+	consolidated, err := ConsolidateInfo(ctx, infos)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot consolidate infos")
+	}
 	w.Trace("loaded infos", wool.SliceCountField(consolidated))
 	return consolidated, nil
 }
@@ -281,7 +286,7 @@ func loadFromYamlFile(ctx context.Context, dir string, p string) (*basev0.Config
 	}
 	var isSecret bool
 	base, isSecret = strings.CutSuffix(base, ".secret")
-	return ConfigurationInformationFromYaml(ctx, base, p, isSecret)
+	return ConfigurationInformationDataFromFile(ctx, base, p, isSecret)
 
 }
 
@@ -295,9 +300,17 @@ func ExtractFromPath(p string) string {
 }
 
 // ConsolidateInfo consolidate informations values per name
-func ConsolidateInfo(infos []*basev0.ConfigurationInformation) []*basev0.ConfigurationInformation {
+func ConsolidateInfo(ctx context.Context, infos []*basev0.ConfigurationInformation) ([]*basev0.ConfigurationInformation, error) {
+	w := wool.Get(ctx).In("provider.ConsolidateInfo")
 	consolidated := make(map[string]*basev0.ConfigurationInformation)
 	for _, info := range infos {
+		if info.Data != nil {
+			if _, found := consolidated[info.Name]; found {
+				return nil, w.NewError("duplicate configuration data: %s", info.Name)
+			}
+			consolidated[info.Name] = info
+			continue
+		}
 		if _, ok := consolidated[info.Name]; !ok {
 			consolidated[info.Name] = &basev0.ConfigurationInformation{
 				Name: info.Name,
@@ -309,5 +322,5 @@ func ConsolidateInfo(infos []*basev0.ConfigurationInformation) []*basev0.Configu
 	for _, info := range consolidated {
 		result = append(result, info)
 	}
-	return result
+	return result, nil
 }

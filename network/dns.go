@@ -8,5 +8,5 @@ import (
 )
 
 type DNSManager interface {
-	GetDNS(ctx context.Context, svc *resources.Service, endpointName string) (*basev0.DNS, error)
+	GetDNS(ctx context.Context, svc *resources.ServiceIdentity, endpointName string) (*basev0.DNS, error)
 }

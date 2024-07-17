@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codefly "github.com/codefly-dev/sdk-go"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
@@ -32,6 +32,7 @@ type Option struct {
 	Debug       bool
 	Timeout     time.Duration
 	NamingScope string
+	Silents     []string
 }
 
 type OptionFunc func(*Option)
@@ -55,6 +56,12 @@ func WithNamingScope(scope string) OptionFunc {
 
 }
 
+func WithSilence(uniques ...string) OptionFunc {
+	return func(o *Option) {
+		o.Silents = uniques
+	}
+}
+
 func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, error) {
 	opt := &Option{
 		Debug:   false,
@@ -70,9 +77,11 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if opt.NamingScope != "" {
 		args = append(args, "--naming-scope", opt.NamingScope)
 	}
+	if len(opt.Silents) > 0 {
+		args = append(args, "--silent", strings.Join(opt.Silents, ","))
+	}
 	args = append(args, "--exclude-root", "--cli-server")
 	cmd := exec.CommandContext(ctx, "codefly", args...)
-	fmt.Println("CMD", args)
 	cmd.Stdout = os.Stdout // log stdout
 	cmd.Stderr = os.Stderr // log stderr
 	err := cmd.Start()
@@ -108,7 +117,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err != nil {
 		return nil, err
 	}
-	_, err = codefly.Init(ctx)
+	//_, err = codefly.Init(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -135,29 +144,44 @@ func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
 	return nil
 }
 
+var runningModule *resources.Module
 var runningService *resources.Service
 
-func LoadService(ctx context.Context) error {
-	w := wool.Get(ctx).In("codefly.LoadService")
-	dir, errFind := resources.FindUp[resources.Service](ctx)
+func LoadModuleAndService(ctx context.Context) error {
+	w := wool.Get(ctx).In("codefly.LoadModuleAndService")
+	dir, errFind := resources.FindUp[resources.Module](ctx)
 	if errFind != nil {
 		return errFind
 	}
-	if dir != nil {
-		svc, err := resources.LoadServiceFromDir(ctx, *dir)
-		if err != nil {
-			return err
-		}
-		w.Debug("loaded service", wool.Field("service", svc.Unique()))
-		runningService = svc
-		return nil
+	if dir == nil {
+		return w.NewError("no module found")
 	}
-	return w.NewError("no service found")
+	mod, err := resources.LoadModuleFromDirUnsafe(ctx, *dir)
+	if err != nil {
+		return err
+	}
+
+	dir, errFind = resources.FindUp[resources.Service](ctx)
+	if errFind != nil {
+		return errFind
+	}
+	if dir == nil {
+		return w.NewError("no service found")
+	}
+	svc, err := resources.LoadServiceFromDir(ctx, *dir)
+	if err != nil {
+		return err
+	}
+	svc.WithModule(mod.Name)
+	w.Debug("loaded service", wool.Field("service", svc.Name))
+	runningService = svc
+	runningModule = mod
+	return nil
 }
 
 func Service() (*resources.Service, error) {
 	if runningService == nil {
-		err := LoadService(context.Background())
+		err := LoadModuleAndService(context.Background())
 		if err != nil {
 			return nil, err
 		}
@@ -165,9 +189,23 @@ func Service() (*resources.Service, error) {
 	return runningService, nil
 }
 
+func Module() (*resources.Module, error) {
+	if runningModule == nil {
+		err := LoadModuleAndService(context.Background())
+		if err != nil {
+			return nil, err
+		}
+	}
+	return runningModule, nil
+}
+
 func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 	w := wool.Get(ctx).In("codefly.SetEnvironment")
 	svc, err := Service()
+	if err != nil {
+		return err
+	}
+	mod, err := Module()
 	if err != nil {
 		return err
 	}
@@ -177,7 +215,7 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 		if networkAccess == nil {
 			return w.NewError("no network access found")
 		}
-		req := &v0.GetNetworkMappingsRequest{Module: svc.Module, Service: svc.Name}
+		req := &v0.GetNetworkMappingsRequest{Module: mod.Name, Service: svc.Name}
 
 		resp, err := l.cli.GetDependenciesNetworkMappings(ctx, req)
 		if err != nil {
@@ -202,7 +240,7 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 	// Setup Configuration
 	{
 		req := &v0.GetConfigurationRequest{
-			Module:  svc.Module,
+			Module:  mod.Name,
 			Service: svc.Name,
 		}
 		resp, err := l.cli.GetDependenciesConfigurations(ctx, req)
