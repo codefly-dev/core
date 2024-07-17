@@ -481,7 +481,7 @@ func (s *ServiceIdentity) BaseEndpoint(name string) *Endpoint {
 }
 
 func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
-	w := wool.Get(ctx).In("core.resources.Service.LoadEndpoints", wool.NameField(s.Name))
+	w := wool.Get(ctx).In("core.Service.LoadEndpoints", wool.NameField(s.Name))
 	w.Debug("processing endpoints", wool.SliceCountField(s.Endpoints))
 	if s.module == "" {
 		return nil, fmt.Errorf("module not set")
@@ -621,4 +621,34 @@ func MakeManyServicesSummary(services []*ServiceIdentity) string {
 		out = append(out, service.Unique())
 	}
 	return strings.Join(out, ", ")
+}
+
+func LoadModuleAndServiceFromCurrentPath(ctx context.Context) (*Module, *Service, error) {
+	w := wool.Get(ctx).In("LoadModuleAndServiceFromCurrentPath")
+	dir, errFind := FindUp[Module](ctx)
+	if errFind != nil {
+		return nil, nil, errFind
+	}
+	if dir == nil {
+		return nil, nil, w.NewError("no module found")
+	}
+	mod, err := LoadModuleFromDir(ctx, *dir)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	dir, errFind = FindUp[Service](ctx)
+	if errFind != nil {
+		return nil, nil, errFind
+	}
+	if dir == nil {
+		return nil, nil, w.NewError("no service found")
+	}
+	svc, err := LoadServiceFromDir(ctx, *dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	svc.WithModule(mod.Name)
+	w.Debug("loaded", wool.ServiceField(svc.Name), wool.Field("module", mod.Name))
+	return mod, svc, nil
 }

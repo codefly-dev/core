@@ -147,54 +147,26 @@ func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
 var runningModule *resources.Module
 var runningService *resources.Service
 
-func LoadModuleAndService(ctx context.Context) error {
-	w := wool.Get(ctx).In("codefly.LoadModuleAndService")
-	dir, errFind := resources.FindUp[resources.Module](ctx)
-	if errFind != nil {
-		return errFind
-	}
-	if dir == nil {
-		return w.NewError("no module found")
-	}
-	mod, err := resources.LoadModuleFromDirUnsafe(ctx, *dir)
-	if err != nil {
-		return err
-	}
-
-	dir, errFind = resources.FindUp[resources.Service](ctx)
-	if errFind != nil {
-		return errFind
-	}
-	if dir == nil {
-		return w.NewError("no service found")
-	}
-	svc, err := resources.LoadServiceFromDir(ctx, *dir)
-	if err != nil {
-		return err
-	}
-	svc.WithModule(mod.Name)
-	w.Debug("loaded service", wool.Field("service", svc.Name))
-	runningService = svc
-	runningModule = mod
-	return nil
-}
-
 func Service() (*resources.Service, error) {
 	if runningService == nil {
-		err := LoadModuleAndService(context.Background())
+		mod, svc, err := resources.LoadModuleAndServiceFromCurrentPath(context.Background())
 		if err != nil {
 			return nil, err
 		}
+		runningService = svc
+		runningModule = mod
 	}
 	return runningService, nil
 }
 
 func Module() (*resources.Module, error) {
 	if runningModule == nil {
-		err := LoadModuleAndService(context.Background())
+		mod, svc, err := resources.LoadModuleAndServiceFromCurrentPath(context.Background())
 		if err != nil {
 			return nil, err
 		}
+		runningService = svc
+		runningModule = mod
 	}
 	return runningModule, nil
 }

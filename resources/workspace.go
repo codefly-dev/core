@@ -174,7 +174,7 @@ func FindWorkspaceUp(ctx context.Context) (*Workspace, error) {
 func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *ModuleReference) (*Module, error) {
 	w := wool.Get(ctx).In("Workspace::LoadModuleFromReference", wool.NameField(ref.Name))
 	dir := workspace.ModulePath(ctx, ref)
-	mod, err := LoadModuleFromDirUnsafe(ctx, dir)
+	mod, err := LoadModuleFromDir(ctx, dir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load module")
 	}

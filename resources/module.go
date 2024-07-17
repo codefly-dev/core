@@ -203,8 +203,8 @@ func (workspace *Workspace) WithRootModule(ctx context.Context) (*Module, error)
 	return mod, nil
 }
 
-func LoadModuleFromDirUnsafe(ctx context.Context, dir string) (*Module, error) {
-	w := wool.Get(ctx).In("configurations.LoadModuleFromDirUnsafe", wool.DirField(dir))
+func LoadModuleFromDir(ctx context.Context, dir string) (*Module, error) {
+	w := wool.Get(ctx).In("configurations.LoadModuleFromDir", wool.DirField(dir))
 	mod, err := LoadFromDir[Module](ctx, dir)
 	if err != nil {
 		return nil, w.Wrap(err)
@@ -226,7 +226,7 @@ func LoadModuleFromPath(ctx context.Context) (*Module, error) {
 	if dir == nil {
 		return nil, nil
 	}
-	return LoadModuleFromDirUnsafe(ctx, *dir)
+	return LoadModuleFromDir(ctx, *dir)
 }
 
 func (mod *Module) postLoad(ctx context.Context) error {
@@ -356,7 +356,7 @@ func (mod *Module) LoadServices(ctx context.Context) ([]*Service, error) {
 }
 
 func ReloadModule(ctx context.Context, app *Module) (*Module, error) {
-	return LoadModuleFromDirUnsafe(ctx, app.Dir())
+	return LoadModuleFromDir(ctx, app.Dir())
 }
 
 // DeleteService deletes a service from an module
