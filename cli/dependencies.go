@@ -109,7 +109,9 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err != nil {
 		return nil, err
 	}
-	l := &Dependencies{cmd: cmd, cli: cli, runtimeContext: resources.NewRuntimeContextNative()}
+	// Get the runtime context
+	runtimeContext := resources.RuntimeContextFromEnv()
+	l := &Dependencies{cmd: cmd, cli: cli, runtimeContext: runtimeContext}
 	err = l.WaitForReady(ctx, opt)
 	if err != nil {
 		return nil, err

@@ -2,6 +2,7 @@ package resources
 
 import (
 	"fmt"
+	"os"
 	"slices"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -37,6 +38,19 @@ func NewRuntimeContext(runtimeContext string) (*basev0.RuntimeContext, error) {
 // RuntimeContextFromInstance returns a runtime context from a network instance.
 func RuntimeContextFromInstance(instance *basev0.NetworkInstance) *basev0.RuntimeContext {
 	switch instance.Access.Kind {
+	case NetworkAccessNative:
+		return NewRuntimeContextNative()
+	case NetworkAccessContainer:
+		return NewRuntimeContextContainer()
+	default:
+		return NewRuntimeContextFree()
+	}
+}
+
+// RuntimeContextFromEnv returns a runtime context from the environment variable
+func RuntimeContextFromEnv() *basev0.RuntimeContext {
+	env := os.Getenv("CODEFLY__RUNTIME_CONTEXT")
+	switch env {
 	case NetworkAccessNative:
 		return NewRuntimeContextNative()
 	case NetworkAccessContainer:
