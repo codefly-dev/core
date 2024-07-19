@@ -1,0 +1,16 @@
+name: 'Run Codefly CI Test'
+description: 'Runs Codefly CI test inside a Docker container'
+runs:
+  using: 'composite'
+  steps:
+    - run: |
+        docker run -it \
+          -v $(pwd):$(pwd) \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -w $(pwd) \
+          docker.io/codeflydev/codefly:0.0.1 \
+          codefly ci test
+      shell: bash
+branding:
+  icon: 'mic'
+  color: 'blue'

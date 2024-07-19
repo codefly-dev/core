@@ -6,4 +6,4 @@ RUN apk update && \
 
 
 
-COPY bin/codefly /usr/local/bin/codefly
+COPY bin/linux/codefly /bin/codefly

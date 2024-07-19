@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -140,13 +139,55 @@ func Download(ctx context.Context, p *resources.Agent) error {
 		return w.Wrapf(err, "cannot create agent folder")
 	}
 
-	cmd := exec.Command("mv", binary, target)
-	if err = cmd.Run(); err != nil {
+	err = MoveFile(binary, target)
+	if err != nil {
 		return w.Wrapf(err, "cannot move binary")
 	}
 	err = os.Chmod(bin, 0o755)
 	if err != nil {
 		return w.Wrapf(err, "cannot chmod binary")
+	}
+	return nil
+}
+
+// CopyFile copies a file from src to dst. If dst does not exist, it is created with permissions copied from src.
+func CopyFile(src, dst string) error {
+	sourceFileStat, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if !sourceFileStat.Mode().IsRegular() {
+		return os.ErrInvalid
+	}
+
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+
+	if _, err := io.Copy(destination, source); err != nil {
+		return err
+	}
+
+	return os.Chmod(dst, sourceFileStat.Mode())
+}
+
+// MoveFile attempts to rename the file, and if it fails due to an invalid cross-device link,
+// it falls back to copying the file and then removing the original file.
+func MoveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err != nil {
+		if err := CopyFile(src, dst); err != nil {
+			return err
+		}
+		return os.Remove(src)
 	}
 	return nil
 }
