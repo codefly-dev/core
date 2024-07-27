@@ -48,7 +48,8 @@ type EnvironmentVariableManager struct {
 	// How we are running
 	runtimeContext *basev0.RuntimeContext
 
-	configurations []*basev0.Configuration
+	configurations    []*basev0.Configuration
+	rawConfigurations []*basev0.Configuration
 
 	endpoints []*EndpointAccess
 
@@ -74,6 +75,7 @@ func Env(key string, value any) *EnvironmentVariable {
 
 func (holder *EnvironmentVariableManager) getBase() []*EnvironmentVariable {
 	var envs []*EnvironmentVariable
+
 	if holder.running {
 		envs = append(envs, Env(RunningPrefix, true))
 	}
@@ -109,6 +111,7 @@ func (holder *EnvironmentVariableManager) getBase() []*EnvironmentVariable {
 	for _, endpoint := range holder.endpoints {
 		envs = append(envs, EndpointAsEnvironmentVariable(endpoint.Endpoint, endpoint.NetworkInstance))
 	}
+
 	for _, restRoute := range holder.restRoutes {
 		envs = append(envs, RestRoutesAsEnvironmentVariable(restRoute.endpoint, restRoute.route))
 	}
@@ -124,6 +127,10 @@ func (holder *EnvironmentVariableManager) All() []*EnvironmentVariable {
 	for _, conf := range holder.configurations {
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, true)...)
+	}
+	for _, conf := range holder.rawConfigurations {
+		envs = append(envs, ConfigurationAsRawEnvironmentVariables(conf)...)
+
 	}
 	return envs
 }
@@ -208,10 +215,19 @@ func (holder *EnvironmentVariableManager) Secrets() []*EnvironmentVariable {
 	return envs
 }
 
-func (holder *EnvironmentVariableManager) AddConfigurations(configurations ...*basev0.Configuration) error {
+func (holder *EnvironmentVariableManager) AddConfigurations(_ context.Context, configurations ...*basev0.Configuration) error {
 	for _, conf := range configurations {
 		if conf != nil {
 			holder.configurations = append(holder.configurations, conf)
+		}
+	}
+	return nil
+}
+
+func (holder *EnvironmentVariableManager) AddRawConfigurations(_ context.Context, configurations ...*basev0.Configuration) error {
+	for _, conf := range configurations {
+		if conf != nil {
+			holder.rawConfigurations = append(holder.rawConfigurations, conf)
 		}
 	}
 	return nil
@@ -368,6 +384,18 @@ func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool
 					env = append(env, Env(key, value.Value))
 				}
 			}
+		}
+	}
+	return env
+}
+
+// ConfigurationAsEnvironmentVariables converts a configuration to a list of environment variables
+// the secret flag decides if we return secret or regular values
+func ConfigurationAsRawEnvironmentVariables(conf *basev0.Configuration) []*EnvironmentVariable {
+	var env []*EnvironmentVariable
+	for _, info := range conf.Infos {
+		for _, value := range info.ConfigurationValues {
+			env = append(env, Env(value.Key, value.Value))
 		}
 	}
 	return env

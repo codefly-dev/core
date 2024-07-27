@@ -56,7 +56,7 @@ func RuntimeContextFromEnv() *basev0.RuntimeContext {
 	case NetworkAccessContainer:
 		return NewRuntimeContextContainer()
 	default:
-		return NewRuntimeContextFree()
+		return NewRuntimeContextNative()
 	}
 }
 

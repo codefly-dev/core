@@ -73,13 +73,23 @@ func DirectoryExists(ctx context.Context, dir string) (bool, error) {
 	if dir == "" {
 		return false, w.NewError("nil directory input")
 	}
-	info, err := os.Stat(dir)
+	info, err := os.Lstat(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
 		}
-
 		return false, w.Wrapf(err, "cannot check directory")
+	}
+	// Check if it's a symlink
+	if info.Mode()&os.ModeSymlink != 0 {
+		resolvedPath, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			return false, w.Wrapf(err, "cannot resolve symlink")
+		}
+		info, err = os.Stat(resolvedPath)
+		if err != nil {
+			return false, w.Wrapf(err, "cannot stat resolved path")
+		}
 	}
 	// Check if it's actually a directory
 	if !info.IsDir() {
@@ -94,22 +104,22 @@ func DirectoryExists(ctx context.Context, dir string) (bool, error) {
 func CheckEmptyDirectoryOrCreate(ctx context.Context, dir string) (bool, error) {
 	w := wool.Get(ctx).In("shared.CheckEmptyDirectoryOrCreate", wool.DirField(dir))
 	if dir == "" {
-		return false, w.NewError("empty directory")
+		return false, w.NewError("null directory")
 	}
 	exists, err := DirectoryExists(ctx, dir)
 	if err != nil {
-		return CheckDirectoryOrCreate(ctx, dir)
+		return false, err
 	}
-	if !exists {
+	if exists {
 		return false, nil
 	}
 	// Check if directory is empty
-	files, err := os.ReadDir(dir)
+	empty, err := CheckEmptyDirectory(ctx, dir)
 	if err != nil {
-		return false, w.Wrapf(err, "cannot read directory")
+		return false, w.Wrapf(err, "cannot check directory")
 	}
-	if len(files) > 0 {
-		return false, nil
+	if empty {
+		return CheckDirectoryOrCreate(ctx, dir)
 	}
 	return true, nil
 }
@@ -121,6 +131,18 @@ func CheckEmptyDirectory(ctx context.Context, dir string) (bool, error) {
 		return false, w.NewError("empty directory")
 	}
 	// Check if directory is empty
+	// Check if it's a symlink
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return false, w.Wrapf(err, "cannot check directory")
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		resolvedPath, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			return false, w.Wrapf(err, "cannot resolve symlink")
+		}
+		dir = resolvedPath
+	}
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		return false, w.Wrapf(err, "cannot read directory")

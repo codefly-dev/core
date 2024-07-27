@@ -223,6 +223,7 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 			return w.Wrapf(err, "failed to get dependencies configurations")
 		}
 		dependenciesConfigurations := resources.FilterConfigurations(resp.Configurations, l.runtimeContext)
+		fmt.Println(resp.Configurations)
 		for _, conf := range dependenciesConfigurations {
 			envs := resources.ConfigurationAsEnvironmentVariables(conf, false)
 			secrets := resources.ConfigurationAsEnvironmentVariables(conf, true)

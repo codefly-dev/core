@@ -180,6 +180,10 @@ func (w *Wool) Wrap(err error) error {
 
 func (w *Wool) Wrapf(err error, msg string, args ...any) error {
 	msg = fmt.Sprintf(msg, args...)
+	if len(w.fields) > 0 {
+		fields := fmt.Sprintf("%v", w.fields)
+		msg = fmt.Sprintf("%s: %s", msg, fields)
+	}
 	if name := w.Name(); name != "" {
 		msg = fmt.Sprintf("%s: %s", w.Name(), msg)
 	}

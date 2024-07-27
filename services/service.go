@@ -170,11 +170,11 @@ func init() {
 }
 
 func Load(ctx context.Context, module *resources.Module, service *resources.Service) (*Instance, error) {
+	w := wool.Get(ctx).In("services.Load", wool.NameField(service.Name))
 	identity, err := service.Identity()
 	if err != nil {
-		return nil, wool.Get(ctx).Wrapf(err, "cannot get service identity")
+		return nil, w.Wrapf(err, "cannot get service identity")
 	}
-	w := wool.Get(ctx).In("services.Load", wool.ThisField(identity))
 
 	if service == nil {
 		return nil, w.NewError("service cannot be nil")

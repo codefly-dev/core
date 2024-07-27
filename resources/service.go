@@ -624,31 +624,31 @@ func MakeManyServicesSummary(services []*ServiceIdentity) string {
 }
 
 func LoadModuleAndServiceFromCurrentPath(ctx context.Context) (*Module, *Service, error) {
-	w := wool.Get(ctx).In("LoadModuleAndServiceFromCurrentPath")
-	dir, errFind := FindUp[Module](ctx)
-	if errFind != nil {
-		return nil, nil, errFind
-	}
-	if dir == nil {
-		return nil, nil, w.NewError("no module found")
-	}
-	mod, err := LoadModuleFromDir(ctx, *dir)
+	dir, err := FindUp[Module](ctx)
 	if err != nil {
 		return nil, nil, err
+	}
+	var mod *Module
+	if dir != nil {
+		mod, err = LoadModuleFromDir(ctx, *dir)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
-	dir, errFind = FindUp[Service](ctx)
-	if errFind != nil {
-		return nil, nil, errFind
-	}
-	if dir == nil {
-		return nil, nil, w.NewError("no service found")
-	}
-	svc, err := LoadServiceFromDir(ctx, *dir)
+	dir, err = FindUp[Service](ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	svc.WithModule(mod.Name)
-	w.Debug("loaded", wool.ServiceField(svc.Name), wool.Field("module", mod.Name))
+	var svc *Service
+	if dir != nil {
+		svc, err = LoadServiceFromDir(ctx, *dir)
+		if err != nil {
+			return nil, nil, err
+		}
+		if mod != nil {
+			svc.WithModule(mod.Name)
+		}
+	}
 	return mod, svc, nil
 }

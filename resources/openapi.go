@@ -85,10 +85,11 @@ func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.RestAPI, error
 	// Iterate over each document
 	for _, s := range c.openapis {
 		// Combine paths
-		//nolint:gocritic
 		for path, pathItem := range s.swagger.Paths.Paths {
 			if only, ok := c.only[s.unique]; ok {
-				if !slices.Contains(only, path) {
+				w.Focus("only", wool.Field("unique", s.unique), wool.Field("path", path), wool.Field("method", Method(pathItem)))
+				if !slices.Contains(only, RouteKey(path, Method(pathItem))) {
+					w.Focus("skipping")
 					continue
 				}
 			}
@@ -143,8 +144,37 @@ func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.RestAPI, error
 	return rest, nil
 }
 
-func (c *OpenAPICombinator) Only(unique string, path string) {
-	c.only[unique] = append(c.only[unique], path)
+func Method(item spec.PathItem) string {
+	if item.Get != nil {
+		return "GET"
+	}
+	if item.Post != nil {
+		return "POST"
+	}
+	if item.Put != nil {
+		return "PUT"
+	}
+	if item.Patch != nil {
+		return "PATCH"
+	}
+	if item.Delete != nil {
+		return "DELETE"
+	}
+	if item.Options != nil {
+		return "OPTIONS"
+	}
+	if item.Head != nil {
+		return "HEAD"
+	}
+	return ""
+}
+
+func RouteKey(path string, method string) string {
+	return fmt.Sprintf("%s:%s", method, path)
+}
+
+func (c *OpenAPICombinator) Only(unique string, path string, method string) {
+	c.only[unique] = append(c.only[unique], RouteKey(path, method))
 }
 
 func writeToFile(destination string, out []byte) error {

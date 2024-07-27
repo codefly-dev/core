@@ -18,7 +18,8 @@ type AddOutput struct {
 }
 
 func Add(ctx context.Context, workspace *resources.Workspace, module *resources.Module, input *actionservice.AddService, handler communicate.AnswerProvider) (*AddOutput, error) {
-	w := wool.Get(ctx).In("services.Add")
+	w := wool.Get(ctx).In("services.Add", wool.Field("workspace", workspace.Name), wool.Field("module", module.Name), wool.Field("input", input))
+
 	action, err := actionservice.NewActionAddService(ctx, input)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create action")
@@ -26,13 +27,15 @@ func Add(ctx context.Context, workspace *resources.Workspace, module *resources.
 
 	out, err := actions.Run(ctx, action, &actions.Space{Module: module})
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot add service")
+		return nil, w.Wrapf(err, "cannot run AddService action")
 	}
 
 	service, err := actions.As[resources.Service](out)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot add service")
+		return nil, w.Wrapf(err, "cannot get service back from action output")
 	}
+
+	service.WithModule(module.Name)
 
 	instance, err := Load(ctx, module, service)
 	if err != nil {
@@ -43,7 +46,7 @@ func Add(ctx context.Context, workspace *resources.Workspace, module *resources.
 
 	err = instance.LoadBuilder(ctx)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot load service instance")
+		return nil, w.Wrapf(err, "cannot load builder for service instance")
 	}
 
 	info, err := instance.Agent.GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
