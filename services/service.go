@@ -68,6 +68,7 @@ func (instance *BuilderInstance) loadRequest(ctx context.Context) (*builderv0.Lo
 		Identity: &basev0.ServiceIdentity{
 			Name:                instance.Service.Name,
 			Module:              instance.Module.Name,
+			Version:             instance.Service.Version,
 			Workspace:           instance.Workspace.Name,
 			WorkspacePath:       instance.Workspace.Dir(),
 			RelativeToWorkspace: relativeToWorkspace,
