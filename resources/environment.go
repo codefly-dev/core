@@ -2,6 +2,7 @@ package resources
 
 import (
 	"fmt"
+	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
@@ -41,7 +42,7 @@ func (env *Environment) Proto() (*basev0.Environment, error) {
 }
 
 func (env *Environment) Local() bool {
-	return env.Name == "local"
+	return strings.HasPrefix(env.Name, "local")
 }
 
 func EnvironmentFromProto(env *basev0.Environment) *Environment {

@@ -287,8 +287,8 @@ func LoadServiceFromDir(ctx context.Context, dir string) (*Service, error) {
 	return service, nil
 }
 
-// LoadServiceFromPath loads an service from a path
-func LoadServiceFromPath(ctx context.Context) (*Service, error) {
+// LoadServiceFromCurrentPath loads an service from a path
+func LoadServiceFromCurrentPath(ctx context.Context) (*Service, error) {
 	dir, err := FindUp[Service](ctx)
 	if err != nil {
 		return nil, err

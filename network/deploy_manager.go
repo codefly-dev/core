@@ -53,7 +53,20 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context,
 		if endpoint.Visibility == resources.VisibilityExternal {
 			dns, err := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
 			if err != nil {
-				return nil, err
+				if !env.Local() {
+					return nil, err
+				}
+				w.Warn("using named port")
+				port := ToNamedPort(ctx, workspace.Name, service.Module, service.Name, endpoint.Name, endpoint.Api)
+				dns = &basev0.DNS{
+					Name:     service.Unique(),
+					Module:   service.Module,
+					Service:  service.Name,
+					Endpoint: endpoint.Name,
+					Host:     "localhost",
+					Port:     uint32(port),
+					Secured:  false,
+				}
 			}
 			if dns == nil {
 				return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)
@@ -71,7 +84,21 @@ func (m *DeployManager) GenerateNetworkMappings(ctx context.Context,
 			var err error
 			dns, err = m.dnsManager.GetDNS(ctx, service, endpoint.Name)
 			if err != nil {
-				return nil, err
+				// For local* environment, just use named port mapping
+				if !env.Local() {
+					return nil, err
+				}
+				w.Warn("using named port")
+				port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, endpoint.Name, endpoint.Api)
+				dns = &basev0.DNS{
+					Name:     service.Unique(),
+					Module:   service.Module,
+					Service:  service.Name,
+					Endpoint: endpoint.Name,
+					Host:     "host.docker.internal",
+					Port:     uint32(port),
+					Secured:  false,
+				}
 			}
 			if dns == nil {
 				return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)

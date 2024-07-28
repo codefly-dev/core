@@ -26,9 +26,9 @@ type Env struct {
 type BuilderConfiguration struct {
 	Root        string
 	Dockerfile  string
+	Ignorefile  string
 	Destination *resources.DockerImage
 	Output      io.Writer
-	Ignores     []string
 }
 
 type Builder struct {
@@ -53,7 +53,7 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
 
-	buildContextBuffer, err := builder.createTarArchive()
+	buildContextBuffer, err := builder.createTarArchive(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create tar archive")
 	}
@@ -113,16 +113,66 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	return nil, nil
 }
 
+func (builder *Builder) readDockerignore(ctx context.Context) ([]string, error) {
+	if builder.Ignorefile == "" {
+		return nil, nil
+	}
+	w := wool.Get(ctx).In("Builder.readDockerignore", wool.DirField(builder.Root))
+	ignoreFilePath := filepath.Join(builder.Root, builder.Ignorefile)
+	file, err := os.Open(ignoreFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // No dockerignore file, nothing to ignore
+		}
+		return nil, err
+	}
+	defer file.Close()
+
+	var patterns []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" && !strings.HasPrefix(line, "#") {
+			patterns = append(patterns, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	w.Debug("patterns", wool.Field("patterns", patterns))
+	return patterns, nil
+}
+
+func shouldIgnore(ctx context.Context, file string, patterns []string) bool {
+	w := wool.Get(ctx).In("Builder.shouldIgnore", wool.Field("file", file), wool.Field("patterns", patterns))
+	for _, pattern := range patterns {
+		matched, err := filepath.Match(pattern, file)
+		if err != nil {
+			w.Focus("error", wool.ErrField(err))
+			continue // Invalid pattern, skip it
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
 // createTarArchive creates a tar archive from the provided directory and returns it as a bytes buffer.
-func (builder *Builder) createTarArchive() (*bytes.Buffer, error) {
+func (builder *Builder) createTarArchive(ctx context.Context) (*bytes.Buffer, error) {
 	// Add a buffer to write our archive to.
 	buf := new(bytes.Buffer)
 
 	// Add a new tar archive.
 	tw := tar.NewWriter(buf)
 
+	patterns, err := builder.readDockerignore(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// Walk through each file/folder in the path and add it to the tar archive.
-	err := filepath.Walk(builder.Root, func(file string, fi os.FileInfo, err error) error {
+	err = filepath.Walk(builder.Root, func(file string, fi os.FileInfo, err error) error {
 		// Return any error.
 		if err != nil {
 			return err
@@ -139,11 +189,10 @@ func (builder *Builder) createTarArchive() (*bytes.Buffer, error) {
 			return err
 		}
 
-		for _, ignore := range builder.Ignores {
-			if strings.Contains(rel, ignore) {
-				return nil
-			}
+		if shouldIgnore(ctx, rel, patterns) {
+			return nil
 		}
+
 		header.Name = rel
 
 		// Write the header.
