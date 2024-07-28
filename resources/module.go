@@ -217,8 +217,8 @@ func LoadModuleFromDir(ctx context.Context, dir string) (*Module, error) {
 	return mod, nil
 }
 
-// LoadModuleFromPath loads an module from a path
-func LoadModuleFromPath(ctx context.Context) (*Module, error) {
+// LoadModuleFromCurrentPath loads an module from a path
+func LoadModuleFromCurrentPath(ctx context.Context) (*Module, error) {
 	dir, err := FindUp[Module](ctx)
 	if err != nil {
 		return nil, err

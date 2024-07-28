@@ -157,24 +157,29 @@ func (r *GoRunnerEnvironment) Env() runners.RunnerEnvironment {
 }
 
 func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
+	w := wool.Get(ctx).In("setup")
 	if !r.withGoModules {
+		w.Warn("running without go modules: not encouraged at all")
 		r.Env().WithEnvironmentVariables(ctx, resources.Env("GO111MODULE", "off"))
 	} else {
+		w.Debug("running with go modules")
 		r.Env().WithEnvironmentVariables(ctx, resources.Env("GO111MODULE", "on"))
 	}
 	if r.docker != nil {
 		// Build
 		r.docker.WithMount(r.LocalCacheDir(ctx), "/build")
 		if r.goModCache != "" {
+			w.Focus("using go mod cache", wool.Field("dir", r.goModCache))
 			_, err := shared.CheckDirectoryOrCreate(ctx, r.goModCache)
 			if err != nil {
-				wool.Get(ctx).Warn("cannot create go mod cache", wool.ErrField(err))
+				w.Warn("cannot create go mod cache", wool.ErrField(err))
 			}
 			r.docker.WithMount(r.goModCache, "/go/pkg/mod")
 			return
 		}
 		// Setup up the proper environment
 		if v, ok := os.LookupEnv("GOMODCACHE"); ok {
+			w.Focus("using go mod cache", wool.Field("dir", v))
 			// Mount
 			_, err := shared.CheckDirectoryOrCreate(ctx, v)
 			if err != nil {
@@ -251,8 +256,9 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 
 	proc, err := r.Env().NewProcess("go", "mod", "download")
 	if err != nil {
-		return w.Wrapf(err, "cannot create go mod download process")
+		return w.Wrapf(err, "cannot go mod download process")
 	}
+
 	if r.out != nil {
 		proc.WithOutput(r.out)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/blang/semver"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
@@ -18,7 +19,17 @@ func PinToLatestRelease(ctx context.Context, agent *resources.Agent) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot get latest release")
 	}
-	tag := release.GetTagName()
-	agent.Version = strings.ReplaceAll(tag, "v", "")
+	latestVersion := strings.ReplaceAll(release.GetTagName(), "v", "")
+	currentVersion, err := semver.Make(agent.Version)
+	if err != nil {
+		return w.Wrapf(err, "invalid current version format")
+	}
+	newVersion, err := semver.Make(latestVersion)
+	if err != nil {
+		return w.Wrapf(err, "invalid latest version format")
+	}
+	if newVersion.GT(currentVersion) {
+		agent.Version = latestVersion
+	}
 	return nil
 }

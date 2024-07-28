@@ -536,7 +536,6 @@ func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
 			continue // Ensure there are enough fs for PID and CMD
 		}
 		cmd := fs[cmdIndex:]
-		w.Trace("checking process", wool.Field("cmd", cmd), wool.Field("proc", proc.cmd))
 
 		if proc.Match(cmd) {
 			pid, err := strconv.Atoi(fs[pidIndex])
