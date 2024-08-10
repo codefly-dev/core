@@ -83,6 +83,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	}
 	args = append(args, "--exclude-root", "--cli-server")
 	cmd := exec.CommandContext(ctx, "codefly", args...)
+	fmt.Println("Running command", cmd.String())
 	cmd.Stdout = os.Stdout // log stdout
 	cmd.Stderr = os.Stderr // log stderr
 	err := cmd.Start()
@@ -164,12 +165,27 @@ func Service() (*resources.Service, error) {
 
 func Module() (*resources.Module, error) {
 	if runningModule == nil {
-		mod, svc, err := resources.LoadModuleAndServiceFromCurrentPath(context.Background())
+		ctx := context.Background()
+		// Override path
+		workspace, err := resources.FindWorkspaceUp(ctx)
 		if err != nil {
 			return nil, err
 		}
-		runningService = svc
-		runningModule = mod
+
+		// If in Flat layout, load module automatically
+		if workspace.Layout == resources.LayoutKindFlat {
+			module, err := workspace.LoadModuleFromName(ctx, workspace.Name)
+			if err != nil {
+				return nil, err
+			}
+			runningModule = module
+		} else {
+			mod, err := resources.LoadModuleFromCurrentPath(ctx)
+			if err != nil {
+				return nil, err
+			}
+			runningModule = mod
+		}
 	}
 	return runningModule, nil
 }

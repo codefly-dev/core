@@ -14,24 +14,50 @@ Overview builds a dependency graph of the module and its services.
 */
 
 type ServiceDependencies struct {
-	Workspace       *resources.Workspace
-	uniqueToService map[string]*resources.Service
+	Workspace *resources.Workspace
 
-	Graph *DAG
+	graph           *DAG
+	uniqueToService map[string]*resources.Service
+	options         *DependencyOptions
 }
 
-func NewServiceDependencies(ctx context.Context, workspace *resources.Workspace) (*ServiceDependencies, error) {
-	w := wool.Get(ctx).In("NewServiceDependencies")
+type DependencyOptions struct {
+	SkipDependencyFor map[string]bool
+}
 
+type DependencyOption func(*DependencyOptions) error
+
+func SkipDependencyFor(services ...string) DependencyOption {
+	return func(opt *DependencyOptions) error {
+		for _, svc := range services {
+			opt.SkipDependencyFor[svc] = true
+		}
+		return nil
+	}
+}
+
+func NewServiceDependencies(ctx context.Context, workspace *resources.Workspace, opts ...DependencyOption) (*ServiceDependencies, error) {
+	w := wool.Get(ctx).In("NewServiceDependencies")
+	opt := &DependencyOptions{
+		SkipDependencyFor: make(map[string]bool),
+	}
+	for _, o := range opts {
+		err := o(opt)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot apply option")
+		}
+
+	}
 	dep := &ServiceDependencies{
 		Workspace:       workspace,
+		options:         opt,
 		uniqueToService: make(map[string]*resources.Service),
 	}
 	err := dep.loadServiceGraph(ctx, workspace)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load service graph")
 	}
-	dep.Graph.verb = "required by"
+	dep.graph.verb = "required by"
 	return dep, nil
 }
 
@@ -45,14 +71,14 @@ func (d *ServiceDependencies) ServiceFromUnique(unique string) (*resources.Servi
 // DependsOn returns true if the service identified by unique depends on the service identified by other
 func (d *ServiceDependencies) DependsOn(unique string, other string) (bool, error) {
 	w := wool.Get(context.Background()).In("ServiceDependencies.DependsOn")
-	if !d.Graph.HasNode(unique) {
+	if !d.graph.HasNode(unique) {
 		return false, w.NewError("service <%s> does not exist", unique)
 	}
-	if !d.Graph.HasNode(other) {
+	if !d.graph.HasNode(other) {
 		return false, w.NewError("service <%s> does not exist", other)
 	}
 	// A depends on B is represented by an path B-> ...->  A
-	return d.Graph.ReachableFrom(other, unique), nil
+	return d.graph.ReachableFrom(other, unique), nil
 }
 
 type Service struct {
@@ -65,12 +91,12 @@ type ServiceDependency struct {
 }
 
 func (d *ServiceDependencies) Print() string {
-	return d.Graph.Print()
+	return d.graph.Print()
 }
 
 func (d *ServiceDependencies) Services() []Service {
 	var out []Service
-	for _, node := range d.Graph.Nodes() {
+	for _, node := range d.graph.Nodes() {
 		if node.Type == resources.SERVICE {
 			out = append(out, Service{
 				Unique: node.ID,
@@ -82,7 +108,7 @@ func (d *ServiceDependencies) Services() []Service {
 
 func (d *ServiceDependencies) Dependencies() []ServiceDependency {
 	var out []ServiceDependency
-	for _, edge := range d.Graph.Edges() {
+	for _, edge := range d.graph.Edges() {
 		out = append(out, ServiceDependency{
 			From: Service{
 				Unique: edge.From,
@@ -98,11 +124,11 @@ func (d *ServiceDependencies) Dependencies() []ServiceDependency {
 // OrderTo returns the list of services "required" to end up with the service identified by unique.
 func (d *ServiceDependencies) OrderTo(ctx context.Context, unique string) ([]Service, error) {
 	w := wool.Get(ctx).In("OrderTo")
-	sub, err := d.Graph.SubGraphTo(unique)
+	sub, err := d.graph.SubGraphTo(unique)
 	if err != nil {
 		return nil, fmt.Errorf("cannot topologically sort to <%s>: %w", unique, err)
 	}
-	w.Trace("service dependencies", wool.Field("graph", d.Graph.PrintAsDot()))
+	w.Trace("service dependencies", wool.Field("graph", d.graph.PrintAsDot()))
 	w.Trace("service dependencies", wool.Field("subgraph", sub.PrintAsDot()))
 	order, err := sub.TopologicalSortTo(unique)
 	if err != nil {
@@ -125,7 +151,7 @@ func (d *ServiceDependencies) OrderTo(ctx context.Context, unique string) ([]Ser
 // Result is sorted by topological order
 func (d *ServiceDependencies) DirectRequires(ctx context.Context, unique string) ([]Service, error) {
 	w := wool.Get(ctx).In("DirectRequires")
-	children, err := d.Graph.SortedParents(unique)
+	children, err := d.graph.SortedParents(unique)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get sorted parents to <%s>", unique)
 	}
@@ -145,7 +171,7 @@ func (d *ServiceDependencies) DirectRequires(ctx context.Context, unique string)
 // Result is sorted by topological order
 func (d *ServiceDependencies) DirectDependents(ctx context.Context, unique string) ([]Service, error) {
 	w := wool.Get(ctx).In("DirectDependents")
-	children, err := d.Graph.SortedChildren(unique)
+	children, err := d.graph.SortedChildren(unique)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get sorted children from <%s>", unique)
 	}
@@ -164,13 +190,13 @@ func (d *ServiceDependencies) DirectDependents(ctx context.Context, unique strin
 // Restrict restricts the dependencies to the services required by the service identified by unique
 func (d *ServiceDependencies) Restrict(_ context.Context, unique string) (*ServiceDependencies, error) {
 	// B is required by A if A <- ... <- B
-	sub, err := d.Graph.SubGraphTo(unique)
+	sub, err := d.graph.SubGraphTo(unique)
 	if err != nil {
 		return nil, fmt.Errorf("cannot restrict to <%s>: %w", unique, err)
 	}
 	return &ServiceDependencies{
 		Workspace: d.Workspace,
-		Graph:     sub,
+		graph:     sub,
 	}, nil
 }
 
@@ -195,24 +221,27 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 			}
 			d.uniqueToService[identity.Unique()] = svc
 			graph.AddNode(identity.Unique()).WithType(resources.SERVICE)
+			if _, skipDependency := d.options.SkipDependencyFor[identity.Unique()]; skipDependency {
+				continue
+			}
 			for _, dep := range svc.ServiceDependencies {
 				graph.AddNode(dep.Unique()).WithType(resources.SERVICE)
 				graph.AddEdge(dep.Unique(), identity.Unique())
 			}
 		}
 	}
-	d.Graph = graph
+	d.graph = graph
 	return nil
 }
 
 // EntryPoints returns the list of services that are not required by any other service
 func (d *ServiceDependencies) EntryPoints(_ context.Context) ([]Service, error) {
 	var out []Service
-	for _, node := range d.Graph.Nodes() {
+	for _, node := range d.graph.Nodes() {
 		if node.Type != resources.SERVICE {
 			continue
 		}
-		if len(d.Graph.Children(node.ID)) == 0 {
+		if len(d.graph.Children(node.ID)) == 0 {
 			out = append(out, Service{
 				Unique: node.ID,
 			})

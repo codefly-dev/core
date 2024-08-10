@@ -8,7 +8,7 @@ type ErrorResourceNotFound struct {
 }
 
 func (e ErrorResourceNotFound) Error() string {
-	return fmt.Sprintf("resource %s of type %s not found", e.resource, e.resourceType)
+	return fmt.Sprintf("resource <%s> of type <%s> not found", e.resource, e.resourceType)
 }
 
 func NewErrorResourceNotFound(resourceType string, resource string) *ErrorResourceNotFound {

@@ -2,7 +2,6 @@ package architecture_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/codefly-dev/core/architecture"
@@ -78,6 +77,36 @@ func TestServiceDependenciesFlatLayout(t *testing.T) {
 	testServiceGraph(t, workspace, organization.MustUnique(), accounts.MustUnique(), gateway.MustUnique(), frontend.MustUnique())
 }
 
+func TestServiceDependenciesFlatLayoutWithSkip(t *testing.T) {
+	ctx := context.Background()
+	wool.SetGlobalLogLevel(wool.DEBUG)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/flat-layout")
+	require.NoError(t, err)
+	require.NotNil(t, workspace)
+
+	organization := shared.Must(workspace.FindUniqueServiceByName(ctx, "organization"))
+	require.NotNil(t, organization)
+	accounts := shared.Must(workspace.FindUniqueServiceByName(ctx, "accounts"))
+	require.NotNil(t, accounts)
+	gateway := shared.Must(workspace.FindUniqueServiceByName(ctx, "gateway"))
+	require.NotNil(t, gateway)
+	frontend := shared.Must(workspace.FindUniqueServiceByName(ctx, "frontend"))
+	require.NotNil(t, frontend)
+
+	// We want to skip dependencies on gateway
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace, architecture.SkipDependencyFor(gateway.MustUnique()))
+	require.NoError(t, err)
+	require.NotNil(t, dep)
+
+	// Topological order to frontend should only be gateway -> web
+	to, err := dep.OrderTo(ctx, frontend.MustUnique())
+	require.NoError(t, err)
+	require.Equal(t, []architecture.Service{{Unique: gateway.MustUnique()}}, to)
+
+}
+
 func testServiceGraph(t *testing.T, workspace *resources.Workspace, organization, accounts, gateway, frontend string) {
 	ctx := context.Background()
 	dep, err := architecture.NewServiceDependencies(ctx, workspace)
@@ -89,10 +118,6 @@ func testServiceGraph(t *testing.T, workspace *resources.Workspace, organization
 		require.NoError(t, err)
 		require.NotNil(t, svc)
 		require.Equal(t, service, svc.MustUnique())
-	}
-
-	for _, d := range dep.Services() {
-		fmt.Println("DEP", d)
 	}
 
 	require.Equal(t, 4, len(dep.Services()))

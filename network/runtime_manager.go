@@ -24,16 +24,6 @@ type RuntimeManager struct {
 	lastRandomPort     uint16
 }
 
-var _ Manager = &RuntimeManager{}
-
-func (m *RuntimeManager) SetLoadBalancer(string) {
-	panic("N/A")
-}
-
-func (m *RuntimeManager) GetNamespace(context.Context, *resources.Environment, *resources.Workspace, *resources.ServiceIdentity) (string, error) {
-	return "", fmt.Errorf("namespaces don't make sense locally. something went wrong")
-}
-
 func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := "host.docker.internal"
 	instance := resources.NewNetworkInstance(host, port)

@@ -82,12 +82,11 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerIm
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
 	env := &DockerEnvironment{
-		firstInit:  true,
-		client:     cli,
-		out:        w,
-		image:      image,
-		name:       ContainerName(name),
-		workingDir: "/codefly",
+		firstInit: true,
+		client:    cli,
+		out:       w,
+		image:     image,
+		name:      ContainerName(name),
 	}
 	// Pull the image if needed
 	err = env.GetImageIfNotPresent(ctx, image)
@@ -145,11 +144,64 @@ func (docker *DockerEnvironment) ensureContainerRunning(ctx context.Context) err
 	return nil
 }
 
+func generateDockerCreateCommand(containerConfig *container.Config, hostConfig *container.HostConfig, containerName string) string {
+	var cmd []string
+	cmd = append(cmd, "docker", "create")
+
+	// Add environment variables
+	for _, env := range containerConfig.Env {
+		cmd = append(cmd, "--env", env)
+	}
+
+	// Add working directory
+	if containerConfig.WorkingDir != "" {
+		cmd = append(cmd, "--workdir", containerConfig.WorkingDir)
+	}
+
+	// Add exposed ports
+	for port := range containerConfig.ExposedPorts {
+		cmd = append(cmd, "--expose", string(port))
+	}
+
+	// Add mounts
+	for _, mount := range hostConfig.Mounts {
+		cmd = append(cmd, "--mount", fmt.Sprintf("type=%s,source=%s,target=%s", mount.Type, mount.Source, mount.Target))
+	}
+
+	// Add port bindings
+	for port, bindings := range hostConfig.PortBindings {
+		for _, binding := range bindings {
+			cmd = append(cmd, "--publish", fmt.Sprintf("%s:%s", binding.HostPort, port.Port()))
+		}
+	}
+
+	// Add command
+	if len(containerConfig.Cmd) > 0 {
+		cmd = append(cmd, containerConfig.Cmd...)
+	}
+
+	// Add container name
+	if containerName != "" {
+		cmd = append(cmd, "--name", containerName)
+	}
+
+	// Add image
+	cmd = append(cmd, containerConfig.Image)
+
+	return strings.Join(cmd, " ")
+}
+
 func (docker *DockerEnvironment) createAndStartContainer(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.createAndStartContainer")
 
 	containerConfig := docker.createContainerConfig(ctx)
 	hostConfig := docker.createHostConfig(ctx)
+
+	w.Debug("create container config",
+		wool.Field("CLI equivalent", generateDockerCreateCommand(containerConfig, hostConfig, docker.name)),
+		wool.Field("container", containerConfig),
+		wool.Field("host", hostConfig),
+	)
 
 	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, docker.name)
 	if err != nil {
@@ -235,6 +287,11 @@ func (docker *DockerEnvironment) waitForContainerToRun(ctx context.Context, cont
 
 		if time.Now().After(deadline) {
 			return w.NewError("container did not start in time")
+		}
+
+		// If status exited: error
+		if inspect.State.Status == "exited" {
+			return w.NewError("container exited with status %s", inspect.State.Status)
 		}
 
 		w.Debug("container not running yet", wool.Field("status", inspect.State.Status))

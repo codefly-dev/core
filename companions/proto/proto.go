@@ -45,10 +45,6 @@ func (g *Buf) Generate(ctx context.Context) error {
 	// Match cache
 	g.dependencies.WithCache(g.cache)
 
-	if !runners.DockerEngineRunning(ctx) {
-		return w.NewError("docker is not running")
-	}
-
 	updated, err := g.dependencies.Updated(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot check if updated")
@@ -58,6 +54,10 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return nil
 	}
 	w.Info("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
+
+	if !runners.DockerEngineRunning(ctx) {
+		return w.NewError("docker is not running")
+	}
 
 	image, err := CompanionImage(ctx)
 	if err != nil {

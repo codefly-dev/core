@@ -27,6 +27,8 @@ type Workspace struct {
 	// Modules in the Workspace
 	Modules []*ModuleReference `yaml:"modules,omitempty"`
 
+	Path string `yaml:"path,omitempty"`
+
 	// internal
 	dir string
 
@@ -48,6 +50,9 @@ func (workspace *Workspace) Proto(_ context.Context) (*basev0.Workspace, error) 
 
 // Dir is the directory of the
 func (workspace *Workspace) Dir() string {
+	if workspace.Path != "" {
+		return path.Join(workspace.dir, workspace.Path)
+	}
 	return workspace.dir
 }
 
@@ -322,7 +327,6 @@ func (workspace *Workspace) DeleteServiceDependencies(ctx context.Context, ref *
 }
 
 // LoadService loads a service from a reference
-// returns NotFoundError if not found
 func (workspace *Workspace) LoadService(ctx context.Context, input *ServiceWithModule) (*Service, error) {
 	w := wool.Get(ctx).In("Workspace::LoadService", wool.NameField(input.Name))
 	mod, err := workspace.LoadModuleFromName(ctx, input.Module)

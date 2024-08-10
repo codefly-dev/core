@@ -12,7 +12,10 @@ type DockerImage struct {
 }
 
 func (image *DockerImage) FullName() string {
-	base := fmt.Sprintf("%s:%s", image.Name, image.Tag)
+	base := image.Name
+	if image.Tag != "" {
+		base = fmt.Sprintf("%s:%s", image.Name, image.Tag)
+	}
 	if image.Repository == "" {
 		return base
 	}
