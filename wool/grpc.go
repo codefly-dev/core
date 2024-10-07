@@ -4,6 +4,9 @@ import (
 	"context"
 	"net/http"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"google.golang.org/grpc/metadata"
 )
 
@@ -54,4 +57,28 @@ func (grpc *GRPC) Out() context.Context {
 		}
 	}
 	return metadata.NewOutgoingContext(grpc.w.ctx, md)
+}
+
+func IsNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Case gRPC
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	return st.Code() == codes.NotFound
+}
+
+func IsUnauthorized(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Case gRPC
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	return st.Code() == codes.NotFound
 }

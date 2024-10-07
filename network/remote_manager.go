@@ -67,27 +67,27 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 		}
 		// Get canonical port
 		port := standards.Port(endpoint.Api)
-		if endpoint.Visibility == resources.VisibilityPublic {
-			var dns *basev0.DNS
-			var err error
-			dns, err = m.dnsManager.GetDNS(ctx, service, endpoint.Name)
-			if err != nil {
-				// For local* environment, just use named port mapping
-				if !env.Local() {
-					return nil, err
-				}
-				w.Warn("using named port")
-				port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, endpoint.Name, endpoint.Api)
-				dns = &basev0.DNS{
-					Name:     service.Unique(),
-					Module:   service.Module,
-					Service:  service.Name,
-					Endpoint: endpoint.Name,
-					Host:     "localhost",
-					Port:     uint32(port),
-					Secured:  false,
-				}
+		//if endpoint.Visibility == resources.VisibilityPublic {
+		var dns *basev0.DNS
+		var err error
+		dns, err = m.dnsManager.GetDNS(ctx, service, endpoint.Name)
+		if err != nil {
+			// For local* environment, just use named port mapping
+			if !env.Local() {
+				return nil, err
 			}
+			// w.Warn("using named port")
+			//port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, endpoint.Name, endpoint.Api)
+			dns = &basev0.DNS{
+				Name:     service.Unique(),
+				Module:   service.Module,
+				Service:  service.Name,
+				Endpoint: endpoint.Name,
+				Host:     "localhost",
+				Port:     uint32(port),
+				Secured:  false,
+			}
+			//}
 			if dns == nil {
 				return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)
 			}

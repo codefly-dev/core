@@ -29,13 +29,11 @@ FROM golang:alpine
 
 # Copy necessary binaries and files from the builder stage
 COPY --from=builder /usr/bin/protoc /usr/local/bin/
-
 COPY --from=builder /go/bin/buf /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-grpc-gateway /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-openapiv2 /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-validate /usr/local/bin/
 COPY --from=builder /usr/bin/grpc_* /usr/local/bin/
-
 COPY --from=builder /go/bin/swagger /usr/local/bin/
 # COPY --from=builder /usr/bin/ts-protoc-gen /usr/local/bin/
 

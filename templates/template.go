@@ -10,13 +10,76 @@ import (
 	"strings"
 	"text/template"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
 
-// ApplyTemplate takes a YAML template as []byte, populates it using data, and returns the result as a string.
 func ApplyTemplate(t string, data any) (string, error) {
-	tmpl, err := template.New("template").Parse(t)
+	funcMap := template.FuncMap{
+		"default": func(defaultValue, value interface{}) interface{} {
+			if value == nil {
+				return defaultValue
+			}
+			if s, ok := value.(string); ok && s == "" {
+				return defaultValue
+			}
+			return value
+		},
+		"toYaml": func(v interface{}) string {
+			data, err := yaml.Marshal(v)
+			if err != nil {
+				return ""
+			}
+			return string(data)
+		},
+		"indent": func(spaces int, v string) string {
+			pad := strings.Repeat(" ", spaces)
+			return pad + strings.Replace(v, "\n", "\n"+pad, -1)
+		},
+		"quote": func(str string) string {
+			return fmt.Sprintf("%q", str)
+		},
+		"upper":      strings.ToUpper,
+		"lower":      strings.ToLower,
+		"trim":       strings.TrimSpace,
+		"trimPrefix": strings.TrimPrefix,
+		"trimSuffix": strings.TrimSuffix,
+		"ternary": func(condition bool, trueVal, falseVal interface{}) interface{} {
+			if condition {
+				return trueVal
+			}
+			return falseVal
+		},
+		"contains": strings.Contains,
+		"split":    strings.Split,
+		"join":     strings.Join,
+		"dict": func(values ...interface{}) (map[string]interface{}, error) {
+			if len(values)%2 != 0 {
+				return nil, fmt.Errorf("invalid dict call")
+			}
+			dict := make(map[string]interface{}, len(values)/2)
+			for i := 0; i < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict keys must be strings")
+				}
+				dict[key] = values[i+1]
+			}
+			return dict, nil
+		},
+		"merge": func(dst map[string]interface{}, src ...map[string]interface{}) map[string]interface{} {
+			for _, s := range src {
+				for k, v := range s {
+					dst[k] = v
+				}
+			}
+			return dst
+		},
+	}
+
+	tmpl, err := template.New("template").Funcs(funcMap).Parse(t)
 	if err != nil {
 		return "", err
 	}

@@ -51,7 +51,7 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 			}
 		}
 	}
-	name := fmt.Sprintf("proto-%s-%d", service, time.Now().UnixMilli())
+	name := fmt.Sprintf("proto-%s-%d-%s", service, time.Now().UnixMilli(), language)
 	runner, err := runners.NewDockerEnvironment(ctx, image, tmpDir, name)
 	if err != nil {
 		return w.Wrapf(err, "cannot create docker runner")
@@ -96,6 +96,7 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 	if err != nil {
 		return w.Wrapf(err, "cannot generate with buf")
 	}
+
 	return nil
 }
 
@@ -104,12 +105,23 @@ type GoConfiguration struct {
 	GoPackagePrefix string
 }
 
+type PythonConfiguration struct {
+	Destination string
+}
+
 func CreateBufConfiguration(ctx context.Context, bufDir string, service string, language languages.Language) error {
 	w := wool.Get(ctx).In("createBufConfiguration")
 	switch language {
 	case languages.GO:
 		// Templatize
 		err := templateGoConfiguration(ctx, bufDir, fmt.Sprintf("github.com/codefly-dev/cli/pkg/builder/clients/%s", service))
+		if err != nil {
+			return w.Wrapf(err, "cannot templatize")
+		}
+		return nil
+	case languages.PYTHON:
+		// Templatize
+		err := templatePythonConfiguration(ctx, bufDir)
 		if err != nil {
 			return w.Wrapf(err, "cannot templatize")
 		}
@@ -134,7 +146,23 @@ func templateGoConfiguration(ctx context.Context, bufDir string, goPackagePrefix
 	return nil
 }
 
+func templatePythonConfiguration(ctx context.Context, bufDir string) error {
+	w := wool.Get(ctx).In("templatePythonConfiguration", wool.Field("bufDir", bufDir))
+	templator := &templates.Templator{NameReplacer: templates.CutTemplateSuffix{}}
+	conf := PythonConfiguration{
+		Destination: "output",
+	}
+	err := templator.CopyAndApply(ctx, pythonFS, "templates/python", bufDir, conf)
+	if err != nil {
+		return w.Wrapf(err, "cannot copy and apply template")
+	}
+	return nil
+}
+
 // Embed
 
 //go:embed templates/go
 var goFS embed.FS
+
+//go:embed templates/python
+var pythonFS embed.FS

@@ -108,16 +108,17 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "cannot generate with buf")
 	}
 
-	// Move the result
+	// Deal with OpenAPI if exists
 	openapi := path.Join(g.Dir, "openapi/api.swagger.json")
-	destination := path.Join(g.Dir, standards.OpenAPIPath)
-	if openapi != destination {
+	if ok, _ := shared.FileExists(ctx, openapi); err == nil && ok {
+		destination := path.Join(g.Dir, standards.OpenAPIPath)
 		err = shared.CopyFile(ctx, openapi, destination)
 		if err != nil {
 			return w.Wrapf(err, "cannot copy file")
 		}
 		_ = os.Remove(openapi)
 	}
+
 	err = g.dependencies.UpdateCache(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot update cache")

@@ -372,9 +372,11 @@ func ReloadService(ctx context.Context, service *Service) (*Service, error) {
 	return LoadServiceFromDir(ctx, service.Dir())
 }
 
-func (s *Service) postLoad(_ context.Context) error {
+func (s *Service) postLoad(ctx context.Context) error {
+	w := wool.Get(ctx).In("Service::postLoad", wool.NameField(s.Name), wool.ModuleField(s.module))
 	for _, dep := range s.ServiceDependencies {
 		if dep.Module == "" && s.module != "" {
+			w.Trace("setting module for dependency", wool.NameField(dep.Name))
 			dep.Module = s.module
 		}
 	}
@@ -553,7 +555,11 @@ func (s *Service) LocalOrNil(ctx context.Context, f string) *string {
 
 func (s *Service) WithModule(mod string) {
 	s.module = mod
-
+	for _, dep := range s.ServiceDependencies {
+		if dep.Module == "" {
+			dep.Module = s.module
+		}
+	}
 }
 
 func (s *Service) MustUnique() string {
@@ -575,7 +581,7 @@ func (s *ServiceDependency) Unique() string {
 }
 
 type ServiceDependency struct {
-	Name   string `yaml:"name"`
+	Name   string `yaml:"name,omitempty"`
 	Module string `yaml:"module,omitempty"`
 
 	Endpoints []*EndpointReference `yaml:"endpoints,omitempty"`
