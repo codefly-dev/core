@@ -6,11 +6,11 @@ import (
 	"reflect"
 	"strings"
 
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
-
 	"github.com/bufbuild/protovalidate-go"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -33,10 +33,13 @@ func Validate(req proto.Message) error {
 			var errDetails []string
 			var fieldsViolation []*errdetails.BadRequest_FieldViolation
 			for _, violation := range vErr.Violations {
-				errDetails = append(errDetails, fmt.Sprintf("field '%s': %s", violation.FieldPath, violation.Message))
+				if violation.FieldPath == nil || violation.Message == nil {
+					continue
+				}
+				errDetails = append(errDetails, fmt.Sprintf("field '%s': %s", *violation.FieldPath, *violation.Message))
 				fieldsViolation = append(fieldsViolation, &errdetails.BadRequest_FieldViolation{
-					Field:       violation.FieldPath,
-					Description: violation.Message,
+					Field:       *violation.FieldPath,
+					Description: *violation.Message,
 				})
 			}
 			detailedErr := fmt.Errorf("invalid %s: %s", msgType, strings.Join(errDetails, "; "))

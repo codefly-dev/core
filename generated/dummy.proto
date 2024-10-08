@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package dummy;
+
+import "buf/validate/validate.proto";
+
+import "google/api/annotations.proto";
+
+import "google/protobuf/any.proto";
+
+import "codefly/base/v0/scope.proto";

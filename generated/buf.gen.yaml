@@ -10,7 +10,8 @@ plugins:
   # GO
   - plugin: buf.build/protocolbuffers/go
     out: go
-    opt: paths=source_relative
+    opt:
+      - paths=source_relative
   - plugin: buf.build/grpc/go
     out: go
     opt: paths=source_relative

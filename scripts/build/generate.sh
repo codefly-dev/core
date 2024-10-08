@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+#cd generated && buf dep update && buf generate buf.build/codefly-dev/proto --include-imports &&  goimports -w .
 cd generated && buf generate buf.build/codefly-dev/proto --include-imports &&  goimports -w .
 
 # Fix stupid python imports
