@@ -171,3 +171,16 @@ func LocalizeNetworkMapping(mappings []*basev0.NetworkMapping, hostname string) 
 	return results
 
 }
+
+func SplitPublicNetworkMappings(ctx context.Context, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, []*basev0.NetworkMapping, error) {
+	var public []*basev0.NetworkMapping
+	var nonPublic []*basev0.NetworkMapping
+	for _, mapping := range mappings {
+		if mapping.Endpoint.Visibility == VisibilityPublic || mapping.Endpoint.Visibility == VisibilityExternal {
+			public = append(public, mapping)
+		} else {
+			nonPublic = append(nonPublic, mapping)
+		}
+	}
+	return public, nonPublic, nil
+}

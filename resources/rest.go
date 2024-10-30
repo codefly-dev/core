@@ -450,21 +450,6 @@ func LoadExtendedRestRouteGroup[T any](ctx context.Context, p string) (*Extended
 	return r, nil
 }
 
-func AsRestRouteEnvironmentVariable(ctx context.Context, endpoint *basev0.Endpoint) []*EnvironmentVariable {
-	w := wool.Get(ctx).In("AsRestRouteEnvironmentVariable")
-	var envs []*EnvironmentVariable
-	if rest := IsRest(context.Background(), endpoint); rest != nil {
-		for _, group := range rest.Groups {
-			for _, route := range group.Routes {
-				w.Debug("adding", wool.Field("route", route))
-				envs = append(envs, RestRoutesAsEnvironmentVariable(endpoint, route))
-			}
-		}
-	}
-	return envs
-
-}
-
 func ConvertHTTPMethodToProto(m HTTPMethod) basev0.HTTPMethod {
 	switch m {
 	case HTTPMethodGet:

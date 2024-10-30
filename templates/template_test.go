@@ -19,6 +19,10 @@ type testData struct {
 
 type replacer struct{}
 
+func (t replacer) Ignore(ctx context.Context, file string) bool {
+	return false
+}
+
 func (t replacer) Apply(_ context.Context, from string, to string) error {
 	// replace est by oast
 	content, err := os.ReadFile(from)

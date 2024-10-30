@@ -65,7 +65,8 @@ type Base struct {
 	EnvironmentVariables *resources.EnvironmentVariableManager
 
 	// Configuration
-	Configuration *basev0.Configuration
+	Configuration           *basev0.Configuration
+	WorkspaceConfigurations []*basev0.Configuration
 
 	// Wrappers
 	Runtime *RuntimeWrapper

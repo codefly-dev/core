@@ -36,7 +36,7 @@ func TestEnvironmentVariables(t *testing.T) {
 	rest, err := resources.FindRestEndpoint(ctx, endpoints)
 	require.NoError(t, err)
 
-	env := resources.EndpointAsEnvironmentVariable(rest, instance)
+	env := resources.EndpointAsEnvironmentVariable(&resources.EndpointAccess{Endpoint: rest, NetworkInstance: instance})
 	require.Equal(t, fmt.Sprintf("CODEFLY__ENDPOINT__MOD__ORGANIZATION__REST__REST=%s", instance.Address), env.String())
 
 }

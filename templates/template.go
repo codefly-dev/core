@@ -276,8 +276,18 @@ func CopyAndApply(ctx context.Context, fs shared.FileSystem, root string, destin
 }
 
 type TemplateVisitor struct {
-	fs  shared.FileSystem
-	tmp any
+	fs      shared.FileSystem
+	tmp     any
+	ignores []string
+}
+
+func (t TemplateVisitor) Ignore(ctx context.Context, file string) bool {
+	for _, ignore := range t.ignores {
+		if strings.Contains(file, ignore) {
+			return true
+		}
+	}
+	return false
 }
 
 func (t TemplateVisitor) Apply(ctx context.Context, from string, to string) error {
@@ -293,6 +303,7 @@ func (t *Templator) CopyAndApply(ctx context.Context, fs shared.FileSystem, root
 }
 
 type FileVisitor interface {
+	Ignore(ctx context.Context, file string) bool
 	Apply(ctx context.Context, from string, to string) error
 }
 
@@ -335,6 +346,9 @@ func (t *Templator) WalkAndVisit(ctx context.Context, fs shared.FileSystem, root
 			return w.Wrapf(err, "cannot get relative path")
 		}
 
+		if visitor.Ignore(ctx, base) {
+			continue
+		}
 		// New name
 		base = t.NewName(base)
 		target := path.Join(destinationDir, base)

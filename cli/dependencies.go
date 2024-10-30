@@ -217,7 +217,11 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 			if inst == nil {
 				return w.NewError("no network instance found")
 			}
-			env := resources.EndpointAsEnvironmentVariable(np.Endpoint, inst)
+			access := &resources.EndpointAccess{
+				Endpoint:        np.Endpoint,
+				NetworkInstance: inst,
+			}
+			env := resources.EndpointAsEnvironmentVariable(access)
 			k := env.Key
 			v := fmt.Sprintf("%s", env.Value)
 			w.Debug("setting environment variable", wool.Field("key", k), wool.Field("value", v))

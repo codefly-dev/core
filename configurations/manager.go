@@ -125,7 +125,10 @@ func (manager *Manager) GetWorkspaceDependenciesConfigurations(ctx context.Conte
 	if manager == nil {
 		return nil, nil
 	}
-	w := wool.Get(ctx).In("Manager.GetWorkspaceDependenciesConfigurations", wool.Field("dependencies", deps))
+	w := wool.Get(ctx).In("Manager.GetWorkspaceDependenciesConfigurations")
+	var confs []*basev0.Configuration
+	w.Focus("Found configurations", wool.Field("configurations", resources.MakeManyConfigurationSummary(confs)))
+
 	var out []*basev0.Configuration
 	for _, dep := range deps {
 		if conf, ok := manager.worspaceConfigurations[dep]; ok {

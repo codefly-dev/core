@@ -19,6 +19,15 @@ type visitor struct {
 	ignores  []string
 }
 
+func (v *visitor) Ignore(ctx context.Context, file string) bool {
+	for _, ignore := range v.ignores {
+		if strings.Contains(file, ignore) {
+			return true
+		}
+	}
+	return false
+}
+
 func (v *visitor) Apply(ctx context.Context, p string, to string) error {
 	w := wool.Get(ctx).In("visitor.Apply", wool.Field("from", p), wool.Field("to", to))
 	if !v.Keep(p) {

@@ -56,6 +56,9 @@ type EnvironmentVariableManager struct {
 	restRoutes []*RestRouteAccess
 	running    bool
 	fixture    string
+
+	// Other environment variables
+	others []*EnvironmentVariable
 }
 
 func NewEnvironmentVariableManager() *EnvironmentVariableManager {
@@ -109,12 +112,13 @@ func (holder *EnvironmentVariableManager) getBase() []*EnvironmentVariable {
 	}
 
 	for _, endpoint := range holder.endpoints {
-		envs = append(envs, EndpointAsEnvironmentVariable(endpoint.Endpoint, endpoint.NetworkInstance))
+		envs = append(envs, EndpointAsEnvironmentVariable(endpoint))
 	}
 
 	for _, restRoute := range holder.restRoutes {
-		envs = append(envs, RestRoutesAsEnvironmentVariable(restRoute.endpoint, restRoute.route))
+		envs = append(envs, RestRoutesAsEnvironmentVariable(restRoute))
 	}
+	envs = append(envs, holder.others...)
 	return envs
 }
 
@@ -130,7 +134,6 @@ func (holder *EnvironmentVariableManager) All() []*EnvironmentVariable {
 	}
 	for _, conf := range holder.rawConfigurations {
 		envs = append(envs, ConfigurationAsRawEnvironmentVariables(conf)...)
-
 	}
 	return envs
 }
@@ -234,8 +237,9 @@ func (holder *EnvironmentVariableManager) AddRawConfigurations(_ context.Context
 }
 
 type EndpointAccess struct {
-	*basev0.Endpoint
-	*basev0.NetworkInstance
+	Endpoint        *basev0.Endpoint
+	NetworkInstance *basev0.NetworkInstance
+	prefix          string
 }
 
 func MakeManyEndpointAccessSummary(endpointAccesses []*EndpointAccess) string {
@@ -254,14 +258,50 @@ func MakeNetworkInstanceSummary(instance *basev0.NetworkInstance) string {
 	return fmt.Sprintf("%s::%s", instance.Address, instance.Access.Kind)
 }
 
-func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess) error {
+type EnvironmentVariableOptions struct {
+	publicPrefix    string
+	nonPublicPrefix string
+}
+
+type EnvironmentVariableOption func(*EnvironmentVariableOptions)
+
+func WithPublicEnvironmentVariablePrefix(prefix string) EnvironmentVariableOption {
+	return func(options *EnvironmentVariableOptions) {
+		options.publicPrefix = prefix
+	}
+}
+
+func WithNonPublicEnvironmentVariablePrefix(prefix string) EnvironmentVariableOption {
+	return func(options *EnvironmentVariableOptions) {
+		options.nonPublicPrefix = prefix
+	}
+}
+
+func prefix(nm *basev0.NetworkMapping, opt *EnvironmentVariableOptions) string {
+	if nm.Endpoint.Visibility == VisibilityPublic {
+		return opt.publicPrefix
+	}
+	return opt.nonPublicPrefix
+}
+
+func createEnvironmentVariableOptions(opts ...EnvironmentVariableOption) *EnvironmentVariableOptions {
+	options := &EnvironmentVariableOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	return options
+}
+
+func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess, opts ...EnvironmentVariableOption) error {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddEndpoints")
+	opt := createEnvironmentVariableOptions(opts...)
 	for _, mp := range mappings {
 		for _, instance := range mp.Instances {
 			if instance.Access.Kind == networkAccess.Kind {
 				holder.endpoints = append(holder.endpoints, &EndpointAccess{
 					Endpoint:        mp.Endpoint,
 					NetworkInstance: instance,
+					prefix:          prefix(mp, opt),
 				})
 			}
 		}
@@ -296,10 +336,12 @@ func FindValueInEnvironmentVariables(ctx context.Context, key string, envs []str
 type RestRouteAccess struct {
 	endpoint *basev0.Endpoint
 	route    *basev0.RestRoute
+	predix   string
 }
 
-func ExtractRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess) ([]*RestRouteAccess, error) {
+func ExtractRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess, opts ...EnvironmentVariableOption) ([]*RestRouteAccess, error) {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.ExtractRestRoutes")
+	opt := createEnvironmentVariableOptions(opts...)
 	var result []*RestRouteAccess
 	for _, mp := range mappings {
 		rest := IsRest(ctx, mp.Endpoint)
@@ -317,6 +359,7 @@ func ExtractRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, n
 						result = append(result, &RestRouteAccess{
 							route:    route,
 							endpoint: mp.Endpoint,
+							predix:   prefix(mp, opt),
 						})
 					}
 				}
@@ -327,14 +370,19 @@ func ExtractRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, n
 	return result, nil
 }
 
-func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess) error {
+func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess, opts ...EnvironmentVariableOption) error {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddRestRoutes")
-	routes, err := ExtractRestRoutes(ctx, mappings, networkAccess)
+	routes, err := ExtractRestRoutes(ctx, mappings, networkAccess, opts...)
 	if err != nil {
 		return w.Wrapf(err, "failed to extract rest routes")
 	}
 	holder.restRoutes = append(holder.restRoutes, routes...)
 	return nil
+}
+
+// AddEnvironmentVariable adds an environment variable to the manager
+func (holder *EnvironmentVariableManager) AddEnvironmentVariable(ctx context.Context, key string, value string) {
+	holder.others = append(holder.others, Env(key, value))
 }
 
 const EnvironmentPrefix = "CODEFLY__ENVIRONMENT"
@@ -357,9 +405,13 @@ func EndpointAsEnvironmentVariableKey(info *EndpointInformation) string {
 	return strings.ToUpper(fmt.Sprintf("%s__%s", EndpointPrefix, EndpointAsEnvironmentVariableKeyBase(info)))
 }
 
-func EndpointAsEnvironmentVariable(endpoint *basev0.Endpoint, instance *basev0.NetworkInstance) *EnvironmentVariable {
-	value := instance.Address
-	key := EndpointAsEnvironmentVariableKey(EndpointInformationFromProto(endpoint))
+func EndpointAsEnvironmentVariable(endpointAccess *EndpointAccess) *EnvironmentVariable {
+	info := EndpointInformationFromProto(endpointAccess.Endpoint)
+	key := EndpointAsEnvironmentVariableKey(info)
+	if endpointAccess.prefix != "" {
+		key = fmt.Sprintf("%s%s", endpointAccess.prefix, key)
+	}
+	value := endpointAccess.NetworkInstance.Address
 	return Env(key, value)
 }
 
@@ -446,8 +498,12 @@ func UniqueToKey(origin string) string {
 
 const RestRoutePrefix = "CODEFLY__REST_ROUTE"
 
-func RestRoutesAsEnvironmentVariable(endpoint *basev0.Endpoint, route *basev0.RestRoute) *EnvironmentVariable {
-	return Env(RestRouteEnvironmentVariableKey(EndpointInformationFromProto(endpoint), route), endpoint.Visibility)
+func RestRoutesAsEnvironmentVariable(restRoute *RestRouteAccess) *EnvironmentVariable {
+	key := RestRouteEnvironmentVariableKey(EndpointInformationFromProto(restRoute.endpoint), restRoute.route)
+	if restRoute.predix != "" {
+		key = fmt.Sprintf("%s%s", restRoute.predix, key)
+	}
+	return Env(key, restRoute.endpoint.Visibility)
 }
 
 func RestRouteEnvironmentVariableKey(info *EndpointInformation, route *basev0.RestRoute) string {
