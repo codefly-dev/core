@@ -1,4 +1,4 @@
-FROM python:3.11-alpine as builder
+FROM python:3.13-alpine as builder
 
 RUN apk update && \
     apk add --no-cache procps && \
@@ -17,4 +17,4 @@ ENV POETRY_NO_INTERACTION=1 \
 WORKDIR /codefly
 
 
-COPY bin/codefly /usr/local/bin/codefly
+COPY bin/linux/codefly /usr/local/bin/codefly
