@@ -1,4 +1,4 @@
-FROM golang:1.23
+FROM golang:1.23-alpine
 
 RUN apk update && \
     apk add --no-cache procps && \

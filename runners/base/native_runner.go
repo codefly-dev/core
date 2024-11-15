@@ -86,6 +86,16 @@ type NativeProc struct {
 	waitOn string
 }
 
+func (proc *NativeProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
+	for _, env := range proc.envs {
+		if env.Key == env.Key {
+			env.Value = fmt.Sprintf("%v%s%v", env.Value, sep, added.Value)
+			return
+		}
+	}
+	proc.envs = append(proc.envs, added)
+}
+
 // IsRunning checks if the exec is still running
 func (proc *NativeProc) IsRunning(ctx context.Context) (bool, error) {
 	w := wool.Get(ctx).In("NativeProc.IsRunning")

@@ -38,6 +38,12 @@ type GoRunnerEnvironment struct {
 	// Used to cache the binary
 	requirements *builders.Dependencies
 
+	// CGO or not
+	withCGO bool
+
+	// Workspace or not
+	withGoWorkspace bool
+
 	withGoModules bool
 	goModCache    string
 
@@ -216,6 +222,14 @@ func (r *GoRunnerEnvironment) WithOutput(out io.Writer) {
 	r.out = out
 }
 
+func (r *GoRunnerEnvironment) WithCGO(b bool) {
+	r.withCGO = b
+}
+
+func (r *GoRunnerEnvironment) WithWorkspace(b bool) {
+	r.withGoWorkspace = b
+}
+
 func (r *GoRunnerEnvironment) Init(ctx context.Context) error {
 	w := wool.Get(ctx).In("init")
 
@@ -342,6 +356,20 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 		proc.WithOutput(r.out)
 	}
 	proc.WithDir(r.sourceDir)
+	if r.withCGO {
+		_, err := exec.LookPath("cc")
+		if err != nil {
+			return w.Wrapf(err, "cannot find cc")
+		}
+		if r.docker == nil {
+			proc.WithEnvironmentVariablesAppend(ctx, resources.Env("PATH", "/usr/bin:/usr/local/bin:/usr/sbin"), ":")
+		}
+		proc.WithEnvironmentVariables(ctx, resources.Env("CC", "cc"))
+		proc.WithEnvironmentVariables(ctx, resources.Env("CGO_ENABLED", "1"))
+	}
+	if !r.withGoWorkspace {
+		proc.WithEnvironmentVariables(ctx, resources.Env("GOWORK", "off"))
+	}
 
 	err = proc.Run(ctx)
 	if err != nil {

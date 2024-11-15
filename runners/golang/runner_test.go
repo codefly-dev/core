@@ -94,6 +94,15 @@ func TestNativeRunWithMod(t *testing.T) {
 	testGo(t, ctx, env, true)
 }
 
+func TestNativeRunWithModAndCGO(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	env, err := golang.NewNativeGoRunner(ctx, shared.MustSolvePath("testdata"), "mod_cgo")
+	require.NoError(t, err)
+	env.WithCGO(true)
+	testGo(t, ctx, env, true)
+}
+
 func TestDockerRunWithMod(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
@@ -108,7 +117,23 @@ func TestDockerRunWithMod(t *testing.T) {
 
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)
+}
 
+func TestDockerRunWithModAndCGO(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	name := fmt.Sprintf("test-mod-%d", time.Now().UnixMilli())
+	env, err := golang.NewDockerGoRunner(ctx,
+		resources.NewDockerImage("golang:1.22.2"),
+		shared.MustSolvePath("testdata"), "mod_cgo",
+		name)
+	require.NoError(t, err)
+
+	env.WithCGO(true)
+	testGo(t, ctx, env, true)
+
+	err = env.Shutdown(ctx)
+	require.NoError(t, err)
 }
 
 func TestDockerRunNoMod(t *testing.T) {

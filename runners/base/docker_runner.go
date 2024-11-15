@@ -467,6 +467,16 @@ type DockerProc struct {
 	waitOn string
 }
 
+func (proc *DockerProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
+	for _, env := range proc.envs {
+		if env.Key == env.Key {
+			env.Value = fmt.Sprintf("%v%s%v", env.Value, sep, added.Value)
+			return
+		}
+	}
+	proc.envs = append(proc.envs, added)
+}
+
 func (proc *DockerProc) IsRunning(ctx context.Context) (bool, error) {
 	pid, err := proc.FindPid(ctx)
 	if err != nil {
@@ -624,17 +634,27 @@ func (proc *DockerProc) Start(ctx context.Context) error {
 
 func (proc *DockerProc) start(ctx context.Context) error {
 	w := wool.Get(ctx).In("DockerProc.start")
+	w.Debug("running process", wool.Field("cmd", proc.cmd), wool.Field("envs", proc.env.envs))
+
 	// Ensure the container is running
 	err := proc.env.GetContainer(ctx)
 	if err != nil {
 		return err
 	}
 
+	// Filter out PATH!
+	envs := make([]*resources.EnvironmentVariable, 0)
+	for _, env := range proc.envs {
+		if env.Key == "PATH" {
+			continue
+		}
+		envs = append(envs, env)
+	}
 	// Create an exec configuration
 	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
-		Env:          resources.EnvironmentVariableAsStrings(proc.envs),
+		Env:          resources.EnvironmentVariableAsStrings(envs),
 		Cmd:          proc.cmd,
 	}
 	if proc.dir != "" {

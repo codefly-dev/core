@@ -238,6 +238,13 @@ func (CutTemplateSuffix) NewName(base string) string {
 	return base
 }
 
+type NoOpName struct {
+}
+
+func (NoOpName) NewName(base string) string {
+	return base
+}
+
 type AddTemplateSuffix struct {
 }
 

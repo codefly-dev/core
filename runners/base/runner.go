@@ -56,4 +56,7 @@ type Proc interface {
 
 	// WithEnvironmentVariables adds environment variables
 	WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable)
+
+	// WithEnvironmentVariablesAppend appends environment variables
+	WithEnvironmentVariablesAppend(ctx context.Context, env *resources.EnvironmentVariable, sep string)
 }

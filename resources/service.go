@@ -252,6 +252,22 @@ func ServiceIdentityFromProto(proto *basev0.ServiceIdentity) *ServiceIdentity {
 	}
 }
 
+func (s *ServiceIdentity) Proto() (*basev0.ServiceIdentity, error) {
+	proto := &basev0.ServiceIdentity{
+		Name:                s.Name,
+		Module:              s.Module,
+		Workspace:           s.Workspace,
+		WorkspacePath:       s.WorkspacePath,
+		RelativeToWorkspace: s.RelativeToWorkspace,
+		Version:             s.Version,
+	}
+	err := Validate(proto)
+	if err != nil {
+		return nil, err
+	}
+	return proto, nil
+}
+
 func (s *Service) Reference() *ServiceReference {
 	entry := &ServiceReference{
 		Name:         s.Name,

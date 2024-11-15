@@ -79,8 +79,15 @@ func GenerateServiceTemplate(ctx context.Context, dir string) error {
 	//Copy and add .tmpl
 	target := path.Join(dir, "templates/factory")
 
+	var nameReplacer templates.NameReplacer
+	if gen.SkipTemplatize {
+		nameReplacer = templates.NoOpName{}
+	} else {
+		nameReplacer = templates.AddTemplateSuffix{}
+	}
+
 	v := &visitor{base: base, replacer: replacer, ignores: gen.Ignores}
-	err = templates.CopyAndVisit(ctx, shared.NewDirReader(), base, target, templates.AddTemplateSuffix{}, v)
+	err = templates.CopyAndVisit(ctx, shared.NewDirReader(), base, target, nameReplacer, v)
 	if err != nil {
 		return w.Wrapf(err, "cannot copy and apply template")
 	}

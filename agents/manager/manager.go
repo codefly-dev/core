@@ -20,6 +20,10 @@ func PinToLatestRelease(ctx context.Context, agent *resources.Agent) error {
 		return w.Wrapf(err, "cannot get latest release")
 	}
 	latestVersion := strings.ReplaceAll(release.GetTagName(), "v", "")
+	if agent.Version == "latest" {
+		agent.Version = latestVersion
+		return nil
+	}
 	currentVersion, err := semver.Make(agent.Version)
 	if err != nil {
 		return w.Wrapf(err, "invalid current version format")

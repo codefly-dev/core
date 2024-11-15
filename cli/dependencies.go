@@ -190,6 +190,10 @@ func Module() (*resources.Module, error) {
 	return runningModule, nil
 }
 
+func Inject(env *resources.EnvironmentVariable) {
+	os.Setenv(env.Key, fmt.Sprintf("%v", env.Value))
+}
+
 func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 	w := wool.Get(ctx).In("codefly.SetEnvironment")
 	svc, err := Service()
@@ -199,6 +203,15 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 	mod, err := Module()
 	if err != nil {
 		return err
+	}
+
+	var envs []*resources.EnvironmentVariable
+	envs = append(envs,
+		resources.ServiceAsEnvironmentVariable(svc.Name),
+		resources.ModuleAsEnvironmentVariable(mod.Name),
+		resources.VersionAsEnvironmentVariable(svc.Version))
+	for _, env := range envs {
+		Inject(env)
 	}
 	// Setup Networking
 	{
@@ -221,18 +234,31 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 				Endpoint:        np.Endpoint,
 				NetworkInstance: inst,
 			}
-			env := resources.EndpointAsEnvironmentVariable(access)
-			k := env.Key
-			v := fmt.Sprintf("%s", env.Value)
-			w.Debug("setting environment variable", wool.Field("key", k), wool.Field("value", v))
-			err = os.Setenv(k, v)
-			if err != nil {
-				return w.Wrapf(err, "failed to set environment variable")
-			}
+			Inject(resources.EndpointAsEnvironmentVariable(access))
 
 		}
 	}
 	// Setup Configuration
+	{
+		req := &v0.GetConfigurationRequest{
+			Module:  mod.Name,
+			Service: svc.Name,
+		}
+		resp, err := l.cli.GetConfiguration(ctx, req)
+		if err != nil {
+			return w.Wrapf(err, "failed to get configuration")
+		}
+		conf := resp.Configuration
+		if conf != nil {
+			envs := resources.ConfigurationAsEnvironmentVariables(conf, false)
+			secrets := resources.ConfigurationAsEnvironmentVariables(conf, true)
+			envs = append(envs, secrets...)
+			for _, env := range envs {
+				Inject(env)
+			}
+		}
+	}
+	// Setup Dependencies Configurations
 	{
 		req := &v0.GetConfigurationRequest{
 			Module:  mod.Name,
@@ -243,19 +269,12 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 			return w.Wrapf(err, "failed to get dependencies configurations")
 		}
 		dependenciesConfigurations := resources.FilterConfigurations(resp.Configurations, l.runtimeContext)
-		fmt.Println(resp.Configurations)
 		for _, conf := range dependenciesConfigurations {
 			envs := resources.ConfigurationAsEnvironmentVariables(conf, false)
 			secrets := resources.ConfigurationAsEnvironmentVariables(conf, true)
 			envs = append(envs, secrets...)
 			for _, env := range envs {
-				k := env.Key
-				v := fmt.Sprintf("%s", env.Value)
-				w.Debug("setting environment variable", wool.Field("key", k), wool.Field("value", v))
-				err = os.Setenv(k, v)
-				if err != nil {
-					return w.Wrapf(err, "failed to set environment variable")
-				}
+				Inject(env)
 			}
 		}
 	}

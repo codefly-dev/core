@@ -8,6 +8,7 @@ type Replacement struct {
 }
 
 type Service struct {
-	Replacements []Replacement `yaml:"replacements"`
-	Ignores      []string      `yaml:"ignores"`
+	Replacements   []Replacement `yaml:"replacements"`
+	Ignores        []string      `yaml:"ignores"`
+	SkipTemplatize bool          `yaml:"skip-templatize"`
 }
