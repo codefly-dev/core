@@ -39,7 +39,7 @@ func NewBuf(ctx context.Context, dir string) (*Buf, error) {
 }
 
 // Generate relies on local buf files
-func (g *Buf) Generate(ctx context.Context) error {
+func (g *Buf) Generate(ctx context.Context, latest bool) error {
 	w := wool.Get(ctx).In("proto.Generate")
 
 	// Match cache
@@ -59,7 +59,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return w.NewError("docker is not running")
 	}
 
-	image, err := CompanionImage(ctx, false)
+	image, err := CompanionImage(ctx, latest)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
 	}
