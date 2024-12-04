@@ -22,7 +22,7 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 		return w.Wrapf(err, "can't create directory for destination")
 	}
 	// call the companion
-	image, err := CompanionImage(ctx)
+	image, err := CompanionImage(ctx, false)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
 	}

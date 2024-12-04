@@ -59,7 +59,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return w.NewError("docker is not running")
 	}
 
-	image, err := CompanionImage(ctx)
+	image, err := CompanionImage(ctx, false)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
 	}

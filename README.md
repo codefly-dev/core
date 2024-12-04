@@ -16,7 +16,7 @@
 ### Update proto definitions and generate code 
 
 ```shell
- ./scripts/build/generate.sh
+ ./companions/build/generate.sh
 ```
 
 
@@ -36,11 +36,11 @@ TODO: When needed, move to PR system for versioning
 *Requirement:* `semver`
 
 ```shell
-./scripts/publish/tag.sh
+./companions/publish/tag.sh
 ```
 or
 ```shell
-./scripts/publish/re_tag.sh
+./companions/publish/re_tag.sh
 ```
 
 

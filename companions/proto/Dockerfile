@@ -2,30 +2,38 @@
 FROM golang:1.22-alpine AS builder
 
 # Install dependencies
-RUN apk add --no-cache git python3 py3-pip nodejs npm protobuf
+RUN apk update inutils build-base linux-headers gcc g++ git
+RUN apk add --no-cache protobuf
+RUN apk add --no-cache python3 py3-pip python3-dev py3-grpcio
+RUN apk add --no-cache nodejs npm
 
 RUN go install github.com/bufbuild/buf/cmd/buf@latest
 
 # Create a Python virtual environment and install protoc plugins for Python
 RUN python3 -m venv /venv
-RUN /venv/bin/pip install grpcio-tools
+RUN /venv/bin/pip install "betterproto[compiler]"
 
-# Install protoc plugins for TypeScript
-RUN npm install -g ts-protoc-gen
+# TypeScript protoc
+RUN npm install -g @bufbuild/protoc-gen-connect-web @bufbuild/protoc-gen-es @bufbuild/protoc-gen-connect-es
 
-# Install protoc plugins for gRPC Gateway and OpenAPI
+# go gRPC Gateway protoc
 RUN go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
 
+# go gRPC Gateway openapi
 RUN go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest
 
+# Swagger
 RUN go install github.com/go-swagger/go-swagger/cmd/swagger@latest
 
-# Install protoc plugin for validation
+# Validate protoc
 RUN go install github.com/envoyproxy/protoc-gen-validate@latest
 
 
 # Second stage: Create the runtime image
 FROM golang:alpine
+
+# Add Python/Node.js runtime
+RUN apk add --no-cache python3 nodejs npm
 
 # Copy necessary binaries and files from the builder stage
 COPY --from=builder /usr/bin/protoc /usr/local/bin/
@@ -35,7 +43,11 @@ COPY --from=builder /go/bin/protoc-gen-openapiv2 /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-validate /usr/local/bin/
 COPY --from=builder /usr/bin/grpc_* /usr/local/bin/
 COPY --from=builder /go/bin/swagger /usr/local/bin/
-# COPY --from=builder /usr/bin/ts-protoc-gen /usr/local/bin/
+COPY --from=builder /usr/local/lib/node_modules/@bufbuild/protoc-gen-*/bin/* /usr/local/bin/
+COPY --from=builder /venv /venv
+
+
+ENV PATH="/venv/bin:${PATH}"
 
 # Set the working directory
 WORKDIR /workspace
