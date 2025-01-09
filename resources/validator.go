@@ -33,13 +33,21 @@ func Validate(req proto.Message) error {
 			var errDetails []string
 			var fieldsViolation []*errdetails.BadRequest_FieldViolation
 			for _, violation := range vErr.Violations {
-				if violation.FieldPath == nil || violation.Message == nil {
+				// Directly use the fields from the Violation struct
+				fieldPath := violation.Proto.Field.String()
+				message_ := violation.Proto.Message
+				if message_ == nil {
 					continue
 				}
-				errDetails = append(errDetails, fmt.Sprintf("field '%s': %s", *violation.FieldPath, *violation.Message))
+				message := *message_
+				if fieldPath == "" {
+					continue
+				}
+
+				errDetails = append(errDetails, fmt.Sprintf("field '%s': %s", fieldPath, message))
 				fieldsViolation = append(fieldsViolation, &errdetails.BadRequest_FieldViolation{
-					Field:       *violation.FieldPath,
-					Description: *violation.Message,
+					Field:       fieldPath,
+					Description: message,
 				})
 			}
 			detailedErr := fmt.Errorf("invalid %s: %s", msgType, strings.Join(errDetails, "; "))
