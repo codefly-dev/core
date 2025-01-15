@@ -1,69 +1,38 @@
-# First stage: Build environment
-FROM golang:1.22-alpine AS builder
+FROM alpine:latest
 
-# Install dependencies
-RUN apk update inutils build-base linux-headers gcc g++ git
-RUN apk add --no-cache protobuf protobuf-dev
-RUN apk add --no-cache python3 py3-pip python3-dev py3-grpcio
-RUN apk add --no-cache nodejs npm
+# Install only the necessary dependencies in one layer
+RUN apk update && apk add --no-cache \
+    protobuf \
+    protobuf-dev \
+    python3 \
+    py3-pip \
+    nodejs \
+    npm \
+    wget \
+    go && \
+    # Download and install binaries
+    wget https://github.com/bufbuild/buf/releases/download/v1.9.0/buf-Linux-aarch64 -O /usr/local/bin/buf && \
+    chmod +x /usr/local/bin/buf && \
+    wget https://github.com/grpc-ecosystem/grpc-gateway/releases/download/v2.19.1/protoc-gen-grpc-gateway-v2.19.1-linux-arm64 -O /usr/local/bin/protoc-gen-grpc-gateway && \
+    chmod +x /usr/local/bin/protoc-gen-grpc-gateway && \
+    wget https://github.com/grpc-ecosystem/grpc-gateway/releases/download/v2.19.1/protoc-gen-openapiv2-v2.19.1-linux-arm64 -O /usr/local/bin/protoc-gen-openapiv2 && \
+    chmod +x /usr/local/bin/protoc-gen-openapiv2 && \
+    wget https://github.com/go-swagger/go-swagger/releases/download/v0.30.5/swagger_linux_arm64 -O /usr/local/bin/swagger && \
+    chmod +x /usr/local/bin/swagger && \
+    # Install Go tools
+    GOBIN=/usr/local/bin go install github.com/envoyproxy/protoc-gen-validate@v1.0.4 && \
+    # Python setup
+    python3 -m venv /venv && \
+    /venv/bin/pip install --no-cache-dir "betterproto[compiler]==2.0.0b6" && \
+    # TypeScript setup
+    cd /tmp && \
+    npm init -y && \
+    npm install --legacy-peer-deps --no-package-lock ts-proto@1.167.3 && \
+    ln -sf /tmp/node_modules/.bin/protoc-gen-ts_proto /usr/local/bin/ && \
+    # Cleanup
+    rm -rf /root/.cache /root/.npm /root/go && \
+    apk del wget go
 
-RUN go install github.com/bufbuild/buf/cmd/buf@latest
+ENV PATH="/venv/bin:/usr/local/bin:/tmp/node_modules/.bin:${PATH}"
 
-# Create a Python virtual environment and install protoc plugins for Python
-RUN python3 -m venv /venv
-RUN /venv/bin/pip install "betterproto[compiler]"
-
-# TypeScript protoc
-RUN npm install -g @bufbuild/protoc-gen-connect-web @bufbuild/protoc-gen-es @bufbuild/protoc-gen-connect-es
-
-# go gRPC Gateway protoc
-RUN go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
-
-# go gRPC Gateway openapi
-RUN go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest
-
-# Swagger
-RUN go install github.com/go-swagger/go-swagger/cmd/swagger@latest
-
-# Validate protoc
-RUN go install github.com/envoyproxy/protoc-gen-validate@latest
-
-# Typescript protoc
-RUN npm install -g ts-proto @types/node typescript
-
-
-# Second stage: Create the runtime image
-FROM golang:alpine
-
-# Add Python/Node.js runtime
-RUN apk add --no-cache python3 nodejs npm
-
-# Copy necessary binaries and files from the builder stage
-COPY --from=builder /usr/bin/protoc /usr/local/bin/
-COPY --from=builder /usr/bin/protoc* /usr/local/bin/
-COPY --from=builder /usr/lib/libprotoc.so* /usr/lib/
-COPY --from=builder /usr/lib/libprotobuf.so* /usr/lib/
-COPY --from=builder /go/bin/buf /usr/local/bin/
-
-COPY --from=builder /go/bin/protoc-gen-grpc-gateway /usr/local/bin/
-COPY --from=builder /go/bin/protoc-gen-openapiv2 /usr/local/bin/
-COPY --from=builder /go/bin/protoc-gen-validate /usr/local/bin/
-COPY --from=builder /go/bin/swagger /usr/local/bin/
-
-COPY --from=builder /usr/bin/grpc_* /usr/local/bin/
-
-COPY --from=builder /usr/local/lib/node_modules/@bufbuild/protoc-gen-*/bin/* /usr/local/bin/
-
-COPY --from=builder /usr/local/bin/protoc-gen-ts_proto /usr/local/bin/
-COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
-
-COPY --from=builder /venv /venv
-
-
-COPY --from=builder /usr/lib/libabsl*.so* /usr/lib/
-
-
-ENV PATH="/venv/bin:${PATH}"
-
-# Set the working directory
 WORKDIR /workspace

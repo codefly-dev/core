@@ -88,7 +88,7 @@ func (g *Buf) Generate(ctx context.Context, latest bool) error {
 		return w.Wrapf(err, "cannot init runner")
 	}
 
-	proc, err := runner.NewProcess("buf", "dep", "update")
+	proc, err := runner.NewProcess("buf", "mod", "update")
 	if err != nil {
 		return w.Wrapf(err, "cannot create process")
 	}
