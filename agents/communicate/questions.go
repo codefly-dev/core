@@ -61,7 +61,21 @@ func NewSelection(msg *agentv0.Message, options ...*agentv0.Message) *agentv0.Qu
 	}
 }
 
-func NewChoice(msg *agentv0.Message, options ...*agentv0.Message) *agentv0.Question {
+func NewChoice(msg *agentv0.Message, defaultChoice string, options ...*agentv0.Message) *agentv0.Question {
+	// Check the default choice is in the options
+
+	for _, option := range options {
+		if option.Name == defaultChoice {
+			return &agentv0.Question{
+				Message: msg,
+				Value: &agentv0.Question_Choice{
+					Choice: &agentv0.Choice{
+						Options: options,
+					},
+				},
+			}
+		}
+	}
 	return &agentv0.Question{
 		Message: msg,
 		Value: &agentv0.Question_Choice{

@@ -15,13 +15,15 @@ import (
 )
 
 type Buf struct {
-	Dir string
+	Dir     string
+	WorkDir string
 
 	// Keep the proto hash for cashing
 	dependencies *builders.Dependencies
 
 	// internal cache for hash
-	cache string
+	cache    string
+	useCache bool
 }
 
 func NewBuf(ctx context.Context, dir string) (*Buf, error) {
@@ -33,26 +35,36 @@ func NewBuf(ctx context.Context, dir string) (*Buf, error) {
 	deps.Localize(dir)
 	return &Buf{
 		Dir:          dir,
+		WorkDir:      "/workspace",
 		dependencies: deps,
 		cache:        dir,
+		useCache:     true,
 	}, nil
+}
+
+// Add method to disable cache
+func (g *Buf) DisableCache() {
+	g.useCache = false
 }
 
 // Generate relies on local buf files
 func (g *Buf) Generate(ctx context.Context, latest bool) error {
 	w := wool.Get(ctx).In("proto.Generate")
 
-	// Match cache
-	g.dependencies.WithCache(g.cache)
+	if g.useCache {
+		// Match cache
+		g.dependencies.WithCache(g.cache)
 
-	updated, err := g.dependencies.Updated(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot check if updated")
+		updated, err := g.dependencies.Updated(ctx)
+		if err != nil {
+			return w.Wrapf(err, "cannot check if updated")
+		}
+		if !updated {
+			w.Debug("no proto change detected")
+			return nil
+		}
 	}
-	if !updated {
-		w.Debug("no proto change detected")
-		return nil
-	}
+
 	w.Info("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
 
 	if !runners.DockerEngineRunning(ctx) {
@@ -67,13 +79,20 @@ func (g *Buf) Generate(ctx context.Context, latest bool) error {
 	// Create a timestamp so we don't clubber docker environments
 	name := fmt.Sprintf("proto-%d", time.Now().UnixMilli())
 
-	runner, err := runners.NewDockerEnvironment(ctx, image, g.Dir, name)
+	// Get the parent directory of the proto files to handle "../" paths
+	parentDir := path.Dir(g.Dir)
+
+	runner, err := runners.NewDockerEnvironment(ctx, image, parentDir, name)
 	if err != nil {
 		return w.Wrapf(err, "cannot create docker runner")
 	}
 
-	runner.WithMount(g.Dir, "/workspace")
-	runner.WithWorkDir("/workspace/proto")
+	// Mount the parent directory instead of just the proto dir
+	runner.WithMount(parentDir, "/workspace")
+
+	// Set working directory to the proto directory inside the mounted workspace
+	protoRelDir := path.Base(g.Dir)
+	runner.WithWorkDir(path.Join("/workspace", protoRelDir))
 	runner.WithPause()
 
 	defer func() {
@@ -129,4 +148,8 @@ func (g *Buf) Generate(ctx context.Context, latest bool) error {
 func (g *Buf) WithCache(location string) {
 	g.cache = location
 
+}
+
+func (g *Buf) WithWorkDir(workDir string) {
+	g.WorkDir = workDir
 }

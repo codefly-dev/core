@@ -291,6 +291,10 @@ func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Enviro
 	return nil
 }
 
+func WithDir(fs embed.FS, dir string) *TemplateWrapper {
+	return &TemplateWrapper{fs: shared.Embed(fs), dir: dir}
+}
+
 func WithFactory(fs embed.FS) *TemplateWrapper {
 	return &TemplateWrapper{fs: shared.Embed(fs), dir: "templates/factory"}
 }

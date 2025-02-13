@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var validator *protovalidate.Validator
+var validator protovalidate.Validator
 
 func init() {
 	var initErr error

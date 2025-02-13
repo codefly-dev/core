@@ -19,7 +19,7 @@ import (
 func GenerateGRPC(ctx context.Context, language languages.Language, destination string, service string, endpoints ...*basev0.Endpoint) error {
 	w := wool.Get(ctx).In("generateGRPC", wool.Field("destination", destination))
 	// call the companion
-	image, err := CompanionImage(ctx, false)
+	image, err := CompanionImage(ctx, true)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
 	}

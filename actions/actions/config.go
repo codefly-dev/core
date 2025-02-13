@@ -11,7 +11,7 @@ type Config struct {
 	Kind string `json:"kind"`
 }
 
-var validator *protovalidate.Validator
+var validator protovalidate.Validator
 
 func init() {
 	var err error

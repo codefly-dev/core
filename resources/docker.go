@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -22,19 +23,26 @@ func (image *DockerImage) FullName() string {
 	return fmt.Sprintf("%s/%s", image.Repository, base)
 }
 
-func NewDockerImage(s string) *DockerImage {
+func ParseDockerImage(s string) (*DockerImage, error) {
 	tokens := strings.Split(s, ":")
 	if len(tokens) == 1 {
 		return &DockerImage{
 			Name: tokens[0],
 			Tag:  "latest",
-		}
+		}, nil
 	}
 	if len(tokens) == 2 {
 		return &DockerImage{
 			Name: tokens[0],
 			Tag:  tokens[1],
-		}
+		}, nil
 	}
-	return nil
+	return nil, errors.New("invalid docker image")
+}
+
+// Add constructor for DockerImage
+func NewDockerImage(name string) *DockerImage {
+	return &DockerImage{
+		Name: name,
+	}
 }

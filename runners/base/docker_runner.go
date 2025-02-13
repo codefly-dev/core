@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -51,7 +52,7 @@ type DockerEnvironment struct {
 var _ RunnerEnvironment = &DockerEnvironment{}
 
 // NewDockerEnvironment creates a new docker environment
-func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir, name string) (*DockerEnvironment, error) {
+func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir string, name string) (*DockerEnvironment, error) {
 	w := wool.Get(ctx).In("NewDockerEnvironment")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -234,6 +235,7 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 		config.Cmd = docker.cmd
 	} else if docker.pause {
 		config.Cmd = []string{"sleep", "infinity"}
+		config.Entrypoint = []string{}
 	}
 
 	return config
@@ -312,12 +314,18 @@ func (docker *DockerEnvironment) ContainerID() (string, error) {
 	return docker.instance.ID, nil
 }
 
-func (docker *DockerEnvironment) WithMount(sourceDir string, targetDir string) {
+func (docker *DockerEnvironment) WithMount(sourceDir string, targetDir string) error {
+	// Check if the source directory exists and is absolute path
+	if !filepath.IsAbs(sourceDir) {
+		return fmt.Errorf("source directory must be an absolute path")
+	}
+
 	docker.mounts = append(docker.mounts, mount.Mount{
 		Type:   mount.TypeBind,
 		Source: sourceDir,
 		Target: targetDir,
 	})
+	return nil
 }
 
 func (docker *DockerEnvironment) WithPause() {
@@ -519,12 +527,27 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			// Get process status
 			inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
 			if err != nil {
 				return w.Wrapf(err, "cannot inspect process")
 			}
 
+			// Get PS output for debugging
+			psOutput, err := proc.getPSOutput(ctx)
+			if err != nil {
+				w.Debug("error getting ps output", wool.ErrField(err))
+			} else {
+				w.Debug("current processes in container",
+					wool.Field("ps_output", psOutput),
+					wool.Field("looking_for_cmd", proc.cmd))
+			}
+
 			if !inspect.Running {
+				w.Debug("process inspection shows not running",
+					wool.Field("exit_code", inspect.ExitCode),
+					wool.Field("pid", inspect.Pid))
+
 				if inspect.ExitCode == 0 {
 					return nil
 				}
@@ -535,12 +558,48 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 			if err != nil {
 				return w.Wrapf(err, "error checking process status")
 			}
+
+			pid, _ := proc.FindPid(ctx)
+			w.Debug("process status check",
+				wool.Field("active", active),
+				wool.Field("pid", pid),
+				wool.Field("exec_running", inspect.Running))
+
 			if !active {
 				w.Debug("process has exited")
 				return nil
 			}
 		}
 	}
+}
+
+// Add new helper method to get PS output
+func (proc *DockerProc) getPSOutput(ctx context.Context) (string, error) {
+	w := wool.Get(ctx).In("DockerProc.getPSOutput")
+
+	execConfig := container.ExecOptions{
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          []string{"ps", "aux"},
+	}
+
+	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
+	if err != nil {
+		return "", w.Wrapf(err, "cannot create exec to list processes")
+	}
+
+	execAttachResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, container.ExecAttachOptions{})
+	if err != nil {
+		return "", w.Wrapf(err, "cannot attach to exec")
+	}
+	defer execAttachResp.Close()
+
+	var outBuf, errBuf strings.Builder
+	if _, err := stdcopy.StdCopy(&outBuf, &errBuf, execAttachResp.Reader); err != nil {
+		return "", w.Wrapf(err, "cannot copy output from exec")
+	}
+
+	return outBuf.String(), nil
 }
 
 func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {

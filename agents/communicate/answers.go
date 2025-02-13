@@ -37,6 +37,19 @@ func GetDefaultStringInput(options []*agentv0.Question, name string) (string, er
 	return "", fmt.Errorf("confirm %s not found", name)
 }
 
+func GetDefaultChoice(options []*agentv0.Question, name string) (string, error) {
+	// For now returns the first option
+	for _, opt := range options {
+		if opt.Message.Name == name {
+			if choice, ok := opt.Value.(*agentv0.Question_Choice); ok {
+				return choice.Choice.Options[0].Name, nil
+			}
+			return "", fmt.Errorf("wrong type in %s for %T", name, opt.Value)
+		}
+	}
+	return "", fmt.Errorf("choice %s not found", name)
+}
+
 // Sessions
 
 func (session *ServerSession) Confirm(stage string) (bool, error) {
@@ -79,12 +92,12 @@ func (session *ServerSession) GetIntString(stage string) (int, error) {
 	return int(answer.GetIntValue()), nil
 }
 
-func (session *ServerSession) Choice(stage string) (*agentv0.ChoiceAnswer, error) {
+func (session *ServerSession) GetChoice(stage string) (string, error) {
 	answer := session.states[stage]
 	if answer == nil {
-		return nil, fmt.Errorf("cannot find stage %s", stage)
+		return "", fmt.Errorf("cannot find stage %s", stage)
 	}
-	return answer.GetChoice(), nil
+	return answer.GetChoice().Option, nil
 }
 
 func StateAsString(s *agentv0.Answer) string {
