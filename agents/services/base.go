@@ -227,8 +227,19 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 	return nil
 }
 
+// Local returns a path joined with the service location.
+// If args are provided, f is treated as a format string (e.g., "dir/%s", "subdir").
+// If no args are provided, f is treated as a plain path string.
 func (s *Base) Local(f string, args ...any) string {
+	if len(args) == 0 {
+		return path.Join(s.Location, f)
+	}
 	return path.Join(s.Location, fmt.Sprintf(f, args...))
+}
+
+// LocalPath returns a path joined with the service location for a plain path string (no formatting).
+func (s *Base) LocalPath(p string) string {
+	return path.Join(s.Location, p)
 }
 
 func (s *Base) LocalDirCreate(ctx context.Context, f string, args ...any) (string, error) {
@@ -302,16 +313,26 @@ func WithTemplate(fs embed.FS, from string, to string) *TemplateWrapper {
 }
 
 func (wrapper *TemplateWrapper) WithDestination(destination string, args ...any) *TemplateWrapper {
-	wrapper.absolute = fmt.Sprintf(destination, args...)
+	if len(args) == 0 {
+		wrapper.absolute = destination
+	} else {
+		//nolint:govet // Format string is validated at runtime when args are provided
+		wrapper.absolute = fmt.Sprintf(destination, args...)
+	}
 	return wrapper
+}
 
+// WithDestinationPath sets the destination path from a plain path string (no formatting).
+func (wrapper *TemplateWrapper) WithDestinationPath(path string) *TemplateWrapper {
+	wrapper.absolute = path
+	return wrapper
 }
 
 func (wrapper *TemplateWrapper) Destination(s *Base) string {
 	if wrapper.absolute != "" {
 		return wrapper.absolute
 	}
-	return s.Local(wrapper.relative)
+	return s.LocalPath(wrapper.relative)
 
 }
 

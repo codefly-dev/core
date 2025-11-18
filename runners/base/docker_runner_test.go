@@ -27,7 +27,7 @@ func TestNewDockerEnvironment(t *testing.T) {
 	defer func() {
 		err = env.Shutdown(ctx)
 		require.NoError(t, err)
-		deleted, err := env.ContainerDeleted()
+		deleted, err := env.ContainerDeleted(context.Background())
 		require.NoError(t, err)
 		require.True(t, deleted)
 	}()

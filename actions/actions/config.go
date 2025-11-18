@@ -3,7 +3,7 @@ package actions
 import (
 	"context"
 
-	"github.com/bufbuild/protovalidate-go"
+	"buf.build/go/protovalidate"
 	"google.golang.org/protobuf/proto"
 )
 

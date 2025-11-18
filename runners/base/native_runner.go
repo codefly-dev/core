@@ -88,7 +88,7 @@ type NativeProc struct {
 
 func (proc *NativeProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
 	for _, env := range proc.envs {
-		if env.Key == env.Key {
+		if env.Key == added.Key {
 			env.Value = fmt.Sprintf("%v%s%v", env.Value, sep, added.Value)
 			return
 		}

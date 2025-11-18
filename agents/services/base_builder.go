@@ -321,8 +321,8 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.
 		return s.Wool.Wrapf(err, "cannot empty destination")
 	}
 	err = s.Templates(ctx, wrapper,
-		WithDeployment(fs, "kustomize/base").WithDestination(path.Join(k.Destination, "base")),
-		WithDeployment(fs, "kustomize/overlays/environment").WithDestination(path.Join(k.Destination, "overlays", base.Environment.Name)),
+		WithDeployment(fs, "kustomize/base").WithDestinationPath(path.Join(k.Destination, "base")),
+		WithDeployment(fs, "kustomize/overlays/environment").WithDestinationPath(path.Join(k.Destination, "overlays", base.Environment.Name)),
 	)
 	if err != nil {
 		return err

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/bufbuild/protovalidate-go"
+	"buf.build/go/protovalidate"
 )
 
 func TestValidate(t *testing.T) {

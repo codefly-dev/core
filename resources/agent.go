@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
 
-	"github.com/bufbuild/protovalidate-go"
+	"buf.build/go/protovalidate"
 
 	"path"
 	"strings"

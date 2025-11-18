@@ -65,7 +65,7 @@ func (g *Buf) Generate(ctx context.Context, latest bool) error {
 		}
 	}
 
-	w.Info("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
+	w.Debug("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
 
 	if !runners.DockerEngineRunning(ctx) {
 		return w.NewError("docker is not running")
@@ -81,6 +81,7 @@ func (g *Buf) Generate(ctx context.Context, latest bool) error {
 
 	// Get the parent directory of the proto files to handle "../" paths
 	parentDir := path.Dir(g.Dir)
+	w.Debug("setting parent directory", wool.DirField(parentDir))
 
 	runner, err := runners.NewDockerEnvironment(ctx, image, parentDir, name)
 	if err != nil {
@@ -92,7 +93,9 @@ func (g *Buf) Generate(ctx context.Context, latest bool) error {
 
 	// Set working directory to the proto directory inside the mounted workspace
 	protoRelDir := path.Base(g.Dir)
-	runner.WithWorkDir(path.Join("/workspace", protoRelDir))
+	workDir := path.Join("/workspace", protoRelDir)
+	w.Debug("setting working directory", wool.DirField(workDir))
+	runner.WithWorkDir(workDir)
 	runner.WithPause()
 
 	defer func() {
@@ -107,7 +110,7 @@ func (g *Buf) Generate(ctx context.Context, latest bool) error {
 		return w.Wrapf(err, "cannot init runner")
 	}
 
-	proc, err := runner.NewProcess("buf", "mod", "update")
+	proc, err := runner.NewProcess("buf", "dep", "update")
 	if err != nil {
 		return w.Wrapf(err, "cannot create process")
 	}
@@ -115,6 +118,16 @@ func (g *Buf) Generate(ctx context.Context, latest bool) error {
 	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot update buf")
+	}
+
+	proc, err = runner.NewProcess("ls", "-la")
+	if err != nil {
+		return w.Wrapf(err, "cannot create process")
+	}
+
+	err = proc.Run(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot list files")
 	}
 
 	proc, err = runner.NewProcess("buf", "generate")

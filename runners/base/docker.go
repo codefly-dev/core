@@ -44,14 +44,21 @@ func PrintDownloadPercentage(reader io.ReadCloser, out io.Writer) {
 	progressMap := make(map[string]DockerPullResponse)
 
 	ticker := time.NewTicker(5 * time.Second)
+	done := make(chan bool)
 	go func() {
-		for range ticker.C {
-			var totalCurrent int
-			for _, progress := range progressMap {
-				totalCurrent += progress.ProgressDetail.Current
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				var totalCurrent int
+				for _, progress := range progressMap {
+					totalCurrent += progress.ProgressDetail.Current
+				}
+				totalCurrentMB := float64(totalCurrent) / 1024 / 1024
+				_, _ = out.Write([]byte(fmt.Sprintf("Downloaded: %.2f MB", totalCurrentMB)))
+			case <-done:
+				return
 			}
-			totalCurrentMB := float64(totalCurrent) / 1024 / 1024
-			_, _ = out.Write([]byte(fmt.Sprintf("Downloaded: %.2f MB", totalCurrentMB)))
 		}
 	}()
 
@@ -62,6 +69,7 @@ func PrintDownloadPercentage(reader io.ReadCloser, out io.Writer) {
 		progressMap[pullResponse.ID] = pullResponse
 	}
 
+	close(done)
 	ticker.Stop()
 }
 

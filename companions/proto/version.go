@@ -32,16 +32,8 @@ func version(ctx context.Context) (string, error) {
 }
 
 func CompanionImage(ctx context.Context, useLatest bool) (*resources.DockerImage, error) {
-	w := wool.Get(ctx).In("proto.CompanionImage")
-	tag := "latest"
-	if useLatest {
-		v, err := version(ctx)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot get version")
-		}
-		tag = v
-	}
-	return &resources.DockerImage{Name: "codeflydev/proto", Tag: tag}, nil
+	// Always use "latest" tag for codeflydev/proto
+	return &resources.DockerImage{Name: "codeflydev/proto", Tag: "latest"}, nil
 }
 
 //go:embed info.codefly.yaml

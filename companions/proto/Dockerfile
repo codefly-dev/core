@@ -1,5 +1,5 @@
 # Base layer with essential tools
-FROM alpine:latest as base
+FROM alpine:latest AS base
 RUN apk update && apk add --no-cache \
     git \
     protobuf \
@@ -12,7 +12,7 @@ RUN apk update && apk add --no-cache \
     go
 
 # Binary tools layer
-FROM base as binary-tools
+FROM base AS binary-tools
 RUN wget https://github.com/bufbuild/buf/releases/download/v1.50.0/buf-Linux-aarch64 -O /usr/local/bin/buf && \
     chmod +x /usr/local/bin/buf && \
     wget https://github.com/grpc-ecosystem/grpc-gateway/releases/download/v2.26.1/protoc-gen-grpc-gateway-v2.26.1-linux-arm64 -O /usr/local/bin/protoc-gen-grpc-gateway && \
@@ -23,18 +23,18 @@ RUN wget https://github.com/bufbuild/buf/releases/download/v1.50.0/buf-Linux-aar
     chmod +x /usr/local/bin/swagger
 
 # Go tools layer
-FROM binary-tools as go-tools
+FROM binary-tools AS go-tools
 RUN GOBIN=/usr/local/bin go install github.com/envoyproxy/protoc-gen-validate@v1.2.1 && \
     GOBIN=/usr/local/bin go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.5 && \
     GOBIN=/usr/local/bin go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0
 
 # Python setup layer
-FROM go-tools as python-setup
+FROM go-tools AS python-setup
 RUN python3 -m venv /venv && \
     /venv/bin/pip install --no-cache-dir "betterproto[compiler]==v2.0.0-beta7"
 
 # TypeScript setup layer
-FROM python-setup as typescript-setup
+FROM python-setup AS typescript-setup
 RUN cd /tmp && \
     npm init -y && \
     npm install --legacy-peer-deps --no-package-lock ts-proto@2.6.1 && \

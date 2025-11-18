@@ -109,6 +109,7 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		return w.Wrapf(err, "cannot check if container is present")
 	}
 	defer func() {
+		// Use a background context for logs since the original context might be cancelled
 		logContext := context.Background()
 		err := docker.GetLogs(logContext)
 		if err != nil {
@@ -410,7 +411,7 @@ func (docker *DockerEnvironment) Stop(ctx context.Context) error {
 	if docker.instance == nil || docker.instance.ID == "" {
 		return nil
 	}
-	err := docker.client.ContainerStop(context.Background(), docker.instance.ID, container.StopOptions{Timeout: shared.Pointer(3)})
+	err := docker.client.ContainerStop(ctx, docker.instance.ID, container.StopOptions{Timeout: shared.Pointer(3)})
 	if err != nil {
 		return w.Wrapf(err, "cannot stop container")
 	}
@@ -418,11 +419,12 @@ func (docker *DockerEnvironment) Stop(ctx context.Context) error {
 }
 
 func (docker *DockerEnvironment) WithBinary(bin string) error {
+	ctx := context.Background()
 	proc, err := docker.NewProcess("which", bin)
 	if err != nil {
 		return err
 	}
-	err = proc.Run(context.Background())
+	err = proc.Run(ctx)
 	return err
 }
 
@@ -450,7 +452,9 @@ func (docker *DockerEnvironment) remove() error {
 	if docker.instance == nil || docker.instance.ID == "" {
 		return nil
 	}
-	err := docker.client.ContainerRemove(context.Background(), docker.instance.ID, container.RemoveOptions{Force: true})
+	// Use background context for cleanup operations that should complete even if parent context is cancelled
+	ctx := context.Background()
+	err := docker.client.ContainerRemove(ctx, docker.instance.ID, container.RemoveOptions{Force: true})
 	if err != nil {
 		return err
 	}
@@ -477,7 +481,7 @@ type DockerProc struct {
 
 func (proc *DockerProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
 	for _, env := range proc.envs {
-		if env.Key == env.Key {
+		if env.Key == added.Key {
 			env.Value = fmt.Sprintf("%v%s%v", env.Value, sep, added.Value)
 			return
 		}
@@ -791,13 +795,13 @@ func (proc *DockerProc) stop(ctx context.Context, pid int, force bool) error {
 		AttachStderr: true,
 		Cmd:          killCmd,
 	}
-	execIDResp, err := proc.env.client.ContainerExecCreate(context.Background(), proc.env.instance.ID, execConfig)
+	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
 	if err != nil {
 		return w.Wrapf(err, "cannot create exec to kill")
 	}
 
 	execStartCheck := container.ExecStartOptions{Detach: false, Tty: false}
-	execResp, err := proc.env.client.ContainerExecAttach(context.Background(), execIDResp.ID, execStartCheck)
+	execResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, execStartCheck)
 	if err != nil {
 		return w.Wrapf(err, "cannot kill process")
 	}
@@ -882,6 +886,13 @@ func GetImageIfNotPresent(ctx context.Context, c *client.Client, imag *resources
 	}
 	_, _ = w.Forward([]byte("Docker image pulled."))
 	w.Debug("done pulling")
+	// Check if the image exists again
+	if exists, err := ImageExists(ctx, c, imag); err != nil {
+		return w.Wrapf(err, "cannot check if image exists")
+	} else if exists {
+		w.Trace("found Docker image locally")
+		return nil
+	}
 	return nil
 }
 
@@ -943,8 +954,8 @@ func (docker *DockerEnvironment) WithWorkDir(dir string) {
 }
 
 // ContainerDeleted checks if the container with ID is gone
-func (docker *DockerEnvironment) ContainerDeleted() (bool, error) {
-	containers, err := docker.client.ContainerList(context.Background(), container.ListOptions{All: true})
+func (docker *DockerEnvironment) ContainerDeleted(ctx context.Context) (bool, error) {
+	containers, err := docker.client.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return false, err
 	}
