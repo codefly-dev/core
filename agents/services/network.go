@@ -5,7 +5,7 @@ import (
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 // NetworkInstanceForRestRouteGroup finds the proper network mapping for a given REST route group

@@ -10,7 +10,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/module"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"github.com/codefly-dev/core/shared"
 

@@ -14,8 +14,7 @@ import (
 
 	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"github.com/codefly-dev/core/wool"
-	"go.opentelemetry.io/otel/sdk/resource"
+	"github.com/codefly-dev/wool"
 
 	"github.com/codefly-dev/core/shared"
 	"github.com/mitchellh/mapstructure"
@@ -47,6 +46,9 @@ type Service struct {
 
 	// ServiceDependencies are the other services required
 	ServiceDependencies []*ServiceDependency `yaml:"service-dependencies,omitempty"`
+
+	// LibraryDependencies are the internal libraries required
+	LibraryDependencies []*LibraryDependency `yaml:"library-dependencies,omitempty"`
 
 	// Dependencies
 	WorkspaceConfigurationDependencies []string `yaml:"workspace-configuration-dependencies,omitempty"`
@@ -211,23 +213,17 @@ func (s *ServiceIdentity) Unique() string {
 }
 
 func (s *ServiceIdentity) AsResource() *wool.Resource {
-	r := resource.NewSchemaless()
 	return &wool.Resource{
-		Identifier: &wool.Identifier{
-			Kind:   "service",
-			Unique: s.Unique(),
-		},
-		Resource: r}
+		Kind:   "service",
+		Unique: s.Unique(),
+	}
 }
 
 func (s *ServiceIdentity) AsAgentResource() *wool.Resource {
-	r := resource.NewSchemaless()
 	return &wool.Resource{
-		Identifier: &wool.Identifier{
-			Kind:   "agent",
-			Unique: s.Unique(),
-		},
-		Resource: r}
+		Kind:   "agent",
+		Unique: s.Unique(),
+	}
 }
 
 func (s *ServiceIdentity) Clone() *ServiceIdentity {

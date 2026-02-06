@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"github.com/codefly-dev/core/standards"
 
@@ -223,7 +223,7 @@ func portForwardService(ctx context.Context, k8sSvc *KubernetesService, localPor
 		if strings.Contains(err.Error(), "context canceled") {
 			return nil
 		}
-		return w.NewError(fmt.Sprintf("Failed to forward service: %s, %s, error: %v, out: %s", k8sSvc.Unique(), cmd.Args, err, out))
+		return w.NewError("Failed to forward service: %s, %s, error: %v, out: %s", k8sSvc.Unique(), cmd.Args, err, out)
 	}
 	return nil
 }

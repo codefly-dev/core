@@ -4,10 +4,27 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"runtime"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
+
+// NixInstallCommand returns the command to install Nix based on OS
+func NixInstallCommand() string {
+	return "curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install"
+}
+
+// CheckNixInstalled checks if Nix is available in PATH
+func CheckNixInstalled() bool {
+	_, err := exec.LookPath("nix")
+	return err == nil
+}
+
+// IsNixSupported returns true if the current OS supports Nix
+func IsNixSupported() bool {
+	return runtime.GOOS == "darwin" || runtime.GOOS == "linux"
+}
 
 func CheckPythonPath() (string, error) {
 	pythonVersions := []string{"python", "python3"}
@@ -42,6 +59,14 @@ func CheckForRuntimes(ctx context.Context, requirements []*agentv0.Runtime) erro
 			_, err := exec.LookPath("poetry")
 			if err != nil {
 				w.Warn("Poetry is required to run in native mode. But don't worry, you can still run in container mode!")
+			}
+		case agentv0.Runtime_NIX:
+			if !CheckNixInstalled() {
+				if IsNixSupported() {
+					w.Warn("Nix is not installed. Install with: " + NixInstallCommand())
+				} else {
+					w.Warn("Nix is not supported on this OS: " + runtime.GOOS)
+				}
 			}
 		}
 	}

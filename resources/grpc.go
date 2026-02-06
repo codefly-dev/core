@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 type GRPCRoute struct {

@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 func ConfigurationInformationDataFromFile(ctx context.Context, name string, p string, isSecret bool) (*basev0.ConfigurationInformation, error) {

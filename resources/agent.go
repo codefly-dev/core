@@ -8,8 +8,6 @@ import (
 
 	"github.com/codefly-dev/core/version"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/sdk/resource"
 
 	"github.com/bufbuild/protovalidate-go"
 
@@ -17,7 +15,7 @@ import (
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"github.com/Masterminds/semver"
 
@@ -130,6 +128,10 @@ func (p *Agent) IsService() bool {
 	return slices.Contains([]AgentKind{ServiceAgent, BuilderServiceAgent, RuntimeServiceAgent}, p.Kind)
 }
 
+func (p *Agent) IsApplication() bool {
+	return p.Kind == ApplicationAgent
+}
+
 func isRunningInDocker() bool {
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		return true
@@ -151,6 +153,10 @@ func (p *Agent) Path(ctx context.Context) (string, error) {
 	var subdir string
 	if p.IsService() {
 		subdir = "services"
+	} else if p.IsApplication() {
+		subdir = "applications"
+	} else if p.IsModule() {
+		subdir = "modules"
 	} else {
 		return "", fmt.Errorf("unknown agent kind: %s", p.Kind)
 	}
@@ -243,16 +249,8 @@ func (p *Agent) Proto() *basev0.Agent {
 }
 
 func (p *Agent) AsResource() *wool.Resource {
-	r := resource.NewSchemaless(toAttributes(p)...)
 	return &wool.Resource{
-		Identifier: &wool.Identifier{
-			Kind:   "agent",
-			Unique: p.Identifier(),
-		},
-		Resource: r}
-}
-
-func toAttributes(_ *Agent) []attribute.KeyValue {
-	var attr []attribute.KeyValue
-	return attr
+		Kind:   "agent",
+		Unique: p.Identifier(),
+	}
 }

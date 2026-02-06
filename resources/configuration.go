@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 const ConfigurationWorkspace = "_workspace_origin"

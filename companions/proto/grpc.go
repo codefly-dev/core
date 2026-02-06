@@ -13,7 +13,7 @@ import (
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 func GenerateGRPC(ctx context.Context, language languages.Language, destination string, service string, endpoints ...*basev0.Endpoint) error {

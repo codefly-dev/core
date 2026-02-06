@@ -12,13 +12,32 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 const (
 	ModuleKind              = "module"
 	ModuleConfigurationName = "module.codefly.yaml"
 )
+
+// ModuleAgent is the agent kind for module templates
+const ModuleAgent = AgentKind("codefly:module")
+
+func init() {
+	RegisterAgent(ModuleAgent, basev0.Agent_MODULE)
+}
+
+// InterfaceEndpoint declares a single endpoint that the module exposes to other modules.
+type InterfaceEndpoint struct {
+	Service    string `yaml:"service"`
+	Endpoint   string `yaml:"endpoint"`
+	Visibility string `yaml:"visibility,omitempty"` // "module" or "public"; defaults to "module"
+}
+
+// ModuleInterface declares the contract of a module: what it exposes to the outside world.
+type ModuleInterface struct {
+	Endpoints []*InterfaceEndpoint `yaml:"endpoints,omitempty"`
+}
 
 // An Module is a collection of services that are deployed together.
 type Module struct {
@@ -28,7 +47,15 @@ type Module struct {
 
 	Description string `yaml:"description,omitempty"`
 
-	ServiceReferences []*ServiceReference `yaml:"services"`
+	// Module interface: the formal contract for what this module exposes
+	Interface *ModuleInterface `yaml:"interface,omitempty"`
+
+	// Module template agent (if this module was created from a template)
+	Agent *Agent `yaml:"agent,omitempty"`
+
+	ServiceReferences     []*ServiceReference     `yaml:"services"`
+	JobReferences         []*JobReference         `yaml:"jobs,omitempty"`
+	ApplicationReferences []*ApplicationReference `yaml:"applications,omitempty"`
 
 	// internal
 	dir string
@@ -43,6 +70,25 @@ func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
 		Name:        mod.Name,
 		Description: mod.Description,
 	}
+
+	// Convert interface
+	if mod.Interface != nil {
+		protoInterface := &basev0.ModuleInterface{}
+		for _, ie := range mod.Interface.Endpoints {
+			protoInterface.Endpoints = append(protoInterface.Endpoints, &basev0.InterfaceEndpoint{
+				Service:    ie.Service,
+				Endpoint:   ie.Endpoint,
+				Visibility: ie.Visibility,
+			})
+		}
+		proto.Interface = protoInterface
+	}
+
+	// Convert agent
+	if mod.Agent != nil {
+		proto.Agent = mod.Agent.Proto()
+	}
+
 	if err := Validate(proto); err != nil {
 		return nil, err
 	}
@@ -52,6 +98,16 @@ func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
 // Dir returns the directory of the module
 func (mod *Module) Dir() string {
 	return mod.dir
+}
+
+// ServicesDir returns the services directory of the module
+func (mod *Module) ServicesDir() string {
+	return path.Join(mod.dir, "services")
+}
+
+// ApplicationsDir returns the applications directory of the module
+func (mod *Module) ApplicationsDir() string {
+	return path.Join(mod.dir, "applications")
 }
 
 // An ModuleReference
@@ -233,6 +289,10 @@ func (mod *Module) postLoad(ctx context.Context) error {
 	for _, ref := range mod.ServiceReferences {
 		ref.Module = mod.Name
 	}
+	for _, ref := range mod.JobReferences {
+		ref.Module = mod.Name
+	}
+	// Application references don't need module set since they use ApplicationReference
 	_, err := mod.Proto(ctx)
 	return err
 }
@@ -256,6 +316,10 @@ func (mod *Module) Save(ctx context.Context) error {
 // Pre-save deals with some optimization
 func (mod *Module) preSave(_ context.Context) error {
 	for _, ref := range mod.ServiceReferences {
+		// Don't write Module in yaml
+		ref.Module = ""
+	}
+	for _, ref := range mod.JobReferences {
 		// Don't write Module in yaml
 		ref.Module = ""
 	}
@@ -404,6 +468,94 @@ func (mod *Module) PublicEndpoints(ctx context.Context) ([]*basev0.Endpoint, err
 	return publicEndpoints, nil
 }
 
+// ExposedEndpoints returns the endpoints declared in the module interface.
+// Unlike PublicEndpoints which scans all services, this only returns formally declared exports.
+func (mod *Module) ExposedEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
+	w := wool.Get(ctx).In("Module::ExposedEndpoints", wool.ThisField(mod))
+	if mod.Interface == nil || len(mod.Interface.Endpoints) == 0 {
+		return nil, nil
+	}
+
+	var exposed []*basev0.Endpoint
+	for _, ie := range mod.Interface.Endpoints {
+		service, err := mod.LoadServiceFromName(ctx, ie.Service)
+		if err != nil {
+			return nil, w.Wrapf(err, "interface references unknown service %q", ie.Service)
+		}
+		found := false
+		for _, ep := range service.Endpoints {
+			if ep.Name == ie.Endpoint {
+				found = true
+				ep.Module = mod.Name
+				proto, err := ep.Proto()
+				if err != nil {
+					return nil, w.Wrapf(err, "cannot create endpoint proto")
+				}
+				exposed = append(exposed, proto)
+				break
+			}
+		}
+		if !found {
+			return nil, w.NewError("interface references unknown endpoint %q on service %q", ie.Endpoint, ie.Service)
+		}
+	}
+	return exposed, nil
+}
+
+// ValidateInterface checks that all interface endpoints reference valid services and endpoints
+// with appropriate visibility (must be "module" or "public", not "private").
+func (mod *Module) ValidateInterface(ctx context.Context) error {
+	w := wool.Get(ctx).In("Module::ValidateInterface", wool.ThisField(mod))
+	if mod.Interface == nil || len(mod.Interface.Endpoints) == 0 {
+		return nil
+	}
+
+	for _, ie := range mod.Interface.Endpoints {
+		// Default visibility to "module" if not set
+		if ie.Visibility == "" {
+			ie.Visibility = VisibilityModule
+		}
+		// Only "module" and "public" are valid for interface endpoints
+		if ie.Visibility != VisibilityModule && ie.Visibility != VisibilityPublic {
+			return w.NewError("interface endpoint %s/%s has invalid visibility %q (must be %q or %q)",
+				ie.Service, ie.Endpoint, ie.Visibility, VisibilityModule, VisibilityPublic)
+		}
+
+		// Check service exists
+		service, err := mod.LoadServiceFromName(ctx, ie.Service)
+		if err != nil {
+			return w.Wrapf(err, "interface references unknown service %q", ie.Service)
+		}
+
+		// Check endpoint exists and has compatible visibility
+		found := false
+		for _, ep := range service.Endpoints {
+			if ep.Name == ie.Endpoint {
+				found = true
+				if ep.Visibility == VisibilityPrivate || ep.Visibility == "" {
+					return w.NewError("interface exposes endpoint %s/%s but service marks it as private",
+						ie.Service, ie.Endpoint)
+				}
+				break
+			}
+		}
+		if !found {
+			return w.NewError("interface references unknown endpoint %q on service %q", ie.Endpoint, ie.Service)
+		}
+	}
+	return nil
+}
+
+// HasInterface returns true if the module has a declared interface
+func (mod *Module) HasInterface() bool {
+	return mod.Interface != nil && len(mod.Interface.Endpoints) > 0
+}
+
+// IsModule returns true if this agent is a module agent
+func (p *Agent) IsModule() bool {
+	return p.Kind == ModuleAgent
+}
+
 func (mod *Module) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {
 	w := wool.Get(ctx).In("Module::DeleteServiceDependencies", wool.ThisField(mod), wool.Field("service", ref))
 	for _, serviceRef := range mod.ServiceReferences {
@@ -421,6 +573,142 @@ func (mod *Module) DeleteServiceDependencies(ctx context.Context, ref *ServiceRe
 
 func (mod *Module) WithDir(dir string) {
 	mod.dir = dir
+}
+
+// Application management methods
+
+// ExistsApplication returns true if the application exists in the module
+func (mod *Module) ExistsApplication(ctx context.Context, name string) bool {
+	w := wool.Get(ctx).In("Module.ExistsApplication", wool.NameField(name))
+	for _, a := range mod.ApplicationReferences {
+		if a.Name == name {
+			return true
+		}
+	}
+	w.Debug("current applications", wool.Field("applications", mod.ApplicationReferences))
+	return false
+}
+
+// ApplicationPath returns the absolute path of an Application
+func (mod *Module) ApplicationPath(_ context.Context, ref *ApplicationReference) string {
+	return path.Join(mod.ApplicationsDir(), ref.Name)
+}
+
+// AddApplicationReference adds an application reference to the module
+func (mod *Module) AddApplicationReference(_ context.Context, ref *ApplicationReference) error {
+	w := wool.Get(context.Background()).In("Module.AddApplicationReference", wool.NameField(ref.Name))
+	w.Trace("adding application reference", wool.Field("application", ref))
+	for _, a := range mod.ApplicationReferences {
+		if a.Name == ref.Name {
+			return nil
+		}
+	}
+	mod.ApplicationReferences = append(mod.ApplicationReferences, ref)
+	return nil
+}
+
+// LoadApplicationFromReference loads an application from a reference
+func (mod *Module) LoadApplicationFromReference(ctx context.Context, ref *ApplicationReference) (*Application, error) {
+	w := wool.Get(ctx).In("Module.LoadApplicationFromReference", wool.Field("application", ref))
+	dir := mod.ApplicationPath(ctx, ref)
+	app, err := LoadApplicationFromDir(ctx, dir)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	app.SetModule(mod.Name)
+	return app, nil
+}
+
+// LoadApplicationFromName loads an application from a module by name
+func (mod *Module) LoadApplicationFromName(ctx context.Context, name string) (*Application, error) {
+	w := wool.Get(ctx).In("Module.LoadApplicationFromName", wool.NameField(name))
+	for _, ref := range mod.ApplicationReferences {
+		if ref.Name == name {
+			return mod.LoadApplicationFromReference(ctx, ref)
+		}
+	}
+	return nil, w.Wrap(shared.NewErrorResourceNotFound("application", name))
+}
+
+// LoadApplications loads all applications in the module
+func (mod *Module) LoadApplications(ctx context.Context) ([]*Application, error) {
+	var applications []*Application
+	for _, ref := range mod.ApplicationReferences {
+		app, err := mod.LoadApplicationFromReference(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		applications = append(applications, app)
+	}
+	return applications, nil
+}
+
+// DeleteApplication deletes an application from a module
+func (mod *Module) DeleteApplication(ctx context.Context, name string) error {
+	w := wool.Get(ctx).In("Module.DeleteApplication", wool.NameField(name))
+	var applications []*ApplicationReference
+	for _, a := range mod.ApplicationReferences {
+		if a.Name != name {
+			applications = append(applications, a)
+		}
+	}
+	mod.ApplicationReferences = applications
+	err := mod.Save(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot save module")
+	}
+	err = os.RemoveAll(mod.ApplicationPath(ctx, &ApplicationReference{Name: name}))
+	if err != nil {
+		return w.Wrapf(err, "cannot remove application directory")
+	}
+	return nil
+}
+
+// NewApplication creates an application in a module
+func (mod *Module) NewApplication(ctx context.Context, action *actionsv0.AddApplication) (*Application, error) {
+	w := wool.Get(ctx).In("mod.NewApplication", wool.NameField(action.Name))
+	if mod.ExistsApplication(ctx, action.Name) {
+		// Check for override
+		override := shared.GetOverride(ctx)
+		if !override.Replace(action.Name) {
+			return nil, w.NewError("application already exists")
+		}
+	}
+	agent, err := LoadAgent(ctx, action.Agent)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load agent")
+	}
+
+	app := &Application{
+		Kind:        "application",
+		Name:        action.Name,
+		Description: action.Description,
+		Version:     "0.0.1",
+		Agent:       agent,
+		Spec:        make(map[string]any),
+	}
+
+	dir := path.Join(mod.ApplicationsDir(), action.Name)
+	app.dir = dir
+
+	_, err = shared.CheckDirectoryOrCreate(ctx, dir)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	err = app.Save(ctx)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+
+	err = mod.AddApplicationReference(ctx, &ApplicationReference{Name: action.Name})
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	err = mod.Save(ctx)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	return app, nil
 }
 
 type NoModuleError struct {

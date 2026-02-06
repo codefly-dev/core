@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"github.com/codefly-dev/core/actions/actions"
 

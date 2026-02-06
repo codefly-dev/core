@@ -14,7 +14,7 @@ import (
 	"github.com/cheggaaa/pb/v3"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 	"github.com/mholt/archiver"
 )
 

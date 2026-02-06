@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 // See README.md for more information

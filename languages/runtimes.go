@@ -6,7 +6,7 @@ import (
 
 	"os/exec"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 type VersionRequirement struct {

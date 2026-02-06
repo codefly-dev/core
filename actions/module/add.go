@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"github.com/codefly-dev/core/actions/actions"
 
@@ -44,6 +44,18 @@ func (action *AddModuleAction) Run(ctx context.Context, space *actions.Space) (a
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
+
+	// If a module agent was specified, store it in the module configuration
+	if action.Agent != nil {
+		agent := resources.AgentFromProto(action.Agent)
+		module.Agent = agent
+		err = module.Save(ctx)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot save module with agent")
+		}
+		w.Info("module created from template", wool.Field("agent", agent.Identifier()))
+	}
+
 	return module, nil
 }
 

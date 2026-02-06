@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 type NativeEnvironment struct {
@@ -28,13 +28,15 @@ type NativeEnvironment struct {
 
 var _ RunnerEnvironment = &NativeEnvironment{}
 
-// NewNativeEnvironment creates a new docker runner
+// NewNativeEnvironment creates a new native runner.
+// It runs processes directly on the host using whatever is in PATH.
 func NewNativeEnvironment(ctx context.Context, dir string) (*NativeEnvironment, error) {
-	w := wool.Get(ctx).In("NewDockerRunner")
-	return &NativeEnvironment{
+	w := wool.Get(ctx).In("NewNativeEnvironment")
+	env := &NativeEnvironment{
 		out: w,
 		dir: dir,
-	}, nil
+	}
+	return env, nil
 }
 
 func (native *NativeEnvironment) Init(ctx context.Context) error {
@@ -88,7 +90,7 @@ type NativeProc struct {
 
 func (proc *NativeProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
 	for _, env := range proc.envs {
-		if env.Key == env.Key {
+		if env.Key == added.Key {
 			env.Value = fmt.Sprintf("%v%s%v", env.Value, sep, added.Value)
 			return
 		}
@@ -164,20 +166,16 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 		return err
 	}
 	w.Debug("waiting for process to finish or be killed")
-	// TODO: handle waitOn
-	// Create a channel to receive the result of proc.exec.Wait()
 	done := make(chan error, 1)
 	go func() {
 		done <- proc.exec.Wait()
 	}()
 
-	// Use a select statement to wait for either the process to finish or the context to be cancelled
 	select {
 	case err := <-done:
 		if err != nil {
 			var exitError *exec.ExitError
 			if errors.As(err, &exitError) {
-				// The program has exited with an exit code != 0
 				if strings.Contains(exitError.String(), "signal: terminated") {
 					return nil
 				}
@@ -198,8 +196,8 @@ func (proc *NativeProc) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Start")
 	w.Debug("starting process", wool.Field("cmd", proc.cmd), wool.Field("envs", proc.env.envs))
 	return proc.start(ctx)
-
 }
+
 func (proc *NativeProc) start(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.start", wool.DirField(proc.env.dir))
 	// #nosec G204
@@ -212,7 +210,6 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
 	w.Debug("envs", wool.Field("envs", cmd.Env))
 
-	// start and get the logs
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -241,23 +238,16 @@ func (proc *NativeProc) start(ctx context.Context) error {
 }
 
 func (proc *NativeProc) Forward(_ context.Context, w io.Reader) {
-	// Create a new scanner and set the split function to bufio.ScanLines
 	scanner := bufio.NewScanner(w)
 	scanner.Split(bufio.ScanLines)
 
-	// Scan the standard output line by line
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Write each line to the output
 		_, err := proc.output.Write([]byte(strings.TrimSpace(line)))
 		if err != nil {
 			_, _ = proc.output.Write([]byte(err.Error()))
 			return
 		}
-	}
-
-	if scanner.Err() != nil {
-		return
 	}
 }
 
@@ -269,7 +259,6 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Stop")
 	w.Debug("stopping process")
 
-	// Attempt to gracefully terminate the process
 	w.Debug("sending SIGTERM to process")
 	err := proc.exec.Process.Signal(syscall.SIGTERM)
 	if err != nil {
@@ -277,19 +266,15 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 	}
 	time.Sleep(time.Second)
 
-	// Check if the process has exited
 	if err := proc.exec.Process.Signal(syscall.Signal(0)); err == nil {
 		w.Debug("process is still alive after SIGTERM, sending SIGKILL")
-		// Process is still alive after SIGTERM and waiting period, force kill
 		if killErr := proc.exec.Process.Kill(); killErr != nil {
 			w.Debug("failed to force kill process", wool.Field("error", killErr))
 			return fmt.Errorf("failed to force kill process: %w", killErr)
 		}
 	} else {
-		// Process has exited, or an error occurred when checking the process status
 		w.Debug("process has exited after SIGTERM")
 		if !strings.Contains(err.Error(), "process already finished") {
-			// Handle or log this error if it's not the expected "already finished" error
 			w.Debug("error checking process status", wool.Field("error", err))
 		}
 	}
@@ -297,5 +282,4 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 		proc.stopped <- struct{}{}
 	}()
 	return nil
-
 }

@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"gopkg.in/yaml.v3"
 )

@@ -9,7 +9,7 @@ import (
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"github.com/codefly-dev/core/agents/communicate"
 	"github.com/codefly-dev/core/agents/helpers/code"
@@ -311,7 +311,7 @@ func (wrapper *TemplateWrapper) Destination(s *Base) string {
 	if wrapper.absolute != "" {
 		return wrapper.absolute
 	}
-	return s.Local(wrapper.relative)
+	return s.Local("%s", wrapper.relative)
 
 }
 

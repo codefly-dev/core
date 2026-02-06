@@ -20,7 +20,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/go-connections/nat"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 )

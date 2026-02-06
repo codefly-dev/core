@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 type EnvironmentVariable struct {
@@ -76,7 +76,7 @@ func Env(key string, value any) *EnvironmentVariable {
 	}
 }
 
-func (holder *EnvironmentVariableManager) getBase() []*EnvironmentVariable {
+func (holder *EnvironmentVariableManager) getBase() ([]*EnvironmentVariable, error) {
 	var envs []*EnvironmentVariable
 
 	if holder.running {
@@ -116,18 +116,25 @@ func (holder *EnvironmentVariableManager) getBase() []*EnvironmentVariable {
 	}
 
 	for _, restRoute := range holder.restRoutes {
-		envs = append(envs, RestRoutesAsEnvironmentVariable(restRoute))
+		env, err := RestRoutesAsEnvironmentVariable(restRoute)
+		if err != nil {
+			return nil, err
+		}
+		envs = append(envs, env)
 	}
 	envs = append(envs, holder.others...)
-	return envs
+	return envs, nil
 }
 
 func (holder *EnvironmentVariableManager) Endpoints() []*EndpointAccess {
 	return holder.endpoints
 }
 
-func (holder *EnvironmentVariableManager) All() []*EnvironmentVariable {
-	envs := holder.getBase()
+func (holder *EnvironmentVariableManager) All() ([]*EnvironmentVariable, error) {
+	envs, err := holder.getBase()
+	if err != nil {
+		return nil, err
+	}
 	for _, conf := range holder.configurations {
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, true)...)
@@ -135,7 +142,7 @@ func (holder *EnvironmentVariableManager) All() []*EnvironmentVariable {
 	for _, conf := range holder.rawConfigurations {
 		envs = append(envs, ConfigurationAsRawEnvironmentVariables(conf)...)
 	}
-	return envs
+	return envs, nil
 }
 
 func (holder *EnvironmentVariableManager) SetIdentity(identity *basev0.ServiceIdentity) {
@@ -202,12 +209,15 @@ const WorkspaceSecretConfigurationPrefix = "CODEFLY__WORKSPACE_SECRET_CONFIGURAT
 const ServiceConfigurationPrefix = "CODEFLY__SERVICE_CONFIGURATION"
 const ServiceSecretConfigurationPrefix = "CODEFLY__SERVICE_SECRET_CONFIGURATION"
 
-func (holder *EnvironmentVariableManager) Configurations() []*EnvironmentVariable {
-	envs := holder.getBase()
+func (holder *EnvironmentVariableManager) Configurations() ([]*EnvironmentVariable, error) {
+	envs, err := holder.getBase()
+	if err != nil {
+		return nil, err
+	}
 	for _, conf := range holder.configurations {
 		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
 	}
-	return envs
+	return envs, nil
 }
 
 func (holder *EnvironmentVariableManager) Secrets() []*EnvironmentVariable {
@@ -498,21 +508,28 @@ func UniqueToKey(origin string) string {
 
 const RestRoutePrefix = "CODEFLY__REST_ROUTE"
 
-func RestRoutesAsEnvironmentVariable(restRoute *RestRouteAccess) *EnvironmentVariable {
-	key := RestRouteEnvironmentVariableKey(EndpointInformationFromProto(restRoute.endpoint), restRoute.route)
+func RestRoutesAsEnvironmentVariable(restRoute *RestRouteAccess) (*EnvironmentVariable, error) {
+	key, err := RestRouteEnvironmentVariableKey(EndpointInformationFromProto(restRoute.endpoint), restRoute.route)
+	if err != nil {
+		return nil, err
+	}
 	if restRoute.predix != "" {
 		key = fmt.Sprintf("%s%s", restRoute.predix, key)
 	}
-	return Env(key, restRoute.endpoint.Visibility)
+	return Env(key, restRoute.endpoint.Visibility), nil
 }
 
-func RestRouteEnvironmentVariableKey(info *EndpointInformation, route *basev0.RestRoute) string {
+func RestRouteEnvironmentVariableKey(info *EndpointInformation, route *basev0.RestRoute) (string, error) {
 	key := EndpointAsEnvironmentVariableKeyBase(info)
 	// Add path
 	key = fmt.Sprintf("%s__%s", RestRoutePrefix, key)
 	key = fmt.Sprintf("%s___%s", key, sanitizePath(route.Path))
-	key = fmt.Sprintf("%s___%s", key, ConvertHTTPMethodFromProto(route.Method))
-	return strings.ToUpper(key)
+	method, err := ConvertHTTPMethodFromProto(route.Method)
+	if err != nil {
+		return "", err
+	}
+	key = fmt.Sprintf("%s___%s", key, method)
+	return strings.ToUpper(key), nil
 }
 
 func ParseEnv(env string) *EnvironmentVariable {

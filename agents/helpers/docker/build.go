@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 )

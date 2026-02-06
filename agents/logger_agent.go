@@ -7,7 +7,7 @@ import (
 	"io"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 	"github.com/hashicorp/go-hclog"
 )
 
@@ -49,7 +49,8 @@ func NewAgentLogger(agent *resources.Agent) wool.LogProcessor {
 	logger := hclog.New(&hclog.LoggerOptions{
 		JSONFormat: true,
 	})
-	source := agent.AsResource().Identifier
+	r := agent.AsResource()
+	source := &wool.Identifier{Kind: r.Kind, Unique: r.Unique}
 	writer := logger.StandardWriter(&hclog.StandardLoggerOptions{})
 	return &AgentLogger{source: source, writer: writer}
 }
@@ -58,7 +59,8 @@ func NewAgentServiceLogger(identity *resources.ServiceIdentity) wool.LogProcesso
 	logger := hclog.New(&hclog.LoggerOptions{
 		JSONFormat: true,
 	})
-	source := identity.AsAgentResource().Identifier
+	r := identity.AsAgentResource()
+	source := &wool.Identifier{Kind: r.Kind, Unique: r.Unique}
 	writer := logger.StandardWriter(&hclog.StandardLoggerOptions{})
 	return &AgentLogger{source: source, writer: writer}
 }
@@ -67,7 +69,8 @@ func NewServiceLogger(identity *resources.ServiceIdentity) wool.LogProcessor {
 	logger := hclog.New(&hclog.LoggerOptions{
 		JSONFormat: true,
 	})
-	source := identity.AsResource().Identifier
+	r := identity.AsResource()
+	source := &wool.Identifier{Kind: r.Kind, Unique: r.Unique}
 	writer := logger.StandardWriter(&hclog.StandardLoggerOptions{})
 	return &AgentLogger{source: source, writer: writer}
 }

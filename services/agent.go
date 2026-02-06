@@ -10,7 +10,7 @@ import (
 	resources "github.com/codefly-dev/core/resources"
 	plugin "github.com/hashicorp/go-plugin"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"github.com/codefly-dev/core/agents"
 	coreservices "github.com/codefly-dev/core/agents/services"

@@ -9,10 +9,9 @@ import (
 	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codefly "github.com/codefly-dev/sdk-go"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -121,10 +120,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err != nil {
 		return nil, err
 	}
-	_, err = codefly.Init(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// TODO: replace with new codefly-dev/sdk when ready
 	return l, nil
 }
 

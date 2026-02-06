@@ -8,7 +8,7 @@ import (
 
 	"github.com/codefly-dev/core/shared"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 	"gopkg.in/yaml.v3"
 )
 

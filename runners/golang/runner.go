@@ -15,7 +15,7 @@ import (
 
 	runners "github.com/codefly-dev/core/runners/base"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 )
 
 /*
@@ -32,6 +32,7 @@ type GoRunnerEnvironment struct {
 	dir    string
 	docker *runners.DockerEnvironment
 	local  *runners.NativeEnvironment
+	nix    *runners.NixEnvironment
 
 	localCacheDir string
 
@@ -65,9 +66,12 @@ type GoRunnerEnvironment struct {
 
 func (r *GoRunnerEnvironment) LocalCacheDir(ctx context.Context) string {
 	var p string
-	if r.docker != nil {
+	switch {
+	case r.docker != nil:
 		p = path.Join(r.localCacheDir, "container")
-	} else {
+	case r.nix != nil:
+		p = path.Join(r.localCacheDir, "nix")
+	default:
 		p = path.Join(r.localCacheDir, "native")
 	}
 	_, _ = shared.CheckDirectoryOrCreate(ctx, p)
@@ -121,6 +125,43 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 	}, nil
 }
 
+// NewNixGoRunner creates a Go runner that uses Nix for reproducible builds.
+// All tools (go, buf, protoc) come from the flake.nix in dir.
+func NewNixGoRunner(ctx context.Context, dir string, relativeSource string) (*GoRunnerEnvironment, error) {
+	w := wool.Get(ctx).In("NewNixGoRunner")
+	w.Debug("creating nix go runner", wool.Field("dir", dir))
+
+	nixEnv, err := runners.NewNixEnvironment(ctx, dir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot create nix environment")
+	}
+
+	sourceDir := path.Join(dir, relativeSource)
+	withGoModules, err := shared.FileExists(ctx, path.Join(sourceDir, "go.mod"))
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot check go modules")
+	}
+
+	if !withGoModules {
+		w.Warn("running without go modules: not encouraged at all")
+	} else {
+		// Pass through GOMODCACHE/GOPATH from host for caching
+		if v, ok := os.LookupEnv("GOMODCACHE"); ok {
+			nixEnv.WithEnvironmentVariables(ctx, resources.Env("GOMODCACHE", v))
+		} else if v, ok := os.LookupEnv("GOPATH"); ok {
+			nixEnv.WithEnvironmentVariables(ctx, resources.Env("GOPATH", v))
+		}
+	}
+
+	return &GoRunnerEnvironment{
+		dir:           dir,
+		nix:           nixEnv,
+		withGoModules: withGoModules,
+		localCacheDir: path.Join(sourceDir, "cache"),
+		sourceDir:     sourceDir,
+	}, nil
+}
+
 func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir string, relativeSource string, name string) (*GoRunnerEnvironment, error) {
 	w := wool.Get(ctx).In("NewDockerGoRunner")
 
@@ -156,10 +197,14 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 }
 
 func (r *GoRunnerEnvironment) Env() runners.RunnerEnvironment {
-	if r.docker != nil {
+	switch {
+	case r.docker != nil:
 		return r.docker
+	case r.nix != nil:
+		return r.nix
+	default:
+		return r.local
 	}
-	return r.local
 }
 
 func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
@@ -209,6 +254,13 @@ func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
 			}
 			r.docker.WithMount(goModCache, "/go/pkg/mod")
 		}
+	}
+	if r.nix != nil {
+		// Nix: pass through HOME for go cache, goModCache if set
+		if r.goModCache != "" {
+			r.Env().WithEnvironmentVariables(ctx, resources.Env("GOMODCACHE", r.goModCache))
+		}
+		r.Env().WithEnvironmentVariables(ctx, resources.Env("HOME", os.Getenv("HOME")))
 	}
 	if r.local != nil {
 		if r.goModCache != "" {

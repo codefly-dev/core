@@ -7,7 +7,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 )
@@ -259,7 +259,14 @@ func (s *RuntimeWrapper) LogStartRequest(req *runtimev0.StartRequest) {
 
 func (s *RuntimeWrapper) IsContainerRuntime() bool {
 	return s.RuntimeContext.Kind == resources.RuntimeContextContainer
+}
 
+func (s *RuntimeWrapper) IsNixRuntime() bool {
+	return s.RuntimeContext.Kind == resources.RuntimeContextNix
+}
+
+func (s *RuntimeWrapper) IsNativeRuntime() bool {
+	return s.RuntimeContext.Kind == resources.RuntimeContextNative
 }
 
 func (s *RuntimeWrapper) WithContext(runtimeContext *basev0.RuntimeContext) {

@@ -5,7 +5,7 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	resources "github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"github.com/codefly-dev/core/agents/manager"
 	coreservices "github.com/codefly-dev/core/agents/services"

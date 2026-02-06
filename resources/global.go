@@ -7,7 +7,7 @@ import (
 	"path"
 	"path/filepath"
 
-	wool "github.com/codefly-dev/core/wool"
+	wool "github.com/codefly-dev/wool"
 
 	"github.com/codefly-dev/core/shared"
 )

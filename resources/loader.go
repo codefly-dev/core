@@ -9,7 +9,7 @@ import (
 
 	"github.com/codefly-dev/core/version"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 
 	"github.com/codefly-dev/core/generation"
 	"github.com/codefly-dev/core/shared"
@@ -28,6 +28,12 @@ func ConfigurationFile[C Configuration]() string {
 		return ModuleConfigurationName
 	case Service:
 		return ServiceConfigurationName
+	case Library:
+		return LibraryConfigurationName
+	case Job:
+		return JobConfigurationName
+	case Application:
+		return ApplicationConfigurationName
 	case generation.Service:
 		return generation.ServiceGenerationConfigurationName
 	case Agent:
@@ -61,6 +67,8 @@ func ExistsAtDir[C Configuration](dir string) bool {
 		p = path.Join(dir, ModuleConfigurationName)
 	case Service:
 		p = path.Join(dir, ServiceConfigurationName)
+	case Application:
+		p = path.Join(dir, ApplicationConfigurationName)
 	default:
 		panic(fmt.Errorf("unknown configuration type <%T>", c))
 	}

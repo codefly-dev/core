@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codefly-dev/core/wool"
+	"github.com/codefly-dev/wool"
 	"github.com/hashicorp/go-hclog"
 )
 

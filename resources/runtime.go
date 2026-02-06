@@ -10,6 +10,7 @@ import (
 
 const (
 	RuntimeContextNative    = "native"
+	RuntimeContextNix       = "nix"
 	RuntimeContextContainer = "container"
 	RuntimeContextFree      = "free"
 
@@ -19,15 +20,17 @@ const (
 )
 
 func RuntimeContexts() []string {
-	return []string{RuntimeContextContainer, RuntimeContextNative, RuntimeContextFree}
+	return []string{RuntimeContextNative, RuntimeContextNix, RuntimeContextContainer, RuntimeContextFree}
 }
 
 func NewRuntimeContext(runtimeContext string) (*basev0.RuntimeContext, error) {
 	switch runtimeContext {
-	case RuntimeContextContainer:
-		return NewRuntimeContextContainer(), nil
 	case RuntimeContextNative:
 		return NewRuntimeContextNative(), nil
+	case RuntimeContextNix:
+		return NewRuntimeContextNix(), nil
+	case RuntimeContextContainer:
+		return NewRuntimeContextContainer(), nil
 	case RuntimeContextFree:
 		return NewRuntimeContextFree(), nil
 	default:
@@ -47,20 +50,23 @@ func RuntimeContextFromInstance(instance *basev0.NetworkInstance) *basev0.Runtim
 	}
 }
 
-// RuntimeContextFromEnv returns a runtime context from the environment variable
+// RuntimeContextFromEnv returns a runtime context from the environment variable.
 func RuntimeContextFromEnv() *basev0.RuntimeContext {
 	env := os.Getenv("CODEFLY__RUNTIME_CONTEXT")
 	switch env {
-	case NetworkAccessNative:
+	case RuntimeContextNative:
 		return NewRuntimeContextNative()
-	case NetworkAccessContainer:
+	case RuntimeContextNix:
+		return NewRuntimeContextNix()
+	case RuntimeContextContainer:
 		return NewRuntimeContextContainer()
 	default:
 		return NewRuntimeContextNative()
 	}
 }
 
-// NetworkAccessFromRuntimeContext returns a NetworkAccess from a runtime instance
+// NetworkAccessFromRuntimeContext returns a NetworkAccess from a runtime context.
+// Both native and nix run on the host, so they map to native network access.
 func NetworkAccessFromRuntimeContext(runtimeContext *basev0.RuntimeContext) *basev0.NetworkAccess {
 	switch runtimeContext.Kind {
 	case RuntimeContextContainer:
@@ -70,12 +76,16 @@ func NetworkAccessFromRuntimeContext(runtimeContext *basev0.RuntimeContext) *bas
 	}
 }
 
-func NewRuntimeContextContainer() *basev0.RuntimeContext {
-	return &basev0.RuntimeContext{Kind: RuntimeContextContainer}
-}
-
 func NewRuntimeContextNative() *basev0.RuntimeContext {
 	return &basev0.RuntimeContext{Kind: RuntimeContextNative}
+}
+
+func NewRuntimeContextNix() *basev0.RuntimeContext {
+	return &basev0.RuntimeContext{Kind: RuntimeContextNix}
+}
+
+func NewRuntimeContextContainer() *basev0.RuntimeContext {
+	return &basev0.RuntimeContext{Kind: RuntimeContextContainer}
 }
 
 func NewRuntimeContextFree() *basev0.RuntimeContext {
