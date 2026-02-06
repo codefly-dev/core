@@ -1,0 +1,8 @@
+kind: service
+name: postgres
+version: 0.0.1
+agent:
+  kind: runtime::service
+  name: postgres
+  version: 0.0.1
+  publisher: codefly.ai

@@ -1,0 +1,4 @@
+kind: module
+name: with-library
+services:
+  - name: api

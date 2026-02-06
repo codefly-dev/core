@@ -1,0 +1,25 @@
+kind: job
+name: db-migration
+description: Run database migrations
+version: 0.0.1
+
+execution:
+  type: one-shot
+  timeout: 5m
+  retries: 3
+  retry-delay: 30s
+
+agent:
+  kind: codefly:job
+  name: go-job
+  version: 0.0.1
+  publisher: codefly.ai
+
+service-dependencies:
+  - name: postgres
+    module: with-jobs
+    endpoints:
+      - name: tcp
+
+spec:
+  migration-dir: ./migrations
