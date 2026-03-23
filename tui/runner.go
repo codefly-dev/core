@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/codefly-dev/core/agents"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // ServiceRunnerModel is a Bubbletea model for running a Codefly service.

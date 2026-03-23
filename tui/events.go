@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/codefly-dev/wool"
+import "github.com/codefly-dev/core/wool"
 
 // ServiceLogMsg carries a log entry from an agent or service binary.
 type ServiceLogMsg struct {

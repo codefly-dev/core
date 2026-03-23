@@ -7,7 +7,7 @@ import (
 	"github.com/codefly-dev/core/graph"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 /*

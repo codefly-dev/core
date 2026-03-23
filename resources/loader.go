@@ -9,7 +9,7 @@ import (
 
 	"github.com/codefly-dev/core/version"
 
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/generation"
 	"github.com/codefly-dev/core/shared"

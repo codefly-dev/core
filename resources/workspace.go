@@ -13,7 +13,7 @@ import (
 
 	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
 	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 const WorkspaceConfigurationName = "workspace.codefly.yaml"

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	runners "github.com/codefly-dev/core/runners/base"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // companionClient implements Client by running an LSP server inside a

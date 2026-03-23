@@ -1,7 +1,7 @@
 // Package sdk provides helpers for codefly-managed services.
 //
-// For plugin/agent code, use core/cli.WithDependencies directly.
-// This package is for user-facing service code.
+// Use WithDependencies for CLI-based dependency management,
+// or Env for direct agent management.
 package sdk
 
 import (
@@ -27,12 +27,12 @@ import (
 type Env struct {
 	mu      sync.Mutex
 	agents  []string
-	running []*runningService
+	running []*envRunningService
 	tmpDir  string
 	configs map[string]map[string]string // agent -> name -> connection string
 }
 
-type runningService struct {
+type envRunningService struct {
 	name    string
 	conn    *manager.AgentConn
 	runtime runtimev0.RuntimeClient
@@ -40,7 +40,7 @@ type runningService struct {
 
 // New creates a new environment.
 //
-// Deprecated: For plugin tests, use cli.WithDependencies instead.
+// Deprecated: Use WithDependencies instead.
 func New() *Env {
 	return &Env{
 		configs: make(map[string]map[string]string),
@@ -49,7 +49,7 @@ func New() *Env {
 
 // Add registers a codefly service agent to be started.
 //
-// Deprecated: Use cli.WithDependencies which reads service.codefly.yaml.
+// Deprecated: Use WithDependencies which reads service.codefly.yaml.
 func (e *Env) Add(agentName string) *Env {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -262,7 +262,7 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 	}
 	e.configs[agentName] = connMap
 
-	e.running = append(e.running, &runningService{
+	e.running = append(e.running, &envRunningService{
 		name:    agentName,
 		conn:    agentConn,
 		runtime: runtime,

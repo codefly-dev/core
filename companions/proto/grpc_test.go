@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/companions/proto"
 	"github.com/codefly-dev/core/companions/testutil"

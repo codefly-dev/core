@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // lspDiagnostic represents the LSP Diagnostic structure.

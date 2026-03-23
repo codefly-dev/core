@@ -15,7 +15,7 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"

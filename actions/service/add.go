@@ -8,7 +8,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 
 	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 type AddServiceAction struct {

@@ -5,7 +5,7 @@ import (
 	"slices"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // lspHover represents the LSP Hover response.

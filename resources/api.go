@@ -12,7 +12,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/standards"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 	openapiloads "github.com/go-openapi/loads"
 	openapispec "github.com/go-openapi/spec"
 )

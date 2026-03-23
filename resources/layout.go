@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 type LayoutKind = string

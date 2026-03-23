@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 var (

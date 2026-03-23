@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 func LoadPublicModuleGraph(ctx context.Context, workspace *resources.Workspace) ([]*DAG, error) {

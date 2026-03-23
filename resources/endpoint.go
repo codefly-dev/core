@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/standards"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )

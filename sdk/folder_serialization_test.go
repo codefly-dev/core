@@ -1,13 +1,12 @@
-package cli_test
+package sdk_test
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 
-	"github.com/codefly-dev/core/cli"
+	"github.com/codefly-dev/core/sdk"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,16 +41,16 @@ func TestDirectoryRequestRoundTrip(t *testing.T) {
 	extensions := []string{".txt", ".go", ".json"}
 
 	// Create DirectoryRequest
-	request, err := cli.SerializeDirectory(tempDir, extensions)
+	request, err := sdk.SerializeDirectory(tempDir, extensions)
 	require.NoError(t, err)
 
 	// Recreate directory from request
-	recreatedDir, err := ioutil.TempDir("", "recreated_dir")
+	recreatedDir, err := os.MkdirTemp("", "recreated_dir")
 	require.NoError(t, err)
 
 	defer os.RemoveAll(recreatedDir)
 
-	err = cli.RecreateDirectory(request, recreatedDir)
+	err = sdk.RecreateDirectory(request, recreatedDir)
 	require.NoError(t, err)
 
 	// Compare original and recreated directories
@@ -74,18 +73,18 @@ func TestDirectoryRequestRoundTrip(t *testing.T) {
 			}
 		} else {
 			// Check if file should be included based on extension
-			if !cli.HasValidExtension(path, extensions) {
+			if !sdk.HasValidExtension(path, extensions) {
 				// Check that excluded file doesn't exist in recreated structure
 				if _, err := os.Stat(recreatedPath); !os.IsNotExist(err) {
 					t.Errorf("Excluded file should not exist: %s", relPath)
 				}
 			} else {
 				// Compare file contents
-				originalContent, err := ioutil.ReadFile(path)
+				originalContent, err := os.ReadFile(path)
 				if err != nil {
 					return err
 				}
-				recreatedContent, err := ioutil.ReadFile(recreatedPath)
+				recreatedContent, err := os.ReadFile(recreatedPath)
 				if err != nil {
 					t.Errorf("Failed to read recreated file: %s", relPath)
 					return nil

@@ -9,7 +9,7 @@ import (
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 	"github.com/go-openapi/spec"
 )
 

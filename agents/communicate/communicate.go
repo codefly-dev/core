@@ -5,7 +5,7 @@ import (
 	"io"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 	"google.golang.org/grpc"
 )
 

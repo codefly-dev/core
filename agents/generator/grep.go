@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 type Grep struct {

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 type EnvironmentVariable struct {

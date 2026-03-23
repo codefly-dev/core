@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // AgentLogger writes structured wool logs to stderr as JSON.

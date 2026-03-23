@@ -9,7 +9,7 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/google/go-github/v37/github"
 )

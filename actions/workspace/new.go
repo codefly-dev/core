@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 
 	"buf.build/go/protovalidate"
 

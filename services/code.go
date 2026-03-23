@@ -5,7 +5,7 @@ import (
 
 	coreservices "github.com/codefly-dev/core/agents/services"
 	resources "github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // LoadCode creates a CodeAgent from the cached agent connection.

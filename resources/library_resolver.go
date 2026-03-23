@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // LibraryResolver handles library dependency resolution and setup

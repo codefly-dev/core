@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // lspDocumentSymbol represents the LSP DocumentSymbol structure.

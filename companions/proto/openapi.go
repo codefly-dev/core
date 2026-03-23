@@ -12,7 +12,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // GenerateOpenAPI runs the OpenAPI generator in a companion (golden wrapper)

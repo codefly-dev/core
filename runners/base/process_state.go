@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/shirou/gopsutil/v3/process"
 )

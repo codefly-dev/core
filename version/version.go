@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/Masterminds/semver"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 func Version(ctx context.Context) (string, error) {

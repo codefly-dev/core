@@ -9,7 +9,7 @@ import (
 
 	"github.com/Masterminds/semver"
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // Info holds companion version metadata.

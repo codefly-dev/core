@@ -7,7 +7,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 )

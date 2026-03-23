@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // NixEnvironment runs processes inside a Nix development shell.

@@ -7,7 +7,7 @@ import (
 	"runtime"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	"github.com/codefly-dev/wool"
+	"github.com/codefly-dev/core/wool"
 )
 
 // NixInstallCommand returns the command to install Nix based on OS
