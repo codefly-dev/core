@@ -54,10 +54,10 @@ class BuilderStub(object):
                 request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.DeploymentRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.DeploymentResponse.FromString,
                 _registered_method=True)
-        self.Communicate = channel.unary_unary(
+        self.Communicate = channel.stream_stream(
                 '/codefly.services.builder.v0.Builder/Communicate',
-                request_serializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Engage.SerializeToString,
-                response_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.InformationRequest.FromString,
+                request_serializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Answer.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Question.FromString,
                 _registered_method=True)
 
 
@@ -115,8 +115,9 @@ class BuilderServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Communicate(self, request, context):
-        """Communication helper
+    def Communicate(self, request_iterator, context):
+        """Bidirectional streaming for interactive Q&A (e.g. during Create/Sync).
+        Plugin streams Questions, CLI streams Answers.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -160,10 +161,10 @@ def add_BuilderServicer_to_server(servicer, server):
                     request_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.DeploymentRequest.FromString,
                     response_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.DeploymentResponse.SerializeToString,
             ),
-            'Communicate': grpc.unary_unary_rpc_method_handler(
+            'Communicate': grpc.stream_stream_rpc_method_handler(
                     servicer.Communicate,
-                    request_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Engage.FromString,
-                    response_serializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.InformationRequest.SerializeToString,
+                    request_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Answer.FromString,
+                    response_serializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Question.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -370,7 +371,7 @@ class Builder(object):
             _registered_method=True)
 
     @staticmethod
-    def Communicate(request,
+    def Communicate(request_iterator,
             target,
             options=(),
             channel_credentials=None,
@@ -380,12 +381,12 @@ class Builder(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
+        return grpc.experimental.stream_stream(
+            request_iterator,
             target,
             '/codefly.services.builder.v0.Builder/Communicate',
-            codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Engage.SerializeToString,
-            codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.InformationRequest.FromString,
+            codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Answer.SerializeToString,
+            codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Question.FromString,
             options,
             channel_credentials,
             insecure,

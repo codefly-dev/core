@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/bufbuild/protovalidate-go"
+	"buf.build/go/protovalidate"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var validator *protovalidate.Validator
+var validator protovalidate.Validator
 
 func init() {
 	var initErr error
@@ -33,13 +33,15 @@ func Validate(req proto.Message) error {
 			var errDetails []string
 			var fieldsViolation []*errdetails.BadRequest_FieldViolation
 			for _, violation := range vErr.Violations {
-				if violation.FieldPath == nil || violation.Message == nil {
+				fieldPath := protovalidate.FieldPathString(violation.Proto.GetField())
+				message := violation.Proto.GetMessage()
+				if fieldPath == "" || message == "" {
 					continue
 				}
-				errDetails = append(errDetails, fmt.Sprintf("field '%s': %s", *violation.FieldPath, *violation.Message))
+				errDetails = append(errDetails, fmt.Sprintf("field '%s': %s", fieldPath, message))
 				fieldsViolation = append(fieldsViolation, &errdetails.BadRequest_FieldViolation{
-					Field:       *violation.FieldPath,
-					Description: *violation.Message,
+					Field:       fieldPath,
+					Description: message,
 				})
 			}
 			detailedErr := fmt.Errorf("invalid %s: %s", msgType, strings.Join(errDetails, "; "))

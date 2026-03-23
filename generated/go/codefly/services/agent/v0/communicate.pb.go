@@ -7,12 +7,11 @@
 package v0
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -21,99 +20,6 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
-
-type Engage_Mode int32
-
-const (
-	Engage_UNKNOWN Engage_Mode = 0
-	Engage_START   Engage_Mode = 1
-	Engage_END     Engage_Mode = 2
-)
-
-// Enum value maps for Engage_Mode.
-var (
-	Engage_Mode_name = map[int32]string{
-		0: "UNKNOWN",
-		1: "START",
-		2: "END",
-	}
-	Engage_Mode_value = map[string]int32{
-		"UNKNOWN": 0,
-		"START":   1,
-		"END":     2,
-	}
-)
-
-func (x Engage_Mode) Enum() *Engage_Mode {
-	p := new(Engage_Mode)
-	*p = x
-	return p
-}
-
-func (x Engage_Mode) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (Engage_Mode) Descriptor() protoreflect.EnumDescriptor {
-	return file_codefly_services_agent_v0_communicate_proto_enumTypes[0].Descriptor()
-}
-
-func (Engage_Mode) Type() protoreflect.EnumType {
-	return &file_codefly_services_agent_v0_communicate_proto_enumTypes[0]
-}
-
-func (x Engage_Mode) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use Engage_Mode.Descriptor instead.
-func (Engage_Mode) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{13, 0}
-}
-
-type Channel struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Channel) Reset() {
-	*x = Channel{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Channel) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Channel) ProtoMessage() {}
-
-func (x *Channel) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Channel.ProtoReflect.Descriptor instead.
-func (*Channel) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *Channel) GetKind() string {
-	if x != nil {
-		return x.Kind
-	}
-	return ""
-}
 
 type Message struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -126,7 +32,7 @@ type Message struct {
 
 func (x *Message) Reset() {
 	*x = Message{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[1]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -138,7 +44,7 @@ func (x *Message) String() string {
 func (*Message) ProtoMessage() {}
 
 func (x *Message) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[1]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -151,7 +57,7 @@ func (x *Message) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Message.ProtoReflect.Descriptor instead.
 func (*Message) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{1}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Message) GetName() string {
@@ -184,7 +90,7 @@ type Display struct {
 
 func (x *Display) Reset() {
 	*x = Display{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[2]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -196,7 +102,7 @@ func (x *Display) String() string {
 func (*Display) ProtoMessage() {}
 
 func (x *Display) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[2]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -209,7 +115,7 @@ func (x *Display) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Display.ProtoReflect.Descriptor instead.
 func (*Display) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{2}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Display) GetData() map[string]string {
@@ -228,7 +134,7 @@ type Confirm struct {
 
 func (x *Confirm) Reset() {
 	*x = Confirm{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[3]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -240,7 +146,7 @@ func (x *Confirm) String() string {
 func (*Confirm) ProtoMessage() {}
 
 func (x *Confirm) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[3]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -253,7 +159,7 @@ func (x *Confirm) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Confirm.ProtoReflect.Descriptor instead.
 func (*Confirm) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{3}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Confirm) GetDefault() bool {
@@ -272,7 +178,7 @@ type ConfirmAnswer struct {
 
 func (x *ConfirmAnswer) Reset() {
 	*x = ConfirmAnswer{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[4]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -284,7 +190,7 @@ func (x *ConfirmAnswer) String() string {
 func (*ConfirmAnswer) ProtoMessage() {}
 
 func (x *ConfirmAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[4]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -297,7 +203,7 @@ func (x *ConfirmAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfirmAnswer.ProtoReflect.Descriptor instead.
 func (*ConfirmAnswer) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{4}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ConfirmAnswer) GetConfirmed() bool {
@@ -320,7 +226,7 @@ type Input struct {
 
 func (x *Input) Reset() {
 	*x = Input{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[5]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -332,7 +238,7 @@ func (x *Input) String() string {
 func (*Input) ProtoMessage() {}
 
 func (x *Input) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[5]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -345,7 +251,7 @@ func (x *Input) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Input.ProtoReflect.Descriptor instead.
 func (*Input) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{5}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Input) GetDefault() isInput_Default {
@@ -402,7 +308,7 @@ type InputAnswer struct {
 
 func (x *InputAnswer) Reset() {
 	*x = InputAnswer{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[6]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -414,7 +320,7 @@ func (x *InputAnswer) String() string {
 func (*InputAnswer) ProtoMessage() {}
 
 func (x *InputAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[6]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -427,7 +333,7 @@ func (x *InputAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InputAnswer.ProtoReflect.Descriptor instead.
 func (*InputAnswer) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{6}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *InputAnswer) GetAnswer() isInputAnswer_Answer {
@@ -480,7 +386,7 @@ type Choice struct {
 
 func (x *Choice) Reset() {
 	*x = Choice{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[7]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -492,7 +398,7 @@ func (x *Choice) String() string {
 func (*Choice) ProtoMessage() {}
 
 func (x *Choice) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[7]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -505,7 +411,7 @@ func (x *Choice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Choice.ProtoReflect.Descriptor instead.
 func (*Choice) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{7}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Choice) GetOptions() []*Message {
@@ -524,7 +430,7 @@ type ChoiceAnswer struct {
 
 func (x *ChoiceAnswer) Reset() {
 	*x = ChoiceAnswer{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[8]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -536,7 +442,7 @@ func (x *ChoiceAnswer) String() string {
 func (*ChoiceAnswer) ProtoMessage() {}
 
 func (x *ChoiceAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[8]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -549,7 +455,7 @@ func (x *ChoiceAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChoiceAnswer.ProtoReflect.Descriptor instead.
 func (*ChoiceAnswer) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{8}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ChoiceAnswer) GetOption() string {
@@ -568,7 +474,7 @@ type Selection struct {
 
 func (x *Selection) Reset() {
 	*x = Selection{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[9]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -580,7 +486,7 @@ func (x *Selection) String() string {
 func (*Selection) ProtoMessage() {}
 
 func (x *Selection) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[9]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -593,7 +499,7 @@ func (x *Selection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Selection.ProtoReflect.Descriptor instead.
 func (*Selection) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{9}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Selection) GetOptions() []*Message {
@@ -612,7 +518,7 @@ type SelectionAnswer struct {
 
 func (x *SelectionAnswer) Reset() {
 	*x = SelectionAnswer{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[10]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -624,7 +530,7 @@ func (x *SelectionAnswer) String() string {
 func (*SelectionAnswer) ProtoMessage() {}
 
 func (x *SelectionAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[10]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -637,7 +543,7 @@ func (x *SelectionAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelectionAnswer.ProtoReflect.Descriptor instead.
 func (*SelectionAnswer) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{10}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SelectionAnswer) GetSelected() []string {
@@ -647,10 +553,9 @@ func (x *SelectionAnswer) GetSelected() []string {
 	return nil
 }
 
+// Question is sent by the plugin to the CLI during Communicate streaming.
 type Question struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
-	Channel *Channel               `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	Round   int32                  `protobuf:"varint,2,opt,name=round,proto3" json:"round,omitempty"`
 	Message *Message               `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
 	// Types that are valid to be assigned to Value:
 	//
@@ -666,7 +571,7 @@ type Question struct {
 
 func (x *Question) Reset() {
 	*x = Question{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[11]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -678,7 +583,7 @@ func (x *Question) String() string {
 func (*Question) ProtoMessage() {}
 
 func (x *Question) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[11]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -691,21 +596,7 @@ func (x *Question) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Question.ProtoReflect.Descriptor instead.
 func (*Question) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *Question) GetChannel() *Channel {
-	if x != nil {
-		return x.Channel
-	}
-	return nil
-}
-
-func (x *Question) GetRound() int32 {
-	if x != nil {
-		return x.Round
-	}
-	return 0
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Question) GetMessage() *Message {
@@ -801,12 +692,9 @@ func (*Question_Choice) isQuestion_Value() {}
 
 func (*Question_Selection) isQuestion_Value() {}
 
+// Answer is sent by the CLI back to the plugin.
 type Answer struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Done    bool                   `protobuf:"varint,1,opt,name=done,proto3" json:"done,omitempty"`
-	Channel *Channel               `protobuf:"bytes,2,opt,name=channel,proto3" json:"channel,omitempty"`
-	Round   int32                  `protobuf:"varint,3,opt,name=round,proto3" json:"round,omitempty"`
-	Error   string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Value:
 	//
 	//	*Answer_Confirm
@@ -820,7 +708,7 @@ type Answer struct {
 
 func (x *Answer) Reset() {
 	*x = Answer{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[12]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -832,7 +720,7 @@ func (x *Answer) String() string {
 func (*Answer) ProtoMessage() {}
 
 func (x *Answer) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[12]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -845,35 +733,7 @@ func (x *Answer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Answer.ProtoReflect.Descriptor instead.
 func (*Answer) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *Answer) GetDone() bool {
-	if x != nil {
-		return x.Done
-	}
-	return false
-}
-
-func (x *Answer) GetChannel() *Channel {
-	if x != nil {
-		return x.Channel
-	}
-	return nil
-}
-
-func (x *Answer) GetRound() int32 {
-	if x != nil {
-		return x.Round
-	}
-	return 0
-}
-
-func (x *Answer) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Answer) GetValue() isAnswer_Value {
@@ -947,133 +807,11 @@ func (*Answer_Choice) isAnswer_Value() {}
 
 func (*Answer_Selection) isAnswer_Value() {}
 
-type Engage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Mode          Engage_Mode            `protobuf:"varint,1,opt,name=mode,proto3,enum=codefly.services.agent.v0.Engage_Mode" json:"mode,omitempty"`
-	Stage         string                 `protobuf:"bytes,2,opt,name=stage,proto3" json:"stage,omitempty"`
-	Channel       *Channel               `protobuf:"bytes,3,opt,name=channel,proto3" json:"channel,omitempty"`
-	Answer        *Answer                `protobuf:"bytes,4,opt,name=answer,proto3" json:"answer,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Engage) Reset() {
-	*x = Engage{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Engage) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Engage) ProtoMessage() {}
-
-func (x *Engage) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Engage.ProtoReflect.Descriptor instead.
-func (*Engage) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{13}
-}
-
-func (x *Engage) GetMode() Engage_Mode {
-	if x != nil {
-		return x.Mode
-	}
-	return Engage_UNKNOWN
-}
-
-func (x *Engage) GetStage() string {
-	if x != nil {
-		return x.Stage
-	}
-	return ""
-}
-
-func (x *Engage) GetChannel() *Channel {
-	if x != nil {
-		return x.Channel
-	}
-	return nil
-}
-
-func (x *Engage) GetAnswer() *Answer {
-	if x != nil {
-		return x.Answer
-	}
-	return nil
-}
-
-type InformationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Question      *Question              `protobuf:"bytes,1,opt,name=question,proto3" json:"question,omitempty"`
-	Done          bool                   `protobuf:"varint,2,opt,name=done,proto3" json:"done,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *InformationRequest) Reset() {
-	*x = InformationRequest{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[14]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *InformationRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*InformationRequest) ProtoMessage() {}
-
-func (x *InformationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[14]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use InformationRequest.ProtoReflect.Descriptor instead.
-func (*InformationRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{14}
-}
-
-func (x *InformationRequest) GetQuestion() *Question {
-	if x != nil {
-		return x.Question
-	}
-	return nil
-}
-
-func (x *InformationRequest) GetDone() bool {
-	if x != nil {
-		return x.Done
-	}
-	return false
-}
-
 var File_codefly_services_agent_v0_communicate_proto protoreflect.FileDescriptor
 
 const file_codefly_services_agent_v0_communicate_proto_rawDesc = "" +
 	"\n" +
-	"+codefly/services/agent/v0/communicate.proto\x12\x19codefly.services.agent.v0\"\x1d\n" +
-	"\aChannel\x12\x12\n" +
-	"\x04kind\x18\x01 \x01(\tR\x04kind\"Y\n" +
+	"+codefly/services/agent/v0/communicate.proto\x12\x19codefly.services.agent.v0\"Y\n" +
 	"\aMessage\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12 \n" +
@@ -1103,39 +841,21 @@ const file_codefly_services_agent_v0_communicate_proto_rawDesc = "" +
 	"\tSelection\x12<\n" +
 	"\aoptions\x18\x01 \x03(\v2\".codefly.services.agent.v0.MessageR\aoptions\"-\n" +
 	"\x0fSelectionAnswer\x12\x1a\n" +
-	"\bselected\x18\x01 \x03(\tR\bselected\"\xe2\x03\n" +
+	"\bselected\x18\x01 \x03(\tR\bselected\"\x8e\x03\n" +
 	"\bQuestion\x12<\n" +
-	"\achannel\x18\x01 \x01(\v2\".codefly.services.agent.v0.ChannelR\achannel\x12\x14\n" +
-	"\x05round\x18\x02 \x01(\x05R\x05round\x12<\n" +
 	"\amessage\x18\x03 \x01(\v2\".codefly.services.agent.v0.MessageR\amessage\x12>\n" +
 	"\adisplay\x18\x04 \x01(\v2\".codefly.services.agent.v0.DisplayH\x00R\adisplay\x12>\n" +
 	"\aconfirm\x18\x05 \x01(\v2\".codefly.services.agent.v0.ConfirmH\x00R\aconfirm\x128\n" +
 	"\x05input\x18\x06 \x01(\v2 .codefly.services.agent.v0.InputH\x00R\x05input\x12;\n" +
 	"\x06choice\x18\a \x01(\v2!.codefly.services.agent.v0.ChoiceH\x00R\x06choice\x12D\n" +
 	"\tselection\x18\b \x01(\v2$.codefly.services.agent.v0.SelectionH\x00R\tselectionB\a\n" +
-	"\x05value\"\xa4\x03\n" +
-	"\x06Answer\x12\x12\n" +
-	"\x04done\x18\x01 \x01(\bR\x04done\x12<\n" +
-	"\achannel\x18\x02 \x01(\v2\".codefly.services.agent.v0.ChannelR\achannel\x12\x14\n" +
-	"\x05round\x18\x03 \x01(\x05R\x05round\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error\x12D\n" +
+	"\x05value\"\xa6\x02\n" +
+	"\x06Answer\x12D\n" +
 	"\aconfirm\x18\x05 \x01(\v2(.codefly.services.agent.v0.ConfirmAnswerH\x00R\aconfirm\x12>\n" +
 	"\x05input\x18\x06 \x01(\v2&.codefly.services.agent.v0.InputAnswerH\x00R\x05input\x12A\n" +
 	"\x06choice\x18\a \x01(\v2'.codefly.services.agent.v0.ChoiceAnswerH\x00R\x06choice\x12J\n" +
 	"\tselection\x18\b \x01(\v2*.codefly.services.agent.v0.SelectionAnswerH\x00R\tselectionB\a\n" +
-	"\x05value\"\xfc\x01\n" +
-	"\x06Engage\x12:\n" +
-	"\x04mode\x18\x01 \x01(\x0e2&.codefly.services.agent.v0.Engage.ModeR\x04mode\x12\x14\n" +
-	"\x05stage\x18\x02 \x01(\tR\x05stage\x12<\n" +
-	"\achannel\x18\x03 \x01(\v2\".codefly.services.agent.v0.ChannelR\achannel\x129\n" +
-	"\x06answer\x18\x04 \x01(\v2!.codefly.services.agent.v0.AnswerR\x06answer\"'\n" +
-	"\x04Mode\x12\v\n" +
-	"\aUNKNOWN\x10\x00\x12\t\n" +
-	"\x05START\x10\x01\x12\a\n" +
-	"\x03END\x10\x02\"i\n" +
-	"\x12InformationRequest\x12?\n" +
-	"\bquestion\x18\x01 \x01(\v2#.codefly.services.agent.v0.QuestionR\bquestion\x12\x12\n" +
-	"\x04done\x18\x02 \x01(\bR\x04doneB\xfd\x01\n" +
+	"\x05valueB\xfd\x01\n" +
 	"\x1dcom.codefly.services.agent.v0B\x10CommunicateProtoP\x01ZBgithub.com/codefly-dev/core/generated/go/codefly/services/agent/v0\xa2\x02\x04CSAV\xaa\x02\x19Codefly.Services.Agent.V0\xca\x02\x19Codefly\\Services\\Agent\\V0\xe2\x02%Codefly\\Services\\Agent\\V0\\GPBMetadata\xea\x02\x1cCodefly::Services::Agent::V0b\x06proto3"
 
 var (
@@ -1150,52 +870,41 @@ func file_codefly_services_agent_v0_communicate_proto_rawDescGZIP() []byte {
 	return file_codefly_services_agent_v0_communicate_proto_rawDescData
 }
 
-var file_codefly_services_agent_v0_communicate_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_codefly_services_agent_v0_communicate_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_codefly_services_agent_v0_communicate_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_codefly_services_agent_v0_communicate_proto_goTypes = []any{
-	(Engage_Mode)(0),           // 0: codefly.services.agent.v0.Engage.Mode
-	(*Channel)(nil),            // 1: codefly.services.agent.v0.Channel
-	(*Message)(nil),            // 2: codefly.services.agent.v0.Message
-	(*Display)(nil),            // 3: codefly.services.agent.v0.Display
-	(*Confirm)(nil),            // 4: codefly.services.agent.v0.Confirm
-	(*ConfirmAnswer)(nil),      // 5: codefly.services.agent.v0.ConfirmAnswer
-	(*Input)(nil),              // 6: codefly.services.agent.v0.Input
-	(*InputAnswer)(nil),        // 7: codefly.services.agent.v0.InputAnswer
-	(*Choice)(nil),             // 8: codefly.services.agent.v0.Choice
-	(*ChoiceAnswer)(nil),       // 9: codefly.services.agent.v0.ChoiceAnswer
-	(*Selection)(nil),          // 10: codefly.services.agent.v0.Selection
-	(*SelectionAnswer)(nil),    // 11: codefly.services.agent.v0.SelectionAnswer
-	(*Question)(nil),           // 12: codefly.services.agent.v0.Question
-	(*Answer)(nil),             // 13: codefly.services.agent.v0.Answer
-	(*Engage)(nil),             // 14: codefly.services.agent.v0.Engage
-	(*InformationRequest)(nil), // 15: codefly.services.agent.v0.InformationRequest
-	nil,                        // 16: codefly.services.agent.v0.Display.DataEntry
+	(*Message)(nil),         // 0: codefly.services.agent.v0.Message
+	(*Display)(nil),         // 1: codefly.services.agent.v0.Display
+	(*Confirm)(nil),         // 2: codefly.services.agent.v0.Confirm
+	(*ConfirmAnswer)(nil),   // 3: codefly.services.agent.v0.ConfirmAnswer
+	(*Input)(nil),           // 4: codefly.services.agent.v0.Input
+	(*InputAnswer)(nil),     // 5: codefly.services.agent.v0.InputAnswer
+	(*Choice)(nil),          // 6: codefly.services.agent.v0.Choice
+	(*ChoiceAnswer)(nil),    // 7: codefly.services.agent.v0.ChoiceAnswer
+	(*Selection)(nil),       // 8: codefly.services.agent.v0.Selection
+	(*SelectionAnswer)(nil), // 9: codefly.services.agent.v0.SelectionAnswer
+	(*Question)(nil),        // 10: codefly.services.agent.v0.Question
+	(*Answer)(nil),          // 11: codefly.services.agent.v0.Answer
+	nil,                     // 12: codefly.services.agent.v0.Display.DataEntry
 }
 var file_codefly_services_agent_v0_communicate_proto_depIdxs = []int32{
-	16, // 0: codefly.services.agent.v0.Display.data:type_name -> codefly.services.agent.v0.Display.DataEntry
-	2,  // 1: codefly.services.agent.v0.Choice.options:type_name -> codefly.services.agent.v0.Message
-	2,  // 2: codefly.services.agent.v0.Selection.options:type_name -> codefly.services.agent.v0.Message
-	1,  // 3: codefly.services.agent.v0.Question.channel:type_name -> codefly.services.agent.v0.Channel
-	2,  // 4: codefly.services.agent.v0.Question.message:type_name -> codefly.services.agent.v0.Message
-	3,  // 5: codefly.services.agent.v0.Question.display:type_name -> codefly.services.agent.v0.Display
-	4,  // 6: codefly.services.agent.v0.Question.confirm:type_name -> codefly.services.agent.v0.Confirm
-	6,  // 7: codefly.services.agent.v0.Question.input:type_name -> codefly.services.agent.v0.Input
-	8,  // 8: codefly.services.agent.v0.Question.choice:type_name -> codefly.services.agent.v0.Choice
-	10, // 9: codefly.services.agent.v0.Question.selection:type_name -> codefly.services.agent.v0.Selection
-	1,  // 10: codefly.services.agent.v0.Answer.channel:type_name -> codefly.services.agent.v0.Channel
-	5,  // 11: codefly.services.agent.v0.Answer.confirm:type_name -> codefly.services.agent.v0.ConfirmAnswer
-	7,  // 12: codefly.services.agent.v0.Answer.input:type_name -> codefly.services.agent.v0.InputAnswer
-	9,  // 13: codefly.services.agent.v0.Answer.choice:type_name -> codefly.services.agent.v0.ChoiceAnswer
-	11, // 14: codefly.services.agent.v0.Answer.selection:type_name -> codefly.services.agent.v0.SelectionAnswer
-	0,  // 15: codefly.services.agent.v0.Engage.mode:type_name -> codefly.services.agent.v0.Engage.Mode
-	1,  // 16: codefly.services.agent.v0.Engage.channel:type_name -> codefly.services.agent.v0.Channel
-	13, // 17: codefly.services.agent.v0.Engage.answer:type_name -> codefly.services.agent.v0.Answer
-	12, // 18: codefly.services.agent.v0.InformationRequest.question:type_name -> codefly.services.agent.v0.Question
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	12, // 0: codefly.services.agent.v0.Display.data:type_name -> codefly.services.agent.v0.Display.DataEntry
+	0,  // 1: codefly.services.agent.v0.Choice.options:type_name -> codefly.services.agent.v0.Message
+	0,  // 2: codefly.services.agent.v0.Selection.options:type_name -> codefly.services.agent.v0.Message
+	0,  // 3: codefly.services.agent.v0.Question.message:type_name -> codefly.services.agent.v0.Message
+	1,  // 4: codefly.services.agent.v0.Question.display:type_name -> codefly.services.agent.v0.Display
+	2,  // 5: codefly.services.agent.v0.Question.confirm:type_name -> codefly.services.agent.v0.Confirm
+	4,  // 6: codefly.services.agent.v0.Question.input:type_name -> codefly.services.agent.v0.Input
+	6,  // 7: codefly.services.agent.v0.Question.choice:type_name -> codefly.services.agent.v0.Choice
+	8,  // 8: codefly.services.agent.v0.Question.selection:type_name -> codefly.services.agent.v0.Selection
+	3,  // 9: codefly.services.agent.v0.Answer.confirm:type_name -> codefly.services.agent.v0.ConfirmAnswer
+	5,  // 10: codefly.services.agent.v0.Answer.input:type_name -> codefly.services.agent.v0.InputAnswer
+	7,  // 11: codefly.services.agent.v0.Answer.choice:type_name -> codefly.services.agent.v0.ChoiceAnswer
+	9,  // 12: codefly.services.agent.v0.Answer.selection:type_name -> codefly.services.agent.v0.SelectionAnswer
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_agent_v0_communicate_proto_init() }
@@ -1203,22 +912,22 @@ func file_codefly_services_agent_v0_communicate_proto_init() {
 	if File_codefly_services_agent_v0_communicate_proto != nil {
 		return
 	}
-	file_codefly_services_agent_v0_communicate_proto_msgTypes[5].OneofWrappers = []any{
+	file_codefly_services_agent_v0_communicate_proto_msgTypes[4].OneofWrappers = []any{
 		(*Input_StringDefault)(nil),
 		(*Input_IntDefault)(nil),
 	}
-	file_codefly_services_agent_v0_communicate_proto_msgTypes[6].OneofWrappers = []any{
+	file_codefly_services_agent_v0_communicate_proto_msgTypes[5].OneofWrappers = []any{
 		(*InputAnswer_StringValue)(nil),
 		(*InputAnswer_IntValue)(nil),
 	}
-	file_codefly_services_agent_v0_communicate_proto_msgTypes[11].OneofWrappers = []any{
+	file_codefly_services_agent_v0_communicate_proto_msgTypes[10].OneofWrappers = []any{
 		(*Question_Display)(nil),
 		(*Question_Confirm)(nil),
 		(*Question_Input)(nil),
 		(*Question_Choice)(nil),
 		(*Question_Selection)(nil),
 	}
-	file_codefly_services_agent_v0_communicate_proto_msgTypes[12].OneofWrappers = []any{
+	file_codefly_services_agent_v0_communicate_proto_msgTypes[11].OneofWrappers = []any{
 		(*Answer_Confirm)(nil),
 		(*Answer_Input)(nil),
 		(*Answer_Choice)(nil),
@@ -1229,14 +938,13 @@ func file_codefly_services_agent_v0_communicate_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_agent_v0_communicate_proto_rawDesc), len(file_codefly_services_agent_v0_communicate_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   16,
+			NumEnums:      0,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_codefly_services_agent_v0_communicate_proto_goTypes,
 		DependencyIndexes: file_codefly_services_agent_v0_communicate_proto_depIdxs,
-		EnumInfos:         file_codefly_services_agent_v0_communicate_proto_enumTypes,
 		MessageInfos:      file_codefly_services_agent_v0_communicate_proto_msgTypes,
 	}.Build()
 	File_codefly_services_agent_v0_communicate_proto = out.File

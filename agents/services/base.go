@@ -11,7 +11,6 @@ import (
 
 	"github.com/codefly-dev/wool"
 
-	"github.com/codefly-dev/core/agents/communicate"
 	"github.com/codefly-dev/core/agents/helpers/code"
 
 	"github.com/codefly-dev/core/agents"
@@ -29,6 +28,9 @@ type Information struct {
 }
 
 type Base struct {
+	// Satisfies agentv0.AgentServer for all plugins that embed *Base.
+	agentv0.UnimplementedAgentServer
+
 	// Agent
 	Agent *resources.Agent
 	Wool  *wool.Wool
@@ -75,9 +77,6 @@ type Base struct {
 	// Runtime
 	State InformationStatus
 
-	// Communication
-	Communication *communicate.Server
-
 	// Code Watcher
 	Watcher *code.Watcher
 	Events  chan code.Change
@@ -90,7 +89,6 @@ func NewServiceBase(ctx context.Context, agent *resources.Agent) *Base {
 	provider := agents.NewAgentProvider(ctx, agent)
 	base := &Base{
 		Agent:                agent,
-		Communication:        communicate.NewServer(ctx),
 		Wool:                 provider.Get(ctx),
 		EnvironmentVariables: resources.NewEnvironmentVariableManager(),
 	}
@@ -255,23 +253,6 @@ func (s *Base) Version() *basev0.Version {
 		return &basev0.Version{}
 	}
 	return &basev0.Version{Version: s.Service.Version}
-}
-
-func (s *Base) Ready() {
-	//	s.State = LoadState
-}
-
-func (s *Base) WantSync() {
-	//s.State = SyncWantedState
-}
-
-func (s *Base) Stop() error {
-	return nil
-}
-
-func (s *Base) Communicate(ctx context.Context, eng *agentv0.Engage) (*agentv0.InformationRequest, error) {
-	s.Wool.Trace("base communicate: sending to server", wool.Field("eng", eng))
-	return s.Communication.Communicate(ctx, eng)
 }
 
 type TemplateWrapper struct {

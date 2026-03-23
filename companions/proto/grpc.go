@@ -16,6 +16,8 @@ import (
 	"github.com/codefly-dev/wool"
 )
 
+// GenerateGRPC runs buf in a companion (Docker/Nix/local via golden wrapper)
+// to generate gRPC client code for the given language and endpoints.
 func GenerateGRPC(ctx context.Context, language languages.Language, destination string, service string, endpoints ...*basev0.Endpoint) error {
 	w := wool.Get(ctx).In("generateGRPC", wool.Field("destination", destination))
 	// call the companion
@@ -51,15 +53,19 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 			}
 		}
 	}
-	name := fmt.Sprintf("proto-%s-%d-%s", service, time.Now().UnixMilli(), language)
-	runner, err := runners.NewDockerEnvironment(ctx, image, tmpDir, name)
-	if err != nil {
-		return w.Wrapf(err, "cannot create docker runner")
-	}
-
 	_, err = shared.CheckDirectoryOrCreate(ctx, destination)
 	if err != nil {
 		return w.Wrapf(err, "cannot create destination")
+	}
+
+	name := fmt.Sprintf("proto-%s-%d-%s", service, time.Now().UnixMilli(), language)
+	runner, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+		Name:      name,
+		SourceDir: tmpDir,
+		Image:     image,
+	})
+	if err != nil {
+		return w.Wrapf(err, "cannot create companion runner")
 	}
 
 	runner.WithMount(destination, "/workspace/output")
@@ -68,14 +74,12 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 	runner.WithPause()
 
 	defer func() {
-		err = runner.Shutdown(ctx)
-		if err != nil {
-			w.Warn("cannot shutdown runner", wool.ErrField(err))
+		if shutErr := runner.Shutdown(ctx); shutErr != nil {
+			w.Warn("cannot shutdown runner", wool.ErrField(shutErr))
 		}
 	}()
 
-	err = runner.Init(ctx)
-	if err != nil {
+	if err := runner.Init(ctx); err != nil {
 		return w.Wrapf(err, "cannot init runner")
 	}
 

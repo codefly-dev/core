@@ -3,81 +3,91 @@ package services
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"syscall"
 
-	"github.com/codefly-dev/core/agents/manager"
-	resources "github.com/codefly-dev/core/resources"
-	plugin "github.com/hashicorp/go-plugin"
-
-	"github.com/codefly-dev/wool"
-
 	"github.com/codefly-dev/core/agents"
+	"github.com/codefly-dev/core/agents/manager"
 	coreservices "github.com/codefly-dev/core/agents/services"
+	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/wool"
 )
 
-var agentsCache map[string]*coreservices.ServiceAgent
-var agentsPid map[string]int
+// connCache caches agent connections by unique key.
+var connCache map[string]*manager.AgentConn
 
 func init() {
-	agentsCache = make(map[string]*coreservices.ServiceAgent)
-	agentsPid = make(map[string]int)
+	connCache = make(map[string]*manager.AgentConn)
 }
 
+// LoadAgent spawns the agent binary (or reuses a cached connection) and
+// returns a ServiceAgent client. The underlying connection is cached
+// internally and used by LoadBuilder/LoadRuntime to create additional
+// gRPC clients on the same process.
 func LoadAgent(ctx context.Context, agent *resources.Agent) (*coreservices.ServiceAgent, error) {
 	if agent == nil {
-		return nil, fmt.Errorf("service cannot be nil")
+		return nil, fmt.Errorf("agent cannot be nil")
 	}
 	w := wool.Get(ctx).In("services.LoadAgent", wool.Field("agent", agent.Name))
 	w.Debug("loading service agent")
+
 	if agent.Version == "latest" {
 		err := manager.PinToLatestRelease(ctx, agent)
 		if err != nil {
 			return nil, w.Wrap(err)
 		}
 	}
-	if loaded, ok := agentsCache[agent.Unique()]; ok {
-		return loaded, nil
-	}
 
-	loaded, process, err := manager.Load[coreservices.ServiceAgentContext, coreservices.ServiceAgent](
-		ctx,
-		agent.Of(resources.ServiceAgent),
-		agent.Unique())
+	conn, err := getOrCreateConn(ctx, agent)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
 
-	agentsPid[agent.Unique()] = process.PID
+	sa := coreservices.NewServiceAgentClient(conn.GRPCConn())
+	sa.Agent = agent
+	sa.ProcessInfo = conn.ProcessInfo()
 
-	loaded.Agent = agent
-	loaded.ProcessInfo = process
-
-	agentsCache[agent.Unique()] = loaded
-	return loaded, nil
+	return sa, nil
 }
 
-// NewServiceAgent binds the agent implementation to the agent
-func NewServiceAgent(conf *resources.Agent, service coreservices.Agent) agents.AgentImplementation {
-	return agents.AgentImplementation{
-		Configuration: conf,
-		Agent:         &coreservices.ServiceAgentGRPC{Service: service},
+// getOrCreateConn returns a cached connection or spawns a new agent process.
+// It wires agent stderr through ForwardLogs so structured logs reach the
+// CLI display pipeline.
+func getOrCreateConn(ctx context.Context, agent *resources.Agent) (*manager.AgentConn, error) {
+	if conn, ok := connCache[agent.Unique()]; ok {
+		return conn, nil
 	}
+	pr, pw := io.Pipe()
+	go agents.GetLogHandler().ForwardLogs(pr)
+	conn, err := manager.Load(ctx, agent, manager.WithLogWriter(pw))
+	if err != nil {
+		_ = pw.Close()
+		return nil, err
+	}
+	connCache[agent.Unique()] = conn
+	return conn, nil
 }
 
-func ClearAgents() {
-	plugin.CleanupClients()
-	for _, loaded := range []map[string]int{agentsPid, runtimesPid, buildersPid} {
-		for _, pid := range loaded {
-			process, err := os.FindProcess(pid)
-			if err != nil {
-				continue
-			}
+// getConn returns the cached connection for an agent. Panics if not loaded.
+func getConn(agent *resources.Agent) *manager.AgentConn {
+	conn, ok := connCache[agent.Unique()]
+	if !ok {
+		panic(fmt.Sprintf("agent %s not loaded -- call LoadAgent first", agent.Unique()))
+	}
+	return conn
+}
 
-			err = process.Signal(syscall.SIGTERM)
-			if err != nil {
-				fmt.Println("cannot kill process", pid, err)
+// ClearAgents kills all active agent processes.
+func ClearAgents() {
+	for key, conn := range connCache {
+		if conn.ProcessInfo() != nil {
+			process, err := os.FindProcess(conn.ProcessInfo().PID)
+			if err == nil {
+				_ = process.Signal(syscall.SIGTERM)
 			}
 		}
+		conn.Close()
+		delete(connCache, key)
 	}
 }

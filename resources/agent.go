@@ -9,7 +9,7 @@ import (
 	"github.com/codefly-dev/core/version"
 
 
-	"github.com/bufbuild/protovalidate-go"
+	"buf.build/go/protovalidate"
 
 	"path"
 	"strings"
@@ -125,7 +125,7 @@ func (p *Agent) Of(kind AgentKind) *Agent {
 }
 
 func (p *Agent) IsService() bool {
-	return slices.Contains([]AgentKind{ServiceAgent, BuilderServiceAgent, RuntimeServiceAgent}, p.Kind)
+	return slices.Contains([]AgentKind{ServiceAgent, BuilderServiceAgent, RuntimeServiceAgent, CodeServiceAgent}, p.Kind)
 }
 
 func (p *Agent) IsApplication() bool {
@@ -194,7 +194,7 @@ func parseAgent(ctx context.Context, k AgentKind, s string) (*basev0.Agent, erro
 	w := wool.Get(ctx).In("parseAgent", wool.Field("kind", k), wool.Field("agent", s))
 	// TODO: More validation
 	if s == "" {
-		return nil, fmt.Errorf("emmpty")
+		return nil, fmt.Errorf("empty")
 	}
 	tokens := strings.SplitN(s, "/", 2)
 	pub := "codefly.dev"

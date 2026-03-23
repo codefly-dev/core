@@ -1,8 +1,10 @@
-FROM golang:1.23
+FROM golang:1.26-alpine
 
 RUN apk update && \
-    apk add --no-cache procps && \
+    apk add --no-cache git procps && \
     rm -rf /var/cache/apk/*
 
-COPY bin/linux/codefly /bin/codefly
-WORKDIR /codefly
+# Install gopls for LSP symbol queries
+RUN go install golang.org/x/tools/gopls@latest
+
+WORKDIR /workspace

@@ -1,5 +1,5 @@
-# First stage: Build environment
-FROM golang:1.22-alpine AS builder
+# First stage: Build environment (state of the art - latest Go and tools)
+FROM golang:1.26-alpine AS builder
 
 # Install dependencies
 RUN apk add --no-cache git python3 py3-pip nodejs npm protobuf
@@ -15,7 +15,6 @@ RUN npm install -g ts-protoc-gen
 
 # Install protoc plugins for gRPC Gateway and OpenAPI
 RUN go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
-
 RUN go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest
 
 RUN go install github.com/go-swagger/go-swagger/cmd/swagger@latest
@@ -23,9 +22,8 @@ RUN go install github.com/go-swagger/go-swagger/cmd/swagger@latest
 # Install protoc plugin for validation
 RUN go install github.com/envoyproxy/protoc-gen-validate@latest
 
-
 # Second stage: Create the runtime image
-FROM golang:alpine
+FROM golang:1.26-alpine
 
 # Copy necessary binaries and files from the builder stage
 COPY --from=builder /usr/bin/protoc /usr/local/bin/

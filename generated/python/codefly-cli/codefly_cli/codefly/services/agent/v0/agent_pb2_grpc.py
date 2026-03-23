@@ -19,6 +19,16 @@ class AgentStub(object):
                 request_serializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.AgentInformationRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.AgentInformation.FromString,
                 _registered_method=True)
+        self.ListCommands = channel.unary_unary(
+                '/codefly.services.agent.v0.Agent/ListCommands',
+                request_serializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.ListCommandsRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.ListCommandsResponse.FromString,
+                _registered_method=True)
+        self.RunPluginCommand = channel.unary_unary(
+                '/codefly.services.agent.v0.Agent/RunPluginCommand',
+                request_serializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.RunPluginCommandRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.RunPluginCommandResponse.FromString,
+                _registered_method=True)
 
 
 class AgentServicer(object):
@@ -30,6 +40,20 @@ class AgentServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListCommands(self, request, context):
+        """ListCommands returns the commands this plugin agent provides.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RunPluginCommand(self, request, context):
+        """RunPluginCommand executes a plugin-provided command.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_AgentServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -37,6 +61,16 @@ def add_AgentServicer_to_server(servicer, server):
                     servicer.GetAgentInformation,
                     request_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.AgentInformationRequest.FromString,
                     response_serializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.AgentInformation.SerializeToString,
+            ),
+            'ListCommands': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListCommands,
+                    request_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.ListCommandsRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.ListCommandsResponse.SerializeToString,
+            ),
+            'RunPluginCommand': grpc.unary_unary_rpc_method_handler(
+                    servicer.RunPluginCommand,
+                    request_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.RunPluginCommandRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.RunPluginCommandResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -66,6 +100,60 @@ class Agent(object):
             '/codefly.services.agent.v0.Agent/GetAgentInformation',
             codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.AgentInformationRequest.SerializeToString,
             codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.AgentInformation.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListCommands(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.agent.v0.Agent/ListCommands',
+            codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.ListCommandsRequest.SerializeToString,
+            codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.ListCommandsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RunPluginCommand(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.agent.v0.Agent/RunPluginCommand',
+            codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.RunPluginCommandRequest.SerializeToString,
+            codefly_dot_services_dot_agent_dot_v0_dot_agent__pb2.RunPluginCommandResponse.FromString,
             options,
             channel_credentials,
             insecure,

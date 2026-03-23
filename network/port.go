@@ -109,7 +109,13 @@ func GetPidUsingPort(port int) (string, error) {
 }
 
 func KillProcess(pid string) error {
-	pidInt, _ := strconv.Atoi(pid)
+	pidInt, err := strconv.Atoi(pid)
+	if err != nil {
+		return fmt.Errorf("invalid PID %q: %w", pid, err)
+	}
+	if pidInt <= 0 {
+		return fmt.Errorf("invalid PID %d: must be positive", pidInt)
+	}
 	process, err := os.FindProcess(pidInt)
 	if err != nil {
 		return err

@@ -301,7 +301,7 @@ func (docker *DockerEnvironment) waitForContainerToRun(ctx context.Context, cont
 
 func (docker *DockerEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("WithEnvironmentVariables")
-	w.Debug("adding", wool.Field("envs", envs))
+	w.Trace("adding", wool.Field("envs", envs))
 	docker.envs = append(docker.envs, envs...)
 }
 
@@ -420,6 +420,7 @@ func (docker *DockerEnvironment) WithBinary(bin string) error {
 
 func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.Shutdown")
+	defer docker.client.Close()
 	exists, err := docker.IsContainerPresent(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot check if container is running")
@@ -465,11 +466,18 @@ type DockerProc struct {
 	dir    string
 	ID     string
 	waitOn string
+
+	// Pipe support for interactive/bidirectional communication.
+	// Set before Start() via StdinPipe()/StdoutPipe().
+	stdinReader  *io.PipeReader  // internal: feeds into docker exec stdin
+	stdinWriter  *io.PipeWriter  // returned to caller
+	stdoutReader *io.PipeReader  // returned to caller
+	stdoutWriter *io.PipeWriter  // internal: receives docker exec stdout
 }
 
 func (proc *DockerProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
 	for _, env := range proc.envs {
-		if env.Key == env.Key {
+		if env.Key == added.Key {
 			env.Value = fmt.Sprintf("%v%s%v", env.Value, sep, added.Value)
 			return
 		}
@@ -495,7 +503,7 @@ func (proc *DockerProc) WithDir(dir string) {
 
 func (proc *DockerProc) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("WithEnvironmentVariables")
-	w.Debug("adding", wool.Field("envs", envs))
+	w.Trace("adding", wool.Field("envs", envs))
 	proc.envs = append(proc.envs, envs...)
 }
 
@@ -654,13 +662,14 @@ func (proc *DockerProc) start(ctx context.Context) error {
 	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
+		AttachStdin:  proc.stdinReader != nil,
 		Env:          resources.EnvironmentVariableAsStrings(envs),
 		Cmd:          proc.cmd,
 	}
 	if proc.dir != "" {
 		execConfig.WorkingDir = proc.dir
 	}
-	w.Debug("creating exec", wool.Field("cmd", proc.cmd))
+	w.Trace("creating exec", wool.Field("cmd", proc.cmd))
 	// Create an exec instance
 	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
 	if err != nil {
@@ -677,14 +686,37 @@ func (proc *DockerProc) start(ctx context.Context) error {
 	}
 	proc.ID = execIDResp.ID
 
+	// Stdin goroutine: copy from the caller's pipe into the exec connection.
+	if proc.stdinReader != nil {
+		go func() {
+			_, _ = io.Copy(execResp.Conn, proc.stdinReader)
+			// When the caller closes StdinPipe, signal EOF to the process
+			// by closing the write direction of the connection.
+			if cw, ok := execResp.Conn.(interface{ CloseWrite() error }); ok {
+				_ = cw.CloseWrite()
+			}
+		}()
+	}
+
+	// Stdout/stderr goroutine: demultiplex the Docker stream.
 	go func() {
 		defer execResp.Close()
 
-		// Wrap the reader with stdcopy to demultiplex stdout and stderr
-		stdOutWriter := newCustomWriter(proc.output)
-		_, err := stdcopy.StdCopy(stdOutWriter, stdOutWriter, execResp.Reader)
-		if err != nil {
-			w.Error("cannot copy output", wool.ErrField(err))
+		if proc.stdoutWriter != nil {
+			// Route stdout to the raw pipe, stderr to proc.output
+			stderrDest := io.Writer(io.Discard)
+			if proc.output != nil {
+				stderrDest = newCustomWriter(proc.output)
+			}
+			_, _ = stdcopy.StdCopy(proc.stdoutWriter, stderrDest, execResp.Reader)
+			proc.stdoutWriter.Close()
+		} else {
+			// Original behaviour: both stdout and stderr through customWriter
+			stdOutWriter := newCustomWriter(proc.output)
+			_, err := stdcopy.StdCopy(stdOutWriter, stdOutWriter, execResp.Reader)
+			if err != nil {
+				w.Error("cannot copy output", wool.ErrField(err))
+			}
 		}
 	}()
 	return nil
@@ -704,14 +736,15 @@ func (proc *DockerProc) Stop(ctx context.Context) error {
 	w.Debug("killing process", wool.Field("pid", pid), wool.Field("cmd", proc.cmd))
 	err = proc.stop(ctx, pid, false)
 
-	// Start a go-routing to kill it forcefully after some time
+	// Force-kill after a delay if the process is still running.
 	go func() {
 		time.Sleep(3 * time.Second)
 		pid, err = proc.FindPid(ctx)
-		if err != nil {
-			w.Warn("can't get PID")
-		}
 		if pid < 0 {
+			return // process already exited, nothing to do
+		}
+		if err != nil {
+			w.Warn("could not get PID for force-kill (process may already have exited)", wool.ErrField(err))
 			return
 		}
 		_ = proc.stop(ctx, pid, true)
@@ -723,9 +756,11 @@ func (proc *DockerProc) stop(ctx context.Context, pid int, force bool) error {
 	w := wool.Get(ctx).In("DockerProc.Stop")
 	w.Debug("stopping process", wool.Field("pid", pid))
 
-	killCmd := []string{"/bin/kill", fmt.Sprintf("%d", pid)}
+	var killCmd []string
 	if force {
-		killCmd = append(killCmd, "-9")
+		killCmd = []string{"/bin/kill", "-9", fmt.Sprintf("%d", pid)}
+	} else {
+		killCmd = []string{"/bin/kill", fmt.Sprintf("%d", pid)}
 	}
 	execConfig := container.ExecOptions{
 		AttachStdout: true,
@@ -790,6 +825,22 @@ func (proc *DockerProc) WithOutput(output io.Writer) {
 	proc.output = output
 }
 
+func (proc *DockerProc) StdinPipe() (io.WriteCloser, error) {
+	if proc.stdinWriter != nil {
+		return nil, fmt.Errorf("StdinPipe already called")
+	}
+	proc.stdinReader, proc.stdinWriter = io.Pipe()
+	return proc.stdinWriter, nil
+}
+
+func (proc *DockerProc) StdoutPipe() (io.ReadCloser, error) {
+	if proc.stdoutReader != nil {
+		return nil, fmt.Errorf("StdoutPipe already called")
+	}
+	proc.stdoutReader, proc.stdoutWriter = io.Pipe()
+	return proc.stdoutReader, nil
+}
+
 func (proc *DockerProc) Match(cmd []string) bool {
 	if proc.waitOn != "" {
 		return cmd[0] == proc.waitOn
@@ -826,9 +877,12 @@ func GetImageIfNotPresent(ctx context.Context, c *client.Client, imag *resources
 	return nil
 }
 
+func (docker *DockerEnvironment) PortMappings() []*DockerPortMapping {
+	return docker.portMappings
+}
+
 func (docker *DockerEnvironment) WithPort(ctx context.Context, port uint16) {
 	docker.WithPortMapping(ctx, port, port)
-
 }
 
 func (docker *DockerEnvironment) WithPortMapping(ctx context.Context, local uint16, container uint16) {
@@ -844,29 +898,25 @@ func Forward(ctx context.Context, reader io.Reader, writer io.Writer) {
 	// Create a new scanner for the buffer
 	scanner := bufio.NewScanner(reader)
 	go func() {
-		for {
+		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
 				return
 			default:
-
-				// Scan the buffer line by line
-				for scanner.Scan() {
-					// Get the current line and trim the newline character
-					line := strings.TrimSuffix(scanner.Text(), "\n")
-
-					// Write the trimmed line to the output
-					_, err := writer.Write([]byte(line))
-					if err != nil {
-						_, _ = writer.Write([]byte("Error while writing container logs"))
-					}
-				}
-
-				// Check if the scanner encountered any errors
-				if err := scanner.Err(); err != nil {
-					_, _ = writer.Write([]byte(fmt.Sprintf("Error while scanning container logs: %s", err)))
-				}
 			}
+			// Get the current line and trim the newline character
+			line := strings.TrimSuffix(scanner.Text(), "\n")
+
+			// Write the trimmed line to the output
+			_, err := writer.Write([]byte(line))
+			if err != nil {
+				_, _ = writer.Write([]byte("Error while writing container logs"))
+			}
+		}
+
+		// Check if the scanner encountered any errors
+		if err := scanner.Err(); err != nil {
+			_, _ = writer.Write([]byte(fmt.Sprintf("Error while scanning container logs: %s", err)))
 		}
 	}()
 }

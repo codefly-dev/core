@@ -58,12 +58,10 @@ func LoadService(ctx context.Context, workspace *resources.Workspace, module *re
 		return nil, w.Wrapf(err, "failed to load service")
 	}
 	// Get endpoints from services
-	instance, err := services.Load(ctx, module, service)
+	instance, err := services.Load(ctx, workspace, module, service)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to load service: %s", service.Name)
 	}
-
-	instance.Workspace = workspace
 	err = instance.LoadRuntime(ctx, false)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to load service runtime: %s", service.Name)

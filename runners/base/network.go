@@ -36,3 +36,14 @@ func IsFreePort(port int) bool {
 	listener.Close()
 	return true
 }
+
+// FindFreePort asks the OS to assign a free TCP port and returns it.
+func FindFreePort() (int, error) {
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return 0, fmt.Errorf("cannot find free port: %w", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	return port, nil
+}

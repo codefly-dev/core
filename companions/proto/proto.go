@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/builders"
+	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/standards"
@@ -38,7 +39,7 @@ func NewBuf(ctx context.Context, dir string) (*Buf, error) {
 	}, nil
 }
 
-// Generate relies on local buf files
+// Generate runs buf in a companion (golden wrapper) to regenerate code from local proto files.
 func (g *Buf) Generate(ctx context.Context) error {
 	w := wool.Get(ctx).In("proto.Generate")
 
@@ -55,36 +56,40 @@ func (g *Buf) Generate(ctx context.Context) error {
 	}
 	w.Info("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
 
-	if !runners.DockerEngineRunning(ctx) {
-		return w.NewError("docker is not running")
+	var image *resources.DockerImage
+	if runners.DockerEngineRunning(ctx) {
+		var imgErr error
+		image, imgErr = CompanionImage(ctx)
+		if imgErr != nil {
+			w.Warn("cannot get companion image, falling back to local", wool.ErrField(imgErr))
+		}
 	}
 
-	image, err := CompanionImage(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot get companion image")
-	}
-
-	// Create a timestamp so we don't clubber docker environments
 	name := fmt.Sprintf("proto-%d", time.Now().UnixMilli())
-
-	runner, err := runners.NewDockerEnvironment(ctx, image, g.Dir, name)
+	runner, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+		Name:      name,
+		SourceDir: g.Dir,
+		Image:     image,
+	})
 	if err != nil {
-		return w.Wrapf(err, "cannot create docker runner")
+		return w.Wrapf(err, "cannot create companion runner")
 	}
 
-	runner.WithMount(g.Dir, "/workspace")
-	runner.WithWorkDir("/workspace/proto")
+	if runner.Backend() == runners.BackendDocker {
+		runner.WithMount(g.Dir, "/workspace")
+		runner.WithWorkDir("/workspace/proto")
+	} else {
+		runner.WithWorkDir(path.Join(g.Dir, "proto"))
+	}
 	runner.WithPause()
 
 	defer func() {
-		err = runner.Shutdown(ctx)
-		if err != nil {
-			w.Warn("cannot shutdown runner", wool.ErrField(err))
+		if shutErr := runner.Shutdown(ctx); shutErr != nil {
+			w.Warn("cannot shutdown runner", wool.ErrField(shutErr))
 		}
 	}()
 
-	err = runner.Init(ctx)
-	if err != nil {
+	if err := runner.Init(ctx); err != nil {
 		return w.Wrapf(err, "cannot init runner")
 	}
 

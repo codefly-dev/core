@@ -47,20 +47,30 @@ class RuntimeStub(object):
                 request_serializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.DestroyRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.DestroyResponse.FromString,
                 _registered_method=True)
+        self.Build = channel.unary_unary(
+                '/codefly.services.runtime.v0.Runtime/Build',
+                request_serializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.BuildRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.BuildResponse.FromString,
+                _registered_method=True)
         self.Test = channel.unary_unary(
                 '/codefly.services.runtime.v0.Runtime/Test',
                 request_serializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.TestRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.TestResponse.FromString,
+                _registered_method=True)
+        self.Lint = channel.unary_unary(
+                '/codefly.services.runtime.v0.Runtime/Lint',
+                request_serializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.LintRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.LintResponse.FromString,
                 _registered_method=True)
         self.Information = channel.unary_unary(
                 '/codefly.services.runtime.v0.Runtime/Information',
                 request_serializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.InformationRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.InformationResponse.FromString,
                 _registered_method=True)
-        self.Communicate = channel.unary_unary(
+        self.Communicate = channel.stream_stream(
                 '/codefly.services.runtime.v0.Runtime/Communicate',
-                request_serializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Engage.SerializeToString,
-                response_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.InformationRequest.FromString,
+                request_serializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Answer.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Question.FromString,
                 _registered_method=True)
 
 
@@ -112,8 +122,22 @@ class RuntimeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Build(self, request, context):
+        """Dev compile check
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Test(self, request, context):
         """Test the service
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Lint(self, request, context):
+        """Lint the service
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -126,8 +150,9 @@ class RuntimeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Communicate(self, request, context):
-        """Communication helper
+    def Communicate(self, request_iterator, context):
+        """Bidirectional streaming for interactive Q&A.
+        Plugin streams Questions, CLI streams Answers.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -161,20 +186,30 @@ def add_RuntimeServicer_to_server(servicer, server):
                     request_deserializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.DestroyRequest.FromString,
                     response_serializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.DestroyResponse.SerializeToString,
             ),
+            'Build': grpc.unary_unary_rpc_method_handler(
+                    servicer.Build,
+                    request_deserializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.BuildRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.BuildResponse.SerializeToString,
+            ),
             'Test': grpc.unary_unary_rpc_method_handler(
                     servicer.Test,
                     request_deserializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.TestRequest.FromString,
                     response_serializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.TestResponse.SerializeToString,
+            ),
+            'Lint': grpc.unary_unary_rpc_method_handler(
+                    servicer.Lint,
+                    request_deserializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.LintRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.LintResponse.SerializeToString,
             ),
             'Information': grpc.unary_unary_rpc_method_handler(
                     servicer.Information,
                     request_deserializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.InformationRequest.FromString,
                     response_serializer=codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.InformationResponse.SerializeToString,
             ),
-            'Communicate': grpc.unary_unary_rpc_method_handler(
+            'Communicate': grpc.stream_stream_rpc_method_handler(
                     servicer.Communicate,
-                    request_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Engage.FromString,
-                    response_serializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.InformationRequest.SerializeToString,
+                    request_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Answer.FromString,
+                    response_serializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Question.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -330,6 +365,33 @@ class Runtime(object):
             _registered_method=True)
 
     @staticmethod
+    def Build(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.runtime.v0.Runtime/Build',
+            codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.BuildRequest.SerializeToString,
+            codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.BuildResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def Test(request,
             target,
             options=(),
@@ -346,6 +408,33 @@ class Runtime(object):
             '/codefly.services.runtime.v0.Runtime/Test',
             codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.TestRequest.SerializeToString,
             codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.TestResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Lint(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.runtime.v0.Runtime/Lint',
+            codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.LintRequest.SerializeToString,
+            codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2.LintResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -384,7 +473,7 @@ class Runtime(object):
             _registered_method=True)
 
     @staticmethod
-    def Communicate(request,
+    def Communicate(request_iterator,
             target,
             options=(),
             channel_credentials=None,
@@ -394,12 +483,12 @@ class Runtime(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
+        return grpc.experimental.stream_stream(
+            request_iterator,
             target,
             '/codefly.services.runtime.v0.Runtime/Communicate',
-            codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Engage.SerializeToString,
-            codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.InformationRequest.FromString,
+            codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Answer.SerializeToString,
+            codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Question.FromString,
             options,
             channel_credentials,
             insecure,

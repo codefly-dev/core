@@ -59,6 +59,9 @@ type Module struct {
 
 	// internal
 	dir string
+
+	// For flat layout: back-reference to workspace so Save() writes there instead of module.codefly.yaml
+	flatWorkspace *Workspace `yaml:"-"`
 }
 
 func (mod *Module) Unique() string {
@@ -242,8 +245,9 @@ func (workspace *Workspace) WithRootModule(ctx context.Context) (*Module, error)
 	}
 
 	mod := &Module{
-		Kind: ModuleKind,
-		Name: workspace.Name,
+		Kind:          ModuleKind,
+		Name:          workspace.Name,
+		flatWorkspace: workspace,
 	}
 	mod.WithDir(workspace.layout.ModulePath(workspace.Name))
 
@@ -252,10 +256,7 @@ func (workspace *Workspace) WithRootModule(ctx context.Context) (*Module, error)
 		return nil, w.Wrapf(err, "cannot add module to workspace")
 	}
 
-	err = mod.Save(ctx)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot save module configuration")
-	}
+	// Flat layout: no separate module.codefly.yaml -- services are in workspace.codefly.yaml
 	return mod, nil
 }
 
@@ -310,6 +311,14 @@ func (mod *Module) SaveToDir(ctx context.Context, dir string) error {
 }
 
 func (mod *Module) Save(ctx context.Context) error {
+	if mod.flatWorkspace != nil {
+		// Clear internal Module field from refs before persisting
+		for _, ref := range mod.ServiceReferences {
+			ref.Module = ""
+		}
+		mod.flatWorkspace.Services = mod.ServiceReferences
+		return mod.flatWorkspace.Save(ctx)
+	}
 	return mod.SaveToDir(ctx, mod.Dir())
 }
 

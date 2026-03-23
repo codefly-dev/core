@@ -1,21 +1,20 @@
 package agents
 
 import (
+	"bufio"
 	"encoding/json"
+	"io"
 	"strings"
-	"time"
 
 	"github.com/codefly-dev/wool"
-	"github.com/hashicorp/go-hclog"
 )
 
 var (
-	handler *ClientLogHandler
+	handler *LogHandler
 )
 
-// A ClientLogHandler handles logs from the Agents and converts them back to wool.Log
-type ClientLogHandler struct {
-	Receiver   hclog.Logger
+// LogHandler processes structured logs from agent processes.
+type LogHandler struct {
 	processors []wool.LogProcessorWithSource
 }
 
@@ -24,58 +23,73 @@ func AddProcessor(processor wool.LogProcessorWithSource) {
 }
 
 func init() {
-	handler = NewLogHandler()
+	handler = &LogHandler{}
 }
 
-func LogHandler() *ClientLogHandler {
+func GetLogHandler() *LogHandler {
 	return handler
 }
 
-func NewLogHandler() *ClientLogHandler {
-	handler := &ClientLogHandler{}
-	logger := hclog.New(&hclog.LoggerOptions{
-		JSONFormat: true,
-		Output:     handler,
-		Level:      hclog.Debug,
-	})
-	handler.Receiver = logger
-	return handler
+// ForwardLogs reads structured JSON log lines from a reader (typically
+// the stderr of a spawned agent process) and dispatches them to
+// registered log processors. Blocks until the reader is closed.
+func (h *LogHandler) ForwardLogs(r io.Reader) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		var msg LogMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			// Not a structured log -- treat as plain text trace
+			h.process(wool.System(), &wool.Log{Level: wool.TRACE, Message: line, Header: "agent"})
+			continue
+		}
+
+		if msg.Log == nil {
+			continue
+		}
+
+		h.process(msg.Source, msg.Log)
+	}
 }
 
-type HCLogMessageIn struct {
-	Level     string    `json:"@level"`
-	Timestamp time.Time `json:"@timestamp"`
-	Message   string    `json:"@message"`
-	Module    string    `json:"@module"`
-}
-
-func (h *ClientLogHandler) Write(p []byte) (n int, err error) {
-	// We assume that the log is in JSON format
-	msg := &HCLogMessageIn{}
-	err = json.Unmarshal(p, msg)
-	if err != nil {
-		h.process(wool.System(), wool.LogError(err, "unmarshalling in message"))
-		return 0, err
-	}
-	// message is a JSON representation of a wool.Log
-	// other messages come from the plugin framework
-	var log HCLogMessageOut
-	err = json.Unmarshal([]byte(msg.Message), &log)
-	msg.Message = strings.TrimSpace(msg.Message)
-	if err != nil {
-		h.process(wool.System(), &wool.Log{Level: wool.TRACE, Message: msg.Message, Header: "plugin"})
-		return 0, err
-	}
-	// Drop non-wool logs
-	if msg.Message == "" {
-		return 0, nil
-	}
-	h.process(log.Source, log.Log)
-	return len(p), nil
-}
-
-func (h *ClientLogHandler) process(identifier *wool.Identifier, log *wool.Log) {
+func (h *LogHandler) process(identifier *wool.Identifier, log *wool.Log) {
 	for _, processor := range h.processors {
 		processor.ProcessWithSource(identifier, log)
 	}
+}
+
+// ChannelProcessor sends logs to a channel for consumption by a TUI or
+// other event-driven consumer.
+type ChannelProcessor struct {
+	Ch chan<- ChannelLog
+}
+
+// ChannelLog carries a structured log with its source through a channel.
+type ChannelLog struct {
+	Source *wool.Identifier
+	Log    *wool.Log
+}
+
+func (p *ChannelProcessor) Process(log *wool.Log) {
+	select {
+	case p.Ch <- ChannelLog{Log: log}:
+	default:
+	}
+}
+
+func (p *ChannelProcessor) ProcessWithSource(source *wool.Identifier, log *wool.Log) {
+	select {
+	case p.Ch <- ChannelLog{Source: source, Log: log}:
+	default:
+	}
+}
+
+// NewChannelProcessor creates a processor that sends logs on ch.
+// The channel should be buffered to avoid blocking the log pipeline.
+func NewChannelProcessor(ch chan<- ChannelLog) *ChannelProcessor {
+	return &ChannelProcessor{Ch: ch}
 }

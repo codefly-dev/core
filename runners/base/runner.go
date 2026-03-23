@@ -59,4 +59,13 @@ type Proc interface {
 
 	// WithEnvironmentVariablesAppend appends environment variables
 	WithEnvironmentVariablesAppend(ctx context.Context, env *resources.EnvironmentVariable, sep string)
+
+	// StdinPipe returns a writer connected to the process's stdin.
+	// Must be called before Start/Run.
+	StdinPipe() (io.WriteCloser, error)
+
+	// StdoutPipe returns a reader connected to the process's stdout (raw bytes).
+	// Must be called before Start/Run. When used, WithOutput is bypassed for
+	// stdout; stderr still goes to the writer set via WithOutput.
+	StdoutPipe() (io.ReadCloser, error)
 }

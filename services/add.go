@@ -37,12 +37,10 @@ func Add(ctx context.Context, workspace *resources.Workspace, module *resources.
 
 	service.WithModule(module.Name)
 
-	instance, err := Load(ctx, module, service)
+	instance, err := Load(ctx, workspace, module, service)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load service instance")
 	}
-
-	instance.WithWorkspace(workspace)
 
 	err = instance.LoadBuilder(ctx)
 	if err != nil {

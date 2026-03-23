@@ -78,10 +78,6 @@ func NewWatcher(ctx context.Context, events chan<- Change, base string, dependen
 	}
 	watcher := &Watcher{watcher: fswatcher, base: base, events: events}
 
-	watcherContext := context.Background()
-	watcherContext = w.Inject(watcherContext)
-	go watcher.Start(watcherContext)
-
 	return watcher, nil
 }
 

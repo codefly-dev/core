@@ -22,6 +22,7 @@ func DockerEngineRunning(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
+	defer cli.Close()
 	_, err = cli.Ping(ctx)
 	return err == nil
 }
@@ -44,14 +45,20 @@ func PrintDownloadPercentage(reader io.ReadCloser, out io.Writer) {
 	progressMap := make(map[string]DockerPullResponse)
 
 	ticker := time.NewTicker(5 * time.Second)
+	done := make(chan struct{})
 	go func() {
-		for range ticker.C {
-			var totalCurrent int
-			for _, progress := range progressMap {
-				totalCurrent += progress.ProgressDetail.Current
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				var totalCurrent int
+				for _, progress := range progressMap {
+					totalCurrent += progress.ProgressDetail.Current
+				}
+				totalCurrentMB := float64(totalCurrent) / 1024 / 1024
+				_, _ = out.Write([]byte(fmt.Sprintf("Downloaded: %.2f MB", totalCurrentMB)))
 			}
-			totalCurrentMB := float64(totalCurrent) / 1024 / 1024
-			_, _ = out.Write([]byte(fmt.Sprintf("Downloaded: %.2f MB", totalCurrentMB)))
 		}
 	}()
 
@@ -63,6 +70,7 @@ func PrintDownloadPercentage(reader io.ReadCloser, out io.Writer) {
 	}
 
 	ticker.Stop()
+	close(done)
 }
 
 type DockerContainerInstance struct {

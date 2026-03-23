@@ -31,6 +31,7 @@ func init() {
 
 const RuntimeServiceAgent = "codefly:service:runtime"
 const BuilderServiceAgent = "codefly:service:builder"
+const CodeServiceAgent = "codefly:service:code"
 
 /*
 A Service

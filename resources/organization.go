@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bufbuild/protovalidate-go"
+	"buf.build/go/protovalidate"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
 

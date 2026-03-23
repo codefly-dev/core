@@ -15,6 +15,8 @@ import (
 	"github.com/codefly-dev/wool"
 )
 
+// GenerateOpenAPI runs the OpenAPI generator in a companion (golden wrapper)
+// to produce client code for the given language.
 func GenerateOpenAPI(ctx context.Context, language languages.Language, destination string, _ string, endpoints ...*basev0.Endpoint) error {
 	w := wool.Get(ctx).In("generateOpenAPI", wool.Field("destination", destination))
 	_, err := shared.CheckDirectoryOrCreate(ctx, destination)
@@ -64,7 +66,7 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 	case languages.GO:
 		return generateOpenAPIGo(ctx, unique, image, destination, openapiDir, file)
 	default:
-		return w.Wrapf(err, "language not supported")
+		return w.NewError("language not supported")
 	}
 }
 
@@ -85,22 +87,24 @@ func generateOpenAPIGo(ctx context.Context, unique string, image *resources.Dock
 	openapiFile := filepath.Join("/workspace/openapi", file)
 
 	name := fmt.Sprintf("openapi-%s-%d", unique, time.Now().UnixMilli())
-	runner, err := runners.NewDockerEnvironment(ctx, image, root, name)
+	runner, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+		Name:      name,
+		SourceDir: root,
+		Image:     image,
+	})
 	if err != nil {
-		return w.Wrapf(err, "cannot create docker runner")
+		return w.Wrapf(err, "cannot create companion runner")
 	}
 	runner.WithMount(openapiDir, "/workspace/openapi")
 	runner.WithMount(root, "/workspace")
 	runner.WithWorkDir("/workspace")
 	defer func() {
-		err = runner.Shutdown(ctx)
-		if err != nil {
-			w.Warn("cannot shutdown runner", wool.ErrField(err))
+		if shutErr := runner.Shutdown(ctx); shutErr != nil {
+			w.Warn("cannot shutdown runner", wool.ErrField(shutErr))
 		}
 	}()
 
-	err = runner.Init(ctx)
-	if err != nil {
+	if err := runner.Init(ctx); err != nil {
 		return w.Wrapf(err, "cannot init runner")
 	}
 

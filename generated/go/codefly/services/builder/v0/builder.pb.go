@@ -7,14 +7,13 @@
 package v0
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	v01 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -1826,7 +1825,7 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\rconfiguration\x18\x02 \x01(\v2\x1e.codefly.base.v0.ConfigurationR\rconfiguration\x12M\n" +
 	"\n" +
 	"deployment\x18\x03 \x01(\v2-.codefly.services.builder.v0.DeploymentOutputR\n" +
-	"deployment2\xa2\x06\n" +
+	"deployment2\x9c\x06\n" +
 	"\aBuilder\x12]\n" +
 	"\x04Load\x12(.codefly.services.builder.v0.LoadRequest\x1a).codefly.services.builder.v0.LoadResponse\"\x00\x12]\n" +
 	"\x04Init\x12(.codefly.services.builder.v0.InitRequest\x1a).codefly.services.builder.v0.InitResponse\"\x00\x12c\n" +
@@ -1834,8 +1833,8 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\x06Update\x12*.codefly.services.builder.v0.UpdateRequest\x1a+.codefly.services.builder.v0.UpdateResponse\"\x00\x12]\n" +
 	"\x04Sync\x12(.codefly.services.builder.v0.SyncRequest\x1a).codefly.services.builder.v0.SyncResponse\"\x00\x12`\n" +
 	"\x05Build\x12).codefly.services.builder.v0.BuildRequest\x1a*.codefly.services.builder.v0.BuildResponse\"\x00\x12k\n" +
-	"\x06Deploy\x12..codefly.services.builder.v0.DeploymentRequest\x1a/.codefly.services.builder.v0.DeploymentResponse\"\x00\x12a\n" +
-	"\vCommunicate\x12!.codefly.services.agent.v0.Engage\x1a-.codefly.services.agent.v0.InformationRequest\"\x00B\x85\x02\n" +
+	"\x06Deploy\x12..codefly.services.builder.v0.DeploymentRequest\x1a/.codefly.services.builder.v0.DeploymentResponse\"\x00\x12[\n" +
+	"\vCommunicate\x12!.codefly.services.agent.v0.Answer\x1a#.codefly.services.agent.v0.Question\"\x00(\x010\x01B\x85\x02\n" +
 	"\x1fcom.codefly.services.builder.v0B\fBuilderProtoP\x01ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\xa2\x02\x04CSBV\xaa\x02\x1bCodefly.Services.Builder.V0\xca\x02\x1bCodefly\\Services\\Builder\\V0\xe2\x02'Codefly\\Services\\Builder\\V0\\GPBMetadata\xea\x02\x1eCodefly::Services::Builder::V0b\x06proto3"
 
 var (
@@ -1853,50 +1852,50 @@ func file_codefly_services_builder_v0_builder_proto_rawDescGZIP() []byte {
 var file_codefly_services_builder_v0_builder_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
 var file_codefly_services_builder_v0_builder_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_codefly_services_builder_v0_builder_proto_goTypes = []any{
-	(LoadStatus_Status)(0),         // 0: codefly.services.builder.v0.LoadStatus.Status
-	(CreateStatus_Status)(0),       // 1: codefly.services.builder.v0.CreateStatus.Status
-	(InitStatus_Status)(0),         // 2: codefly.services.builder.v0.InitStatus.Status
-	(UpdateStatus_Status)(0),       // 3: codefly.services.builder.v0.UpdateStatus.Status
-	(SyncStatus_Status)(0),         // 4: codefly.services.builder.v0.SyncStatus.Status
-	(BuildStatus_Status)(0),        // 5: codefly.services.builder.v0.BuildStatus.Status
-	(DeploymentStatus_Status)(0),   // 6: codefly.services.builder.v0.DeploymentStatus.Status
-	(*LoadStatus)(nil),             // 7: codefly.services.builder.v0.LoadStatus
-	(*LoadRequest)(nil),            // 8: codefly.services.builder.v0.LoadRequest
-	(*CreationMode)(nil),           // 9: codefly.services.builder.v0.CreationMode
-	(*SyncMode)(nil),               // 10: codefly.services.builder.v0.SyncMode
-	(*LoadResponse)(nil),           // 11: codefly.services.builder.v0.LoadResponse
-	(*CreateRequest)(nil),          // 12: codefly.services.builder.v0.CreateRequest
-	(*CreateStatus)(nil),           // 13: codefly.services.builder.v0.CreateStatus
-	(*CreateResponse)(nil),         // 14: codefly.services.builder.v0.CreateResponse
-	(*InitStatus)(nil),             // 15: codefly.services.builder.v0.InitStatus
-	(*InitRequest)(nil),            // 16: codefly.services.builder.v0.InitRequest
-	(*InitResponse)(nil),           // 17: codefly.services.builder.v0.InitResponse
-	(*UpdateStatus)(nil),           // 18: codefly.services.builder.v0.UpdateStatus
-	(*UpdateRequest)(nil),          // 19: codefly.services.builder.v0.UpdateRequest
-	(*UpdateResponse)(nil),         // 20: codefly.services.builder.v0.UpdateResponse
-	(*SyncRequest)(nil),            // 21: codefly.services.builder.v0.SyncRequest
-	(*SyncStatus)(nil),             // 22: codefly.services.builder.v0.SyncStatus
-	(*SyncResponse)(nil),           // 23: codefly.services.builder.v0.SyncResponse
-	(*BuildContext)(nil),           // 24: codefly.services.builder.v0.BuildContext
-	(*BuildRequest)(nil),           // 25: codefly.services.builder.v0.BuildRequest
-	(*BuildResult)(nil),            // 26: codefly.services.builder.v0.BuildResult
-	(*BuildStatus)(nil),            // 27: codefly.services.builder.v0.BuildStatus
-	(*BuildResponse)(nil),          // 28: codefly.services.builder.v0.BuildResponse
-	(*DeploymentRequest)(nil),      // 29: codefly.services.builder.v0.DeploymentRequest
-	(*DeploymentStatus)(nil),       // 30: codefly.services.builder.v0.DeploymentStatus
-	(*DeploymentResponse)(nil),     // 31: codefly.services.builder.v0.DeploymentResponse
-	(*v0.ServiceIdentity)(nil),     // 32: codefly.base.v0.ServiceIdentity
-	(*v0.Version)(nil),             // 33: codefly.base.v0.Version
-	(*v0.Endpoint)(nil),            // 34: codefly.base.v0.Endpoint
-	(*DockerBuildContext)(nil),     // 35: codefly.services.builder.v0.DockerBuildContext
-	(*DockerBuildResult)(nil),      // 36: codefly.services.builder.v0.DockerBuildResult
-	(*v0.Environment)(nil),         // 37: codefly.base.v0.Environment
-	(*Deployment)(nil),             // 38: codefly.services.builder.v0.Deployment
-	(*v0.Configuration)(nil),       // 39: codefly.base.v0.Configuration
-	(*v0.NetworkMapping)(nil),      // 40: codefly.base.v0.NetworkMapping
-	(*DeploymentOutput)(nil),       // 41: codefly.services.builder.v0.DeploymentOutput
-	(*v01.Engage)(nil),             // 42: codefly.services.agent.v0.Engage
-	(*v01.InformationRequest)(nil), // 43: codefly.services.agent.v0.InformationRequest
+	(LoadStatus_Status)(0),       // 0: codefly.services.builder.v0.LoadStatus.Status
+	(CreateStatus_Status)(0),     // 1: codefly.services.builder.v0.CreateStatus.Status
+	(InitStatus_Status)(0),       // 2: codefly.services.builder.v0.InitStatus.Status
+	(UpdateStatus_Status)(0),     // 3: codefly.services.builder.v0.UpdateStatus.Status
+	(SyncStatus_Status)(0),       // 4: codefly.services.builder.v0.SyncStatus.Status
+	(BuildStatus_Status)(0),      // 5: codefly.services.builder.v0.BuildStatus.Status
+	(DeploymentStatus_Status)(0), // 6: codefly.services.builder.v0.DeploymentStatus.Status
+	(*LoadStatus)(nil),           // 7: codefly.services.builder.v0.LoadStatus
+	(*LoadRequest)(nil),          // 8: codefly.services.builder.v0.LoadRequest
+	(*CreationMode)(nil),         // 9: codefly.services.builder.v0.CreationMode
+	(*SyncMode)(nil),             // 10: codefly.services.builder.v0.SyncMode
+	(*LoadResponse)(nil),         // 11: codefly.services.builder.v0.LoadResponse
+	(*CreateRequest)(nil),        // 12: codefly.services.builder.v0.CreateRequest
+	(*CreateStatus)(nil),         // 13: codefly.services.builder.v0.CreateStatus
+	(*CreateResponse)(nil),       // 14: codefly.services.builder.v0.CreateResponse
+	(*InitStatus)(nil),           // 15: codefly.services.builder.v0.InitStatus
+	(*InitRequest)(nil),          // 16: codefly.services.builder.v0.InitRequest
+	(*InitResponse)(nil),         // 17: codefly.services.builder.v0.InitResponse
+	(*UpdateStatus)(nil),         // 18: codefly.services.builder.v0.UpdateStatus
+	(*UpdateRequest)(nil),        // 19: codefly.services.builder.v0.UpdateRequest
+	(*UpdateResponse)(nil),       // 20: codefly.services.builder.v0.UpdateResponse
+	(*SyncRequest)(nil),          // 21: codefly.services.builder.v0.SyncRequest
+	(*SyncStatus)(nil),           // 22: codefly.services.builder.v0.SyncStatus
+	(*SyncResponse)(nil),         // 23: codefly.services.builder.v0.SyncResponse
+	(*BuildContext)(nil),         // 24: codefly.services.builder.v0.BuildContext
+	(*BuildRequest)(nil),         // 25: codefly.services.builder.v0.BuildRequest
+	(*BuildResult)(nil),          // 26: codefly.services.builder.v0.BuildResult
+	(*BuildStatus)(nil),          // 27: codefly.services.builder.v0.BuildStatus
+	(*BuildResponse)(nil),        // 28: codefly.services.builder.v0.BuildResponse
+	(*DeploymentRequest)(nil),    // 29: codefly.services.builder.v0.DeploymentRequest
+	(*DeploymentStatus)(nil),     // 30: codefly.services.builder.v0.DeploymentStatus
+	(*DeploymentResponse)(nil),   // 31: codefly.services.builder.v0.DeploymentResponse
+	(*v0.ServiceIdentity)(nil),   // 32: codefly.base.v0.ServiceIdentity
+	(*v0.Version)(nil),           // 33: codefly.base.v0.Version
+	(*v0.Endpoint)(nil),          // 34: codefly.base.v0.Endpoint
+	(*DockerBuildContext)(nil),   // 35: codefly.services.builder.v0.DockerBuildContext
+	(*DockerBuildResult)(nil),    // 36: codefly.services.builder.v0.DockerBuildResult
+	(*v0.Environment)(nil),       // 37: codefly.base.v0.Environment
+	(*Deployment)(nil),           // 38: codefly.services.builder.v0.Deployment
+	(*v0.Configuration)(nil),     // 39: codefly.base.v0.Configuration
+	(*v0.NetworkMapping)(nil),    // 40: codefly.base.v0.NetworkMapping
+	(*DeploymentOutput)(nil),     // 41: codefly.services.builder.v0.DeploymentOutput
+	(*v01.Answer)(nil),           // 42: codefly.services.agent.v0.Answer
+	(*v01.Question)(nil),         // 43: codefly.services.agent.v0.Question
 }
 var file_codefly_services_builder_v0_builder_proto_depIdxs = []int32{
 	0,  // 0: codefly.services.builder.v0.LoadStatus.state:type_name -> codefly.services.builder.v0.LoadStatus.Status
@@ -1939,7 +1938,7 @@ var file_codefly_services_builder_v0_builder_proto_depIdxs = []int32{
 	21, // 37: codefly.services.builder.v0.Builder.Sync:input_type -> codefly.services.builder.v0.SyncRequest
 	25, // 38: codefly.services.builder.v0.Builder.Build:input_type -> codefly.services.builder.v0.BuildRequest
 	29, // 39: codefly.services.builder.v0.Builder.Deploy:input_type -> codefly.services.builder.v0.DeploymentRequest
-	42, // 40: codefly.services.builder.v0.Builder.Communicate:input_type -> codefly.services.agent.v0.Engage
+	42, // 40: codefly.services.builder.v0.Builder.Communicate:input_type -> codefly.services.agent.v0.Answer
 	11, // 41: codefly.services.builder.v0.Builder.Load:output_type -> codefly.services.builder.v0.LoadResponse
 	17, // 42: codefly.services.builder.v0.Builder.Init:output_type -> codefly.services.builder.v0.InitResponse
 	14, // 43: codefly.services.builder.v0.Builder.Create:output_type -> codefly.services.builder.v0.CreateResponse
@@ -1947,7 +1946,7 @@ var file_codefly_services_builder_v0_builder_proto_depIdxs = []int32{
 	23, // 45: codefly.services.builder.v0.Builder.Sync:output_type -> codefly.services.builder.v0.SyncResponse
 	28, // 46: codefly.services.builder.v0.Builder.Build:output_type -> codefly.services.builder.v0.BuildResponse
 	31, // 47: codefly.services.builder.v0.Builder.Deploy:output_type -> codefly.services.builder.v0.DeploymentResponse
-	43, // 48: codefly.services.builder.v0.Builder.Communicate:output_type -> codefly.services.agent.v0.InformationRequest
+	43, // 48: codefly.services.builder.v0.Builder.Communicate:output_type -> codefly.services.agent.v0.Question
 	41, // [41:49] is the sub-list for method output_type
 	33, // [33:41] is the sub-list for method input_type
 	33, // [33:33] is the sub-list for extension type_name

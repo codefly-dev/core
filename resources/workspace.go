@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 
@@ -24,8 +25,11 @@ type Workspace struct {
 
 	Layout string `yaml:"layout"`
 
-	// Modules in the Workspace
+	// Modules in the Workspace (used for non-flat layouts)
 	Modules []*ModuleReference `yaml:"modules,omitempty"`
+
+	// Services in flat layout (embedded directly, replaces module.codefly.yaml)
+	Services []*ServiceReference `yaml:"services,omitempty"`
 
 	Path string `yaml:"path,omitempty"`
 
@@ -178,6 +182,21 @@ func FindWorkspaceUp(ctx context.Context) (*Workspace, error) {
 // LoadModuleFromReference loads an module from a reference
 func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *ModuleReference) (*Module, error) {
 	w := wool.Get(ctx).In("Workspace::LoadModuleFromReference", wool.NameField(ref.Name))
+
+	if workspace.Layout == LayoutKindFlat && ref.Name == workspace.Name {
+		mod := &Module{
+			Kind:              ModuleKind,
+			Name:              workspace.Name,
+			ServiceReferences: workspace.Services,
+			dir:               workspace.Dir(),
+			flatWorkspace:     workspace,
+		}
+		if err := mod.postLoad(ctx); err != nil {
+			return nil, w.Wrapf(err, "cannot post-load flat module")
+		}
+		return mod, nil
+	}
+
 	dir := workspace.ModulePath(ctx, ref)
 	mod, err := LoadModuleFromDir(ctx, dir)
 	if err != nil {
@@ -251,6 +270,25 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 	}
 	if workspace.Layout == LayoutKindFlat {
 		workspace.Modules = []*ModuleReference{{Name: workspace.Name}}
+
+		// Backward compat: migrate from module.codefly.yaml if it exists
+		moduleFile := path.Join(workspace.Dir(), ModuleConfigurationName)
+		if ok, _ := shared.FileExists(ctx, moduleFile); ok {
+			if len(workspace.Services) == 0 {
+				mod, loadErr := LoadFromDir[Module](ctx, workspace.Dir())
+				if loadErr == nil && len(mod.ServiceReferences) > 0 {
+					workspace.Services = mod.ServiceReferences
+					w.Info("migrated services from module.codefly.yaml into workspace")
+				}
+			}
+			_ = os.Remove(moduleFile)
+			// Persist the migration: write a clean copy without Modules
+			clean := workspace.Clone()
+			clean.Modules = nil
+			if saveErr := SaveToDir[Workspace](ctx, clean, workspace.Dir()); saveErr != nil {
+				w.Warn("cannot save workspace after migration", wool.ErrField(saveErr))
+			}
+		}
 	}
 	workspace.layout, err = NewLayout(context.Background(), workspace.Dir(), workspace.Layout, nil)
 	if err != nil {
@@ -268,6 +306,9 @@ func (workspace *Workspace) preSave(ctx context.Context) (*Workspace, error) {
 	serialized := workspace.Clone()
 	if workspace.Layout == LayoutKindFlat {
 		serialized.Modules = nil
+		// For non-flat layouts, don't serialize Services
+	} else {
+		serialized.Services = nil
 	}
 	return serialized, nil
 }

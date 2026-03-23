@@ -312,9 +312,10 @@ type CopyInstruction struct {
 // Create is equivalent of "touch"
 func CreateFile(ctx context.Context, path string) error {
 	w := wool.Get(ctx).In("shared.CreateFile", wool.FileField(path))
-	_, err := os.Create(path)
+	f, err := os.Create(path)
 	if err != nil {
 		return w.Wrapf(err, "cannot create file")
 	}
+	defer f.Close()
 	return nil
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/wool"
 
-	"github.com/bufbuild/protovalidate-go"
+	"buf.build/go/protovalidate"
 
 	"github.com/codefly-dev/core/actions/actions"
 	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"

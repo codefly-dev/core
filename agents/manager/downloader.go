@@ -69,6 +69,11 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot download agent")
 	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return w.NewError("unexpected status code %d when downloading agent", resp.StatusCode)
+	}
 
 	tmp, err := os.CreateTemp("", "service-*.tar.gz")
 	if err != nil {
@@ -98,13 +103,6 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	}
 	bar.Finish()
 
-	defer resp.Body.Close()
-
-	// Write the body to file
-	_, err = io.Copy(tmp, resp.Body)
-	if err != nil {
-		return w.Wrapf(err, "cannot copy agent")
-	}
 	tmpDir, err := os.MkdirTemp("", "service-*")
 	if err != nil {
 		return w.Wrapf(err, "cannot create temp directory")

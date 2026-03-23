@@ -8,7 +8,6 @@ package v0
 
 import (
 	context "context"
-
 	v0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -52,8 +51,9 @@ type BuilderClient interface {
 	// Deployment/Build only on init data
 	Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error)
 	Deploy(ctx context.Context, in *DeploymentRequest, opts ...grpc.CallOption) (*DeploymentResponse, error)
-	// Communication helper
-	Communicate(ctx context.Context, in *v0.Engage, opts ...grpc.CallOption) (*v0.InformationRequest, error)
+	// Bidirectional streaming for interactive Q&A (e.g. during Create/Sync).
+	// Plugin streams Questions, CLI streams Answers.
+	Communicate(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[v0.Answer, v0.Question], error)
 }
 
 type builderClient struct {
@@ -134,15 +134,18 @@ func (c *builderClient) Deploy(ctx context.Context, in *DeploymentRequest, opts 
 	return out, nil
 }
 
-func (c *builderClient) Communicate(ctx context.Context, in *v0.Engage, opts ...grpc.CallOption) (*v0.InformationRequest, error) {
+func (c *builderClient) Communicate(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[v0.Answer, v0.Question], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(v0.InformationRequest)
-	err := c.cc.Invoke(ctx, Builder_Communicate_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &Builder_ServiceDesc.Streams[0], Builder_Communicate_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[v0.Answer, v0.Question]{ClientStream: stream}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Builder_CommunicateClient = grpc.BidiStreamingClient[v0.Answer, v0.Question]
 
 // BuilderServer is the server API for Builder service.
 // All implementations must embed UnimplementedBuilderServer
@@ -165,8 +168,9 @@ type BuilderServer interface {
 	// Deployment/Build only on init data
 	Build(context.Context, *BuildRequest) (*BuildResponse, error)
 	Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error)
-	// Communication helper
-	Communicate(context.Context, *v0.Engage) (*v0.InformationRequest, error)
+	// Bidirectional streaming for interactive Q&A (e.g. during Create/Sync).
+	// Plugin streams Questions, CLI streams Answers.
+	Communicate(grpc.BidiStreamingServer[v0.Answer, v0.Question]) error
 	mustEmbedUnimplementedBuilderServer()
 }
 
@@ -198,8 +202,8 @@ func (UnimplementedBuilderServer) Build(context.Context, *BuildRequest) (*BuildR
 func (UnimplementedBuilderServer) Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Deploy not implemented")
 }
-func (UnimplementedBuilderServer) Communicate(context.Context, *v0.Engage) (*v0.InformationRequest, error) {
-	return nil, status.Error(codes.Unimplemented, "method Communicate not implemented")
+func (UnimplementedBuilderServer) Communicate(grpc.BidiStreamingServer[v0.Answer, v0.Question]) error {
+	return status.Error(codes.Unimplemented, "method Communicate not implemented")
 }
 func (UnimplementedBuilderServer) mustEmbedUnimplementedBuilderServer() {}
 func (UnimplementedBuilderServer) testEmbeddedByValue()                 {}
@@ -348,23 +352,12 @@ func _Builder_Deploy_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Builder_Communicate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(v0.Engage)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(BuilderServer).Communicate(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Builder_Communicate_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BuilderServer).Communicate(ctx, req.(*v0.Engage))
-	}
-	return interceptor(ctx, in, info, handler)
+func _Builder_Communicate_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(BuilderServer).Communicate(&grpc.GenericServerStream[v0.Answer, v0.Question]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Builder_CommunicateServer = grpc.BidiStreamingServer[v0.Answer, v0.Question]
 
 // Builder_ServiceDesc is the grpc.ServiceDesc for Builder service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -401,11 +394,14 @@ var Builder_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "Deploy",
 			Handler:    _Builder_Deploy_Handler,
 		},
+	},
+	Streams: []grpc.StreamDesc{
 		{
-			MethodName: "Communicate",
-			Handler:    _Builder_Communicate_Handler,
+			StreamName:    "Communicate",
+			Handler:       _Builder_Communicate_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
 	Metadata: "codefly/services/builder/v0/builder.proto",
 }

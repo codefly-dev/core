@@ -2,17 +2,15 @@ package communicate
 
 import (
 	"fmt"
-	"strings"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 )
 
-// Default values
+// Default value extractors from question definitions.
 
 func GetDefaultConfirm(options []*agentv0.Question, name string) (bool, error) {
 	for _, opt := range options {
 		if opt.Message.Name == name {
-			// check Oneof is confirm
 			if confirm, ok := opt.Value.(*agentv0.Question_Confirm); ok {
 				return confirm.Confirm.Default, nil
 			}
@@ -25,7 +23,6 @@ func GetDefaultConfirm(options []*agentv0.Question, name string) (bool, error) {
 func GetDefaultStringInput(options []*agentv0.Question, name string) (string, error) {
 	for _, opt := range options {
 		if opt.Message.Name == name {
-			// check Oneof is confirm
 			if input, ok := opt.Value.(*agentv0.Question_Input); ok {
 				if s, ok := input.Input.Default.(*agentv0.Input_StringDefault); ok {
 					return s.StringDefault, nil
@@ -34,78 +31,47 @@ func GetDefaultStringInput(options []*agentv0.Question, name string) (string, er
 			return "", fmt.Errorf("wrong type in %s for %T", name, opt.Value)
 		}
 	}
-	return "", fmt.Errorf("confirm %s not found", name)
+	return "", fmt.Errorf("input %s not found", name)
 }
 
-// Sessions
+// Answer extractors from a map of answers (returned by QuestionAsker.RunSequence).
 
-func (session *ServerSession) Confirm(stage string) (bool, error) {
-	answer := session.states[stage]
-	if answer == nil {
-		return false, fmt.Errorf("cannot find stage %s", stage)
+func Confirm(answers map[string]*agentv0.Answer, stage string) (bool, error) {
+	answer, ok := answers[stage]
+	if !ok || answer == nil {
+		return false, fmt.Errorf("cannot find answer for %s", stage)
 	}
 	return answer.GetConfirm().Confirmed, nil
 }
 
-func (session *ServerSession) Selection(stage string) (*agentv0.SelectionAnswer, error) {
-	answer := session.states[stage]
-	if answer == nil {
-		return nil, fmt.Errorf("cannot find stage %s", stage)
+func Selection(answers map[string]*agentv0.Answer, stage string) (*agentv0.SelectionAnswer, error) {
+	answer, ok := answers[stage]
+	if !ok || answer == nil {
+		return nil, fmt.Errorf("cannot find answer for %s", stage)
 	}
 	return answer.GetSelection(), nil
 }
 
-func (session *ServerSession) Input(stage string) (*agentv0.InputAnswer, error) {
-	answer := session.states[stage]
-	if answer == nil {
-		return nil, fmt.Errorf("cannot find stage %s", stage)
+func InputString(answers map[string]*agentv0.Answer, stage string) (string, error) {
+	answer, ok := answers[stage]
+	if !ok || answer == nil {
+		return "", fmt.Errorf("cannot find answer for %s", stage)
 	}
-	return answer.GetInput(), nil
+	return answer.GetInput().GetStringValue(), nil
 }
 
-func (session *ServerSession) GetInputString(stage string) (string, error) {
-	answer, err := session.Input(stage)
-	if err != nil {
-		return "", fmt.Errorf("cannot find stage %s", stage)
+func InputInt(answers map[string]*agentv0.Answer, stage string) (int, error) {
+	answer, ok := answers[stage]
+	if !ok || answer == nil {
+		return 0, fmt.Errorf("cannot find answer for %s", stage)
 	}
-	return answer.GetStringValue(), nil
+	return int(answer.GetInput().GetIntValue()), nil
 }
 
-func (session *ServerSession) GetIntString(stage string) (int, error) {
-	answer, err := session.Input(stage)
-	if err != nil {
-		return 0, fmt.Errorf("cannot find stage %s", stage)
-	}
-	return int(answer.GetIntValue()), nil
-}
-
-func (session *ServerSession) Choice(stage string) (*agentv0.ChoiceAnswer, error) {
-	answer := session.states[stage]
-	if answer == nil {
-		return nil, fmt.Errorf("cannot find stage %s", stage)
+func Choice(answers map[string]*agentv0.Answer, stage string) (*agentv0.ChoiceAnswer, error) {
+	answer, ok := answers[stage]
+	if !ok || answer == nil {
+		return nil, fmt.Errorf("cannot find answer for %s", stage)
 	}
 	return answer.GetChoice(), nil
-}
-
-func StateAsString(s *agentv0.Answer) string {
-	switch s.Value.(type) {
-	case *agentv0.Answer_Confirm:
-		return s.GetConfirm().String()
-	case *agentv0.Answer_Selection:
-		return s.GetSelection().String()
-	case *agentv0.Answer_Input:
-		return s.GetInput().String()
-	case *agentv0.Answer_Choice:
-		return s.GetChoice().String()
-	default:
-		return ""
-	}
-}
-
-func (session *ServerSession) String() string {
-	var ss []string
-	for i, s := range session.states {
-		ss = append(ss, fmt.Sprintf("%s: %s", i, s))
-	}
-	return strings.Join(ss, " -> ")
 }

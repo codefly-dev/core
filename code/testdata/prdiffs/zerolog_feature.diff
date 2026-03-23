@@ -1,0 +1,41 @@
+diff --git a/README.md b/README.md
+index 6659e2dd..f7caa1cf 100644
+--- a/README.md
++++ b/README.md
+@@ -827,4 +827,4 @@ references to them from within any `MarshalZerologArray(a *Array)` callback (e.g
+ own code as they will be cleared and returned to the pool after being buffered by a call to `Context.Array()` or `Event.Array()`.
+ 
+ Any _dictionary_ `Event` returned from `Context.CreateDict()` or `Event.CreateDict()` **must not** be referenced after being
+-buffered by a call to `Context.Dict()` or `Event.Dict()` as they will be cleared and returned to the pool.
++buffered by a call to `Array.Dict()`, `Context.Dict()`, or `Event.Dict()` as they will be cleared and returned to the pool.
+diff --git a/array.go b/array.go
+index a75a5725..dbb0bda3 100644
+--- a/array.go
++++ b/array.go
+@@ -265,6 +265,7 @@ func (a *Array) MACAddr(ha net.HardwareAddr) *Array {
+ func (a *Array) Dict(dict *Event) *Array {
+ 	dict.buf = enc.AppendEndMarker(dict.buf)
+ 	a.buf = append(enc.AppendArrayDelim(a.buf), dict.buf...)
++	putEvent(dict)
+ 	return a
+ }
+ 
+diff --git a/event.go b/event.go
+index 0e053475..82d771fd 100644
+--- a/event.go
++++ b/event.go
+@@ -180,11 +180,10 @@ func (e *Event) Fields(fields interface{}) *Event {
+ // Dict adds the field key with a dict to the event context.
+ // Use e.CreateDict() to create the dictionary.
+ func (e *Event) Dict(key string, dict *Event) *Event {
+-	if e == nil {
+-		return e
++	if e != nil {
++		dict.buf = enc.AppendEndMarker(dict.buf)
++		e.buf = append(enc.AppendKey(e.buf, key), dict.buf...)
+ 	}
+-	dict.buf = enc.AppendEndMarker(dict.buf)
+-	e.buf = append(enc.AppendKey(e.buf, key), dict.buf...)
+ 	putEvent(dict)
+ 	return e
+ }

@@ -8,7 +8,6 @@ package v0
 
 import (
 	context "context"
-
 	v0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -26,7 +25,9 @@ const (
 	Runtime_Start_FullMethodName       = "/codefly.services.runtime.v0.Runtime/Start"
 	Runtime_Stop_FullMethodName        = "/codefly.services.runtime.v0.Runtime/Stop"
 	Runtime_Destroy_FullMethodName     = "/codefly.services.runtime.v0.Runtime/Destroy"
+	Runtime_Build_FullMethodName       = "/codefly.services.runtime.v0.Runtime/Build"
 	Runtime_Test_FullMethodName        = "/codefly.services.runtime.v0.Runtime/Test"
+	Runtime_Lint_FullMethodName        = "/codefly.services.runtime.v0.Runtime/Lint"
 	Runtime_Information_FullMethodName = "/codefly.services.runtime.v0.Runtime/Information"
 	Runtime_Communicate_FullMethodName = "/codefly.services.runtime.v0.Runtime/Communicate"
 )
@@ -46,12 +47,17 @@ type RuntimeClient interface {
 	Stop(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
 	// Destroy the underlying service
 	Destroy(ctx context.Context, in *DestroyRequest, opts ...grpc.CallOption) (*DestroyResponse, error)
+	// Dev compile check
+	Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error)
 	// Test the service
 	Test(ctx context.Context, in *TestRequest, opts ...grpc.CallOption) (*TestResponse, error)
+	// Lint the service
+	Lint(ctx context.Context, in *LintRequest, opts ...grpc.CallOption) (*LintResponse, error)
 	// Information about the state of the service
 	Information(ctx context.Context, in *InformationRequest, opts ...grpc.CallOption) (*InformationResponse, error)
-	// Communication helper
-	Communicate(ctx context.Context, in *v0.Engage, opts ...grpc.CallOption) (*v0.InformationRequest, error)
+	// Bidirectional streaming for interactive Q&A.
+	// Plugin streams Questions, CLI streams Answers.
+	Communicate(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[v0.Answer, v0.Question], error)
 }
 
 type runtimeClient struct {
@@ -112,10 +118,30 @@ func (c *runtimeClient) Destroy(ctx context.Context, in *DestroyRequest, opts ..
 	return out, nil
 }
 
+func (c *runtimeClient) Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BuildResponse)
+	err := c.cc.Invoke(ctx, Runtime_Build_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *runtimeClient) Test(ctx context.Context, in *TestRequest, opts ...grpc.CallOption) (*TestResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TestResponse)
 	err := c.cc.Invoke(ctx, Runtime_Test_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *runtimeClient) Lint(ctx context.Context, in *LintRequest, opts ...grpc.CallOption) (*LintResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LintResponse)
+	err := c.cc.Invoke(ctx, Runtime_Lint_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -132,15 +158,18 @@ func (c *runtimeClient) Information(ctx context.Context, in *InformationRequest,
 	return out, nil
 }
 
-func (c *runtimeClient) Communicate(ctx context.Context, in *v0.Engage, opts ...grpc.CallOption) (*v0.InformationRequest, error) {
+func (c *runtimeClient) Communicate(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[v0.Answer, v0.Question], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(v0.InformationRequest)
-	err := c.cc.Invoke(ctx, Runtime_Communicate_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &Runtime_ServiceDesc.Streams[0], Runtime_Communicate_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[v0.Answer, v0.Question]{ClientStream: stream}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Runtime_CommunicateClient = grpc.BidiStreamingClient[v0.Answer, v0.Question]
 
 // RuntimeServer is the server API for Runtime service.
 // All implementations must embed UnimplementedRuntimeServer
@@ -157,12 +186,17 @@ type RuntimeServer interface {
 	Stop(context.Context, *StopRequest) (*StopResponse, error)
 	// Destroy the underlying service
 	Destroy(context.Context, *DestroyRequest) (*DestroyResponse, error)
+	// Dev compile check
+	Build(context.Context, *BuildRequest) (*BuildResponse, error)
 	// Test the service
 	Test(context.Context, *TestRequest) (*TestResponse, error)
+	// Lint the service
+	Lint(context.Context, *LintRequest) (*LintResponse, error)
 	// Information about the state of the service
 	Information(context.Context, *InformationRequest) (*InformationResponse, error)
-	// Communication helper
-	Communicate(context.Context, *v0.Engage) (*v0.InformationRequest, error)
+	// Bidirectional streaming for interactive Q&A.
+	// Plugin streams Questions, CLI streams Answers.
+	Communicate(grpc.BidiStreamingServer[v0.Answer, v0.Question]) error
 	mustEmbedUnimplementedRuntimeServer()
 }
 
@@ -188,14 +222,20 @@ func (UnimplementedRuntimeServer) Stop(context.Context, *StopRequest) (*StopResp
 func (UnimplementedRuntimeServer) Destroy(context.Context, *DestroyRequest) (*DestroyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Destroy not implemented")
 }
+func (UnimplementedRuntimeServer) Build(context.Context, *BuildRequest) (*BuildResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Build not implemented")
+}
 func (UnimplementedRuntimeServer) Test(context.Context, *TestRequest) (*TestResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Test not implemented")
+}
+func (UnimplementedRuntimeServer) Lint(context.Context, *LintRequest) (*LintResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Lint not implemented")
 }
 func (UnimplementedRuntimeServer) Information(context.Context, *InformationRequest) (*InformationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Information not implemented")
 }
-func (UnimplementedRuntimeServer) Communicate(context.Context, *v0.Engage) (*v0.InformationRequest, error) {
-	return nil, status.Error(codes.Unimplemented, "method Communicate not implemented")
+func (UnimplementedRuntimeServer) Communicate(grpc.BidiStreamingServer[v0.Answer, v0.Question]) error {
+	return status.Error(codes.Unimplemented, "method Communicate not implemented")
 }
 func (UnimplementedRuntimeServer) mustEmbedUnimplementedRuntimeServer() {}
 func (UnimplementedRuntimeServer) testEmbeddedByValue()                 {}
@@ -308,6 +348,24 @@ func _Runtime_Destroy_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Runtime_Build_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BuildRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServer).Build(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Runtime_Build_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServer).Build(ctx, req.(*BuildRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Runtime_Test_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TestRequest)
 	if err := dec(in); err != nil {
@@ -322,6 +380,24 @@ func _Runtime_Test_Handler(srv interface{}, ctx context.Context, dec func(interf
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RuntimeServer).Test(ctx, req.(*TestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Runtime_Lint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LintRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServer).Lint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Runtime_Lint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServer).Lint(ctx, req.(*LintRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -344,23 +420,12 @@ func _Runtime_Information_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Runtime_Communicate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(v0.Engage)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuntimeServer).Communicate(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Runtime_Communicate_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuntimeServer).Communicate(ctx, req.(*v0.Engage))
-	}
-	return interceptor(ctx, in, info, handler)
+func _Runtime_Communicate_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RuntimeServer).Communicate(&grpc.GenericServerStream[v0.Answer, v0.Question]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Runtime_CommunicateServer = grpc.BidiStreamingServer[v0.Answer, v0.Question]
 
 // Runtime_ServiceDesc is the grpc.ServiceDesc for Runtime service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -390,18 +455,29 @@ var Runtime_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Runtime_Destroy_Handler,
 		},
 		{
+			MethodName: "Build",
+			Handler:    _Runtime_Build_Handler,
+		},
+		{
 			MethodName: "Test",
 			Handler:    _Runtime_Test_Handler,
+		},
+		{
+			MethodName: "Lint",
+			Handler:    _Runtime_Lint_Handler,
 		},
 		{
 			MethodName: "Information",
 			Handler:    _Runtime_Information_Handler,
 		},
+	},
+	Streams: []grpc.StreamDesc{
 		{
-			MethodName: "Communicate",
-			Handler:    _Runtime_Communicate_Handler,
+			StreamName:    "Communicate",
+			Handler:       _Runtime_Communicate_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
 	Metadata: "codefly/services/runtime/v0/runtime.proto",
 }

@@ -8,7 +8,6 @@ package v0
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -21,6 +20,8 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	Agent_GetAgentInformation_FullMethodName = "/codefly.services.agent.v0.Agent/GetAgentInformation"
+	Agent_ListCommands_FullMethodName        = "/codefly.services.agent.v0.Agent/ListCommands"
+	Agent_RunPluginCommand_FullMethodName    = "/codefly.services.agent.v0.Agent/RunPluginCommand"
 )
 
 // AgentClient is the client API for Agent service.
@@ -28,6 +29,10 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AgentClient interface {
 	GetAgentInformation(ctx context.Context, in *AgentInformationRequest, opts ...grpc.CallOption) (*AgentInformation, error)
+	// ListCommands returns the commands this plugin agent provides.
+	ListCommands(ctx context.Context, in *ListCommandsRequest, opts ...grpc.CallOption) (*ListCommandsResponse, error)
+	// RunPluginCommand executes a plugin-provided command.
+	RunPluginCommand(ctx context.Context, in *RunPluginCommandRequest, opts ...grpc.CallOption) (*RunPluginCommandResponse, error)
 }
 
 type agentClient struct {
@@ -48,11 +53,35 @@ func (c *agentClient) GetAgentInformation(ctx context.Context, in *AgentInformat
 	return out, nil
 }
 
+func (c *agentClient) ListCommands(ctx context.Context, in *ListCommandsRequest, opts ...grpc.CallOption) (*ListCommandsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListCommandsResponse)
+	err := c.cc.Invoke(ctx, Agent_ListCommands_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) RunPluginCommand(ctx context.Context, in *RunPluginCommandRequest, opts ...grpc.CallOption) (*RunPluginCommandResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunPluginCommandResponse)
+	err := c.cc.Invoke(ctx, Agent_RunPluginCommand_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServer is the server API for Agent service.
 // All implementations must embed UnimplementedAgentServer
 // for forward compatibility.
 type AgentServer interface {
 	GetAgentInformation(context.Context, *AgentInformationRequest) (*AgentInformation, error)
+	// ListCommands returns the commands this plugin agent provides.
+	ListCommands(context.Context, *ListCommandsRequest) (*ListCommandsResponse, error)
+	// RunPluginCommand executes a plugin-provided command.
+	RunPluginCommand(context.Context, *RunPluginCommandRequest) (*RunPluginCommandResponse, error)
 	mustEmbedUnimplementedAgentServer()
 }
 
@@ -65,6 +94,12 @@ type UnimplementedAgentServer struct{}
 
 func (UnimplementedAgentServer) GetAgentInformation(context.Context, *AgentInformationRequest) (*AgentInformation, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAgentInformation not implemented")
+}
+func (UnimplementedAgentServer) ListCommands(context.Context, *ListCommandsRequest) (*ListCommandsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListCommands not implemented")
+}
+func (UnimplementedAgentServer) RunPluginCommand(context.Context, *RunPluginCommandRequest) (*RunPluginCommandResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RunPluginCommand not implemented")
 }
 func (UnimplementedAgentServer) mustEmbedUnimplementedAgentServer() {}
 func (UnimplementedAgentServer) testEmbeddedByValue()               {}
@@ -105,6 +140,42 @@ func _Agent_GetAgentInformation_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Agent_ListCommands_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListCommandsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).ListCommands(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_ListCommands_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).ListCommands(ctx, req.(*ListCommandsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_RunPluginCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunPluginCommandRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).RunPluginCommand(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_RunPluginCommand_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).RunPluginCommand(ctx, req.(*RunPluginCommandRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Agent_ServiceDesc is the grpc.ServiceDesc for Agent service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -115,6 +186,14 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAgentInformation",
 			Handler:    _Agent_GetAgentInformation_Handler,
+		},
+		{
+			MethodName: "ListCommands",
+			Handler:    _Agent_ListCommands_Handler,
+		},
+		{
+			MethodName: "RunPluginCommand",
+			Handler:    _Agent_RunPluginCommand_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

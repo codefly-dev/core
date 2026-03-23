@@ -61,7 +61,7 @@ func (nix *NixEnvironment) Init(ctx context.Context) error {
 
 func (nix *NixEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("NixEnvironment.WithEnvironmentVariables")
-	w.Debug("adding", wool.Field("envs", envs))
+	w.Trace("adding", wool.Field("envs", envs))
 	nix.envs = append(nix.envs, envs...)
 }
 
@@ -81,7 +81,7 @@ func (nix *NixEnvironment) Shutdown(context.Context) error {
 // NewProcess creates a process that runs inside `nix develop --command`.
 func (nix *NixEnvironment) NewProcess(bin string, args ...string) (Proc, error) {
 	// nix develop <dir> --command <bin> <args...>
-	cmd := []string{"nix", "develop", nix.dir, "--command", bin}
+	cmd := []string{"nix", "--extra-experimental-features", "nix-command flakes", "develop", nix.dir, "--command", bin}
 	cmd = append(cmd, args...)
 	return &NixProc{
 		env:     nix,
@@ -105,6 +105,12 @@ type NixProc struct {
 
 	dir    string
 	waitOn string
+
+	// Pipe support for interactive/bidirectional communication.
+	stdinReader  *io.PipeReader
+	stdinWriter  *io.PipeWriter
+	stdoutReader *io.PipeReader
+	stdoutWriter *io.PipeWriter
 }
 
 func (proc *NixProc) WaitOn(bin string) {
@@ -122,9 +128,25 @@ func (proc *NixProc) WithOutput(output io.Writer) {
 	proc.output = output
 }
 
+func (proc *NixProc) StdinPipe() (io.WriteCloser, error) {
+	if proc.stdinWriter != nil {
+		return nil, fmt.Errorf("StdinPipe already called")
+	}
+	proc.stdinReader, proc.stdinWriter = io.Pipe()
+	return proc.stdinWriter, nil
+}
+
+func (proc *NixProc) StdoutPipe() (io.ReadCloser, error) {
+	if proc.stdoutReader != nil {
+		return nil, fmt.Errorf("StdoutPipe already called")
+	}
+	proc.stdoutReader, proc.stdoutWriter = io.Pipe()
+	return proc.stdoutReader, nil
+}
+
 func (proc *NixProc) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("NixProc.WithEnvironmentVariables")
-	w.Debug("adding", wool.Field("envs", envs))
+	w.Trace("adding", wool.Field("envs", envs))
 	proc.envs = append(proc.envs, envs...)
 }
 
@@ -144,7 +166,7 @@ func (proc *NixProc) IsRunning(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	pid := proc.exec.Process.Pid
-	w.Debug("checking if process is running", wool.Field("pid", pid))
+	w.Trace("checking if process is running", wool.Field("pid", pid))
 	// #nosec G204
 	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid))
 	output, err := cmd.CombinedOutput()
@@ -163,7 +185,7 @@ func (proc *NixProc) IsRunning(ctx context.Context) (bool, error) {
 
 func (proc *NixProc) Run(ctx context.Context) error {
 	w := wool.Get(ctx).In("NixProc.Run")
-	w.Debug("running nix process", wool.Field("cmd", proc.cmd))
+	w.Trace("running nix process", wool.Field("cmd", proc.cmd))
 	if err := proc.start(ctx); err != nil {
 		return err
 	}
@@ -187,14 +209,18 @@ func (proc *NixProc) Run(ctx context.Context) error {
 			return w.Wrapf(err, "nix process failed")
 		}
 	case <-proc.stopped:
-		w.Debug("nix process was killed")
+		w.Trace("nix process was killed")
+	case <-ctx.Done():
+		w.Trace("context cancelled, stopping nix process")
+		_ = proc.Stop(ctx)
+		return ctx.Err()
 	}
 	return nil
 }
 
 func (proc *NixProc) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("NixProc.Start")
-	w.Debug("starting nix process", wool.Field("cmd", proc.cmd))
+	w.Trace("starting nix process", wool.Field("cmd", proc.cmd))
 	return proc.start(ctx)
 }
 
@@ -209,29 +235,54 @@ func (proc *NixProc) start(ctx context.Context) error {
 	cmd.Env = resources.EnvironmentVariableAsStrings(proc.env.envs)
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
+	// Wire stdin pipe if requested
+	if proc.stdinReader != nil {
+		cmd.Stdin = proc.stdinReader
 	}
 
-	if err = cmd.Start(); err != nil {
-		return w.Wrapf(err, "cannot start nix process")
+	// Wire stdout: raw pipe or forwarded through output
+	if proc.stdoutWriter != nil {
+		cmd.Stdout = proc.stdoutWriter
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+		if err = cmd.Start(); err != nil {
+			return w.Wrapf(err, "cannot start nix process")
+		}
+		proc.exec = cmd
+		go func() {
+			defer stderr.Close()
+			proc.forward(stderr)
+		}()
+		go func() {
+			_ = cmd.Wait()
+			proc.stdoutWriter.Close()
+		}()
+	} else {
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+		if err = cmd.Start(); err != nil {
+			return w.Wrapf(err, "cannot start nix process")
+		}
+		proc.exec = cmd
+		go func() {
+			defer stdout.Close()
+			proc.forward(stdout)
+		}()
+		go func() {
+			defer stderr.Close()
+			proc.forward(stderr)
+		}()
 	}
-	proc.exec = cmd
 
-	go func() {
-		defer stdout.Close()
-		proc.forward(stdout)
-	}()
-	go func() {
-		defer stderr.Close()
-		proc.forward(stderr)
-	}()
-	w.Debug("nix process started")
+	w.Trace("nix process started")
 	return nil
 }
 
@@ -250,7 +301,12 @@ func (proc *NixProc) forward(r io.Reader) {
 
 func (proc *NixProc) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("NixProc.Stop")
-	w.Debug("stopping nix process")
+	w.Trace("stopping nix process")
+
+	if proc.exec == nil || proc.exec.Process == nil {
+		w.Trace("nix process not started, nothing to stop")
+		return nil
+	}
 
 	if err := proc.exec.Process.Signal(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("failed to send SIGTERM: %w", err)
@@ -258,12 +314,12 @@ func (proc *NixProc) Stop(ctx context.Context) error {
 	time.Sleep(time.Second)
 
 	if err := proc.exec.Process.Signal(syscall.Signal(0)); err == nil {
-		w.Debug("nix process still alive after SIGTERM, sending SIGKILL")
+		w.Trace("nix process still alive after SIGTERM, sending SIGKILL")
 		if killErr := proc.exec.Process.Kill(); killErr != nil {
 			return fmt.Errorf("failed to force kill nix process: %w", killErr)
 		}
 	} else {
-		w.Debug("nix process has exited after SIGTERM")
+		w.Trace("nix process has exited after SIGTERM")
 	}
 	go func() {
 		proc.stopped <- struct{}{}

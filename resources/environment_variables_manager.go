@@ -346,7 +346,7 @@ func FindValueInEnvironmentVariables(ctx context.Context, key string, envs []str
 type RestRouteAccess struct {
 	endpoint *basev0.Endpoint
 	route    *basev0.RestRoute
-	predix   string
+	prefix   string
 }
 
 func ExtractRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess, opts ...EnvironmentVariableOption) ([]*RestRouteAccess, error) {
@@ -369,7 +369,7 @@ func ExtractRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, n
 						result = append(result, &RestRouteAccess{
 							route:    route,
 							endpoint: mp.Endpoint,
-							predix:   prefix(mp, opt),
+							prefix:   prefix(mp, opt),
 						})
 					}
 				}
@@ -513,8 +513,8 @@ func RestRoutesAsEnvironmentVariable(restRoute *RestRouteAccess) (*EnvironmentVa
 	if err != nil {
 		return nil, err
 	}
-	if restRoute.predix != "" {
-		key = fmt.Sprintf("%s%s", restRoute.predix, key)
+	if restRoute.prefix != "" {
+		key = fmt.Sprintf("%s%s", restRoute.prefix, key)
 	}
 	return Env(key, restRoute.endpoint.Visibility), nil
 }
@@ -533,6 +533,9 @@ func RestRouteEnvironmentVariableKey(info *EndpointInformation, route *basev0.Re
 }
 
 func ParseEnv(env string) *EnvironmentVariable {
-	tokens := strings.Split(env, "=")
+	tokens := strings.SplitN(env, "=", 2)
+	if len(tokens) < 2 {
+		return Env(env, "")
+	}
 	return Env(tokens[0], tokens[1])
 }

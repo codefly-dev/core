@@ -165,9 +165,9 @@ func (dep *Dependencies) Updated(ctx context.Context) (bool, error) {
 	if err != nil {
 		return true, err
 	}
-	w.Debug("calculate hash", wool.Field("hash", hash))
+	w.Trace("calculate hash", wool.Field("hash", hash))
 	current := dep.LoadHash(ctx)
-	w.Debug("current hash", wool.Field("hash", current))
+	w.Trace("current hash", wool.Field("hash", current))
 	if current == hash {
 		return false, nil
 	}
@@ -189,7 +189,7 @@ func (dep *Dependencies) WriteHash(ctx context.Context, hash string) error {
 		w.Warn("no cache location: in directory")
 		dep.cache = dep.root
 	}
-	w.Debug("write hash", wool.FileField(dep.hashFile()))
+	w.Trace("write hash", wool.FileField(dep.hashFile()))
 	// New or overwrite
 	f, err := os.Create(dep.hashFile())
 	if err != nil {
@@ -205,7 +205,7 @@ func (dep *Dependencies) WriteHash(ctx context.Context, hash string) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot write hash")
 	}
-	w.Debug("wrote hash to", wool.FileField(f.Name()))
+	w.Trace("wrote hash to", wool.FileField(f.Name()))
 	return nil
 }
 
@@ -231,7 +231,7 @@ func (dep *Dependencies) LoadHash(ctx context.Context) string {
 		w.Error("cannot read hash", wool.Field("error", err))
 		return ""
 	}
-	w.Debug("read hash from", wool.FileField(f.Name()), wool.Field("hash", hash))
+	w.Trace("read hash from", wool.FileField(f.Name()), wool.Field("hash", hash))
 	return strings.TrimSpace(hash)
 }
 
@@ -239,7 +239,7 @@ func (dep *Dependencies) Hash(ctx context.Context) (string, error) {
 	w := wool.Get(ctx).In("builders.ServiceDependencies.Hash")
 	h := sha256.New()
 	for _, component := range dep.Components {
-		w.Debug("hashing component", wool.Field("component", component.components))
+		w.Trace("hashing component", wool.Field("component", component.components))
 		hash, err := component.Hash(ctx)
 		if err != nil {
 			return "", w.Wrapf(err, "cannot get hash for component %s", component.components)

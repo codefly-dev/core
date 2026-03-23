@@ -46,7 +46,7 @@ func (native *NativeEnvironment) Init(ctx context.Context) error {
 
 func (native *NativeEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("WithEnvironmentVariables")
-	w.Debug("adding", wool.Field("envs", envs))
+	w.Trace("adding environment variables", wool.Field("count", len(envs)))
 	native.envs = append(native.envs, envs...)
 }
 
@@ -86,6 +86,12 @@ type NativeProc struct {
 	// optional override
 	dir    string
 	waitOn string
+
+	// Pipe support for interactive/bidirectional communication.
+	stdinReader  *io.PipeReader
+	stdinWriter  *io.PipeWriter
+	stdoutReader *io.PipeReader
+	stdoutWriter *io.PipeWriter
 }
 
 func (proc *NativeProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
@@ -106,7 +112,7 @@ func (proc *NativeProc) IsRunning(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	pid := proc.exec.Process.Pid
-	w.Debug("checking if process is running", wool.Field("pid", pid))
+	w.Trace("checking if process is running", wool.Field("pid", pid))
 	// #nosec G204
 	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid))
 	output, err := cmd.CombinedOutput()
@@ -114,10 +120,10 @@ func (proc *NativeProc) IsRunning(ctx context.Context) (bool, error) {
 		if strings.Contains(err.Error(), "exit") {
 			return false, nil
 		}
-		w.Debug("error checking if process is running", wool.Field("error", err), wool.Field("output", string(output)))
+		w.Trace("error checking if process is running", wool.Field("error", err), wool.Field("output", string(output)))
 		return false, err
 	}
-	w.Debug("process is running", wool.Field("output", string(output)))
+	w.Trace("process is running", wool.Field("output", string(output)))
 	if strings.Contains(string(output), fmt.Sprintf("%d", pid)) &&
 		!strings.Contains(string(output), "defunct") {
 		return true, nil
@@ -138,7 +144,7 @@ func (proc *NativeProc) WithRunningCmd(_ string) {
 
 func (proc *NativeProc) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("WithEnvironmentVariables")
-	w.Debug("adding", wool.Field("envs", envs))
+	w.Trace("adding environment variables", wool.Field("count", len(envs)))
 	proc.envs = append(proc.envs, envs...)
 }
 
@@ -160,12 +166,12 @@ func (native *NativeEnvironment) Stop(context.Context) error {
 
 func (proc *NativeProc) Run(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Run")
-	w.Debug("running process", wool.Field("cmd", proc.cmd), wool.Field("envs", proc.env.envs))
+	w.Trace("running process", wool.Field("cmd", proc.cmd))
 	err := proc.start(ctx)
 	if err != nil {
 		return err
 	}
-	w.Debug("waiting for process to finish or be killed")
+	w.Trace("waiting for process to finish or be killed")
 	done := make(chan error, 1)
 	go func() {
 		done <- proc.exec.Wait()
@@ -186,15 +192,19 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 			return w.Wrapf(err, "cannot wait for process")
 		}
 	case <-proc.stopped:
-		w.Debug("process was killed")
+		w.Trace("process was killed")
+	case <-ctx.Done():
+		w.Trace("context cancelled, stopping process")
+		_ = proc.Stop(ctx)
+		return ctx.Err()
 	}
-	w.Debug("done")
+	w.Trace("done")
 	return nil
 }
 
 func (proc *NativeProc) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Start")
-	w.Debug("starting process", wool.Field("cmd", proc.cmd), wool.Field("envs", proc.env.envs))
+	w.Trace("starting process", wool.Field("cmd", proc.cmd))
 	return proc.start(ctx)
 }
 
@@ -208,32 +218,60 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	}
 	cmd.Env = resources.EnvironmentVariableAsStrings(proc.env.envs)
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
-	w.Debug("envs", wool.Field("envs", cmd.Env))
+	w.Trace("envs", wool.Field("count", len(cmd.Env)))
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
+	// Wire stdin pipe if requested
+	if proc.stdinReader != nil {
+		cmd.Stdin = proc.stdinReader
 	}
 
-	err = cmd.Start()
-	if err != nil {
-		return err
+	// Wire stdout: raw pipe or forwarded through output
+	if proc.stdoutWriter != nil {
+		cmd.Stdout = proc.stdoutWriter
+		// stderr still goes through the regular output forwarder
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+		err = cmd.Start()
+		if err != nil {
+			return err
+		}
+		proc.exec = cmd
+		go func() {
+			defer stderr.Close()
+			proc.Forward(ctx, stderr)
+		}()
+		// Close the stdout pipe writer when the process exits
+		go func() {
+			_ = cmd.Wait()
+			proc.stdoutWriter.Close()
+		}()
+	} else {
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+		err = cmd.Start()
+		if err != nil {
+			return err
+		}
+		proc.exec = cmd
+		go func() {
+			defer stdout.Close()
+			proc.Forward(ctx, stdout)
+		}()
+		go func() {
+			defer stderr.Close()
+			proc.Forward(ctx, stderr)
+		}()
 	}
-	proc.exec = cmd
 
-	go func() {
-		defer stdout.Close()
-		proc.Forward(ctx, stdout)
-	}()
-	go func() {
-		defer stderr.Close()
-		proc.Forward(ctx, stderr)
-	}()
-	w.Debug("done")
+	w.Trace("done")
 	return nil
 }
 
@@ -255,11 +293,32 @@ func (proc *NativeProc) WithOutput(output io.Writer) {
 	proc.output = output
 }
 
+func (proc *NativeProc) StdinPipe() (io.WriteCloser, error) {
+	if proc.stdinWriter != nil {
+		return nil, fmt.Errorf("StdinPipe already called")
+	}
+	proc.stdinReader, proc.stdinWriter = io.Pipe()
+	return proc.stdinWriter, nil
+}
+
+func (proc *NativeProc) StdoutPipe() (io.ReadCloser, error) {
+	if proc.stdoutReader != nil {
+		return nil, fmt.Errorf("StdoutPipe already called")
+	}
+	proc.stdoutReader, proc.stdoutWriter = io.Pipe()
+	return proc.stdoutReader, nil
+}
+
 func (proc *NativeProc) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Stop")
-	w.Debug("stopping process")
+	w.Trace("stopping process")
 
-	w.Debug("sending SIGTERM to process")
+	if proc.exec == nil || proc.exec.Process == nil {
+		w.Trace("process not started, nothing to stop")
+		return nil
+	}
+
+	w.Trace("sending SIGTERM to process")
 	err := proc.exec.Process.Signal(syscall.SIGTERM)
 	if err != nil {
 		return fmt.Errorf("failed to send SIGTERM: %w", err)
@@ -267,15 +326,15 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 	time.Sleep(time.Second)
 
 	if err := proc.exec.Process.Signal(syscall.Signal(0)); err == nil {
-		w.Debug("process is still alive after SIGTERM, sending SIGKILL")
+		w.Trace("process is still alive after SIGTERM, sending SIGKILL")
 		if killErr := proc.exec.Process.Kill(); killErr != nil {
-			w.Debug("failed to force kill process", wool.Field("error", killErr))
+			w.Trace("failed to force kill process", wool.Field("error", killErr))
 			return fmt.Errorf("failed to force kill process: %w", killErr)
 		}
 	} else {
-		w.Debug("process has exited after SIGTERM")
+		w.Trace("process has exited after SIGTERM")
 		if !strings.Contains(err.Error(), "process already finished") {
-			w.Debug("error checking process status", wool.Field("error", err))
+			w.Trace("error checking process status", wool.Field("error", err))
 		}
 	}
 	go func() {

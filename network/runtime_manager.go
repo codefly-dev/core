@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
@@ -150,10 +151,12 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 	return out, nil
 }
 
-// WithTemporaryPorts will use random ports instead of "named" ports
+// WithTemporaryPorts will use random ports instead of "named" ports.
+// Uses a random starting point to avoid collisions between parallel tests.
 func (m *RuntimeManager) WithTemporaryPorts() {
 	m.withTemporaryPorts = true
-	m.lastRandomPort = 20000
+	// Random start between 20000-40000 to avoid parallel test collisions.
+	m.lastRandomPort = 20000 + uint16(time.Now().UnixNano()%20000)
 }
 
 // GetFreePort returns the next free port after lastRandomPort

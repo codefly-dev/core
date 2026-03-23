@@ -31,7 +31,7 @@ type Instance struct {
 
 	Identity *resources.ServiceIdentity
 
-	Agent services.Agent
+	Agent *services.ServiceAgent
 	Info  *agentv0.AgentInformation
 
 	Builder *BuilderInstance
@@ -44,13 +44,13 @@ type Instance struct {
 type BuilderInstance struct {
 	*Instance
 
-	services.Builder
+	Builder *services.BuilderAgent
 }
 
 type RuntimeInstance struct {
 	*Instance
 
-	services.Runtime
+	Runtime *services.RuntimeAgent
 
 	IsHotReloading bool
 }
@@ -62,7 +62,6 @@ func (instance *BuilderInstance) loadRequest(ctx context.Context) (*builderv0.Lo
 	relativeToWorkspace, err := instance.Workspace.RelativeDir(instance.Service)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot compute relative dir")
-
 	}
 	req := &builderv0.LoadRequest{
 		Identity: &basev0.ServiceIdentity{
@@ -114,26 +113,59 @@ func (instance *BuilderInstance) Load(ctx context.Context, opts ...BuilderLoadOp
 
 func (instance *BuilderInstance) Create(ctx context.Context, req *builderv0.CreateRequest, handler communicate.AnswerProvider) (*builderv0.CreateResponse, error) {
 	w := wool.Get(ctx).In("BuilderInstance::Create", wool.NameField(instance.Identity.Unique()))
-	err := communicate.Do[builderv0.CreateRequest](ctx, instance.Builder, handler)
+
+	// Run interactive Q&A via bidirectional streaming
+	stream, err := instance.Builder.Communicate(ctx)
 	if err != nil {
 		return &builderv0.CreateResponse{State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error()}},
-			w.Wrapf(err, "cannot communicate")
+			w.Wrapf(err, "cannot open communicate stream")
 	}
+	err = communicate.Do(ctx, stream, handler)
+	if err != nil {
+		return &builderv0.CreateResponse{State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error()}},
+			w.Wrapf(err, "communicate failed")
+	}
+
 	return instance.Builder.Create(ctx, req)
 }
 
 func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRequest, handler communicate.AnswerProvider) (*builderv0.SyncResponse, error) {
 	w := wool.Get(ctx).In("BuilderInstance::Sync", wool.NameField(instance.Identity.Unique()))
-	// Communicate always
-	err := communicate.Do[builderv0.SyncRequest](ctx, instance.Builder, handler)
+
+	// Run interactive Q&A via bidirectional streaming
+	stream, err := instance.Builder.Communicate(ctx)
 	if err != nil {
 		return &builderv0.SyncResponse{State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}},
-			w.Wrapf(err, "cannot communicate")
+			w.Wrapf(err, "cannot open communicate stream")
 	}
+	err = communicate.Do(ctx, stream, handler)
+	if err != nil {
+		return &builderv0.SyncResponse{State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}},
+			w.Wrapf(err, "communicate failed")
+	}
+
 	return instance.Builder.Sync(ctx, req)
 }
 
-// Runner methods
+// Delegations to the gRPC BuilderClient
+
+func (instance *BuilderInstance) Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error) {
+	return instance.Builder.Init(ctx, req)
+}
+
+func (instance *BuilderInstance) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
+	return instance.Builder.Build(ctx, req)
+}
+
+func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
+	return instance.Builder.Deploy(ctx, req)
+}
+
+func (instance *BuilderInstance) Update(ctx context.Context, req *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
+	return instance.Builder.Update(ctx, req)
+}
+
+// Runtime methods
 
 func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environment) (*runtimev0.LoadResponse, error) {
 	w := wool.Get(ctx).In("RuntimeInstance::Load", wool.NameField(instance.Identity.Unique()))
@@ -161,6 +193,32 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 	return instance.Runtime.Load(ctx, req)
 }
 
+// Delegations to the gRPC RuntimeClient
+
+func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
+	return instance.Runtime.Init(ctx, req)
+}
+
+func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
+	return instance.Runtime.Start(ctx, req)
+}
+
+func (instance *RuntimeInstance) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
+	return instance.Runtime.Stop(ctx, req)
+}
+
+func (instance *RuntimeInstance) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
+	return instance.Runtime.Test(ctx, req)
+}
+
+func (instance *RuntimeInstance) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*runtimev0.DestroyResponse, error) {
+	return instance.Runtime.Destroy(ctx, req)
+}
+
+func (instance *RuntimeInstance) Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
+	return instance.Runtime.Information(ctx, req)
+}
+
 // Loader
 
 // Instance Cache
@@ -170,7 +228,9 @@ func init() {
 	instances = make(map[string]*Instance)
 }
 
-func Load(ctx context.Context, module *resources.Module, service *resources.Service) (*Instance, error) {
+// Load spawns a single agent process (or reuses a cached one) and creates
+// all gRPC clients from the shared connection.
+func Load(ctx context.Context, workspace *resources.Workspace, module *resources.Module, service *resources.Service) (*Instance, error) {
 	w := wool.Get(ctx).In("services.Load", wool.NameField(service.Name))
 	identity, err := service.Identity()
 	if err != nil {
@@ -184,16 +244,18 @@ func Load(ctx context.Context, module *resources.Module, service *resources.Serv
 		return instance, nil
 	}
 
+	// Load agent -- spawns the binary and connects via gRPC
 	agent, err := LoadAgent(ctx, service.Agent)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load agent: %s", service.Agent)
 	}
-	// Init capabilities
+
 	instance := &Instance{
-		Service:  service,
-		Module:   module,
-		Identity: identity,
-		Agent:    agent,
+		Workspace: workspace,
+		Service:   service,
+		Module:    module,
+		Identity:  identity,
+		Agent:     agent,
 	}
 	instance.ProcessInfo.AgentPID = agent.ProcessInfo.PID
 
@@ -203,7 +265,6 @@ func Load(ctx context.Context, module *resources.Module, service *resources.Serv
 	}
 
 	instance.Capabilities = info.Capabilities
-
 	instance.Info = info
 
 	instances[instance.Identity.Unique()] = instance
@@ -212,12 +273,9 @@ func Load(ctx context.Context, module *resources.Module, service *resources.Serv
 	return instance, nil
 }
 
+// LoadBuilder creates a BuilderAgent from the shared connection.
 func (instance *Instance) LoadBuilder(ctx context.Context) error {
 	w := wool.Get(ctx).In("ServiceInstance::LoadBuilder", wool.NameField(instance.Identity.Unique()))
-	if builder, ok := buildersCache[instance.Identity.Unique()]; ok {
-		instance.Builder = &BuilderInstance{Instance: instance, Builder: builder}
-		return nil
-	}
 	err := instance.CheckCapabilities(agentv0.Capability_BUILDER)
 	if err != nil {
 		return w.Wrapf(err, "missing builder capability")
@@ -230,15 +288,12 @@ func (instance *Instance) LoadBuilder(ctx context.Context) error {
 	return nil
 }
 
+// LoadRuntime creates a RuntimeAgent from the shared connection.
 func (instance *Instance) LoadRuntime(ctx context.Context, withRuntimeCheck bool) error {
 	w := wool.Get(ctx).In("ServiceInstance::LoadRuntime", wool.NameField(instance.Identity.Unique()))
-	if runtime, ok := runtimesCache[instance.Identity.Unique()]; ok {
-		instance.Runtime = &RuntimeInstance{Instance: instance, Runtime: runtime}
-		return nil
-	}
 	err := instance.CheckCapabilities(agentv0.Capability_RUNTIME)
 	if err != nil {
-		return w.Wrapf(err, "missing builder capability")
+		return w.Wrapf(err, "missing runtime capability")
 	}
 	if withRuntimeCheck {
 		err = runners.CheckForRuntimes(ctx, instance.Info.RuntimeRequirements)

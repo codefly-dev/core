@@ -89,7 +89,7 @@ func FindWorkspaceConfiguration(_ context.Context, confs []*basev0.Configuration
 		if !Match(conf.Origin, ConfigurationWorkspace) {
 			continue
 		}
-		if Match(conf.Infos[0].Name, name) {
+		if len(conf.Infos) > 0 && Match(conf.Infos[0].Name, name) {
 			return conf, nil
 		}
 	}

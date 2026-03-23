@@ -52,6 +52,7 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
+	defer cli.Close()
 
 	buildContextBuffer, err := builder.createTarArchive(ctx)
 	if err != nil {

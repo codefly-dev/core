@@ -7,12 +7,11 @@
 package v0
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -539,6 +538,82 @@ func (x *ConfigurationValueDetail) GetFields() []*ConfigurationValueInformation 
 	return nil
 }
 
+type AgentTechnique struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	Tags          []string               `protobuf:"bytes,4,rep,name=tags,proto3" json:"tags,omitempty"`
+	Prompt        string                 `protobuf:"bytes,5,opt,name=prompt,proto3" json:"prompt,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentTechnique) Reset() {
+	*x = AgentTechnique{}
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentTechnique) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentTechnique) ProtoMessage() {}
+
+func (x *AgentTechnique) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentTechnique.ProtoReflect.Descriptor instead.
+func (*AgentTechnique) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *AgentTechnique) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AgentTechnique) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AgentTechnique) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *AgentTechnique) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *AgentTechnique) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
+	}
+	return ""
+}
+
 type AgentInformation struct {
 	state                protoimpl.MessageState      `protogen:"open.v1"`
 	RuntimeRequirements  []*Runtime                  `protobuf:"bytes,1,rep,name=runtime_requirements,json=runtimeRequirements,proto3" json:"runtime_requirements,omitempty"`
@@ -547,13 +622,14 @@ type AgentInformation struct {
 	Languages            []*Language                 `protobuf:"bytes,4,rep,name=languages,proto3" json:"languages,omitempty"`
 	ReadMe               string                      `protobuf:"bytes,5,opt,name=read_me,json=readMe,proto3" json:"read_me,omitempty"`
 	ConfigurationDetails []*ConfigurationValueDetail `protobuf:"bytes,6,rep,name=configuration_details,json=configurationDetails,proto3" json:"configuration_details,omitempty"`
+	Techniques           []*AgentTechnique           `protobuf:"bytes,7,rep,name=techniques,proto3" json:"techniques,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
 
 func (x *AgentInformation) Reset() {
 	*x = AgentInformation{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[6]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -565,7 +641,7 @@ func (x *AgentInformation) String() string {
 func (*AgentInformation) ProtoMessage() {}
 
 func (x *AgentInformation) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[6]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -578,7 +654,7 @@ func (x *AgentInformation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentInformation.ProtoReflect.Descriptor instead.
 func (*AgentInformation) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{6}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *AgentInformation) GetRuntimeRequirements() []*Runtime {
@@ -623,6 +699,13 @@ func (x *AgentInformation) GetConfigurationDetails() []*ConfigurationValueDetail
 	return nil
 }
 
+func (x *AgentInformation) GetTechniques() []*AgentTechnique {
+	if x != nil {
+		return x.Techniques
+	}
+	return nil
+}
+
 type AgentInformationRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -631,7 +714,7 @@ type AgentInformationRequest struct {
 
 func (x *AgentInformationRequest) Reset() {
 	*x = AgentInformationRequest{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[7]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -643,7 +726,7 @@ func (x *AgentInformationRequest) String() string {
 func (*AgentInformationRequest) ProtoMessage() {}
 
 func (x *AgentInformationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[7]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -656,7 +739,301 @@ func (x *AgentInformationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentInformationRequest.ProtoReflect.Descriptor instead.
 func (*AgentInformationRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{7}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{8}
+}
+
+// CommandDefinition describes a command that a plugin agent provides.
+// Commands are registered at startup and routed through the Gateway.
+type CommandDefinition struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`                                      // e.g. "reset_db", "deploy", "migrate"
+	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`                        // "Reset the database to a clean state"
+	Usage         string                 `protobuf:"bytes,3,opt,name=usage,proto3" json:"usage,omitempty"`                                    // "! reset_db [--seed]"
+	Aliases       []string               `protobuf:"bytes,4,rep,name=aliases,proto3" json:"aliases,omitempty"`                                // ["reset-db", "db-reset"]
+	Tags          []string               `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty"`                                      // ["database", "destructive"]
+	Plugin        string                 `protobuf:"bytes,6,opt,name=plugin,proto3" json:"plugin,omitempty"`                                  // which plugin provides this command
+	Destructive   bool                   `protobuf:"varint,7,opt,name=destructive,proto3" json:"destructive,omitempty"`                       // if true, requires confirmation before execution
+	NeedsGateway  bool                   `protobuf:"varint,8,opt,name=needs_gateway,json=needsGateway,proto3" json:"needs_gateway,omitempty"` // if true, requires a gateway connection
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommandDefinition) Reset() {
+	*x = CommandDefinition{}
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommandDefinition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommandDefinition) ProtoMessage() {}
+
+func (x *CommandDefinition) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommandDefinition.ProtoReflect.Descriptor instead.
+func (*CommandDefinition) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *CommandDefinition) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CommandDefinition) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *CommandDefinition) GetUsage() string {
+	if x != nil {
+		return x.Usage
+	}
+	return ""
+}
+
+func (x *CommandDefinition) GetAliases() []string {
+	if x != nil {
+		return x.Aliases
+	}
+	return nil
+}
+
+func (x *CommandDefinition) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *CommandDefinition) GetPlugin() string {
+	if x != nil {
+		return x.Plugin
+	}
+	return ""
+}
+
+func (x *CommandDefinition) GetDestructive() bool {
+	if x != nil {
+		return x.Destructive
+	}
+	return false
+}
+
+func (x *CommandDefinition) GetNeedsGateway() bool {
+	if x != nil {
+		return x.NeedsGateway
+	}
+	return false
+}
+
+type ListCommandsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCommandsRequest) Reset() {
+	*x = ListCommandsRequest{}
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCommandsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCommandsRequest) ProtoMessage() {}
+
+func (x *ListCommandsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCommandsRequest.ProtoReflect.Descriptor instead.
+func (*ListCommandsRequest) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{10}
+}
+
+type ListCommandsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Commands      []*CommandDefinition   `protobuf:"bytes,1,rep,name=commands,proto3" json:"commands,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCommandsResponse) Reset() {
+	*x = ListCommandsResponse{}
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCommandsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCommandsResponse) ProtoMessage() {}
+
+func (x *ListCommandsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCommandsResponse.ProtoReflect.Descriptor instead.
+func (*ListCommandsResponse) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ListCommandsResponse) GetCommands() []*CommandDefinition {
+	if x != nil {
+		return x.Commands
+	}
+	return nil
+}
+
+type RunPluginCommandRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Command       string                 `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
+	Args          []string               `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunPluginCommandRequest) Reset() {
+	*x = RunPluginCommandRequest{}
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunPluginCommandRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunPluginCommandRequest) ProtoMessage() {}
+
+func (x *RunPluginCommandRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunPluginCommandRequest.ProtoReflect.Descriptor instead.
+func (*RunPluginCommandRequest) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RunPluginCommandRequest) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+func (x *RunPluginCommandRequest) GetArgs() []string {
+	if x != nil {
+		return x.Args
+	}
+	return nil
+}
+
+type RunPluginCommandResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Output        string                 `protobuf:"bytes,2,opt,name=output,proto3" json:"output,omitempty"`
+	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunPluginCommandResponse) Reset() {
+	*x = RunPluginCommandResponse{}
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunPluginCommandResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunPluginCommandResponse) ProtoMessage() {}
+
+func (x *RunPluginCommandResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunPluginCommandResponse.ProtoReflect.Descriptor instead.
+func (*RunPluginCommandResponse) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RunPluginCommandResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RunPluginCommandResponse) GetOutput() string {
+	if x != nil {
+		return x.Output
+	}
+	return ""
+}
+
+func (x *RunPluginCommandResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
 }
 
 var File_codefly_services_agent_v0_agent_proto protoreflect.FileDescriptor
@@ -709,17 +1086,47 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x18ConfigurationValueDetail\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12P\n" +
-	"\x06fields\x18\x03 \x03(\v28.codefly.services.agent.v0.ConfigurationValueInformationR\x06fields\"\xbd\x03\n" +
+	"\x06fields\x18\x03 \x03(\v28.codefly.services.agent.v0.ConfigurationValueInformationR\x06fields\"\x82\x01\n" +
+	"\x0eAgentTechnique\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04tags\x18\x04 \x03(\tR\x04tags\x12\x16\n" +
+	"\x06prompt\x18\x05 \x01(\tR\x06prompt\"\x88\x04\n" +
 	"\x10AgentInformation\x12U\n" +
 	"\x14runtime_requirements\x18\x01 \x03(\v2\".codefly.services.agent.v0.RuntimeR\x13runtimeRequirements\x12I\n" +
 	"\fcapabilities\x18\x02 \x03(\v2%.codefly.services.agent.v0.CapabilityR\fcapabilities\x12A\n" +
 	"\tprotocols\x18\x03 \x03(\v2#.codefly.services.agent.v0.ProtocolR\tprotocols\x12A\n" +
 	"\tlanguages\x18\x04 \x03(\v2#.codefly.services.agent.v0.LanguageR\tlanguages\x12\x17\n" +
 	"\aread_me\x18\x05 \x01(\tR\x06readMe\x12h\n" +
-	"\x15configuration_details\x18\x06 \x03(\v23.codefly.services.agent.v0.ConfigurationValueDetailR\x14configurationDetails\"\x19\n" +
-	"\x17AgentInformationRequest2\x81\x01\n" +
+	"\x15configuration_details\x18\x06 \x03(\v23.codefly.services.agent.v0.ConfigurationValueDetailR\x14configurationDetails\x12I\n" +
+	"\n" +
+	"techniques\x18\a \x03(\v2).codefly.services.agent.v0.AgentTechniqueR\n" +
+	"techniques\"\x19\n" +
+	"\x17AgentInformationRequest\"\xec\x01\n" +
+	"\x11CommandDefinition\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x14\n" +
+	"\x05usage\x18\x03 \x01(\tR\x05usage\x12\x18\n" +
+	"\aaliases\x18\x04 \x03(\tR\aaliases\x12\x12\n" +
+	"\x04tags\x18\x05 \x03(\tR\x04tags\x12\x16\n" +
+	"\x06plugin\x18\x06 \x01(\tR\x06plugin\x12 \n" +
+	"\vdestructive\x18\a \x01(\bR\vdestructive\x12#\n" +
+	"\rneeds_gateway\x18\b \x01(\bR\fneedsGateway\"\x15\n" +
+	"\x13ListCommandsRequest\"`\n" +
+	"\x14ListCommandsResponse\x12H\n" +
+	"\bcommands\x18\x01 \x03(\v2,.codefly.services.agent.v0.CommandDefinitionR\bcommands\"G\n" +
+	"\x17RunPluginCommandRequest\x12\x18\n" +
+	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
+	"\x04args\x18\x02 \x03(\tR\x04args\"b\n" +
+	"\x18RunPluginCommandResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x16\n" +
+	"\x06output\x18\x02 \x01(\tR\x06output\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error2\xf3\x02\n" +
 	"\x05Agent\x12x\n" +
-	"\x13GetAgentInformation\x122.codefly.services.agent.v0.AgentInformationRequest\x1a+.codefly.services.agent.v0.AgentInformation\"\x00B\xf7\x01\n" +
+	"\x13GetAgentInformation\x122.codefly.services.agent.v0.AgentInformationRequest\x1a+.codefly.services.agent.v0.AgentInformation\"\x00\x12q\n" +
+	"\fListCommands\x12..codefly.services.agent.v0.ListCommandsRequest\x1a/.codefly.services.agent.v0.ListCommandsResponse\"\x00\x12}\n" +
+	"\x10RunPluginCommand\x122.codefly.services.agent.v0.RunPluginCommandRequest\x1a3.codefly.services.agent.v0.RunPluginCommandResponse\"\x00B\xf7\x01\n" +
 	"\x1dcom.codefly.services.agent.v0B\n" +
 	"AgentProtoP\x01ZBgithub.com/codefly-dev/core/generated/go/codefly/services/agent/v0\xa2\x02\x04CSAV\xaa\x02\x19Codefly.Services.Agent.V0\xca\x02\x19Codefly\\Services\\Agent\\V0\xe2\x02%Codefly\\Services\\Agent\\V0\\GPBMetadata\xea\x02\x1cCodefly::Services::Agent::V0b\x06proto3"
 
@@ -736,7 +1143,7 @@ func file_codefly_services_agent_v0_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_codefly_services_agent_v0_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_codefly_services_agent_v0_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_codefly_services_agent_v0_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_codefly_services_agent_v0_agent_proto_goTypes = []any{
 	(Language_Type)(0),                    // 0: codefly.services.agent.v0.Language.Type
 	(Protocol_Type)(0),                    // 1: codefly.services.agent.v0.Protocol.Type
@@ -748,8 +1155,14 @@ var file_codefly_services_agent_v0_agent_proto_goTypes = []any{
 	(*Runtime)(nil),                       // 7: codefly.services.agent.v0.Runtime
 	(*ConfigurationValueInformation)(nil), // 8: codefly.services.agent.v0.ConfigurationValueInformation
 	(*ConfigurationValueDetail)(nil),      // 9: codefly.services.agent.v0.ConfigurationValueDetail
-	(*AgentInformation)(nil),              // 10: codefly.services.agent.v0.AgentInformation
-	(*AgentInformationRequest)(nil),       // 11: codefly.services.agent.v0.AgentInformationRequest
+	(*AgentTechnique)(nil),                // 10: codefly.services.agent.v0.AgentTechnique
+	(*AgentInformation)(nil),              // 11: codefly.services.agent.v0.AgentInformation
+	(*AgentInformationRequest)(nil),       // 12: codefly.services.agent.v0.AgentInformationRequest
+	(*CommandDefinition)(nil),             // 13: codefly.services.agent.v0.CommandDefinition
+	(*ListCommandsRequest)(nil),           // 14: codefly.services.agent.v0.ListCommandsRequest
+	(*ListCommandsResponse)(nil),          // 15: codefly.services.agent.v0.ListCommandsResponse
+	(*RunPluginCommandRequest)(nil),       // 16: codefly.services.agent.v0.RunPluginCommandRequest
+	(*RunPluginCommandResponse)(nil),      // 17: codefly.services.agent.v0.RunPluginCommandResponse
 }
 var file_codefly_services_agent_v0_agent_proto_depIdxs = []int32{
 	0,  // 0: codefly.services.agent.v0.Language.type:type_name -> codefly.services.agent.v0.Language.Type
@@ -762,13 +1175,19 @@ var file_codefly_services_agent_v0_agent_proto_depIdxs = []int32{
 	5,  // 7: codefly.services.agent.v0.AgentInformation.protocols:type_name -> codefly.services.agent.v0.Protocol
 	4,  // 8: codefly.services.agent.v0.AgentInformation.languages:type_name -> codefly.services.agent.v0.Language
 	9,  // 9: codefly.services.agent.v0.AgentInformation.configuration_details:type_name -> codefly.services.agent.v0.ConfigurationValueDetail
-	11, // 10: codefly.services.agent.v0.Agent.GetAgentInformation:input_type -> codefly.services.agent.v0.AgentInformationRequest
-	10, // 11: codefly.services.agent.v0.Agent.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
-	11, // [11:12] is the sub-list for method output_type
-	10, // [10:11] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	10, // 10: codefly.services.agent.v0.AgentInformation.techniques:type_name -> codefly.services.agent.v0.AgentTechnique
+	13, // 11: codefly.services.agent.v0.ListCommandsResponse.commands:type_name -> codefly.services.agent.v0.CommandDefinition
+	12, // 12: codefly.services.agent.v0.Agent.GetAgentInformation:input_type -> codefly.services.agent.v0.AgentInformationRequest
+	14, // 13: codefly.services.agent.v0.Agent.ListCommands:input_type -> codefly.services.agent.v0.ListCommandsRequest
+	16, // 14: codefly.services.agent.v0.Agent.RunPluginCommand:input_type -> codefly.services.agent.v0.RunPluginCommandRequest
+	11, // 15: codefly.services.agent.v0.Agent.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
+	15, // 16: codefly.services.agent.v0.Agent.ListCommands:output_type -> codefly.services.agent.v0.ListCommandsResponse
+	17, // 17: codefly.services.agent.v0.Agent.RunPluginCommand:output_type -> codefly.services.agent.v0.RunPluginCommandResponse
+	15, // [15:18] is the sub-list for method output_type
+	12, // [12:15] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_agent_v0_agent_proto_init() }
@@ -782,7 +1201,7 @@ func file_codefly_services_agent_v0_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_agent_v0_agent_proto_rawDesc), len(file_codefly_services_agent_v0_agent_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   8,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

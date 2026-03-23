@@ -1,25 +1,29 @@
-# How does communication between the CLI and the Agent work?
+# Communication between CLI and Plugin
 
-Disclaimer: Looked briefly at bidirectional communication with Hashicorp plugin model but tabled that for now
-https://github.com/hashicorp/go-plugin/tree/main/examples/bidirectional
+Bidirectional gRPC streaming for interactive Q&A.
 
-Goal here is to make the API somewhat clean to that we can move to this model later if needed.
+### Flow
 
-### Terminology
+1. CLI opens a `Communicate` bidirectional stream to the plugin
+2. Plugin sends `Question` messages (confirm, input, selection, choice)
+3. CLI answers each question via the `AnswerProvider` interface
+4. CLI sends `Answer` messages back on the stream
+5. Plugin stores answers and closes the stream when done
 
-Since the CLI is the one that initiates the communication, we will call it the `client` and the agent the `server`.
+### Plugin side
 
-### Flows
+```go
+func (s *Builder) Communicate(stream builderv0.Builder_CommunicateServer) error {
+    asker := communicate.NewQuestionAsker(stream)
+    answers, err := asker.RunSequence(s.Options())
+    s.answers = answers
+    return err
+}
+```
 
-- Client asks server if communication is required for a given channel
-- If no, client proceeds with the command
-- If yes, client start a communication session with the server until the server is satisfied
+### CLI side
 
-### Communication session
-
-- Client sends an initial Information request to the server
-- Server sends back an InformationRequest
-- Client processes the InformationRequest with a handler (CLI prompt) and returns an Answer
-- The Answer is sent back to the server
-- If satisfied, the server communicates back that it is done
-- Otherwise, we repeat the process until the server is satisfied
+```go
+stream, _ := instance.Builder.Communicate(ctx)
+communicate.Do(ctx, stream, answerProvider)
+```

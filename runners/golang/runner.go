@@ -28,11 +28,10 @@ GoRunnerEnvironment is a runner for go
   - start the binary
 */
 type GoRunnerEnvironment struct {
-	// Possible environments
-	dir    string
-	docker *runners.DockerEnvironment
-	local  *runners.NativeEnvironment
-	nix    *runners.NixEnvironment
+	dir       string
+	companion runners.CompanionRunner // when using golden wrapper (Docker path)
+	local     *runners.NativeEnvironment
+	nix       *runners.NixEnvironment
 
 	localCacheDir string
 
@@ -67,7 +66,7 @@ type GoRunnerEnvironment struct {
 func (r *GoRunnerEnvironment) LocalCacheDir(ctx context.Context) string {
 	var p string
 	switch {
-	case r.docker != nil:
+	case r.companion != nil:
 		p = path.Join(r.localCacheDir, "container")
 	case r.nix != nil:
 		p = path.Join(r.localCacheDir, "nix")
@@ -84,7 +83,7 @@ func (r *GoRunnerEnvironment) WithDebugSymbol(debug bool) {
 
 func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (*GoRunnerEnvironment, error) {
 	w := wool.Get(ctx).In("NewNativeGoRunner")
-	w.Debug("creating native go runner", wool.Field("dir", dir))
+	w.Trace("creating native go runner", wool.Field("dir", dir))
 
 	// Check that go in the path
 	_, err := exec.LookPath("go")
@@ -106,7 +105,6 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
 	} else {
-		// Setup up the proper environment
 		if v, ok := os.LookupEnv("GOMODCACHE"); ok {
 			local.WithEnvironmentVariables(ctx, resources.Env("GOMODCACHE", v))
 		} else {
@@ -114,6 +112,11 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 				local.WithEnvironmentVariables(ctx, resources.Env("GOPATH", v))
 			}
 		}
+	}
+
+	// Ensure PATH is inherited so subprocesses (e.g. tests calling exec) can find binaries.
+	if p := os.Getenv("PATH"); p != "" {
+		local.WithEnvironmentVariables(ctx, resources.Env("PATH", p))
 	}
 
 	return &GoRunnerEnvironment{
@@ -129,7 +132,7 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 // All tools (go, buf, protoc) come from the flake.nix in dir.
 func NewNixGoRunner(ctx context.Context, dir string, relativeSource string) (*GoRunnerEnvironment, error) {
 	w := wool.Get(ctx).In("NewNixGoRunner")
-	w.Debug("creating nix go runner", wool.Field("dir", dir))
+	w.Trace("creating nix go runner", wool.Field("dir", dir))
 
 	nixEnv, err := runners.NewNixEnvironment(ctx, dir)
 	if err != nil {
@@ -165,31 +168,31 @@ func NewNixGoRunner(ctx context.Context, dir string, relativeSource string) (*Go
 func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir string, relativeSource string, name string) (*GoRunnerEnvironment, error) {
 	w := wool.Get(ctx).In("NewDockerGoRunner")
 
-	name = fmt.Sprintf("goland-%s", name)
+	runnerName := fmt.Sprintf("goland-%s", name)
+	w.Trace("creating docker go runner", wool.Field("image", image), wool.Field("dir", dir), wool.Field("name", runnerName))
 
-	w.Debug("creating docker go runner", wool.Field("image", image), wool.Field("dir", dir), wool.Field("name", name))
-
-	docker, err := runners.NewDockerEnvironment(ctx, image, dir, name)
+	companion, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+		Name:      runnerName,
+		SourceDir: dir,
+		Image:     image,
+	})
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot create go docker environment")
+		return nil, w.Wrapf(err, "cannot create companion runner")
 	}
-
-	docker.WithPause()
+	companion.WithPause()
 
 	sourceDir := path.Join(dir, relativeSource)
-
 	withGoModules, err := shared.FileExists(ctx, path.Join(sourceDir, "go.mod"))
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot check go modules")
 	}
-
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
 	}
 
 	return &GoRunnerEnvironment{
 		dir:           dir,
-		docker:        docker,
+		companion:     companion,
 		withGoModules: withGoModules,
 		localCacheDir: path.Join(sourceDir, "cache"),
 		sourceDir:     sourceDir,
@@ -198,8 +201,8 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 
 func (r *GoRunnerEnvironment) Env() runners.RunnerEnvironment {
 	switch {
-	case r.docker != nil:
-		return r.docker
+	case r.companion != nil:
+		return r.companion.RunnerEnv()
 	case r.nix != nil:
 		return r.nix
 	default:
@@ -213,46 +216,41 @@ func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
 		w.Warn("running without go modules: not encouraged at all")
 		r.Env().WithEnvironmentVariables(ctx, resources.Env("GO111MODULE", "off"))
 	} else {
-		w.Debug("running with go modules")
+		w.Trace("running with go modules")
 		r.Env().WithEnvironmentVariables(ctx, resources.Env("GO111MODULE", "on"))
 	}
-	if r.docker != nil {
-		// Build
-		r.docker.WithMount(r.LocalCacheDir(ctx), "/build")
+	if r.companion != nil {
+		r.companion.WithMount(r.LocalCacheDir(ctx), "/build")
 		if r.goModCache != "" {
 			w.Focus("using go mod cache", wool.Field("dir", r.goModCache))
 			_, err := shared.CheckDirectoryOrCreate(ctx, r.goModCache)
 			if err != nil {
 				w.Warn("cannot create go mod cache", wool.ErrField(err))
 			}
-			r.docker.WithMount(r.goModCache, "/go/pkg/mod")
+			r.companion.WithMount(r.goModCache, "/go/pkg/mod")
 			return
 		}
-		// Setup up the proper environment
 		if v, ok := os.LookupEnv("GOMODCACHE"); ok {
 			w.Focus("using go mod cache", wool.Field("dir", v))
-			// Mount
 			_, err := shared.CheckDirectoryOrCreate(ctx, v)
 			if err != nil {
 				wool.Get(ctx).Warn("cannot create go mod cache", wool.ErrField(err))
 			}
-			r.docker.WithMount(v, "/go/pkg/mod")
+			r.companion.WithMount(v, "/go/pkg/mod")
 		} else if v, ok := os.LookupEnv("GOPATH"); ok {
-			// Mount
 			dir := path.Join(v, "pkg/mod")
 			_, err := shared.CheckDirectoryOrCreate(ctx, dir)
 			if err != nil {
 				wool.Get(ctx).Warn("cannot create go mod cache", wool.ErrField(err))
 			}
-			r.docker.WithMount(dir, "/go/pkg/mod")
+			r.companion.WithMount(dir, "/go/pkg/mod")
 		} else {
-			// Use codefly configuration path
 			goModCache := path.Join(resources.CodeflyDir(), "go/pkg/mod")
 			_, err := shared.CheckDirectoryOrCreate(ctx, goModCache)
 			if err != nil {
 				wool.Get(ctx).Warn("cannot create go mod cache", wool.ErrField(err))
 			}
-			r.docker.WithMount(goModCache, "/go/pkg/mod")
+			r.companion.WithMount(goModCache, "/go/pkg/mod")
 		}
 	}
 	if r.nix != nil {
@@ -286,15 +284,16 @@ func (r *GoRunnerEnvironment) Init(ctx context.Context) error {
 	w := wool.Get(ctx).In("init")
 
 	r.Setup(ctx)
-
-	err := r.Env().Init(ctx)
-	if err != nil {
+	if r.companion != nil {
+		if err := r.companion.Init(ctx); err != nil {
+			return w.Wrapf(err, "cannot init companion")
+		}
+	} else if err := r.Env().Init(ctx); err != nil {
 		return w.Wrapf(err, "cannot init environment")
 	}
 
 	if r.withGoModules {
-		err = r.GoModuleHandling(ctx)
-		if err != nil {
+		if err := r.GoModuleHandling(ctx); err != nil {
 			return w.Wrapf(err, "cannot handle go modules")
 		}
 	}
@@ -312,7 +311,7 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	}
 
 	if !updated {
-		w.Debug("go modules have been cached")
+		w.Trace("go modules have been cached")
 		return nil
 	}
 	err = req.UpdateCache(ctx)
@@ -349,7 +348,7 @@ func (r *GoRunnerEnvironment) LocalTargetPath(ctx context.Context, hash string) 
 }
 
 func (r *GoRunnerEnvironment) BuildTargetPath(ctx context.Context, hash string) string {
-	if r.docker != nil {
+	if r.companion != nil && r.companion.Backend() == runners.BackendDocker {
 		return path.Join("/build", r.BinName(hash))
 	}
 	return path.Join(r.LocalCacheDir(ctx), r.BinName(hash))
@@ -362,7 +361,7 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	r.requirements = builders.NewDependencies("go",
 		builders.NewDependency(r.sourceDir).WithPathSelect(shared.NewSelect("*.go")))
 
-	w.Debug("start building")
+	w.Trace("start building")
 	r.usedCache = false
 
 	hash, err := r.requirements.Hash(ctx)
@@ -373,14 +372,14 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	r.targetPath = r.BuildTargetPath(ctx, hash)
 
 	cached := r.LocalTargetPath(ctx, hash)
-	w.Debug("checking local cache", wool.FileField(cached))
+	w.Trace("checking local cache", wool.FileField(cached))
 
 	exists, err := shared.FileExists(ctx, cached)
 	if err != nil {
 		return w.Wrapf(err, "cannot check local cache")
 	}
 	if exists {
-		w.Debug("found a cache binary: don't work until we have to!", wool.FileField(cached))
+		w.Trace("found a cache binary: don't work until we have to!", wool.FileField(cached))
 		r.usedCache = true
 		return nil
 	}
@@ -389,7 +388,7 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot clean cache")
 	}
-	w.Debug("building binary", wool.FileField(r.targetPath))
+	w.Trace("building binary", wool.FileField(r.targetPath))
 
 	args := []string{"build"}
 	if r.withDebugSymbol {
@@ -413,7 +412,7 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 		if err != nil {
 			return w.Wrapf(err, "cannot find cc")
 		}
-		if r.docker == nil {
+		if r.companion == nil || r.companion.Backend() != runners.BackendDocker {
 			proc.WithEnvironmentVariablesAppend(ctx, resources.Env("PATH", "/usr/bin:/usr/local/bin:/usr/sbin"), ":")
 		}
 		proc.WithEnvironmentVariables(ctx, resources.Env("CC", "cc"))
@@ -469,13 +468,13 @@ func (r *GoRunnerEnvironment) WithEnvironmentVariables(ctx context.Context, envs
 }
 
 func (r *GoRunnerEnvironment) WithFile(file string, location string) {
-	if r.docker != nil {
-		r.docker.WithMount(file, location)
+	if r.companion != nil {
+		r.companion.WithMount(file, location)
 	}
 }
 
 func (r *GoRunnerEnvironment) WithPort(ctx context.Context, port uint32) {
-	if r.docker != nil {
-		r.docker.WithPort(ctx, uint16(port))
+	if r.companion != nil {
+		r.companion.WithPortMapping(ctx, uint16(port), uint16(port))
 	}
 }

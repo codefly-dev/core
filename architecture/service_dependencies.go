@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/codefly-dev/core/graph"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/wool"
@@ -248,4 +249,14 @@ func (d *ServiceDependencies) EntryPoints(_ context.Context) ([]Service, error) 
 		}
 	}
 	return out, nil
+}
+
+// Graph returns the dependency graph as a generic graph.Graph so it can be merged with
+// LSP-derived or other graphs for cross-repo, cross-language views.
+func (d *ServiceDependencies) Graph() *graph.Graph {
+	name := "services"
+	if d.Workspace != nil {
+		name = d.Workspace.Name + "-services"
+	}
+	return ToGraph(d.graph, name)
 }
