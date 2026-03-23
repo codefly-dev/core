@@ -1,6 +1,0 @@
-kind: module
-name: with-jobs
-services:
-  - name: postgres
-jobs:
-  - name: db-migration

@@ -1,4 +1,0 @@
-kind: module
-name: codefly-platform
-services:
-    - name: svc

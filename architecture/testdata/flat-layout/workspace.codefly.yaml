@@ -1,2 +1,7 @@
 name: codefly-platform
 layout: flat
+services:
+    - name: gateway
+    - name: frontend
+    - name: accounts
+    - name: organization

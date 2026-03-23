@@ -1,3 +1,4 @@
-kind: workspace
 name: with-library
 layout: flat
+services:
+    - name: api

@@ -1,7 +1,0 @@
-kind: module
-name: codefly-platform
-services:
-    - name: gateway
-    - name: frontend
-    - name: accounts
-    - name: organization

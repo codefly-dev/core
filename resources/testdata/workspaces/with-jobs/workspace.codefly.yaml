@@ -1,3 +1,4 @@
-kind: workspace
 name: with-jobs
 layout: flat
+services:
+    - name: postgres

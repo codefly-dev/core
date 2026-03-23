@@ -1,2 +1,5 @@
 name: codefly-platform
 layout: flat
+services:
+    - name: svc
+    - name: svc2
