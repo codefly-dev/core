@@ -162,7 +162,7 @@ func TestDockerRunWithMod(t *testing.T) {
 	ctx := context.Background()
 	name := fmt.Sprintf("test-mod-%d", time.Now().UnixMilli())
 	env, err := golang.NewDockerGoRunner(ctx,
-		resources.NewDockerImage("golang:1.25-alpine"),
+		resources.NewDockerImage("golang:1.26-alpine"),
 		shared.MustSolvePath("testdata"), "mod",
 		name)
 	require.NoError(t, err)
@@ -178,7 +178,7 @@ func TestDockerRunWithModAndCGO(t *testing.T) {
 	ctx := context.Background()
 	name := fmt.Sprintf("test-mod-%d", time.Now().UnixMilli())
 	env, err := golang.NewDockerGoRunner(ctx,
-		resources.NewDockerImage("golang:1.25"),
+		resources.NewDockerImage("golang:1.26"),
 		shared.MustSolvePath("testdata"), "mod_cgo",
 		name)
 	require.NoError(t, err)
@@ -195,7 +195,7 @@ func TestDockerRunNoMod(t *testing.T) {
 	name := fmt.Sprintf("test-no-mod-%d", time.Now().UnixMilli())
 	ctx := context.Background()
 	env, err := golang.NewDockerGoRunner(ctx,
-		resources.NewDockerImage("golang:1.25-alpine"),
+		resources.NewDockerImage("golang:1.26-alpine"),
 		shared.MustSolvePath("testdata"), "no_mod",
 		name)
 	require.NoError(t, err)

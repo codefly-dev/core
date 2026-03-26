@@ -2,3 +2,5 @@ name: with-jobs
 layout: flat
 services:
     - name: postgres
+jobs:
+    - name: db-migration

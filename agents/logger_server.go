@@ -57,6 +57,10 @@ func (h *LogHandler) ForwardLogs(r io.Reader) {
 }
 
 func (h *LogHandler) process(identifier *wool.Identifier, log *wool.Log) {
+	// Respect the global log level — don't forward trace/debug noise to the TUI.
+	if log.Level < wool.GlobalLogLevel() {
+		return
+	}
 	for _, processor := range h.processors {
 		processor.ProcessWithSource(identifier, log)
 	}

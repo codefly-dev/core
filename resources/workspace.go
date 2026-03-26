@@ -31,6 +31,9 @@ type Workspace struct {
 	// Services in flat layout (embedded directly, replaces module.codefly.yaml)
 	Services []*ServiceReference `yaml:"services,omitempty"`
 
+	// Jobs in flat layout (embedded directly, replaces module.codefly.yaml)
+	Jobs []*JobReference `yaml:"jobs,omitempty"`
+
 	Path string `yaml:"path,omitempty"`
 
 	// internal
@@ -188,6 +191,7 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 			Kind:              ModuleKind,
 			Name:              workspace.Name,
 			ServiceReferences: workspace.Services,
+			JobReferences:     workspace.Jobs,
 			dir:               workspace.Dir(),
 			flatWorkspace:     workspace,
 		}

@@ -408,7 +408,9 @@ func IsLocal(environment *basev0.Environment) bool {
 const EndpointPrefix = "CODEFLY__ENDPOINT"
 
 func EndpointAsEnvironmentVariableKeyBase(info *EndpointInformation) string {
-	return strings.ToUpper(fmt.Sprintf("%s__%s__%s__%s", info.Module, info.Service, info.Name, info.API))
+	key := fmt.Sprintf("%s__%s__%s__%s", info.Module, info.Service, info.Name, info.API)
+	key = strings.ReplaceAll(key, "-", "_")
+	return strings.ToUpper(key)
 }
 
 func EndpointAsEnvironmentVariableKey(info *EndpointInformation) string {

@@ -30,13 +30,15 @@ type PythonPoetryRuntimeConfiguration struct {
 	//versionRequirement *VersionRequirement
 }
 
-// HasPythonPoetryRuntime checks if the Go runtime is available on the system.
-// and verify minimum version.
+// HasPythonPoetryRuntime checks if Poetry is available and functional.
 func HasPythonPoetryRuntime(_ *GoRuntimeConfiguration) bool {
-	if _, err := exec.LookPath("poetry"); err == nil {
-		return true
+	p, err := exec.LookPath("poetry")
+	if err != nil {
+		return false
 	}
-	return false
+	// Verify the binary can actually run (symlink target may be broken).
+	cmd := exec.Command(p, "--version")
+	return cmd.Run() == nil
 }
 
 type NodeRuntimeConfiguration struct {

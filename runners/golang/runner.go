@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
@@ -97,14 +98,28 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 	}
 
 	sourceDir := path.Join(dir, relativeSource)
-	withGoModules, err := shared.FileExists(ctx, path.Join(sourceDir, "go.mod"))
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot check go modules")
+
+	// Look for go.mod: first in sourceDir, then walk up to workspace root.
+	// This supports both colocated layouts (go.mod in code/) and monorepo
+	// layouts (go.mod at workspace root, source in cmd/server/).
+	withGoModules := false
+	goModDir := sourceDir
+	for d := sourceDir; ; d = filepath.Dir(d) {
+		exists, _ := shared.FileExists(ctx, path.Join(d, "go.mod"))
+		if exists {
+			withGoModules = true
+			goModDir = d
+			break
+		}
+		if d == dir || d == "/" || d == "." {
+			break
+		}
 	}
 
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
 	} else {
+		w.Trace("found go.mod", wool.DirField(goModDir))
 		if v, ok := os.LookupEnv("GOMODCACHE"); ok {
 			local.WithEnvironmentVariables(ctx, resources.Env("GOMODCACHE", v))
 		} else {
