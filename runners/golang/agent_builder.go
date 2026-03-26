@@ -29,39 +29,13 @@ type DockerEnv struct {
 	Value string
 }
 
-// BuildGoDocker builds a Docker image for a Go service.
-// It handles the full flow: extract build context, generate Dockerfile from
-// templates, build image, and register result.
+// BuildGoDocker generates templates and builds a Docker image for a Go service.
 func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
-	location string, requirements *builders.Dependencies, builderFS embed.FS,
+	req *builderv0.BuildRequest, location string,
+	requirements *builders.Dependencies, builderFS embed.FS,
 	goVersion, alpineVersion string) (*builderv0.BuildResponse, error) {
 
 	w := wool.Get(ctx).In("golang.BuildGoDocker")
-
-	docker := DockerTemplating{
-		Components:    requirements.All(),
-		GoVersion:     goVersion,
-		AlpineVersion: alpineVersion,
-	}
-
-	_ = shared.DeleteFile(ctx, location+"/builder/Dockerfile")
-
-	err := builder.Templates(ctx, docker, services.WithBuilder(builderFS))
-	if err != nil {
-		return builder.BuildError(err)
-	}
-
-	w.Debug("templates generated for docker build")
-
-	return nil, nil
-}
-
-// BuildDockerImage builds a Docker image from the prepared Dockerfile.
-// Call after templates have been generated (e.g. via BuildGoDocker or manually).
-func BuildDockerImage(ctx context.Context, builder *services.BuilderWrapper,
-	req *builderv0.BuildRequest, location string) (*builderv0.BuildResponse, error) {
-
-	w := wool.Get(ctx).In("golang.BuildDockerImage")
 
 	dockerRequest, err := builder.DockerBuildRequest(ctx, req)
 	if err != nil {
@@ -73,6 +47,19 @@ func BuildDockerImage(ctx context.Context, builder *services.BuilderWrapper,
 
 	if !dockerhelpers.IsValidDockerImageName(image.Name) {
 		return builder.BuildError(fmt.Errorf("invalid docker image name: %s", image.Name))
+	}
+
+	docker := DockerTemplating{
+		Components:    requirements.All(),
+		GoVersion:     goVersion,
+		AlpineVersion: alpineVersion,
+	}
+
+	_ = shared.DeleteFile(ctx, location+"/builder/Dockerfile")
+
+	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS))
+	if err != nil {
+		return builder.BuildError(err)
 	}
 
 	b, err := dockerhelpers.NewBuilder(dockerhelpers.BuilderConfiguration{
