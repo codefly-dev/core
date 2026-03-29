@@ -517,37 +517,20 @@ func TestCodeServer_ViaOverlay_ReadWriteSearch(t *testing.T) {
 
 	ctx := t.Context()
 
-	resp, err := code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "main.go"}},
-	})
+	_, err := code.FileOps().ReadFile(ctx, "main.go")
 	if err != nil {
-		t.Fatal(err)
-	}
-	rf := resp.GetReadFile()
-	if rf == nil || !rf.Exists {
-		t.Fatal("should read existing file through overlay")
+		t.Fatalf("should read existing file through overlay: %v", err)
 	}
 
-	_, err = code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_WriteFile{WriteFile: &codev0.WriteFileRequest{
-			Path: "helper.go", Content: "package main\n\nfunc Helper() int { return 42 }\n",
-		}},
-	})
-	if err != nil {
+	if err := code.FileOps().WriteFile(ctx, "helper.go", []byte("package main\n\nfunc Helper() int { return 42 }\n")); err != nil {
 		t.Fatal(err)
 	}
 
-	resp, err = code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "helper.go"}},
-	})
+	helperContent, err := code.FileOps().ReadFile(ctx, "helper.go")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal("should read overlay-written file:", err)
 	}
-	rf = resp.GetReadFile()
-	if rf == nil || !rf.Exists {
-		t.Fatal("should read overlay-written file")
-	}
-	if !strings.Contains(rf.Content, "Helper") {
+	if !strings.Contains(string(helperContent), "Helper") {
 		t.Error("content should contain Helper")
 	}
 
@@ -574,27 +557,20 @@ func TestCodeServer_ViaOverlay_ListFiles(t *testing.T) {
 
 	ctx := t.Context()
 
-	code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_WriteFile{WriteFile: &codev0.WriteFileRequest{
-			Path: "new.go", Content: "package main\n",
-		}},
-	})
+	code.FileOps().WriteFile(ctx, "new.go", []byte("package main\n"))
 
-	resp, _ := code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListFiles{ListFiles: &codev0.ListFilesRequest{Recursive: true}},
-	})
-	lf := resp.GetListFiles()
-	if lf == nil {
-		t.Fatal("expected list files response")
+	files, err := code.FileOps().ListFiles(ctx, "", true, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	hasExisting := false
 	hasNew := false
-	for _, f := range lf.Files {
-		if strings.Contains(f.Path, "existing.go") {
+	for _, f := range files {
+		if strings.Contains(f, "existing.go") {
 			hasExisting = true
 		}
-		if strings.Contains(f.Path, "new.go") {
+		if strings.Contains(f, "new.go") {
 			hasNew = true
 		}
 	}
@@ -616,14 +592,12 @@ func TestCodeServer_ViaOverlay_DeleteFile(t *testing.T) {
 
 	ctx := t.Context()
 
-	code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_DeleteFile{DeleteFile: &codev0.DeleteFileRequest{Path: "victim.go"}},
-	})
+	if err := code.FileOps().DeleteFile(ctx, "victim.go"); err != nil {
+		t.Fatal(err)
+	}
 
-	resp, _ := code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "victim.go"}},
-	})
-	if resp.GetReadFile().Exists {
+	_, readErr := code.FileOps().ReadFile(ctx, "victim.go")
+	if readErr == nil {
 		t.Error("deleted file should not exist via overlay")
 	}
 
@@ -654,10 +628,8 @@ func TestCodeServer_ViaOverlay_ApplyEdit(t *testing.T) {
 		t.Fatalf("apply edit failed: %s", ae.Error)
 	}
 
-	resp, _ = code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "main.go"}},
-	})
-	if !strings.Contains(resp.GetReadFile().Content, "Hello") {
+	mainContent, _ := code.FileOps().ReadFile(ctx, "main.go")
+	if !strings.Contains(string(mainContent), "Hello") {
 		t.Error("read should reflect the edit through overlay")
 	}
 
@@ -676,19 +648,13 @@ func TestCodeServer_ViaOverlay_Search(t *testing.T) {
 
 	ctx := t.Context()
 
-	code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_WriteFile{WriteFile: &codev0.WriteFileRequest{
-			Path: "overlay.go", Content: "package main\n\nfunc fromOverlay() {}\n",
-		}},
-	})
+	code.FileOps().WriteFile(ctx, "overlay.go", []byte("package main\n\nfunc fromOverlay() {}\n"))
 
-	resp, _ := code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Search{Search: &codev0.SearchRequest{
-			Pattern: "fromOverlay", Literal: true,
-		}},
-	})
-	sr := resp.GetSearch()
-	if sr == nil || len(sr.Matches) == 0 {
+	result, err := code.FileOps().Search(ctx, SearchOpts{Pattern: "fromOverlay", Literal: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Matches) == 0 {
 		t.Error("search should find content in overlay-written files")
 	}
 }
@@ -702,26 +668,17 @@ func TestCodeServer_ViaOverlay_MoveFile(t *testing.T) {
 
 	ctx := t.Context()
 
-	resp, _ := code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_MoveFile{MoveFile: &codev0.MoveFileRequest{
-			OldPath: "old.go", NewPath: "new.go",
-		}},
-	})
-	if !resp.GetMoveFile().Success {
-		t.Fatal("move should succeed")
+	if err := code.FileOps().MoveFile(ctx, "old.go", "new.go"); err != nil {
+		t.Fatalf("move should succeed: %v", err)
 	}
 
-	resp, _ = code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "new.go"}},
-	})
-	if !resp.GetReadFile().Exists {
+	_, err := code.FileOps().ReadFile(ctx, "new.go")
+	if err != nil {
 		t.Error("new path should exist after move")
 	}
 
-	resp, _ = code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "old.go"}},
-	})
-	if resp.GetReadFile().Exists {
+	_, err = code.FileOps().ReadFile(ctx, "old.go")
+	if err == nil {
 		t.Error("old path should not exist after move")
 	}
 }

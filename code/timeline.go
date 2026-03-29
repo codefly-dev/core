@@ -1,8 +1,12 @@
 package code
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -117,52 +121,77 @@ func BuildFileTimeline(path string, blameLines []*codev0.GitBlameLine, refDate t
 	return &FileTimeline{Path: path, Chunks: chunks}
 }
 
-// BuildProjectTimeline blames every source file via the Code server and returns
-// timelines sorted by path. It uses ListFiles to discover files, skipping
-// test files, vendor, and generated directories.
-func BuildProjectTimeline(ctx context.Context, server CodeExecutor, extensions []string, refDate time.Time) ([]*FileTimeline, error) {
+// BuildProjectTimeline blames every source file and returns timelines sorted
+// by path. It uses the VFS to discover files, skipping test files, vendor,
+// and generated directories, then runs git blame directly via exec.Command.
+func BuildProjectTimeline(ctx context.Context, vfs VFS, rootDir string, extensions []string, refDate time.Time) ([]*FileTimeline, error) {
 	if len(extensions) == 0 {
 		extensions = []string{".go"}
 	}
 
-	resp, err := server.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListFiles{ListFiles: &codev0.ListFilesRequest{
-			Recursive:  true,
-			Extensions: extensions,
-		}},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list files: %w", err)
+	extSet := make(map[string]bool, len(extensions))
+	for _, ext := range extensions {
+		e := ext
+		if !strings.HasPrefix(e, ".") {
+			e = "." + e
+		}
+		extSet[e] = true
 	}
 
 	var sourceFiles []string
-	for _, fi := range resp.GetListFiles().Files {
-		if fi.IsDirectory {
-			continue
+	walkErr := vfs.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
-		if shouldSkipForTimeline(fi.Path) {
-			continue
+		if d.IsDir() {
+			name := d.Name()
+			switch name {
+			case "vendor", "testdata", "node_modules", ".git", "generated":
+				return fs.SkipDir
+			}
+			return nil
 		}
-		sourceFiles = append(sourceFiles, fi.Path)
+		if !extSet[filepath.Ext(path)] {
+			return nil
+		}
+		rel, relErr := filepath.Rel(rootDir, path)
+		if relErr != nil {
+			return nil
+		}
+		if shouldSkipForTimeline(rel) {
+			return nil
+		}
+		sourceFiles = append(sourceFiles, rel)
+		return nil
+	})
+	if walkErr != nil {
+		return nil, fmt.Errorf("list files: %w", walkErr)
 	}
 	sort.Strings(sourceFiles)
 
 	var timelines []*FileTimeline
 	for _, path := range sourceFiles {
-		blameResp, err := server.Execute(ctx, &codev0.CodeRequest{
-			Operation: &codev0.CodeRequest_GitBlame{GitBlame: &codev0.GitBlameRequest{Path: path}},
-		})
-		if err != nil {
+		lines, err := gitBlameFile(ctx, rootDir, path)
+		if err != nil || len(lines) == 0 {
 			continue
 		}
-		br := blameResp.GetGitBlame()
-		if br == nil || br.Error != "" || len(br.Lines) == 0 {
-			continue
-		}
-		timelines = append(timelines, BuildFileTimeline(path, br.Lines, refDate))
+		timelines = append(timelines, BuildFileTimeline(path, lines, refDate))
 	}
 
 	return timelines, nil
+}
+
+// gitBlameFile runs git blame --porcelain on a single file and returns parsed blame lines.
+func gitBlameFile(ctx context.Context, repoDir, path string) ([]*codev0.GitBlameLine, error) {
+	cmd := exec.CommandContext(ctx, "git", "blame", "--porcelain", "--", path)
+	cmd.Dir = repoDir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git blame %s: %s", path, strings.TrimSpace(stderr.String()))
+	}
+	return parseGitBlame(stdout.String()), nil
 }
 
 // FormatTimeline produces a compact text representation of file timelines,

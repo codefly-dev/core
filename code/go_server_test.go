@@ -162,32 +162,21 @@ func TestGoCodeServer_InheritsDefaultOps(t *testing.T) {
 	srv := NewGoCodeServer(dir, nil)
 	ctx := context.Background()
 
-	resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "color.go"}},
-	})
+	content, err := srv.FileOps().ReadFile(ctx, "color.go")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal("color.go should exist:", err)
 	}
-	rf := resp.GetReadFile()
-	if rf == nil || !rf.Exists {
-		t.Fatal("color.go should exist")
-	}
-	if len(rf.Content) == 0 {
+	if len(content) == 0 {
 		t.Error("color.go is empty")
 	}
 
-	resp, err = srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Search{Search: &codev0.SearchRequest{
-			Pattern: repo.SearchPattern, MaxResults: 50,
-		}},
-	})
+	result, err := srv.FileOps().Search(ctx, SearchOpts{Pattern: repo.SearchPattern, MaxResults: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sr := resp.GetSearch()
-	if sr == nil || sr.TotalMatches < int32(repo.SearchMinHits) {
+	if len(result.Matches) < repo.SearchMinHits {
 		t.Errorf("search %q: expected >= %d hits, got %d",
-			repo.SearchPattern, repo.SearchMinHits, sr.TotalMatches)
+			repo.SearchPattern, repo.SearchMinHits, len(result.Matches))
 	}
 }
 

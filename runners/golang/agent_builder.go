@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"strings"
 
 	dockerhelpers "github.com/codefly-dev/core/agents/helpers/docker"
 	"github.com/codefly-dev/core/agents/services"
@@ -21,6 +22,9 @@ type DockerTemplating struct {
 	Envs          []DockerEnv
 	GoVersion     string
 	AlpineVersion string
+	SourceDir     string // e.g. "code/cmd/server" — the Go main package location
+	ModuleRoot    string // e.g. "code" — where go.mod lives
+	BuildTarget   string // e.g. "./cmd/server" — package to build (relative to ModuleRoot)
 }
 
 // DockerEnv is a key-value pair for Docker environment variables.
@@ -33,7 +37,7 @@ type DockerEnv struct {
 func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 	req *builderv0.BuildRequest, location string,
 	requirements *builders.Dependencies, builderFS embed.FS,
-	goVersion, alpineVersion string) (*builderv0.BuildResponse, error) {
+	goVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv0.BuildResponse, error) {
 
 	w := wool.Get(ctx).In("golang.BuildGoDocker")
 
@@ -53,6 +57,9 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 		Components:    requirements.All(),
 		GoVersion:     goVersion,
 		AlpineVersion: alpineVersion,
+	}
+	for _, opt := range opts {
+		opt(&docker)
 	}
 
 	_ = shared.DeleteFile(ctx, location+"/builder/Dockerfile")
@@ -136,4 +143,19 @@ func DeployGoKubernetes(ctx context.Context, builder *services.BuilderWrapper, r
 		return builder.DeployError(err)
 	}
 	return builder.DeployResponse()
+}
+
+// SplitSourceDir splits a source directory like "code/cmd/server" into
+// a module root ("code") and a build target ("./cmd/server").
+// For "code" alone, returns ("code", ".").
+func SplitSourceDir(sourceDir string) (moduleRoot, buildTarget string) {
+	// Find the first path component — that's where go.mod lives.
+	parts := strings.SplitN(sourceDir, "/", 2)
+	moduleRoot = parts[0]
+	if len(parts) > 1 {
+		buildTarget = "./" + parts[1]
+	} else {
+		buildTarget = "."
+	}
+	return
 }

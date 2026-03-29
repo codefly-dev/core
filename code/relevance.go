@@ -5,8 +5,6 @@ import (
 	"math"
 	"sort"
 	"strings"
-
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
 // ScoredFile is a file path annotated with a composite relevance score.
@@ -28,7 +26,8 @@ type RelevanceScorer struct {
 	graph    *CodeGraph
 	depGraph *DepGraph
 	timeline []*FileTimeline
-	server   CodeExecutor
+	vfs      VFS
+	rootDir  string
 
 	wSearch    float64
 	wSymbol    float64
@@ -52,12 +51,14 @@ func WithWeights(search, symbol, callGraph, recency, centrality float64) ScorerO
 }
 
 // NewRelevanceScorer creates a scorer from a CodebaseContext and its backing server.
-func NewRelevanceScorer(cc *CodebaseContext, server CodeExecutor, opts ...ScorerOption) *RelevanceScorer {
+// vfs and rootDir are used for the search signal; pass a DefaultCodeServer's FS and SourceDir.
+func NewRelevanceScorer(cc *CodebaseContext, vfs VFS, rootDir string, opts ...ScorerOption) *RelevanceScorer {
 	r := &RelevanceScorer{
 		graph:    cc.Graph,
 		depGraph: cc.DepGraph,
 		timeline: cc.Timelines,
-		server:   server,
+		vfs:      vfs,
+		rootDir:  rootDir,
 
 		wSearch:    0.35,
 		wSymbol:    0.25,
@@ -118,24 +119,25 @@ func (r *RelevanceScorer) TopK(ctx context.Context, query string, files []string
 	return all[:k]
 }
 
-// --- Signal 1: Search hits (regex grep via Code server) ---
+// --- Signal 1: Search hits (regex grep via VFS) ---
 
 func (r *RelevanceScorer) searchSignal(ctx context.Context, terms []string) map[string]int {
 	hits := make(map[string]int)
-	if r.server == nil {
+	if r.vfs == nil || r.rootDir == "" {
 		return hits
 	}
 	pattern := strings.Join(terms, "|")
-	resp, err := r.server.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Search{Search: &codev0.SearchRequest{
-			Pattern:    pattern,
-			MaxResults: 500,
-		}},
-	})
+	var result *SearchResult
+	var err error
+	if _, ok := r.vfs.(LocalVFS); ok {
+		result, err = Search(ctx, r.rootDir, SearchOpts{Pattern: pattern, MaxResults: 500})
+	} else {
+		result, err = SearchVFS(ctx, r.vfs, r.rootDir, SearchOpts{Pattern: pattern, MaxResults: 500})
+	}
 	if err != nil {
 		return hits
 	}
-	for _, m := range resp.GetSearch().Matches {
+	for _, m := range result.Matches {
 		hits[m.File]++
 	}
 	return hits

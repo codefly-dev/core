@@ -15,6 +15,13 @@ type CodeExecutor interface {
 	Execute(context.Context, *codev0.CodeRequest) (*codev0.CodeResponse, error)
 }
 
+// VFSProvider is implemented by servers that expose their underlying VFS and
+// root directory for in-process use (e.g. relevance scoring, timeline building).
+type VFSProvider interface {
+	GetVFS() VFS
+	GetSourceDir() string
+}
+
 // CodebaseContext holds all analysis layers assembled from a single code server.
 // It is the unified input for LLM prompts, relevance scoring, and edit planning.
 type CodebaseContext struct {
@@ -84,10 +91,12 @@ func BuildCodebaseContext(ctx context.Context, server CodeExecutor) (*CodebaseCo
 		}
 	}
 
-	timelines, err := BuildProjectTimeline(ctx, server, []string{".go"}, time.Now())
-	if err == nil && len(timelines) > 0 {
-		cc.Timelines = timelines
-		cc.Stats = ComputeTimelineStats(timelines)
+	if vp, ok := server.(VFSProvider); ok {
+		timelines, err := BuildProjectTimeline(ctx, vp.GetVFS(), vp.GetSourceDir(), []string{".go"}, time.Now())
+		if err == nil && len(timelines) > 0 {
+			cc.Timelines = timelines
+			cc.Stats = ComputeTimelineStats(timelines)
+		}
 	}
 
 	return cc, nil

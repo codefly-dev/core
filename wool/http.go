@@ -7,11 +7,15 @@ import (
 )
 
 // HTTPMappings maps HTTP header names to context keys.
+// Uses standard header conventions (X-User-Id, X-Org-Id, etc.)
+// for interoperability with API gateways and external tools.
 var HTTPMappings = map[string]ContextKey{
-	"X-Codefly-User-Auth-Id":    UserAuthIDKey,
-	"X-Codefly-User-Email":      UserEmailKey,
-	"X-Codefly-User-Name":       UserNameKey,
-	"X-Codefly-User-Given-Name": UserGivenNameKey,
+	"X-User-Id":    UserIDKey,
+	"X-Org-Id":     OrgIDKey,
+	"X-Roles":      RolesKey,
+	"X-Auth-Id":    UserAuthIDKey,
+	"X-User-Email": UserEmailKey,
+	"X-User-Name":  UserNameKey,
 }
 
 // HeaderKey sanitizes a header name for use as a metadata key.

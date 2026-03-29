@@ -11,6 +11,15 @@ import (
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
+// makeApplyEdit is a helper to construct an ApplyEdit CodeRequest.
+func makeApplyEdit(file, find, replace string) *codev0.CodeRequest {
+	return &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
+			File: file, Find: find, Replace: replace,
+		}},
+	}
+}
+
 // scaffoldHTTPProject creates a minimal Go HTTP server with tests in dir.
 // This is the "before" state -- a working project with a root endpoint.
 func scaffoldHTTPProject(t *testing.T, dir string) {
@@ -119,14 +128,9 @@ func TestEditCycle_VirtualEndpoint(t *testing.T) {
 	srv := NewDefaultCodeServer(dir, WithVFS(overlay))
 
 	// Verify we can still read through the overlay
-	resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "main.go"}},
-	})
+	_, err = srv.FileOps().ReadFile(ctx, "main.go")
 	if err != nil {
 		t.Fatalf("ReadFile through overlay: %v", err)
-	}
-	if !resp.GetReadFile().Exists {
-		t.Fatal("main.go should exist through overlay")
 	}
 
 	// --- Phase 3: Apply edits via Code API (simulated agent) ---
@@ -208,31 +212,25 @@ func TestHandleRoot(t *testing.T) {`,
 	}
 
 	// Verify the edited content is visible through the Code API
-	resp, err = srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "main.go"}},
-	})
+	mainContent, err := srv.FileOps().ReadFile(ctx, "main.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(resp.GetReadFile().Content, "handleHealth") {
+	if !strings.Contains(string(mainContent), "handleHealth") {
 		t.Error("virtual main.go should contain handleHealth")
 	}
-	if !strings.Contains(resp.GetReadFile().Content, "/health") {
+	if !strings.Contains(string(mainContent), "/health") {
 		t.Error("virtual main.go should contain /health route")
 	}
 
 	// Verify search finds the new function through overlay
-	searchResp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Search{Search: &codev0.SearchRequest{
-			Pattern: "handleHealth", Literal: true,
-		}},
-	})
+	searchResult, err := srv.FileOps().Search(ctx, SearchOpts{Pattern: "handleHealth", Literal: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if searchResp.GetSearch().TotalMatches < 2 {
+	if len(searchResult.Matches) < 2 {
 		t.Errorf("search should find handleHealth in at least 2 places (definition + registration), got %d",
-			searchResp.GetSearch().TotalMatches)
+			len(searchResult.Matches))
 	}
 
 	// Verify original files on disk are UNTOUCHED
@@ -309,37 +307,21 @@ func TestEditCycle_OverlayRollback(t *testing.T) {
 	srv := NewDefaultCodeServer(dir, WithVFS(overlay))
 
 	// Write a new file virtually
-	writeResp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_WriteFile{WriteFile: &codev0.WriteFileRequest{
-			Path: "middleware.go", Content: "package main\n\nfunc Logger() {}\n",
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !writeResp.GetWriteFile().Success {
-		t.Fatal("virtual write should succeed")
+	if err := srv.FileOps().WriteFile(ctx, "middleware.go", []byte("package main\n\nfunc Logger() {}\n")); err != nil {
+		t.Fatalf("virtual write should succeed: %v", err)
 	}
 
 	// Modify existing file virtually
-	srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
-			File: "main.go", Find: `fmt.Fprintf(w, "ok")`, Replace: `fmt.Fprintf(w, "modified")`,
-		}},
-	})
+	srv.Execute(ctx, makeApplyEdit("main.go", `fmt.Fprintf(w, "ok")`, `fmt.Fprintf(w, "modified")`))
 
 	// Verify virtual state
-	readResp, _ := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "middleware.go"}},
-	})
-	if !readResp.GetReadFile().Exists {
+	_, middlewareErr := srv.FileOps().ReadFile(ctx, "middleware.go")
+	if middlewareErr != nil {
 		t.Error("middleware.go should exist virtually")
 	}
 
-	readResp, _ = srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "main.go"}},
-	})
-	if !strings.Contains(readResp.GetReadFile().Content, "modified") {
+	mainContent, _ := srv.FileOps().ReadFile(ctx, "main.go")
+	if !strings.Contains(string(mainContent), "modified") {
 		t.Error("virtual main.go should contain 'modified'")
 	}
 
@@ -351,18 +333,14 @@ func TestEditCycle_OverlayRollback(t *testing.T) {
 	overlay.Rollback()
 
 	// Verify: virtual file gone
-	readResp, _ = srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "middleware.go"}},
-	})
-	if readResp.GetReadFile().Exists {
+	_, middlewareErr = srv.FileOps().ReadFile(ctx, "middleware.go")
+	if middlewareErr == nil {
 		t.Error("middleware.go should NOT exist after rollback")
 	}
 
 	// Verify: original content restored
-	readResp, _ = srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "main.go"}},
-	})
-	if readResp.GetReadFile().Content != string(origMain) {
+	mainContent, _ = srv.FileOps().ReadFile(ctx, "main.go")
+	if string(mainContent) != string(origMain) {
 		t.Error("main.go should be restored to original after rollback")
 	}
 
@@ -392,11 +370,8 @@ func TestEditCycle_MultipleEditsBeforeCommit(t *testing.T) {
 	overlay := NewOverlayVFS(LocalVFS{})
 	srv := NewDefaultCodeServer(dir, WithVFS(overlay))
 
-	// Edit 1: Add a handler via CreateFile
-	srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_CreateFile{CreateFile: &codev0.CreateFileRequest{
-			Path: "handlers.go",
-			Content: `package main
+	// Edit 1: Add a handler via WriteFile (CreateFile equivalent)
+	srv.FileOps().WriteFile(ctx, "handlers.go", []byte(`package main
 
 import (
 	"fmt"
@@ -410,26 +385,16 @@ func handlePing(w http.ResponseWriter, r *http.Request) {
 func handleVersion(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "v1.0.0")
 }
-`,
-		}},
-	})
+`))
 
 	// Edit 2: Register the new handlers
-	srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
-			File: "main.go",
-			Find: `	mux.HandleFunc("/", handleRoot)`,
-			Replace: `	mux.HandleFunc("/", handleRoot)
-	mux.HandleFunc("/ping", handlePing)
-	mux.HandleFunc("/version", handleVersion)`,
-		}},
-	})
+	srv.Execute(ctx, makeApplyEdit("main.go",
+		"\tmux.HandleFunc(\"/\", handleRoot)",
+		"\tmux.HandleFunc(\"/\", handleRoot)\n\tmux.HandleFunc(\"/ping\", handlePing)\n\tmux.HandleFunc(\"/version\", handleVersion)",
+	))
 
 	// Edit 3: Add tests for the new handlers
-	srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_CreateFile{CreateFile: &codev0.CreateFileRequest{
-			Path: "handlers_test.go",
-			Content: `package main
+	srv.FileOps().WriteFile(ctx, "handlers_test.go", []byte(`package main
 
 import (
 	"net/http"
@@ -462,9 +427,7 @@ func TestHandleVersion(t *testing.T) {
 		t.Errorf("version: code=%d body=%q", w.Code, w.Body.String())
 	}
 }
-`,
-		}},
-	})
+`))
 
 	// Verify cumulative overlay state
 	changes := overlay.Diff()
@@ -474,17 +437,13 @@ func TestHandleVersion(t *testing.T) {
 	}
 
 	// List files through overlay -- should include new files
-	listResp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListFiles{ListFiles: &codev0.ListFilesRequest{
-			Recursive: true, Extensions: []string{".go"},
-		}},
-	})
+	listedFiles, err := srv.FileOps().ListFiles(ctx, "", true, []string{".go"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	fileNames := make(map[string]bool)
-	for _, f := range listResp.GetListFiles().Files {
-		fileNames[f.Path] = true
+	for _, f := range listedFiles {
+		fileNames[filepath.Base(f)] = true
 	}
 	if !fileNames["handlers.go"] {
 		t.Error("handlers.go should appear in file listing")
@@ -534,67 +493,46 @@ func TestEditCycle_SearchAcrossOverlay(t *testing.T) {
 	srv := NewDefaultCodeServer(dir, WithVFS(overlay))
 
 	// Original disk file contains "handleRoot"
-	resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Search{Search: &codev0.SearchRequest{
-			Pattern: "handleRoot", Literal: true,
-		}},
-	})
+	baseResult, err := srv.FileOps().Search(ctx, SearchOpts{Pattern: "handleRoot", Literal: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseMatches := resp.GetSearch().TotalMatches
+	baseMatches := len(baseResult.Matches)
 	if baseMatches == 0 {
 		t.Fatal("should find handleRoot in base files")
 	}
 	t.Logf("Base search 'handleRoot': %d matches", baseMatches)
 
 	// Add a new virtual file that also references handleRoot
-	srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_CreateFile{CreateFile: &codev0.CreateFileRequest{
-			Path:    "wrapper.go",
-			Content: "package main\n\n// wraps handleRoot for logging\nfunc wrappedRoot() { handleRoot(nil, nil) }\n",
-		}},
-	})
+	srv.FileOps().WriteFile(ctx, "wrapper.go", []byte("package main\n\n// wraps handleRoot for logging\nfunc wrappedRoot() { handleRoot(nil, nil) }\n"))
 
 	// Search should now find more matches (base + overlay)
-	resp, err = srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Search{Search: &codev0.SearchRequest{
-			Pattern: "handleRoot", Literal: true,
-		}},
-	})
+	overlayResult, err := srv.FileOps().Search(ctx, SearchOpts{Pattern: "handleRoot", Literal: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	overlayMatches := resp.GetSearch().TotalMatches
+	overlayMatches := len(overlayResult.Matches)
 	if overlayMatches <= baseMatches {
 		t.Errorf("overlay search should find more matches: base=%d overlay=%d", baseMatches, overlayMatches)
 	}
 	t.Logf("Overlay search 'handleRoot': %d matches (was %d)", overlayMatches, baseMatches)
 
 	// Search for something that only exists in the overlay file
-	resp, err = srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Search{Search: &codev0.SearchRequest{
-			Pattern: "wrappedRoot", Literal: true,
-		}},
-	})
+	wrappedResult, err := srv.FileOps().Search(ctx, SearchOpts{Pattern: "wrappedRoot", Literal: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.GetSearch().TotalMatches == 0 {
+	if len(wrappedResult.Matches) == 0 {
 		t.Error("should find 'wrappedRoot' in overlay-only file")
 	}
 
 	// Rollback and verify search goes back to base-only
 	overlay.Rollback()
-	resp, err = srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Search{Search: &codev0.SearchRequest{
-			Pattern: "wrappedRoot", Literal: true,
-		}},
-	})
+	afterRollbackResult, err := srv.FileOps().Search(ctx, SearchOpts{Pattern: "wrappedRoot", Literal: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.GetSearch().TotalMatches != 0 {
+	if len(afterRollbackResult.Matches) != 0 {
 		t.Error("'wrappedRoot' should not be found after rollback")
 	}
 

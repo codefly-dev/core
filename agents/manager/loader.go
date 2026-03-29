@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strconv"
@@ -186,10 +187,23 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		return nil, w.Wrapf(err, "cannot compute agent path")
 	}
 
-	// Download if not present.
+	// Resolve binary: local cache → OCI registry → GitHub release.
 	if _, err := exec.LookPath(bin); err != nil {
-		if err := Download(ctx, p); err != nil {
-			return nil, w.Wrapf(err, "cannot download agent")
+		// Try OCI store first (AGENT_REGISTRY env var).
+		pulled := false
+		if store := NewOCIStoreFromEnv(slog.Default()); store != nil {
+			if pullPath, pullErr := store.Pull(ctx, p); pullErr == nil {
+				bin = pullPath
+				pulled = true
+				w.Debug("agent pulled from OCI registry", wool.Path(bin))
+			} else {
+				w.Debug("OCI pull failed, trying GitHub", wool.Field("error", pullErr.Error()))
+			}
+		}
+		if !pulled {
+			if err := Download(ctx, p); err != nil {
+				return nil, w.Wrapf(err, "cannot download agent (tried OCI + GitHub)")
+			}
 		}
 	}
 

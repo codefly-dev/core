@@ -153,7 +153,7 @@ func TestBuildProjectTimeline_RealRepos(t *testing.T) {
 			srv := NewGoCodeServer(dir, nil)
 			ctx := context.Background()
 
-			timelines, err := BuildProjectTimeline(ctx, srv, []string{".go"}, refDate)
+			timelines, err := BuildProjectTimeline(ctx, srv.GetVFS(), srv.GetSourceDir(), []string{".go"}, refDate)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -232,18 +232,14 @@ func TestBuildProjectTimeline_SingleFile(t *testing.T) {
 	srv := NewGoCodeServer(dir, nil)
 	ctx := context.Background()
 
-	resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GitBlame{GitBlame: &codev0.GitBlameRequest{Path: "color.go"}},
-	})
+	// Use internal git blame helper (package-private, accessible in tests).
+	blameOut, err := srv.runGit(ctx, "blame", "--porcelain", "--", "color.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	br := resp.GetGitBlame()
-	if br.Error != "" {
-		t.Fatalf("blame error: %s", br.Error)
-	}
+	blameLines := parseGitBlame(blameOut)
 
-	ft := BuildFileTimeline("color.go", br.Lines, refDate)
+	ft := BuildFileTimeline("color.go", blameLines, refDate)
 	if len(ft.Chunks) == 0 {
 		t.Fatal("no chunks")
 	}
@@ -271,7 +267,7 @@ func TestFormatTimeline_Output(t *testing.T) {
 	srv := NewGoCodeServer(dir, nil)
 	ctx := context.Background()
 
-	timelines, err := BuildProjectTimeline(ctx, srv, []string{".go"}, refDate)
+	timelines, err := BuildProjectTimeline(ctx, srv.GetVFS(), srv.GetSourceDir(), []string{".go"}, refDate)
 	if err != nil {
 		t.Fatal(err)
 	}

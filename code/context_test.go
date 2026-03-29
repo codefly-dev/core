@@ -156,7 +156,7 @@ func TestRelevanceScoring_AllRepos(t *testing.T) {
 				t.Skip("no objective defined for this repo")
 			}
 
-			scorer := NewRelevanceScorer(cc, srv)
+			scorer := NewRelevanceScorer(cc, srv.GetVFS(), srv.GetSourceDir())
 			files := cc.FilePaths()
 			if len(files) == 0 {
 				t.Fatal("no files to score")
@@ -220,7 +220,7 @@ func TestRelevanceScorer_Signals(t *testing.T) {
 		t.Fatalf("BuildCodebaseContext: %v", err)
 	}
 
-	scorer := NewRelevanceScorer(cc, srv)
+	scorer := NewRelevanceScorer(cc, srv.GetVFS(), srv.GetSourceDir())
 	files := cc.FilePaths()
 	all := scorer.ScoreFiles(ctx, "Color New Sprintf", files)
 

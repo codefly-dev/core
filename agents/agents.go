@@ -14,6 +14,7 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 
 	"google.golang.org/grpc"
 )
@@ -23,11 +24,23 @@ const ProtocolVersion = 1
 
 // PluginRegistration holds the gRPC servers a plugin wants to expose.
 // All registration is handled by core -- plugins never import grpc directly.
+//
+// Plugins implement the capabilities they need:
+//   - Infrastructure (external-redis, external-postgres): Agent + Runtime
+//   - Application (go-grpc, python-fastapi): Agent + Runtime + Builder + Tooling
+//   - Tooling-only (go-analyzer): Agent + Tooling
+//
+// Separation of concerns:
+//   - Runtime: service lifecycle (Load/Init/Start/Stop/Destroy)
+//   - Builder: Docker build + k8s deploy + scaffolding
+//   - Code: file/git/LSP operations (deprecated — use Tooling for language-specific ops)
+//   - Tooling: language-specific analysis (LSP, callgraph, fix, deps, build/test/lint)
 type PluginRegistration struct {
 	Agent   agentv0.AgentServer
 	Runtime runtimev0.RuntimeServer
 	Builder builderv0.BuilderServer
-	Code    codev0.CodeServer
+	Code    codev0.CodeServer           // Deprecated: use Tooling for language-specific operations.
+	Tooling toolingv0.ToolingServer     // Language analysis: LSP, callgraph, fix, deps, build/test/lint.
 }
 
 // agentRPCInterceptor logs incoming RPCs with method name and duration
@@ -91,6 +104,9 @@ func Serve(reg PluginRegistration) {
 	}
 	if reg.Code != nil {
 		codev0.RegisterCodeServer(s, reg.Code)
+	}
+	if reg.Tooling != nil {
+		toolingv0.RegisterToolingServer(s, reg.Tooling)
 	}
 
 	// Signal the port to the parent (CLI) using the protocol: "VERSION|PORT\n"

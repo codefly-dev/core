@@ -209,16 +209,18 @@ type DeploymentBase struct {
 func (s *BuilderWrapper) CreateKubernetesBase(_ context.Context, env *basev0.Environment, namespace string, builderContext *builderv0.DockerBuildContext) (*DeploymentBase, error) {
 	envInfo := resources.EnvironmentFromProto(env)
 	dockerImage := s.DockerImage(builderContext)
-	id, err := base.GetImageID(dockerImage)
-	if err != nil {
-		return nil, s.Wool.Wrapf(err, "cannot get image id: %s", dockerImage.FullName())
+
+	// Try to get local image SHA. For stock/external images that aren't
+	// built locally, fall back to the tag as the SHA marker.
+	sha := dockerImage.Tag
+	if id, err := base.GetImageID(dockerImage); err == nil {
+		if trimmed, ok := strings.CutPrefix(id, "sha256:"); ok {
+			sha = trimmed[:12]
+		}
+	} else {
+		s.Wool.Debug("image not found locally, using tag as sha", wool.Field("image", dockerImage.FullName()))
 	}
-	sha, ok := strings.CutPrefix(id, "sha256:")
-	if !ok {
-		return nil, s.Wool.NewError("cannot get sha for %s ID: %s", dockerImage.FullName(), id)
-	}
-	// Trim
-	sha = sha[:12]
+
 	return &DeploymentBase{
 		Sha:         sha,
 		Namespace:   namespace,

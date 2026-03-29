@@ -65,6 +65,12 @@ func (s *DefaultCodeServer) FileOps() FileOperation {
 	return NewFileOps(s.FS, s.SourceDir)
 }
 
+// GetVFS returns the VFS backend used by this server (implements VFSProvider).
+func (s *DefaultCodeServer) GetVFS() VFS { return s.FS }
+
+// GetSourceDir returns the root directory for this server (implements VFSProvider).
+func (s *DefaultCodeServer) GetSourceDir() string { return s.SourceDir }
+
 // Override registers a custom handler for an operation name.
 // Names match the oneof field names: "read_file", "write_file", "fix", etc.
 func (s *DefaultCodeServer) Override(op string, handler OperationHandler) {
@@ -86,22 +92,8 @@ func (s *DefaultCodeServer) Execute(ctx context.Context, req *codev0.CodeRequest
 func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	switch op := req.Operation.(type) {
 
-	// --- File operations (fully implemented) ---
+	// --- Core operations (implemented here) ---
 
-	case *codev0.CodeRequest_ReadFile:
-		return s.readFile(ctx, op.ReadFile)
-	case *codev0.CodeRequest_WriteFile:
-		return s.writeFile(ctx, op.WriteFile)
-	case *codev0.CodeRequest_ListFiles:
-		return s.listFiles(ctx, op.ListFiles)
-	case *codev0.CodeRequest_DeleteFile:
-		return s.deleteFile(ctx, op.DeleteFile)
-	case *codev0.CodeRequest_MoveFile:
-		return s.moveFile(ctx, op.MoveFile)
-	case *codev0.CodeRequest_CreateFile:
-		return s.createFile(ctx, op.CreateFile)
-	case *codev0.CodeRequest_Search:
-		return s.search(ctx, op.Search)
 	case *codev0.CodeRequest_ApplyEdit:
 		return s.applyEdit(ctx, op.ApplyEdit)
 	case *codev0.CodeRequest_GetProjectInfo:
@@ -129,17 +121,6 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetHoverInfo{GetHoverInfo: &codev0.GetHoverInfoResponse{}}}, nil
 	case *codev0.CodeRequest_GetCompletions:
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetCompletions{GetCompletions: &codev0.GetCompletionsResponse{}}}, nil
-
-	// --- Git operations (fully implemented via git CLI) ---
-
-	case *codev0.CodeRequest_GitLog:
-		return s.gitLog(ctx, op.GitLog)
-	case *codev0.CodeRequest_GitDiff:
-		return s.gitDiff(ctx, op.GitDiff)
-	case *codev0.CodeRequest_GitShow:
-		return s.gitShow(ctx, op.GitShow)
-	case *codev0.CodeRequest_GitBlame:
-		return s.gitBlame(ctx, op.GitBlame)
 
 	// --- Dependency management (stubs -- plugins override) ---
 
@@ -606,18 +587,14 @@ func (s *DefaultCodeServer) runGit(ctx context.Context, args ...string) (string,
 // The test TestOperationName_MatchesDispatch verifies they stay in sync.
 func OperationName(req *codev0.CodeRequest) string {
 	switch req.Operation.(type) {
-	case *codev0.CodeRequest_ReadFile:
-		return "read_file"
-	case *codev0.CodeRequest_WriteFile:
-		return "write_file"
-	case *codev0.CodeRequest_ListFiles:
-		return "list_files"
-	case *codev0.CodeRequest_DeleteFile:
-		return "delete_file"
-	case *codev0.CodeRequest_MoveFile:
-		return "move_file"
-	case *codev0.CodeRequest_CreateFile:
-		return "create_file"
+	// Core operations
+	case *codev0.CodeRequest_ApplyEdit:
+		return "apply_edit"
+	case *codev0.CodeRequest_GetProjectInfo:
+		return "get_project_info"
+	case *codev0.CodeRequest_Fix:
+		return "fix"
+	// LSP stubs
 	case *codev0.CodeRequest_ListSymbols:
 		return "list_symbols"
 	case *codev0.CodeRequest_GetDiagnostics:
@@ -630,30 +607,15 @@ func OperationName(req *codev0.CodeRequest) string {
 		return "rename_symbol"
 	case *codev0.CodeRequest_GetHoverInfo:
 		return "get_hover_info"
-	case *codev0.CodeRequest_Fix:
-		return "fix"
-	case *codev0.CodeRequest_ApplyEdit:
-		return "apply_edit"
-	case *codev0.CodeRequest_Search:
-		return "search"
+	case *codev0.CodeRequest_GetCompletions:
+		return "get_completions"
+	// Dependency stubs
 	case *codev0.CodeRequest_ListDependencies:
 		return "list_dependencies"
 	case *codev0.CodeRequest_AddDependency:
 		return "add_dependency"
 	case *codev0.CodeRequest_RemoveDependency:
 		return "remove_dependency"
-	case *codev0.CodeRequest_GetProjectInfo:
-		return "get_project_info"
-	case *codev0.CodeRequest_GetCompletions:
-		return "get_completions"
-	case *codev0.CodeRequest_GitLog:
-		return "git_log"
-	case *codev0.CodeRequest_GitDiff:
-		return "git_diff"
-	case *codev0.CodeRequest_GitShow:
-		return "git_show"
-	case *codev0.CodeRequest_GitBlame:
-		return "git_blame"
 	default:
 		return ""
 	}

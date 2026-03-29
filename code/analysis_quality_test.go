@@ -178,7 +178,7 @@ func TestAnalysisQuality_FatihColor(t *testing.T) {
 			t.Skip("no files to score")
 		}
 
-		scorer := NewRelevanceScorer(cc, server)
+		scorer := NewRelevanceScorer(cc, server.GetVFS(), server.GetSourceDir())
 		top := scorer.TopK(ctx, "add color attribute to output", allFiles, 5)
 
 		if len(top) == 0 {

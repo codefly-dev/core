@@ -2,10 +2,15 @@ package wool
 
 // User identity context keys for propagation across service boundaries.
 const (
-	UserAuthIDKey    ContextKey = "codefly.user.auth.id"
-	UserEmailKey     ContextKey = "codefly.user.email"
-	UserNameKey      ContextKey = "codefly.user.name"
-	UserGivenNameKey ContextKey = "codefly.user.given_name"
+	// Standard identity headers (set by auth sidecar)
+	UserIDKey ContextKey = "user.id"
+	OrgIDKey  ContextKey = "org.id"
+	RolesKey  ContextKey = "user.roles"
+
+	// Auth provider identity (from JWT/gateway)
+	UserAuthIDKey ContextKey = "user.auth.id"
+	UserEmailKey  ContextKey = "user.email"
+	UserNameKey   ContextKey = "user.name"
 )
 
 // ContextKeys lists all user identity keys for iteration.
@@ -13,11 +18,33 @@ var ContextKeys []ContextKey
 
 func init() {
 	ContextKeys = []ContextKey{
+		UserIDKey,
+		OrgIDKey,
+		RolesKey,
 		UserAuthIDKey,
 		UserEmailKey,
 		UserNameKey,
-		UserGivenNameKey,
 	}
+}
+
+func (w *Wool) UserID() (string, bool) {
+	return w.lookup(UserIDKey)
+}
+
+func (w *Wool) WithUserID(id string) {
+	w.with(UserIDKey, id)
+}
+
+func (w *Wool) OrgID() (string, bool) {
+	return w.lookup(OrgIDKey)
+}
+
+func (w *Wool) WithOrgID(id string) {
+	w.with(OrgIDKey, id)
+}
+
+func (w *Wool) Roles() (string, bool) {
+	return w.lookup(RolesKey)
 }
 
 func (w *Wool) UserAuthID() (string, bool) {
@@ -38,8 +65,4 @@ func (w *Wool) WithUserEmail(s string) {
 
 func (w *Wool) UserName() (string, bool) {
 	return w.lookup(UserNameKey)
-}
-
-func (w *Wool) UserGivenName() (string, bool) {
-	return w.lookup(UserGivenNameKey)
 }
