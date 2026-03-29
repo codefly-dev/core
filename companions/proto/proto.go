@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/codefly-dev/core/builders"
@@ -122,6 +124,55 @@ func (g *Buf) Generate(ctx context.Context) error {
 			return w.Wrapf(err, "cannot copy file")
 		}
 		_ = os.Remove(openapi)
+	}
+
+	// Generate TypeScript types from OpenAPI spec if swagger files exist.
+	// Pipeline: Swagger 2.0 → OpenAPI 3.0 (swagger2openapi) → TypeScript (openapi-typescript)
+	openapiDir := path.Join(g.Dir, "openapi")
+	if entries, dirErr := os.ReadDir(openapiDir); dirErr == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".swagger.json") {
+				continue
+			}
+
+			var containerSwagger, containerV3, containerTS string
+			if runner.Backend() == runners.BackendDocker {
+				containerSwagger = filepath.Join("/workspace/openapi", entry.Name())
+				containerV3 = strings.TrimSuffix(containerSwagger, ".swagger.json") + ".openapi3.json"
+				containerTS = strings.TrimSuffix(containerSwagger, ".swagger.json") + ".ts"
+			} else {
+				containerSwagger = filepath.Join(openapiDir, entry.Name())
+				containerV3 = strings.TrimSuffix(containerSwagger, ".swagger.json") + ".openapi3.json"
+				containerTS = strings.TrimSuffix(containerSwagger, ".swagger.json") + ".ts"
+			}
+
+			// Convert Swagger 2.0 → OpenAPI 3.0
+			convProc, convErr := runner.NewProcess("swagger2openapi", containerSwagger, "-o", containerV3)
+			if convErr != nil {
+				w.Debug("cannot create swagger2openapi process", wool.ErrField(convErr))
+				continue
+			}
+			if convErr = convProc.Run(ctx); convErr != nil {
+				w.Debug("swagger2openapi conversion failed (non-fatal)", wool.ErrField(convErr))
+				continue
+			}
+
+			// Generate TypeScript types from OpenAPI 3.0
+			tsProc, tsErr := runner.NewProcess("npx", "openapi-typescript", containerV3, "-o", containerTS)
+			if tsErr != nil {
+				w.Debug("cannot create openapi-typescript process", wool.ErrField(tsErr))
+				continue
+			}
+			if tsErr = tsProc.Run(ctx); tsErr != nil {
+				w.Debug("TS type generation failed (non-fatal)", wool.ErrField(tsErr))
+			} else {
+				w.Info("generated TypeScript types", wool.Field("output", containerTS))
+			}
+
+			// Clean up intermediate file
+			v3File := filepath.Join(openapiDir, strings.TrimSuffix(entry.Name(), ".swagger.json")+".openapi3.json")
+			_ = os.Remove(v3File)
+		}
 	}
 
 	err = g.dependencies.UpdateCache(ctx)

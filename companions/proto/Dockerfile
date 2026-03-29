@@ -10,8 +10,8 @@ RUN go install github.com/bufbuild/buf/cmd/buf@latest
 RUN python3 -m venv /venv
 RUN /venv/bin/pip install grpcio-tools
 
-# Install protoc plugins for TypeScript
-RUN npm install -g ts-protoc-gen
+# Install TypeScript tools for client code generation
+RUN npm install -g ts-protoc-gen openapi-typescript
 
 # Install protoc plugins for gRPC Gateway and OpenAPI
 RUN go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
@@ -25,6 +25,9 @@ RUN go install github.com/envoyproxy/protoc-gen-validate@latest
 # Second stage: Create the runtime image
 FROM golang:1.26-alpine
 
+# Install Node.js for TypeScript client code generation
+RUN apk add --no-cache nodejs npm && npm install -g openapi-typescript swagger2openapi
+
 # Copy necessary binaries and files from the builder stage
 COPY --from=builder /usr/bin/protoc /usr/local/bin/
 COPY --from=builder /go/bin/buf /usr/local/bin/
@@ -33,7 +36,6 @@ COPY --from=builder /go/bin/protoc-gen-openapiv2 /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-validate /usr/local/bin/
 COPY --from=builder /usr/bin/grpc_* /usr/local/bin/
 COPY --from=builder /go/bin/swagger /usr/local/bin/
-# COPY --from=builder /usr/bin/ts-protoc-gen /usr/local/bin/
 
 # Set the working directory
 WORKDIR /workspace

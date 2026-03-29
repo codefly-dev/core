@@ -14,6 +14,7 @@ import (
 	"github.com/codefly-dev/core/wool"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -98,24 +99,28 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		return nil, err
 	}
 	port := 10000
-	var conn *grpc.ClientConn
-	wait := opt.Timeout
-	for {
-		time.Sleep(time.Second)
-		conn, err = grpc.NewClient(fmt.Sprintf("127.0.0.1:%d", port), grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err == nil {
-			break
-		}
-		wait -= 500 * time.Millisecond
-		if wait <= 0 {
-			return nil, fmt.Errorf("timeout waiting for connection")
-		}
-		time.Sleep(500 * time.Millisecond)
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("cannot create gRPC client for %s: %w", addr, err)
 	}
+
+	// grpc.NewClient is lazy — explicitly trigger the connection and wait
+	// for it to become ready, matching the pattern in agents/manager/loader.go.
+	connectCtx, connectCancel := context.WithTimeout(ctx, opt.Timeout)
+	defer connectCancel()
+
+	conn.Connect()
+	if !waitForReady(connectCtx, conn) {
+		_ = conn.Close()
+		return nil, fmt.Errorf("gRPC connection to CLI server at %s did not become ready within %s", addr, opt.Timeout)
+	}
+
 	cli := v0.NewCLIClient(conn)
 	_, err = cli.Ping(ctx, &emptypb.Empty{})
 	if err != nil {
-		return nil, err
+		_ = conn.Close()
+		return nil, fmt.Errorf("CLI server ping failed: %w", err)
 	}
 	runtimeContext := resources.RuntimeContextFromEnv()
 	l := &Dependencies{cmd: cmd, cli: cli, runtimeContext: runtimeContext}
@@ -145,23 +150,26 @@ func Connection(service, name string) string {
 }
 
 func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
-	time.Sleep(time.Second)
-	wait := opt.Timeout
+	readyCtx, cancel := context.WithTimeout(ctx, opt.Timeout)
+	defer cancel()
+
 	for {
-		status, err := l.cli.GetFlowStatus(ctx, &emptypb.Empty{})
+		status, err := l.cli.GetFlowStatus(readyCtx, &emptypb.Empty{})
 		if err != nil {
+			if readyCtx.Err() != nil {
+				return fmt.Errorf("timeout waiting for flow to be ready after %s", opt.Timeout)
+			}
 			return err
 		}
 		if status.Ready {
-			break
+			return nil
 		}
-		wait -= 500 * time.Millisecond
-		if wait <= 0 {
-			return fmt.Errorf("timeout waiting for flow to be ready")
+		select {
+		case <-readyCtx.Done():
+			return fmt.Errorf("timeout waiting for flow to be ready after %s", opt.Timeout)
+		case <-time.After(500 * time.Millisecond):
 		}
-		time.Sleep(500 * time.Millisecond)
 	}
-	return nil
 }
 
 var runningModule *resources.Module
@@ -300,10 +308,8 @@ func (l *Dependencies) Stop(ctx context.Context) error {
 	if err != nil {
 		w.Warn("failed to stop flow", wool.Field("error", err))
 	}
-	err = l.cmd.Process.Kill()
-	if err != nil {
-		return w.Wrapf(err, "failed to kill process")
-	}
+	// Process may already have exited after StopFlow — ignore kill errors.
+	_ = l.cmd.Process.Kill()
 	return err
 }
 
@@ -312,13 +318,24 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 	w := wool.Get(ctx).In("sdk.Destroy")
 	_, err := l.cli.DestroyFlow(ctx, &v0.DestroyFlowRequest{})
 	if err != nil {
-		w.Warn("failed to stop flow", wool.Field("error", err))
+		w.Warn("failed to destroy flow", wool.Field("error", err))
 	}
-	err = l.cmd.Process.Kill()
-	if err != nil {
-		return w.Wrapf(err, "failed to kill process")
-	}
+	// Process may already have exited after DestroyFlow — ignore kill errors.
+	_ = l.cmd.Process.Kill()
 	return err
+}
+
+// waitForReady blocks until conn reaches connectivity.Ready or ctx expires.
+func waitForReady(ctx context.Context, conn *grpc.ClientConn) bool {
+	for {
+		state := conn.GetState()
+		if state == connectivity.Ready {
+			return true
+		}
+		if !conn.WaitForStateChange(ctx, state) {
+			return false
+		}
+	}
 }
 
 func normalize(s string) string {
