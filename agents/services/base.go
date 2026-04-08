@@ -81,6 +81,9 @@ type Base struct {
 	Watcher *code.Watcher
 	Events  chan code.Change
 
+	// Command registry for agent-provided tools (exposed via ListCommands/RunPluginCommand)
+	commands *CommandRegistry
+
 	// Docker Image for simple deployment convenience
 	image *resources.DockerImage
 }
