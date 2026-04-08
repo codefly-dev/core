@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -216,7 +217,13 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	if proc.dir != "" {
 		cmd.Dir = proc.dir
 	}
-	cmd.Env = resources.EnvironmentVariableAsStrings(proc.env.envs)
+	// Create new process group so we can kill all children on stop
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	// Start with inherited OS environment (PATH, HOME, etc.)
+	cmd.Env = os.Environ()
+	// Layer codefly env vars on top (they take precedence)
+	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.env.envs)...)
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
 	w.Trace("envs", wool.Field("count", len(cmd.Env)))
 
@@ -318,24 +325,18 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	w.Trace("sending SIGTERM to process")
-	err := proc.exec.Process.Signal(syscall.SIGTERM)
-	if err != nil {
-		return fmt.Errorf("failed to send SIGTERM: %w", err)
-	}
+	// Kill the entire process group (negative PID) so child processes also die
+	pgid := proc.exec.Process.Pid
+	w.Trace("sending SIGTERM to process group", wool.Field("pgid", pgid))
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
 	time.Sleep(time.Second)
 
+	// Check if still alive, force kill if needed
 	if err := proc.exec.Process.Signal(syscall.Signal(0)); err == nil {
-		w.Trace("process is still alive after SIGTERM, sending SIGKILL")
-		if killErr := proc.exec.Process.Kill(); killErr != nil {
-			w.Trace("failed to force kill process", wool.Field("error", killErr))
-			return fmt.Errorf("failed to force kill process: %w", killErr)
-		}
+		w.Trace("process group still alive after SIGTERM, sending SIGKILL")
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 	} else {
 		w.Trace("process has exited after SIGTERM")
-		if !strings.Contains(err.Error(), "process already finished") {
-			w.Trace("error checking process status", wool.Field("error", err))
-		}
 	}
 	go func() {
 		proc.stopped <- struct{}{}

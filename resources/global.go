@@ -35,6 +35,17 @@ func CodeflyDir() string {
 	return codeflyDir
 }
 
+// CodeflyHomeDir always returns ~/.codefly (the global home directory).
+// Use this for agents, containers, and other global resources that should
+// NOT be resolved from workspace-local .codefly/ directories.
+func CodeflyHomeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return codeflyDir // fallback
+	}
+	return path.Join(home, ".codefly")
+}
+
 var (
 	codeflyDir string
 	// This is where the Workspace configuration is stored

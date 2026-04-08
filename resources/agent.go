@@ -143,10 +143,10 @@ func AgentBase(ctx context.Context) string {
 	w := wool.Get(ctx).In("AgentBase")
 	if isRunningInDocker() {
 		w.Debug("running inside docker")
-		return path.Join(CodeflyDir(), "containers")
+		return path.Join(CodeflyHomeDir(), "containers")
 	}
 	w.Debug("running natively")
-	return CodeflyDir()
+	return CodeflyHomeDir()
 }
 
 func (p *Agent) Path(ctx context.Context) (string, error) {
