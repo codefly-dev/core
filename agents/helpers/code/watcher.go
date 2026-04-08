@@ -40,8 +40,12 @@ func addDependency(ctx context.Context, base string, dep *builders.Dependency, w
 			if err != nil {
 				return err
 			}
-			// If path doesn't exist we skip
+			// Skip build output and dependency directories
 			if info.IsDir() {
+				base := filepath.Base(path)
+				if base == ".next" || base == "node_modules" || base == "__pycache__" || base == ".git" {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			if !dep.Keep(path) {
