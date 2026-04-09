@@ -1,5 +1,3 @@
-//go:build skip
-
 package base_test
 
 import (
