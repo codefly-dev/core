@@ -174,6 +174,9 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 		Agent:   s.Agent,
 	}
 
+	// Register base commands available to all agents (bash, etc.)
+	s.RegisterBaseCommands()
+
 	s.loaded = true
 	return nil
 }

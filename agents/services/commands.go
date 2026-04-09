@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"os/exec"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 )
@@ -59,6 +60,38 @@ func (r *CommandRegistry) Run(ctx context.Context, name string, args []string) (
 }
 
 // --- Base integration ---
+
+// RegisterBaseCommands registers commands available on every agent.
+// Called automatically during Load.
+func (s *Base) RegisterBaseCommands() {
+	s.RegisterCommand(&agentv0.CommandDefinition{
+		Name:        "bash",
+		Description: "Run a read-only shell command in the service directory",
+		Usage:       `bash {"cmd": "ls -la"}`,
+		Tags:        []string{"shell", "diagnostic"},
+	}, s.cmdBash)
+
+	s.RegisterCommand(&agentv0.CommandDefinition{
+		Name:        "bash_write",
+		Description: "Run a shell command that may modify files in the service directory",
+		Usage:       `bash_write {"cmd": "go mod tidy"}`,
+		Tags:        []string{"shell", "write"},
+		Destructive: true,
+	}, s.cmdBash)
+}
+
+func (s *Base) cmdBash(ctx context.Context, args []string) (string, error) {
+	if len(args) == 0 {
+		return "", fmt.Errorf("usage: bash <command> [args...]")
+	}
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = s.Location
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), fmt.Errorf("command failed: %w", err)
+	}
+	return string(output), nil
+}
 
 // RegisterCommand registers a command on the agent's base.
 func (s *Base) RegisterCommand(def *agentv0.CommandDefinition, handler CommandHandler) {
