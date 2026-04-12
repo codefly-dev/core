@@ -341,6 +341,18 @@ func FindGRPCEndpointFromService(ctx context.Context, service *ServiceDependency
 	return nil, nil
 }
 
+func FindRestEndpointFromService(ctx context.Context, service *ServiceDependency, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	for _, e := range endpoints {
+		if e.Service != service.Name || e.Module != service.Module {
+			continue
+		}
+		if IsRest(ctx, e) != nil {
+			return e, nil
+		}
+	}
+	return nil, nil
+}
+
 func FindRestEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
 	for _, e := range endpoints {
 		if IsRest(ctx, e) != nil {
@@ -357,6 +369,15 @@ func FindHTTPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev
 		}
 	}
 	return nil, fmt.Errorf("no http endpoint found")
+}
+
+func FindConnectEndpoint(_ context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	for _, e := range endpoints {
+		if e.Api == "connect" {
+			return e, nil
+		}
+	}
+	return nil, fmt.Errorf("no connect endpoint found")
 }
 
 func FindTCPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {

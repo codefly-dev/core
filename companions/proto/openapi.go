@@ -65,6 +65,8 @@ func GenerateOpenAPI(ctx context.Context, language languages.Language, destinati
 	switch language {
 	case languages.GO:
 		return generateOpenAPIGo(ctx, unique, image, destination, openapiDir, file)
+	case languages.TYPESCRIPT:
+		return generateOpenAPITypeScript(ctx, unique, image, destination, openapiDir, file)
 	default:
 		return w.NewError("language not supported")
 	}
@@ -126,6 +128,62 @@ func generateOpenAPIGo(ctx context.Context, unique string, image *resources.Dock
 	if err != nil {
 		return w.Wrapf(err, "cannot generate code from buf")
 	}
+	return nil
+}
+
+// generateOpenAPITypeScript converts a Swagger 2.0 spec to OpenAPI 3.0 and
+// then generates TypeScript types using openapi-typescript — all inside the
+// proto companion container.
+func generateOpenAPITypeScript(ctx context.Context, unique string, image *resources.DockerImage, destinationDir string, openapiDir, file string) error {
+	w := wool.Get(ctx).In("generateOpenAPITypeScript", wool.Field("destinationDir", destinationDir))
+	w.Info("generating openapi typescript types", wool.Field("file", file))
+
+	openapiFile := filepath.Join("/workspace/openapi", file)
+	v3File := "/workspace/openapi/openapi3.json"
+	tsFile := "/workspace/output/api.d.ts"
+
+	name := fmt.Sprintf("openapi-ts-%s-%d", unique, time.Now().UnixMilli())
+	runner, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+		Name:      name,
+		SourceDir: openapiDir,
+		Image:     image,
+	})
+	if err != nil {
+		return w.Wrapf(err, "cannot create companion runner")
+	}
+	runner.WithMount(openapiDir, "/workspace/openapi")
+	runner.WithMount(destinationDir, "/workspace/output")
+	runner.WithWorkDir("/workspace")
+	runner.WithPause()
+
+	defer func() {
+		if shutErr := runner.Shutdown(ctx); shutErr != nil {
+			w.Warn("cannot shutdown runner", wool.ErrField(shutErr))
+		}
+	}()
+
+	if err := runner.Init(ctx); err != nil {
+		return w.Wrapf(err, "cannot init runner")
+	}
+
+	// Step 1: Convert Swagger 2.0 → OpenAPI 3.0
+	proc, err := runner.NewProcess("swagger2openapi", openapiFile, "-o", v3File)
+	if err != nil {
+		return w.Wrapf(err, "cannot create swagger2openapi process")
+	}
+	if err := proc.Run(ctx); err != nil {
+		return w.Wrapf(err, "swagger2openapi conversion failed")
+	}
+
+	// Step 2: Generate TypeScript types from OpenAPI 3.0
+	proc, err = runner.NewProcess("npx", "openapi-typescript", v3File, "-o", tsFile)
+	if err != nil {
+		return w.Wrapf(err, "cannot create openapi-typescript process")
+	}
+	if err := proc.Run(ctx); err != nil {
+		return w.Wrapf(err, "openapi-typescript generation failed")
+	}
+
 	return nil
 }
 

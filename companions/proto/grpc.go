@@ -113,6 +113,10 @@ type PythonConfiguration struct {
 	Destination string
 }
 
+type TypeScriptConfiguration struct {
+	Destination string
+}
+
 func CreateBufConfiguration(ctx context.Context, bufDir string, service string, language languages.Language) error {
 	w := wool.Get(ctx).In("createBufConfiguration")
 	switch language {
@@ -126,6 +130,12 @@ func CreateBufConfiguration(ctx context.Context, bufDir string, service string, 
 	case languages.PYTHON:
 		// Templatize
 		err := templatePythonConfiguration(ctx, bufDir)
+		if err != nil {
+			return w.Wrapf(err, "cannot templatize")
+		}
+		return nil
+	case languages.TYPESCRIPT:
+		err := templateTypeScriptConfiguration(ctx, bufDir)
 		if err != nil {
 			return w.Wrapf(err, "cannot templatize")
 		}
@@ -163,6 +173,19 @@ func templatePythonConfiguration(ctx context.Context, bufDir string) error {
 	return nil
 }
 
+func templateTypeScriptConfiguration(ctx context.Context, bufDir string) error {
+	w := wool.Get(ctx).In("templateTypeScriptConfiguration", wool.Field("bufDir", bufDir))
+	templator := &templates.Templator{NameReplacer: templates.CutTemplateSuffix{}}
+	conf := TypeScriptConfiguration{
+		Destination: "output",
+	}
+	err := templator.CopyAndApply(ctx, typescriptFS, "templates/typescript", bufDir, conf)
+	if err != nil {
+		return w.Wrapf(err, "cannot copy and apply template")
+	}
+	return nil
+}
+
 // Embed
 
 //go:embed templates/go
@@ -170,3 +193,6 @@ var goFS embed.FS
 
 //go:embed templates/python
 var pythonFS embed.FS
+
+//go:embed templates/typescript
+var typescriptFS embed.FS
