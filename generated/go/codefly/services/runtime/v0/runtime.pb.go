@@ -7,13 +7,14 @@
 package v0
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	v01 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -1079,7 +1080,9 @@ func (x *BuildStatus) GetMessage() string {
 }
 
 type BuildRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional target scope: package path (e.g. "./handlers"), file, or empty for all.
+	Target        string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1112,6 +1115,13 @@ func (x *BuildRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use BuildRequest.ProtoReflect.Descriptor instead.
 func (*BuildRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *BuildRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
 }
 
 type BuildResponse struct {
@@ -1219,7 +1229,17 @@ func (x *TestStatus) GetMessage() string {
 }
 
 type TestRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional target: package path (e.g. "./handlers"), test function name
+	// (e.g. "TestHealthEndpoint"), or pattern (e.g. "TestHealth.*").
+	// Empty runs all tests.
+	Target string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	// Optional: run with verbose output.
+	Verbose bool `protobuf:"varint,2,opt,name=verbose,proto3" json:"verbose,omitempty"`
+	// Optional: run with race detector.
+	Race bool `protobuf:"varint,3,opt,name=race,proto3" json:"race,omitempty"`
+	// Optional: timeout per test (e.g. "30s"). Empty uses agent default.
+	Timeout       string `protobuf:"bytes,4,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1252,6 +1272,34 @@ func (x *TestRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use TestRequest.ProtoReflect.Descriptor instead.
 func (*TestRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *TestRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *TestRequest) GetVerbose() bool {
+	if x != nil {
+		return x.Verbose
+	}
+	return false
+}
+
+func (x *TestRequest) GetRace() bool {
+	if x != nil {
+		return x.Race
+	}
+	return false
+}
+
+func (x *TestRequest) GetTimeout() string {
+	if x != nil {
+		return x.Timeout
+	}
+	return ""
 }
 
 type TestResponse struct {
@@ -1407,7 +1455,11 @@ func (x *LintStatus) GetMessage() string {
 }
 
 type LintRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional target scope: package path, file, or empty for all.
+	Target string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	// Optional: auto-fix linting issues where possible.
+	Fix           bool `protobuf:"varint,2,opt,name=fix,proto3" json:"fix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1440,6 +1492,20 @@ func (x *LintRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use LintRequest.ProtoReflect.Descriptor instead.
 func (*LintRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *LintRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *LintRequest) GetFix() bool {
+	if x != nil {
+		return x.Fix
+	}
+	return false
 }
 
 type LintResponse struct {
@@ -2008,8 +2074,9 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSUCCESS\x10\x01\x12\t\n" +
-	"\x05ERROR\x10\x02\"\x0e\n" +
-	"\fBuildRequest\"i\n" +
+	"\x05ERROR\x10\x02\"&\n" +
+	"\fBuildRequest\x12\x16\n" +
+	"\x06target\x18\x01 \x01(\tR\x06target\"i\n" +
 	"\rBuildResponse\x12@\n" +
 	"\x06status\x18\x01 \x01(\v2(.codefly.services.runtime.v0.BuildStatusR\x06status\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\"\x9b\x01\n" +
@@ -2020,8 +2087,12 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSUCCESS\x10\x01\x12\t\n" +
-	"\x05ERROR\x10\x02\"\r\n" +
-	"\vTestRequest\"\xae\x02\n" +
+	"\x05ERROR\x10\x02\"m\n" +
+	"\vTestRequest\x12\x16\n" +
+	"\x06target\x18\x01 \x01(\tR\x06target\x12\x18\n" +
+	"\averbose\x18\x02 \x01(\bR\averbose\x12\x12\n" +
+	"\x04race\x18\x03 \x01(\bR\x04race\x12\x18\n" +
+	"\atimeout\x18\x04 \x01(\tR\atimeout\"\xae\x02\n" +
 	"\fTestResponse\x12?\n" +
 	"\x06status\x18\x01 \x01(\v2'.codefly.services.runtime.v0.TestStatusR\x06status\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12\x1b\n" +
@@ -2038,8 +2109,10 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSUCCESS\x10\x01\x12\t\n" +
-	"\x05ERROR\x10\x02\"\r\n" +
-	"\vLintRequest\"g\n" +
+	"\x05ERROR\x10\x02\"7\n" +
+	"\vLintRequest\x12\x16\n" +
+	"\x06target\x18\x01 \x01(\tR\x06target\x12\x10\n" +
+	"\x03fix\x18\x02 \x01(\bR\x03fix\"g\n" +
 	"\fLintResponse\x12?\n" +
 	"\x06status\x18\x01 \x01(\v2'.codefly.services.runtime.v0.LintStatusR\x06status\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\"\r\n" +

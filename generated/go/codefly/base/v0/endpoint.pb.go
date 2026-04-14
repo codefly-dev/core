@@ -7,12 +7,13 @@
 package v0
 
 import (
-	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -705,7 +706,7 @@ var File_codefly_base_v0_endpoint_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"\n" +
-	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xfa\x02\n" +
+	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\x83\x03\n" +
 	"\bEndpoint\x12)\n" +
 	"\x04name\x18\x01 \x01(\tB\x15\xbaH\x12r\x10\x10\x03\x18\x142\b^[a-z]+$h\x01R\x04name\x128\n" +
 	"\aservice\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\aservice\x126\n" +
@@ -713,8 +714,8 @@ const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12H\n" +
 	"\n" +
 	"visibility\x18\x05 \x01(\tB(\xbaH%r#R\bexternalR\x06publicR\x06moduleR\aprivateR\n" +
-	"visibility\x12.\n" +
-	"\x03api\x18\x06 \x01(\tB\x1c\xbaH\x19r\x17R\x04httpR\x04grpcR\x03tcpR\x04restR\x03api\x125\n" +
+	"visibility\x127\n" +
+	"\x03api\x18\x06 \x01(\tB%\xbaH\"r R\x04httpR\x04grpcR\x03tcpR\x04restR\aconnectR\x03api\x125\n" +
 	"\vapi_details\x18\a \x01(\v2\x14.codefly.base.v0.APIR\n" +
 	"apiDetails\"\xcb\x01\n" +
 	"\x03API\x12+\n" +

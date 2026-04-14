@@ -21,36 +21,6 @@ class CodeStub(object):
                 request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CodeRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CodeResponse.FromString,
                 _registered_method=True)
-        self.ReadFile = channel.unary_unary(
-                '/codefly.services.code.v0.Code/ReadFile',
-                request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ReadFileRequest.SerializeToString,
-                response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ReadFileResponse.FromString,
-                _registered_method=True)
-        self.WriteFile = channel.unary_unary(
-                '/codefly.services.code.v0.Code/WriteFile',
-                request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.WriteFileRequest.SerializeToString,
-                response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.WriteFileResponse.FromString,
-                _registered_method=True)
-        self.ListFiles = channel.unary_unary(
-                '/codefly.services.code.v0.Code/ListFiles',
-                request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ListFilesRequest.SerializeToString,
-                response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ListFilesResponse.FromString,
-                _registered_method=True)
-        self.DeleteFile = channel.unary_unary(
-                '/codefly.services.code.v0.Code/DeleteFile',
-                request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.DeleteFileRequest.SerializeToString,
-                response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.DeleteFileResponse.FromString,
-                _registered_method=True)
-        self.MoveFile = channel.unary_unary(
-                '/codefly.services.code.v0.Code/MoveFile',
-                request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.MoveFileRequest.SerializeToString,
-                response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.MoveFileResponse.FromString,
-                _registered_method=True)
-        self.CreateFile = channel.unary_unary(
-                '/codefly.services.code.v0.Code/CreateFile',
-                request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CreateFileRequest.SerializeToString,
-                response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CreateFileResponse.FromString,
-                _registered_method=True)
         self.ListSymbols = channel.unary_unary(
                 '/codefly.services.code.v0.Code/ListSymbols',
                 request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ListSymbolsRequest.SerializeToString,
@@ -91,11 +61,6 @@ class CodeStub(object):
                 request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ApplyEditRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ApplyEditResponse.FromString,
                 _registered_method=True)
-        self.Search = channel.unary_unary(
-                '/codefly.services.code.v0.Code/Search',
-                request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.SearchRequest.SerializeToString,
-                response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.SearchResponse.FromString,
-                _registered_method=True)
         self.ListDependencies = channel.unary_unary(
                 '/codefly.services.code.v0.Code/ListDependencies',
                 request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ListDependenciesRequest.SerializeToString,
@@ -116,6 +81,16 @@ class CodeStub(object):
                 request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetProjectInfoRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetProjectInfoResponse.FromString,
                 _registered_method=True)
+        self.GetCallGraph = channel.unary_unary(
+                '/codefly.services.code.v0.Code/GetCallGraph',
+                request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetCallGraphRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetCallGraphResponse.FromString,
+                _registered_method=True)
+        self.ShellExec = channel.unary_unary(
+                '/codefly.services.code.v0.Code/ShellExec',
+                request_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ShellExecRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ShellExecResponse.FromString,
+                _registered_method=True)
 
 
 class CodeServicer(object):
@@ -125,54 +100,17 @@ class CodeServicer(object):
 
     def Execute(self, request, context):
         """Execute dispatches any code operation via a single RPC.
-        The DefaultCodeServer in core handles filesystem, search, and project-info
-        operations automatically; plugins override only language-specific handlers
-        (LSP, Fix, dependency management).
+        Plugins override language-specific handlers (LSP, Fix, dependency management).
+        File I/O and git operations are handled directly by Mind — not via this service.
         """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def ReadFile(self, request, context):
-        """--- Deprecated individual RPCs (kept for migration) ---
-
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def WriteFile(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def ListFiles(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def DeleteFile(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def MoveFile(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def CreateFile(self, request, context):
-        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ListSymbols(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """--- Individual RPCs for language-specific operations ---
+
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -219,12 +157,6 @@ class CodeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Search(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def ListDependencies(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -249,6 +181,21 @@ class CodeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetCallGraph(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ShellExec(self, request, context):
+        """ShellExec is the one sanctioned path for running shell commands
+        against a workspace. Clients call this instead of os/exec so all
+        process spawning crosses the plugin boundary (the agent).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CodeServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -256,36 +203,6 @@ def add_CodeServicer_to_server(servicer, server):
                     servicer.Execute,
                     request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CodeRequest.FromString,
                     response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CodeResponse.SerializeToString,
-            ),
-            'ReadFile': grpc.unary_unary_rpc_method_handler(
-                    servicer.ReadFile,
-                    request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ReadFileRequest.FromString,
-                    response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ReadFileResponse.SerializeToString,
-            ),
-            'WriteFile': grpc.unary_unary_rpc_method_handler(
-                    servicer.WriteFile,
-                    request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.WriteFileRequest.FromString,
-                    response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.WriteFileResponse.SerializeToString,
-            ),
-            'ListFiles': grpc.unary_unary_rpc_method_handler(
-                    servicer.ListFiles,
-                    request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ListFilesRequest.FromString,
-                    response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ListFilesResponse.SerializeToString,
-            ),
-            'DeleteFile': grpc.unary_unary_rpc_method_handler(
-                    servicer.DeleteFile,
-                    request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.DeleteFileRequest.FromString,
-                    response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.DeleteFileResponse.SerializeToString,
-            ),
-            'MoveFile': grpc.unary_unary_rpc_method_handler(
-                    servicer.MoveFile,
-                    request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.MoveFileRequest.FromString,
-                    response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.MoveFileResponse.SerializeToString,
-            ),
-            'CreateFile': grpc.unary_unary_rpc_method_handler(
-                    servicer.CreateFile,
-                    request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CreateFileRequest.FromString,
-                    response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CreateFileResponse.SerializeToString,
             ),
             'ListSymbols': grpc.unary_unary_rpc_method_handler(
                     servicer.ListSymbols,
@@ -327,11 +244,6 @@ def add_CodeServicer_to_server(servicer, server):
                     request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ApplyEditRequest.FromString,
                     response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ApplyEditResponse.SerializeToString,
             ),
-            'Search': grpc.unary_unary_rpc_method_handler(
-                    servicer.Search,
-                    request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.SearchRequest.FromString,
-                    response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.SearchResponse.SerializeToString,
-            ),
             'ListDependencies': grpc.unary_unary_rpc_method_handler(
                     servicer.ListDependencies,
                     request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ListDependenciesRequest.FromString,
@@ -351,6 +263,16 @@ def add_CodeServicer_to_server(servicer, server):
                     servicer.GetProjectInfo,
                     request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetProjectInfoRequest.FromString,
                     response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetProjectInfoResponse.SerializeToString,
+            ),
+            'GetCallGraph': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetCallGraph,
+                    request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetCallGraphRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetCallGraphResponse.SerializeToString,
+            ),
+            'ShellExec': grpc.unary_unary_rpc_method_handler(
+                    servicer.ShellExec,
+                    request_deserializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ShellExecRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ShellExecResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -382,168 +304,6 @@ class Code(object):
             '/codefly.services.code.v0.Code/Execute',
             codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CodeRequest.SerializeToString,
             codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CodeResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def ReadFile(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/codefly.services.code.v0.Code/ReadFile',
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ReadFileRequest.SerializeToString,
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ReadFileResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def WriteFile(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/codefly.services.code.v0.Code/WriteFile',
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.WriteFileRequest.SerializeToString,
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.WriteFileResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def ListFiles(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/codefly.services.code.v0.Code/ListFiles',
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ListFilesRequest.SerializeToString,
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ListFilesResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def DeleteFile(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/codefly.services.code.v0.Code/DeleteFile',
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.DeleteFileRequest.SerializeToString,
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.DeleteFileResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def MoveFile(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/codefly.services.code.v0.Code/MoveFile',
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.MoveFileRequest.SerializeToString,
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.MoveFileResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def CreateFile(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/codefly.services.code.v0.Code/CreateFile',
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CreateFileRequest.SerializeToString,
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.CreateFileResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -771,33 +531,6 @@ class Code(object):
             _registered_method=True)
 
     @staticmethod
-    def Search(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/codefly.services.code.v0.Code/Search',
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.SearchRequest.SerializeToString,
-            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.SearchResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
     def ListDependencies(request,
             target,
             options=(),
@@ -895,6 +628,60 @@ class Code(object):
             '/codefly.services.code.v0.Code/GetProjectInfo',
             codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetProjectInfoRequest.SerializeToString,
             codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetProjectInfoResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetCallGraph(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.code.v0.Code/GetCallGraph',
+            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetCallGraphRequest.SerializeToString,
+            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.GetCallGraphResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ShellExec(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.code.v0.Code/ShellExec',
+            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ShellExecRequest.SerializeToString,
+            codefly_dot_services_dot_code_dot_v0_dot_code__pb2.ShellExecResponse.FromString,
             options,
             channel_credentials,
             insecure,

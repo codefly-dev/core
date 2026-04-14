@@ -8,6 +8,7 @@ package v0
 
 import (
 	context "context"
+
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -20,12 +21,6 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	Code_Execute_FullMethodName          = "/codefly.services.code.v0.Code/Execute"
-	Code_ReadFile_FullMethodName         = "/codefly.services.code.v0.Code/ReadFile"
-	Code_WriteFile_FullMethodName        = "/codefly.services.code.v0.Code/WriteFile"
-	Code_ListFiles_FullMethodName        = "/codefly.services.code.v0.Code/ListFiles"
-	Code_DeleteFile_FullMethodName       = "/codefly.services.code.v0.Code/DeleteFile"
-	Code_MoveFile_FullMethodName         = "/codefly.services.code.v0.Code/MoveFile"
-	Code_CreateFile_FullMethodName       = "/codefly.services.code.v0.Code/CreateFile"
 	Code_ListSymbols_FullMethodName      = "/codefly.services.code.v0.Code/ListSymbols"
 	Code_GetDiagnostics_FullMethodName   = "/codefly.services.code.v0.Code/GetDiagnostics"
 	Code_GoToDefinition_FullMethodName   = "/codefly.services.code.v0.Code/GoToDefinition"
@@ -34,11 +29,12 @@ const (
 	Code_GetHoverInfo_FullMethodName     = "/codefly.services.code.v0.Code/GetHoverInfo"
 	Code_Fix_FullMethodName              = "/codefly.services.code.v0.Code/Fix"
 	Code_ApplyEdit_FullMethodName        = "/codefly.services.code.v0.Code/ApplyEdit"
-	Code_Search_FullMethodName           = "/codefly.services.code.v0.Code/Search"
 	Code_ListDependencies_FullMethodName = "/codefly.services.code.v0.Code/ListDependencies"
 	Code_AddDependency_FullMethodName    = "/codefly.services.code.v0.Code/AddDependency"
 	Code_RemoveDependency_FullMethodName = "/codefly.services.code.v0.Code/RemoveDependency"
 	Code_GetProjectInfo_FullMethodName   = "/codefly.services.code.v0.Code/GetProjectInfo"
+	Code_GetCallGraph_FullMethodName     = "/codefly.services.code.v0.Code/GetCallGraph"
+	Code_ShellExec_FullMethodName        = "/codefly.services.code.v0.Code/ShellExec"
 )
 
 // CodeClient is the client API for Code service.
@@ -46,16 +42,9 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CodeClient interface {
 	// Execute dispatches any code operation via a single RPC.
-	// The DefaultCodeServer in core handles filesystem, search, and project-info
-	// operations automatically; plugins override only language-specific handlers
-	// (LSP, Fix, dependency management).
+	// Plugins override language-specific handlers (LSP, Fix, dependency management).
+	// File I/O and git operations are handled directly by Mind — not via this service.
 	Execute(ctx context.Context, in *CodeRequest, opts ...grpc.CallOption) (*CodeResponse, error)
-	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error)
-	WriteFile(ctx context.Context, in *WriteFileRequest, opts ...grpc.CallOption) (*WriteFileResponse, error)
-	ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error)
-	DeleteFile(ctx context.Context, in *DeleteFileRequest, opts ...grpc.CallOption) (*DeleteFileResponse, error)
-	MoveFile(ctx context.Context, in *MoveFileRequest, opts ...grpc.CallOption) (*MoveFileResponse, error)
-	CreateFile(ctx context.Context, in *CreateFileRequest, opts ...grpc.CallOption) (*CreateFileResponse, error)
 	ListSymbols(ctx context.Context, in *ListSymbolsRequest, opts ...grpc.CallOption) (*ListSymbolsResponse, error)
 	GetDiagnostics(ctx context.Context, in *GetDiagnosticsRequest, opts ...grpc.CallOption) (*GetDiagnosticsResponse, error)
 	GoToDefinition(ctx context.Context, in *GoToDefinitionRequest, opts ...grpc.CallOption) (*GoToDefinitionResponse, error)
@@ -64,11 +53,15 @@ type CodeClient interface {
 	GetHoverInfo(ctx context.Context, in *GetHoverInfoRequest, opts ...grpc.CallOption) (*GetHoverInfoResponse, error)
 	Fix(ctx context.Context, in *FixRequest, opts ...grpc.CallOption) (*FixResponse, error)
 	ApplyEdit(ctx context.Context, in *ApplyEditRequest, opts ...grpc.CallOption) (*ApplyEditResponse, error)
-	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error)
 	ListDependencies(ctx context.Context, in *ListDependenciesRequest, opts ...grpc.CallOption) (*ListDependenciesResponse, error)
 	AddDependency(ctx context.Context, in *AddDependencyRequest, opts ...grpc.CallOption) (*AddDependencyResponse, error)
 	RemoveDependency(ctx context.Context, in *RemoveDependencyRequest, opts ...grpc.CallOption) (*RemoveDependencyResponse, error)
 	GetProjectInfo(ctx context.Context, in *GetProjectInfoRequest, opts ...grpc.CallOption) (*GetProjectInfoResponse, error)
+	GetCallGraph(ctx context.Context, in *GetCallGraphRequest, opts ...grpc.CallOption) (*GetCallGraphResponse, error)
+	// ShellExec is the one sanctioned path for running shell commands
+	// against a workspace. Clients call this instead of os/exec so all
+	// process spawning crosses the plugin boundary (the agent).
+	ShellExec(ctx context.Context, in *ShellExecRequest, opts ...grpc.CallOption) (*ShellExecResponse, error)
 }
 
 type codeClient struct {
@@ -83,66 +76,6 @@ func (c *codeClient) Execute(ctx context.Context, in *CodeRequest, opts ...grpc.
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CodeResponse)
 	err := c.cc.Invoke(ctx, Code_Execute_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *codeClient) ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ReadFileResponse)
-	err := c.cc.Invoke(ctx, Code_ReadFile_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *codeClient) WriteFile(ctx context.Context, in *WriteFileRequest, opts ...grpc.CallOption) (*WriteFileResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(WriteFileResponse)
-	err := c.cc.Invoke(ctx, Code_WriteFile_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *codeClient) ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListFilesResponse)
-	err := c.cc.Invoke(ctx, Code_ListFiles_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *codeClient) DeleteFile(ctx context.Context, in *DeleteFileRequest, opts ...grpc.CallOption) (*DeleteFileResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DeleteFileResponse)
-	err := c.cc.Invoke(ctx, Code_DeleteFile_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *codeClient) MoveFile(ctx context.Context, in *MoveFileRequest, opts ...grpc.CallOption) (*MoveFileResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(MoveFileResponse)
-	err := c.cc.Invoke(ctx, Code_MoveFile_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *codeClient) CreateFile(ctx context.Context, in *CreateFileRequest, opts ...grpc.CallOption) (*CreateFileResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateFileResponse)
-	err := c.cc.Invoke(ctx, Code_CreateFile_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -229,16 +162,6 @@ func (c *codeClient) ApplyEdit(ctx context.Context, in *ApplyEditRequest, opts .
 	return out, nil
 }
 
-func (c *codeClient) Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SearchResponse)
-	err := c.cc.Invoke(ctx, Code_Search_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *codeClient) ListDependencies(ctx context.Context, in *ListDependenciesRequest, opts ...grpc.CallOption) (*ListDependenciesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListDependenciesResponse)
@@ -279,21 +202,34 @@ func (c *codeClient) GetProjectInfo(ctx context.Context, in *GetProjectInfoReque
 	return out, nil
 }
 
+func (c *codeClient) GetCallGraph(ctx context.Context, in *GetCallGraphRequest, opts ...grpc.CallOption) (*GetCallGraphResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCallGraphResponse)
+	err := c.cc.Invoke(ctx, Code_GetCallGraph_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *codeClient) ShellExec(ctx context.Context, in *ShellExecRequest, opts ...grpc.CallOption) (*ShellExecResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ShellExecResponse)
+	err := c.cc.Invoke(ctx, Code_ShellExec_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CodeServer is the server API for Code service.
 // All implementations must embed UnimplementedCodeServer
 // for forward compatibility.
 type CodeServer interface {
 	// Execute dispatches any code operation via a single RPC.
-	// The DefaultCodeServer in core handles filesystem, search, and project-info
-	// operations automatically; plugins override only language-specific handlers
-	// (LSP, Fix, dependency management).
+	// Plugins override language-specific handlers (LSP, Fix, dependency management).
+	// File I/O and git operations are handled directly by Mind — not via this service.
 	Execute(context.Context, *CodeRequest) (*CodeResponse, error)
-	ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error)
-	WriteFile(context.Context, *WriteFileRequest) (*WriteFileResponse, error)
-	ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error)
-	DeleteFile(context.Context, *DeleteFileRequest) (*DeleteFileResponse, error)
-	MoveFile(context.Context, *MoveFileRequest) (*MoveFileResponse, error)
-	CreateFile(context.Context, *CreateFileRequest) (*CreateFileResponse, error)
 	ListSymbols(context.Context, *ListSymbolsRequest) (*ListSymbolsResponse, error)
 	GetDiagnostics(context.Context, *GetDiagnosticsRequest) (*GetDiagnosticsResponse, error)
 	GoToDefinition(context.Context, *GoToDefinitionRequest) (*GoToDefinitionResponse, error)
@@ -302,11 +238,15 @@ type CodeServer interface {
 	GetHoverInfo(context.Context, *GetHoverInfoRequest) (*GetHoverInfoResponse, error)
 	Fix(context.Context, *FixRequest) (*FixResponse, error)
 	ApplyEdit(context.Context, *ApplyEditRequest) (*ApplyEditResponse, error)
-	Search(context.Context, *SearchRequest) (*SearchResponse, error)
 	ListDependencies(context.Context, *ListDependenciesRequest) (*ListDependenciesResponse, error)
 	AddDependency(context.Context, *AddDependencyRequest) (*AddDependencyResponse, error)
 	RemoveDependency(context.Context, *RemoveDependencyRequest) (*RemoveDependencyResponse, error)
 	GetProjectInfo(context.Context, *GetProjectInfoRequest) (*GetProjectInfoResponse, error)
+	GetCallGraph(context.Context, *GetCallGraphRequest) (*GetCallGraphResponse, error)
+	// ShellExec is the one sanctioned path for running shell commands
+	// against a workspace. Clients call this instead of os/exec so all
+	// process spawning crosses the plugin boundary (the agent).
+	ShellExec(context.Context, *ShellExecRequest) (*ShellExecResponse, error)
 	mustEmbedUnimplementedCodeServer()
 }
 
@@ -319,24 +259,6 @@ type UnimplementedCodeServer struct{}
 
 func (UnimplementedCodeServer) Execute(context.Context, *CodeRequest) (*CodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Execute not implemented")
-}
-func (UnimplementedCodeServer) ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ReadFile not implemented")
-}
-func (UnimplementedCodeServer) WriteFile(context.Context, *WriteFileRequest) (*WriteFileResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method WriteFile not implemented")
-}
-func (UnimplementedCodeServer) ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListFiles not implemented")
-}
-func (UnimplementedCodeServer) DeleteFile(context.Context, *DeleteFileRequest) (*DeleteFileResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method DeleteFile not implemented")
-}
-func (UnimplementedCodeServer) MoveFile(context.Context, *MoveFileRequest) (*MoveFileResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method MoveFile not implemented")
-}
-func (UnimplementedCodeServer) CreateFile(context.Context, *CreateFileRequest) (*CreateFileResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method CreateFile not implemented")
 }
 func (UnimplementedCodeServer) ListSymbols(context.Context, *ListSymbolsRequest) (*ListSymbolsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSymbols not implemented")
@@ -362,9 +284,6 @@ func (UnimplementedCodeServer) Fix(context.Context, *FixRequest) (*FixResponse, 
 func (UnimplementedCodeServer) ApplyEdit(context.Context, *ApplyEditRequest) (*ApplyEditResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ApplyEdit not implemented")
 }
-func (UnimplementedCodeServer) Search(context.Context, *SearchRequest) (*SearchResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Search not implemented")
-}
 func (UnimplementedCodeServer) ListDependencies(context.Context, *ListDependenciesRequest) (*ListDependenciesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListDependencies not implemented")
 }
@@ -376,6 +295,12 @@ func (UnimplementedCodeServer) RemoveDependency(context.Context, *RemoveDependen
 }
 func (UnimplementedCodeServer) GetProjectInfo(context.Context, *GetProjectInfoRequest) (*GetProjectInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetProjectInfo not implemented")
+}
+func (UnimplementedCodeServer) GetCallGraph(context.Context, *GetCallGraphRequest) (*GetCallGraphResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetCallGraph not implemented")
+}
+func (UnimplementedCodeServer) ShellExec(context.Context, *ShellExecRequest) (*ShellExecResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ShellExec not implemented")
 }
 func (UnimplementedCodeServer) mustEmbedUnimplementedCodeServer() {}
 func (UnimplementedCodeServer) testEmbeddedByValue()              {}
@@ -412,114 +337,6 @@ func _Code_Execute_Handler(srv interface{}, ctx context.Context, dec func(interf
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(CodeServer).Execute(ctx, req.(*CodeRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Code_ReadFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReadFileRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CodeServer).ReadFile(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Code_ReadFile_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CodeServer).ReadFile(ctx, req.(*ReadFileRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Code_WriteFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(WriteFileRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CodeServer).WriteFile(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Code_WriteFile_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CodeServer).WriteFile(ctx, req.(*WriteFileRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Code_ListFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListFilesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CodeServer).ListFiles(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Code_ListFiles_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CodeServer).ListFiles(ctx, req.(*ListFilesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Code_DeleteFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteFileRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CodeServer).DeleteFile(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Code_DeleteFile_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CodeServer).DeleteFile(ctx, req.(*DeleteFileRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Code_MoveFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MoveFileRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CodeServer).MoveFile(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Code_MoveFile_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CodeServer).MoveFile(ctx, req.(*MoveFileRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Code_CreateFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateFileRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CodeServer).CreateFile(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Code_CreateFile_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CodeServer).CreateFile(ctx, req.(*CreateFileRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -668,24 +485,6 @@ func _Code_ApplyEdit_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Code_Search_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SearchRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CodeServer).Search(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Code_Search_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CodeServer).Search(ctx, req.(*SearchRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _Code_ListDependencies_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListDependenciesRequest)
 	if err := dec(in); err != nil {
@@ -758,6 +557,42 @@ func _Code_GetProjectInfo_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Code_GetCallGraph_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCallGraphRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CodeServer).GetCallGraph(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Code_GetCallGraph_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CodeServer).GetCallGraph(ctx, req.(*GetCallGraphRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Code_ShellExec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ShellExecRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CodeServer).ShellExec(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Code_ShellExec_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CodeServer).ShellExec(ctx, req.(*ShellExecRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Code_ServiceDesc is the grpc.ServiceDesc for Code service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -768,30 +603,6 @@ var Code_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Execute",
 			Handler:    _Code_Execute_Handler,
-		},
-		{
-			MethodName: "ReadFile",
-			Handler:    _Code_ReadFile_Handler,
-		},
-		{
-			MethodName: "WriteFile",
-			Handler:    _Code_WriteFile_Handler,
-		},
-		{
-			MethodName: "ListFiles",
-			Handler:    _Code_ListFiles_Handler,
-		},
-		{
-			MethodName: "DeleteFile",
-			Handler:    _Code_DeleteFile_Handler,
-		},
-		{
-			MethodName: "MoveFile",
-			Handler:    _Code_MoveFile_Handler,
-		},
-		{
-			MethodName: "CreateFile",
-			Handler:    _Code_CreateFile_Handler,
 		},
 		{
 			MethodName: "ListSymbols",
@@ -826,10 +637,6 @@ var Code_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Code_ApplyEdit_Handler,
 		},
 		{
-			MethodName: "Search",
-			Handler:    _Code_Search_Handler,
-		},
-		{
 			MethodName: "ListDependencies",
 			Handler:    _Code_ListDependencies_Handler,
 		},
@@ -844,6 +651,14 @@ var Code_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetProjectInfo",
 			Handler:    _Code_GetProjectInfo_Handler,
+		},
+		{
+			MethodName: "GetCallGraph",
+			Handler:    _Code_GetCallGraph_Handler,
+		},
+		{
+			MethodName: "ShellExec",
+			Handler:    _Code_ShellExec_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -7,11 +7,12 @@
 package v0
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -328,6 +329,16 @@ type Symbol struct {
 	Documentation string                 `protobuf:"bytes,5,opt,name=documentation,proto3" json:"documentation,omitempty"`
 	Parent        string                 `protobuf:"bytes,6,opt,name=parent,proto3" json:"parent,omitempty"`
 	Children      []*Symbol              `protobuf:"bytes,7,rep,name=children,proto3" json:"children,omitempty"`
+	// qualified_name disambiguates across packages and receivers.
+	// For functions: "<package>.<name>", for methods: "<package>.<Type>.<name>"
+	QualifiedName string `protobuf:"bytes,8,opt,name=qualified_name,json=qualifiedName,proto3" json:"qualified_name,omitempty"`
+	// body_hash is sha256 of the normalized function body text.
+	// Whitespace-insensitive (trailing WS stripped, blank lines dropped).
+	// Changes when implementation changes; stable across reformatting.
+	BodyHash string `protobuf:"bytes,9,opt,name=body_hash,json=bodyHash,proto3" json:"body_hash,omitempty"`
+	// signature_hash is sha256 of the function signature (excluding body).
+	// Changes when the API contract changes (new parameter, return type).
+	SignatureHash string `protobuf:"bytes,10,opt,name=signature_hash,json=signatureHash,proto3" json:"signature_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -409,6 +420,27 @@ func (x *Symbol) GetChildren() []*Symbol {
 		return x.Children
 	}
 	return nil
+}
+
+func (x *Symbol) GetQualifiedName() string {
+	if x != nil {
+		return x.QualifiedName
+	}
+	return ""
+}
+
+func (x *Symbol) GetBodyHash() string {
+	if x != nil {
+		return x.BodyHash
+	}
+	return ""
+}
+
+func (x *Symbol) GetSignatureHash() string {
+	if x != nil {
+		return x.SignatureHash
+	}
+	return ""
 }
 
 type Diagnostic struct {
@@ -2858,7 +2890,7 @@ const file_codefly_services_tooling_v0_tooling_proto_rawDesc = "" +
 	"\x06column\x18\x03 \x01(\x05R\x06column\x12\x19\n" +
 	"\bend_line\x18\x04 \x01(\x05R\aendLine\x12\x1d\n" +
 	"\n" +
-	"end_column\x18\x05 \x01(\x05R\tendColumn\"\xb9\x02\n" +
+	"end_column\x18\x05 \x01(\x05R\tendColumn\"\xa4\x03\n" +
 	"\x06Symbol\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12;\n" +
 	"\x04kind\x18\x02 \x01(\x0e2'.codefly.services.tooling.v0.SymbolKindR\x04kind\x12A\n" +
@@ -2866,7 +2898,11 @@ const file_codefly_services_tooling_v0_tooling_proto_rawDesc = "" +
 	"\tsignature\x18\x04 \x01(\tR\tsignature\x12$\n" +
 	"\rdocumentation\x18\x05 \x01(\tR\rdocumentation\x12\x16\n" +
 	"\x06parent\x18\x06 \x01(\tR\x06parent\x12?\n" +
-	"\bchildren\x18\a \x03(\v2#.codefly.services.tooling.v0.SymbolR\bchildren\"\x99\x02\n" +
+	"\bchildren\x18\a \x03(\v2#.codefly.services.tooling.v0.SymbolR\bchildren\x12%\n" +
+	"\x0equalified_name\x18\b \x01(\tR\rqualifiedName\x12\x1b\n" +
+	"\tbody_hash\x18\t \x01(\tR\bbodyHash\x12%\n" +
+	"\x0esignature_hash\x18\n" +
+	" \x01(\tR\rsignatureHash\"\x99\x02\n" +
 	"\n" +
 	"Diagnostic\x12\x12\n" +
 	"\x04file\x18\x01 \x01(\tR\x04file\x12\x12\n" +
