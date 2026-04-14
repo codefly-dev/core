@@ -87,3 +87,21 @@ func (p *Parser) ParseBytesWithDiagnostics(
 	walkErrorNodes(tree.RootNode(), relPath, &diags)
 	return syms, diags, nil
 }
+
+// ParseBytesAll returns BOTH the extracted symbols AND the parse tree in a
+// single pass. The caller OWNS the returned tree and must call tree.Close().
+// Use this when you need to walk the AST after symbol extraction (e.g.
+// building call-graph edges) without re-parsing the file.
+func (p *Parser) ParseBytesAll(
+	ctx context.Context, relPath string, content []byte,
+) (syms []*codev0.Symbol, tree *sitter.Tree, err error) {
+	parser := p.pool.Get().(*sitter.Parser)
+	defer p.pool.Put(parser)
+
+	tree, err = parser.ParseCtx(ctx, nil, content)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse %s: %w", relPath, err)
+	}
+	syms = p.cfg.ExtractSymbols(tree, content, relPath)
+	return syms, tree, nil
+}
