@@ -105,6 +105,25 @@ func (s *RuntimeWrapper) StartErrorf(err error, msg string, args ...any) (*runti
 	return &runtimev0.StartResponse{Status: s.StartStatus}, err
 }
 
+// MarkRunnerExited records that the underlying runner process exited
+// AFTER a successful Start. Plugins call this from a Wait-on-binary
+// goroutine so the orchestrator's Follow() loop can observe the death
+// (StartStatus → ERROR) and propagate the failure up to `codefly run`.
+//
+// Without this, fire-and-forget Start spawns leak: the binary dies,
+// the plugin keeps running, codefly never learns, the user has dead
+// children with a still-alive parent. See cli/cmd/run/service.go for
+// the consumer side.
+func (s *RuntimeWrapper) MarkRunnerExited(err error) {
+	s.Lock()
+	defer s.Unlock()
+	msg := "runner exited"
+	if err != nil {
+		msg = err.Error()
+	}
+	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: msg}
+}
+
 // ── Test ──────────────────────────────────────────────────
 
 func (s *RuntimeWrapper) TestResponse() (*runtimev0.TestResponse, error) {

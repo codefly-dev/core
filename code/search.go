@@ -194,3 +194,82 @@ func parseGrepLine(line string) (string, int, string) {
 	}
 	return parts[0], n, parts[2]
 }
+
+// SearchTrigram performs trigram-accelerated search. The index narrows candidates
+// to files containing the query's trigrams, then regex matches only those files.
+// Falls back to SearchVFS if trigrams can't be extracted (e.g., pure wildcard pattern).
+func SearchTrigram(_ context.Context, vfs VFS, idx *TrigramIndex, root string, opts SearchOpts) (*SearchResult, error) {
+	maxResults := opts.MaxResults
+	if maxResults <= 0 {
+		maxResults = 100
+	}
+
+	// Build regex for verification.
+	pattern := opts.Pattern
+	if opts.Literal {
+		pattern = regexp.QuoteMeta(pattern)
+	}
+	flags := ""
+	if opts.CaseInsensitive {
+		flags = "(?i)"
+	}
+	re, err := regexp.Compile(flags + pattern)
+	if err != nil {
+		return nil, fmt.Errorf("compile pattern %q: %w", opts.Pattern, err)
+	}
+
+	// Query trigram index for candidate files.
+	queryPattern := opts.Pattern
+	if opts.Literal {
+		queryPattern = opts.Pattern // literal, not regex-escaped
+	}
+	candidates := idx.Query(queryPattern)
+	if candidates == nil {
+		return &SearchResult{}, nil
+	}
+
+	// Filter candidates by path and extension.
+	extSet := make(map[string]bool, len(opts.Extensions))
+	for _, ext := range opts.Extensions {
+		e := ext
+		if !strings.HasPrefix(e, ".") {
+			e = "." + e
+		}
+		extSet[e] = true
+	}
+
+	var matches []SearchMatch
+	truncated := false
+
+	for _, relPath := range candidates {
+		if opts.Path != "" && !strings.HasPrefix(relPath, opts.Path) {
+			continue
+		}
+		if len(extSet) > 0 && !extSet[filepath.Ext(relPath)] {
+			continue
+		}
+
+		absPath := filepath.Join(root, relPath)
+		data, readErr := vfs.ReadFile(absPath)
+		if readErr != nil {
+			continue
+		}
+
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			if re.MatchString(line) {
+				matches = append(matches, SearchMatch{
+					File: relPath,
+					Line: i + 1,
+					Text: strings.TrimSpace(line),
+				})
+				if len(matches) >= maxResults {
+					truncated = true
+					return &SearchResult{Matches: matches, Truncated: truncated}, nil
+				}
+			}
+		}
+	}
+
+	return &SearchResult{Matches: matches, Truncated: truncated}, nil
+}

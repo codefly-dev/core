@@ -3,6 +3,9 @@ package base
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,13 +22,36 @@ import (
 )
 
 // NixEnvironment runs processes inside a Nix development shell.
-// Every command is wrapped with `nix develop <dir> --command <bin> <args...>`.
+//
+// Two modes:
+//   - Wrapped (default before Init): each NewProcess wraps the command in
+//     `nix develop <dir> --command <bin> <args...>`. Re-evaluates the flake
+//     every call — expensive.
+//   - Materialized (after Init): `nix print-dev-env --json <dir>` is run
+//     once to capture the devShell's exported variables. Later NewProcess
+//     calls exec `bin` directly with that env, skipping `nix develop`
+//     entirely on the hot path. This is what makes Test calls fast once
+//     the agent has been through Init.
+//
 // Binaries come from the flake.nix, so WithBinary is a no-op.
 type NixEnvironment struct {
 	dir       string
 	flakePath string
 
 	envs []*resources.EnvironmentVariable
+
+	// materialized holds the devShell's exported env vars captured once
+	// during Init via `nix print-dev-env --json`. When non-nil, NewProcess
+	// runs binaries directly with this env instead of wrapping in
+	// `nix develop --command`.
+	materialized map[string]string
+
+	// cacheDir is where the materialized env is persisted between agent
+	// runs. When set (via WithCacheDir), Init first tries to load a
+	// prior materialization keyed on flake.nix+flake.lock hash — skipping
+	// `nix print-dev-env` entirely if nothing has changed. Debug: the
+	// cached env is inspectable on disk.
+	cacheDir string
 
 	out io.Writer
 	ctx context.Context
@@ -54,9 +81,222 @@ func NewNixEnvironment(ctx context.Context, dir string) (*NixEnvironment, error)
 	}, nil
 }
 
+// WithCacheDir enables persistent materialization caching. Typically
+// set to the agent's cacheLocation so the env survives agent restarts.
+// Safe to call before or after Init — but before is the only useful
+// order (the cache is consulted during Init).
+func (nix *NixEnvironment) WithCacheDir(dir string) {
+	nix.cacheDir = dir
+}
+
 func (nix *NixEnvironment) Init(ctx context.Context) error {
 	nix.ctx = ctx
+
+	// Fast path: reload a previously-materialized env from disk if the
+	// flake hasn't changed. Skips `nix print-dev-env --json` entirely.
+	if nix.cacheDir != "" {
+		if loaded, err := nix.loadCachedMaterialization(ctx); err == nil && loaded != nil {
+			nix.materialized = loaded
+			wool.Get(ctx).In("NixEnvironment.Init").
+				Info("reloaded materialized nix env from cache",
+					wool.Field("vars", len(loaded)))
+			return nil
+		}
+	}
+
+	if err := nix.materialize(ctx); err != nil {
+		// Materialization is an optimization; failure falls back to
+		// wrapped `nix develop --command` on each call.
+		wool.Get(ctx).In("NixEnvironment.Init").
+			Warn("could not materialize nix dev env; falling back to nix-develop-per-call",
+				wool.ErrField(err))
+		return nil
+	}
+
+	// Best-effort persist. Next agent run will reuse the result without
+	// re-evaluating the flake.
+	if nix.cacheDir != "" {
+		if err := nix.saveCachedMaterialization(ctx); err != nil {
+			wool.Get(ctx).In("NixEnvironment.Init").
+				Debug("could not persist materialized env (non-fatal)",
+					wool.ErrField(err))
+		}
+	}
 	return nil
+}
+
+// flakeFingerprint hashes flake.nix + flake.lock to produce a stable key
+// for the cached materialization. If either file changes, the cache is
+// invalidated. If flake.lock is missing, only flake.nix contributes —
+// users without a committed lock still get caching across restarts, it
+// just invalidates on first `nix flake lock` run.
+func (nix *NixEnvironment) flakeFingerprint() (string, error) {
+	h := sha256.New()
+	for _, name := range []string{"flake.nix", "flake.lock"} {
+		f, err := os.Open(filepath.Join(nix.dir, name))
+		if err != nil {
+			if os.IsNotExist(err) && name == "flake.lock" {
+				continue // lock-less flake is valid, just less precise
+			}
+			return "", err
+		}
+		_, _ = io.Copy(h, f)
+		_ = f.Close()
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// cachedEnvPayload is what we serialize to disk. Versioned so format
+// migrations don't silently re-use incompatible caches.
+type cachedEnvPayload struct {
+	SchemaVersion int               `json:"schema_version"`
+	Fingerprint   string            `json:"fingerprint"`
+	Env           map[string]string `json:"env"`
+}
+
+const cachedEnvSchemaVersion = 1
+
+func (nix *NixEnvironment) cacheFilePath() string {
+	return filepath.Join(nix.cacheDir, "nix-devshell.json")
+}
+
+// loadCachedMaterialization returns the previously-materialized env iff
+// it exists AND the flake fingerprint still matches. Any mismatch, read
+// error, or JSON parse error returns (nil, nil) — we fall through to a
+// fresh materialize rather than treating stale cache as fatal.
+func (nix *NixEnvironment) loadCachedMaterialization(ctx context.Context) (map[string]string, error) {
+	w := wool.Get(ctx).In("NixEnvironment.loadCache")
+
+	data, err := os.ReadFile(nix.cacheFilePath())
+	if err != nil {
+		return nil, nil // miss, not an error
+	}
+	var payload cachedEnvPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		w.Trace("cache file exists but won't parse; ignoring", wool.ErrField(err))
+		return nil, nil
+	}
+	if payload.SchemaVersion != cachedEnvSchemaVersion {
+		w.Trace("cache schema mismatch; ignoring",
+			wool.Field("found", payload.SchemaVersion),
+			wool.Field("want", cachedEnvSchemaVersion))
+		return nil, nil
+	}
+	current, err := nix.flakeFingerprint()
+	if err != nil {
+		return nil, err
+	}
+	if current != payload.Fingerprint {
+		w.Trace("flake fingerprint changed; invalidating cache")
+		return nil, nil
+	}
+	return payload.Env, nil
+}
+
+// saveCachedMaterialization serializes the current materialized env to
+// disk with the current flake fingerprint. Writes atomically via a
+// sibling .tmp file + rename — a crash mid-write leaves the previous
+// cache intact.
+func (nix *NixEnvironment) saveCachedMaterialization(ctx context.Context) error {
+	if nix.materialized == nil {
+		return nil
+	}
+	if err := os.MkdirAll(nix.cacheDir, 0o755); err != nil {
+		return err
+	}
+	fp, err := nix.flakeFingerprint()
+	if err != nil {
+		return err
+	}
+	payload := cachedEnvPayload{
+		SchemaVersion: cachedEnvSchemaVersion,
+		Fingerprint:   fp,
+		Env:           nix.materialized,
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := nix.cacheFilePath() + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, nix.cacheFilePath())
+}
+
+// materialize runs `nix print-dev-env --json` once to capture the devShell's
+// exported variables, so subsequent NewProcess calls can exec directly
+// without paying `nix develop` evaluation cost.
+//
+// It also pins GOCACHE / GOMODCACHE to stable paths under the user's home
+// when not already set by the flake, so repeat `go test`/`go build` calls
+// reuse the compiler cache across invocations.
+func (nix *NixEnvironment) materialize(ctx context.Context) error {
+	w := wool.Get(ctx).In("NixEnvironment.materialize", wool.DirField(nix.dir))
+
+	// #nosec G204
+	cmd := exec.CommandContext(ctx,
+		"nix", "--extra-experimental-features", "nix-command flakes",
+		"print-dev-env", "--json", nix.dir)
+	out, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return fmt.Errorf("nix print-dev-env failed: %s: %w",
+				strings.TrimSpace(string(exitErr.Stderr)), err)
+		}
+		return fmt.Errorf("nix print-dev-env failed: %w", err)
+	}
+
+	env, err := parseNixDevEnv(out)
+	if err != nil {
+		return fmt.Errorf("parse nix print-dev-env json: %w", err)
+	}
+
+	home := os.Getenv("HOME")
+	if home != "" {
+		if _, ok := env["GOCACHE"]; !ok {
+			env["GOCACHE"] = filepath.Join(home, ".cache", "codefly", "go-build")
+		}
+		if _, ok := env["GOMODCACHE"]; !ok {
+			env["GOMODCACHE"] = filepath.Join(home, ".cache", "codefly", "go-mod")
+		}
+		if _, ok := env["HOME"]; !ok {
+			env["HOME"] = home
+		}
+	}
+
+	nix.materialized = env
+	w.Info("nix dev env materialized", wool.Field("vars", len(env)))
+	return nil
+}
+
+// parseNixDevEnv parses `nix print-dev-env --json` output into a flat
+// string map. Only `exported` and `var` scalar entries are kept —
+// bash arrays, associative arrays, and functions are dropped because
+// they cannot round-trip through `exec.Cmd.Env`.
+func parseNixDevEnv(data []byte) (map[string]string, error) {
+	var payload struct {
+		Variables map[string]struct {
+			Type  string          `json:"type"`
+			Value json.RawMessage `json:"value"`
+		} `json:"variables"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(payload.Variables))
+	for k, v := range payload.Variables {
+		switch v.Type {
+		case "exported", "var":
+			var s string
+			if err := json.Unmarshal(v.Value, &s); err != nil {
+				continue
+			}
+			out[k] = s
+		}
+	}
+	return out, nil
 }
 
 func (nix *NixEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
@@ -78,11 +318,22 @@ func (nix *NixEnvironment) Shutdown(context.Context) error {
 	return nil
 }
 
-// NewProcess creates a process that runs inside `nix develop --command`.
+// NewProcess creates a process that runs under the Nix devShell.
+//
+// If the devShell env has been materialized (see Init), the binary is
+// executed directly with that env injected — no `nix develop` wrapper,
+// no flake re-evaluation. Otherwise falls back to wrapping the command
+// in `nix develop <dir> --command <bin> <args...>`.
 func (nix *NixEnvironment) NewProcess(bin string, args ...string) (Proc, error) {
-	// nix develop <dir> --command <bin> <args...>
-	cmd := []string{"nix", "--extra-experimental-features", "nix-command flakes", "develop", nix.dir, "--command", bin}
-	cmd = append(cmd, args...)
+	var cmd []string
+	if nix.materialized != nil {
+		cmd = append([]string{bin}, args...)
+	} else {
+		cmd = append([]string{
+			"nix", "--extra-experimental-features", "nix-command flakes",
+			"develop", nix.dir, "--command", bin,
+		}, args...)
+	}
 	return &NixProc{
 		env:     nix,
 		cmd:     cmd,
@@ -101,7 +352,8 @@ type NixProc struct {
 	exec   *exec.Cmd
 	envs   []*resources.EnvironmentVariable
 
-	stopped chan interface{}
+	stopped  chan interface{}
+	stopOnce sync.Once
 
 	dir    string
 	waitOn string
@@ -183,6 +435,29 @@ func (proc *NixProc) IsRunning(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
+// Wait blocks until the nix process exits or ctx is cancelled.
+// Polls IsRunning at 1s intervals — Nix wraps the binary in `nix develop`,
+// so we don't have direct access to the leaf process's cmd.Wait, and the
+// existing forwarder goroutines already hold the cmd.Wait result.
+func (proc *NixProc) Wait(ctx context.Context) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			running, err := proc.IsRunning(ctx)
+			if err != nil {
+				return err
+			}
+			if !running {
+				return nil
+			}
+		}
+	}
+}
+
 func (proc *NixProc) Run(ctx context.Context) error {
 	w := wool.Get(ctx).In("NixProc.Run")
 	w.Trace("running nix process", wool.Field("cmd", proc.cmd))
@@ -232,7 +507,14 @@ func (proc *NixProc) start(ctx context.Context) error {
 	if proc.dir != "" {
 		cmd.Dir = proc.dir
 	}
-	cmd.Env = resources.EnvironmentVariableAsStrings(proc.env.envs)
+	// Materialized devShell env comes first so that codefly-supplied vars
+	// (env.envs, proc.envs) override Nix defaults when keys collide.
+	if proc.env.materialized != nil {
+		for k, v := range proc.env.materialized {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
+	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.env.envs)...)
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
 
 	// Wire stdin pipe if requested
@@ -321,8 +603,9 @@ func (proc *NixProc) Stop(ctx context.Context) error {
 	} else {
 		w.Trace("nix process has exited after SIGTERM")
 	}
-	go func() {
-		proc.stopped <- struct{}{}
-	}()
+	// close-once to avoid the previous chan-send goroutine leak: if Run
+	// already exited via the `done` path, nobody was reading `stopped`
+	// and the goroutine blocked forever.
+	proc.stopOnce.Do(func() { close(proc.stopped) })
 	return nil
 }

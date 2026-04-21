@@ -10,6 +10,7 @@ import (
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	"github.com/codefly-dev/core/network"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
@@ -19,10 +20,16 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// Dependencies manages a running set of codefly-managed service dependencies.
+// Dependencies manages a running set of codefly-managed service
+// dependencies. The underlying CLI subprocess runs in its own process
+// group via managedProcess so Destroy can tear down the entire tree —
+// the CLI, its spawned agents, and their containers — with a single
+// group kill. Without this, `go test` leaks containers and hangs on
+// WaitDelay waiting for inherited stdout/stderr FDs.
 type Dependencies struct {
-	cmd            *exec.Cmd
+	proc           *managedProcess
 	cli            v0.CLIClient
+	conn           *grpc.ClientConn
 	runtimeContext *basev0.RuntimeContext
 }
 
@@ -89,16 +96,33 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if len(opt.Silents) > 0 {
 		args = append(args, "--silent", strings.Join(opt.Silents, ","))
 	}
-	args = append(args, "--exclude-root", "--cli-server")
+	// --headless prevents the CLI from trying to open /dev/tty for
+	// interactive context selection. Always needed when running as a
+	// subprocess (go test, CI, MCP, pipes).
+	args = append(args, "--exclude-root", "--cli-server", "--headless")
 	cmd := exec.CommandContext(ctx, "codefly", args...)
 	fmt.Println("Running command", cmd.String())
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err := cmd.Start()
+
+	proc, err := startManaged(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
-	port := 10000
+	// Echo the CLI's output to the parent's stdout/stderr in drain
+	// goroutines. This both keeps the pipes unblocked AND makes the
+	// child's FDs independent of os.Stdout so `go test` can exit.
+	proc.Echo()
+
+	// The CLI derives its gRPC port from the workspace name via
+	// network.CLIServerPort. When a naming scope is set (parallel tests),
+	// we include it in the name so each scope gets a unique port.
+	wsName := ""
+	if ws, err := resources.FindWorkspaceUp(ctx); err == nil && ws != nil {
+		wsName = ws.Name
+	}
+	if opt.NamingScope != "" {
+		wsName = wsName + "-" + opt.NamingScope
+	}
+	port := int(network.CLIServerPort(wsName))
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -120,10 +144,11 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	_, err = cli.Ping(ctx, &emptypb.Empty{})
 	if err != nil {
 		_ = conn.Close()
+		_ = proc.Kill()
 		return nil, fmt.Errorf("CLI server ping failed: %w", err)
 	}
 	runtimeContext := resources.RuntimeContextFromEnv()
-	l := &Dependencies{cmd: cmd, cli: cli, runtimeContext: runtimeContext}
+	l := &Dependencies{proc: proc, cli: cli, conn: conn, runtimeContext: runtimeContext}
 	err = l.WaitForReady(ctx, opt)
 	if err != nil {
 		return nil, err
@@ -301,27 +326,40 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 	return nil
 }
 
-// Stop gracefully stops all running dependencies.
+// Stop gracefully stops all running dependencies. Sends StopFlow to the
+// CLI (which triggers the agents' own cleanup), then kills the CLI
+// subprocess group — belt and suspenders so we always take the whole
+// tree down.
 func (l *Dependencies) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("sdk.Stop")
 	_, err := l.cli.StopFlow(ctx, &v0.StopFlowRequest{})
 	if err != nil {
 		w.Warn("failed to stop flow", wool.Field("error", err))
 	}
-	// Process may already have exited after StopFlow — ignore kill errors.
-	_ = l.cmd.Process.Kill()
+	if l.conn != nil {
+		_ = l.conn.Close()
+	}
+	if l.proc != nil {
+		_ = l.proc.Kill()
+	}
 	return err
 }
 
-// Destroy tears down all running dependencies.
+// Destroy tears down all running dependencies. Same guarantee as Stop
+// but instructs the CLI to DestroyFlow (which removes state, not just
+// stopping processes) before killing the subprocess group.
 func (l *Dependencies) Destroy(ctx context.Context) error {
 	w := wool.Get(ctx).In("sdk.Destroy")
 	_, err := l.cli.DestroyFlow(ctx, &v0.DestroyFlowRequest{})
 	if err != nil {
 		w.Warn("failed to destroy flow", wool.Field("error", err))
 	}
-	// Process may already have exited after DestroyFlow — ignore kill errors.
-	_ = l.cmd.Process.Kill()
+	if l.conn != nil {
+		_ = l.conn.Close()
+	}
+	if l.proc != nil {
+		_ = l.proc.Kill()
+	}
 	return err
 }
 

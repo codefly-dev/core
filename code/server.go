@@ -32,15 +32,75 @@ func WithVFS(vfs VFS) ServerOption {
 	return func(s *DefaultCodeServer) { s.FS = vfs }
 }
 
+// WithCachedFS enables in-memory file tree caching backed by fsnotify.
+// Metadata operations (Stat, ReadDir, WalkDir) are served from cache.
+// File reads/writes pass through to disk. Cache is kept fresh via fsnotify.
+func WithCachedFS() ServerOption {
+	return func(s *DefaultCodeServer) {
+		s.wantCachedFS = true
+	}
+}
+
+// WithTrigramIndex enables trigram-based search indexing for sub-linear text search.
+// Implies WithContentCache (trigram index reads content from cache).
+// Files are indexed at startup and updated incrementally via fsnotify.
+func WithTrigramIndex() ServerOption {
+	return func(s *DefaultCodeServer) {
+		s.wantCachedFS = true
+		s.wantTrigramIndex = true
+		if s.contentCacheBudget <= 0 {
+			s.contentCacheBudget = 200 * 1024 * 1024 // 200MB default
+		}
+	}
+}
+
+// WithContentCache enables in-memory file content caching on top of CachedVFS.
+// File reads are served from RAM with LRU eviction. Invalidated by fsnotify.
+// Implies WithCachedFS. budgetBytes is the maximum memory for cached content
+// (default 200MB if 0).
+func WithContentCache(budgetBytes int64) ServerOption {
+	return func(s *DefaultCodeServer) {
+		s.wantCachedFS = true
+		if budgetBytes <= 0 {
+			budgetBytes = 200 * 1024 * 1024 // 200MB default
+		}
+		s.contentCacheBudget = budgetBytes
+	}
+}
+
+// WriteListener is called after every successful file mutation so that
+// language plugins can push the new content into their LSP's in-memory
+// view via textDocument/didChange. Without this, gopls and pylsp only
+// notice the edit when their filesystem watcher fires — latency that
+// breaks the agent's "edit → query symbols → see own edit" inner loop.
+//
+// The listener receives the mutation kind ("write", "create", "delete",
+// "move"), the relative path (destination for moves), and the new file
+// content if available. For deletes and moves the content argument is
+// nil. For the move kind, prevPath is the source path; it is empty
+// otherwise.
+//
+// Errors returned by the listener are logged by the caller but do NOT
+// fail the mutation — notification is best-effort. A failing LSP
+// shouldn't break file I/O.
+type WriteListener func(ctx context.Context, kind, path, prevPath string, content []byte) error
+
 // DefaultCodeServer implements every Code.Execute operation with sensible,
 // language-agnostic defaults. Plugins embed this and call Override to replace
 // handlers for operations they specialize (e.g. Fix, ListSymbols, deps).
 type DefaultCodeServer struct {
 	codev0.UnimplementedCodeServer
 
-	SourceDir string
-	FS        VFS
-	overrides map[string]OperationHandler
+	SourceDir          string
+	FS                 VFS
+	overrides          map[string]OperationHandler
+	wantCachedFS       bool
+	wantTrigramIndex   bool
+	contentCacheBudget int64          // 0 = no content cache
+	cachedFS           *CachedVFS     // non-nil when CachedVFS is active
+	trigramIdx         *TrigramIndex  // non-nil when trigram indexing is active
+	nativeGit          *NativeGit     // lazily opened go-git repo
+	writeListener      WriteListener  // optional post-mutation hook (LSP notify, etc.)
 }
 
 // NewDefaultCodeServer creates a server rooted at sourceDir.
@@ -54,7 +114,33 @@ func NewDefaultCodeServer(sourceDir string, opts ...ServerOption) *DefaultCodeSe
 	for _, o := range opts {
 		o(s)
 	}
+	// Apply CachedVFS after all options (needs final SourceDir)
+	if s.wantCachedFS {
+		if cached, err := NewCachedVFS(s.FS, s.SourceDir); err == nil {
+			s.cachedFS = cached
+			s.FS = cached
+			// Wire content cache if requested
+			if s.contentCacheBudget > 0 {
+				cached.contentCache = NewByteLRU(s.contentCacheBudget)
+			}
+			// Build trigram index from all files if requested
+			if s.wantTrigramIndex {
+				s.trigramIdx = NewTrigramIndex()
+				cached.trigramIdx = s.trigramIdx
+				s.populateTrigramIndex()
+			}
+		}
+	}
 	return s
+}
+
+// Close releases resources held by the server (e.g. CachedVFS watcher, git repo).
+func (s *DefaultCodeServer) Close() error {
+	s.closeGit()
+	if s.cachedFS != nil {
+		return s.cachedFS.Close()
+	}
+	return nil
 }
 
 // FileOps returns a FileOperation view over this server's VFS and root.
@@ -77,6 +163,34 @@ func (s *DefaultCodeServer) Override(op string, handler OperationHandler) {
 	s.overrides[op] = handler
 }
 
+// SetWriteListener installs a post-mutation hook. It is called after
+// every successful WriteFile, CreateFile, DeleteFile, and MoveFile
+// dispatched through Execute. Language plugins wire their LSP's
+// textDocument/didChange through this so the LSP's in-memory view
+// stays in sync with disk without waiting for the filesystem watcher.
+//
+// Safe to call after construction; nil clears the listener. The
+// listener is invoked synchronously after the mutation commits; if
+// you need async fire-and-forget, do the dispatch inside your own
+// listener.
+func (s *DefaultCodeServer) SetWriteListener(l WriteListener) {
+	s.writeListener = l
+}
+
+// notifyWrite fires the installed listener (if any) and swallows any
+// error it returns. Notification is best-effort — a broken LSP
+// should not break file I/O. Callers MUST only invoke this after a
+// successful mutation.
+func (s *DefaultCodeServer) notifyWrite(ctx context.Context, kind, path, prevPath string, content []byte) {
+	if s.writeListener == nil {
+		return
+	}
+	// Recover panics from a misbehaving listener so the handler returns
+	// cleanly even if the LSP wiring is broken.
+	defer func() { _ = recover() }()
+	_ = s.writeListener(ctx, kind, path, prevPath, content)
+}
+
 // Execute dispatches the incoming CodeRequest to the appropriate handler.
 func (s *DefaultCodeServer) Execute(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	opName := OperationName(req)
@@ -92,7 +206,35 @@ func (s *DefaultCodeServer) Execute(ctx context.Context, req *codev0.CodeRequest
 func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	switch op := req.Operation.(type) {
 
-	// --- Core operations (implemented here) ---
+	// --- File operations ---
+
+	case *codev0.CodeRequest_ReadFile:
+		return s.readFile(ctx, op.ReadFile)
+	case *codev0.CodeRequest_WriteFile:
+		return s.writeFile(ctx, op.WriteFile)
+	case *codev0.CodeRequest_CreateFile:
+		return s.createFile(ctx, op.CreateFile)
+	case *codev0.CodeRequest_DeleteFile:
+		return s.deleteFile(ctx, op.DeleteFile)
+	case *codev0.CodeRequest_MoveFile:
+		return s.moveFile(ctx, op.MoveFile)
+	case *codev0.CodeRequest_ListFiles:
+		return s.listFiles(ctx, op.ListFiles)
+	case *codev0.CodeRequest_Search:
+		return s.search(ctx, op.Search)
+
+	// --- Git operations (native go-git with exec fallback) ---
+
+	case *codev0.CodeRequest_GitLog:
+		return s.gitLogNative(ctx, op.GitLog)
+	case *codev0.CodeRequest_GitDiff:
+		return s.gitDiff(ctx, op.GitDiff)
+	case *codev0.CodeRequest_GitShow:
+		return s.gitShowNative(ctx, op.GitShow)
+	case *codev0.CodeRequest_GitBlame:
+		return s.gitBlame(ctx, op.GitBlame)
+
+	// --- Core operations ---
 
 	case *codev0.CodeRequest_ApplyEdit:
 		return s.applyEdit(ctx, op.ApplyEdit)
@@ -137,6 +279,11 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 			Success: false, Error: "remove dependency not available: no language plugin override",
 		}}}, nil
 
+	// --- Shell execution ---
+
+	case *codev0.CodeRequest_ShellExec:
+		return s.shellExec(ctx, op.ShellExec)
+
 	default:
 		return nil, status.Errorf(codes.Unimplemented, "unknown operation: %T", req.Operation)
 	}
@@ -156,14 +303,16 @@ func (s *DefaultCodeServer) readFile(_ context.Context, req *codev0.ReadFileRequ
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ReadFile{ReadFile: &codev0.ReadFileResponse{Content: string(data), Exists: true}}}, nil
 }
 
-func (s *DefaultCodeServer) writeFile(_ context.Context, req *codev0.WriteFileRequest) (*codev0.CodeResponse, error) {
+func (s *DefaultCodeServer) writeFile(ctx context.Context, req *codev0.WriteFileRequest) (*codev0.CodeResponse, error) {
 	absPath := filepath.Join(s.SourceDir, req.Path)
 	if err := s.FS.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_WriteFile{WriteFile: &codev0.WriteFileResponse{Success: false, Error: err.Error()}}}, nil
 	}
-	if err := s.FS.WriteFile(absPath, []byte(req.Content), 0o644); err != nil {
+	content := []byte(req.Content)
+	if err := s.FS.WriteFile(absPath, content, 0o644); err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_WriteFile{WriteFile: &codev0.WriteFileResponse{Success: false, Error: err.Error()}}}, nil
 	}
+	s.notifyWrite(ctx, "write", req.Path, "", content)
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_WriteFile{WriteFile: &codev0.WriteFileResponse{Success: true}}}, nil
 }
 
@@ -215,7 +364,7 @@ func (s *DefaultCodeServer) listFiles(_ context.Context, req *codev0.ListFilesRe
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListFiles{ListFiles: &codev0.ListFilesResponse{Files: files}}}, nil
 }
 
-func (s *DefaultCodeServer) deleteFile(_ context.Context, req *codev0.DeleteFileRequest) (*codev0.CodeResponse, error) {
+func (s *DefaultCodeServer) deleteFile(ctx context.Context, req *codev0.DeleteFileRequest) (*codev0.CodeResponse, error) {
 	absPath := filepath.Join(s.SourceDir, req.Path)
 	if err := s.FS.Remove(absPath); err != nil {
 		msg := err.Error()
@@ -224,10 +373,11 @@ func (s *DefaultCodeServer) deleteFile(_ context.Context, req *codev0.DeleteFile
 		}
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_DeleteFile{DeleteFile: &codev0.DeleteFileResponse{Success: false, Error: msg}}}, nil
 	}
+	s.notifyWrite(ctx, "delete", req.Path, "", nil)
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_DeleteFile{DeleteFile: &codev0.DeleteFileResponse{Success: true}}}, nil
 }
 
-func (s *DefaultCodeServer) moveFile(_ context.Context, req *codev0.MoveFileRequest) (*codev0.CodeResponse, error) {
+func (s *DefaultCodeServer) moveFile(ctx context.Context, req *codev0.MoveFileRequest) (*codev0.CodeResponse, error) {
 	oldAbs := filepath.Join(s.SourceDir, req.OldPath)
 	newAbs := filepath.Join(s.SourceDir, req.NewPath)
 	if err := s.FS.MkdirAll(filepath.Dir(newAbs), 0o755); err != nil {
@@ -236,10 +386,20 @@ func (s *DefaultCodeServer) moveFile(_ context.Context, req *codev0.MoveFileRequ
 	if err := s.FS.Rename(oldAbs, newAbs); err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_MoveFile{MoveFile: &codev0.MoveFileResponse{Success: false, Error: err.Error()}}}, nil
 	}
+	// After a move, the LSP needs to know the destination has new
+	// content (same bytes, new URI) AND the source is gone. We read
+	// the new file to give the listener concrete content; a read
+	// failure degrades to a nil-content notification rather than
+	// failing the move itself.
+	var content []byte
+	if data, err := s.FS.ReadFile(newAbs); err == nil {
+		content = data
+	}
+	s.notifyWrite(ctx, "move", req.NewPath, req.OldPath, content)
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_MoveFile{MoveFile: &codev0.MoveFileResponse{Success: true}}}, nil
 }
 
-func (s *DefaultCodeServer) createFile(_ context.Context, req *codev0.CreateFileRequest) (*codev0.CodeResponse, error) {
+func (s *DefaultCodeServer) createFile(ctx context.Context, req *codev0.CreateFileRequest) (*codev0.CodeResponse, error) {
 	absPath := filepath.Join(s.SourceDir, req.Path)
 	if !req.Overwrite {
 		if _, err := s.FS.Stat(absPath); err == nil {
@@ -249,9 +409,11 @@ func (s *DefaultCodeServer) createFile(_ context.Context, req *codev0.CreateFile
 	if err := s.FS.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: false, Error: fmt.Sprintf("mkdir: %v", err)}}}, nil
 	}
-	if err := s.FS.WriteFile(absPath, []byte(req.Content), 0o644); err != nil {
+	content := []byte(req.Content)
+	if err := s.FS.WriteFile(absPath, content, 0o644); err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: false, Error: err.Error()}}}, nil
 	}
+	s.notifyWrite(ctx, "create", req.Path, "", content)
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: true}}}, nil
 }
 
@@ -271,7 +433,10 @@ func (s *DefaultCodeServer) search(ctx context.Context, req *codev0.SearchReques
 
 	var result *SearchResult
 	var err error
-	if _, ok := s.FS.(LocalVFS); ok {
+	if s.trigramIdx != nil {
+		// Trigram-accelerated search: find candidates via index, then regex match.
+		result, err = SearchTrigram(ctx, s.FS, s.trigramIdx, s.SourceDir, opts)
+	} else if _, ok := s.FS.(LocalVFS); ok {
 		result, err = Search(ctx, s.SourceDir, opts)
 	} else {
 		result, err = SearchVFS(ctx, s.FS, s.SourceDir, opts)
@@ -587,6 +752,30 @@ func (s *DefaultCodeServer) runGit(ctx context.Context, args ...string) (string,
 // The test TestOperationName_MatchesDispatch verifies they stay in sync.
 func OperationName(req *codev0.CodeRequest) string {
 	switch req.Operation.(type) {
+	// File operations
+	case *codev0.CodeRequest_ReadFile:
+		return "read_file"
+	case *codev0.CodeRequest_WriteFile:
+		return "write_file"
+	case *codev0.CodeRequest_CreateFile:
+		return "create_file"
+	case *codev0.CodeRequest_DeleteFile:
+		return "delete_file"
+	case *codev0.CodeRequest_MoveFile:
+		return "move_file"
+	case *codev0.CodeRequest_ListFiles:
+		return "list_files"
+	case *codev0.CodeRequest_Search:
+		return "search"
+	// Git operations
+	case *codev0.CodeRequest_GitLog:
+		return "git_log"
+	case *codev0.CodeRequest_GitDiff:
+		return "git_diff"
+	case *codev0.CodeRequest_GitShow:
+		return "git_show"
+	case *codev0.CodeRequest_GitBlame:
+		return "git_blame"
 	// Core operations
 	case *codev0.CodeRequest_ApplyEdit:
 		return "apply_edit"
@@ -616,7 +805,44 @@ func OperationName(req *codev0.CodeRequest) string {
 		return "add_dependency"
 	case *codev0.CodeRequest_RemoveDependency:
 		return "remove_dependency"
+	// Shell execution (THE sanctioned path for running commands)
+	case *codev0.CodeRequest_ShellExec:
+		return "shell_exec"
 	default:
 		return ""
 	}
+}
+
+// populateTrigramIndex indexes all files in the source directory.
+// Called once at startup when WithTrigramIndex is enabled.
+func (s *DefaultCodeServer) populateTrigramIndex() {
+	if s.trigramIdx == nil {
+		return
+	}
+	_ = s.FS.WalkDir(s.SourceDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if skipDirs[d.Name()] && path != s.SourceDir {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		// Skip large files and common non-text files.
+		info, infoErr := d.Info()
+		if infoErr != nil || info.Size() > 1<<20 { // >1MB
+			return nil
+		}
+		data, readErr := s.FS.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		if isBinary(data) {
+			return nil
+		}
+		rel, _ := filepath.Rel(s.SourceDir, path)
+		s.trigramIdx.AddFile(rel, data)
+		return nil
+	})
 }

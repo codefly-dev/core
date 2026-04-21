@@ -119,3 +119,39 @@ func (lc *LineCapture) Write(p []byte) (n int, err error) {
 func (lc *LineCapture) String() string {
 	return lc.buf.String()
 }
+
+// StreamingTestWriter is a LineCapture that ALSO invokes a callback for
+// every `go test -json` event as it arrives. Used when callers want
+// real-time per-test progress rather than waiting for the full
+// TestSummary at the end — typical case is forwarding events to a TUI
+// via the agent's log channel.
+//
+// Non-JSON lines are buffered but not surfaced through the callback, so
+// the sink sees only structured events.
+type StreamingTestWriter struct {
+	LineCapture
+	OnEvent func(TestEvent)
+}
+
+// Write parses each line as a TestEvent and invokes OnEvent on success.
+// Malformed lines are still buffered (via the embedded LineCapture) so
+// ParseTestJSON can do its own defensive pass at the end — but they
+// don't produce spurious events.
+func (w *StreamingTestWriter) Write(p []byte) (int, error) {
+	n, err := w.LineCapture.Write(p)
+	if err != nil {
+		return n, err
+	}
+	if w.OnEvent == nil {
+		return n, nil
+	}
+	line := strings.TrimSpace(string(p))
+	if line == "" {
+		return n, nil
+	}
+	var ev TestEvent
+	if jerr := json.Unmarshal([]byte(line), &ev); jerr == nil && ev.Action != "" {
+		w.OnEvent(ev)
+	}
+	return n, nil
+}

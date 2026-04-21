@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,7 +27,7 @@ const ProtocolVersion = 1
 // All registration is handled by core -- plugins never import grpc directly.
 //
 // Plugins implement the capabilities they need:
-//   - Infrastructure (external-redis, external-postgres): Agent + Runtime
+//   - Infrastructure (redis, postgres): Agent + Runtime
 //   - Application (go-grpc, python-fastapi): Agent + Runtime + Builder + Tooling
 //   - Tooling-only (go-analyzer): Agent + Tooling
 //
@@ -46,6 +47,11 @@ type PluginRegistration struct {
 // agentRPCInterceptor logs incoming RPCs with method name and duration
 // to stderr (which is captured by the gateway's ring buffer).
 // High-frequency polling RPCs (Information) are suppressed unless they error.
+//
+// In addition to the per-line stderr log, every call updates the
+// in-process latency histogram (RPCStats). Callers can read it via
+// SnapshotRPCStats — useful for daemons that want to expose p50/p99
+// per RPC without standing up a separate metrics endpoint.
 func agentRPCInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
@@ -56,6 +62,8 @@ func agentRPCInterceptor() grpc.UnaryServerInterceptor {
 		if idx := strings.LastIndex(method, "/"); idx >= 0 {
 			method = method[idx+1:]
 		}
+
+		recordRPCDuration(method, dur, err)
 
 		if method == "Information" && err == nil {
 			return resp, err
@@ -68,6 +76,86 @@ func agentRPCInterceptor() grpc.UnaryServerInterceptor {
 		fmt.Fprintf(os.Stderr, "[agent] %s %dms%s\n", method, dur.Milliseconds(), errStr)
 		return resp, err
 	}
+}
+
+// rpcStats keeps per-method counters + a running histogram. The
+// implementation is intentionally simple: we accumulate count/sum/max
+// and bucket counts. No external metrics SDK to keep the agent binary
+// small. Daemons that want richer telemetry can wrap the snapshot.
+//
+// Thread-safe via a single mutex — RPC throughput on a single agent is
+// modest (Test/Build/Init are bursty but never high-rate), so contention
+// is not a concern.
+type rpcMethodStats struct {
+	Count   uint64        // total invocations
+	Errors  uint64        // count where err != nil
+	Sum     time.Duration // sum of all durations
+	Max     time.Duration // longest call seen
+	Buckets [9]uint64     // histogram, see latencyBuckets
+}
+
+// latencyBuckets are upper-inclusive ms boundaries. Final bucket is
+// implicit (everything over 30s).
+var latencyBuckets = [9]time.Duration{
+	1 * time.Millisecond,
+	5 * time.Millisecond,
+	25 * time.Millisecond,
+	100 * time.Millisecond,
+	500 * time.Millisecond,
+	1 * time.Second,
+	5 * time.Second,
+	30 * time.Second,
+	1 * time.Hour, // overflow sink
+}
+
+var (
+	rpcStatsMu sync.Mutex
+	rpcStats   = make(map[string]*rpcMethodStats)
+)
+
+func recordRPCDuration(method string, dur time.Duration, err error) {
+	rpcStatsMu.Lock()
+	defer rpcStatsMu.Unlock()
+
+	s, ok := rpcStats[method]
+	if !ok {
+		s = &rpcMethodStats{}
+		rpcStats[method] = s
+	}
+	s.Count++
+	s.Sum += dur
+	if err != nil {
+		s.Errors++
+	}
+	if dur > s.Max {
+		s.Max = dur
+	}
+	for i, b := range latencyBuckets {
+		if dur <= b {
+			s.Buckets[i]++
+			return
+		}
+	}
+}
+
+// SnapshotRPCStats returns a deep copy of the current per-method stats.
+// Safe to call concurrently with live RPCs.
+func SnapshotRPCStats() map[string]rpcMethodStats {
+	rpcStatsMu.Lock()
+	defer rpcStatsMu.Unlock()
+	out := make(map[string]rpcMethodStats, len(rpcStats))
+	for k, v := range rpcStats {
+		out[k] = *v
+	}
+	return out
+}
+
+// ResetRPCStats clears all counters. Test-only — production agents
+// should never call this (loses telemetry).
+func ResetRPCStats() {
+	rpcStatsMu.Lock()
+	defer rpcStatsMu.Unlock()
+	rpcStats = make(map[string]*rpcMethodStats)
 }
 
 // Serve starts a gRPC server on a random local port, registers the
@@ -113,11 +201,22 @@ func Serve(reg PluginRegistration) {
 	port := lis.Addr().(*net.TCPAddr).Port
 	fmt.Fprintf(os.Stdout, "%d|%d\n", ProtocolVersion, port)
 
-	// Graceful shutdown on SIGTERM/SIGINT
+	// Graceful shutdown on SIGTERM/SIGINT.
+	//
+	// Critical: call the Runtime's Stop FIRST so spawned child processes
+	// (user binaries, Docker containers, Nix shells) get torn down. Without
+	// this, killing the parent codefly leaks every child as a PPID=1 orphan
+	// because GracefulStop only stops the gRPC server — it does NOT touch
+	// whatever the agent has running.
 	go func() {
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT)
 		<-ch
+		if reg.Runtime != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_, _ = reg.Runtime.Stop(stopCtx, &runtimev0.StopRequest{})
+			cancel()
+		}
 		s.GracefulStop()
 	}()
 

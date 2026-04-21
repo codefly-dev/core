@@ -28,7 +28,7 @@ Same API surface regardless of whether the service is Go, Python, Rust, or a man
 Workspace → Module → Service → Endpoint
      │          │         │         │
      │          │         │         └── API type (gRPC, REST, HTTP, TCP)
-     │          │         └── Managed by an Agent (go-grpc, external-postgres, etc.)
+     │          │         └── Managed by an Agent (go-grpc, postgres, etc.)
      │          └── Logical grouping of services
      └── Root container (one per project)
 ```
@@ -73,7 +73,7 @@ Agents are downloaded binaries managed by the agent manager (`agents/manager/`).
 
 **Key agents:**
 - `go-grpc` — Go services with gRPC endpoints
-- `external-postgres` — Managed Postgres (Docker for local, cloud for prod)
+- `postgres` — Managed Postgres (Docker for local, cloud for prod)
 - `external-temporal` — Temporal workflow engine
 - `nextjs` — Next.js frontend services
 

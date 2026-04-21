@@ -91,7 +91,7 @@ mgr.WithTemporaryPorts()
 
 ### Producer Side
 
-A service agent produces configuration during `Init()`. For example, an `external-postgres` agent produces:
+A service agent produces configuration during `Init()`. For example, an `postgres` agent produces:
 
 ```go
 // In InitResponse
@@ -222,7 +222,7 @@ service-dependencies:
 
 When the CLI starts:
 
-1. Starts `external-postgres` agent → Docker container on deterministic port (e.g., 23450)
+1. Starts `postgres` agent → Docker container on deterministic port (e.g., 23450)
 2. Generates NetworkMapping:
    - Native: `localhost:23450`
    - Container: `host.docker.internal:23450`

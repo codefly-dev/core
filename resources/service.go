@@ -547,6 +547,11 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 			base.Api = standards.TCP
 			base.ApiDetails = ToTCPAPI(tcp)
 			out = append(out, base)
+		case standards.CONNECT:
+			// Connect uses HTTP/2 transport — same API shape as HTTP.
+			base.Api = standards.CONNECT
+			base.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{})
+			out = append(out, base)
 		}
 	}
 	w.Debug("loaded endpoints", wool.SliceCountField(out))

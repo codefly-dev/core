@@ -3,6 +3,7 @@ package code
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -83,12 +84,78 @@ func (p *PythonASTSymbolProvider) ListSymbols(ctx context.Context, file string) 
 	}
 
 	var symbols []*codev0.Symbol
-	for _, fileSymbols := range result {
+	for filePath, fileSymbols := range result {
+		// Read file content for hash computation.
+		absPath := filePath
+		if !filepath.IsAbs(filePath) {
+			absPath = filepath.Join(p.sourceDir, filePath)
+		}
+		content, _ := os.ReadFile(absPath)
+		lines := strings.Split(string(content), "\n")
+
 		for _, sym := range fileSymbols {
-			symbols = append(symbols, sym.toProto())
+			proto := sym.toProto()
+			// Enrich with HyperAST-style hashes.
+			enrichPythonSymbolHashes(proto, lines, "")
+			symbols = append(symbols, proto)
 		}
 	}
 	return symbols, nil
+}
+
+// enrichPythonSymbolHashes computes body_hash, signature_hash, and
+// qualified_name for a Python symbol. Same approach as the Go agent.
+func enrichPythonSymbolHashes(sym *codev0.Symbol, lines []string, parentQN string) {
+	// Qualified name.
+	qn := sym.Name
+	if sym.Parent != "" {
+		qn = sym.Parent + "." + sym.Name
+	}
+	if parentQN != "" {
+		qn = parentQN + "." + sym.Name
+	}
+	sym.QualifiedName = qn
+
+	// Signature hash.
+	if sym.Signature != "" {
+		h := sha256.Sum256([]byte(sym.Signature))
+		sym.SignatureHash = fmt.Sprintf("%x", h[:8])
+	}
+
+	// Body hash: extract lines, normalize, hash.
+	if sym.Location != nil {
+		start := int(sym.Location.Line)
+		end := int(sym.Location.EndLine)
+		kind := sym.Kind
+		hasBody := kind == codev0.SymbolKind_SYMBOL_KIND_FUNCTION ||
+			kind == codev0.SymbolKind_SYMBOL_KIND_METHOD ||
+			kind == codev0.SymbolKind_SYMBOL_KIND_CLASS
+		if hasBody && start > 0 && end > 0 && end <= len(lines) {
+			body := strings.Join(lines[start-1:end], "\n")
+			normalized := normalizePythonBody(body)
+			if normalized != "" {
+				h := sha256.Sum256([]byte(normalized))
+				sym.BodyHash = fmt.Sprintf("%x", h[:8])
+			}
+		}
+	}
+
+	for _, child := range sym.Children {
+		enrichPythonSymbolHashes(child, lines, qn)
+	}
+}
+
+// normalizePythonBody strips trailing whitespace and blank lines.
+func normalizePythonBody(s string) string {
+	lines := strings.Split(s, "\n")
+	var out []string
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, " \t\r")
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 type pySymbol struct {

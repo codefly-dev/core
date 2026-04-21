@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -82,7 +83,14 @@ type NativeProc struct {
 	exec   *exec.Cmd
 	envs   []*resources.EnvironmentVariable
 
-	stopped chan interface{}
+	stopped  chan interface{}
+	stopOnce sync.Once
+
+	// exitCh is closed once exec.Wait returns; exitErr holds the result.
+	// Wait() drains this so multiple supervisors can observe the death.
+	exitCh   chan struct{}
+	exitErr  error
+	waitOnce sync.Once
 
 	// optional override
 	dir    string
@@ -158,7 +166,9 @@ func (native *NativeEnvironment) NewProcess(bin string, args ...string) (Proc, e
 		env:     native,
 		cmd:     cmd,
 		output:  native.out,
-		stopped: make(chan interface{})}, nil
+		stopped: make(chan interface{}),
+		exitCh:  make(chan struct{}),
+	}, nil
 }
 
 func (native *NativeEnvironment) Stop(context.Context) error {
@@ -173,13 +183,12 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 		return err
 	}
 	w.Trace("waiting for process to finish or be killed")
-	done := make(chan error, 1)
-	go func() {
-		done <- proc.exec.Wait()
-	}()
 
+	// start() already spawned the single cmd.Wait goroutine that publishes
+	// to proc.exitCh. Read from there — never call cmd.Wait twice.
 	select {
-	case err := <-done:
+	case <-proc.exitCh:
+		err := proc.exitErr
 		if err != nil {
 			var exitError *exec.ExitError
 			if errors.As(err, &exitError) {
@@ -249,10 +258,12 @@ func (proc *NativeProc) start(ctx context.Context) error {
 			defer stderr.Close()
 			proc.Forward(ctx, stderr)
 		}()
-		// Close the stdout pipe writer when the process exits
+		// Close the stdout pipe writer when the process exits AND publish
+		// the exit error for any Wait() callers.
 		go func() {
-			_ = cmd.Wait()
+			err := cmd.Wait()
 			proc.stdoutWriter.Close()
+			proc.publishExit(err)
 		}()
 	} else {
 		stdout, err := cmd.StdoutPipe()
@@ -276,10 +287,39 @@ func (proc *NativeProc) start(ctx context.Context) error {
 			defer stderr.Close()
 			proc.Forward(ctx, stderr)
 		}()
+		// Single Wait goroutine — publish the exit so Wait() callers learn.
+		go func() {
+			err := cmd.Wait()
+			proc.publishExit(err)
+		}()
 	}
 
 	w.Trace("done")
 	return nil
+}
+
+// publishExit records the process exit error and unblocks Wait().
+// Called by the single Wait()-on-exec goroutine spawned in start().
+func (proc *NativeProc) publishExit(err error) {
+	proc.waitOnce.Do(func() {
+		proc.exitErr = err
+		close(proc.exitCh)
+	})
+}
+
+// Wait blocks until the process exits or ctx is cancelled. Returns the
+// process's exit error (nil on clean exit). Safe to call multiple times.
+func (proc *NativeProc) Wait(ctx context.Context) error {
+	if proc.exitCh == nil {
+		// Process never started — nothing to wait on.
+		return nil
+	}
+	select {
+	case <-proc.exitCh:
+		return proc.exitErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (proc *NativeProc) Forward(_ context.Context, w io.Reader) {
@@ -338,8 +378,10 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 	} else {
 		w.Trace("process has exited after SIGTERM")
 	}
-	go func() {
-		proc.stopped <- struct{}{}
-	}()
+	// Signal Run() to bail. close-instead-of-send avoids the previous
+	// goroutine leak: the old `go func() { proc.stopped <- struct{}{} }()`
+	// blocked forever if Run had already exited via the `done` path or
+	// if Stop was called twice. Use sync.Once to make double-close safe.
+	proc.stopOnce.Do(func() { close(proc.stopped) })
 	return nil
 }

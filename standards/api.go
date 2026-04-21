@@ -16,12 +16,13 @@ var (
 	REST    = "rest"
 	HTTP    = "http"
 	TCP     = "tcp"
+	CONNECT = "connect"
 )
 
 var supportedAPI []string
 
 func init() {
-	supportedAPI = []string{GRPC, REST, TCP, HTTP}
+	supportedAPI = []string{GRPC, REST, TCP, HTTP, CONNECT}
 }
 
 func APIS() []string {
@@ -51,6 +52,8 @@ func Port(api string) uint16 {
 		return 8080
 	case HTTP:
 		return 8080
+	case CONNECT:
+		return 8081
 	case TCP:
 		return 80
 	}

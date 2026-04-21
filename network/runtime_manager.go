@@ -70,19 +70,43 @@ func DNS(_ *resources.ServiceIdentity, endpoint *basev0.Endpoint, dns *basev0.DN
 	return instance
 }
 
+// ContainerInstance stamps an instance with Container access.
+//
+// Used when an instance is built from a DNS record (which unconditionally
+// tags Access=Public) but the mapping needs a Container-accessible variant
+// so agents running inside Docker can resolve it. Mutates and returns the
+// input — callers pass a freshly-constructed instance per wrap.
 func ContainerInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+	instance.Access = resources.NewContainerNetworkAccess()
 	return instance
 }
 
+// NativeInstance stamps an instance with Native access.
+//
+// Same rationale as ContainerInstance: covers the case where an instance
+// comes from DNS (Access=Public) but the agent runs natively on the host
+// and looks up by Access=Native when calling FindNetworkInstanceInNetworkMappings.
 func NativeInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+	instance.Access = resources.NewNativeNetworkAccess()
 	return instance
 }
 
+// PublicInstance stamps an instance with Public access.
+//
+// DNS instances are already Public, so this is often a no-op — but
+// keeping it explicit makes the semantics at the call-site clear and
+// defends against future changes to DNS().
 func PublicInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+	instance.Access = resources.NewPublicNetworkAccess()
 	return instance
 }
 
+// ExternalInstance marks the instance as externally routable (via DNS).
+//
+// Externally-exposed endpoints are reached through their DNS entry from
+// outside the cluster, which is Public access in the network model.
 func ExternalInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+	instance.Access = resources.NewPublicNetworkAccess()
 	return instance
 }
 
@@ -118,6 +142,7 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 					ContainerInstance(DNS(service, endpoint, dns)),
 					NativeInstance(DNS(service, endpoint, dns)),
 				)
+				out = append(out, nm)
 				continue
 			}
 		}

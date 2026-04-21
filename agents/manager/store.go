@@ -2,11 +2,13 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -16,7 +18,8 @@ import (
 )
 
 // AgentStore provides a mechanism to pull agent binaries from a remote registry.
-// Implementations: OCIStore (OCI-compliant registries), HTTPStore (simple HTTP).
+// Implementations: OCIStore (OCI-compliant registries), HTTPStore (simple HTTP),
+// NixStore (content-addressed via Nix flakes).
 type AgentStore interface {
 	// Pull downloads an agent binary and returns the local file path.
 	// The binary is cached locally — subsequent calls for the same name+version
@@ -272,4 +275,138 @@ func extractFirstLayerDigest(manifest []byte) (string, error) {
 // Used when pushing platform-specific agent binaries.
 func PlatformSuffix() string {
 	return fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH)
+}
+
+// NixStore pulls agent binaries by realizing a Nix flake output.
+//
+// Motivation: OCI/HTTP stores cache by `{publisher}/{name}:{version}` — a
+// mutable tag in a registry. Nix outputs are content-addressed, so the
+// same flake ref always yields the same store path; cache invalidation is
+// automatic and cross-platform selection is handled by Nix itself (no
+// PlatformSuffix hand-waving).
+//
+// Layout convention: the configured flake must expose agents at
+// `packages.${system}.agents-{kind}-{name}-{version}`. The build output
+// must be either:
+//   - a file that is the agent binary, or
+//   - a directory containing `bin/service-{name}` (the nixpkgs convention
+//     for a package built from a Go module).
+//
+// Configure via env:
+//
+//	AGENT_NIX_FLAKE=github:codefly-dev/codefly       # ref
+//	AGENT_NIX_FLAKE=github:codefly-dev/codefly/v0.5  # ref pinned to a tag
+//	AGENT_NIX_FLAKE=/path/to/local/flake             # local checkout
+//
+// If unset, NewNixStoreFromEnv returns nil.
+type NixStore struct {
+	flakeRef string
+	logger   *slog.Logger
+}
+
+// NewNixStore creates a NixStore for an explicit flake ref.
+func NewNixStore(flakeRef string, logger *slog.Logger) *NixStore {
+	return &NixStore{flakeRef: flakeRef, logger: logger}
+}
+
+// NewNixStoreFromEnv creates a NixStore from AGENT_NIX_FLAKE. Returns nil
+// if unset or if `nix` is not on PATH.
+func NewNixStoreFromEnv(logger *slog.Logger) *NixStore {
+	ref := os.Getenv("AGENT_NIX_FLAKE")
+	if ref == "" {
+		return nil
+	}
+	if _, err := exec.LookPath("nix"); err != nil {
+		return nil
+	}
+	return &NixStore{flakeRef: ref, logger: logger}
+}
+
+func (s *NixStore) attrFor(agent *resources.Agent) string {
+	// Nix attribute names can't contain `:` or `/`. Kind is e.g.
+	// "codefly:service" — drop the prefix, use just "service".
+	kind := string(agent.Kind)
+	if i := strings.LastIndex(kind, ":"); i >= 0 {
+		kind = kind[i+1:]
+	}
+	return fmt.Sprintf("agents-%s-%s-%s", kind, agent.Name, agent.Version)
+}
+
+func (s *NixStore) fullRef(agent *resources.Agent) string {
+	return fmt.Sprintf("%s#%s", s.flakeRef, s.attrFor(agent))
+}
+
+// Available asks nix to evaluate the attribute without building it.
+// Cheap compared to Pull: just flake eval, no derivation realization.
+func (s *NixStore) Available(ctx context.Context, agent *resources.Agent) (bool, error) {
+	ref := s.fullRef(agent)
+	// #nosec G204 -- flakeRef/attr are built from env + validated Agent fields.
+	cmd := exec.CommandContext(ctx,
+		"nix", "--extra-experimental-features", "nix-command flakes",
+		"eval", "--raw", ref+".drvPath")
+	if err := cmd.Run(); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+// Pull realizes the flake output and returns the path of the agent binary.
+// Nix handles its own content-addressed cache under /nix/store, so repeat
+// Pulls for the same ref are no-ops once the derivation is realized.
+func (s *NixStore) Pull(ctx context.Context, agent *resources.Agent) (string, error) {
+	ref := s.fullRef(agent)
+	if s.logger != nil {
+		s.logger.Info("realizing agent via nix", "agent", agent.Identifier(), "ref", ref)
+	}
+
+	// #nosec G204
+	cmd := exec.CommandContext(ctx,
+		"nix", "--extra-experimental-features", "nix-command flakes",
+		"build", "--no-link", "--print-out-paths", ref)
+	out, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", fmt.Errorf("nix build %s failed: %s",
+				ref, strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return "", fmt.Errorf("nix build %s: %w", ref, err)
+	}
+	outPath := strings.TrimSpace(string(out))
+	if outPath == "" {
+		return "", fmt.Errorf("nix build %s produced no output path", ref)
+	}
+
+	// Resolve to the actual binary.
+	return resolveNixAgentBinary(outPath, agent)
+}
+
+// resolveNixAgentBinary inspects a /nix/store output path and returns the
+// path to the executable agent binary. Two conventions are accepted:
+//   - outPath is itself a file (a single static binary).
+//   - outPath is a directory containing bin/service-{name} (nixpkgs Go
+//     package convention).
+func resolveNixAgentBinary(outPath string, agent *resources.Agent) (string, error) {
+	info, err := os.Stat(outPath)
+	if err != nil {
+		return "", fmt.Errorf("stat nix output %s: %w", outPath, err)
+	}
+	if !info.IsDir() {
+		return outPath, nil
+	}
+	candidate := filepath.Join(outPath, "bin", "service-"+agent.Name)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate, nil
+	}
+	// Fall back to the first executable under bin/.
+	entries, err := os.ReadDir(filepath.Join(outPath, "bin"))
+	if err != nil {
+		return "", fmt.Errorf("nix output %s has no bin/: %w", outPath, err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			return filepath.Join(outPath, "bin", e.Name()), nil
+		}
+	}
+	return "", fmt.Errorf("nix output %s: no binary found under bin/", outPath)
 }

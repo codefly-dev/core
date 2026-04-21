@@ -33,8 +33,12 @@ const DefaultStartupTimeout = 30 * time.Second
 const DefaultDialTimeout = 10 * time.Second
 
 // stderrCapacity is the maximum number of bytes kept from the agent's
-// stderr stream. Only the tail is retained so memory stays bounded.
-const stderrCapacity = 4096
+// stderr stream. Only the tail is retained so memory stays bounded. The
+// default (64KB) is large enough to capture a Go panic traceback plus a
+// few hundred log lines from a misbehaving plugin — the common cases
+// callers need for post-mortem diagnosis. Previously 4KB, which was
+// short enough to truncate any real stack trace.
+const stderrCapacity = 64 * 1024
 
 // ProcessInfo carries metadata about the spawned agent process.
 type ProcessInfo struct {
@@ -171,11 +175,12 @@ func WithWorkDir(dir string) LoadOption {
 // and establishes a gRPC connection. The agent binary is downloaded
 // if not already present.
 func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentConn, error) {
-	w := wool.Get(ctx).In("manager.Load", wool.Field("agent", p.Identifier()))
-
+	// Check nil BEFORE constructing the wool field — p.Identifier()
+	// would panic on a nil receiver and obscure the real diagnostic.
 	if p == nil {
-		return nil, w.NewError("agent cannot be nil")
+		return nil, fmt.Errorf("%w: nil receiver passed to Load", ErrAgentNil)
 	}
+	w := wool.Get(ctx).In("manager.Load", wool.Field("agent", p.Identifier()))
 
 	cfg := defaultLoadConfig()
 	for _, o := range opts {
@@ -187,22 +192,36 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		return nil, w.Wrapf(err, "cannot compute agent path")
 	}
 
-	// Resolve binary: local cache → OCI registry → GitHub release.
+	// Resolve binary: local cache → Nix flake → OCI registry → GitHub release.
 	if _, err := exec.LookPath(bin); err != nil {
-		// Try OCI store first (AGENT_REGISTRY env var).
 		pulled := false
-		if store := NewOCIStoreFromEnv(slog.Default()); store != nil {
+		// Try Nix store first (AGENT_NIX_FLAKE env var). Content-addressed,
+		// cross-platform, no manual version tag management.
+		if store := NewNixStoreFromEnv(slog.Default()); store != nil {
 			if pullPath, pullErr := store.Pull(ctx, p); pullErr == nil {
 				bin = pullPath
 				pulled = true
-				w.Debug("agent pulled from OCI registry", wool.Path(bin))
+				w.Debug("agent realized via nix flake", wool.Path(bin))
 			} else {
-				w.Debug("OCI pull failed, trying GitHub", wool.Field("error", pullErr.Error()))
+				w.Debug("nix pull failed, trying OCI", wool.Field("error", pullErr.Error()))
+			}
+		}
+		// Then OCI store (AGENT_REGISTRY env var).
+		if !pulled {
+			if store := NewOCIStoreFromEnv(slog.Default()); store != nil {
+				if pullPath, pullErr := store.Pull(ctx, p); pullErr == nil {
+					bin = pullPath
+					pulled = true
+					w.Debug("agent pulled from OCI registry", wool.Path(bin))
+				} else {
+					w.Debug("OCI pull failed, trying GitHub", wool.Field("error", pullErr.Error()))
+				}
 			}
 		}
 		if !pulled {
 			if err := Download(ctx, p); err != nil {
-				return nil, w.Wrapf(err, "cannot download agent (tried OCI + GitHub)")
+				return nil, w.Wrapf(fmt.Errorf("%w: %v", ErrAgentBinaryNotFound, err),
+					"cannot download agent (tried Nix + OCI + GitHub)")
 			}
 		}
 	}
@@ -240,7 +259,8 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, w.Wrapf(err, "cannot start agent binary: %s", bin)
+		return nil, w.Wrapf(fmt.Errorf("%w: %v", ErrAgentSpawn, err),
+			"cannot start agent binary: %s", bin)
 	}
 
 	pid := 0
@@ -250,16 +270,20 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 
 	w.Debug("agent process started", wool.Field("pid", pid), wool.Path(bin))
 
-	// killAndDescribe kills the agent and returns an error that includes
-	// the stderr tail for easier debugging.
-	killAndDescribe := func(reason string) error {
+	// killAndDescribe kills the agent and returns an error wrapping the
+	// supplied sentinel + reason + the captured stderr tail. Callers
+	// switch on the sentinel via errors.Is; the message preserves
+	// reason + stderr for human readers.
+	killAndDescribe := func(sentinel error, reason string) error {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		tail := stderrBuf.String()
 		if tail != "" {
-			return w.NewError("%s (stderr tail: %s)", reason, tail)
+			return w.Wrapf(fmt.Errorf("%w: %s", sentinel, reason),
+				"stderr tail: %s", tail)
 		}
-		return w.NewError("%s (no stderr output captured)", reason)
+		return w.Wrapf(fmt.Errorf("%w: %s", sentinel, reason),
+			"no stderr output captured")
 	}
 
 	// --- Read handshake with timeout ---
@@ -287,34 +311,36 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	select {
 	case res := <-handshakeCh:
 		if res.err != nil {
-			return nil, killAndDescribe(
+			return nil, killAndDescribe(ErrAgentHandshakeMalformed,
 				fmt.Sprintf("agent did not complete handshake: %v", res.err))
 		}
 		line = res.line
 	case <-time.After(cfg.startupTimeout):
-		return nil, killAndDescribe(
+		return nil, killAndDescribe(ErrAgentHandshakeTimeout,
 			fmt.Sprintf("agent did not print handshake within %s", cfg.startupTimeout))
 	case <-ctx.Done():
-		return nil, killAndDescribe(
+		return nil, killAndDescribe(ErrAgentHandshakeTimeout,
 			fmt.Sprintf("context cancelled while waiting for agent handshake: %v", ctx.Err()))
 	}
 
 	// --- Parse handshake: "VERSION|PORT" ---
 	parts := strings.SplitN(line, "|", 2)
 	if len(parts) != 2 {
-		return nil, killAndDescribe(fmt.Sprintf("invalid agent handshake line: %q", line))
+		return nil, killAndDescribe(ErrAgentHandshakeMalformed,
+			fmt.Sprintf("invalid agent handshake line: %q", line))
 	}
 
 	version, err := strconv.Atoi(parts[0])
 	if err != nil || version != agents.ProtocolVersion {
-		return nil, killAndDescribe(
+		return nil, killAndDescribe(ErrAgentVersionMismatch,
 			fmt.Sprintf("unsupported agent protocol version: %q (expected %d)",
 				parts[0], agents.ProtocolVersion))
 	}
 
 	port, err := strconv.Atoi(parts[1])
 	if err != nil || port <= 0 || port > 65535 {
-		return nil, killAndDescribe(fmt.Sprintf("invalid agent port: %q", parts[1]))
+		return nil, killAndDescribe(ErrAgentHandshakeMalformed,
+			fmt.Sprintf("invalid agent port: %q", parts[1]))
 	}
 
 	// --- Connect via gRPC with a health check ---
@@ -324,7 +350,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)
 	if err != nil {
-		return nil, killAndDescribe(
+		return nil, killAndDescribe(ErrAgentDialTimeout,
 			fmt.Sprintf("cannot create gRPC client for %s: %v", addr, err))
 	}
 
@@ -335,7 +361,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	conn.Connect()
 	if !waitForReady(dialCtx, conn) {
 		_ = conn.Close()
-		return nil, killAndDescribe(
+		return nil, killAndDescribe(ErrAgentDialTimeout,
 			fmt.Sprintf("gRPC connection to %s did not become ready within %s",
 				addr, cfg.dialTimeout))
 	}

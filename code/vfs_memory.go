@@ -259,15 +259,16 @@ func (m *MemoryVFS) entryInfo(path string) fs.DirEntry {
 // --- synthetic os.FileInfo / fs.DirEntry ---
 
 type memFileInfo struct {
-	name string
-	size int64
-	dir  bool
+	name    string
+	size    int64
+	dir     bool
+	modTime time.Time
 }
 
 func (fi *memFileInfo) Name() string      { return fi.name }
 func (fi *memFileInfo) Size() int64       { return fi.size }
 func (fi *memFileInfo) Mode() os.FileMode { if fi.dir { return os.ModeDir | 0o755 }; return 0o644 }
-func (fi *memFileInfo) ModTime() time.Time { return time.Time{} }
+func (fi *memFileInfo) ModTime() time.Time { return fi.modTime }
 func (fi *memFileInfo) IsDir() bool       { return fi.dir }
 func (fi *memFileInfo) Sys() interface{}  { return nil }
 

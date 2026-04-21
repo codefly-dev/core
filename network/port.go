@@ -51,6 +51,36 @@ func APIInt(api string) int {
 // 1: HTTP/ REST
 // 2: gRPC
 
+// CLIServerPort returns a deterministic TCP port for the codefly CLI
+// gRPC server of a given workspace. Same workspace name → same port
+// across runs (so tools like Postman can hit a stable endpoint).
+// Different workspaces → different ports (so concurrent test runs in
+// unrelated workspaces don't collide on 10000).
+//
+// The port lives in [20000, 29900] to stay clear of ephemeral ranges
+// and common service ports. The REST companion port lives at +1.
+//
+// Override with the CODEFLY_CLI_SERVER_PORT environment variable when
+// an explicit port is required.
+func CLIServerPort(workspaceName string) uint16 {
+	if v := os.Getenv("CODEFLY_CLI_SERVER_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 && p < 65536 {
+			return uint16(p)
+		}
+	}
+	// Align to a multiple of 10 so CLIRestPort (= CLIServerPort+1) is
+	// stable and readable.
+	base := HashInt(workspaceName, 20000, 29900)
+	base = base - (base % 10)
+	return uint16(base)
+}
+
+// CLIRestPort is the REST companion port for the CLI gRPC server.
+// Always CLIServerPort + 1 so the pair stays together.
+func CLIRestPort(workspaceName string) uint16 {
+	return CLIServerPort(workspaceName) + 1
+}
+
 func ToNamedPort(_ context.Context, ws, mod, svc, name, api string) uint16 {
 	// Combine all inputs except GetAPI into a single string
 	combined := strings.Join([]string{ws, mod, svc, name}, "-")

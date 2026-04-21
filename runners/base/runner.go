@@ -43,6 +43,14 @@ type Proc interface {
 	Run(ctx context.Context) error
 	Stop(ctx context.Context) error
 
+	// Wait blocks until the process exits or ctx is cancelled. Returns the
+	// process's exit error (nil for clean exit, *exec.ExitError for non-zero).
+	// Must be safe to call after Start. Multiple callers may share the result
+	// via an internal channel — implementations should make Wait idempotent.
+	// Used by supervisors to detect when a fire-and-forget Start'd process
+	// dies so they can propagate the failure (instead of leaking the parent).
+	Wait(ctx context.Context) error
+
 	IsRunning(ctx context.Context) (bool, error)
 
 	// WaitOn For Run, optional, we can wait on another process

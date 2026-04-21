@@ -7,14 +7,13 @@
 package v0
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	v01 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -1239,7 +1238,10 @@ type TestRequest struct {
 	// Optional: run with race detector.
 	Race bool `protobuf:"varint,3,opt,name=race,proto3" json:"race,omitempty"`
 	// Optional: timeout per test (e.g. "30s"). Empty uses agent default.
-	Timeout       string `protobuf:"bytes,4,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	Timeout string `protobuf:"bytes,4,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	// Optional: run with coverage instrumentation. Off by default —
+	// -cover roughly doubles compile time for test binaries.
+	Coverage      bool `protobuf:"varint,5,opt,name=coverage,proto3" json:"coverage,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1300,6 +1302,13 @@ func (x *TestRequest) GetTimeout() string {
 		return x.Timeout
 	}
 	return ""
+}
+
+func (x *TestRequest) GetCoverage() bool {
+	if x != nil {
+		return x.Coverage
+	}
+	return false
 }
 
 type TestResponse struct {
@@ -2087,12 +2096,13 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSUCCESS\x10\x01\x12\t\n" +
-	"\x05ERROR\x10\x02\"m\n" +
+	"\x05ERROR\x10\x02\"\x89\x01\n" +
 	"\vTestRequest\x12\x16\n" +
 	"\x06target\x18\x01 \x01(\tR\x06target\x12\x18\n" +
 	"\averbose\x18\x02 \x01(\bR\averbose\x12\x12\n" +
 	"\x04race\x18\x03 \x01(\bR\x04race\x12\x18\n" +
-	"\atimeout\x18\x04 \x01(\tR\atimeout\"\xae\x02\n" +
+	"\atimeout\x18\x04 \x01(\tR\atimeout\x12\x1a\n" +
+	"\bcoverage\x18\x05 \x01(\bR\bcoverage\"\xae\x02\n" +
 	"\fTestResponse\x12?\n" +
 	"\x06status\x18\x01 \x01(\v2'.codefly.services.runtime.v0.TestStatusR\x06status\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12\x1b\n" +

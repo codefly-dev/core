@@ -48,11 +48,11 @@ func TestWithPostgres(t *testing.T) {
     ctx := context.Background()
 
     env := sdk.New()
-    env.Add("external-postgres")
+    env.Add("postgres")
     require.NoError(t, env.Start(ctx))
     defer env.Stop(ctx)
 
-    pgURL := env.Connection("external-postgres", "connection")
+    pgURL := env.Connection("postgres", "connection")
     // Test against real postgres
 }
 ```
@@ -174,7 +174,7 @@ endpoints, _ := svc.LoadEndpoints(ctx)
 
 ## What Good Tests Look Like
 
-1. **Start real infrastructure.** `sdk.WithDependencies(ctx)` or `sdk.New().Add("external-postgres").Start(ctx)`.
+1. **Start real infrastructure.** `sdk.WithDependencies(ctx)` or `sdk.New().Add("postgres").Start(ctx)`.
 2. **Exercise real code paths.** No mocks, no fakes, no stubs.
 3. **Assert real outcomes.** Query the real database, check real gRPC responses, verify real state.
 4. **Clean up.** `defer env.Stop(ctx)` or `defer env.Destroy(ctx)`.

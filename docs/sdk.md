@@ -44,12 +44,12 @@ func TestWithInfra(t *testing.T) {
     ctx := context.Background()
 
     env := sdk.New()
-    env.Add("external-postgres")
+    env.Add("postgres")
     env.Add("external-temporal")
     require.NoError(t, env.Start(ctx))
     defer env.Stop(ctx)
 
-    pgURL := env.Connection("external-postgres", "connection")
+    pgURL := env.Connection("postgres", "connection")
     temporalAddr := env.Connection("external-temporal", "connection")
 }
 ```
@@ -121,9 +121,9 @@ url := env.Connection("postgres", "connection")
 
 // Direct pattern
 env := sdk.New()
-env.Add("external-postgres")
+env.Add("postgres")
 env.Start(ctx)
-url := env.Connection("external-postgres", "connection")
+url := env.Connection("postgres", "connection")
 ```
 
 ### From Environment Variables
@@ -190,13 +190,13 @@ func TestServiceIntegration(t *testing.T) {
 
     // Start all infrastructure
     env := sdk.New()
-    env.Add("external-postgres")
+    env.Add("postgres")
     env.Add("external-temporal")
     require.NoError(t, env.Start(ctx))
     defer env.Stop(ctx)
 
     // Get connection strings
-    pgURL := env.Connection("external-postgres", "connection")
+    pgURL := env.Connection("postgres", "connection")
     require.NotEmpty(t, pgURL)
 
     temporalAddr := env.Connection("external-temporal", "connection")

@@ -493,6 +493,27 @@ func (proc *DockerProc) IsRunning(ctx context.Context) (bool, error) {
 	return pid > 0, nil
 }
 
+// Wait blocks until the container process exits or ctx is cancelled.
+// Polls IsRunning since Docker doesn't expose a clean blocking-wait here.
+func (proc *DockerProc) Wait(ctx context.Context) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			running, err := proc.IsRunning(ctx)
+			if err != nil {
+				return err
+			}
+			if !running {
+				return nil
+			}
+		}
+	}
+}
+
 func (proc *DockerProc) WaitOn(bin string) {
 	proc.waitOn = bin
 }
@@ -551,75 +572,85 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 	}
 }
 
+// FindPid locates the PID of the matching child process inside the
+// container by scanning /proc. /proc is guaranteed on every Linux
+// container; `ps` is not (debian-slim images ship without procps, Alpine
+// busybox has a different flag set). Output format is one line per PID:
+//
+//	<pid>\t<cmdline-space-separated>
+//
+// where cmdline is the full argv reconstructed from /proc/<pid>/cmdline
+// (NUL-separated in the kernel — we convert NUL→space for splitting).
 func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
 	w := wool.Get(ctx).In("DockerProc.FindPid")
-	// Construct the command to execute 'ps' inside the container
-	psCmd := []string{"/bin/ps"}
+
+	// Shell-based /proc scanner. Needs /bin/sh which every Linux container
+	// has; no ps, no procps dependency.
+	script := `for d in /proc/[0-9]*; do
+  pid=${d##*/}
+  if [ -r "$d/cmdline" ]; then
+    cmd=$(tr '\0' ' ' < "$d/cmdline")
+    if [ -z "$cmd" ]; then
+      [ -r "$d/comm" ] && cmd=$(cat "$d/comm")
+    fi
+    printf '%s\t%s\n' "$pid" "$cmd"
+  fi
+done`
 	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          psCmd,
+		Cmd:          []string{"/bin/sh", "-c", script},
 	}
 
-	// Create an exec instance inside the container to run the command
 	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
 	if err != nil {
 		return 0, w.Wrapf(err, "cannot create exec to list processes")
 	}
 
-	// Attach to the exec instance to capture the output
 	execAttachResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, container.ExecAttachOptions{})
 	if err != nil {
 		return 0, w.Wrapf(err, "cannot attach to exec")
 	}
 	defer execAttachResp.Close()
 
-	// Capture and process the command output
 	var outBuf, errBuf strings.Builder
 	if _, err := stdcopy.StdCopy(&outBuf, &errBuf, execAttachResp.Reader); err != nil {
 		return 0, w.Wrapf(err, "cannot copy output from exec")
 	}
-	// Parse the output from 'ps' to find the process by command
-	lines := strings.Split(outBuf.String(), "\n")
-	if len(lines) == 1 {
-		return 0, nil
-	}
-	// Split the header into fields
-	fields := strings.Fields(lines[0])
-
-	// Find the index of the CMD field
-	pidIndex := -1
-	cmdIndex := -1
-	for i, field := range fields {
-		if field == "CMD" || field == "COMMAND" {
-			cmdIndex = i
+	if strings.TrimSpace(outBuf.String()) == "" {
+		// Shell exec produced nothing. Could be: empty /proc (rare), or /bin/sh
+		// missing (distroless images). Surface the stderr so the caller has a
+		// chance at diagnosis rather than silently returning "not running".
+		if errStr := strings.TrimSpace(errBuf.String()); errStr != "" {
+			return 0, fmt.Errorf("proc scan produced no output: %s", errStr)
 		}
-		if field == "PID" {
-			pidIndex = i
-		}
-	}
-	if pidIndex < 0 {
-		return 0, fmt.Errorf("cannot find PID field in ps output")
-	}
-	if cmdIndex < 0 {
-		return 0, fmt.Errorf("cannot find CMD field in ps output")
+		return -1, nil
 	}
 
-	for _, line := range lines[1:] {
-		fs := strings.Fields(line)
-		if len(fs) < max(pidIndex, cmdIndex) {
-			continue // Ensure there are enough fs for PID and CMD
+	for _, line := range strings.Split(outBuf.String(), "\n") {
+		if line == "" {
+			continue
 		}
-		cmd := fs[cmdIndex:]
-
-		if proc.Match(cmd) {
-			pid, err := strconv.Atoi(fs[pidIndex])
-			if err != nil {
-				return 0, w.Wrapf(err, "cannot parse PID")
-			}
-			return pid, nil
-
+		// Split into pid + cmdline. Tab separator so cmdline can contain spaces.
+		tab := strings.IndexByte(line, '\t')
+		if tab < 0 {
+			continue
 		}
+		pidStr := line[:tab]
+		cmdline := strings.TrimSpace(line[tab+1:])
+		if cmdline == "" {
+			continue
+		}
+
+		cmd := strings.Fields(cmdline)
+		if !proc.Match(cmd) {
+			continue
+		}
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			return 0, w.Wrapf(err, "cannot parse PID %q", pidStr)
+		}
+		return pid, nil
 	}
 	return -1, nil
 }
@@ -756,11 +787,15 @@ func (proc *DockerProc) stop(ctx context.Context, pid int, force bool) error {
 	w := wool.Get(ctx).In("DockerProc.Stop")
 	w.Debug("stopping process", wool.Field("pid", pid))
 
+	// Use /bin/sh to send the signal rather than invoking /bin/kill
+	// directly: many slim/distroless images (e.g. the astral-sh/uv image)
+	// strip util-linux, so /bin/kill isn't present. sh's `kill` builtin
+	// is always available as long as we have a shell.
 	var killCmd []string
 	if force {
-		killCmd = []string{"/bin/kill", "-9", fmt.Sprintf("%d", pid)}
+		killCmd = []string{"/bin/sh", "-c", fmt.Sprintf("kill -9 %d", pid)}
 	} else {
-		killCmd = []string{"/bin/kill", fmt.Sprintf("%d", pid)}
+		killCmd = []string{"/bin/sh", "-c", fmt.Sprintf("kill %d", pid)}
 	}
 	execConfig := container.ExecOptions{
 		AttachStdout: true,

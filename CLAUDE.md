@@ -20,7 +20,7 @@ Codefly formalizes development operations as **typed gRPC APIs**: `RuntimeServic
 Workspace → Module → Service → Endpoint
      │          │         │         │
      │          │         │         └── API type (gRPC, REST, HTTP, TCP)
-     │          │         └── Managed by an Agent (go-grpc, external-postgres, etc.)
+     │          │         └── Managed by an Agent (go-grpc, postgres, etc.)
      │          └── Logical grouping of services
      └── Root container (one per project)
 ```

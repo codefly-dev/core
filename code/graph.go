@@ -5,7 +5,10 @@
 // these types; Mind and plugins both consume them.
 package code
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // NodeKind classifies a code graph node.
 type NodeKind int
@@ -100,6 +103,7 @@ type CodeGraph struct {
 	callers map[string][]string // node ID → caller IDs
 	callees map[string][]string // node ID → callee IDs
 	fileIdx map[string][]string // file path → node IDs in that file
+	nameIdx map[string][]string // lowercase name → node IDs (symbol index)
 }
 
 // NewCodeGraph creates an empty graph.
@@ -109,14 +113,19 @@ func NewCodeGraph() *CodeGraph {
 		callers: make(map[string][]string),
 		callees: make(map[string][]string),
 		fileIdx: make(map[string][]string),
+		nameIdx: make(map[string][]string),
 	}
 }
 
-// AddNode inserts or replaces a node and updates the file index.
+// AddNode inserts or replaces a node and updates the file and name indexes.
 func (g *CodeGraph) AddNode(n *CodeNode) {
 	g.Nodes[n.ID] = n
 	if n.File != "" && n.Kind != NodeFile && n.Kind != NodePackage {
 		g.fileIdx[n.File] = appendUniqueStr(g.fileIdx[n.File], n.ID)
+	}
+	if n.Name != "" {
+		key := strings.ToLower(n.Name)
+		g.nameIdx[key] = appendUniqueStr(g.nameIdx[key], n.ID)
 	}
 }
 
@@ -176,6 +185,13 @@ func (g *CodeGraph) RemoveNode(nodeID string) {
 	if node.File != "" {
 		g.fileIdx[node.File] = removeStr(g.fileIdx[node.File], nodeID)
 	}
+	if node.Name != "" {
+		key := strings.ToLower(node.Name)
+		g.nameIdx[key] = removeStr(g.nameIdx[key], nodeID)
+		if len(g.nameIdx[key]) == 0 {
+			delete(g.nameIdx, key)
+		}
+	}
 	for _, callee := range g.callees[nodeID] {
 		g.callers[callee] = removeStr(g.callers[callee], nodeID)
 	}
@@ -216,10 +232,15 @@ func (g *CodeGraph) RebuildIndexes() {
 	g.callers = make(map[string][]string)
 	g.callees = make(map[string][]string)
 	g.fileIdx = make(map[string][]string)
+	g.nameIdx = make(map[string][]string)
 
 	for id, n := range g.Nodes {
 		if n.File != "" && n.Kind != NodeFile && n.Kind != NodePackage {
 			g.fileIdx[n.File] = appendUniqueStr(g.fileIdx[n.File], id)
+		}
+		if n.Name != "" {
+			key := strings.ToLower(n.Name)
+			g.nameIdx[key] = appendUniqueStr(g.nameIdx[key], id)
 		}
 	}
 	for _, e := range g.Edges {
