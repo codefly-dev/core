@@ -50,7 +50,12 @@ type DockerEnvironment struct {
 
 var _ RunnerEnvironment = &DockerEnvironment{}
 
-// NewDockerEnvironment creates a new docker environment
+// NewDockerEnvironment creates a new docker environment.
+//
+// If GetImageIfNotPresent fails, the docker client is closed before
+// returning the error so the caller doesn't have to know about the
+// half-constructed env (and isn't expected to call Shutdown on a
+// nil return). Same defensive close in NewDockerHeadlessEnvironment.
 func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir, name string) (*DockerEnvironment, error) {
 	w := wool.Get(ctx).In("NewDockerEnvironment")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -68,6 +73,7 @@ func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir
 
 	env.WithDir(dir)
 	if err := env.GetImageIfNotPresent(ctx, image); err != nil {
+		_ = cli.Close()
 		return nil, w.Wrapf(err, "cannot get image")
 	}
 
@@ -89,8 +95,8 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerIm
 		name:      ContainerName(name),
 	}
 	// Pull the image if needed
-	err = env.GetImageIfNotPresent(ctx, image)
-	if err != nil {
+	if err = env.GetImageIfNotPresent(ctx, image); err != nil {
+		_ = cli.Close()
 		return nil, w.Wrapf(err, "cannot get image")
 	}
 	return env, nil

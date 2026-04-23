@@ -161,6 +161,14 @@ func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv0.Depl
 	return instance.Builder.Deploy(ctx, req)
 }
 
+func (instance *BuilderInstance) Audit(ctx context.Context, req *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+	return instance.Builder.Audit(ctx, req)
+}
+
+func (instance *BuilderInstance) Upgrade(ctx context.Context, req *builderv0.UpgradeRequest) (*builderv0.UpgradeResponse, error) {
+	return instance.Builder.Upgrade(ctx, req)
+}
+
 func (instance *BuilderInstance) Update(ctx context.Context, req *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
 	return instance.Builder.Update(ctx, req)
 }

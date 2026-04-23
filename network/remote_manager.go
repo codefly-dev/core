@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
@@ -17,6 +18,21 @@ import (
 
 type RemoteManager struct {
 	dnsManager DNSManager
+
+	// pairingsWG tracks the goroutines spawned by StartPairing
+	// (port-forward + log fetch). Stop() blocks on it so callers can
+	// guarantee the goroutines (and their kubectl child processes) are
+	// torn down before they continue. Without this the goroutines were
+	// fire-and-forget and outlived the calling context.
+	pairingsWG sync.WaitGroup
+}
+
+// Stop blocks until every pairing goroutine has exited. The caller is
+// expected to have cancelled the context passed to StartPairing first
+// (or all pairing contexts are children of one that just got cancelled).
+// Safe to call multiple times.
+func (m *RemoteManager) Stop() {
+	m.pairingsWG.Wait()
 }
 
 func (m *RemoteManager) GetNamespace(_ context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.ServiceIdentity) (string, error) {
@@ -166,16 +182,20 @@ func (m *RemoteManager) StartPairing(ctx context.Context, _ *resources.Environme
 	if local == nil {
 		return w.NewError("no native instance found in local network mapping")
 	}
+	// Each goroutine gets its own err binding — the previous version
+	// shared the outer `err` between two parallel writers, which is a
+	// data race. The WaitGroup lets Stop() block until both kubectl
+	// child processes are reaped.
+	m.pairingsWG.Add(2)
 	go func() {
-		err = portForwardService(ctx, remoteService, uint16(local.Port))
-		if err != nil {
+		defer m.pairingsWG.Done()
+		if err := portForwardService(ctx, remoteService, uint16(local.Port)); err != nil {
 			w.Warn(err.Error())
 		}
 	}()
-	// Fetch logs from the namespace pods
 	go func() {
-		err = fetchLogs(ctx, remoteService, output)
-		if err != nil {
+		defer m.pairingsWG.Done()
+		if err := fetchLogs(ctx, remoteService, output); err != nil {
 			w.Warn(err.Error())
 		}
 	}()
