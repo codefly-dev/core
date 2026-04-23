@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/codefly-dev/core/agents"
@@ -66,20 +67,66 @@ func (c *AgentConn) GRPCConn() *grpc.ClientConn { return c.conn }
 // ProcessInfo returns the agent's process metadata.
 func (c *AgentConn) ProcessInfo() *ProcessInfo { return c.info }
 
-// Close shuts down the gRPC connection, kills the agent process, and
-// waits for the reaper goroutine to finish (which calls cmd.Wait).
-// cmd.Wait must only be called once — the reaper owns it.
+// gracefulShutdownTimeout is how long Close waits after SIGTERM for the
+// agent to exit cleanly before falling back to SIGKILL. Must be larger
+// than the agent's own internal stop timeout (5s in agents.Serve) plus
+// the NativeProc.Stop SIGTERM/SIGKILL grace window (~7s) so the agent
+// has a real chance to reap its children before we force-kill it.
+const gracefulShutdownTimeout = 15 * time.Second
+
+// Close shuts down the gRPC connection, asks the agent to exit
+// gracefully (SIGTERM) so it can reap its child processes (user
+// binaries, Docker containers) via its agents.Serve signal handler,
+// then falls back to SIGKILL if the agent is unresponsive.
+//
+// The previous implementation jumped straight to SIGKILL, which won the
+// race against the agent's own SIGTERM handler and orphaned every
+// child process as a PPID=1 zombie — exactly what the agent's signal
+// handler was written to prevent.
+//
+// cmd.Wait must only be called once — the reaper owns it. We observe
+// completion via the `done` channel the reaper closes.
 func (c *AgentConn) Close() {
 	if c.conn != nil {
 		_ = c.conn.Close()
 	}
-	if c.cmd != nil && c.cmd.Process != nil {
-		_ = c.cmd.Process.Kill()
-		// Wait for the reaper goroutine to call cmd.Wait and close done.
-		// This prevents double-Wait which is documented as undefined behavior.
-		if c.done != nil {
-			<-c.done
-		}
+	if c.cmd == nil || c.cmd.Process == nil {
+		return
+	}
+
+	// Step 1: SIGTERM. The agent's signal handler in agents.Serve will
+	// call Runtime.Stop on its child NativeProcs and then GracefulStop
+	// the gRPC server. The reaper's cmd.Wait returns once the agent
+	// process exits, closing `done`.
+	_ = c.cmd.Process.Signal(os.Interrupt)
+	if c.done == nil {
+		// No reaper to wait on — best-effort kill and bail.
+		killAgentGroup(c.cmd.Process.Pid)
+		return
+	}
+
+	select {
+	case <-c.done:
+		return
+	case <-time.After(gracefulShutdownTimeout):
+		// Agent didn't respond to SIGTERM in time — force kill the whole
+		// pgroup (agent + any still-running user binaries it spawned) and
+		// wait for the reaper so we don't leave zombies behind.
+		killAgentGroup(c.cmd.Process.Pid)
+		<-c.done
+	}
+}
+
+// killAgentGroup SIGKILLs the agent's entire process group. Relies on the
+// agent having been started with Setpgid: true so its pgid equals its pid.
+// Falls back to killing just the agent PID if the group signal fails
+// (e.g. the group is already empty because the agent already exited).
+func killAgentGroup(pid int) {
+	if pid <= 0 {
+		return
+	}
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 }
 
@@ -232,6 +279,13 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// (e.g. 60s timeout) for the load handshake, but the agent should keep
 	// running until explicitly closed. Lifecycle is managed via Close().
 	cmd := exec.Command(bin)
+	// Put the agent (and everything it spawns) in its own process group.
+	// Without this the agent inherits codefly's pgid, which in turn
+	// inherits the caller's (e.g. Claude Code's Bash tool) — a single
+	// stray signal to that pgroup then cascades into every agent and
+	// every user binary. Own pgid also lets Close() send SIGTERM to
+	// the negative pid and reap the whole agent subtree atomically.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = os.Environ()
 	if cfg.workDir != "" {
 		cmd.Dir = cfg.workDir
@@ -275,7 +329,9 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// switch on the sentinel via errors.Is; the message preserves
 	// reason + stderr for human readers.
 	killAndDescribe := func(sentinel error, reason string) error {
-		_ = cmd.Process.Kill()
+		if cmd.Process != nil {
+			killAgentGroup(cmd.Process.Pid)
+		}
 		_ = cmd.Wait()
 		tail := stderrBuf.String()
 		if tail != "" {

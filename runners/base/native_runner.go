@@ -365,19 +365,33 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// Kill the entire process group (negative PID) so child processes also die
+	// Kill the entire process group (negative PID) so child processes also die.
 	pgid := proc.exec.Process.Pid
 	w.Trace("sending SIGTERM to process group", wool.Field("pgid", pgid))
 	_ = syscall.Kill(-pgid, syscall.SIGTERM)
-	time.Sleep(time.Second)
 
-	// Check if still alive, force kill if needed
-	if err := proc.exec.Process.Signal(syscall.Signal(0)); err == nil {
-		w.Trace("process group still alive after SIGTERM, sending SIGKILL")
+	// Block until the cmd.Wait goroutine publishes exit, or until the SIGTERM
+	// grace window elapses. Returning before the process is reaped is what
+	// caused the orphan-leak: callers (Flow.Stop) move on, the CLI exits,
+	// and the child outlives the parent. Wait on exitCh — that channel is
+	// closed by the single Wait()-on-exec goroutine spawned in start(), so
+	// it's the authoritative "process is dead" signal.
+	const sigtermGrace = 5 * time.Second
+	const sigkillGrace = 2 * time.Second
+	select {
+	case <-proc.exitCh:
+		w.Trace("process exited after SIGTERM")
+	case <-time.After(sigtermGrace):
+		w.Trace("process did not exit after SIGTERM, sending SIGKILL", wool.Field("pgid", pgid))
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	} else {
-		w.Trace("process has exited after SIGTERM")
+		select {
+		case <-proc.exitCh:
+			w.Trace("process exited after SIGKILL")
+		case <-time.After(sigkillGrace):
+			w.Warn("process did not exit even after SIGKILL — leaking", wool.Field("pgid", pgid))
+		}
 	}
+
 	// Signal Run() to bail. close-instead-of-send avoids the previous
 	// goroutine leak: the old `go func() { proc.stopped <- struct{}{} }()`
 	// blocked forever if Run had already exited via the `done` path or

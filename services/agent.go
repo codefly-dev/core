@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"syscall"
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/agents/manager"
@@ -78,15 +76,16 @@ func getConn(agent *resources.Agent) *manager.AgentConn {
 	return conn
 }
 
-// ClearAgents kills all active agent processes.
+// ClearAgents shuts down all active agent processes gracefully.
+//
+// The previous version sent SIGTERM and then immediately called
+// conn.Close(), which sent SIGKILL — racing past the agent's own
+// SIGTERM handler before it could reap its child processes (user
+// binaries, Docker containers). conn.Close() is now graceful itself
+// (SIGTERM → wait → SIGKILL fallback), so the explicit pre-signal
+// here was both redundant and harmful.
 func ClearAgents() {
 	for key, conn := range connCache {
-		if conn.ProcessInfo() != nil {
-			process, err := os.FindProcess(conn.ProcessInfo().PID)
-			if err == nil {
-				_ = process.Signal(syscall.SIGTERM)
-			}
-		}
 		conn.Close()
 		delete(connCache, key)
 	}
