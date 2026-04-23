@@ -194,6 +194,62 @@ func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, 
 		State: &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_ERROR, Message: err.Error()}}, err
 }
 
+// AuditResponse builds a successful AuditResponse. State is CLEAN if
+// findings is empty, FINDINGS otherwise. Tool/language identify the
+// scanner used so the CLI can render "[govulncheck+go list -u] go-grpc/api"
+// in mixed-workspace audits.
+func (s *BuilderWrapper) AuditResponse(findings []*builderv0.AuditFinding, outdated []*builderv0.OutdatedDep, tool, language string) (*builderv0.AuditResponse, error) {
+	state := builderv0.AuditStatus_CLEAN
+	if len(findings) > 0 {
+		state = builderv0.AuditStatus_FINDINGS
+	}
+	return &builderv0.AuditResponse{
+		State:    &builderv0.AuditStatus{State: state},
+		Findings: findings,
+		Outdated: outdated,
+		Tool:     tool,
+		Language: language,
+	}, nil
+}
+
+func (s *BuilderWrapper) AuditError(err error) (*builderv0.AuditResponse, error) {
+	return &builderv0.AuditResponse{
+		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: err.Error()},
+	}, err
+}
+
+func (s *BuilderWrapper) AuditErrorf(err error, msg string, args ...any) (*builderv0.AuditResponse, error) {
+	return &builderv0.AuditResponse{
+		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
+	}, err
+}
+
+// UpgradeResponse builds a successful UpgradeResponse. State is NOOP if
+// no changes were applied (or would be, in dry-run), SUCCESS otherwise.
+func (s *BuilderWrapper) UpgradeResponse(changes []*builderv0.UpgradeChange, lockfileDiff string) (*builderv0.UpgradeResponse, error) {
+	state := builderv0.UpgradeStatus_SUCCESS
+	if len(changes) == 0 {
+		state = builderv0.UpgradeStatus_NOOP
+	}
+	return &builderv0.UpgradeResponse{
+		State:        &builderv0.UpgradeStatus{State: state},
+		Changes:      changes,
+		LockfileDiff: lockfileDiff,
+	}, nil
+}
+
+func (s *BuilderWrapper) UpgradeError(err error) (*builderv0.UpgradeResponse, error) {
+	return &builderv0.UpgradeResponse{
+		State: &builderv0.UpgradeStatus{State: builderv0.UpgradeStatus_ERROR, Message: err.Error()},
+	}, err
+}
+
+func (s *BuilderWrapper) UpgradeErrorf(err error, msg string, args ...any) (*builderv0.UpgradeResponse, error) {
+	return &builderv0.UpgradeResponse{
+		State: &builderv0.UpgradeStatus{State: builderv0.UpgradeStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
+	}, err
+}
+
 type DeploymentBase struct {
 	*Information
 	Sha         string
