@@ -133,3 +133,38 @@ func TestFindLocalLatest_MixedValidInvalid(t *testing.T) {
 		t.Errorf("expected version 1.0.0, got %s", agent.Version)
 	}
 }
+
+func TestAgentSourceLocal(t *testing.T) {
+	// Save and restore the env so the test is hermetic.
+	prev, had := os.LookupEnv(AgentSourceEnv)
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv(AgentSourceEnv, prev)
+		} else {
+			_ = os.Unsetenv(AgentSourceEnv)
+		}
+	})
+
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"local", true},
+		{"LOCAL", true},
+		{"Local", true},
+		{"remote", false},
+		{"", false},
+		{"random", false},
+	}
+	for _, c := range cases {
+		_ = os.Setenv(AgentSourceEnv, c.val)
+		if got := AgentSourceLocal(); got != c.want {
+			t.Errorf("AgentSourceLocal() with %s=%q = %v, want %v",
+				AgentSourceEnv, c.val, got, c.want)
+		}
+	}
+	_ = os.Unsetenv(AgentSourceEnv)
+	if AgentSourceLocal() {
+		t.Error("AgentSourceLocal() should be false when env is unset")
+	}
+}
