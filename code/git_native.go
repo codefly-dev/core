@@ -3,7 +3,6 @@ package code
 import (
 	"context"
 	"fmt"
-	"io"
 	"sort"
 	"strings"
 	"time"
@@ -34,61 +33,95 @@ func OpenNativeGit(dir string) *NativeGit {
 }
 
 // Log returns recent commits, optionally filtered by path and since date.
+//
+// Walks the first-parent chain manually via CommitObject() rather than
+// using repo.Log()'s iterator. On shallow clones (GitHub Actions
+// default fetch-depth=1), go-git's log iterator tries to resolve the
+// deepest commit's parent eagerly for DFS bookkeeping and fails with
+// "object not found" BEFORE yielding even HEAD. Walking parent-by-
+// parent keeps full control: every commit we do have is yielded, and
+// the shallow boundary cleanly terminates iteration.
 func (g *NativeGit) Log(ctx context.Context, maxCount int, ref, path, since string) ([]*GitCommitInfo, error) {
 	if maxCount <= 0 {
 		maxCount = 50
 	}
 
-	opts := &git.LogOptions{Order: git.LogOrderCommitterTime}
-
+	// Resolve the starting commit: caller-supplied ref, or HEAD.
+	var startHash plumbing.Hash
 	if ref != "" {
-		hash, err := g.repo.ResolveRevision(plumbing.Revision(ref))
+		h, err := g.repo.ResolveRevision(plumbing.Revision(ref))
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s: %w", ref, err)
 		}
-		opts.From = *hash
+		startHash = *h
+	} else {
+		h, err := g.repo.Head()
+		if err != nil {
+			return nil, fmt.Errorf("head: %w", err)
+		}
+		startHash = h.Hash()
 	}
 
+	// Optional filters computed once.
+	var pathPrefix string
 	if path != "" {
-		opts.PathFilter = func(p string) bool { return p == path || strings.HasPrefix(p, path+"/") }
+		pathPrefix = path
 	}
-
+	var sinceTime *time.Time
 	if since != "" {
 		if t, err := time.Parse(time.RFC3339, since); err == nil {
-			opts.Since = &t
+			sinceTime = &t
 		} else if t, err := time.Parse("2006-01-02", since); err == nil {
-			opts.Since = &t
+			sinceTime = &t
 		}
 	}
 
-	iter, err := g.repo.Log(opts)
-	if err != nil {
-		return nil, fmt.Errorf("log: %w", err)
-	}
-	defer iter.Close()
-
-	// Manual iteration instead of iter.ForEach so we can stop cleanly on
-	// "object not found" (shallow clone: GitHub Actions defaults fetch-
-	// depth=1 and the parent of the deepest commit isn't locally present).
-	// ForEach propagates that error AFTER the last successful callback
-	// which is fine for logic but worse for readability — the explicit
-	// loop makes end-of-history handling obvious.
 	var commits []*GitCommitInfo
-	for {
-		if len(commits) >= maxCount {
-			break
+	current := startHash
+	seen := map[plumbing.Hash]bool{}
+	for len(commits) < maxCount {
+		if seen[current] {
+			break // cycle guard, shouldn't happen in a real repo
 		}
-		c, iterErr := iter.Next()
-		if iterErr == io.EOF {
-			break
-		}
-		if iterErr != nil {
-			if strings.Contains(iterErr.Error(), "object not found") {
-				// Shallow clone boundary. Return whatever we collected.
-				break
+		seen[current] = true
+
+		c, err := g.repo.CommitObject(current)
+		if err != nil {
+			if strings.Contains(err.Error(), "object not found") {
+				break // shallow-clone boundary
 			}
-			return commits, fmt.Errorf("log iter: %w", iterErr)
+			// Surface other errors but still return what we have.
+			return commits, fmt.Errorf("commit %s: %w", current.String()[:7], err)
 		}
+
+		// since filter: stop once we're past the cutoff.
+		if sinceTime != nil && c.Author.When.Before(*sinceTime) {
+			break
+		}
+
+		// path filter: skip commits that didn't touch the path. Needs
+		// parent tree comparison; best-effort via Stats.
+		if pathPrefix != "" {
+			stats, statErr := c.Stats()
+			if statErr == nil {
+				touched := false
+				for _, s := range stats {
+					if s.Name == pathPrefix || strings.HasPrefix(s.Name, pathPrefix+"/") {
+						touched = true
+						break
+					}
+				}
+				if !touched {
+					// advance to first parent and continue
+					if c.NumParents() == 0 {
+						break
+					}
+					current = c.ParentHashes[0]
+					continue
+				}
+			}
+		}
+
 		hash := c.Hash.String()
 		ci := &GitCommitInfo{
 			Hash:      hash,
@@ -97,12 +130,15 @@ func (g *NativeGit) Log(ctx context.Context, maxCount int, ref, path, since stri
 			Date:      c.Author.When.Format(time.RFC3339),
 			Message:   strings.Split(c.Message, "\n")[0], // first line only
 		}
-		// Stats() also needs the parent commit; same shallow-clone story.
-		// Best-effort — a failing Stats just means 0 files_changed.
 		if stats, err := c.Stats(); err == nil {
 			ci.FilesChanged = int32(len(stats))
 		}
 		commits = append(commits, ci)
+
+		if c.NumParents() == 0 {
+			break // root commit
+		}
+		current = c.ParentHashes[0] // first-parent walk
 	}
 
 	return commits, nil
