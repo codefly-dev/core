@@ -79,15 +79,21 @@ func (g *NativeGit) Log(ctx context.Context, maxCount int, ref, path, since stri
 			Date:      c.Author.When.Format(time.RFC3339),
 			Message:   strings.Split(c.Message, "\n")[0], // first line only
 		}
-		// Count files changed
+		// Count files changed. c.Stats() needs the parent commit object to
+		// diff against; on shallow clones (GitHub Actions default fetch-
+		// depth=1) the parent of the deepest commit isn't locally present
+		// and Stats returns "object not found". Treat that as 0 files
+		// changed rather than failing the whole log.
 		if stats, err := c.Stats(); err == nil {
 			ci.FilesChanged = int32(len(stats))
 		}
 		commits = append(commits, ci)
 		return nil
 	})
-	// "stop" error is expected when we hit maxCount
-	if err != nil && err.Error() != "stop" {
+	// "stop" signals we hit maxCount. "object not found" means the iterator
+	// walked off the end of a shallow clone — treat as end-of-history: we
+	// return whatever commits we already collected instead of erroring.
+	if err != nil && err.Error() != "stop" && !strings.Contains(err.Error(), "object not found") {
 		return nil, err
 	}
 

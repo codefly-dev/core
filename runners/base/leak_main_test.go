@@ -15,6 +15,12 @@ func TestMain(m *testing.M) {
 		// tests when the shared client is reused — accept it until we
 		// wire per-test client lifecycles.
 		goleak.IgnoreTopFunction("internal/poll.runtime_pollWait"),
+		// Docker client uses net/http keep-alive. Its persistConn
+		// read/write loops stay parked on the idle connection until the
+		// transport's IdleConnTimeout fires (default 90s) — well after
+		// the test returns. Nothing leaking, just async teardown.
+		goleak.IgnoreTopFunction("net/http.(*persistConn).writeLoop"),
+		goleak.IgnoreTopFunction("net/http.(*persistConn).readLoop"),
 		// nix-materialization tests spawn long-running nix-build
 		// subprocesses; their cmd.Wait goroutine lingers briefly after
 		// test exit in rare cases.

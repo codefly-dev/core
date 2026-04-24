@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,10 +74,15 @@ func TestNewDockerEnvironment(t *testing.T) {
 }
 
 func testOutput(t *testing.T, data *shared.SliceWriter) {
-	// Data has been written to the output
-	require.True(t, len(data.Data) > 1)
-	require.Contains(t, data.Data[0], "Redis is starting")
-	require.Contains(t, data.Data[1], "Redis version=")
+	// Data has been written to the output. Modern Redis (7.x) can emit
+	// operator warnings (e.g. the Linux memory-overcommit nag) BEFORE
+	// the startup banner, so the "Redis is starting" and "Redis version="
+	// lines aren't guaranteed to land at indexes 0 and 1 anymore. Scan
+	// the whole captured output instead of asserting positions.
+	require.True(t, len(data.Data) > 1, "expected multiple log lines, got %d", len(data.Data))
+	joined := strings.Join(data.Data, "\n")
+	require.Contains(t, joined, "Redis is starting")
+	require.Contains(t, joined, "Redis version=")
 }
 
 func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
