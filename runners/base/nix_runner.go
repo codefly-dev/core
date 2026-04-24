@@ -1,7 +1,6 @@
 package base
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -355,6 +354,12 @@ type NixProc struct {
 	stopped  chan interface{}
 	stopOnce sync.Once
 
+	// forwarderWG tracks stdout/stderr forwarding goroutines spawned in
+	// start() so Run() can wait for them to drain before returning.
+	// Without this, Run's caller could close proc.output while a forwarder
+	// is still mid-Write, racing on the underlying writer state.
+	forwarderWG sync.WaitGroup
+
 	dir    string
 	waitOn string
 
@@ -464,6 +469,10 @@ func (proc *NixProc) Run(ctx context.Context) error {
 	if err := proc.start(ctx); err != nil {
 		return err
 	}
+	// Wait for the stdout/stderr forwarders to finish draining before
+	// returning — otherwise a concurrent caller closing proc.output
+	// would race with an in-flight Write from a forwarder.
+	defer proc.forwarderWG.Wait()
 	done := make(chan error, 1)
 	go func() {
 		done <- proc.exec.Wait()
@@ -507,6 +516,17 @@ func (proc *NixProc) start(ctx context.Context) error {
 	if proc.dir != "" {
 		cmd.Dir = proc.dir
 	}
+	// Own process group + Go 1.20+ ctx-cancel semantics — mirrors NativeProc.
+	// Without Setpgid, Stop()/ctx-cancel only signalled the nix-develop
+	// wrapper; any test workers it spawned leaked to PID 1. Now the whole
+	// subtree gets SIGTERM via negative-PID broadcast, and WaitDelay handles
+	// the SIGKILL fallback + leaked-pipe cleanup the runtime provides.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		pgid := cmd.Process.Pid
+		return syscall.Kill(-pgid, syscall.SIGTERM)
+	}
+	cmd.WaitDelay = 5 * time.Second
 	// Materialized devShell env comes first so that codefly-supplied vars
 	// (env.envs, proc.envs) override Nix defaults when keys collide.
 	if proc.env.materialized != nil {
@@ -533,11 +553,18 @@ func (proc *NixProc) start(ctx context.Context) error {
 			return w.Wrapf(err, "cannot start nix process")
 		}
 		proc.exec = cmd
+		proc.forwarderWG.Add(1)
 		go func() {
+			defer proc.forwarderWG.Done()
 			defer stderr.Close()
 			proc.forward(stderr)
 		}()
+		// Track the stdout-close goroutine too — previously it outlived
+		// Run() when ctx cancelled before cmd.Wait returned, racing against
+		// any caller closing proc.output.
+		proc.forwarderWG.Add(1)
 		go func() {
+			defer proc.forwarderWG.Done()
 			_ = cmd.Wait()
 			proc.stdoutWriter.Close()
 		}()
@@ -554,31 +581,35 @@ func (proc *NixProc) start(ctx context.Context) error {
 			return w.Wrapf(err, "cannot start nix process")
 		}
 		proc.exec = cmd
+		proc.forwarderWG.Add(2)
 		go func() {
+			defer proc.forwarderWG.Done()
 			defer stdout.Close()
 			proc.forward(stdout)
 		}()
 		go func() {
+			defer proc.forwarderWG.Done()
 			defer stderr.Close()
 			proc.forward(stderr)
 		}()
+	}
+
+	// Persist pgid so the orphan-reaping sweep covers nix spawns too.
+	// Previously only NativeProc participated; a CLI SIGKILL mid-nix-run
+	// would leave test workers orphaned at PID 1.
+	if perr := writePgidFile(cmd.Process.Pid, cmd.Dir, proc.cmd); perr != nil {
+		w.Warn("could not persist pgid file", wool.Field("err", perr))
 	}
 
 	w.Trace("nix process started")
 	return nil
 }
 
+// forward streams r → proc.output one line at a time, preserving newlines.
+// See forwardLines in pgid.go for the rationale. Shared across native/nix
+// so both backends have identical output semantics.
 func (proc *NixProc) forward(r io.Reader) {
-	scanner := bufio.NewScanner(r)
-	scanner.Split(bufio.ScanLines)
-	for scanner.Scan() {
-		line := scanner.Text()
-		_, err := proc.output.Write([]byte(strings.TrimSpace(line)))
-		if err != nil {
-			_, _ = proc.output.Write([]byte(err.Error()))
-			return
-		}
-	}
+	forwardLines(r, proc.output)
 }
 
 func (proc *NixProc) Stop(ctx context.Context) error {
@@ -590,19 +621,48 @@ func (proc *NixProc) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	if err := proc.exec.Process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("failed to send SIGTERM: %w", err)
-	}
-	time.Sleep(time.Second)
+	pgid := proc.exec.Process.Pid
+	w.Trace("sending SIGTERM to process group", wool.Field("pgid", pgid))
+	// Tree-kill via negative PID — previously Signal() only reached the
+	// nix-develop wrapper, leaking any test workers it had spawned.
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
 
-	if err := proc.exec.Process.Signal(syscall.Signal(0)); err == nil {
-		w.Trace("nix process still alive after SIGTERM, sending SIGKILL")
-		if killErr := proc.exec.Process.Kill(); killErr != nil {
-			return fmt.Errorf("failed to force kill nix process: %w", killErr)
+	// Poll for exit every 100ms up to a 5s SIGTERM grace, honoring ctx.
+	const sigtermGrace = 5 * time.Second
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.Now().Add(sigtermGrace)
+	exited := false
+waitLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			// Caller gave up; still ensure we don't leave the process
+			// running — fall through to the force-kill path.
+			break waitLoop
+		case <-ticker.C:
+			if err := syscall.Kill(-pgid, syscall.Signal(0)); err != nil {
+				exited = true
+				break waitLoop
+			}
+			if time.Now().After(deadline) {
+				break waitLoop
+			}
 		}
-	} else {
-		w.Trace("nix process has exited after SIGTERM")
 	}
+
+	if !exited {
+		w.Trace("nix pgroup still alive after SIGTERM grace, sending SIGKILL", wool.Field("pgid", pgid))
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	} else {
+		w.Trace("nix pgroup exited after SIGTERM")
+	}
+
+	// Remove the pgid tracking file now that the group is confirmed dead.
+	if perr := removePgidFile(pgid); perr != nil {
+		w.Trace("could not remove pgid file", wool.Field("err", perr))
+	}
+
 	// close-once to avoid the previous chan-send goroutine leak: if Run
 	// already exited via the `done` path, nobody was reading `stopped`
 	// and the goroutine blocked forever.

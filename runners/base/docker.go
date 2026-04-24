@@ -39,6 +39,10 @@ type DockerPullResponse struct {
 }
 
 func PrintDownloadPercentage(reader io.ReadCloser, out io.Writer) {
+	// Own the reader's lifetime here — callers pass it in pre-opened from
+	// ImagePull and were relying on us to drain it. Forgetting this close
+	// leaked one FD per image pull (the audit caught it).
+	defer reader.Close()
 	scanner := bufio.NewScanner(reader)
 	scanner.Split(bufio.ScanLines)
 

@@ -35,10 +35,21 @@ func CodeflyDir() string {
 	return codeflyDir
 }
 
-// CodeflyHomeDir always returns ~/.codefly (the global home directory).
-// Use this for agents, containers, and other global resources that should
-// NOT be resolved from workspace-local .codefly/ directories.
+// CodeflyHomeEnv overrides the default ~/.codefly home directory. Set via
+// the --plugin-path CLI flag or by exporting CODEFLY_HOME. Useful for
+// testing alternate plugin sets or running multiple codefly installations
+// side-by-side.
+const CodeflyHomeEnv = "CODEFLY_HOME"
+
+// CodeflyHomeDir returns the global home directory for agents, containers,
+// and other global resources. Resolution order:
+//  1. $CODEFLY_HOME env var (set by --plugin-path or manually)
+//  2. ~/.codefly (user home)
+//  3. workspace-local .codefly/ (fallback)
 func CodeflyHomeDir() string {
+	if override := os.Getenv(CodeflyHomeEnv); override != "" {
+		return override
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return codeflyDir // fallback

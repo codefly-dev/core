@@ -1,7 +1,6 @@
 package base
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +20,9 @@ import (
 type NativeEnvironment struct {
 	dir string
 
+	// mu guards envs — matches DockerEnvironment's locking. WithEnvironmentVariables
+	// can race with concurrent NewProcess otherwise.
+	mu   sync.Mutex
 	envs []*resources.EnvironmentVariable
 
 	out io.Writer
@@ -49,6 +51,8 @@ func (native *NativeEnvironment) Init(ctx context.Context) error {
 func (native *NativeEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("WithEnvironmentVariables")
 	w.Trace("adding environment variables", wool.Field("count", len(envs)))
+	native.mu.Lock()
+	defer native.mu.Unlock()
 	native.envs = append(native.envs, envs...)
 }
 
@@ -57,6 +61,8 @@ func (native *NativeEnvironment) WithBinary(bin string) error {
 	if err != nil {
 		return err
 	}
+	native.mu.Lock()
+	defer native.mu.Unlock()
 	// Get the PATH environment variable
 	for _, env := range native.envs {
 		if env.Key == "PATH" {
@@ -229,10 +235,27 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	// Create new process group so we can kill all children on stop
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	// Go 1.20+ ctx-cancel semantics. When ctx is cancelled, send SIGTERM to
+	// the pgroup (not just the lead pid) and give it a grace window; if the
+	// process is still alive after WaitDelay, the runtime SIGKILLs it AND
+	// closes any leaked I/O pipes. Replaces the old hand-rolled timer path
+	// in Stop(). Stop() still works — it sends SIGTERM directly — but the
+	// ctx-cancel path now cleans up cleanly without a separate goroutine.
+	cmd.Cancel = func() error {
+		pgid := cmd.Process.Pid
+		return syscall.Kill(-pgid, syscall.SIGTERM)
+	}
+	cmd.WaitDelay = 5 * time.Second
+
 	// Start with inherited OS environment (PATH, HOME, etc.)
 	cmd.Env = os.Environ()
-	// Layer codefly env vars on top (they take precedence)
-	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.env.envs)...)
+	// Layer codefly env vars on top (they take precedence). Lock the read —
+	// the env may be concurrently appended via WithEnvironmentVariables on
+	// another goroutine. Snapshot under the lock, copy out, read lock-free.
+	proc.env.mu.Lock()
+	envSnapshot := append([]*resources.EnvironmentVariable(nil), proc.env.envs...)
+	proc.env.mu.Unlock()
+	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(envSnapshot)...)
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
 	w.Trace("envs", wool.Field("count", len(cmd.Env)))
 
@@ -294,6 +317,15 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		}()
 	}
 
+	// Persist the pgid so a future `codefly run` can reap this group if the
+	// current CLI dies ungracefully (SIGKILL, parent terminal force-closed).
+	// Best-effort: a failed write just means this particular proc won't be
+	// covered by the startup sweep — the graceful-path tree-kill in Stop
+	// still works.
+	if perr := writePgidFile(cmd.Process.Pid, cmd.Dir, proc.cmd); perr != nil {
+		w.Warn("could not persist pgid file", wool.Field("err", perr))
+	}
+
 	w.Trace("done")
 	return nil
 }
@@ -322,18 +354,18 @@ func (proc *NativeProc) Wait(ctx context.Context) error {
 	}
 }
 
-func (proc *NativeProc) Forward(_ context.Context, w io.Reader) {
-	scanner := bufio.NewScanner(w)
-	scanner.Split(bufio.ScanLines)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		_, err := proc.output.Write([]byte(strings.TrimSpace(line)))
-		if err != nil {
-			_, _ = proc.output.Write([]byte(err.Error()))
-			return
-		}
-	}
+// Forward streams r → proc.output one line at a time with newlines intact.
+// The previous implementation used strings.TrimSpace which dropped the
+// trailing newline between lines, so JSON-lines events merged and the
+// log prefix was re-applied per Write call against zero-byte separators.
+// Plain io.Copy fixed the newline loss but collapsed all output into a
+// single prefix block — worse for interactive tailing. forwardLines
+// strikes the middle: scanner gives per-line Write boundaries (so log
+// prefixes apply correctly), newline is re-appended so downstream parsers
+// see the real separator, and the scanner buffer is sized for 1MiB lines
+// so large structured-log events don't silently truncate.
+func (proc *NativeProc) Forward(_ context.Context, r io.Reader) {
+	forwardLines(r, proc.output)
 }
 
 func (proc *NativeProc) WithOutput(output io.Writer) {
@@ -390,6 +422,12 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 		case <-time.After(sigkillGrace):
 			w.Warn("process did not exit even after SIGKILL — leaking", wool.Field("pgid", pgid))
 		}
+	}
+
+	// Process is confirmed dead — drop the pgid tracking file so the next
+	// `codefly run` sweep has nothing to reap for this proc.
+	if perr := removePgidFile(pgid); perr != nil {
+		w.Trace("could not remove pgid file", wool.Field("err", perr))
 	}
 
 	// Signal Run() to bail. close-instead-of-send avoids the previous

@@ -6,9 +6,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/pkg/stdcopy"
@@ -36,6 +38,11 @@ type DockerEnvironment struct {
 	cmd   []string
 	pause bool
 
+	// mu guards envs / portMappings / mounts which may be mutated via
+	// WithEnvironmentVariables / WithPortMapping / WithMount while another
+	// goroutine is reading them during container creation. The leak review
+	// flagged the append-without-lock pattern.
+	mu           sync.Mutex
 	mounts       []mount.Mount
 	envs         []*resources.EnvironmentVariable
 	portMappings []*DockerPortMapping
@@ -44,8 +51,7 @@ type DockerEnvironment struct {
 	out      io.Writer
 	reader   io.ReadCloser
 
-	running   bool
-	firstInit bool
+	running bool
 }
 
 var _ RunnerEnvironment = &DockerEnvironment{}
@@ -88,11 +94,10 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerIm
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
 	env := &DockerEnvironment{
-		firstInit: true,
-		client:    cli,
-		out:       w,
-		image:     image,
-		name:      ContainerName(name),
+		client: cli,
+		out:    w,
+		image:  image,
+		name:   ContainerName(name),
 	}
 	// Pull the image if needed
 	if err = env.GetImageIfNotPresent(ctx, image); err != nil {
@@ -218,6 +223,17 @@ func (docker *DockerEnvironment) createAndStartContainer(ctx context.Context) er
 	w.Debug("created container", wool.Field("id", resp.ID))
 
 	if err := docker.startContainer(ctx, resp.ID); err != nil {
+		// Clean up the created-but-unstartable container — otherwise it
+		// accumulates under the workspace name and blocks the next run
+		// from creating its own container with the same name. Use a fresh
+		// bounded ctx in case the caller's is already cancelled.
+		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer rmCancel()
+		if rmErr := docker.client.ContainerRemove(rmCtx, resp.ID, container.RemoveOptions{Force: true}); rmErr != nil {
+			w.Warn("cannot remove container after failed start",
+				wool.Field("id", resp.ID), wool.ErrField(rmErr))
+		}
+		docker.instance = nil
 		return w.Wrapf(err, "cannot start container")
 	}
 
@@ -227,12 +243,26 @@ func (docker *DockerEnvironment) createAndStartContainer(ctx context.Context) er
 
 func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *container.Config {
 	w := wool.Get(ctx).In("Docker.createContainerConfig")
+	docker.mu.Lock()
+	envCopy := append([]*resources.EnvironmentVariable(nil), docker.envs...)
+	docker.mu.Unlock()
 	config := &container.Config{
 		Image:        docker.image.FullName(),
-		Env:          resources.EnvironmentVariableAsStrings(docker.envs),
+		Env:          resources.EnvironmentVariableAsStrings(envCopy),
 		Tty:          true,
 		WorkingDir:   docker.workingDir,
 		ExposedPorts: docker.exposedPortSet(),
+		// Ryuk-style session labels. Every codefly-created container is
+		// tagged with the CLI's PID; on the next `codefly run` startup, a
+		// sweep removes containers whose owning CLI has died. Mirrors the
+		// pgid file mechanism for native processes. Cheaper than running
+		// a ryuk sidecar and matches codefly's "startup cleanup, not
+		// runtime reaper" existing posture.
+		Labels: map[string]string{
+			LabelCodeflyOwner:   "true",
+			LabelCodeflySession: strconv.Itoa(os.Getpid()),
+			LabelCodeflyName:    docker.name,
+		},
 	}
 
 	if len(docker.cmd) > 0 {
@@ -245,14 +275,26 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	return config
 }
 
+// Container labels used by the startup sweep to identify codefly-owned
+// containers and their spawning CLI. These are set on every container
+// created via DockerEnvironment and consumed by ReapStaleContainers.
+const (
+	LabelCodeflyOwner   = "codefly.owner"    // always "true"
+	LabelCodeflySession = "codefly.session"  // PID of the spawning CLI
+	LabelCodeflyName    = "codefly.name"     // container's logical name
+)
+
 func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.HostConfig {
+	docker.mu.Lock()
+	userMounts := append([]mount.Mount(nil), docker.mounts...)
+	docker.mu.Unlock()
 	mounts := append([]mount.Mount{
 		{
 			Type:   mount.TypeBind,
 			Source: "/var/run/docker.sock",
 			Target: "/var/run/docker.sock",
 		},
-	}, docker.mounts...)
+	}, userMounts...)
 
 	hostConfig := &container.HostConfig{
 		Mounts:       mounts,
@@ -308,6 +350,8 @@ func (docker *DockerEnvironment) waitForContainerToRun(ctx context.Context, cont
 func (docker *DockerEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("WithEnvironmentVariables")
 	w.Trace("adding", wool.Field("envs", envs))
+	docker.mu.Lock()
+	defer docker.mu.Unlock()
 	docker.envs = append(docker.envs, envs...)
 }
 
@@ -319,6 +363,8 @@ func (docker *DockerEnvironment) ContainerID() (string, error) {
 }
 
 func (docker *DockerEnvironment) WithMount(sourceDir string, targetDir string) {
+	docker.mu.Lock()
+	defer docker.mu.Unlock()
 	docker.mounts = append(docker.mounts, mount.Mount{
 		Type:   mount.TypeBind,
 		Source: sourceDir,
@@ -381,8 +427,11 @@ func (docker *DockerEnvironment) GetLogs(ctx context.Context) error {
 }
 
 func (docker *DockerEnvironment) exposedPortSet() nat.PortSet {
+	docker.mu.Lock()
+	mappings := append([]*DockerPortMapping(nil), docker.portMappings...)
+	docker.mu.Unlock()
 	set := nat.PortSet{}
-	for _, portMapping := range docker.portMappings {
+	for _, portMapping := range mappings {
 		containerPort := nat.Port(fmt.Sprintf("%d/tcp", portMapping.Container))
 		set[containerPort] = struct{}{}
 	}
@@ -390,8 +439,11 @@ func (docker *DockerEnvironment) exposedPortSet() nat.PortSet {
 }
 
 func (docker *DockerEnvironment) portBindings() nat.PortMap {
+	docker.mu.Lock()
+	mappings := append([]*DockerPortMapping(nil), docker.portMappings...)
+	docker.mu.Unlock()
 	portMap := nat.PortMap{}
-	for _, portMapping := range docker.portMappings {
+	for _, portMapping := range mappings {
 		port := nat.Port(fmt.Sprintf("%d/tcp", portMapping.Container))
 		portMap[port] = []nat.PortBinding{
 			{
@@ -408,7 +460,12 @@ func (docker *DockerEnvironment) Stop(ctx context.Context) error {
 	if docker.instance == nil || docker.instance.ID == "" {
 		return nil
 	}
-	err := docker.client.ContainerStop(context.Background(), docker.instance.ID, container.StopOptions{Timeout: shared.Pointer(3)})
+	// Use a fresh bounded context so shutdown still runs when the caller
+	// is already cancelled, but can't hang forever if the docker daemon
+	// is unresponsive.
+	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := docker.client.ContainerStop(stopCtx, docker.instance.ID, container.StopOptions{Timeout: shared.Pointer(3)})
 	if err != nil {
 		return w.Wrapf(err, "cannot stop container")
 	}
@@ -427,19 +484,28 @@ func (docker *DockerEnvironment) WithBinary(bin string) error {
 func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.Shutdown")
 	defer docker.client.Close()
+	// Close the follow-mode log reader held by GetLogs. Without this, the
+	// Forward goroutine streaming container logs keeps a file descriptor
+	// open against the docker daemon for every agent that started logging.
+	if docker.reader != nil {
+		_ = docker.reader.Close()
+		docker.reader = nil
+	}
 	exists, err := docker.IsContainerPresent(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot check if container is running")
 	}
 	if exists {
-		err = docker.Stop(ctx)
-		if err != nil {
-			return w.Wrapf(err, "cannot stop container")
+		// Try graceful Stop first. If it fails (docker daemon unreachable,
+		// container already gone, etc.), log and continue — Remove with
+		// Force=true below will finish the job, but we prefer the in-
+		// container SIGTERM grace to happen first so apps get a chance
+		// to flush state / close db connections before we force-kill.
+		if err := docker.Stop(ctx); err != nil {
+			w.Warn("stop failed; falling back to force remove", wool.ErrField(err))
 		}
-		err = docker.remove()
-		if err != nil {
+		if err := docker.remove(); err != nil {
 			return w.Wrapf(err, "cannot remove container")
-
 		}
 	}
 	return nil
@@ -449,7 +515,9 @@ func (docker *DockerEnvironment) remove() error {
 	if docker.instance == nil || docker.instance.ID == "" {
 		return nil
 	}
-	err := docker.client.ContainerRemove(context.Background(), docker.instance.ID, container.RemoveOptions{Force: true})
+	rmCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := docker.client.ContainerRemove(rmCtx, docker.instance.ID, container.RemoveOptions{Force: true})
 	if err != nil {
 		return err
 	}
@@ -546,6 +614,11 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 		return w.Wrapf(err, "cannot start process")
 	}
 
+	// Previously this polled ContainerExecInspect AND a full /proc scan
+	// (isProcessActive) every second — the /proc scan is a docker exec sh
+	// invocation per tick and is redundant: ContainerExecInspect already
+	// returns Running/ExitCode authoritatively. testcontainers-go uses the
+	// same inspect-only pattern; see their docker.go:567-606.
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
@@ -558,22 +631,13 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 			if err != nil {
 				return w.Wrapf(err, "cannot inspect process")
 			}
-
-			if !inspect.Running {
-				if inspect.ExitCode == 0 {
-					return nil
-				}
-				return fmt.Errorf("process exited with code %d", inspect.ExitCode)
+			if inspect.Running {
+				continue
 			}
-
-			active, err := proc.isProcessActive(ctx)
-			if err != nil {
-				return w.Wrapf(err, "error checking process status")
-			}
-			if !active {
-				w.Debug("process has exited")
+			if inspect.ExitCode == 0 {
 				return nil
 			}
+			return fmt.Errorf("process exited with code %d", inspect.ExitCode)
 		}
 	}
 }
@@ -661,16 +725,6 @@ done`
 	return -1, nil
 }
 
-// isProcessActive checks if a process with the given PID is still running in the container.
-func (proc *DockerProc) isProcessActive(ctx context.Context) (bool, error) {
-	pid, err := proc.FindPid(ctx)
-	if err != nil {
-		return false, err
-	}
-	return pid > 0, nil
-
-}
-
 func (proc *DockerProc) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("DockerProc.Start")
 	w.Debug("starting process", wool.Field("cmd", proc.cmd))
@@ -736,24 +790,29 @@ func (proc *DockerProc) start(ctx context.Context) error {
 	}
 
 	// Stdout/stderr goroutine: demultiplex the Docker stream.
+	// stdcopy.StdCopy writes the raw container bytes — no line-scanning,
+	// no TrimSpace, no 64KiB Scanner cap. This is the idiomatic pattern
+	// from testcontainers-go (docker.go:887) and Docker's own CLI.
 	go func() {
 		defer execResp.Close()
 
+		var stdoutDest, stderrDest io.Writer
 		if proc.stdoutWriter != nil {
-			// Route stdout to the raw pipe, stderr to proc.output
-			stderrDest := io.Writer(io.Discard)
+			stdoutDest = proc.stdoutWriter
+			stderrDest = io.Discard
 			if proc.output != nil {
-				stderrDest = newCustomWriter(proc.output)
+				stderrDest = proc.output
 			}
-			_, _ = stdcopy.StdCopy(proc.stdoutWriter, stderrDest, execResp.Reader)
-			proc.stdoutWriter.Close()
+			defer proc.stdoutWriter.Close()
+		} else if proc.output != nil {
+			stdoutDest = proc.output
+			stderrDest = proc.output
 		} else {
-			// Original behaviour: both stdout and stderr through customWriter
-			stdOutWriter := newCustomWriter(proc.output)
-			_, err := stdcopy.StdCopy(stdOutWriter, stdOutWriter, execResp.Reader)
-			if err != nil {
-				w.Error("cannot copy output", wool.ErrField(err))
-			}
+			stdoutDest = io.Discard
+			stderrDest = io.Discard
+		}
+		if _, err := stdcopy.StdCopy(stdoutDest, stderrDest, execResp.Reader); err != nil {
+			w.Error("cannot copy output", wool.ErrField(err))
 		}
 	}()
 	return nil
@@ -773,18 +832,21 @@ func (proc *DockerProc) Stop(ctx context.Context) error {
 	w.Debug("killing process", wool.Field("pid", pid), wool.Field("cmd", proc.cmd))
 	err = proc.stop(ctx, pid, false)
 
-	// Force-kill after a delay if the process is still running.
+	// Force-kill after a delay if the process is still running. Previously
+	// this goroutine reused outer-scope `pid, err` via closure (using `=`,
+	// not `:=`), which raced if Stop was called twice. Local shadowing
+	// isolates the deferred force-kill state.
 	go func() {
 		time.Sleep(3 * time.Second)
-		pid, err = proc.FindPid(ctx)
-		if pid < 0 {
+		forcePID, findErr := proc.FindPid(ctx)
+		if forcePID < 0 {
 			return // process already exited, nothing to do
 		}
-		if err != nil {
-			w.Warn("could not get PID for force-kill (process may already have exited)", wool.ErrField(err))
+		if findErr != nil {
+			w.Warn("could not get PID for force-kill (process may already have exited)", wool.ErrField(findErr))
 			return
 		}
-		_ = proc.stop(ctx, pid, true)
+		_ = proc.stop(ctx, forcePID, true)
 	}()
 	return err
 }
@@ -808,16 +870,25 @@ func (proc *DockerProc) stop(ctx context.Context, pid int, force bool) error {
 		AttachStderr: true,
 		Cmd:          killCmd,
 	}
-	execIDResp, err := proc.env.client.ContainerExecCreate(context.Background(), proc.env.instance.ID, execConfig)
+	// Bounded context: a kill should never take more than 5 seconds. Using
+	// context.Background() lets a stalled docker daemon hang the caller
+	// indefinitely, which is what we saw in the leak review.
+	killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer killCancel()
+
+	execIDResp, err := proc.env.client.ContainerExecCreate(killCtx, proc.env.instance.ID, execConfig)
 	if err != nil {
 		return w.Wrapf(err, "cannot create exec to kill")
 	}
 
 	execStartCheck := container.ExecStartOptions{Detach: false, Tty: false}
-	execResp, err := proc.env.client.ContainerExecAttach(context.Background(), execIDResp.ID, execStartCheck)
+	execResp, err := proc.env.client.ContainerExecAttach(killCtx, execIDResp.ID, execStartCheck)
 	if err != nil {
 		return w.Wrapf(err, "cannot kill process")
 	}
+	// Close the hijacked connection — forgetting this leaked one FD per
+	// process stop (the audit caught this as a HIGH-severity issue).
+	defer execResp.Close()
 
 	// Capture and log the output from the exec command, which might include error messages from 'kill'
 	var stdout, stderr bytes.Buffer
@@ -838,29 +909,6 @@ func (proc *DockerProc) stop(ctx context.Context, pid int, force bool) error {
 	return nil
 }
 
-// customWriter wraps an io.Writer to process the output line by line.
-type customWriter struct {
-	writer io.Writer
-}
-
-func newCustomWriter(w io.Writer) *customWriter {
-	return &customWriter{writer: w}
-}
-
-func (cw *customWriter) Write(p []byte) (n int, err error) {
-	scanner := bufio.NewScanner(strings.NewReader(string(p)))
-	for scanner.Scan() {
-		line := scanner.Text() // This gives you the line without the newline character
-		// Now you can process the line as needed and write it to the original output
-		_, err := cw.writer.Write([]byte(line))
-		if err != nil {
-			return 0, err
-		}
-	}
-	// Return the original length and no error to satisfy the Writer interface,
-	// indicating all data was processed.
-	return len(p), nil
-}
 
 func (proc *DockerProc) WithOutput(output io.Writer) {
 	proc.output = output
@@ -907,12 +955,13 @@ func GetImageIfNotPresent(ctx context.Context, c *client.Client, imag *resources
 		return w.Wrapf(err, "cannot pull image: %s", imag.FullName())
 	}
 
+	// PrintDownloadPercentage owns the reader's lifecycle now: it drains
+	// the pull-progress stream via a bufio.Scanner loop that runs until
+	// EOF, and it defer-Closes on return. The previous io.Copy-to-discard
+	// here was both redundant (scanner already drained) and racy after
+	// the close, surfacing as "read on closed response body" once the
+	// FD-leak fix landed.
 	PrintDownloadPercentage(progress, out)
-
-	// Wait for the image pull operation to be completed
-	if _, err := io.Copy(io.Discard, progress); err != nil {
-		return w.Wrapf(err, "error while waiting for image pull operation to be completed")
-	}
 	_, _ = w.Forward([]byte("Docker image pulled."))
 	w.Debug("done pulling")
 	return nil
@@ -929,6 +978,8 @@ func (docker *DockerEnvironment) WithPort(ctx context.Context, port uint16) {
 func (docker *DockerEnvironment) WithPortMapping(ctx context.Context, local uint16, container uint16) {
 	w := wool.Get(ctx).In("WithPort")
 	w.Debug("setting port", wool.Field("local", local), wool.Field("container", container))
+	docker.mu.Lock()
+	defer docker.mu.Unlock()
 	docker.portMappings = append(docker.portMappings, &DockerPortMapping{
 		Host:      local,
 		Container: container,

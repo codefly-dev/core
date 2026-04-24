@@ -93,6 +93,33 @@ func findLocalLatestInDir(dir string, agent *resources.Agent) error {
 	return nil
 }
 
+// ResolveLatest resolves agent.Version when it is "latest". Strategy:
+//
+//  1. If CODEFLY_AGENT_SOURCE=local: scan the local agent dir only.
+//  2. Otherwise: try FindLocalLatest first; if it succeeds, use it.
+//     This makes locally-built agents (via `codefly agent build`)
+//     take precedence over any GitHub release, which is the intent
+//     of running `codefly` from a dev checkout.
+//  3. Fall back to PinToLatestRelease (GitHub → local fallback).
+//
+// No-op when agent.Version is already a concrete semver.
+func ResolveLatest(ctx context.Context, agent *resources.Agent) error {
+	if agent.Version != "latest" {
+		return nil
+	}
+	w := wool.Get(ctx).In("agents.ResolveLatest", wool.Field("agent", agent.Identifier()))
+	if AgentSourceLocal() {
+		w.Debug("CODEFLY_AGENT_SOURCE=local — resolving from local agent dir")
+		return FindLocalLatest(ctx, agent)
+	}
+	if err := FindLocalLatest(ctx, agent); err == nil {
+		w.Debug("resolved latest from local build", wool.Field("version", agent.Version))
+		return nil
+	}
+	w.Debug("no local build; falling back to GitHub releases")
+	return PinToLatestRelease(ctx, agent)
+}
+
 // PinToLatestRelease queries GitHub for the latest release tag and updates
 // the agent's version. Falls back to FindLocalLatest if GitHub is unreachable
 // or has no releases for this agent.

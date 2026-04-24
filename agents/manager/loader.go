@@ -17,6 +17,7 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/resources"
+	runnersbase "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -70,9 +71,11 @@ func (c *AgentConn) ProcessInfo() *ProcessInfo { return c.info }
 // gracefulShutdownTimeout is how long Close waits after SIGTERM for the
 // agent to exit cleanly before falling back to SIGKILL. Must be larger
 // than the agent's own internal stop timeout (5s in agents.Serve) plus
-// the NativeProc.Stop SIGTERM/SIGKILL grace window (~7s) so the agent
-// has a real chance to reap its children before we force-kill it.
-const gracefulShutdownTimeout = 15 * time.Second
+// the NativeProc.Stop SIGTERM/SIGKILL grace window (~7s) times the
+// number of children the agent may be supervising. Agents orchestrating
+// 3+ services can hit ~21s of cascading stops; 30s gives real headroom
+// without making Ctrl-C feel unresponsive.
+const gracefulShutdownTimeout = 30 * time.Second
 
 // Close shuts down the gRPC connection, asks the agent to exit
 // gracefully (SIGTERM) so it can reap its child processes (user
@@ -320,6 +323,13 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	pid := 0
 	if cmd.Process != nil {
 		pid = cmd.Process.Pid
+		// Track the agent's pgroup so an ungraceful CLI death (SIGKILL on
+		// parent, terminal force-closed) doesn't leave the whole agent
+		// subtree orphaned at PPID=1. The next `codefly run` sweep reaps
+		// any pgroup whose owning CLI is dead.
+		if perr := runnersbase.WritePgidFile(pid, cmd.Dir, []string{bin}); perr != nil {
+			w.Warn("could not persist agent pgid", wool.Field("err", perr))
+		}
 	}
 
 	w.Debug("agent process started", wool.Field("pid", pid), wool.Path(bin))
@@ -433,14 +443,23 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 
 	// Reaper goroutine: waits for the process to exit and logs unexpected
 	// terminations. This prevents zombie processes when the agent dies on
-	// its own.
+	// its own. Uses a fresh background context so the reaper doesn't
+	// hold onto the caller's (likely timed-out) context for the entire
+	// life of the agent process.
+	reaperCtx := context.Background()
 	go func() {
 		defer close(agentConn.done)
 		waitErr := cmd.Wait()
+		// Agent process is confirmed dead — drop its pgid tracking file.
+		// Only the sweep's orphan check depends on this file; missing it
+		// just means the next sweep treats it as an already-dead group.
+		if pid > 0 {
+			_ = runnersbase.RemovePgidFile(pid)
+		}
 		if waitErr != nil {
 			// Log at debug – the consumer will observe errors through the
 			// gRPC connection or explicit health checks.
-			rw := wool.Get(ctx).In("manager.reaper", wool.Field("pid", pid))
+			rw := wool.Get(reaperCtx).In("manager.reaper", wool.Field("pid", pid))
 			rw.Warn("agent process exited unexpectedly",
 				wool.Field("error", waitErr.Error()),
 				wool.Field("stderr_tail", stderrBuf.String()))
