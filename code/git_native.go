@@ -3,6 +3,7 @@ package code
 import (
 	"context"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -66,10 +67,27 @@ func (g *NativeGit) Log(ctx context.Context, maxCount int, ref, path, since stri
 	}
 	defer iter.Close()
 
+	// Manual iteration instead of iter.ForEach so we can stop cleanly on
+	// "object not found" (shallow clone: GitHub Actions defaults fetch-
+	// depth=1 and the parent of the deepest commit isn't locally present).
+	// ForEach propagates that error AFTER the last successful callback
+	// which is fine for logic but worse for readability — the explicit
+	// loop makes end-of-history handling obvious.
 	var commits []*GitCommitInfo
-	err = iter.ForEach(func(c *object.Commit) error {
+	for {
 		if len(commits) >= maxCount {
-			return fmt.Errorf("stop") // no storer.ErrStop in go-git
+			break
+		}
+		c, iterErr := iter.Next()
+		if iterErr == io.EOF {
+			break
+		}
+		if iterErr != nil {
+			if strings.Contains(iterErr.Error(), "object not found") {
+				// Shallow clone boundary. Return whatever we collected.
+				break
+			}
+			return commits, fmt.Errorf("log iter: %w", iterErr)
 		}
 		hash := c.Hash.String()
 		ci := &GitCommitInfo{
@@ -79,22 +97,12 @@ func (g *NativeGit) Log(ctx context.Context, maxCount int, ref, path, since stri
 			Date:      c.Author.When.Format(time.RFC3339),
 			Message:   strings.Split(c.Message, "\n")[0], // first line only
 		}
-		// Count files changed. c.Stats() needs the parent commit object to
-		// diff against; on shallow clones (GitHub Actions default fetch-
-		// depth=1) the parent of the deepest commit isn't locally present
-		// and Stats returns "object not found". Treat that as 0 files
-		// changed rather than failing the whole log.
+		// Stats() also needs the parent commit; same shallow-clone story.
+		// Best-effort — a failing Stats just means 0 files_changed.
 		if stats, err := c.Stats(); err == nil {
 			ci.FilesChanged = int32(len(stats))
 		}
 		commits = append(commits, ci)
-		return nil
-	})
-	// "stop" signals we hit maxCount. "object not found" means the iterator
-	// walked off the end of a shallow clone — treat as end-of-history: we
-	// return whatever commits we already collected instead of erroring.
-	if err != nil && err.Error() != "stop" && !strings.Contains(err.Error(), "object not found") {
-		return nil, err
 	}
 
 	return commits, nil

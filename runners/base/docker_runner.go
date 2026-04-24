@@ -560,11 +560,32 @@ func (proc *DockerProc) WithEnvironmentVariablesAppend(ctx context.Context, adde
 }
 
 func (proc *DockerProc) IsRunning(ctx context.Context) (bool, error) {
-	pid, err := proc.FindPid(ctx)
-	if err != nil {
-		return false, err
+	// FindPid scans /proc inside the container. There's a brief window
+	// after Start where the new process hasn't populated /proc yet —
+	// a blocking-fast assertion (`require.True(IsRunning)` immediately
+	// after Start) flakes on CI's slower docker-in-docker scheduling.
+	// Give the process a short grace period to appear before declaring
+	// it dead. ctx still short-circuits the wait if the caller cancels.
+	const startupGrace = 500 * time.Millisecond
+	const pollInterval = 50 * time.Millisecond
+	deadline := time.Now().Add(startupGrace)
+	for {
+		pid, err := proc.FindPid(ctx)
+		if err != nil {
+			return false, err
+		}
+		if pid > 0 {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(pollInterval):
+		}
 	}
-	return pid > 0, nil
 }
 
 // Wait blocks until the container process exits or ctx is cancelled.
