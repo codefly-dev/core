@@ -39,6 +39,13 @@ jobs:
 #        with:
 #          version: v1.55
 
+      - name: govulncheck audit
+        # Mirrors `codefly agent build`'s audit logic: runs govulncheck,
+        # filters findings against .govulncheck.yaml suppressions, fails
+        # only when an unsuppressed vuln has an upstream fix available
+        # (unpatched-upstream issues can't be cleared by a rebuild).
+        run: ./scripts/govulncheck.sh
+
       - name: generate test generate coverage
         run: go test ./... -coverprofile=cover.out -covermode=atomic -coverpkg=./...
 
