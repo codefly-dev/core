@@ -32,11 +32,16 @@ func buildTestArgs(opt TestOptions) []string {
 	if opt.Target != "" {
 		if isPackagePath(opt.Target) {
 			pkg = opt.Target
-		} else {
+		} else if len(opt.Filters) == 0 {
 			args = append(args, "-run", opt.Target)
 		}
 	}
-	return append(args, pkg)
+	if pat := combineRunRegex(opt.Filters); pat != "" {
+		args = append(args, "-run", pat)
+	}
+	args = append(args, pkg)
+	args = append(args, opt.ExtraArgs...)
+	return args
 }
 
 func TestGoTestArgs_CoverageOptIn(t *testing.T) {
@@ -87,6 +92,76 @@ func TestGoTestArgs_TargetPattern(t *testing.T) {
 	}
 	if !strings.HasSuffix(joined, " ./...") {
 		t.Errorf("pkg should default to ./... when target is a pattern: %q", joined)
+	}
+}
+
+func TestGoTestArgs_SingleFilter(t *testing.T) {
+	args := buildTestArgs(TestOptions{Filters: []string{"TestAuth"}})
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, " -run TestAuth") {
+		t.Errorf("single filter should map to bare -run TestAuth: %q", joined)
+	}
+}
+
+func TestGoTestArgs_MultipleFilters(t *testing.T) {
+	args := buildTestArgs(TestOptions{Filters: []string{"TestAuth", "TestAPI"}})
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, " -run (TestAuth|TestAPI)") {
+		t.Errorf("multi filter should OR-join into -run regex: %q", joined)
+	}
+}
+
+func TestGoTestArgs_FiltersOverrideTargetPattern(t *testing.T) {
+	// When both Target (name pattern) and Filters are given, only Filters
+	// drive -run — Target's name-pattern back-compat falls away. Target
+	// as a package path still scopes the package though.
+	args := buildTestArgs(TestOptions{Target: "TestFoo", Filters: []string{"TestBar"}})
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "-run TestFoo") {
+		t.Errorf("target name-pattern should be ignored when filters present: %q", joined)
+	}
+	if !strings.Contains(joined, "-run TestBar") {
+		t.Errorf("filters should drive -run when both set: %q", joined)
+	}
+}
+
+func TestGoTestArgs_PackageTargetWithFilters(t *testing.T) {
+	// Package-path Target + Filters — Target scopes packages, Filters
+	// scope test names. Both should appear.
+	args := buildTestArgs(TestOptions{Target: "./pkg/auth", Filters: []string{"TestLogin"}})
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-run TestLogin") {
+		t.Errorf("filter should be present: %q", joined)
+	}
+	if !strings.HasSuffix(joined, " ./pkg/auth") {
+		t.Errorf("package target should be the last positional arg: %q", joined)
+	}
+}
+
+func TestGoTestArgs_ExtraArgs(t *testing.T) {
+	// Verbatim passthrough — arrives after the package, in order.
+	args := buildTestArgs(TestOptions{ExtraArgs: []string{"-count=3", "-shuffle=on"}})
+	joined := strings.Join(args, " ")
+	if !strings.HasSuffix(joined, "./... -count=3 -shuffle=on") {
+		t.Errorf("extra args should follow the package, in order: %q", joined)
+	}
+}
+
+func TestCombineRunRegex(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{}, ""},
+		{[]string{"TestA"}, "TestA"},
+		{[]string{"TestA", "TestB"}, "(TestA|TestB)"},
+		{[]string{"TestA", "TestB", "TestC"}, "(TestA|TestB|TestC)"},
+	}
+	for _, tc := range cases {
+		if got := combineRunRegex(tc.in); got != tc.want {
+			t.Errorf("combineRunRegex(%v) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
 

@@ -7,12 +7,11 @@
 package v0
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -23,9 +22,7 @@ const (
 )
 
 // An endpoint to be accessed needs Network Mapping.
-//
-// # Network Mappings come with different scopes
-//
+// Network Mappings come with different scopes
 // - FromContainer: This is the mapping we want to use inside Container
 // - FromHost: This is the mapping we want to use from the Host
 // - Public: This is the mapping we want to use if something is publicly accessible: match to a DNS record

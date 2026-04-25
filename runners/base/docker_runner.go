@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1008,7 +1009,6 @@ func (docker *DockerEnvironment) WithPortMapping(ctx context.Context, local uint
 }
 
 func Forward(ctx context.Context, reader io.Reader, writer io.Writer) {
-	// Create a new scanner for the buffer
 	scanner := bufio.NewScanner(reader)
 	go func() {
 		for scanner.Scan() {
@@ -1017,20 +1017,22 @@ func Forward(ctx context.Context, reader io.Reader, writer io.Writer) {
 				return
 			default:
 			}
-			// Get the current line and trim the newline character
-			line := strings.TrimSuffix(scanner.Text(), "\n")
-
-			// Write the trimmed line to the output
-			_, err := writer.Write([]byte(line))
-			if err != nil {
-				_, _ = writer.Write([]byte("Error while writing container logs"))
-			}
+			// scanner.Text() already strips the line delimiter — re-add it so
+			// downstream readers (TUI, log files) see proper line breaks
+			// rather than every container line concatenated end-to-end.
+			_, _ = writer.Write(append(scanner.Bytes(), '\n'))
 		}
 
-		// Check if the scanner encountered any errors
-		if err := scanner.Err(); err != nil {
-			_, _ = writer.Write([]byte(fmt.Sprintf("Error while scanning container logs: %s", err)))
+		// "use of closed network connection" / io.EOF / context-cancelled
+		// are the normal shutdown signals when the container exits or the
+		// caller cancels — surfacing them as errors just adds noise to the
+		// CLI output. Anything else is worth reporting.
+		err := scanner.Err()
+		if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) ||
+			strings.Contains(err.Error(), "use of closed network connection") {
+			return
 		}
+		_, _ = writer.Write([]byte(fmt.Sprintf("Error while scanning container logs: %s\n", err)))
 	}()
 }
 

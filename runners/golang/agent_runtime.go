@@ -78,10 +78,24 @@ func CreateRunner(ctx context.Context, runtimeCtx *basev0.RuntimeContext, cfg Ru
 	return env, nil
 }
 
+// combineRunRegex joins multiple test-name patterns into a single regex
+// suitable for `go test -run`. Returns "" when no patterns are given so
+// callers can omit the flag entirely. Single patterns pass through
+// unchanged so users can still use anchors / capture groups directly.
+func combineRunRegex(patterns []string) string {
+	if len(patterns) == 0 {
+		return ""
+	}
+	if len(patterns) == 1 {
+		return patterns[0]
+	}
+	return "(" + strings.Join(patterns, "|") + ")"
+}
+
 // TestOptions controls how go test is invoked.
 type TestOptions struct {
-	// Target is a package path (e.g. "./handlers"), test function name
-	// (e.g. "TestHealthEndpoint"), or pattern (e.g. "TestHealth.*").
+	// Target is a package path (e.g. "./handlers", "./..."). For test
+	// name patterns prefer Filters — Target stays a directory scope.
 	// Empty runs all tests ("./...").
 	Target  string
 	Verbose bool
@@ -91,6 +105,14 @@ type TestOptions struct {
 	// Coverage enables `-cover` instrumentation. Off by default because it
 	// roughly doubles test-binary compile time; opt in per TestRequest.
 	Coverage bool
+
+	// Filters are name regex patterns (multiple combined with OR) passed
+	// to `go test -run`. Equivalent to `-run "(p1|p2|...)"`.
+	Filters []string
+
+	// ExtraArgs are appended verbatim to the `go test` command line after
+	// our flags and the package — power-user passthrough.
+	ExtraArgs []string
 
 	// OnEvent, when non-nil, is invoked for every `go test -json` event as
 	// it is written to stdout. Enables real-time progress streaming to the
@@ -132,18 +154,30 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 		args = append(args, "-cover")
 	}
 
-	// Determine package target and optional -run filter.
+	// Determine package target. Target is now strictly directory scope —
+	// name patterns belong in Filters. The Target-as-name fallback stays
+	// for back-compat with older callers that haven't migrated.
 	pkg := "./..."
 	if opt.Target != "" {
 		if isPackagePath(opt.Target) {
-			// Target is a package path like "./handlers" or "./..."
 			pkg = opt.Target
-		} else {
-			// Target is a test name or pattern — pass as -run filter
+		} else if len(opt.Filters) == 0 {
+			// Back-compat: Target acts as a name pattern when Filters
+			// is empty. New code should use Filters instead.
 			args = append(args, "-run", opt.Target)
 		}
 	}
+
+	// Filters → -run "(p1|p2|...)". Multiple filters OR'd together.
+	if pat := combineRunRegex(opt.Filters); pat != "" {
+		args = append(args, "-run", pat)
+	}
+
 	args = append(args, pkg)
+
+	// ExtraArgs — verbatim passthrough for flags codefly does not model
+	// (e.g. -count=3, -shuffle=on, -tags=integration).
+	args = append(args, opt.ExtraArgs...)
 
 	proc, err := env.Env().NewProcess("go", args...)
 	if err != nil {

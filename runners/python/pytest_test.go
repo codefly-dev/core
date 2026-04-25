@@ -117,3 +117,24 @@ func TestWriteLastTestOutput_CreatesMissingDir(t *testing.T) {
 		t.Errorf("expected file to exist: %v", err)
 	}
 }
+
+// TestCombinePytestK confirms multi-filter expansion uses pytest's
+// boolean-expression idiom (" or "), not a regex pipe — pytest's -k
+// parses the value as a Python expression, not a regex.
+func TestCombinePytestK(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{}, ""},
+		{[]string{"test_login"}, "test_login"},
+		{[]string{"test_login", "test_logout"}, "test_login or test_logout"},
+		{[]string{"a", "b", "c"}, "a or b or c"},
+	}
+	for _, tc := range cases {
+		if got := combinePytestK(tc.in); got != tc.want {
+			t.Errorf("combinePytestK(%v) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

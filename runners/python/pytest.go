@@ -10,9 +10,24 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/codefly-dev/core/resources"
 )
+
+// combinePytestK joins multiple test-name patterns into a single
+// pytest -k expression. Pytest's -k uses Python boolean syntax
+// ("not foo and bar"), so multi-pattern OR is " or " — not "|".
+// Returns "" when no patterns are given so callers can omit -k.
+func combinePytestK(patterns []string) string {
+	if len(patterns) == 0 {
+		return ""
+	}
+	if len(patterns) == 1 {
+		return patterns[0]
+	}
+	return strings.Join(patterns, " or ")
+}
 
 // TestSummary holds the parsed results of a pytest run.
 type TestSummary struct {
@@ -89,9 +104,7 @@ type TestEvent struct {
 	Test   string // test node id (e.g. "tests/test_admin.py::test_version")
 }
 
-// TestOptions controls pytest invocation. Currently just a streaming
-// hook — we may add Coverage / Verbose flags later mirroring the Go
-// runner's TestOptions.
+// TestOptions controls pytest invocation.
 type TestOptions struct {
 	// OnEvent, when non-nil, is called for each per-test result line as
 	// pytest emits it. Lets the agent forward live progress to the TUI
@@ -101,6 +114,34 @@ type TestOptions struct {
 	// CacheDir, when non-empty, persists the raw pytest output to
 	// <CacheDir>/last-test.txt for post-mortem debugging.
 	CacheDir string
+
+	// Target is a directory or node id (e.g. "tests/unit",
+	// "tests/test_admin.py::test_version"). Empty runs the default scope.
+	Target string
+
+	// Filters are name patterns passed to pytest's -k expression.
+	// Multiple values are joined with " or " — pytest's standard idiom.
+	Filters []string
+
+	// Verbose toggles pytest's -v flag. Defaults on at the helper level
+	// for backward compat; agents that want quieter output should pass
+	// false explicitly via this struct.
+	Verbose bool
+	// VerboseSet distinguishes "use default" from "explicitly false".
+	VerboseSet bool
+
+	// Timeout maps to pytest's --timeout=<sec>. Empty leaves the
+	// default. Accepts Go duration syntax ("30s", "2m") which we coerce
+	// into seconds for pytest.
+	Timeout string
+
+	// Coverage enables coverage instrumentation via pytest-cov when the
+	// project has it installed. Off by default.
+	Coverage bool
+
+	// ExtraArgs are appended verbatim to the pytest command — power-user
+	// passthrough for flags codefly does not model.
+	ExtraArgs []string
 }
 
 // RunPythonTests runs pytest and returns parsed results. With opts.OnEvent
@@ -113,7 +154,44 @@ func RunPythonTests(ctx context.Context, sourceDir string, envVars []*resources.
 		opt = opts[0]
 	}
 
-	cmd := exec.CommandContext(ctx, "uv", "run", "pytest", "-v", "--tb=short")
+	pytestArgs := []string{"run", "pytest", "--tb=short"}
+
+	// Default to verbose unless the caller explicitly set Verbose=false.
+	if !opt.VerboseSet || opt.Verbose {
+		pytestArgs = append(pytestArgs, "-v")
+	}
+
+	// Filters → -k "p1 or p2 or ..."  (pytest's expression syntax).
+	if expr := combinePytestK(opt.Filters); expr != "" {
+		pytestArgs = append(pytestArgs, "-k", expr)
+	}
+
+	// Timeout — pytest-timeout reads --timeout=<seconds>. Convert Go
+	// durations to seconds; pass through anything else verbatim so users
+	// can supply already-formatted values.
+	if opt.Timeout != "" {
+		if d, err := time.ParseDuration(opt.Timeout); err == nil {
+			pytestArgs = append(pytestArgs, fmt.Sprintf("--timeout=%d", int(d.Seconds())))
+		} else {
+			pytestArgs = append(pytestArgs, "--timeout="+opt.Timeout)
+		}
+	}
+
+	// Coverage — pytest-cov, scoped to the source tree so we report
+	// numbers for the user's code rather than the test files themselves.
+	if opt.Coverage {
+		pytestArgs = append(pytestArgs, "--cov=.", "--cov-report=term")
+	}
+
+	// Power-user passthrough.
+	pytestArgs = append(pytestArgs, opt.ExtraArgs...)
+
+	// Target last — pytest treats positional args as collection paths.
+	if opt.Target != "" {
+		pytestArgs = append(pytestArgs, opt.Target)
+	}
+
+	cmd := exec.CommandContext(ctx, "uv", pytestArgs...)
 	cmd.Dir = sourceDir
 
 	var raw bytes.Buffer
