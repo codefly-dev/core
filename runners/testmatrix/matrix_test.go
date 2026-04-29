@@ -12,10 +12,16 @@ import (
 )
 
 // TestForEachEnvironment_Echo is the canonical example + smoke test for
-// the matrix harness. It runs `echo hello` under each available backend
-// and asserts the output contains "hello". Backends that aren't available
-// on the host are skipped by the harness — so on a machine with just
-// native + docker, you see PASS (native), SKIP (nix), PASS (docker).
+// the matrix harness. It runs `echo hello` under native and docker
+// backends and asserts the output contains "hello".
+//
+// Nix is excluded via Only(...) because the harness's nix factory
+// requires a flake.nix in the workspace dir, and authoring one
+// inline here would either embed a real nixpkgs reference (slow,
+// network-dependent) or a no-op flake that doesn't actually
+// exercise anything different from native. The dedicated nix
+// runner tests in runners/base and runners/golang cover the nix
+// integration end-to-end with proper testdata flakes.
 func TestForEachEnvironment_Echo(t *testing.T) {
 	dir, err := os.MkdirTemp("", "testmatrix-*")
 	if err != nil {
@@ -36,5 +42,5 @@ func TestForEachEnvironment_Echo(t *testing.T) {
 		if !strings.Contains(buf.String(), "hello") {
 			t.Fatalf("expected output to contain %q, got %q", "hello", buf.String())
 		}
-	})
+	}, testmatrix.Only("native", "docker"))
 }

@@ -124,6 +124,22 @@ func (nix *NixEnvironment) Init(ctx context.Context) error {
 	return nil
 }
 
+// nixBuildOnlyVars enumerates env vars that `nix print-dev-env`
+// emits referencing the evaluator's own build sandbox (TMPDIR,
+// derivation paths, build-internal counters). They're nonsensical
+// outside the eval and routinely break spawned children — Go's
+// `creating work dir: no such file` is the most common symptom.
+//
+// Keep this list conservative; over-stripping just falls back to the
+// host env which is what we want anyway.
+var nixBuildOnlyVars = []string{
+	"TMPDIR", "TMP", "TEMP", "TEMPDIR",
+	"NIX_BUILD_TOP", "NIX_LOG_FD", "NIX_BUILD_CORES",
+	"NIX_STORE_DIR", "NIX_STATE_DIR",
+	"src", "out", "outputs", "name",
+	"PWD", "OLDPWD",
+}
+
 // flakeFingerprint hashes flake.nix + flake.lock to produce a stable key
 // for the cached materialization. If either file changes, the cache is
 // invalidated. If flake.lock is missing, only flake.nix contributes —
@@ -252,6 +268,17 @@ func (nix *NixEnvironment) materialize(ctx context.Context) error {
 		return fmt.Errorf("parse nix print-dev-env json: %w", err)
 	}
 
+	// Strip env vars that nix print-dev-env captured from its OWN
+	// evaluation but are build-time-only — they reference temp dirs
+	// and derivation outputs that are gone by the time we exec.
+	// Go is the prime victim: a leaked TMPDIR=/private/tmp/nix-build-*
+	// makes `go build` fail with "creating work dir: stat ...: no
+	// such file or directory" because the build dir was cleaned up
+	// after print-dev-env exited.
+	for _, v := range nixBuildOnlyVars {
+		delete(env, v)
+	}
+
 	home := os.Getenv("HOME")
 	if home != "" {
 		if _, ok := env["GOCACHE"]; !ok {
@@ -263,6 +290,12 @@ func (nix *NixEnvironment) materialize(ctx context.Context) error {
 		if _, ok := env["HOME"]; !ok {
 			env["HOME"] = home
 		}
+	}
+	// Hand TMPDIR back to the host's value (or the OS default fallback)
+	// so spawned processes have a writable scratch directory that
+	// actually exists.
+	if t := os.Getenv("TMPDIR"); t != "" {
+		env["TMPDIR"] = t
 	}
 
 	nix.materialized = env

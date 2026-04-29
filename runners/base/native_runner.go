@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/sandbox"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -24,6 +25,12 @@ type NativeEnvironment struct {
 	// can race with concurrent NewProcess otherwise.
 	mu   sync.Mutex
 	envs []*resources.EnvironmentVariable
+
+	// sb is the OS-level confinement applied to every spawned cmd.
+	// nil means no sandboxing (the legacy default while we migrate
+	// callers). Set via WithSandbox; once set, every NewProcess'd
+	// child runs inside the wrap.
+	sb sandbox.Sandbox
 
 	out io.Writer
 
@@ -54,6 +61,26 @@ func (native *NativeEnvironment) WithEnvironmentVariables(ctx context.Context, e
 	native.mu.Lock()
 	defer native.mu.Unlock()
 	native.envs = append(native.envs, envs...)
+}
+
+// WithSandbox attaches a sandbox.Sandbox to this environment. Every
+// process spawned via NewProcess will have its underlying exec.Cmd
+// wrapped with sb before exec, applying the configured filesystem and
+// network confinement.
+//
+// Calling with sandbox.NewNative() is a no-op pass-through — useful in
+// tests and as the default until callers are migrated. Calling with
+// nil clears any previously set sandbox.
+//
+// The same sandbox is shared by every Proc spawned from this env; the
+// sandbox itself is single-use per Wrap call but its Wrap method is
+// safe to call from multiple Procs because it only mutates the cmd
+// it's handed.
+func (native *NativeEnvironment) WithSandbox(sb sandbox.Sandbox) *NativeEnvironment {
+	native.mu.Lock()
+	defer native.mu.Unlock()
+	native.sb = sb
+	return native
 }
 
 func (native *NativeEnvironment) WithBinary(bin string) error {
@@ -231,6 +258,20 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	cmd.Dir = proc.env.dir
 	if proc.dir != "" {
 		cmd.Dir = proc.dir
+	}
+
+	// Sandbox wrap, if attached. Done AFTER setting Dir/Env so the
+	// inner cmd's working directory carries through (bwrap's --chdir
+	// and sandbox-exec both inherit the parent cmd.Dir; we don't
+	// re-set it after Wrap rewrites Path/Args).
+	//
+	// Wrap is the last preparation step before exec — anything set
+	// here on cmd after Wrap would land on bwrap/sandbox-exec, not on
+	// the actual payload, which is almost always wrong.
+	if proc.env.sb != nil {
+		if err := proc.env.sb.Wrap(cmd); err != nil {
+			return w.Wrapf(err, "sandbox wrap")
+		}
 	}
 	// Create new process group so we can kill all children on stop
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
