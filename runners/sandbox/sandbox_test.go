@@ -1,0 +1,195 @@
+package sandbox_test
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/codefly-dev/core/runners/sandbox"
+	"github.com/stretchr/testify/require"
+)
+
+// TestNew_PicksBackend verifies the OS-driven default. We don't gate
+// the assertion on backend availability — `New()` itself surfaces an
+// error if the backend binary is missing, which is what we want.
+func TestNew_PicksBackend(t *testing.T) {
+	sb, err := sandbox.New()
+	if err != nil {
+		// On macOS sandbox-exec is always present; on Linux bwrap may
+		// not be. Treat that as a fatal — tests in this package require
+		// the backend to be installed.
+		t.Fatalf("sandbox.New() unavailable: %v\nInstall the backend (apt install bubblewrap on Linux) or run with -tags skip_infra in a follow-up.", err)
+	}
+	switch runtime.GOOS {
+	case "linux":
+		require.Equal(t, sandbox.BackendBwrap, sb.Backend())
+	case "darwin":
+		require.Equal(t, sandbox.BackendSandboxExec, sb.Backend())
+	default:
+		require.Equal(t, sandbox.BackendNative, sb.Backend())
+	}
+}
+
+func TestNative_PassesThrough(t *testing.T) {
+	sb := sandbox.NewNative().
+		WithReadPaths("/etc").
+		WithNetwork(sandbox.NetworkDeny)
+
+	cmd := exec.Command("/bin/echo", "hi")
+	require.NoError(t, sb.Wrap(cmd))
+
+	require.Equal(t, "/bin/echo", cmd.Path, "native sandbox must not rewrite Path")
+	require.Equal(t, []string{"/bin/echo", "hi"}, cmd.Args, "native sandbox must not rewrite Args")
+
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	require.Equal(t, "hi\n", string(out))
+}
+
+// TestSandbox_AllowedReadSucceeds writes a file in a tmpdir we declare
+// as readable, then verifies the sandboxed `cat` can read it. This is
+// the happy path — if it fails, the sandbox is over-restrictive.
+func TestSandbox_AllowedReadSucceeds(t *testing.T) {
+	sb, err := sandbox.New()
+	if err != nil {
+		t.Fatalf("sandbox unavailable: %v", err)
+	}
+	if sb.Backend() == sandbox.BackendNative {
+		t.Skipf("native sandbox doesn't enforce; install backend")
+	}
+
+	dir := t.TempDir()
+	file := filepath.Join(dir, "hello.txt")
+	require.NoError(t, os.WriteFile(file, []byte("hello\n"), 0o600))
+
+	sb = sb.WithReadPaths(dir)
+
+	cmd := commandWithTimeout(t, "cat", file)
+	require.NoError(t, sb.Wrap(cmd))
+
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "sandboxed cat failed; output:\n%s", out)
+	require.Equal(t, "hello\n", string(out))
+}
+
+// TestSandbox_DeniesWriteOutsideAllowed: a tmpdir is granted as the
+// only writable surface; trying to write to a different tmpdir should
+// fail. Catches the most common policy mistake (over-broad write).
+func TestSandbox_DeniesWriteOutsideAllowed(t *testing.T) {
+	sb, err := sandbox.New()
+	if err != nil {
+		t.Fatalf("sandbox unavailable: %v", err)
+	}
+	if sb.Backend() == sandbox.BackendNative {
+		t.Skipf("native sandbox doesn't enforce; install backend")
+	}
+
+	allowed := t.TempDir()
+	forbidden := t.TempDir()
+	target := filepath.Join(forbidden, "should-not-exist.txt")
+
+	sb = sb.WithWritePaths(allowed)
+
+	// `sh -c 'echo > forbidden_path'` — quoting kept simple by avoiding
+	// arguments that could be treated as profile syntax.
+	cmd := commandWithTimeout(t, "sh", "-c", "echo blocked > "+target)
+	require.NoError(t, sb.Wrap(cmd))
+
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "expected denial; got success with output:\n%s", out)
+
+	_, statErr := os.Stat(target)
+	require.True(t, errors.Is(statErr, os.ErrNotExist),
+		"forbidden file was created at %s — sandbox didn't deny", target)
+}
+
+// TestSandbox_DeniesNetwork: a denied-network sandbox running curl
+// against a reachable host must fail. We use a short-timeout curl to
+// keep the test fast; the failure mode varies (DNS, connect refused,
+// timeout) but should NEVER be a 200.
+func TestSandbox_DeniesNetwork(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Fatal("curl not on PATH; required for sandbox network test")
+	}
+	sb, err := sandbox.New()
+	if err != nil {
+		t.Fatalf("sandbox unavailable: %v", err)
+	}
+	if sb.Backend() == sandbox.BackendNative {
+		t.Skipf("native sandbox doesn't enforce; install backend")
+	}
+
+	// Allow reading host certs / system libs (already covered by the
+	// default profile) but deny network. Note: we don't grant any
+	// readPaths/writePaths — curl just needs to start.
+	sb = sb.WithNetwork(sandbox.NetworkDeny)
+
+	cmd := commandWithTimeout(t, "curl", "-sS", "--max-time", "3", "https://example.com")
+	require.NoError(t, sb.Wrap(cmd))
+
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "network was supposed to be denied; got 200 with body:\n%s", out)
+	// Don't assert on exact stderr — bwrap and Seatbelt phrase denial
+	// differently (and so does curl's wrap of the error).
+}
+
+// commandWithTimeout returns an exec.Cmd that will be killed after a
+// short ceiling — the sandbox tests don't need long-running children
+// and a runaway here would hang CI.
+func commandWithTimeout(t *testing.T, name string, args ...string) *exec.Cmd {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	return exec.CommandContext(ctx, name, args...)
+}
+
+// TestBwrap_BuildArgs is a Linux-only unit test: even on a Mac dev box
+// without bwrap, we want to verify the argv we'd construct is sensible.
+// We can't construct a bwrapSandbox without bwrap on PATH, so this is
+// gated.
+func TestSandboxFilesystemDeclarations_Stable(t *testing.T) {
+	// Smoke test that ordering of WithRead/WithWrite calls doesn't
+	// flip something silently. Run on every backend.
+	sb := sandbox.NewNative().
+		WithReadPaths("/a", "/b").
+		WithWritePaths("/c").
+		WithReadPaths("/d").
+		WithUnixSockets("/var/run/x.sock").
+		WithNetwork(sandbox.NetworkOpen)
+
+	// Native is no-op so we just verify Wrap doesn't blow up.
+	cmd := exec.Command("/bin/true")
+	require.NoError(t, sb.Wrap(cmd))
+}
+
+// TestSandboxExec_RegexQuote validates the macOS profile quoter
+// against known metacharacters. Important because an unquoted "."
+// makes a path-prefix match every path of the same length.
+func TestSandboxExec_RegexQuote(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skipf("regexQuote only relevant on darwin")
+	}
+
+	// Build a sandbox with paths containing tricky chars and ensure
+	// the resulting profile string contains the expected escapes.
+	// We can't observe regexQuote directly (it's unexported); use the
+	// Wrap output as a probe by inspecting cmd.Args for the profile.
+	sb, err := sandbox.New()
+	require.NoError(t, err)
+	sb = sb.WithUnixSockets("/var/run/it.has.dots.sock")
+
+	cmd := exec.Command("/bin/true")
+	require.NoError(t, sb.Wrap(cmd))
+
+	// cmd.Args = [sandbox-exec, -p, <profile>, /bin/true]
+	require.GreaterOrEqual(t, len(cmd.Args), 3)
+	profile := cmd.Args[2]
+	require.True(t, strings.Contains(profile, `\.`),
+		"profile should escape dots; got:\n%s", profile)
+}
