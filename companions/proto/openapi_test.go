@@ -1,3 +1,5 @@
+//go:build !skip_infra
+
 package proto_test
 
 import (
@@ -5,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/companions/proto"
@@ -38,10 +39,7 @@ func TestGenerateSwagger(t *testing.T) {
 	defer os.RemoveAll(destination)
 
 	err = proto.GenerateOpenAPI(ctx, languages.GO, destination, "web/api", api)
-	if err != nil && strings.Contains(err.Error(), "No such image") {
-		t.Skipf("proto companion image not built: %s (run ./companions/scripts/build_companions.sh from core/)", err)
-	}
-	require.NoError(t, err)
+	require.NoError(t, err, "proto companion image not built (run ./companions/scripts/build_companions.sh from core/)")
 
 	for _, dir := range []string{"models", "client"} {
 		require.DirExists(t, filepath.Join(destination, dir))

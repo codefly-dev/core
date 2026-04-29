@@ -43,10 +43,16 @@ FROM codeflydev/codefly:0.0.3
 #     libabsl_*). `protoc` is dynamically linked; COPYing just the
 #     binary from the builder without its .so neighbors produces
 #     "symbol not found" at first invocation.
+#   - go: required at runtime by `swagger generate client` to format
+#     generated source. Without it `gofmt` is unreachable and swagger
+#     bails with "go command required, not found". The Go-built plugins
+#     (buf, protoc-gen-*) are static so they don't need this — only
+#     swagger does, but it's the single tool that breaks the openapi
+#     pipeline if missing. Adds ~150 MB; unavoidable.
 #   - Go-built plugins (buf, protoc-gen-*) ARE static (CGO_ENABLED=0
 #     by default for `go install`), so we COPY just those binaries
 #     without bringing the Go runtime.
-RUN apk add --no-cache nodejs npm protobuf && \
+RUN apk add --no-cache nodejs npm protobuf go && \
     npm install -g \
         openapi-typescript \
         swagger2openapi \

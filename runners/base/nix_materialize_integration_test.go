@@ -1,3 +1,5 @@
+//go:build !skip_infra
+
 package base_test
 
 import (
@@ -13,21 +15,22 @@ import (
 )
 
 // These tests drive the full materialize path end-to-end against a real
-// `nix print-dev-env --json` run. They're gated on two things:
+// `nix print-dev-env --json` run. They require:
 //
-//  1. `nix` must be installed with flakes enabled.
-//  2. The installed nix must be new enough to evaluate nixos-unstable.
+//  1. `nix` installed with flakes enabled.
+//  2. The installed nix new enough to evaluate nixos-unstable (≥ 2.18).
 //     Older nix (2.11-era) errors out with "builtins.nixVersion reports
-//     at least 2.18"; we detect that and skip rather than fail.
+//     at least 2.18".
 //
 // The checks below are intentionally strict — a failure here means the
 // hot-path optimization (materialized env replaces `nix develop --command`)
 // regressed, and every Nix runtime Test call would slow down to cold-eval.
+// Run with `-tags skip_infra` to exclude these.
 
 func requireWorkingNix(t *testing.T) string {
 	t.Helper()
 	if !base.CheckNixInstalled() {
-		t.Skip("nix not installed")
+		t.Fatal("nix not installed; install Nix or run with -tags skip_infra to exclude")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -36,12 +39,11 @@ func requireWorkingNix(t *testing.T) string {
 	dir := filepath.Join(cwd, "testdata")
 
 	// Probe: can this nix actually evaluate the testdata flake?
-	// Older nix versions fail on nixos-unstable with a clear error;
-	// we skip in that case instead of failing.
+	// Older nix versions fail on nixos-unstable with a clear error.
 	probe := exec.Command("nix", "--extra-experimental-features", "nix-command flakes",
 		"print-dev-env", "--json", dir)
 	if out, err := probe.CombinedOutput(); err != nil {
-		t.Skipf("nix on this host can't evaluate the testdata flake: %v\nstderr: %s",
+		t.Fatalf("nix on this host can't evaluate the testdata flake (need nix ≥ 2.18): %v\nstderr: %s",
 			err, strings.TrimSpace(string(out)))
 	}
 	return dir
@@ -100,7 +102,7 @@ func TestNixMaterialize_PinsGoCache(t *testing.T) {
 	w := &bufWriter{}
 	proc.WithOutput(w)
 	if err := proc.Run(ctx); err != nil {
-		t.Skipf("proc.Run failed (likely nix version): %v", err)
+		t.Fatalf("proc.Run failed (likely nix version): %v", err)
 	}
 
 	out := w.String()
@@ -124,7 +126,7 @@ func TestNixMaterialize_PinsGoCache(t *testing.T) {
 // worse-than-before.
 func TestNixMaterialize_FallsBackGracefullyOnBadNix(t *testing.T) {
 	if !base.CheckNixInstalled() {
-		t.Skip("nix not installed")
+		t.Fatal("nix not installed; install Nix or run with -tags skip_infra to exclude")
 	}
 	ctx := context.Background()
 
@@ -185,7 +187,7 @@ func assertDirectExec(t *testing.T, proc base.Proc) {
 	w := &bufWriter{}
 	proc.WithOutput(w)
 	if err := proc.Run(context.Background()); err != nil {
-		t.Skipf("helper proc failed: %v", err)
+		t.Fatalf("helper proc failed: %v", err)
 	}
 	// The process ran successfully. That alone proves the materialized
 	// path didn't break the exec. We don't try to ps-sniff the ancestry

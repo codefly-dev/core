@@ -93,7 +93,7 @@ func TestDepGraph_RealRepos(t *testing.T) {
 
 			pkgs := extractPackagesFromDir(t, dir, repo.Module)
 			if len(pkgs) == 0 {
-				t.Skip("no packages extracted")
+				t.Fatalf("no packages extracted from %s — repo fixture is empty or extractor is broken", repo.Name)
 			}
 
 			dg := BuildDepGraph(repo.Module, pkgs)
@@ -132,7 +132,7 @@ func TestDepGraph_RealRepos(t *testing.T) {
 
 func TestSearch_RealRepos(t *testing.T) {
 	if _, err := exec.LookPath("rg"); err != nil {
-		t.Skip("ripgrep (rg) not installed")
+		t.Fatal("ripgrep (rg) not installed — required for search tests; install with `brew install ripgrep`")
 	}
 
 	repos := AllTestRepos()

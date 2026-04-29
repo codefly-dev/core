@@ -13,7 +13,12 @@ import (
 // BuildCompanionsHint is the message to show when a companion image is missing.
 const BuildCompanionsHint = "run ./companions/scripts/build_companions.sh from core/"
 
-// RequireDocker marks the test as failed if Docker is not running.
+// RequireDocker fails the test when Docker is not running.
+//
+// We deliberately fail loudly instead of skipping: a silently-skipped
+// Docker test masks real regressions in containerized code paths and
+// lets environmental drift hide bugs the test was supposed to catch.
+// Bring the Docker daemon up — or fix the failing test.
 func RequireDocker(t *testing.T, ctx context.Context) {
 	t.Helper()
 	if !runners.DockerEngineRunning(ctx) {
@@ -21,36 +26,36 @@ func RequireDocker(t *testing.T, ctx context.Context) {
 	}
 }
 
-// RequireProtoImage skips the test if the proto companion image is not built.
+// RequireProtoImage fails the test if the proto companion image is not built.
 func RequireProtoImage(t *testing.T, ctx context.Context) {
 	t.Helper()
 	RequireDocker(t, ctx)
 	img, err := proto.CompanionImage(ctx)
 	if err != nil {
-		t.Skipf("cannot get proto companion image: %v (%s)", err, BuildCompanionsHint)
+		t.Fatalf("cannot get proto companion image: %v (%s)", err, BuildCompanionsHint)
 	}
 	if img == nil {
-		t.Skipf("proto companion image not configured (%s)", BuildCompanionsHint)
+		t.Fatalf("proto companion image not configured (%s)", BuildCompanionsHint)
 	}
 	ref := img.Name + ":" + img.Tag
 	if err := exec.CommandContext(ctx, "docker", "image", "inspect", ref).Run(); err != nil {
-		t.Skipf("proto companion image %s not built: %v (%s)", ref, err, BuildCompanionsHint)
+		t.Fatalf("proto companion image %s not built: %v (%s)", ref, err, BuildCompanionsHint)
 	}
 }
 
-// RequireGoImage skips the test if the Go companion image is not built.
+// RequireGoImage fails the test if the Go companion image is not built.
 func RequireGoImage(t *testing.T, ctx context.Context) {
 	t.Helper()
 	RequireDocker(t, ctx)
 	img, err := golang.CompanionImage(ctx)
 	if err != nil {
-		t.Skipf("cannot get go companion image: %v (%s)", err, BuildCompanionsHint)
+		t.Fatalf("cannot get go companion image: %v (%s)", err, BuildCompanionsHint)
 	}
 	if img == nil {
-		t.Skipf("go companion image not configured (%s)", BuildCompanionsHint)
+		t.Fatalf("go companion image not configured (%s)", BuildCompanionsHint)
 	}
 	ref := img.Name + ":" + img.Tag
 	if err := exec.CommandContext(ctx, "docker", "image", "inspect", ref).Run(); err != nil {
-		t.Skipf("go companion image %s not built: %v (%s)", ref, err, BuildCompanionsHint)
+		t.Fatalf("go companion image %s not built: %v (%s)", ref, err, BuildCompanionsHint)
 	}
 }

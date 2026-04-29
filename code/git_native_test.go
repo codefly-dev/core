@@ -13,7 +13,7 @@ func TestNativeGit_OpenAndLog(t *testing.T) {
 		ng = OpenNativeGit(".")
 	}
 	if ng == nil {
-		t.Skip("no git repo found for testing")
+		t.Fatal("no git repo found at ../ or ./ — run these tests from a checkout that includes the .git directory")
 	}
 
 	ctx := context.Background()
@@ -52,7 +52,7 @@ func TestNativeGit_Show(t *testing.T) {
 		ng = OpenNativeGit(".")
 	}
 	if ng == nil {
-		t.Skip("no git repo found")
+		t.Fatal("no git repo found at ../ or ./ — run these tests from a checkout that includes the .git directory")
 	}
 
 	ctx := context.Background()
@@ -96,7 +96,7 @@ func TestNativeGit_Branches(t *testing.T) {
 		ng = OpenNativeGit(".")
 	}
 	if ng == nil {
-		t.Skip("no git repo found")
+		t.Fatal("no git repo found at ../ or ./ — run these tests from a checkout that includes the .git directory")
 	}
 
 	branches, err := ng.ListBranches()

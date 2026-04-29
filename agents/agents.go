@@ -18,6 +18,8 @@ import (
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 // ProtocolVersion is used for future-proofing the stdout handshake.
@@ -171,9 +173,23 @@ func ResetRPCStats() {
 //	    Code:    NewCode(),
 //	})
 func Serve(reg PluginRegistration) {
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	// Default bind: 127.0.0.1:0 — random port, loopback-only. The
+	// CLI runs the agent as a child process and reads the assigned
+	// port off stdout, so loopback is sufficient and prevents random
+	// LAN clients from poking the agent.
+	//
+	// CODEFLY_AGENT_BIND_ADDR overrides the host portion (port stays
+	// :0). Use only when the CLI and agent run in different containers
+	// (e.g. Docker on Linux without host networking, or split deploys
+	// where the CLI lives in a sidecar). Setting "0.0.0.0" in those
+	// cases pairs with TLS + auth — both still TODO; see #65.
+	bindHost := os.Getenv("CODEFLY_AGENT_BIND_ADDR")
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
+	lis, err := net.Listen("tcp", bindHost+":0")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "agents.Serve: cannot listen: %v\n", err)
+		fmt.Fprintf(os.Stderr, "agents.Serve: cannot listen on %s:0: %v\n", bindHost, err)
 		os.Exit(1)
 	}
 
@@ -196,6 +212,19 @@ func Serve(reg PluginRegistration) {
 	if reg.Tooling != nil {
 		toolingv0.RegisterToolingServer(s, reg.Tooling)
 	}
+
+	// Standard grpc.health.v1 server. Lets the CLI replace the old
+	// "TCP port is open" wait-loop with a real readiness probe — fixes
+	// the class of races where the port is bound but the server hasn't
+	// finished registering services yet.
+	//
+	// SetServingStatus("", SERVING) registers the empty service name
+	// (the wildcard "this server is up" check, per the gRPC spec).
+	// Per-service statuses can be added later if specific RPCs need
+	// to gate independently (e.g. Tooling NOT_SERVING until LSP boots).
+	healthSrv := health.NewServer()
+	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	healthpb.RegisterHealthServer(s, healthSrv)
 
 	// Signal the port to the parent (CLI) using the protocol: "VERSION|PORT\n"
 	port := lis.Addr().(*net.TCPAddr).Port

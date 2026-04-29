@@ -196,7 +196,7 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 		capture = &LineCapture{}
 		proc.WithOutput(capture)
 	}
-	proc.WithDir(sourceLocation)
+	proc.WithDir(goTestWorkDir(sourceLocation))
 	proc.WithEnvironmentVariables(ctx, envVars...)
 
 	runErr := proc.Run(ctx)
@@ -218,6 +218,20 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 		return summary, runErr
 	}
 	return summary, nil
+}
+
+func goTestWorkDir(sourceLocation string) string {
+	cur := sourceLocation
+	for {
+		if _, err := os.Stat(filepath.Join(cur, "go.mod")); err == nil {
+			return cur
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return sourceLocation
+		}
+		cur = parent
+	}
 }
 
 // writeLastTestOutput dumps the raw `go test -json` stream to

@@ -13,6 +13,10 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
+// MustSolvePath panics on path-resolution error. Test-only helper —
+// runtime code (agents, CLI commands, anything that handles user
+// input or env-dependent paths) should call SolvePath and propagate
+// the error via wool.Wrapf instead.
 func MustSolvePath(p string) string {
 	path, err := SolvePath(p)
 	if err != nil {
@@ -194,11 +198,30 @@ func EmptyDir(ctx context.Context, dir string) error {
 
 }
 
-// CheckDirectoryOrCreate checks if a directory exists or create it if it doesn't
-// bool: created
-// err: only for unexpected behavior
+// CheckDirectoryOrCreate checks if a directory exists or create it if
+// it doesn't, with default 0o755 perms. Use for project / config /
+// build artifacts where world-readable is fine.
+//
+//	bool: created
+//	err:  only for unexpected behavior
 func CheckDirectoryOrCreate(ctx context.Context, dir string) (bool, error) {
-	w := wool.Get(ctx).In("shared.CheckDirectoryOrCreate", wool.Field("dir", dir))
+	return checkDirectoryOrCreateMode(ctx, dir, 0o755)
+}
+
+// CheckDirectoryOrCreateSecure is the 0o700 variant. Use for any
+// directory holding tokens, signing keys, or per-user state under
+// $HOME/.codefly. Same return semantics as CheckDirectoryOrCreate.
+//
+// On macOS / Linux 0o700 means owner-only read+write+execute. Other
+// users (and processes running under different uids) cannot list or
+// traverse the directory — important when codefly stores Vault tokens
+// or refresh-token signing keys on disk.
+func CheckDirectoryOrCreateSecure(ctx context.Context, dir string) (bool, error) {
+	return checkDirectoryOrCreateMode(ctx, dir, 0o700)
+}
+
+func checkDirectoryOrCreateMode(ctx context.Context, dir string, mode os.FileMode) (bool, error) {
+	w := wool.Get(ctx).In("shared.CheckDirectoryOrCreate", wool.Field("dir", dir), wool.Field("mode", fmt.Sprintf("%#o", mode)))
 	if dir == "" {
 		return false, w.NewError("empty directory")
 	}
@@ -210,11 +233,49 @@ func CheckDirectoryOrCreate(ctx context.Context, dir string) (bool, error) {
 		return false, nil
 	}
 
-	err = os.MkdirAll(dir, 0755)
+	err = os.MkdirAll(dir, mode)
 	if err != nil {
 		return false, w.Wrapf(err, "cannot create directory: %s", dir)
 	}
 	return true, nil
+}
+
+// WriteFileSecure writes data to path with 0o600 perms (owner
+// read+write only). Use for secrets — refresh token signing keys,
+// Vault tokens, dev fixture passwords, etc. The parent directory
+// gets 0o700 if it has to be created.
+//
+// Atomic via tmp-file + rename so a crash mid-write doesn't leave a
+// truncated secret on disk.
+func WriteFileSecure(ctx context.Context, path string, data []byte) error {
+	w := wool.Get(ctx).In("shared.WriteFileSecure", wool.Field("path", path))
+	dir := filepath.Dir(path)
+	if _, err := CheckDirectoryOrCreateSecure(ctx, dir); err != nil {
+		return w.Wrapf(err, "cannot ensure parent dir")
+	}
+	tmp, err := os.CreateTemp(dir, ".codefly-secret-*")
+	if err != nil {
+		return w.Wrapf(err, "cannot create tmp file")
+	}
+	tmpPath := tmp.Name()
+	// Best-effort cleanup of the tmp file on any failure path below;
+	// rename() swallows it on success.
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return w.Wrapf(err, "cannot chmod tmp file")
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return w.Wrapf(err, "cannot write tmp file")
+	}
+	if err := tmp.Close(); err != nil {
+		return w.Wrapf(err, "cannot close tmp file")
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return w.Wrapf(err, "cannot rename tmp file to %s", path)
+	}
+	return nil
 }
 
 func CopyFile(_ context.Context, from string, to string) error {

@@ -1,67 +1,80 @@
-# Welcome to `codefly.ai` core library
+# `codefly.ai` core
 
 ![workflow](https://github.com/codefly-dev/core/actions/workflows/go.yml/badge.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/codefly-dev/core)](https://goreportcard.com/report/github.com/codefly-dev/core)
-[![Go Reference](https://pkg.go.dev/badge/github.com/codefly-dev/core.svg)](https://pkg.go.dev/github.com/codefly-dev/sdk-go)
+[![Go Reference](https://pkg.go.dev/badge/github.com/codefly-dev/core.svg)](https://pkg.go.dev/github.com/codefly-dev/core)
 ![coverage](https://raw.githubusercontent.com/codefly-dev/core/badges/.badges/main/coverage.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 
 > Fundamentals for the `codefly.ai` ecosystem.
 
 ![dragonfly](docs/media/dragonfly.png)
 
-## Getting started
+## What this is
 
-### Update proto definitions and generate code 
+`core` is the shared library that every codefly agent, the CLI, and user
+services depend on. It defines:
 
-```shell
- ./scripts/build/generate.sh
+- **Resource model** — `Workspace`, `Module`, `Service`, `Endpoint`, `Agent`,
+  `Environment` (`resources/`)
+- **Architecture** — DAG-based dependency resolution (`architecture/`,
+  `graph/`)
+- **Network model** — port allocation, DNS, native/container/public access
+  modes (`network/`)
+- **Configuration flow** — typed configs passed between services as env
+  vars (`configurations/`)
+- **Agent system** — gRPC-based agent lifecycle: Builder, Runtime, Code
+  (`agents/`)
+- **Runners** — Native, Docker, and Nix execution environments with
+  consistent process supervision (`runners/`)
+- **Companions** — sidecar containers for proto, Go, Python, Node tooling
+  (`companions/`)
+- **Telemetry** — structured logging via `wool` (`wool/`)
+
+## Install
+
+```sh
+go get github.com/codefly-dev/core
 ```
 
+`core` is self-contained — no `replace` directives, no internal codefly
+imports beyond its own module.
 
-## Tests
+## Quick example
 
-### Wither runner tests
+```go
+import (
+    "context"
+    "github.com/codefly-dev/core/resources"
+    "github.com/codefly-dev/core/wool"
+)
 
-Flaky for now.
+ctx := context.Background()
+w := wool.Get(ctx).In("Example")
 
-```shell
-go test -tags runner -v ./...
-
-### Publish
-
-TODO: When needed, move to PR system for versioning
-
-*Requirement:* `semver`
-
-```shell
-./scripts/publish/tag.sh
-```
-or
-```shell
-./scripts/publish/re_tag.sh
+ws, err := resources.LoadWorkspaceFromDir(ctx, "/path/to/workspace")
+if err != nil {
+    return w.Wrapf(err, "load workspace")
+}
+w.Info("loaded", wool.Field("modules", len(ws.Modules)))
 ```
 
+## Develop
 
-### Environment Variables
+```sh
+# All tests
+go test ./...
 
+# Single package
+go test ./resources/ -v
 
+# With race detector
+go test -race ./...
+```
 
-### Tips for a Cool README:
+Tests gracefully skip when external prerequisites (Docker, Nix flakes ≥ 2.18)
+are unavailable.
 
-1. **Engaging Visuals**: Include badges for build status, code quality, etc., and consider adding a project logo or screenshots/gifs of your project in action.
+## License
 
-2. **Clear and Concise**: Make your README easy to read with clear headings and concise descriptions.
-
-3. **Examples**: Include usage examples, as they are extremely helpful to new users.
-
-4. **Contribution Guidelines**: Encourage community involvement with clear contribution guidelines.
-
-5. **License Information**: Always specify the license to inform users about how they can use your project.
-
-6. **Acknowledgments**: Give credit where it's due if you're building upon others' work.
-
-7. **Keep it Updated**: Regularly update the README as your project evolves.
-
-Remember, the README is often the first thing users or potential contributors see, so making it informative, welcoming, and visually appealing can greatly impact the success of your project.
+MIT — see [LICENSE](LICENSE).

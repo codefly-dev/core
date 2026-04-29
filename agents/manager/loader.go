@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 // DefaultStartupTimeout is how long Load waits for the agent to print
@@ -475,18 +476,36 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	return agentConn, nil
 }
 
-// waitForReady blocks until conn reaches connectivity.Ready or ctx expires.
+// waitForReady blocks until conn reaches connectivity.Ready AND the
+// agent's grpc.health.v1 endpoint reports SERVING, or ctx expires.
+//
+// The two-step matters: connectivity.Ready means the TCP connection
+// is up and TLS (if any) succeeded — but the server can still be in
+// the middle of registering services. The health Check is the agent
+// telling us "all my services are wired and I'm accepting RPCs."
 func waitForReady(ctx context.Context, conn *grpc.ClientConn) bool {
 	for {
 		state := conn.GetState()
 		if state == connectivity.Ready {
-			return true
+			break
 		}
 		if !conn.WaitForStateChange(ctx, state) {
-			// Context expired or was cancelled.
 			return false
 		}
 	}
+	// Real health check on top. Empty service name = the wildcard
+	// "this server is up" check that core/agents/agents.go's Serve()
+	// registers via SetServingStatus("", SERVING).
+	hc := healthpb.NewHealthClient(conn)
+	resp, err := hc.Check(ctx, &healthpb.HealthCheckRequest{Service: ""})
+	if err != nil {
+		// Older agents (before health-server registration landed) won't
+		// have the health endpoint; treat that as "ready" so we don't
+		// regress them. Newer agents that ARE failing health get caught
+		// by the Status check below.
+		return ctx.Err() == nil
+	}
+	return resp.GetStatus() == healthpb.HealthCheckResponse_SERVING
 }
 
 // ---------------------------------------------------------------------------

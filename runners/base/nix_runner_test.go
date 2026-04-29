@@ -1,3 +1,5 @@
+//go:build !skip_infra
+
 package base_test
 
 import (
@@ -13,10 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func skipIfNoNix(t *testing.T) {
+func requireNix(t *testing.T) {
 	t.Helper()
 	if !base.CheckNixInstalled() {
-		t.Skip("nix is not installed; skipping test")
+		t.Fatal("nix is not installed; install Nix or run with -tags skip_infra to exclude")
 	}
 }
 
@@ -31,16 +33,13 @@ func nixTestDir(t *testing.T) string {
 }
 
 func TestNixEnvironment(t *testing.T) {
-	skipIfNoNix(t)
+	requireNix(t)
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 
 	dir := nixTestDir(t)
 	env, err := base.NewNixEnvironment(ctx, dir)
-	if err != nil {
-		t.Skipf("nix environment not usable: %v", err)
-	}
-	require.NoError(t, err)
+	require.NoError(t, err, "nix environment not usable")
 
 	err = env.Init(ctx)
 	require.NoError(t, err)
@@ -57,10 +56,7 @@ func TestNixEnvironment(t *testing.T) {
 	output := shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
-	err = proc.Run(ctx)
-	if err != nil {
-		t.Skipf("nix develop failed (nix version may be too old): %v", err)
-	}
+	require.NoError(t, proc.Run(ctx), "nix develop failed (nix version may be too old)")
 
 	// Should see testdata contents
 	require.Contains(t, d.Data, "good")
@@ -68,16 +64,13 @@ func TestNixEnvironment(t *testing.T) {
 }
 
 func TestNixEnvironment_FiniteScript(t *testing.T) {
-	skipIfNoNix(t)
+	requireNix(t)
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 
 	dir := nixTestDir(t)
 	env, err := base.NewNixEnvironment(ctx, dir)
-	if err != nil {
-		t.Skipf("nix environment not usable: %v", err)
-	}
-	require.NoError(t, err)
+	require.NoError(t, err, "nix environment not usable")
 
 	err = env.Init(ctx)
 	require.NoError(t, err)
@@ -89,15 +82,12 @@ func TestNixEnvironment_FiniteScript(t *testing.T) {
 	output := shared.NewSignalWriter(d)
 	proc.WithOutput(output)
 
-	err = proc.Run(ctx)
-	if err != nil {
-		t.Skipf("nix develop failed (nix version may be too old): %v", err)
-	}
+	require.NoError(t, proc.Run(ctx), "nix develop failed (nix version may be too old)")
 	require.Contains(t, d.Data, "1")
 }
 
 func TestNixEnvironment_NoFlake(t *testing.T) {
-	skipIfNoNix(t)
+	requireNix(t)
 	ctx := context.Background()
 
 	// Directory without flake.nix should fail

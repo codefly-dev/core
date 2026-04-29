@@ -2,6 +2,7 @@ package configurations
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/codefly-dev/core/resources"
@@ -209,8 +210,12 @@ func (manager *Manager) DNS() []*basev0.DNS {
 }
 
 func (manager *Manager) GetDNS(ctx context.Context, svc *resources.ServiceIdentity, endpointName string) (*basev0.DNS, error) {
+	// Returning (nil, error) on a nil receiver lets callers distinguish
+	// "uninitialized manager" from "manager has no matching DNS entry".
+	// The previous (nil, nil) return swallowed the misconfiguration —
+	// network/remote_manager.go would then nil-deref on the result.
 	if manager == nil {
-		return nil, nil
+		return nil, fmt.Errorf("configurations.Manager: receiver is nil — DNS lookup attempted before Manager initialization")
 	}
 	w := wool.Get(ctx).In("providers.GetDNS", wool.ThisField(svc))
 	for _, dns := range manager.dns {

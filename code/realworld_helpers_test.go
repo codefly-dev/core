@@ -121,7 +121,7 @@ func EnsureRepo(t *testing.T, repo TestRepo) string {
 
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) == 0 {
-		t.Skipf("submodule %s not initialized (run: git submodule update --init --recursive)", repo.Name)
+		t.Fatalf("submodule %s not initialized — run: git submodule update --init --recursive", repo.Name)
 	}
 	return dir
 }

@@ -144,7 +144,7 @@ func TestGoCodeServer_ListDependencies_RealRepos(t *testing.T) {
 				t.Fatal("nil response")
 			}
 			if deps.Error != "" {
-				t.Skipf("go list -m failed (deps not downloaded?): %s", deps.Error)
+				t.Fatalf("go list -m failed (run `go mod download` in the testdata repo): %s", deps.Error)
 			}
 			t.Logf("%s: %d dependencies", repo.Name, len(deps.Dependencies))
 			for _, d := range deps.Dependencies {

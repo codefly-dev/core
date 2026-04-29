@@ -20,9 +20,10 @@ import (
 )
 
 // EnvFactory is a constructor that returns a RunnerEnvironment bound to
-// dir. Each backend provides one. Returning (nil, nil) signals "backend
-// not available on this host" — ForEachEnvironment will Skip that
-// sub-test rather than Fail.
+// dir. Each backend provides one. Returning (nil, nil) is a programmer
+// error — backends MUST be available when the matrix runs. If a backend
+// can't be available on every dev/CI box, exclude it via Only(...) at
+// the call site instead.
 type EnvFactory func(ctx context.Context, dir string) (runners.RunnerEnvironment, error)
 
 // Case wraps a (name, factory) pair for a single backend.
@@ -60,9 +61,11 @@ func Only(names ...string) Option {
 }
 
 // ForEachEnvironment runs fn against each supported backend as a sub-test.
-// Backends unavailable on the host (e.g. Docker not running, nix not
-// installed, no flake.nix in dir) are skipped via t.Skip rather than
-// failing — so a dev without Docker still sees native + nix pass.
+// A backend that isn't available on the host (Docker not running, nix
+// not installed, missing flake.nix) FAILS the sub-test loudly — silent
+// skips hide drift. To exclude an irrelevant backend at the call site,
+// use Only("native", "nix"). To exclude all infra-dependent backends
+// from a build, set the `skip_infra` build tag at the test-file level.
 //
 // `dir` is the workspace or source directory the plugin expects to
 // operate on. For native/nix it's used as cwd; for docker it's bind-mounted.
@@ -80,8 +83,7 @@ func ForEachEnvironment(t *testing.T, dir string, fn func(t *testing.T, env runn
 				t.Fatalf("%s: cannot create env: %v", c.Name, err)
 			}
 			if env == nil {
-				t.Skipf("%s: backend not available on this host", c.Name)
-				return
+				t.Fatalf("%s: backend not available on this host — install/start it, restrict the matrix with Only(...), or run with -tags skip_infra", c.Name)
 			}
 			t.Cleanup(func() {
 				_ = env.Shutdown(context.Background())

@@ -147,6 +147,33 @@ func TestGoTestArgs_ExtraArgs(t *testing.T) {
 	}
 }
 
+func TestGoTestWorkDirUsesNearestModuleRoot(t *testing.T) {
+	root := t.TempDir()
+	cmdDir := filepath.Join(root, "cmd", "server")
+	if err := os.MkdirAll(cmdDir, 0o755); err != nil {
+		t.Fatalf("mkdir cmd dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	if got := goTestWorkDir(cmdDir); got != root {
+		t.Fatalf("goTestWorkDir(%q) = %q, want %q", cmdDir, got, root)
+	}
+}
+
+func TestGoTestWorkDirFallsBackWithoutModule(t *testing.T) {
+	root := t.TempDir()
+	cmdDir := filepath.Join(root, "cmd", "server")
+	if err := os.MkdirAll(cmdDir, 0o755); err != nil {
+		t.Fatalf("mkdir cmd dir: %v", err)
+	}
+
+	if got := goTestWorkDir(cmdDir); got != cmdDir {
+		t.Fatalf("goTestWorkDir(%q) = %q, want %q", cmdDir, got, cmdDir)
+	}
+}
+
 func TestCombineRunRegex(t *testing.T) {
 	cases := []struct {
 		in   []string
@@ -218,6 +245,69 @@ func TestStreamingTestWriter_EmitsEvents(t *testing.T) {
 		if !strings.Contains(captured, line) {
 			t.Errorf("buffer missing line: %s", line)
 		}
+	}
+}
+
+func TestParseTestJSON_PackageFailurePreservesOutput(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"Action":"start","Package":"example.com/app/pkg"}`,
+		`{"Action":"output","Package":"example.com/app/pkg","Output":"# example.com/app/pkg\n"}`,
+		`{"Action":"output","Package":"example.com/app/pkg","Output":"pkg/main.go:3:2: no required module provides package example.com/missing\n"}`,
+		`{"Action":"fail","Package":"example.com/app/pkg","Elapsed":0.01}`,
+	}, "\n")
+
+	summary := ParseTestJSON(raw)
+	if summary.Run != 1 || summary.Failed != 1 {
+		t.Fatalf("summary Run=%d Failed=%d, want 1/1", summary.Run, summary.Failed)
+	}
+	if len(summary.Failures) != 1 {
+		t.Fatalf("failure count = %d, want 1: %#v", len(summary.Failures), summary.Failures)
+	}
+	if !strings.Contains(summary.Failures[0], "no required module provides package") {
+		t.Fatalf("package failure output was not preserved:\n%s", summary.Failures[0])
+	}
+}
+
+func TestParseTestJSON_BuildFailurePreservesImportPathOutput(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"ImportPath":"./pkg/bench","Action":"build-output","Output":"# ./pkg/bench\n"}`,
+		`{"ImportPath":"./pkg/bench","Action":"build-output","Output":"stat /workspace/code/cmd/server/pkg/bench: directory not found\n"}`,
+		`{"ImportPath":"./pkg/bench","Action":"build-fail"}`,
+		`{"Action":"start","Package":"./pkg/bench"}`,
+		`{"Action":"output","Package":"./pkg/bench","Output":"FAIL\t./pkg/bench [setup failed]\n"}`,
+		`{"Action":"fail","Package":"./pkg/bench","Elapsed":0,"FailedBuild":"./pkg/bench"}`,
+	}, "\n")
+
+	summary := ParseTestJSON(raw)
+	if summary.Run != 1 || summary.Failed != 1 {
+		t.Fatalf("summary Run=%d Failed=%d, want 1/1", summary.Run, summary.Failed)
+	}
+	if len(summary.Failures) != 1 {
+		t.Fatalf("failure count = %d, want 1: %#v", len(summary.Failures), summary.Failures)
+	}
+	if !strings.Contains(summary.Failures[0], "directory not found") {
+		t.Fatalf("build failure output was not preserved:\n%s", summary.Failures[0])
+	}
+}
+
+func TestParseTestJSON_DoesNotDoubleCountPackageFailureAfterTestFailure(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"Action":"run","Package":"example.com/app/pkg","Test":"TestBroken"}`,
+		`{"Action":"output","Package":"example.com/app/pkg","Test":"TestBroken","Output":"expected true, got false\n"}`,
+		`{"Action":"fail","Package":"example.com/app/pkg","Test":"TestBroken","Elapsed":0.01}`,
+		`{"Action":"output","Package":"example.com/app/pkg","Output":"FAIL\n"}`,
+		`{"Action":"fail","Package":"example.com/app/pkg","Elapsed":0.01}`,
+	}, "\n")
+
+	summary := ParseTestJSON(raw)
+	if summary.Run != 1 || summary.Failed != 1 {
+		t.Fatalf("summary Run=%d Failed=%d, want 1/1", summary.Run, summary.Failed)
+	}
+	if len(summary.Failures) != 1 {
+		t.Fatalf("failure count = %d, want 1: %#v", len(summary.Failures), summary.Failures)
+	}
+	if !strings.Contains(summary.Failures[0], "TestBroken") {
+		t.Fatalf("test failure missing test name:\n%s", summary.Failures[0])
 	}
 }
 

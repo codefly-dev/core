@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -363,17 +364,32 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 	return err
 }
 
-// waitForReady blocks until conn reaches connectivity.Ready or ctx expires.
+// waitForReady blocks until conn reaches connectivity.Ready AND the
+// peer's grpc.health.v1 endpoint reports SERVING (or the peer doesn't
+// advertise health, in which case we fall through), or ctx expires.
+//
+// connectivity.Ready proves the TCP+TLS handshake completed; the
+// health Check on top proves the peer is past service registration
+// and ready to handle RPCs. Without this, callers race against the
+// CLI sub-process between port-bind and registration.
 func waitForReady(ctx context.Context, conn *grpc.ClientConn) bool {
 	for {
 		state := conn.GetState()
 		if state == connectivity.Ready {
-			return true
+			break
 		}
 		if !conn.WaitForStateChange(ctx, state) {
 			return false
 		}
 	}
+	hc := healthpb.NewHealthClient(conn)
+	resp, err := hc.Check(ctx, &healthpb.HealthCheckRequest{Service: ""})
+	if err != nil {
+		// Older peers without a registered health server — accept the
+		// connection as ready since connectivity.Ready already passed.
+		return ctx.Err() == nil
+	}
+	return resp.GetStatus() == healthpb.HealthCheckResponse_SERVING
 }
 
 func normalize(s string) string {

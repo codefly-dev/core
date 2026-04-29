@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -135,7 +136,7 @@ func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeR
 		resp.Packages = pkgs
 	}
 
-	if deps := goListDependencies(ctx, srcDir); deps != nil {
+	if deps, err := goListDependencies(ctx, srcDir); err == nil {
 		resp.Dependencies = deps
 	}
 
@@ -147,10 +148,10 @@ func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeR
 // --- ListDependencies (go list -m) ---
 
 func (s *GoCodeServer) handleListDependencies(ctx context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
-	deps := goListDependencies(ctx, s.SourceDir)
-	if deps == nil {
+	deps, err := goListDependencies(ctx, s.SourceDir)
+	if err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{
-			ListDependencies: &codev0.ListDependenciesResponse{Error: "go list -m failed"},
+			ListDependencies: &codev0.ListDependenciesResponse{Error: fmt.Sprintf("go list -m failed: %v", err)},
 		}}, nil
 	}
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{
@@ -178,6 +179,13 @@ type goModJSON struct {
 func goListPackages(ctx context.Context, dir string) []*codev0.PackageInfo {
 	cmd := exec.CommandContext(ctx, "go", "list", "-json", "./...")
 	cmd.Dir = dir
+	// GOWORK=off because `dir` may be a third-party repo nested under
+	// a workspace that doesn't include it (e.g. testdata/repos/* in
+	// the codefly monorepo, or any consumer of this package that
+	// invokes it from inside their own go.work). Without this, `go
+	// list` errors with "directory prefix . does not contain modules
+	// listed in go.work" and the test gets zero packages.
+	cmd.Env = append(os.Environ(), "GOWORK=off")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil
@@ -201,14 +209,19 @@ func goListPackages(ctx context.Context, dir string) []*codev0.PackageInfo {
 	return pkgs
 }
 
-func goListDependencies(ctx context.Context, dir string) []*codev0.Dependency {
+func goListDependencies(ctx context.Context, dir string) ([]*codev0.Dependency, error) {
 	cmd := exec.CommandContext(ctx, "go", "list", "-m", "-json", "all")
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off") // see goListPackages
 	out, err := cmd.Output()
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	var deps []*codev0.Dependency
+	// Empty (non-nil) slice on success: a module with zero require lines
+	// is a valid result, not an error. The earlier `var deps []*Dep` form
+	// returned nil in that case, which the handler couldn't distinguish
+	// from a failed exec.
+	deps := []*codev0.Dependency{}
 	decoder := json.NewDecoder(bytes.NewReader(out))
 	for {
 		var m goModJSON
@@ -222,7 +235,7 @@ func goListDependencies(ctx context.Context, dir string) []*codev0.Dependency {
 			Name: m.Path, Version: m.Version, Direct: m.Dir != "",
 		})
 	}
-	return deps
+	return deps, nil
 }
 
 // goFileExtensions are the file extensions relevant for Go project hashing.

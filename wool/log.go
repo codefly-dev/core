@@ -237,7 +237,14 @@ func SliceCountField[T any](slice []T) *LogField {
 	return &LogField{Key: "count", Value: len(slice)}
 }
 
+// ErrField wraps an error as a structured log field. Tolerates a nil
+// err (returns "<nil>" rather than panicking) so it's safe to call from
+// `defer Wool.Catch()` recovery paths and conditional-logging branches
+// where `err` may legitimately be nil.
 func ErrField(err error) *LogField {
+	if err == nil {
+		return &LogField{Key: "error", Value: "<nil>"}
+	}
 	return &LogField{Key: "error", Value: err.Error()}
 }
 

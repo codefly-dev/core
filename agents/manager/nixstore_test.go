@@ -28,7 +28,7 @@ func TestNewNixStoreFromEnv_UnsetReturnsNil(t *testing.T) {
 // env-driven constructor returns nil and we can't verify the ref.
 func TestNewNixStoreFromEnv_SetReturnsStore(t *testing.T) {
 	if _, err := lookPath("nix"); err != nil {
-		t.Skip("nix not installed; env-driven constructor won't return a store")
+		t.Fatal("nix not installed; install Nix or run with -tags skip_infra to exclude")
 	}
 	t.Setenv("AGENT_NIX_FLAKE", "github:acme/flake/v1")
 	store := NewNixStoreFromEnv(slog.Default())
@@ -193,7 +193,7 @@ func TestResolveNixAgentBinary_NonexistentPath(t *testing.T) {
 // if nix isn't installed.
 func TestNixStore_Available_UnresolvableRefReturnsFalse(t *testing.T) {
 	if _, err := lookPath("nix"); err != nil {
-		t.Skip("nix not installed")
+		t.Fatal("nix not installed; install Nix or run with -tags skip_infra to exclude")
 	}
 	s := NewNixStore("/tmp/does-not-exist-flake", slog.Default())
 	agent := &resources.Agent{Kind: "codefly:service", Name: "nonexistent", Version: "0.0.0"}

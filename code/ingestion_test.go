@@ -187,7 +187,7 @@ func testBuildDepGraph(t *testing.T, ctx context.Context, srv *GoCodeServer, rep
 	}
 	info := resp.GetGetProjectInfo()
 	if len(info.Packages) == 0 {
-		t.Skip("no packages from go list")
+		t.Fatal("no packages from go list — testdata repo may be missing go modules")
 	}
 
 	var inputs []PackageInput

@@ -126,7 +126,7 @@ func TestAnalysisQuality_FatihColor(t *testing.T) {
 	// --- Layer 5: Timelines ---
 	t.Run("Timelines", func(t *testing.T) {
 		if len(cc.Timelines) == 0 {
-			t.Skip("no timelines (repo may have no git blame support in this env)")
+			t.Fatal("no timelines — repo must have git blame support; run from a checkout with .git present")
 		}
 
 		t.Logf("Timelines: %d files", len(cc.Timelines))
@@ -175,7 +175,7 @@ func TestAnalysisQuality_FatihColor(t *testing.T) {
 	t.Run("RelevanceScoring", func(t *testing.T) {
 		allFiles := collectFiles(cc)
 		if len(allFiles) == 0 {
-			t.Skip("no files to score")
+			t.Fatal("no files to score — testdata repo is empty, fix the fixtures")
 		}
 
 		scorer := NewRelevanceScorer(cc, server.GetVFS(), server.GetSourceDir())
@@ -231,7 +231,7 @@ func TestAnalysisQuality_MultiPackage(t *testing.T) {
 		}
 	}
 	if repo.Name == "" {
-		t.Skip("go_chi_chi not found in test repos")
+		t.Fatal("go_chi_chi not found in AllTestRepos() — fix the fixture list")
 	}
 
 	dir := EnsureRepo(t, repo)

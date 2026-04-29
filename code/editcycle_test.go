@@ -100,7 +100,7 @@ func TestHandleRoot(t *testing.T) {
 //  9. Verify original source is restored
 func TestEditCycle_VirtualEndpoint(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go toolchain not available")
+		t.Fatal("go toolchain not on PATH — required to compile the simulated edited project")
 	}
 
 	dir := t.TempDir()
@@ -360,7 +360,7 @@ func TestEditCycle_OverlayRollback(t *testing.T) {
 // through the Code API, verifying the cumulative state, then committing once.
 func TestEditCycle_MultipleEditsBeforeCommit(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go toolchain not available")
+		t.Fatal("go toolchain not on PATH — required to compile the simulated edited project")
 	}
 
 	dir := t.TempDir()

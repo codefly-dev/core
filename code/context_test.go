@@ -153,7 +153,7 @@ func TestRelevanceScoring_AllRepos(t *testing.T) {
 
 			obj, ok := objectives[repo.Name]
 			if !ok {
-				t.Skip("no objective defined for this repo")
+				t.Fatalf("no objective defined for repo %q — add it to objectives map or remove from AllTestRepos()", repo.Name)
 			}
 
 			scorer := NewRelevanceScorer(cc, srv.GetVFS(), srv.GetSourceDir())
@@ -207,7 +207,7 @@ func TestRelevanceScoring_AllRepos(t *testing.T) {
 func TestRelevanceScorer_Signals(t *testing.T) {
 	repos := AllTestRepos()
 	if len(repos) == 0 {
-		t.Skip("no test repos")
+		t.Fatal("AllTestRepos() returned 0 repos — fix the test fixture list")
 	}
 
 	repo := repos[0] // fatih/color -- simplest

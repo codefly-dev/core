@@ -122,20 +122,35 @@ func KillProcessUsingPort(port int) error {
 }
 
 func GetPidUsingPort(port int) (string, error) {
-	// #nosec G204
+	// lsof's TCP-port flag takes a typed numeric port — not raw user
+	// input — so the gosec G204 warning is a false positive here.
+	// Standardized on //nolint:gosec to match the rest of the file
+	// (lines 235-236 use this form).
+	//nolint:gosec // G204: int port is type-safe input, not tainted
 	cmd := exec.Command("lsof", "-n", fmt.Sprintf("-i4TCP:%d", port))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", err
 	}
+	// lsof's tabular output is:
+	//   COMMAND   PID  USER  FD  TYPE  DEVICE  SIZE/OFF  NODE  NAME
+	// Header on line 0, first match on line 1+. Parse defensively —
+	// a future lsof version that adds/reorders columns would silently
+	// return the wrong field without these checks.
 	lines := strings.Split(string(output), "\n")
-	if len(lines) > 1 {
-		fields := strings.Fields(lines[1])
-		if len(fields) >= 2 {
-			return fields[1], nil // PID is the second field
-		}
+	if len(lines) < 2 {
+		// Either empty output (nothing listening) or just the
+		// header; both mean "no PID found", not an error.
+		return "", nil
 	}
-	return "", nil
+	const expectedMinFields = 9 // 9 columns in lsof's standard output
+	const pidField = 1          // PID is the second column
+	fields := strings.Fields(lines[1])
+	if len(fields) < expectedMinFields {
+		return "", fmt.Errorf("unexpected lsof output: got %d fields, want >= %d. Line: %q",
+			len(fields), expectedMinFields, lines[1])
+	}
+	return fields[pidField], nil
 }
 
 func KillProcess(pid string) error {

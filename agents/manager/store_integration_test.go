@@ -1,3 +1,5 @@
+//go:build integration
+
 package manager
 
 import (
@@ -17,7 +19,7 @@ import (
 func TestOCIStore_PullFromLocalRegistry(t *testing.T) {
 	registry := os.Getenv("AGENT_REGISTRY")
 	if registry == "" {
-		t.Skip("AGENT_REGISTRY not set — skipping OCI integration test")
+		t.Fatal("AGENT_REGISTRY not set — required for the OCI integration test (e.g. localhost:5111)")
 	}
 
 	ctx := context.Background()
@@ -36,7 +38,7 @@ func TestOCIStore_PullFromLocalRegistry(t *testing.T) {
 		t.Fatalf("Available: %v", err)
 	}
 	if !avail {
-		t.Skip("go-generic:0.0.1 not in registry — push it first")
+		t.Fatal("go-generic:0.0.1 not in registry — push it first")
 	}
 	t.Log("agent is available in registry")
 

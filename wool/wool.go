@@ -70,7 +70,15 @@ func (w *Wool) With(fields ...*LogField) *Wool {
 }
 
 // Inject stores the provider in the context for later retrieval via Get.
+// Inject persists this Wool's provider on ctx so downstream code that
+// calls wool.Get(ctx) sees the same call-chain context. No-op when
+// no provider is registered (test harnesses, agent boot before
+// telemetry is wired) — without this guard, the previous version
+// nil-deref'd and brought down the calling goroutine.
 func (w *Wool) Inject(ctx context.Context) context.Context {
+	if w == nil || w.provider == nil {
+		return ctx
+	}
 	return w.provider.Inject(ctx)
 }
 

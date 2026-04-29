@@ -1,3 +1,5 @@
+//go:build !skip_infra
+
 package base_test
 
 import (
@@ -19,15 +21,15 @@ import (
 	"github.com/codefly-dev/core/runners/base"
 )
 
-func skipIfNoDocker(t *testing.T) {
+func requireDocker(t *testing.T) {
 	t.Helper()
 	if !base.DockerEngineRunning(context.Background()) {
-		t.Skip("Docker is not running; skipping test")
+		t.Fatal("Docker is not running; bring it up or run with -tags skip_infra to exclude")
 	}
 }
 
 func TestNewDockerEnvironment(t *testing.T) {
-	skipIfNoDocker(t)
+	requireDocker(t)
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 	name := fmt.Sprintf("test-%d", time.Now().UnixMilli())
@@ -86,7 +88,7 @@ func testOutput(t *testing.T, data *shared.SliceWriter) {
 }
 
 func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
-	skipIfNoDocker(t)
+	requireDocker(t)
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 
@@ -194,7 +196,7 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 // It starts `cat` in a container, writes to StdinPipe, and reads back
 // from StdoutPipe to confirm echo.
 func TestDockerProcStdinStdout(t *testing.T) {
-	skipIfNoDocker(t)
+	requireDocker(t)
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 
@@ -243,7 +245,7 @@ func TestDockerProcStdinStdout(t *testing.T) {
 // TestDockerProcStdoutPipeRawBytes verifies that StdoutPipe delivers raw
 // bytes without newline stripping or line-by-line processing.
 func TestDockerProcStdoutPipeRawBytes(t *testing.T) {
-	skipIfNoDocker(t)
+	requireDocker(t)
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 
@@ -279,7 +281,7 @@ func TestDockerProcStdoutPipeRawBytes(t *testing.T) {
 // TestDockerProcWithoutPipes verifies that existing WithOutput behaviour
 // still works when pipes are not used (backward compatibility).
 func TestDockerProcWithoutPipes(t *testing.T) {
-	skipIfNoDocker(t)
+	requireDocker(t)
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 

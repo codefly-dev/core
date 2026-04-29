@@ -61,12 +61,18 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 	service *resources.ServiceIdentity,
 	endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
+	if m.dnsManager == nil {
+		return nil, w.NewError("RemoteManager: dnsManager is nil — call NewRemoteManager with a non-nil DNSManager")
+	}
 	var out []*basev0.NetworkMapping
 	for _, endpoint := range endpoints {
 		nm := &basev0.NetworkMapping{
 			Endpoint: endpoint,
 		}
-		// Get DNS name for external endpoints
+		// External endpoints (e.g. public load-balanced) require a
+		// declared DNS — there's no sane fallback because the public
+		// hostname is environment-specific (a wildcard cert,
+		// CNAME, etc.). Hard-fail when missing.
 		if endpoint.Visibility == resources.VisibilityExternal {
 			dns, err := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
 			if err != nil {
@@ -81,19 +87,46 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 			out = append(out, nm)
 			continue
 		}
-		// Get canonical port
+
+		// Internal endpoints. Lookup order:
+		//
+		//   1. Declared DNS (a dns/<env>/dns.codefly.yaml entry — the
+		//      historical override path used to point services at
+		//      host.docker.internal during `codefly run`).
+		//
+		//   2. Cluster-internal DNS synthesized from the service's
+		//      Kubernetes Service name + namespace. This is what
+		//      "modern deploy" wants by default — an in-cluster app
+		//      should reach `<svc>.<ns>.svc.cluster.local` regardless
+		//      of any user-authored YAML.
+		//
+		//   3. Localhost fallback for `local*` environments without a
+		//      declared DNS — preserves the legacy `codefly run`
+		//      behavior on dev machines.
 		port := standards.Port(endpoint.Api)
-		//if endpoint.Visibility == resources.VisibilityPublic {
-		var dns *basev0.DNS
-		var err error
-		dns, err = m.dnsManager.GetDNS(ctx, service, endpoint.Name)
-		if err != nil {
-			// For local* environment, just use named port mapping
-			if !env.Local() {
-				return nil, err
+		dns, dnsErr := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
+		if dnsErr != nil && !env.Local() {
+			// Cluster envs: synthesize cluster-internal DNS so deploys
+			// don't depend on a user-authored dns.codefly.yaml file.
+			// Resolves issue #56 — saas-starter deploys hit "no DNS
+			// found" because their dns/ dirs are tuned for run, not
+			// for in-cluster k8s.
+			namespace, nsErr := m.GetNamespace(ctx, env, workspace, service)
+			if nsErr != nil {
+				return nil, nsErr
 			}
-			// w.Warn("using named port")
-			//port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, endpoint.Name, endpoint.Api)
+			dns = &basev0.DNS{
+				Name:     service.Unique(),
+				Module:   service.Module,
+				Service:  service.Name,
+				Endpoint: endpoint.Name,
+				Host:     fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, namespace),
+				Port:     uint32(port),
+				Secured:  false,
+			}
+		} else if dnsErr != nil {
+			// local-env fallback: bind to localhost on the canonical
+			// port for the API kind.
 			dns = &basev0.DNS{
 				Name:     service.Unique(),
 				Module:   service.Module,
@@ -103,15 +136,14 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 				Port:     uint32(port),
 				Secured:  false,
 			}
-			//}
-			if dns == nil {
-				return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)
-			}
+		}
+		if dns != nil {
 			nm.Instances = []*basev0.NetworkInstance{
 				PublicInstance(DNS(service, endpoint, dns)),
 			}
 			w.Debug("will expose public endpoint to load balancer", wool.Field("dns", dns))
 		}
+
 		namespace, err := m.GetNamespace(ctx, env, workspace, service)
 		if err != nil {
 			return nil, err

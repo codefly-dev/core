@@ -1,10 +1,11 @@
+//go:build !skip_infra
+
 package proto_test
 
 import (
 	"context"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
@@ -41,10 +42,7 @@ func TestGenerateGoGRPC(t *testing.T) {
 	destination := t.TempDir()
 
 	err = proto.GenerateGRPC(ctx, languages.GO, destination, "app/svc", grpc)
-	if err != nil && strings.Contains(err.Error(), "No such image") {
-		t.Skipf("proto companion image not built: %s (%s)", err, testutil.BuildCompanionsHint)
-	}
-	require.NoError(t, err)
+	require.NoError(t, err, "proto companion image not built: %s", testutil.BuildCompanionsHint)
 
 	for _, name := range []string{"app_svc_api.pb.go", "app_svc_api_grpc.pb.go"} {
 		require.FileExists(t, filepath.Join(destination, name))
@@ -66,10 +64,7 @@ func TestGeneratePythonGRPC(t *testing.T) {
 	destination := t.TempDir()
 
 	err = proto.GenerateGRPC(ctx, languages.PYTHON, destination, "app/svc", grpc)
-	if err != nil && strings.Contains(err.Error(), "No such image") {
-		t.Skipf("proto companion image not built: %s (%s)", err, testutil.BuildCompanionsHint)
-	}
-	require.NoError(t, err)
+	require.NoError(t, err, "proto companion image not built: %s", testutil.BuildCompanionsHint)
 
 	for _, name := range []string{"app_svc_api_pb2.py", "app_svc_api_pb2_grpc.py"} {
 		require.FileExists(t, filepath.Join(destination, name))

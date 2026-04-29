@@ -131,7 +131,7 @@ func nixVersionAtLeast(major, minor int) bool {
 
 func TestNixRunWithMod(t *testing.T) {
 	if !nixVersionAtLeast(2, 18) {
-		t.Skip("nix >= 2.18 required (current nixpkgs needs it); skipping")
+		t.Fatal("nix >= 2.18 required (current nixpkgs needs it); upgrade Nix or run with -tags skip_infra")
 	}
 
 	wool.SetGlobalLogLevel(wool.DEBUG)

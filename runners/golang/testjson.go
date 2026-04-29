@@ -9,11 +9,12 @@ import (
 
 // TestEvent represents one line of `go test -json` output.
 type TestEvent struct {
-	Action  string  `json:"Action"`
-	Package string  `json:"Package"`
-	Test    string  `json:"Test"`
-	Output  string  `json:"Output"`
-	Elapsed float64 `json:"Elapsed"`
+	Action     string  `json:"Action"`
+	Package    string  `json:"Package"`
+	ImportPath string  `json:"ImportPath"`
+	Test       string  `json:"Test"`
+	Output     string  `json:"Output"`
+	Elapsed    float64 `json:"Elapsed"`
 }
 
 // TestSummary holds the parsed results of a `go test -json` run.
@@ -25,7 +26,10 @@ type TestSummary struct {
 	Coverage float32
 	Failures []string
 
-	failOutput map[string]*strings.Builder
+	failOutput       map[string]*strings.Builder
+	packageOutput    map[string]*strings.Builder
+	packageTestFails map[string]bool
+	packageFailures  map[string]bool
 }
 
 var coverageRe = regexp.MustCompile(`coverage:\s+([\d.]+)%`)
@@ -33,7 +37,23 @@ var coverageRe = regexp.MustCompile(`coverage:\s+([\d.]+)%`)
 // ParseTestJSON parses the accumulated output of `go test -json -cover`.
 func ParseTestJSON(raw string) *TestSummary {
 	s := &TestSummary{
-		failOutput: make(map[string]*strings.Builder),
+		failOutput:       make(map[string]*strings.Builder),
+		packageOutput:    make(map[string]*strings.Builder),
+		packageTestFails: make(map[string]bool),
+		packageFailures:  make(map[string]bool),
+	}
+	recordPackageFailure := func(pkg string) {
+		if pkg == "" || s.packageTestFails[pkg] || s.packageFailures[pkg] {
+			return
+		}
+		s.Run++
+		s.Failed++
+		s.packageFailures[pkg] = true
+		if buf, ok := s.packageOutput[pkg]; ok && buf.Len() > 0 {
+			s.Failures = append(s.Failures, fmt.Sprintf("FAIL %s\n%s", pkg, buf.String()))
+		} else {
+			s.Failures = append(s.Failures, fmt.Sprintf("FAIL %s", pkg))
+		}
 	}
 
 	for _, line := range strings.Split(raw, "\n") {
@@ -44,6 +64,10 @@ func ParseTestJSON(raw string) *TestSummary {
 		var ev TestEvent
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			continue
+		}
+		pkg := ev.Package
+		if pkg == "" {
+			pkg = ev.ImportPath
 		}
 
 		switch ev.Action {
@@ -56,18 +80,30 @@ func ParseTestJSON(raw string) *TestSummary {
 			if ev.Test != "" {
 				s.Run++
 				s.Failed++
-				key := ev.Package + "/" + ev.Test
+				key := pkg + "/" + ev.Test
+				s.packageTestFails[pkg] = true
 				if buf, ok := s.failOutput[key]; ok {
 					s.Failures = append(s.Failures, fmt.Sprintf("FAIL %s\n%s", key, buf.String()))
 				} else {
 					s.Failures = append(s.Failures, fmt.Sprintf("FAIL %s", key))
 				}
+			} else {
+				recordPackageFailure(pkg)
 			}
 		case "skip":
 			if ev.Test != "" {
 				s.Run++
 				s.Skipped++
 			}
+		case "build-output":
+			if pkg != "" {
+				if _, ok := s.packageOutput[pkg]; !ok {
+					s.packageOutput[pkg] = &strings.Builder{}
+				}
+				s.packageOutput[pkg].WriteString(ev.Output)
+			}
+		case "build-fail":
+			recordPackageFailure(pkg)
 		case "output":
 			if m := coverageRe.FindStringSubmatch(ev.Output); len(m) > 1 {
 				var pct float64
@@ -77,11 +113,16 @@ func ParseTestJSON(raw string) *TestSummary {
 				}
 			}
 			if ev.Test != "" {
-				key := ev.Package + "/" + ev.Test
+				key := pkg + "/" + ev.Test
 				if _, ok := s.failOutput[key]; !ok {
 					s.failOutput[key] = &strings.Builder{}
 				}
 				s.failOutput[key].WriteString(ev.Output)
+			} else if pkg != "" {
+				if _, ok := s.packageOutput[pkg]; !ok {
+					s.packageOutput[pkg] = &strings.Builder{}
+				}
+				s.packageOutput[pkg].WriteString(ev.Output)
 			}
 		}
 	}

@@ -149,7 +149,10 @@ func Get(ctx context.Context) *Wool {
 		base.ref = &CodeReference{File: "unknown", Line: 0}
 	}
 	provider, err := get(ctx)
-	if err != nil {
+	if err != nil || provider == nil {
+		// No registered provider OR a typed-nil *Provider stuck on
+		// ctx. Either way, return the fallback Wool — the calling
+		// code's chain (.In/.Wrapf) keeps working without telemetry.
 		return base
 	}
 	base.provider = provider

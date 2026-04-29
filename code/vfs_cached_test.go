@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCachedVFS_BasicOperations(t *testing.T) {
@@ -198,10 +200,7 @@ func TestCachedVFS_FsnotifyUpdatesCache(t *testing.T) {
 
 	// Cache should pick it up
 	info, err := cached.Stat(newFile)
-	if err != nil {
-		t.Skip("fsnotify not working in test environment (expected on some CI)")
-		return
-	}
+	require.NoError(t, err, "fsnotify must work in this environment; if it doesn't, fix the runner")
 	if info.Size() != 12 {
 		t.Fatalf("expected size 12, got %d", info.Size())
 	}

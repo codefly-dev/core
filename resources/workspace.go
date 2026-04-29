@@ -18,6 +18,24 @@ import (
 
 const WorkspaceConfigurationName = "workspace.codefly.yaml"
 
+// WorkspaceGitops declares the git target ArgoCD / Flux watches for
+// rendered manifests. Optional — when nil, gitops-aware tooling falls
+// back to placeholders and emits warnings.
+//
+//	RepoURL: full SSH or HTTPS git remote, e.g.
+//	         "git@github.com:my-org/saas-starter.git" or
+//	         "https://github.com/my-org/saas-starter.git".
+//	Path:    sub-tree within the repo where the rendered manifests
+//	         live. Empty = repo root. Use this when the workspace is
+//	         a sub-directory of a larger monorepo.
+//	Branch:  branch ArgoCD Applications target (defaults to main when
+//	         empty).
+type WorkspaceGitops struct {
+	RepoURL string `yaml:"repo-url,omitempty"`
+	Path    string `yaml:"path,omitempty"`
+	Branch  string `yaml:"branch,omitempty"`
+}
+
 type Workspace struct {
 	Name string `yaml:"name"`
 
@@ -33,6 +51,18 @@ type Workspace struct {
 
 	// Jobs in flat layout (embedded directly, replaces module.codefly.yaml)
 	Jobs []*JobReference `yaml:"jobs,omitempty"`
+
+	// Environments declares deploy targets the CLI knows about.
+	// Each entry can override cluster (kubeconfig), registry, namespace.
+	// Empty list = legacy behavior: env is name-only, kubeconfig/registry
+	// fall back to hardcoded defaults in cli/pkg/deployments + cli/cmd/build.
+	Environments []*Environment `yaml:"environments,omitempty"`
+
+	// Gitops declares where rendered manifests are committed for
+	// ArgoCD/Flux to sync from. Used by `codefly deploy --render-only`
+	// + the module-level scaffold to fill in Application repoURL fields.
+	// nil = no gitops flow declared; CLI tools fall back to placeholders.
+	Gitops *WorkspaceGitops `yaml:"gitops,omitempty"`
 
 	Path string `yaml:"path,omitempty"`
 
@@ -383,6 +413,29 @@ func (workspace *Workspace) LoadService(ctx context.Context, input *ServiceWithM
 
 func Reload(ctx context.Context, workspace *Workspace) (*Workspace, error) {
 	return LoadWorkspaceFromDir(ctx, workspace.Dir())
+}
+
+// FindEnvironment looks up a declared environment by name. Returns nil
+// if the workspace declares no environments or the name doesn't match.
+//
+// Callers (cli/cmd/deploy, cli/cmd/build) treat a nil return as "fall
+// back to legacy behavior" (bare-name env, hardcoded kubeconfig /
+// registry defaults). That preserves backward-compat with workspace
+// YAMLs that haven't been updated to declare environments.
+//
+// "local" is returned synthetically (LocalEnvironment) when not
+// declared, so single-env dev workspaces don't have to add YAML
+// boilerplate just to keep working.
+func (workspace *Workspace) FindEnvironment(name string) *Environment {
+	for _, env := range workspace.Environments {
+		if env.Name == name {
+			return env
+		}
+	}
+	if name == "local" {
+		return LocalEnvironment()
+	}
+	return nil
 }
 
 func (workspace *Workspace) LoadServices(ctx context.Context) ([]*Service, error) {
