@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/codefly-dev/core/runners/sandbox"
 )
@@ -46,20 +47,14 @@ type SandboxPolicy struct {
 // Validate checks the policy is internally consistent. Empty policies
 // are allowed (zero-trust default applied at Apply time).
 func (p *SandboxPolicy) Validate() error {
-	for _, r := range p.ReadPaths {
-		if r == "" {
-			return fmt.Errorf("sandbox.read_paths contains an empty entry")
-		}
+	if slices.Contains(p.ReadPaths, "") {
+		return fmt.Errorf("sandbox.read_paths contains an empty entry")
 	}
-	for _, w := range p.WritePaths {
-		if w == "" {
-			return fmt.Errorf("sandbox.write_paths contains an empty entry")
-		}
+	if slices.Contains(p.WritePaths, "") {
+		return fmt.Errorf("sandbox.write_paths contains an empty entry")
 	}
-	for _, s := range p.UnixSockets {
-		if s == "" {
-			return fmt.Errorf("sandbox.unix_sockets contains an empty entry")
-		}
+	if slices.Contains(p.UnixSockets, "") {
+		return fmt.Errorf("sandbox.unix_sockets contains an empty entry")
 	}
 	switch p.Network {
 	case "", NetworkDeny, NetworkOpen:
