@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/wool"
 	"gopkg.in/yaml.v3"
@@ -17,15 +18,11 @@ import (
 const ToolboxConfigurationName = "toolbox.codefly.yaml"
 
 // ToolboxAgent is the AgentKind tag for toolbox plugins.
-//
-// Note: not yet registered in the basev0.Agent_Kind proto enum —
-// that requires regenerating proto bindings, which is Phase 1.
-// Until then ToolboxAgent is loadable from YAML and usable in Go
-// but does NOT round-trip to proto.AgentKind. Code paths that need
-// proto serialization should guard with a TODO referencing this
-// limitation. Most toolbox tooling is internal and never crosses
-// the proto boundary anyway.
 const ToolboxAgent = AgentKind("codefly:toolbox")
+
+func init() {
+	RegisterAgent(ToolboxAgent, basev0.Agent_TOOLBOX)
+}
 
 // Toolbox is a narrow, capability-focused plugin.
 //
