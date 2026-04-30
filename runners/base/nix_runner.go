@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/sandbox"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -52,6 +53,14 @@ type NixEnvironment struct {
 	// cached env is inspectable on disk.
 	cacheDir string
 
+	// sb is the OS-level confinement applied to every spawned cmd
+	// (mirrors NativeEnvironment). nil means no sandboxing — the
+	// legacy default while callers migrate. Nix-wrapped commands
+	// still benefit from sandbox.Wrap because the wrap targets the
+	// outermost cmd (`nix develop --command bash -c ...`); whatever
+	// nix spawns inside is inside the sandbox.
+	sb sandbox.Sandbox
+
 	out io.Writer
 	ctx context.Context
 }
@@ -78,6 +87,14 @@ func NewNixEnvironment(ctx context.Context, dir string) (*NixEnvironment, error)
 		flakePath: flakePath,
 		out:       w,
 	}, nil
+}
+
+// WithSandbox attaches a sandbox.Sandbox to this environment. See
+// NativeEnvironment.WithSandbox for the contract. Same opt-in
+// semantics; same migration path.
+func (nix *NixEnvironment) WithSandbox(sb sandbox.Sandbox) *NixEnvironment {
+	nix.sb = sb
+	return nix
 }
 
 // WithCacheDir enables persistent materialization caching. Typically
@@ -545,6 +562,18 @@ func (proc *NixProc) start(ctx context.Context) error {
 	w := wool.Get(ctx).In("NixProc.start", wool.DirField(proc.env.dir))
 	// #nosec G204
 	cmd := exec.CommandContext(ctx, proc.cmd[0], proc.cmd[1:]...)
+
+	// Sandbox wrap (parallel to NativeProc.start). For the wrapped
+	// path (cmd = `nix develop --command <real>`), the sandbox is
+	// applied to nix-develop itself; the inner command inherits the
+	// confinement transparently. For the materialized path (cmd =
+	// `<real>` directly), it's identical to native semantics.
+	if proc.env.sb != nil {
+		if err := proc.env.sb.Wrap(cmd); err != nil {
+			return w.Wrapf(err, "sandbox wrap")
+		}
+	}
+
 	cmd.Dir = proc.env.dir
 	if proc.dir != "" {
 		cmd.Dir = proc.dir

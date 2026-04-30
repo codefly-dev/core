@@ -30,6 +30,13 @@ const (
 	Agent_JOB         Agent_Kind = 2
 	Agent_APPLICATION Agent_Kind = 3
 	Agent_MODULE      Agent_Kind = 4
+	// TOOLBOX is a narrow, capability-focused plugin (Code, Git, Docker,
+	// Nix, Bash, Web, gRPC). Distinct from SERVICE: services are
+	// user-deployable processes; toolboxes are codefly-platform utilities
+	// that agents call via MCP-shape Tool/Resource/Prompt RPCs. Each
+	// toolbox carries its own permission boundary (sandbox + canonical_for
+	// declarations in the manifest).
+	Agent_TOOLBOX Agent_Kind = 5
 )
 
 // Enum value maps for Agent_Kind.
@@ -40,6 +47,7 @@ var (
 		2: "JOB",
 		3: "APPLICATION",
 		4: "MODULE",
+		5: "TOOLBOX",
 	}
 	Agent_Kind_value = map[string]int32{
 		"UNKNOWN":     0,
@@ -47,6 +55,7 @@ var (
 		"JOB":         2,
 		"APPLICATION": 3,
 		"MODULE":      4,
+		"TOOLBOX":     5,
 	}
 )
 
@@ -149,19 +158,20 @@ var File_codefly_base_v0_agent_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x1bcodefly/base/v0/agent.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xe2\x01\n" +
+	"\x1bcodefly/base/v0/agent.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xef\x01\n" +
 	"\x05Agent\x12/\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x1b.codefly.base.v0.Agent.KindR\x04kind\x12\x1d\n" +
 	"\x04name\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x02\x182R\x04name\x12'\n" +
 	"\tpublisher\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x182R\tpublisher\x12\x18\n" +
-	"\aversion\x18\x04 \x01(\tR\aversion\"F\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\"S\n" +
 	"\x04Kind\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSERVICE\x10\x01\x12\a\n" +
 	"\x03JOB\x10\x02\x12\x0f\n" +
 	"\vAPPLICATION\x10\x03\x12\n" +
 	"\n" +
-	"\x06MODULE\x10\x04B\xb9\x01\n" +
+	"\x06MODULE\x10\x04\x12\v\n" +
+	"\aTOOLBOX\x10\x05B\xb9\x01\n" +
 	"\x13com.codefly.base.v0B\n" +
 	"AgentProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 
