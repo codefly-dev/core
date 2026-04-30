@@ -123,8 +123,26 @@ func (s *sandboxExecSandbox) buildProfile() (string, error) {
 		}
 	}
 
-	// --- Network: deny by default; opt-in via NetworkOpen ---
-	if s.network != NetworkOpen {
+	// --- Network: tri-state ---
+	//   NetworkOpen     → no rule emitted (default-allow stands)
+	//   NetworkLoopback → deny all, then re-allow localhost only
+	//   NetworkDeny     → deny all (no re-allows)
+	switch s.network {
+	case NetworkOpen:
+		// No rule — the default-allow at the top of the profile
+		// covers network. Operator opt-in.
+	case NetworkLoopback:
+		// Deny everything by default, then re-allow operations on
+		// the loopback interface. Seatbelt's network-bind /
+		// network-outbound / network-inbound all match localhost
+		// via "remote ip" / "local ip" predicates. Cover both
+		// directions so a server (binds locally, accepts inbound
+		// connections from itself) and a client (outbound to
+		// localhost) both work.
+		b.WriteString("(deny network*)\n")
+		b.WriteString(`(allow network* (local ip "localhost:*"))` + "\n")
+		b.WriteString(`(allow network* (remote ip "localhost:*"))` + "\n")
+	case NetworkDeny:
 		b.WriteString("(deny network*)\n")
 	}
 

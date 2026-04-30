@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/sandbox"
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/docker/docker/api/types/container"
@@ -53,6 +54,16 @@ type DockerEnvironment struct {
 	reader   io.ReadCloser
 
 	running bool
+
+	// sb is set for API parity with NativeEnvironment / NixEnvironment.
+	// It is INTENTIONALLY a no-op for Docker: the container itself is
+	// the OS-level isolation boundary, and bwrap / sandbox-exec wrap
+	// host-level exec.Cmd invocations — which Docker doesn't issue
+	// (the docker daemon does, on our behalf, far from this code path).
+	// Holding the field lets workspace orchestrators pass the same
+	// sandbox.Sandbox to every environment without special-casing
+	// Docker; ApplySandbox() preserves the value but never uses it.
+	sb sandbox.Sandbox
 }
 
 var _ RunnerEnvironment = &DockerEnvironment{}
@@ -106,6 +117,22 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerIm
 		return nil, w.Wrapf(err, "cannot get image")
 	}
 	return env, nil
+}
+
+// WithSandbox attaches a sandbox.Sandbox to this environment. Unlike
+// NativeEnvironment.WithSandbox, this is a no-op at execution time:
+// processes run inside the container, and the container's namespace +
+// cgroup boundary IS the sandbox. The field is held for API parity
+// so callers can wire `WithSandbox(sb)` against any RunnerEnvironment
+// without checking the concrete type.
+//
+// If you find yourself reaching for sandbox semantics around docker,
+// the fix is at the container level (drop capabilities, read-only
+// rootfs, --security-opt, network mode) — not by stacking bwrap on
+// top of the docker client.
+func (docker *DockerEnvironment) WithSandbox(sb sandbox.Sandbox) *DockerEnvironment {
+	docker.sb = sb
+	return docker
 }
 
 func (docker *DockerEnvironment) Init(ctx context.Context) error {

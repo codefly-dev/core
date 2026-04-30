@@ -18,6 +18,7 @@ import (
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/resources"
 	runnersbase "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/sandbox"
 	"github.com/codefly-dev/core/wool"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -188,6 +189,8 @@ type loadConfig struct {
 	dialTimeout    time.Duration
 	logWriter      io.Writer // if set, agent stderr is teed to this writer in real time
 	workDir        string    // working directory for the agent process
+	extraEnv       []string  // additional env vars (KEY=VALUE) appended after os.Environ
+	sandbox        sandbox.Sandbox
 }
 
 func defaultLoadConfig() loadConfig {
@@ -220,6 +223,37 @@ func WithLogWriter(w io.Writer) LoadOption {
 // exports CODEFLY_AGENT_WORKDIR so the agent can resolve file paths.
 func WithWorkDir(dir string) LoadOption {
 	return func(c *loadConfig) { c.workDir = dir }
+}
+
+// WithEnv appends KEY=VALUE strings to the agent process's environment.
+// They land AFTER os.Environ so callers' values override the parent's.
+// Multiple WithEnv calls accumulate. Used by toolbox launchers to pass
+// CODEFLY_TOOLBOX_* configuration; equally usable by any caller that
+// needs per-spawn env without polluting the parent process's environ.
+func WithEnv(vars ...string) LoadOption {
+	return func(c *loadConfig) { c.extraEnv = append(c.extraEnv, vars...) }
+}
+
+// WithSandbox attaches an OS-level sandbox to the spawned agent
+// process. The sandbox is applied via sandbox.Wrap on the prepared
+// exec.Cmd before Start; the resulting plugin runs under bwrap
+// (Linux) or sandbox-exec (macOS) with the policy the caller set
+// up — read paths, write paths, network policy, unix sockets.
+//
+// This is the load-bearing security wire: until WithSandbox is
+// passed, the plugin process inherits the parent's full ambient
+// authority. Toolbox manifests declare a SandboxPolicy; the
+// launch layer translates the policy to a sandbox.Sandbox and
+// passes it here.
+//
+// Pass a nil Sandbox (or omit the option) to opt OUT — the agent
+// runs with the parent's authority. We don't make sandbox the
+// default yet because (a) every existing agent has been running
+// without one and tightening uniformly would break things in
+// surprising ways; (b) getting the sandbox policy right per agent
+// kind is a per-plugin migration job. The toolbox path leads.
+func WithSandbox(sb sandbox.Sandbox) LoadOption {
+	return func(c *loadConfig) { c.sandbox = sb }
 }
 
 // Load spawns an agent binary, reads the gRPC port from its stdout,
@@ -295,6 +329,11 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		cmd.Dir = cfg.workDir
 		cmd.Env = append(cmd.Env, "CODEFLY_AGENT_WORKDIR="+cfg.workDir)
 	}
+	if len(cfg.extraEnv) > 0 {
+		// Caller-supplied env wins over parent inheritance — exec
+		// honors the last KEY=VALUE for any duplicate key.
+		cmd.Env = append(cmd.Env, cfg.extraEnv...)
+	}
 	if ep := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); ep != "" {
 		cmd.Env = append(cmd.Env,
 			"OTEL_EXPORTER_OTLP_ENDPOINT="+ep,
@@ -314,6 +353,22 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		cmd.Stderr = io.MultiWriter(stderrBuf, cfg.logWriter)
 	} else {
 		cmd.Stderr = stderrBuf
+	}
+
+	// Sandbox application — must happen AFTER the stdout pipe + stderr
+	// buffer are wired but BEFORE Start. sandbox.Wrap mutates cmd.Path
+	// and cmd.Args (it rewrites the invocation as `bwrap <flags> --
+	// <original cmd>` on Linux or `sandbox-exec -p <profile> <original
+	// cmd>` on macOS). Stdin/Stdout/Stderr/Env/Dir/SysProcAttr are
+	// preserved by the wrap; the previously-attached pipes survive.
+	//
+	// If the wrap fails (backend missing, malformed policy), surface
+	// the error before any process is created — fail loud + clear,
+	// don't silently skip the sandbox.
+	if cfg.sandbox != nil {
+		if err := cfg.sandbox.Wrap(cmd); err != nil {
+			return nil, w.Wrapf(err, "cannot wrap agent in sandbox (%s)", cfg.sandbox.Backend())
+		}
 	}
 
 	if err := cmd.Start(); err != nil {

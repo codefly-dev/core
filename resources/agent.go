@@ -132,6 +132,15 @@ func (p *Agent) IsApplication() bool {
 	return p.Kind == ApplicationAgent
 }
 
+// IsToolbox reports whether this agent is a toolbox plugin
+// (canonical owner of one or more binaries; runs as a host-spawned
+// gRPC server with the codefly.services.toolbox.v0.Toolbox contract).
+// Toolboxes resolve under <home>/agents/toolboxes/<identifier>,
+// alongside services/, applications/, and modules/.
+func (p *Agent) IsToolbox() bool {
+	return p.Kind == ToolboxAgent
+}
+
 func isRunningInDocker() bool {
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		return true
@@ -157,6 +166,8 @@ func (p *Agent) Path(ctx context.Context) (string, error) {
 		subdir = "applications"
 	} else if p.IsModule() {
 		subdir = "modules"
+	} else if p.IsToolbox() {
+		subdir = "toolboxes"
 	} else {
 		return "", fmt.Errorf("unknown agent kind: %s", p.Kind)
 	}

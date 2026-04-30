@@ -74,9 +74,20 @@ func (s *bwrapSandbox) Backend() Backend { return BackendBwrap }
 // it doesn't, because bwrap-inside-bwrap fails on namespace setup.
 // Better to surface it as a programmer-error here than as an obscure
 // runtime failure.
+//
+// Returns ErrNetworkLoopbackUnsupported when NetworkLoopback is
+// requested — bwrap's --unshare-net is binary, and bringing the
+// loopback interface up inside the new netns requires either a
+// helper binary (slirp4netns / a netlink-using preamble) or root.
+// Documented as a future architectural piece in
+// project_security_e2e.md; until it's implemented, callers must
+// pick NetworkOpen or NetworkDeny on Linux.
 func (s *bwrapSandbox) Wrap(cmd *exec.Cmd) error {
 	if cmd.Path == s.binary {
 		return fmt.Errorf("sandbox.Wrap: cmd already wrapped by %s; constructing a fresh exec.Cmd is the supported pattern", s.binary)
+	}
+	if s.network == NetworkLoopback {
+		return ErrNetworkLoopbackUnsupported
 	}
 
 	args := s.buildArgs()
@@ -88,6 +99,14 @@ func (s *bwrapSandbox) Wrap(cmd *exec.Cmd) error {
 	cmd.Args = append([]string{s.binary}, args...)
 	return nil
 }
+
+// ErrNetworkLoopbackUnsupported is returned by the bwrap backend when
+// NetworkLoopback is requested. macOS sandbox-exec supports it; Linux
+// support is gated on a netns-loopback helper that hasn't been
+// implemented yet. Callers handle this by either falling back to
+// NetworkOpen (less secure but functional) or refusing to start the
+// plugin (most secure but blocks Linux users until the helper lands).
+var ErrNetworkLoopbackUnsupported = fmt.Errorf("sandbox: NetworkLoopback not implemented on Linux bwrap backend (need lo-up helper inside unshared netns); pick NetworkOpen or NetworkDeny, or implement the wrapper — see project_security_e2e.md")
 
 // buildArgs constructs the bwrap argv (excluding the leading binary
 // name and excluding the trailing `--` + payload — those are added by

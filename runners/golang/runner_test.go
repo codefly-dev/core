@@ -20,7 +20,12 @@ import (
 	"github.com/codefly-dev/core/shared"
 )
 
-func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment, withModule bool) {
+// testGo exercises a configured GoRunnerEnvironment end-to-end:
+// initialize, build the binary, run it, observe output, stop. All
+// callers run go-module-mode programs (Go 1.21+ defaults to module
+// mode and the legacy GOPATH path was dropped — see
+// TestDockerRunNoMod removal).
+func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) {
 
 	cacheDir, _ := os.MkdirTemp("", "cache")
 	env.WithLocalCacheDir(cacheDir)
@@ -41,10 +46,8 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment, 
 	err = env.BuildBinary(ctx)
 	require.NoError(t, err)
 
-	// Check that the go mod has some modules
-	if withModule {
-		require.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, goModDir)))
-	}
+	// The go.mod resolution should have populated the module dir.
+	require.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, goModDir)))
 
 	// Check that the binary is there
 	require.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, cacheDir)))
@@ -94,7 +97,7 @@ func TestNativeRunWithMod(t *testing.T) {
 	ctx := context.Background()
 	env, err := golang.NewNativeGoRunner(ctx, shared.MustSolvePath("testdata"), "mod")
 	require.NoError(t, err)
-	testGo(t, ctx, env, true)
+	testGo(t, ctx, env)
 }
 
 func TestNativeRunWithModAndCGO(t *testing.T) {
@@ -103,7 +106,7 @@ func TestNativeRunWithModAndCGO(t *testing.T) {
 	env, err := golang.NewNativeGoRunner(ctx, shared.MustSolvePath("testdata"), "mod_cgo")
 	require.NoError(t, err)
 	env.WithCGO(true)
-	testGo(t, ctx, env, true)
+	testGo(t, ctx, env)
 }
 
 // nixVersionAtLeast returns true if the installed nix is >= major.minor.
@@ -154,7 +157,7 @@ func TestNixRunWithMod(t *testing.T) {
 
 	env, err := golang.NewNixGoRunner(ctx, tmpDir, "mod")
 	require.NoError(t, err)
-	testGo(t, ctx, env, true)
+	testGo(t, ctx, env)
 }
 
 func TestDockerRunWithMod(t *testing.T) {
@@ -167,7 +170,7 @@ func TestDockerRunWithMod(t *testing.T) {
 		name)
 	require.NoError(t, err)
 
-	testGo(t, ctx, env, true)
+	testGo(t, ctx, env)
 
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)
@@ -184,24 +187,9 @@ func TestDockerRunWithModAndCGO(t *testing.T) {
 	require.NoError(t, err)
 
 	env.WithCGO(true)
-	testGo(t, ctx, env, true)
+	testGo(t, ctx, env)
 
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)
 }
 
-func TestDockerRunNoMod(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	name := fmt.Sprintf("test-no-mod-%d", time.Now().UnixMilli())
-	ctx := context.Background()
-	env, err := golang.NewDockerGoRunner(ctx,
-		resources.NewDockerImage("golang:1.26-alpine"),
-		shared.MustSolvePath("testdata"), "no_mod",
-		name)
-	require.NoError(t, err)
-
-	testGo(t, ctx, env, false)
-
-	err = env.Shutdown(ctx)
-	require.NoError(t, err)
-}

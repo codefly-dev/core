@@ -17,6 +17,25 @@ const (
 	// NetworkOpen leaves networking unrestricted. Explicit opt-in only,
 	// because nothing surfaces "this tool just made an outbound call."
 	NetworkOpen
+
+	// NetworkLoopback allows local 127.0.0.1 traffic only — the
+	// plugin can bind/connect on loopback (so its gRPC handshake to
+	// the parent works) but EVERY outbound or external connection
+	// is blocked by the OS sandbox.
+	//
+	// This is the secure-by-default policy for codefly plugins:
+	// they need loopback for the agent handshake, and they should
+	// NOT be making outbound calls without an explicit grant.
+	//
+	// Backend status:
+	//   macOS sandbox-exec — implemented (rule on localhost ip).
+	//   Linux bwrap        — NOT implemented; needs `ip link set lo up`
+	//                        inside the unshared netns (the new netns
+	//                        has lo DOWN by default). Falls back to
+	//                        a clear error from Wrap so callers see
+	//                        the limitation rather than silent
+	//                        under/over-permissive behavior.
+	NetworkLoopback
 )
 
 // Backend identifies which sandbox implementation is in use.

@@ -15,6 +15,7 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 
 	"google.golang.org/grpc"
@@ -30,20 +31,29 @@ const ProtocolVersion = 1
 //
 // Plugins implement the capabilities they need:
 //   - Infrastructure (redis, postgres): Agent + Runtime
-//   - Application (go-grpc, python-fastapi): Agent + Runtime + Builder + Tooling
+//   - Application (go-grpc, python-fastapi): Agent + Runtime + Builder + Tooling/Toolbox
+//   - Capability toolboxes (git, docker, nix, web, grpc): Agent + Toolbox only
 //   - Tooling-only (go-analyzer): Agent + Tooling
 //
 // Separation of concerns:
 //   - Runtime: service lifecycle (Load/Init/Start/Stop/Destroy)
 //   - Builder: Docker build + k8s deploy + scaffolding
-//   - Code: file/git/LSP operations (deprecated — use Tooling for language-specific ops)
-//   - Tooling: language-specific analysis (LSP, callgraph, fix, deps, build/test/lint)
+//   - Code: file/git/LSP operations (deprecated — use Tooling/Toolbox for language-specific ops)
+//   - Tooling: language-specific typed analysis (LSP, callgraph, fix, deps, build/test/lint).
+//             To be collapsed into Toolbox via the conventional `lang.*` tool set;
+//             remains for transition while consumers (Mind) migrate to the typed wrapper
+//             over CallTool.
+//   - Toolbox: MCP-shape callable surface — Identity / ListTools / CallTool / Resources /
+//             Prompts. The unified contract going forward. Capability plugins (git, docker,
+//             nix, web, grpc) expose only this; language plugins expose it alongside Tooling
+//             until the migration completes.
 type PluginRegistration struct {
 	Agent   agentv0.AgentServer
 	Runtime runtimev0.RuntimeServer
 	Builder builderv0.BuilderServer
-	Code    codev0.CodeServer           // Deprecated: use Tooling for language-specific operations.
-	Tooling toolingv0.ToolingServer     // Language analysis: LSP, callgraph, fix, deps, build/test/lint.
+	Code    codev0.CodeServer       // Deprecated: use Tooling/Toolbox for language-specific operations.
+	Tooling toolingv0.ToolingServer // Transitional: collapses into Toolbox via lang.* convention.
+	Toolbox toolboxv0.ToolboxServer // The unified callable contract (MCP-shape).
 }
 
 // agentRPCInterceptor logs incoming RPCs with method name and duration
@@ -211,6 +221,9 @@ func Serve(reg PluginRegistration) {
 	}
 	if reg.Tooling != nil {
 		toolingv0.RegisterToolingServer(s, reg.Tooling)
+	}
+	if reg.Toolbox != nil {
+		toolboxv0.RegisterToolboxServer(s, reg.Toolbox)
 	}
 
 	// Standard grpc.health.v1 server. Lets the CLI replace the old

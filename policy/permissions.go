@@ -2,7 +2,9 @@ package policy
 
 import (
 	"fmt"
+	"os"
 	"slices"
+	"strings"
 
 	"github.com/codefly-dev/core/runners/sandbox"
 )
@@ -20,6 +22,12 @@ const (
 	// NetworkOpen leaves network unrestricted. Explicit opt-in only.
 	// Auditors should grep for `network: open` in manifests.
 	NetworkOpen NetworkPolicy = "open"
+
+	// NetworkLoopback allows 127.0.0.1 only — required for the
+	// agent loader's gRPC handshake to reach the plugin's
+	// loopback listener, while denying every external connection.
+	// Recommended secure default for plugin manifests.
+	NetworkLoopback NetworkPolicy = "loopback"
 )
 
 // SandboxPolicy is the YAML-shaped permission block a plugin manifest
@@ -57,10 +65,10 @@ func (p *SandboxPolicy) Validate() error {
 		return fmt.Errorf("sandbox.unix_sockets contains an empty entry")
 	}
 	switch p.Network {
-	case "", NetworkDeny, NetworkOpen:
+	case "", NetworkDeny, NetworkOpen, NetworkLoopback:
 		// "" defaults to NetworkDeny at Apply time.
 	default:
-		return fmt.Errorf("sandbox.network: %q is not one of {deny, open}", p.Network)
+		return fmt.Errorf("sandbox.network: %q is not one of {deny, open, loopback}", p.Network)
 	}
 	return nil
 }
@@ -70,6 +78,61 @@ func (p *SandboxPolicy) Validate() error {
 // policy package doesn't need to know how to find the workspace.
 type PathExpander interface {
 	Expand(s string) (string, error)
+}
+
+// MapExpander is the standard PathExpander backed by an explicit
+// map of placeholder name (without the ${}) → expansion. Use
+// NewExpander to construct one with sensible defaults seeded from
+// the current process (HOME, TMPDIR) plus a caller-supplied
+// WORKSPACE.
+//
+// Lookups for placeholders not in the map fail loud — that's the
+// contract: a typo in a manifest must surface at load time, never
+// silently expand to "".
+type MapExpander map[string]string
+
+// NewExpander returns a MapExpander seeded with HOME (from
+// os.UserHomeDir, falling back to $HOME), TMPDIR (from os.TempDir),
+// and WORKSPACE (from the supplied argument). Empty workspace
+// means "no ${WORKSPACE} expansion available" — manifests using it
+// will fail loudly. Callers that have additional placeholders
+// (CACHE_DIR, AGENT_ROOT, …) can copy the map and add to it.
+func NewExpander(workspace string) MapExpander {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = os.Getenv("HOME")
+	}
+	e := MapExpander{
+		"HOME":   home,
+		"TMPDIR": os.TempDir(),
+	}
+	if workspace != "" {
+		e["WORKSPACE"] = workspace
+	}
+	return e
+}
+
+// Expand replaces ${KEY} tokens with their mapped expansions.
+// Strings without "${" pass through unchanged. Unknown placeholders
+// return an error naming the offending input.
+func (e MapExpander) Expand(s string) (string, error) {
+	if !strings.Contains(s, "${") {
+		return s, nil
+	}
+	out := s
+	for k, v := range e {
+		token := "${" + k + "}"
+		if strings.Contains(out, token) {
+			if v == "" {
+				return "", fmt.Errorf("placeholder %s has empty expansion in: %s", token, s)
+			}
+			out = strings.ReplaceAll(out, token, v)
+		}
+	}
+	if strings.Contains(out, "${") {
+		return "", fmt.Errorf("unknown placeholder in: %s", s)
+	}
+	return out, nil
 }
 
 // Apply translates a SandboxPolicy into a configured sandbox.Sandbox.
@@ -120,12 +183,14 @@ func (p *SandboxPolicy) Apply(sb sandbox.Sandbox, expand PathExpander) error {
 		sb.WithUnixSockets(sockets...)
 	}
 
-	// Default to deny when unset. Explicit Open in YAML stays Open.
+	// Default to deny when unset. Explicit values are honored.
 	switch p.Network {
 	case "", NetworkDeny:
 		sb.WithNetwork(sandbox.NetworkDeny)
 	case NetworkOpen:
 		sb.WithNetwork(sandbox.NetworkOpen)
+	case NetworkLoopback:
+		sb.WithNetwork(sandbox.NetworkLoopback)
 	}
 	return nil
 }
