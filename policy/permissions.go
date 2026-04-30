@@ -84,27 +84,32 @@ type PathExpander interface {
 // expand is called on every path entry; it should fail loudly when a
 // referenced placeholder is unset rather than silently substituting
 // "" (which would create an unintended catch-all subpath rule).
+//
+// Paths are expanded then handed to the sandbox in single batched
+// calls per category — the underlying With* methods are variadic
+// and storing many slices' worth of one-element appends is wasteful.
 func (p *SandboxPolicy) Apply(sb sandbox.Sandbox, expand PathExpander) error {
-	for _, raw := range p.ReadPaths {
-		expanded, err := expand.Expand(raw)
-		if err != nil {
-			return fmt.Errorf("expand read_path %q: %w", raw, err)
-		}
-		sb.WithReadPaths(expanded)
+	readPaths, err := expandAll(expand, p.ReadPaths, "read_path")
+	if err != nil {
+		return err
 	}
-	for _, raw := range p.WritePaths {
-		expanded, err := expand.Expand(raw)
-		if err != nil {
-			return fmt.Errorf("expand write_path %q: %w", raw, err)
-		}
-		sb.WithWritePaths(expanded)
+	writePaths, err := expandAll(expand, p.WritePaths, "write_path")
+	if err != nil {
+		return err
 	}
-	for _, raw := range p.UnixSockets {
-		expanded, err := expand.Expand(raw)
-		if err != nil {
-			return fmt.Errorf("expand unix_socket %q: %w", raw, err)
-		}
-		sb.WithUnixSockets(expanded)
+	sockets, err := expandAll(expand, p.UnixSockets, "unix_socket")
+	if err != nil {
+		return err
+	}
+
+	if len(readPaths) > 0 {
+		sb.WithReadPaths(readPaths...)
+	}
+	if len(writePaths) > 0 {
+		sb.WithWritePaths(writePaths...)
+	}
+	if len(sockets) > 0 {
+		sb.WithUnixSockets(sockets...)
 	}
 
 	// Default to deny when unset. Explicit Open in YAML stays Open.
@@ -115,4 +120,22 @@ func (p *SandboxPolicy) Apply(sb sandbox.Sandbox, expand PathExpander) error {
 		sb.WithNetwork(sandbox.NetworkOpen)
 	}
 	return nil
+}
+
+// expandAll runs expand over each input, collecting expanded paths
+// in order. Wraps the expander error with the YAML field name so
+// the caller knows which list was involved.
+func expandAll(expand PathExpander, raws []string, kind string) ([]string, error) {
+	if len(raws) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(raws))
+	for _, raw := range raws {
+		expanded, err := expand.Expand(raw)
+		if err != nil {
+			return nil, fmt.Errorf("expand %s %q: %w", kind, raw, err)
+		}
+		out = append(out, expanded)
+	}
+	return out, nil
 }

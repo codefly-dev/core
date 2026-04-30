@@ -80,9 +80,31 @@ func TestWeb_Fetch_AllowsListedHost(t *testing.T) {
 	require.Empty(t, resp.Error, "allowlisted host should fetch successfully")
 
 	out := resp.Content[0].GetStructured().AsMap()
-	require.EqualValues(t, 200, out["status"])
+	require.EqualValues(t, 200, out["status_code"], "status_code is the integer code (post-split)")
+	require.Equal(t, "OK", out["status_text"], "status_text is the reason phrase only — no leading code")
 	require.Equal(t, "hello", out["body"])
 	require.Equal(t, false, out["truncated"])
+}
+
+func TestWeb_Fetch_AllowsAnyPortOnAllowedHost(t *testing.T) {
+	// httptest binds to an ephemeral port. Allowlist entry is the
+	// bare hostname; the explicit port in the URL must not gate the
+	// match. Pins the documented behavior: hostname is the unit of
+	// trust, port is not.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(204)
+	}))
+	defer ts.Close()
+
+	srv := web.New("0.0.1").WithAllowedDomains(hostOf(t, ts))
+	args, _ := structpb.NewStruct(map[string]any{"url": ts.URL})
+	resp, err := srv.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+		Name:      "web.fetch",
+		Arguments: args,
+	})
+	require.NoError(t, err)
+	require.Empty(t, resp.Error,
+		"explicit port in URL must not gate the allowlist match — hostname is the unit of trust")
 }
 
 func TestWeb_Fetch_RejectsNonHTTP(t *testing.T) {

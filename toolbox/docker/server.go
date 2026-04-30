@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -19,15 +20,21 @@ import (
 // until the first tool call. This means a Server is cheap to create
 // and tests don't need a live daemon to exercise schema/dispatch
 // logic; only the daemon-touching tools need it.
+//
+// The lazy init is once-only and safe under concurrent CallTool —
+// sync.Once guards the client creation so concurrent first callers
+// don't both create + leak Docker clients (a real bug caught in
+// review of an earlier draft that did read-then-write without a lock).
 type Server struct {
 	toolboxv0.UnimplementedToolboxServer
 
 	version string
 
-	// cli is created on first use via dockerClient(); subsequent
-	// calls reuse it. Closed via Close() to release the underlying
-	// HTTP transport.
-	cli *client.Client
+	// initOnce guards the one-shot Docker client creation. After it
+	// fires, cli + initErr are stable for the Server's lifetime.
+	initOnce sync.Once
+	cli      *client.Client
+	initErr  error
 }
 
 // New returns a Server.
@@ -36,6 +43,12 @@ func New(version string) *Server {
 }
 
 // Close releases the Docker SDK client. Idempotent.
+//
+// Calling Close before any CallTool is a no-op (initOnce hasn't
+// fired). Calling it after CallTool but while another goroutine is
+// mid-CallTool risks closing the client out from under it — by
+// convention Close should be called only when the Server is being
+// torn down and no further calls are in flight.
 func (s *Server) Close() error {
 	if s.cli == nil {
 		return nil
@@ -45,18 +58,22 @@ func (s *Server) Close() error {
 	return err
 }
 
-// dockerClient lazily creates the Docker SDK client. Subsequent
-// calls return the cached instance.
+// dockerClient returns the lazily-initialized Docker SDK client.
+// Concurrent first callers all observe the same client (or the
+// same init error) — sync.Once enforces at-most-once creation.
 func (s *Server) dockerClient() (*client.Client, error) {
-	if s.cli != nil {
-		return s.cli, nil
+	s.initOnce.Do(func() {
+		cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+		if err != nil {
+			s.initErr = fmt.Errorf("docker client init: %w", err)
+			return
+		}
+		s.cli = cli
+	})
+	if s.initErr != nil {
+		return nil, s.initErr
 	}
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return nil, fmt.Errorf("docker client init: %w", err)
-	}
-	s.cli = cli
-	return cli, nil
+	return s.cli, nil
 }
 
 // --- Identity ----------------------------------------------------

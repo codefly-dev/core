@@ -59,11 +59,18 @@ func New(version string) *Server {
 	}
 }
 
-// WithAllowedDomains adds hosts to the allowlist. Subdomain matching
-// is exact: "example.com" allows https://example.com/x but NOT
-// https://api.example.com/x — that's a separate entry. Strict
-// matching avoids the wildcard-subdomain footgun where a typo'd
-// `*.example.com` allows attacker-controlled `evilexample.com.`.
+// WithAllowedDomains adds hosts to the allowlist. Match semantics:
+//
+//   - Hostname-only: subdomain match is EXACT. "example.com" allows
+//     https://example.com/x but NOT https://api.example.com/x —
+//     that's a separate entry. Strict matching avoids the wildcard-
+//     subdomain footgun where a typo'd `*.example.com` allows
+//     attacker-controlled `evilexample.com`.
+//
+//   - Ports: the URL hostname is matched WITHOUT the port. An entry
+//     of "example.com" allows both `example.com` and `example.com:8080`.
+//     If you need port-based isolation, wrap requests in a service
+//     boundary; the toolbox treats hostnames as the unit of trust.
 func (s *Server) WithAllowedDomains(domains ...string) *Server {
 	for _, d := range domains {
 		s.allowedDomains[strings.ToLower(d)] = struct{}{}
@@ -220,12 +227,20 @@ func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*to
 		headers[k] = strings.Join(vals, ", ")
 	}
 
+	// Split the status into separate code + reason fields. resp.Status
+	// is like "200 OK" — agents parsing it as an integer would fail,
+	// and there's no clean way to signal the split implicitly. Two
+	// fields removes the ambiguity at zero cost.
+	statusText := resp.Status
+	if idx := strings.IndexByte(statusText, ' '); idx > 0 {
+		statusText = statusText[idx+1:]
+	}
 	payload := map[string]any{
-		"status":     resp.StatusCode,
-		"status_text": resp.Status,
-		"headers":    headers,
-		"body":       string(bodyBytes),
-		"truncated":  truncated,
+		"status_code": resp.StatusCode, // canonical: integer status (200)
+		"status_text": statusText,      // reason phrase only ("OK")
+		"headers":     headers,
+		"body":        string(bodyBytes),
+		"truncated":   truncated,
 	}
 	return structResp(payload), nil
 }

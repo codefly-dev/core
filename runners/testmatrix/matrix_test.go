@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"strings"
 	"testing"
 
 	runners "github.com/codefly-dev/core/runners/base"
@@ -39,8 +38,13 @@ func TestForEachEnvironment_Echo(t *testing.T) {
 		if err := proc.Run(context.Background()); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
-		if !strings.Contains(buf.String(), "hello") {
-			t.Fatalf("expected output to contain %q, got %q", "hello", buf.String())
+		// Tighten the assertion to the exact echo output. The earlier
+		// `strings.Contains` form would pass on "hello world" or
+		// "nothello" — both bogus, both green.
+		if got := buf.String(); got != "hello\n" && got != "hello" {
+			// Some Procs/buffers strip the trailing newline; accept
+			// either as long as nothing else surrounds it.
+			t.Fatalf("expected exactly %q (or trimmed), got %q", "hello\n", got)
 		}
 	}, testmatrix.Only("native", "docker"))
 }

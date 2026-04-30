@@ -85,6 +85,21 @@ func TestBash_DeniesGit_InSubshell(t *testing.T) {
 	require.Equal(t, "git", routed.Binary)
 }
 
+func TestBash_DeniesGit_InProcessSubstitution(t *testing.T) {
+	// Process substitution `<(cmd)` runs cmd in a subshell and
+	// passes a /dev/fd/N file. The AST walker must descend into
+	// the inner command — this test catches a regression where
+	// CallExpr inside ProcSubst nodes are missed.
+	tb, _ := newToolbox(t)
+	ctx := context.Background()
+
+	_, err := tb.Exec(ctx, "diff <(git log) <(echo)")
+	require.Error(t, err, "process substitution must not bypass canonical routing")
+	var routed *bash.CanonicalRoutedError
+	require.True(t, errors.As(err, &routed))
+	require.Equal(t, "git", routed.Binary)
+}
+
 func TestBash_DeniesGit_WithLeadingPath(t *testing.T) {
 	tb, _ := newToolbox(t)
 	ctx := context.Background()
