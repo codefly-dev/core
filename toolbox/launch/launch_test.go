@@ -84,7 +84,15 @@ func TestLaunch_FromManifest_RoundTrip(t *testing.T) {
 	require.NoError(t, tb.Validate())
 	installPluginAtAgentPath(t, ctx, codeflyHome, tb.Agent)
 
-	plugin, err := launch.Launch(ctx, tb,
+	// SkipSandbox: this test exercises manifest → spawn → typed-RPC,
+	// NOT the OS sandbox enforcement layer. Sandbox is exercised by
+	// the dedicated e2e tests in sandbox_e2e_test.go (build-tagged
+	// for environments with an enforcing backend). Without
+	// SkipSandbox, this test would require bwrap on Linux CI and
+	// fail to build a sandbox before reaching the actual contract
+	// being tested.
+	plugin, err := launch.LaunchWithOptions(ctx, tb,
+		launch.Options{Workspace: "", SkipSandbox: true},
 		manager.WithEnv("CODEFLY_TOOLBOX_WORKSPACE="+workspace),
 	)
 	require.NoError(t, err, "launch must succeed via manager.Load")

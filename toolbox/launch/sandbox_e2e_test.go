@@ -1,3 +1,15 @@
+//go:build sandbox_e2e
+
+// Build-tagged: these tests require a working OS sandbox backend
+// (bwrap on Linux, sandbox-exec on macOS) AND issue real network
+// fetches. They prove the security stack composes end-to-end and
+// are slow + dependency-heavy. CI matrices that have the backends
+// installed run with `go test -tags sandbox_e2e ./...`. The
+// no-tag default skips them at compile time — which satisfies
+// the no-t.Skip rule (skipping is the right behavior for a missing
+// system dep; doing it via a build tag rather than t.Skip means
+// the absence is visible in the build configuration, not silent
+// at runtime).
 package launch_test
 
 import (
