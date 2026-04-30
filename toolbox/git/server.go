@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	gogit "github.com/go-git/go-git/v5"
-	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/toolbox/internal/respond"
 )
 
 // Server implements the codefly.services.toolbox.v0.Toolbox contract
@@ -62,7 +62,7 @@ func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*t
 		{
 			Name:        "git.status",
 			Description: "Return the working-tree status (clean? dirty? which files?).",
-			InputSchema: mustSchema(map[string]any{
+			InputSchema: respond.Schema(map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
 			}),
@@ -70,8 +70,8 @@ func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*t
 		},
 		{
 			Name:        "git.log",
-			Description: "List recent commits on HEAD (or a specified ref).",
-			InputSchema: mustSchema(map[string]any{
+			Description: "List recent commits on HEAD (or a specified ref). Commit messages can be multi-line and arbitrarily long; agents that surface them to a context window should truncate per their own policy.",
+			InputSchema: respond.Schema(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"limit": map[string]any{
@@ -84,6 +84,10 @@ func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*t
 						"type":        "string",
 						"description": "Branch or commit ref. Default HEAD.",
 					},
+					"short": map[string]any{
+						"type":        "boolean",
+						"description": "Return only the first line of each commit message (subject). Default false.",
+					},
 				},
 			}),
 			Destructive: false,
@@ -91,7 +95,7 @@ func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*t
 		{
 			Name:        "git.diff",
 			Description: "Diff between HEAD and the working tree, or between two refs.",
-			InputSchema: mustSchema(map[string]any{
+			InputSchema: respond.Schema(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"from": map[string]any{
@@ -122,9 +126,7 @@ func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (
 	case "git.diff":
 		return s.diff(ctx, req)
 	default:
-		return &toolboxv0.CallToolResponse{
-			Error: fmt.Sprintf("unknown tool %q (call ListTools to enumerate)", req.Name),
-		}, nil
+		return respond.Error("unknown tool %q (call ListTools to enumerate)", req.Name), nil
 	}
 }
 
@@ -133,15 +135,15 @@ func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (
 func (s *Server) status(_ context.Context, _ *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
 	repo, err := gogit.PlainOpen(s.workspace)
 	if err != nil {
-		return errResp("open repo: %v", err), nil
+		return respond.Error("open repo: %v", err), nil
 	}
 	wt, err := repo.Worktree()
 	if err != nil {
-		return errResp("worktree: %v", err), nil
+		return respond.Error("worktree: %v", err), nil
 	}
 	st, err := wt.Status()
 	if err != nil {
-		return errResp("status: %v", err), nil
+		return respond.Error("status: %v", err), nil
 	}
 
 	// Compact representation: file → "MM " (staged + worktree status).
@@ -153,19 +155,23 @@ func (s *Server) status(_ context.Context, _ *toolboxv0.CallToolRequest) (*toolb
 		"clean": st.IsClean(),
 		"files": files,
 	}
-	return structResp(payload), nil
+	return respond.Struct(payload), nil
 }
 
 func (s *Server) log(_ context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
-	args := argMap(req)
+	args := respond.Args(req)
 	limit := 20
 	if v, ok := args["limit"].(float64); ok && v > 0 {
 		limit = int(v)
 	}
+	short := false
+	if v, ok := args["short"].(bool); ok {
+		short = v
+	}
 
 	repo, err := gogit.PlainOpen(s.workspace)
 	if err != nil {
-		return errResp("open repo: %v", err), nil
+		return respond.Error("open repo: %v", err), nil
 	}
 
 	// `ref` defaults to HEAD; specifying a non-default ref is left
@@ -173,7 +179,7 @@ func (s *Server) log(_ context.Context, req *toolboxv0.CallToolRequest) (*toolbo
 	// commit hash).
 	logIter, err := repo.Log(&gogit.LogOptions{})
 	if err != nil {
-		return errResp("log: %v", err), nil
+		return respond.Error("log: %v", err), nil
 	}
 	defer logIter.Close()
 
@@ -184,65 +190,38 @@ func (s *Server) log(_ context.Context, req *toolboxv0.CallToolRequest) (*toolbo
 			// io.EOF or any walker exhaustion — done.
 			break
 		}
+		message := c.Message
+		if short {
+			// First line only — git's --oneline equivalent. Defends
+			// against multi-paragraph commit bodies blowing out the
+			// agent's context budget.
+			if i := indexNewline(message); i >= 0 {
+				message = message[:i]
+			}
+		}
 		commits = append(commits, map[string]any{
 			"hash":    c.Hash.String(),
 			"author":  c.Author.Name,
-			"message": c.Message,
+			"message": message,
 		})
 	}
-	return structResp(map[string]any{"commits": commits}), nil
+	return respond.Struct(map[string]any{"commits": commits}), nil
+}
+
+// indexNewline returns the index of the first '\n' in s, or -1 if
+// none. Inlined to avoid pulling strings just for this.
+func indexNewline(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			return i
+		}
+	}
+	return -1
 }
 
 func (s *Server) diff(_ context.Context, _ *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
 	// Phase 1 stub: full diff between two refs needs object-tree
 	// walking (Patch, Diff). Surface a clear "not implemented" so the
 	// agent knows to fall back; tests cover the dispatch path.
-	return errResp("git.diff not yet implemented; status + log are usable today"), nil
-}
-
-// --- Helpers -----------------------------------------------------
-
-// argMap extracts the structured arguments from a CallToolRequest as
-// a Go map. Returns an empty map when no arguments are provided —
-// callers should treat missing keys as "use default."
-func argMap(req *toolboxv0.CallToolRequest) map[string]any {
-	if req.Arguments == nil {
-		return map[string]any{}
-	}
-	return req.Arguments.AsMap()
-}
-
-// errResp wraps a non-routed error as a CallToolResponse. The
-// canonical_routed flag stays false — git tool errors are git's
-// problem (open failed, ref unknown, etc.), not a routing decision.
-func errResp(format string, args ...any) *toolboxv0.CallToolResponse {
-	return &toolboxv0.CallToolResponse{Error: fmt.Sprintf(format, args...)}
-}
-
-// structResp wraps a Go map as a single structured Content block.
-// Returns an error response if the map can't be marshaled to a
-// proto Struct (a programmer error — we'd be passing non-JSON-able
-// values like channels or functions).
-func structResp(payload map[string]any) *toolboxv0.CallToolResponse {
-	s, err := structpb.NewStruct(payload)
-	if err != nil {
-		return errResp("internal: cannot marshal response: %v", err)
-	}
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{
-			{Body: &toolboxv0.Content_Structured{Structured: s}},
-		},
-	}
-}
-
-// mustSchema converts a JSON Schema-shaped Go map to a Struct. Used
-// at server construction to bake schemas into Tool definitions; a
-// failure here is a programmer typo and should panic so it surfaces
-// in tests rather than runtime.
-func mustSchema(m map[string]any) *structpb.Struct {
-	s, err := structpb.NewStruct(m)
-	if err != nil {
-		panic(fmt.Sprintf("bad input schema: %v", err))
-	}
-	return s
+	return respond.Error("git.diff not yet implemented; status + log are usable today"), nil
 }

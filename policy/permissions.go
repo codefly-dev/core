@@ -81,6 +81,19 @@ type PathExpander interface {
 // The resulting sandbox is ready to Wrap() commands that should run
 // under the policy.
 //
+// **Mutation contract.** Apply MUTATES sb in-place — it calls the
+// fluent With* setters on the passed-in sandbox. Callers who Apply a
+// policy and then call sb.WithNetwork(NetworkOpen) afterward will
+// override the manifest's intent silently. Recommended pattern:
+//
+//	sb, _ := sandbox.New()
+//	policy.Apply(&pol, sb, expand)   // configure
+//	cmd := exec.Command("...")
+//	sb.Wrap(cmd)                     // use; no further With* calls
+//
+// Don't share a sandbox across goroutines after Apply unless every
+// goroutine treats it as immutable.
+//
 // expand is called on every path entry; it should fail loudly when a
 // referenced placeholder is unset rather than silently substituting
 // "" (which would create an unintended catch-all subpath rule).

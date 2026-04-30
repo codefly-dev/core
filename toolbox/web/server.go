@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/protobuf/types/known/structpb"
-
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/toolbox/internal/respond"
 )
 
 // MaxBodyBytes caps any single fetch's response body. Above this,
@@ -49,15 +48,40 @@ type Server struct {
 // refused until WithAllowedDomains is called). This is the
 // safe-by-default position — adding domains is an explicit policy
 // decision the operator must make.
+//
+// The http.Client is configured with a CheckRedirect that
+// re-validates every redirect target against the allowlist.
+// Without this guard, a target ON the allowlist could 302 to a
+// target OFF the allowlist and the toolbox would silently follow,
+// producing the unauthorized request the policy was meant to
+// prevent. Found in code-review pass; not exploitable today
+// because no redirects-leaving-allowlist were exercised, but the
+// guard is the only correct behavior.
 func New(version string) *Server {
-	return &Server{
+	s := &Server{
 		version:        version,
 		allowedDomains: make(map[string]struct{}),
-		httpClient: &http.Client{
-			Timeout: DefaultTimeout,
+	}
+	// CheckRedirect uses a closure (not the bound method value) so
+	// the function captured here always reads s.allowedDomains
+	// freshly — including any domains added by WithAllowedDomains
+	// AFTER construction. A bound method value on Server would
+	// also work, but the closure form is the idiom Go's net/http
+	// docs suggest, and it's clearer at the call site that we're
+	// intentionally re-reading state per redirect.
+	s.httpClient = &http.Client{
+		Timeout: DefaultTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			host := strings.ToLower(req.URL.Hostname())
+			if _, ok := s.allowedDomains[host]; !ok {
+				return fmt.Errorf("redirect to %q blocked: host not on allowlist", host)
+			}
+			return nil
 		},
 	}
+	return s
 }
+
 
 // WithAllowedDomains adds hosts to the allowlist. Match semantics:
 //
@@ -104,7 +128,7 @@ func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*t
 			{
 				Name:        "web.fetch",
 				Description: "Issue a single HTTP request; returns status, headers, body. Body capped at " + fmt.Sprintf("%d", MaxBodyBytes) + " bytes.",
-				InputSchema: mustSchema(map[string]any{
+				InputSchema: respond.Schema(map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"url": map[string]any{
@@ -144,29 +168,29 @@ func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (
 	case "web.fetch":
 		return s.fetch(ctx, req)
 	default:
-		return errResp("unknown tool %q (call ListTools to enumerate)", req.Name), nil
+		return respond.Error("unknown tool %q (call ListTools to enumerate)", req.Name), nil
 	}
 }
 
 // --- Tool implementation -----------------------------------------
 
 func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
-	args := argMap(req)
+	args := respond.Args(req)
 	rawURL, ok := args["url"].(string)
 	if !ok || rawURL == "" {
-		return errResp("web.fetch: url is required"), nil
+		return respond.Error("web.fetch: url is required"), nil
 	}
 
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return errResp("web.fetch: invalid URL: %v", err), nil
+		return respond.Error("web.fetch: invalid URL: %v", err), nil
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return errResp("web.fetch: only http/https URLs are allowed (got %q)", u.Scheme), nil
+		return respond.Error("web.fetch: only http/https URLs are allowed (got %q)", u.Scheme), nil
 	}
 	host := strings.ToLower(u.Hostname())
 	if _, allowed := s.allowedDomains[host]; !allowed {
-		return errResp("web.fetch: host %q not on allowlist; ask the operator to add it", host), nil
+		return respond.Error("web.fetch: host %q not on allowlist; ask the operator to add it", host), nil
 	}
 
 	method := "GET"
@@ -189,7 +213,7 @@ func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*to
 
 	httpReq, err := http.NewRequestWithContext(reqCtx, method, rawURL, body)
 	if err != nil {
-		return errResp("web.fetch: build request: %v", err), nil
+		return respond.Error("web.fetch: build request: %v", err), nil
 	}
 	if hdrs, ok := args["headers"].(map[string]any); ok {
 		for k, v := range hdrs {
@@ -201,7 +225,7 @@ func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*to
 
 	resp, err := s.httpClient.Do(httpReq)
 	if err != nil {
-		return errResp("web.fetch: %v", err), nil
+		return respond.Error("web.fetch: %v", err), nil
 	}
 	defer resp.Body.Close()
 
@@ -211,7 +235,7 @@ func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*to
 	limited := io.LimitReader(resp.Body, MaxBodyBytes+1)
 	bodyBytes, err := io.ReadAll(limited)
 	if err != nil {
-		return errResp("web.fetch: read body: %v", err), nil
+		return respond.Error("web.fetch: read body: %v", err), nil
 	}
 	truncated := false
 	if int64(len(bodyBytes)) > MaxBodyBytes {
@@ -242,38 +266,6 @@ func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*to
 		"body":        string(bodyBytes),
 		"truncated":   truncated,
 	}
-	return structResp(payload), nil
+	return respond.Struct(payload), nil
 }
 
-// --- Helpers (mirror toolbox/git for consistency) ----------------
-
-func argMap(req *toolboxv0.CallToolRequest) map[string]any {
-	if req.Arguments == nil {
-		return map[string]any{}
-	}
-	return req.Arguments.AsMap()
-}
-
-func errResp(format string, args ...any) *toolboxv0.CallToolResponse {
-	return &toolboxv0.CallToolResponse{Error: fmt.Sprintf(format, args...)}
-}
-
-func structResp(payload map[string]any) *toolboxv0.CallToolResponse {
-	s, err := structpb.NewStruct(payload)
-	if err != nil {
-		return errResp("internal: cannot marshal response: %v", err)
-	}
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{
-			{Body: &toolboxv0.Content_Structured{Structured: s}},
-		},
-	}
-}
-
-func mustSchema(m map[string]any) *structpb.Struct {
-	s, err := structpb.NewStruct(m)
-	if err != nil {
-		panic(fmt.Sprintf("bad input schema: %v", err))
-	}
-	return s
-}

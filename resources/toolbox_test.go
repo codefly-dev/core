@@ -124,6 +124,43 @@ sandbox:
 	require.Contains(t, err.Error(), "maybe")
 }
 
+func TestToolbox_Validate_RejectsDuplicateCanonicalFor(t *testing.T) {
+	dir := writeToolboxManifest(t, `
+name: git
+version: 0.0.1
+agent:
+  kind: codefly:toolbox
+  name: git
+  publisher: codefly.dev
+  version: 0.0.1
+canonical_for:
+  - git
+  - git
+`)
+	_, err := resources.LoadToolboxFromDir(context.Background(), dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicates",
+		"duplicate canonical_for entries are typos and must surface at load time")
+}
+
+func TestToolbox_Validate_RejectsAbsolutePathInCanonicalFor(t *testing.T) {
+	dir := writeToolboxManifest(t, `
+name: git
+version: 0.0.1
+agent:
+  kind: codefly:toolbox
+  name: git
+  publisher: codefly.dev
+  version: 0.0.1
+canonical_for:
+  - /usr/bin/git
+`)
+	_, err := resources.LoadToolboxFromDir(context.Background(), dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "leaf name",
+		"absolute paths in canonical_for hide intent; CanonicalRegistry strips on lookup so two manifests writing it differently would both claim the same logical binary")
+}
+
 func TestToolbox_BuildCanonicalRegistry_HappyPath(t *testing.T) {
 	gitTb := &resources.Toolbox{
 		Name:         "git-toolbox",

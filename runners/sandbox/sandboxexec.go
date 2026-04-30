@@ -58,7 +58,16 @@ func (s *sandboxExecSandbox) Backend() Backend { return BackendSandboxExec }
 
 // Wrap rewrites cmd to invoke `sandbox-exec -p <profile>` with the
 // generated profile inline.
+//
+// Refuses if cmd is already wrapped (cmd.Path == s.binary). Same
+// reasoning as the bwrap backend: double-wrapping is a programmer
+// error and the error here is friendlier than the obscure runtime
+// failure it would otherwise produce.
 func (s *sandboxExecSandbox) Wrap(cmd *exec.Cmd) error {
+	if cmd.Path == s.binary {
+		return fmt.Errorf("sandbox.Wrap: cmd already wrapped by %s; constructing a fresh exec.Cmd is the supported pattern", s.binary)
+	}
+
 	profile, err := s.buildProfile()
 	if err != nil {
 		return err

@@ -168,6 +168,25 @@ func TestSandboxFilesystemDeclarations_Stable(t *testing.T) {
 	require.NoError(t, sb.Wrap(cmd))
 }
 
+// TestSandbox_Wrap_RefusesDoubleWrap pins the contract that calling
+// Wrap on an already-wrapped cmd is an error. Double-wrapping would
+// build `bwrap ... -- bwrap ... -- orig` which fails at runtime in
+// confusing ways; surface the programmer error at Wrap-time instead.
+func TestSandbox_Wrap_RefusesDoubleWrap(t *testing.T) {
+	sb, err := sandbox.New()
+	if err != nil {
+		t.Fatalf("sandbox unavailable: %v", err)
+	}
+	if sb.Backend() == sandbox.BackendNative {
+		t.Skipf("native sandbox is no-op; double-wrap test only meaningful with a real backend")
+	}
+
+	cmd := exec.Command("/bin/echo", "hi")
+	require.NoError(t, sb.Wrap(cmd))
+	require.Error(t, sb.Wrap(cmd),
+		"second Wrap on the same cmd must be refused; double-wrapping is a programmer error")
+}
+
 // TestSandboxExec_RegexQuote validates the macOS profile quoter
 // against known metacharacters. Important because an unquoted "."
 // makes a path-prefix match every path of the same length.

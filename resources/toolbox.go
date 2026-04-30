@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/policy"
@@ -112,6 +113,15 @@ func LoadToolboxFromDir(ctx context.Context, dir string) (*Toolbox, error) {
 // Validate enforces the invariants the rest of the pipeline depends
 // on. Surfaced at load time so a malformed toolbox doesn't fail
 // halfway through registration.
+//
+// Semantic checks beyond "is this field set":
+//   - canonical_for entries are leaf names (`git`, not `/usr/bin/git`).
+//     The registry strips paths on lookup; allowing absolute paths
+//     in the manifest would let two toolboxes claim the same logical
+//     binary by writing it differently.
+//   - canonical_for has no duplicates within one manifest. `[git, git]`
+//     is a typo (or a misunderstanding of the schema) — surface it
+//     at load time instead of letting the registry double-claim.
 func (t *Toolbox) Validate() error {
 	if t.Name == "" {
 		return fmt.Errorf("toolbox.name is required")
@@ -128,10 +138,19 @@ func (t *Toolbox) Validate() error {
 	if err := t.Sandbox.Validate(); err != nil {
 		return fmt.Errorf("toolbox.sandbox: %w", err)
 	}
+
+	seen := make(map[string]struct{}, len(t.CanonicalFor))
 	for i, b := range t.CanonicalFor {
 		if b == "" {
 			return fmt.Errorf("toolbox.canonical_for[%d] is empty", i)
 		}
+		if strings.ContainsRune(b, '/') {
+			return fmt.Errorf("toolbox.canonical_for[%d] = %q: must be a leaf name (e.g. \"git\"), not a path", i, b)
+		}
+		if _, dup := seen[b]; dup {
+			return fmt.Errorf("toolbox.canonical_for[%d] = %q: duplicates an earlier entry", i, b)
+		}
+		seen[b] = struct{}{}
 	}
 	return nil
 }

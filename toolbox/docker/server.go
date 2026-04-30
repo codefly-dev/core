@@ -8,9 +8,9 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
-	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/toolbox/internal/respond"
 )
 
 // Server implements codefly.services.toolbox.v0.Toolbox for Docker
@@ -96,7 +96,7 @@ func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*t
 			{
 				Name:        "docker.list_containers",
 				Description: "List containers known to the local daemon (running by default; pass all=true for stopped too).",
-				InputSchema: mustSchema(map[string]any{
+				InputSchema: respond.Schema(map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"all": map[string]any{
@@ -110,7 +110,7 @@ func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*t
 			{
 				Name:        "docker.list_images",
 				Description: "List images present in the local daemon.",
-				InputSchema: mustSchema(map[string]any{
+				InputSchema: respond.Schema(map[string]any{
 					"type":       "object",
 					"properties": map[string]any{},
 				}),
@@ -119,7 +119,7 @@ func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*t
 			{
 				Name:        "docker.inspect_container",
 				Description: "Inspect a container by ID or name; returns full JSON (state, mounts, networking, env).",
-				InputSchema: mustSchema(map[string]any{
+				InputSchema: respond.Schema(map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"id": map[string]any{
@@ -144,7 +144,7 @@ func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (
 	case "docker.inspect_container":
 		return s.inspectContainer(ctx, req)
 	default:
-		return errResp("unknown tool %q (call ListTools to enumerate)", req.Name), nil
+		return respond.Error("unknown tool %q (call ListTools to enumerate)", req.Name), nil
 	}
 }
 
@@ -153,17 +153,17 @@ func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (
 func (s *Server) listContainers(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
 	cli, err := s.dockerClient()
 	if err != nil {
-		return errResp("%v", err), nil
+		return respond.Error("%v", err), nil
 	}
 
 	all := false
-	if v, ok := argMap(req)["all"].(bool); ok {
+	if v, ok := respond.Args(req)["all"].(bool); ok {
 		all = v
 	}
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{All: all})
 	if err != nil {
-		return errResp("docker list: %v", err), nil
+		return respond.Error("docker list: %v", err), nil
 	}
 	out := make([]any, 0, len(containers))
 	for _, c := range containers {
@@ -175,17 +175,17 @@ func (s *Server) listContainers(ctx context.Context, req *toolboxv0.CallToolRequ
 			"names":  toAnySlice(c.Names),
 		})
 	}
-	return structResp(map[string]any{"containers": out}), nil
+	return respond.Struct(map[string]any{"containers": out}), nil
 }
 
 func (s *Server) listImages(ctx context.Context, _ *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
 	cli, err := s.dockerClient()
 	if err != nil {
-		return errResp("%v", err), nil
+		return respond.Error("%v", err), nil
 	}
 	images, err := cli.ImageList(ctx, image.ListOptions{})
 	if err != nil {
-		return errResp("docker image list: %v", err), nil
+		return respond.Error("docker image list: %v", err), nil
 	}
 	out := make([]any, 0, len(images))
 	for _, im := range images {
@@ -196,21 +196,21 @@ func (s *Server) listImages(ctx context.Context, _ *toolboxv0.CallToolRequest) (
 			"created_unix": im.Created,
 		})
 	}
-	return structResp(map[string]any{"images": out}), nil
+	return respond.Struct(map[string]any{"images": out}), nil
 }
 
 func (s *Server) inspectContainer(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
-	id, ok := argMap(req)["id"].(string)
+	id, ok := respond.Args(req)["id"].(string)
 	if !ok || id == "" {
-		return errResp("docker.inspect_container: id is required"), nil
+		return respond.Error("docker.inspect_container: id is required"), nil
 	}
 	cli, err := s.dockerClient()
 	if err != nil {
-		return errResp("%v", err), nil
+		return respond.Error("%v", err), nil
 	}
 	info, err := cli.ContainerInspect(ctx, id)
 	if err != nil {
-		return errResp("inspect: %v", err), nil
+		return respond.Error("inspect: %v", err), nil
 	}
 	// Surface a curated subset so the agent gets useful structure
 	// without the full 50-field SDK type. Callers who need the full
@@ -226,40 +226,7 @@ func (s *Server) inspectContainer(ctx context.Context, req *toolboxv0.CallToolRe
 		out["status"] = info.State.Status
 		out["exit_code"] = info.State.ExitCode
 	}
-	return structResp(out), nil
-}
-
-// --- Helpers (mirror toolbox/git for consistency) ----------------
-
-func argMap(req *toolboxv0.CallToolRequest) map[string]any {
-	if req.Arguments == nil {
-		return map[string]any{}
-	}
-	return req.Arguments.AsMap()
-}
-
-func errResp(format string, args ...any) *toolboxv0.CallToolResponse {
-	return &toolboxv0.CallToolResponse{Error: fmt.Sprintf(format, args...)}
-}
-
-func structResp(payload map[string]any) *toolboxv0.CallToolResponse {
-	s, err := structpb.NewStruct(payload)
-	if err != nil {
-		return errResp("internal: cannot marshal response: %v", err)
-	}
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{
-			{Body: &toolboxv0.Content_Structured{Structured: s}},
-		},
-	}
-}
-
-func mustSchema(m map[string]any) *structpb.Struct {
-	s, err := structpb.NewStruct(m)
-	if err != nil {
-		panic(fmt.Sprintf("bad input schema: %v", err))
-	}
-	return s
+	return respond.Struct(out), nil
 }
 
 // toAnySlice converts []string → []any for protobuf Struct compat.

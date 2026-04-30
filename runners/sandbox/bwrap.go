@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"os/exec"
 )
 
@@ -66,7 +67,18 @@ func (s *bwrapSandbox) Backend() Backend { return BackendBwrap }
 
 // Wrap rewrites cmd to invoke bwrap with the configured policy, and
 // the original argv as bwrap's payload after `--`.
+//
+// Refuses if cmd already appears to be wrapped (cmd.Path == s.binary).
+// Double-wrapping produces nonsense like
+// `bwrap ... -- bwrap ... -- orig` which would be funny if it ever ran;
+// it doesn't, because bwrap-inside-bwrap fails on namespace setup.
+// Better to surface it as a programmer-error here than as an obscure
+// runtime failure.
 func (s *bwrapSandbox) Wrap(cmd *exec.Cmd) error {
+	if cmd.Path == s.binary {
+		return fmt.Errorf("sandbox.Wrap: cmd already wrapped by %s; constructing a fresh exec.Cmd is the supported pattern", s.binary)
+	}
+
 	args := s.buildArgs()
 	args = append(args, "--")
 	args = append(args, cmd.Path)

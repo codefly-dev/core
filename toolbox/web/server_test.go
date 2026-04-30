@@ -163,6 +163,40 @@ func TestWeb_Fetch_TruncatesLargeBody(t *testing.T) {
 	require.Len(t, body, web.MaxBodyBytes)
 }
 
+func TestWeb_Fetch_BlocksRedirectToOffAllowlistHost(t *testing.T) {
+	// A trampoline server on the allowlist redirects to a host that
+	// is explicitly NOT on the allowlist. CheckRedirect must fire
+	// and refuse before the request to the off-host issues.
+	//
+	// Why a fake DNS name (instead of a second httptest server):
+	// httptest binds to 127.0.0.1 on every port, and our allowlist
+	// matches by hostname only (port-agnostic — documented behavior).
+	// Two httptest servers would BOTH be on `127.0.0.1` and so both
+	// allowed by accident. Using `evil.invalid.test.localdomain` is
+	// guaranteed to NOT be on the allowlist, and CheckRedirect must
+	// block before any DNS lookup ever happens.
+	const offHostURL = "http://evil.invalid.test.localdomain/path"
+
+	trampoline := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", offHostURL)
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer trampoline.Close()
+
+	srv := web.New("0.0.1").WithAllowedDomains(hostOf(t, trampoline))
+
+	args, _ := structpb.NewStruct(map[string]any{"url": trampoline.URL})
+	resp, err := srv.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+		Name:      "web.fetch",
+		Arguments: args,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.Error,
+		"redirect to off-allowlist host MUST be blocked; not following silently")
+	require.Contains(t, resp.Error, "evil.invalid.test.localdomain",
+		"error should name the blocked target so the agent knows what was rejected")
+}
+
 func TestWeb_Fetch_UnknownTool_ActionableError(t *testing.T) {
 	srv := web.New("0.0.1")
 	resp, err := srv.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: "web.bogus"})
