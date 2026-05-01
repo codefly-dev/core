@@ -144,19 +144,52 @@ type TestOptions struct {
 	ExtraArgs []string
 }
 
-// RunPythonTests runs pytest and returns parsed results. With opts.OnEvent
-// the per-test stream is also pushed to the callback in real time. With
-// opts.CacheDir the full raw output is dumped to <CacheDir>/last-test.txt
-// for post-mortem inspection.
+// RunPythonTests runs pytest and returns parsed results. Backward-compat
+// wrapper: calls RunPythonTestsStructured internally and converts to the
+// flat *TestSummary shape so existing consumers keep working unchanged.
+//
+// New code should call RunPythonTestsStructured directly to get the full
+// structured run (per-case file:line, captured-on-failure-only output,
+// proto-friendly hierarchy).
 func RunPythonTests(ctx context.Context, sourceDir string, envVars []*resources.EnvironmentVariable, opts ...TestOptions) (*TestSummary, error) {
+	run, err := RunPythonTestsStructured(ctx, sourceDir, envVars, opts...)
+	if run == nil {
+		return &TestSummary{}, err
+	}
+	return run.LegacyTestSummary(), err
+}
+
+// RunPythonTestsStructured runs pytest with --junitxml output, parses
+// the XML into the SOTA structured run, and returns it. Preferred entry
+// point for new code that consumes the structured TestResponse shape.
+//
+// Pytest's JUnit XML carries per-case file:line, captured stdout/stderr
+// in the `<failure>` body for failed tests, and zero-body `<testcase>`
+// for passed tests — fits the response-size discipline rule perfectly.
+//
+// Coverage is scraped from pytest-cov's terminal output (XML doesn't
+// carry coverage); the OnEvent callback still works against the
+// verbose stream.
+func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*resources.EnvironmentVariable, opts ...TestOptions) (*StructuredTestRun, error) {
 	var opt TestOptions
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
 
-	pytestArgs := []string{"run", "pytest", "--tb=short"}
+	// Allocate the JUnit output path under the project's .cache dir
+	// (gitignored by default). Falls back to system temp when the
+	// project tree isn't writable.
+	junitDir := filepath.Join(sourceDir, ".cache")
+	if err := os.MkdirAll(junitDir, 0o755); err != nil {
+		junitDir = os.TempDir()
+	}
+	junitFile := filepath.Join(junitDir, fmt.Sprintf("pytest-junit-%d.xml", time.Now().UnixNano()))
+	defer os.Remove(junitFile) // structured response replaces the file
+
+	pytestArgs := []string{"run", "pytest", "--tb=short", "--junitxml=" + junitFile}
 
 	// Default to verbose unless the caller explicitly set Verbose=false.
+	// Verbose feeds the OnEvent stream; the JUnit XML is parsed regardless.
 	if !opt.VerboseSet || opt.Verbose {
 		pytestArgs = append(pytestArgs, "-v")
 	}
@@ -215,7 +248,13 @@ func RunPythonTests(ctx context.Context, sourceDir string, envVars []*resources.
 
 	runErr := cmd.Run()
 	rawStr := raw.String()
-	summary := ParsePytestVerbose(rawStr)
+
+	// Parse JUnit XML. If pytest didn't write one (collection error,
+	// pytest itself crashed), the structured run will be empty —
+	// runErr indicates something went wrong; the caller surfaces it.
+	xmlBytes, _ := os.ReadFile(junitFile) //nolint:gosec // path under sourceDir
+	coverage := scrapeCoverageFromOutput(rawStr)
+	run := ParsePytestJUnit(string(xmlBytes), coverage)
 
 	if opt.CacheDir != "" {
 		if err := writeLastTestOutput(opt.CacheDir, rawStr); err != nil {
@@ -224,7 +263,28 @@ func RunPythonTests(ctx context.Context, sourceDir string, envVars []*resources.
 		}
 	}
 
-	return summary, runErr
+	return run, runErr
+}
+
+// scrapeCoverageFromOutput extracts the total coverage percentage from
+// pytest-cov's terminal output. Looks for the "TOTAL ... NN%" line
+// pytest-cov emits with --cov-report=term.
+func scrapeCoverageFromOutput(raw string) float32 {
+	for _, line := range strings.Split(raw, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "TOTAL") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		last := strings.TrimSuffix(fields[len(fields)-1], "%")
+		var pct float64
+		if _, err := fmt.Sscanf(last, "%f", &pct); err == nil {
+			return float32(pct)
+		}
+	}
+	return 0
 }
 
 // scanPytestEvents reads pytest's verbose output line by line and emits
