@@ -14,8 +14,6 @@ package launch_test
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
