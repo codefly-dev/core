@@ -180,15 +180,23 @@ func TestE2E_OSSandbox_BlocksWriteOutsideAllowedPaths(t *testing.T) {
 	require.Contains(t, resp2.Error, "write failed",
 		"the failure must surface from the plugin's error wrap")
 
-	// Sanity: error indicates a permission/operation failure, not
-	// some unrelated cause.
+	// Sanity: error indicates a sandbox-level blockage. Two
+	// equivalent shapes:
+	//   - macOS sandbox-exec returns EACCES / "operation not
+	//     permitted" because the path exists but the policy denies.
+	//   - bwrap (Linux) hides the path entirely from the new mount
+	//     namespace, so open() returns ENOENT — "no such file or
+	//     directory". Either is a successful block; the file MUST
+	//     NOT have been written (the os.Stat assertion below is the
+	//     deepest proof).
 	combined := strings.ToLower(resp2.Error)
 	hasFSDenialSignal := strings.Contains(combined, "permission denied") ||
 		strings.Contains(combined, "operation not permitted") ||
 		strings.Contains(combined, "read-only") ||
-		strings.Contains(combined, "denied")
+		strings.Contains(combined, "denied") ||
+		strings.Contains(combined, "no such file or directory") // bwrap mount-namespace hide
 	require.True(t, hasFSDenialSignal,
-		"error must indicate an OS-level denial (got: %q)", resp2.Error)
+		"error must indicate a sandbox-level blockage (got: %q)", resp2.Error)
 
 	// AND the file must NOT exist on disk — the deepest assertion.
 	// If the sandbox merely returned an error but the bytes hit the

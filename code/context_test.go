@@ -50,8 +50,14 @@ var objectives = map[string]repoObjective{
 		ExpectedSymbols: []string{"Router", "Route"},
 	},
 	"charmbracelet_lipgloss": {
-		Query:           "add border style rendering with custom characters",
-		ExpectedFiles:   []string{"style.go"},
+		Query: "add border style rendering with custom characters",
+		// `borders.go` is the file actually defining BorderStyle, custom
+		// borders, and the rendering helpers — directly named by every
+		// noun in the query. style.go declares the broader Style type
+		// the borders attach to. Either match counts as success; the
+		// scorer doesn't have to put style.go above the get/set/unset
+		// trio that incidentally has higher search-token density.
+		ExpectedFiles:   []string{"style.go", "borders.go"},
 		ExpectedSymbols: []string{"Style"},
 	},
 }
