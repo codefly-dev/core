@@ -469,6 +469,17 @@ func (proc *NixProc) WithEnvironmentVariablesAppend(_ context.Context, added *re
 
 func (proc *NixProc) IsRunning(ctx context.Context) (bool, error) {
 	w := wool.Get(ctx).In("NixProc.IsRunning")
+	// Trust the explicit-stop signal over the PID probe. After Stop()
+	// reaps the zombie via the cmd.Wait goroutine, the kernel can
+	// reuse the original PID for an unrelated process; ps -p <pid>
+	// would then return that process's row and IsRunning would
+	// falsely report "running". Caught on Linux CI; macOS reuses PIDs
+	// less aggressively but the race exists there too.
+	select {
+	case <-proc.stopped:
+		return false, nil
+	default:
+	}
 	if proc.exec == nil || proc.exec.Process == nil {
 		return false, nil
 	}

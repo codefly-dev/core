@@ -149,6 +149,15 @@ func (proc *NativeProc) WithEnvironmentVariablesAppend(ctx context.Context, adde
 // IsRunning checks if the exec is still running
 func (proc *NativeProc) IsRunning(ctx context.Context) (bool, error) {
 	w := wool.Get(ctx).In("NativeProc.IsRunning")
+	// Trust the explicit-stop signal over the PID probe. After Stop()
+	// reaps the zombie, the kernel can reuse the PID for an
+	// unrelated process; ps -p <pid> would then falsely report
+	// "running". Same race as NixProc.IsRunning.
+	select {
+	case <-proc.stopped:
+		return false, nil
+	default:
+	}
 	// Check the PID
 	if proc.exec == nil || proc.exec.Process == nil {
 		return false, nil
