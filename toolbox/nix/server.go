@@ -9,7 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/toolbox/internal/registry"
 	"github.com/codefly-dev/core/toolbox/internal/respond"
 )
 
@@ -69,60 +72,138 @@ func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*too
 
 // --- Tools -------------------------------------------------------
 
-func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{
-		Tools: []*toolboxv0.Tool{
-			{
-				Name:        "nix.flake_metadata",
-				Description: "Run `nix flake metadata --json` against a flake; returns the parsed metadata object (description, lastModified, narHash, original ref).",
-				InputSchema: respond.Schema(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"flake": map[string]any{
-							"type":        "string",
-							"description": "Flake reference. Path or url. Default '.'",
-						},
+// tools is the source of truth — see git/server.go for convention.
+func (s *Server) tools() []*registry.ToolDefinition {
+	return []*registry.ToolDefinition{
+		{
+			Name:               "nix.flake_metadata",
+			SummaryDescription: "Read flake metadata (description, lastModified, narHash, ref). Read-only. Run on a path or URL.",
+			LongDescription: "Wraps `nix flake metadata --json`. Returns the parsed metadata object — " +
+				"description, lastModified timestamp, narHash, and the original ref the flake was pinned " +
+				"to. Use to confirm a flake's identity before depending on it, or to surface its " +
+				"description for catalog UIs.\n\n" +
+				"On first call against an unfamiliar flake, nix may fetch inputs from upstream — that's " +
+				"network-dependent and can be slow. Subsequent calls hit the local store.",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"flake": map[string]any{
+						"type":        "string",
+						"description": "Flake reference. Path or url. Default '.'",
 					},
-				}),
-				Destructive: false,
-			},
-			{
-				Name:        "nix.flake_show",
-				Description: "Run `nix flake show --json` against a flake; returns the outputs surface (packages, devShells, apps, ...). Useful for discovering what a flake exposes before depending on it.",
-				InputSchema: respond.Schema(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"flake": map[string]any{
-							"type":        "string",
-							"description": "Flake reference. Path or url. Default '.'",
-						},
-					},
-				}),
-				Destructive: false,
-			},
-			{
-				Name:        "nix.eval",
-				Description: "Run `nix eval --json` of an expression; returns the parsed JSON result. Read-only — the eval is sandboxed by nix's own --read-only flag and the toolbox's sandbox.",
-				InputSchema: respond.Schema(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"expr": map[string]any{
-							"type":        "string",
-							"description": "Nix expression to evaluate. Must produce a JSON-encodable value.",
-						},
-						"timeout_ms": map[string]any{
-							"type":        "integer",
-							"description": "Per-call evaluation timeout. Default 30000.",
-							"minimum":     100,
-							"maximum":     300000,
-						},
-					},
-					"required": []any{"expr"},
-				}),
-				Destructive: false,
+				},
+			}),
+			Tags:        []string{"nix", "read-only", "filesystem"},
+			Idempotency: "idempotent",
+			ErrorModes:  "Returns 'nix flake metadata: ...' wrapping nix's own error — typically 'no flake.nix found', 'unable to download', or 'invalid flake output'.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "Read metadata of the current directory's flake.",
+					Arguments:       mustNixStruct(map[string]any{}),
+					ExpectedOutcome: "Object with description, lastModified, narHash, original (the flake ref).",
+				},
+				{
+					Description:     "Read a remote flake by URL.",
+					Arguments:       mustNixStruct(map[string]any{"flake": "github:NixOS/nixpkgs/nixos-24.05"}),
+					ExpectedOutcome: "Same shape; may be slow on first invocation due to fetch.",
+				},
 			},
 		},
-	}, nil
+		{
+			Name:               "nix.flake_show",
+			SummaryDescription: "List a flake's outputs surface (packages, devShells, apps). Read-only. Useful before depending on it.",
+			LongDescription: "Wraps `nix flake show --json`. Surfaces the flake's output structure — what " +
+				"packages it exposes, what devShells it ships, what apps are runnable. Use to discover " +
+				"what's available before writing a `nix run` or adding the flake as a dependency.",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"flake": map[string]any{
+						"type":        "string",
+						"description": "Flake reference. Path or url. Default '.'",
+					},
+				},
+			}),
+			Tags:        []string{"nix", "read-only", "filesystem"},
+			Idempotency: "idempotent",
+			ErrorModes:  "Returns 'nix flake show: ...' wrapping nix's error — typically a malformed flake or missing input.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "Show the current dir's flake outputs.",
+					Arguments:       mustNixStruct(map[string]any{}),
+					ExpectedOutcome: "{ outputs: { packages: {...}, devShells: {...}, apps: {...} } }",
+				},
+			},
+		},
+		{
+			Name:               "nix.eval",
+			SummaryDescription: "Evaluate a nix expression (read-only) and return its JSON value. Per-call timeout.",
+			LongDescription: "Wraps `nix eval --json --read-only --expr <expr>`. Runs in nix's read-only " +
+				"mode — refuses any expression that would mutate the store. Returns the parsed JSON " +
+				"value. Pure expressions complete in milliseconds; impure ones (with allow-import-from-" +
+				"derivation) can be slow.\n\n" +
+				"Use to query nix configuration values, derive package set computations, or test " +
+				"arithmetic in CI scripts. Output is capped at " + fmt.Sprintf("%d", MaxEvalOutputBytes) +
+				" bytes; oversized results surface a `truncated: true` flag.",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"expr": map[string]any{
+						"type":        "string",
+						"description": "Nix expression to evaluate. Must produce a JSON-encodable value.",
+					},
+					"timeout_ms": map[string]any{
+						"type":        "integer",
+						"description": "Per-call evaluation timeout. Default 30000.",
+						"minimum":     100,
+						"maximum":     300000,
+					},
+				},
+				"required": []any{"expr"},
+			}),
+			Tags:        []string{"nix", "read-only"},
+			Idempotency: "idempotent",
+			ErrorModes:  "Returns 'nix eval: ...' wrapping nix's error — typically 'syntax error', 'infinite recursion', 'undefined variable', or timeout.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "Trivial arithmetic.",
+					Arguments:       mustNixStruct(map[string]any{"expr": "1 + 2"}),
+					ExpectedOutcome: "{ value: 3, truncated: false }",
+				},
+				{
+					Description:     "Read a config value.",
+					Arguments:       mustNixStruct(map[string]any{"expr": "builtins.toJSON { name = \"hello\"; }"}),
+					ExpectedOutcome: "{ value: '{\"name\":\"hello\"}', truncated: false }",
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
+	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(s.tools())}, nil
+}
+
+func (s *Server) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
+	return &toolboxv0.ListToolSummariesResponse{Tools: registry.AsSummaries(s.tools(), req.GetTagsFilter())}, nil
+}
+
+func (s *Server) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
+	spec := registry.FindSpec(s.tools(), req.GetName())
+	if spec == nil {
+		return &toolboxv0.DescribeToolResponse{
+			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
+		}, nil
+	}
+	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
+}
+
+func mustNixStruct(m map[string]any) *structpb.Struct {
+	s, err := structpb.NewStruct(m)
+	if err != nil {
+		panic(fmt.Sprintf("nix toolbox: cannot encode example args: %v", err))
+	}
+	return s
 }
 
 func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {

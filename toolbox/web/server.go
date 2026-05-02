@@ -9,7 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/toolbox/internal/registry"
 	"github.com/codefly-dev/core/toolbox/internal/respond"
 )
 
@@ -122,45 +125,99 @@ func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*too
 
 // --- Tools -------------------------------------------------------
 
-func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{
-		Tools: []*toolboxv0.Tool{
-			{
-				Name:        "web.fetch",
-				Description: "Issue a single HTTP request; returns status, headers, body. Body capped at " + fmt.Sprintf("%d", MaxBodyBytes) + " bytes.",
-				InputSchema: respond.Schema(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"url": map[string]any{
-							"type":        "string",
-							"description": "Absolute URL. Host must be on the toolbox's allowlist.",
-						},
-						"method": map[string]any{
-							"type":        "string",
-							"description": "HTTP method. Default GET.",
-							"enum":        []any{"GET", "HEAD", "POST", "PUT", "DELETE", "PATCH"},
-						},
-						"timeout_ms": map[string]any{
-							"type":        "integer",
-							"description": "Per-call timeout. Default 30000.",
-							"minimum":     100,
-							"maximum":     120000,
-						},
-						"headers": map[string]any{
-							"type":        "object",
-							"description": "Header name → value map. Auth tokens MUST come from host config, not the agent.",
-						},
-						"body": map[string]any{
-							"type":        "string",
-							"description": "Request body (for POST/PUT/PATCH).",
-						},
+// tools is the single source of truth for this toolbox's surface.
+// See git/server.go for the convention authors should follow.
+func (s *Server) tools() []*registry.ToolDefinition {
+	return []*registry.ToolDefinition{
+		{
+			Name:               "web.fetch",
+			SummaryDescription: fmt.Sprintf("Single HTTP request behind a domain allowlist; returns status/headers/body. Body cap %d bytes.", MaxBodyBytes),
+			LongDescription: "Issue a single HTTP request to a URL whose host appears on the toolbox's " +
+				"domain allowlist. Returns the status code, response headers (multi-value joined by ', '), " +
+				"and body up to the per-call cap. Bodies above the cap are truncated and the response " +
+				"surfaces a `truncated: true` flag.\n\n" +
+				"Auth tokens MUST come from host config (NEVER from the agent's input arguments) — the " +
+				"toolbox doesn't carry secret material in the contract; secrets enter via env vars at " +
+				"plugin spawn time. Redirects to off-allowlist hosts are blocked even if the original " +
+				"target is allowed.",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"url": map[string]any{
+						"type":        "string",
+						"description": "Absolute URL. Host must be on the toolbox's allowlist.",
 					},
-					"required": []any{"url"},
-				}),
-				Destructive: false, // GET is non-destructive; mutating methods are still gated by allowlist
+					"method": map[string]any{
+						"type":        "string",
+						"description": "HTTP method. Default GET.",
+						"enum":        []any{"GET", "HEAD", "POST", "PUT", "DELETE", "PATCH"},
+					},
+					"timeout_ms": map[string]any{
+						"type":        "integer",
+						"description": "Per-call timeout. Default 30000.",
+						"minimum":     100,
+						"maximum":     120000,
+					},
+					"headers": map[string]any{
+						"type":        "object",
+						"description": "Header name → value map. Auth tokens MUST come from host config, not the agent.",
+					},
+					"body": map[string]any{
+						"type":        "string",
+						"description": "Request body (for POST/PUT/PATCH).",
+					},
+				},
+				"required": []any{"url"},
+			}),
+			Tags:        []string{"web", "network", "read-only"},
+			Idempotency: "side_effecting",
+			ErrorModes: "Returns error envelope with one of: 'host X not on allowlist' (denied by " +
+				"toolbox), 'redirect to X blocked' (target redirected off-allowlist), 'invalid URL', or " +
+				"the underlying transport error. Status code 4xx/5xx still returns success at the tool " +
+				"level — those are server responses, not tool failures.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "Simple GET against an allowlisted host.",
+					Arguments:       mustWebStruct(map[string]any{"url": "https://api.example.com/v1/status"}),
+					ExpectedOutcome: "{ status_code: 200, status_text: 'OK', headers: {...}, body: '...', truncated: false }",
+				},
+				{
+					Description:     "POST with JSON body.",
+					Arguments:       mustWebStruct(map[string]any{"url": "https://api.example.com/v1/items", "method": "POST", "headers": map[string]any{"Content-Type": "application/json"}, "body": `{"name": "x"}`}),
+					ExpectedOutcome: "Returns the response from the API. Body cap applies; truncation surfaces in the flag.",
+				},
 			},
 		},
-	}, nil
+	}
+}
+
+func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
+	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(s.tools())}, nil
+}
+
+func (s *Server) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
+	return &toolboxv0.ListToolSummariesResponse{Tools: registry.AsSummaries(s.tools(), req.GetTagsFilter())}, nil
+}
+
+func (s *Server) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
+	spec := registry.FindSpec(s.tools(), req.GetName())
+	if spec == nil {
+		return &toolboxv0.DescribeToolResponse{
+			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
+		}, nil
+	}
+	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
+}
+
+// mustWebStruct mirrors git's mustStruct — a tiny helper for the
+// inline tools() example values. Panics only on programmer-typo
+// inputs (literal map[string]any always succeeds).
+func mustWebStruct(m map[string]any) *structpb.Struct {
+	s, err := structpb.NewStruct(m)
+	if err != nil {
+		panic(fmt.Sprintf("web toolbox: cannot encode example args: %v", err))
+	}
+	return s
 }
 
 func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {

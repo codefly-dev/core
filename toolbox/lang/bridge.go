@@ -11,6 +11,7 @@ import (
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	"github.com/codefly-dev/core/toolbox/internal/registry"
 )
 
 // NewToolboxFromTooling adapts an existing Tooling server into a
@@ -54,21 +55,79 @@ func (b *ToolboxFromTooling) Identity(_ context.Context, _ *toolboxv0.IdentityRe
 	}, nil
 }
 
-// ListTools enumerates the conventional surface. Schemas are minimal
-// here — the typed wrapper does the heavy lifting on the Mind side.
-// Toolbox callers that want richer schemas in the future can extend
-// this; the bridge knows which proto type each tool maps to.
-func (b *ToolboxFromTooling) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	tools := make([]*toolboxv0.Tool, 0, len(AllTools))
+// tools projects the conventional lang.* surface into the registry's
+// ToolDefinition shape — same source-of-truth pattern the
+// capability toolboxes use. Bridge-specific note: the inner Tooling
+// proto's typed RPCs have stable schemas, but here we surface them
+// generically (anyObjectSchema) since the typed shape is enforced
+// by the Mind-side wrapper at protojson encode time.
+func (b *ToolboxFromTooling) tools() []*registry.ToolDefinition {
+	defs := make([]*registry.ToolDefinition, 0, len(AllTools))
 	for _, name := range AllTools {
-		tools = append(tools, &toolboxv0.Tool{
-			Name:        name,
-			Description: descriptionFor(name),
-			InputSchema: anyObjectSchema(),
-			Destructive: isDestructive(name),
+		idem := "idempotent"
+		if isDestructive(name) {
+			idem = "side_effecting"
+		}
+		defs = append(defs, &registry.ToolDefinition{
+			Name:               name,
+			SummaryDescription: descriptionFor(name),
+			LongDescription:    descriptionFor(name),
+			InputSchema:        anyObjectSchema(),
+			Destructive:        isDestructive(name),
+			Tags:               langTags(name),
+			Idempotency:        idem,
+			ErrorModes:         "Mirrors the underlying typed Tooling RPC's error semantics. See proto/codefly/services/tooling/v0/tooling.proto for canonical errors per RPC.",
 		})
 	}
-	return &toolboxv0.ListToolsResponse{Tools: tools}, nil
+	return defs
+}
+
+// ListTools (legacy heavy envelope).
+func (b *ToolboxFromTooling) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
+	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(b.tools())}, nil
+}
+
+// ListToolSummaries (lightweight catalog).
+func (b *ToolboxFromTooling) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
+	return &toolboxv0.ListToolSummariesResponse{Tools: registry.AsSummaries(b.tools(), req.GetTagsFilter())}, nil
+}
+
+// DescribeTool (per-tool full spec).
+func (b *ToolboxFromTooling) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
+	spec := registry.FindSpec(b.tools(), req.GetName())
+	if spec == nil {
+		return &toolboxv0.DescribeToolResponse{
+			Error: fmt.Sprintf("unknown lang tool %q (call ListToolSummaries to enumerate)", req.GetName()),
+		}, nil
+	}
+	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
+}
+
+// langTags returns the conventional tags for one lang.* tool.
+// Every entry tags "lang" + "language" plus a destructive/read-only
+// marker. Domain-specific tags (lsp / dependency / dev) help
+// pre-filtering.
+func langTags(name string) []string {
+	tags := []string{"lang", "language"}
+	if isDestructive(name) {
+		tags = append(tags, "destructive")
+	} else {
+		tags = append(tags, "read-only")
+	}
+	switch name {
+	case ToolListSymbols, ToolGetDiagnostics, ToolGoToDefinition,
+		ToolFindReferences, ToolGetHoverInfo, ToolGetCompletions:
+		tags = append(tags, "lsp")
+	case ToolRenameSymbol, ToolFix, ToolApplyEdit:
+		tags = append(tags, "lsp", "modification")
+	case ToolListDependencies, ToolAddDependency, ToolRemoveDependency:
+		tags = append(tags, "dependencies")
+	case ToolGetProjectInfo, ToolGetCallGraph:
+		tags = append(tags, "analysis")
+	case ToolBuild, ToolTest, ToolLint:
+		tags = append(tags, "dev")
+	}
+	return tags
 }
 
 // CallTool dispatches by conventional name. The argument Struct is

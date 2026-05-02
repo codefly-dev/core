@@ -13,8 +13,10 @@ import (
 	reflectpb "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/toolbox/internal/registry"
 	"github.com/codefly-dev/core/toolbox/internal/respond"
 )
 
@@ -56,7 +58,8 @@ func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*too
 
 // --- Tools -------------------------------------------------------
 
-func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
+// tools is the source of truth — see git/server.go for convention.
+func (s *Server) tools() []*registry.ToolDefinition {
 	addrSchema := map[string]any{
 		"type":        "string",
 		"description": "host:port of the gRPC server (no scheme).",
@@ -68,80 +71,154 @@ func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*t
 		"maximum":     60000,
 	}
 
-	return &toolboxv0.ListToolsResponse{
-		Tools: []*toolboxv0.Tool{
-			{
-				Name:        "grpc.list_services",
-				Description: "Connect to a gRPC server and list every service it exposes via reflection.",
-				InputSchema: respond.Schema(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"address":    addrSchema,
-						"timeout_ms": timeoutSchema,
-					},
-					"required": []any{"address"},
-				}),
-				Destructive: false,
-			},
-			{
-				Name:        "grpc.describe_service",
-				Description: "List the methods of a single service (and their request/response type names) via reflection.",
-				InputSchema: respond.Schema(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"address": addrSchema,
-						"service": map[string]any{
-							"type":        "string",
-							"description": "Fully-qualified service name, e.g. `helloworld.Greeter`.",
-						},
-						"timeout_ms": timeoutSchema,
-					},
-					"required": []any{"address", "service"},
-				}),
-				Destructive: false,
-			},
-			{
-				Name:        "grpc.describe_method",
-				Description: "Describe a single method on a service: full input/output message names. Useful before composing a call.",
-				InputSchema: respond.Schema(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"address": addrSchema,
-						"service": map[string]any{
-							"type":        "string",
-							"description": "Fully-qualified service name.",
-						},
-						"method": map[string]any{
-							"type":        "string",
-							"description": "Method name within the service.",
-						},
-						"timeout_ms": timeoutSchema,
-					},
-					"required": []any{"address", "service", "method"},
-				}),
-				Destructive: false,
-			},
-			{
-				Name:        "grpc.call",
-				Description: "Invoke a unary RPC with JSON-shaped arguments. Phase 2 — currently a stub that documents the contract.",
-				InputSchema: respond.Schema(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"address": addrSchema,
-						"service": map[string]any{"type": "string"},
-						"method":  map[string]any{"type": "string"},
-						"request": map[string]any{
-							"type":        "object",
-							"description": "Request body as a JSON object matching the method's input message.",
-						},
-						"timeout_ms": timeoutSchema,
-					},
-					"required": []any{"address", "service", "method"},
-				}),
-				Destructive: false,
+	return []*registry.ToolDefinition{
+		{
+			Name:               "grpc.list_services",
+			SummaryDescription: "Connect to a gRPC server and list every service it exposes via reflection. Read-only.",
+			LongDescription: "Opens a short-lived gRPC connection to the target, sends a ServerReflection " +
+				"ListServices request, returns the service names alphabetically. The target must have " +
+				"reflection enabled (most codefly agents do via agents.Serve registering grpc/reflection).",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"address":    addrSchema,
+					"timeout_ms": timeoutSchema,
+				},
+				"required": []any{"address"},
+			}),
+			Tags:        []string{"grpc", "read-only", "network"},
+			Idempotency: "idempotent",
+			ErrorModes:  "Returns 'dial X: ...' when the server is unreachable, 'open reflection stream: ...' when reflection isn't registered, or 'reflection: ...' when the server reports an error.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "Discover what services a local gRPC plugin exposes.",
+					Arguments:       mustGrpcStruct(map[string]any{"address": "127.0.0.1:54321"}),
+					ExpectedOutcome: "{ services: ['codefly.services.toolbox.v0.Toolbox', 'grpc.health.v1.Health', ...] }",
+				},
 			},
 		},
-	}, nil
+		{
+			Name:               "grpc.describe_service",
+			SummaryDescription: "List a service's methods + their request/response types via reflection. Read-only.",
+			LongDescription: "Asks the server's reflection endpoint for the FileDescriptorProto containing " +
+				"the named service, parses out the method list. Each method returns name, input_type, " +
+				"output_type (fully-qualified), and the streaming flags (client/server streaming).",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"address": addrSchema,
+					"service": map[string]any{
+						"type":        "string",
+						"description": "Fully-qualified service name, e.g. `helloworld.Greeter`.",
+					},
+					"timeout_ms": timeoutSchema,
+				},
+				"required": []any{"address", "service"},
+			}),
+			Tags:        []string{"grpc", "read-only", "network"},
+			Idempotency: "idempotent",
+			ErrorModes:  "Returns 'service X not found' when the name doesn't exist, 'reflection: ...' on protocol errors.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "Inspect the Toolbox service's methods.",
+					Arguments:       mustGrpcStruct(map[string]any{"address": "127.0.0.1:54321", "service": "codefly.services.toolbox.v0.Toolbox"}),
+					ExpectedOutcome: "{ service, methods: [{ name: 'Identity', input_type, output_type, ... }, ...] }",
+				},
+			},
+		},
+		{
+			Name:               "grpc.describe_method",
+			SummaryDescription: "Describe one method on a service (input/output type names). Read-only. Composes before grpc.call.",
+			LongDescription: "Same reflection roundtrip as grpc.describe_service but narrows to a single " +
+				"method. Useful when the LLM already knows the service and just needs the method's input " +
+				"shape before composing arguments.",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"address": addrSchema,
+					"service": map[string]any{
+						"type":        "string",
+						"description": "Fully-qualified service name.",
+					},
+					"method": map[string]any{
+						"type":        "string",
+						"description": "Method name within the service.",
+					},
+					"timeout_ms": timeoutSchema,
+				},
+				"required": []any{"address", "service", "method"},
+			}),
+			Tags:        []string{"grpc", "read-only", "network"},
+			Idempotency: "idempotent",
+			ErrorModes:  "Returns 'method X not found on service Y' when the name doesn't exist, 'reflection: ...' on protocol errors.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "Look up the Identity RPC's signature.",
+					Arguments:       mustGrpcStruct(map[string]any{"address": "127.0.0.1:54321", "service": "codefly.services.toolbox.v0.Toolbox", "method": "Identity"}),
+					ExpectedOutcome: "{ name: 'Identity', input_type: '...IdentityRequest', output_type: '...IdentityResponse', client_streaming: false, server_streaming: false }",
+				},
+			},
+		},
+		{
+			Name:               "grpc.call",
+			SummaryDescription: "Invoke a unary RPC with JSON args. Phase 2 stub — currently returns 'not implemented'.",
+			LongDescription: "Will invoke a unary RPC with JSON-shaped arguments converted to the method's " +
+				"input message via dynamicpb. Phase 1 of the grpc toolbox doesn't implement this — " +
+				"introspection (list_services / describe_service / describe_method) is sufficient for " +
+				"discovery flows. Calling grpc.call today returns an actionable error so the agent can " +
+				"fall back; the dispatch case is in place so a later commit only swaps the body.",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"address": addrSchema,
+					"service": map[string]any{"type": "string"},
+					"method":  map[string]any{"type": "string"},
+					"request": map[string]any{
+						"type":        "object",
+						"description": "Request body as a JSON object matching the method's input message.",
+					},
+					"timeout_ms": timeoutSchema,
+				},
+				"required": []any{"address", "service", "method"},
+			}),
+			Tags:        []string{"grpc", "network", "stub"},
+			Idempotency: "unknown",
+			ErrorModes:  "Always returns 'grpc.call not yet implemented; introspection (list_services / describe_service / describe_method) is usable today' until the body lands.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "Phase 2 will invoke arbitrary RPCs.",
+					Arguments:       mustGrpcStruct(map[string]any{"address": "127.0.0.1:54321", "service": "codefly.services.toolbox.v0.Toolbox", "method": "Identity"}),
+					ExpectedOutcome: "Currently returns the not-implemented error.",
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
+	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(s.tools())}, nil
+}
+
+func (s *Server) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
+	return &toolboxv0.ListToolSummariesResponse{Tools: registry.AsSummaries(s.tools(), req.GetTagsFilter())}, nil
+}
+
+func (s *Server) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
+	spec := registry.FindSpec(s.tools(), req.GetName())
+	if spec == nil {
+		return &toolboxv0.DescribeToolResponse{
+			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
+		}, nil
+	}
+	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
+}
+
+func mustGrpcStruct(m map[string]any) *structpb.Struct {
+	s, err := structpb.NewStruct(m)
+	if err != nil {
+		panic(fmt.Sprintf("grpc toolbox: cannot encode example args: %v", err))
+	}
+	return s
 }
 
 func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {

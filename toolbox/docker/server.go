@@ -8,8 +8,10 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/toolbox/internal/registry"
 	"github.com/codefly-dev/core/toolbox/internal/respond"
 )
 
@@ -90,49 +92,114 @@ func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*too
 
 // --- Tools -------------------------------------------------------
 
-func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{
-		Tools: []*toolboxv0.Tool{
-			{
-				Name:        "docker.list_containers",
-				Description: "List containers known to the local daemon (running by default; pass all=true for stopped too).",
-				InputSchema: respond.Schema(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"all": map[string]any{
-							"type":        "boolean",
-							"description": "Include stopped containers. Default false.",
-						},
+// tools is the source of truth — all three RPC shapes project from
+// here. See git/server.go for convention notes.
+func (s *Server) tools() []*registry.ToolDefinition {
+	return []*registry.ToolDefinition{
+		{
+			Name:               "docker.list_containers",
+			SummaryDescription: "List containers from the local daemon. Pass all=true to include stopped. Read-only.",
+			LongDescription: "Returns the running containers from the local Docker daemon as a structured " +
+				"list. Each entry has id (12-char prefix), image, status, state, and names. Pass all=true " +
+				"to include stopped containers — useful when investigating recent crashes.",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"all": map[string]any{
+						"type":        "boolean",
+						"description": "Include stopped containers. Default false.",
 					},
-				}),
-				Destructive: false,
-			},
-			{
-				Name:        "docker.list_images",
-				Description: "List images present in the local daemon.",
-				InputSchema: respond.Schema(map[string]any{
-					"type":       "object",
-					"properties": map[string]any{},
-				}),
-				Destructive: false,
-			},
-			{
-				Name:        "docker.inspect_container",
-				Description: "Inspect a container by ID or name; returns full JSON (state, mounts, networking, env).",
-				InputSchema: respond.Schema(map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"id": map[string]any{
-							"type":        "string",
-							"description": "Container ID or name.",
-						},
-					},
-					"required": []any{"id"},
-				}),
-				Destructive: false,
+				},
+			}),
+			Tags:        []string{"docker", "read-only"},
+			Idempotency: "idempotent",
+			ErrorModes:  "Returns 'docker list: ...' when the daemon is unreachable, or 'docker client init: ...' on connection setup failure.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "List currently-running containers.",
+					Arguments:       mustDockerStruct(map[string]any{}),
+					ExpectedOutcome: "{ containers: [...] } — empty array if nothing's running.",
+				},
+				{
+					Description:     "Include stopped containers (post-mortem investigation).",
+					Arguments:       mustDockerStruct(map[string]any{"all": true}),
+					ExpectedOutcome: "Same shape, but includes containers in 'exited' state too.",
+				},
 			},
 		},
-	}, nil
+		{
+			Name:               "docker.list_images",
+			SummaryDescription: "List images present in the local Docker daemon. Read-only.",
+			LongDescription:    "Returns every image cached in the local daemon — id, repo_tags, size, creation timestamp.",
+			InputSchema: respond.Schema(map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			}),
+			Tags:        []string{"docker", "read-only"},
+			Idempotency: "idempotent",
+			ErrorModes:  "Returns 'docker image list: ...' when the daemon is unreachable.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "Inventory the local image cache.",
+					Arguments:       mustDockerStruct(map[string]any{}),
+					ExpectedOutcome: "{ images: [{ id, repo_tags, size, created_unix }, ...] }",
+				},
+			},
+		},
+		{
+			Name:               "docker.inspect_container",
+			SummaryDescription: "Inspect a container by ID or name; returns curated state + metadata. Read-only.",
+			LongDescription: "Returns a curated subset of `docker inspect` output: id, name, image, created, " +
+				"running, status, exit_code. The full SDK type has 50+ fields; we surface the diagnostically " +
+				"interesting ones to keep responses compact. A future version may add `verbose=true` to dump everything.",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{
+						"type":        "string",
+						"description": "Container ID or name.",
+					},
+				},
+				"required": []any{"id"},
+			}),
+			Tags:        []string{"docker", "read-only"},
+			Idempotency: "idempotent",
+			ErrorModes:  "Returns 'docker.inspect_container: id is required' when id missing, 'inspect: ...' when the container doesn't exist or daemon is unreachable.",
+			Examples: []*toolboxv0.ToolExample{
+				{
+					Description:     "Inspect a container by short ID.",
+					Arguments:       mustDockerStruct(map[string]any{"id": "abc123"}),
+					ExpectedOutcome: "{ id, name, image, running, status, exit_code }.",
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
+	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(s.tools())}, nil
+}
+
+func (s *Server) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
+	return &toolboxv0.ListToolSummariesResponse{Tools: registry.AsSummaries(s.tools(), req.GetTagsFilter())}, nil
+}
+
+func (s *Server) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
+	spec := registry.FindSpec(s.tools(), req.GetName())
+	if spec == nil {
+		return &toolboxv0.DescribeToolResponse{
+			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
+		}, nil
+	}
+	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
+}
+
+func mustDockerStruct(m map[string]any) *structpb.Struct {
+	s, err := structpb.NewStruct(m)
+	if err != nil {
+		panic(fmt.Sprintf("docker toolbox: cannot encode example args: %v", err))
+	}
+	return s
 }
 
 func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
