@@ -24,9 +24,9 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/toolbox/launch"
-	"github.com/codefly-dev/core/toolbox/policyguard/policy"
 )
 
 // TestE2E_OSSandbox_BlocksOutboundNetwork_LoopbackAllowsHandshake
