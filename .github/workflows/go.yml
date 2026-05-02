@@ -66,6 +66,21 @@ jobs:
         # GH Actions: deterministic, no daemon issues on ephemeral
         # runners.
         uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Allow unprivileged user namespaces (for bwrap)
+        # Ubuntu 24.04 ships with kernel.apparmor_restrict_unprivileged_userns=1
+        # which blocks bubblewrap's user-namespace setup ("bwrap: setting
+        # up uid map: Permission denied"). Disabling the restriction is
+        # the standard CI workaround — bwrap then works in unprivileged
+        # mode, which is what our sandbox layer expects.
+        #
+        # Note: this does NOT solve the secondary "bwrap: loopback:
+        # Failed RTM_NEWADDR: Operation not permitted" issue — that's
+        # CAP_NET_ADMIN inside the unshared netns, which GH-hosted
+        # runners don't grant even after this sysctl. NetworkLoopback
+        # tests on Linux fail loud and self-skip per
+        # project_security_e2e.md; the sysctl is for the user-ns half.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 #
 #      - name: golangci-lint
 #        uses: golangci/golangci-lint-action@v3
