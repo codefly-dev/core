@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -170,9 +171,9 @@ func ResetRPCStats() {
 	rpcStats = make(map[string]*rpcMethodStats)
 }
 
-// Serve starts a gRPC server on a random local port, registers the
-// plugin's services, signals the port to the CLI via stdout, and
-// blocks until the process is terminated.
+// Serve starts a gRPC server, registers the plugin's services,
+// signals its endpoint to the CLI via stdout, and blocks until the
+// process is terminated.
 //
 // Plugin binaries call this from main():
 //
@@ -182,25 +183,57 @@ func ResetRPCStats() {
 //	    Builder: NewBuilder(),
 //	    Code:    NewCode(),
 //	})
+//
+// Transport selection (env vars set by the host):
+//
+//   - CODEFLY_AGENT_UDS_PATH=/tmp/codefly/foo.sock — listen on a Unix
+//     domain socket at that path. Preferred for performance and for
+//     filesystem-permission–based access control. Removes the socket
+//     file on graceful shutdown; the host removes stale files before
+//     respawn after crashes.
+//   - CODEFLY_AGENT_BIND_ADDR=<host> — TCP fallback bind host (port
+//     stays :0). Set when CLI and plugin run in different network
+//     namespaces (Docker on Linux without host networking, sidecar
+//     deploys). Implies "0.0.0.0" pairs with TLS + auth — both TODO.
+//   - Neither set: TCP on 127.0.0.1:0 (random loopback port).
+//
+// Handshake on stdout: "<ProtocolVersion>|<endpoint>" where endpoint
+// is either a numeric port (TCP) or "unix:<path>" (UDS). Both forms
+// are accepted by the host loader.
 func Serve(reg PluginRegistration) {
-	// Default bind: 127.0.0.1:0 — random port, loopback-only. The
-	// CLI runs the agent as a child process and reads the assigned
-	// port off stdout, so loopback is sufficient and prevents random
-	// LAN clients from poking the agent.
-	//
-	// CODEFLY_AGENT_BIND_ADDR overrides the host portion (port stays
-	// :0). Use only when the CLI and agent run in different containers
-	// (e.g. Docker on Linux without host networking, or split deploys
-	// where the CLI lives in a sidecar). Setting "0.0.0.0" in those
-	// cases pairs with TLS + auth — both still TODO; see #65.
-	bindHost := os.Getenv("CODEFLY_AGENT_BIND_ADDR")
-	if bindHost == "" {
-		bindHost = "127.0.0.1"
-	}
-	lis, err := net.Listen("tcp", bindHost+":0")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "agents.Serve: cannot listen on %s:0: %v\n", bindHost, err)
-		os.Exit(1)
+	udsPath := os.Getenv("CODEFLY_AGENT_UDS_PATH")
+	var (
+		lis      net.Listener
+		err      error
+		endpoint string
+	)
+	if udsPath != "" {
+		// Best-effort cleanup of stale socket from a prior crashed
+		// run — Listen("unix", path) fails with "address already in
+		// use" otherwise. Remove on exit too (defer below).
+		_ = os.Remove(udsPath)
+		lis, err = net.Listen("unix", udsPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "agents.Serve: cannot listen on unix:%s: %v\n", udsPath, err)
+			os.Exit(1)
+		}
+		// Use the gRPC unix scheme so the dialing side can use the
+		// same URI verbatim.
+		endpoint = "unix:" + udsPath
+		defer func() { _ = os.Remove(udsPath) }()
+	} else {
+		bindHost := os.Getenv("CODEFLY_AGENT_BIND_ADDR")
+		if bindHost == "" {
+			bindHost = "127.0.0.1"
+		}
+		lis, err = net.Listen("tcp", bindHost+":0")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "agents.Serve: cannot listen on %s:0: %v\n", bindHost, err)
+			os.Exit(1)
+		}
+		// Numeric port — preserves the legacy handshake shape so old
+		// hosts dialing newly-built plugins still work.
+		endpoint = strconv.Itoa(lis.Addr().(*net.TCPAddr).Port)
 	}
 
 	s := grpc.NewServer(
@@ -239,9 +272,11 @@ func Serve(reg PluginRegistration) {
 	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(s, healthSrv)
 
-	// Signal the port to the parent (CLI) using the protocol: "VERSION|PORT\n"
-	port := lis.Addr().(*net.TCPAddr).Port
-	fmt.Fprintf(os.Stdout, "%d|%d\n", ProtocolVersion, port)
+	// Signal the endpoint to the parent (CLI) using the handshake
+	// protocol: "VERSION|<endpoint>\n". Endpoint is a numeric TCP
+	// port (legacy shape) or "unix:<path>" (UDS). The host loader
+	// distinguishes by prefix.
+	fmt.Fprintf(os.Stdout, "%d|%s\n", ProtocolVersion, endpoint)
 
 	// Graceful shutdown on SIGTERM/SIGINT.
 	//

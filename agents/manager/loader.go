@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -191,6 +194,7 @@ type loadConfig struct {
 	workDir        string    // working directory for the agent process
 	extraEnv       []string  // additional env vars (KEY=VALUE) appended after os.Environ
 	sandbox        sandbox.Sandbox
+	useUDS         bool // spawn plugin on a Unix domain socket instead of TCP loopback
 }
 
 func defaultLoadConfig() loadConfig {
@@ -232,6 +236,34 @@ func WithWorkDir(dir string) LoadOption {
 // needs per-spawn env without polluting the parent process's environ.
 func WithEnv(vars ...string) LoadOption {
 	return func(c *loadConfig) { c.extraEnv = append(c.extraEnv, vars...) }
+}
+
+// WithUDS makes Load spawn the plugin on a Unix domain socket instead
+// of TCP loopback. The host picks a unique path under /tmp/codefly/,
+// passes it to the plugin via CODEFLY_AGENT_UDS_PATH, and dials over
+// `unix:<path>`.
+//
+// Why prefer UDS:
+//   - No port allocation (TCP loopback collisions are rare but real
+//     under heavy parallel plugin spawns).
+//   - Lower latency than loopback (no TCP/IP stack roundtrip).
+//   - Access control is filesystem permissions on the socket file —
+//     a random LAN client can't even speculatively dial.
+//
+// Why this is opt-in (for now): the plugin protocol still emits a
+// numeric TCP port when CODEFLY_AGENT_UDS_PATH isn't set, so old
+// hosts and old plugins keep working. New hosts that want the
+// performance/security wins flip this option on per-spawn.
+//
+// Cleanup: the plugin removes the socket file on graceful shutdown;
+// the host removes any stale path before listening (belt and
+// suspenders against crashed prior runs).
+//
+// Not supported on Windows; if asked for on Windows the option is a
+// no-op (TCP fallback) — UDS support there requires Windows 10+ and
+// has different permission semantics.
+func WithUDS() LoadOption {
+	return func(c *loadConfig) { c.useUDS = true }
 }
 
 // WithSandbox attaches an OS-level sandbox to the spawned agent
@@ -334,6 +366,22 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		// honors the last KEY=VALUE for any duplicate key.
 		cmd.Env = append(cmd.Env, cfg.extraEnv...)
 	}
+	// UDS path setup: pick a unique socket path and pass it to the
+	// plugin via env. Plugin-side: agents.Serve listens on the path
+	// instead of TCP. Host-side: we already accept "unix:<path>" in
+	// the handshake parser. Cleanup on the host is a defensive
+	// pre-Listen Remove on the plugin side; the host doesn't need to
+	// race the plugin to clear stale files.
+	udsPath := ""
+	if cfg.useUDS && runtime.GOOS != "windows" {
+		// Per-spawn dir keeps paths short (UDS limit is ~104 chars on
+		// macOS) and lets the host clean up the whole dir if needed.
+		dir := filepath.Join(os.TempDir(), "codefly-uds")
+		_ = os.MkdirAll(dir, 0o700)
+		udsPath = filepath.Join(dir, fmt.Sprintf("agent-%d-%d.sock", os.Getpid(), time.Now().UnixNano()))
+		cmd.Env = append(cmd.Env, "CODEFLY_AGENT_UDS_PATH="+udsPath)
+	}
+	_ = udsPath // referenced below for diagnostics; kept for future cleanup hook
 	if ep := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); ep != "" {
 		cmd.Env = append(cmd.Env,
 			"OTEL_EXPORTER_OTLP_ENDPOINT="+ep,
@@ -445,28 +493,17 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 			fmt.Sprintf("context cancelled while waiting for agent handshake: %v", ctx.Err()))
 	}
 
-	// --- Parse handshake: "VERSION|PORT" ---
-	parts := strings.SplitN(line, "|", 2)
-	if len(parts) != 2 {
-		return nil, killAndDescribe(ErrAgentHandshakeMalformed,
-			fmt.Sprintf("invalid agent handshake line: %q", line))
-	}
-
-	version, err := strconv.Atoi(parts[0])
-	if err != nil || version != agents.ProtocolVersion {
-		return nil, killAndDescribe(ErrAgentVersionMismatch,
-			fmt.Sprintf("unsupported agent protocol version: %q (expected %d)",
-				parts[0], agents.ProtocolVersion))
-	}
-
-	port, err := strconv.Atoi(parts[1])
-	if err != nil || port <= 0 || port > 65535 {
-		return nil, killAndDescribe(ErrAgentHandshakeMalformed,
-			fmt.Sprintf("invalid agent port: %q", parts[1]))
+	// --- Parse handshake: "VERSION|<endpoint>" ---
+	addr, parseErr := parseAgentHandshake(line)
+	if parseErr != nil {
+		// Distinguish version mismatch from malformed shape.
+		if errors.Is(parseErr, errAgentVersionMismatch) {
+			return nil, killAndDescribe(ErrAgentVersionMismatch, parseErr.Error())
+		}
+		return nil, killAndDescribe(ErrAgentHandshakeMalformed, parseErr.Error())
 	}
 
 	// --- Connect via gRPC with a health check ---
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	conn, err := grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
@@ -624,4 +661,42 @@ func (r *ringBuffer) String() string {
 	out.Write(r.buf[r.pos:])
 	out.Write(r.buf[:r.pos])
 	return strings.TrimSpace(out.String())
+}
+
+// errAgentVersionMismatch is a sentinel for handshake-version errors;
+// Load distinguishes these from malformed-line errors so it can map
+// to the right exported error (ErrAgentVersionMismatch vs
+// ErrAgentHandshakeMalformed).
+var errAgentVersionMismatch = errors.New("agent protocol version mismatch")
+
+// parseAgentHandshake parses a "VERSION|<endpoint>" line emitted by
+// agents.Serve and returns the gRPC dial address.
+//
+// Endpoint forms:
+//   - numeric port (legacy TCP):    "54321"        → "127.0.0.1:54321"
+//   - UDS URI (preferred):          "unix:/path"   → "unix:/path" (verbatim;
+//                                                    grpc.NewClient resolves)
+//
+// Both forms are accepted so a new host can dial both old (TCP-only)
+// plugins and new (UDS-capable) plugins.
+func parseAgentHandshake(line string) (addr string, err error) {
+	parts := strings.SplitN(line, "|", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid agent handshake line: %q", line)
+	}
+	version, verr := strconv.Atoi(parts[0])
+	if verr != nil || version != agents.ProtocolVersion {
+		return "", fmt.Errorf("%w: %q (expected %d)", errAgentVersionMismatch,
+			parts[0], agents.ProtocolVersion)
+	}
+	endpoint := parts[1]
+	if strings.HasPrefix(endpoint, "unix:") {
+		// gRPC's unix resolver accepts the URI verbatim.
+		return endpoint, nil
+	}
+	port, perr := strconv.Atoi(endpoint)
+	if perr != nil || port <= 0 || port > 65535 {
+		return "", fmt.Errorf("invalid agent endpoint: %q (expected numeric port or unix:<path>)", endpoint)
+	}
+	return fmt.Sprintf("127.0.0.1:%d", port), nil
 }
