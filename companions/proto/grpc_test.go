@@ -1,4 +1,4 @@
-//go:build !skip_infra
+//go:build proto_companion_required
 
 package proto_test
 
