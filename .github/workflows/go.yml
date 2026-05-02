@@ -42,19 +42,29 @@ jobs:
       - name: Install Dependencies
         run: go mod tidy && go mod download
 
-      - name: Install bubblewrap (best-effort)
-        # Best-effort: required only by the integration test step
-        # below (-tags=sandbox_e2e). Marked continue-on-error so
-        # transient apt-mirror outages don't fail the main CI signal.
-        # When the install fails, the integration step is also marked
-        # best-effort and naturally skips the sandbox_e2e tests.
-        continue-on-error: true
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Install apt deps (bubblewrap, ripgrep)
+        # bubblewrap → core/runners/sandbox tests (default + sandbox_e2e)
+        # ripgrep    → core/code search tests (real-repo grep coverage)
+        # Both are part of the strict signal — codefly's security
+        # stack and code-search depend on them, so a broken install
+        # MUST fail CI. The retry loop handles transient mirror flakes
+        # (azure.archive.ubuntu.com periodically hiccups for ~5-10
+        # minutes); sustained outages still fail loud as intended.
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update && sudo apt-get install -y bubblewrap ripgrep && exit 0
+            echo "apt failed (attempt $i / 3); waiting 30s before retry"
+            sleep 30
+          done
+          echo "apt install failed after 3 attempts" >&2
+          exit 1
 
-      - name: Install Nix (best-effort)
-        # Best-effort: required only by the integration test step
-        # (-tags=nix_required). Same rationale as bubblewrap.
-        continue-on-error: true
+      - name: Install Nix
+        # Strict — nix is core to the platform; if it doesn't install,
+        # CI must fail loud rather than silently skipping nix tests.
+        # DeterminateSystems' installer is the de-facto standard for
+        # GH Actions: deterministic, no daemon issues on ephemeral
+        # runners.
         uses: DeterminateSystems/nix-installer-action@main
 #
 #      - name: golangci-lint
@@ -70,26 +80,21 @@ jobs:
         run: ./scripts/govulncheck.sh
 
       - name: generate test generate coverage
-        # MAIN SIGNAL — default test build, no integration tags.
-        # Always runs; failure blocks CI. Doesn't need bubblewrap
-        # or nix — the integration tests are gated by build tags
-        # behind sandbox_e2e + nix_required, both of which are
-        # exercised in the next step.
-        run: go test ./... -coverprofile=cover.out -covermode=atomic -coverpkg=./...
-
-      - name: integration tests (best-effort)
-        # Opt-in run of sandbox_e2e + nix_required tests. Requires
-        # bubblewrap + nix installed above. continue-on-error so a
-        # transient apt-mirror outage or a nix-installer hiccup
-        # doesn't block the main CI signal.
+        # Single strict signal. -tags=sandbox_e2e,nix_required opts
+        # into the integration tests that depend on bubblewrap (the
+        # OS sandbox layer) and the nix binary. Both are installed
+        # strict above; if either install failed, CI already failed
+        # before reaching this step.
         #
-        # When the deps install succeeded, this exercises every
-        # integration test (real bwrap-sandboxed plugin spawn,
-        # real nix flake operations). When the deps failed, this
-        # step fails too — but the main CI run stays green because
-        # of continue-on-error.
-        continue-on-error: true
-        run: go test ./... -tags=sandbox_e2e,nix_required
+        # NOT included: proto_companion_required. Those tests
+        # (grpc_test.go, openapi_test.go) need the codeflydev/proto
+        # Docker image which can't be built from core's CI alone
+        # (it cross-builds the codefly CLI from a sibling checkout).
+        # Run locally with `go test -tags=proto_companion_required`,
+        # OR — once codefly CLI is installable in CI — bring the
+        # image build into the workflow as `codefly companion build
+        # proto` and add the tag here.
+        run: go test ./... -tags=sandbox_e2e,nix_required -coverprofile=cover.out -covermode=atomic -coverpkg=./...
 
       - name: check test coverage
         id: coverage
