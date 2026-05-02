@@ -12,8 +12,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	"github.com/codefly-dev/core/toolbox/internal/registry"
-	"github.com/codefly-dev/core/toolbox/internal/respond"
+	"github.com/codefly-dev/core/toolbox/registry"
+	"github.com/codefly-dev/core/toolbox/respond"
 )
 
 // DefaultEvalTimeout caps any single `nix eval` call. Nix evaluation
@@ -36,7 +36,7 @@ const MaxEvalOutputBytes = 4 * 1024 * 1024 // 4 MiB
 // philosophy: tests that exercise schema/dispatch don't need a live
 // nix install.
 type Server struct {
-	toolboxv0.UnimplementedToolboxServer
+	*registry.Base
 
 	version string
 
@@ -47,7 +47,9 @@ type Server struct {
 
 // New returns a Server.
 func New(version string) *Server {
-	return &Server{version: version}
+	s := &Server{version: version}
+	s.Base = registry.NewBase(s)
+	return s
 }
 
 // WithBinary overrides the nix executable path. Production callers
@@ -72,8 +74,8 @@ func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*too
 
 // --- Tools -------------------------------------------------------
 
-// tools is the source of truth — see git/server.go for convention.
-func (s *Server) tools() []*registry.ToolDefinition {
+// Tools is the source of truth — see git/server.go for convention.
+func (s *Server) Tools() []*registry.ToolDefinition {
 	return []*registry.ToolDefinition{
 		{
 			Name:               "nix.flake_metadata",
@@ -108,6 +110,7 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "Same shape; may be slow on first invocation due to fetch.",
 				},
 			},
+			Handler: s.flakeMetadata,
 		},
 		{
 			Name:               "nix.flake_show",
@@ -134,6 +137,7 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "{ outputs: { packages: {...}, devShells: {...}, apps: {...} } }",
 				},
 			},
+			Handler: s.flakeShow,
 		},
 		{
 			Name:               "nix.eval",
@@ -176,26 +180,9 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "{ value: '{\"name\":\"hello\"}', truncated: false }",
 				},
 			},
+			Handler: s.eval,
 		},
 	}
-}
-
-func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(s.tools())}, nil
-}
-
-func (s *Server) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
-	return &toolboxv0.ListToolSummariesResponse{Tools: registry.AsSummaries(s.tools(), req.GetTagsFilter())}, nil
-}
-
-func (s *Server) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
-	spec := registry.FindSpec(s.tools(), req.GetName())
-	if spec == nil {
-		return &toolboxv0.DescribeToolResponse{
-			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
-		}, nil
-	}
-	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
 }
 
 func mustNixStruct(m map[string]any) *structpb.Struct {
@@ -206,22 +193,9 @@ func mustNixStruct(m map[string]any) *structpb.Struct {
 	return s
 }
 
-func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
-	switch req.Name {
-	case "nix.flake_metadata":
-		return s.flakeMetadata(ctx, req)
-	case "nix.flake_show":
-		return s.flakeShow(ctx, req)
-	case "nix.eval":
-		return s.eval(ctx, req)
-	default:
-		return respond.Error("unknown tool %q (call ListTools to enumerate)", req.Name), nil
-	}
-}
-
 // --- Tool implementations ----------------------------------------
 
-func (s *Server) flakeMetadata(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) flakeMetadata(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	flake := "."
 	if v, ok := respond.Args(req)["flake"].(string); ok && v != "" {
 		flake = v
@@ -229,17 +203,17 @@ func (s *Server) flakeMetadata(ctx context.Context, req *toolboxv0.CallToolReque
 	out, _, err := s.runNix(ctx, DefaultEvalTimeout,
 		"flake", "metadata", "--json", flake)
 	if err != nil {
-		return respond.Error("nix flake metadata: %v", err), nil
+		return respond.Error("nix flake metadata: %v", err)
 	}
 
 	var parsed map[string]any
 	if jerr := json.Unmarshal(out, &parsed); jerr != nil {
-		return respond.Error("nix flake metadata: parse json: %v", jerr), nil
+		return respond.Error("nix flake metadata: parse json: %v", jerr)
 	}
-	return respond.Struct(parsed), nil
+	return respond.Struct(parsed)
 }
 
-func (s *Server) flakeShow(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) flakeShow(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	flake := "."
 	if v, ok := respond.Args(req)["flake"].(string); ok && v != "" {
 		flake = v
@@ -247,21 +221,21 @@ func (s *Server) flakeShow(ctx context.Context, req *toolboxv0.CallToolRequest) 
 	out, _, err := s.runNix(ctx, DefaultEvalTimeout,
 		"flake", "show", "--json", flake)
 	if err != nil {
-		return respond.Error("nix flake show: %v", err), nil
+		return respond.Error("nix flake show: %v", err)
 	}
 
 	var parsed map[string]any
 	if jerr := json.Unmarshal(out, &parsed); jerr != nil {
-		return respond.Error("nix flake show: parse json: %v", jerr), nil
+		return respond.Error("nix flake show: parse json: %v", jerr)
 	}
-	return respond.Struct(map[string]any{"outputs": parsed}), nil
+	return respond.Struct(map[string]any{"outputs": parsed})
 }
 
-func (s *Server) eval(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) eval(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	args := respond.Args(req)
 	expr, ok := args["expr"].(string)
 	if !ok || expr == "" {
-		return respond.Error("nix.eval: expr is required"), nil
+		return respond.Error("nix.eval: expr is required")
 	}
 
 	timeout := DefaultEvalTimeout
@@ -275,18 +249,17 @@ func (s *Server) eval(ctx context.Context, req *toolboxv0.CallToolRequest) (*too
 	out, truncated, err := s.runNix(ctx, timeout,
 		"eval", "--json", "--read-only", "--expr", expr)
 	if err != nil {
-		return respond.Error("nix eval: %v", err), nil
+		return respond.Error("nix eval: %v", err)
 	}
 
 	var parsed any
 	if jerr := json.Unmarshal(out, &parsed); jerr != nil {
-		return respond.Error("nix eval: parse json: %v", jerr), nil
+		return respond.Error("nix eval: parse json: %v", jerr)
 	}
-	payload := map[string]any{
+	return respond.Struct(map[string]any{
 		"value":     parsed,
 		"truncated": truncated,
-	}
-	return respond.Struct(payload), nil
+	})
 }
 
 // runNix invokes the nix binary with the given args under a per-call

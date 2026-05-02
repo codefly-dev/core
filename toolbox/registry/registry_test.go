@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	"github.com/codefly-dev/core/toolbox/internal/registry"
+	"github.com/codefly-dev/core/toolbox/registry"
 )
 
 func TestToolDefinition_ProjectsToAllThreeShapes(t *testing.T) {

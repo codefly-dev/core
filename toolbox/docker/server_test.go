@@ -43,7 +43,7 @@ func TestDocker_UnknownTool_ActionableError(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error)
 	require.Contains(t, resp.Error, "docker.bogus")
-	require.Contains(t, resp.Error, "ListTools")
+	require.Contains(t, resp.Error, "ListToolSummaries")
 }
 
 func TestDocker_InspectContainer_RequiresID(t *testing.T) {

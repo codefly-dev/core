@@ -8,12 +8,16 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	"github.com/codefly-dev/core/toolbox/internal/registry"
-	"github.com/codefly-dev/core/toolbox/internal/respond"
+	"github.com/codefly-dev/core/toolbox/respond"
+	"github.com/codefly-dev/core/toolbox/registry"
 )
 
 // Server implements the codefly.services.toolbox.v0.Toolbox contract
 // for git operations against a single workspace directory.
+//
+// Embeds *registry.Base for the four boilerplate RPCs (ListTools,
+// ListToolSummaries, DescribeTool, CallTool); the plugin only owns
+// Identity() + Tools() and the per-tool handler methods.
 //
 // Construct with the workspace root; every Tool dispatches against
 // that directory. Multi-repo workspaces would either need one Server
@@ -21,15 +25,10 @@ import (
 // scopes per-call (the MCP-shape route, deferred until we have the
 // multi-repo use case in front of us).
 type Server struct {
-	toolboxv0.UnimplementedToolboxServer
+	*registry.Base
 
-	// workspace is the absolute path to the git working tree this
-	// toolbox operates on. Set at construction; immutable for the
-	// server's lifetime.
 	workspace string
-
-	// version is the toolbox version, surfaced in Identity.
-	version string
+	version   string
 }
 
 // New returns a Server bound to the given workspace directory.
@@ -37,16 +36,16 @@ type Server struct {
 // entry — validation defers to the first git operation that needs
 // to open the repo, which surfaces a clear go-git error.
 func New(workspace, version string) *Server {
-	return &Server{workspace: workspace, version: version}
+	s := &Server{workspace: workspace, version: version}
+	s.Base = registry.NewBase(s)
+	return s
 }
-
-// --- Identity ----------------------------------------------------
 
 func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
 	return &toolboxv0.IdentityResponse{
-		Name:        "git",
-		Version:     s.version,
-		Description: "Git repository operations as typed RPCs (status, log, diff, ...).",
+		Name:         "git",
+		Version:      s.version,
+		Description:  "Git repository operations as typed RPCs (status, log, diff, ...).",
 		CanonicalFor: []string{"git"},
 		SandboxSummary: fmt.Sprintf(
 			"reads+writes %s; network deny (push/pull need explicit grant)",
@@ -54,22 +53,21 @@ func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*too
 	}, nil
 }
 
-// --- Tools -------------------------------------------------------
-
-// tools is the single source of truth for this toolbox's callable
-// surface. The three ListTools / ListToolSummaries / DescribeTool
-// methods all project from this slice via the registry helpers.
+// Tools is the single source of truth for this toolbox's callable
+// surface. The four RPCs (ListTools / ListToolSummaries /
+// DescribeTool / CallTool) all project from this slice via
+// registry.Base.
 //
 // Authors editing tools here must keep:
 //   - SummaryDescription (one line, ≤120 chars) — drives routing
 //   - LongDescription (multi-paragraph OK) — drives the per-call
 //     spec; spell out edge cases and when not to use
 //   - Examples (≥1) — LLMs do dramatically better with examples
-//     than with schemas alone; this is the entire point of
-//     fetching ToolSpec on-demand
+//     than with schemas alone
 //   - Tags — at minimum the toolbox name + a read-only/destructive
 //     marker; add domain tags to help pre-filtering
-func (s *Server) tools() []*registry.ToolDefinition {
+//   - Handler — the implementation. Base.CallTool dispatches here.
+func (s *Server) Tools() []*registry.ToolDefinition {
 	return []*registry.ToolDefinition{
 		{
 			Name:               "git.status",
@@ -94,6 +92,7 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "{ clean: true, files: {} } when nothing changed since the last commit; otherwise files map shows pending paths.",
 				},
 			},
+			Handler: s.status,
 		},
 		{
 			Name:               "git.log",
@@ -138,6 +137,7 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "Up to 20 commits, message field is the subject only (no body).",
 				},
 			},
+			Handler: s.log,
 		},
 		{
 			Name:               "git.diff",
@@ -169,43 +169,14 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "Currently returns the not-implemented error; will return unified diff text once the body lands.",
 				},
 			},
+			Handler: s.diff,
 		},
 	}
 }
 
-// ListTools (legacy heavy envelope) — projects tools() to the
-// flat *toolboxv0.Tool[] shape. Kept for transitional consumers
-// and for MCP transcoding. New code prefers ListToolSummaries +
-// DescribeTool.
-func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(s.tools())}, nil
-}
-
-// ListToolSummaries (lightweight catalog) — the routing surface.
-// Optional tags_filter pre-selects e.g. ["read-only"] subsets.
-func (s *Server) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
-	return &toolboxv0.ListToolSummariesResponse{
-		Tools: registry.AsSummaries(s.tools(), req.GetTagsFilter()),
-	}, nil
-}
-
-// DescribeTool (full per-tool spec) — fetched on-demand right
-// before CallTool. Returns DescribeToolResponse.error when the
-// requested name doesn't exist.
-func (s *Server) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
-	spec := registry.FindSpec(s.tools(), req.GetName())
-	if spec == nil {
-		return &toolboxv0.DescribeToolResponse{
-			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
-		}, nil
-	}
-	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
-}
-
-// mustStruct is a small helper for the inline tools() definitions
-// — the structpb.NewStruct error path can't fire on literal
-// map[string]any inputs, but we still wrap to keep the call sites
-// short.
+// mustStruct is a small helper for the inline Tools() definitions —
+// the structpb.NewStruct error path can't fire on literal
+// map[string]any inputs, but we still wrap to keep call sites short.
 func mustStruct(m map[string]any) *structpb.Struct {
 	s, err := structpb.NewStruct(m)
 	if err != nil {
@@ -214,36 +185,20 @@ func mustStruct(m map[string]any) *structpb.Struct {
 	return s
 }
 
-// CallTool dispatches by name. Unknown tools surface as a non-routed
-// error; canonical-routing isn't relevant within a toolbox itself
-// (the bash toolbox is the canonical-routing layer).
-func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
-	switch req.Name {
-	case "git.status":
-		return s.status(ctx, req)
-	case "git.log":
-		return s.log(ctx, req)
-	case "git.diff":
-		return s.diff(ctx, req)
-	default:
-		return respond.Error("unknown tool %q (call ListTools to enumerate)", req.Name), nil
-	}
-}
-
 // --- Tool implementations ----------------------------------------
 
-func (s *Server) status(_ context.Context, _ *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) status(_ context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	repo, err := gogit.PlainOpen(s.workspace)
 	if err != nil {
-		return respond.Error("open repo: %v", err), nil
+		return respond.Error("open repo: %v", err)
 	}
 	wt, err := repo.Worktree()
 	if err != nil {
-		return respond.Error("worktree: %v", err), nil
+		return respond.Error("worktree: %v", err)
 	}
 	st, err := wt.Status()
 	if err != nil {
-		return respond.Error("status: %v", err), nil
+		return respond.Error("status: %v", err)
 	}
 
 	// Compact representation: file → "MM " (staged + worktree status).
@@ -251,14 +206,13 @@ func (s *Server) status(_ context.Context, _ *toolboxv0.CallToolRequest) (*toolb
 	for path, fs := range st {
 		files[path] = fmt.Sprintf("%c%c", fs.Staging, fs.Worktree)
 	}
-	payload := map[string]any{
+	return respond.Struct(map[string]any{
 		"clean": st.IsClean(),
 		"files": files,
-	}
-	return respond.Struct(payload), nil
+	})
 }
 
-func (s *Server) log(_ context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) log(_ context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	args := respond.Args(req)
 	limit := 20
 	if v, ok := args["limit"].(float64); ok && v > 0 {
@@ -271,7 +225,7 @@ func (s *Server) log(_ context.Context, req *toolboxv0.CallToolRequest) (*toolbo
 
 	repo, err := gogit.PlainOpen(s.workspace)
 	if err != nil {
-		return respond.Error("open repo: %v", err), nil
+		return respond.Error("open repo: %v", err)
 	}
 
 	// `ref` defaults to HEAD; specifying a non-default ref is left
@@ -279,7 +233,7 @@ func (s *Server) log(_ context.Context, req *toolboxv0.CallToolRequest) (*toolbo
 	// commit hash).
 	logIter, err := repo.Log(&gogit.LogOptions{})
 	if err != nil {
-		return respond.Error("log: %v", err), nil
+		return respond.Error("log: %v", err)
 	}
 	defer logIter.Close()
 
@@ -305,7 +259,7 @@ func (s *Server) log(_ context.Context, req *toolboxv0.CallToolRequest) (*toolbo
 			"message": message,
 		})
 	}
-	return respond.Struct(map[string]any{"commits": commits}), nil
+	return respond.Struct(map[string]any{"commits": commits})
 }
 
 // indexNewline returns the index of the first '\n' in s, or -1 if
@@ -319,9 +273,9 @@ func indexNewline(s string) int {
 	return -1
 }
 
-func (s *Server) diff(_ context.Context, _ *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) diff(_ context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	// Phase 1 stub: full diff between two refs needs object-tree
 	// walking (Patch, Diff). Surface a clear "not implemented" so the
 	// agent knows to fall back; tests cover the dispatch path.
-	return respond.Error("git.diff not yet implemented; status + log are usable today"), nil
+	return respond.Error("git.diff not yet implemented; status + log are usable today")
 }

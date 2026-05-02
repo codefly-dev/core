@@ -4,10 +4,10 @@
 // content responses, and bake JSON-Schema constants into the
 // proto Struct shape.
 //
-// Lives under internal/ so it's import-restricted to core/toolbox/...
-// — these are toolbox-implementation utilities, not part of the
-// public API surface a third-party toolbox would import (those
-// import the proto package directly and roll their own).
+// Go-SDK convenience for codefly toolbox plugin authors. Plugin
+// authors writing in other languages implement the proto directly.
+// Semi-public — may evolve with the framework, not a stability
+// promise to third-party Go plugins.
 //
 // Why centralized: drift was already a risk. The git, web, and
 // docker toolboxes each had their own copies of `argMap` /

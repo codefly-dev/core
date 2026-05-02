@@ -11,8 +11,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	"github.com/codefly-dev/core/toolbox/internal/registry"
-	"github.com/codefly-dev/core/toolbox/internal/respond"
+	"github.com/codefly-dev/core/toolbox/registry"
+	"github.com/codefly-dev/core/toolbox/respond"
 )
 
 // Server implements codefly.services.toolbox.v0.Toolbox for Docker
@@ -28,7 +28,7 @@ import (
 // don't both create + leak Docker clients (a real bug caught in
 // review of an earlier draft that did read-then-write without a lock).
 type Server struct {
-	toolboxv0.UnimplementedToolboxServer
+	*registry.Base
 
 	version string
 
@@ -41,7 +41,9 @@ type Server struct {
 
 // New returns a Server.
 func New(version string) *Server {
-	return &Server{version: version}
+	s := &Server{version: version}
+	s.Base = registry.NewBase(s)
+	return s
 }
 
 // Close releases the Docker SDK client. Idempotent.
@@ -92,9 +94,9 @@ func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*too
 
 // --- Tools -------------------------------------------------------
 
-// tools is the source of truth — all three RPC shapes project from
+// Tools is the source of truth — all four RPC shapes project from
 // here. See git/server.go for convention notes.
-func (s *Server) tools() []*registry.ToolDefinition {
+func (s *Server) Tools() []*registry.ToolDefinition {
 	return []*registry.ToolDefinition{
 		{
 			Name:               "docker.list_containers",
@@ -126,6 +128,7 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "Same shape, but includes containers in 'exited' state too.",
 				},
 			},
+			Handler: s.listContainers,
 		},
 		{
 			Name:               "docker.list_images",
@@ -145,6 +148,7 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "{ images: [{ id, repo_tags, size, created_unix }, ...] }",
 				},
 			},
+			Handler: s.listImages,
 		},
 		{
 			Name:               "docker.inspect_container",
@@ -172,26 +176,9 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "{ id, name, image, running, status, exit_code }.",
 				},
 			},
+			Handler: s.inspectContainer,
 		},
 	}
-}
-
-func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(s.tools())}, nil
-}
-
-func (s *Server) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
-	return &toolboxv0.ListToolSummariesResponse{Tools: registry.AsSummaries(s.tools(), req.GetTagsFilter())}, nil
-}
-
-func (s *Server) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
-	spec := registry.FindSpec(s.tools(), req.GetName())
-	if spec == nil {
-		return &toolboxv0.DescribeToolResponse{
-			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
-		}, nil
-	}
-	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
 }
 
 func mustDockerStruct(m map[string]any) *structpb.Struct {
@@ -202,25 +189,12 @@ func mustDockerStruct(m map[string]any) *structpb.Struct {
 	return s
 }
 
-func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
-	switch req.Name {
-	case "docker.list_containers":
-		return s.listContainers(ctx, req)
-	case "docker.list_images":
-		return s.listImages(ctx, req)
-	case "docker.inspect_container":
-		return s.inspectContainer(ctx, req)
-	default:
-		return respond.Error("unknown tool %q (call ListTools to enumerate)", req.Name), nil
-	}
-}
-
 // --- Tool implementations ----------------------------------------
 
-func (s *Server) listContainers(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) listContainers(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	cli, err := s.dockerClient()
 	if err != nil {
-		return respond.Error("%v", err), nil
+		return respond.Error("%v", err)
 	}
 
 	all := false
@@ -230,7 +204,7 @@ func (s *Server) listContainers(ctx context.Context, req *toolboxv0.CallToolRequ
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{All: all})
 	if err != nil {
-		return respond.Error("docker list: %v", err), nil
+		return respond.Error("docker list: %v", err)
 	}
 	out := make([]any, 0, len(containers))
 	for _, c := range containers {
@@ -242,17 +216,17 @@ func (s *Server) listContainers(ctx context.Context, req *toolboxv0.CallToolRequ
 			"names":  toAnySlice(c.Names),
 		})
 	}
-	return respond.Struct(map[string]any{"containers": out}), nil
+	return respond.Struct(map[string]any{"containers": out})
 }
 
-func (s *Server) listImages(ctx context.Context, _ *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) listImages(ctx context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	cli, err := s.dockerClient()
 	if err != nil {
-		return respond.Error("%v", err), nil
+		return respond.Error("%v", err)
 	}
 	images, err := cli.ImageList(ctx, image.ListOptions{})
 	if err != nil {
-		return respond.Error("docker image list: %v", err), nil
+		return respond.Error("docker image list: %v", err)
 	}
 	out := make([]any, 0, len(images))
 	for _, im := range images {
@@ -263,21 +237,21 @@ func (s *Server) listImages(ctx context.Context, _ *toolboxv0.CallToolRequest) (
 			"created_unix": im.Created,
 		})
 	}
-	return respond.Struct(map[string]any{"images": out}), nil
+	return respond.Struct(map[string]any{"images": out})
 }
 
-func (s *Server) inspectContainer(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) inspectContainer(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	id, ok := respond.Args(req)["id"].(string)
 	if !ok || id == "" {
-		return respond.Error("docker.inspect_container: id is required"), nil
+		return respond.Error("docker.inspect_container: id is required")
 	}
 	cli, err := s.dockerClient()
 	if err != nil {
-		return respond.Error("%v", err), nil
+		return respond.Error("%v", err)
 	}
 	info, err := cli.ContainerInspect(ctx, id)
 	if err != nil {
-		return respond.Error("inspect: %v", err), nil
+		return respond.Error("inspect: %v", err)
 	}
 	// Surface a curated subset so the agent gets useful structure
 	// without the full 50-field SDK type. Callers who need the full
@@ -293,7 +267,7 @@ func (s *Server) inspectContainer(ctx context.Context, req *toolboxv0.CallToolRe
 		out["status"] = info.State.Status
 		out["exit_code"] = info.State.ExitCode
 	}
-	return respond.Struct(out), nil
+	return respond.Struct(out)
 }
 
 // toAnySlice converts []string → []any for protobuf Struct compat.

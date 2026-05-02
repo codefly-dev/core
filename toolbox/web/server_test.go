@@ -203,5 +203,5 @@ func TestWeb_Fetch_UnknownTool_ActionableError(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error)
 	require.Contains(t, resp.Error, "web.bogus")
-	require.Contains(t, resp.Error, "ListTools")
+	require.Contains(t, resp.Error, "ListToolSummaries")
 }

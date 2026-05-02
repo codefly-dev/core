@@ -12,8 +12,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	"github.com/codefly-dev/core/toolbox/internal/registry"
-	"github.com/codefly-dev/core/toolbox/internal/respond"
+	"github.com/codefly-dev/core/toolbox/registry"
+	"github.com/codefly-dev/core/toolbox/respond"
 )
 
 // MaxBodyBytes caps any single fetch's response body. Above this,
@@ -39,8 +39,11 @@ const DefaultTimeout = 30 * time.Second
 //     network to specific outbound paths. The toolbox doesn't
 //     assume the OS layer is in place; the layer-1 check is
 //     authoritative on its own.
+//
+// Embeds *registry.Base for the four boilerplate RPCs. The plugin
+// owns Identity + Tools + per-tool handlers.
 type Server struct {
-	toolboxv0.UnimplementedToolboxServer
+	*registry.Base
 
 	version        string
 	allowedDomains map[string]struct{}
@@ -82,6 +85,7 @@ func New(version string) *Server {
 			return nil
 		},
 	}
+	s.Base = registry.NewBase(s)
 	return s
 }
 
@@ -125,9 +129,9 @@ func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*too
 
 // --- Tools -------------------------------------------------------
 
-// tools is the single source of truth for this toolbox's surface.
+// Tools is the single source of truth for this toolbox's surface.
 // See git/server.go for the convention authors should follow.
-func (s *Server) tools() []*registry.ToolDefinition {
+func (s *Server) Tools() []*registry.ToolDefinition {
 	return []*registry.ToolDefinition{
 		{
 			Name:               "web.fetch",
@@ -187,30 +191,13 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "Returns the response from the API. Body cap applies; truncation surfaces in the flag.",
 				},
 			},
+			Handler: s.fetch,
 		},
 	}
 }
 
-func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(s.tools())}, nil
-}
-
-func (s *Server) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
-	return &toolboxv0.ListToolSummariesResponse{Tools: registry.AsSummaries(s.tools(), req.GetTagsFilter())}, nil
-}
-
-func (s *Server) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
-	spec := registry.FindSpec(s.tools(), req.GetName())
-	if spec == nil {
-		return &toolboxv0.DescribeToolResponse{
-			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
-		}, nil
-	}
-	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
-}
-
 // mustWebStruct mirrors git's mustStruct — a tiny helper for the
-// inline tools() example values. Panics only on programmer-typo
+// inline Tools() example values. Panics only on programmer-typo
 // inputs (literal map[string]any always succeeds).
 func mustWebStruct(m map[string]any) *structpb.Struct {
 	s, err := structpb.NewStruct(m)
@@ -220,34 +207,25 @@ func mustWebStruct(m map[string]any) *structpb.Struct {
 	return s
 }
 
-func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
-	switch req.Name {
-	case "web.fetch":
-		return s.fetch(ctx, req)
-	default:
-		return respond.Error("unknown tool %q (call ListTools to enumerate)", req.Name), nil
-	}
-}
-
 // --- Tool implementation -----------------------------------------
 
-func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	args := respond.Args(req)
 	rawURL, ok := args["url"].(string)
 	if !ok || rawURL == "" {
-		return respond.Error("web.fetch: url is required"), nil
+		return respond.Error("web.fetch: url is required")
 	}
 
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return respond.Error("web.fetch: invalid URL: %v", err), nil
+		return respond.Error("web.fetch: invalid URL: %v", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return respond.Error("web.fetch: only http/https URLs are allowed (got %q)", u.Scheme), nil
+		return respond.Error("web.fetch: only http/https URLs are allowed (got %q)", u.Scheme)
 	}
 	host := strings.ToLower(u.Hostname())
 	if _, allowed := s.allowedDomains[host]; !allowed {
-		return respond.Error("web.fetch: host %q not on allowlist; ask the operator to add it", host), nil
+		return respond.Error("web.fetch: host %q not on allowlist; ask the operator to add it", host)
 	}
 
 	method := "GET"
@@ -270,7 +248,7 @@ func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*to
 
 	httpReq, err := http.NewRequestWithContext(reqCtx, method, rawURL, body)
 	if err != nil {
-		return respond.Error("web.fetch: build request: %v", err), nil
+		return respond.Error("web.fetch: build request: %v", err)
 	}
 	if hdrs, ok := args["headers"].(map[string]any); ok {
 		for k, v := range hdrs {
@@ -282,7 +260,7 @@ func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*to
 
 	resp, err := s.httpClient.Do(httpReq)
 	if err != nil {
-		return respond.Error("web.fetch: %v", err), nil
+		return respond.Error("web.fetch: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -292,7 +270,7 @@ func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*to
 	limited := io.LimitReader(resp.Body, MaxBodyBytes+1)
 	bodyBytes, err := io.ReadAll(limited)
 	if err != nil {
-		return respond.Error("web.fetch: read body: %v", err), nil
+		return respond.Error("web.fetch: read body: %v", err)
 	}
 	truncated := false
 	if int64(len(bodyBytes)) > MaxBodyBytes {
@@ -316,13 +294,12 @@ func (s *Server) fetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*to
 	if idx := strings.IndexByte(statusText, ' '); idx > 0 {
 		statusText = statusText[idx+1:]
 	}
-	payload := map[string]any{
+	return respond.Struct(map[string]any{
 		"status_code": resp.StatusCode, // canonical: integer status (200)
 		"status_text": statusText,      // reason phrase only ("OK")
 		"headers":     headers,
 		"body":        string(bodyBytes),
 		"truncated":   truncated,
-	}
-	return respond.Struct(payload), nil
+	})
 }
 

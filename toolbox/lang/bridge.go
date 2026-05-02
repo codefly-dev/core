@@ -11,7 +11,7 @@ import (
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
-	"github.com/codefly-dev/core/toolbox/internal/registry"
+	"github.com/codefly-dev/core/toolbox/registry"
 )
 
 // NewToolboxFromTooling adapts an existing Tooling server into a
@@ -33,14 +33,23 @@ import (
 // directly or goes through the Toolbox via ToolingFromToolbox —
 // the bridge round-trips the typed proto messages intact.
 func NewToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
-	return &ToolboxFromTooling{name: name, version: version, inner: t}
+	b := &ToolboxFromTooling{name: name, version: version, inner: t}
+	b.Base = registry.NewBase(b)
+	return b
 }
 
 // ToolboxFromTooling implements toolboxv0.ToolboxServer over a
 // Tooling impl. Exported so callers can compose it into a
 // PluginRegistration directly.
+//
+// Embeds *registry.Base for ListTools/ListToolSummaries/DescribeTool;
+// CallTool is overridden because the bridge dispatches per-name to
+// typed Tooling RPCs (different shape than the Handler-per-tool
+// pattern the capability toolboxes use). The Tools() definitions
+// here therefore omit Handler — Base.CallTool would be shadowed
+// anyway.
 type ToolboxFromTooling struct {
-	toolboxv0.UnimplementedToolboxServer
+	*registry.Base
 	name    string
 	version string
 	inner   toolingv0.ToolingServer
@@ -55,13 +64,16 @@ func (b *ToolboxFromTooling) Identity(_ context.Context, _ *toolboxv0.IdentityRe
 	}, nil
 }
 
-// tools projects the conventional lang.* surface into the registry's
+// Tools projects the conventional lang.* surface into the registry's
 // ToolDefinition shape — same source-of-truth pattern the
 // capability toolboxes use. Bridge-specific note: the inner Tooling
 // proto's typed RPCs have stable schemas, but here we surface them
 // generically (anyObjectSchema) since the typed shape is enforced
 // by the Mind-side wrapper at protojson encode time.
-func (b *ToolboxFromTooling) tools() []*registry.ToolDefinition {
+//
+// Handler is left nil — CallTool is overridden below to dispatch
+// per-name into the inner Tooling server's typed RPCs.
+func (b *ToolboxFromTooling) Tools() []*registry.ToolDefinition {
 	defs := make([]*registry.ToolDefinition, 0, len(AllTools))
 	for _, name := range AllTools {
 		idem := "idempotent"
@@ -80,27 +92,6 @@ func (b *ToolboxFromTooling) tools() []*registry.ToolDefinition {
 		})
 	}
 	return defs
-}
-
-// ListTools (legacy heavy envelope).
-func (b *ToolboxFromTooling) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(b.tools())}, nil
-}
-
-// ListToolSummaries (lightweight catalog).
-func (b *ToolboxFromTooling) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
-	return &toolboxv0.ListToolSummariesResponse{Tools: registry.AsSummaries(b.tools(), req.GetTagsFilter())}, nil
-}
-
-// DescribeTool (per-tool full spec).
-func (b *ToolboxFromTooling) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
-	spec := registry.FindSpec(b.tools(), req.GetName())
-	if spec == nil {
-		return &toolboxv0.DescribeToolResponse{
-			Error: fmt.Sprintf("unknown lang tool %q (call ListToolSummaries to enumerate)", req.GetName()),
-		}, nil
-	}
-	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
 }
 
 // langTags returns the conventional tags for one lang.* tool.

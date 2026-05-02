@@ -57,7 +57,7 @@ func TestNix_UnknownTool_ActionableError(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error)
 	require.Contains(t, resp.Error, "nix.bogus")
-	require.Contains(t, resp.Error, "ListTools")
+	require.Contains(t, resp.Error, "ListToolSummaries")
 }
 
 func TestNix_Eval_RequiresExpr(t *testing.T) {

@@ -160,7 +160,7 @@ func TestGit_UnknownTool_ReturnsActionableError(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error)
 	require.Contains(t, resp.Error, "git.bogus", "error must name the bad tool")
-	require.Contains(t, resp.Error, "ListTools", "error should hint at discovery RPC")
+	require.Contains(t, resp.Error, "ListToolSummaries", "error should hint at the two-phase discovery RPC")
 }
 
 func TestGit_Diff_ReturnsNotImplemented_ButDispatches(t *testing.T) {

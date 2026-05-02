@@ -75,7 +75,7 @@ func TestGRPC_UnknownTool_ActionableError(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error)
 	require.Contains(t, resp.Error, "grpc.bogus")
-	require.Contains(t, resp.Error, "ListTools")
+	require.Contains(t, resp.Error, "ListToolSummaries")
 }
 
 func TestGRPC_ListServices_RequiresAddress(t *testing.T) {

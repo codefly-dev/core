@@ -12,11 +12,19 @@
 // three different ways. The registry keeps the source of truth in
 // one place.
 //
-// Internal — toolboxes import this; external callers use the proto
-// types directly.
+// Go-SDK convenience for codefly toolbox plugin authors. The wire
+// contract is the Toolbox gRPC service in proto/codefly/services/
+// toolbox/v0; this package is just the ergonomic Go shape on top.
+// Plugin authors writing in other languages implement the proto
+// directly. This package is NOT a stability promise to third-party
+// Go plugins — treat it as semi-public, may evolve with the
+// framework.
 package registry
 
 import (
+	"context"
+	"fmt"
+
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
@@ -75,6 +83,16 @@ type ToolDefinition struct {
 	// the caller should do. Helps the LLM diagnose without re-
 	// running the call.
 	ErrorModes string
+
+	// Handler is the implementation invoked by Base.CallTool when
+	// req.Name matches d.Name. Optional — if nil, Base.CallTool
+	// returns an "unimplemented" error for that tool. Toolboxes that
+	// dispatch via their own switch (legacy pattern) leave this nil.
+	//
+	// The handler is responsible for argument extraction, validation,
+	// and response shaping. It must NOT panic; on internal error
+	// return a CallToolResponse with the error string set.
+	Handler func(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse
 }
 
 // ToTool returns the legacy heavy envelope used by ListTools.
@@ -155,6 +173,96 @@ func FindSpec(defs []*ToolDefinition, name string) *toolboxv0.ToolSpec {
 		}
 	}
 	return nil
+}
+
+// Tooler exposes a toolbox's tool list. Base uses this virtual to
+// project the four RPC envelopes — the embedding plugin defines
+// Tools() once, gets ListTools/ListToolSummaries/DescribeTool/
+// CallTool for free.
+type Tooler interface {
+	Tools() []*ToolDefinition
+}
+
+// Base is an embeddable that provides the boilerplate four RPCs of
+// the Toolbox service. A plugin's Server type embeds *Base and
+// implements Identity() + Tools() — the rest is handled here.
+//
+// Usage:
+//
+//	type Server struct {
+//	    *registry.Base
+//	    // ... plugin-specific fields
+//	}
+//
+//	func New() *Server {
+//	    s := &Server{}
+//	    s.Base = registry.NewBase(s)
+//	    return s
+//	}
+//
+//	func (s *Server) Tools() []*registry.ToolDefinition { ... }
+//	func (s *Server) Identity(...) (*toolboxv0.IdentityResponse, error) { ... }
+//
+// The two-step (NewBase + assign) is required because the Tooler
+// pointer needs to point back at the embedding type, not at Base
+// itself — Go embedding doesn't give us "self" automatically.
+type Base struct {
+	toolboxv0.UnimplementedToolboxServer
+
+	tooler Tooler
+}
+
+// NewBase wires a Base to its owning Tooler.
+func NewBase(t Tooler) *Base {
+	return &Base{tooler: t}
+}
+
+// ListTools (legacy) — returns the heavy envelope for every tool.
+func (b *Base) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
+	return &toolboxv0.ListToolsResponse{Tools: AsTools(b.tooler.Tools())}, nil
+}
+
+// ListToolSummaries (catalog) — lightweight, with optional tags
+// filter. AND semantics: every tag in tags_filter must be present.
+func (b *Base) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
+	return &toolboxv0.ListToolSummariesResponse{
+		Tools: AsSummaries(b.tooler.Tools(), req.GetTagsFilter()),
+	}, nil
+}
+
+// DescribeTool (full spec) — returns ToolSpec for the named tool, or
+// an error string in the response when the name is unknown. We
+// return the error in-band rather than as a gRPC error because the
+// LLM caller benefits from a human-readable hint.
+func (b *Base) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
+	spec := FindSpec(b.tooler.Tools(), req.GetName())
+	if spec == nil {
+		return &toolboxv0.DescribeToolResponse{
+			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
+		}, nil
+	}
+	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
+}
+
+// CallTool dispatches by name to the matching ToolDefinition.Handler.
+// Unknown name → in-band error response. Tool with nil Handler →
+// "unimplemented" error response (developer mistake; surface clearly
+// rather than panic).
+func (b *Base) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+	for _, d := range b.tooler.Tools() {
+		if d.Name != req.GetName() {
+			continue
+		}
+		if d.Handler == nil {
+			return &toolboxv0.CallToolResponse{
+				Error: fmt.Sprintf("tool %q has no handler — toolbox plugin bug", d.Name),
+			}, nil
+		}
+		return d.Handler(ctx, req), nil
+	}
+	return &toolboxv0.CallToolResponse{
+		Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
+	}, nil
 }
 
 // hasAllTags returns true when toolTags includes every entry in

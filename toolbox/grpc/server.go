@@ -16,8 +16,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	"github.com/codefly-dev/core/toolbox/internal/registry"
-	"github.com/codefly-dev/core/toolbox/internal/respond"
+	"github.com/codefly-dev/core/toolbox/registry"
+	"github.com/codefly-dev/core/toolbox/respond"
 )
 
 // DefaultDialTimeout caps any single dial+reflect call. gRPC dials
@@ -34,14 +34,16 @@ const DefaultDialTimeout = 10 * time.Second
 // default position — connections are short-lived and there's no
 // state for an attacker (or a buggy agent) to leak across calls.
 type Server struct {
-	toolboxv0.UnimplementedToolboxServer
+	*registry.Base
 
 	version string
 }
 
 // New returns a Server.
 func New(version string) *Server {
-	return &Server{version: version}
+	s := &Server{version: version}
+	s.Base = registry.NewBase(s)
+	return s
 }
 
 // --- Identity ----------------------------------------------------
@@ -58,8 +60,8 @@ func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*too
 
 // --- Tools -------------------------------------------------------
 
-// tools is the source of truth — see git/server.go for convention.
-func (s *Server) tools() []*registry.ToolDefinition {
+// Tools is the source of truth — see git/server.go for convention.
+func (s *Server) Tools() []*registry.ToolDefinition {
 	addrSchema := map[string]any{
 		"type":        "string",
 		"description": "host:port of the gRPC server (no scheme).",
@@ -96,6 +98,7 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "{ services: ['codefly.services.toolbox.v0.Toolbox', 'grpc.health.v1.Health', ...] }",
 				},
 			},
+			Handler: s.listServices,
 		},
 		{
 			Name:               "grpc.describe_service",
@@ -125,6 +128,7 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "{ service, methods: [{ name: 'Identity', input_type, output_type, ... }, ...] }",
 				},
 			},
+			Handler: s.describeService,
 		},
 		{
 			Name:               "grpc.describe_method",
@@ -158,6 +162,7 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "{ name: 'Identity', input_type: '...IdentityRequest', output_type: '...IdentityResponse', client_streaming: false, server_streaming: false }",
 				},
 			},
+			Handler: s.describeMethod,
 		},
 		{
 			Name:               "grpc.call",
@@ -191,26 +196,9 @@ func (s *Server) tools() []*registry.ToolDefinition {
 					ExpectedOutcome: "Currently returns the not-implemented error.",
 				},
 			},
+			Handler: s.callStub,
 		},
 	}
-}
-
-func (s *Server) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{Tools: registry.AsTools(s.tools())}, nil
-}
-
-func (s *Server) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
-	return &toolboxv0.ListToolSummariesResponse{Tools: registry.AsSummaries(s.tools(), req.GetTagsFilter())}, nil
-}
-
-func (s *Server) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
-	spec := registry.FindSpec(s.tools(), req.GetName())
-	if spec == nil {
-		return &toolboxv0.DescribeToolResponse{
-			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
-		}, nil
-	}
-	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
 }
 
 func mustGrpcStruct(m map[string]any) *structpb.Struct {
@@ -221,30 +209,20 @@ func mustGrpcStruct(m map[string]any) *structpb.Struct {
 	return s
 }
 
-func (s *Server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
-	switch req.Name {
-	case "grpc.list_services":
-		return s.listServices(ctx, req)
-	case "grpc.describe_service":
-		return s.describeService(ctx, req)
-	case "grpc.describe_method":
-		return s.describeMethod(ctx, req)
-	case "grpc.call":
-		// Phase 2 stub — see doc.go. The dispatch path is here so a
-		// later commit only swaps the body, not the surface.
-		return respond.Error("grpc.call not yet implemented; introspection (list_services / describe_service / describe_method) is usable today"), nil
-	default:
-		return respond.Error("unknown tool %q (call ListTools to enumerate)", req.Name), nil
-	}
+// callStub is the Phase 1 stub for grpc.call. Wired through Handler
+// so a later iteration just swaps the body without touching the
+// dispatch surface.
+func (s *Server) callStub(_ context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+	return respond.Error("grpc.call not yet implemented; introspection (list_services / describe_service / describe_method) is usable today")
 }
 
 // --- Tool implementations ----------------------------------------
 
-func (s *Server) listServices(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) listServices(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	args := respond.Args(req)
 	address, ok := args["address"].(string)
 	if !ok || address == "" {
-		return respond.Error("grpc.list_services: address is required"), nil
+		return respond.Error("grpc.list_services: address is required")
 	}
 	timeout := timeoutFromArgs(args)
 
@@ -252,7 +230,7 @@ func (s *Server) listServices(ctx context.Context, req *toolboxv0.CallToolReques
 		return reflectListServices(stream)
 	})
 	if err != nil {
-		return respond.Error("grpc.list_services: %v", err), nil
+		return respond.Error("grpc.list_services: %v", err)
 	}
 
 	// Sort for determinism — agents diff'ing successive calls
@@ -263,15 +241,15 @@ func (s *Server) listServices(ctx context.Context, req *toolboxv0.CallToolReques
 	for i, sv := range services {
 		out[i] = sv
 	}
-	return respond.Struct(map[string]any{"services": out}), nil
+	return respond.Struct(map[string]any{"services": out})
 }
 
-func (s *Server) describeService(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) describeService(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	args := respond.Args(req)
 	address, _ := args["address"].(string)
 	service, _ := args["service"].(string)
 	if address == "" || service == "" {
-		return respond.Error("grpc.describe_service: address and service are required"), nil
+		return respond.Error("grpc.describe_service: address and service are required")
 	}
 	timeout := timeoutFromArgs(args)
 
@@ -279,7 +257,7 @@ func (s *Server) describeService(ctx context.Context, req *toolboxv0.CallToolReq
 		return reflectDescribeService(stream, service)
 	})
 	if err != nil {
-		return respond.Error("grpc.describe_service: %v", err), nil
+		return respond.Error("grpc.describe_service: %v", err)
 	}
 
 	out := make([]any, len(methods))
@@ -295,16 +273,16 @@ func (s *Server) describeService(ctx context.Context, req *toolboxv0.CallToolReq
 	return respond.Struct(map[string]any{
 		"service": service,
 		"methods": out,
-	}), nil
+	})
 }
 
-func (s *Server) describeMethod(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *Server) describeMethod(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 	args := respond.Args(req)
 	address, _ := args["address"].(string)
 	service, _ := args["service"].(string)
 	method, _ := args["method"].(string)
 	if address == "" || service == "" || method == "" {
-		return respond.Error("grpc.describe_method: address, service, and method are required"), nil
+		return respond.Error("grpc.describe_method: address, service, and method are required")
 	}
 	timeout := timeoutFromArgs(args)
 
@@ -322,7 +300,7 @@ func (s *Server) describeMethod(ctx context.Context, req *toolboxv0.CallToolRequ
 		return nil, fmt.Errorf("method %q not found on service %q", method, service)
 	})
 	if err != nil {
-		return respond.Error("grpc.describe_method: %v", err), nil
+		return respond.Error("grpc.describe_method: %v", err)
 	}
 
 	return respond.Struct(map[string]any{
@@ -332,7 +310,7 @@ func (s *Server) describeMethod(ctx context.Context, req *toolboxv0.CallToolRequ
 		"output_type":      info.OutputType,
 		"client_streaming": info.ClientStreaming,
 		"server_streaming": info.ServerStreaming,
-	}), nil
+	})
 }
 
 // --- Reflection plumbing -----------------------------------------
