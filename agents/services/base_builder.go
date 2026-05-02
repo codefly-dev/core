@@ -329,7 +329,7 @@ func KustomizeOutput() *builderv0.DeploymentOutput {
 	return &builderv0.DeploymentOutput{
 		Kind: &builderv0.DeploymentOutput_Kubernetes{
 			Kubernetes: &builderv0.KubernetesDeploymentOutput{
-				Kind: builderv0.KubernetesDeploymentOutput_Kustomize,
+				Kind: builderv0.KubernetesDeploymentOutput_KUSTOMIZE,
 			},
 		},
 	}

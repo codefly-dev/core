@@ -7,15 +7,14 @@
 package v0
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	v01 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -32,10 +31,14 @@ const (
 type TestCaseState int32
 
 const (
+	// TEST_CASE_STATE_UNSPECIFIED is the default value when test case state is not specified.
 	TestCaseState_TEST_CASE_STATE_UNSPECIFIED TestCaseState = 0
-	TestCaseState_TEST_CASE_STATE_PASSED      TestCaseState = 1
-	TestCaseState_TEST_CASE_STATE_FAILED      TestCaseState = 2
-	TestCaseState_TEST_CASE_STATE_SKIPPED     TestCaseState = 3
+	// TEST_CASE_STATE_PASSED marks a test case as passed.
+	TestCaseState_TEST_CASE_STATE_PASSED TestCaseState = 1
+	// TEST_CASE_STATE_FAILED marks a test case as failed.
+	TestCaseState_TEST_CASE_STATE_FAILED TestCaseState = 2
+	// TEST_CASE_STATE_SKIPPED marks a test case as skipped.
+	TestCaseState_TEST_CASE_STATE_SKIPPED TestCaseState = 3
 	// ERRORED is for non-assertion failures: panics, setup/teardown
 	// crashes, build failures attributed to this case. Surfaced
 	// separately because the diagnosis flow differs (a panic is a
@@ -89,9 +92,11 @@ func (TestCaseState) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{0}
 }
 
+// TestFailureKind enumerates supported test failure kinds.
 type TestFailureKind int32
 
 const (
+	// TEST_FAILURE_KIND_UNSPECIFIED is the default value when test failure kind is not specified.
 	TestFailureKind_TEST_FAILURE_KIND_UNSPECIFIED TestFailureKind = 0
 	// Plain assertion failure: require.Equal, expect().toBe(), assert.
 	TestFailureKind_TEST_FAILURE_KIND_ASSERTION TestFailureKind = 1
@@ -153,12 +158,16 @@ func (TestFailureKind) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{1}
 }
 
+// Status enumerates lifecycle status values.
 type LoadStatus_Status int32
 
 const (
+	// UNKNOWN is the default value when status is not specified.
 	LoadStatus_UNKNOWN LoadStatus_Status = 0
-	LoadStatus_READY   LoadStatus_Status = 1
-	LoadStatus_ERROR   LoadStatus_Status = 2
+	// READY means the phase completed and the agent can continue.
+	LoadStatus_READY LoadStatus_Status = 1
+	// ERROR means the phase failed and message carries diagnostics.
+	LoadStatus_ERROR LoadStatus_Status = 2
 )
 
 // Enum value maps for LoadStatus_Status.
@@ -202,12 +211,16 @@ func (LoadStatus_Status) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{0, 0}
 }
 
+// Status enumerates lifecycle status values.
 type InitStatus_Status int32
 
 const (
+	// UNKNOWN is the default value when status is not specified.
 	InitStatus_UNKNOWN InitStatus_Status = 0
-	InitStatus_READY   InitStatus_Status = 1
-	InitStatus_ERROR   InitStatus_Status = 2
+	// READY means the phase completed and the agent can continue.
+	InitStatus_READY InitStatus_Status = 1
+	// ERROR means the phase failed and message carries diagnostics.
+	InitStatus_ERROR InitStatus_Status = 2
 )
 
 // Enum value maps for InitStatus_Status.
@@ -251,12 +264,16 @@ func (InitStatus_Status) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{3, 0}
 }
 
+// Status enumerates lifecycle status values.
 type StartStatus_Status int32
 
 const (
+	// UNKNOWN is the default value when status is not specified.
 	StartStatus_UNKNOWN StartStatus_Status = 0
+	// STARTED means the service process is running and ready.
 	StartStatus_STARTED StartStatus_Status = 1
-	StartStatus_ERROR   StartStatus_Status = 2
+	// ERROR means the phase failed and message carries diagnostics.
+	StartStatus_ERROR StartStatus_Status = 2
 )
 
 // Enum value maps for StartStatus_Status.
@@ -300,12 +317,16 @@ func (StartStatus_Status) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{7, 0}
 }
 
+// Status enumerates lifecycle status values.
 type BuildStatus_Status int32
 
 const (
+	// UNKNOWN is the default value when status is not specified.
 	BuildStatus_UNKNOWN BuildStatus_Status = 0
+	// SUCCESS means the operation completed successfully.
 	BuildStatus_SUCCESS BuildStatus_Status = 1
-	BuildStatus_ERROR   BuildStatus_Status = 2
+	// ERROR means the phase failed and message carries diagnostics.
+	BuildStatus_ERROR BuildStatus_Status = 2
 )
 
 // Enum value maps for BuildStatus_Status.
@@ -349,12 +370,16 @@ func (BuildStatus_Status) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{9, 0}
 }
 
+// Status enumerates lifecycle status values.
 type TestStatus_Status int32
 
 const (
+	// UNKNOWN is the default value when status is not specified.
 	TestStatus_UNKNOWN TestStatus_Status = 0
+	// SUCCESS means the operation completed successfully.
 	TestStatus_SUCCESS TestStatus_Status = 1
-	TestStatus_ERROR   TestStatus_Status = 2
+	// ERROR means the phase failed and message carries diagnostics.
+	TestStatus_ERROR TestStatus_Status = 2
 )
 
 // Enum value maps for TestStatus_Status.
@@ -398,9 +423,11 @@ func (TestStatus_Status) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{12, 0}
 }
 
+// State enumerates run-level outcomes.
 type TestRunResult_State int32
 
 const (
+	// UNKNOWN is the default value when state is not specified.
 	TestRunResult_UNKNOWN TestRunResult_State = 0
 	// All cases passed (or skipped); zero failures + zero errors.
 	TestRunResult_PASSED TestRunResult_State = 1
@@ -459,12 +486,16 @@ func (TestRunResult_State) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{16, 0}
 }
 
+// Status enumerates lifecycle status values.
 type LintStatus_Status int32
 
 const (
+	// UNKNOWN is the default value when status is not specified.
 	LintStatus_UNKNOWN LintStatus_Status = 0
+	// SUCCESS means the operation completed successfully.
 	LintStatus_SUCCESS LintStatus_Status = 1
-	LintStatus_ERROR   LintStatus_Status = 2
+	// ERROR means the phase failed and message carries diagnostics.
+	LintStatus_ERROR LintStatus_Status = 2
 )
 
 // Enum value maps for LintStatus_Status.
@@ -508,12 +539,16 @@ func (LintStatus_Status) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{26, 0}
 }
 
+// Status enumerates lifecycle status values.
 type StopStatus_Status int32
 
 const (
+	// UNKNOWN is the default value when status is not specified.
 	StopStatus_UNKNOWN StopStatus_Status = 0
+	// SUCCESS means the operation completed successfully.
 	StopStatus_SUCCESS StopStatus_Status = 1
-	StopStatus_ERROR   StopStatus_Status = 2
+	// ERROR means the phase failed and message carries diagnostics.
+	StopStatus_ERROR StopStatus_Status = 2
 )
 
 // Enum value maps for StopStatus_Status.
@@ -557,12 +592,16 @@ func (StopStatus_Status) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{30, 0}
 }
 
+// Status enumerates lifecycle status values.
 type DestroyStatus_Status int32
 
 const (
+	// UNKNOWN is the default value when status is not specified.
 	DestroyStatus_UNKNOWN DestroyStatus_Status = 0
+	// SUCCESS means the operation completed successfully.
 	DestroyStatus_SUCCESS DestroyStatus_Status = 1
-	DestroyStatus_ERROR   DestroyStatus_Status = 2
+	// ERROR means the phase failed and message carries diagnostics.
+	DestroyStatus_ERROR DestroyStatus_Status = 2
 )
 
 // Enum value maps for DestroyStatus_Status.
@@ -606,14 +645,20 @@ func (DestroyStatus_Status) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{33, 0}
 }
 
+// Stage enumerates stage values.
 type DesiredState_Stage int32
 
 const (
+	// UNKNOWN is the default value when stage is not specified.
 	DesiredState_UNKNOWN DesiredState_Stage = 0
-	DesiredState_NOOP    DesiredState_Stage = 1
-	DesiredState_LOAD    DesiredState_Stage = 2
-	DesiredState_INIT    DesiredState_Stage = 3
-	DesiredState_START   DesiredState_Stage = 4
+	// NOOP means no lifecycle transition is currently requested.
+	DesiredState_NOOP DesiredState_Stage = 1
+	// LOAD requests a reload of service metadata and endpoints.
+	DesiredState_LOAD DesiredState_Stage = 2
+	// INIT requests reinitialization of configuration and network mappings.
+	DesiredState_INIT DesiredState_Stage = 3
+	// START requests the service process to be started or restarted.
+	DesiredState_START DesiredState_Stage = 4
 )
 
 // Enum value maps for DesiredState_Stage.
@@ -661,10 +706,13 @@ func (DesiredState_Stage) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{36, 0}
 }
 
+// LoadStatus reports the state and message for the load lifecycle phase.
 type LoadStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         LoadStatus_Status      `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.LoadStatus_Status" json:"state,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// state is the machine-readable lifecycle state.
+	State LoadStatus_Status `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.LoadStatus_Status" json:"state,omitempty"`
+	// message is a human-readable status or diagnostic summary.
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -713,15 +761,16 @@ func (x *LoadStatus) GetMessage() string {
 	return ""
 }
 
+// LoadRequest gives the runtime agent enough identity to inspect the service.
 type LoadRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Developer debug
+	// developer_debug enables agent-specific debug behavior for local development.
 	DeveloperDebug bool `protobuf:"varint,1,opt,name=developer_debug,json=developerDebug,proto3" json:"developer_debug,omitempty"`
-	// Disable catch
+	// disable_catch disables agent panic/error recovery when debugging failures.
 	DisableCatch bool `protobuf:"varint,2,opt,name=disable_catch,json=disableCatch,proto3" json:"disable_catch,omitempty"`
-	// Identity of the service
+	// identity is the service instance the runtime agent should load.
 	Identity *v0.ServiceIdentity `protobuf:"bytes,3,opt,name=identity,proto3" json:"identity,omitempty"`
-	// Environment
+	// environment is the Codefly environment in which the service will run.
 	Environment   *v0.Environment `protobuf:"bytes,4,opt,name=environment,proto3" json:"environment,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -785,11 +834,14 @@ func (x *LoadRequest) GetEnvironment() *v0.Environment {
 	return nil
 }
 
+// LoadResponse returns service metadata discovered during the load phase.
 type LoadResponse struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Version *v0.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Status  *LoadStatus            `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	// Endpoints exposed by the service
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// version is the service version reported by the runtime agent after Load.
+	Version *v0.Version `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	// status reports the lifecycle or operation status.
+	Status *LoadStatus `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	// endpoints are logical endpoints exposed by the service implementation.
 	Endpoints     []*v0.Endpoint `protobuf:"bytes,3,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -846,10 +898,13 @@ func (x *LoadResponse) GetEndpoints() []*v0.Endpoint {
 	return nil
 }
 
+// InitStatus reports the state and message for the init lifecycle phase.
 type InitStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         InitStatus_Status      `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.InitStatus_Status" json:"state,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// state is the machine-readable lifecycle state.
+	State InitStatus_Status `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.InitStatus_Status" json:"state,omitempty"`
+	// message is a human-readable status or diagnostic summary.
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -898,19 +953,20 @@ func (x *InitStatus) GetMessage() string {
 	return ""
 }
 
+// InitRequest provides resolved context and dependency information before startup.
 type InitRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// RuntimeContext for the service
+	// runtime_context is the proposed execution environment for this service.
 	RuntimeContext *v0.RuntimeContext `protobuf:"bytes,1,opt,name=runtime_context,json=runtimeContext,proto3" json:"runtime_context,omitempty"`
-	// Configuration of the service
+	// configuration is this service's own runtime configuration.
 	Configuration *v0.Configuration `protobuf:"bytes,2,opt,name=configuration,proto3" json:"configuration,omitempty"`
-	// Proposed Network mappings for the service
+	// proposed_network_mappings are logical-to-physical endpoint mappings suggested by core.
 	ProposedNetworkMappings []*v0.NetworkMapping `protobuf:"bytes,3,rep,name=proposed_network_mappings,json=proposedNetworkMappings,proto3" json:"proposed_network_mappings,omitempty"`
-	// Endpoints for the dependencies
+	// dependencies_endpoints are logical endpoints exposed by services this service consumes.
 	DependenciesEndpoints []*v0.Endpoint `protobuf:"bytes,4,rep,name=dependencies_endpoints,json=dependenciesEndpoints,proto3" json:"dependencies_endpoints,omitempty"`
-	// Configurations exposed by the dependencies
+	// dependencies_configurations are configuration values exported by dependent services.
 	DependenciesConfigurations []*v0.Configuration `protobuf:"bytes,5,rep,name=dependencies_configurations,json=dependenciesConfigurations,proto3" json:"dependencies_configurations,omitempty"`
-	// Workspace configurations
+	// workspace_configurations are environment-level configuration values available to the service.
 	WorkspaceConfigurations []*v0.Configuration `protobuf:"bytes,6,rep,name=workspace_configurations,json=workspaceConfigurations,proto3" json:"workspace_configurations,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
@@ -988,13 +1044,16 @@ func (x *InitRequest) GetWorkspaceConfigurations() []*v0.Configuration {
 	return nil
 }
 
+// InitResponse returns the runtime context and mappings the agent actually accepted.
 type InitResponse struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Status         *InitStatus            `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	RuntimeContext *v0.RuntimeContext     `protobuf:"bytes,2,opt,name=runtime_context,json=runtimeContext,proto3" json:"runtime_context,omitempty"`
-	// Actual Network mappings for the service
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// status reports the lifecycle or operation status.
+	Status *InitStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// runtime_context describes where the service runs, such as native, nix, container, or free.
+	RuntimeContext *v0.RuntimeContext `protobuf:"bytes,2,opt,name=runtime_context,json=runtimeContext,proto3" json:"runtime_context,omitempty"`
+	// network_mappings are the concrete mappings the service will use at runtime.
 	NetworkMappings []*v0.NetworkMapping `protobuf:"bytes,3,rep,name=network_mappings,json=networkMappings,proto3" json:"network_mappings,omitempty"`
-	// A service provides configurations for different runtime contexts to other services
+	// runtime_configurations are values this service exports to dependents.
 	RuntimeConfigurations []*v0.Configuration `protobuf:"bytes,4,rep,name=runtime_configurations,json=runtimeConfigurations,proto3" json:"runtime_configurations,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
@@ -1058,13 +1117,14 @@ func (x *InitResponse) GetRuntimeConfigurations() []*v0.Configuration {
 	return nil
 }
 
+// StartRequest launches the service process without blocking until it exits.
 type StartRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Specs affecting the runner
+	// specs are runtime knobs that affect how the agent starts the service.
 	Specs *v0.Specs `protobuf:"bytes,1,opt,name=specs,proto3" json:"specs,omitempty"`
-	// Network mappings for the dependencies
+	// dependencies_network_mappings are concrete addresses for dependency endpoints.
 	DependenciesNetworkMappings []*v0.NetworkMapping `protobuf:"bytes,2,rep,name=dependencies_network_mappings,json=dependenciesNetworkMappings,proto3" json:"dependencies_network_mappings,omitempty"`
-	// Optional fixture
+	// fixture selects optional fixture data or setup behavior for the start.
 	Fixture       string `protobuf:"bytes,3,opt,name=fixture,proto3" json:"fixture,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1121,10 +1181,13 @@ func (x *StartRequest) GetFixture() string {
 	return ""
 }
 
+// StartStatus reports the state and message for the start lifecycle phase.
 type StartStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         StartStatus_Status     `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.StartStatus_Status" json:"state,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// state is the machine-readable lifecycle state.
+	State StartStatus_Status `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.StartStatus_Status" json:"state,omitempty"`
+	// message is a human-readable status or diagnostic summary.
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1173,9 +1236,11 @@ func (x *StartStatus) GetMessage() string {
 	return ""
 }
 
+// StartResponse reports whether the service process reached the started state.
 type StartResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        *StartStatus           `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// status reports the lifecycle or operation status.
+	Status        *StartStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1217,10 +1282,13 @@ func (x *StartResponse) GetStatus() *StartStatus {
 	return nil
 }
 
+// BuildStatus reports the state and message for the build lifecycle phase.
 type BuildStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         BuildStatus_Status     `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.BuildStatus_Status" json:"state,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// state is the machine-readable lifecycle state.
+	State BuildStatus_Status `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.BuildStatus_Status" json:"state,omitempty"`
+	// message is a human-readable status or diagnostic summary.
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1269,6 +1337,7 @@ func (x *BuildStatus) GetMessage() string {
 	return ""
 }
 
+// BuildRequest asks the runtime agent to run the native build or compile check.
 type BuildRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional target scope: package path (e.g. "./handlers"), file, or empty for all.
@@ -1314,10 +1383,13 @@ func (x *BuildRequest) GetTarget() string {
 	return ""
 }
 
+// BuildResponse returns build status and raw tool output for diagnostics.
 type BuildResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        *BuildStatus           `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	Output        string                 `protobuf:"bytes,2,opt,name=output,proto3" json:"output,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// status reports the lifecycle or operation status.
+	Status *BuildStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// output is raw command, build, lint, or test output preserved for diagnostics.
+	Output        string `protobuf:"bytes,2,opt,name=output,proto3" json:"output,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1366,10 +1438,13 @@ func (x *BuildResponse) GetOutput() string {
 	return ""
 }
 
+// TestStatus reports the state and message for the test lifecycle phase.
 type TestStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         TestStatus_Status      `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.TestStatus_Status" json:"state,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// state is the machine-readable lifecycle state.
+	State TestStatus_Status `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.TestStatus_Status" json:"state,omitempty"`
+	// message is a human-readable status or diagnostic summary.
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1418,6 +1493,7 @@ func (x *TestStatus) GetMessage() string {
 	return ""
 }
 
+// TestRequest asks the runtime agent to run native tests for this service.
 type TestRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional target: package or directory scope (e.g. "./handlers" for Go,
@@ -1547,6 +1623,7 @@ func (x *TestRequest) GetExtraArgs() []string {
 	return nil
 }
 
+// TestResponse returns both legacy flat counts and structured test results.
 type TestResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// --- Legacy flat fields ---
@@ -1564,16 +1641,28 @@ type TestResponse struct {
 	//
 	// Deprecated: Marked as deprecated in codefly/services/runtime/v0/runtime.proto.
 	Output string `protobuf:"bytes,2,opt,name=output,proto3" json:"output,omitempty"`
+	// tests_run is the total number of tests executed.
+	//
 	// Deprecated: Marked as deprecated in codefly/services/runtime/v0/runtime.proto.
 	TestsRun int32 `protobuf:"varint,3,opt,name=tests_run,json=testsRun,proto3" json:"tests_run,omitempty"`
+	// tests_passed is the number of tests that passed.
+	//
 	// Deprecated: Marked as deprecated in codefly/services/runtime/v0/runtime.proto.
 	TestsPassed int32 `protobuf:"varint,4,opt,name=tests_passed,json=testsPassed,proto3" json:"tests_passed,omitempty"`
+	// tests_failed is the number of tests that failed.
+	//
 	// Deprecated: Marked as deprecated in codefly/services/runtime/v0/runtime.proto.
 	TestsFailed int32 `protobuf:"varint,5,opt,name=tests_failed,json=testsFailed,proto3" json:"tests_failed,omitempty"`
+	// tests_skipped is the number of tests skipped by the runner.
+	//
 	// Deprecated: Marked as deprecated in codefly/services/runtime/v0/runtime.proto.
 	TestsSkipped int32 `protobuf:"varint,6,opt,name=tests_skipped,json=testsSkipped,proto3" json:"tests_skipped,omitempty"`
+	// coverage_pct is the overall coverage percentage when available.
+	//
 	// Deprecated: Marked as deprecated in codefly/services/runtime/v0/runtime.proto.
 	CoveragePct float32 `protobuf:"fixed32,7,opt,name=coverage_pct,json=coveragePct,proto3" json:"coverage_pct,omitempty"`
+	// failures are concise failing test names or messages.
+	//
 	// Deprecated: Marked as deprecated in codefly/services/runtime/v0/runtime.proto.
 	Failures []string `protobuf:"bytes,8,rep,name=failures,proto3" json:"failures,omitempty"`
 	// Run-level metadata (which runner ran, how long, etc).
@@ -1818,7 +1907,8 @@ func (x *TestRun) GetDuration() *durationpb.Duration {
 // (whole-run timeout fired).
 type TestRunResult struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	State TestRunResult_State    `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.TestRunResult_State" json:"state,omitempty"`
+	// state is the machine-readable lifecycle state.
+	State TestRunResult_State `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.TestRunResult_State" json:"state,omitempty"`
 	// Human-readable summary suitable for a status line.
 	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1874,13 +1964,19 @@ func (x *TestRunResult) GetMessage() string {
 // case that ran but failed an assertion is `failed`. Flaky counts
 // cases that passed on retry (retry_attempts > 1).
 type TestCounts struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Total         int32                  `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`
-	Passed        int32                  `protobuf:"varint,2,opt,name=passed,proto3" json:"passed,omitempty"`
-	Failed        int32                  `protobuf:"varint,3,opt,name=failed,proto3" json:"failed,omitempty"`
-	Skipped       int32                  `protobuf:"varint,4,opt,name=skipped,proto3" json:"skipped,omitempty"`
-	Errored       int32                  `protobuf:"varint,5,opt,name=errored,proto3" json:"errored,omitempty"`
-	Flaky         int32                  `protobuf:"varint,6,opt,name=flaky,proto3" json:"flaky,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// total is the aggregate number of cases represented.
+	Total int32 `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`
+	// passed is the number of cases that passed.
+	Passed int32 `protobuf:"varint,2,opt,name=passed,proto3" json:"passed,omitempty"`
+	// failed is the number of cases that failed assertions.
+	Failed int32 `protobuf:"varint,3,opt,name=failed,proto3" json:"failed,omitempty"`
+	// skipped is the number of cases the runner skipped.
+	Skipped int32 `protobuf:"varint,4,opt,name=skipped,proto3" json:"skipped,omitempty"`
+	// errored is the number of cases that crashed or failed setup/teardown.
+	Errored int32 `protobuf:"varint,5,opt,name=errored,proto3" json:"errored,omitempty"`
+	// flaky is the number of cases that only passed after retry.
+	Flaky         int32 `protobuf:"varint,6,opt,name=flaky,proto3" json:"flaky,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2284,9 +2380,11 @@ type TestLocation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// File path. Absolute or repo-relative — agent's choice; consumers
 	// resolve via SourceLocation when needed.
-	File   string `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
-	Line   int32  `protobuf:"varint,2,opt,name=line,proto3" json:"line,omitempty"`
-	Column int32  `protobuf:"varint,3,opt,name=column,proto3" json:"column,omitempty"`
+	File string `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
+	// line is the 1-based source line number.
+	Line int32 `protobuf:"varint,2,opt,name=line,proto3" json:"line,omitempty"`
+	// column is the 1-based source column number when known.
+	Column int32 `protobuf:"varint,3,opt,name=column,proto3" json:"column,omitempty"`
 	// Function name when available (Go: TestFoo; pytest: test_foo).
 	Function      string `protobuf:"bytes,4,opt,name=function,proto3" json:"function,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2353,10 +2451,13 @@ func (x *TestLocation) GetFunction() string {
 
 // TestRetry is one attempt of a case that was retried.
 type TestRetry struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	Attempt  int32                  `protobuf:"varint,1,opt,name=attempt,proto3" json:"attempt,omitempty"` // 1-indexed
-	State    TestCaseState          `protobuf:"varint,2,opt,name=state,proto3,enum=codefly.services.runtime.v0.TestCaseState" json:"state,omitempty"`
-	Duration *durationpb.Duration   `protobuf:"bytes,3,opt,name=duration,proto3" json:"duration,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// attempt is the 1-based retry attempt number.
+	Attempt int32 `protobuf:"varint,1,opt,name=attempt,proto3" json:"attempt,omitempty"` // 1-indexed
+	// state is the machine-readable lifecycle state.
+	State TestCaseState `protobuf:"varint,2,opt,name=state,proto3,enum=codefly.services.runtime.v0.TestCaseState" json:"state,omitempty"`
+	// duration is wall-clock time spent on the run, suite, case, or operation.
+	Duration *durationpb.Duration `protobuf:"bytes,3,opt,name=duration,proto3" json:"duration,omitempty"`
 	// Failure detail if the attempt failed. Empty if it passed.
 	Failure       *TestFailure `protobuf:"bytes,4,opt,name=failure,proto3" json:"failure,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2499,12 +2600,17 @@ func (x *TestCoverage) GetRawArtifactFormat() string {
 	return ""
 }
 
+// TestFileCoverage records coverage statistics for one source file.
 type TestFileCoverage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	File          string                 `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
-	Pct           float32                `protobuf:"fixed32,2,opt,name=pct,proto3" json:"pct,omitempty"`
-	LinesCovered  int32                  `protobuf:"varint,3,opt,name=lines_covered,json=linesCovered,proto3" json:"lines_covered,omitempty"`
-	LinesTotal    int32                  `protobuf:"varint,4,opt,name=lines_total,json=linesTotal,proto3" json:"lines_total,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// file is a workspace- or service-relative source file path.
+	File string `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
+	// pct is the file coverage percentage from 0 to 100.
+	Pct float32 `protobuf:"fixed32,2,opt,name=pct,proto3" json:"pct,omitempty"`
+	// lines_covered is the number of covered source lines.
+	LinesCovered int32 `protobuf:"varint,3,opt,name=lines_covered,json=linesCovered,proto3" json:"lines_covered,omitempty"`
+	// lines_total is the total number of coverable source lines.
+	LinesTotal    int32 `protobuf:"varint,4,opt,name=lines_total,json=linesTotal,proto3" json:"lines_total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2652,10 +2758,13 @@ func (x *TestTruncation) GetDroppedCases() int32 {
 	return 0
 }
 
+// LintStatus reports the state and message for the lint lifecycle phase.
 type LintStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         LintStatus_Status      `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.LintStatus_Status" json:"state,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// state is the machine-readable lifecycle state.
+	State LintStatus_Status `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.LintStatus_Status" json:"state,omitempty"`
+	// message is a human-readable status or diagnostic summary.
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2704,6 +2813,7 @@ func (x *LintStatus) GetMessage() string {
 	return ""
 }
 
+// LintRequest asks the runtime agent to run the native linter.
 type LintRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional target scope: package path, file, or empty for all.
@@ -2758,10 +2868,13 @@ func (x *LintRequest) GetFix() bool {
 	return false
 }
 
+// LintResponse returns lint status and raw tool output for diagnostics.
 type LintResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        *LintStatus            `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	Output        string                 `protobuf:"bytes,2,opt,name=output,proto3" json:"output,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// status reports the lifecycle or operation status.
+	Status *LintStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// output is raw command, build, lint, or test output preserved for diagnostics.
+	Output        string `protobuf:"bytes,2,opt,name=output,proto3" json:"output,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2810,6 +2923,7 @@ func (x *LintResponse) GetOutput() string {
 	return ""
 }
 
+// StopRequest asks the runtime agent to stop the service process.
 type StopRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -2846,10 +2960,13 @@ func (*StopRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{29}
 }
 
+// StopStatus reports the state and message for the stop lifecycle phase.
 type StopStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         StopStatus_Status      `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.StopStatus_Status" json:"state,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// state is the machine-readable lifecycle state.
+	State StopStatus_Status `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.StopStatus_Status" json:"state,omitempty"`
+	// message is a human-readable status or diagnostic summary.
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2898,9 +3015,11 @@ func (x *StopStatus) GetMessage() string {
 	return ""
 }
 
+// StopResponse reports whether the service process stopped cleanly.
 type StopResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        *StopStatus            `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// status reports the lifecycle or operation status.
+	Status        *StopStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2942,6 +3061,7 @@ func (x *StopResponse) GetStatus() *StopStatus {
 	return nil
 }
 
+// DestroyRequest asks the runtime agent to release all runtime resources.
 type DestroyRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -2978,10 +3098,13 @@ func (*DestroyRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{32}
 }
 
+// DestroyStatus reports the state and message for the destroy lifecycle phase.
 type DestroyStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         DestroyStatus_Status   `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.DestroyStatus_Status" json:"state,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// state is the machine-readable lifecycle state.
+	State DestroyStatus_Status `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.services.runtime.v0.DestroyStatus_Status" json:"state,omitempty"`
+	// message is a human-readable status or diagnostic summary.
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3030,9 +3153,11 @@ func (x *DestroyStatus) GetMessage() string {
 	return ""
 }
 
+// DestroyResponse reports whether runtime resources were destroyed cleanly.
 type DestroyResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        *DestroyStatus         `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// status reports the lifecycle or operation status.
+	Status        *DestroyStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3074,6 +3199,7 @@ func (x *DestroyResponse) GetStatus() *DestroyStatus {
 	return nil
 }
 
+// InformationRequest asks for the runtime agent's current lifecycle state.
 type InformationRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -3110,9 +3236,11 @@ func (*InformationRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{35}
 }
 
+// DesiredState tells the orchestrator which lifecycle transition is still needed.
 type DesiredState struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Stage         DesiredState_Stage     `protobuf:"varint,1,opt,name=stage,proto3,enum=codefly.services.runtime.v0.DesiredState_Stage" json:"stage,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// stage is the next lifecycle stage the runtime should reach.
+	Stage         DesiredState_Stage `protobuf:"varint,1,opt,name=stage,proto3,enum=codefly.services.runtime.v0.DesiredState_Stage" json:"stage,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3154,18 +3282,27 @@ func (x *DesiredState) GetStage() DesiredState_Stage {
 	return DesiredState_UNKNOWN
 }
 
-// InformationResponse represents the overall state of the service
+// InformationResponse represents the runtime agent's lifecycle state.
 type InformationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	DesiredState  *DesiredState          `protobuf:"bytes,1,opt,name=desired_state,json=desiredState,proto3" json:"desired_state,omitempty"`
-	LoadStatus    *LoadStatus            `protobuf:"bytes,2,opt,name=load_status,json=loadStatus,proto3" json:"load_status,omitempty"`
-	InitStatus    *InitStatus            `protobuf:"bytes,3,opt,name=init_status,json=initStatus,proto3" json:"init_status,omitempty"`
-	StartStatus   *StartStatus           `protobuf:"bytes,4,opt,name=start_status,json=startStatus,proto3" json:"start_status,omitempty"`
-	StopStatus    *StopStatus            `protobuf:"bytes,5,opt,name=stop_status,json=stopStatus,proto3" json:"stop_status,omitempty"`
-	DestroyStatus *DestroyStatus         `protobuf:"bytes,6,opt,name=Destroy_status,json=DestroyStatus,proto3" json:"Destroy_status,omitempty"`
-	TestStatus    *TestStatus            `protobuf:"bytes,7,opt,name=test_status,json=testStatus,proto3" json:"test_status,omitempty"`
-	BuildStatus   *BuildStatus           `protobuf:"bytes,8,opt,name=build_status,json=buildStatus,proto3" json:"build_status,omitempty"`
-	LintStatus    *LintStatus            `protobuf:"bytes,9,opt,name=lint_status,json=lintStatus,proto3" json:"lint_status,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// desired_state is the next lifecycle transition requested by the orchestrator.
+	DesiredState *DesiredState `protobuf:"bytes,1,opt,name=desired_state,json=desiredState,proto3" json:"desired_state,omitempty"`
+	// load_status is the latest Load lifecycle status.
+	LoadStatus *LoadStatus `protobuf:"bytes,2,opt,name=load_status,json=loadStatus,proto3" json:"load_status,omitempty"`
+	// init_status is the latest Init lifecycle status.
+	InitStatus *InitStatus `protobuf:"bytes,3,opt,name=init_status,json=initStatus,proto3" json:"init_status,omitempty"`
+	// start_status is the latest Start lifecycle status.
+	StartStatus *StartStatus `protobuf:"bytes,4,opt,name=start_status,json=startStatus,proto3" json:"start_status,omitempty"`
+	// stop_status is the latest Stop lifecycle status.
+	StopStatus *StopStatus `protobuf:"bytes,5,opt,name=stop_status,json=stopStatus,proto3" json:"stop_status,omitempty"`
+	// destroy_status is the latest Destroy lifecycle status.
+	DestroyStatus *DestroyStatus `protobuf:"bytes,6,opt,name=destroy_status,json=destroyStatus,proto3" json:"destroy_status,omitempty"`
+	// test_status is the latest Test lifecycle status.
+	TestStatus *TestStatus `protobuf:"bytes,7,opt,name=test_status,json=testStatus,proto3" json:"test_status,omitempty"`
+	// build_status is the latest Build lifecycle status.
+	BuildStatus *BuildStatus `protobuf:"bytes,8,opt,name=build_status,json=buildStatus,proto3" json:"build_status,omitempty"`
+	// lint_status is the latest Lint lifecycle status.
+	LintStatus    *LintStatus `protobuf:"bytes,9,opt,name=lint_status,json=lintStatus,proto3" json:"lint_status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3267,7 +3404,7 @@ var File_codefly_services_runtime_v0_runtime_proto protoreflect.FileDescriptor
 
 const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\n" +
-	")codefly/services/runtime/v0/runtime.proto\x12\x1bcodefly.services.runtime.v0\x1a\x1bcodefly/base/v0/scope.proto\x1a\x1acodefly/base/v0/spec.proto\x1a!codefly/base/v0/environment.proto\x1a\x1dcodefly/base/v0/service.proto\x1a\x1ecodefly/base/v0/endpoint.proto\x1a\x1dcodefly/base/v0/network.proto\x1a#codefly/base/v0/configuration.proto\x1a%codefly/services/agent/v0/agent.proto\x1a+codefly/services/agent/v0/communicate.proto\x1a\x1egoogle/protobuf/duration.proto\"\x99\x01\n" +
+	")codefly/services/runtime/v0/runtime.proto\x12\x1bcodefly.services.runtime.v0\x1a\x1bcodefly/base/v0/scope.proto\x1a\x1acodefly/base/v0/spec.proto\x1a!codefly/base/v0/environment.proto\x1a\x1dcodefly/base/v0/service.proto\x1a\x1ecodefly/base/v0/endpoint.proto\x1a\x1dcodefly/base/v0/network.proto\x1a#codefly/base/v0/configuration.proto\x1a+codefly/services/agent/v0/communicate.proto\x1a\x1egoogle/protobuf/duration.proto\"\x99\x01\n" +
 	"\n" +
 	"LoadStatus\x12D\n" +
 	"\x05state\x18\x01 \x01(\x0e2..codefly.services.runtime.v0.LoadStatus.StatusR\x05state\x12\x18\n" +
@@ -3494,7 +3631,7 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\fstart_status\x18\x04 \x01(\v2(.codefly.services.runtime.v0.StartStatusR\vstartStatus\x12H\n" +
 	"\vstop_status\x18\x05 \x01(\v2'.codefly.services.runtime.v0.StopStatusR\n" +
 	"stopStatus\x12Q\n" +
-	"\x0eDestroy_status\x18\x06 \x01(\v2*.codefly.services.runtime.v0.DestroyStatusR\rDestroyStatus\x12H\n" +
+	"\x0edestroy_status\x18\x06 \x01(\v2*.codefly.services.runtime.v0.DestroyStatusR\rdestroyStatus\x12H\n" +
 	"\vtest_status\x18\a \x01(\v2'.codefly.services.runtime.v0.TestStatusR\n" +
 	"testStatus\x12K\n" +
 	"\fbuild_status\x18\b \x01(\v2(.codefly.services.runtime.v0.BuildStatusR\vbuildStatus\x12H\n" +
@@ -3664,7 +3801,7 @@ var file_codefly_services_runtime_v0_runtime_proto_depIdxs = []int32{
 	15, // 57: codefly.services.runtime.v0.InformationResponse.init_status:type_name -> codefly.services.runtime.v0.InitStatus
 	19, // 58: codefly.services.runtime.v0.InformationResponse.start_status:type_name -> codefly.services.runtime.v0.StartStatus
 	42, // 59: codefly.services.runtime.v0.InformationResponse.stop_status:type_name -> codefly.services.runtime.v0.StopStatus
-	45, // 60: codefly.services.runtime.v0.InformationResponse.Destroy_status:type_name -> codefly.services.runtime.v0.DestroyStatus
+	45, // 60: codefly.services.runtime.v0.InformationResponse.destroy_status:type_name -> codefly.services.runtime.v0.DestroyStatus
 	24, // 61: codefly.services.runtime.v0.InformationResponse.test_status:type_name -> codefly.services.runtime.v0.TestStatus
 	21, // 62: codefly.services.runtime.v0.InformationResponse.build_status:type_name -> codefly.services.runtime.v0.BuildStatus
 	38, // 63: codefly.services.runtime.v0.InformationResponse.lint_status:type_name -> codefly.services.runtime.v0.LintStatus

@@ -7,13 +7,12 @@
 package v0
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -23,14 +22,20 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Kind enumerates supported kinds.
 type Agent_Kind int32
 
 const (
-	Agent_UNKNOWN     Agent_Kind = 0
-	Agent_SERVICE     Agent_Kind = 1
-	Agent_JOB         Agent_Kind = 2
+	// UNKNOWN is the default value when kind is not specified.
+	Agent_UNKNOWN Agent_Kind = 0
+	// SERVICE agents own runtime and builder lifecycle for deployable services.
+	Agent_SERVICE Agent_Kind = 1
+	// JOB agents own scheduled or one-shot job lifecycles.
+	Agent_JOB Agent_Kind = 2
+	// APPLICATION agents own end-user application generation and artifacts.
 	Agent_APPLICATION Agent_Kind = 3
-	Agent_MODULE      Agent_Kind = 4
+	// MODULE agents own module-level scaffolding or orchestration.
+	Agent_MODULE Agent_Kind = 4
 	// TOOLBOX is a narrow, capability-focused plugin (Code, Git, Docker,
 	// Nix, Bash, Web, gRPC). Distinct from SERVICE: services are
 	// user-deployable processes; toolboxes are codefly-platform utilities
@@ -87,12 +92,17 @@ func (Agent_Kind) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_base_v0_agent_proto_rawDescGZIP(), []int{0, 0}
 }
 
+// Agent identifies the plugin binary that owns a service, job, application, module, or toolbox lifecycle.
 type Agent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          Agent_Kind             `protobuf:"varint,1,opt,name=kind,proto3,enum=codefly.base.v0.Agent_Kind" json:"kind,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Publisher     string                 `protobuf:"bytes,3,opt,name=publisher,proto3" json:"publisher,omitempty"`
-	Version       string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// kind identifies which resource family this agent can manage.
+	Kind Agent_Kind `protobuf:"varint,1,opt,name=kind,proto3,enum=codefly.base.v0.Agent_Kind" json:"kind,omitempty"`
+	// name is the agent plugin name.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// publisher is the namespace that published the agent or resource.
+	Publisher string `protobuf:"bytes,3,opt,name=publisher,proto3" json:"publisher,omitempty"`
+	// version is the semantic or service-specific version for this resource.
+	Version       string `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

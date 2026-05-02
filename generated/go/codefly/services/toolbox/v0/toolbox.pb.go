@@ -7,13 +7,12 @@
 package v0
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -23,6 +22,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// IdentityRequest asks a toolbox to describe itself.
 type IdentityRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -59,6 +59,8 @@ func (*IdentityRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_toolbox_v0_toolbox_proto_rawDescGZIP(), []int{0}
 }
 
+// IdentityResponse is the manifest-derived metadata the host uses for
+// catalog display, diagnostics, and policy decisions.
 type IdentityResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Name from the toolbox manifest (e.g. "git", "docker", "bash").
@@ -232,6 +234,7 @@ func (x *Tool) GetDestructive() bool {
 	return false
 }
 
+// ListToolsRequest asks for the toolbox's callable tool catalog.
 type ListToolsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -268,9 +271,11 @@ func (*ListToolsRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_toolbox_v0_toolbox_proto_rawDescGZIP(), []int{3}
 }
 
+// ListToolsResponse contains the callable tools exposed by the toolbox.
 type ListToolsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tools         []*Tool                `protobuf:"bytes,1,rep,name=tools,proto3" json:"tools,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Tools is the complete callable catalog for this toolbox.
+	Tools         []*Tool `protobuf:"bytes,1,rep,name=tools,proto3" json:"tools,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -312,10 +317,13 @@ func (x *ListToolsResponse) GetTools() []*Tool {
 	return nil
 }
 
+// CallToolRequest invokes one named tool with JSON-shaped arguments.
 type CallToolRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	Name      string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Arguments *structpb.Struct       `protobuf:"bytes,2,opt,name=arguments,proto3" json:"arguments,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name is the exact tool name from ListToolsResponse.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Arguments are validated by the tool's input_schema before execution.
+	Arguments *structpb.Struct `protobuf:"bytes,2,opt,name=arguments,proto3" json:"arguments,omitempty"`
 	// Roots constrain the operation's scope. The toolbox MUST refuse
 	// operations that touch URIs outside these roots. Empty roots means
 	// "use the toolbox's default scope from its manifest."
@@ -380,6 +388,8 @@ func (x *CallToolRequest) GetRoots() []string {
 // payload + diagnostics in one envelope.
 type Content struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// Body is the typed payload carried by this content block.
+	//
 	// Types that are valid to be assigned to Body:
 	//
 	//	*Content_Text
@@ -480,10 +490,15 @@ func (*Content_Structured) isContent_Body() {}
 
 func (*Content_Blob) isContent_Body() {}
 
+// Blob carries binary content with media metadata for display
+// or persistence by the host.
 type Blob struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MediaType     string                 `protobuf:"bytes,1,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"` // "image/png", "application/octet-stream", ...
-	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// MediaType identifies the bytes, e.g. "image/png" or
+	// "application/octet-stream".
+	MediaType string `protobuf:"bytes,1,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
+	// Data is the raw binary payload.
+	Data          []byte `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -532,6 +547,8 @@ func (x *Blob) GetData() []byte {
 	return nil
 }
 
+// CallToolResponse is the tool-level result. Tool errors are represented
+// here instead of as transport errors so partial results can still flow.
 type CallToolResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Content blocks returned by the tool. Empty when the tool
@@ -611,6 +628,7 @@ func (x *CallToolResponse) GetRoutedTo() string {
 	return ""
 }
 
+// Resource describes read-only context the toolbox can expose to agents.
 type Resource struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// URI uniquely identifying the resource. Convention:
@@ -684,6 +702,7 @@ func (x *Resource) GetMimeType() string {
 	return ""
 }
 
+// ListResourcesRequest asks for the toolbox's readable resource catalog.
 type ListResourcesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -720,9 +739,11 @@ func (*ListResourcesRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_toolbox_v0_toolbox_proto_rawDescGZIP(), []int{10}
 }
 
+// ListResourcesResponse contains every readable resource the toolbox exposes.
 type ListResourcesResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Resources     []*Resource            `protobuf:"bytes,1,rep,name=resources,proto3" json:"resources,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Resources is the complete readable catalog for this toolbox.
+	Resources     []*Resource `protobuf:"bytes,1,rep,name=resources,proto3" json:"resources,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -764,9 +785,11 @@ func (x *ListResourcesResponse) GetResources() []*Resource {
 	return nil
 }
 
+// ReadResourceRequest fetches one resource by URI.
 type ReadResourceRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Uri           string                 `protobuf:"bytes,1,opt,name=uri,proto3" json:"uri,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// URI is the resource identifier returned by ListResourcesResponse.
+	Uri           string `protobuf:"bytes,1,opt,name=uri,proto3" json:"uri,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -808,6 +831,8 @@ func (x *ReadResourceRequest) GetUri() string {
 	return ""
 }
 
+// ReadResourceResponse returns the resource content using the same content
+// envelope as tool calls.
 type ReadResourceResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Content of the resource. Same envelope as CallToolResponse so
@@ -854,11 +879,15 @@ func (x *ReadResourceResponse) GetContent() []*Content {
 	return nil
 }
 
+// PromptArgument describes one named parameter accepted by a prompt.
 type PromptArgument struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	Required      bool                   `protobuf:"varint,3,opt,name=required,proto3" json:"required,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name is the parameter key expected by GetPromptRequest.arguments.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Description tells the agent what value to provide.
+	Description string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	// Required marks parameters that must be present for rendering.
+	Required      bool `protobuf:"varint,3,opt,name=required,proto3" json:"required,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -914,11 +943,15 @@ func (x *PromptArgument) GetRequired() bool {
 	return false
 }
 
+// Prompt describes a reusable prompt template exposed by the toolbox.
 type Prompt struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	Arguments     []*PromptArgument      `protobuf:"bytes,3,rep,name=arguments,proto3" json:"arguments,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name is the stable prompt identifier.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Description tells the agent when this prompt is useful.
+	Description string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	// Arguments defines the accepted template parameters.
+	Arguments     []*PromptArgument `protobuf:"bytes,3,rep,name=arguments,proto3" json:"arguments,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -974,6 +1007,7 @@ func (x *Prompt) GetArguments() []*PromptArgument {
 	return nil
 }
 
+// ListPromptsRequest asks for the toolbox's prompt catalog.
 type ListPromptsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1010,9 +1044,11 @@ func (*ListPromptsRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_toolbox_v0_toolbox_proto_rawDescGZIP(), []int{16}
 }
 
+// ListPromptsResponse contains every prompt template the toolbox exposes.
 type ListPromptsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Prompts       []*Prompt              `protobuf:"bytes,1,rep,name=prompts,proto3" json:"prompts,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Prompts is the complete prompt catalog for this toolbox.
+	Prompts       []*Prompt `protobuf:"bytes,1,rep,name=prompts,proto3" json:"prompts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1054,10 +1090,13 @@ func (x *ListPromptsResponse) GetPrompts() []*Prompt {
 	return nil
 }
 
+// GetPromptRequest renders one prompt using JSON-shaped arguments.
 type GetPromptRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Arguments     *structpb.Struct       `protobuf:"bytes,2,opt,name=arguments,proto3" json:"arguments,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name is the prompt identifier from ListPromptsResponse.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Arguments supplies values for the prompt's declared parameters.
+	Arguments     *structpb.Struct `protobuf:"bytes,2,opt,name=arguments,proto3" json:"arguments,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1161,6 +1200,7 @@ func (x *PromptMessage) GetContent() []*Content {
 	return nil
 }
 
+// GetPromptResponse is the rendered prompt conversation.
 type GetPromptResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Description of the rendered prompt for catalog UIs.

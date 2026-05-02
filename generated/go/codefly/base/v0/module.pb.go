@@ -7,13 +7,12 @@
 package v0
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -89,8 +88,9 @@ func (x *InterfaceEndpoint) GetVisibility() string {
 
 // ModuleInterface is the formal contract of what a module exposes.
 type ModuleInterface struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Endpoints     []*InterfaceEndpoint   `protobuf:"bytes,1,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// endpoints are service endpoints that form the module's public contract.
+	Endpoints     []*InterfaceEndpoint `protobuf:"bytes,1,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -132,6 +132,7 @@ func (x *ModuleInterface) GetEndpoints() []*InterfaceEndpoint {
 	return nil
 }
 
+// Module is a core Codefly resource in the workspace hierarchy.
 type Module struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The name of the module
@@ -222,10 +223,13 @@ func (x *Module) GetAgent() *Agent {
 	return nil
 }
 
+// ManagedModule is the platform-managed representation of a module.
 type ManagedModule struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Module        *Module                `protobuf:"bytes,2,opt,name=module,proto3" json:"module,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// id is the stable identifier for this record.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// module is the full module resource.
+	Module        *Module `protobuf:"bytes,2,opt,name=module,proto3" json:"module,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
