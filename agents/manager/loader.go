@@ -195,6 +195,14 @@ type loadConfig struct {
 	extraEnv       []string  // additional env vars (KEY=VALUE) appended after os.Environ
 	sandbox        sandbox.Sandbox
 	useUDS         bool // spawn plugin on a Unix domain socket instead of TCP loopback
+
+	// sandboxChoiceMade is set by WithSandbox or WithoutSandbox.
+	// When false (no explicit choice), Load logs a warning to stderr
+	// pointing at the security review. Phase 2 (post-CLI migration)
+	// flips this to fail-loud — every callsite must make an explicit
+	// security decision rather than inheriting silent ambient
+	// authority.
+	sandboxChoiceMade bool
 }
 
 func defaultLoadConfig() loadConfig {
@@ -278,14 +286,36 @@ func WithUDS() LoadOption {
 // launch layer translates the policy to a sandbox.Sandbox and
 // passes it here.
 //
-// Pass a nil Sandbox (or omit the option) to opt OUT — the agent
-// runs with the parent's authority. We don't make sandbox the
-// default yet because (a) every existing agent has been running
-// without one and tightening uniformly would break things in
-// surprising ways; (b) getting the sandbox policy right per agent
-// kind is a per-plugin migration job. The toolbox path leads.
+// Counterpart: WithoutSandbox() to make an explicit "skip the
+// sandbox" decision. Calling Load with neither option logs a
+// warning pointing at the security review — Phase 2 will fail
+// loud. Don't rely on the silent-default behavior; every callsite
+// should pick.
 func WithSandbox(sb sandbox.Sandbox) LoadOption {
-	return func(c *loadConfig) { c.sandbox = sb }
+	return func(c *loadConfig) {
+		c.sandbox = sb
+		c.sandboxChoiceMade = true
+	}
+}
+
+// WithoutSandbox is the explicit "skip OS-level confinement" choice.
+// Use it ONLY when:
+//   - The agent legitimately needs ambient authority (the
+//     orchestration agents that spawn user binaries, build
+//     containers, etc. — bounded by the user's own permissions).
+//   - You're a test that intentionally bypasses confinement to
+//     isolate a non-security property.
+//
+// Every other callsite should use WithSandbox with a real policy.
+//
+// This is a separate option (not "pass nil to WithSandbox") so the
+// security choice is auditable in source — grep for WithoutSandbox
+// surfaces exactly the callers that opted out.
+func WithoutSandbox() LoadOption {
+	return func(c *loadConfig) {
+		c.sandbox = nil
+		c.sandboxChoiceMade = true
+	}
 }
 
 // Load spawns an agent binary, reads the gRPC port from its stdout,
@@ -302,6 +332,19 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	cfg := defaultLoadConfig()
 	for _, o := range opts {
 		o(&cfg)
+	}
+	if !cfg.sandboxChoiceMade {
+		// Audit-visible warning: caller didn't pick WithSandbox or
+		// WithoutSandbox, so the plugin runs with parent ambient
+		// authority by accident-of-default. Phase 2 will hard-fail
+		// here. Until every dependent caller is migrated, log loud
+		// and continue.
+		fmt.Fprintf(os.Stderr,
+			"[security] manager.Load(%s): no sandbox choice made — "+
+				"defaulting to native (no confinement). Pass "+
+				"WithSandbox(...) or WithoutSandbox() explicitly. "+
+				"This default will become an error in a future release.\n",
+			p.Identifier())
 	}
 
 	bin, err := p.Path(ctx)

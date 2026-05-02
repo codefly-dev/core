@@ -55,6 +55,44 @@ func TestGuard_ListTools_Passthrough(t *testing.T) {
 		"ListTools must pass through even under deny-all — agents need to know what's offered before they can ask for permission")
 }
 
+// TestGuard_TwoPhase_Passthrough mirrors ListTools_Passthrough for
+// the new two-phase API (ListToolSummaries + DescribeTool). Without
+// this regression test, a future Guard refactor could drop the
+// override and silently route to UnimplementedToolboxServer (the
+// embedded fallback), making every Guarded toolbox 502 on the new
+// API. The bug shipped in an earlier session and was caught by CI;
+// pin it.
+func TestGuard_TwoPhase_Passthrough(t *testing.T) {
+	dir := gitWorkspace(t)
+	g := policyguard.New(git.New(dir, "guard-test"), policy.DenyAllPDP{}, "git")
+
+	t.Run("ListToolSummaries", func(t *testing.T) {
+		resp, err := g.ListToolSummaries(context.Background(), &toolboxv0.ListToolSummariesRequest{})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.Tools,
+			"ListToolSummaries must pass through; deny-all only gates the side-effecting CallTool")
+	})
+
+	t.Run("DescribeTool", func(t *testing.T) {
+		resp, err := g.DescribeTool(context.Background(),
+			&toolboxv0.DescribeToolRequest{Name: "git.status"})
+		require.NoError(t, err)
+		require.NotNil(t, resp.Tool, "DescribeTool must return a non-nil ToolSpec")
+		require.Equal(t, "git.status", resp.Tool.Name)
+	})
+
+	t.Run("DescribeTool_Unknown", func(t *testing.T) {
+		// Guard passes through; inner toolbox is responsible for the
+		// in-band error envelope. We assert both surfaces compose
+		// cleanly through the Guard.
+		resp, err := g.DescribeTool(context.Background(),
+			&toolboxv0.DescribeToolRequest{Name: "git.nonexistent"})
+		require.NoError(t, err)
+		require.Nil(t, resp.Tool)
+		require.NotEmpty(t, resp.Error)
+	})
+}
+
 func TestGuard_CallTool_AllowAll_PassesThrough(t *testing.T) {
 	dir := gitWorkspace(t)
 	g := policyguard.New(git.New(dir, "guard-test"), policy.AllowAllPDP{}, "git")

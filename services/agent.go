@@ -55,7 +55,14 @@ func getOrCreateConn(ctx context.Context, agent *resources.Agent) (*manager.Agen
 	}
 	pr, pw := io.Pipe()
 	go agents.GetLogHandler().ForwardLogs(pr)
-	conn, err := manager.Load(ctx, agent, manager.WithLogWriter(pw))
+	// Explicit WithoutSandbox: service agents (Runtime, Builder, Code)
+	// run user code, build containers, and otherwise need the host's
+	// ambient authority. Per-agent sandbox profiles are the right
+	// long-term fix; this opt-out is the audit-visible marker for
+	// the gap. See toolbox/launch for the path that DOES sandbox.
+	conn, err := manager.Load(ctx, agent,
+		manager.WithLogWriter(pw),
+		manager.WithoutSandbox())
 	if err != nil {
 		_ = pw.Close()
 		return nil, err

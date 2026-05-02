@@ -159,7 +159,12 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 		return fmt.Errorf("agent %s not installed: %w", agentName, err)
 	}
 
-	agentConn, err := manager.Load(ctx, agent)
+	// Explicit WithoutSandbox: SDK callers spawn dependency agents
+	// (Postgres, Redis, etc.) for user-driven dev/test loops. These
+	// need ambient authority to bind ports, mount volumes, and
+	// access the user's docker socket. Per-agent sandbox profiles
+	// are the right long-term fix; this opt-out is the audit marker.
+	agentConn, err := manager.Load(ctx, agent, manager.WithoutSandbox())
 	if err != nil {
 		return fmt.Errorf("load agent %s: %w", agentName, err)
 	}

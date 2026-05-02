@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -395,14 +396,43 @@ func firstLine(s string) string {
 	return s
 }
 
+// MaxMCPTextBytes caps any single text content block from an MCP
+// server. The transcoder is the LLM-trust boundary for foreign MCP
+// content: a hostile or buggy server could otherwise dump arbitrary
+// bytes into the model's context. 64 KiB is generous for tool
+// output but blunts the "fill the context window" attack.
+const MaxMCPTextBytes = 64 * 1024
+
+// MaxMCPErrorBytes caps the error string we surface from isError=true.
+// Errors flow into a different field but still hit the LLM; cap them
+// shorter (4 KiB) since legitimate error text is rarely long.
+const MaxMCPErrorBytes = 4 * 1024
+
 // mcpResultToCallResponse adapts an MCP tools/call result into the
 // codefly Toolbox CallToolResponse shape.
 //
 // MCP shape: `{ content: [...], isError: bool }` where each content
 // item is `{type: "text"|"image"|"resource", text?, data?, ...}`.
-// We map text → Content_Text and any other type to a structured
-// blob containing the raw JSON (best-effort fidelity until specific
-// types matter).
+// We map text → Content_Text and any other type is dropped for now.
+//
+// **Sanitization at the trust boundary.** Output from a third-party
+// MCP server is attacker-controlled from the LLM's perspective —
+// even a benign server can be tricked into emitting prompt-injection
+// payloads. The transcoder is the *only* place we can sanitize:
+// once it's in Content_Text the LLM will read it. We apply three
+// defenses:
+//
+//   1. Length cap (MaxMCPTextBytes): blunts "stuff the context".
+//   2. Control-char strip (C0/C1 except \n \t \r): kills zero-width
+//      attacks, RTL overrides, ANSI escapes, and bell/escape codes
+//      that some chat surfaces interpret.
+//   3. Structured delimiters (<mcp-server-content>...</mcp-server-content>):
+//      lets the model's tokenizer cleanly separate foreign content
+//      from host-trusted instructions. Belt-and-suspenders against
+//      prompt-injection that tries to "break out".
+//
+// These are not paranoid; they're table stakes once we host
+// arbitrary third-party MCP servers (the JIRA case).
 func mcpResultToCallResponse(raw json.RawMessage) *toolboxv0.CallToolResponse {
 	var parsed struct {
 		Content []struct {
@@ -416,7 +446,9 @@ func mcpResultToCallResponse(raw json.RawMessage) *toolboxv0.CallToolResponse {
 	}
 	if parsed.IsError {
 		// MCP carries error text in the same content array. Collapse
-		// to a single Error string for the Toolbox shape.
+		// to a single Error string for the Toolbox shape, with the
+		// same sanitization the success-path content gets — error
+		// strings hit the LLM too.
 		var msg string
 		for _, c := range parsed.Content {
 			if c.Type == "text" {
@@ -426,18 +458,95 @@ func mcpResultToCallResponse(raw json.RawMessage) *toolboxv0.CallToolResponse {
 		if msg == "" {
 			msg = "mcp tool returned isError=true with no text content"
 		}
-		return &toolboxv0.CallToolResponse{Error: msg}
+		return &toolboxv0.CallToolResponse{
+			Error: sanitizeMCPText(msg, MaxMCPErrorBytes),
+		}
 	}
 	out := make([]*toolboxv0.Content, 0, len(parsed.Content))
 	for _, c := range parsed.Content {
 		if c.Type == "text" {
+			text := sanitizeMCPText(c.Text, MaxMCPTextBytes)
+			// Wrap with delimiters so the model can clearly attribute
+			// foreign content. Same shape as XML-style tags the model
+			// already handles.
+			wrapped := "<mcp-server-content>\n" + text + "\n</mcp-server-content>"
 			out = append(out, &toolboxv0.Content{
-				Body: &toolboxv0.Content_Text{Text: c.Text},
+				Body: &toolboxv0.Content_Text{Text: wrapped},
 			})
 		}
 		// Non-text MCP content (image, resource) is dropped for now.
 		// A later commit can map them to Content_Blob with proper
-		// media-type handling.
+		// media-type handling — and at that point the same
+		// sanitization story has to apply (binary content has its
+		// own attack surface).
 	}
 	return &toolboxv0.CallToolResponse{Content: out}
+}
+
+// sanitizeMCPText caps length and strips characters known to be
+// abused for prompt injection or terminal-rendering attacks.
+// Newline / tab / CR are kept — legitimate text formatting.
+//
+// Stripped:
+//   - C0 (0x00-0x1F) except \n \t \r — ANSI ESC, bell, etc.
+//   - DEL (0x7F)
+//   - C1 (0x80-0x9F) — alternate ANSI escape range
+//   - Soft hyphen (U+00AD) — invisible split
+//   - Zero-width formatting (U+200B–U+200F) — invisible chars used
+//     to smuggle hidden content past human review
+//   - Bidirectional overrides (U+202A–U+202E, U+2066–U+2069) — text
+//     spoofing (the "Trojan Source" class)
+//   - BOM (U+FEFF) — invisible
+//   - Unicode tag block (U+E0000–U+E007F) — the "tag" attack uses
+//     these to encode arbitrary ASCII invisibly
+//
+// On truncation, append a clear "[truncated]" marker.
+func sanitizeMCPText(s string, maxBytes int) string {
+	originalLen := len(s)
+	truncated := false
+	if originalLen > maxBytes {
+		s = s[:maxBytes]
+		truncated = true
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if isDangerousRune(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	if truncated {
+		b.WriteString(fmt.Sprintf(
+			"\n[truncated by mcprev: original was %d bytes]", originalLen))
+	}
+	return b.String()
+}
+
+func isDangerousRune(r rune) bool {
+	switch r {
+	case '\n', '\t', '\r':
+		return false
+	}
+	switch {
+	case r < 0x20:
+		return true // C0 controls
+	case r == 0x7F:
+		return true // DEL
+	case r >= 0x80 && r < 0xA0:
+		return true // C1 controls
+	case r == 0xAD:
+		return true // soft hyphen
+	case r >= 0x200B && r <= 0x200F:
+		return true // zero-width / formatting
+	case r >= 0x202A && r <= 0x202E:
+		return true // bidirectional overrides
+	case r >= 0x2066 && r <= 0x2069:
+		return true // bidirectional isolates
+	case r == 0xFEFF:
+		return true // BOM
+	case r >= 0xE0000 && r <= 0xE007F:
+		return true // Unicode tag block (invisible-tag attack)
+	}
+	return false
 }

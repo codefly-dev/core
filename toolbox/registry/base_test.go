@@ -114,6 +114,95 @@ func TestBase_CallTool_UnknownTool_ReturnsInBandError(t *testing.T) {
 	require.Contains(t, resp.Error, "missing")
 }
 
+// TestBase_CallTool_ValidatesAgainstInputSchema is the load-bearing
+// LLM-attack-surface test. The plugin's InputSchema is a contract:
+// the framework now enforces it before the handler ever runs, so
+// handler authors can't accidentally accept bad input.
+func TestBase_CallTool_ValidatesAgainstInputSchema(t *testing.T) {
+	schema, _ := structpb.NewStruct(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"url": map[string]any{"type": "string"},
+		},
+		"required": []any{"url"},
+	})
+	handlerCalled := false
+	f := newFake([]*registry.ToolDefinition{
+		{
+			Name:        "fetch",
+			InputSchema: schema,
+			Handler: func(_ context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+				handlerCalled = true
+				return &toolboxv0.CallToolResponse{}
+			},
+		},
+	})
+
+	t.Run("missing required field is rejected", func(t *testing.T) {
+		handlerCalled = false
+		args, _ := structpb.NewStruct(map[string]any{}) // url missing
+		resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+			Name:      "fetch",
+			Arguments: args,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.Error, "missing required field must surface as in-band error")
+		require.Contains(t, resp.Error, "fetch", "error names the tool")
+		require.False(t, handlerCalled, "handler MUST NOT run when validation fails — the whole point of pre-dispatch validation")
+	})
+
+	t.Run("wrong type is rejected", func(t *testing.T) {
+		handlerCalled = false
+		args, _ := structpb.NewStruct(map[string]any{"url": 42}) // url should be string
+		resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+			Name:      "fetch",
+			Arguments: args,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.Error)
+		require.False(t, handlerCalled)
+	})
+
+	t.Run("valid args pass through to handler", func(t *testing.T) {
+		handlerCalled = false
+		args, _ := structpb.NewStruct(map[string]any{"url": "https://example.com"})
+		resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+			Name:      "fetch",
+			Arguments: args,
+		})
+		require.NoError(t, err)
+		require.Empty(t, resp.Error)
+		require.True(t, handlerCalled, "handler MUST run when validation passes")
+	})
+}
+
+// TestBase_CallTool_NoSchema_PassesThrough confirms backward compat:
+// tools without an InputSchema still dispatch (skipping validation).
+// Production toolboxes should always declare a schema, but legacy
+// or test ones without one shouldn't break.
+func TestBase_CallTool_NoSchema_PassesThrough(t *testing.T) {
+	handlerCalled := false
+	f := newFake([]*registry.ToolDefinition{
+		{
+			Name:        "no_schema",
+			InputSchema: nil,
+			Handler: func(_ context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+				handlerCalled = true
+				return &toolboxv0.CallToolResponse{}
+			},
+		},
+	})
+
+	args, _ := structpb.NewStruct(map[string]any{"anything": "goes"})
+	resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+		Name:      "no_schema",
+		Arguments: args,
+	})
+	require.NoError(t, err)
+	require.Empty(t, resp.Error)
+	require.True(t, handlerCalled)
+}
+
 func TestBase_CallTool_NilHandler_SurfacesPluginBug(t *testing.T) {
 	// Tool defined but Handler not wired — surfaces as a clear error
 	// instead of a nil-deref panic. Catches a real plugin-author bug

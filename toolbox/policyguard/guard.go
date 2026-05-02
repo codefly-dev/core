@@ -59,6 +59,20 @@ func (g *Guard) ListTools(ctx context.Context, req *toolboxv0.ListToolsRequest) 
 	return g.inner.ListTools(ctx, req)
 }
 
+// ListToolSummaries is the lightweight catalog half of the two-phase
+// API. Same trust class as ListTools — pass through unmolested.
+func (g *Guard) ListToolSummaries(ctx context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
+	return g.inner.ListToolSummaries(ctx, req)
+}
+
+// DescribeTool is the per-tool spec half of the two-phase API. Same
+// trust class as ListTools — pass through unmolested. The PDP gates
+// the actual side-effecting RPC (CallTool) below; describing a tool
+// is not itself a privileged operation.
+func (g *Guard) DescribeTool(ctx context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
+	return g.inner.DescribeTool(ctx, req)
+}
+
 func (g *Guard) ListResources(ctx context.Context, req *toolboxv0.ListResourcesRequest) (*toolboxv0.ListResourcesResponse, error) {
 	return g.inner.ListResources(ctx, req)
 }

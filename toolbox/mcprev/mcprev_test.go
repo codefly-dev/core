@@ -199,7 +199,10 @@ func TestReverseTranscoder_CallTool_RoutesThroughMCP(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, resp.Error)
 	require.NotEmpty(t, resp.Content)
-	require.Equal(t, "hello world", resp.Content[0].GetText())
+	require.Contains(t, resp.Content[0].GetText(), "hello world",
+		"text content survives sanitization unchanged for plain ASCII")
+	require.Contains(t, resp.Content[0].GetText(), "<mcp-server-content>",
+		"sanitizer wraps foreign content with attribution delimiters")
 
 	// Verify the fake MCP saw the typed call.
 	require.Len(t, mcp.calls, 1)
@@ -220,6 +223,98 @@ func TestReverseTranscoder_CallTool_MapsIsErrorToErrorField(t *testing.T) {
 	require.True(t, strings.Contains(resp.Error, "tool said no"),
 		"MCP isError=true should surface as Toolbox.Error, not in Content")
 	require.Empty(t, resp.Content)
+}
+
+// TestReverseTranscoder_Sanitize_StripsControlChars verifies the
+// transcoder kills C0/C1 control characters before forwarding to
+// the LLM. Real-world prompt-injection payloads use zero-width
+// characters, RTL overrides, and ANSI escapes — all in those
+// ranges. \n / \t / \r are kept (legitimate text formatting).
+func TestReverseTranscoder_Sanitize_StripsControlChars(t *testing.T) {
+	mcp, stdin, stdout := newFakeMCP([]map[string]any{
+		{"name": "echo", "description": "Echo input", "inputSchema": map[string]any{"type": "object"}},
+	})
+	defer mcp.close()
+
+	rt := mcprev.New(stdin, stdout, nil)
+	require.NoError(t, rt.Initialize(context.Background()))
+
+	// Mix legitimate whitespace with attack-class control chars:
+	//   ​ = zero-width space (invisibility)
+	//   ‮ = right-to-left override (text spoofing)
+	//    = ESC (ANSI escape sequences)
+	//    = bell (terminal noise)
+	args, _ := structpb.NewStruct(map[string]any{
+		"text": "ok\nfine\t​hidden‮spoofed[31mansi",
+	})
+	resp, err := rt.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+		Name:      "echo",
+		Arguments: args,
+	})
+	require.NoError(t, err)
+	got := resp.Content[0].GetText()
+
+	require.Contains(t, got, "ok\nfine\t",
+		"newline + tab MUST survive — they're legitimate text formatting")
+	require.NotContains(t, got, "​", "zero-width space must be stripped")
+	require.NotContains(t, got, "‮", "RTL override must be stripped")
+	require.NotContains(t, got, "", "ANSI ESC must be stripped")
+	require.NotContains(t, got, "", "bell must be stripped")
+}
+
+// TestReverseTranscoder_Sanitize_CapsLength verifies that an MCP
+// server can't fill the LLM's context budget. 64 KiB is the cap;
+// anything larger gets truncated with a marker.
+func TestReverseTranscoder_Sanitize_CapsLength(t *testing.T) {
+	mcp, stdin, stdout := newFakeMCP([]map[string]any{
+		{"name": "echo", "description": "Echo input", "inputSchema": map[string]any{"type": "object"}},
+	})
+	defer mcp.close()
+
+	rt := mcprev.New(stdin, stdout, nil)
+	require.NoError(t, rt.Initialize(context.Background()))
+
+	huge := strings.Repeat("a", 200*1024) // 200 KiB > 64 KiB cap
+	args, _ := structpb.NewStruct(map[string]any{"text": huge})
+	resp, err := rt.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+		Name:      "echo",
+		Arguments: args,
+	})
+	require.NoError(t, err)
+	got := resp.Content[0].GetText()
+
+	require.Less(t, len(got), len(huge),
+		"output must be smaller than input — cap kicked in")
+	require.Contains(t, got, "[truncated by mcprev:",
+		"truncation must be visible to the model, not silent")
+}
+
+// TestReverseTranscoder_Sanitize_WrapsForeignContent confirms the
+// attribution delimiters are present. The model uses these to
+// distinguish foreign MCP content from host-trusted instructions —
+// blunts prompt-injection that tries to "break out" of the tool
+// boundary.
+func TestReverseTranscoder_Sanitize_WrapsForeignContent(t *testing.T) {
+	mcp, stdin, stdout := newFakeMCP([]map[string]any{
+		{"name": "echo", "description": "Echo input", "inputSchema": map[string]any{"type": "object"}},
+	})
+	defer mcp.close()
+
+	rt := mcprev.New(stdin, stdout, nil)
+	require.NoError(t, rt.Initialize(context.Background()))
+
+	args, _ := structpb.NewStruct(map[string]any{"text": "anything"})
+	resp, err := rt.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+		Name:      "echo",
+		Arguments: args,
+	})
+	require.NoError(t, err)
+	got := resp.Content[0].GetText()
+
+	require.True(t, strings.HasPrefix(got, "<mcp-server-content>"),
+		"foreign content must be wrapped with an opening delimiter")
+	require.True(t, strings.HasSuffix(got, "</mcp-server-content>"),
+		"foreign content must be wrapped with a closing delimiter")
 }
 
 func TestReverseTranscoder_Identity_FallbackWhenServerInfoMissing(t *testing.T) {
