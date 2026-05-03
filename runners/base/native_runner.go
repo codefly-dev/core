@@ -23,7 +23,7 @@ type NativeEnvironment struct {
 
 	// mu guards envs — matches DockerEnvironment's locking. WithEnvironmentVariables
 	// can race with concurrent NewProcess otherwise.
-	mu   sync.Mutex
+	mu sync.Mutex
 	envs []*resources.EnvironmentVariable
 
 	// sb is the OS-level confinement applied to every spawned cmd.
@@ -134,6 +134,15 @@ type NativeProc struct {
 	stdinWriter  *io.PipeWriter
 	stdoutReader *io.PipeReader
 	stdoutWriter *io.PipeWriter
+
+	// forwarderWG tracks the stdout/stderr forwarder + cmd.Wait
+	// goroutines spawned by start(). Run() blocks on this before
+	// returning so callers reading proc.output never race against
+	// in-flight Forward calls. Without this, fast commands like
+	// `echo hello` lose their output on slow CI runners — caught
+	// by Linux CI flakes; local macOS was fast enough to mask the
+	// race. NixProc had this; NativeProc was missing it.
+	forwarderWG sync.WaitGroup
 }
 
 func (proc *NativeProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
@@ -224,6 +233,13 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Wait for forwarder goroutines to drain BEFORE returning. Without
+	// this, callers reading proc.output (or any user-supplied writer)
+	// race against the forwarder still copying bytes from the pipe.
+	// `echo hello` would land in proc.output occasionally-empty on
+	// slow Linux CI runners; local macOS was fast enough to mask the
+	// race. NixProc has the same defer; this brings parity.
+	defer proc.forwarderWG.Wait()
 	w.Trace("waiting for process to finish or be killed")
 
 	// start() already spawned the single cmd.Wait goroutine that publishes
@@ -327,13 +343,16 @@ func (proc *NativeProc) start(ctx context.Context) error {
 			return err
 		}
 		proc.exec = cmd
+		proc.forwarderWG.Add(2)
 		go func() {
+			defer proc.forwarderWG.Done()
 			defer stderr.Close()
 			proc.Forward(ctx, stderr)
 		}()
 		// Close the stdout pipe writer when the process exits AND publish
 		// the exit error for any Wait() callers.
 		go func() {
+			defer proc.forwarderWG.Done()
 			err := cmd.Wait()
 			proc.stdoutWriter.Close()
 			proc.publishExit(err)
@@ -352,16 +371,20 @@ func (proc *NativeProc) start(ctx context.Context) error {
 			return err
 		}
 		proc.exec = cmd
+		proc.forwarderWG.Add(3)
 		go func() {
+			defer proc.forwarderWG.Done()
 			defer stdout.Close()
 			proc.Forward(ctx, stdout)
 		}()
 		go func() {
+			defer proc.forwarderWG.Done()
 			defer stderr.Close()
 			proc.Forward(ctx, stderr)
 		}()
 		// Single Wait goroutine — publish the exit so Wait() callers learn.
 		go func() {
+			defer proc.forwarderWG.Done()
 			err := cmd.Wait()
 			proc.publishExit(err)
 		}()
