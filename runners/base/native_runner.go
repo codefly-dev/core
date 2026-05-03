@@ -145,6 +145,35 @@ type NativeProc struct {
 	forwarderWG sync.WaitGroup
 }
 
+// lockedWriter serializes Write() calls. Two forwarder goroutines
+// (stdout + stderr) share proc.output; user-supplied writers
+// (bytes.Buffer in tests, *Wool in production) usually aren't
+// safe for concurrent Write. This wrapper closes the race.
+//
+// Why we have to do this ourselves: Go's os/exec docs guarantee
+// "at-most-one concurrent Write" only when cmd.Stdout/Stderr are
+// SET DIRECTLY to the same comparable writer. We use StdoutPipe/
+// StderrPipe + manual forwarders (so we can do per-line prefixing
+// for wool), which bypasses that guarantee — every byte goes
+// through forwardLines first, and the lock has to live on our side.
+//
+// On macOS, the test's stderr stays empty, only the stdout
+// forwarder ever calls Write, no race. On GitHub Actions Ubuntu
+// runners, a tty wrapper injects an ANSI Device Status Report
+// (\033[6n) on stderr — both forwarders Write concurrently and
+// the unsynced bytes.Buffer cursor scrambles or loses writes.
+// Fixed under #19804 territory; lockedWriter is the local fix.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (lw *lockedWriter) Write(p []byte) (int, error) {
+	lw.mu.Lock()
+	defer lw.mu.Unlock()
+	return lw.w.Write(p)
+}
+
 func (proc *NativeProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
 	for _, env := range proc.envs {
 		if env.Key == added.Key {
@@ -328,6 +357,18 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	// Wire stdin pipe if requested
 	if proc.stdinReader != nil {
 		cmd.Stdin = proc.stdinReader
+	}
+
+	// Serialize stdout+stderr forwarders' writes onto proc.output.
+	// Both forwarders share the same writer; user-supplied writers
+	// (bytes.Buffer, *Wool, *strings.Builder) are not safe for
+	// concurrent Write. See lockedWriter doc for the Linux-CI
+	// flake history that led to this. Idempotent — wrapping a
+	// lockedWriter again is harmless.
+	if proc.output != nil {
+		if _, alreadyLocked := proc.output.(*lockedWriter); !alreadyLocked {
+			proc.output = &lockedWriter{w: proc.output}
+		}
 	}
 
 	// Wire stdout: raw pipe or forwarded through output

@@ -1,7 +1,9 @@
 package base_test
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,6 +171,48 @@ loopReallyLastTime:
 
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)
+}
+
+// TestNativeProc_ConcurrentStdoutStderr_NoBufferRace pins the
+// fix for a Linux-CI flake where bytes.Buffer was being written
+// concurrently by stdout + stderr forwarders. Local macOS never
+// reproduced because its stderr stayed empty (no terminal-emulation
+// wrapper to inject ANSI escapes). On Ubuntu GH Actions runners,
+// a tty wrapper writes \033[6n on stderr — both forwarders fire,
+// bytes.Buffer's unsynced cursor scrambles, output gets lost.
+//
+// The fix is a lockedWriter that serializes Writes to proc.output
+// (see native_runner.go). This test forces the same shape locally
+// by running a script that writes BOTH to stdout AND stderr in
+// rapid succession. With -race, any unsync access to the user-
+// supplied bytes.Buffer surfaces immediately.
+func TestNativeProc_ConcurrentStdoutStderr_NoBufferRace(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
+	require.NoError(t, err)
+	require.NoError(t, env.Init(ctx))
+
+	// `sh -c '...'` runs a tiny script that interleaves stdout and
+	// stderr writes. If proc.output isn't a lockedWriter, the two
+	// forwarders race on bytes.Buffer's internal cursor. -race
+	// detector will catch it; even without -race, the output may
+	// be empty / scrambled / partially-lost.
+	proc, err := env.NewProcess("sh", "-c",
+		`for i in 1 2 3 4 5; do echo "out-$i"; echo "err-$i" >&2; done`)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	proc.WithOutput(&buf)
+
+	require.NoError(t, proc.Run(ctx))
+
+	got := buf.String()
+	// Every line we emitted must land — no scrambling, no losses.
+	for _, expected := range []string{"out-1", "out-5", "err-1", "err-5"} {
+		require.True(t, strings.Contains(got, expected),
+			"output missing %q (race likely): %q", expected, got)
+	}
 }
 
 func TestCrashing(t *testing.T) {

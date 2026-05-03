@@ -615,6 +615,17 @@ func (proc *NixProc) start(ctx context.Context) error {
 		cmd.Stdin = proc.stdinReader
 	}
 
+	// Serialize stdout+stderr forwarders' writes onto proc.output.
+	// User-supplied writers (bytes.Buffer, *Wool) aren't safe for
+	// concurrent Write; both forwarders here share proc.output.
+	// Same Linux-CI flake fix as NativeProc — see lockedWriter doc
+	// in runners/base/native_runner.go for the full story.
+	if proc.output != nil {
+		if _, alreadyLocked := proc.output.(*lockedWriter); !alreadyLocked {
+			proc.output = &lockedWriter{w: proc.output}
+		}
+	}
+
 	// Wire stdout: raw pipe or forwarded through output
 	if proc.stdoutWriter != nil {
 		cmd.Stdout = proc.stdoutWriter
