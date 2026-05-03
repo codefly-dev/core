@@ -172,6 +172,66 @@ func TestSandboxFilesystemDeclarations_Stable(t *testing.T) {
 // Wrap on an already-wrapped cmd is an error. Double-wrapping would
 // build `bwrap ... -- bwrap ... -- orig` which fails at runtime in
 // confusing ways; surface the programmer error at Wrap-time instead.
+// TestBwrap_NetworkLoopback_WrapsWithLoUpPreamble pins the Linux
+// Loopback implementation: --unshare-net (so the netns is fresh
+// and isolated) PLUS a /bin/sh preamble that brings lo UP before
+// exec'ing the payload. Without the preamble, the unshared netns
+// has lo DOWN and the host's gRPC handshake to the plugin's
+// loopback listener fails — which is the entire production gap
+// this test guards.
+func TestBwrap_NetworkLoopback_WrapsWithLoUpPreamble(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		// macOS uses sandbox-exec; the bwrap structural test only
+		// makes sense on Linux. Returning early without t.Skip per
+		// the no-skip rule.
+		return
+	}
+	sb, err := sandbox.New()
+	if err != nil {
+		t.Fatalf("sandbox unavailable: %v", err)
+	}
+	if sb.Backend() != sandbox.BackendBwrap {
+		t.Fatalf("expected bwrap backend on Linux, got %v", sb.Backend())
+	}
+
+	sb = sb.WithNetwork(sandbox.NetworkLoopback)
+	cmd := exec.Command("/bin/echo", "hi")
+	require.NoError(t, sb.Wrap(cmd))
+
+	// argv shape:
+	//   bwrap [args...] --unshare-net -- /bin/sh -c '<preamble>' sh /bin/echo hi
+	args := strings.Join(cmd.Args, " ")
+	require.Contains(t, args, "--unshare-net",
+		"NetworkLoopback must request a fresh netns (with lo down)")
+	require.Contains(t, args, "/bin/sh",
+		"loopback preamble runs the original cmd through /bin/sh")
+	require.Contains(t, args, "ip link set lo up",
+		"the preamble must bring lo UP before exec'ing the payload — that's the whole point")
+	require.Contains(t, args, `exec "$@"`,
+		"the preamble exec's the original argv via positional params (no shell-quoting hell)")
+}
+
+// TestBwrap_NetworkDeny_NoLoopbackPreamble confirms Deny doesn't
+// accidentally inherit the Loopback wrapper. Cross-policy bleed
+// would silently re-enable lo for Deny-mode plugins.
+func TestBwrap_NetworkDeny_NoLoopbackPreamble(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	sb, err := sandbox.New()
+	if err != nil {
+		t.Fatalf("sandbox unavailable: %v", err)
+	}
+	sb = sb.WithNetwork(sandbox.NetworkDeny)
+	cmd := exec.Command("/bin/echo", "hi")
+	require.NoError(t, sb.Wrap(cmd))
+
+	args := strings.Join(cmd.Args, " ")
+	require.Contains(t, args, "--unshare-net")
+	require.NotContains(t, args, "ip link set lo up",
+		"Deny must NOT bring lo up; Loopback wrapper must be Loopback-only")
+}
+
 func TestSandbox_Wrap_RefusesDoubleWrap(t *testing.T) {
 	sb, err := sandbox.New()
 	if err != nil {

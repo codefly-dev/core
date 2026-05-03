@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"net"
 	"os"
@@ -20,8 +21,11 @@ import (
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 // ProtocolVersion is used for future-proofing the stdout handshake.
@@ -65,6 +69,87 @@ type PluginRegistration struct {
 // in-process latency histogram (RPCStats). Callers can read it via
 // SnapshotRPCStats — useful for daemons that want to expose p50/p99
 // per RPC without standing up a separate metrics endpoint.
+// AuthMetadataKey is the gRPC metadata key carrying the per-spawn
+// auth token. Lowercase per gRPC convention — metadata keys are
+// case-insensitive but the wire form is lowercase.
+const AuthMetadataKey = "x-codefly-token"
+
+// authUnaryInterceptor verifies the per-spawn token on every unary
+// gRPC call. When expectedToken is empty (legacy callers that don't
+// set CODEFLY_AGENT_TOKEN), it accepts everything — preserves
+// backward compat. When set, requests without a matching bearer in
+// the metadata get rejected with Unauthenticated before the handler
+// is reached.
+//
+// The health-check service is exempt: the host's readiness probe
+// uses grpc.health.v1.Health/Check which fires BEFORE the host has
+// established any client metadata interceptor (it's part of the
+// agent-loader's connection setup). Letting Check through unauthed
+// is safe — it returns only SERVING/NOT_SERVING, no privileged data.
+func authUnaryInterceptor(expectedToken string) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if expectedToken == "" {
+			return handler(ctx, req)
+		}
+		if isHealthMethod(info.FullMethod) {
+			return handler(ctx, req)
+		}
+		if err := verifyAuthToken(ctx, expectedToken); err != nil {
+			return nil, err
+		}
+		return handler(ctx, req)
+	}
+}
+
+// authStreamInterceptor mirrors authUnaryInterceptor for streaming
+// RPCs. Same exemption for health checks.
+func authStreamInterceptor(expectedToken string) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if expectedToken == "" {
+			return handler(srv, ss)
+		}
+		if isHealthMethod(info.FullMethod) {
+			return handler(srv, ss)
+		}
+		if err := verifyAuthToken(ss.Context(), expectedToken); err != nil {
+			return err
+		}
+		return handler(srv, ss)
+	}
+}
+
+// verifyAuthToken extracts the bearer from metadata and constant-time
+// compares against the expected value. Returns codes.Unauthenticated
+// on any failure path so the model sees a clear refusal.
+func verifyAuthToken(ctx context.Context, expected string) error {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return status.Error(codes.Unauthenticated, "no metadata")
+	}
+	values := md.Get(AuthMetadataKey)
+	if len(values) == 0 {
+		return status.Error(codes.Unauthenticated, "missing auth token")
+	}
+	// subtle.ConstantTimeCompare returns 1 on equality. Comparing as
+	// byte slices avoids the timing side-channel of `==`.
+	if subtle.ConstantTimeCompare([]byte(values[0]), []byte(expected)) != 1 {
+		return status.Error(codes.Unauthenticated, "bad auth token")
+	}
+	return nil
+}
+
+// isHealthMethod returns true for gRPC health-check method names.
+// The set is small enough to enumerate — no need for a string-prefix
+// hack that could accidentally match plugin methods.
+func isHealthMethod(fullMethod string) bool {
+	switch fullMethod {
+	case "/grpc.health.v1.Health/Check",
+		"/grpc.health.v1.Health/Watch":
+		return true
+	}
+	return false
+}
+
 func agentRPCInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
@@ -236,8 +321,29 @@ func Serve(reg PluginRegistration) {
 		endpoint = strconv.Itoa(lis.Addr().(*net.TCPAddr).Port)
 	}
 
+	// Per-spawn auth token. The host generates a random token and
+	// passes it via CODEFLY_AGENT_TOKEN; we require it as a bearer
+	// in gRPC metadata on every call. Without this, anyone who can
+	// connect to our UDS / loopback port can drive the plugin.
+	//
+	// UDS already has filesystem-permission ACL — token is
+	// belt-and-braces there. TCP loopback has nothing else, so this
+	// is load-bearing on that path.
+	//
+	// When CODEFLY_AGENT_TOKEN is unset (legacy callers), we accept
+	// every request — backward compatible, but the host's audit log
+	// already warns if no sandbox choice was made. A future Phase 2
+	// requires the token unconditionally.
+	expectedToken := os.Getenv("CODEFLY_AGENT_TOKEN")
+
 	s := grpc.NewServer(
-		grpc.UnaryInterceptor(agentRPCInterceptor()),
+		grpc.ChainUnaryInterceptor(
+			authUnaryInterceptor(expectedToken),
+			agentRPCInterceptor(),
+		),
+		grpc.ChainStreamInterceptor(
+			authStreamInterceptor(expectedToken),
+		),
 	)
 
 	if reg.Agent != nil {

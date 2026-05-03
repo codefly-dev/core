@@ -143,12 +143,11 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 // Manifests that explicitly set network={deny|open} get exactly
 // what they asked for — operator intent wins.
 //
-// On Linux bwrap, NetworkLoopback isn't yet implemented (the
-// unshared netns has lo DOWN by default; bringing it up needs a
-// helper that uses netlink inside the new namespace). Linux
-// callers see ErrNetworkLoopbackUnsupported from the Wrap and
-// must pick NetworkOpen or NetworkDeny explicitly until the
-// helper lands. macOS sandbox-exec implements it cleanly.
+// Both backends now implement NetworkLoopback:
+//   - macOS sandbox-exec: rule on the localhost ip
+//   - Linux bwrap: --unshare-net + a /bin/sh preamble that runs
+//     `ip link set lo up` before execing the payload (uses
+//     CAP_NET_ADMIN inside the unprivileged user namespace).
 //
 // The native (no-op) sandbox is used as a fallback when the host
 // has no enforcing backend. That preserves the existing behavior on

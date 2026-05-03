@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -425,6 +427,22 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		cmd.Env = append(cmd.Env, "CODEFLY_AGENT_UDS_PATH="+udsPath)
 	}
 	_ = udsPath // referenced below for diagnostics; kept for future cleanup hook
+
+	// Per-spawn auth token. Random 32 bytes hex-encoded → 64-char
+	// bearer in CODEFLY_AGENT_TOKEN env. Plugin's gRPC server
+	// requires a matching token in metadata on every call; without
+	// it, anyone who can connect to our UDS / loopback port can
+	// drive the plugin (UDS file-permission ACL is defense-in-depth,
+	// not the only line).
+	//
+	// crypto/rand → guaranteed unbiased. Hex encoding (not base64)
+	// avoids any case where shell quoting / env-var escaping could
+	// mangle the bearer in transit.
+	authToken, err := mintAgentToken()
+	if err != nil {
+		return nil, w.Wrapf(err, "mint agent token")
+	}
+	cmd.Env = append(cmd.Env, "CODEFLY_AGENT_TOKEN="+authToken)
 	if ep := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); ep != "" {
 		cmd.Env = append(cmd.Env,
 			"OTEL_EXPORTER_OTLP_ENDPOINT="+ep,
@@ -547,9 +565,15 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	}
 
 	// --- Connect via gRPC with a health check ---
+	// Attach the per-spawn token to every outgoing call via a
+	// per-RPC-credentials provider. The plugin's auth interceptor
+	// rejects calls without it (Unauthenticated). Health checks are
+	// exempt on the server side, so the readiness probe below works
+	// even if metadata propagation has a corner case.
 	conn, err := grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+		grpc.WithPerRPCCredentials(bearerCreds{token: authToken}),
 	)
 	if err != nil {
 		return nil, killAndDescribe(ErrAgentDialTimeout,
@@ -743,3 +767,32 @@ func parseAgentHandshake(line string) (addr string, err error) {
 	}
 	return fmt.Sprintf("127.0.0.1:%d", port), nil
 }
+
+// mintAgentToken returns 32 random bytes hex-encoded. 256 bits of
+// entropy from crypto/rand — overwhelmingly more than the auth-
+// against-local-attacker threat model demands, but cheap.
+//
+// Hex (not base64) so the token survives env-var quoting through
+// every shell + exec layer between host and plugin without any
+// special-character footguns.
+func mintAgentToken() (string, error) {
+	var buf [32]byte
+	if _, err := cryptorand.Read(buf[:]); err != nil {
+		return "", fmt.Errorf("read random: %w", err)
+	}
+	return hex.EncodeToString(buf[:]), nil
+}
+
+// bearerCreds is a grpc.PerRPCCredentials that attaches the per-
+// spawn token to every outgoing RPC. RequireTransportSecurity
+// returns false because we run over UDS / loopback — the token
+// is the auth, the transport doesn't need TLS.
+type bearerCreds struct {
+	token string
+}
+
+func (b bearerCreds) GetRequestMetadata(_ context.Context, _ ...string) (map[string]string, error) {
+	return map[string]string{agents.AuthMetadataKey: b.token}, nil
+}
+
+func (b bearerCreds) RequireTransportSecurity() bool { return false }
