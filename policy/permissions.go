@@ -195,6 +195,283 @@ func (p *SandboxPolicy) Apply(sb sandbox.Sandbox, expand PathExpander) error {
 	return nil
 }
 
+// =====================================================================
+// PermissionPolicy — the authority/manifest layer (M4)
+// =====================================================================
+//
+// SandboxPolicy (above) is the CAPACITY layer: what bytes/syscalls
+// the binary CAN touch at the kernel level. PermissionPolicy is the
+// AUTHORITY layer: what business actions the principal IS ALLOWED
+// to perform, expressed as the maximum the plugin manifest claims.
+//
+// The two are independent and both enforced. A plugin with
+// permission=[github.read_pr] running under a sandbox that denies
+// network gets denied at the OS layer (capacity); a plugin running
+// under network=open but with permission=[github.read_pr] gets
+// denied at the PDP if it tries github.merge_pr (authority).
+//
+// **Why declare permissions in the manifest at all?** Because the
+// manifest is the security review boundary. When a user installs a
+// plugin, they review the declared permissions ONCE and the plugin
+// can never silently exceed them. Even if a role grants the plugin
+// admin:* (mistake or compromise), the PDP intersects role grants
+// with manifest declarations — the manifest is the ceiling.
+//
+// **Why not enforce permissions in the plugin code?** Two reasons:
+//
+//  1. Plugins shouldn't make security decisions. Plugin code is
+//     authored by humans across many teams; centralizing authz in
+//     the host means one place to review, one place to fix.
+//  2. The plugin doesn't have the role-assignment data anyway.
+//     Asking "what role does this principal have?" requires hitting
+//     saas-starter, which the plugin can't (and shouldn't) do.
+//
+// The plugin DECLARES (manifest); the host ENFORCES (PDP). Plugins
+// can READ the principal context (PrincipalFrom) for audit
+// branching or display, but never gate behavior on it.
+
+// PermissionDeclaration is one entry in a plugin's permissions
+// manifest block. Mirrors saas-starter's role_permissions row
+// shape, with a `Reason` field that surfaces in the install-time
+// review UI ("this plugin wants Action X to do Y").
+//
+// Strings are matched as glob patterns at PDP time:
+//   - "*" matches anything
+//   - "repo:codefly-dev/*" matches any repo path under that org
+//   - "github.merge_pr" matches exactly that action
+type PermissionDeclaration struct {
+	// Action is the canonical dotted name. Examples:
+	//   "github.read_pr", "fs.write", "deploy.staging".
+	// May contain "*" for wildcards. Empty Action is invalid.
+	Action string `yaml:"action" json:"action"`
+
+	// Resource is the typed resource pattern.
+	// Examples: "repo:${ORG}/*", "env:staging", "file:/tmp/*".
+	// May contain "*" wildcards. Placeholders (${ORG}, ${WORKSPACE})
+	// are expanded at install time, not at PDP-call time.
+	// Empty Resource means "any resource of any type".
+	Resource string `yaml:"resource" json:"resource"`
+
+	// Reason is a human-readable explanation surfaced in the
+	// install-time review. The user sees this when granting or
+	// rejecting the plugin's permissions; an empty Reason makes
+	// the manifest LESS reviewable, so we require it for
+	// "required" entries (see PermissionPolicy.Validate).
+	Reason string `yaml:"reason" json:"reason"`
+}
+
+// String produces the canonical "action on resource (reason)"
+// representation used in audit logs and review prompts.
+func (d PermissionDeclaration) String() string {
+	if d.Resource == "" {
+		return fmt.Sprintf("%s (any resource)", d.Action)
+	}
+	return fmt.Sprintf("%s on %s", d.Action, d.Resource)
+}
+
+// PermissionPolicy is the YAML-shaped authority block a plugin
+// manifest declares. Example:
+//
+//	permissions:
+//	  required:
+//	    - action: github.read_pr
+//	      resource: "repo:${ORG}/*"
+//	      reason: "Inspect PRs to decide auto-merge eligibility"
+//	    - action: github.merge_pr
+//	      resource: "repo:${ORG}/*"
+//	      reason: "Auto-merge approved PRs with green CI"
+//	  optional:
+//	    - action: github.deploy_staging
+//	      resource: "env:staging"
+//	      reason: "Trigger staging deploy after merge"
+//	  risk_levels:
+//	    github.merge_pr: medium
+//	    github.force_push: critical
+//
+// **required vs optional:**
+//
+//   - Required entries MUST be granted at install. Without them,
+//     the plugin can't function — refusing to install fails fast
+//     before any tool call.
+//   - Optional entries CAN be granted, but the plugin advertises
+//     graceful degradation when they're not. The plugin must
+//     still handle "permission denied" responses for optional
+//     actions without crashing.
+//
+// **risk_levels** annotate actions with a risk tier (low/medium/
+// high/critical). At PDP time, high-risk actions can require
+// approval (M7 escalation flow) even when the role grants them.
+// Manifest is the source of truth for risk classification — the
+// plugin author knows the impact of their actions best.
+type PermissionPolicy struct {
+	// Required permissions MUST be granted at install. If any
+	// required entry has no matching role grant, the install
+	// fails. Plugin code can assume required permissions are
+	// available.
+	Required []PermissionDeclaration `yaml:"required,omitempty" json:"required,omitempty"`
+
+	// Optional permissions enhance functionality. Plugin code
+	// must handle their absence gracefully — a denied optional
+	// permission must not crash; it must skip the dependent
+	// behavior or fall back.
+	Optional []PermissionDeclaration `yaml:"optional,omitempty" json:"optional,omitempty"`
+
+	// RiskLevels maps action name → risk tier. Used by the PDP
+	// to decide whether an action with role-grant should also
+	// require human approval (M7+ flow). Valid values: "low",
+	// "medium", "high", "critical". Missing entries default to
+	// "low".
+	RiskLevels map[string]string `yaml:"risk_levels,omitempty" json:"risk_levels,omitempty"`
+}
+
+// Risk-level constants. Use these instead of string literals so
+// rename refactors catch usage at compile time.
+const (
+	RiskLevelLow      = "low"
+	RiskLevelMedium   = "medium"
+	RiskLevelHigh     = "high"
+	RiskLevelCritical = "critical"
+)
+
+// IsEmpty reports whether the policy declares zero permissions.
+// Used by the PDP to decide between "no manifest ceiling" (empty
+// policy → no ceiling check; legacy behavior during M4 rollout)
+// and "explicit empty manifest" (declared no permissions → deny
+// every action). The distinction lives in the wrapping Toolbox
+// resource, not here — this method is just a convenience.
+func (p PermissionPolicy) IsEmpty() bool {
+	return len(p.Required) == 0 && len(p.Optional) == 0
+}
+
+// All returns Required ∪ Optional in install order. The PDP uses
+// this to compute the ceiling — any action not present in All() is
+// outside the manifest's claimed authority and gets denied.
+func (p PermissionPolicy) All() []PermissionDeclaration {
+	out := make([]PermissionDeclaration, 0, len(p.Required)+len(p.Optional))
+	out = append(out, p.Required...)
+	out = append(out, p.Optional...)
+	return out
+}
+
+// Validate checks structural invariants. Empty policies are
+// allowed; the wrapping resource (Toolbox) decides what an empty
+// policy means. The validation is on individual entries.
+func (p *PermissionPolicy) Validate() error {
+	for i, d := range p.Required {
+		if err := validateDeclaration(d, true); err != nil {
+			return fmt.Errorf("permissions.required[%d] (%s): %w", i, d.Action, err)
+		}
+	}
+	for i, d := range p.Optional {
+		if err := validateDeclaration(d, false); err != nil {
+			return fmt.Errorf("permissions.optional[%d] (%s): %w", i, d.Action, err)
+		}
+	}
+	for action, level := range p.RiskLevels {
+		switch level {
+		case RiskLevelLow, RiskLevelMedium, RiskLevelHigh, RiskLevelCritical:
+			// ok
+		default:
+			return fmt.Errorf("permissions.risk_levels[%q]: %q must be low|medium|high|critical", action, level)
+		}
+	}
+	return nil
+}
+
+func validateDeclaration(d PermissionDeclaration, requireReason bool) error {
+	if d.Action == "" {
+		return fmt.Errorf("action must not be empty")
+	}
+	if requireReason && strings.TrimSpace(d.Reason) == "" {
+		return fmt.Errorf("required permissions must have a non-empty reason " +
+			"(it's surfaced to the user at install time)")
+	}
+	if err := validateGlobPattern("action", d.Action); err != nil {
+		return err
+	}
+	if err := validateGlobPattern("resource", d.Resource); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateGlobPattern rejects glob forms globMatch silently
+// can't match. Suffix-* is supported ("prefix*"); leading-*
+// or mid-string-* parse cleanly here but never match anything
+// at runtime, so authors get a confusing silent no-match.
+// Fail loud at validation time instead.
+func validateGlobPattern(field, pattern string) error {
+	if pattern == "" || pattern == "*" {
+		return nil
+	}
+	if !strings.Contains(pattern, "*") {
+		return nil
+	}
+	// At this point pattern contains at least one '*' and isn't
+	// the bare wildcard. Only the suffix form is supported.
+	if strings.Count(pattern, "*") > 1 || !strings.HasSuffix(pattern, "*") {
+		return fmt.Errorf("%s pattern %q: only exact strings, %q, or %q forms are supported",
+			field, pattern, "*", "prefix*")
+	}
+	return nil
+}
+
+// Allows reports whether the policy DECLARES authority for the
+// given (action, resource). Used by the PDP as the manifest
+// ceiling check — even if a role grants the action, a manifest
+// that doesn't Allow it gets denied.
+//
+// Matching:
+//   - Action: exact match OR a declared "*" wildcard OR a glob
+//     where the declared pattern ends with "*" (prefix match).
+//   - Resource: exact match OR declared empty (means "any
+//     resource") OR declared "*" OR a glob.
+//
+// **Note**: this is the manifest-ceiling check, NOT the
+// role-grant check. The PDP also runs role-grant checks against
+// saas-starter; both must pass.
+func (p PermissionPolicy) Allows(action, resource string) bool {
+	for _, d := range p.All() {
+		if !globMatch(d.Action, action) {
+			continue
+		}
+		if d.Resource == "" || globMatch(d.Resource, resource) {
+			return true
+		}
+	}
+	return false
+}
+
+// RiskLevelOf returns the risk tier for an action, defaulting to
+// low when the manifest doesn't classify it.
+func (p PermissionPolicy) RiskLevelOf(action string) string {
+	if level, ok := p.RiskLevels[action]; ok && level != "" {
+		return level
+	}
+	return RiskLevelLow
+}
+
+// globMatch implements the simple wildcard semantics for
+// PermissionDeclaration matching. Supported forms:
+//   - "*" matches anything
+//   - "prefix*" matches anything starting with prefix
+//   - exact string matches itself
+//
+// More complex globs (multi-segment, **) deliberately not
+// supported — the manifest is meant to be readable, not a
+// full pattern language. Add explicit declarations rather
+// than wildcards that hide intent.
+func globMatch(pattern, s string) bool {
+	if pattern == "*" || pattern == s {
+		return true
+	}
+	if strings.HasSuffix(pattern, "*") {
+		prefix := pattern[:len(pattern)-1]
+		return strings.HasPrefix(s, prefix)
+	}
+	return false
+}
+
 // expandAll runs expand over each input, collecting expanded paths
 // in order. Wraps the expander error with the YAML field name so
 // the caller knows which list was involved.

@@ -1,9 +1,13 @@
 package tui
 
 import (
+	"os"
+	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/codefly-dev/core/wool"
+	"github.com/fatih/color"
 )
 
 func TestLogViewCopySafety(t *testing.T) {
@@ -37,6 +41,65 @@ func TestLogViewAppendLog(t *testing.T) {
 	content := lv.lines.String()
 	if content == "" {
 		t.Fatal("expected non-empty lines after appending logs")
+	}
+}
+
+func TestFormatServiceLogLinesTrimsForwardNewlines(t *testing.T) {
+	lines := formatServiceLogLines(ServiceLogMsg{
+		Level:   wool.FORWARD,
+		Source:  "infra/postgres",
+		Message: "database ready\n\n",
+	}, 80)
+
+	if len(lines) != 1 {
+		t.Fatalf("expected one rendered line, got %d: %#v", len(lines), lines)
+	}
+	if lines[0] != "infra/postgres   > database ready" {
+		t.Fatalf("unexpected rendered line: %q", lines[0])
+	}
+}
+
+func TestFormatServiceLogLinesWrapsWithContinuationIndent(t *testing.T) {
+	lines := formatServiceLogLines(ServiceLogMsg{
+		Level:   wool.FORWARD,
+		Source:  "infra/neo4j",
+		Message: "This instance is ServerId{257a2499} (257a2499-28b2-4325-b1bf-b5)",
+	}, 52)
+
+	if len(lines) < 2 {
+		t.Fatalf("expected wrapped lines, got %#v", lines)
+	}
+	if lines[0] != "infra/neo4j      > This instance is" {
+		t.Fatalf("unexpected first line: %q", lines[0])
+	}
+	if lines[1] != "                   ServerId{257a2499}" {
+		t.Fatalf("unexpected continuation line: %q", lines[1])
+	}
+}
+
+func TestRenderServiceLogLineColorsForwardLogsByService(t *testing.T) {
+	restoreColorEnv(t)
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("CODEFLY_COLOR", "")
+	configureColorProfile()
+
+	line := renderServiceLogLine(ServiceLogMsg{
+		Level:  wool.FORWARD,
+		Source: "infra/postgres",
+	}, "infra/postgres   > database ready")
+	if !strings.Contains(line, "\x1b[") {
+		t.Fatalf("expected forwarded service log to contain ANSI color, got %q", line)
+	}
+
+	view := NewLogView()
+	view.SetSize(80, 10)
+	view.appendLog(ServiceLogMsg{
+		Level:   wool.FORWARD,
+		Source:  "infra/postgres",
+		Message: "database ready",
+	})
+	if !strings.Contains(view.View(), "\x1b[") {
+		t.Fatalf("expected viewport to preserve ANSI color, got %q", view.View())
 	}
 }
 
@@ -96,6 +159,53 @@ func TestRenderHelpers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConfigureColorProfileDefaultsToCodeflyColorPolicy(t *testing.T) {
+	restoreColorEnv(t)
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("CODEFLY_COLOR", "")
+
+	configureColorProfile()
+	out := lipgloss.NewStyle().Foreground(ColorSuccess).Render("ok")
+	if !strings.Contains(out, "\x1b[") {
+		t.Fatalf("expected Codefly default to keep colors despite NO_COLOR, got %q", out)
+	}
+}
+
+func TestConfigureColorProfileCanDisableColors(t *testing.T) {
+	restoreColorEnv(t)
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("CODEFLY_COLOR", "never")
+
+	configureColorProfile()
+	out := lipgloss.NewStyle().Foreground(ColorSuccess).Render("ok")
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("expected CODEFLY_COLOR=never to disable ANSI color, got %q", out)
+	}
+	fatihOut := color.New(color.FgGreen).Sprint("ok")
+	if strings.Contains(fatihOut, "\x1b[") {
+		t.Fatalf("expected CODEFLY_COLOR=never to disable fatih/color output, got %q", fatihOut)
+	}
+}
+
+func restoreColorEnv(t *testing.T) {
+	t.Helper()
+	codeflyColor, hadCodeflyColor := os.LookupEnv("CODEFLY_COLOR")
+	noColor, hadNoColor := os.LookupEnv("NO_COLOR")
+	t.Cleanup(func() {
+		if hadCodeflyColor {
+			_ = os.Setenv("CODEFLY_COLOR", codeflyColor)
+		} else {
+			_ = os.Unsetenv("CODEFLY_COLOR")
+		}
+		if hadNoColor {
+			_ = os.Setenv("NO_COLOR", noColor)
+		} else {
+			_ = os.Unsetenv("NO_COLOR")
+		}
+		configureColorProfile()
+	})
 }
 
 func TestRenderMarkdown(t *testing.T) {

@@ -251,6 +251,173 @@ func TestE2E_NoSandbox_AllowsForbiddenWrite(t *testing.T) {
 	require.NoError(t, err, "control file must exist on disk")
 }
 
+// TestE2E_OSSandbox_InheritedByChildProcesses is the inheritance
+// proof: the codefly architecture relies on enforcing the sandbox at
+// EXACTLY ONE point — manager.Load wraps the plugin's exec.Cmd. Every
+// child the plugin spawns must inherit the same confinement via OS
+// primitives (Linux namespaces, macOS Seatbelt MAC propagation).
+//
+// The previous test (BlocksWriteOutsideAllowedPaths) proves the
+// plugin process itself is confined — but its fs.write tool uses
+// os.WriteFile *in-process*. That doesn't exercise inheritance.
+//
+// This test does. The exec.write tool spawns `/bin/sh -c "echo > path"`,
+// so the writing process is the SHELL, not the plugin. If the OS
+// sandbox fails to propagate to descendants, the shell can write
+// anywhere and the test fails.
+//
+// What inheritance buys us architecturally: plugin authors do NOT
+// have to call any sandbox API. codefly wraps once at Load; the
+// kernel handles the rest. If this test breaks, the single-point
+// enforcement model is broken and we'd need plugin-side enforcement.
+func TestE2E_OSSandbox_InheritedByChildProcesses(t *testing.T) {
+	requireEnforcingBackend(t)
+
+	codeflyHome := resolveSymlinks(t, t.TempDir())
+	allowedWriteDir := resolveSymlinks(t, t.TempDir())
+
+	// See BlocksWriteOutsideAllowedPaths for why /var/tmp instead of
+	// t.TempDir() — TMPDIR grants would otherwise mask a bypass.
+	forbiddenWriteDir, err := os.MkdirTemp("/var/tmp", "codefly-forbidden-child-")
+	require.NoError(t, err)
+	defer os.RemoveAll(forbiddenWriteDir)
+	forbiddenWriteDir = resolveSymlinksOptional(t, forbiddenWriteDir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	tb := &resources.Toolbox{
+		Name:    "network-victim",
+		Version: "e2e-inherit",
+		Agent: &resources.Agent{
+			Kind:      resources.ToolboxAgent,
+			Name:      "network-victim",
+			Publisher: "codefly.dev",
+			Version:   "e2e-inherit",
+		},
+		CanonicalFor: []string{"fs-victim"},
+		Sandbox: policy.SandboxPolicy{
+			ReadPaths: []string{
+				"${HOME}",
+				"${TMPDIR}",
+				codeflyHome,
+				// /bin and /usr are needed for /bin/sh + dependent
+				// libs. On Linux bwrap binds these by default; on
+				// macOS sandbox-exec already permits broad reads via
+				// the (allow default) base, but listing them here
+				// keeps intent visible.
+				"/bin",
+				"/usr",
+			},
+			WritePaths: []string{
+				allowedWriteDir,
+				"${TMPDIR}",
+			},
+			Network: policy.NetworkOpen, // keep loopback gRPC working
+		},
+	}
+	require.NoError(t, tb.Validate())
+	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+
+	plugin, err := launch.LaunchWithOptions(ctx, tb, launch.Options{Workspace: ""})
+	require.NoError(t, err, "victim plugin must spawn under sandbox")
+	defer plugin.Close()
+
+	_, err = plugin.Client.Identity(ctx, &toolboxv0.IdentityRequest{})
+	require.NoError(t, err)
+
+	// --- Allowed write via child shell — must SUCCEED ---
+	allowedTarget := filepath.Join(allowedWriteDir, "child-ok.txt")
+	args, _ := structpb.NewStruct(map[string]any{"path": allowedTarget, "content": "child-hello"})
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+		Name: "exec.write", Arguments: args,
+	})
+	require.NoError(t, err)
+	require.Empty(t, resp.Error,
+		"child shell writing to an allowed path must succeed: %s", resp.Error)
+	_, err = os.Stat(allowedTarget)
+	require.NoError(t, err, "allowed child-shell write must produce the file on disk")
+
+	// --- Forbidden write via child shell — must FAIL at OS layer ---
+	// THIS is the inheritance assertion. The plugin process is confined
+	// by codefly's load-time wrap. The shell is a CHILD of the plugin.
+	// If the kernel propagates the policy correctly, the shell's open()
+	// call hits the same denial.
+	forbiddenTarget := filepath.Join(forbiddenWriteDir, "child-blocked.txt")
+	args2, _ := structpb.NewStruct(map[string]any{"path": forbiddenTarget, "content": "child-should-not-exist"})
+	resp2, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+		Name: "exec.write", Arguments: args2,
+	})
+	require.NoError(t, err, "gRPC succeeds; the FAILURE must be the child's write")
+	require.NotEmpty(t, resp2.Error,
+		"OS sandbox MUST inherit and block the child's forbidden write — got success: %s", contentSummary(resp2))
+	require.Contains(t, resp2.Error, "exec.write failed",
+		"the failure must surface from the plugin's error wrap")
+
+	// Same denial signals as the in-process test: macOS yields EACCES /
+	// "operation not permitted"; bwrap (Linux) hides the path with the
+	// new mount namespace so the shell sees ENOENT. Either is a
+	// successful inheritance demonstration.
+	combined := strings.ToLower(resp2.Error)
+	hasFSDenialSignal := strings.Contains(combined, "permission denied") ||
+		strings.Contains(combined, "operation not permitted") ||
+		strings.Contains(combined, "read-only") ||
+		strings.Contains(combined, "denied") ||
+		strings.Contains(combined, "no such file or directory")
+	require.True(t, hasFSDenialSignal,
+		"child-shell error must indicate a sandbox-level blockage (got: %q)", resp2.Error)
+
+	// Deepest assertion: the file does NOT exist. If the sandbox lied
+	// about inheritance (returned an error but let bytes through), this
+	// stat would succeed and the test would fail.
+	_, statErr := os.Stat(forbiddenTarget)
+	require.True(t, os.IsNotExist(statErr),
+		"forbidden child-write target must NOT exist on disk; if it does, sandbox inheritance failed (stat err: %v)", statErr)
+}
+
+// TestE2E_NoSandbox_ChildShellAllowsForbiddenWrite is the negative
+// control for the inheritance test. Without a sandbox, the same child
+// shell happily writes to the "forbidden" path — proving the blocking
+// in TestE2E_OSSandbox_InheritedByChildProcesses came from the
+// inherited sandbox, not from any plugin- or shell-side guard.
+func TestE2E_NoSandbox_ChildShellAllowsForbiddenWrite(t *testing.T) {
+	codeflyHome := t.TempDir()
+	writeDir := t.TempDir()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	tb := &resources.Toolbox{
+		Name:    "network-victim",
+		Version: "e2e-inherit-control",
+		Agent: &resources.Agent{
+			Kind:      resources.ToolboxAgent,
+			Name:      "network-victim",
+			Publisher: "codefly.dev",
+			Version:   "e2e-inherit-control",
+		},
+		// Empty Sandbox + no CanonicalFor → no wrap.
+	}
+	require.NoError(t, tb.Validate())
+	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+
+	plugin, err := launch.Launch(ctx, tb)
+	require.NoError(t, err)
+	defer plugin.Close()
+
+	target := filepath.Join(writeDir, "child-control.txt")
+	args, _ := structpb.NewStruct(map[string]any{"path": target, "content": "child-control"})
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+		Name: "exec.write", Arguments: args,
+	})
+	require.NoError(t, err)
+	require.Empty(t, resp.Error,
+		"unsandboxed child shell must succeed — proves the inheritance test's failure was sandbox-driven, not plugin- or shell-driven")
+
+	_, err = os.Stat(target)
+	require.NoError(t, err, "control child-write must produce the file on disk")
+}
+
 // The Loopback-policy E2E test (network-handshake counterpart of
 // the write-blocking test) lives in sandbox_e2e_loopback_darwin_test.go
 // — darwin-only because bwrap (Linux) doesn't support

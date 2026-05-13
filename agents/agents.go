@@ -19,6 +19,8 @@ import (
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	"github.com/codefly-dev/core/policy"
+	"github.com/codefly-dev/core/toolbox/policyguard"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -59,6 +61,37 @@ type PluginRegistration struct {
 	Code    codev0.CodeServer       // Deprecated: use Tooling/Toolbox for language-specific operations.
 	Tooling toolingv0.ToolingServer // Transitional: collapses into Toolbox via lang.* convention.
 	Toolbox toolboxv0.ToolboxServer // The unified callable contract (MCP-shape).
+
+	// PDP gates Toolbox tool calls when non-nil. Wires the
+	// policyguard.Guard around the registered Toolbox before gRPC
+	// registration.
+	//
+	// nil is interpreted by Serve through CODEFLY_PDP_MODE:
+	//   - enforce: Serve refuses to start (os.Exit(1)) — the
+	//     operator opted into fail-closed authorization and a
+	//     missing PDP would silently default-allow every CallTool.
+	//   - shadow: Serve logs a loud WARN and proceeds with the
+	//     raw Toolbox (no Guard). Use during the rollout window
+	//     so the un-gated state is visible in logs.
+	//   - off / unset: Serve silently registers the raw Toolbox
+	//     (the historical M3 shadow-rollout default).
+	//
+	// Production wiring: codefly host constructs a SaasPDP that
+	// calls saas-starter's Decide RPC, threads it here. Plugins
+	// don't construct PDPs themselves — the host owns policy.
+	//
+	// Identity attribution: the Guard reads the principal from the
+	// stamped context (see principalUnaryInterceptor); the static
+	// "Toolbox" name on the Guard is the toolbox identifier from
+	// the manifest, set by the host that registers the toolbox.
+	PDP policy.PDP
+
+	// PDPToolboxName is the toolbox identity surfaced in
+	// PDPRequest.Toolbox when the Guard fires. Typically the
+	// canonical agent identifier (publisher/name:version) so PDP
+	// rules can target a specific plugin. Optional; defaults to
+	// "" which the JSON PDP treats as "any toolbox".
+	PDPToolboxName string
 }
 
 // agentRPCInterceptor logs incoming RPCs with method name and duration
@@ -338,11 +371,19 @@ func Serve(reg PluginRegistration) {
 
 	s := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
+			// Order matters: auth proves the connection (we trust
+			// the caller is the codefly host), THEN principal
+			// extracts the authority claim (who the caller is
+			// acting as). The PDP downstream branches on the
+			// stamped Principal — wrong order = no principal +
+			// insecure default.
 			authUnaryInterceptor(expectedToken),
+			principalUnaryInterceptor(),
 			agentRPCInterceptor(),
 		),
 		grpc.ChainStreamInterceptor(
 			authStreamInterceptor(expectedToken),
+			principalStreamInterceptor(),
 		),
 	)
 
@@ -362,7 +403,47 @@ func Serve(reg PluginRegistration) {
 		toolingv0.RegisterToolingServer(s, reg.Tooling)
 	}
 	if reg.Toolbox != nil {
-		toolboxv0.RegisterToolboxServer(s, reg.Toolbox)
+		// Wrap with policyguard.Guard when a PDP is configured. The
+		// Guard intercepts CallTool/ReadResource/GetPrompt and routes
+		// each through the PDP for an Allow/Deny/RequireApproval
+		// decision. Pass-through for non-side-effecting RPCs
+		// (Identity/ListTools/etc.) — see Guard documentation.
+		//
+		// PDP=nil ⇒ no Guard, legacy passthrough. CODEFLY_PDP_MODE
+		// gates this:
+		//   - enforce: a nil PDP with a registered Toolbox is a
+		//     misconfiguration and we exit(1) at startup. Operators
+		//     have explicitly opted into fail-closed authorization.
+		//   - shadow: warn loudly so the rollout state is visible
+		//     in logs but proceed (legacy passthrough).
+		//   - off / unset: silent (the historical default during
+		//     the M3 shadow window).
+		if reg.PDP == nil {
+			mode, modeErr := policy.ResolvePDPMode()
+			switch {
+			case modeErr != nil:
+				fmt.Fprintf(os.Stderr, "agents.Serve: %v\n", modeErr)
+				os.Exit(1)
+			case mode == policy.PDPModeEnforce:
+				fmt.Fprintf(os.Stderr,
+					"agents.Serve: %s=enforce but plugin registered a Toolbox "+
+						"with PluginRegistration.PDP=nil — refusing to start "+
+						"(would default-allow every CallTool). Wire a PDP or "+
+						"set %s=shadow/off.\n",
+					policy.EnvPDPMode, policy.EnvPDPMode)
+				os.Exit(1)
+			case mode == policy.PDPModeShadow:
+				fmt.Fprintf(os.Stderr,
+					"agents.Serve: %s=shadow but PluginRegistration.PDP=nil "+
+						"— every CallTool will pass unchecked. Wire a PDP "+
+						"before flipping to enforce.\n",
+					policy.EnvPDPMode)
+			}
+			toolboxv0.RegisterToolboxServer(s, reg.Toolbox)
+		} else {
+			guarded := policyguard.New(reg.Toolbox, reg.PDP, reg.PDPToolboxName)
+			toolboxv0.RegisterToolboxServer(s, guarded)
+		}
 	}
 
 	// Standard grpc.health.v1 server. Lets the CLI replace the old

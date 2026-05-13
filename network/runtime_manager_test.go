@@ -219,3 +219,32 @@ func accessKindsOf(m *basev0.NetworkMapping) []string {
 	}
 	return out
 }
+
+// TestGetFreePort_ConcurrentUniqueness regression-covers the
+// allocation-tracking fix: without recording the returned port in
+// allocatedPorts, two concurrent callers could be handed the same
+// random port (lastRandomPort wrapped before the second caller's
+// listener probe). Post-fix, every returned port is recorded under
+// lock before return, so 50 concurrent callers see 50 distinct
+// ports.
+func TestGetFreePort_ConcurrentUniqueness(t *testing.T) {
+	ctx := context.Background()
+	m, err := network.NewRuntimeManager(ctx, testDnsManager{})
+	require.NoError(t, err)
+
+	const n = 50
+	ports := make(chan uint16, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			ports <- m.GetFreePort()
+		}()
+	}
+	seen := make(map[uint16]bool, n)
+	for i := 0; i < n; i++ {
+		p := <-ports
+		require.NotZero(t, p, "GetFreePort must return a non-zero port")
+		require.False(t, seen[p],
+			"GetFreePort returned duplicate port %d — allocation tracking regression", p)
+		seen[p] = true
+	}
+}

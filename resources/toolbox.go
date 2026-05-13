@@ -78,6 +78,25 @@ type Toolbox struct {
 	// errors, surfaced when the registry is built.
 	CanonicalFor []string `yaml:"canonical_for,omitempty"`
 
+	// Permissions declares the AUTHORITY this toolbox claims as the
+	// MAXIMUM action set it will perform. Translates to the manifest-
+	// ceiling check at PDP-evaluation time: even if a role grants the
+	// principal more, the PDP intersects with this declaration.
+	//
+	// **Why declare permissions here.** The manifest is the security
+	// review surface. When a user installs this toolbox, they review
+	// these declarations once; the toolbox can never silently exceed
+	// them. Combined with the sandbox (capacity layer above), this
+	// gives defense-in-depth against compromised plugins escalating
+	// authority.
+	//
+	// Empty Permissions means "no manifest-ceiling check" — the M4
+	// rollout default during migration. Once every plugin declares
+	// its permissions, an empty block becomes "no actions allowed".
+	// Operators flip the strictness via CODEFLY_PDP_REQUIRE_MANIFEST
+	// when ready.
+	Permissions policy.PermissionPolicy `yaml:"permissions,omitempty"`
+
 	// Spec is the toolbox-specific configuration. Mirrors Service.Spec.
 	Spec map[string]any `yaml:"spec,omitempty"`
 
@@ -137,6 +156,9 @@ func (t *Toolbox) Validate() error {
 	}
 	if err := t.Sandbox.Validate(); err != nil {
 		return fmt.Errorf("toolbox.sandbox: %w", err)
+	}
+	if err := t.Permissions.Validate(); err != nil {
+		return fmt.Errorf("toolbox.permissions: %w", err)
 	}
 
 	seen := make(map[string]struct{}, len(t.CanonicalFor))

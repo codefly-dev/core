@@ -32,13 +32,17 @@ type Dependencies struct {
 	cli            v0.CLIClient
 	conn           *grpc.ClientConn
 	runtimeContext *basev0.RuntimeContext
+	keepRunning    bool
+	attached       bool
 }
 
 type Option struct {
-	Debug       bool
-	Timeout     time.Duration
-	NamingScope string
-	Silents     []string
+	Debug                bool
+	Timeout              time.Duration
+	NamingScope          string
+	Silents              []string
+	ExcludedDependencies []string
+	KeepRunning          bool
 }
 
 type OptionFunc func(*Option)
@@ -64,6 +68,22 @@ func WithNamingScope(scope string) OptionFunc {
 func WithSilence(uniques ...string) OptionFunc {
 	return func(o *Option) {
 		o.Silents = uniques
+	}
+}
+
+func WithExcludedDependencies(uniques ...string) OptionFunc {
+	return func(o *Option) {
+		o.ExcludedDependencies = append(o.ExcludedDependencies, uniques...)
+	}
+}
+
+// WithKeepRunning keeps the spawned Codefly dependency stack alive when
+// Dependencies.Stop or Dependencies.Destroy is called. A later WithDependencies
+// call using the same naming scope first tries to attach to that warm CLI
+// server before starting a new stack.
+func WithKeepRunning() OptionFunc {
+	return func(o *Option) {
+		o.KeepRunning = true
 	}
 }
 
@@ -97,11 +117,31 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if len(opt.Silents) > 0 {
 		args = append(args, "--silent", strings.Join(opt.Silents, ","))
 	}
+	if len(opt.ExcludedDependencies) > 0 {
+		args = append(args, "--exclude-dependency", strings.Join(opt.ExcludedDependencies, ","))
+	}
+
+	addr := cliServerAddress(ctx, opt.NamingScope)
+	if opt.KeepRunning {
+		if deps, err := attachDependencies(ctx, addr, opt); err == nil {
+			return deps, nil
+		} else {
+			// Attach miss is the common case (no warm server yet) but
+			// can also mask a real transport problem (stale socket,
+			// permission, dial timeout). Log so operators can see why
+			// keep-running spawned a fresh stack instead of attaching.
+			wool.Get(ctx).In("sdk.WithDependencies").
+				Debug("attach to existing CLI server failed; starting new stack",
+					wool.Field("addr", addr),
+					wool.Field("error", err.Error()))
+		}
+	}
+
 	// --headless prevents the CLI from trying to open /dev/tty for
 	// interactive context selection. Always needed when running as a
 	// subprocess (go test, CI, MCP, pipes).
 	args = append(args, "--exclude-root", "--cli-server", "--headless")
-	cmd := exec.CommandContext(ctx, "codefly", args...)
+	cmd := exec.CommandContext(ctx, codeflyBinary(), args...)
 	fmt.Println("Running command", cmd.String())
 
 	proc, err := startManaged(ctx, cmd)
@@ -113,18 +153,6 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// child's FDs independent of os.Stdout so `go test` can exit.
 	proc.Echo()
 
-	// The CLI derives its gRPC port from the workspace name via
-	// network.CLIServerPort. When a naming scope is set (parallel tests),
-	// we include it in the name so each scope gets a unique port.
-	wsName := ""
-	if ws, err := resources.FindWorkspaceUp(ctx); err == nil && ws != nil {
-		wsName = ws.Name
-	}
-	if opt.NamingScope != "" {
-		wsName = wsName + "-" + opt.NamingScope
-	}
-	port := int(network.CLIServerPort(wsName))
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("cannot create gRPC client for %s: %w", addr, err)
@@ -149,7 +177,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		return nil, fmt.Errorf("CLI server ping failed: %w", err)
 	}
 	runtimeContext := resources.RuntimeContextFromEnv()
-	l := &Dependencies{proc: proc, cli: cli, conn: conn, runtimeContext: runtimeContext}
+	l := &Dependencies{proc: proc, cli: cli, conn: conn, runtimeContext: runtimeContext, keepRunning: opt.KeepRunning}
 	err = l.WaitForReady(ctx, opt)
 	if err != nil {
 		return nil, err
@@ -159,6 +187,71 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		return nil, err
 	}
 	return l, nil
+}
+
+func cliServerAddress(ctx context.Context, namingScope string) string {
+	// The CLI derives its gRPC port from the workspace name via
+	// network.CLIServerPort. When a naming scope is set (parallel tests),
+	// we include it in the name so each scope gets a unique port.
+	wsName := ""
+	if ws, err := resources.FindWorkspaceUp(ctx); err == nil && ws != nil {
+		wsName = ws.Name
+	}
+	if namingScope != "" {
+		wsName = wsName + "-" + namingScope
+	}
+	port := int(network.CLIServerPort(wsName))
+	return fmt.Sprintf("127.0.0.1:%d", port)
+}
+
+func codeflyBinary() string {
+	if path := strings.TrimSpace(os.Getenv("CODEFLY_BINARY")); path != "" {
+		return path
+	}
+	return "codefly"
+}
+
+func attachDependencies(ctx context.Context, addr string, opt *Option) (*Dependencies, error) {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("cannot create gRPC client for %s: %w", addr, err)
+	}
+	connectCtx, connectCancel := context.WithTimeout(ctx, attachExistingTimeout(opt.Timeout))
+	defer connectCancel()
+	conn.Connect()
+	if !waitForReady(connectCtx, conn) {
+		_ = conn.Close()
+		return nil, fmt.Errorf("existing CLI server at %s did not become ready within %s", addr, opt.Timeout)
+	}
+	cli := v0.NewCLIClient(conn)
+	if _, err := cli.Ping(ctx, &emptypb.Empty{}); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("existing CLI server ping failed: %w", err)
+	}
+	l := &Dependencies{
+		cli:            cli,
+		conn:           conn,
+		runtimeContext: resources.RuntimeContextFromEnv(),
+		keepRunning:    true,
+		attached:       true,
+	}
+	if err := l.WaitForReady(ctx, opt); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	if err := l.SetEnvironment(ctx); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	fmt.Printf("Attached to existing codefly dependencies at %s\n", addr)
+	return l, nil
+}
+
+func attachExistingTimeout(startTimeout time.Duration) time.Duration {
+	if startTimeout <= 0 || startTimeout > 2*time.Second {
+		return 2 * time.Second
+	}
+	return startTimeout
 }
 
 // Connection returns a connection string from environment variables.
@@ -333,6 +426,20 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 // tree down.
 func (l *Dependencies) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("sdk.Stop")
+	if l.keepRunning {
+		if l.conn != nil {
+			_ = l.conn.Close()
+		}
+		if l.proc != nil {
+			l.proc.Release()
+		}
+		if l.attached {
+			w.Debug("released existing kept-running flow")
+		} else {
+			w.Debug("released spawned flow because keep-running is enabled")
+		}
+		return nil
+	}
 	_, err := l.cli.StopFlow(ctx, &v0.StopFlowRequest{})
 	if err != nil {
 		w.Warn("failed to stop flow", wool.Field("error", err))
@@ -351,6 +458,20 @@ func (l *Dependencies) Stop(ctx context.Context) error {
 // stopping processes) before killing the subprocess group.
 func (l *Dependencies) Destroy(ctx context.Context) error {
 	w := wool.Get(ctx).In("sdk.Destroy")
+	if l.keepRunning {
+		if l.conn != nil {
+			_ = l.conn.Close()
+		}
+		if l.proc != nil {
+			l.proc.Release()
+		}
+		if l.attached {
+			w.Debug("released existing kept-running flow")
+		} else {
+			w.Debug("released spawned flow because keep-running is enabled")
+		}
+		return nil
+	}
 	_, err := l.cli.DestroyFlow(ctx, &v0.DestroyFlowRequest{})
 	if err != nil {
 		w.Warn("failed to destroy flow", wool.Field("error", err))

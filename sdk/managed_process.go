@@ -90,9 +90,9 @@ func startManaged(_ any, cmd *exec.Cmd) (*managedProcess, error) {
 	}
 
 	mp := &managedProcess{
-		cmd:       cmd,
-		stdoutR:   bufio.NewReader(stdoutPipe),
-		stderrR:   bufio.NewReader(stderrPipe),
+		cmd:     cmd,
+		stdoutR: bufio.NewReader(stdoutPipe),
+		stderrR: bufio.NewReader(stderrPipe),
 	}
 
 	// Supervisor goroutine — reaps the child on exit.
@@ -207,6 +207,14 @@ func (mp *managedProcess) Kill() error {
 	mp.stopSignalTrap()
 
 	return nil
+}
+
+// Release detaches this process from the SDK lifecycle without sending a signal
+// to the child process group. It is used by keep-running dependency stacks: the
+// spawned Codefly CLI should survive this SDK handle, but this parent process
+// should stop intercepting signals on its behalf.
+func (mp *managedProcess) Release() {
+	mp.stopSignalTrap()
 }
 
 func (mp *managedProcess) stopSignalTrap() {

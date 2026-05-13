@@ -81,8 +81,12 @@ func testOutput(t *testing.T, data *shared.SliceWriter) {
 	// the startup banner, so the "Redis is starting" and "Redis version="
 	// lines aren't guaranteed to land at indexes 0 and 1 anymore. Scan
 	// the whole captured output instead of asserting positions.
-	require.True(t, len(data.Data) > 1, "expected multiple log lines, got %d", len(data.Data))
-	joined := strings.Join(data.Data, "\n")
+	//
+	// Snapshot under lock — the docker stdcopy goroutine may still be
+	// draining the last buffered line when Stop returns.
+	snap := data.Snapshot()
+	require.True(t, len(snap) > 1, "expected multiple log lines, got %d", len(snap))
+	joined := strings.Join(snap, "\n")
 	require.Contains(t, joined, "Redis is starting")
 	require.Contains(t, joined, "Redis version=")
 }
@@ -130,8 +134,8 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 	id, err := env.ContainerID()
 	require.NoError(t, err)
 
-	require.Contains(t, output.Data, "good")
-	require.Contains(t, output.Data, "crashing")
+	require.Contains(t, output.Snapshot(), "good")
+	require.Contains(t, output.Snapshot(), "crashing")
 
 	id2, err := env.ContainerID()
 	require.NoError(t, err)
@@ -147,8 +151,8 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
 
-	require.Contains(t, output.Data, "good")
-	require.Contains(t, output.Data, "crashing")
+	require.Contains(t, output.Snapshot(), "good")
+	require.Contains(t, output.Snapshot(), "crashing")
 
 	// Run a finite script
 	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
@@ -158,7 +162,7 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-	require.Contains(t, output.Data, "1")
+	require.Contains(t, output.Snapshot(), "1")
 
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
 
@@ -178,7 +182,10 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 	err = proc.Stop(ctx)
 	require.NoError(t, err)
 
-	require.Contains(t, output.Data, "1")
+	// Use Snapshot() — the docker stdcopy goroutine may still be draining
+	// the last buffered line when Stop returns. Reading Data directly
+	// races with SliceWriter.Write under -race.
+	require.Contains(t, output.Snapshot(), "1")
 
 	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
 	require.NoError(t, err)
@@ -187,7 +194,7 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 
 	err = proc.Run(ctx)
 	require.NoError(t, err)
-	require.Contains(t, output.Data, "1")
+	require.Contains(t, output.Snapshot(), "1")
 
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
 }
@@ -305,7 +312,7 @@ func TestDockerProcWithoutPipes(t *testing.T) {
 	err = proc.Run(ctx)
 	require.NoError(t, err)
 
-	require.Contains(t, output.Data, "hello from docker")
+	require.Contains(t, output.Snapshot(), "hello from docker")
 }
 
 func TestFindFreePort(t *testing.T) {

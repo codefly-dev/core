@@ -125,6 +125,34 @@ func TestHashWildCardSelect(t *testing.T) {
 	require.False(t, updated)
 }
 
+func TestHashPrunesGeneratedDependencyCaches(t *testing.T) {
+	d, err := os.MkdirTemp("", "example")
+	require.NoError(t, err)
+	ctx := context.Background()
+	defer os.RemoveAll(d)
+
+	dep := builders.NewDependencies("test", builders.NewDependency(d).WithPathSelect(shared.NewSelect("*.go")))
+	dep.Localize(d)
+
+	updated, err := dep.Updated(ctx)
+	require.NoError(t, err)
+	require.True(t, updated)
+	require.NoError(t, dep.UpdateCache(ctx))
+
+	cacheDir := filepath.Join(d, ".gomodcache", "github.com", "dep")
+	require.NoError(t, os.MkdirAll(cacheDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(cacheDir, "ignored.go"), []byte("package dep\n"), 0644))
+
+	updated, err = dep.Updated(ctx)
+	require.NoError(t, err)
+	require.False(t, updated, "dependency cache files must not invalidate source hashes")
+
+	require.NoError(t, os.WriteFile(filepath.Join(d, "main.go"), []byte("package main\n"), 0644))
+	updated, err = dep.Updated(ctx)
+	require.NoError(t, err)
+	require.True(t, updated, "source files still invalidate source hashes")
+}
+
 func TestHashFolderAndFilter(t *testing.T) {
 	// create a temporary directory
 	d, err := os.MkdirTemp("", "example")

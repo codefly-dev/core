@@ -81,7 +81,25 @@ env, _ := sdk.WithDependencies(ctx, sdk.Debug())
 
 // Custom timeout (default: 10s)
 env, _ := sdk.WithDependencies(ctx, sdk.Timeout(30*time.Second))
+
+// Keep a stable local stack warm across test runs.
+env, _ := sdk.WithDependencies(ctx, sdk.WithKeepRunning(), sdk.WithNamingScope("dev"))
+
+// Omit optional dependencies for this run.
+env, _ := sdk.WithDependencies(ctx, sdk.WithExcludedDependencies("infra/temporal"))
 ```
+
+`WithKeepRunning` is for local development loops. It first tries to attach to an
+already-running CLI server for the same naming scope. If none is available, it
+starts one and releases it instead of destroying it during `Stop` / `Destroy`.
+Use a stable naming scope, then clean test data explicitly between runs.
+
+`WithExcludedDependencies` removes optional services from the dependency graph
+for the run. For example, tests that only need Postgres and Neo4j can exclude
+`infra/temporal` while the Temporal teardown leak is being fixed.
+
+Set `CODEFLY_BINARY=/path/to/codefly` when dogfooding a local CLI build before
+installing it onto `PATH`.
 
 The underlying CLI also supports:
 

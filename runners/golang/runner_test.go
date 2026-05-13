@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -83,13 +84,16 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) 
 }
 
 func testOutput(t *testing.T, data *shared.SliceWriter) {
-	// Data has been written to the output
-	require.True(t, len(data.Data) > 1)
-	for _, line := range data.Data[:len(data.Data)-2] {
+	// Snapshot under lock — proc.Run returns when the user binary
+	// exits, but the forwarder goroutine may still be flushing the
+	// last buffered line. Reading Data directly races with Write.
+	snap := data.Snapshot()
+	require.True(t, len(snap) > 1)
+	for _, line := range snap[:len(snap)-2] {
 		require.Contains(t, line, "running")
 		require.NotContains(t, line, "running\n")
 	}
-	require.Contains(t, data.Data[len(data.Data)-1], "signal received")
+	require.Contains(t, snap[len(snap)-1], "signal received")
 }
 
 func TestNativeRunWithMod(t *testing.T) {
@@ -98,6 +102,59 @@ func TestNativeRunWithMod(t *testing.T) {
 	env, err := golang.NewNativeGoRunner(ctx, shared.MustSolvePath("testdata"), "mod")
 	require.NoError(t, err)
 	testGo(t, ctx, env)
+}
+
+func TestNativeRunWithNestedMainInvalidatesCacheOnImportedPackageChange(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	cacheDir := t.TempDir()
+
+	write := func(name string, contents string) {
+		t.Helper()
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(contents), 0644))
+	}
+	write("go.mod", "module example.com/cachetest\n\ngo 1.21\n")
+	write("cmd/server/main.go", `package main
+
+import (
+	"fmt"
+
+	"example.com/cachetest/pkg/answer"
+)
+
+func main() {
+	fmt.Println(answer.Value())
+}
+`)
+	write("pkg/answer/answer.go", `package answer
+
+func Value() string {
+	return "one"
+}
+`)
+
+	env, err := golang.NewNativeGoRunner(ctx, root, "cmd/server")
+	require.NoError(t, err)
+	env.WithLocalCacheDir(cacheDir)
+	defer func() {
+		require.NoError(t, env.Shutdown(ctx))
+	}()
+
+	require.NoError(t, env.Init(ctx))
+	require.NoError(t, env.BuildBinary(ctx))
+	require.False(t, env.UsedCache())
+	require.NoError(t, env.BuildBinary(ctx))
+	require.True(t, env.UsedCache())
+
+	write("pkg/answer/answer.go", `package answer
+
+func Value() string {
+	return "two"
+}
+`)
+	require.NoError(t, env.BuildBinary(ctx))
+	require.False(t, env.UsedCache())
 }
 
 func TestNativeRunWithModAndCGO(t *testing.T) {
@@ -192,4 +249,3 @@ func TestDockerRunWithModAndCGO(t *testing.T) {
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)
 }
-

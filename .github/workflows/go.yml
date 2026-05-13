@@ -122,9 +122,20 @@ jobs:
           ## name of branch where badges are stored
           ## ideally this should be orphan branch (see below how to create this branch)
           git-branch: badges
-#
-#      - name: test with race detection
-#        run: go test -race ./... -v
+      - name: test with race detection
+        # Strict, separate from coverage. Races are real bugs (we
+        # found a bytes.Buffer concurrent-write race in NativeProc
+        # that flaked Linux CI for months), so the race detector
+        # has to run alongside the regular suite — not as a
+        # commented-out optional. CLI already does this; bring
+        # core to parity.
+        #
+        # We skip sandbox_e2e + nix_required tags here: the race
+        # detector roughly doubles test runtime, and the integration
+        # suites also run in the regular step above with full
+        # coverage. Race-detector signal lands fastest by sticking
+        # to the unit + light-integration scope.
+        run: go test -race ./... -timeout 10m
 
       - name: Notify Slack on Failure
         if: failure()

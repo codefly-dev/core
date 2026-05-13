@@ -107,6 +107,38 @@ func TestServiceDependenciesFlatLayoutWithSkip(t *testing.T) {
 
 }
 
+func TestServiceDependenciesFlatLayoutWithExclude(t *testing.T) {
+	ctx := context.Background()
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/flat-layout")
+	require.NoError(t, err)
+	require.NotNil(t, workspace)
+
+	organization := shared.Must(workspace.FindUniqueServiceByName(ctx, "organization"))
+	require.NotNil(t, organization)
+	accounts := shared.Must(workspace.FindUniqueServiceByName(ctx, "accounts"))
+	require.NotNil(t, accounts)
+	gateway := shared.Must(workspace.FindUniqueServiceByName(ctx, "gateway"))
+	require.NotNil(t, gateway)
+	frontend := shared.Must(workspace.FindUniqueServiceByName(ctx, "frontend"))
+	require.NotNil(t, frontend)
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace, architecture.ExcludeServices(accounts.MustUnique()))
+	require.NoError(t, err)
+	require.NotNil(t, dep)
+
+	_, err = dep.ServiceFromUnique(accounts.MustUnique())
+	require.Error(t, err)
+
+	to, err := dep.OrderTo(ctx, frontend.MustUnique())
+	require.NoError(t, err)
+	require.Equal(t, []architecture.Service{{Unique: organization.MustUnique()}, {Unique: gateway.MustUnique()}}, to)
+
+	depends, err := dep.DependsOn(gateway.MustUnique(), accounts.MustUnique())
+	require.Error(t, err)
+	require.False(t, depends)
+}
+
 func testServiceGraph(t *testing.T, workspace *resources.Workspace, organization, accounts, gateway, frontend string) {
 	ctx := context.Background()
 	dep, err := architecture.NewServiceDependencies(ctx, workspace)

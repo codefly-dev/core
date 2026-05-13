@@ -24,6 +24,7 @@ type ServiceDependencies struct {
 
 type DependencyOptions struct {
 	SkipDependencyFor map[string]bool
+	ExcludeService    map[string]bool
 }
 
 type DependencyOption func(*DependencyOptions) error
@@ -37,10 +38,24 @@ func SkipDependencyFor(services ...string) DependencyOption {
 	}
 }
 
+// ExcludeServices removes services from the dependency graph entirely.
+// Use this for optional infrastructure that the current local run does not
+// need, for example disabling infra/temporal while testing code paths that only
+// require Postgres and Neo4j.
+func ExcludeServices(services ...string) DependencyOption {
+	return func(opt *DependencyOptions) error {
+		for _, svc := range services {
+			opt.ExcludeService[svc] = true
+		}
+		return nil
+	}
+}
+
 func NewServiceDependencies(ctx context.Context, workspace *resources.Workspace, opts ...DependencyOption) (*ServiceDependencies, error) {
 	w := wool.Get(ctx).In("NewServiceDependencies")
 	opt := &DependencyOptions{
 		SkipDependencyFor: make(map[string]bool),
+		ExcludeService:    make(map[string]bool),
 	}
 	for _, o := range opts {
 		err := o(opt)
@@ -220,12 +235,18 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 			if err != nil {
 				return w.Wrapf(err, "cannot get service identity")
 			}
+			if _, excluded := d.options.ExcludeService[identity.Unique()]; excluded {
+				continue
+			}
 			d.uniqueToService[identity.Unique()] = svc
 			graph.AddNode(identity.Unique()).WithType(resources.SERVICE)
 			if _, skipDependency := d.options.SkipDependencyFor[identity.Unique()]; skipDependency {
 				continue
 			}
 			for _, dep := range svc.ServiceDependencies {
+				if _, excluded := d.options.ExcludeService[dep.Unique()]; excluded {
+					continue
+				}
 				graph.AddNode(dep.Unique()).WithType(resources.SERVICE)
 				graph.AddEdge(dep.Unique(), identity.Unique())
 			}

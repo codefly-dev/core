@@ -62,6 +62,7 @@ type GoRunnerEnvironment struct {
 
 	// Source directory
 	sourceDir string
+	moduleDir string
 }
 
 func (r *GoRunnerEnvironment) LocalCacheDir(ctx context.Context) string {
@@ -99,22 +100,7 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 
 	sourceDir := path.Join(dir, relativeSource)
 
-	// Look for go.mod: first in sourceDir, then walk up to workspace root.
-	// This supports both colocated layouts (go.mod in code/) and monorepo
-	// layouts (go.mod at workspace root, source in cmd/server/).
-	withGoModules := false
-	goModDir := sourceDir
-	for d := sourceDir; ; d = filepath.Dir(d) {
-		exists, _ := shared.FileExists(ctx, path.Join(d, "go.mod"))
-		if exists {
-			withGoModules = true
-			goModDir = d
-			break
-		}
-		if d == dir || d == "/" || d == "." {
-			break
-		}
-	}
+	goModDir, withGoModules := findGoModuleDir(ctx, dir, sourceDir)
 
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
@@ -140,6 +126,7 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 		withGoModules: withGoModules,
 		localCacheDir: path.Join(sourceDir, "cache"),
 		sourceDir:     sourceDir,
+		moduleDir:     goModDir,
 	}, nil
 }
 
@@ -155,10 +142,7 @@ func NewNixGoRunner(ctx context.Context, dir string, relativeSource string) (*Go
 	}
 
 	sourceDir := path.Join(dir, relativeSource)
-	withGoModules, err := shared.FileExists(ctx, path.Join(sourceDir, "go.mod"))
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot check go modules")
-	}
+	goModDir, withGoModules := findGoModuleDir(ctx, dir, sourceDir)
 
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
@@ -177,6 +161,7 @@ func NewNixGoRunner(ctx context.Context, dir string, relativeSource string) (*Go
 		withGoModules: withGoModules,
 		localCacheDir: path.Join(sourceDir, "cache"),
 		sourceDir:     sourceDir,
+		moduleDir:     goModDir,
 	}, nil
 }
 
@@ -197,10 +182,7 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 	companion.WithPause()
 
 	sourceDir := path.Join(dir, relativeSource)
-	withGoModules, err := shared.FileExists(ctx, path.Join(sourceDir, "go.mod"))
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot check go modules")
-	}
+	goModDir, withGoModules := findGoModuleDir(ctx, dir, sourceDir)
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
 	}
@@ -211,7 +193,39 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 		withGoModules: withGoModules,
 		localCacheDir: path.Join(sourceDir, "cache"),
 		sourceDir:     sourceDir,
+		moduleDir:     goModDir,
 	}, nil
+}
+
+func findGoModuleDir(ctx context.Context, workspaceDir, sourceDir string) (string, bool) {
+	// Resolve symlinks once so the workspace-root comparison below
+	// doesn't fail on macOS where /var resolves to /private/var.
+	// Without this, a sourceDir under /var/folders/... compared to a
+	// workspaceDir under /var/folders/... can disagree on equality
+	// and the loop walks all the way up to "/" before stopping.
+	workspaceRoot := workspaceDir
+	if resolved, err := filepath.EvalSymlinks(workspaceDir); err == nil {
+		workspaceRoot = resolved
+	}
+	for d := sourceDir; ; d = filepath.Dir(d) {
+		exists, _ := shared.FileExists(ctx, filepath.Join(d, "go.mod"))
+		if exists {
+			return d, true
+		}
+		stop := d == workspaceDir ||
+			d == workspaceRoot ||
+			d == string(filepath.Separator) ||
+			d == "."
+		if !stop {
+			if resolved, err := filepath.EvalSymlinks(d); err == nil && resolved == workspaceRoot {
+				stop = true
+			}
+		}
+		if stop {
+			break
+		}
+	}
+	return sourceDir, false
 }
 
 func (r *GoRunnerEnvironment) Env() runners.RunnerEnvironment {
@@ -317,7 +331,11 @@ func (r *GoRunnerEnvironment) Init(ctx context.Context) error {
 
 func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	w := wool.Get(ctx).In("goModuleHandling")
-	req := builders.NewDependencies("gomod", builders.NewDependency("go.mod", "go.sum").Localize(r.sourceDir))
+	moduleDir := r.moduleDir
+	if moduleDir == "" {
+		moduleDir = r.sourceDir
+	}
+	req := builders.NewDependencies("gomod", builders.NewDependency("go.mod", "go.sum").Localize(moduleDir))
 	req.WithCache(r.LocalCacheDir(ctx))
 
 	updated, err := req.Updated(ctx)
@@ -342,7 +360,7 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	if r.out != nil {
 		proc.WithOutput(r.out)
 	}
-	proc.WithDir(r.sourceDir)
+	proc.WithDir(moduleDir)
 
 	err = proc.Run(ctx)
 	if err != nil {
@@ -373,8 +391,17 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	w := wool.Get(ctx).In("buildBinary")
 
 	// Setup the requirements
-	r.requirements = builders.NewDependencies("go",
-		builders.NewDependency(r.sourceDir).WithPathSelect(shared.NewSelect("*.go")))
+	hashDir := r.sourceDir
+	if r.withGoModules && r.moduleDir != "" {
+		hashDir = r.moduleDir
+	}
+	components := []*builders.Dependency{
+		builders.NewDependency(hashDir).WithPathSelect(shared.NewSelect("*.go")),
+	}
+	if r.withGoModules {
+		components = append(components, builders.NewDependency("go.mod", "go.sum").Localize(hashDir))
+	}
+	r.requirements = builders.NewDependencies("go", components...)
 
 	w.Trace("start building")
 	r.usedCache = false

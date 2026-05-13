@@ -2,11 +2,14 @@ package tui
 
 import (
 	"hash/fnv"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/fatih/color"
+	"github.com/muesli/termenv"
 )
 
 var (
@@ -49,6 +52,45 @@ var styles = struct {
 	Muted:      lipgloss.NewStyle().Foreground(ColorMuted),
 	Bold:       lipgloss.NewStyle().Bold(true).Foreground(ColorText),
 	Viewport:   lipgloss.NewStyle(),
+}
+
+// init runs configureColorProfile at package load. This mutates
+// PROCESS-WIDE state (lipgloss.SetColorProfile, color.NoColor) so
+// every test that imports core/tui inherits the codefly color
+// settings — there is no way to import the package without the
+// side effect. Tests that need a different profile must call
+// ConfigureColorProfile (or set CODEFLY_COLOR before the package
+// loads) and restore afterwards; see tui_test.go for the pattern.
+func init() {
+	configureColorProfile()
+}
+
+// ConfigureColorProfile re-applies the CODEFLY_COLOR-driven choice
+// after callers have mutated the env. Exported so tests can reset
+// global state mid-binary without reimporting the package.
+func ConfigureColorProfile() {
+	configureColorProfile()
+}
+
+func configureColorProfile() {
+	switch strings.ToLower(os.Getenv("CODEFLY_COLOR")) {
+	case "never", "off", "false", "0":
+		lipgloss.SetColorProfile(termenv.Ascii)
+		color.NoColor = true
+	case "auto":
+		// Preserve terminal/env auto-detection for callers that explicitly
+		// request it. This includes honoring NO_COLOR.
+		profile := termenv.NewOutput(os.Stdout).EnvColorProfile()
+		lipgloss.SetColorProfile(profile)
+		color.NoColor = profile == termenv.Ascii
+	default:
+		// Codefly has historically emitted colored CLI output via golor even
+		// when the terminal supports it. Force the Lip Gloss renderer to the
+		// same high-color default so service logs, status lines, and prompt
+		// chrome do not fall back to nearly plain text.
+		lipgloss.SetColorProfile(termenv.TrueColor)
+		color.NoColor = false
+	}
 }
 
 // Styles returns the shared style set.
@@ -137,26 +179,14 @@ func RenderMarkdown(content string, style string) (string, error) {
 // --- Service color picker: deterministic per-service styling ---
 
 var serviceColors = []lipgloss.Color{
-	lipgloss.Color("#ADD8E6"), lipgloss.Color("#90EE90"),
-	lipgloss.Color("#FFC0CB"), lipgloss.Color("#E6E6FA"),
-	lipgloss.Color("#00FF00"), lipgloss.Color("#00FFFF"),
-	lipgloss.Color("#FF1493"), lipgloss.Color("#7DF9FF"),
-	lipgloss.Color("#FF69B4"), lipgloss.Color("#C0C0C0"),
-	lipgloss.Color("#FFD700"), lipgloss.Color("#FF4500"),
-	lipgloss.Color("#9370DB"), lipgloss.Color("#3CB371"),
-	lipgloss.Color("#20B2AA"), lipgloss.Color("#DDA0DD"),
-	lipgloss.Color("#B0E0E6"), lipgloss.Color("#FF6347"),
-	lipgloss.Color("#4682B4"), lipgloss.Color("#D2691E"),
-	lipgloss.Color("#FFDAB9"), lipgloss.Color("#7B68EE"),
-	lipgloss.Color("#BA55D3"), lipgloss.Color("#F0E68C"),
-	lipgloss.Color("#48D1CC"), lipgloss.Color("#FFB6C1"),
-	lipgloss.Color("#DEB887"), lipgloss.Color("#AFEEEE"),
-	lipgloss.Color("#98FB98"), lipgloss.Color("#FFA07A"),
-	lipgloss.Color("#E0FFFF"), lipgloss.Color("#D8BFD8"),
-	lipgloss.Color("#FFDAB9"), lipgloss.Color("#CD853F"),
-	lipgloss.Color("#FFA500"), lipgloss.Color("#F0FFF0"),
-	lipgloss.Color("#F5DEB3"), lipgloss.Color("#FAFAD2"),
-	lipgloss.Color("#B0C4DE"), lipgloss.Color("#FF00FF"),
+	lipgloss.Color("#22D3EE"), lipgloss.Color("#A78BFA"),
+	lipgloss.Color("#34D399"), lipgloss.Color("#F472B6"),
+	lipgloss.Color("#FBBF24"), lipgloss.Color("#60A5FA"),
+	lipgloss.Color("#FB7185"), lipgloss.Color("#2DD4BF"),
+	lipgloss.Color("#F97316"), lipgloss.Color("#C084FC"),
+	lipgloss.Color("#4ADE80"), lipgloss.Color("#38BDF8"),
+	lipgloss.Color("#E879F9"), lipgloss.Color("#FACC15"),
+	lipgloss.Color("#818CF8"), lipgloss.Color("#14B8A6"),
 }
 
 var (

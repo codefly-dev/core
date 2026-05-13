@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	cryptorand "crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/agents"
+	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	runnersbase "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/runners/sandbox"
@@ -67,6 +69,12 @@ type AgentConn struct {
 
 	// done is closed when the process exits (via the reaper goroutine).
 	done chan struct{}
+
+	// permissionsCallback is the host-side server that answers
+	// the plugin's Authorized() calls. Non-nil only when the
+	// caller passed WithPermissionsCallback. Close shuts it down
+	// alongside the gRPC connection so the UDS file is removed.
+	permissionsCallback *policy.PermissionsCallbackServer
 }
 
 // GRPCConn returns the shared gRPC connection to the agent.
@@ -99,6 +107,13 @@ const gracefulShutdownTimeout = 30 * time.Second
 func (c *AgentConn) Close() {
 	if c.conn != nil {
 		_ = c.conn.Close()
+	}
+	// Shut down the permissions callback BEFORE killing the plugin —
+	// in-flight Authorized() calls fail cleanly with "callback closed"
+	// rather than blocking on a server we're about to terminate.
+	if c.permissionsCallback != nil {
+		_ = c.permissionsCallback.Close()
+		c.permissionsCallback = nil
 	}
 	if c.cmd == nil || c.cmd.Process == nil {
 		return
@@ -197,6 +212,47 @@ type loadConfig struct {
 	extraEnv       []string  // additional env vars (KEY=VALUE) appended after os.Environ
 	sandbox        sandbox.Sandbox
 	useUDS         bool // spawn plugin on a Unix domain socket instead of TCP loopback
+
+	// principal is the authority context the spawned plugin runs
+	// under. When non-nil, the plugin's tool calls are PDP-gated
+	// against this principal's permissions. nil means "no principal
+	// binding" — plugin runs with no authority claim, falling back
+	// to the codefly-host process's own scope (legacy behavior).
+	principal *policy.Principal
+
+	// principalChoiceMade mirrors sandboxChoiceMade: WithPrincipal
+	// or WithoutPrincipal flip this true. Calls to Load that DON'T
+	// pick get a stderr security warning. Phase 2 will hard-fail on
+	// missing choice. Same audit-of-defaults pattern as the sandbox
+	// surface — every callsite makes an explicit, greppable choice.
+	principalChoiceMade bool
+
+	// permissionsCallback is the host's Decider for plugin-side
+	// Authorized() calls. When non-nil, Load:
+	//   1. Stands up a UDS-bound HTTP server (policy.PermissionsCallbackServer)
+	//      backed by this Decider
+	//   2. Sets CODEFLY_PERMISSIONS_SOCKET=<path> in the plugin env
+	//   3. Tracks the server on the AgentConn so Close shuts it down
+	// Plugin's policy.NewCallbackAuthorizerFromEnv() picks up the
+	// socket path and dials lazily.
+	permissionsCallback policy.Decider
+
+	// scopedAuthSecret is the HMAC key shared between host and
+	// plugin for scoped-authz token verification. When non-nil
+	// (and ≥32 bytes), Load:
+	//   1. base64url-encodes the secret
+	//   2. Sets CODEFLY_SCOPED_AUTHZ_SECRET=<encoded> in the plugin env
+	// Plugin's policyguard.Guard reads the env, decodes, uses
+	// for HMAC verify of incoming ScopedAuthorization tokens.
+	//
+	// Hosts that DON'T need the two-level fast path leave this
+	// nil — the plugin's Guard falls back to the PDP-via-callback
+	// path on every call (single-level model, unchanged).
+	//
+	// SECURITY: secret length < 32 bytes is rejected at Load
+	// time with an explicit error. HMAC strength below 32 bytes
+	// is borderline; we refuse rather than silently weaken.
+	scopedAuthSecret []byte
 
 	// sandboxChoiceMade is set by WithSandbox or WithoutSandbox.
 	// When false (no explicit choice), Load logs a warning to stderr
@@ -320,6 +376,143 @@ func WithoutSandbox() LoadOption {
 	}
 }
 
+// WithPrincipal binds an authority context (the Principal) to the
+// spawned plugin. Tool calls dispatched by the plugin go through the
+// PDP, which uses the Principal's identity to resolve role grants
+// in saas-starter and decide allow/deny.
+//
+// **What this enables.** Without WithPrincipal, the plugin runs
+// "anonymously" — sandbox-confined but with no authority claim.
+// With WithPrincipal, the plugin's actions are attributed to the
+// Principal in audit logs and authorized against that Principal's
+// permissions in saas-starter. This is the load-bearing wire for
+// the M3+ permission system.
+//
+// **What this is NOT.** It's not authentication of the codefly
+// host; that's the existing per-spawn token (CODEFLY_AGENT_TOKEN).
+// It's not the sandbox; the sandbox stays orthogonal. It's the
+// AUTHORITY layer — what's the principal allowed to do, separate
+// from what the binary CAN do at the syscall level.
+//
+// Counterpart: WithoutPrincipal() to make an explicit "no authority
+// binding" choice. Calling Load with neither option logs a security
+// warning pointing at the migration. Greppable in source: every
+// callsite picks; the choice itself is auditable.
+//
+// The Principal MUST already be validated and have a non-expired
+// token. Load itself does not re-verify; that's done upstream where
+// the credential was minted.
+func WithPrincipal(p *policy.Principal) LoadOption {
+	return func(c *loadConfig) {
+		c.principal = p
+		c.principalChoiceMade = true
+	}
+}
+
+// WithoutPrincipal is the explicit "spawn this plugin without a
+// principal binding" choice. Plugin runs sandboxed but without
+// authority claims; tool calls fall back to legacy authorization
+// (or none, depending on the PDP wiring at the toolbox level).
+//
+// Use ONLY when:
+//   - The agent is system infrastructure that doesn't act on a
+//     specific principal's behalf (orchestration agents, plumbing).
+//   - You're a test that intentionally bypasses principal binding
+//     to isolate non-permission behavior.
+//
+// Every other callsite should use WithPrincipal with a real value.
+//
+// Like WithoutSandbox, this is a separate option (not "pass nil to
+// WithPrincipal") so the choice is greppable for security review.
+func WithoutPrincipal() LoadOption {
+	return func(c *loadConfig) {
+		c.principal = nil
+		c.principalChoiceMade = true
+	}
+}
+
+// WithScopedAuthSecret enables the two-level scoped-authz fast
+// path on this plugin spawn. The secret is the HMAC key shared
+// between the host's GatewayEvaluator (which mints tokens) and
+// the plugin's policyguard.Guard (which verifies them).
+//
+// **Lifecycle:**
+//   - Host generates the secret with policy.NewSpawnSecret() (or
+//     supplies its own, ≥32 bytes).
+//   - Host constructs a GatewayEvaluator with the same secret.
+//   - Host calls manager.Load(WithScopedAuthSecret(secret), ...).
+//   - manager.Load base64url-encodes the secret, sets the env var
+//     CODEFLY_SCOPED_AUTHZ_SECRET on the plugin process.
+//   - Plugin's policyguard.Guard reads the env at startup,
+//     decodes, uses for HMAC verify on every CallTool.
+//
+// **What "two-level" buys:**
+//   - Hot path: gateway pre-evaluates and mints; plugin verifies
+//     locally (microseconds) — no UDS round-trip to the PDP for
+//     the outer authorization.
+//   - Defense in depth: plugin's PDP is still wired (via
+//     WithPermissionsCallback). Token-missing or token-invalid
+//     calls fall back to the PDP path. Three independent
+//     enforcement layers.
+//
+// **Security:** secrets shorter than 32 bytes are rejected at
+// Load time. HMAC-SHA256's birthday-bound makes <32B secrets a
+// real attack surface; refuse rather than silently weaken.
+//
+// Pass nil/empty to NOT enable the fast path. The plugin's Guard
+// will fall back to PDP-via-callback for every call (the
+// single-level model — unchanged from current behavior).
+//
+// See TWO_LEVEL_AUTHZ.md for the full design.
+func WithScopedAuthSecret(secret []byte) LoadOption {
+	return func(c *loadConfig) {
+		c.scopedAuthSecret = secret
+	}
+}
+
+// WithPermissionsCallback registers the Decider that the spawned
+// plugin will call back into for runtime Authorized() checks.
+//
+// **What this enables.** Inside a plugin handler:
+//
+//	authorizer := policy.AuthorizerFromContext(ctx)
+//	allowed, reason, err := authorizer.Authorized(ctx,
+//	    "github.read_secrets", "repo:codefly/x")
+//	if !allowed {
+//	    // skip secret-dependent behavior gracefully
+//	}
+//
+// The plugin's Authorized() turns into an HTTP/UDS round-trip to
+// the host process; the host evaluates against `decider`, returns
+// the verdict.
+//
+// **Why a callback rather than the PDP-on-Toolbox pattern.** The
+// PluginRegistration.PDP wraps the OUTER tool dispatch — one
+// decision per CallTool. WithPermissionsCallback enables an
+// arbitrary number of FINE-GRAINED checks WITHIN a single tool
+// invocation. Different concerns; both apply.
+//
+// **Security model.** The host's PermissionsCallbackServer uses
+// the spawn-time principal as the authoritative subject (set via
+// WithPrincipal); the plugin cannot impersonate a different
+// principal even if compromised. The socket file is owner-only
+// (0600) so other users on the host cannot dial.
+//
+// **Lifecycle.** The callback server is created in Load() before
+// process spawn; the socket path goes into the plugin's env. On
+// AgentConn.Close, the callback server is shut down and the
+// socket file is removed. Orphaned sockets only happen on host
+// crash; restart cleans them up.
+//
+// Pass nil decider → no callback wired (plugin's Authorized()
+// fails closed with "callback not configured" — the safe
+// default).
+func WithPermissionsCallback(decider policy.Decider) LoadOption {
+	return func(c *loadConfig) {
+		c.permissionsCallback = decider
+	}
+}
+
 // Load spawns an agent binary, reads the gRPC port from its stdout,
 // and establishes a gRPC connection. The agent binary is downloaded
 // if not already present.
@@ -341,12 +534,17 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		// authority by accident-of-default. Phase 2 will hard-fail
 		// here. Until every dependent caller is migrated, log loud
 		// and continue.
-		fmt.Fprintf(os.Stderr,
-			"[security] manager.Load(%s): no sandbox choice made — "+
-				"defaulting to native (no confinement). Pass "+
-				"WithSandbox(...) or WithoutSandbox() explicitly. "+
-				"This default will become an error in a future release.\n",
-			p.Identifier())
+		w.Warn("security: manager.Load missing explicit sandbox choice",
+			wool.Field("default", "native"),
+		)
+	}
+	if !cfg.principalChoiceMade {
+		// Same audit-of-defaults pattern as sandbox: every callsite
+		// MUST pick WithPrincipal or WithoutPrincipal. Until the M3
+		// rollout completes (every caller migrated), log + continue.
+		w.Warn("security: manager.Load missing explicit principal choice",
+			wool.Field("default", "without authority binding"),
+		)
 	}
 
 	bin, err := p.Path(ctx)
@@ -443,6 +641,80 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		return nil, w.Wrapf(err, "mint agent token")
 	}
 	cmd.Env = append(cmd.Env, "CODEFLY_AGENT_TOKEN="+authToken)
+
+	// Principal token (M3). Distinct from CODEFLY_AGENT_TOKEN: the
+	// agent token authenticates the host-to-plugin connection; the
+	// principal token authorizes the plugin's actions. Plugin
+	// reads the token from the env, attaches it as the x-codefly-
+	// principal metadata on the way back when emitting tool calls
+	// downstream. The PDP verifies it.
+	//
+	// Format until M6 lands: a JWT-shaped token signed by saas-
+	// starter's auth server. M6 swaps to Biscuit. Until M3's
+	// SaasPDP wires the verifier, we pass the *raw* Principal
+	// fields encoded — this lets unit tests work against FakePDP
+	// without a JWT signer in scope. Production wiring overrides
+	// the encoding at the manager-init time.
+	if cfg.principal != nil {
+		token, terr := policy.EncodePrincipalToken(cfg.principal)
+		if terr != nil {
+			return nil, w.Wrapf(terr, "encode principal token")
+		}
+		cmd.Env = append(cmd.Env, "CODEFLY_PRINCIPAL_TOKEN="+token)
+		cmd.Env = append(cmd.Env, "CODEFLY_PRINCIPAL_ID="+cfg.principal.ID)
+	}
+
+	// Scoped-authz secret. When the host enables the two-level
+	// fast path, base64url-encode the secret and pass via env.
+	// Plugin's policyguard.Guard reads it at startup. Refuse
+	// short secrets — HMAC strength below 32 bytes is a real
+	// risk we don't silently accept.
+	if len(cfg.scopedAuthSecret) > 0 {
+		if len(cfg.scopedAuthSecret) < 32 {
+			return nil, w.NewError("scoped-auth secret must be >= 32 bytes (got %d)", len(cfg.scopedAuthSecret))
+		}
+		encoded := base64.RawURLEncoding.EncodeToString(cfg.scopedAuthSecret)
+		cmd.Env = append(cmd.Env, "CODEFLY_SCOPED_AUTHZ_SECRET="+encoded)
+	}
+
+	// Permissions callback (M-callback). When the host registered a
+	// Decider via WithPermissionsCallback, stand up the UDS server
+	// HERE — before cmd.Start so the path is in env, but after env is
+	// otherwise prepared.
+	//
+	// Cleanup discipline: if anything past this point fails (cmd.Start,
+	// pipe wiring, gRPC dial), we MUST close the callback server so
+	// the socket doesn't leak. Defer-on-error handles it.
+	var permsCallback *policy.PermissionsCallbackServer
+	if cfg.permissionsCallback != nil {
+		permsCallback, err = policy.NewPermissionsCallbackServer(cfg.permissionsCallback)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot create permissions callback server")
+		}
+		// Bind the spawn-time principal as the trusted subject — the
+		// plugin cannot impersonate a different principal even if it
+		// claims one in the request body. Captured by closure so a
+		// later WithPrincipal would have to be re-issued at load.
+		boundPrincipal := cfg.principal
+		permsCallback.WithPrincipalProvider(func() *policy.Principal {
+			return boundPrincipal
+		})
+		cmd.Env = append(cmd.Env, "CODEFLY_PERMISSIONS_SOCKET="+permsCallback.SocketPath())
+	}
+	// Cleanup discipline: any subsequent error path in Load must close the
+	// callback server so the UDS file and goroutine don't leak. We flip
+	// loadSucceeded right before the successful return; until then, the
+	// defer below closes the server. Don't rely on a scoped `err` here —
+	// downstream sites use `if err := …; err != nil` (shadowed) and
+	// `killAndDescribe(...)` which returns without touching outer state,
+	// so an `err != nil` check would silently miss every failure path.
+	loadSucceeded := false
+	defer func() {
+		if !loadSucceeded && permsCallback != nil {
+			_ = permsCallback.Close()
+		}
+	}()
+
 	if ep := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); ep != "" {
 		cmd.Env = append(cmd.Env,
 			"OTEL_EXPORTER_OTLP_ENDPOINT="+ep,
@@ -594,11 +866,12 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 
 	// --- Build result and register ---
 	agentConn := &AgentConn{
-		conn:      conn,
-		cmd:       cmd,
-		info:      &ProcessInfo{PID: pid},
-		stderrBuf: stderrBuf,
-		done:      make(chan struct{}),
+		conn:                conn,
+		cmd:                 cmd,
+		info:                &ProcessInfo{PID: pid},
+		stderrBuf:           stderrBuf,
+		done:                make(chan struct{}),
+		permissionsCallback: permsCallback, // nil when WithPermissionsCallback wasn't passed
 	}
 
 	// Reaper goroutine: waits for the process to exit and logs unexpected
@@ -632,6 +905,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 
 	w.Debug("connected to agent", wool.Field("addr", addr), wool.Field("pid", pid))
 
+	loadSucceeded = true
 	return agentConn, nil
 }
 
@@ -742,7 +1016,7 @@ var errAgentVersionMismatch = errors.New("agent protocol version mismatch")
 // Endpoint forms:
 //   - numeric port (legacy TCP):    "54321"        → "127.0.0.1:54321"
 //   - UDS URI (preferred):          "unix:/path"   → "unix:/path" (verbatim;
-//                                                    grpc.NewClient resolves)
+//     grpc.NewClient resolves)
 //
 // Both forms are accepted so a new host can dial both old (TCP-only)
 // plugins and new (UDS-capable) plugins.

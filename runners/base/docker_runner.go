@@ -17,7 +17,6 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/runners/sandbox"
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/docker/docker/api/types/container"
@@ -54,16 +53,6 @@ type DockerEnvironment struct {
 	reader   io.ReadCloser
 
 	running bool
-
-	// sb is set for API parity with NativeEnvironment / NixEnvironment.
-	// It is INTENTIONALLY a no-op for Docker: the container itself is
-	// the OS-level isolation boundary, and bwrap / sandbox-exec wrap
-	// host-level exec.Cmd invocations — which Docker doesn't issue
-	// (the docker daemon does, on our behalf, far from this code path).
-	// Holding the field lets workspace orchestrators pass the same
-	// sandbox.Sandbox to every environment without special-casing
-	// Docker; ApplySandbox() preserves the value but never uses it.
-	sb sandbox.Sandbox
 }
 
 var _ RunnerEnvironment = &DockerEnvironment{}
@@ -117,22 +106,6 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerIm
 		return nil, w.Wrapf(err, "cannot get image")
 	}
 	return env, nil
-}
-
-// WithSandbox attaches a sandbox.Sandbox to this environment. Unlike
-// NativeEnvironment.WithSandbox, this is a no-op at execution time:
-// processes run inside the container, and the container's namespace +
-// cgroup boundary IS the sandbox. The field is held for API parity
-// so callers can wire `WithSandbox(sb)` against any RunnerEnvironment
-// without checking the concrete type.
-//
-// If you find yourself reaching for sandbox semantics around docker,
-// the fix is at the container level (drop capabilities, read-only
-// rootfs, --security-opt, network mode) — not by stacking bwrap on
-// top of the docker client.
-func (docker *DockerEnvironment) WithSandbox(sb sandbox.Sandbox) *DockerEnvironment {
-	docker.sb = sb
-	return docker
 }
 
 func (docker *DockerEnvironment) Init(ctx context.Context) error {
@@ -571,10 +544,16 @@ type DockerProc struct {
 
 	// Pipe support for interactive/bidirectional communication.
 	// Set before Start() via StdinPipe()/StdoutPipe().
-	stdinReader  *io.PipeReader  // internal: feeds into docker exec stdin
-	stdinWriter  *io.PipeWriter  // returned to caller
-	stdoutReader *io.PipeReader  // returned to caller
-	stdoutWriter *io.PipeWriter  // internal: receives docker exec stdout
+	stdinReader  *io.PipeReader // internal: feeds into docker exec stdin
+	stdinWriter  *io.PipeWriter // returned to caller
+	stdoutReader *io.PipeReader // returned to caller
+	stdoutWriter *io.PipeWriter // internal: receives docker exec stdout
+
+	// forwarderWG tracks the stdcopy demux goroutine spawned by
+	// start(). Run() blocks on this before returning so callers
+	// reading proc.output never race against an in-flight
+	// stdcopy.StdCopy. Same race that bit NativeProc; same fix.
+	forwarderWG sync.WaitGroup
 }
 
 func (proc *DockerProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
@@ -662,6 +641,12 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 	if err := proc.start(ctx); err != nil {
 		return w.Wrapf(err, "cannot start process")
 	}
+	// Wait for the stdcopy demux to drain before Run returns.
+	// Without this, the caller's read of proc.output can race the
+	// in-flight StdCopy. Race detector catches it; production sees
+	// it as occasional empty/partial output. Same pattern as
+	// NativeProc + NixProc.
+	defer proc.forwarderWG.Wait()
 
 	// Previously this polled ContainerExecInspect AND a full /proc scan
 	// (isProcessActive) every second — the /proc scan is a docker exec sh
@@ -842,7 +827,13 @@ func (proc *DockerProc) start(ctx context.Context) error {
 	// stdcopy.StdCopy writes the raw container bytes — no line-scanning,
 	// no TrimSpace, no 64KiB Scanner cap. This is the idiomatic pattern
 	// from testcontainers-go (docker.go:887) and Docker's own CLI.
+	//
+	// Tracked in forwarderWG so Run() can wait for it to drain before
+	// returning. Without that, the test's read-buf can race the
+	// in-flight StdCopy write (race detector flags it on every run).
+	proc.forwarderWG.Add(1)
 	go func() {
+		defer proc.forwarderWG.Done()
 		defer execResp.Close()
 
 		var stdoutDest, stderrDest io.Writer

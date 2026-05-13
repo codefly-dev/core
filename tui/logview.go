@@ -46,30 +46,95 @@ func (l *LogView) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (l *LogView) appendLog(msg ServiceLogMsg) {
-	s := Styles()
-	var style func(strs ...string) string
-	switch msg.Level {
-	case wool.INFO:
-		style = s.LogInfo.Render
-	case wool.WARN:
-		style = s.LogWarn.Render
-	case wool.ERROR:
-		style = s.LogError.Render
-	case wool.DEBUG:
-		style = s.LogDebug.Render
-	case wool.FORWARD:
-		style = s.LogForward.Render
-	case wool.TRACE:
-		style = s.LogTrace.Render
-	default:
-		style = s.LogForward.Render
+	for _, line := range formatServiceLogLines(msg, l.viewport.Width) {
+		l.lines.WriteString(renderServiceLogLine(msg, line) + "\n")
 	}
-	line := style(fmt.Sprintf("%s %s", msg.Source, msg.Message))
-	l.lines.WriteString(line + "\n")
 	if l.ready {
 		l.viewport.SetContent(l.lines.String())
 		l.viewport.GotoBottom()
 	}
+}
+
+func renderServiceLogLine(msg ServiceLogMsg, line string) string {
+	s := Styles()
+	switch msg.Level {
+	case wool.INFO:
+		return s.LogInfo.Render(line)
+	case wool.WARN:
+		return s.LogWarn.Render(line)
+	case wool.ERROR:
+		return s.LogError.Render(line)
+	case wool.DEBUG:
+		return s.LogDebug.Render(line)
+	case wool.TRACE:
+		return s.LogTrace.Render(line)
+	case wool.FORWARD:
+		if msg.Source != "" {
+			return ServiceRenderer(msg.Source)(line)
+		}
+		return s.LogForward.Render(line)
+	default:
+		return s.LogForward.Render(line)
+	}
+}
+
+func formatServiceLogLines(msg ServiceLogMsg, width int) []string {
+	source := msg.Source
+	if source == "" {
+		source = "system"
+	}
+	separator := "|"
+	if msg.Level == wool.FORWARD {
+		separator = ">"
+	}
+	message := strings.ReplaceAll(msg.Message, "\r\n", "\n")
+	message = strings.TrimRight(message, "\r\n")
+	rawLines := strings.Split(message, "\n")
+	prefix := fmt.Sprintf("%s %s ", padServiceSource(source), separator)
+	out := make([]string, 0, len(rawLines))
+	for _, raw := range rawLines {
+		raw = strings.TrimRight(raw, " \t\r")
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		out = append(out, wrapLogLine(prefix, raw, width)...)
+	}
+	return out
+}
+
+func padServiceSource(source string) string {
+	const minWidth = 16
+	if len(source) >= minWidth {
+		return source
+	}
+	return fmt.Sprintf("%-*s", minWidth, source)
+}
+
+func wrapLogLine(prefix, message string, width int) []string {
+	if width <= 0 || len(prefix)+len(message) <= width {
+		return []string{prefix + message}
+	}
+	bodyWidth := width - len(prefix)
+	if bodyWidth < 20 {
+		return []string{prefix + message}
+	}
+	continuation := strings.Repeat(" ", len(prefix))
+	var out []string
+	remaining := message
+	currentPrefix := prefix
+	for len(currentPrefix)+len(remaining) > width {
+		cut := bodyWidth
+		if idx := strings.LastIndexByte(remaining[:bodyWidth], ' '); idx > 0 {
+			cut = idx
+		}
+		out = append(out, currentPrefix+strings.TrimRight(remaining[:cut], " "))
+		remaining = strings.TrimLeft(remaining[cut:], " ")
+		currentPrefix = continuation
+	}
+	if remaining != "" {
+		out = append(out, currentPrefix+remaining)
+	}
+	return out
 }
 
 // AppendText adds a raw styled line to the log viewport.

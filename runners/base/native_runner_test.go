@@ -53,8 +53,8 @@ loop:
 	}
 	time.Sleep(100 * time.Millisecond)
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
-	require.Contains(t, d.Data, "good")
-	require.Contains(t, d.Data, "crashing")
+	require.Contains(t, d.Snapshot(),"good")
+	require.Contains(t, d.Snapshot(),"crashing")
 
 	// re-init should give the same id
 	err = env.Init(ctx)
@@ -83,8 +83,8 @@ loopAgain:
 	}
 	time.Sleep(100 * time.Millisecond)
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
-	require.Contains(t, d.Data, "good")
-	require.Contains(t, d.Data, "crashing")
+	require.Contains(t, d.Snapshot(),"good")
+	require.Contains(t, d.Snapshot(),"crashing")
 
 	// Run a finite script
 	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
@@ -109,7 +109,7 @@ loopFirst:
 	}
 	time.Sleep(100 * time.Millisecond)
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
-	require.Contains(t, d.Data, "1")
+	require.Contains(t, d.Snapshot(),"1")
 
 	// Run an infinite script and stop it after 2 seconds
 	proc, err = env.NewProcess("sh", "good/infinite_counter.sh")
@@ -143,7 +143,7 @@ loopLastTime:
 
 	}
 	time.Sleep(100 * time.Millisecond)
-	require.Contains(t, d.Data, "1")
+	require.Contains(t, d.Snapshot(),"1")
 
 	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ loopReallyLastTime:
 		}
 	}
 	time.Sleep(100 * time.Millisecond)
-	require.Contains(t, d.Data, "1")
+	require.Contains(t, d.Snapshot(),"1")
 
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)

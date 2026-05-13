@@ -62,7 +62,9 @@ func (dep *Dependency) Hash(ctx context.Context) (string, error) {
 				return err
 			}
 			if info.IsDir() {
-				// Skip directories
+				if shouldPruneHashDir(path, p) {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			// PathSelect hash themselves
@@ -79,6 +81,18 @@ func (dep *Dependency) Hash(ctx context.Context) (string, error) {
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func shouldPruneHashDir(root, path string) bool {
+	if path == root {
+		return false
+	}
+	switch filepath.Base(path) {
+	case ".git", ".gomodcache", ".cache", ".codefly", ".mind", "node_modules", ".venv", "venv", "target":
+		return true
+	default:
+		return false
+	}
 }
 
 func (dep *Dependency) Localize(dir string) *Dependency {

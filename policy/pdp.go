@@ -8,14 +8,20 @@ import (
 	"strings"
 )
 
-// PDPDecision is what the PDP returns. Allow/Deny are exhaustive —
-// "no decision" maps to Deny per zero-trust. Reason carries a human-
-// readable explanation that surfaces back to the agent so the model
-// understands WHY it was refused (and can plan around it).
+// PDPDecision is what the PDP returns. Three terminal states:
+//
+//   - Allow=true: action permitted; dispatch proceeds
+//   - Allow=false, RequireApproval=false: refused; surface Reason
+//   - Allow=false, RequireApproval=true: held pending approval;
+//     the agent SDK can request escalation and retry (M7+)
+//
+// "No decision" maps to Deny per zero-trust. Reason carries a
+// human-readable explanation that surfaces back to the agent so the
+// model understands WHY it was refused (and can plan around it).
 type PDPDecision struct {
-	// Allow is the load-bearing field. When false, the toolbox
-	// dispatch layer short-circuits with Reason as the user-visible
-	// refusal.
+	// Allow is the load-bearing field. When false (and
+	// RequireApproval is also false), the toolbox dispatch layer
+	// short-circuits with Reason as the user-visible refusal.
 	Allow bool
 
 	// Reason is required when Allow is false; ignored when true.
@@ -23,6 +29,23 @@ type PDPDecision struct {
 	// retry with different arguments, escalate to the user, or
 	// abandon the path.
 	Reason string
+
+	// RequireApproval signals that the action is conditionally
+	// permitted but needs a grantor's approval first (M7+
+	// synchronous escalation flow). Distinct from a plain Deny:
+	// the agent SDK will turn this into a RequestEscalation call
+	// rather than failing the model's plan immediately.
+	//
+	// Until M7 lands, no PDP returns this — the field is reserved
+	// so M7's introduction is a backwards-compatible additive
+	// change rather than a breaking enum bump.
+	RequireApproval bool
+
+	// ApprovalRequestID is the saas-starter delegation_grants.id
+	// row created for a RequireApproval decision. The agent SDK
+	// passes this to WaitForDelegation. Empty when RequireApproval
+	// is false.
+	ApprovalRequestID string
 }
 
 // PDPRequest is everything a policy decision point needs to make a

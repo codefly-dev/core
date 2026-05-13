@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/codefly-dev/core/resources"
@@ -16,7 +17,15 @@ import (
 
 const Localhost = "localhost"
 
+// RuntimeManager tracks per-port allocation across the entire
+// service graph. The CLI fan-allocates ports for parallel services,
+// so concurrent GenerateNetworkMappings / GetFreePort calls share
+// allocatedPorts + lastRandomPort. mu serializes all mutations and
+// reads — Go panics on concurrent map writes, and an unsynced
+// counter increment loses values under contention (the temporal
+// agent had a duplicate-port bug from this exact class).
 type RuntimeManager struct {
+	mu             sync.Mutex
 	allocatedPorts map[uint16]string
 	dnsManager     DNSManager
 
@@ -159,11 +168,17 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 
 		}
 		w.Debug("allocating port", wool.Field("port", port), wool.Field("service", service.Unique()))
+		// Lock around the read-then-write — without this, two
+		// concurrent GenerateNetworkMappings calls can both check
+		// "free" and both insert, racing the map and (worse) double-
+		// allocating the same port.
+		m.mu.Lock()
 		if unique, found := m.allocatedPorts[port]; found && unique != service.Unique() {
-			// Port already allocated
+			m.mu.Unlock()
 			return nil, w.NewError("port %d already allocated for service %s (TODO: randomize? force override?)", port, service.Unique())
 		}
 		m.allocatedPorts[port] = service.Unique()
+		m.mu.Unlock()
 		nm.Instances = []*basev0.NetworkInstance{
 			Container(endpoint, port),
 			Native(endpoint, port),
@@ -179,27 +194,42 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 // WithTemporaryPorts will use random ports instead of "named" ports.
 // Uses a random starting point to avoid collisions between parallel tests.
 func (m *RuntimeManager) WithTemporaryPorts() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.withTemporaryPorts = true
 	// Random start between 20000-40000 to avoid parallel test collisions.
 	m.lastRandomPort = 20000 + uint16(time.Now().UnixNano()%20000)
 }
 
-// GetFreePort returns the next free port after lastRandomPort
+// GetFreePort returns the next free port after lastRandomPort.
+// Serialized via m.mu — concurrent callers would otherwise race on
+// the lastRandomPort increment and the allocatedPorts read.
 func (m *RuntimeManager) GetFreePort() uint16 {
 	for {
+		m.mu.Lock()
 		m.lastRandomPort++
-		// Check if the port is already allocated
-		if _, ok := m.allocatedPorts[m.lastRandomPort]; !ok {
-			// Try to establish a listener on the port
-			ln, err := net.Listen("tcp", ":"+strconv.Itoa(int(m.lastRandomPort)))
-			if err != nil {
-				// If an error occurs, the port is likely in use
-				continue
-			}
-			// If the listener is established successfully, the port is free
-			ln.Close()
-			return m.lastRandomPort
+		port := m.lastRandomPort
+		_, alreadyAllocated := m.allocatedPorts[port]
+		m.mu.Unlock()
+		if alreadyAllocated {
+			continue
 		}
+		// Try to establish a listener on the port. Outside the lock
+		// — net.Listen can block / take milliseconds, and other
+		// goroutines shouldn't wait on us for OS-level port probing.
+		ln, err := net.Listen("tcp", ":"+strconv.Itoa(int(port)))
+		if err != nil {
+			continue
+		}
+		ln.Close()
+		// Record the allocation so a subsequent named allocation or
+		// another GetFreePort can't hand out the same port. Without
+		// this, the dedup check above silently misses ports we've
+		// already returned to a caller.
+		m.mu.Lock()
+		m.allocatedPorts[port] = "random"
+		m.mu.Unlock()
+		return port
 	}
 }
 
