@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
@@ -223,6 +224,13 @@ func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev0.PackageInfo
 			}
 		}
 
+		// Scan each file for import statements and aggregate at
+		// the package level. Heuristic line-based parser — same
+		// style as parsePyprojectTOML above. Avoids a Python
+		// runtime dependency at the cost of some edge cases
+		// (imports inside triple-quoted strings will false-match).
+		pkg.Imports = s.scanPackageImports(srcDir, name, pkg.Files)
+
 		packages = append(packages, pkg)
 	}
 
@@ -237,10 +245,97 @@ func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev0.PackageInfo
 		}
 	}
 	if len(rootPkg.Files) > 0 {
+		rootPkg.Imports = s.scanPackageImports(srcDir, ".", rootPkg.Files)
 		packages = append(packages, rootPkg)
 	}
 
 	return packages
+}
+
+// scanPackageImports walks each .py file in the package and
+// extracts the set of imported modules. Returns a deduplicated,
+// sorted list of import paths AT THE TOP-LEVEL DOTTED COMPONENT
+// (the canonical "dependency name" — e.g. `flask` from `flask.blueprints`).
+//
+// This is a heuristic line-based parser, not a real Python AST
+// walk. Matches:
+//
+//	import X
+//	import X.Y
+//	import X as A
+//	import X, Y, Z
+//	from X import a, b
+//	from X.Y import z
+//
+// Known false-matches: `import` keywords inside triple-quoted
+// strings or comments. Acceptable noise for the dependency-view
+// use case; consumers downstream filter stdlib / internal anyway.
+//
+// Relative imports (`from . import x`, `from .pkg import x`) are
+// skipped — they're always internal-to-package.
+func (s *PythonCodeServer) scanPackageImports(srcDir, pkgRel string, files []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(module string) {
+		module = strings.TrimSpace(module)
+		// Strip alias: `os as o` → `os`. The `as` keyword is the
+		// only thing legal after the module in `import X as Y`.
+		if i := strings.Index(module, " as "); i > 0 {
+			module = module[:i]
+		}
+		module = strings.TrimSpace(module)
+		// Top-level dotted component: `flask.blueprints` → `flask`.
+		if dot := strings.IndexByte(module, '.'); dot > 0 {
+			module = module[:dot]
+		}
+		if module == "" || seen[module] {
+			return
+		}
+		seen[module] = true
+		out = append(out, module)
+	}
+	for _, file := range files {
+		path := filepath.Join(srcDir, pkgRel, file)
+		if pkgRel == "." {
+			path = filepath.Join(srcDir, file)
+		}
+		data, err := s.FS.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			// `from X import ...` — handle before `import` so the
+			// stricter prefix wins. Skip relative imports.
+			if rest, ok := strings.CutPrefix(line, "from "); ok {
+				space := strings.IndexAny(rest, " \t")
+				if space <= 0 {
+					continue
+				}
+				module := rest[:space]
+				if strings.HasPrefix(module, ".") {
+					continue // relative import
+				}
+				add(module)
+				continue
+			}
+			if rest, ok := strings.CutPrefix(line, "import "); ok {
+				// May be comma-separated: `import os, sys`.
+				// Strip trailing `# comment` if present.
+				if hash := strings.IndexByte(rest, '#'); hash >= 0 {
+					rest = rest[:hash]
+				}
+				for _, mod := range strings.Split(rest, ",") {
+					add(mod)
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (s *PythonCodeServer) computeFileHashes(srcDir string) map[string]string {

@@ -190,6 +190,16 @@ func goListPackages(ctx context.Context, dir string) []*codev0.PackageInfo {
 	if err != nil {
 		return nil
 	}
+	// Resolve symlinks on `dir` BEFORE computing relative paths.
+	// `go list` reports `pkg.Dir` against the resolved path (on
+	// macOS, /tmp is a symlink to /private/tmp; without this,
+	// filepath.Rel produces nonsense like
+	// "../../../../private/var/folders/.../proj"). When EvalSymlinks
+	// fails, fall back to the raw dir — better imperfect than empty.
+	resolvedDir := dir
+	if rd, err := filepath.EvalSymlinks(dir); err == nil {
+		resolvedDir = rd
+	}
 	var pkgs []*codev0.PackageInfo
 	decoder := json.NewDecoder(bytes.NewReader(out))
 	for {
@@ -197,7 +207,7 @@ func goListPackages(ctx context.Context, dir string) []*codev0.PackageInfo {
 		if err := decoder.Decode(&pkg); err != nil {
 			break
 		}
-		relPath, _ := filepath.Rel(dir, pkg.Dir)
+		relPath, _ := filepath.Rel(resolvedDir, pkg.Dir)
 		if relPath == "" {
 			relPath = "."
 		}
