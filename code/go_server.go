@@ -177,18 +177,18 @@ type goModJSON struct {
 }
 
 func goListPackages(ctx context.Context, dir string) []*codev0.PackageInfo {
-	cmd := exec.CommandContext(ctx, "go", "list", "-json", "./...")
-	cmd.Dir = dir
-	// GOWORK=off because `dir` may be a third-party repo nested under
-	// a workspace that doesn't include it (e.g. testdata/repos/* in
-	// the codefly monorepo, or any consumer of this package that
-	// invokes it from inside their own go.work). Without this, `go
-	// list` errors with "directory prefix . does not contain modules
-	// listed in go.work" and the test gets zero packages.
-	cmd.Env = append(os.Environ(), "GOWORK=off")
-	out, err := cmd.Output()
+	// Try with the caller's environment first — projects that
+	// rely on a go.work wiring local modules (Mind, multi-module
+	// monorepos) need it. If go.work blocks the listing because
+	// `dir` is a third-party repo nested under a parent go.work
+	// that doesn't include it (testdata fixtures, vendored repos),
+	// retry with GOWORK=off so the local go.mod takes over.
+	out, err := runGoList(ctx, dir, false)
 	if err != nil {
-		return nil
+		out, err = runGoList(ctx, dir, true)
+		if err != nil {
+			return nil
+		}
 	}
 	// Resolve symlinks on `dir` BEFORE computing relative paths.
 	// `go list` reports `pkg.Dir` against the resolved path (on
@@ -217,6 +217,18 @@ func goListPackages(ctx context.Context, dir string) []*codev0.PackageInfo {
 		})
 	}
 	return pkgs
+}
+
+// runGoList shells `go list -json ./...` in `dir`. workOff toggles
+// GOWORK=off — see goListPackages for the workspace-vs-standalone
+// retry rationale.
+func runGoList(ctx context.Context, dir string, workOff bool) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "go", "list", "-json", "./...")
+	cmd.Dir = dir
+	if workOff {
+		cmd.Env = append(os.Environ(), "GOWORK=off")
+	}
+	return cmd.Output()
 }
 
 func goListDependencies(ctx context.Context, dir string) ([]*codev0.Dependency, error) {
