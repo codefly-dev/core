@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -49,7 +50,14 @@ func Search(ctx context.Context, root string, opts SearchOpts) (*SearchResult, e
 		maxResults = 100
 	}
 
-	args := []string{"rg", "--line-number", "--no-heading", "--color=never"}
+	// --sort=path forces ripgrep to single-threaded mode and emits
+	// matches in lexicographic path order. We pay a small perf cost
+	// but get a deterministic match prefix, which is critical when
+	// downstream truncates to --max-count and feeds the result into
+	// a cassette-keyed LLM prompt (Mind tests). Without --sort, the
+	// parallel walker emits matches in unpredictable order and
+	// truncation produces a different 50-line slice on every run.
+	args := []string{"rg", "--line-number", "--no-heading", "--color=never", "--sort=path"}
 	if opts.Literal {
 		args = append(args, "--fixed-strings")
 	}
@@ -73,6 +81,24 @@ func Search(ctx context.Context, root string, opts SearchOpts) (*SearchResult, e
 	out, _ := cmd.Output()
 
 	matches, truncated := parseOutput(string(out), root, maxResults)
+	// Ripgrep runs file traversal in parallel workers and emits matches
+	// as they're found, so the natural output order varies across runs.
+	// Deterministic order (path, line) is critical for cassette replay
+	// in Mind tests — without it, the LLM prompt that quotes search
+	// results hashes differently between record and replay sessions.
+	// Stable-sort here keeps within-file line ordering intact when
+	// ripgrep happens to emit them sorted; cross-file order becomes
+	// path-alphabetical.
+	// Defense-in-depth: ripgrep with --sort=path returns matches in
+	// path order, but stale binaries or unusual builds may not honor
+	// it. Re-sort in Go to guarantee determinism even when the flag
+	// is silently ignored.
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].File != matches[j].File {
+			return matches[i].File < matches[j].File
+		}
+		return matches[i].Line < matches[j].Line
+	})
 	return &SearchResult{Matches: matches, Truncated: truncated}, nil
 }
 
