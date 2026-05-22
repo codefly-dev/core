@@ -113,10 +113,15 @@ func (s *PythonCodeServer) handleGetProjectInfo(_ context.Context, _ *codev0.Cod
 	srcDir := s.SourceDir
 	resp := &codev0.GetProjectInfoResponse{Language: "python"}
 
-	// Parse pyproject.toml
+	var manifestDeps []*codev0.Dependency
+	// Parse pyproject.toml for module name, Python version, AND
+	// declared dependencies. Manifest-declared deps land first;
+	// uv pip list output (if available) merges in next and adds
+	// transitive deps + resolved versions.
 	data, err := s.FS.ReadFile(filepath.Join(srcDir, "pyproject.toml"))
 	if err == nil {
 		resp.Module, resp.LanguageVersion = parsePyprojectTOML(string(data))
+		manifestDeps = parsePyprojectDependencies(string(data))
 	}
 
 	// Discover packages (directories with __init__.py)
@@ -125,8 +130,25 @@ func (s *PythonCodeServer) handleGetProjectInfo(_ context.Context, _ *codev0.Cod
 	// File hashes
 	resp.FileHashes = s.computeFileHashes(srcDir)
 
-	// Dependencies from uv pip list
-	resp.Dependencies = s.listUVDependencies(srcDir)
+	// Merge: manifest deps (declared, source of truth for direct
+	// deps) + uv pip list (resolved, includes transitives). Dedup
+	// by name; manifest wins on conflicts because it carries the
+	// caller's declared version constraint.
+	seen := map[string]bool{}
+	for _, d := range manifestDeps {
+		if d == nil || d.Name == "" || seen[d.Name] {
+			continue
+		}
+		seen[d.Name] = true
+		resp.Dependencies = append(resp.Dependencies, d)
+	}
+	for _, d := range s.listUVDependencies(srcDir) {
+		if d == nil || d.Name == "" || seen[d.Name] {
+			continue
+		}
+		seen[d.Name] = true
+		resp.Dependencies = append(resp.Dependencies, d)
+	}
 
 	return wrapProjectInfoPython(resp), nil
 }
@@ -167,6 +189,152 @@ func extractTOMLValue(line string) string {
 	v := strings.TrimSpace(parts[1])
 	v = strings.Trim(v, `"'`)
 	return v
+}
+
+// parsePyprojectDependencies extracts declared deps from the
+// `[project] dependencies = [...]` table and every
+// `[project.optional-dependencies] <group> = [...]` block.
+// Direct=true for both — they're explicitly named by the
+// project author (vs transitives that uv pip list discovers).
+//
+// PEP 621 format example:
+//
+//	[project]
+//	dependencies = [
+//	    "flask>=2.0",
+//	    "requests",
+//	    "numpy~=1.20",
+//	]
+//	[project.optional-dependencies]
+//	dev = ["pytest", "black"]
+//
+// Each entry is "<name><spec>" where spec is a PEP 440
+// version constraint (>=, ==, ~=, !=, <, >, ===) or empty.
+// Strip the spec to get the name; keep the spec as Version.
+//
+// Line-based parsing — same philosophy as parsePyprojectTOML
+// (no TOML dependency, accepts a small accuracy hit on weird
+// formattings for the win of zero new deps).
+func parsePyprojectDependencies(content string) []*codev0.Dependency {
+	var out []*codev0.Dependency
+	seen := map[string]bool{}
+	lines := strings.Split(content, "\n")
+
+	// State machine: when we see `dependencies = [` or
+	// `optional-dependencies.<group> = [`, switch into a
+	// reading mode until the next `]`. PEP 621 dependency
+	// lists are always inline-array-of-strings; we don't
+	// support multi-line nested tables (PEP 631 sub-spec).
+	const (
+		modeIdle = iota
+		modeReadList
+	)
+	mode := modeIdle
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if mode == modeIdle {
+			if strings.HasPrefix(line, "dependencies") {
+				// Either `dependencies = [...]` (single-line) or
+				// `dependencies = [` (multi-line). Strip up to
+				// the `[` and re-process the remainder as if
+				// it were inside the list.
+				if i := strings.IndexByte(line, '['); i >= 0 {
+					mode = modeReadList
+					line = strings.TrimSpace(line[i+1:])
+				} else {
+					continue
+				}
+			} else if strings.HasPrefix(line, "[project.optional-dependencies]") {
+				// Header — subsequent lines like
+				// `dev = ["pytest", "black"]` need parsing.
+				// Fall through; the next iteration will pick
+				// them up as `dev = [` patterns.
+				continue
+			} else if strings.Contains(line, "= [") &&
+				!strings.HasPrefix(line, "[") {
+				// Likely an optional-dependencies group entry
+				// (`dev = [...]`). Handle the same way as the
+				// main `dependencies = [` case.
+				if i := strings.IndexByte(line, '['); i >= 0 {
+					mode = modeReadList
+					line = strings.TrimSpace(line[i+1:])
+				} else {
+					continue
+				}
+			} else {
+				continue
+			}
+		}
+		// In modeReadList: extract quoted strings from this
+		// line, then check for `]` end marker.
+		for {
+			depSpec, rest, found := nextTOMLString(line)
+			if !found {
+				break
+			}
+			name, version := splitPEP440Spec(depSpec)
+			if name != "" && !seen[name] {
+				seen[name] = true
+				out = append(out, &codev0.Dependency{
+					Name: name, Version: version, Direct: true,
+				})
+			}
+			line = rest
+		}
+		if strings.Contains(line, "]") {
+			mode = modeIdle
+		}
+	}
+	return out
+}
+
+// nextTOMLString peels the next quoted string off `line`,
+// returning the unquoted content + the unread remainder + a
+// found flag.
+func nextTOMLString(line string) (value, rest string, found bool) {
+	// Find first ' or " quote.
+	openIdx := -1
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		if line[i] == '"' || line[i] == '\'' {
+			openIdx = i
+			quote = line[i]
+			break
+		}
+	}
+	if openIdx < 0 {
+		return "", "", false
+	}
+	closeIdx := strings.IndexByte(line[openIdx+1:], quote)
+	if closeIdx < 0 {
+		return "", "", false
+	}
+	return line[openIdx+1 : openIdx+1+closeIdx], line[openIdx+1+closeIdx+1:], true
+}
+
+// splitPEP440Spec splits "flask>=2.0" → ("flask", ">=2.0").
+// Recognizes the standard PEP 440 operators. Handles "flask"
+// (no version) → ("flask", "").
+func splitPEP440Spec(spec string) (name, version string) {
+	spec = strings.TrimSpace(spec)
+	// PEP 440 operators (longest-first so === matches before ==).
+	ops := []string{"===", "==", "!=", "~=", ">=", "<=", ">", "<"}
+	for _, op := range ops {
+		if i := strings.Index(spec, op); i > 0 {
+			return strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i:])
+		}
+	}
+	// Also strip PEP 508 extras: `requests[security]>=2.0` → name
+	// `requests`. We do this after operator detection so
+	// `requests[security]` (no version) still trims correctly.
+	if i := strings.IndexByte(spec, '['); i > 0 {
+		return strings.TrimSpace(spec[:i]), ""
+	}
+	if i := strings.IndexByte(spec, ';'); i > 0 {
+		// Environment marker: `numpy; python_version >= "3.8"`.
+		return strings.TrimSpace(spec[:i]), ""
+	}
+	return spec, ""
 }
 
 func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev0.PackageInfo {
