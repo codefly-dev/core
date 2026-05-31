@@ -169,10 +169,23 @@ func MakeConfigurationValueSummary(value *basev0.ConfigurationValue) string {
 	return fmt.Sprintf("%s=%s", value.Key, value.Value)
 }
 
+// configRuntimeKind folds the nix runtime onto native for configuration
+// matching. Both run on the host with native network access, and agents emit
+// their connection configuration under the native (and container) contexts, not
+// a separate "nix" one — so a nix runtime consumes the native config. Without
+// this fold, a caller running with RuntimeContextNix would match no
+// configuration and get an empty connection string.
+func configRuntimeKind(kind string) string {
+	if Match(kind, RuntimeContextNix) {
+		return RuntimeContextNative
+	}
+	return kind
+}
+
 func FilterConfigurations(configurations []*basev0.Configuration, runtimeContext *basev0.RuntimeContext) []*basev0.Configuration {
 	var out []*basev0.Configuration
 	for _, conf := range configurations {
-		if Match(conf.RuntimeContext.Kind, runtimeContext.Kind) {
+		if Match(configRuntimeKind(conf.RuntimeContext.Kind), configRuntimeKind(runtimeContext.Kind)) {
 			out = append(out, conf)
 		}
 	}
@@ -182,7 +195,7 @@ func FilterConfigurations(configurations []*basev0.Configuration, runtimeContext
 func ExtractConfiguration(configurations []*basev0.Configuration, runtimeContext *basev0.RuntimeContext) (*basev0.Configuration, error) {
 	var out *basev0.Configuration
 	for _, conf := range configurations {
-		if Match(conf.RuntimeContext.Kind, runtimeContext.Kind) {
+		if Match(configRuntimeKind(conf.RuntimeContext.Kind), configRuntimeKind(runtimeContext.Kind)) {
 			if out != nil {
 				return nil, fmt.Errorf("multiple configurations found for runtime context: %s", runtimeContext.Kind)
 			}
