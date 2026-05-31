@@ -56,6 +56,27 @@ func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	return instance
 }
 
+// NativeFor computes the deterministic native (localhost) NetworkInstance an
+// endpoint binds to under a normal `codefly run` — WITHOUT a running flow.
+//
+// It mirrors RuntimeManager.GenerateNetworkMappings' Native() path exactly
+// (same ToNamedPort hash, same naming-scope folding, same Native() address
+// formatting), so the value matches what a successfully-running service
+// actually serves: collisions abort startup (so a running service never
+// deviates from the hash) and temporary ports are test-only.
+//
+// It does NOT apply to external-visibility endpoints, whose address comes from
+// a DNS record resolved at runtime rather than the port hash — callers must
+// special-case resources.VisibilityExternal.
+func NativeFor(ctx context.Context, workspace, module, service, namingScope string, endpoint *basev0.Endpoint) *basev0.NetworkInstance {
+	name := endpoint.Name
+	if namingScope != "" {
+		name = fmt.Sprintf("%s-%s", endpoint.Name, namingScope)
+	}
+	port := ToNamedPort(ctx, workspace, module, service, name, endpoint.Api)
+	return Native(endpoint, port)
+}
+
 func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := Localhost
 	var instance *basev0.NetworkInstance
@@ -173,9 +194,13 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 		// "free" and both insert, racing the map and (worse) double-
 		// allocating the same port.
 		m.mu.Lock()
-		if unique, found := m.allocatedPorts[port]; found && unique != service.Unique() {
+		// GetFreePort marks the port it hands out with the placeholder owner
+		// randomPortOwner so a concurrent GetFreePort can't re-hand it. That is
+		// NOT a real cross-service conflict — the caller is about to claim it
+		// below — so only a port owned by a DIFFERENT real service collides.
+		if unique, found := m.allocatedPorts[port]; found && unique != randomPortOwner && unique != service.Unique() {
 			m.mu.Unlock()
-			return nil, w.NewError("port %d already allocated for service %s (TODO: randomize? force override?)", port, service.Unique())
+			return nil, w.NewError("port %d already allocated for service %s", port, service.Unique())
 		}
 		m.allocatedPorts[port] = service.Unique()
 		m.mu.Unlock()
@@ -200,6 +225,12 @@ func (m *RuntimeManager) WithTemporaryPorts() {
 	// Random start between 20000-40000 to avoid parallel test collisions.
 	m.lastRandomPort = 20000 + uint16(time.Now().UnixNano()%20000)
 }
+
+// randomPortOwner is the placeholder owner GetFreePort writes into
+// allocatedPorts for a port it has handed out but that no service has formally
+// claimed yet. The named-port conflict check treats it as "claimable", not a
+// cross-service conflict.
+const randomPortOwner = "random"
 
 // GetFreePort returns the next free port after lastRandomPort.
 // Serialized via m.mu — concurrent callers would otherwise race on
@@ -227,7 +258,7 @@ func (m *RuntimeManager) GetFreePort() uint16 {
 		// this, the dedup check above silently misses ports we've
 		// already returned to a caller.
 		m.mu.Lock()
-		m.allocatedPorts[port] = "random"
+		m.allocatedPorts[port] = randomPortOwner
 		m.mu.Unlock()
 		return port
 	}
