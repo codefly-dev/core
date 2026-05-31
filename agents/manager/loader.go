@@ -123,22 +123,32 @@ func (c *AgentConn) Close() {
 	// call Runtime.Stop on its child NativeProcs and then GracefulStop
 	// the gRPC server. The reaper's cmd.Wait returns once the agent
 	// process exits, closing `done`.
+	startedAt := time.Now()
+	pid := c.cmd.Process.Pid
+	// Use a global wool logger so the long-running stop sequence shows
+	// progress instead of looking like a hang. AgentConn intentionally
+	// doesn't carry per-instance state so we fall back to wool.Get(bg).
+	w := wool.Get(context.Background()).In("AgentConn.Close", wool.Field("pid", pid))
+	w.Debug("agent SIGTERM sent")
 	_ = c.cmd.Process.Signal(os.Interrupt)
 	if c.done == nil {
 		// No reaper to wait on — best-effort kill and bail.
-		killAgentGroup(c.cmd.Process.Pid)
+		killAgentGroup(pid)
 		return
 	}
 
 	select {
 	case <-c.done:
+		w.Debug(fmt.Sprintf("agent exited gracefully in %s", time.Since(startedAt).Round(time.Millisecond)))
 		return
 	case <-time.After(gracefulShutdownTimeout):
 		// Agent didn't respond to SIGTERM in time — force kill the whole
 		// pgroup (agent + any still-running user binaries it spawned) and
 		// wait for the reaper so we don't leave zombies behind.
-		killAgentGroup(c.cmd.Process.Pid)
+		w.Warn(fmt.Sprintf("agent did not exit within %s of SIGTERM — sending SIGKILL", gracefulShutdownTimeout))
+		killAgentGroup(pid)
 		<-c.done
+		w.Info(fmt.Sprintf("agent killed after %s", time.Since(startedAt).Round(time.Millisecond)))
 	}
 }
 

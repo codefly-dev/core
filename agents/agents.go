@@ -481,7 +481,22 @@ func Serve(reg PluginRegistration) {
 			_, _ = reg.Runtime.Stop(stopCtx, &runtimev0.StopRequest{})
 			cancel()
 		}
-		s.GracefulStop()
+		// Bounded graceful shutdown: GracefulStop blocks until every
+		// in-flight RPC returns, which is unbounded — a stuck Start
+		// (e.g. agent's WaitForReady looping over a failed container)
+		// holds the gRPC server open forever. After a short grace we
+		// force-stop, so the agent exits in seconds instead of 30s+
+		// of the parent's SIGTERM-to-SIGKILL window.
+		stopped := make(chan struct{})
+		go func() {
+			s.GracefulStop()
+			close(stopped)
+		}()
+		select {
+		case <-stopped:
+		case <-time.After(3 * time.Second):
+			s.Stop()
+		}
 	}()
 
 	if err := s.Serve(lis); err != nil {
