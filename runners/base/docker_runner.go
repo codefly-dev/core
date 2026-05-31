@@ -69,6 +69,15 @@ func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
+	// Preflight: NewClientWithOpts succeeds even when the daemon is
+	// down — failures surface later as cryptic "EOF" or "connect:
+	// connection refused" buried inside an unrelated wrap. Ping now
+	// so the message is loud and actionable.
+	if _, pingErr := cli.Ping(ctx); pingErr != nil {
+		host := cli.DaemonHost()
+		_ = cli.Close()
+		return nil, w.NewError("docker daemon at %s not reachable (%v) — is Docker Desktop / dockerd running? Try `docker info` to confirm (or check DOCKER_HOST)", host, pingErr)
+	}
 
 	env := &DockerEnvironment{
 		client:     cli,
@@ -93,6 +102,15 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerIm
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
+	}
+	// Preflight: NewClientWithOpts succeeds even when the daemon is
+	// down — failures surface later as cryptic "EOF" or "connect:
+	// connection refused" buried inside an unrelated wrap. Ping now
+	// so the message is loud and actionable.
+	if _, pingErr := cli.Ping(ctx); pingErr != nil {
+		host := cli.DaemonHost()
+		_ = cli.Close()
+		return nil, w.NewError("docker daemon at %s not reachable (%v) — is Docker Desktop / dockerd running? Try `docker info` to confirm (or check DOCKER_HOST)", host, pingErr)
 	}
 	env := &DockerEnvironment{
 		client: cli,
@@ -409,6 +427,39 @@ func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, 
 		}
 	}
 	return false, nil
+}
+
+// TailLogs returns the last `lines` lines of combined stdout+stderr
+// for the container. Used by agent runtimes to enrich startup-failure
+// errors with the actual container output (otherwise the user only
+// sees a generic "not ready" timeout). Returns "" on any error so
+// callers can safely append without conditional logic.
+func (docker *DockerEnvironment) TailLogs(ctx context.Context, lines int) string {
+	if docker.instance.ID == "" {
+		return ""
+	}
+	options := container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     false,
+		Tail:       strconv.Itoa(lines),
+		Timestamps: false,
+	}
+	r, err := docker.client.ContainerLogs(ctx, docker.instance.ID, options)
+	if err != nil {
+		return ""
+	}
+	defer r.Close()
+	var stdout, stderr bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, r); err != nil {
+		// Some images don't use the multiplexed stream — fall back
+		// to the raw bytes we already buffered.
+	}
+	combined := strings.TrimSpace(stdout.String() + stderr.String())
+	if combined == "" {
+		return ""
+	}
+	return combined
 }
 
 func (docker *DockerEnvironment) GetLogs(ctx context.Context) error {
