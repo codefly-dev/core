@@ -129,7 +129,11 @@ func (c *AgentConn) Close() {
 	// progress instead of looking like a hang. AgentConn intentionally
 	// doesn't carry per-instance state so we fall back to wool.Get(bg).
 	w := wool.Get(context.Background()).In("AgentConn.Close", wool.Field("pid", pid))
-	w.Debug("agent SIGTERM sent")
+	// Trace, not Debug: routine per-agent shutdown steps. At Debug they flood
+	// every normal `codefly run` teardown (one pair per agent) and, because the
+	// TUI leaves the terminal in raw mode during shutdown, the lines staircase.
+	// The notable cases (SIGTERM timeout → SIGKILL) stay at Warn/Info below.
+	w.Trace("agent SIGTERM sent")
 	_ = c.cmd.Process.Signal(os.Interrupt)
 	if c.done == nil {
 		// No reaper to wait on — best-effort kill and bail.
@@ -139,7 +143,7 @@ func (c *AgentConn) Close() {
 
 	select {
 	case <-c.done:
-		w.Debug(fmt.Sprintf("agent exited gracefully in %s", time.Since(startedAt).Round(time.Millisecond)))
+		w.Trace(fmt.Sprintf("agent exited gracefully in %s", time.Since(startedAt).Round(time.Millisecond)))
 		return
 	case <-time.After(gracefulShutdownTimeout):
 		// Agent didn't respond to SIGTERM in time — force kill the whole
