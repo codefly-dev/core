@@ -248,3 +248,48 @@ func TestGetFreePort_ConcurrentUniqueness(t *testing.T) {
 		seen[p] = true
 	}
 }
+
+// TestNativeFor_MatchesGenerateNetworkMappings is the drift guard for the
+// deterministic resolver used by `codefly get endpoints` / `codefly endpoint`.
+//
+// NativeFor recomputes an endpoint's native address WITHOUT a running flow.
+// It MUST equal the Native instance the live RuntimeManager produces for the
+// same inputs — otherwise the CLI would print an address that doesn't match
+// what the service actually binds. We assert equality endpoint-by-endpoint.
+func TestNativeFor_MatchesGenerateNetworkMappings(t *testing.T) {
+	ctx := context.Background()
+	workspace := &resources.Workspace{Name: "test-workspace"}
+	service, err := resources.LoadServiceFromDir(ctx, "testdata/endpoints/basic")
+	require.NoError(t, err)
+	service.WithModule("test-module")
+
+	endpoints, err := service.LoadEndpoints(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, endpoints)
+
+	identity, err := service.Identity()
+	require.NoError(t, err)
+
+	manager, err := network.NewRuntimeManager(ctx, &testDnsManager{})
+	require.NoError(t, err)
+	env := resources.LocalEnvironment()
+	mappings, err := manager.GenerateNetworkMappings(ctx, env, workspace, identity, endpoints)
+	require.NoError(t, err)
+
+	for _, mapping := range mappings {
+		var runtimeNative *basev0.NetworkInstance
+		for _, inst := range mapping.Instances {
+			if inst.Access != nil && inst.Access.Kind == resources.NetworkAccessNative {
+				runtimeNative = inst
+				break
+			}
+		}
+		require.NotNil(t, runtimeNative, "endpoint %s has no native instance", mapping.Endpoint.Name)
+
+		computed := network.NativeFor(ctx, workspace.Name, identity.Module, identity.Name, env.NamingScope, mapping.Endpoint)
+		require.Equal(t, runtimeNative.Address, computed.Address,
+			"NativeFor drifted from runtime for endpoint %s", mapping.Endpoint.Name)
+		require.Equal(t, runtimeNative.Port, computed.Port,
+			"NativeFor port drifted for endpoint %s", mapping.Endpoint.Name)
+	}
+}
