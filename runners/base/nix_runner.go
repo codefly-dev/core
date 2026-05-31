@@ -88,6 +88,20 @@ func (nix *NixEnvironment) WithCacheDir(dir string) {
 	nix.cacheDir = dir
 }
 
+// flakeRef returns the flake reference for nix commands. The explicit `path:`
+// scheme forces nix to treat nix.dir as a bare directory copied verbatim,
+// instead of auto-detecting an enclosing git repository. Without it, a flake
+// dir that lives inside a git working tree — e.g. an agent writing its flake
+// under a service directory in the user's repo — makes `nix print-dev-env` and
+// `nix develop` fail with "Git tree is dirty" plus a missing source subpath,
+// because nix tries to evaluate the (uncommitted) flake from a git export.
+func (nix *NixEnvironment) flakeRef() string {
+	if abs, err := filepath.Abs(nix.dir); err == nil {
+		return "path:" + abs
+	}
+	return "path:" + nix.dir
+}
+
 func (nix *NixEnvironment) Init(ctx context.Context) error {
 	nix.ctx = ctx
 
@@ -252,7 +266,7 @@ func (nix *NixEnvironment) materialize(ctx context.Context) error {
 	// #nosec G204
 	cmd := exec.CommandContext(ctx,
 		"nix", "--extra-experimental-features", "nix-command flakes",
-		"print-dev-env", "--json", nix.dir)
+		"print-dev-env", "--json", nix.flakeRef())
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -363,7 +377,7 @@ func (nix *NixEnvironment) NewProcess(bin string, args ...string) (Proc, error) 
 	} else {
 		cmd = append([]string{
 			"nix", "--extra-experimental-features", "nix-command flakes",
-			"develop", nix.dir, "--command", bin,
+			"develop", nix.flakeRef(), "--command", bin,
 		}, args...)
 	}
 	return &NixProc{
