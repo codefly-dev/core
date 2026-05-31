@@ -52,17 +52,22 @@ func (b *StatusBar) View() string {
 	s := Styles()
 	elapsed := time.Since(b.startedAt).Truncate(time.Second)
 
-	left := fmt.Sprintf(" %s  %s",
+	left := fmt.Sprintf("%s  %s",
 		s.Service.Render(b.service),
 		s.Muted.Render(b.state.String()))
-	right := fmt.Sprintf("%s  Ctrl+C to stop ", elapsed)
+	right := fmt.Sprintf("%s  Ctrl+C to stop", elapsed)
 
-	gap := b.width - len(stripAnsi(left)) - len(stripAnsi(right))
+	// StatusBar style applies Padding(0, 1), which adds one column on
+	// each side. Lay the content out against the inner width so the
+	// rendered bar (content + padding) is exactly b.width and the
+	// right-hand "Ctrl+C to stop" never wraps onto the next line.
+	inner := b.width - 2
+	gap := inner - len(stripAnsi(left)) - len(stripAnsi(right))
 	if gap < 0 {
 		gap = 0
 	}
 
-	return s.StatusBar.Width(b.width).Render(left + strings.Repeat(" ", gap) + right)
+	return s.StatusBar.Render(left + strings.Repeat(" ", gap) + right)
 }
 
 func stripAnsi(s string) string {
