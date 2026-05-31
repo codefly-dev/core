@@ -18,8 +18,9 @@ type Watcher struct {
 	watcher *fsnotify.Watcher
 
 	// internal
-	base  string
-	pause bool
+	base         string
+	dependencies *builders.Dependencies
+	pause        bool
 }
 
 type Change struct {
@@ -40,22 +41,30 @@ func addDependency(ctx context.Context, base string, dep *builders.Dependency, w
 			if err != nil {
 				return err
 			}
-			// Skip build output and dependency directories
+						// Watch DIRECTORIES, not individual files. fsnotify file-watches
+			// die on atomic-rename saves — most editors write a temp file then
+			// rename it over the original, which destroys the watched inode, so
+			// the Write event is lost and hot-reload silently stops working
+			// (this is exactly why pkg/** edits didn't reload). A directory
+			// watch survives that and fires Create/Write/Rename for files
+			// within; the event loop filters by the dependency select.
 			if info.IsDir() {
 				base := filepath.Base(path)
 				if base == ".next" || base == "node_modules" || base == "__pycache__" || base == ".git" {
 					return filepath.SkipDir
 				}
+				w.Trace("watching dir", wool.Path(path))
+				if err := watcher.Add(path); err != nil {
+					return w.Wrapf(err, "cannot add dir: %s", path)
+				}
 				return nil
 			}
-			if !dep.Keep(path) {
-				w.Trace("skipping", wool.Path(path))
-				return nil
-			}
-			w.Trace("adding", wool.Path(path))
-			err = watcher.Add(path)
-			if err != nil {
-				return w.Wrapf(err, "cannot add path: %s", path)
+			// A single-file dependency (e.g. service.codefly.yaml) is never
+			// visited as a dir by Walk — watch its parent directory instead.
+			if dep.Keep(path) {
+				if err := watcher.Add(filepath.Dir(path)); err != nil {
+					return w.Wrapf(err, "cannot add file dir: %s", path)
+				}
 			}
 			return nil
 		})
@@ -80,9 +89,24 @@ func NewWatcher(ctx context.Context, events chan<- Change, base string, dependen
 			return nil, w.Wrapf(err, "cannot add dependency")
 		}
 	}
-	watcher := &Watcher{watcher: fswatcher, base: base, events: events}
+	watcher := &Watcher{watcher: fswatcher, base: base, events: events, dependencies: dependencies}
 
 	return watcher, nil
+}
+
+// keep reports whether a changed path matches any watched dependency select.
+// We watch whole directories now, so this filters out non-source churn
+// (temp files, build output) that a directory watch also surfaces.
+func (watcher *Watcher) keep(absPath string) bool {
+	if watcher.dependencies == nil {
+		return true
+	}
+	for _, dep := range watcher.dependencies.Components {
+		if dep.Keep(absPath) {
+			return true
+		}
+	}
+	return false
 }
 
 func (watcher *Watcher) Start(ctx context.Context) {
@@ -95,7 +119,23 @@ func (watcher *Watcher) Start(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if event.Has(fsnotify.Write) {
+			// Write covers in-place saves; Create + Rename cover atomic-rename
+			// saves (write temp → rename over original), which is how most
+			// editors save — and which the old Write-only loop dropped.
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Rename) {
+				// A newly-created directory (e.g. a new package) must be added
+				// to the watch set — fsnotify is not recursive.
+				if event.Has(fsnotify.Create) {
+					if info, statErr := os.Stat(event.Name); statErr == nil && info.IsDir() {
+						_ = watcher.watcher.Add(event.Name)
+						continue
+					}
+				}
+				// We watch directories, so drop events for paths that don't
+				// match a watched dependency (temp files, build output, etc.).
+				if !watcher.keep(event.Name) {
+					continue
+				}
 				w.Debug("got event", wool.Field("event", event))
 				rel, err := filepath.Rel(watcher.base, event.Name)
 				if err != nil {
