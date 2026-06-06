@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"path"
+	"time"
 
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
@@ -220,16 +221,57 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 	}
 	go s.Watcher.Start(ctx)
 
+	// DEBOUNCE file-change events. A single save often fires a burst (multi-file
+	// saves, gofmt rewriting several files, editor temp churn), and the handler
+	// restarts/rebuilds the service per event. Firing one restart PER event
+	// thrashes: rapid restarts can interrupt an in-flight operation — e.g. a
+	// dependency's DB migration mid-apply, leaving golang-migrate "dirty" and
+	// wedging the whole stack. Coalesce a burst into ONE handler call after a
+	// quiet window so a save triggers exactly one rebuild.
 	go func() {
-		for event := range s.Events {
-			err := handler(event)
-			if err != nil {
-				s.Wool.Error("got", wool.ErrField(err))
+		const quiet = WatchDebounce
+		var timer *time.Timer
+		var timerC <-chan time.Time
+		var pending bool
+		var last code.Change
+		for {
+			select {
+			case event, ok := <-s.Events:
+				if !ok {
+					return
+				}
+				last = event
+				pending = true
+				if timer == nil {
+					timer = time.NewTimer(quiet)
+				} else {
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timer.Reset(quiet)
+				}
+				timerC = timer.C
+			case <-timerC:
+				timerC = nil
+				if pending {
+					pending = false
+					if err := handler(last); err != nil {
+						s.Wool.Error("got", wool.ErrField(err))
+					}
+				}
 			}
 		}
 	}()
 	return nil
 }
+
+// WatchDebounce is the quiet window a burst of file-change events must settle
+// into before the watcher fires one rebuild. Long enough to coalesce a save's
+// multi-file churn, short enough to feel instant.
+const WatchDebounce = 600 * time.Millisecond
 
 func (s *Base) Local(f string, args ...any) string {
 	return path.Join(s.Location, fmt.Sprintf(f, args...))
