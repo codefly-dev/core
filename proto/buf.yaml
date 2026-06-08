@@ -1,0 +1,11 @@
+version: v1
+name: buf.build/codefly-dev/proto
+deps:
+  - buf.build/googleapis/googleapis
+  - buf.build/bufbuild/protovalidate
+lint:
+  use:
+    - BASIC
+    - COMMENTS
+  except:
+    - PACKAGE_SAME_GO_PACKAGE

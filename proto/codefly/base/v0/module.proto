@@ -1,0 +1,47 @@
+syntax = "proto3";
+package codefly.base.v0;
+
+import "buf/validate/validate.proto";
+
+import "codefly/base/v0/service.proto";
+import "codefly/base/v0/agent.proto";
+
+// InterfaceEndpoint declares a single endpoint exposed by the module.
+message InterfaceEndpoint {
+  // The service that owns this endpoint
+  string service = 1;
+  // The endpoint name within the service
+  string endpoint = 2;
+  // Visibility level: "module" or "public"
+  string visibility = 3;
+}
+
+// ModuleInterface is the formal contract of what a module exposes.
+message ModuleInterface {
+  // endpoints are service endpoints that form the module's public contract.
+  repeated InterfaceEndpoint endpoints = 1;
+}
+
+// Module is a core Codefly resource in the workspace hierarchy.
+message Module {
+  // The name of the module
+  string name = 1;
+  // A description of the module
+  string description = 2;
+  // Services that are provided by this module
+  repeated Service services = 4;
+  // (Optional) The entry point for the module
+  string service_entry = 5;
+  // (Optional) The formal interface contract
+  ModuleInterface interface = 6;
+  // (Optional) The agent that created this module (for templated modules)
+  Agent agent = 7;
+}
+
+// ManagedModule is the platform-managed representation of a module.
+message ManagedModule {
+  // id is the stable identifier for this record.
+  string id = 1 [(buf.validate.field).string.pattern = "^[a-z]{10}$"];
+  // module is the full module resource.
+  Module module = 2;
+}
