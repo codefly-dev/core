@@ -1,0 +1,23 @@
+version: v1
+# Offline Go generation using locally-installed protoc-gen-* plugins (no BSR
+# remote-plugin execution). Use this when the remote plugins in buf.gen.yaml
+# are unreachable. See generate.sh. Python bindings are generated separately
+# via buf.gen.yaml (remote) where network is available.
+managed:
+  enabled: true
+  go_package_prefix:
+    default: github.com/codefly-dev/core/generated/go
+    except:
+      - buf.build/googleapis/googleapis
+      - buf.build/bufbuild/protovalidate
+plugins:
+  - name: go
+    out: go
+    opt:
+      - paths=source_relative
+  - name: go-grpc
+    out: go
+    opt: paths=source_relative
+  - name: grpc-gateway
+    out: go
+    opt: paths=source_relative

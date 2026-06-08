@@ -1,5 +1,10 @@
 version: v1
+# Proto source of truth is the in-tree module at core/proto (generated via
+# ./generate.sh, which runs `buf generate ../proto`). This file no longer
+# depends on the published buf.build/codefly-dev/proto snapshot.
+#
+# The remaining deps are the external schemas the proto module imports; they
+# are resolved from BSR for buf tooling that operates on this directory.
 deps:
-  - buf.build/codefly-dev/proto
   - buf.build/bufbuild/protovalidate
   - buf.build/googleapis/googleapis

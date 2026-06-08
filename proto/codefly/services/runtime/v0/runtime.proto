@@ -1,0 +1,777 @@
+syntax = "proto3";
+package codefly.services.runtime.v0;
+
+
+import "codefly/base/v0/scope.proto";
+import "codefly/base/v0/spec.proto";
+import "codefly/base/v0/environment.proto";
+import "codefly/base/v0/service.proto";
+import "codefly/base/v0/endpoint.proto";
+import "codefly/base/v0/network.proto";
+import "codefly/base/v0/configuration.proto";
+
+import "codefly/services/agent/v0/communicate.proto";
+
+import "google/protobuf/duration.proto";
+
+/*
+Runtime service contract for executing a Codefly service.
+
+The CLI/core drives agents through the lifecycle described in the Codefly
+docs: Load discovers static service metadata, Init resolves runtime context,
+configuration, and network mappings, Start launches the process, Build/Test/Lint
+validate the implementation, and Stop/Destroy clean up runtime resources.
+*/
+
+
+
+// LoadStatus reports the state and message for the load lifecycle phase.
+message LoadStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // READY means the phase completed and the agent can continue.
+    READY = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+}
+
+
+// LoadRequest gives the runtime agent enough identity to inspect the service.
+message LoadRequest {
+  // developer_debug enables agent-specific debug behavior for local development.
+  bool developer_debug = 1;
+
+  // disable_catch disables agent panic/error recovery when debugging failures.
+  bool disable_catch = 2;
+
+  // identity is the service instance the runtime agent should load.
+  codefly.base.v0.ServiceIdentity identity = 3;
+
+  // environment is the Codefly environment in which the service will run.
+  codefly.base.v0.Environment environment = 4;
+
+}
+
+// LoadResponse returns service metadata discovered during the load phase.
+message LoadResponse {
+  // version is the service version reported by the runtime agent after Load.
+  codefly.base.v0.Version version = 1;
+
+  // status reports the lifecycle or operation status.
+  LoadStatus status = 2;
+
+  // endpoints are logical endpoints exposed by the service implementation.
+  repeated codefly.base.v0.Endpoint endpoints = 3;
+
+}
+
+
+// InitStatus reports the state and message for the init lifecycle phase.
+message InitStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // READY means the phase completed and the agent can continue.
+    READY = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+}
+
+// InitRequest provides resolved context and dependency information before startup.
+message InitRequest {
+  // runtime_context is the proposed execution environment for this service.
+  codefly.base.v0.RuntimeContext runtime_context = 1;
+
+  // configuration is this service's own runtime configuration.
+  codefly.base.v0.Configuration configuration = 2;
+
+  // proposed_network_mappings are logical-to-physical endpoint mappings suggested by core.
+  repeated codefly.base.v0.NetworkMapping proposed_network_mappings = 3;
+
+  // dependencies_endpoints are logical endpoints exposed by services this service consumes.
+  repeated codefly.base.v0.Endpoint dependencies_endpoints = 4;
+
+  // dependencies_configurations are configuration values exported by dependent services.
+  repeated codefly.base.v0.Configuration dependencies_configurations = 5;
+
+  // workspace_configurations are environment-level configuration values available to the service.
+  repeated codefly.base.v0.Configuration workspace_configurations = 6;
+
+}
+
+
+// InitResponse returns the runtime context and mappings the agent actually accepted.
+message InitResponse {
+  // status reports the lifecycle or operation status.
+  InitStatus status = 1;
+
+  // runtime_context describes where the service runs, such as native, nix, container, or free.
+  codefly.base.v0.RuntimeContext runtime_context = 2;
+
+  // network_mappings are the concrete mappings the service will use at runtime.
+  repeated codefly.base.v0.NetworkMapping network_mappings = 3;
+
+  // runtime_configurations are values this service exports to dependents.
+  repeated codefly.base.v0.Configuration runtime_configurations = 4;
+}
+
+
+
+
+
+
+// StartRequest launches the service process without blocking until it exits.
+message StartRequest {
+  // specs are runtime knobs that affect how the agent starts the service.
+  codefly.base.v0.Specs specs = 1;
+  // dependencies_network_mappings are concrete addresses for dependency endpoints.
+  repeated codefly.base.v0.NetworkMapping dependencies_network_mappings = 2;
+  // fixture selects optional fixture data or setup behavior for the start.
+  string fixture = 3;
+}
+
+// StartStatus reports the state and message for the start lifecycle phase.
+message StartStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // STARTED means the service process is running and ready.
+    STARTED = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+}
+
+// StartResponse reports whether the service process reached the started state.
+message StartResponse {
+  // status reports the lifecycle or operation status.
+  StartStatus status = 1;
+}
+
+// BuildStatus reports the state and message for the build lifecycle phase.
+message BuildStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+}
+
+// BuildRequest asks the runtime agent to run the native build or compile check.
+message BuildRequest {
+  // Optional target scope: package path (e.g. "./handlers"), file, or empty for all.
+  string target = 1;
+}
+
+// BuildResponse returns build status and raw tool output for diagnostics.
+message BuildResponse {
+  // status reports the lifecycle or operation status.
+  BuildStatus status = 1;
+  // output is raw command, build, lint, or test output preserved for diagnostics.
+  string output = 2;
+}
+
+// TestStatus reports the state and message for the test lifecycle phase.
+message TestStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+}
+
+// TestRequest asks the runtime agent to run native tests for this service.
+message TestRequest {
+  // Optional target: package or directory scope (e.g. "./handlers" for Go,
+  // "tests/unit" for Python). For name-pattern filtering, prefer `filters`.
+  // Empty runs the agent's default scope.
+  string target = 1;
+
+  // Optional: run with verbose output.
+  bool verbose = 2;
+
+  // Optional: run with race detector.
+  bool race = 3;
+
+  // Optional: timeout per test (e.g. "30s"). Empty uses agent default.
+  string timeout = 4;
+
+  // Optional: run with coverage instrumentation. Off by default —
+  // -cover roughly doubles compile time for test binaries.
+  bool coverage = 5;
+
+  // Optional: name-pattern filters (regex). Multiple values are combined
+  // with OR. Each agent maps these to its native filter mechanism:
+  //   Go (go test):       -run "(p1|p2|...)"
+  //   JS (vitest/jest):   --testNamePattern "(p1|p2|...)"
+  //   JS (playwright):    --grep "(p1|p2|...)"
+  //   Python (pytest):    -k "p1 or p2 or ..."
+  // Empty list matches everything.
+  repeated string filters = 6;
+
+  // Optional: named test suite. Agents decide what each name means.
+  // Conventional values:
+  //   "unit"        — fast, no infra (default if empty)
+  //   "integration" — needs dependencies via withDependencies
+  //   "e2e"         — full stack via Playwright/Cypress/etc.
+  //   "smoke"       — minimal post-deploy checks
+  // Agents that only run one kind of test ignore this.
+  string suite = 7;
+
+  // Optional: extra args appended verbatim to the underlying test runner
+  // command. Power-user escape hatch for flags codefly does not model.
+  // Agents must NOT interpret these — pass through unchanged.
+  repeated string extra_args = 8;
+}
+
+// TestResponse returns both legacy flat counts and structured test results.
+message TestResponse {
+  // --- Legacy flat fields ---
+  // Kept populated for backward compatibility while consumers migrate
+  // to the structured tree below. New code SHOULD prefer `result`,
+  // `counts`, and `suites`. The flat fields are computed from the
+  // structured tree — single source of truth.
+  TestStatus status = 1 [deprecated = true];
+  // Legacy: full runner output dump. Wastes bandwidth + Mind context
+  // on large suites. New consumers read per-case `captured_output`
+  // from `suites[].cases[]` (populated only for FAILED/ERRORED cases
+  // unless TestRequest.verbose is true).
+  string output = 2 [deprecated = true];
+  // tests_run is the total number of tests executed.
+  int32 tests_run = 3 [deprecated = true];
+  // tests_passed is the number of tests that passed.
+  int32 tests_passed = 4 [deprecated = true];
+  // tests_failed is the number of tests that failed.
+  int32 tests_failed = 5 [deprecated = true];
+  // tests_skipped is the number of tests skipped by the runner.
+  int32 tests_skipped = 6 [deprecated = true];
+  // coverage_pct is the overall coverage percentage when available.
+  float coverage_pct = 7 [deprecated = true];
+  // failures are concise failing test names or messages.
+  repeated string failures = 8 [deprecated = true];
+
+  // --- Structured fields ---
+
+  // Run-level metadata (which runner ran, how long, etc).
+  TestRun run = 9;
+
+  // Overall outcome of the entire run. Independent from per-case
+  // states because a run can ERROR (build failure, infra setup
+  // failure) without any individual case running.
+  TestRunResult result = 10;
+
+  // Aggregate counts. Computed from `suites`; surfaced top-level for
+  // fast access (callers wanting "did the run pass?" don't have to
+  // walk the tree).
+  TestCounts counts = 11;
+
+  // Hierarchical results: a run contains suites; suites contain
+  // sub-suites and/or cases. A "suite" is whatever the runner's
+  // grouping primitive is — a Go package, a pytest test file, a
+  // Jest describe block. Nesting allowed (Jest describe-in-describe,
+  // pytest classes inside files).
+  repeated TestSuite suites = 12;
+
+  // Optional coverage breakdown. Only set when TestRequest.coverage
+  // was true.
+  TestCoverage coverage = 13;
+
+  // Truncation metadata — surfaces when the runner emitted more
+  // output than the agent's caps allow. Mind/CLI display the cap
+  // and offer to fetch the full output for specific cases on demand.
+  TestTruncation truncation = 14;
+}
+
+// TestRun carries metadata about the run itself — independent of
+// what passed or failed.
+message TestRun {
+  // Runner identity. Conventional values:
+  //   "go-test"   — `go test -json`
+  //   "pytest"    — pytest with junit-xml or pytest-json-report
+  //   "vitest"    — vitest with --reporter=json
+  //   "jest"      — jest with --json
+  //   "playwright" — playwright with --reporter=json
+  string runner = 1;
+
+  // The TestRequest.suite the agent honored ("unit" | "integration"
+  // | "e2e" | "smoke" | ""). Echoed so consumers that buffer
+  // multiple runs can group by suite.
+  string suite_name = 2;
+
+  // Wall-clock duration of the entire run.
+  google.protobuf.Duration duration = 3;
+}
+
+// TestRunResult is the run-level outcome. Distinct from per-case
+// state because a run can be aborted before/during cases:
+// BUILD_ERROR (compile-fail), SETUP_ERROR (fixture failed), TIMEOUT
+// (whole-run timeout fired).
+message TestRunResult {
+  // State enumerates run-level outcomes.
+  enum State {
+    // UNKNOWN is the default value when state is not specified.
+    UNKNOWN = 0;
+    // All cases passed (or skipped); zero failures + zero errors.
+    PASSED = 1;
+    // At least one case failed an assertion.
+    FAILED = 2;
+    // Run-level error: build failure, setup/teardown crash, infra
+    // unreachable. Distinct from FAILED — the agent may not even
+    // know how many cases would have run.
+    ERRORED = 3;
+    // Whole-run timeout fired before completion.
+    TIMED_OUT = 4;
+  }
+  // state is the machine-readable lifecycle state.
+  State state = 1;
+  // Human-readable summary suitable for a status line.
+  string message = 2;
+}
+
+// TestCounts is the aggregate ledger. Errored is distinct from
+// failed — a case that PANICED or had setup-fail is `errored`; a
+// case that ran but failed an assertion is `failed`. Flaky counts
+// cases that passed on retry (retry_attempts > 1).
+message TestCounts {
+  // total is the aggregate number of cases represented.
+  int32 total = 1;
+  // passed is the number of cases that passed.
+  int32 passed = 2;
+  // failed is the number of cases that failed assertions.
+  int32 failed = 3;
+  // skipped is the number of cases the runner skipped.
+  int32 skipped = 4;
+  // errored is the number of cases that crashed or failed setup/teardown.
+  int32 errored = 5;
+  // flaky is the number of cases that only passed after retry.
+  int32 flaky = 6;
+}
+
+// TestSuite is a grouping primitive — a Go package, a Python test
+// file, a Jest describe block, a Playwright project. Suites can
+// nest (`suites`) AND contain cases (`cases`); both populated is
+// fine for runners that allow case-AND-subgroup mixing.
+message TestSuite {
+  // Logical name. Conventionally:
+  //   Go:         "github.com/codefly-dev/core/policy"
+  //   Python:     "tests/test_users.py"
+  //   Jest:       "describe block path"
+  //   Playwright: "project: tests/login.spec.ts"
+  string name = 1;
+
+  // Filesystem path to the suite source (absolute or repo-relative).
+  // Used for IDE jump.
+  string file = 2;
+
+  // Wall-clock duration of the suite (sum of cases + setup/teardown).
+  google.protobuf.Duration duration = 3;
+
+  // Suite-level counts (sum of contained cases + sub-suites).
+  TestCounts counts = 4;
+
+  // Sub-suites (Jest describe-in-describe, pytest class-in-file).
+  repeated TestSuite suites = 5;
+
+  // Test cases directly in this suite.
+  repeated TestCase cases = 6;
+}
+
+// TestCase is a single test invocation. The unit Mind reasons about
+// when it asks "what failed?".
+message TestCase {
+  // Local case name as the runner reports it.
+  //   Go:     "TestPolicy_Apply_DefaultsToDeny"
+  //   Python: "test_user_creation"
+  //   Jest:   "should reject expired tokens"
+  string name = 1;
+
+  // Fully-qualified name across the workspace; useful for
+  // de-duplication when the same `name` appears in multiple suites.
+  //   "github.com/codefly-dev/core/policy.TestPolicy_Apply_DefaultsToDeny"
+  string full_name = 2;
+
+  // Per-case outcome.
+  TestCaseState state = 3;
+
+  // Wall-clock duration of THIS case (excludes parent suite setup).
+  google.protobuf.Duration duration = 4;
+
+  // Source location — file + line + (when known) function. Drives
+  // IDE jump and makes Mind's "the failure is at X" actionable.
+  TestLocation location = 5;
+
+  // Failure detail. Empty when state == PASSED. Required when state
+  // is FAILED or ERRORED.
+  TestFailure failure = 6;
+
+  // Stdout/stderr captured during the case execution. Populated for
+  // FAILED/ERRORED. EMPTY for PASSED unless TestRequest.verbose was
+  // set. The output retention policy is the load-bearing fix that
+  // keeps response sizes manageable on large suites.
+  string captured_output = 7;
+
+  // Tags / categories declared on the test (Go build tags, pytest
+  // marks, Jest test.skip annotations). Useful for filtering in
+  // reporting layers without re-running.
+  repeated string tags = 8;
+
+  // Retry attempts. Only set when the runner re-ran the case
+  // (Jest's `retries`, Playwright's `retries`). Each entry is a
+  // distinct attempt; the `state` of the final attempt matches
+  // the case's top-level `state`.
+  repeated TestRetry retries = 9;
+}
+
+// TestCaseState is the per-case outcome. Distinct from
+// TestRunResult — a run can be FAILED while individual cases were
+// PASSED (others failed); a run can be PASSED while a case was
+// SKIPPED.
+enum TestCaseState {
+  // TEST_CASE_STATE_UNSPECIFIED is the default value when test case state is not specified.
+  TEST_CASE_STATE_UNSPECIFIED = 0;
+  // TEST_CASE_STATE_PASSED marks a test case as passed.
+  TEST_CASE_STATE_PASSED = 1;
+  // TEST_CASE_STATE_FAILED marks a test case as failed.
+  TEST_CASE_STATE_FAILED = 2;
+  // TEST_CASE_STATE_SKIPPED marks a test case as skipped.
+  TEST_CASE_STATE_SKIPPED = 3;
+  // ERRORED is for non-assertion failures: panics, setup/teardown
+  // crashes, build failures attributed to this case. Surfaced
+  // separately because the diagnosis flow differs (a panic is a
+  // bug in the test or production code; an assertion fail is a bug
+  // in production code).
+  TEST_CASE_STATE_ERRORED = 4;
+}
+
+// TestFailure carries the diagnostic detail for failed/errored cases.
+message TestFailure {
+  // One-line summary: "expected 3, got 5" or "panic: nil pointer dereference".
+  string message = 1;
+
+  // Multi-line detail: stack trace, full diff, expected vs actual.
+  // Bounded by the agent's per-case output cap.
+  string detail = 2;
+
+  // Failure category. Drives Mind's diagnosis flow.
+  TestFailureKind kind = 3;
+
+  // Location where the assertion fired or the panic occurred —
+  // typically deeper than the case's declaration site.
+  TestLocation source_location = 4;
+
+  // Skip reason when the case was SKIPPED (not technically a
+  // failure, but the explanation lives in the same struct so
+  // consumers have one place to look).
+  string skip_reason = 5;
+}
+
+// TestFailureKind enumerates supported test failure kinds.
+enum TestFailureKind {
+  // TEST_FAILURE_KIND_UNSPECIFIED is the default value when test failure kind is not specified.
+  TEST_FAILURE_KIND_UNSPECIFIED = 0;
+  // Plain assertion failure: require.Equal, expect().toBe(), assert.
+  TEST_FAILURE_KIND_ASSERTION = 1;
+  // Unhandled panic / exception during execution.
+  TEST_FAILURE_KIND_PANIC = 2;
+  // Per-case timeout (NOT whole-run; that's TestRunResult.TIMED_OUT).
+  TEST_FAILURE_KIND_TIMEOUT = 3;
+  // Compile/build failure attributed to this suite (no cases
+  // actually ran, but the runner reports them as "failed").
+  TEST_FAILURE_KIND_BUILD_ERROR = 4;
+  // Setup or teardown crash (BeforeEach, fixture, BeforeAll).
+  TEST_FAILURE_KIND_SETUP = 5;
+}
+
+// TestLocation pins a source location for IDE jump.
+message TestLocation {
+  // File path. Absolute or repo-relative — agent's choice; consumers
+  // resolve via SourceLocation when needed.
+  string file = 1;
+  // line is the 1-based source line number.
+  int32 line = 2;
+  // column is the 1-based source column number when known.
+  int32 column = 3;
+  // Function name when available (Go: TestFoo; pytest: test_foo).
+  string function = 4;
+}
+
+// TestRetry is one attempt of a case that was retried.
+message TestRetry {
+  // attempt is the 1-based retry attempt number.
+  int32 attempt = 1;            // 1-indexed
+  // state is the machine-readable lifecycle state.
+  TestCaseState state = 2;
+  // duration is wall-clock time spent on the run, suite, case, or operation.
+  google.protobuf.Duration duration = 3;
+  // Failure detail if the attempt failed. Empty if it passed.
+  TestFailure failure = 4;
+}
+
+// TestCoverage is the optional coverage breakdown — only populated
+// when TestRequest.coverage was true.
+message TestCoverage {
+  // Overall coverage 0-100.
+  float total_pct = 1;
+
+  // Per-file breakdown. Conventionally sorted by lowest pct first
+  // (most interesting to inspect).
+  repeated TestFileCoverage files = 2;
+
+  // Path to the raw artifact (cover.out for Go, lcov.info for JS).
+  // Optional — agents may or may not surface this. Consumers that
+  // need finer detail (per-line marks, branch coverage) read this.
+  string raw_artifact_path = 3;
+
+  // Format identifier for the raw artifact.
+  // Conventional values: "go-cover" | "lcov" | "cobertura" | "junit".
+  string raw_artifact_format = 4;
+}
+
+// TestFileCoverage records coverage statistics for one source file.
+message TestFileCoverage {
+  // file is a workspace- or service-relative source file path.
+  string file = 1;
+  // pct is the file coverage percentage from 0 to 100.
+  float pct = 2;
+  // lines_covered is the number of covered source lines.
+  int32 lines_covered = 3;
+  // lines_total is the total number of coverable source lines.
+  int32 lines_total = 4;
+}
+
+// TestTruncation surfaces when the agent's output caps fired and
+// dropped data. Mind/CLI shows "N cases had truncated output, use
+// --verbose for full" rather than silently lying about completeness.
+message TestTruncation {
+  // True iff any cap fired during this run.
+  bool happened = 1;
+  // Cap applied per case (bytes). 0 means "no cap".
+  int32 max_per_case_bytes = 2;
+  // Cap applied to the full TestResponse. 0 means "no cap".
+  int32 max_total_bytes = 3;
+  // How many cases had their `captured_output` truncated.
+  int32 truncated_cases = 4;
+  // How many cases were dropped from `suites[].cases[]` entirely
+  // (extreme overflow). 0 in normal operation.
+  int32 dropped_cases = 5;
+}
+
+// LintStatus reports the state and message for the lint lifecycle phase.
+message LintStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+}
+
+// LintRequest asks the runtime agent to run the native linter.
+message LintRequest {
+  // Optional target scope: package path, file, or empty for all.
+  string target = 1;
+
+  // Optional: auto-fix linting issues where possible.
+  bool fix = 2;
+}
+
+// LintResponse returns lint status and raw tool output for diagnostics.
+message LintResponse {
+  // status reports the lifecycle or operation status.
+  LintStatus status = 1;
+  // output is raw command, build, lint, or test output preserved for diagnostics.
+  string output = 2;
+}
+
+// StopRequest asks the runtime agent to stop the service process.
+message StopRequest {
+}
+
+
+// StopStatus reports the state and message for the stop lifecycle phase.
+message StopStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+}
+
+// StopResponse reports whether the service process stopped cleanly.
+message StopResponse {
+  // status reports the lifecycle or operation status.
+  StopStatus status = 1;
+}
+
+
+// DestroyRequest asks the runtime agent to release all runtime resources.
+message DestroyRequest {
+}
+
+
+// DestroyStatus reports the state and message for the destroy lifecycle phase.
+message DestroyStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+}
+
+// DestroyResponse reports whether runtime resources were destroyed cleanly.
+message DestroyResponse {
+  // status reports the lifecycle or operation status.
+  DestroyStatus status = 1;
+}
+
+// InformationRequest asks for the runtime agent's current lifecycle state.
+message InformationRequest {
+}
+
+
+// DesiredState tells the orchestrator which lifecycle transition is still needed.
+message DesiredState {
+  // Stage enumerates stage values.
+  enum Stage {
+    // UNKNOWN is the default value when stage is not specified.
+    UNKNOWN = 0;
+    // NOOP means no lifecycle transition is currently requested.
+    NOOP = 1;
+    // LOAD requests a reload of service metadata and endpoints.
+    LOAD = 2;
+    // INIT requests reinitialization of configuration and network mappings.
+    INIT = 3;
+    // START requests the service process to be started or restarted.
+    START = 4;
+  }
+  // stage is the next lifecycle stage the runtime should reach.
+  Stage stage = 1;
+}
+
+// InformationResponse represents the runtime agent's lifecycle state.
+message InformationResponse {
+  // desired_state is the next lifecycle transition requested by the orchestrator.
+  DesiredState desired_state = 1;
+
+  // load_status is the latest Load lifecycle status.
+  LoadStatus load_status = 2;
+  // init_status is the latest Init lifecycle status.
+  InitStatus init_status = 3;
+  // start_status is the latest Start lifecycle status.
+  StartStatus start_status = 4;
+  // stop_status is the latest Stop lifecycle status.
+  StopStatus stop_status = 5;
+  // destroy_status is the latest Destroy lifecycle status.
+  DestroyStatus destroy_status = 6;
+  // test_status is the latest Test lifecycle status.
+  TestStatus test_status = 7;
+  // build_status is the latest Build lifecycle status.
+  BuildStatus build_status = 8;
+  // lint_status is the latest Lint lifecycle status.
+  LintStatus lint_status = 9;
+
+}
+
+
+/*
+Public API
+
+*/
+
+
+
+
+/*
+Runtime service
+ */
+
+// Runtime exposes the agent lifecycle used to load, initialize, start, validate, stop, and
+// destroy a running service.
+service Runtime {
+
+  // Lifecycle
+
+  // Load discovers service metadata before any runtime resources are allocated.
+  rpc Load (LoadRequest) returns (LoadResponse) {}
+  // Init resolves configuration, dependency endpoints, and concrete network mappings.
+  rpc Init (InitRequest) returns (InitResponse) {}
+  // Start launches the service process and returns once it is ready or failed.
+  rpc Start (StartRequest) returns (StartResponse) {}
+  // Stop terminates the running service process.
+  rpc Stop (StopRequest) returns (StopResponse) {}
+  // Destroy releases runtime resources such as containers, sockets, or temp state.
+  rpc Destroy (DestroyRequest) returns (DestroyResponse) {}
+
+  // Build runs the service's native build or compile check.
+  rpc Build (BuildRequest) returns (BuildResponse) {}
+
+  // Test runs the service's native test command and returns structured results.
+  rpc Test (TestRequest) returns (TestResponse) {}
+
+  // Lint runs the service's native linter.
+  rpc Lint (LintRequest) returns (LintResponse) {}
+
+  // Information returns the latest lifecycle statuses known by the agent.
+  rpc Information (InformationRequest) returns (InformationResponse) {}
+
+  // Bidirectional streaming for interactive Q&A.
+  // Plugin streams Questions, CLI streams Answers.
+  rpc Communicate(stream codefly.services.agent.v0.Answer) returns (stream codefly.services.agent.v0.Question) {}
+}
