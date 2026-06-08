@@ -1,0 +1,86 @@
+package rust_test
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/codefly-dev/core/runners/rust"
+	"github.com/codefly-dev/core/shared"
+	"github.com/stretchr/testify/require"
+)
+
+// minimal Cargo project: a binary with two passing unit tests.
+const cargoToml = `[package]
+name = "demo-svc"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "demo-svc"
+path = "src/main.rs"
+`
+
+const mainRs = `fn add(a: i32, b: i32) -> i32 { a + b }
+
+fn main() {
+    println!("{}", add(1, 2));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_adds() { assert_eq!(add(1, 2), 3); }
+
+    #[test]
+    fn it_adds_zero() { assert_eq!(add(0, 0), 0); }
+}
+`
+
+// writeProject lays out <root>/code/{Cargo.toml,src/main.rs}.
+func writeProject(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	code := filepath.Join(root, "code")
+	require.NoError(t, os.MkdirAll(filepath.Join(code, "src"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(code, "Cargo.toml"), []byte(cargoToml), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(code, "src", "main.rs"), []byte(mainRs), 0o644))
+	return root
+}
+
+// TestNativeBuildAndTest exercises the native RustRunnerEnvironment
+// end-to-end: init, build (with hashed-cache short-circuit on rebuild), and
+// `cargo test` result parsing. Skipped when cargo is unavailable.
+func TestNativeBuildAndTest(t *testing.T) {
+	if _, err := exec.LookPath("cargo"); err != nil {
+		t.Skip("cargo not available")
+	}
+	ctx := context.Background()
+	root := writeProject(t)
+	cacheDir := filepath.Join(root, "cache")
+
+	env, err := rust.NewNativeRustRunner(ctx, root, "code")
+	require.NoError(t, err)
+	env.WithLocalCacheDir(cacheDir)
+	defer func() { _ = env.Shutdown(ctx) }()
+
+	require.NoError(t, env.Init(ctx))
+
+	require.NoError(t, env.BuildBinary(ctx))
+	require.False(t, env.UsedCache(), "first build should not be cached")
+	require.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, cacheDir)), "cache should hold the binary")
+
+	// Rebuild with no source change → cache hit.
+	require.NoError(t, env.BuildBinary(ctx))
+	require.True(t, env.UsedCache(), "rebuild should hit the cache")
+
+	// Run the tests.
+	summary, err := rust.RunCargoTests(ctx, env, filepath.Join(root, "code"), nil)
+	require.NoError(t, err)
+	require.Equal(t, int32(2), summary.Passed, "two passing tests")
+	require.Equal(t, int32(0), summary.Failed)
+}
