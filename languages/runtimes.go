@@ -53,6 +53,18 @@ func HasNodeRuntime(_ *NodeRuntimeConfiguration) bool {
 	return false
 }
 
+type CargoRuntimeConfiguration struct {
+	//versionRequirement *VersionRequirement
+}
+
+// HasCargoRuntime checks if the Cargo/Rust toolchain is available on the system.
+func HasCargoRuntime(_ *CargoRuntimeConfiguration) bool {
+	if _, err := exec.LookPath("cargo"); err == nil {
+		return true
+	}
+	return false
+}
+
 type RailsRuntimeConfiguration struct {
 }
 

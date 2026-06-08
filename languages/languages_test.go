@@ -10,8 +10,8 @@ func TestFromString(t *testing.T) {
 		"python":     PYTHON,
 		"typescript": TYPESCRIPT,
 		"ts":         TYPESCRIPT, // alias
+		"rust":       RUST,
 		"":           NotSupported,
-		"rust":       NotSupported,
 		"GO":         NotSupported, // case-sensitive — explicit
 	}
 	for in, want := range cases {
