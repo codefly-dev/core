@@ -71,7 +71,8 @@ Every resource is defined by a YAML file:
   - **scripts/** — `build_companions.sh` to build companion Docker images.
 
 ### Code Generation
-- **generated/** — Proto-generated Go code. Structure: `generated/go/codefly/{base,services,actions,cli,mcp,observability}/v0/`
+- **proto/** — Proto source of truth (the `.proto` files for `codefly/*` and `mind/*`). Lives in-tree so a schema change + its regenerated bindings land in one PR. The standalone `codefly-dev/proto` repo is being retired in favor of this.
+- **generated/** — Proto-generated Go code. Structure: `generated/go/codefly/{base,services,actions,cli,mcp,observability}/v0/`. Regenerate with `generated/generate.sh`.
 - **generation/** — Code generation utilities.
 - **templates/** — Template engine for agent scaffolding.
 - **openapi/** — OpenAPI spec generation from proto definitions.
@@ -103,8 +104,8 @@ make check-coverage
 # Companion Docker images
 ./companions/scripts/build_companions.sh
 
-# Proto regeneration (from core/)
-# NEVER call buf/protoc directly — use codefly CLI or companion scripts
+# Proto regeneration — edit core/proto/*.proto, then:
+./generated/generate.sh
 ```
 
 ## Key Patterns
@@ -147,7 +148,7 @@ grpcEP, _ := resources.FindGRPCEndpoint(ctx, endpoints)
 ## Important Rules
 
 - **NEVER mock.** Always test against real infrastructure. Use `testdata/` directories with real YAML fixtures.
-- **NEVER call buf/protoc directly.** Proto generation goes through codefly CLI or the proto companion.
+- **Regenerate protos via `generated/generate.sh`** (source: `core/proto/`). It pins the protoc-gen-* plugin versions and runs goimports so output is byte-reproducible — don't hand-run `buf`/`protoc` ad hoc.
 - **Port allocation must use `network.ToNamedPort()` or `RuntimeManager`.** Never hardcode ports. Always track allocated ports to prevent collisions (the temporal agent had a bug where duplicate ports were assigned because dedup tracking was missing).
 - **Readiness checks must use gRPC health checks**, not raw TCP connects. A port being open does not mean the service is ready.
 - **`resources/` is the source of truth** for all type definitions. When in doubt about how something is modeled, look there first.
