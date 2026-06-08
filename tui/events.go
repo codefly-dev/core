@@ -67,3 +67,10 @@ type ServiceErrorMsg struct {
 type FlowDoneMsg struct {
 	Err error
 }
+
+// StopPlanMsg tells the runner which dependency services it is managing
+// alongside the origin, so the shutdown view can name exactly what gets torn
+// down on quit (origin + these dependencies — none stay alive).
+type StopPlanMsg struct {
+	Dependencies []string
+}

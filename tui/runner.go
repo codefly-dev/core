@@ -2,23 +2,30 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/wool"
+	"golang.org/x/term"
 )
 
 // ServiceRunnerModel is a Bubbletea model for running a Codefly service.
 type ServiceRunnerModel struct {
-	service   string
-	logView   LogView
-	statusBar StatusBar
-	spinner   spinner.Model
-	state     ServiceState
-	quitting  bool
-	width     int
-	height    int
+	service string
+	// dependencies are the other services this run manages (e.g. neo4j,
+	// postgres). On quit they are torn down together with the origin — none
+	// stay alive — so the shutdown view names them explicitly.
+	dependencies []string
+	logView      LogView
+	statusBar    StatusBar
+	spinner      spinner.Model
+	state        ServiceState
+	quitting     bool
+	width        int
+	height       int
 }
 
 func newServiceRunnerModel(service string) ServiceRunnerModel {
@@ -94,6 +101,9 @@ func (m ServiceRunnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 
+	case StopPlanMsg:
+		m.dependencies = msg.Dependencies
+
 	case ServiceLogMsg:
 		cmd := m.logView.Update(msg)
 		cmds = append(cmds, cmd)
@@ -113,7 +123,16 @@ func (m ServiceRunnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m ServiceRunnerModel) View() string {
 	if m.quitting {
-		return Styles().Muted.Render("Stopping service...") + "\n"
+		// Name exactly what is going down. flow.Stop() tears down the origin AND
+		// its dependencies together — nothing stays running — so spell that out
+		// instead of a vague "Stopping service...". (nix-run service DATA on disk
+		// survives; the processes do not.)
+		msg := "Stopping " + m.service
+		if len(m.dependencies) > 0 {
+			msg += " + dependencies (" + strings.Join(m.dependencies, ", ") + ")"
+		}
+		msg += "..."
+		return Styles().Muted.Render(msg) + "\n"
 	}
 
 	s := Styles()
@@ -150,6 +169,12 @@ func (t *ServiceTUI) SendReady(service string, port int) {
 // SendError reports a fatal error.
 func (t *ServiceTUI) SendError(err error) {
 	t.p.Send(ServiceErrorMsg{Err: err})
+}
+
+// SendStopPlan tells the runner which dependency services it manages, so the
+// shutdown view can name what gets torn down on quit.
+func (t *ServiceTUI) SendStopPlan(dependencies []string) {
+	t.p.Send(StopPlanMsg{Dependencies: dependencies})
 }
 
 // SendDone signals the flow has completed.
@@ -191,6 +216,20 @@ func (t *ServiceTUI) PumpLogs(logCh <-chan agents.ChannelLog) {
 // The TUI blocks until Ctrl+C or SendDone. Returns after the TUI exits.
 // Output remains visible in the terminal after exit for debugging.
 func RunServiceTUI(service string, logCh <-chan agents.ChannelLog, startFn func(t *ServiceTUI)) error {
+	// Capture the terminal's cooked state before Bubbletea switches it to raw
+	// mode, and force-restore it after the program exits. Raw mode clears the
+	// OPOST/ONLCR output flag, so a bare "\n" no longer maps to CR+LF. If the
+	// restore is skipped or raced on the failure path (it is), every post-TUI
+	// line — the error chain, the shutdown logs — staircases to the right.
+	// Restoring the saved termios re-enables LF→CRLF, so they print cleanly.
+	// stdin and stdout share the tty device, so restoring via stdin's fd fixes
+	// stdout's newline translation too.
+	fd := int(os.Stdin.Fd())
+	var saved *term.State
+	if term.IsTerminal(fd) {
+		saved, _ = term.GetState(fd)
+	}
+
 	m := newServiceRunnerModel(service)
 	p := tea.NewProgram(m)
 
@@ -200,5 +239,9 @@ func RunServiceTUI(service string, logCh <-chan agents.ChannelLog, startFn func(
 	go startFn(t)
 
 	_, err := p.Run()
+
+	if saved != nil {
+		_ = term.Restore(fd, saved)
+	}
 	return err
 }
