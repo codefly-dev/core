@@ -629,12 +629,66 @@ func (s *DefaultCodeServer) gitDiff(ctx context.Context, req *codev0.GitDiffRequ
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GitDiff{GitDiff: &codev0.GitDiffResponse{Error: err.Error()}}}, nil
 	}
 
+	// Plain `git diff` omits UNTRACKED files entirely, so a working-tree
+	// diff silently dropped any file the caller had just created — a patch
+	// built from this response was missing whole new files. For the
+	// working-tree case (no BaseRef), synthesize proper new-file blocks for
+	// untracked files so the diff reflects the full workspace state.
+	if req.BaseRef == "" && !req.StatOnly {
+		if extra := s.untrackedWorkingTreeDiff(ctx, req.Path); extra != "" {
+			if out != "" && !strings.HasSuffix(out, "\n") {
+				out += "\n"
+			}
+			out += extra
+		}
+	}
+
 	files := parseGitDiffStats(out, req.StatOnly)
 	diff := out
 	if req.StatOnly {
 		diff = ""
 	}
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_GitDiff{GitDiff: &codev0.GitDiffResponse{Diff: diff, Files: files}}}, nil
+}
+
+// untrackedWorkingTreeDiff returns unified new-file diff blocks for every
+// untracked (non-ignored) file, optionally filtered to pathFilter. Uses
+// `git diff --no-index /dev/null <file>` per file — git special-cases
+// /dev/null into proper "new file mode" headers — which keeps this a pure
+// READ (no `git add -N` index mutation from a diff RPC).
+func (s *DefaultCodeServer) untrackedWorkingTreeDiff(ctx context.Context, pathFilter string) string {
+	out, err := s.runGit(ctx, "ls-files", "--others", "--exclude-standard")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return ""
+	}
+	var blocks strings.Builder
+	for _, p := range strings.Split(strings.TrimSpace(out), "\n") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if pathFilter != "" && p != pathFilter && !strings.HasPrefix(p, strings.TrimSuffix(pathFilter, "/")+"/") {
+			continue
+		}
+		blocks.WriteString(s.gitDiffNoIndexNewFile(ctx, p))
+	}
+	return blocks.String()
+}
+
+// gitDiffNoIndexNewFile shells `git diff --no-index -- /dev/null <path>`.
+// git exits 1 when the contents differ — for a new file that IS the diff,
+// so unlike runGit this tolerates the non-zero exit and keeps stdout.
+func (s *DefaultCodeServer) gitDiffNoIndexNewFile(ctx context.Context, path string) string {
+	cmd := exec.CommandContext(ctx, "git", "diff", "--no-index", "--", "/dev/null", path)
+	cmd.Dir = s.SourceDir
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	_ = cmd.Run() // exit 1 = files differ = expected for a non-empty new file
+	out := stdout.String()
+	if !strings.Contains(out, "diff --git") {
+		return ""
+	}
+	return out
 }
 
 func parseGitDiffStats(output string, statOnly bool) []*codev0.GitDiffFile {
