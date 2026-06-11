@@ -72,6 +72,12 @@ type ReverseTranscoder struct {
 	readOnce  sync.Once
 	pendingMu sync.Mutex
 	pending   map[int64]chan *jsonRPCResponse
+	// unclaimed holds responses the read loop saw before the matching call()
+	// registered its pending slot. A correct MCP server only replies AFTER a
+	// request, but a response can still be read by the loop before the caller
+	// registers (e.g. a server that pre-sends, or scheduler interleaving), so
+	// buffer rather than drop — call() consumes from here on registration.
+	unclaimed map[int64]*jsonRPCResponse
 	readErr   error // set once (under pendingMu) when the read loop exits
 
 	// Filled by Initialize.
@@ -86,10 +92,11 @@ type ReverseTranscoder struct {
 // transcoder is torn down — typically the cmd.Wait + pipe close.
 func New(stdin io.Writer, stdout io.Reader, closer io.Closer) *ReverseTranscoder {
 	r := &ReverseTranscoder{
-		stdin:   stdin,
-		stdout:  bufio.NewReaderSize(stdout, 64*1024),
-		closer:  closer,
-		pending: make(map[int64]chan *jsonRPCResponse),
+		stdin:     stdin,
+		stdout:    bufio.NewReaderSize(stdout, 64*1024),
+		closer:    closer,
+		pending:   make(map[int64]chan *jsonRPCResponse),
+		unclaimed: make(map[int64]*jsonRPCResponse),
 	}
 	r.Base = registry.NewBase(r)
 	return r
@@ -254,6 +261,16 @@ func (r *ReverseTranscoder) call(ctx context.Context, method string, params any)
 		r.pendingMu.Unlock()
 		return nil, err
 	}
+	// If the read loop already buffered our response (server pre-sent, or the
+	// loop ran ahead), claim it now instead of waiting forever.
+	if resp, ok := r.unclaimed[id]; ok {
+		delete(r.unclaimed, id)
+		r.pendingMu.Unlock()
+		if resp.Error != nil {
+			return nil, resp.Error
+		}
+		return resp.Result, nil
+	}
 	r.pending[id] = replyCh
 	r.pendingMu.Unlock()
 
@@ -319,14 +336,20 @@ func (r *ReverseTranscoder) readLoop() {
 			// Notification or unknown frame shape — skip.
 			continue
 		}
+		respCopy := resp
 		r.pendingMu.Lock()
 		ch, ok := r.pending[resp.ID]
 		if ok {
 			delete(r.pending, resp.ID)
+		} else {
+			// No waiter yet — buffer it so a call() that registers later (the
+			// pre-send / scheduler-interleave case) can still claim it, rather
+			// than dropping the response and hanging that call forever.
+			r.unclaimed[resp.ID] = &respCopy
 		}
 		r.pendingMu.Unlock()
 		if ok {
-			ch <- &resp // buffered (cap 1) — never blocks
+			ch <- &respCopy // buffered (cap 1) — never blocks
 		}
 	}
 }
