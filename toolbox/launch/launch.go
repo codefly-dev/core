@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/codefly-dev/core/agents/manager"
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
@@ -135,11 +134,9 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 }
 
 // buildSandbox translates the manifest's SandboxPolicy into a configured
-// sandbox.Sandbox. It always returns an enforcing sandbox (fail-closed): a
-// manifest that declares an empty policy gets a restrictive default (loopback
-// network + workspace-only writes) rather than running unconfined. The only way
-// to get a nil (unconfined) sandbox is the CODEFLY_SANDBOX_PERMISSIVE=1 escape
-// hatch; callers that want an unconfined process use Options.SkipSandbox.
+// sandbox.Sandbox. Returns nil (unconfined) for a manifest with an empty policy
+// and no canonical_for binaries — the documented historical default (see the
+// fail-closed note in the body for why that flip is deferred).
 //
 // **Network default.** policy.SandboxPolicy.Apply translates an
 // UNSET network field to NetworkDeny. NetworkDeny is too aggressive
@@ -163,18 +160,18 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 // platforms where bwrap isn't installed; production deployments
 // should ensure the backend is present.
 func buildSandbox(t *resources.Toolbox, workspace string) (sandbox.Sandbox, error) {
-	empty := isEmptyPolicy(t)
-
-	// Fail-closed: a toolbox that declares NO policy used to run fully
-	// unconfined (the historical default). It now runs confined by default —
-	// loopback-only network (the gRPC handshake still works, external network is
-	// denied) and write access limited to the workspace. Toolboxes that need
-	// more must declare it in their manifest; callers that genuinely need an
-	// unconfined process pass launch.Options.SkipSandbox.
+	// Empty policy → no sandbox (unconfined), the documented historical default.
 	//
-	// Emergency rollback: CODEFLY_SANDBOX_PERMISSIVE=1 restores the old
-	// unconfined behavior for empty-policy toolboxes (greppable/auditable).
-	if empty && os.Getenv("CODEFLY_SANDBOX_PERMISSIVE") == "1" {
+	// NOTE: an earlier revision made this fail-closed (empty policy → a
+	// loopback-network sandbox). That broke plugin spawn on Linux: bwrap's
+	// NetworkLoopback runs `ip link set lo up`, which needs CAP_NET_ADMIN that
+	// CI (and many prod Linux user-namespaces) lack — the agent then fails its
+	// handshake ("RTNETLINK answers: Operation not permitted"). The fail-closed
+	// flip is a real deployment-wide migration (it needs the bwrap-loopback
+	// capability story solved first), not a mechanical default change, so it is
+	// intentionally NOT enabled here. Callers that want confinement declare a
+	// policy; callers that want an unconfined process can pass SkipSandbox.
+	if isEmptyPolicy(t) {
 		return nil, nil
 	}
 
@@ -186,13 +183,7 @@ func buildSandbox(t *resources.Toolbox, workspace string) (sandbox.Sandbox, erro
 	// Apply a copy of the manifest policy with the default-network override so
 	// we don't mutate the caller's *resources.Toolbox.
 	pol := t.Sandbox
-	if empty {
-		// Restrictive default for a policy-less toolbox.
-		pol = policy.SandboxPolicy{Network: policy.NetworkLoopback}
-		if workspace != "" {
-			pol.WritePaths = []string{"${WORKSPACE}"}
-		}
-	} else if pol.Network == "" {
+	if pol.Network == "" {
 		// Empty Network → Loopback (handshake works, outbound denied).
 		pol.Network = policy.NetworkLoopback
 	}
