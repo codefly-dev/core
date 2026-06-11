@@ -344,16 +344,20 @@ func (proc *NativeProc) start(ctx context.Context) error {
 			return err
 		}
 		proc.exec = cmd
-		proc.forwarderWG.Add(2)
+		proc.forwarderWG.Add(1)
 		go func() {
 			defer proc.forwarderWG.Done()
 			defer stderr.Close()
 			proc.Forward(ctx, stderr)
 		}()
-		// Close the stdout pipe writer when the process exits AND publish
-		// the exit error for any Wait() callers.
+		// Drain the StderrPipe forwarder to EOF BEFORE reaping. os/exec
+		// closes the pipe read-end the instant cmd.Wait sees the process
+		// exit, so a concurrent Wait races the forwarder's reads and
+		// truncates output. The cmd.Stdout writer path is os/exec-managed,
+		// so only the manual StderrPipe needs the ordering. Then close the
+		// stdout pipe writer and publish the exit for Wait() callers.
 		go func() {
-			defer proc.forwarderWG.Done()
+			proc.forwarderWG.Wait()
 			err := cmd.Wait()
 			proc.stdoutWriter.Close()
 			proc.publishExit(err)
@@ -372,7 +376,7 @@ func (proc *NativeProc) start(ctx context.Context) error {
 			return err
 		}
 		proc.exec = cmd
-		proc.forwarderWG.Add(3)
+		proc.forwarderWG.Add(2)
 		go func() {
 			defer proc.forwarderWG.Done()
 			defer stdout.Close()
@@ -383,11 +387,19 @@ func (proc *NativeProc) start(ctx context.Context) error {
 			defer stderr.Close()
 			proc.Forward(ctx, stderr)
 		}()
-		// Single Wait goroutine — publish the exit so Wait() callers learn.
+		// CRITICAL ordering: drain both forwarders to EOF BEFORE cmd.Wait.
+		// os/exec closes the StdoutPipe/StderrPipe read-ends the moment Wait
+		// sees the process exit — the docs are explicit: "it is incorrect to
+		// call Wait before all reads from the pipe have completed." Running
+		// Wait concurrently with the forwarders races that close against
+		// their reads and, on a fast-exiting process, drops the entire
+		// output (the "occasionally-empty on slow Linux CI" symptom this
+		// runner has chased for a while). Forwarders EOF when the process
+		// exits and the kernel closes the write-ends; Stop()/SIGKILL is the
+		// escape hatch for a process that refuses to die.
 		go func() {
-			defer proc.forwarderWG.Done()
-			err := cmd.Wait()
-			proc.publishExit(err)
+			proc.forwarderWG.Wait()
+			proc.publishExit(cmd.Wait())
 		}()
 	}
 

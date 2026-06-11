@@ -215,6 +215,31 @@ func TestNativeProc_ConcurrentStdoutStderr_NoBufferRace(t *testing.T) {
 	}
 }
 
+// TestNativeProc_FastProcessOutputCaptured guards the os/exec pipe race:
+// a process that exits almost immediately (a single echo) must still have
+// ALL of its output captured. The old code spawned cmd.Wait concurrently
+// with the stdout/stderr forwarders; Wait closes the pipe read-ends on
+// process exit, so on a fast process it raced ahead and truncated the
+// reads to empty. Running it many times makes the race deterministic —
+// before the fix this failed within a handful of iterations on Linux.
+func TestNativeProc_FastProcessOutputCaptured(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.ERROR)
+	ctx := context.Background()
+	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
+	require.NoError(t, err)
+	require.NoError(t, env.Init(ctx))
+
+	for i := range 100 {
+		proc, err := env.NewProcess("sh", "-c", "echo FAST_MARKER_42")
+		require.NoError(t, err)
+		var buf bytes.Buffer
+		proc.WithOutput(&buf)
+		require.NoError(t, proc.Run(ctx))
+		require.Contains(t, buf.String(), "FAST_MARKER_42",
+			"iteration %d: fast-process output lost (pipe race): %q", i, buf.String())
+	}
+}
+
 func TestCrashing(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
