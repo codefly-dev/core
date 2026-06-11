@@ -11,13 +11,13 @@
 //
 //   - Stable convention names (Tool[ListSymbols] = "lang.list_symbols", etc.)
 //   - A bridge in both directions:
-//       NewToolboxFromTooling — wrap an existing Tooling impl as a Toolbox.
-//                               Lets language agents migrate by adding
-//                               one line to PluginRegistration; the
-//                               Tooling impl stays unchanged.
-//       ToolingFromToolbox    — wrap a Toolbox client as a typed
-//                               ToolingClient. Lets Mind keep its
-//                               existing call sites.
+//     NewToolboxFromTooling — wrap an existing Tooling impl as a Toolbox.
+//     Lets language agents migrate by adding
+//     one line to PluginRegistration; the
+//     Tooling impl stays unchanged.
+//     ToolingFromToolbox    — wrap a Toolbox client as a typed
+//     ToolingClient. Lets Mind keep its
+//     existing call sites.
 //
 // Both bridges round-trip via protojson + structpb, so the typed
 // proto messages travel intact. The wire is unified (Toolbox); the

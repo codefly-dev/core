@@ -129,7 +129,9 @@ func LoadRestAPI(ctx context.Context, f *string) (*basev0.RestAPI, error) {
 		var group *basev0.RestRouteGroup
 		var ok bool
 		if group, ok = groupMap[path]; !ok {
-			group = &basev0.RestRouteGroup{}
+			// Set Path: GroupKey() keys on group.Path, so leaving it empty
+			// collapsed every group of an endpoint into one mis-named group.
+			group = &basev0.RestRouteGroup{Path: path}
 			groupMap[path] = group
 		}
 		item := openapi.Paths.Paths[path]

@@ -97,6 +97,13 @@ func ToNamedPort(_ context.Context, ws, mod, svc, name, api string) uint16 {
 	// Ensure the last digit is 0 to make room for the GetAPI type
 	basePort = basePort - (basePort % 10)
 
+	// Never emit a privileged port: rounding the floor (1024) down to a
+	// multiple of 10 yields 1020, so +APIInt could land in 1020-1023 (<1024),
+	// which fails to bind without root. Clamp the rare near-floor case.
+	if basePort < 1030 {
+		basePort = 1030
+	}
+
 	// Add the GetAPI type to the last digit
 	return uint16(basePort) + uint16(APIInt(api))
 }

@@ -47,13 +47,13 @@ const ProtocolVersion = 1
 //   - Builder: Docker build + k8s deploy + scaffolding
 //   - Code: file/git/LSP operations (deprecated — use Tooling/Toolbox for language-specific ops)
 //   - Tooling: language-specific typed analysis (LSP, callgraph, fix, deps, build/test/lint).
-//             To be collapsed into Toolbox via the conventional `lang.*` tool set;
-//             remains for transition while consumers (Mind) migrate to the typed wrapper
-//             over CallTool.
+//     To be collapsed into Toolbox via the conventional `lang.*` tool set;
+//     remains for transition while consumers (Mind) migrate to the typed wrapper
+//     over CallTool.
 //   - Toolbox: MCP-shape callable surface — Identity / ListTools / CallTool / Resources /
-//             Prompts. The unified contract going forward. Capability plugins (git, docker,
-//             nix, web, grpc) expose only this; language plugins expose it alongside Tooling
-//             until the migration completes.
+//     Prompts. The unified contract going forward. Capability plugins (git, docker,
+//     nix, web, grpc) expose only this; language plugins expose it alongside Tooling
+//     until the migration completes.
 type PluginRegistration struct {
 	Agent   agentv0.AgentServer
 	Runtime runtimev0.RuntimeServer

@@ -18,8 +18,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	"github.com/codefly-dev/core/agents/manager"
+	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/policy/testharness"
 	"github.com/codefly-dev/core/resources"
@@ -212,13 +212,13 @@ func TestE2E_Principal_Absent_HandlerSeesNil(t *testing.T) {
 // TestE2E_Authorizer_AllowsViaCallback verifies the full plugin →
 // host callback channel:
 //
-//	1. host registers a Decider via WithPermissionsCallback
-//	2. spawn plugin (env carries CODEFLY_PERMISSIONS_SOCKET)
-//	3. plugin calls authorizer.Authorized(ctx, action, resource)
-//	4. plugin's HTTP client dials the host's UDS server
-//	5. host's server invokes the Decider with the spawn-time
-//	   principal (NOT the plugin's claim — security property)
-//	6. verdict travels back: plugin returns it in the response
+//  1. host registers a Decider via WithPermissionsCallback
+//  2. spawn plugin (env carries CODEFLY_PERMISSIONS_SOCKET)
+//  3. plugin calls authorizer.Authorized(ctx, action, resource)
+//  4. plugin's HTTP client dials the host's UDS server
+//  5. host's server invokes the Decider with the spawn-time
+//     principal (NOT the plugin's claim — security property)
+//  6. verdict travels back: plugin returns it in the response
 //
 // Asserts the wire works AND that the principal is bound at
 // spawn time, not from the plugin's claim.
@@ -486,14 +486,14 @@ func (f pdpRecorderForE2E) Evaluate(_ context.Context, req *policy.PDPRequest) p
 // TestE2E_ScopedAuth_FastPathSkipsPDP exercises the full
 // gateway-mint → wire → plugin-verify flow:
 //
-//   1. Host starts a plugin with WithPrincipal + WithScopedAuthSecret
-//      AND WithPermissionsCallback (callback wired with a deny-PDP).
-//   2. Host constructs a GatewayEvaluator with the same secret.
-//   3. Per call: host evaluates, mints a token, attaches via gRPC
-//      metadata, calls the plugin's CallTool.
-//   4. Plugin's policyguard.Guard verifies the token, dispatches
-//      to the inner toolbox handler. The PDP-via-callback is NOT
-//      consulted on the fast path.
+//  1. Host starts a plugin with WithPrincipal + WithScopedAuthSecret
+//     AND WithPermissionsCallback (callback wired with a deny-PDP).
+//  2. Host constructs a GatewayEvaluator with the same secret.
+//  3. Per call: host evaluates, mints a token, attaches via gRPC
+//     metadata, calls the plugin's CallTool.
+//  4. Plugin's policyguard.Guard verifies the token, dispatches
+//     to the inner toolbox handler. The PDP-via-callback is NOT
+//     consulted on the fast path.
 //
 // Assertions:
 //   - Tool call succeeds end-to-end (plugin runs the handler).
@@ -524,7 +524,7 @@ func TestE2E_ScopedAuth_FastPathSkipsPDP(t *testing.T) {
 	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
 
 	principal := &policy.Principal{
-		ID:      "u-fastpath", Kind: policy.KindHuman, OrgID: "org-x",
+		ID: "u-fastpath", Kind: policy.KindHuman, OrgID: "org-x",
 	}
 	secret := policy.NewSpawnSecret()
 
@@ -723,18 +723,18 @@ func (g *e2eApprovingGrantor) Request(_ context.Context, req policy.EscalationRe
 // TestE2E_M7_Escalation_HostRetriesAfterDeny is the load-bearing
 // M7 integration test. The flow:
 //
-//   1. Host calls plugin without a pre-minted token. Plugin's
-//      Guard takes the defense path; the PDP (callback to host)
-//      denies the call.
-//   2. Host catches the deny (model would too) and calls
-//      policy.RequestEscalation with a justification.
-//   3. RequestEscalation invokes the registered (test) grantor,
-//      which auto-approves and mints a fresh scoped token bound
-//      to this principal + action + resource.
-//   4. Host retries the call with the elevated ctx (token in
-//      outgoing metadata).
-//   5. Plugin's Guard takes the FAST path on the retry: token
-//      verifies, PDP is NOT consulted, handler runs.
+//  1. Host calls plugin without a pre-minted token. Plugin's
+//     Guard takes the defense path; the PDP (callback to host)
+//     denies the call.
+//  2. Host catches the deny (model would too) and calls
+//     policy.RequestEscalation with a justification.
+//  3. RequestEscalation invokes the registered (test) grantor,
+//     which auto-approves and mints a fresh scoped token bound
+//     to this principal + action + resource.
+//  4. Host retries the call with the elevated ctx (token in
+//     outgoing metadata).
+//  5. Plugin's Guard takes the FAST path on the retry: token
+//     verifies, PDP is NOT consulted, handler runs.
 //
 // Asserts:
 //   - First call fails with the deny reason.

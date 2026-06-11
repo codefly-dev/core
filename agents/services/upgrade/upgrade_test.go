@@ -47,12 +47,12 @@ func TestInOnly(t *testing.T) {
 
 func TestMajorOf(t *testing.T) {
 	cases := map[string]string{
-		"5.4.5":     "5",
-		"1.0.0a1":   "1",
-		"":          "",
-		"abc":       "",
-		"16":        "16",
-		"latest":    "",
+		"5.4.5":   "5",
+		"1.0.0a1": "1",
+		"":        "",
+		"abc":     "",
+		"16":      "16",
+		"latest":  "",
 	}
 	for in, want := range cases {
 		if got := majorOf(in); got != want {
@@ -63,12 +63,12 @@ func TestMajorOf(t *testing.T) {
 
 func TestSplitOnSpecifier(t *testing.T) {
 	cases := map[string]string{
-		"django==4.2.0":         "django",
-		"requests>=2.28":        "requests",
-		"uvicorn[standard]":     "uvicorn",
-		"flask~=3.0":            "flask",
-		"  spaces==1.0  ":       "spaces",
-		"plain-name":            "plain-name",
+		"django==4.2.0":     "django",
+		"requests>=2.28":    "requests",
+		"uvicorn[standard]": "uvicorn",
+		"flask~=3.0":        "flask",
+		"  spaces==1.0  ":   "spaces",
+		"plain-name":        "plain-name",
 	}
 	for in, want := range cases {
 		if got := splitOnSpecifier(in); got != want {

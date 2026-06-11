@@ -28,7 +28,7 @@ func TestAssertBaseWired_NonNilBasePasses(t *testing.T) {
 // fakeSettings is a tiny reflect target so the YAML helper can be
 // exercised without pulling any real agent's Settings into this module.
 type fakeSettings struct {
-	HotReload bool `yaml:"hot-reload"`
+	HotReload bool   `yaml:"hot-reload"`
 	Name      string `yaml:"name"`
 }
 

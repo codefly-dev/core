@@ -536,6 +536,8 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	if p == nil {
 		return nil, fmt.Errorf("%w: nil receiver passed to Load", ErrAgentNil)
 	}
+	// Tidy UDS sockets left behind by previously-crashed CLIs (once per process).
+	sweepStaleAgentSocketsOnce()
 	w := wool.Get(ctx).In("manager.Load", wool.Field("agent", p.Identifier()))
 
 	cfg := defaultLoadConfig()
@@ -794,6 +796,11 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 			killAgentGroup(cmd.Process.Pid)
 		}
 		_ = cmd.Wait()
+		// Remove the pgid tracking file written right after Start. The reaper
+		// goroutine (which would remove it) is only started on the success
+		// path, so every failure path leaked the file. A stale file can later
+		// make the orphan sweep SIGKILL a recycled, unrelated process group.
+		_ = runnersbase.RemovePgidFile(pid)
 		tail := stderrBuf.String()
 		if tail != "" {
 			return w.Wrapf(fmt.Errorf("%w: %s", sentinel, reason),

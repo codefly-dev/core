@@ -53,8 +53,8 @@ loop:
 	}
 	time.Sleep(100 * time.Millisecond)
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
-	require.Contains(t, d.Snapshot(),"good")
-	require.Contains(t, d.Snapshot(),"crashing")
+	require.Contains(t, d.Snapshot(), "good")
+	require.Contains(t, d.Snapshot(), "crashing")
 
 	// re-init should give the same id
 	err = env.Init(ctx)
@@ -83,8 +83,8 @@ loopAgain:
 	}
 	time.Sleep(100 * time.Millisecond)
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
-	require.Contains(t, d.Snapshot(),"good")
-	require.Contains(t, d.Snapshot(),"crashing")
+	require.Contains(t, d.Snapshot(), "good")
+	require.Contains(t, d.Snapshot(), "crashing")
 
 	// Run a finite script
 	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
@@ -109,7 +109,7 @@ loopFirst:
 	}
 	time.Sleep(100 * time.Millisecond)
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
-	require.Contains(t, d.Snapshot(),"1")
+	require.Contains(t, d.Snapshot(), "1")
 
 	// Run an infinite script and stop it after 2 seconds
 	proc, err = env.NewProcess("sh", "good/infinite_counter.sh")
@@ -143,7 +143,7 @@ loopLastTime:
 
 	}
 	time.Sleep(100 * time.Millisecond)
-	require.Contains(t, d.Snapshot(),"1")
+	require.Contains(t, d.Snapshot(), "1")
 
 	proc, err = env.NewProcess("sh", "good/finite_counter.sh")
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ loopReallyLastTime:
 		}
 	}
 	time.Sleep(100 * time.Millisecond)
-	require.Contains(t, d.Snapshot(),"1")
+	require.Contains(t, d.Snapshot(), "1")
 
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)
@@ -212,6 +212,31 @@ func TestNativeProc_ConcurrentStdoutStderr_NoBufferRace(t *testing.T) {
 	for _, expected := range []string{"out-1", "out-5", "err-1", "err-5"} {
 		require.True(t, strings.Contains(got, expected),
 			"output missing %q (race likely): %q", expected, got)
+	}
+}
+
+// TestNativeProc_FastProcessOutputCaptured guards the os/exec pipe race:
+// a process that exits almost immediately (a single echo) must still have
+// ALL of its output captured. The old code spawned cmd.Wait concurrently
+// with the stdout/stderr forwarders; Wait closes the pipe read-ends on
+// process exit, so on a fast process it raced ahead and truncated the
+// reads to empty. Running it many times makes the race deterministic —
+// before the fix this failed within a handful of iterations on Linux.
+func TestNativeProc_FastProcessOutputCaptured(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.ERROR)
+	ctx := context.Background()
+	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
+	require.NoError(t, err)
+	require.NoError(t, env.Init(ctx))
+
+	for i := range 100 {
+		proc, err := env.NewProcess("sh", "-c", "echo FAST_MARKER_42")
+		require.NoError(t, err)
+		var buf bytes.Buffer
+		proc.WithOutput(&buf)
+		require.NoError(t, proc.Run(ctx))
+		require.Contains(t, buf.String(), "FAST_MARKER_42",
+			"iteration %d: fast-process output lost (pipe race): %q", i, buf.String())
 	}
 }
 

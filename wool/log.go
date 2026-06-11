@@ -117,6 +117,7 @@ const (
 )
 
 var levelToString = map[Loglevel]string{
+	DEFAULT: "DEFAULT",
 	TRACE:   "TRACE",
 	DEBUG:   "DEBUG",
 	FOCUS:   "FOCUS",
@@ -125,6 +126,15 @@ var levelToString = map[Loglevel]string{
 	ERROR:   "ERROR",
 	FATAL:   "FATAL",
 	FORWARD: "FORWARD",
+}
+
+// String returns the human-readable name of the log level (e.g. "INFO"),
+// or "L<n>" for an unknown value. Implements fmt.Stringer.
+func (l Loglevel) String() string {
+	if s, ok := levelToString[l]; ok {
+		return s
+	}
+	return fmt.Sprintf("L%d", int(l))
 }
 
 // --- Field-level methods ---

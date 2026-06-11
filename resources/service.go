@@ -319,11 +319,16 @@ func (s *Service) SaveAtDir(ctx context.Context, dir string) error {
 
 func (s *Service) Save(ctx context.Context) error {
 	w := wool.Get(ctx).In("Service::Save", wool.NameField(s.Name))
-	err := s.preSave(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot pre-save")
+	// preSave blanks fields that are redundant on disk (module/service are
+	// implied by location). It returns a restore func so the in-memory model
+	// is put back AFTER marshalling — otherwise Save corrupts live objects
+	// (and, in flat layout, pointers shared with workspace.Services).
+	restore := s.preSave()
+	defer restore()
+	if err := SaveToDir(ctx, s, s.Dir()); err != nil {
+		return w.Wrapf(err, "cannot save service")
 	}
-	return SaveToDir(ctx, s, s.Dir())
+	return nil
 }
 
 func (s *Service) UpdateSpecFromSettings(spec any) error {
@@ -400,18 +405,47 @@ func (s *Service) postLoad(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) preSave(_ context.Context) error {
+// preSave blanks fields that should not be written to disk (they are redundant
+// — implied by the file's location) and returns a func that restores every
+// mutated value. Callers MUST defer the returned restore so the in-memory model
+// is not left corrupted after marshalling.
+func (s *Service) preSave() func() {
+	type epSnap struct {
+		ep              *Endpoint
+		module, svc     string
+		visibility, api string
+	}
+	type depSnap struct {
+		dep    *ServiceDependency
+		module string
+	}
+	var eps []epSnap
+	var deps []depSnap
+
 	for _, dep := range s.ServiceDependencies {
 		if dep.Module == s.module {
+			deps = append(deps, depSnap{dep: dep, module: dep.Module})
 			dep.Module = ""
 		}
 	}
 	for _, endpoint := range s.Endpoints {
+		eps = append(eps, epSnap{ep: endpoint, module: endpoint.Module, svc: endpoint.Service, visibility: endpoint.Visibility, api: endpoint.API})
 		endpoint.Module = ""
 		endpoint.Service = ""
 		endpoint.preSave()
 	}
-	return nil
+
+	return func() {
+		for _, d := range deps {
+			d.dep.Module = d.module
+		}
+		for _, e := range eps {
+			e.ep.Module = e.module
+			e.ep.Service = e.svc
+			e.ep.Visibility = e.visibility
+			e.ep.API = e.api
+		}
+	}
 }
 
 func (s *Service) HasEndpoints(_ context.Context, endpoints []string) ([]string, error) {

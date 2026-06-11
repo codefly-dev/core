@@ -4,8 +4,8 @@ package rust
 // Agent-specific settings are defined in each agent and embed this struct,
 // mirroring core/runners/golang.GoAgentSettings.
 type RustAgentSettings struct {
-	HotReload    bool   `yaml:"hot-reload"`
-	DebugSymbols bool   `yaml:"debug-symbols"`
+	HotReload    bool `yaml:"hot-reload"`
+	DebugSymbols bool `yaml:"debug-symbols"`
 	// Release builds with the optimized `--release` profile. Off by default
 	// for a fast dev loop (debug profile compiles faster).
 	Release bool `yaml:"release"`

@@ -49,13 +49,13 @@ import (
 //
 // **Distribution.** Operators populate TRL in two ways:
 //
-//   1. Programmatic: call Add(tokenID) when receiving a
-//      revocation event (e.g. from saas-starter via
-//      Postgres NOTIFY or webhook).
+//  1. Programmatic: call Add(tokenID) when receiving a
+//     revocation event (e.g. from saas-starter via
+//     Postgres NOTIFY or webhook).
 //
-//   2. File-backed: TrackFile(path) watches a JSON file
-//      containing the revoked-id list. Reload on file change.
-//      Useful for kubectl-style ConfigMap distribution.
+//  2. File-backed: TrackFile(path) watches a JSON file
+//     containing the revoked-id list. Reload on file change.
+//     Useful for kubectl-style ConfigMap distribution.
 //
 // **Why not "always check saas-starter on every call".** It'd
 // be trivially correct, but the M3-era PDP cache exists exactly

@@ -297,4 +297,3 @@ func (allowDecider) Evaluate(_ context.Context, _ *policy.PDPRequest) policy.PDP
 }
 
 func newAllowDecider() policy.Decider { return allowDecider{} }
-

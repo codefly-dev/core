@@ -8,7 +8,6 @@ import (
 
 	"github.com/codefly-dev/core/version"
 
-
 	"buf.build/go/protovalidate"
 
 	"path"

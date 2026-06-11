@@ -646,19 +646,22 @@ func (proc *NixProc) start(ctx context.Context) error {
 			return w.Wrapf(err, "cannot start nix process")
 		}
 		proc.exec = cmd
-		proc.forwarderWG.Add(2)
+		proc.forwarderWG.Add(1)
 		go func() {
 			defer proc.forwarderWG.Done()
 			defer stderr.Close()
 			proc.forward(stderr)
 		}()
-		// Single cmd.Wait per process — publishExit lets Run() learn
-		// the exit error via exitCh. Previously this goroutine called
-		// cmd.Wait silently AND Run() called proc.exec.Wait() in its
-		// own goroutine — two Waits, undefined per os/exec docs,
-		// silently drops the real exit error.
+		// Drain the StderrPipe forwarder to EOF BEFORE reaping. os/exec
+		// closes the pipe read-end the instant cmd.Wait sees the process
+		// exit, so a concurrent Wait races the forwarder's reads and
+		// truncates output. The cmd.Stdout writer path is os/exec-managed
+		// (it waits for its own copy goroutine), so only the manual
+		// StderrPipe needs the ordering. publishExit unblocks Run via
+		// exitCh; Stop()/SIGKILL closes the pipe if a process refuses to
+		// die, so the forwarder always reaches EOF.
 		go func() {
-			defer proc.forwarderWG.Done()
+			proc.forwarderWG.Wait()
 			err := cmd.Wait()
 			proc.stdoutWriter.Close()
 			proc.publishExit(err)
@@ -676,7 +679,7 @@ func (proc *NixProc) start(ctx context.Context) error {
 			return w.Wrapf(err, "cannot start nix process")
 		}
 		proc.exec = cmd
-		proc.forwarderWG.Add(3)
+		proc.forwarderWG.Add(2)
 		go func() {
 			defer proc.forwarderWG.Done()
 			defer stdout.Close()
@@ -687,13 +690,21 @@ func (proc *NixProc) start(ctx context.Context) error {
 			defer stderr.Close()
 			proc.forward(stderr)
 		}()
-		// Single cmd.Wait per process — same pattern as the
-		// stdoutWriter branch above. Run() learns the exit error
-		// via exitCh, never calls Wait itself.
+		// CRITICAL ordering: drain both StdoutPipe/StderrPipe forwarders to
+		// EOF BEFORE calling cmd.Wait. os/exec closes the pipe read-ends the
+		// moment Wait sees the process exit — the docs state plainly: "it is
+		// incorrect to call Wait before all reads from the pipe have
+		// completed." The previous code ran cmd.Wait CONCURRENTLY with the
+		// forwarders; on a fast-exiting process (e.g. `echo`) Wait won the
+		// race, closed the pipes mid-read, and the entire output was lost
+		// (TestNixMaterialize_PinsGoCache saw empty stdout on Linux CI while
+		// slower macOS scheduling masked it). The forwarders reach EOF when
+		// the process exits and the kernel closes the write-ends, so this
+		// never deadlocks on the happy path; Stop()/SIGKILL is the escape
+		// hatch for a process that refuses to die.
 		go func() {
-			defer proc.forwarderWG.Done()
-			err := cmd.Wait()
-			proc.publishExit(err)
+			proc.forwarderWG.Wait()
+			proc.publishExit(cmd.Wait())
 		}()
 	}
 

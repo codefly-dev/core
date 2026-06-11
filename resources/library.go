@@ -17,12 +17,12 @@ const LibraryConfigurationName = "library.codefly.yaml"
 
 // Library represents internal shared code that can be used by services
 type Library struct {
-	Kind        string             `yaml:"kind"`
-	Name        string             `yaml:"name"`
-	Description string             `yaml:"description,omitempty"`
-	Version     string             `yaml:"version"`
-	Languages   []*LanguageExport  `yaml:"languages,omitempty"`
-	Git         *GitConfig         `yaml:"git,omitempty"`
+	Kind        string              `yaml:"kind"`
+	Name        string              `yaml:"name"`
+	Description string              `yaml:"description,omitempty"`
+	Version     string              `yaml:"version"`
+	Languages   []*LanguageExport   `yaml:"languages,omitempty"`
+	Git         *GitConfig          `yaml:"git,omitempty"`
 	LibraryDeps []*LibraryReference `yaml:"library-dependencies,omitempty"`
 
 	// Internal

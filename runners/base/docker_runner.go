@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/docker/docker/pkg/stdcopy"
@@ -283,6 +284,15 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 			LabelCodeflyName:    docker.name,
 		},
 	}
+	// Ephemeral (SDK / `codefly run --cli-server`) containers are per-test
+	// throwaways with unique naming scopes — they are NEVER reused by name, so
+	// the "preserve running-dead-owner for reuse" rule does not apply. Mark
+	// them so the startup sweep reaps them even while running; otherwise a
+	// killed test (timeout/SIGKILL) leaks its Neo4j/Postgres forever and they
+	// pile up (28 orphans observed → OrbStack memory blowup).
+	if EphemeralContainers() {
+		config.Labels[LabelCodeflyEphemeral] = "true"
+	}
 
 	if len(docker.cmd) > 0 {
 		w.Debug("overriding command", wool.Field("cmd", docker.cmd))
@@ -298,10 +308,26 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 // containers and their spawning CLI. These are set on every container
 // created via DockerEnvironment and consumed by ReapStaleContainers.
 const (
-	LabelCodeflyOwner   = "codefly.owner"    // always "true"
-	LabelCodeflySession = "codefly.session"  // PID of the spawning CLI
-	LabelCodeflyName    = "codefly.name"     // container's logical name
+	LabelCodeflyOwner     = "codefly.owner"     // always "true"
+	LabelCodeflySession   = "codefly.session"   // PID of the spawning CLI
+	LabelCodeflyName      = "codefly.name"      // container's logical name
+	LabelCodeflyEphemeral = "codefly.ephemeral" // "true" for SDK/test (--cli-server) containers
 )
+
+// ephemeralContainers marks this CLI process as running in SDK/test
+// (`--cli-server`) mode, where spawned dependency containers are per-run
+// throwaways. Set once at startup (service.go), read at container creation.
+// A process-level flag (not env/context) keeps the runner — which already
+// reads os.Getpid() at the same point — dependency-free.
+var ephemeralContainers atomic.Bool
+
+// SetEphemeralContainers marks dependency containers spawned by this process as
+// ephemeral so the startup sweep reaps them even while running. The CLI calls
+// this when it parses --cli-server.
+func SetEphemeralContainers(v bool) { ephemeralContainers.Store(v) }
+
+// EphemeralContainers reports whether this process spawns ephemeral containers.
+func EphemeralContainers() bool { return ephemeralContainers.Load() }
 
 func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.HostConfig {
 	docker.mu.Lock()
@@ -435,7 +461,10 @@ func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, 
 // sees a generic "not ready" timeout). Returns "" on any error so
 // callers can safely append without conditional logic.
 func (docker *DockerEnvironment) TailLogs(ctx context.Context, lines int) string {
-	if docker.instance.ID == "" {
+	// instance is nil exactly on the failed-container-start path — which is the
+	// path that calls TailLogs to enrich the error. Without this guard the
+	// deref panicked instead of returning the (empty) logs it promises.
+	if docker.instance == nil || docker.instance.ID == "" {
 		return ""
 	}
 	options := container.LogsOptions{
@@ -467,6 +496,14 @@ func (docker *DockerEnvironment) GetLogs(ctx context.Context) error {
 	w.Debug("getting logs")
 	if !docker.running {
 		return nil
+	}
+	// Close any prior follow-mode reader before opening a new one. GetLogs is
+	// re-invoked on every GetContainer (i.e. each DockerProc.start); without
+	// this, each call leaked a hijacked connection + Forward goroutine and
+	// overwrote docker.reader so the old one could never be closed.
+	if docker.reader != nil {
+		_ = docker.reader.Close()
+		docker.reader = nil
 	}
 	options := container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
 	logReader, err := docker.client.ContainerLogs(ctx, docker.instance.ID, options)
@@ -999,7 +1036,6 @@ func (proc *DockerProc) stop(ctx context.Context, pid int, force bool) error {
 	// Process is killed; you might want to handle output or errors
 	return nil
 }
-
 
 func (proc *DockerProc) WithOutput(output io.Writer) {
 	proc.output = output

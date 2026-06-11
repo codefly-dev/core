@@ -324,6 +324,11 @@ func checkScopedAuthClaims(sa *ScopedAuthorization, expect VerifyExpectations) e
 	if expect.Action != "" && sa.Action != expect.Action {
 		return fmt.Errorf("%w: action mismatch (token=%q, want=%q)", ErrScopedAuthInvalid, sa.Action, expect.Action)
 	}
+	// NOTE: this primitive intentionally skips the resource check when the
+	// expectation is empty (symmetric with Action above) — it is the low-level
+	// signature/claims verifier. Enforcing that a resource-scoped token is only
+	// accepted when the CALL actually carries a matching resource is the Guard's
+	// job (policyguard.CallTool), which knows both the token and the call.
 	if expect.Resource != "" && sa.Resource != "" && sa.Resource != expect.Resource {
 		return fmt.Errorf("%w: resource mismatch (token=%q, want=%q)", ErrScopedAuthInvalid, sa.Resource, expect.Resource)
 	}

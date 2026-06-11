@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/codefly-dev/core/resources"
@@ -227,12 +228,32 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	cmd := exec.CommandContext(ctx, "uv", pytestArgs...)
 	cmd.Dir = sourceDir
 
+	// Run pytest in its own process group so a cancelled/timed-out run kills
+	// the WHOLE tree (uv → pytest → xdist workers), not just the direct child.
+	// Bare exec.CommandContext only SIGKILLs `uv`, orphaning the pytest workers
+	// — the historical zombie/port-leak class. Cancel tree-signals the group:
+	// SIGTERM for a graceful unwind, then SIGKILL after a grace period.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		pgid := cmd.Process.Pid // == pgid because of Setpgid
+		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+		time.AfterFunc(5*time.Second, func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+		return nil
+	}
+
 	var raw bytes.Buffer
 	// Tee stdout: capture to buffer + line-scan for events when a sink is set.
 	if opt.OnEvent != nil {
 		pr, pw := io.Pipe()
-		cmd.Stdout = io.MultiWriter(&raw, pw)
-		cmd.Stderr = io.MultiWriter(&raw, pw)
+		// One writer value for BOTH streams so os/exec serializes writes to the
+		// shared buffer (it uses a single goroutine when Stdout == Stderr).
+		// Two distinct MultiWriters raced on the bytes.Buffer.
+		combined := io.MultiWriter(&raw, pw)
+		cmd.Stdout = combined
+		cmd.Stderr = combined
 		go scanPytestEvents(pr, opt.OnEvent)
 		defer pw.Close()
 	} else {

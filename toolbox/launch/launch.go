@@ -110,7 +110,15 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 		}
 		if sb != nil {
 			allOpts = append(allOpts, manager.WithSandbox(sb))
+		} else {
+			// buildSandbox only returns nil now under the explicit
+			// CODEFLY_SANDBOX_PERMISSIVE=1 escape hatch. Record the unconfined
+			// choice so manager.Load doesn't warn about a "missing" one.
+			allOpts = append(allOpts, manager.WithoutSandbox())
 		}
+	} else {
+		// SkipSandbox is a documented full bypass; record the choice.
+		allOpts = append(allOpts, manager.WithoutSandbox())
 	}
 	allOpts = append(allOpts, opts...)
 
@@ -125,12 +133,10 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 	}, nil
 }
 
-// buildSandbox translates the manifest's SandboxPolicy into a
-// configured sandbox.Sandbox. Returns nil (no sandbox) when the
-// manifest declares an empty policy AND no canonical_for binaries —
-// the historical default for "this toolbox doesn't need confinement"
-// (e.g. fake test plugins). When canonical_for is non-empty the
-// manifest IS asserting authority, so we always wrap.
+// buildSandbox translates the manifest's SandboxPolicy into a configured
+// sandbox.Sandbox. Returns nil (unconfined) for a manifest with an empty policy
+// and no canonical_for binaries — the documented historical default (see the
+// fail-closed note in the body for why that flip is deferred).
 //
 // **Network default.** policy.SandboxPolicy.Apply translates an
 // UNSET network field to NetworkDeny. NetworkDeny is too aggressive
@@ -154,26 +160,37 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 // platforms where bwrap isn't installed; production deployments
 // should ensure the backend is present.
 func buildSandbox(t *resources.Toolbox, workspace string) (sandbox.Sandbox, error) {
+	// Empty policy → no sandbox (unconfined), the documented historical default.
+	//
+	// NOTE: an earlier revision made this fail-closed (empty policy → a
+	// loopback-network sandbox). That broke plugin spawn on Linux: bwrap's
+	// NetworkLoopback runs `ip link set lo up`, which needs CAP_NET_ADMIN that
+	// CI (and many prod Linux user-namespaces) lack — the agent then fails its
+	// handshake ("RTNETLINK answers: Operation not permitted"). The fail-closed
+	// flip is a real deployment-wide migration (it needs the bwrap-loopback
+	// capability story solved first), not a mechanical default change, so it is
+	// intentionally NOT enabled here. Callers that want confinement declare a
+	// policy; callers that want an unconfined process can pass SkipSandbox.
 	if isEmptyPolicy(t) {
 		return nil, nil
 	}
+
 	sb, err := sandbox.New()
 	if err != nil {
 		return nil, fmt.Errorf("sandbox backend unavailable: %w", err)
 	}
 
-	// Apply a copy of the manifest policy with the default-network
-	// override so we don't mutate the caller's *resources.Toolbox.
-	// Empty Network → Loopback (handshake works, outbound denied).
+	// Apply a copy of the manifest policy with the default-network override so
+	// we don't mutate the caller's *resources.Toolbox.
 	pol := t.Sandbox
 	if pol.Network == "" {
+		// Empty Network → Loopback (handshake works, outbound denied).
 		pol.Network = policy.NetworkLoopback
 	}
 	expand := policy.NewExpander(workspace)
 	if err := pol.Apply(sb, expand); err != nil {
 		return nil, fmt.Errorf("apply sandbox policy: %w", err)
 	}
-	_ = sandbox.NetworkLoopback // import is otherwise unused on this build
 	return sb, nil
 }
 

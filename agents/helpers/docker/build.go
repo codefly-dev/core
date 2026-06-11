@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -44,7 +43,10 @@ func NewBuilder(cfg BuilderConfiguration) (*Builder, error) {
 	return &Builder{BuilderConfiguration: cfg}, nil
 }
 
-type BuilderOutput struct{}
+type BuilderOutput struct {
+	// Image is the fully-qualified tag of the image that was built.
+	Image string
+}
 
 func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	w := wool.Get(ctx).In("Builder.Build", wool.DirField(builder.Root))
@@ -74,17 +76,31 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 		return nil, w.Wrapf(err, "cannot build image")
 	}
 
-	// Respond the build output
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			w.Error("Error closing build response body", wool.ErrField(err))
+		}
+	}(imageBuildResponse.Body)
+
+	// Respond the build output. The daemon reports a failed build as an
+	// `errorDetail` line in the stream — it is NOT surfaced via the ImageBuild
+	// call's error. We must scan for it and return a real error, otherwise a
+	// broken Dockerfile is reported as a successful build and a stale/missing
+	// image gets pushed/referenced downstream.
 	scanner := bufio.NewScanner(imageBuildResponse.Body)
-	var buildOutput struct {
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"errorDetail"`
-		Stream string `json:"stream"`
-	}
+	var buildErr string
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
+		// Reset per line: the struct is reused across Unmarshal calls, so a
+		// single error line would otherwise make every later line look errored.
+		var buildOutput struct {
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"errorDetail"`
+			Stream string `json:"stream"`
+		}
 		if err := json.Unmarshal(line, &buildOutput); err != nil {
 			w.Error("cannot unmarshal build output", wool.ErrField(err))
 			continue
@@ -92,26 +108,23 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 
 		if buildOutput.Error != nil {
 			w.Error("got build error", wool.Field("output", buildOutput.Error.Message))
+			buildErr = buildOutput.Error.Message
 		} else {
 			out := strings.TrimSpace(buildOutput.Stream)
 			if len(out) == 0 {
 				continue
 			}
 			_, _ = builder.Output.Write([]byte(out))
-
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		fmt.Printf("Error reading build output: %v\n", err)
+		return nil, w.Wrapf(err, "cannot read docker build output")
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			w.Error("Error closing build response body", wool.ErrField(err))
-		}
-	}(imageBuildResponse.Body)
-	return nil, nil
+	if buildErr != "" {
+		return nil, w.NewError("docker build failed: %s", buildErr)
+	}
+	return &BuilderOutput{Image: builder.Destination.FullName()}, nil
 }
 
 func (builder *Builder) readDockerignore(ctx context.Context) ([]string, error) {

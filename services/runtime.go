@@ -25,4 +25,3 @@ func LoadRuntime(ctx context.Context, service *resources.Service) (*coreservices
 
 	return runtime, nil
 }
-

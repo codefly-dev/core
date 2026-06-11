@@ -2,6 +2,7 @@ package code
 
 import (
 	"context"
+	"os/exec"
 	"testing"
 )
 
@@ -91,21 +92,36 @@ func TestNativeGit_NotARepo(t *testing.T) {
 }
 
 func TestNativeGit_Branches(t *testing.T) {
-	ng := OpenNativeGit("..")
-	if ng == nil {
-		ng = OpenNativeGit(".")
+	// Build a throwaway repo with one commit so a local branch exists. The old
+	// version opened the ambient repo and asserted ≥1 branch — which fails in CI
+	// where the checkout is a DETACHED HEAD (no local branch refs), even though
+	// ListBranches itself works fine.
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		// Inline identity so the commit works on a runner with no global config.
+		cmd.Env = append(cmd.Environ(),
+			"GIT_AUTHOR_NAME=codefly", "GIT_AUTHOR_EMAIL=test@codefly.dev",
+			"GIT_COMMITTER_NAME=codefly", "GIT_COMMITTER_EMAIL=test@codefly.dev")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
 	}
-	if ng == nil {
-		t.Fatal("no git repo found at ../ or ./ — run these tests from a checkout that includes the .git directory")
-	}
+	git("init", "-b", "main")
+	git("commit", "--allow-empty", "-m", "init")
 
+	ng := OpenNativeGit(dir)
+	if ng == nil {
+		t.Fatalf("OpenNativeGit returned nil for a fresh repo at %s", dir)
+	}
 	branches, err := ng.ListBranches()
 	if err != nil {
 		t.Fatal("ListBranches:", err)
 	}
-	// Should have at least main/master
 	if len(branches) == 0 {
-		t.Fatal("expected at least 1 branch")
+		t.Fatal("expected at least 1 branch in a repo with a commit")
 	}
 	t.Logf("Branches: %v", branches)
 }

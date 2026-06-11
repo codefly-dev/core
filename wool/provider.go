@@ -3,7 +3,6 @@ package wool
 import (
 	"context"
 	"fmt"
-	"runtime"
 )
 
 // Identifier holds the kind and unique name of a wool source.
@@ -82,21 +81,16 @@ func (p *Provider) Inject(ctx context.Context) context.Context {
 // Get creates a Wool instance from this provider.
 func (p *Provider) Get(ctx context.Context) *Wool {
 	base := &Wool{ctx: ctx, source: p.identifier}
-	if _, file, line, ok := runtime.Caller(1); ok {
-		base.ref = &CodeReference{File: file, Line: line}
-	} else {
-		base.ref = &CodeReference{File: "unknown", Line: 0}
-	}
 	base.provider = p
 	if p.logger != nil {
 		base.logger = p.logger
 	}
 
-	if p.tracer != nil {
-		currentCtx, span := p.tracer.Start(ctx, p.identifier.Unique)
-		base.ctx = currentCtx
-		base.span = span
-	}
+	// Reuse the active span (started via Span()) rather than creating a fresh
+	// one per Get. The old code called tracer.Start on EVERY Get and nothing
+	// ever ended those spans — no traces were exported and the un-ended spans
+	// leaked. Spans now have explicit lifetimes (see Span()).
+	base.span = activeSpan(ctx)
 	return base
 }
 
@@ -126,44 +120,78 @@ func (c Console) Process(msg *Log) {
 
 // --- Package-level Get ---
 
-// get retrieves the provider from context.
+// errNoProvider is a package-level sentinel so the (very hot) no-provider
+// path of get() doesn't allocate a fresh error on every wool.Get call.
+var errNoProvider = fmt.Errorf("no wool in context")
+
+// get retrieves the provider from context. Returns errNoProvider when none is
+// present (or a typed-nil *Provider was stuck on ctx).
 func get(ctx context.Context) (*Provider, error) {
-	w := ctx.Value(ProviderKey)
-	if w == nil {
-		return nil, fmt.Errorf("no wool in context")
+	v := ctx.Value(ProviderKey)
+	if v == nil {
+		return nil, errNoProvider
 	}
-	return w.(*Provider), nil
+	p, ok := v.(*Provider)
+	if !ok || p == nil {
+		return nil, errNoProvider
+	}
+	return p, nil
 }
 
 // Get retrieves or creates a Wool instance from the context.
 // If no provider is found, falls back to a Console logger.
+//
+// wool.Get is on essentially every function's hot path, so it avoids work on
+// the common (provider-present) branch: no stack walk, no throwaway error, and
+// getFallbackLogger() (which takes a lock + allocates a Console) is only called
+// when there is genuinely no provider logger to use.
 func Get(ctx context.Context) *Wool {
 	if ctx == nil {
 		panic("nil context")
 	}
 
-	base := &Wool{ctx: ctx, logger: getFallbackLogger()}
-	if _, file, line, ok := runtime.Caller(1); ok {
-		base.ref = &CodeReference{File: file, Line: line}
-	} else {
-		base.ref = &CodeReference{File: "unknown", Line: 0}
-	}
 	provider, err := get(ctx)
 	if err != nil || provider == nil {
-		// No registered provider OR a typed-nil *Provider stuck on
-		// ctx. Either way, return the fallback Wool — the calling
-		// code's chain (.In/.Wrapf) keeps working without telemetry.
-		return base
-	}
-	base.provider = provider
-	if provider.logger != nil {
-		base.logger = provider.logger
+		// No registered provider OR a typed-nil *Provider stuck on ctx. Return
+		// a fallback Wool — the calling code's chain (.In/.Wrapf) keeps working.
+		return &Wool{ctx: ctx, logger: getFallbackLogger()}
 	}
 
-	if provider.tracer != nil {
-		currentCtx, span := provider.tracer.Start(ctx, provider.identifier.Unique)
-		base.ctx = currentCtx
-		base.span = span
+	base := &Wool{ctx: ctx, provider: provider, span: activeSpan(ctx)}
+	if provider.logger != nil {
+		base.logger = provider.logger
+	} else {
+		base.logger = getFallbackLogger()
 	}
 	return base
+}
+
+type spanContextKey struct{}
+
+// activeSpan returns the span started by the nearest enclosing Span() call, or
+// nil when none is active.
+func activeSpan(ctx context.Context) Span {
+	if s, ok := ctx.Value(spanContextKey{}).(Span); ok {
+		return s
+	}
+	return nil
+}
+
+// StartSpan starts a named tracing span and returns a Wool bound to it plus an
+// end func the caller MUST defer:
+//
+//	w, end := wool.StartSpan(ctx, "MyOp")
+//	defer end()
+//
+// Log lines emitted by w (and any wool.Get on the returned context chain) attach
+// as events to this span. When no telemetry provider/tracer is configured it is
+// a no-op (end is a no-op too), so it is always safe to call.
+func StartSpan(ctx context.Context, name string) (*Wool, func()) {
+	provider, err := get(ctx)
+	if err != nil || provider == nil || provider.tracer == nil {
+		return Get(ctx), func() {}
+	}
+	spanCtx, span := provider.tracer.Start(ctx, name)
+	spanCtx = context.WithValue(spanCtx, spanContextKey{}, span)
+	return Get(spanCtx), span.End
 }

@@ -24,9 +24,9 @@ const (
 	ToolApplyEdit = "lang.apply_edit"
 
 	// Dependencies
-	ToolListDependencies   = "lang.list_dependencies"
-	ToolAddDependency      = "lang.add_dependency"
-	ToolRemoveDependency   = "lang.remove_dependency"
+	ToolListDependencies = "lang.list_dependencies"
+	ToolAddDependency    = "lang.add_dependency"
+	ToolRemoveDependency = "lang.remove_dependency"
 
 	// Project-level analysis
 	ToolGetProjectInfo = "lang.get_project_info"

@@ -9,7 +9,9 @@ func ProcessLogs(r io.ReadCloser, w io.Writer) {
 	// TODO: Logging error strategy
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		_, _ = w.Write([]byte(scanner.Text()))
+		// Scanner.Text() strips the trailing newline; re-add it, otherwise all
+		// forwarded log lines concatenate into a single unreadable line.
+		_, _ = w.Write([]byte(scanner.Text() + "\n"))
 	}
 
 	if err := scanner.Err(); err != nil {
