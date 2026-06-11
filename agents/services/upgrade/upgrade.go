@@ -11,7 +11,9 @@ package upgrade
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os/exec"
+	"strings"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
@@ -32,14 +34,21 @@ type Result struct {
 	LockfileDiff string
 }
 
+// runCmd returns the command's STDOUT only; stderr is captured separately and
+// folded into the error. Merging stderr into the parsed stream put non-JSON
+// progress noise (`go: downloading ...`) mid-report, which json.Decoder cannot
+// skip past — the historical 100%-CPU hang.
 func runCmd(ctx context.Context, dir string, name string, args ...string) ([]byte, error) {
 	c := exec.CommandContext(ctx, name, args...)
 	c.Dir = dir
-	var out bytes.Buffer
-	c.Stdout = &out
-	c.Stderr = &out
+	var stdout, stderr bytes.Buffer
+	c.Stdout = &stdout
+	c.Stderr = &stderr
 	err := c.Run()
-	return out.Bytes(), err
+	if err != nil && stderr.Len() > 0 {
+		err = fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.Bytes(), err
 }
 
 func have(name string) bool {

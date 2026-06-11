@@ -104,6 +104,13 @@ func (g *GatewayEvaluator) EvaluateAndMint(ctx context.Context, in EvaluationInp
 	if in.Principal == nil {
 		return nil, fmt.Errorf("%w: nil principal", ErrGatewayDeny)
 	}
+	// Re-check expiry at the trust boundary: the gateway mints fresh scoped
+	// tokens off the in-memory Principal, so an expired principal must not be
+	// able to keep minting (upstream DecodePrincipalToken checks expiry only at
+	// spawn time).
+	if in.Principal.IsExpired() {
+		return nil, fmt.Errorf("%w: principal credential expired", ErrGatewayDeny)
+	}
 	if in.Tool == "" {
 		return nil, fmt.Errorf("%w: empty tool", ErrGatewayDeny)
 	}

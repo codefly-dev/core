@@ -123,14 +123,40 @@ func (t *Toolbox) canonicalCheck(script string) error {
 			return false
 		}
 		name := strings.TrimSpace(nameBuf.String())
+		name = strings.TrimPrefix(name, "\\") // `\git` is still git
+		prog := basename(name)
 
 		if d := t.registry.Lookup(name); d != nil {
-			firstHit = &CanonicalRoutedError{
-				Binary: name,
-				Owner:  d.Owner,
-				Reason: d.Reason,
-			}
+			firstHit = &CanonicalRoutedError{Binary: name, Owner: d.Owner, Reason: d.Reason}
 			return false
+		}
+
+		// Wrapper commands run ANOTHER program; checking only argv[0] let
+		// `bash -c "git ..."`, `env git`, `sudo git`, `xargs git` etc. bypass
+		// routing entirely.
+		//
+		// Shell `-c <script>` wrappers: recurse into the embedded script so
+		// every command in it is checked, not just the first.
+		switch prog {
+		case "sh", "bash", "zsh", "dash", "ash", "ksh":
+			if script, ok := shellDashCScript(cmd); ok {
+				if err := t.canonicalCheck(script); err != nil {
+					var routed *CanonicalRoutedError
+					if errors.As(err, &routed) {
+						firstHit = routed
+						return false
+					}
+				}
+			}
+		default:
+			// Prefix wrappers (env/sudo/xargs/...): resolve the wrapped
+			// command name and look it up.
+			if wrapped := wrappedCommandName(cmd, prog); wrapped != "" {
+				if d := t.registry.Lookup(wrapped); d != nil {
+					firstHit = &CanonicalRoutedError{Binary: wrapped, Owner: d.Owner, Reason: d.Reason}
+					return false
+				}
+			}
 		}
 		return true
 	})
@@ -164,4 +190,93 @@ func (e *CanonicalRoutedError) Error() string {
 			e.Binary, e.Owner, e.Reason)
 	}
 	return fmt.Sprintf("bash refused %q: %s", e.Binary, e.Reason)
+}
+
+// basename strips any leading path from a program name (`/usr/bin/git` → `git`).
+func basename(name string) string {
+	if i := strings.LastIndexByte(name, '/'); i >= 0 {
+		return name[i+1:]
+	}
+	return name
+}
+
+// wordLiteral returns the static string value of a shell word when it is fully
+// static (a bare literal or a single/double-quoted literal with no expansions);
+// ok is false if the word contains variable/command expansion, which we cannot
+// safely resolve at parse time.
+func wordLiteral(w *syntax.Word) (string, bool) {
+	if w == nil {
+		return "", false
+	}
+	var b strings.Builder
+	for _, part := range w.Parts {
+		switch p := part.(type) {
+		case *syntax.Lit:
+			b.WriteString(p.Value)
+		case *syntax.SglQuoted:
+			b.WriteString(p.Value)
+		case *syntax.DblQuoted:
+			for _, dp := range p.Parts {
+				lit, ok := dp.(*syntax.Lit)
+				if !ok {
+					return "", false
+				}
+				b.WriteString(lit.Value)
+			}
+		default:
+			return "", false
+		}
+	}
+	return b.String(), true
+}
+
+// shellDashCScript returns the script passed to a shell via `-c` (e.g. the
+// `git push` in `bash -c "git push"`), or ok=false if there is none.
+func shellDashCScript(cmd *syntax.CallExpr) (string, bool) {
+	for i := 1; i < len(cmd.Args); i++ {
+		lit, ok := wordLiteral(cmd.Args[i])
+		if !ok {
+			continue
+		}
+		if lit == "-c" && i+1 < len(cmd.Args) {
+			return wordLiteral(cmd.Args[i+1])
+		}
+	}
+	return "", false
+}
+
+// wrappedCommandName returns the program name that a prefix wrapper (env, sudo,
+// xargs, nohup, timeout, ...) will execute, or "" if none can be determined.
+func wrappedCommandName(cmd *syntax.CallExpr, prog string) string {
+	wrappers := map[string]bool{
+		"env": true, "command": true, "sudo": true, "doas": true,
+		"nohup": true, "nice": true, "ionice": true, "setsid": true,
+		"stdbuf": true, "timeout": true, "xargs": true, "chrt": true,
+		"setarch": true, "proot": true,
+	}
+	if !wrappers[prog] {
+		return ""
+	}
+	// timeout's first non-flag argument is a duration, not a command.
+	skipFirstNonFlag := prog == "timeout"
+	for i := 1; i < len(cmd.Args); i++ {
+		w, ok := wordLiteral(cmd.Args[i])
+		if !ok {
+			continue
+		}
+		w = strings.TrimSpace(w)
+		if w == "" || strings.HasPrefix(w, "-") {
+			continue
+		}
+		// `env KEY=val cmd` — assignments precede the command.
+		if prog == "env" && strings.Contains(w, "=") {
+			continue
+		}
+		if skipFirstNonFlag {
+			skipFirstNonFlag = false
+			continue
+		}
+		return basename(strings.TrimPrefix(w, "\\"))
+	}
+	return ""
 }

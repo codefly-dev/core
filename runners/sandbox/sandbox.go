@@ -125,8 +125,8 @@ func findBinary(name string) (string, error) {
 // every backend. Backends translate it to bwrap args / sandbox-exec
 // profile strings at Wrap time.
 type policy struct {
-	readPaths    []string
-	writePaths   []string
-	network      NetworkPolicy
-	unixSockets  []string
+	readPaths   []string
+	writePaths  []string
+	network     NetworkPolicy
+	unixSockets []string
 }

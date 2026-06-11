@@ -79,7 +79,11 @@ func ApplyTemplate(t string, data any) (string, error) {
 		},
 	}
 
-	tmpl, err := template.New("template").Funcs(funcMap).Parse(t)
+	// missingkey=error: a missing MAP key (a typo'd or removed template var)
+	// now fails loudly instead of rendering the literal "<no value>" into the
+	// generated file, which only blew up much later at build/parse time far
+	// from the cause. Missing struct fields already error by default.
+	tmpl, err := template.New("template").Option("missingkey=error").Funcs(funcMap).Parse(t)
 	if err != nil {
 		return "", err
 	}

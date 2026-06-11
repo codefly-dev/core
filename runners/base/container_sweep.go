@@ -33,6 +33,29 @@ import (
 // and removes the ones whose LabelCodeflySession PID is no longer alive.
 // Best-effort: a single failed remove is logged and the sweep continues.
 // Safe to call when Docker isn't running — returns nil (just no sweep).
+// shouldReapContainer decides whether a codefly-owned container is garbage to
+// remove. The rules, in order:
+//
+//   - owner still alive   → keep (actively managed by a live CLI).
+//   - owner dead, stopped → reap (orphaned, useless to anyone).
+//   - owner dead, running, NOT ephemeral → keep. This is the "reuse stateful
+//     services (postgres/redis/vault) by name across CLI restarts" pattern;
+//     killing them would nuke dev data the next `codefly run` reuses.
+//   - owner dead, running, ephemeral → reap. SDK/`--cli-server` (test)
+//     dependencies use a unique per-run naming scope and are NEVER reused, so
+//     a running one with a dead owner is pure garbage. Not reaping these is
+//     what leaked 28 Neo4j/Postgres containers across a day of killed test
+//     runs and blew up OrbStack's memory.
+func shouldReapContainer(state string, ownerAlive, ephemeral bool) bool {
+	if ownerAlive {
+		return false
+	}
+	if state == "running" && !ephemeral {
+		return false
+	}
+	return true
+}
+
 func ReapStaleContainers(ctx context.Context) error {
 	w := wool.Get(ctx).In("base.ReapStaleContainers")
 
@@ -69,19 +92,8 @@ func ReapStaleContainers(ctx context.Context) error {
 		if err != nil || pid <= 0 {
 			continue // malformed label — conservative: leave it
 		}
-		if isProcessAlive(pid) {
-			continue // owning session still running; not an orphan
-		}
-
-		// Only reap STOPPED/EXITED containers. Running containers with a
-		// dead owner are the codefly "reuse-by-name across CLI restarts"
-		// pattern — stateful services like postgres/redis/vault survive
-		// CLI death intentionally (docker daemon manages them) and the
-		// next agent start will reuse them by name to preserve state.
-		// Killing them here would mean every `codefly run` nukes postgres
-		// data; we only want to clean up *dead* containers that aren't
-		// useful to anyone.
-		if c.State == "running" {
+		ephemeral := c.Labels[LabelCodeflyEphemeral] == "true"
+		if !shouldReapContainer(c.State, isProcessAlive(pid), ephemeral) {
 			continue
 		}
 

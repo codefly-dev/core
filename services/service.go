@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/codefly-dev/core/agents/manager"
 	"github.com/codefly-dev/core/agents/services"
@@ -229,27 +230,32 @@ func (instance *RuntimeInstance) Information(ctx context.Context, req *runtimev0
 
 // Loader
 
-// Instance Cache
-var instances = map[string]*Instance{}
-
-func init() {
-	instances = make(map[string]*Instance)
-}
+// Instance Cache. Guarded by instancesMu: the CLI fan-loads agents in parallel
+// via Flow, so concurrent map read+write here used to panic with "concurrent
+// map read and map write" (the sibling cache in agent.go was given connCacheMu
+// for the same reason; this one was missed).
+var (
+	instances   = map[string]*Instance{}
+	instancesMu sync.Mutex
+)
 
 // Load spawns a single agent process (or reuses a cached one) and creates
 // all gRPC clients from the shared connection.
 func Load(ctx context.Context, workspace *resources.Workspace, module *resources.Module, service *resources.Service) (*Instance, error) {
+	if service == nil {
+		return nil, wool.Get(ctx).In("services.Load").NewError("service cannot be nil")
+	}
 	w := wool.Get(ctx).In("services.Load", wool.NameField(service.Name))
 	identity, err := service.Identity()
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get service identity")
 	}
 
-	if service == nil {
-		return nil, w.NewError("service cannot be nil")
-	}
-	if instance, ok := instances[identity.Unique()]; ok {
-		return instance, nil
+	instancesMu.Lock()
+	cached, ok := instances[identity.Unique()]
+	instancesMu.Unlock()
+	if ok {
+		return cached, nil
 	}
 
 	// Load agent -- spawns the binary and connects via gRPC
@@ -275,7 +281,16 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	instance.Capabilities = info.Capabilities
 	instance.Info = info
 
+	// Double-check under lock: another goroutine may have loaded the same
+	// identity while we were spawning. Prefer the cached one so callers share
+	// a single agent process per identity.
+	instancesMu.Lock()
+	if existing, found := instances[instance.Identity.Unique()]; found {
+		instancesMu.Unlock()
+		return existing, nil
+	}
 	instances[instance.Identity.Unique()] = instance
+	instancesMu.Unlock()
 
 	w.Debug("loaded agent", wool.Field("agent-pid", instance.ProcessInfo.AgentPID))
 	return instance, nil

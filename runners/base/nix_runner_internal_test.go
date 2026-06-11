@@ -264,9 +264,9 @@ func TestSaveAndLoadCachedMaterialization(t *testing.T) {
 		dir:      dir,
 		cacheDir: cacheDir,
 		materialized: map[string]string{
-			"PATH":     "/nix/store/abc/bin",
-			"GOCACHE":  "/home/user/.cache/go-build",
-			"HOME":     "/home/user",
+			"PATH":    "/nix/store/abc/bin",
+			"GOCACHE": "/home/user/.cache/go-build",
+			"HOME":    "/home/user",
 		},
 	}
 	if err := nix.saveCachedMaterialization(ctx); err != nil {

@@ -32,11 +32,11 @@ type jestVitestEnvelope struct {
 
 // jestVitestSuite is one source file's worth of tests.
 type jestVitestSuite struct {
-	Name              string                `json:"name"` // absolute file path
-	Status            string                `json:"status"` // "passed" | "failed"
-	StartTime         int64                 `json:"startTime"` // ms epoch
-	EndTime           int64                 `json:"endTime"`
-	AssertionResults  []jestVitestAssertion `json:"assertionResults"`
+	Name             string                `json:"name"`      // absolute file path
+	Status           string                `json:"status"`    // "passed" | "failed"
+	StartTime        int64                 `json:"startTime"` // ms epoch
+	EndTime          int64                 `json:"endTime"`
+	AssertionResults []jestVitestAssertion `json:"assertionResults"`
 	// FailureMessage is the file-level "couldn't even load" reason
 	// when status="failed" but no individual tests are present
 	// (e.g. import error in the test file). Surface as suite-level
@@ -46,13 +46,13 @@ type jestVitestSuite struct {
 
 // jestVitestAssertion is one test invocation.
 type jestVitestAssertion struct {
-	AncestorTitles []string `json:"ancestorTitles"` // describe() chain
-	Title          string   `json:"title"`           // the test() name
-	FullName       string   `json:"fullName"`        // "describe > test"
-	Status         string   `json:"status"`          // "passed" | "failed" | "skipped" | "pending" | "todo"
-	Duration       int64    `json:"duration"`        // ms (jest); vitest may emit float
-	FailureMessages []string `json:"failureMessages"`
-	Location       *jestVitestLocation `json:"location,omitempty"`
+	AncestorTitles  []string            `json:"ancestorTitles"` // describe() chain
+	Title           string              `json:"title"`          // the test() name
+	FullName        string              `json:"fullName"`       // "describe > test"
+	Status          string              `json:"status"`         // "passed" | "failed" | "skipped" | "pending" | "todo"
+	Duration        int64               `json:"duration"`       // ms (jest); vitest may emit float
+	FailureMessages []string            `json:"failureMessages"`
+	Location        *jestVitestLocation `json:"location,omitempty"`
 }
 
 // jestVitestLocation carries file:line for the assertion. jest emits

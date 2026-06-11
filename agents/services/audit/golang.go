@@ -60,8 +60,8 @@ type govulncheckOutput struct {
 		} `json:"trace"`
 	} `json:"finding,omitempty"`
 	OSV *struct {
-		ID      string `json:"id"`
-		Summary string `json:"summary"`
+		ID      string   `json:"id"`
+		Summary string   `json:"summary"`
 		Aliases []string `json:"aliases"`
 	} `json:"osv,omitempty"`
 }
@@ -83,8 +83,11 @@ func runGovulncheckParseBytes(out []byte) ([]*builderv0.AuditFinding, error) {
 	for dec.More() {
 		var msg govulncheckOutput
 		if err := dec.Decode(&msg); err != nil {
-			// Malformed JSON line — skip rather than fail the whole scan.
-			continue
+			// json.Decoder does NOT advance past a syntax error, so every
+			// subsequent Decode returns the same error and More() stays true —
+			// `continue` here spun the agent at 100% CPU forever. Stop at the
+			// first malformed token instead.
+			break
 		}
 		if msg.OSV != nil {
 			summaries[msg.OSV.ID] = msg.OSV.Summary
@@ -131,7 +134,9 @@ func parseGoListUpdates(out []byte) ([]*builderv0.OutdatedDep, error) {
 	for dec.More() {
 		var m goListUpdate
 		if err := dec.Decode(&m); err != nil {
-			continue
+			// Decoder cannot advance past a syntax error: break, never
+			// continue (which would spin forever). See parseGovulncheck.
+			break
 		}
 		if m.Update == nil || m.Indirect {
 			continue

@@ -29,11 +29,11 @@ type StructuredTestRun struct {
 }
 
 type structuredSuite struct {
-	Name      string
-	cases     map[string]*structuredCase
-	caseOrder []string
-	elapsed   time.Duration
-	errored   bool
+	Name        string
+	cases       map[string]*structuredCase
+	caseOrder   []string
+	elapsed     time.Duration
+	errored     bool
 	errorReason string
 }
 

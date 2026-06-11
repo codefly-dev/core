@@ -74,7 +74,9 @@ func golangDryRun(ctx context.Context, dir string, opts Options) (*Result, error
 	for dec.More() {
 		var m goListEntry
 		if err := dec.Decode(&m); err != nil {
-			continue
+			// Decoder cannot advance past a syntax error — break, never
+			// continue, or the agent spins at 100% CPU forever.
+			break
 		}
 		if m.Update == nil || m.Indirect {
 			continue
@@ -95,9 +97,9 @@ func golangDryRun(ctx context.Context, dir string, opts Options) (*Result, error
 }
 
 type goListEntry struct {
-	Path     string `json:"Path"`
-	Version  string `json:"Version"`
-	Update   *struct {
+	Path    string `json:"Path"`
+	Version string `json:"Version"`
+	Update  *struct {
 		Version string `json:"Version"`
 	} `json:"Update,omitempty"`
 	Indirect bool `json:"Indirect,omitempty"`
@@ -114,7 +116,8 @@ func snapshotMods(ctx context.Context, dir string) (map[string]string, error) {
 	for dec.More() {
 		var m goListEntry
 		if err := dec.Decode(&m); err != nil {
-			continue
+			// Decoder cannot advance past a syntax error — break, never continue.
+			break
 		}
 		if m.Main {
 			continue // skip the main module itself

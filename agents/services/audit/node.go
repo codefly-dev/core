@@ -40,11 +40,11 @@ func Node(ctx context.Context, dir string, includeOutdated bool) (*Result, error
 // We only consume the vulnerabilities map.
 type npmAudit struct {
 	Vulnerabilities map[string]struct {
-		Name     string `json:"name"`
-		Severity string `json:"severity"`
-		Via      []any  `json:"via"`
-		FixAvailable any `json:"fixAvailable"` // bool or {name,version,isSemVerMajor}
-		Range string `json:"range"`
+		Name         string `json:"name"`
+		Severity     string `json:"severity"`
+		Via          []any  `json:"via"`
+		FixAvailable any    `json:"fixAvailable"` // bool or {name,version,isSemVerMajor}
+		Range        string `json:"range"`
 	} `json:"vulnerabilities"`
 }
 

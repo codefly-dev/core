@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/codefly-dev/core/shared"
 
@@ -41,7 +42,7 @@ func addDependency(ctx context.Context, base string, dep *builders.Dependency, w
 			if err != nil {
 				return err
 			}
-						// Watch DIRECTORIES, not individual files. fsnotify file-watches
+			// Watch DIRECTORIES, not individual files. fsnotify file-watches
 			// die on atomic-rename saves — most editors write a temp file then
 			// rename it over the original, which destroys the watched inode, so
 			// the Write event is lost and hot-reload silently stops working
@@ -97,6 +98,25 @@ func NewWatcher(ctx context.Context, events chan<- Change, base string, dependen
 // keep reports whether a changed path matches any watched dependency select.
 // We watch whole directories now, so this filters out non-source churn
 // (temp files, build output) that a directory watch also surfaces.
+// isTransientFile reports whether a path is an editor temp / backup / lock
+// file that fires filesystem events during a save but is not a real source
+// change: generic temp/backup suffixes (.tmp/.bak/~), vim swap files
+// (.swp/.swx/.swo/.swpx), and emacs lock/autosave (.#name, #name#). The
+// atomic-rename TARGET (the real file) is not transient and still triggers a
+// rebuild — so saves still hot-reload, but the temp churn around them doesn't.
+func isTransientFile(p string) bool {
+	base := filepath.Base(p)
+	if strings.HasPrefix(base, ".#") || (strings.HasPrefix(base, "#") && strings.HasSuffix(base, "#")) {
+		return true
+	}
+	for _, suf := range []string{".tmp", ".bak", ".swp", ".swx", ".swo", ".swpx", "~"} {
+		if strings.HasSuffix(base, suf) {
+			return true
+		}
+	}
+	return false
+}
+
 func (watcher *Watcher) keep(absPath string) bool {
 	if watcher.dependencies == nil {
 		return true
@@ -131,8 +151,18 @@ func (watcher *Watcher) Start(ctx context.Context) {
 						continue
 					}
 				}
+				// Editor temp/backup files fire Create/Rename during atomic
+				// saves (write temp → rename over the original) but are not real
+				// source changes. A named-file dependency with no path select
+				// (e.g. service.codefly.yaml) matches EVERY path, so without this
+				// skip a `foo.go.tmp` triggers a spurious rebuild — and rebuild
+				// churn races the restart and wedges hot-reload. The rename
+				// TARGET (the real file) is not transient and still triggers.
+				if isTransientFile(event.Name) {
+					continue
+				}
 				// We watch directories, so drop events for paths that don't
-				// match a watched dependency (temp files, build output, etc.).
+				// match a watched dependency (build output, unrelated files).
 				if !watcher.keep(event.Name) {
 					continue
 				}

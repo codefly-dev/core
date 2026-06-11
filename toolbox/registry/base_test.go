@@ -14,8 +14,8 @@ import (
 
 // fakeToolbox is a minimal Tooler used to drive Base's behavior.
 type fakeToolbox struct {
-	defs    []*registry.ToolDefinition
-	calls   []string // captured tool invocations for assertion
+	defs  []*registry.ToolDefinition
+	calls []string // captured tool invocations for assertion
 	*registry.Base
 }
 

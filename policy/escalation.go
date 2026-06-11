@@ -231,8 +231,8 @@ type EscalationGrantor interface {
 // error message.
 
 var (
-	grantorMu       sync.RWMutex
-	globalGrantor   EscalationGrantor
+	grantorMu     sync.RWMutex
+	globalGrantor EscalationGrantor
 )
 
 // SetGlobalEscalationGrantor installs the host-wide grantor
@@ -275,13 +275,13 @@ var ErrNoGrantor = errors.New("escalation: no grantor configured (call SetGlobal
 // RequestEscalation is the SDK entry point for plugins that need
 // to escalate authority. It:
 //
-//   1. Validates the request (action, principal, justification).
-//   2. Calls the grantor (global or supplied).
-//   3. On approve: returns ctx with the scoped-auth metadata
-//      attached, ready for the plugin to retry the failed call.
-//   4. On deny: returns ErrEscalationDenied (wrapping the reason).
-//   5. On timeout: returns ErrEscalationTimedOut.
-//   6. On infrastructure error: returns the underlying error.
+//  1. Validates the request (action, principal, justification).
+//  2. Calls the grantor (global or supplied).
+//  3. On approve: returns ctx with the scoped-auth metadata
+//     attached, ready for the plugin to retry the failed call.
+//  4. On deny: returns ErrEscalationDenied (wrapping the reason).
+//  5. On timeout: returns ErrEscalationTimedOut.
+//  6. On infrastructure error: returns the underlying error.
 //
 // **Plugin-side usage:**
 //

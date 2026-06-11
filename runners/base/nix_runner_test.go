@@ -59,8 +59,8 @@ func TestNixEnvironment(t *testing.T) {
 	require.NoError(t, proc.Run(ctx), "nix develop failed (nix version may be too old)")
 
 	// Should see testdata contents
-	require.Contains(t, d.Snapshot(),"good")
-	require.Contains(t, d.Snapshot(),"crashing")
+	require.Contains(t, d.Snapshot(), "good")
+	require.Contains(t, d.Snapshot(), "crashing")
 }
 
 func TestNixEnvironment_FiniteScript(t *testing.T) {
@@ -83,7 +83,7 @@ func TestNixEnvironment_FiniteScript(t *testing.T) {
 	proc.WithOutput(output)
 
 	require.NoError(t, proc.Run(ctx), "nix develop failed (nix version may be too old)")
-	require.Contains(t, d.Snapshot(),"1")
+	require.Contains(t, d.Snapshot(), "1")
 }
 
 func TestNixEnvironment_NoFlake(t *testing.T) {

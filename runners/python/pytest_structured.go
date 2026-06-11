@@ -23,7 +23,7 @@ const MaxCapturedOutputBytesPerCase = 32 * 1024
 // top instead of `<testsuites>`; we accept both shapes via the
 // fallback path in ParsePytestJUnit.
 type junitTestsuites struct {
-	XMLName xml.Name        `xml:"testsuites"`
+	XMLName xml.Name         `xml:"testsuites"`
 	Suites  []junitTestsuite `xml:"testsuite"`
 }
 
@@ -40,17 +40,17 @@ type junitTestsuite struct {
 }
 
 type junitTestcase struct {
-	XMLName    xml.Name      `xml:"testcase"`
-	ClassName  string        `xml:"classname,attr"`
-	Name       string        `xml:"name,attr"`
-	Time       float64       `xml:"time,attr"`
-	File       string        `xml:"file,attr"`
-	Line       int           `xml:"line,attr"`
-	Failure    *junitDetail  `xml:"failure,omitempty"`
-	Error      *junitDetail  `xml:"error,omitempty"`
-	Skipped    *junitDetail  `xml:"skipped,omitempty"`
-	SystemOut  string        `xml:"system-out,omitempty"`
-	SystemErr  string        `xml:"system-err,omitempty"`
+	XMLName   xml.Name     `xml:"testcase"`
+	ClassName string       `xml:"classname,attr"`
+	Name      string       `xml:"name,attr"`
+	Time      float64      `xml:"time,attr"`
+	File      string       `xml:"file,attr"`
+	Line      int          `xml:"line,attr"`
+	Failure   *junitDetail `xml:"failure,omitempty"`
+	Error     *junitDetail `xml:"error,omitempty"`
+	Skipped   *junitDetail `xml:"skipped,omitempty"`
+	SystemOut string       `xml:"system-out,omitempty"`
+	SystemErr string       `xml:"system-err,omitempty"`
 }
 
 // junitDetail is the body of a `<failure>`/`<error>`/`<skipped>` tag.

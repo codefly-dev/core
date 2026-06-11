@@ -22,7 +22,7 @@ type NativeEnvironment struct {
 
 	// mu guards envs — matches DockerEnvironment's locking. WithEnvironmentVariables
 	// can race with concurrent NewProcess otherwise.
-	mu sync.Mutex
+	mu   sync.Mutex
 	envs []*resources.EnvironmentVariable
 
 	out io.Writer

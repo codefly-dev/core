@@ -412,8 +412,8 @@ func TestRequestEscalation_TwiceInRow_SecondReplacesHeader(t *testing.T) {
 	policy.SetGlobalEscalationGrantor(g)
 
 	ctx, err := policy.RequestEscalation(context.Background(), policy.EscalationRequest{
-		Principal:     &policy.Principal{ID: "p", Kind: policy.KindHuman, OrgID: "o"},
-		Action:        "x", Justification: "first",
+		Principal: &policy.Principal{ID: "p", Kind: policy.KindHuman, OrgID: "o"},
+		Action:    "x", Justification: "first",
 	})
 	require.NoError(t, err)
 
@@ -423,8 +423,8 @@ func TestRequestEscalation_TwiceInRow_SecondReplacesHeader(t *testing.T) {
 
 	// Second escalation on the same ctx.
 	ctx, err = policy.RequestEscalation(ctx, policy.EscalationRequest{
-		Principal:     &policy.Principal{ID: "p", Kind: policy.KindHuman, OrgID: "o"},
-		Action:        "y", Justification: "second",
+		Principal: &policy.Principal{ID: "p", Kind: policy.KindHuman, OrgID: "o"},
+		Action:    "y", Justification: "second",
 	})
 	require.NoError(t, err)
 

@@ -64,11 +64,17 @@ func (r *CommandRegistry) Run(ctx context.Context, name string, args []string) (
 // RegisterBaseCommands registers commands available on every agent.
 // Called automatically during Load.
 func (s *Base) RegisterBaseCommands() {
+	// NOTE: `bash` shares the SAME unrestricted handler as `bash_write` — there
+	// is no read-only enforcement (sandbox/allowlist) yet. Until there is, it
+	// MUST be marked Destructive, otherwise a policy/auto-approval layer that
+	// trusts non-destructive commands would grant arbitrary command execution
+	// (rm -rf, git push, …) under a "diagnostic" label.
 	s.RegisterCommand(&agentv0.CommandDefinition{
 		Name:        "bash",
-		Description: "Run a read-only shell command in the service directory",
+		Description: "Run a shell command in the service directory (NOT sandboxed; may modify files)",
 		Usage:       `bash {"cmd": "ls -la"}`,
-		Tags:        []string{"shell", "diagnostic"},
+		Tags:        []string{"shell"},
+		Destructive: true,
 	}, s.cmdBash)
 
 	s.RegisterCommand(&agentv0.CommandDefinition{

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/codefly-dev/core/agents/manager"
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
@@ -110,7 +111,15 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 		}
 		if sb != nil {
 			allOpts = append(allOpts, manager.WithSandbox(sb))
+		} else {
+			// buildSandbox only returns nil now under the explicit
+			// CODEFLY_SANDBOX_PERMISSIVE=1 escape hatch. Record the unconfined
+			// choice so manager.Load doesn't warn about a "missing" one.
+			allOpts = append(allOpts, manager.WithoutSandbox())
 		}
+	} else {
+		// SkipSandbox is a documented full bypass; record the choice.
+		allOpts = append(allOpts, manager.WithoutSandbox())
 	}
 	allOpts = append(allOpts, opts...)
 
@@ -125,12 +134,12 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 	}, nil
 }
 
-// buildSandbox translates the manifest's SandboxPolicy into a
-// configured sandbox.Sandbox. Returns nil (no sandbox) when the
-// manifest declares an empty policy AND no canonical_for binaries —
-// the historical default for "this toolbox doesn't need confinement"
-// (e.g. fake test plugins). When canonical_for is non-empty the
-// manifest IS asserting authority, so we always wrap.
+// buildSandbox translates the manifest's SandboxPolicy into a configured
+// sandbox.Sandbox. It always returns an enforcing sandbox (fail-closed): a
+// manifest that declares an empty policy gets a restrictive default (loopback
+// network + workspace-only writes) rather than running unconfined. The only way
+// to get a nil (unconfined) sandbox is the CODEFLY_SANDBOX_PERMISSIVE=1 escape
+// hatch; callers that want an unconfined process use Options.SkipSandbox.
 //
 // **Network default.** policy.SandboxPolicy.Apply translates an
 // UNSET network field to NetworkDeny. NetworkDeny is too aggressive
@@ -154,26 +163,43 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 // platforms where bwrap isn't installed; production deployments
 // should ensure the backend is present.
 func buildSandbox(t *resources.Toolbox, workspace string) (sandbox.Sandbox, error) {
-	if isEmptyPolicy(t) {
+	empty := isEmptyPolicy(t)
+
+	// Fail-closed: a toolbox that declares NO policy used to run fully
+	// unconfined (the historical default). It now runs confined by default —
+	// loopback-only network (the gRPC handshake still works, external network is
+	// denied) and write access limited to the workspace. Toolboxes that need
+	// more must declare it in their manifest; callers that genuinely need an
+	// unconfined process pass launch.Options.SkipSandbox.
+	//
+	// Emergency rollback: CODEFLY_SANDBOX_PERMISSIVE=1 restores the old
+	// unconfined behavior for empty-policy toolboxes (greppable/auditable).
+	if empty && os.Getenv("CODEFLY_SANDBOX_PERMISSIVE") == "1" {
 		return nil, nil
 	}
+
 	sb, err := sandbox.New()
 	if err != nil {
 		return nil, fmt.Errorf("sandbox backend unavailable: %w", err)
 	}
 
-	// Apply a copy of the manifest policy with the default-network
-	// override so we don't mutate the caller's *resources.Toolbox.
-	// Empty Network → Loopback (handshake works, outbound denied).
+	// Apply a copy of the manifest policy with the default-network override so
+	// we don't mutate the caller's *resources.Toolbox.
 	pol := t.Sandbox
-	if pol.Network == "" {
+	if empty {
+		// Restrictive default for a policy-less toolbox.
+		pol = policy.SandboxPolicy{Network: policy.NetworkLoopback}
+		if workspace != "" {
+			pol.WritePaths = []string{"${WORKSPACE}"}
+		}
+	} else if pol.Network == "" {
+		// Empty Network → Loopback (handshake works, outbound denied).
 		pol.Network = policy.NetworkLoopback
 	}
 	expand := policy.NewExpander(workspace)
 	if err := pol.Apply(sb, expand); err != nil {
 		return nil, fmt.Errorf("apply sandbox policy: %w", err)
 	}
-	_ = sandbox.NetworkLoopback // import is otherwise unused on this build
 	return sb, nil
 }
 

@@ -11,7 +11,9 @@ package audit
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os/exec"
+	"strings"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
@@ -26,18 +28,24 @@ type Result struct {
 	Language string
 }
 
-// runCmd executes cmd in dir and returns combined stdout/stderr.
-// Returns the output even on non-zero exit so JSON-emitting tools
-// (govulncheck, npm audit) that exit non-zero on findings still
-// surface their report.
+// runCmd executes cmd in dir and returns its STDOUT (only). stderr is captured
+// separately and folded into the returned error, never into the returned bytes:
+// these tools emit their JSON report on stdout, and progress noise like
+// `go: downloading ...` on stderr. Merging the two streams put non-JSON bytes
+// mid-report, which json.Decoder cannot skip past (the historical 100%-CPU
+// hang). Output is returned even on non-zero exit so JSON-emitting tools that
+// exit non-zero on findings (govulncheck, npm audit) still surface their report.
 func runCmd(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 	c := exec.CommandContext(ctx, name, args...)
 	c.Dir = dir
-	var out bytes.Buffer
-	c.Stdout = &out
-	c.Stderr = &out
+	var stdout, stderr bytes.Buffer
+	c.Stdout = &stdout
+	c.Stderr = &stderr
 	err := c.Run()
-	return out.Bytes(), err
+	if err != nil && stderr.Len() > 0 {
+		err = fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.Bytes(), err
 }
 
 // have returns true if the named tool is on PATH. Used by each language

@@ -4,7 +4,8 @@ import "sync"
 
 // IsDebug returns true if the global log level is DEBUG or TRACE.
 func IsDebug() bool {
-	return globalLogLevel == DEBUG || globalLogLevel == TRACE
+	l := GlobalLogLevel()
+	return l == DEBUG || l == TRACE
 }
 
 var lock *sync.Mutex

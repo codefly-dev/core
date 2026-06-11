@@ -13,7 +13,11 @@ func NetworkMappingForRestRouteGroup(ctx context.Context, group *resources.RestR
 	w := wool.Get(ctx).In("services.NetworkMappingForRoute")
 	for _, m := range mappings {
 		if rest := resources.IsRest(ctx, m.Endpoint); rest != nil {
-			if m.Endpoint.Module == group.Module || m.Endpoint.Service == group.Service {
+			// Match BOTH module AND service. With ||, the first REST mapping in
+			// the same module (any service) won, resolving route groups to the
+			// wrong service's upstream in multi-service modules. The twin in
+			// agents/services/network.go already uses &&.
+			if m.Endpoint.Module == group.Module && m.Endpoint.Service == group.Service {
 				return m, nil
 			}
 		}

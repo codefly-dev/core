@@ -183,7 +183,13 @@ func (g *DAG) Invert() *DAG {
 }
 
 func ToType(t any) observabilityv0.GraphNode_Type {
-	return observabilityv0.GraphNode_Type(observabilityv0.GraphNode_Type_value[strings.ToUpper(t.(string))])
+	// Nodes added via AddEdge without WithType carry a nil/non-string type;
+	// an unchecked t.(string) panicked the observability graph endpoint.
+	s, ok := t.(string)
+	if !ok {
+		return observabilityv0.GraphNode_Type(0)
+	}
+	return observabilityv0.GraphNode_Type(observabilityv0.GraphNode_Type_value[strings.ToUpper(s)])
 }
 
 func ToGraphResponse(g *DAG) *observabilityv0.GraphResponse {
@@ -207,9 +213,17 @@ func (g *DAG) TopologicalSort() ([]Node, error) {
 	var sorted []string
 	var queue []string
 
+	// Work on a COPY of the in-degree counts. The previous version decremented
+	// g.incomingEdges in place, so a second TopologicalSort on the same DAG saw
+	// already-zeroed (or negative) counts and returned a non-topological order.
+	inDegree := make(map[string]int, len(g.incomingEdges))
+	for node, deg := range g.incomingEdges {
+		inDegree[node] = deg
+	}
+
 	// Find all nodes with no incoming edges
 	for node := range g.nodes {
-		if g.incomingEdges[node] == 0 {
+		if inDegree[node] == 0 {
 			queue = append(queue, node)
 		}
 	}
@@ -223,8 +237,8 @@ func (g *DAG) TopologicalSort() ([]Node, error) {
 		sorted = append(sorted, node)
 
 		for _, neighbor := range g.edges[node] {
-			g.incomingEdges[neighbor]--
-			if g.incomingEdges[neighbor] == 0 {
+			inDegree[neighbor]--
+			if inDegree[neighbor] == 0 {
 				queue = append(queue, neighbor)
 			}
 		}

@@ -41,7 +41,13 @@ func Confirm(answers map[string]*agentv0.Answer, stage string) (bool, error) {
 	if !ok || answer == nil {
 		return false, fmt.Errorf("cannot find answer for %s", stage)
 	}
-	return answer.GetConfirm().Confirmed, nil
+	// GetConfirm() returns nil if the answer holds a different oneof variant;
+	// a raw `.Confirmed` on that nil pointer would panic the asker.
+	c := answer.GetConfirm()
+	if c == nil {
+		return false, fmt.Errorf("answer for %s is not a confirm answer", stage)
+	}
+	return c.Confirmed, nil
 }
 
 func Selection(answers map[string]*agentv0.Answer, stage string) (*agentv0.SelectionAnswer, error) {

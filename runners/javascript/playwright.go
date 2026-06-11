@@ -24,20 +24,20 @@ type playwrightEnvelope struct {
 }
 
 type playwrightStats struct {
-	StartTime string `json:"startTime"`
-	Duration  int64  `json:"duration"` // ms
-	Expected  int    `json:"expected"`
-	Skipped   int    `json:"skipped"`
-	Unexpected int   `json:"unexpected"`
-	Flaky      int   `json:"flaky"`
+	StartTime  string `json:"startTime"`
+	Duration   int64  `json:"duration"` // ms
+	Expected   int    `json:"expected"`
+	Skipped    int    `json:"skipped"`
+	Unexpected int    `json:"unexpected"`
+	Flaky      int    `json:"flaky"`
 }
 
 type playwrightSuite struct {
-	Title      string            `json:"title"`
-	File       string            `json:"file"`
-	Line       int32             `json:"line,omitempty"`
-	Suites     []playwrightSuite `json:"suites,omitempty"`
-	Specs      []playwrightSpec  `json:"specs,omitempty"`
+	Title  string            `json:"title"`
+	File   string            `json:"file"`
+	Line   int32             `json:"line,omitempty"`
+	Suites []playwrightSuite `json:"suites,omitempty"`
+	Specs  []playwrightSpec  `json:"specs,omitempty"`
 }
 
 // playwrightSpec is one `test()` declaration. Each spec carries one

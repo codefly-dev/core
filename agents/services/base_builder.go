@@ -349,10 +349,19 @@ func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Enviro
 	return nil
 }
 
+// WithFactory scaffolds a service from the factory templates. It DOES NOT
+// overwrite files that already exist on disk (Override: SkipAll) — factory
+// templates seed a NEW service, so re-running Create / a Sync over an existing
+// service must preserve the user's edits rather than clobber them (the old
+// nil-Override default silently truncated every existing file). Agents that
+// genuinely need to overwrite specific files set an explicit .WithOverride(...)
+// — e.g. go-grpc overwrites everything except *.proto.
 func WithFactory(fs embed.FS) *TemplateWrapper {
-	return &TemplateWrapper{fs: shared.Embed(fs), dir: "templates/factory"}
+	return &TemplateWrapper{fs: shared.Embed(fs), dir: "templates/factory", Override: shared.SkipAll()}
 }
 
+// WithBuilder renders build-time templates (Dockerfile, etc.). These are
+// regenerated artifacts, not user-editable, so they overwrite by default.
 func WithBuilder(fs embed.FS) *TemplateWrapper {
 	return &TemplateWrapper{fs: shared.Embed(fs), dir: "templates/builder", relative: "builder"}
 }

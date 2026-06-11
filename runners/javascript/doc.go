@@ -6,14 +6,14 @@
 // Three parsers, two schemas:
 //
 //   - ParseJestVitestJSON  — vitest and jest emit nearly-identical
-//                            JSON (vitest copied jest's reporter
-//                            shape). One parser handles both.
-//                            `--reporter=json` (vitest) or `--json`
-//                            (jest); both produce the same envelope.
+//     JSON (vitest copied jest's reporter
+//     shape). One parser handles both.
+//     `--reporter=json` (vitest) or `--json`
+//     (jest); both produce the same envelope.
 //
 //   - ParsePlaywrightJSON  — playwright emits its own shape with
-//                            nested suites + per-test retry results.
-//                            `--reporter=json`.
+//     nested suites + per-test retry results.
+//     `--reporter=json`.
 //
 // Output retention rule (load-bearing): same as the python+go
 // runners. PASSED + SKIPPED cases get empty captured_output;

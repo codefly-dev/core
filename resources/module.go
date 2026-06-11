@@ -303,36 +303,55 @@ func (mod *Module) SaveToDir(ctx context.Context, dir string) error {
 	if dir == "" {
 		return w.NewError("can't save module to empty directory")
 	}
-	err := mod.preSave(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot pre-save")
-	}
+	// preSave blanks the redundant Module field; restore it AFTER marshalling
+	// so the in-memory references (shared with the workspace in flat layout)
+	// are not left corrupted.
+	restore := mod.preSave()
+	defer restore()
 	return SaveToDir(ctx, mod, dir)
 }
 
 func (mod *Module) Save(ctx context.Context) error {
 	if mod.flatWorkspace != nil {
-		// Clear internal Module field from refs before persisting
-		for _, ref := range mod.ServiceReferences {
+		// Clear internal Module field from refs before persisting, then put it
+		// back — these refs are shared with the workspace's Services slice.
+		saved := make([]string, len(mod.ServiceReferences))
+		for i, ref := range mod.ServiceReferences {
+			saved[i] = ref.Module
 			ref.Module = ""
 		}
 		mod.flatWorkspace.Services = mod.ServiceReferences
-		return mod.flatWorkspace.Save(ctx)
+		err := mod.flatWorkspace.Save(ctx)
+		for i, ref := range mod.ServiceReferences {
+			ref.Module = saved[i]
+		}
+		return err
 	}
 	return mod.SaveToDir(ctx, mod.Dir())
 }
 
-// Pre-save deals with some optimization
-func (mod *Module) preSave(_ context.Context) error {
-	for _, ref := range mod.ServiceReferences {
-		// Don't write Module in yaml
+// preSave blanks fields that are redundant on disk (Module is implied by the
+// file's location) and returns a func that restores them. Callers MUST defer
+// the returned restore so the in-memory model is not left corrupted.
+func (mod *Module) preSave() func() {
+	svcMods := make([]string, len(mod.ServiceReferences))
+	for i, ref := range mod.ServiceReferences {
+		svcMods[i] = ref.Module
 		ref.Module = ""
 	}
-	for _, ref := range mod.JobReferences {
-		// Don't write Module in yaml
+	jobMods := make([]string, len(mod.JobReferences))
+	for i, ref := range mod.JobReferences {
+		jobMods[i] = ref.Module
 		ref.Module = ""
 	}
-	return nil
+	return func() {
+		for i, ref := range mod.ServiceReferences {
+			ref.Module = svcMods[i]
+		}
+		for i, ref := range mod.JobReferences {
+			ref.Module = jobMods[i]
+		}
+	}
 }
 
 func (mod *Module) AddServiceReference(_ context.Context, ref *ServiceReference) error {

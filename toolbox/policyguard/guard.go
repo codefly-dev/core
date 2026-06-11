@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"os"
+	"strings"
 	"sync"
 
 	"google.golang.org/grpc/metadata"
@@ -65,6 +66,11 @@ type Guard struct {
 	// at verify time. Unknown caveats deny by default — see
 	// scoped_auth.go.
 	caveatVerifiers map[string]policy.CaveatVerifier
+
+	// trl is the token-revocation list (hardening). A revoked-but-unexpired
+	// scoped-auth token id is denied even though its HMAC verifies. Populated
+	// from CODEFLY_REVOKED_TOKEN_IDS at startup; nil when unset.
+	trl *policy.TokenRevocationList
 }
 
 // New wraps inner. If pdp is nil, an AllowAllPDP is substituted —
@@ -84,6 +90,21 @@ func New(inner toolboxv0.ToolboxServer, pdp policy.PDP, toolboxName string) *Gua
 		pdp:     pdp,
 		toolbox: toolboxName,
 	}
+	// Token revocation list (hardening). Operators publish revoked scoped-auth
+	// token ids via CODEFLY_REVOKED_TOKEN_IDS (comma-separated); CallTool denies
+	// any verified token whose id appears here.
+	if raw := strings.TrimSpace(os.Getenv("CODEFLY_REVOKED_TOKEN_IDS")); raw != "" {
+		var ids []string
+		for _, id := range strings.Split(raw, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			g.trl = policy.NewTokenRevocationList()
+			g.trl.Replace(ids)
+		}
+	}
 	// If the spawn provided a scoped-auth secret via env, pick
 	// it up automatically. Hosts that DON'T want this can clear
 	// via WithScopedAuthSecret(nil) or use NewWithScopedAuth
@@ -91,6 +112,12 @@ func New(inner toolboxv0.ToolboxServer, pdp policy.PDP, toolboxName string) *Gua
 	if envSecret := scopedAuthSecretFromEnv(); len(envSecret) > 0 {
 		g.scopedAuthSecret = envSecret
 		g.replayTracker = policy.NewReplayTracker()
+		// Bind the audience to THIS plugin's name. The gateway mints tokens
+		// with AudienceID = the toolbox name (gateway.go), so without this the
+		// auto-enabled fast path left audienceID empty and the audience check
+		// was skipped — a token minted for plugin A would verify in plugin B
+		// whenever a host shares one HMAC secret across plugins.
+		g.audienceID = toolboxName
 	}
 	return g
 }
@@ -241,9 +268,40 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 	verifiers := g.caveatVerifiers
 	g.configMu.RUnlock()
 
+	// Delegation-depth cap (hardening): reject a Principal whose delegation
+	// chain exceeds CODEFLY_MAX_DELEGATION_DEPTH, regardless of which path
+	// authorizes below. Pure deny — no-op when no principal / chain is present.
+	if p := policy.PrincipalFrom(ctx); p != nil {
+		if err := policy.CheckDelegationDepth(p); err != nil {
+			return &toolboxv0.CallToolResponse{Error: "denied: " + err.Error()}, nil
+		}
+	}
+
+	// Resource of THIS call, used both for the resource-binding enforcement
+	// below and (when present) break-glass auditing.
+	callResource := ""
+	if args := req.GetArguments(); args != nil {
+		if v, ok := args.AsMap()["resource"].(string); ok {
+			callResource = v
+		}
+	}
+
 	// Try the fast path first when scoped-auth is configured.
 	if len(secret) > 0 {
 		if sa, ok := g.tryVerifyScopedAuthWith(ctx, req, secret, audience, verifiers); ok {
+			// Resource binding: a resource-scoped token must only authorize a
+			// call that carries the SAME resource. The Verify primitive skips
+			// this when the call presents no resource arg, so enforce it here —
+			// otherwise a token minted for "repo:foo" would authorize a call
+			// that surfaces no resource, voiding its least-authority binding.
+			if sa.Resource != "" && sa.Resource != callResource {
+				return &toolboxv0.CallToolResponse{Error: "scoped-authz: token resource binding not satisfied by call"}, nil
+			}
+			// Token revocation (hardening): a revoked-but-unexpired token id is
+			// denied even though its HMAC verified.
+			if g.trl != nil && g.trl.IsRevoked(sa.ID) {
+				return &toolboxv0.CallToolResponse{Error: "scoped-authz: token revoked"}, nil
+			}
 			// Replay tracking — enforces MaxUses across calls.
 			if err := tracker.Consume(sa); err != nil {
 				return &toolboxv0.CallToolResponse{
@@ -268,6 +326,13 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 	}
 	d := g.pdp.Evaluate(ctx, pdpReq)
 	if !d.Allow {
+		// Break-glass (hardening): emergency operator override of a PDP deny.
+		// Active only when CODEFLY_BREAK_GLASS_JUSTIFICATION is set (a deliberate
+		// operator action); every use is audit-logged at WARN.
+		if policy.IsBreakGlassActive() {
+			policy.LogBreakGlassUsage(ctx, req.GetName(), callResource)
+			return g.inner.CallTool(ctx, req)
+		}
 		return &toolboxv0.CallToolResponse{Error: d.Reason}, nil
 	}
 	return g.inner.CallTool(ctx, req)

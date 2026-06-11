@@ -154,4 +154,3 @@ func semverLess(a, b [3]int) bool {
 	}
 	return false
 }
-

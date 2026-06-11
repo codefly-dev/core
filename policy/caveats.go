@@ -85,9 +85,9 @@ type CaveatVerifierFactory func(spec CaveatSpec) (CaveatVerifier, error)
 // caveatRegistration ties a caveat name to its producer + verifier
 // factories. The global registry holds these.
 type caveatRegistration struct {
-	name              string
-	producerFactory   CaveatProducerFactory
-	verifierFactory   CaveatVerifierFactory
+	name            string
+	producerFactory CaveatProducerFactory
+	verifierFactory CaveatVerifierFactory
 }
 
 // caveatRegistry holds all registered caveats. Populated by
@@ -597,10 +597,10 @@ func allowlistProducerFactory(spec CaveatSpec) (CaveatProducer, CaveatPrecheck, 
 	producer := func(in EvaluationInput) (any, error) {
 		v := in.Context[al.ContextKey]
 		return map[string]any{
-			"context_key":     al.ContextKey,
-			"allowed":         al.Allowed,
-			"match_mode":      al.MatchMode,
-			"snapshot_value":  v,
+			"context_key":    al.ContextKey,
+			"allowed":        al.Allowed,
+			"match_mode":     al.MatchMode,
+			"snapshot_value": v,
 		}, nil
 	}
 	return producer, precheck, nil

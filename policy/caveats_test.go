@@ -352,9 +352,9 @@ func TestAllowlistCaveat_Verifier_RejectsTamperedSnapshot(t *testing.T) {
 
 func TestAllowlistCaveat_BadSpec_RejectsAtParse(t *testing.T) {
 	cases := []policy.CaveatSpec{
-		{},                                                   // missing context_key
-		{"context_key": "x"},                                  // missing allowed
-		{"context_key": "x", "allowed": []string{}},           // empty allowed
+		{},                   // missing context_key
+		{"context_key": "x"}, // missing allowed
+		{"context_key": "x", "allowed": []string{}},                           // empty allowed
 		{"context_key": "x", "allowed": []string{"a"}, "match_mode": "fuzzy"}, // bad mode
 	}
 	for i, spec := range cases {

@@ -41,10 +41,13 @@ func Run(ctx context.Context, action Action, space *Space) (any, error) {
 }
 
 func As[T any](t any) (*T, error) {
-	if t.(*T) == nil {
-		return nil, fmt.Errorf("cannot cast")
+	// Use the comma-ok form: a plain `t.(*T)` panics when the dynamic type is
+	// not *T, so the intended "cannot cast" error was never reached.
+	v, ok := t.(*T)
+	if !ok || v == nil {
+		return nil, fmt.Errorf("cannot cast %T", t)
 	}
-	return t.(*T), nil
+	return v, nil
 }
 
 type BuilderFunc func(content []byte) (Action, error)

@@ -5,11 +5,11 @@
 //
 //   - native      — no-op pass-through. For tests and explicit opt-out.
 //   - bwrap       — bubblewrap on Linux. Mounts a fresh root with
-//                   allowlisted read/write binds, optional --unshare-net.
+//     allowlisted read/write binds, optional --unshare-net.
 //   - sandboxexec — macOS Seatbelt via `sandbox-exec` and a generated
-//                   .sb profile. Apple has deprecated the CLI but still
-//                   uses it internally for App Sandbox; no replacement
-//                   covers ad-hoc CLI sandboxing.
+//     .sb profile. Apple has deprecated the CLI but still
+//     uses it internally for App Sandbox; no replacement
+//     covers ad-hoc CLI sandboxing.
 //
 // API shape mirrors Anthropic's sandbox-runtime: declare read paths,
 // write paths, network policy, unix-socket allowlist, then call Wrap on

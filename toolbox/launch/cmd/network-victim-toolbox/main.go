@@ -4,37 +4,37 @@
 // It exposes five tools without ANY application-layer guard:
 //
 //   - net.fetch  — issues an outbound HTTP GET. Used to test that
-//                  a deny-network sandbox blocks the syscall.
-//                  (NOTE: deny-network ALSO breaks loopback gRPC,
-//                  so the e2e test today gates this only when the
-//                  plugin can still boot.)
+//     a deny-network sandbox blocks the syscall.
+//     (NOTE: deny-network ALSO breaks loopback gRPC,
+//     so the e2e test today gates this only when the
+//     plugin can still boot.)
 //
 //   - fs.write   — writes a file at a caller-supplied path
-//                  IN-PROCESS via os.WriteFile. Tests that the
-//                  plugin process itself is confined.
+//     IN-PROCESS via os.WriteFile. Tests that the
+//     plugin process itself is confined.
 //
 //   - exec.write — writes a file at a caller-supplied path by
-//                  spawning a /bin/sh child (`/bin/sh -c "echo X
-//                  > path"`). Tests that the OS sandbox is
-//                  inherited by child processes — the load-bearing
-//                  property that lets us confine plugins ONCE at
-//                  spawn instead of inside every plugin.
+//     spawning a /bin/sh child (`/bin/sh -c "echo X
+//     > path"`). Tests that the OS sandbox is
+//     inherited by child processes — the load-bearing
+//     property that lets us confine plugins ONCE at
+//     spawn instead of inside every plugin.
 //
 //   - who.am.i   — returns the Principal stamped on the call's
-//                  context (set by core/agents.principalUnary
-//                  Interceptor from the env/header). Used by the
-//                  permission-system E2E to verify the principal
-//                  traveled from the host's WithPrincipal(p)
-//                  through the gRPC metadata into the handler's
-//                  ctx.
+//     context (set by core/agents.principalUnary
+//     Interceptor from the env/header). Used by the
+//     permission-system E2E to verify the principal
+//     traveled from the host's WithPrincipal(p)
+//     through the gRPC metadata into the handler's
+//     ctx.
 //
 //   - check.action — calls policy.AuthorizerFromContext(ctx).
-//                    Authorized(action, resource) and returns the
-//                    verdict structure. Demonstrates the inline
-//                    fine-grained permission check pattern for
-//                    plugin authors. Used by the E2E to verify
-//                    the host→plugin→host callback channel works
-//                    end-to-end.
+//     Authorized(action, resource) and returns the
+//     verdict structure. Demonstrates the inline
+//     fine-grained permission check pattern for
+//     plugin authors. Used by the E2E to verify
+//     the host→plugin→host callback channel works
+//     end-to-end.
 //
 // We use this test plugin instead of the real web/git toolboxes
 // because they have application-layer guards (web's allowlist,

@@ -137,12 +137,14 @@ func PinToLatestRelease(ctx context.Context, agent *resources.Agent) error {
 	}
 	client := github.NewClient(nil)
 	source := toGithubSource(agent)
-	release, _, err := client.Repositories.GetLatestRelease(context.Background(), source.Owner, source.Repo)
+	release, _, err := client.Repositories.GetLatestRelease(ctx, source.Owner, source.Repo)
 	if err != nil {
 		w.Debug("GitHub release lookup failed, trying local", wool.Field("error", err.Error()))
 		return FindLocalLatest(ctx, agent)
 	}
-	latestVersion := strings.ReplaceAll(release.GetTagName(), "v", "")
+	// TrimPrefix, not ReplaceAll: ReplaceAll("v","") stripped EVERY 'v' in the
+	// tag (e.g. v0.0.1-vault → 0.0.1-ault), corrupting the resolved version.
+	latestVersion := strings.TrimPrefix(release.GetTagName(), "v")
 	if agent.Version == "latest" {
 		agent.Version = latestVersion
 		return nil

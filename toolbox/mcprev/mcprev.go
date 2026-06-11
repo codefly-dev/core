@@ -61,9 +61,18 @@ type ReverseTranscoder struct {
 	// Caller owns the process lifecycle.
 	stdin   io.Writer
 	stdout  *bufio.Reader
-	closer  io.Closer // optional combined closer for both pipes
-	callMu  sync.Mutex
+	closer  io.Closer  // optional combined closer for both pipes
+	callMu  sync.Mutex // serializes writes to stdin
 	idCount atomic.Int64
+
+	// A single read loop owns r.stdout and dispatches each response to the
+	// waiting caller by id. This replaces the previous per-call reader
+	// goroutine, which leaked on ctx cancellation and then raced the next
+	// call on the shared bufio.Reader.
+	readOnce  sync.Once
+	pendingMu sync.Mutex
+	pending   map[int64]chan *jsonRPCResponse
+	readErr   error // set once (under pendingMu) when the read loop exits
 
 	// Filled by Initialize.
 	serverName    string
@@ -77,9 +86,10 @@ type ReverseTranscoder struct {
 // transcoder is torn down — typically the cmd.Wait + pipe close.
 func New(stdin io.Writer, stdout io.Reader, closer io.Closer) *ReverseTranscoder {
 	r := &ReverseTranscoder{
-		stdin:  stdin,
-		stdout: bufio.NewReaderSize(stdout, 64*1024),
-		closer: closer,
+		stdin:   stdin,
+		stdout:  bufio.NewReaderSize(stdout, 64*1024),
+		closer:  closer,
+		pending: make(map[int64]chan *jsonRPCResponse),
 	}
 	r.Base = registry.NewBase(r)
 	return r
@@ -220,8 +230,7 @@ func (e *jsonRPCError) Error() string {
 // can't be cancelled (MCP has no cancellation message). We can
 // only refuse to wait for the reply.
 func (r *ReverseTranscoder) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	r.callMu.Lock()
-	defer r.callMu.Unlock()
+	r.readOnce.Do(func() { go r.readLoop() })
 
 	id := r.idCount.Add(1)
 	req := jsonRPCRequest{
@@ -236,54 +245,89 @@ func (r *ReverseTranscoder) call(ctx context.Context, method string, params any)
 	}
 	encoded = append(encoded, '\n')
 
-	if _, err := r.stdin.Write(encoded); err != nil {
-		return nil, fmt.Errorf("write: %w", err)
+	// Register a reply slot BEFORE writing, so the read loop can never deliver
+	// before we are waiting.
+	replyCh := make(chan *jsonRPCResponse, 1)
+	r.pendingMu.Lock()
+	if r.readErr != nil {
+		err := r.readErr
+		r.pendingMu.Unlock()
+		return nil, err
 	}
+	r.pending[id] = replyCh
+	r.pendingMu.Unlock()
 
-	// Read until we see our id. Servers can interleave notifications
-	// (no id) or other requests (we ignore them — we're a client of
-	// the MCP server, not its peer). Loop until our reply lands.
-	type readResult struct {
-		resp *jsonRPCResponse
-		err  error
-	}
-	done := make(chan readResult, 1)
-	go func() {
-		for {
-			line, err := r.stdout.ReadBytes('\n')
-			if err != nil {
-				done <- readResult{err: fmt.Errorf("read: %w", err)}
-				return
-			}
-			if len(line) == 0 || (len(line) == 1 && line[0] == '\n') {
-				continue
-			}
-			var resp jsonRPCResponse
-			if err := json.Unmarshal(line, &resp); err != nil {
-				// A non-response frame (notification or unknown shape).
-				// Skip and keep reading. Real MCP traffic doesn't
-				// commonly hit this path.
-				continue
-			}
-			if resp.ID != id {
-				continue
-			}
-			done <- readResult{resp: &resp}
-			return
-		}
+	// Always deregister: on ctx cancellation the (late) response is dropped by
+	// the read loop instead of leaking a slot.
+	defer func() {
+		r.pendingMu.Lock()
+		delete(r.pending, id)
+		r.pendingMu.Unlock()
 	}()
 
+	r.callMu.Lock()
+	_, werr := r.stdin.Write(encoded)
+	r.callMu.Unlock()
+	if werr != nil {
+		return nil, fmt.Errorf("write: %w", werr)
+	}
+
 	select {
-	case rr := <-done:
-		if rr.err != nil {
-			return nil, rr.err
+	case resp := <-replyCh:
+		if resp == nil {
+			// Channel closed by the read loop on a read error.
+			r.pendingMu.Lock()
+			rerr := r.readErr
+			r.pendingMu.Unlock()
+			if rerr == nil {
+				rerr = fmt.Errorf("mcp connection closed")
+			}
+			return nil, rerr
 		}
-		if rr.resp.Error != nil {
-			return nil, rr.resp.Error
+		if resp.Error != nil {
+			return nil, resp.Error
 		}
-		return rr.resp.Result, nil
+		return resp.Result, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+}
+
+// readLoop is the single owner of r.stdout. It reads response frames and
+// dispatches each to the waiting caller by id; notifications and unparseable
+// frames are skipped. On any read error it records readErr and unblocks every
+// pending caller. Exactly one readLoop runs per transcoder (started via
+// readOnce), so there is never concurrent access to the shared bufio.Reader.
+func (r *ReverseTranscoder) readLoop() {
+	for {
+		line, err := r.stdout.ReadBytes('\n')
+		if err != nil {
+			r.pendingMu.Lock()
+			r.readErr = fmt.Errorf("read: %w", err)
+			for id, ch := range r.pending {
+				close(ch)
+				delete(r.pending, id)
+			}
+			r.pendingMu.Unlock()
+			return
+		}
+		if len(line) == 0 || (len(line) == 1 && line[0] == '\n') {
+			continue
+		}
+		var resp jsonRPCResponse
+		if err := json.Unmarshal(line, &resp); err != nil {
+			// Notification or unknown frame shape — skip.
+			continue
+		}
+		r.pendingMu.Lock()
+		ch, ok := r.pending[resp.ID]
+		if ok {
+			delete(r.pending, resp.ID)
+		}
+		r.pendingMu.Unlock()
+		if ok {
+			ch <- &resp // buffered (cap 1) — never blocks
+		}
 	}
 }
 
@@ -422,14 +466,14 @@ const MaxMCPErrorBytes = 4 * 1024
 // once it's in Content_Text the LLM will read it. We apply three
 // defenses:
 //
-//   1. Length cap (MaxMCPTextBytes): blunts "stuff the context".
-//   2. Control-char strip (C0/C1 except \n \t \r): kills zero-width
-//      attacks, RTL overrides, ANSI escapes, and bell/escape codes
-//      that some chat surfaces interpret.
-//   3. Structured delimiters (<mcp-server-content>...</mcp-server-content>):
-//      lets the model's tokenizer cleanly separate foreign content
-//      from host-trusted instructions. Belt-and-suspenders against
-//      prompt-injection that tries to "break out".
+//  1. Length cap (MaxMCPTextBytes): blunts "stuff the context".
+//  2. Control-char strip (C0/C1 except \n \t \r): kills zero-width
+//     attacks, RTL overrides, ANSI escapes, and bell/escape codes
+//     that some chat surfaces interpret.
+//  3. Structured delimiters (<mcp-server-content>...</mcp-server-content>):
+//     lets the model's tokenizer cleanly separate foreign content
+//     from host-trusted instructions. Belt-and-suspenders against
+//     prompt-injection that tries to "break out".
 //
 // These are not paranoid; they're table stakes once we host
 // arbitrary third-party MCP servers (the JIRA case).

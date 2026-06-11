@@ -21,7 +21,6 @@ import (
 type Wool struct {
 	name   string
 	source *Identifier
-	ref    *CodeReference
 
 	fields []*LogField
 
@@ -51,7 +50,6 @@ func (w *Wool) Close() error {
 func (w *Wool) In(method string, fields ...*LogField) *Wool {
 	newW := &Wool{
 		source:   w.source,
-		ref:      w.ref,
 		ctx:      w.ctx,
 		provider: w.provider,
 		logger:   w.logger,
@@ -98,10 +96,13 @@ func (w *Wool) Catch() {
 }
 
 // LogLevel returns the effective log level for this Wool instance.
+// A zero-value (DEFAULT) instance level means "inherit the global level" —
+// otherwise an instance never filters and custom processors (gRPC streaming,
+// buffered, agent loggers) receive every TRACE/DEBUG line regardless of the
+// configured level.
 func (w *Wool) LogLevel() Loglevel {
-	g := GlobalLogLevel()
-	if w.logLevel > g {
-		return g
+	if w.logLevel == DEFAULT {
+		return GlobalLogLevel()
 	}
 	return w.logLevel
 }
@@ -110,10 +111,21 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 	if w.LogLevel() > l {
 		return
 	}
-	for _, f := range fs {
-		if f.Level == DEFAULT {
-			f.Level = l
+	// Do not mutate caller-owned LogField pointers (they may be shared across
+	// goroutines or reused across calls). Replace only those whose level is
+	// DEFAULT with a shallow copy carrying the effective level.
+	if len(fs) > 0 {
+		out := make([]*LogField, len(fs))
+		for i, f := range fs {
+			if f != nil && f.Level == DEFAULT {
+				cp := *f
+				cp.Level = l
+				out[i] = &cp
+			} else {
+				out[i] = f
+			}
 		}
+		fs = out
 	}
 
 	log := &Log{Message: msg, Fields: fs, Level: l, Header: w.name}
@@ -179,10 +191,12 @@ func (w *Wool) Wrap(err error) error {
 
 func (w *Wool) Wrapf(err error, msg string, args ...any) error {
 	msg = fmt.Sprintf(msg, args...)
-	if len(w.fields) > 0 {
-		fields := fmt.Sprintf("%v", w.fields)
-		msg = fmt.Sprintf("%s: %s", msg, fields)
-	}
+	// Structured fields attached via In(...)/With(...) are intentionally NOT
+	// inlined into the error message. They are a logging concern; dumping them
+	// (often a whole struct via %v, e.g. an orchestration Action) into the
+	// error string buries the real cause behind noise and pushes it past the
+	// terminal width — leaving the user with a truncated, useless error. The
+	// fields still travel with every log line emitted by this Wool.
 	if name := w.Name(); name != "" {
 		msg = fmt.Sprintf("%s: %s", w.Name(), msg)
 	}
@@ -256,22 +270,6 @@ func (err *NotFoundError) Error() string {
 
 func NotFound(what ContextKey) error {
 	return &NotFoundError{what: what}
-}
-
-// --- Code references ---
-
-type CodeReference struct {
-	Line int    `json:"line"`
-	File string `json:"file"`
-}
-
-func (c *CodeReference) String() string {
-	return fmt.Sprintf("%s:%d", c.File, c.Line)
-}
-
-type CodePath struct {
-	Method string      `json:"method"`
-	Fields []*LogField `json:"fields"`
 }
 
 const LogEvent = "log"

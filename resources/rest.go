@@ -171,13 +171,20 @@ func (loader *RestRouteLoader) Load(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		// Validate all paths in routes starts with the generic path!
+		// Path is persisted IN the YAML and is authoritative. Only fall back to
+		// the filename-derived path for legacy files that predate the field —
+		// otherwise we clobber e.g. "/a/b" with the lossy filename form "/a_b"
+		// (slashes become underscores), which then fails the route-prefix
+		// validation on the next reload.
+		if group.Path == "" {
+			group.Path = routePath
+		}
+		// Validate all paths in routes start with the group path.
 		for _, route := range group.Routes {
 			if !strings.HasPrefix(route.Path, group.Path) {
 				return w.NewError("route <%s> does not start with path <%s>", route.Path, group.Path)
 			}
 		}
-		group.Path = routePath
 		group.Module = ref.Module
 		group.Service = ref.Name
 		groups[unique] = append(groups[unique], group)
@@ -268,13 +275,17 @@ func (loader *ExtendedRouteLoader[T]) Load(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		// Validate all paths in routes starts with the generic path!
+		// Path is persisted in the YAML and is authoritative; only fall back to
+		// the lossy filename-derived path for legacy files lacking the field.
+		if group.Path == "" {
+			group.Path = routePath
+		}
+		// Validate all paths in routes start with the group path.
 		for _, route := range group.Routes {
 			if !strings.HasPrefix(route.Path, group.Path) {
 				return w.NewError("route <%s> does not start with path <%s>", route.Path, group.Path)
 			}
 		}
-		group.Path = routePath
 		group.Module = ref.Module
 		group.Service = ref.Name
 		groups[unique] = append(groups[unique], group)
@@ -416,7 +427,11 @@ func (g *ExtendedRestRouteGroup[T]) Save(ctx context.Context, dir string) error 
 // Delete a route
 func (g *RestRouteGroup) Delete(ctx context.Context, dir string) error {
 	w := wool.Get(ctx).In("RestRoute::Delete")
-	file, err := FilePathForRest(ctx, dir, g.ServiceUnique(), sanitizePath(g.Path))
+	// Use the SAME path Save uses (FilePathForRest already sanitizes). The old
+	// code pre-applied sanitizePath ("__"), then FilePathForRest sanitized again
+	// ("_"), so Delete looked for a file Save never created — multi-segment
+	// route groups could never be deleted.
+	file, err := FilePathForRest(ctx, dir, g.ServiceUnique(), g.Path)
 	if err != nil {
 		return w.Wrapf(err, "cannot get file path for route to delete")
 	}
