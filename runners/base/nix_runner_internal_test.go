@@ -110,8 +110,11 @@ func TestNixEnvironment_NewProcess_WrappedWhenNotMaterialized(t *testing.T) {
 		t.Fatalf("expected *NixProc, got %T", proc)
 	}
 	got := strings.Join(np.cmd, " ")
-	if !strings.HasPrefix(got, "nix --extra-experimental-features nix-command flakes develop /svc --command ") {
-		t.Errorf("wrapped cmd missing nix develop prefix: %q", got)
+	// The dir is referenced as a nix flake path (`path:/svc`); assert the
+	// load-bearing pieces rather than the exact experimental-features flags so
+	// the test doesn't break every time those flags are tuned.
+	if !strings.HasPrefix(got, "nix ") || !strings.Contains(got, " develop path:/svc --command ") {
+		t.Errorf("wrapped cmd missing `nix ... develop path:/svc --command` prefix: %q", got)
 	}
 	if !strings.HasSuffix(got, " go test ./...") {
 		t.Errorf("wrapped cmd does not end with bin + args: %q", got)

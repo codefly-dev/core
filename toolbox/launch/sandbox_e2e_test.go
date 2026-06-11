@@ -194,7 +194,11 @@ func TestE2E_OSSandbox_BlocksWriteOutsideAllowedPaths(t *testing.T) {
 		strings.Contains(combined, "operation not permitted") ||
 		strings.Contains(combined, "read-only") ||
 		strings.Contains(combined, "denied") ||
-		strings.Contains(combined, "no such file or directory") // bwrap mount-namespace hide
+		strings.Contains(combined, "no such file or directory") ||
+		// dash (Linux /bin/sh) phrases the bwrap-hidden-path ENOENT as
+		// "Directory nonexistent" rather than the libc "no such file...".
+		strings.Contains(combined, "directory nonexistent") ||
+		strings.Contains(combined, "nonexistent") // bwrap mount-namespace hide
 	require.True(t, hasFSDenialSignal,
 		"error must indicate a sandbox-level blockage (got: %q)", resp2.Error)
 
@@ -363,7 +367,11 @@ func TestE2E_OSSandbox_InheritedByChildProcesses(t *testing.T) {
 		strings.Contains(combined, "operation not permitted") ||
 		strings.Contains(combined, "read-only") ||
 		strings.Contains(combined, "denied") ||
-		strings.Contains(combined, "no such file or directory")
+		strings.Contains(combined, "no such file or directory") ||
+		// dash (Linux /bin/sh) phrases the bwrap-hidden-path ENOENT as
+		// "Directory nonexistent" rather than the libc "no such file...".
+		strings.Contains(combined, "directory nonexistent") ||
+		strings.Contains(combined, "nonexistent")
 	require.True(t, hasFSDenialSignal,
 		"child-shell error must indicate a sandbox-level blockage (got: %q)", resp2.Error)
 
