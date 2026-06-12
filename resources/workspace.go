@@ -340,6 +340,17 @@ func (workspace *Workspace) preSave(ctx context.Context) (*Workspace, error) {
 	serialized := workspace.Clone()
 	if workspace.Layout == LayoutKindFlat {
 		serialized.Modules = nil
+		// Clear the redundant Module field from ServiceReferences for flat layout
+		// (Module is implied to be the workspace). Clone() is a shallow copy, so the
+		// ServiceReference pointers are shared with the in-memory workspace — copy each
+		// reference before blanking it to avoid corrupting the original.
+		cleaned := make([]*ServiceReference, len(serialized.Services))
+		for i, ref := range serialized.Services {
+			cp := *ref
+			cp.Module = ""
+			cleaned[i] = &cp
+		}
+		serialized.Services = cleaned
 		// For non-flat layouts, don't serialize Services
 	} else {
 		serialized.Services = nil

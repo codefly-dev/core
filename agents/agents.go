@@ -497,6 +497,7 @@ func Serve(reg PluginRegistration) {
 		case <-time.After(3 * time.Second):
 			s.Stop()
 		}
+		signal.Stop(ch)
 	}()
 
 	if err := s.Serve(lis); err != nil {

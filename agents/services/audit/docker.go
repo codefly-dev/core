@@ -30,12 +30,19 @@ func Docker(ctx context.Context, image string) (*Result, error) {
 	// --severity HIGH,CRITICAL keeps the output focused on actionable
 	// findings (postgres images can carry hundreds of LOW/MEDIUM CVEs
 	// in OS packages that the user can't fix without rebuilding upstream).
-	out, _ := runCmd(ctx, "", "trivy", "image",
+	// trivy signals "found vulnerabilities" via a non-zero exit code, which
+	// is NOT a run failure — keep parsing stdout in that case. Only treat it
+	// as a genuine failure (binary error, image pull failure, etc.) when the
+	// command both errored AND produced no output to parse.
+	out, err := runCmd(ctx, "", "trivy", "image",
 		"--quiet",
 		"--format", "json",
 		"--severity", "HIGH,CRITICAL",
 		image,
 	)
+	if err != nil && len(out) == 0 {
+		return res, nil
+	}
 	res.Findings = parseTrivy(out)
 	return res, nil
 }

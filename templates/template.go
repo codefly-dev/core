@@ -140,15 +140,12 @@ func Copy(ctx context.Context, fs shared.FileSystem, f string, destination strin
 	if err != nil {
 		return w.Wrap(err)
 	}
+	defer file.Close()
 	_, err = file.Write([]byte(data))
 	if err != nil {
 		return w.Wrap(err)
 	}
-	err = file.Close()
-	if err != nil {
-		return w.Wrap(err)
-	}
-	return nil
+	return file.Close()
 }
 
 func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f string, destination string, obj any) error {
@@ -166,15 +163,12 @@ func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f string, d
 	if err != nil {
 		return w.Wrap(err)
 	}
+	defer file.Close()
 	_, err = file.Write([]byte(out))
 	if err != nil {
 		return w.Wrap(err)
 	}
-	err = file.Close()
-	if err != nil {
-		return w.Wrap(err)
-	}
-	return nil
+	return file.Close()
 }
 
 func ApplyTemplateFrom(ctx context.Context, fs shared.FileSystem, f string, obj any) (string, error) {
@@ -211,15 +205,12 @@ func CopyAndReplace(ctx context.Context, fs shared.FileSystem, f string, destina
 	if err != nil {
 		return w.Wrap(err)
 	}
+	defer file.Close()
 	_, err = file.Write([]byte(out))
 	if err != nil {
 		return w.Wrap(err)
 	}
-	err = file.Close()
-	if err != nil {
-		return w.Wrap(err)
-	}
-	return nil
+	return file.Close()
 }
 
 type NameReplacer interface {

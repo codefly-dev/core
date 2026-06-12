@@ -135,6 +135,8 @@ func (watcher *Watcher) Start(ctx context.Context) {
 	defer watcher.watcher.Close()
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case event, ok := <-watcher.watcher.Events:
 			if !ok {
 				return

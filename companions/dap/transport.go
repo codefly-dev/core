@@ -56,6 +56,7 @@ type dapEvent struct {
 type transport struct {
 	conn   net.Conn
 	reader *bufio.Reader
+	ctx    context.Context
 
 	mu        sync.Mutex
 	seq       int64
@@ -71,10 +72,15 @@ type transport struct {
 
 // newTransport creates a transport from an established TCP connection and
 // starts the background message reader.
-func newTransport(conn net.Conn) *transport {
+//
+// The supplied context governs the reader goroutine's lifetime: when it is
+// cancelled the connection is closed, which unblocks the in-flight read and
+// causes readMessages to return. This is independent of an explicit close().
+func newTransport(ctx context.Context, conn net.Conn) *transport {
 	t := &transport{
 		conn:    conn,
 		reader:  bufio.NewReader(conn),
+		ctx:     ctx,
 		pending: make(map[int]chan *dapResponse),
 	}
 	go t.readMessages()
@@ -146,7 +152,27 @@ func (t *transport) send(msg interface{}) error {
 // readMessages reads DAP messages and dispatches responses to pending callers
 // and events to registered handlers.
 func (t *transport) readMessages() {
+	// Closing the connection on cancellation unblocks the blocking reads
+	// below so the goroutine exits even when no I/O error occurs on its own.
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-t.ctx.Done():
+			_ = t.conn.Close()
+		case <-stop:
+		}
+	}()
+
 	for {
+		// Bail out promptly if the context was cancelled.
+		select {
+		case <-t.ctx.Done():
+			t.setErr(t.ctx.Err())
+			return
+		default:
+		}
+
 		header, err := t.readHeader()
 		if err != nil {
 			t.setErr(fmt.Errorf("readHeader: %w", err))

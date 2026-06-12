@@ -68,7 +68,10 @@ func Golang(ctx context.Context, dir string, opts Options) (*Result, error) {
 }
 
 func golangDryRun(ctx context.Context, dir string, opts Options) (*Result, error) {
-	out, _ := runCmd(ctx, dir, "go", "list", "-m", "-u", "-json", "all")
+	out, err := runCmd(ctx, dir, "go", "list", "-m", "-u", "-json", "all")
+	if err != nil && len(out) == 0 {
+		return nil, err
+	}
 	var changes []*builderv0.UpgradeChange
 	dec := json.NewDecoder(strings.NewReader(string(out)))
 	for dec.More() {

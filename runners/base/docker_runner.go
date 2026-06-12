@@ -52,6 +52,11 @@ type DockerEnvironment struct {
 	instance *DockerContainerInstance
 	out      io.Writer
 	reader   io.ReadCloser
+	// forwarderWG tracks the follow-mode log-forwarding goroutine spawned by
+	// GetLogs. Shutdown waits on it before closing the reader so the goroutine
+	// can't race a concurrent Close (and so we don't leak it + the hijacked
+	// ContainerLogs connection on every GetLogs re-invocation).
+	forwarderWG sync.WaitGroup
 
 	running bool
 }
@@ -500,10 +505,13 @@ func (docker *DockerEnvironment) GetLogs(ctx context.Context) error {
 	// Close any prior follow-mode reader before opening a new one. GetLogs is
 	// re-invoked on every GetContainer (i.e. each DockerProc.start); without
 	// this, each call leaked a hijacked connection + Forward goroutine and
-	// overwrote docker.reader so the old one could never be closed.
+	// overwrote docker.reader so the old one could never be closed. Closing
+	// the reader unblocks the previous forwarder goroutine; wait for it to
+	// finish before replacing docker.reader so the two don't race.
 	if docker.reader != nil {
 		_ = docker.reader.Close()
 		docker.reader = nil
+		docker.forwarderWG.Wait()
 	}
 	options := container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
 	logReader, err := docker.client.ContainerLogs(ctx, docker.instance.ID, options)
@@ -511,7 +519,11 @@ func (docker *DockerEnvironment) GetLogs(ctx context.Context) error {
 		return w.Wrapf(err, "cannot get container logs")
 	}
 	docker.reader = logReader
-	Forward(ctx, logReader, docker.out)
+	docker.forwarderWG.Add(1)
+	go func() {
+		defer docker.forwarderWG.Done()
+		forwardContainerLines(ctx, logReader, docker.out)
+	}()
 	return nil
 }
 
@@ -580,6 +592,11 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 		_ = docker.reader.Close()
 		docker.reader = nil
 	}
+	// Wait for the follow-mode forwarder goroutine to drain and exit before
+	// proceeding — closing the reader above unblocks it. This must run even
+	// when reader was already nil (e.g. GetLogs nil'd it but the goroutine is
+	// still finishing) so we never leave a forwarder running past Shutdown.
+	docker.forwarderWG.Wait()
 	exists, err := docker.IsContainerPresent(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot check if container is running")
@@ -964,9 +981,17 @@ func (proc *DockerProc) Stop(ctx context.Context) error {
 	// this goroutine reused outer-scope `pid, err` via closure (using `=`,
 	// not `:=`), which raced if Stop was called twice. Local shadowing
 	// isolates the deferred force-kill state.
+	//
+	// Use a fresh, bounded context detached from the caller's ctx: the outer
+	// ctx is frequently cancelled the moment Stop returns (it's a setup/
+	// teardown context), which would leave the delayed FindPid operating on a
+	// dead context. The independent context keeps the force-kill correct even
+	// when Stop is called repeatedly during error recovery / test cleanup.
 	go func() {
+		forceCtx, forceCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer forceCancel()
 		time.Sleep(3 * time.Second)
-		forcePID, findErr := proc.FindPid(ctx)
+		forcePID, findErr := proc.FindPid(forceCtx)
 		if forcePID < 0 {
 			return // process already exited, nothing to do
 		}
@@ -974,7 +999,7 @@ func (proc *DockerProc) Stop(ctx context.Context) error {
 			w.Warn("could not get PID for force-kill (process may already have exited)", wool.ErrField(findErr))
 			return
 		}
-		_ = proc.stop(ctx, forcePID, true)
+		_ = proc.stop(forceCtx, forcePID, true)
 	}()
 	return err
 }
@@ -1114,31 +1139,40 @@ func (docker *DockerEnvironment) WithPortMapping(ctx context.Context, local uint
 }
 
 func Forward(ctx context.Context, reader io.Reader, writer io.Writer) {
-	scanner := bufio.NewScanner(reader)
-	go func() {
-		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			// scanner.Text() already strips the line delimiter — re-add it so
-			// downstream readers (TUI, log files) see proper line breaks
-			// rather than every container line concatenated end-to-end.
-			_, _ = writer.Write(append(scanner.Bytes(), '\n'))
-		}
+	go forwardContainerLines(ctx, reader, writer)
+}
 
-		// "use of closed network connection" / io.EOF / context-cancelled
-		// are the normal shutdown signals when the container exits or the
-		// caller cancels — surfacing them as errors just adds noise to the
-		// CLI output. Anything else is worth reporting.
-		err := scanner.Err()
-		if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) ||
-			strings.Contains(err.Error(), "use of closed network connection") {
+// forwardContainerLines synchronously scans reader and forwards each line to
+// writer, returning when the reader is exhausted/closed or ctx is cancelled.
+// It's the drain body shared by the fire-and-forget Forward and GetLogs'
+// WaitGroup-tracked forwarder, so callers that need to wait for the drain
+// (Shutdown) can do so via the goroutine they own. Distinct from pgid.go's
+// forwardLines: this one is ctx-aware and treats container-log shutdown
+// errors (closed connection / EOF) as normal rather than reportable.
+func forwardContainerLines(ctx context.Context, reader io.Reader, writer io.Writer) {
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
 			return
+		default:
 		}
-		_, _ = writer.Write([]byte(fmt.Sprintf("Error while scanning container logs: %s\n", err)))
-	}()
+		// scanner.Text() already strips the line delimiter — re-add it so
+		// downstream readers (TUI, log files) see proper line breaks
+		// rather than every container line concatenated end-to-end.
+		_, _ = writer.Write(append(scanner.Bytes(), '\n'))
+	}
+
+	// "use of closed network connection" / io.EOF / context-cancelled
+	// are the normal shutdown signals when the container exits or the
+	// caller cancels — surfacing them as errors just adds noise to the
+	// CLI output. Anything else is worth reporting.
+	err := scanner.Err()
+	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) ||
+		strings.Contains(err.Error(), "use of closed network connection") {
+		return
+	}
+	_, _ = writer.Write([]byte(fmt.Sprintf("Error while scanning container logs: %s\n", err)))
 }
 
 func (docker *DockerEnvironment) WithOutput(w io.Writer) {

@@ -61,12 +61,8 @@ func (tracker *ActionTracker) NextStep() int {
 		}
 		// Extract the step number
 		s := strings.Split(filename, "_")[0]
-		// Convert to int
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return err
-		}
-		if n > num {
+		// Convert to int, skipping malformed filenames
+		if n, err := strconv.Atoi(s); err == nil && n > num {
 			num = n
 		}
 		return nil
@@ -136,6 +132,9 @@ func (tracker *ActionTracker) GetActions(_ context.Context) ([]Action, error) {
 		err = json.Unmarshal(data, &actionStep)
 		if err != nil {
 			return err
+		}
+		if actionStep.Data == nil {
+			return fmt.Errorf("action data is missing or null for step %d", actionStep.Step)
 		}
 		content, err := actionStep.Data.MarshalJSON()
 		if err != nil {

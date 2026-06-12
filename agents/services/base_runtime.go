@@ -48,7 +48,9 @@ func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
 	if s.Environment == nil {
 		return s.LoadError(s.Wool.NewError("environment is nil"))
 	}
+	s.Lock()
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_READY}
+	s.Unlock()
 	s.Wool.Debug("load response", wool.NullableField("endpoints", resources.MakeManyEndpointSummary(s.Endpoints)))
 	return &runtimev0.LoadResponse{
 		Version:   s.Version(),
@@ -58,11 +60,15 @@ func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
 }
 
 func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: err.Error()}
 	return &runtimev0.LoadResponse{Status: s.LoadStatus}, err
 }
 
 func (s *RuntimeWrapper) LoadErrorf(err error, msg string, args ...any) (*runtimev0.LoadResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
 	return &runtimev0.LoadResponse{Status: s.LoadStatus}, err
 }
@@ -70,6 +76,8 @@ func (s *RuntimeWrapper) LoadErrorf(err error, msg string, args ...any) (*runtim
 // ── Init ──────────────────────────────────────────────────
 
 func (s *RuntimeWrapper) InitResponse() (*runtimev0.InitResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_READY}
 	return &runtimev0.InitResponse{
 		Status:                s.InitStatus,
@@ -79,11 +87,15 @@ func (s *RuntimeWrapper) InitResponse() (*runtimev0.InitResponse, error) {
 }
 
 func (s *RuntimeWrapper) InitError(err error) (*runtimev0.InitResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: err.Error()}
 	return &runtimev0.InitResponse{Status: s.InitStatus}, err
 }
 
 func (s *RuntimeWrapper) InitErrorf(err error, msg string, args ...any) (*runtimev0.InitResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
 	return &runtimev0.InitResponse{Status: s.InitStatus}, err
 }
@@ -91,16 +103,22 @@ func (s *RuntimeWrapper) InitErrorf(err error, msg string, args ...any) (*runtim
 // ── Start ─────────────────────────────────────────────────
 
 func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
 }
 
 func (s *RuntimeWrapper) StartError(err error) (*runtimev0.StartResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: err.Error()}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, err
 }
 
 func (s *RuntimeWrapper) StartErrorf(err error, msg string, args ...any) (*runtimev0.StartResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, err
 }
@@ -127,11 +145,15 @@ func (s *RuntimeWrapper) MarkRunnerExited(err error) {
 // ── Test ──────────────────────────────────────────────────
 
 func (s *RuntimeWrapper) TestResponse() (*runtimev0.TestResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_SUCCESS}
 	return &runtimev0.TestResponse{Status: s.TestStatus}, nil
 }
 
 func (s *RuntimeWrapper) TestResponseWithResults(run, passed, failed, skipped int32, coverage float32, failures []string, err error) (*runtimev0.TestResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	if err != nil || failed > 0 {
 		msg := ""
 		if err != nil {
@@ -153,11 +175,15 @@ func (s *RuntimeWrapper) TestResponseWithResults(run, passed, failed, skipped in
 }
 
 func (s *RuntimeWrapper) TestError(err error) (*runtimev0.TestResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: err.Error()}
 	return &runtimev0.TestResponse{Status: s.TestStatus}, err
 }
 
 func (s *RuntimeWrapper) TestErrorf(err error, msg string, args ...any) (*runtimev0.TestResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
 	return &runtimev0.TestResponse{Status: s.TestStatus}, err
 }
@@ -165,16 +191,22 @@ func (s *RuntimeWrapper) TestErrorf(err error, msg string, args ...any) (*runtim
 // ── Build ─────────────────────────────────────────────────
 
 func (s *RuntimeWrapper) BuildResponse(output string) (*runtimev0.BuildResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_SUCCESS}
 	return &runtimev0.BuildResponse{Status: s.BuildStatus, Output: output}, nil
 }
 
 func (s *RuntimeWrapper) BuildError(err error) (*runtimev0.BuildResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_ERROR, Message: err.Error()}
 	return &runtimev0.BuildResponse{Status: s.BuildStatus}, err
 }
 
 func (s *RuntimeWrapper) BuildErrorf(err error, msg string, args ...any) (*runtimev0.BuildResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
 	return &runtimev0.BuildResponse{Status: s.BuildStatus}, err
 }
@@ -182,16 +214,22 @@ func (s *RuntimeWrapper) BuildErrorf(err error, msg string, args ...any) (*runti
 // ── Lint ──────────────────────────────────────────────────
 
 func (s *RuntimeWrapper) LintResponse(output string) (*runtimev0.LintResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_SUCCESS}
 	return &runtimev0.LintResponse{Status: s.LintStatus, Output: output}, nil
 }
 
 func (s *RuntimeWrapper) LintError(err error) (*runtimev0.LintResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_ERROR, Message: err.Error()}
 	return &runtimev0.LintResponse{Status: s.LintStatus}, err
 }
 
 func (s *RuntimeWrapper) LintErrorf(err error, msg string, args ...any) (*runtimev0.LintResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
 	return &runtimev0.LintResponse{Status: s.LintStatus}, err
 }
@@ -203,6 +241,8 @@ func (s *RuntimeWrapper) StopResponse() (*runtimev0.StopResponse, error) {
 }
 
 func (s *RuntimeWrapper) StopError(err error) (*runtimev0.StopResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.StopStatus = &runtimev0.StopStatus{State: runtimev0.StopStatus_ERROR, Message: err.Error()}
 	return &runtimev0.StopResponse{Status: s.StopStatus}, err
 }
@@ -212,6 +252,8 @@ func (s *RuntimeWrapper) DestroyResponse() (*runtimev0.DestroyResponse, error) {
 }
 
 func (s *RuntimeWrapper) DestroyError(err error) (*runtimev0.DestroyResponse, error) {
+	s.Lock()
+	defer s.Unlock()
 	s.DestroyStatus = &runtimev0.DestroyStatus{State: runtimev0.DestroyStatus_ERROR, Message: err.Error()}
 	return &runtimev0.DestroyResponse{Status: s.DestroyStatus}, err
 }

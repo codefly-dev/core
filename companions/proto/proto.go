@@ -117,7 +117,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 
 	// Deal with OpenAPI if exists
 	openapi := path.Join(g.Dir, "openapi/api.swagger.json")
-	if ok, _ := shared.FileExists(ctx, openapi); err == nil && ok {
+	if ok, err := shared.FileExists(ctx, openapi); err == nil && ok {
 		destination := path.Join(g.Dir, standards.OpenAPIPath)
 		err = shared.CopyFile(ctx, openapi, destination)
 		if err != nil {

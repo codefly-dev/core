@@ -21,7 +21,12 @@ func Node(ctx context.Context, dir string, includeOutdated bool) (*Result, error
 		return res, nil
 	}
 
-	out, _ := runCmd(ctx, dir, "npm", "audit", "--json")
+	out, err := runCmd(ctx, dir, "npm", "audit", "--json")
+	if err != nil && len(out) == 0 {
+		// `npm audit` failed completely (e.g. missing tool/lockfile);
+		// nothing to parse — non-zero exit on findings still yields output.
+		return res, nil
+	}
 	findings, err := parseNpmAudit(out)
 	if err != nil {
 		return nil, err
@@ -29,7 +34,11 @@ func Node(ctx context.Context, dir string, includeOutdated bool) (*Result, error
 	res.Findings = findings
 
 	if includeOutdated {
-		o, _ := runCmd(ctx, dir, "npm", "outdated", "--json")
+		o, err := runCmd(ctx, dir, "npm", "outdated", "--json")
+		if err != nil && len(o) == 0 {
+			// `npm outdated` failed completely; skip outdated portion.
+			return res, nil
+		}
 		res.Outdated = parseNpmOutdated(o)
 		res.Tool = "npm-audit+outdated"
 	}

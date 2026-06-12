@@ -142,7 +142,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// subprocess (go test, CI, MCP, pipes).
 	args = append(args, "--exclude-root", "--cli-server", "--headless")
 	cmd := exec.CommandContext(ctx, codeflyBinary(), args...)
-	fmt.Println("Running command", cmd.String())
+	wool.Get(ctx).In("sdk.WithDependencies").Debug("starting CLI subprocess", wool.Field("cmd", cmd.String()))
 
 	proc, err := startManaged(ctx, cmd)
 	if err != nil {

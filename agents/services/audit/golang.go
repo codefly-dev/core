@@ -67,8 +67,14 @@ type govulncheckOutput struct {
 }
 
 func runGovulncheck(ctx context.Context, dir string) ([]*builderv0.AuditFinding, error) {
-	out, _ := runCmd(ctx, dir, "govulncheck", "-json", "./...")
+	out, err := runCmd(ctx, dir, "govulncheck", "-json", "./...")
 	// govulncheck exits non-zero when findings exist; we still parse.
+	// But a genuine run failure (module not initialized, binary errors)
+	// produces no output to parse — propagate it instead of masking the
+	// scan failure as "no vulnerabilities". Mirrors runGoListUpdates.
+	if err != nil && len(out) == 0 {
+		return nil, err
+	}
 	return runGovulncheckParseBytes(out)
 }
 

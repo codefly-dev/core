@@ -119,7 +119,7 @@ func newCompanionClient(ctx context.Context, cfg *LanguageConfig, sourceDir stri
 		cfg:      cfg,
 		runner:   runner,
 		proc:     proc,
-		tp:       newTransport(conn),
+		tp:       newTransport(ctx, conn),
 		rootDir:  absSource,
 		hostPort: hostPort,
 	}
@@ -140,8 +140,8 @@ func (c *companionClient) initialize(ctx context.Context) error {
 		"clientName":                   "codefly-dap",
 		"adapterID":                    c.cfg.LanguageID,
 		"pathFormat":                   "path",
-		"linesStartAt1":               true,
-		"columnsStartAt1":             true,
+		"linesStartAt1":                true,
+		"columnsStartAt1":              true,
 		"supportsRunInTerminalRequest": false,
 	}
 
