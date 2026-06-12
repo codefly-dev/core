@@ -27,14 +27,26 @@ func Node(ctx context.Context, dir string, opts Options) (*Result, error) {
 		return nodeDryRun(ctx, dir, opts)
 	}
 
-	before := snapshotNpm(ctx, dir)
+	before, err := snapshotNpm(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
 
 	if opts.IncludeMajor {
 		// Per-pkg install from outdated list. We resolve the list first,
-		// then install each at @latest.
-		out, _ := runCmd(ctx, dir, "npm", "outdated", "--json")
+		// then install each at @latest. `npm outdated` exits non-zero when
+		// it *finds* outdated packages — that's not a run failure, so only
+		// bubble the error when there's no JSON to parse.
+		out, err := runCmd(ctx, dir, "npm", "outdated", "--json")
+		if err != nil && len(out) == 0 {
+			return nil, err
+		}
 		var raw map[string]struct{ Latest string }
-		_ = json.Unmarshal(out, &raw)
+		if len(out) > 0 {
+			if err := json.Unmarshal(out, &raw); err != nil {
+				return nil, err
+			}
+		}
 		for name := range raw {
 			if !inOnly(name, opts.Only) {
 				continue
@@ -53,7 +65,10 @@ func Node(ctx context.Context, dir string, opts Options) (*Result, error) {
 		}
 	}
 
-	after := snapshotNpm(ctx, dir)
+	after, err := snapshotNpm(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
 	return &Result{
 		Changes:      diffMods(before, after),
 		LockfileDiff: gitDiffShortstat(ctx, dir, "package.json", "package-lock.json"),
@@ -61,7 +76,13 @@ func Node(ctx context.Context, dir string, opts Options) (*Result, error) {
 }
 
 func nodeDryRun(ctx context.Context, dir string, opts Options) (*Result, error) {
-	out, _ := runCmd(ctx, dir, "npm", "outdated", "--json")
+	// `npm outdated` exits non-zero when it *finds* outdated packages — that
+	// is a finding, not a run failure, and it still writes valid JSON. Only
+	// surface the error when there's no output to parse (binary missing, etc).
+	out, err := runCmd(ctx, dir, "npm", "outdated", "--json")
+	if err != nil && len(out) == 0 {
+		return nil, err
+	}
 	if len(out) == 0 {
 		return &Result{}, nil
 	}
@@ -71,7 +92,7 @@ func nodeDryRun(ctx context.Context, dir string, opts Options) (*Result, error) 
 		Latest  string `json:"latest"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return &Result{}, nil
+		return nil, err
 	}
 	var changes []*builderv0.UpgradeChange
 	for name, e := range raw {
@@ -93,11 +114,15 @@ func nodeDryRun(ctx context.Context, dir string, opts Options) (*Result, error) 
 }
 
 // snapshotNpm returns {package: version} from `npm ls --json --depth=0`.
-// Best-effort — empty map on failure.
-func snapshotNpm(ctx context.Context, dir string) map[string]string {
-	out, _ := runCmd(ctx, dir, "npm", "ls", "--json", "--depth=0")
+// `npm ls` exits non-zero on dependency-tree warnings while still printing
+// valid JSON, so only the no-output case is treated as a run failure.
+func snapshotNpm(ctx context.Context, dir string) (map[string]string, error) {
+	out, err := runCmd(ctx, dir, "npm", "ls", "--json", "--depth=0")
+	if err != nil && len(out) == 0 {
+		return nil, err
+	}
 	if len(out) == 0 {
-		return map[string]string{}
+		return map[string]string{}, nil
 	}
 	// npm ls schema: { "dependencies": { "name": { "version": "x.y.z" } } }
 	var ls struct {
@@ -115,5 +140,5 @@ func snapshotNpm(ctx context.Context, dir string) map[string]string {
 	for name, d := range ls.Dependencies {
 		snap[name] = d.Version
 	}
-	return snap
+	return snap, nil
 }

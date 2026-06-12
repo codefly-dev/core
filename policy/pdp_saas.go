@@ -97,6 +97,8 @@ func NewSaasPDP(backend PermissionsBackend) *SaasPDP {
 // WithCache enables the LRU cache with the given TTL. Returns the
 // receiver for fluent configuration.
 func (s *SaasPDP) WithCache(ttl time.Duration) *SaasPDP {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.CacheTTL = ttl
 	if ttl > 0 && s.cache == nil {
 		s.cache = make(map[saasCacheKey]saasCacheEntry)
@@ -190,11 +192,11 @@ func (s *SaasPDP) resourceFromArgs(args map[string]any) string {
 }
 
 func (s *SaasPDP) cacheLookup(key saasCacheKey) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.CacheTTL <= 0 {
 		return false
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.cache == nil {
 		return false
 	}
@@ -210,11 +212,11 @@ func (s *SaasPDP) cacheLookup(key saasCacheKey) bool {
 }
 
 func (s *SaasPDP) cacheStore(key saasCacheKey) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.CacheTTL <= 0 {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.cache == nil {
 		s.cache = make(map[saasCacheKey]saasCacheEntry)
 	}

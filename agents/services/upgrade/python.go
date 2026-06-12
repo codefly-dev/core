@@ -3,6 +3,7 @@ package upgrade
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,7 +26,13 @@ func Python(ctx context.Context, dir string, opts Options) (*Result, error) {
 	if !have("pip") {
 		return &Result{}, nil
 	}
-	out, _ := runCmd(ctx, dir, "pip", "list", "--outdated", "--format", "json")
+	// pip list --outdated exits 0 even when packages are outdated (the JSON
+	// report is the success signal), so a non-zero exit here is a genuine run
+	// failure (pip missing, bad args, broken venv) and must be propagated.
+	out, err := runCmd(ctx, dir, "pip", "list", "--outdated", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
 	if len(out) == 0 {
 		return &Result{}, nil
 	}
@@ -35,7 +42,7 @@ func Python(ctx context.Context, dir string, opts Options) (*Result, error) {
 		LatestVersion string `json:"latest_version"`
 	}
 	if err := json.Unmarshal(out, &entries); err != nil {
-		return &Result{}, nil
+		return nil, fmt.Errorf("failed to parse pip output: %w", err)
 	}
 
 	var changes []*builderv0.UpgradeChange

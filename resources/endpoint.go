@@ -115,7 +115,6 @@ func ParseEndpoint(unique string) (*EndpointInformation, error) {
 			return nil, fmt.Errorf("info needs to be of the form app/svc/info::api")
 		}
 		endpoint.API = tokens[1]
-		endpoint.Name = endpoint.API
 		unique = tokens[0]
 	}
 

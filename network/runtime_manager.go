@@ -240,26 +240,30 @@ func (m *RuntimeManager) GetFreePort() uint16 {
 		m.mu.Lock()
 		m.lastRandomPort++
 		port := m.lastRandomPort
-		_, alreadyAllocated := m.allocatedPorts[port]
-		m.mu.Unlock()
-		if alreadyAllocated {
+		if _, alreadyAllocated := m.allocatedPorts[port]; alreadyAllocated {
+			m.mu.Unlock()
 			continue
 		}
+		// Reserve the port atomically with the dedup check, BEFORE
+		// probing the OS. This closes a TOCTOU race: without the
+		// reservation, two concurrent callers could both pass the
+		// alreadyAllocated check and net.Listen probe for the same
+		// port and hand it out twice.
+		m.allocatedPorts[port] = randomPortOwner
+		m.mu.Unlock()
 		// Try to establish a listener on the port. Outside the lock
 		// — net.Listen can block / take milliseconds, and other
 		// goroutines shouldn't wait on us for OS-level port probing.
 		ln, err := net.Listen("tcp", ":"+strconv.Itoa(int(port)))
 		if err != nil {
+			// Port isn't usable — release the reservation so it can
+			// be retried later, then move on to the next port.
+			m.mu.Lock()
+			delete(m.allocatedPorts, port)
+			m.mu.Unlock()
 			continue
 		}
 		ln.Close()
-		// Record the allocation so a subsequent named allocation or
-		// another GetFreePort can't hand out the same port. Without
-		// this, the dedup check above silently misses ports we've
-		// already returned to a caller.
-		m.mu.Lock()
-		m.allocatedPorts[port] = randomPortOwner
-		m.mu.Unlock()
 		return port
 	}
 }

@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -19,7 +20,12 @@ func Python(ctx context.Context, dir string, includeOutdated bool) (*Result, err
 
 	if have("pip-audit") {
 		tools = append(tools, "pip-audit")
-		out, _ := runCmd(ctx, dir, "pip-audit", "-f", "json")
+		// pip-audit exits non-zero on findings, which is normal — output is
+		// still returned, so only an empty output means it failed to run.
+		out, err := runCmd(ctx, dir, "pip-audit", "-f", "json")
+		if err != nil && len(out) == 0 {
+			return nil, fmt.Errorf("pip-audit failed: %w", err)
+		}
 		findings, err := parsePipAudit(out)
 		if err != nil {
 			return nil, err
@@ -29,7 +35,12 @@ func Python(ctx context.Context, dir string, includeOutdated bool) (*Result, err
 
 	if includeOutdated && have("pip") {
 		tools = append(tools, "pip-outdated")
-		o, _ := runCmd(ctx, dir, "pip", "list", "--outdated", "--format", "json")
+		// `pip list --outdated` exits non-zero on findings; output is still
+		// returned, so only an empty output means it failed to run.
+		o, err := runCmd(ctx, dir, "pip", "list", "--outdated", "--format", "json")
+		if err != nil && len(o) == 0 {
+			return nil, fmt.Errorf("pip list --outdated failed: %w", err)
+		}
 		res.Outdated = parsePipOutdated(o)
 	}
 

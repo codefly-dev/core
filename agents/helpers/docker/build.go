@@ -114,7 +114,10 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 			if len(out) == 0 {
 				continue
 			}
-			_, _ = builder.Output.Write([]byte(out))
+			if _, err := builder.Output.Write([]byte(out)); err != nil {
+				w.Error("cannot write build output", wool.ErrField(err))
+				buildErr = err.Error()
+			}
 		}
 	}
 
