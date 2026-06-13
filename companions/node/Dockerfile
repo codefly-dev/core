@@ -2,11 +2,11 @@
 # plugins). Pinned like every other codefly-built image — no :latest.
 #
 # Version pinning strategy (matches the codefly + python companions):
-#   - Base: node:22.12.0-alpine3.21 — Node LTS + matching Alpine release.
+#   - Base: node:24.16.0-alpine3.22 — Node LTS + matching Alpine release.
 #   - apk packages: not individually pinned; Alpine release freezes repo.
 #   - codefly CLI: copied from the pinned codeflydev/codefly base.
 
-FROM node:22.12.0-alpine3.21
+FROM node:24.16.0-alpine3.22
 
 # Re-install alpine dev tools so the node companion carries the same
 # toolbox as the codefly base.

@@ -10,7 +10,7 @@
 #   codeflydev/codefly:<v>  — alpine base + codefly CLI + common tools
 #   codeflydev/go:<v>       — Go plugin runtime (golang:1.26-alpine + gopls)
 #   codeflydev/python:<v>   — Python plugin runtime (python:3.13.1-alpine3.21 + uv)
-#   codeflydev/node:<v>     — Node plugin runtime (node:22.12.0-alpine3.21)
+#   codeflydev/node:<v>     — Node plugin runtime (node:24.16.0-alpine3.22)
 #   codeflydev/proto:<v>    — proto/buf companion for `codefly generate proto`
 set -e
 cd "$(dirname "$0")/../.."
