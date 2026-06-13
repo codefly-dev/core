@@ -256,6 +256,41 @@ message TestRequest {
   // command. Power-user escape hatch for flags codefly does not model.
   // Agents must NOT interpret these — pass through unchanged.
   repeated string extra_args = 8;
+
+  // Optional: a test FORMULA. When set, the agent runs THIS exact formula
+  // instead of detecting/choosing a runner — the caller (Mind) captured the
+  // command from the project's own declarations and supplies the per-instance
+  // provisioning as data. The agent hardcodes NO pytest/django command; it
+  // renders the formula into `uv run …` and parses by `output`. Selectors come
+  // from `target`/`filters`. This is how the brain stays framework-blind.
+  TestFormula formula = 9;
+}
+
+// TestFormula is a fully-described test invocation as DATA — and it is
+// LANGUAGE-AGNOSTIC. It names no framework and no toolchain: command is generic
+// argv, output is a generic format, and provisioning is an opaque key→value bag
+// that the LANGUAGE PLUGIN interprets (the python/uv plugin reads "python",
+// "editable", "with", "requirements"; a go plugin reads what it needs; unknown
+// keys are ignored). The command is captured from the project's own declarations
+// (tox/CI/Makefile/README); the provisioning is the per-instance environment the
+// brain used to hardcode. No uv, no pytest, no django — anywhere in this message.
+message TestFormula {
+  // Test command argv (language-agnostic): ["pytest"], ["go","test","./..."],
+  // ["python","tests/runtests.py","--verbosity=2"], ["npm","test"], …
+  repeated string command = 1;
+
+  // Output format → selects the structured parser. A FORMAT, not a framework:
+  // "junit-xml", "unittest-text", "go-test-json", … The plugin owns the parser.
+  string output = 2;
+
+  // Extra environment variables for the run.
+  map<string, string> env = 3;
+
+  // Provisioning hints the language plugin interprets — opaque to this layer so
+  // the formula stays language-agnostic. Multi-valued entries are comma-joined.
+  // The python/uv plugin understands: python=<v>, editable=true,
+  // with=<spec,spec>, requirements=<file,file>, no_project=true.
+  map<string, string> provisioning = 4;
 }
 
 // TestResponse returns both legacy flat counts and structured test results.

@@ -60,9 +60,29 @@ type Service struct {
 	// Spec is the specialized configuration of the service
 	Spec map[string]any `yaml:"spec,omitempty"`
 
+	// Test is the LANGUAGE-AGNOSTIC test formula for this service: the command
+	// to run plus provisioning, all data, set ONCE here so callers need not
+	// pass a formula on every Test RPC. A per-call runtime TestRequest.formula
+	// overrides it. Read by every language agent (the agent translates the
+	// generic provisioning map into its own toolchain). No framework/toolchain
+	// name lives in this config.
+	Test *TestFormula `yaml:"test,omitempty"`
+
 	// internal
 	dir    string
 	module string
+}
+
+// TestFormula is the language-agnostic test invocation as DATA — the yaml mirror
+// of runtimev0.TestFormula. The command is captured from the project; the
+// provisioning map is interpreted by the language plugin (python/uv reads
+// python/editable/with/requirements/no_project). Nothing here is framework- or
+// toolchain-specific.
+type TestFormula struct {
+	Command      []string          `yaml:"command,omitempty"`
+	Output       string            `yaml:"output,omitempty"`
+	Env          map[string]string `yaml:"env,omitempty"`
+	Provisioning map[string]string `yaml:"provisioning,omitempty"`
 }
 
 func (s *Service) Proto(_ context.Context) (*basev0.Service, error) {
