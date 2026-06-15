@@ -79,6 +79,83 @@ type StructuredTestRun struct {
 	// truncatedCases tracks how many cases had their captured_output
 	// trimmed by the per-case cap.
 	truncatedCases int32
+
+	// EnvError, when set, means the run could NOT EXECUTE the tests — the
+	// ENVIRONMENT was blocked (a dependency failed to install, the project failed
+	// to import, the interpreter is missing) — as opposed to tests running and
+	// failing. RunFormulaStructured sets it when the process exits non-zero having
+	// produced ZERO cases. ToProtoResponse maps it to Result.State=ERRORED with a
+	// classified reason, so a caller distinguishes "tests failed" (FAILED) from
+	// "couldn't run" (ERRORED) from the STRUCTURE — never from a raw "exit status
+	// 1". This is what the Mind tooling inner loop reads to heal plugin config.
+	EnvError *RunEnvError
+}
+
+// RunEnvError classifies why the environment blocked the run. The python plugin
+// owns this classification (it knows pytest/uv exit semantics); Mind maps Reason
+// onto its BlockReason without re-parsing raw output.
+type RunEnvError struct {
+	Reason string // "missing-dependency" | "import-error" | "version-conflict" | "interpreter-missing" | "unknown"
+	Detail string // the scraped failure tail, e.g. "ModuleNotFoundError: No module named 'werkzeug'"
+}
+
+// caseCount returns the total number of test cases across all suites — 0 means
+// nothing executed (the env-block signal).
+func (r *StructuredTestRun) caseCount() int {
+	n := 0
+	for _, s := range r.Suites {
+		n += len(s.Cases)
+	}
+	return n
+}
+
+// ClassifyEnvError inspects a run's raw output (and exit error) to decide WHY the
+// environment blocked the run. Pattern order is most-specific first. Exported so
+// RunFormulaStructured and tests share one classifier.
+func ClassifyEnvError(raw string, runErr error) *RunEnvError {
+	low := strings.ToLower(raw)
+	detail := lastMeaningfulLine(raw)
+	switch {
+	case strings.Contains(low, "no matching distribution"),
+		strings.Contains(low, "could not find a version"),
+		strings.Contains(low, "resolutionimpossible"),
+		strings.Contains(low, "version conflict"),
+		strings.Contains(low, "incompatible"):
+		return &RunEnvError{Reason: "version-conflict", Detail: detail}
+	case strings.Contains(low, "modulenotfounderror"),
+		strings.Contains(low, "no module named"):
+		return &RunEnvError{Reason: "missing-dependency", Detail: detail}
+	case strings.Contains(low, "importerror"),
+		strings.Contains(low, "cannot import name"),
+		strings.Contains(low, "collection error"):
+		return &RunEnvError{Reason: "import-error", Detail: detail}
+	case strings.Contains(low, "no interpreter"),
+		strings.Contains(low, "command not found"),
+		strings.Contains(low, "not found in"),
+		strings.Contains(low, "no virtual environment"):
+		return &RunEnvError{Reason: "interpreter-missing", Detail: detail}
+	default:
+		if detail == "" && runErr != nil {
+			detail = runErr.Error()
+		}
+		return &RunEnvError{Reason: "unknown", Detail: detail}
+	}
+}
+
+// lastMeaningfulLine returns the last non-blank line of raw output (capped),
+// which for pytest/uv failures is almost always the error summary.
+func lastMeaningfulLine(raw string) string {
+	const cap = 400
+	lines := strings.Split(raw, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(lines[i]); l != "" {
+			if len(l) > cap {
+				return l[:cap]
+			}
+			return l
+		}
+	}
+	return ""
 }
 
 // StructuredSuite is one source-file's worth of cases.
@@ -316,9 +393,20 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		runResult.State = runtimev0.TestRunResult_ERRORED
 		runResult.Message = fmt.Sprintf("%d run-level error(s)", counts.Errored)
 	}
+	// Environment block: the run could not EXECUTE the tests (zero cases + a
+	// non-zero exit — dep failed to install, project failed to import, ...). This
+	// is NOT "all passed" (the default when counts are zero); it is ERRORED so a
+	// caller distinguishes "couldn't run" from "ran and passed/failed" from the
+	// STRUCTURE. The classified reason rides in the message ("env-blocked
+	// (<reason>): <detail>") so the tooling inner loop can heal the plugin config
+	// without re-parsing raw output.
+	if r.EnvError != nil {
+		runResult.State = runtimev0.TestRunResult_ERRORED
+		runResult.Message = fmt.Sprintf("env-blocked (%s): %s", r.EnvError.Reason, r.EnvError.Detail)
+	}
 
 	legacyState := runtimev0.TestStatus_SUCCESS
-	if counts.Failed > 0 || counts.Errored > 0 {
+	if counts.Failed > 0 || counts.Errored > 0 || r.EnvError != nil {
 		legacyState = runtimev0.TestStatus_ERROR
 	}
 

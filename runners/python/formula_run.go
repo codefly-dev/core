@@ -165,9 +165,29 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 
 	runErr := cmd.Run()
 
+	var run *StructuredTestRun
 	if spec.Output == OutputJUnitXML {
 		xmlBytes, _ := os.ReadFile(junitFile) //nolint:gosec // path under sourceDir
-		return ParsePytestJUnit(string(xmlBytes), scrapeCoverageFromOutput(raw.String())), runErr
+		run = ParsePytestJUnit(string(xmlBytes), scrapeCoverageFromOutput(raw.String()))
+	} else {
+		run = ParseUnittestText(raw.String())
 	}
-	return ParseUnittestText(raw.String()), runErr
+
+	// Classify the run from its STRUCTURE, not the raw exit code:
+	//   - cases produced            → the tests EXECUTED; a non-zero exit is just
+	//     "tests failed" (already encoded as FAILED via per-case state). The exit
+	//     error is EXPECTED, not fatal — do not propagate it.
+	//   - zero cases + non-zero exit → the ENVIRONMENT blocked the run (dep
+	//     install / import / interpreter). Mark it so ToProtoResponse reports
+	//     ERRORED with a classified reason — the signal the Mind tooling inner
+	//     loop heals from.
+	// Only a run that produced NOTHING and we could not even classify surfaces the
+	// raw error (defensive).
+	if runErr != nil && run.caseCount() == 0 {
+		run.EnvError = ClassifyEnvError(raw.String(), runErr)
+	}
+	if run.caseCount() > 0 || run.EnvError != nil {
+		return run, nil
+	}
+	return run, runErr
 }
