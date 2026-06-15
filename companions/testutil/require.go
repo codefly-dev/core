@@ -11,7 +11,7 @@ import (
 )
 
 // BuildCompanionsHint is the message to show when a companion image is missing.
-const BuildCompanionsHint = "run ./companions/scripts/build_companions.sh from core/"
+const BuildCompanionsHint = "run `codefly companion build --all` from core/"
 
 // RequireDocker fails the test when Docker is not running.
 //

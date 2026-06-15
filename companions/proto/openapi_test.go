@@ -39,7 +39,7 @@ func TestGenerateSwagger(t *testing.T) {
 	defer os.RemoveAll(destination)
 
 	err = proto.GenerateOpenAPI(ctx, languages.GO, destination, "web/api", api)
-	require.NoError(t, err, "proto companion image not built (run ./companions/scripts/build_companions.sh from core/)")
+	require.NoError(t, err, "proto companion image not built (run `codefly companion build --all` from core/)")
 
 	for _, dir := range []string{"models", "client"} {
 		require.DirExists(t, filepath.Join(destination, dir))

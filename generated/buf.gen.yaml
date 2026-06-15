@@ -18,6 +18,9 @@ plugins:
   - name: grpc-gateway
     out: go
     opt: paths=source_relative
+  - name: connect-go
+    out: go
+    opt: paths=source_relative
 
   # PYTHON
   - plugin: buf.build/protocolbuffers/python

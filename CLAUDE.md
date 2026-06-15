@@ -68,11 +68,11 @@ Every resource is defined by a YAML file:
   - **proto/** — Buf-based proto compilation companion.
   - **lsp/** — Language Server Protocol client for symbol extraction.
   - **golang/, python-poetry/, node/** — Language-specific build companions.
-  - **scripts/** — `build_companions.sh` to build companion Docker images.
+  - Build the images with `codefly companion build --all` (or one at a time: `codefly companion build <name>`; add `--push` to publish).
 
 ### Code Generation
 - **proto/** — Proto source of truth (the `.proto` files for `codefly/*` and `mind/*`). Lives in-tree so a schema change + its regenerated bindings land in one PR. The standalone `codefly-dev/proto` repo is being retired in favor of this.
-- **generated/** — Proto-generated Go code. Structure: `generated/go/codefly/{base,services,actions,cli,mcp,observability}/v0/`. Regenerate with `generated/generate.sh`.
+- **generated/** — Proto-generated Go code. Structure: `generated/go/codefly/{base,services,actions,cli,mcp,observability}/v0/`. Regenerate with `codefly generate proto --proto ../proto --output ./generated --local`.
 - **generation/** — Code generation utilities.
 - **templates/** — Template engine for agent scaffolding.
 - **openapi/** — OpenAPI spec generation from proto definitions.
@@ -101,11 +101,11 @@ go test ./companions/golang/ -run TestLSP  # LSP companion tests
 # Coverage
 make check-coverage
 
-# Companion Docker images
-./companions/scripts/build_companions.sh
+# Companion Docker images (build all, in dependency order; --push to publish)
+codefly companion build --all
 
-# Proto regeneration — edit core/proto/*.proto, then:
-./generated/generate.sh
+# Proto regeneration — edit proto sources, then (offline, version-pinned plugins):
+codefly generate proto --proto ../proto --output ./generated --local
 ```
 
 ## Key Patterns
@@ -148,7 +148,7 @@ grpcEP, _ := resources.FindGRPCEndpoint(ctx, endpoints)
 ## Important Rules
 
 - **NEVER mock.** Always test against real infrastructure. Use `testdata/` directories with real YAML fixtures.
-- **Regenerate protos via `generated/generate.sh`** (source: `core/proto/`). It pins the protoc-gen-* plugin versions and runs goimports so output is byte-reproducible — don't hand-run `buf`/`protoc` ad hoc.
+- **Regenerate protos via `codefly generate proto --local`** (source: `core/proto/`). The `--local` mode pins the protoc-gen-* plugin versions and runs goimports so output is byte-reproducible — don't hand-run `buf`/`protoc` ad hoc.
 - **Port allocation must use `network.ToNamedPort()` or `RuntimeManager`.** Never hardcode ports. Always track allocated ports to prevent collisions (the temporal agent had a bug where duplicate ports were assigned because dedup tracking was missing).
 - **Readiness checks must use gRPC health checks**, not raw TCP connects. A port being open does not mean the service is ready.
 - **`resources/` is the source of truth** for all type definitions. When in doubt about how something is modeled, look there first.

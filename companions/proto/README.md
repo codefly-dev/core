@@ -28,7 +28,7 @@ the existing `tag.sh` version-bump flow continues to work.
 default)
 
 ```sh
-./scripts/build_companion.sh
+codefly companion build proto
 ```
 
 The Dockerfile assembles the same set via apk + `go install`. Less

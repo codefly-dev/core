@@ -3,6 +3,8 @@ version: v1
 # remote-plugin execution). Use this when the remote plugins in buf.gen.yaml
 # are unreachable. See generate.sh. Python bindings are generated separately
 # via buf.gen.yaml (remote) where network is available.
+#
+# Driven by `codefly generate proto --local` (which replaced generate.sh).
 managed:
   enabled: true
   go_package_prefix:
@@ -19,5 +21,8 @@ plugins:
     out: go
     opt: paths=source_relative
   - name: grpc-gateway
+    out: go
+    opt: paths=source_relative
+  - name: connect-go
     out: go
     opt: paths=source_relative

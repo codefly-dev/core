@@ -18,7 +18,7 @@ published snapshot and the generated Go.
 Edit the `.proto` files here, then from `core/`:
 
 ```bash
-./generated/generate.sh
+codefly generate proto --proto ../proto --output ./generated --local
 ```
 
 That regenerates the Go bindings into `core/generated/go/` (pinned plugin
