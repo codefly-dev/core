@@ -5,7 +5,7 @@ import grpc
 from codefly.services.toolbox.v0 import toolbox_pb2 as codefly_dot_services_dot_toolbox_dot_v0_dot_toolbox__pb2
 
 
-class ToolboxStub(object):
+class ToolboxStub:
     """Toolbox is the codefly toolbox contract.
 
     Vocabulary mirrors the Model Context Protocol (MCP) so that an MCP
@@ -87,7 +87,7 @@ class ToolboxStub(object):
                 _registered_method=True)
 
 
-class ToolboxServicer(object):
+class ToolboxServicer:
     """Toolbox is the codefly toolbox contract.
 
     Vocabulary mirrors the Model Context Protocol (MCP) so that an MCP
@@ -256,7 +256,7 @@ def add_ToolboxServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class Toolbox(object):
+class Toolbox:
     """Toolbox is the codefly toolbox contract.
 
     Vocabulary mirrors the Model Context Protocol (MCP) so that an MCP

@@ -434,25 +434,4 @@ func deriveRequirementFiles(dir string) []string {
 	return out
 }
 
-var reExtraGroup = regexp.MustCompile(`(?m)^\s*(test|tests|dev|testing)\s*=\s*\[`)
 
-func deriveTestExtras(dir string) []string {
-	py := readFileString(filepath.Join(dir, "pyproject.toml"))
-	if py == "" {
-		return nil
-	}
-	// Only meaningful under [project.optional-dependencies]; cheap guard.
-	if !strings.Contains(py, "optional-dependencies") {
-		return nil
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, m := range reExtraGroup.FindAllStringSubmatch(py, -1) {
-		name := m[1]
-		if !seen[name] {
-			seen[name] = true
-			out = append(out, name)
-		}
-	}
-	return out
-}

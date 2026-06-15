@@ -5,14 +5,13 @@
 package v0connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	http "net/http"
-	strings "strings"
-
-	connect "connectrpc.com/connect"
 	v01 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	v0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	http "net/http"
+	strings "strings"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -53,6 +52,8 @@ const (
 	BuilderAuditProcedure = "/codefly.services.builder.v0.Builder/Audit"
 	// BuilderUpgradeProcedure is the fully-qualified name of the Builder's Upgrade RPC.
 	BuilderUpgradeProcedure = "/codefly.services.builder.v0.Builder/Upgrade"
+	// BuilderConfigureProcedure is the fully-qualified name of the Builder's Configure RPC.
+	BuilderConfigureProcedure = "/codefly.services.builder.v0.Builder/Configure"
 	// BuilderCommunicateProcedure is the fully-qualified name of the Builder's Communicate RPC.
 	BuilderCommunicateProcedure = "/codefly.services.builder.v0.Builder/Communicate"
 )
@@ -77,6 +78,13 @@ type BuilderClient interface {
 	Audit(context.Context, *connect.Request[v0.AuditRequest]) (*connect.Response[v0.AuditResponse], error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(context.Context, *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error)
+	// Configure applies structured config changes to the service and PERSISTS them
+	// to service.codefly.yaml. The plugin owns its config file: it validates the
+	// changes against the schema it advertises via GetAgentInformation and writes
+	// the file. This is the write-action half of the learn-and-fix loop — the LLM /
+	// tooling inner loop reads the plugin's knowledge, decides a fix (e.g. add a
+	// dependency pin to test.provisioning.with), and calls Configure to persist it.
+	Configure(context.Context, *connect.Request[v0.ConfigureRequest]) (*connect.Response[v0.ConfigureResponse], error)
 	// Bidirectional streaming for interactive Q&A (e.g. during Create/Sync).
 	// Plugin streams Questions, CLI streams Answers.
 	Communicate(context.Context) *connect.BidiStreamForClient[v01.Answer, v01.Question]
@@ -147,6 +155,12 @@ func NewBuilderClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(builderMethods.ByName("Upgrade")),
 			connect.WithClientOptions(opts...),
 		),
+		configure: connect.NewClient[v0.ConfigureRequest, v0.ConfigureResponse](
+			httpClient,
+			baseURL+BuilderConfigureProcedure,
+			connect.WithSchema(builderMethods.ByName("Configure")),
+			connect.WithClientOptions(opts...),
+		),
 		communicate: connect.NewClient[v01.Answer, v01.Question](
 			httpClient,
 			baseURL+BuilderCommunicateProcedure,
@@ -167,6 +181,7 @@ type builderClient struct {
 	deploy      *connect.Client[v0.DeploymentRequest, v0.DeploymentResponse]
 	audit       *connect.Client[v0.AuditRequest, v0.AuditResponse]
 	upgrade     *connect.Client[v0.UpgradeRequest, v0.UpgradeResponse]
+	configure   *connect.Client[v0.ConfigureRequest, v0.ConfigureResponse]
 	communicate *connect.Client[v01.Answer, v01.Question]
 }
 
@@ -215,6 +230,11 @@ func (c *builderClient) Upgrade(ctx context.Context, req *connect.Request[v0.Upg
 	return c.upgrade.CallUnary(ctx, req)
 }
 
+// Configure calls codefly.services.builder.v0.Builder.Configure.
+func (c *builderClient) Configure(ctx context.Context, req *connect.Request[v0.ConfigureRequest]) (*connect.Response[v0.ConfigureResponse], error) {
+	return c.configure.CallUnary(ctx, req)
+}
+
 // Communicate calls codefly.services.builder.v0.Builder.Communicate.
 func (c *builderClient) Communicate(ctx context.Context) *connect.BidiStreamForClient[v01.Answer, v01.Question] {
 	return c.communicate.CallBidiStream(ctx)
@@ -240,6 +260,13 @@ type BuilderHandler interface {
 	Audit(context.Context, *connect.Request[v0.AuditRequest]) (*connect.Response[v0.AuditResponse], error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(context.Context, *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error)
+	// Configure applies structured config changes to the service and PERSISTS them
+	// to service.codefly.yaml. The plugin owns its config file: it validates the
+	// changes against the schema it advertises via GetAgentInformation and writes
+	// the file. This is the write-action half of the learn-and-fix loop — the LLM /
+	// tooling inner loop reads the plugin's knowledge, decides a fix (e.g. add a
+	// dependency pin to test.provisioning.with), and calls Configure to persist it.
+	Configure(context.Context, *connect.Request[v0.ConfigureRequest]) (*connect.Response[v0.ConfigureResponse], error)
 	// Bidirectional streaming for interactive Q&A (e.g. during Create/Sync).
 	// Plugin streams Questions, CLI streams Answers.
 	Communicate(context.Context, *connect.BidiStream[v01.Answer, v01.Question]) error
@@ -306,6 +333,12 @@ func NewBuilderHandler(svc BuilderHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(builderMethods.ByName("Upgrade")),
 		connect.WithHandlerOptions(opts...),
 	)
+	builderConfigureHandler := connect.NewUnaryHandler(
+		BuilderConfigureProcedure,
+		svc.Configure,
+		connect.WithSchema(builderMethods.ByName("Configure")),
+		connect.WithHandlerOptions(opts...),
+	)
 	builderCommunicateHandler := connect.NewBidiStreamHandler(
 		BuilderCommunicateProcedure,
 		svc.Communicate,
@@ -332,6 +365,8 @@ func NewBuilderHandler(svc BuilderHandler, opts ...connect.HandlerOption) (strin
 			builderAuditHandler.ServeHTTP(w, r)
 		case BuilderUpgradeProcedure:
 			builderUpgradeHandler.ServeHTTP(w, r)
+		case BuilderConfigureProcedure:
+			builderConfigureHandler.ServeHTTP(w, r)
 		case BuilderCommunicateProcedure:
 			builderCommunicateHandler.ServeHTTP(w, r)
 		default:
@@ -377,6 +412,10 @@ func (UnimplementedBuilderHandler) Audit(context.Context, *connect.Request[v0.Au
 
 func (UnimplementedBuilderHandler) Upgrade(context.Context, *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.builder.v0.Builder.Upgrade is not implemented"))
+}
+
+func (UnimplementedBuilderHandler) Configure(context.Context, *connect.Request[v0.ConfigureRequest]) (*connect.Response[v0.ConfigureResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.builder.v0.Builder.Configure is not implemented"))
 }
 
 func (UnimplementedBuilderHandler) Communicate(context.Context, *connect.BidiStream[v01.Answer, v01.Question]) error {

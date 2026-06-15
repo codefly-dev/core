@@ -482,11 +482,65 @@ message UpgradeResponse {
   string lockfile_diff = 3;
 }
 
+// ConfigChange sets or appends a value at a dotted path into the service config
+// (service.codefly.yaml). The paths + valid values are those the plugin
+// advertises in GetAgentInformation's configuration_details.
+message ConfigChange {
+  // Op selects how the value is applied at path.
+  enum Op {
+    // UNKNOWN is the default value when op is not specified.
+    UNKNOWN = 0;
+    // SET replaces the value at path.
+    SET = 1;
+    // APPEND adds the value to a comma-separated / list field at path.
+    APPEND = 2;
+  }
+  // path is a dotted config path, e.g. "test.provisioning.with".
+  string path = 1;
+  // value is the value to set or append.
+  string value = 2;
+  // op is how to apply value at path.
+  Op op = 3;
+}
+
+// ConfigureRequest applies structured config changes and persists them.
+message ConfigureRequest {
+  // changes are applied in order, then the config is written to disk.
+  repeated ConfigChange changes = 1;
+}
+
+// ConfigureStatus reports the state and message for the configure operation.
+message ConfigureStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the changes were applied and persisted.
+    SUCCESS = 1;
+    // ERROR means the change was rejected (carried in message).
+    ERROR = 2;
+  }
+  // state is the machine-readable status.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+}
+
+// ConfigureResponse reports whether the configuration was applied.
+message ConfigureResponse {
+  // state is the machine-readable status.
+  ConfigureStatus state = 1;
+  // effective_yaml is the resulting service config after applying the changes,
+  // so the caller sees exactly what was persisted.
+  string effective_yaml = 2;
+}
+
 // Builder is responsible for:
 // - creation
 // - Docker build
 // - Deployment manifests
 // - Dependency audit / upgrade
+// - Configuration (persisting LLM/tooling-loop fixes to service.codefly.yaml)
 service Builder {
 
   // Load reads service metadata and prepares the builder agent.
@@ -512,6 +566,14 @@ service Builder {
   rpc Audit (AuditRequest) returns (AuditResponse) {}
   // Upgrade applies or previews dependency version bumps.
   rpc Upgrade (UpgradeRequest) returns (UpgradeResponse) {}
+
+  // Configure applies structured config changes to the service and PERSISTS them
+  // to service.codefly.yaml. The plugin owns its config file: it validates the
+  // changes against the schema it advertises via GetAgentInformation and writes
+  // the file. This is the write-action half of the learn-and-fix loop — the LLM /
+  // tooling inner loop reads the plugin's knowledge, decides a fix (e.g. add a
+  // dependency pin to test.provisioning.with), and calls Configure to persist it.
+  rpc Configure (ConfigureRequest) returns (ConfigureResponse) {}
 
   // Bidirectional streaming for interactive Q&A (e.g. during Create/Sync).
   // Plugin streams Questions, CLI streams Answers.
