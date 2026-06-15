@@ -5,7 +5,7 @@ import grpc
 from mind.gateway.v1 import gateway_pb2 as mind_dot_gateway_dot_v1_dot_gateway__pb2
 
 
-class GatewayStub(object):
+class GatewayStub:
     """Gateway is the ONLY service Mind talks to.
     Codefly CLI implements it. Everything else is behind this wall.
 
@@ -180,7 +180,7 @@ class GatewayStub(object):
                 _registered_method=True)
 
 
-class GatewayServicer(object):
+class GatewayServicer:
     """Gateway is the ONLY service Mind talks to.
     Codefly CLI implements it. Everything else is behind this wall.
 
@@ -600,7 +600,7 @@ def add_GatewayServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class Gateway(object):
+class Gateway:
     """Gateway is the ONLY service Mind talks to.
     Codefly CLI implements it. Everything else is behind this wall.
 

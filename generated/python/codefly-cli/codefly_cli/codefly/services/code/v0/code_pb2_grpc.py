@@ -5,7 +5,7 @@ import grpc
 from codefly.services.code.v0 import code_pb2 as codefly_dot_services_dot_code_dot_v0_dot_code__pb2
 
 
-class CodeStub(object):
+class CodeStub:
     """--- Service definition ---
 
     Code exposes language-aware analysis and editing operations backed by a service agent.
@@ -64,7 +64,7 @@ class CodeStub(object):
                 _registered_method=True)
 
 
-class CodeServicer(object):
+class CodeServicer:
     """--- Service definition ---
 
     Code exposes language-aware analysis and editing operations backed by a service agent.
@@ -200,7 +200,7 @@ def add_CodeServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class Code(object):
+class Code:
     """--- Service definition ---
 
     Code exposes language-aware analysis and editing operations backed by a service agent.

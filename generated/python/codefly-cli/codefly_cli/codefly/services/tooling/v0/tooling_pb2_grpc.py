@@ -5,7 +5,7 @@ import grpc
 from codefly.services.tooling.v0 import tooling_pb2 as codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2
 
 
-class ToolingStub(object):
+class ToolingStub:
     """── Service Definition ─────────────────────────────────
 
     Tooling provides language-specific code operations.
@@ -108,7 +108,7 @@ class ToolingStub(object):
                 _registered_method=True)
 
 
-class ToolingServicer(object):
+class ToolingServicer:
     """── Service Definition ─────────────────────────────────
 
     Tooling provides language-specific code operations.
@@ -333,7 +333,7 @@ def add_ToolingServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class Tooling(object):
+class Tooling:
     """── Service Definition ─────────────────────────────────
 
     Tooling provides language-specific code operations.

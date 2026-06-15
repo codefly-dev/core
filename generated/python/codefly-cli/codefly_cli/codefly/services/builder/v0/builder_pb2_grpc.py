@@ -6,12 +6,13 @@ from codefly.services.agent.v0 import communicate_pb2 as codefly_dot_services_do
 from codefly.services.builder.v0 import builder_pb2 as codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2
 
 
-class BuilderStub(object):
+class BuilderStub:
     """Builder is responsible for:
     - creation
     - Docker build
     - Deployment manifests
     - Dependency audit / upgrade
+    - Configuration (persisting LLM/tooling-loop fixes to service.codefly.yaml)
     """
 
     def __init__(self, channel):
@@ -65,6 +66,11 @@ class BuilderStub(object):
                 request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.UpgradeRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.UpgradeResponse.FromString,
                 _registered_method=True)
+        self.Configure = channel.unary_unary(
+                '/codefly.services.builder.v0.Builder/Configure',
+                request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.ConfigureRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.ConfigureResponse.FromString,
+                _registered_method=True)
         self.Communicate = channel.stream_stream(
                 '/codefly.services.builder.v0.Builder/Communicate',
                 request_serializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Answer.SerializeToString,
@@ -72,12 +78,13 @@ class BuilderStub(object):
                 _registered_method=True)
 
 
-class BuilderServicer(object):
+class BuilderServicer:
     """Builder is responsible for:
     - creation
     - Docker build
     - Deployment manifests
     - Dependency audit / upgrade
+    - Configuration (persisting LLM/tooling-loop fixes to service.codefly.yaml)
     """
 
     def Load(self, request, context):
@@ -143,6 +150,18 @@ class BuilderServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Configure(self, request, context):
+        """Configure applies structured config changes to the service and PERSISTS them
+        to service.codefly.yaml. The plugin owns its config file: it validates the
+        changes against the schema it advertises via GetAgentInformation and writes
+        the file. This is the write-action half of the learn-and-fix loop — the LLM /
+        tooling inner loop reads the plugin's knowledge, decides a fix (e.g. add a
+        dependency pin to test.provisioning.with), and calls Configure to persist it.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Communicate(self, request_iterator, context):
         """Bidirectional streaming for interactive Q&A (e.g. during Create/Sync).
         Plugin streams Questions, CLI streams Answers.
@@ -199,6 +218,11 @@ def add_BuilderServicer_to_server(servicer, server):
                     request_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.UpgradeRequest.FromString,
                     response_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.UpgradeResponse.SerializeToString,
             ),
+            'Configure': grpc.unary_unary_rpc_method_handler(
+                    servicer.Configure,
+                    request_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.ConfigureRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.ConfigureResponse.SerializeToString,
+            ),
             'Communicate': grpc.stream_stream_rpc_method_handler(
                     servicer.Communicate,
                     request_deserializer=codefly_dot_services_dot_agent_dot_v0_dot_communicate__pb2.Answer.FromString,
@@ -212,12 +236,13 @@ def add_BuilderServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class Builder(object):
+class Builder:
     """Builder is responsible for:
     - creation
     - Docker build
     - Deployment manifests
     - Dependency audit / upgrade
+    - Configuration (persisting LLM/tooling-loop fixes to service.codefly.yaml)
     """
 
     @staticmethod
@@ -453,6 +478,33 @@ class Builder(object):
             '/codefly.services.builder.v0.Builder/Upgrade',
             codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.UpgradeRequest.SerializeToString,
             codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.UpgradeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Configure(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.builder.v0.Builder/Configure',
+            codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.ConfigureRequest.SerializeToString,
+            codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.ConfigureResponse.FromString,
             options,
             channel_credentials,
             insecure,
