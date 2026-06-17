@@ -1,4 +1,4 @@
-package base
+package dockerrun
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 
+	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -93,7 +94,7 @@ func ReapStaleContainers(ctx context.Context) error {
 			continue // malformed label — conservative: leave it
 		}
 		ephemeral := c.Labels[LabelCodeflyEphemeral] == "true"
-		if !shouldReapContainer(c.State, isProcessAlive(pid), ephemeral) {
+		if !shouldReapContainer(c.State, base.IsProcessAlive(pid), ephemeral) {
 			continue
 		}
 

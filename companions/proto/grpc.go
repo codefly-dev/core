@@ -10,7 +10,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
-	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/companion"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
@@ -59,7 +59,7 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 	}
 
 	name := fmt.Sprintf("proto-%s-%d-%s", service, time.Now().UnixMilli(), language)
-	runner, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+	runner, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
 		Name:      name,
 		SourceDir: tmpDir,
 		Image:     image,

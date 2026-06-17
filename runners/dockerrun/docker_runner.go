@@ -1,4 +1,4 @@
-package base
+package dockerrun
 
 import (
 	"bufio"
@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/docker/docker/api/types/container"
@@ -61,7 +62,7 @@ type DockerEnvironment struct {
 	running bool
 }
 
-var _ RunnerEnvironment = &DockerEnvironment{}
+var _ base.RunnerEnvironment = &DockerEnvironment{}
 
 // NewDockerEnvironment creates a new docker environment.
 //
@@ -735,7 +736,7 @@ func (proc *DockerProc) WithEnvironmentVariables(ctx context.Context, envs ...*r
 	proc.envs = append(proc.envs, envs...)
 }
 
-func (docker *DockerEnvironment) NewProcess(bin string, args ...string) (Proc, error) {
+func (docker *DockerEnvironment) NewProcess(bin string, args ...string) (base.Proc, error) {
 	cmd := append([]string{bin}, args...)
 	return &DockerProc{env: docker, cmd: cmd, output: docker.out}, nil
 }

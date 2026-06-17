@@ -22,6 +22,13 @@ func TestClassifyEnvError(t *testing.T) {
 		{"version-conflict", "error: No matching distribution found for Werkzeug<3 (incompatible)", "version-conflict"},
 		{"interpreter-missing", "error: No interpreter found for Python 3.6", "interpreter-missing"},
 		{"unknown", "Segmentation fault (core dumped)", "unknown"},
+		// A SyntaxError in a (mal-edited) test file is a CODE defect, NOT an env
+		// block — even though pytest reports it as a "collection error". It must
+		// classify distinctly so the tooling loop does not try to heal provisioning.
+		{"syntax-error is code not env", "ERROR collecting tests/test_blueprints.py\nE   SyntaxError: invalid syntax\n!!! collection error !!!", "test-collection-error"},
+		{"indentation-error is code not env", "IndentationError: unexpected indent\n!!! collection error !!!", "test-collection-error"},
+		// A collection error caused by a missing IMPORT is still an env block.
+		{"import-driven collection error stays env", "ImportError while importing test module\n!!! collection error !!!", "import-error"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -33,6 +40,27 @@ func TestClassifyEnvError(t *testing.T) {
 				t.Fatalf("detail should carry the scraped failure line")
 			}
 		})
+	}
+}
+
+// The ACTUAL flask-5014 case: flask 2.x needs Werkzeug<3, uv can't resolve, and
+// its terse last line ("your requirements are unsatisfiable") names nothing. The
+// classifier must (a) call it a version-conflict and (b) keep enough DETAIL that
+// the conflicting package is named — otherwise no remediator (config OR file
+// edit) can know to pin Werkzeug<3.
+func TestClassifyEnvError_FlaskWerkzeugResolutionNamesPackage(t *testing.T) {
+	raw := strings.Join([]string{
+		"  × No solution found when resolving dependencies:",
+		"  ╰─▶ Because flask==2.0.1 depends on werkzeug>=2.0,<2.1 and your project",
+		"      depends on werkzeug>=3.0.0, we can conclude that your project's",
+		"      requirements are unsatisfiable.",
+	}, "\n")
+	got := ClassifyEnvError(raw, errors.New("exit status 1"))
+	if got == nil || got.Reason != "version-conflict" {
+		t.Fatalf("flask werkzeug resolution conflict must be version-conflict, got %+v", got)
+	}
+	if !strings.Contains(strings.ToLower(got.Detail), "werkzeug") {
+		t.Fatalf("detail must NAME the conflicting package so a remediator can pin it; got %q", got.Detail)
 	}
 }
 

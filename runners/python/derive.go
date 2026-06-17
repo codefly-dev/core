@@ -433,5 +433,3 @@ func deriveRequirementFiles(dir string) []string {
 	}
 	return out
 }
-
-

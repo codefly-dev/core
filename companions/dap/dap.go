@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/companion"
 
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
@@ -138,7 +138,7 @@ type LanguageConfig struct {
 	// SetupRunner is an optional hook to configure the companion runner
 	// before Init (e.g. mount caches). May be nil.
 	// Uses the CompanionRunner interface -- works with any backend.
-	SetupRunner func(ctx context.Context, runner runners.CompanionRunner, sourceDir string)
+	SetupRunner func(ctx context.Context, runner companion.CompanionRunner, sourceDir string)
 }
 
 // registry maps languages to their DAP configs.

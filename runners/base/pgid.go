@@ -170,9 +170,10 @@ func parsePgidRecord(path string) (pgidRecord, bool) {
 	return rec, true
 }
 
-// isProcessAlive tests a single PID via Signal(0). Same pattern as
-// daemon.IsRunning but scoped here to keep base self-contained.
-func isProcessAlive(pid int) bool {
+// IsProcessAlive tests a single PID via Signal(0). Same pattern as
+// daemon.IsRunning but scoped here to keep base self-contained. Exported so
+// the docker runner package (container sweep) can reuse the liveness check.
+func IsProcessAlive(pid int) bool {
 	if pid <= 1 {
 		return false
 	}
@@ -250,7 +251,7 @@ func sweepOnce(ctx context.Context, dir string) (int, error) {
 		// or live MCP detach). Files without a parent field predate the
 		// tracking change — treat those as orphans since they can only
 		// exist if the writer crashed before the upgrade anyway.
-		if rec.parent > 0 && isProcessAlive(rec.parent) {
+		if rec.parent > 0 && IsProcessAlive(rec.parent) {
 			continue
 		}
 

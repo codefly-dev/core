@@ -1,4 +1,4 @@
-package base
+package companion
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -43,7 +45,7 @@ type CompanionRunner interface {
 	Init(ctx context.Context) error
 
 	// NewProcess creates a process inside the companion.
-	NewProcess(bin string, args ...string) (Proc, error)
+	NewProcess(bin string, args ...string) (base.Proc, error)
 
 	// Shutdown stops and cleans up all resources.
 	// Safe to call multiple times.
@@ -51,7 +53,7 @@ type CompanionRunner interface {
 
 	// RunnerEnv returns the underlying RunnerEnvironment for callers that need
 	// WithEnvironmentVariables, WithBinary, etc. Same lifecycle as this companion.
-	RunnerEnv() RunnerEnvironment
+	RunnerEnv() base.RunnerEnvironment
 
 	// Backend returns which backend is in use (e.g. for path or port decisions).
 	Backend() Backend
@@ -112,11 +114,11 @@ func NewCompanionRunner(ctx context.Context, opts CompanionOpts) (CompanionRunne
 
 func detectBackend(ctx context.Context, opts CompanionOpts) Backend {
 	// Docker: need a running engine and an image
-	if opts.Image != nil && DockerEngineRunning(ctx) {
+	if opts.Image != nil && dockerrun.DockerEngineRunning(ctx) {
 		return BackendDocker
 	}
 	// Nix: prefer when flake.nix exists in SourceDir and nix is installed
-	if opts.SourceDir != "" && CheckNixInstalled() && IsNixSupported() {
+	if opts.SourceDir != "" && base.CheckNixInstalled() && base.IsNixSupported() {
 		flakePath := filepath.Join(opts.SourceDir, "flake.nix")
 		if _, err := os.Stat(flakePath); err == nil {
 			return BackendNix
@@ -128,14 +130,14 @@ func detectBackend(ctx context.Context, opts CompanionOpts) Backend {
 // --- Docker companion adapter ---
 
 type dockerCompanion struct {
-	inner *DockerEnvironment
+	inner *dockerrun.DockerEnvironment
 }
 
 func newDockerCompanion(ctx context.Context, opts CompanionOpts) (*dockerCompanion, error) {
 	if opts.Image == nil {
 		return nil, fmt.Errorf("docker backend requires an image")
 	}
-	env, err := NewDockerEnvironment(ctx, opts.Image, opts.SourceDir, opts.Name)
+	env, err := dockerrun.NewDockerEnvironment(ctx, opts.Image, opts.SourceDir, opts.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +164,7 @@ func (d *dockerCompanion) Init(ctx context.Context) error {
 	return d.inner.Init(ctx)
 }
 
-func (d *dockerCompanion) NewProcess(bin string, args ...string) (Proc, error) {
+func (d *dockerCompanion) NewProcess(bin string, args ...string) (base.Proc, error) {
 	return d.inner.NewProcess(bin, args...)
 }
 
@@ -170,7 +172,7 @@ func (d *dockerCompanion) Shutdown(ctx context.Context) error {
 	return d.inner.Shutdown(ctx)
 }
 
-func (d *dockerCompanion) RunnerEnv() RunnerEnvironment {
+func (d *dockerCompanion) RunnerEnv() base.RunnerEnvironment {
 	return d.inner
 }
 
@@ -179,12 +181,12 @@ func (d *dockerCompanion) Backend() Backend { return BackendDocker }
 // --- Local companion adapter ---
 
 type localCompanion struct {
-	inner   *NativeEnvironment
+	inner   *base.NativeEnvironment
 	workDir string
 }
 
 func newLocalCompanion(ctx context.Context, opts CompanionOpts) (*localCompanion, error) {
-	env, err := NewNativeEnvironment(ctx, opts.SourceDir)
+	env, err := base.NewNativeEnvironment(ctx, opts.SourceDir)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +210,7 @@ func (l *localCompanion) Init(ctx context.Context) error {
 	return l.inner.Init(ctx)
 }
 
-func (l *localCompanion) NewProcess(bin string, args ...string) (Proc, error) {
+func (l *localCompanion) NewProcess(bin string, args ...string) (base.Proc, error) {
 	proc, err := l.inner.NewProcess(bin, args...)
 	if err != nil {
 		return nil, err
@@ -223,7 +225,7 @@ func (l *localCompanion) Shutdown(ctx context.Context) error {
 	return l.inner.Shutdown(ctx)
 }
 
-func (l *localCompanion) RunnerEnv() RunnerEnvironment {
+func (l *localCompanion) RunnerEnv() base.RunnerEnvironment {
 	return l.inner
 }
 
@@ -232,12 +234,12 @@ func (l *localCompanion) Backend() Backend { return BackendLocal }
 // --- Nix companion adapter ---
 
 type nixCompanion struct {
-	inner   *NixEnvironment
+	inner   *base.NixEnvironment
 	workDir string
 }
 
 func newNixCompanion(ctx context.Context, opts CompanionOpts) (*nixCompanion, error) {
-	env, err := NewNixEnvironment(ctx, opts.SourceDir)
+	env, err := base.NewNixEnvironment(ctx, opts.SourceDir)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +263,7 @@ func (n *nixCompanion) Init(ctx context.Context) error {
 	return n.inner.Init(ctx)
 }
 
-func (n *nixCompanion) NewProcess(bin string, args ...string) (Proc, error) {
+func (n *nixCompanion) NewProcess(bin string, args ...string) (base.Proc, error) {
 	proc, err := n.inner.NewProcess(bin, args...)
 	if err != nil {
 		return nil, err
@@ -276,7 +278,7 @@ func (n *nixCompanion) Shutdown(ctx context.Context) error {
 	return n.inner.Shutdown(ctx)
 }
 
-func (n *nixCompanion) RunnerEnv() RunnerEnvironment {
+func (n *nixCompanion) RunnerEnv() base.RunnerEnvironment {
 	return n.inner
 }
 

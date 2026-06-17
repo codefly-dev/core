@@ -15,6 +15,7 @@ import (
 	"github.com/codefly-dev/core/shared"
 
 	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/companion"
 
 	"github.com/codefly-dev/core/wool"
 )
@@ -30,7 +31,7 @@ GoRunnerEnvironment is a runner for go
 */
 type GoRunnerEnvironment struct {
 	dir       string
-	companion runners.CompanionRunner // when using golden wrapper (Docker path)
+	companion companion.CompanionRunner // when using golden wrapper (Docker path)
 	local     *runners.NativeEnvironment
 	nix       *runners.NixEnvironment
 
@@ -171,7 +172,7 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 	runnerName := fmt.Sprintf("goland-%s", name)
 	w.Trace("creating docker go runner", wool.Field("image", image), wool.Field("dir", dir), wool.Field("name", runnerName))
 
-	companion, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+	companion, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
 		Name:      runnerName,
 		SourceDir: dir,
 		Image:     image,
@@ -381,7 +382,7 @@ func (r *GoRunnerEnvironment) LocalTargetPath(ctx context.Context, hash string) 
 }
 
 func (r *GoRunnerEnvironment) BuildTargetPath(ctx context.Context, hash string) string {
-	if r.companion != nil && r.companion.Backend() == runners.BackendDocker {
+	if r.companion != nil && r.companion.Backend() == companion.BackendDocker {
 		return path.Join("/build", r.BinName(hash))
 	}
 	return path.Join(r.LocalCacheDir(ctx), r.BinName(hash))
@@ -454,7 +455,7 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 		if err != nil {
 			return w.Wrapf(err, "cannot find cc")
 		}
-		if r.companion == nil || r.companion.Backend() != runners.BackendDocker {
+		if r.companion == nil || r.companion.Backend() != companion.BackendDocker {
 			proc.WithEnvironmentVariablesAppend(ctx, resources.Env("PATH", "/usr/bin:/usr/local/bin:/usr/sbin"), ":")
 		}
 		proc.WithEnvironmentVariables(ctx, resources.Env("CC", "cc"))

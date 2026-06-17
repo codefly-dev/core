@@ -9,6 +9,7 @@ import (
 	"time"
 
 	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/companion"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -20,7 +21,7 @@ import (
 // backend is underneath.
 type companionClient struct {
 	cfg    *LanguageConfig
-	runner runners.CompanionRunner
+	runner companion.CompanionRunner
 	proc   runners.Proc
 	tp     *transport
 
@@ -62,7 +63,7 @@ func newCompanionClient(ctx context.Context, cfg *LanguageConfig, sourceDir stri
 
 	// Create the companion runner via the golden wrapper.
 	// It picks the best available backend (Docker > Nix > Local).
-	runner, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+	runner, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
 		Name:      name,
 		SourceDir: absSource,
 		Image:     img,

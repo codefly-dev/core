@@ -53,12 +53,12 @@ func unittestState(raw string) (runtimev0.TestCaseState, bool) {
 
 // utCase is the parser's working record for one test.
 type utCase struct {
-	method  string
-	class   string // dotted, e.g. "pkg.mod.Class"
-	doc     string // docstring key, when present (unittest prints it inline)
-	state   runtimev0.TestCaseState
-	detail  string
-	order   int
+	method string
+	class  string // dotted, e.g. "pkg.mod.Class"
+	doc    string // docstring key, when present (unittest prints it inline)
+	state  runtimev0.TestCaseState
+	detail string
+	order  int
 }
 
 // ParseUnittestText parses unittest TextTestRunner verbose output into a

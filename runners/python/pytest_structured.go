@@ -116,12 +116,32 @@ func ClassifyEnvError(raw string, runErr error) *RunEnvError {
 	low := strings.ToLower(raw)
 	detail := lastMeaningfulLine(raw)
 	switch {
+	case strings.Contains(low, "syntaxerror"),
+		strings.Contains(low, "indentationerror"),
+		strings.Contains(low, "taberror"):
+		// A parse error in the TEST/source CODE — the tests could not be
+		// COLLECTED because the code is broken (e.g. a malformed test edit that
+		// inserted a function mid-body). This is NOT an environment problem: the
+		// classic "collection error" → import-error bucket would WRONGLY send the
+		// tooling loop to "fix provisioning" (it can't fix a SyntaxError) and would
+		// loop forever. A distinct reason keeps it ERRORED (so it never false-
+		// passes) while telling the loop NOT to heal and telling the agent the
+		// real defect: fix the code. Checked FIRST so it wins over the generic
+		// "collection error" pattern below.
+		return &RunEnvError{Reason: "test-collection-error", Detail: detail}
 	case strings.Contains(low, "no matching distribution"),
 		strings.Contains(low, "could not find a version"),
 		strings.Contains(low, "resolutionimpossible"),
+		strings.Contains(low, "no solution found"),
+		strings.Contains(low, "unsatisfiable"),
 		strings.Contains(low, "version conflict"),
 		strings.Contains(low, "incompatible"):
-		return &RunEnvError{Reason: "version-conflict", Detail: detail}
+		// A dependency-RESOLUTION conflict (uv/pip). The single last line is
+		// often useless ("your requirements are unsatisfiable") — the package
+		// names + version bounds that caused it (e.g. "flask depends on
+		// Werkzeug<2.1") live in the lines ABOVE. Capture that block so a
+		// remediator can actually know WHAT to pin.
+		return &RunEnvError{Reason: "version-conflict", Detail: resolutionDetail(raw, detail)}
 	case strings.Contains(low, "modulenotfounderror"),
 		strings.Contains(low, "no module named"):
 		return &RunEnvError{Reason: "missing-dependency", Detail: detail}
@@ -140,6 +160,31 @@ func ClassifyEnvError(raw string, runErr error) *RunEnvError {
 		}
 		return &RunEnvError{Reason: "unknown", Detail: detail}
 	}
+}
+
+// resolutionDetail returns a richer detail for a dependency-RESOLUTION conflict:
+// the last few non-blank lines (capped), which for uv/pip carry the package
+// names + version bounds that caused the conflict (e.g. "flask depends on
+// werkzeug>=2.0,<2.1"). uv's single last line — "your requirements are
+// unsatisfiable" — names NOTHING, so a remediator can't know what to pin from it
+// alone; the explanation lives in the lines above. Falls back to the last line.
+func resolutionDetail(raw, fallback string) string {
+	lines := strings.Split(raw, "\n")
+	var kept []string
+	for i := len(lines) - 1; i >= 0 && len(kept) < 12; i-- {
+		if l := strings.TrimSpace(lines[i]); l != "" {
+			kept = append([]string{l}, kept...)
+		}
+	}
+	joined := strings.TrimSpace(strings.Join(kept, " "))
+	if joined == "" {
+		return fallback
+	}
+	const capLen = 600
+	if len(joined) > capLen {
+		joined = joined[len(joined)-capLen:]
+	}
+	return joined
 }
 
 // lastMeaningfulLine returns the last non-blank line of raw output (capped),

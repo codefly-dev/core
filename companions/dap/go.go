@@ -9,7 +9,7 @@ import (
 	"github.com/codefly-dev/core/companions/golang"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
-	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/companion"
 )
 
 func init() {
@@ -28,7 +28,7 @@ func init() {
 
 // setupGoRunner mounts the Go module cache into the companion so dlv can
 // resolve dependencies without downloading them again.
-func setupGoRunner(_ context.Context, runner runners.CompanionRunner, _ string) {
+func setupGoRunner(_ context.Context, runner companion.CompanionRunner, _ string) {
 	goModCache := resolveGoModCache()
 	if goModCache != "" {
 		runner.WithMount(goModCache, "/go/pkg/mod")

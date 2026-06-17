@@ -11,7 +11,8 @@ import (
 
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
-	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/companion"
+	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
@@ -59,7 +60,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 	w.Info("detected changes to the proto: re-generating code", wool.DirField(g.Dir))
 
 	var image *resources.DockerImage
-	if runners.DockerEngineRunning(ctx) {
+	if dockerrun.DockerEngineRunning(ctx) {
 		var imgErr error
 		image, imgErr = CompanionImage(ctx)
 		if imgErr != nil {
@@ -68,7 +69,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 	}
 
 	name := fmt.Sprintf("proto-%d", time.Now().UnixMilli())
-	runner, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+	runner, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
 		Name:      name,
 		SourceDir: g.Dir,
 		Image:     image,
@@ -77,7 +78,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "cannot create companion runner")
 	}
 
-	if runner.Backend() == runners.BackendDocker {
+	if runner.Backend() == companion.BackendDocker {
 		runner.WithMount(g.Dir, "/workspace")
 		runner.WithWorkDir("/workspace/proto")
 	} else {
@@ -136,7 +137,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 			}
 
 			var containerSwagger, containerV3, containerTS string
-			if runner.Backend() == runners.BackendDocker {
+			if runner.Backend() == companion.BackendDocker {
 				containerSwagger = filepath.Join("/workspace/openapi", entry.Name())
 				containerV3 = strings.TrimSuffix(containerSwagger, ".swagger.json") + ".openapi3.json"
 				containerTS = strings.TrimSuffix(containerSwagger, ".swagger.json") + ".ts"

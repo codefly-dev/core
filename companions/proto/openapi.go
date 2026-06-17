@@ -10,7 +10,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
-	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/companion"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -89,7 +89,7 @@ func generateOpenAPIGo(ctx context.Context, unique string, image *resources.Dock
 	openapiFile := filepath.Join("/workspace/openapi", file)
 
 	name := fmt.Sprintf("openapi-%s-%d", unique, time.Now().UnixMilli())
-	runner, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+	runner, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
 		Name:      name,
 		SourceDir: root,
 		Image:     image,
@@ -143,7 +143,7 @@ func generateOpenAPITypeScript(ctx context.Context, unique string, image *resour
 	tsFile := "/workspace/output/api.d.ts"
 
 	name := fmt.Sprintf("openapi-ts-%s-%d", unique, time.Now().UnixMilli())
-	runner, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+	runner, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
 		Name:      name,
 		SourceDir: openapiDir,
 		Image:     image,

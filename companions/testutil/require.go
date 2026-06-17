@@ -7,7 +7,7 @@ import (
 
 	"github.com/codefly-dev/core/companions/golang"
 	"github.com/codefly-dev/core/companions/proto"
-	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/dockerrun"
 )
 
 // BuildCompanionsHint is the message to show when a companion image is missing.
@@ -21,7 +21,7 @@ const BuildCompanionsHint = "run `codefly companion build --all` from core/"
 // Bring the Docker daemon up — or fix the failing test.
 func RequireDocker(t *testing.T, ctx context.Context) {
 	t.Helper()
-	if !runners.DockerEngineRunning(ctx) {
+	if !dockerrun.DockerEngineRunning(ctx) {
 		t.Fatalf("Docker must be running for this test (%s)", BuildCompanionsHint)
 	}
 }

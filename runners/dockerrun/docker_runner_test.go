@@ -1,6 +1,6 @@
 //go:build !skip_infra
 
-package base_test
+package dockerrun_test
 
 import (
 	"bufio"
@@ -19,11 +19,12 @@ import (
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/dockerrun"
 )
 
 func requireDocker(t *testing.T) {
 	t.Helper()
-	if !base.DockerEngineRunning(context.Background()) {
+	if !dockerrun.DockerEngineRunning(context.Background()) {
 		t.Fatal("Docker is not running; bring it up or run with -tags skip_infra to exclude")
 	}
 }
@@ -33,7 +34,7 @@ func TestNewDockerEnvironment(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 	name := fmt.Sprintf("test-%d", time.Now().UnixMilli())
-	env, err := base.NewDockerHeadlessEnvironment(ctx, resources.NewDockerImage("redis:7.2.4-alpine"), name)
+	env, err := dockerrun.NewDockerHeadlessEnvironment(ctx, resources.NewDockerImage("redis:7.2.4-alpine"), name)
 	require.NoError(t, err)
 	defer func() {
 		err = env.Shutdown(ctx)
@@ -97,7 +98,7 @@ func TestDockerEnvironmentWithPauseAndProcesses(t *testing.T) {
 	ctx := context.Background()
 
 	name := fmt.Sprintf("test-%d", time.Now().UnixMilli())
-	env, err := base.NewDockerEnvironment(ctx, resources.NewDockerImage("alpine:3.19.1"), shared.Must(shared.SolvePath("testdata")), name)
+	env, err := dockerrun.NewDockerEnvironment(ctx, resources.NewDockerImage("alpine:3.19.1"), shared.Must(shared.SolvePath("testdata")), name)
 	require.NoError(t, err)
 
 	defer func() {
@@ -208,7 +209,7 @@ func TestDockerProcStdinStdout(t *testing.T) {
 	ctx := context.Background()
 
 	name := fmt.Sprintf("test-stdin-%d", time.Now().UnixMilli())
-	env, err := base.NewDockerEnvironment(ctx, resources.NewDockerImage("alpine:3.19.1"), shared.Must(shared.SolvePath("testdata")), name)
+	env, err := dockerrun.NewDockerEnvironment(ctx, resources.NewDockerImage("alpine:3.19.1"), shared.Must(shared.SolvePath("testdata")), name)
 	require.NoError(t, err)
 	defer func() {
 		_ = env.Shutdown(ctx)
@@ -257,7 +258,7 @@ func TestDockerProcStdoutPipeRawBytes(t *testing.T) {
 	ctx := context.Background()
 
 	name := fmt.Sprintf("test-raw-%d", time.Now().UnixMilli())
-	env, err := base.NewDockerEnvironment(ctx, resources.NewDockerImage("alpine:3.19.1"), shared.Must(shared.SolvePath("testdata")), name)
+	env, err := dockerrun.NewDockerEnvironment(ctx, resources.NewDockerImage("alpine:3.19.1"), shared.Must(shared.SolvePath("testdata")), name)
 	require.NoError(t, err)
 	defer func() {
 		_ = env.Shutdown(ctx)
@@ -293,7 +294,7 @@ func TestDockerProcWithoutPipes(t *testing.T) {
 	ctx := context.Background()
 
 	name := fmt.Sprintf("test-nopp-%d", time.Now().UnixMilli())
-	env, err := base.NewDockerEnvironment(ctx, resources.NewDockerImage("alpine:3.19.1"), shared.Must(shared.SolvePath("testdata")), name)
+	env, err := dockerrun.NewDockerEnvironment(ctx, resources.NewDockerImage("alpine:3.19.1"), shared.Must(shared.SolvePath("testdata")), name)
 	require.NoError(t, err)
 	defer func() {
 		_ = env.Shutdown(ctx)

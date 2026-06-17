@@ -7,7 +7,7 @@ import (
 
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
-	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/companion"
 )
 
 func init() {
@@ -26,7 +26,7 @@ func init() {
 }
 
 // setupPythonRunner mounts the UV cache into the companion when available.
-func setupPythonRunner(_ context.Context, runner runners.CompanionRunner, _ string) {
+func setupPythonRunner(_ context.Context, runner companion.CompanionRunner, _ string) {
 	if cache := os.Getenv("UV_CACHE_DIR"); cache != "" {
 		runner.WithMount(cache, "/root/.cache/uv")
 	}

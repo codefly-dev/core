@@ -17,6 +17,7 @@ import (
 
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/dockerrun"
 )
 
 // EnvFactory is a constructor that returns a RunnerEnvironment bound to
@@ -104,11 +105,11 @@ func casesFor(cfg *options) []Case {
 		for i := range all {
 			if all[i].Name == "docker" {
 				all[i].Factory = func(ctx context.Context, dir string) (runners.RunnerEnvironment, error) {
-					if !runners.DockerEngineRunning(ctx) {
+					if !dockerrun.DockerEngineRunning(ctx) {
 						return nil, nil
 					}
 					uniq := filepath.Base(dir) + "-testmatrix"
-					return runners.NewDockerEnvironment(ctx, img, dir, uniq)
+					return dockerrun.NewDockerEnvironment(ctx, img, dir, uniq)
 				}
 			}
 		}
@@ -151,7 +152,7 @@ func defaultCases() []Case {
 		{
 			Name: "docker",
 			Factory: func(ctx context.Context, dir string) (runners.RunnerEnvironment, error) {
-				if !runners.DockerEngineRunning(ctx) {
+				if !dockerrun.DockerEngineRunning(ctx) {
 					return nil, nil
 				}
 				// A Docker test needs an image. Default to alpine — cheap,
@@ -159,7 +160,7 @@ func defaultCases() []Case {
 				// richer image should use a custom Case in their package.
 				img := &resources.DockerImage{Name: "alpine", Tag: "3.20"}
 				uniq := filepath.Base(dir) + "-testmatrix"
-				return runners.NewDockerEnvironment(ctx, img, dir, uniq)
+				return dockerrun.NewDockerEnvironment(ctx, img, dir, uniq)
 			},
 		},
 	}

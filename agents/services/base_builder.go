@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -262,19 +261,36 @@ type DeploymentBase struct {
 	Parameters any
 }
 
+// ImageIDResolver resolves a locally-built Docker image's ID (digest) for
+// deployment SHA stamping. It is injected by the CLI (which links the Docker
+// client) via runners/dockerrun.GetImageID; left nil inside agent processes so
+// package services stays free of the Docker client. See CreateKubernetesBase.
+var ImageIDResolver func(*resources.DockerImage) (string, error)
+
 func (s *BuilderWrapper) CreateKubernetesBase(_ context.Context, env *basev0.Environment, namespace string, builderContext *builderv0.DockerBuildContext) (*DeploymentBase, error) {
 	envInfo := resources.EnvironmentFromProto(env)
 	dockerImage := s.DockerImage(builderContext)
 
 	// Try to get local image SHA. For stock/external images that aren't
 	// built locally, fall back to the tag as the SHA marker.
+	//
+	// Image-ID resolution needs the Docker client, which we deliberately do
+	// NOT link into this package: package services is compiled into every
+	// agent binary, and pulling in github.com/docker/docker would drag the
+	// whole Moby module (and its daemon-side, unpatchable CVEs) into agents
+	// that never touch Docker. Instead the CLI — which legitimately links the
+	// Docker client — injects ImageIDResolver at startup. When it is unset
+	// (e.g. inside an agent process), we fall back to the tag, which is the
+	// same path stock/non-local images already take.
 	sha := dockerImage.Tag
-	if id, err := base.GetImageID(dockerImage); err == nil {
-		if trimmed, ok := strings.CutPrefix(id, "sha256:"); ok {
-			sha = trimmed[:12]
+	if ImageIDResolver != nil {
+		if id, err := ImageIDResolver(dockerImage); err == nil {
+			if trimmed, ok := strings.CutPrefix(id, "sha256:"); ok {
+				sha = trimmed[:12]
+			}
+		} else {
+			s.Wool.Debug("image not found locally, using tag as sha", wool.Field("image", dockerImage.FullName()))
 		}
-	} else {
-		s.Wool.Debug("image not found locally, using tag as sha", wool.Field("image", dockerImage.FullName()))
 	}
 
 	return &DeploymentBase{

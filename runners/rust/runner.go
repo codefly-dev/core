@@ -17,6 +17,7 @@ import (
 	"github.com/codefly-dev/core/shared"
 
 	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/companion"
 
 	"github.com/codefly-dev/core/wool"
 )
@@ -35,7 +36,7 @@ environments (native, Docker, Nix).
 */
 type RustRunnerEnvironment struct {
 	dir       string
-	companion runners.CompanionRunner // when using the Docker path
+	companion companion.CompanionRunner // when using the Docker path
 	local     *runners.NativeEnvironment
 	nix       *runners.NixEnvironment
 
@@ -156,7 +157,7 @@ func NewDockerRustRunner(ctx context.Context, image *resources.DockerImage, dir 
 	runnerName := fmt.Sprintf("rust-%s", name)
 	w.Trace("creating docker rust runner", wool.Field("image", image), wool.Field("dir", dir), wool.Field("name", runnerName))
 
-	companion, err := runners.NewCompanionRunner(ctx, runners.CompanionOpts{
+	companion, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
 		Name:      runnerName,
 		SourceDir: dir,
 		Image:     image,
@@ -336,7 +337,7 @@ func (r *RustRunnerEnvironment) LocalTargetPath(ctx context.Context, hash string
 // Docker path this is /build (mounted to LocalCacheDir); otherwise it is a
 // "target" subdirectory of the local cache.
 func (r *RustRunnerEnvironment) buildTargetDir(ctx context.Context) string {
-	if r.companion != nil && r.companion.Backend() == runners.BackendDocker {
+	if r.companion != nil && r.companion.Backend() == companion.BackendDocker {
 		return "/build/target"
 	}
 	return path.Join(r.LocalCacheDir(ctx), "target")
@@ -345,7 +346,7 @@ func (r *RustRunnerEnvironment) buildTargetDir(ctx context.Context) string {
 // hostArtifactPath is the host-side location of the compiled binary produced
 // by cargo into buildTargetDir. For Docker, /build maps to LocalCacheDir.
 func (r *RustRunnerEnvironment) hostArtifactPath(ctx context.Context) string {
-	if r.companion != nil && r.companion.Backend() == runners.BackendDocker {
+	if r.companion != nil && r.companion.Backend() == companion.BackendDocker {
 		return path.Join(r.LocalCacheDir(ctx), "target", r.profile(), r.binaryName)
 	}
 	return path.Join(r.buildTargetDir(ctx), r.profile(), r.binaryName)
