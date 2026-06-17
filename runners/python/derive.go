@@ -11,9 +11,11 @@ package python
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // selectorsToken marks where specific tests get injected in a derived command.
@@ -400,11 +402,97 @@ func derivePythonVersion(dir string) string {
 	}
 	if py := readFileString(filepath.Join(dir, "pyproject.toml")); py != "" {
 		if m := rePyRequires.FindStringSubmatch(py); len(m) == 2 {
-			// requires-python is a constraint (">=3.9"); take the floor version.
-			if v := rePyVerNum.FindString(m[1]); v != "" {
+			if v := pinFromRequiresPython(m[1]); v != "" {
 				return v
 			}
 		}
+	}
+	// No explicit interpreter choice (no .python-version, and requires-python is
+	// only a lower bound or absent). DON'T leave it to uv (which picks the NEWEST
+	// installed Python) and DON'T pin the requires-python FLOOR (often EOL /
+	// uninstallable). Instead infer from the repo's HEAD commit date: the test
+	// stack was written against interpreters that EXISTED then, so a newer Python
+	// often breaks it (3.12 removed ast.Str, crashing 2022-era conftests like
+	// flask's). Pick the newest interpreter GA'd on or before that date — "don't
+	// go forward in time." Falls back to a stable default when there's no git.
+	if v := inferPythonFromCommitDate(dir); v != "" {
+		return v
+	}
+	return defaultManagedPython
+}
+
+// defaultManagedPython is the interpreter the python agent pins when the project
+// selects none AND the commit date can't be read (no git). 3.11 is the newest
+// interpreter that still runs the older test stacks common in the SWE-bench
+// corpus (3.12 removed ast.Str, breaking their conftests); uv can always
+// download it.
+const defaultManagedPython = "3.11"
+
+// pythonReleases maps each CPython minor to its GA (final) release date, NEWEST
+// FIRST. The python agent owns this (interpreter knowledge is its domain) and
+// uses it to avoid running a project on a Python that did not exist when the
+// project was last committed.
+var pythonReleases = []struct {
+	version string
+	ga      time.Time
+}{
+	{"3.14", releaseDate(2025, 10, 7)},
+	{"3.13", releaseDate(2024, 10, 7)},
+	{"3.12", releaseDate(2023, 10, 2)},
+	{"3.11", releaseDate(2022, 10, 24)},
+	{"3.10", releaseDate(2021, 10, 4)},
+	{"3.9", releaseDate(2020, 10, 5)},
+	{"3.8", releaseDate(2019, 10, 14)},
+	{"3.7", releaseDate(2018, 6, 27)},
+}
+
+func releaseDate(y, m, d int) time.Time {
+	return time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC)
+}
+
+// inferPythonFromCommitDate returns the newest CPython minor that had GA'd on or
+// before the repo's HEAD commit date, or "" when the date can't be read (not a
+// git repo / git unavailable). This is the "don't go forward in time" rule: a
+// repo committed in 2022 should run on a 2022-or-earlier interpreter, not 3.13.
+func inferPythonFromCommitDate(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "log", "-1", "--format=%cI", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(out)))
+	if err != nil {
+		return ""
+	}
+	for _, r := range pythonReleases { // newest first
+		if !t.Before(r.ga) {
+			return r.version
+		}
+	}
+	return ""
+}
+
+// pinFromRequiresPython turns a requires-python constraint into an interpreter
+// to pin with `uv run --python` — but ONLY when the project actually pins one.
+//
+// A LOWER-BOUND constraint (">=3.7", ">3.6") states the MINIMUM supported
+// version, NOT the interpreter to run. Pinning that floor is wrong and usually
+// FATAL: the floor is often an EOL version uv cannot install at all. ">=3.7"
+// made `uv run --python 3.7` fail "No interpreter found for Python 3.7 … uv
+// embeds available Python downloads and may require an update" — which blocked
+// EVERY test (0 collected) even though uv would happily pick 3.12 unpinned. So
+// for a lower bound we return "" and let uv resolve a compatible AVAILABLE
+// interpreter. We pin only an exact / compatible-release spec ("==3.11",
+// "~=3.9") or a bare version ("3.11") — cases where the project genuinely
+// selects an interpreter.
+func pinFromRequiresPython(constraint string) string {
+	c := strings.TrimSpace(constraint)
+	// Lower-bound only ("<" upper bounds aside) → don't pin; uv chooses a
+	// compatible interpreter that actually exists on the machine.
+	if strings.HasPrefix(c, ">") {
+		return ""
+	}
+	if v := rePyVerNum.FindString(c); v != "" {
+		return v
 	}
 	return ""
 }
@@ -425,10 +513,24 @@ func deriveRequirementFiles(dir string) []string {
 	if entries, err := os.ReadDir(reqDir); err == nil {
 		for _, e := range entries {
 			n := e.Name()
-			if !e.IsDir() && strings.HasSuffix(n, ".txt") &&
-				(strings.Contains(n, "test") || strings.Contains(n, "dev")) {
-				out = append(out, filepath.Join("requirements", n))
+			if e.IsDir() || !strings.HasSuffix(n, ".txt") {
+				continue
 			}
+			if !strings.Contains(n, "test") && !strings.Contains(n, "dev") {
+				continue
+			}
+			// Skip MINIMUM-VERSION pin matrices (e.g. flask's
+			// "tests-pallets-min.txt" pinning click==8.0.0). These are a CI job's
+			// floor-version CONSTRAINT set, NOT the deps to install — installing
+			// them alongside the canonical test deps (and the editable package,
+			// which resolves click==8.1.3) makes the env unsatisfiable
+			// ("click==8.1.3 and click==8.0.0 … unsatisfiable") and blocks every
+			// test. The "-min" infix matches "-min.txt"/"-minimum" without
+			// catching legitimate names like "admin".
+			if strings.Contains(n, "-min") {
+				continue
+			}
+			out = append(out, filepath.Join("requirements", n))
 		}
 	}
 	return out
