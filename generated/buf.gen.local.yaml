@@ -23,6 +23,8 @@ plugins:
   - name: grpc-gateway
     out: go
     opt: paths=source_relative
+  # Connect-go handlers/clients — lets the CLI serve its gRPC services over the
+  # Connect protocol (consumed by the browser dashboard via Connect-ES).
   - name: connect-go
     out: go
     opt: paths=source_relative
