@@ -12,6 +12,14 @@ import (
 	"golang.org/x/term"
 )
 
+// MilestoneMarker prefixes aggregate lifecycle milestones (a named service
+// loading, starting, becoming ready). It is the ">>" half of the shared log
+// taxonomy — ">" is codefly narrating about one service and "|" is the
+// service's own output, both emitted by the CLI's streaming logger. Keeping
+// every milestone on this one marker, in one tense, lets headless and
+// interactive runs read identically.
+const MilestoneMarker = ">>"
+
 // ServiceRunnerModel is a Bubbletea model for running a Codefly service.
 type ServiceRunnerModel struct {
 	service string
@@ -73,18 +81,16 @@ func (m ServiceRunnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = msg.State
 		m.statusBar.SetState(msg.State)
 		m.logView.AppendText(Styles().LogInfo.Render(
-			fmt.Sprintf(">> %s: %s", msg.Service, msg.State)))
+			fmt.Sprintf("%s %s: %s", MilestoneMarker, msg.Service, msg.State)))
 
 	case ServiceReadyMsg:
 		m.state = StateRunning
 		m.statusBar.SetState(StateRunning)
+		line := fmt.Sprintf("%s %s: %s", MilestoneMarker, msg.Service, StateRunning)
 		if msg.Port > 0 {
-			m.logView.AppendText(Styles().Service.Render(
-				fmt.Sprintf(">> %s running on :%d", msg.Service, msg.Port)))
-		} else {
-			m.logView.AppendText(Styles().Service.Render(
-				fmt.Sprintf(">> %s is running", msg.Service)))
+			line += fmt.Sprintf(" on :%d", msg.Port)
 		}
+		m.logView.AppendText(Styles().Service.Render(line))
 
 	case ServiceErrorMsg:
 		m.state = StateFailed
