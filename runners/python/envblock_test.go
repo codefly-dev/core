@@ -67,6 +67,40 @@ func TestClassifyEnvError_FlaskWerkzeugResolutionNamesPackage(t *testing.T) {
 // A run that produced ZERO cases but carries an EnvError is ERRORED — NOT the
 // "all passed" default that zero counts would otherwise yield. This is the exact
 // misclassification fix: a blocked environment must not read as a green run.
+// TestDetectSharedEnvFailure_WerkzeugVersionMismatch: the flask-5014 reality —
+// werkzeug 3.x removed __version__, so every test that builds a Flask test client
+// raises the IDENTICAL AttributeError at fixture setup while unrelated tests
+// pass. That partial run hides the env block from the zero-collected detector;
+// detectSharedEnvFailure catches the repeated dependency error so it heals.
+func TestDetectSharedEnvFailure_WerkzeugVersionMismatch(t *testing.T) {
+	raw := strings.Repeat(
+		"tests/conftest.py:70: in client\n    return app.test_client()\n"+
+			"src/flask/testing.py:117: in __init__\n"+
+			"E   AttributeError: module 'werkzeug' has no attribute '__version__'\n\n", 5)
+	ev := detectSharedEnvFailure(raw)
+	if ev == nil {
+		t.Fatal("expected a shared env failure, got nil")
+	}
+	if ev.Reason != "version-conflict" {
+		t.Errorf("reason = %q, want version-conflict (installed-but-incompatible)", ev.Reason)
+	}
+	if !strings.Contains(ev.Detail, "werkzeug") {
+		t.Errorf("detail should name the package: %q", ev.Detail)
+	}
+}
+
+// A handful of genuine assertion failures must NOT be misread as an env block.
+func TestDetectSharedEnvFailure_RealFailuresAreNotEnvBlock(t *testing.T) {
+	raw := "E   assert 1 == 2\nE   AssertionError\nE   assert foo() is None\n"
+	if ev := detectSharedEnvFailure(raw); ev != nil {
+		t.Fatalf("assertion failures must not be an env block, got %+v", ev)
+	}
+	// A single import error (one test) is below the shared-error threshold.
+	if ev := detectSharedEnvFailure("E   ModuleNotFoundError: No module named 'x'\n"); ev != nil {
+		t.Fatalf("a single import error is not a SHARED env block, got %+v", ev)
+	}
+}
+
 func TestToProtoResponse_EnvErrorIsErroredNotPassed(t *testing.T) {
 	run := &StructuredTestRun{
 		EnvError: &RunEnvError{Reason: "missing-dependency", Detail: "No module named 'werkzeug'"},

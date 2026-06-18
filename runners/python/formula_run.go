@@ -186,6 +186,16 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 	if runErr != nil && run.caseCount() == 0 {
 		run.EnvError = ClassifyEnvError(raw.String(), runErr)
 	}
+	// Even when SOME cases ran (caseCount > 0), a dependency incompatibility can
+	// repeat across many of them (a mis-resolved package surfacing at fixture
+	// setup) while the unaffected tests pass — an env block that the zero-collected
+	// check above misses. Detect the shared error so it heals instead of reading as
+	// an ordinary test failure.
+	if run.EnvError == nil {
+		if ev := detectSharedEnvFailure(raw.String()); ev != nil {
+			run.EnvError = ev
+		}
+	}
 	if run.caseCount() > 0 || run.EnvError != nil {
 		return run, nil
 	}

@@ -3,6 +3,7 @@ package python
 import (
 	"encoding/xml"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -160,6 +161,53 @@ func ClassifyEnvError(raw string, runErr error) *RunEnvError {
 		}
 		return &RunEnvError{Reason: "unknown", Detail: detail}
 	}
+}
+
+// envFailureSignature matches a line indicating a DEPENDENCY/ENVIRONMENT
+// incompatibility — a package missing, or installed but incompatible (a symbol
+// moved/removed in a newer version). These originate in site-packages / conftest
+// / fixtures, NOT in a test's own assertions.
+var envFailureSignature = regexp.MustCompile(`(?i)(ModuleNotFoundError|No module named|ImportError|cannot import name|AttributeError: module .* has no attribute)`)
+
+// detectSharedEnvFailure reports a version/import env block when the SAME
+// dependency-incompatibility error repeats across MANY test cases. That is the
+// signature of a mis-resolved package — e.g. werkzeug 3.x removed
+// `werkzeug.__version__`, so every test that builds a Flask test client raises
+// the identical AttributeError — rather than a genuine test failure. A PARTIAL
+// run (the tests that don't touch the broken dep still pass) hides this from the
+// zero-collected env-block detector, leaving it to masquerade as an ordinary
+// "53 failed". We catch it from the repeated error so the tooling inner loop can
+// heal the package pin. Returns nil unless one env error dominates (>=3 cases).
+func detectSharedEnvFailure(raw string) *RunEnvError {
+	counts := map[string]int{}
+	for _, line := range strings.Split(raw, "\n") {
+		l := strings.TrimSpace(line)
+		l = strings.TrimSpace(strings.TrimPrefix(l, "E ")) // pytest error-line prefix
+		if envFailureSignature.MatchString(l) {
+			counts[l]++
+		}
+	}
+	top, n := "", 0
+	for l, c := range counts {
+		if c > n {
+			top, n = l, c
+		}
+	}
+	if n < 3 {
+		return nil
+	}
+	reason := "import-error"
+	low := strings.ToLower(top)
+	switch {
+	case strings.Contains(low, "no module named"), strings.Contains(low, "modulenotfounderror"):
+		reason = "missing-dependency"
+	case strings.Contains(low, "has no attribute"):
+		// Installed but INCOMPATIBLE: the symbol exists in the version the project
+		// expects but was removed/moved in the (newer) version that got resolved —
+		// a version mismatch the remediator heals by pinning the package down.
+		reason = "version-conflict"
+	}
+	return &RunEnvError{Reason: reason, Detail: fmt.Sprintf("%s (×%d test cases — shared dependency incompatibility, not a test failure)", top, n)}
 }
 
 // resolutionDetail returns a richer detail for a dependency-RESOLUTION conflict:

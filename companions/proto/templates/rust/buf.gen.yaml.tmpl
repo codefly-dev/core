@@ -1,0 +1,17 @@
+version: v1
+plugins:
+  # Pinned (not :latest) so codegen is reproducible and stays matched to the
+  # tonic/prost crate versions the service depends on. v0.5.x targets the
+  # tonic 0.14 / prost 0.14 family (codec via the separate `tonic-prost` crate).
+  #
+  # NOT compile_well_known_types: that makes prost emit RELATIVE paths for
+  # google.protobuf.* (`super::super::google::…`) which assume one exact module
+  # nesting and break under any include layout. The default (extern paths to the
+  # `prost-types` crate — `::prost_types::Timestamp`, and `Empty` → `()`) is
+  # layout-independent, so the consuming crate just depends on `prost-types`.
+  - plugin: buf.build/community/neoeinstein-prost:v0.5.0
+    out: {{.Destination}}
+  - plugin: buf.build/community/neoeinstein-tonic:v0.5.0
+    out: {{.Destination}}
+    opt:
+      - no_server

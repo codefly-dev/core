@@ -70,3 +70,27 @@ func TestGeneratePythonGRPC(t *testing.T) {
 		require.FileExists(t, filepath.Join(destination, name))
 	}
 }
+
+func TestGenerateRustGRPC(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+
+	testutil.RequireProtoImage(t, ctx)
+
+	apiProto := filepath.Join(testdataDir(t), "api.proto")
+	ep := &resources.Endpoint{Module: "app", Service: "svc", Name: "api", Visibility: "private"}
+	api, err := resources.LoadGrpcAPI(ctx, shared.Pointer(apiProto))
+	require.NoError(t, err)
+	grpc, err := resources.NewAPI(ctx, ep, resources.ToGrpcAPI(api))
+	require.NoError(t, err)
+	destination := t.TempDir()
+
+	err = proto.GenerateGRPC(ctx, languages.RUST, destination, "app/svc", grpc)
+	require.NoError(t, err, "proto companion image not built: %s", testutil.BuildCompanionsHint)
+
+	// prost + tonic emit per proto package ("api/"): messages in api.rs,
+	// the tonic client in api.tonic.rs.
+	for _, name := range []string{"api/api.rs", "api/api.tonic.rs"} {
+		require.FileExists(t, filepath.Join(destination, name))
+	}
+}
