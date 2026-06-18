@@ -57,6 +57,9 @@ type EnvironmentVariableManager struct {
 	running    bool
 	fixture    string
 
+	// Per-service runtime overrides (KEY=VAL) injected via `codefly run ... --set`.
+	overrides []*EnvironmentVariable
+
 	// Other environment variables
 	others []*EnvironmentVariable
 }
@@ -86,6 +89,8 @@ func (holder *EnvironmentVariableManager) getBase() ([]*EnvironmentVariable, err
 	if holder.fixture != "" {
 		envs = append(envs, FixtureAsEnvironmentVariable(holder.fixture))
 	}
+
+	envs = append(envs, holder.overrides...)
 
 	if holder.environment != nil {
 		envs = append(envs, EnvironmentAsEnvironmentVariable(holder.environment))
@@ -162,6 +167,14 @@ const FixturePrefix = "CODEFLY__FIXTURE"
 
 func (holder *EnvironmentVariableManager) SetFixture(fixture string) {
 	holder.fixture = fixture
+}
+
+// AddOverrides appends per-service runtime overrides (KEY=VAL) so they reach
+// the process environment via All()/Configurations(), like fixture/others.
+func (holder *EnvironmentVariableManager) AddOverrides(overrides map[string]string) {
+	for k, v := range overrides {
+		holder.overrides = append(holder.overrides, Env(k, v))
+	}
 }
 
 func FixtureAsEnvironmentVariable(fixture string) *EnvironmentVariable {

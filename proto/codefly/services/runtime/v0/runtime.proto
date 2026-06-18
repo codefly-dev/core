@@ -141,6 +141,9 @@ message StartRequest {
   repeated codefly.base.v0.NetworkMapping dependencies_network_mappings = 2;
   // fixture selects optional fixture data or setup behavior for the start.
   string fixture = 3;
+  // overrides are per-service environment variables (KEY=VAL) injected into
+  // the service process at run time. Set via `codefly run ... --set <service>:KEY=VAL`.
+  map<string, string> overrides = 4;
 }
 
 // StartStatus reports the state and message for the start lifecycle phase.
