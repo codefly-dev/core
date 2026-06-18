@@ -88,16 +88,23 @@ jobs:
 #          version: v1.55
 
       - name: govulncheck audit
-        # `codefly audit go` (replaces scripts/govulncheck.sh): runs
-        # govulncheck, filters findings against .govulncheck.yaml
-        # suppressions + staleness, fails only when an unsuppressed vuln
-        # has an upstream fix available (unpatched-upstream issues can't be
-        # cleared by a rebuild). codefly is go-installed since core's CI
-        # checks out core alone (no cli sibling to build from source).
+        # scripts/govulncheck.sh mirrors `codefly audit go` / `codefly
+        # agent build`'s audit logic: runs govulncheck, partitions
+        # findings against .govulncheck.yaml suppressions + staleness,
+        # fails only when an unsuppressed vuln has an upstream fix
+        # available (unpatched-upstream issues can't be cleared by a
+        # rebuild).
+        #
+        # This deliberately does NOT shell out to the codefly CLI:
+        # github.com/codefly-dev/cli is a PRIVATE module, and core's CI
+        # checks out core alone with no credentials for sibling repos, so
+        # `go install github.com/codefly-dev/cli@latest` fails with
+        # "could not read Username" / "Authentication failed". The script
+        # only needs govulncheck (public, go-installable) and is fully
+        # self-contained — no private-repo dependency.
         run: |
-          go install github.com/codefly-dev/cli@latest
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          codefly audit go --dir .
+          ./scripts/govulncheck.sh
 
       - name: generate test generate coverage
         # Single strict signal. -tags=sandbox_e2e,nix_required opts

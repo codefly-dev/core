@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/codefly-dev/core/wool"
 	"github.com/fatih/color"
@@ -215,6 +216,28 @@ func TestRenderMarkdown(t *testing.T) {
 	}
 	if out == "" {
 		t.Fatal("expected non-empty markdown output")
+	}
+}
+
+func TestMilestoneLinesShareOneForm(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  tea.Msg
+		want string
+	}{
+		{"state", ServiceStateMsg{Service: "mind/mind", State: StateStarting}, ">> mind/mind: Starting"},
+		{"ready", ServiceReadyMsg{Service: "mind/mind"}, ">> mind/mind: Running"},
+		{"ready with port", ServiceReadyMsg{Service: "mind/mind", Port: 6690}, ">> mind/mind: Running on :6690"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newServiceRunnerModel("mind/mind")
+			updated, _ := m.Update(tc.msg)
+			content := updated.(ServiceRunnerModel).logView.lines.String()
+			if !strings.Contains(content, tc.want) {
+				t.Fatalf("milestone line %q not found in log content: %q", tc.want, content)
+			}
+		})
 	}
 }
 
