@@ -94,7 +94,17 @@ jobs:
         # has an upstream fix available (unpatched-upstream issues can't be
         # cleared by a rebuild). codefly is go-installed since core's CI
         # checks out core alone (no cli sibling to build from source).
+        #
+        # codefly-dev/cli is a PRIVATE module, so `go install` needs git
+        # credentials: GOPRIVATE keeps it off the public proxy/sumdb and
+        # the url.insteadOf rewrite injects the GH_PAT token (same secret
+        # the coverage step uses). Without this the runner hits an
+        # anonymous git clone and fails with "could not read Username".
+        env:
+          GOPRIVATE: github.com/codefly-dev/*
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
+          git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
           go install github.com/codefly-dev/cli@latest
           go install golang.org/x/vuln/cmd/govulncheck@latest
           codefly audit go --dir .
