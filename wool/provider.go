@@ -3,7 +3,26 @@ package wool
 import (
 	"context"
 	"fmt"
+	"os"
+
+	"golang.org/x/term"
 )
+
+// stdoutIsTTY is computed once: true when stdout is an interactive terminal. On
+// a TTY the Console sink terminates lines with "\r\n" rather than "\n" — under a
+// TUI (bubbletea spinner) the terminal is in raw mode, where a bare "\n" moves
+// down a row but does NOT return to column 0, producing a "staircase" when
+// background goroutines log through this fallback sink. "\r\n" is correct in raw
+// mode and harmless in cooked mode; for non-TTY output (pipes/files) we keep a
+// plain "\n" so logs don't get CRLF endings.
+var stdoutIsTTY = term.IsTerminal(int(os.Stdout.Fd()))
+
+func consoleLineEnding() string {
+	if stdoutIsTTY {
+		return "\r\n"
+	}
+	return "\n"
+}
 
 // Identifier holds the kind and unique name of a wool source.
 type Identifier struct {
@@ -111,11 +130,13 @@ func (c Console) Process(msg *Log) {
 	if msg.Level < c.level {
 		return
 	}
-	if c.messageOnly {
-		fmt.Println(msg.Message)
-		return // Fixed: was falling through and double-printing
+	line := msg.Message
+	if !c.messageOnly {
+		line = msg.String()
 	}
-	fmt.Println(msg)
+	// Print with a TTY-aware line ending so log lines don't "staircase" when a
+	// TUI has the terminal in raw mode (see stdoutIsTTY).
+	fmt.Print(line + consoleLineEnding())
 }
 
 // --- Package-level Get ---
