@@ -53,11 +53,21 @@ func NewServiceLogger(identity *resources.ServiceIdentity) wool.LogProcessor {
 	return &AgentLogger{source: source}
 }
 
+// nonBlocking wraps a log processor so writing a log NEVER blocks the agent on a
+// slow/stalled parent consumer. The synchronous stderr write in AgentLogger.Process
+// otherwise backpressures the whole agent (and can wedge shutdown) when the CLI is
+// slow to drain — an agent must never block on logging, the same discipline as
+// "never panic". Bounded queue, drop-on-full: a dropped log line is strictly better
+// than a wedged agent.
+func nonBlocking(inner wool.LogProcessor) wool.LogProcessor {
+	return wool.NewBufferedProcessor(inner, 0) // 0 → default capacity (256)
+}
+
 // NewAgentProvider creates a wool provider for an agent.
 func NewAgentProvider(ctx context.Context, agent *resources.Agent) *wool.Provider {
 	res := agent.AsResource()
 	provider := wool.New(ctx, res)
-	provider.WithLogger(NewAgentLogger(agent))
+	provider.WithLogger(nonBlocking(NewAgentLogger(agent)))
 	return provider
 }
 
@@ -65,7 +75,7 @@ func NewAgentProvider(ctx context.Context, agent *resources.Agent) *wool.Provide
 func NewServiceAgentProvider(ctx context.Context, identity *resources.ServiceIdentity) *wool.Provider {
 	res := identity.AsAgentResource()
 	provider := wool.New(ctx, res)
-	provider.WithLogger(NewAgentServiceLogger(identity))
+	provider.WithLogger(nonBlocking(NewAgentServiceLogger(identity)))
 	return provider
 }
 
@@ -73,6 +83,6 @@ func NewServiceAgentProvider(ctx context.Context, identity *resources.ServiceIde
 func NewServiceProvider(ctx context.Context, identity *resources.ServiceIdentity) *wool.Provider {
 	res := identity.AsResource()
 	provider := wool.New(ctx, res)
-	provider.WithLogger(NewServiceLogger(identity))
+	provider.WithLogger(nonBlocking(NewServiceLogger(identity)))
 	return provider
 }
