@@ -301,7 +301,8 @@ func WithNonPublicEnvironmentVariablePrefix(prefix string) EnvironmentVariableOp
 }
 
 func prefix(nm *basev0.NetworkMapping, opt *EnvironmentVariableOptions) string {
-	if nm.Endpoint.Visibility == VisibilityPublic {
+	// Nil-safe: a mapping without an endpoint is treated as non-public, never a panic.
+	if nm != nil && nm.Endpoint != nil && nm.Endpoint.Visibility == VisibilityPublic {
 		return opt.publicPrefix
 	}
 	return opt.nonPublicPrefix
@@ -319,8 +320,11 @@ func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mapp
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddEndpoints")
 	opt := createEnvironmentVariableOptions(opts...)
 	for _, mp := range mappings {
+		if mp == nil {
+			continue
+		}
 		for _, instance := range mp.Instances {
-			if instance.Access.Kind == networkAccess.Kind {
+			if accessKindMatches(instance, networkAccess) {
 				holder.endpoints = append(holder.endpoints, &EndpointAccess{
 					Endpoint:        mp.Endpoint,
 					NetworkInstance: instance,

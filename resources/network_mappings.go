@@ -72,9 +72,28 @@ func NewHTTPNetworkInstance(hostname string, port uint16, secured bool) *basev0.
 	return instance
 }
 
+// endpointMatches compares two endpoints by identity. Nil-safe: these protos come
+// from another process, so a nil endpoint (at any level) must never panic — it just
+// doesn't match. (An agent must never panic on the shape of its inputs.)
+func endpointMatches(a, b *basev0.Endpoint) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Module == b.Module && a.Service == b.Service && a.Api == b.Api && a.Name == b.Name
+}
+
+// accessKindMatches reports whether an instance's access kind equals the requested
+// one, tolerating nil at every level (nil instance / nil Access / nil networkAccess).
+func accessKindMatches(instance *basev0.NetworkInstance, networkAccess *basev0.NetworkAccess) bool {
+	if instance == nil || instance.Access == nil || networkAccess == nil {
+		return false
+	}
+	return instance.Access.Kind == networkAccess.Kind
+}
+
 func FilterNetworkInstance(_ context.Context, instances []*basev0.NetworkInstance, networkAccess *basev0.NetworkAccess) *basev0.NetworkInstance {
 	for _, instance := range instances {
-		if instance.Access.Kind == networkAccess.Kind {
+		if accessKindMatches(instance, networkAccess) {
 			return instance
 		}
 	}
@@ -87,14 +106,12 @@ func FindNetworkInstanceInNetworkMappings(ctx context.Context, mappings []*basev
 		return nil, w.NewError("can't find network instance for a nil endpoint")
 	}
 	for _, mapping := range mappings {
-		if mapping.Endpoint.Module == endpoint.Module &&
-			mapping.Endpoint.Service == endpoint.Service &&
-			mapping.Endpoint.Api == endpoint.Api &&
-			mapping.Endpoint.Name == endpoint.Name {
-			for _, instance := range mapping.Instances {
-				if instance.Access.Kind == networkAccess.Kind {
-					return instance, nil
-				}
+		if mapping == nil || !endpointMatches(mapping.Endpoint, endpoint) {
+			continue
+		}
+		for _, instance := range mapping.Instances {
+			if accessKindMatches(instance, networkAccess) {
+				return instance, nil
 			}
 		}
 	}
@@ -107,13 +124,10 @@ func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, 
 		return nil, w.NewError("can't find network instance for a nil endpoint")
 	}
 	for _, mapping := range mappings {
-		if mapping.Endpoint.Module == endpoint.Module &&
-			mapping.Endpoint.Service == endpoint.Service &&
-			mapping.Endpoint.Api == endpoint.Api &&
-			mapping.Endpoint.Name == endpoint.Name {
-			return mapping, nil
-
+		if mapping == nil || !endpointMatches(mapping.Endpoint, endpoint) {
+			continue
 		}
+		return mapping, nil
 	}
 	return nil, w.NewError("no network mapping for endpoint: %s", EndpointFromProto(endpoint).Unique())
 }

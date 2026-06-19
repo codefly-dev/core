@@ -182,10 +182,17 @@ func configRuntimeKind(kind string) string {
 	return kind
 }
 
+// These protos cross a process boundary, so a nil config or nil RuntimeContext must
+// never panic. The generated `Get*()` accessors are nil-safe (they return the zero
+// value through a nil receiver), so reading the kind via `conf.GetRuntimeContext().
+// GetKind()` yields "" instead of a deref — and nil configs are skipped outright.
 func FilterConfigurations(configurations []*basev0.Configuration, runtimeContext *basev0.RuntimeContext) []*basev0.Configuration {
 	var out []*basev0.Configuration
 	for _, conf := range configurations {
-		if Match(configRuntimeKind(conf.RuntimeContext.Kind), configRuntimeKind(runtimeContext.Kind)) {
+		if conf == nil {
+			continue
+		}
+		if Match(configRuntimeKind(conf.GetRuntimeContext().GetKind()), configRuntimeKind(runtimeContext.GetKind())) {
 			out = append(out, conf)
 		}
 	}
@@ -195,9 +202,12 @@ func FilterConfigurations(configurations []*basev0.Configuration, runtimeContext
 func ExtractConfiguration(configurations []*basev0.Configuration, runtimeContext *basev0.RuntimeContext) (*basev0.Configuration, error) {
 	var out *basev0.Configuration
 	for _, conf := range configurations {
-		if Match(configRuntimeKind(conf.RuntimeContext.Kind), configRuntimeKind(runtimeContext.Kind)) {
+		if conf == nil {
+			continue
+		}
+		if Match(configRuntimeKind(conf.GetRuntimeContext().GetKind()), configRuntimeKind(runtimeContext.GetKind())) {
 			if out != nil {
-				return nil, fmt.Errorf("multiple configurations found for runtime context: %s", runtimeContext.Kind)
+				return nil, fmt.Errorf("multiple configurations found for runtime context: %s", runtimeContext.GetKind())
 			}
 			out = conf
 		}
