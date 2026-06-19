@@ -33,6 +33,13 @@ import (
 // ProtocolVersion is used for future-proofing the stdout handshake.
 const ProtocolVersion = 1
 
+// agentShutdownHardDeadline bounds how long the agent may take to exit AFTER a
+// shutdown signal before it force-exits itself. Larger than the graceful budget
+// (5s Runtime.Stop + 3s GracefulStop) so a clean shutdown finishes on its own, but
+// comfortably under the parent loader's gracefulShutdownTimeout (30s) so the parent
+// never has to SIGKILL the process group (which orphans children).
+const agentShutdownHardDeadline = 12 * time.Second
+
 // PluginRegistration holds the gRPC servers a plugin wants to expose.
 // All registration is handled by core -- plugins never import grpc directly.
 //
@@ -476,6 +483,20 @@ func Serve(reg PluginRegistration) {
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT)
 		<-ch
+		// HARD BACKSTOP: once a shutdown signal arrives, the agent MUST exit well
+		// within the parent's SIGTERM→SIGKILL window (loader.go: 30s). The graceful
+		// path below is bounded in theory, but any single unbounded step — a Runtime
+		// Stop that ignores its ctx, a wedged in-flight RPC, a blocked log forwarder —
+		// would let the parent fall through to SIGKILL, which kills the whole process
+		// GROUP and orphans/forcibly-kills children (the bug we saw: 30s then SIGKILL).
+		// This watchdog makes a clean exit unconditional: whatever wedges, we exit
+		// ourselves first. Only armed AFTER the signal, so it never affects a running
+		// agent.
+		go func() {
+			time.Sleep(agentShutdownHardDeadline)
+			fmt.Fprintln(os.Stderr, "[agent] shutdown exceeded deadline — forcing exit (avoids the parent's SIGKILL)")
+			os.Exit(0)
+		}()
 		if reg.Runtime != nil {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_, _ = reg.Runtime.Stop(stopCtx, &runtimev0.StopRequest{})
