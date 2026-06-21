@@ -22,7 +22,7 @@ func HasConfigurationInformation(_ context.Context, conf *basev0.Configuration, 
 
 func FindServiceConfiguration(_ context.Context, confs []*basev0.Configuration, runtimeContext *basev0.RuntimeContext, unique string) (*basev0.Configuration, error) {
 	for _, conf := range confs {
-		if conf.RuntimeContext.Kind == runtimeContext.Kind && conf.Origin == unique {
+		if conf.GetRuntimeContext().GetKind() == runtimeContext.GetKind() && conf.Origin == unique {
 			return conf, nil
 		}
 	}
@@ -99,7 +99,7 @@ func FindWorkspaceConfiguration(_ context.Context, confs []*basev0.Configuration
 func FindConfigurations(configurations []*basev0.Configuration, runtime *basev0.RuntimeContext) []*basev0.Configuration {
 	var found []*basev0.Configuration
 	for _, conf := range configurations {
-		if Match(conf.RuntimeContext.Kind, runtime.Kind) {
+		if Match(conf.GetRuntimeContext().GetKind(), runtime.GetKind()) {
 			found = append(found, conf)
 		}
 	}
