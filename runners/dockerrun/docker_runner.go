@@ -20,6 +20,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/gortk"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -1165,7 +1166,7 @@ func forwardContainerLines(ctx context.Context, reader io.Reader, writer io.Writ
 		// (cursor moves, scroll-region/alt-screen, DSR/OSC queries) that, forwarded
 		// verbatim to the user's terminal, corrupt its scroll/cursor state. Keep
 		// SGR color; drop the rest.
-		_, _ = writer.Write(append(sanitizeTerminalControl(scanner.Bytes()), '\n'))
+		_, _ = writer.Write(append([]byte(gortk.StripControl(scanner.Text())), '\n'))
 	}
 
 	// "use of closed network connection" / io.EOF / context-cancelled
@@ -1178,78 +1179,6 @@ func forwardContainerLines(ctx context.Context, reader io.Reader, writer io.Writ
 		return
 	}
 	_, _ = writer.Write([]byte(fmt.Sprintf("Error while scanning container logs: %s\n", err)))
-}
-
-// sanitizeTerminalControl strips terminal control sequences from a forwarded
-// container log line, keeping ONLY SGR color (CSI … 'm'). Containers run with a TTY
-// (`Tty: true`), so children (minio, postgres, …) emit cursor moves, scroll-region
-// (DECSTBM) and alt-screen toggles, and DSR/OSC queries (we've seen minio send
-// "\x1b]11;?…" and "\x1b[6n"). Forwarded verbatim to the operator's terminal those
-// corrupt its scroll/cursor state — the "stuck on one screen / can't scroll up"
-// symptom. We keep colors (useful, harmless) and drop everything else, plus bare
-// CR/BEL. Operates per line; container log lines are newline-terminated, so an
-// escape never spans the boundary.
-func sanitizeTerminalControl(b []byte) []byte {
-	out := make([]byte, 0, len(b))
-	for i := 0; i < len(b); {
-		c := b[i]
-		if c == 0x1b { // ESC
-			if i+1 >= len(b) {
-				break // dangling ESC at end of line — drop
-			}
-			switch b[i+1] {
-			case '[': // CSI: params … final byte in 0x40–0x7e
-				j := i + 2
-				for j < len(b) && (b[j] < 0x40 || b[j] > 0x7e) {
-					j++
-				}
-				if j >= len(b) {
-					i = len(b) // unterminated — drop the rest
-					continue
-				}
-				if b[j] == 'm' { // SGR (color) — keep the whole sequence
-					out = append(out, b[i:j+1]...)
-				}
-				i = j + 1
-			case ']': // OSC: terminated by BEL or ST (ESC \) — drop
-				j := i + 2
-				for j < len(b) {
-					if b[j] == 0x07 {
-						j++
-						break
-					}
-					if b[j] == 0x1b && j+1 < len(b) && b[j+1] == '\\' {
-						j += 2
-						break
-					}
-					j++
-				}
-				i = j
-			case 'P', 'X', '^', '_': // DCS/SOS/PM/APC: terminated by ST — drop
-				j := i + 2
-				for j < len(b) {
-					if b[j] == 0x1b && j+1 < len(b) && b[j+1] == '\\' {
-						j += 2
-						break
-					}
-					j++
-				}
-				i = j
-			case '(', ')', '*', '+': // charset designation: ESC ( B — drop 3 bytes
-				i += 3
-			default: // other 2-byte escape (ESC =, ESC 7/8, …) — drop
-				i += 2
-			}
-			continue
-		}
-		if c == '\r' || c == 0x07 { // bare CR / BEL — overwrite / bell, drop
-			i++
-			continue
-		}
-		out = append(out, c)
-		i++
-	}
-	return out
 }
 
 func (docker *DockerEnvironment) WithOutput(w io.Writer) {
