@@ -73,12 +73,6 @@ github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJ
 github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/cloudflare/circl v1.6.3 h1:9GPOhQGF9MCYUeXyMYlqTR6a5gTrgR/fBLXvUgtVcg8=
 github.com/cloudflare/circl v1.6.3/go.mod h1:2eXP6Qfat4O/Yhh8BznvKnJ+uzEoTQ6jVKJRn81BiS4=
-github.com/codefly-dev/gortk v0.0.0-20260618210221-8a046b6f78ce h1:eICC4vRUXSXEg7WbKLPRec3YuSC9LJCxfq+f43gGZMM=
-github.com/codefly-dev/gortk v0.0.0-20260618210221-8a046b6f78ce/go.mod h1:dDWUMFgAP063OCGhTEpV7FFUj9+zTcxxO/nV80VKEwg=
-github.com/codefly-dev/gortk v0.0.0-20260619134945-d5474be5f046 h1:+Bz59e+HysnawsANw2EmNfw6bJbx4nFkFQ+8j2pc5Gg=
-github.com/codefly-dev/gortk v0.0.0-20260619134945-d5474be5f046/go.mod h1:dDWUMFgAP063OCGhTEpV7FFUj9+zTcxxO/nV80VKEwg=
-github.com/codefly-dev/gortk v0.0.0-20260621170842-c2212b7ad788 h1:9felyfj2/63GU24Ermsx2pC6DmfWkLMbWV8DgLLNt1U=
-github.com/codefly-dev/gortk v0.0.0-20260621170842-c2212b7ad788/go.mod h1:dDWUMFgAP063OCGhTEpV7FFUj9+zTcxxO/nV80VKEwg=
 github.com/containerd/errdefs v1.0.0 h1:tg5yIfIlQIrxYtu9ajqY42W3lpS19XqdxRQeEwYG8PI=
 github.com/containerd/errdefs v1.0.0/go.mod h1:+YBYIdtsnF4Iw6nWZhJcqGSg/dwvV7tyJ/kCkyJ2k+M=
 github.com/containerd/errdefs/pkg v0.3.0 h1:9IKJ06FvyNlexW690DXuQNx2KA2cUJXx151Xdx3ZPPE=
@@ -228,6 +222,8 @@ github.com/mattn/go-runewidth v0.0.23 h1:7ykA0T0jkPpzSvMS5i9uoNn2Xy3R383f9HDx3Ry
 github.com/mattn/go-runewidth v0.0.23/go.mod h1:XBkDxAl56ILZc9knddidhrOlY5R/pDhgLpndooCuJAs=
 github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=
 github.com/microcosm-cc/bluemonday v1.0.27/go.mod h1:jFi9vgW+H7c3V0lb6nR74Ib/DIB5OBs92Dimizgw2cA=
+github.com/mind-build/gortk v0.1.0 h1:sftmLKIqKRUhNTsv23XcT3KJ5KR+Qi111Kf8ELjFhCc=
+github.com/mind-build/gortk v0.1.0/go.mod h1:CkoBGIrP2L/0o/LDFqms5gxfDIXdjnloB0xvcQ+6flc=
 github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
 github.com/moby/docker-image-spec v1.3.1 h1:jMKff3w6PgbfSa69GfNg+zN/XLhfXJGnEx3Nl2EsFP0=

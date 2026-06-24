@@ -20,7 +20,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/gortk"
+	"github.com/mind-build/gortk"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"

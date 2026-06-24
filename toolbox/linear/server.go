@@ -22,7 +22,7 @@ import (
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	"github.com/codefly-dev/core/toolbox/registry"
 	"github.com/codefly-dev/core/toolbox/respond"
-	"github.com/codefly-dev/gortk"
+	"github.com/mind-build/gortk"
 )
 
 const endpoint = "https://api.linear.app/graphql"

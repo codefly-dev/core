@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/wool"
-	"github.com/codefly-dev/gortk"
+	"github.com/mind-build/gortk"
 )
 
 // capProc captures emitted log entries for assertions.

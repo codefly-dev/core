@@ -1,5 +1,5 @@
 // Package llmout compresses raw command output before it is returned to the
-// model, using the gortk filter catalog (https://github.com/codefly-dev/gortk).
+// model, using the gortk filter catalog (https://github.com/mind-build/gortk).
 //
 // It is the integration seam for codefly's language agents: a Build/Test/Lint
 // implementation that has captured a command's combined output passes it
@@ -9,7 +9,7 @@
 // unchanged (only size-bounded), so this is always safe to apply.
 package llmout
 
-import "github.com/codefly-dev/gortk"
+import "github.com/mind-build/gortk"
 
 // registry is built once and shared; it is read-only after construction and
 // safe for concurrent use.

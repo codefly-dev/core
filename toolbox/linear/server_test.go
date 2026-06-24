@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codefly-dev/gortk"
+	"github.com/mind-build/gortk"
 )
 
 // TestIssuesCompaction is the core proof that gortk compacts Linear's verbose

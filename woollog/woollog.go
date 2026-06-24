@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/wool"
-	"github.com/codefly-dev/gortk"
+	"github.com/mind-build/gortk"
 )
 
 // Writer parses a log stream and routes each line to a wool logger at its

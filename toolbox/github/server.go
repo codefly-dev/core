@@ -27,7 +27,7 @@ import (
 	"github.com/codefly-dev/core/llmout"
 	"github.com/codefly-dev/core/toolbox/registry"
 	"github.com/codefly-dev/core/toolbox/respond"
-	"github.com/codefly-dev/gortk"
+	"github.com/mind-build/gortk"
 )
 
 // Precompiled gortk filters that flatten a normalized JSON array (one object per
