@@ -19,7 +19,7 @@ func TestIdentity(t *testing.T) {
 
 func TestParseGitHubRemote(t *testing.T) {
 	cases := map[string][2]string{
-		"git@github.com:codefly-dev/gortk.git":    {"codefly-dev", "gortk"},
+		"git@github.com:mind-build/gortk.git":     {"mind-build", "gortk"},
 		"https://github.com/codefly-dev/core.git": {"codefly-dev", "core"},
 		"https://github.com/owner/repo":           {"owner", "repo"},
 	}
