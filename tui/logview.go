@@ -46,13 +46,24 @@ func (l *LogView) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (l *LogView) appendLog(msg ServiceLogMsg) {
+	// Follow the tail only when the user is already at the bottom. If they have
+	// scrolled up to read earlier output, leave their position alone instead of
+	// yanking them back down on every new line.
+	follow := !l.ready || l.viewport.AtBottom()
 	for _, line := range formatServiceLogLines(msg, l.viewport.Width) {
 		l.lines.WriteString(renderServiceLogLine(msg, line) + "\n")
 	}
 	if l.ready {
 		l.viewport.SetContent(l.lines.String())
-		l.viewport.GotoBottom()
+		if follow {
+			l.viewport.GotoBottom()
+		}
 	}
+}
+
+// AtBottom reports whether the viewport is scrolled to the latest output.
+func (l *LogView) AtBottom() bool {
+	return !l.ready || l.viewport.AtBottom()
 }
 
 func renderServiceLogLine(msg ServiceLogMsg, line string) string {
@@ -139,11 +150,21 @@ func wrapLogLine(prefix, message string, width int) []string {
 
 // AppendText adds a raw styled line to the log viewport.
 func (l *LogView) AppendText(text string) {
+	follow := !l.ready || l.viewport.AtBottom()
 	l.lines.WriteString(text + "\n")
 	if l.ready {
 		l.viewport.SetContent(l.lines.String())
-		l.viewport.GotoBottom()
+		if follow {
+			l.viewport.GotoBottom()
+		}
 	}
+}
+
+// Transcript returns every line retained by the log pane. The service runner
+// writes this back to the primary terminal after the alternate-screen TUI
+// exits, so Ctrl-C leaves the run output in normal shell scrollback.
+func (l *LogView) Transcript() string {
+	return l.lines.String()
 }
 
 func (l *LogView) View() string {

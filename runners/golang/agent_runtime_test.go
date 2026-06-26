@@ -6,6 +6,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	"github.com/codefly-dev/core/resources"
 )
 
 // buildTestArgs replicates the arg construction inside RunGoTests so we
@@ -375,5 +378,52 @@ func TestStreamingTestWriter_NilCallbackIsSafe(t *testing.T) {
 	}
 	if w.LineCapture.String() == "" {
 		t.Error("expected line to be buffered even without callback")
+	}
+}
+
+// TestSetGoRuntimeContext pins the Go plugin's LOCAL-FIRST resolution order
+// (native → nix → container) and the host-vs-container hint semantics. The
+// availability probes are indirected as package vars, so each row drives an
+// exact (hasGo, hasNix) host without touching the real machine.
+func TestSetGoRuntimeContext(t *testing.T) {
+	origGo, origNix := goToolchainAvailable, nixBackendAvailable
+	t.Cleanup(func() { goToolchainAvailable, nixBackendAvailable = origGo, origNix })
+
+	rc := func(kind string) *basev0.RuntimeContext { return &basev0.RuntimeContext{Kind: kind} }
+
+	cases := []struct {
+		name   string
+		in     *basev0.RuntimeContext
+		hasGo  bool
+		hasNix bool
+		want   string
+	}{
+		// Explicit container is the only hard pin honored here (Docker isolation).
+		{"explicit container honored even with go present", rc(resources.RuntimeContextContainer), true, true, resources.RuntimeContextContainer},
+
+		// Host-based hints all resolve local-first. The regression that broke
+		// `codefly run` without Docker: a global `nix` default with the Go
+		// toolchain present must run NATIVE, not nix (no flake → no hard fail).
+		{"nix hint, go present -> native (the fix)", rc(resources.RuntimeContextNix), true, true, resources.RuntimeContextNative},
+		{"native hint, go present -> native", rc(resources.RuntimeContextNative), true, false, resources.RuntimeContextNative},
+		{"free hint, go present -> native", rc(resources.RuntimeContextFree), true, true, resources.RuntimeContextNative},
+		{"empty hint, go present -> native", rc(""), true, false, resources.RuntimeContextNative},
+		{"nil context, go present -> native", nil, true, true, resources.RuntimeContextNative},
+
+		// No local Go: fall to nix when available, else container.
+		{"no go, nix available -> nix", rc(resources.RuntimeContextNix), false, true, resources.RuntimeContextNix},
+		{"no go, no nix -> container", rc(resources.RuntimeContextNative), false, false, resources.RuntimeContextContainer},
+		{"nil, no go, no nix -> container", nil, false, false, resources.RuntimeContextContainer},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			goToolchainAvailable = func() bool { return c.hasGo }
+			nixBackendAvailable = func() bool { return c.hasNix }
+			got := SetGoRuntimeContext(c.in)
+			if got == nil || got.Kind != c.want {
+				t.Fatalf("SetGoRuntimeContext(%v) [go=%v nix=%v] = %v, want %s", c.in, c.hasGo, c.hasNix, got, c.want)
+			}
+		})
 	}
 }

@@ -10,21 +10,44 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
+	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
 
-// SetGoRuntimeContext determines the runtime context (native, nix, container)
-// based on the requested context and available Go toolchain.
-// Returns the resolved RuntimeContext — callers assign it to their own struct.
+// goToolchainAvailable / nixBackendAvailable are indirected as package vars so
+// tests can drive the full native/nix/container fallback matrix without a real
+// host. In production they probe the actual machine.
+var (
+	goToolchainAvailable = func() bool { return languages.HasGoRuntime(nil) }
+	nixBackendAvailable  = func() bool { return runners.CheckNixInstalled() && runners.IsNixSupported() }
+)
+
+// SetGoRuntimeContext resolves which backend the Go plugin runs on. The Go
+// plugin's preference order is LOCAL-FIRST — "run locally if you can, then nix,
+// then docker": native → nix → container.
+//
+// The incoming kind is an ENVIRONMENT hint, not a hard pin: `native`, `nix`, and
+// `free` all mean "host-based", and the plugin auto-detects the best AVAILABLE
+// host backend. So a Docker-free run whose global default is `nix` still runs Go
+// natively when the Go toolchain is present — no flake needed, and nothing
+// hard-fails on a missing one (the bug that broke `codefly run` without Docker).
+// Only an explicit `container` request forces Docker isolation. Hard per-service/
+// per-agent choices still flow in via preferences.codefly.yaml: pinning
+// `container` is honored here; pinning `native`/`nix` resolves through the same
+// local-first order (native wins when the toolchain is present).
+//
+// nil-safe. Returns a fresh RuntimeContext — callers assign it to their struct.
 func SetGoRuntimeContext(runtimeContext *basev0.RuntimeContext) *basev0.RuntimeContext {
-	if runtimeContext.Kind == resources.RuntimeContextNix {
-		return resources.NewRuntimeContextNix()
+	if runtimeContext != nil && runtimeContext.Kind == resources.RuntimeContextContainer {
+		return resources.NewRuntimeContextContainer()
 	}
-	if runtimeContext.Kind == resources.RuntimeContextFree || runtimeContext.Kind == resources.RuntimeContextNative {
-		if languages.HasGoRuntime(nil) {
-			return resources.NewRuntimeContextNative()
-		}
+	// Host-based hint (native / nix / free / empty) → local-first auto-detect.
+	if goToolchainAvailable() {
+		return resources.NewRuntimeContextNative()
+	}
+	if nixBackendAvailable() {
+		return resources.NewRuntimeContextNix()
 	}
 	return resources.NewRuntimeContextContainer()
 }

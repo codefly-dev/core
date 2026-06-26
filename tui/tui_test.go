@@ -30,6 +30,20 @@ func TestLogViewCopySafety(t *testing.T) {
 	}
 }
 
+func TestTranscriptFromModelReturnsRetainedLogs(t *testing.T) {
+	model := newServiceRunnerModel("svc")
+	model.logView.AppendText("first line")
+	model.logView.AppendText("second line")
+
+	transcript := transcriptFromModel(model)
+	if !strings.Contains(transcript, "first line") {
+		t.Fatalf("expected transcript to include first line, got %q", transcript)
+	}
+	if !strings.Contains(transcript, "second line") {
+		t.Fatalf("expected transcript to include second line, got %q", transcript)
+	}
+}
+
 func TestLogViewAppendLog(t *testing.T) {
 	lv := NewLogView()
 	lv.appendLog(ServiceLogMsg{Level: wool.INFO, Source: "test/svc", Message: "hello"})

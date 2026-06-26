@@ -61,9 +61,23 @@ type DockerEnvironment struct {
 	forwarderWG sync.WaitGroup
 
 	running bool
+
+	// ephemeral marks this single environment's container for sweep-reaping
+	// even while running (like the process-global EphemeralContainers, but
+	// per-env). Used by stateless infra (e.g. vault dev-mode) that gains
+	// nothing from keep-alive reuse and should not be preserved as an orphan.
+	ephemeral bool
 }
 
 var _ base.RunnerEnvironment = &DockerEnvironment{}
+
+// WithEphemeral marks this environment's container as ephemeral, so the startup
+// sweep reaps it even when still running with a dead owner (no keep-alive reuse).
+// For infra with no persistent state to preserve across runs.
+func (docker *DockerEnvironment) WithEphemeral() *DockerEnvironment {
+	docker.ephemeral = true
+	return docker
+}
 
 // NewDockerEnvironment creates a new docker environment.
 //
@@ -297,7 +311,7 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	// them so the startup sweep reaps them even while running; otherwise a
 	// killed test (timeout/SIGKILL) leaks its Neo4j/Postgres forever and they
 	// pile up (28 orphans observed → OrbStack memory blowup).
-	if EphemeralContainers() {
+	if EphemeralContainers() || docker.ephemeral {
 		config.Labels[LabelCodeflyEphemeral] = "true"
 	}
 

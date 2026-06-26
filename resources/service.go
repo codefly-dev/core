@@ -656,6 +656,14 @@ type ServiceDependency struct {
 	Name   string `yaml:"name,omitempty"`
 	Module string `yaml:"module,omitempty"`
 
+	// GrpcClientDir, when set, overrides the consuming service's service-level
+	// grpc-client-dir for THIS dependency's generated gRPC client. It lets a
+	// single dependency's client land in a different crate (e.g. a plugin crate
+	// that owns it) instead of the default shared external dir — so a feature can
+	// hold its own external client without coupling the engine to it. Relative to
+	// the consuming service's directory, like the service-level setting.
+	GrpcClientDir string `yaml:"grpc-client-dir,omitempty"`
+
 	Endpoints []*EndpointReference `yaml:"endpoints,omitempty"`
 }
 

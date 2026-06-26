@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/toolbox/policyguard"
+	"github.com/codefly-dev/core/wool"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -188,6 +190,31 @@ func isHealthMethod(fullMethod string) bool {
 		return true
 	}
 	return false
+}
+
+// panicRecoveryInterceptor converts a panic in any handler (or inner
+// interceptor) into a gRPC error the host can see, instead of letting it crash
+// the agent process or — worse — be swallowed into a log line while the RPC
+// returns a zero value as if it succeeded. Paired with wool.SetRethrowAfterCatch
+// (enabled in Serve): a handler's `defer Wool.Catch()` logs the friendly panic
+// line and re-raises, and this is where the re-raised panic lands.
+//
+// The panic value is surfaced in the error message (so codefly SHOWS what blew
+// up), and the goroutine stack is written to the agent log for debugging.
+func panicRecoveryInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				method := info.FullMethod
+				if idx := strings.LastIndex(method, "/"); idx >= 0 {
+					method = method[idx+1:]
+				}
+				fmt.Fprintf(os.Stderr, "[agent] %s PANIC: %v\n%s\n", method, r, debug.Stack())
+				err = status.Errorf(codes.Internal, "agent panicked in %s: %v", method, r)
+			}
+		}()
+		return handler(ctx, req)
+	}
 }
 
 func agentRPCInterceptor() grpc.UnaryServerInterceptor {
@@ -376,8 +403,17 @@ func Serve(reg PluginRegistration) {
 	// requires the token unconditionally.
 	expectedToken := os.Getenv("CODEFLY_AGENT_TOKEN")
 
+	// A handler panic should be a clean RPC error the host can SEE, never a
+	// process crash or a silently-swallowed log line. Catch re-raises (instead
+	// of swallowing) so the recovery interceptor below turns it into one.
+	wool.SetRethrowAfterCatch(true)
+
 	s := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
+			// panicRecovery is OUTERMOST so it catches panics from the
+			// handler AND from the auth/principal interceptors, turning any
+			// of them into a gRPC error rather than a crashed goroutine.
+			panicRecoveryInterceptor(),
 			// Order matters: auth proves the connection (we trust
 			// the caller is the codefly host), THEN principal
 			// extracts the authority claim (who the caller is

@@ -4,9 +4,22 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 )
+
+// rethrowAfterCatch, when set, makes Catch re-raise the panic after logging it
+// instead of swallowing it. The agent gRPC server opts into this (see
+// agents.Serve) so a recovered panic propagates to the panic-recovery
+// interceptor and becomes a proper RPC error the host can see — rather than a
+// silently-swallowed log line that lets a half-initialized handler "succeed".
+// Off by default so non-served callers (e.g. the CLI) keep the old
+// keep-running-no-matter-what behavior.
+var rethrowAfterCatch atomic.Bool
+
+// SetRethrowAfterCatch toggles whether Catch re-raises after logging.
+func SetRethrowAfterCatch(v bool) { rethrowAfterCatch.Store(v) }
 
 // Wool is the main observability handle. It combines structured logging,
 // optional tracing (via TelemetryProvider), and context propagation.
@@ -91,7 +104,17 @@ func (w *Wool) Catch() {
 	}
 	if r := recover(); r != nil {
 		w.Warn("PANIC CAUGHT INSIDE THE AGENT CODE ", Field("panic", r))
-		w.Warn(string(debug.Stack()))
+		// The full goroutine stack is debug-only noise in the terminal — the
+		// one-line panic value above is what the user needs, and the stack is
+		// always captured in the log file. Run with --debug to see it inline.
+		w.Debug(string(debug.Stack()))
+		// In a served agent, re-raise so the recovery interceptor turns this
+		// into an RPC error the host actually sees. A swallowed panic let the
+		// handler return a zero value as if it succeeded — masking the failure
+		// and cascading into later RPCs (e.g. Start running after Init panicked).
+		if rethrowAfterCatch.Load() {
+			panic(r)
+		}
 	}
 }
 

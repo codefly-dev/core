@@ -612,7 +612,18 @@ func (proc *NixProc) start(ctx context.Context) error {
 	// Materialized devShell env comes first so that codefly-supplied vars
 	// (env.envs, proc.envs) override Nix defaults when keys collide.
 	if proc.env.materialized != nil {
+		hostHome := os.Getenv("HOME")
 		for k, v := range proc.env.materialized {
+			// `nix print-dev-env` exports HOME=/homeless-shelter (its "no home"
+			// sentinel) — a non-existent, unwritable path. Any spawned tool that
+			// writes to $HOME then fails and exits: `vault server -dev` aborts on
+			// `open /homeless-shelter/.vault-token.tmp: no such file or directory`
+			// AFTER unsealing, so it dies before binding its listener. Substitute
+			// the host HOME so processes have a writable home. Applied here (not
+			// just at materialization) so a stale .nix-cache can't reintroduce it.
+			if k == "HOME" && (v == "" || v == "/homeless-shelter") && hostHome != "" {
+				v = hostHome
+			}
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 	}

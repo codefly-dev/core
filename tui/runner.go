@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,6 +35,10 @@ type ServiceRunnerModel struct {
 	quitting     bool
 	width        int
 	height       int
+	// plan tracks every managed service so the header's "now / next" line and
+	// the footer tally can show what is in flight and what is still pending —
+	// the per-service visibility the single origin state never had.
+	plan planView
 }
 
 func newServiceRunnerModel(service string) ServiceRunnerModel {
@@ -47,6 +52,7 @@ func newServiceRunnerModel(service string) ServiceRunnerModel {
 		statusBar: NewStatusBar(service),
 		spinner:   sp,
 		state:     StateLoading,
+		plan:      newPlanView(),
 	}
 }
 
@@ -66,26 +72,51 @@ func (m ServiceRunnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logView.AppendText(Styles().Muted.Render("Shutting down..."))
 			return m, tea.Quit
 		}
+		// Every other key drives the log pane's scrollback (PgUp/PgDn, arrows,
+		// Home/End, u/d, b/f, g/G — the viewport's default keymap) so the user
+		// can review earlier output. Without forwarding these the pane was
+		// frozen at the tail.
+		cmds = append(cmds, m.logView.Update(msg))
+		m.statusBar.SetFollowing(m.logView.AtBottom())
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		vpHeight := m.height - 3
+		// Reserve 2 header lines (title + now/next) and 1 status bar. The
+		// now/next line is always allotted — kept blank when idle — so the log
+		// pane never jumps height as services come and go.
+		vpHeight := m.height - 4
 		if vpHeight < 1 {
 			vpHeight = 1
 		}
 		m.logView.SetSize(m.width, vpHeight)
 		m.statusBar.SetWidth(m.width)
 
+	case ServicePlanMsg:
+		m.plan.setPlan(msg.Services)
+
 	case ServiceStateMsg:
-		m.state = msg.State
-		m.statusBar.SetState(msg.State)
+		m.plan.setState(msg.Service, msg.State, time.Now())
+		// The origin drives the header spinner and transcript; dependency
+		// transitions only update the per-service plan, not the origin state.
+		if msg.Service == m.service {
+			m.state = msg.State
+			m.statusBar.SetState(msg.State)
+		}
 		m.logView.AppendText(Styles().LogInfo.Render(
 			fmt.Sprintf("%s %s: %s", MilestoneMarker, msg.Service, msg.State)))
 
+	case ServiceFailedMsg:
+		m.plan.setFailed(msg.Service, time.Now())
+		m.logView.AppendText(Styles().LogError.Render(
+			fmt.Sprintf("%s %s: %s", MilestoneMarker, msg.Service, StateFailed)))
+
 	case ServiceReadyMsg:
-		m.state = StateRunning
-		m.statusBar.SetState(StateRunning)
+		m.plan.setReady(msg.Service, msg.Port, time.Now())
+		if msg.Service == m.service {
+			m.state = StateRunning
+			m.statusBar.SetState(StateRunning)
+		}
 		line := fmt.Sprintf("%s %s: %s", MilestoneMarker, msg.Service, StateRunning)
 		if msg.Port > 0 {
 			line += fmt.Sprintf(" on :%d", msg.Port)
@@ -113,6 +144,7 @@ func (m ServiceRunnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ServiceLogMsg:
 		cmd := m.logView.Update(msg)
 		cmds = append(cmds, cmd)
+		m.statusBar.SetFollowing(m.logView.AtBottom())
 
 	case tickMsg:
 		cmd := m.statusBar.Update(msg)
@@ -142,12 +174,20 @@ func (m ServiceRunnerModel) View() string {
 	}
 
 	s := Styles()
+	now := time.Now()
+
 	header := s.Header.Render("codefly") + " " + s.Service.Render(m.service)
 	if m.state != StateRunning && m.state != StateStopped {
 		header += " " + m.spinner.View()
 	}
+	header += "  " + s.Muted.Render(fmtElapsed(now.Sub(m.statusBar.startedAt)))
 	header += "\n"
 
+	// Second header line: live "now / next" across all services. Always
+	// present (blank when idle) so the log pane height stays fixed.
+	header += m.plan.nowNextLine(now) + "\n"
+
+	m.statusBar.SetTally(m.plan.tally(now))
 	return header + m.logView.View() + "\n" + m.statusBar.View()
 }
 
@@ -162,9 +202,21 @@ func (t *ServiceTUI) SendLog(level wool.Loglevel, source, message string) {
 	t.p.Send(ServiceLogMsg{Level: level, Source: source, Message: message})
 }
 
+// SendPlan seeds the set of managed services (dependency order, origin last)
+// so the live status can show "what's next" before anything has started.
+func (t *ServiceTUI) SendPlan(services []string) {
+	t.p.Send(ServicePlanMsg{Services: services})
+}
+
 // SendState reports a lifecycle state change.
 func (t *ServiceTUI) SendState(service string, state ServiceState) {
 	t.p.Send(ServiceStateMsg{Service: service, State: state})
+}
+
+// SendFailed flips one service to Failed in the live status without ending the
+// whole run.
+func (t *ServiceTUI) SendFailed(service string) {
+	t.p.Send(ServiceFailedMsg{Service: service})
 }
 
 // SendReady marks the service as running.
@@ -216,11 +268,16 @@ func (t *ServiceTUI) PumpLogs(logCh <-chan agents.ChannelLog) {
 	}
 }
 
-// RunServiceTUI creates and runs an inline TUI for a service.
+// RunServiceTUI creates and runs a full-screen TUI for a service.
 // startFn is called in a goroutine to start the service flow; it should
 // call tui.SendReady/SendError when the flow reaches steady state.
 // The TUI blocks until Ctrl+C or SendDone. Returns after the TUI exits.
-// Output remains visible in the terminal after exit for debugging.
+//
+// It runs on the alternate screen buffer so the run owns the whole terminal
+// and the log pane is independently scrollable (PgUp/PgDn/arrows) while the
+// shell's own scrollback stays clean during the run. On exit, the retained
+// transcript is printed back to the primary screen so the just-finished run is
+// still available in normal terminal scrollback.
 func RunServiceTUI(service string, logCh <-chan agents.ChannelLog, startFn func(t *ServiceTUI)) error {
 	// Capture the terminal's cooked state before Bubbletea switches it to raw
 	// mode, and force-restore it after the program exits. Raw mode clears the
@@ -237,17 +294,47 @@ func RunServiceTUI(service string, logCh <-chan agents.ChannelLog, startFn func(
 	}
 
 	m := newServiceRunnerModel(service)
-	p := tea.NewProgram(m)
+	// Alternate screen → the run owns the terminal and the log pane scrolls on
+	// its own without disturbing the shell's scrollback. Mouse is intentionally
+	// NOT captured so the user can still select and copy log text with the
+	// mouse; scrollback is driven from the keyboard (PgUp/PgDn/arrows/Home/End).
+	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	t := &ServiceTUI{p: p}
 
 	go t.PumpLogs(logCh)
 	go startFn(t)
 
-	_, err := p.Run()
+	finalModel, err := p.Run()
 
 	if saved != nil {
 		_ = term.Restore(fd, saved)
 	}
+	printTranscript(finalModel)
 	return err
+}
+
+func printTranscript(model tea.Model) {
+	transcript := transcriptFromModel(model)
+	if transcript == "" {
+		return
+	}
+	fmt.Fprint(os.Stdout, transcript)
+	if !strings.HasSuffix(transcript, "\n") {
+		fmt.Fprintln(os.Stdout)
+	}
+}
+
+func transcriptFromModel(model tea.Model) string {
+	switch m := model.(type) {
+	case ServiceRunnerModel:
+		return m.logView.Transcript()
+	case *ServiceRunnerModel:
+		if m == nil {
+			return ""
+		}
+		return m.logView.Transcript()
+	default:
+		return ""
+	}
 }

@@ -330,16 +330,21 @@ func (s *RuntimeWrapper) LogStartRequest(req *runtimev0.StartRequest) {
 
 // ── Runtime Context ───────────────────────────────────────
 
+// The runtime-context accessors are nil-safe: a nil RuntimeContext means the
+// host never called SetRuntimeContext (an orchestration ordering bug, not the
+// agent's fault), and an agent must never panic on it. Treat nil as Native —
+// the safe default for local dev — so CreateRunnerEnvironment falls through to
+// the native branch rather than nil-dereferencing.
 func (s *RuntimeWrapper) IsContainerRuntime() bool {
-	return s.RuntimeContext.Kind == resources.RuntimeContextContainer
+	return s.RuntimeContext != nil && s.RuntimeContext.Kind == resources.RuntimeContextContainer
 }
 
 func (s *RuntimeWrapper) IsNixRuntime() bool {
-	return s.RuntimeContext.Kind == resources.RuntimeContextNix
+	return s.RuntimeContext != nil && s.RuntimeContext.Kind == resources.RuntimeContextNix
 }
 
 func (s *RuntimeWrapper) IsNativeRuntime() bool {
-	return s.RuntimeContext.Kind == resources.RuntimeContextNative
+	return s.RuntimeContext == nil || s.RuntimeContext.Kind == resources.RuntimeContextNative
 }
 
 func (s *RuntimeWrapper) WithContext(runtimeContext *basev0.RuntimeContext) {

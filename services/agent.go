@@ -33,11 +33,30 @@ func LoadAgent(ctx context.Context, agent *resources.Agent) (*coreservices.Servi
 		return nil, fmt.Errorf("agent cannot be nil")
 	}
 	w := wool.Get(ctx).In("services.LoadAgent", wool.Field("agent", agent.Name))
+	requestedVersion := agent.Version
 	w.Debug("loading service agent")
 
 	if err := manager.ResolveLatest(ctx, agent); err != nil {
 		return nil, w.Wrap(err)
 	}
+
+	fields := []*wool.LogField{
+		wool.Field("publisher", agent.Publisher),
+		wool.Field("agent", agent.Name),
+		wool.Field("version", agent.Version),
+	}
+	message := fmt.Sprintf("loading service agent %s/%s:%s", agent.Publisher, agent.Name, agent.Version)
+	if requestedVersion != "" && requestedVersion != agent.Version {
+		fields = append(fields, wool.Field("requested-version", requestedVersion))
+		message = fmt.Sprintf(
+			"loading service agent %s/%s:%s (requested %s)",
+			agent.Publisher,
+			agent.Name,
+			agent.Version,
+			requestedVersion,
+		)
+	}
+	w.Info(message, fields...)
 
 	conn, err := getOrCreateConn(ctx, agent)
 	if err != nil {

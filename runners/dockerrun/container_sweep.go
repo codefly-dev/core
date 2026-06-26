@@ -40,8 +40,11 @@ import (
 //   - owner still alive   → keep (actively managed by a live CLI).
 //   - owner dead, stopped → reap (orphaned, useless to anyone).
 //   - owner dead, running, NOT ephemeral → keep. This is the "reuse stateful
-//     services (postgres/redis/vault) by name across CLI restarts" pattern;
+//     services (postgres/redis) by name across CLI restarts" pattern;
 //     killing them would nuke dev data the next `codefly run` reuses.
+//     (Stateless infra like vault dev-mode opts out via WithEphemeral — it has
+//     no data to preserve, and a lingering vault holds its port / bleeds stale
+//     state into the next run.)
 //   - owner dead, running, ephemeral → reap. SDK/`--cli-server` (test)
 //     dependencies use a unique per-run naming scope and are NEVER reused, so
 //     a running one with a dead owner is pure garbage. Not reaping these is

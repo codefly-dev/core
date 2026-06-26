@@ -68,6 +68,20 @@ type FlowDoneMsg struct {
 	Err error
 }
 
+// ServicePlanMsg lists every service this run manages, in dependency order
+// (dependencies first, origin last). It seeds the live status header/footer so
+// "what's next" can be shown before any service has started.
+type ServicePlanMsg struct {
+	Services []string
+}
+
+// ServiceFailedMsg flips a single service to Failed in the live status without
+// implying the whole run is over (that is ServiceErrorMsg / FlowDoneMsg). A
+// dependency can fail and be retried while the rest of the plan still stands.
+type ServiceFailedMsg struct {
+	Service string
+}
+
 // StopPlanMsg tells the runner which dependency services it is managing
 // alongside the origin, so the shutdown view can name exactly what gets torn
 // down on quit (origin + these dependencies — none stay alive).
