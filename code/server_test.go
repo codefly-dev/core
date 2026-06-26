@@ -109,8 +109,6 @@ func TestOperationName(t *testing.T) {
 	}{
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_Fix{}}, "fix"},
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_ApplyEdit{}}, "apply_edit"},
-		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_ListSymbols{}}, "list_symbols"},
-		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_GetDiagnostics{}}, "get_diagnostics"},
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_GetProjectInfo{}}, "get_project_info"},
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_ListDependencies{}}, "list_dependencies"},
 		{&codev0.CodeRequest{}, ""},
@@ -166,28 +164,6 @@ func TestExecute_GetProjectInfo(t *testing.T) {
 			}
 			if len(pi.FileHashes) == 0 {
 				t.Error("expected at least one file hash")
-			}
-		})
-	}
-}
-
-func TestExecute_ListSymbols_Stub(t *testing.T) {
-	for _, tc := range serverTestCases(t) {
-		t.Run(tc.name, func(t *testing.T) {
-			_, srv := tc.setupFunc(t)
-			ctx := context.Background()
-			resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-				Operation: &codev0.CodeRequest_ListSymbols{ListSymbols: &codev0.ListSymbolsRequest{}},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			ls := resp.GetListSymbols()
-			if ls == nil {
-				t.Fatal("expected ListSymbolsResponse")
-			}
-			if ls.Status == nil || ls.Status.State != codev0.ListSymbolsStatus_ERROR {
-				t.Error("LSP stub should return ERROR status")
 			}
 		})
 	}

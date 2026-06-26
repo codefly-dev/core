@@ -33,8 +33,6 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 
 	"github.com/codefly-dev/core/languages"
-
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
 // LocationResult is a source location returned by tree-sitter resolution.
@@ -73,7 +71,7 @@ type HoverResult struct {
 type Client interface {
 	// ListSymbols returns symbols defined in a file (or the whole workspace
 	// when file is empty).
-	ListSymbols(ctx context.Context, file string) ([]*codev0.Symbol, error)
+	ListSymbols(ctx context.Context, file string) ([]*Symbol, error)
 
 	// NotifyChange is a no-op for tree-sitter: the parser is stateless and
 	// re-parses on demand.
@@ -102,7 +100,7 @@ type Client interface {
 
 // SymbolExtractor converts a parsed tree-sitter tree for one file into
 // language-neutral Symbols. Implemented per language in the subpackage.
-type SymbolExtractor func(tree *sitter.Tree, content []byte, relPath string) []*codev0.Symbol
+type SymbolExtractor func(tree *sitter.Tree, content []byte, relPath string) []*Symbol
 
 // LanguageConfig holds per-language settings for the tree-sitter client.
 type LanguageConfig struct {

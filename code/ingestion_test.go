@@ -28,7 +28,7 @@ func TestIngestion_FullPipeline(t *testing.T) {
 			t.Run("GetProjectInfo", func(t *testing.T) {
 				testProjectInfo(t, ctx, srv, repo, dir)
 			})
-			t.Run("ListSymbols", func(t *testing.T) {
+			t.Run("InternalSymbols", func(t *testing.T) {
 				testListSymbols(t, ctx, srv, repo)
 			})
 			t.Run("BuildCodeMap", func(t *testing.T) {
@@ -97,24 +97,18 @@ func testProjectInfo(t *testing.T, ctx context.Context, srv *GoCodeServer, repo 
 	}
 }
 
-// --- 2. ListSymbols ---
+// --- 2. Internal symbols ---
 
 func testListSymbols(t *testing.T, ctx context.Context, srv *GoCodeServer, repo TestRepo) {
-	resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListSymbols{ListSymbols: &codev0.ListSymbolsRequest{}},
-	})
+	syms, err := srv.symbols.ListSymbols(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	syms := resp.GetListSymbols()
-	if syms.Status.State != codev0.ListSymbolsStatus_SUCCESS {
-		t.Fatalf("failed: %s", syms.Status.Message)
-	}
-	if len(syms.Symbols) < repo.MinSymbols {
-		t.Errorf("%d symbols < min %d", len(syms.Symbols), repo.MinSymbols)
+	if len(syms) < repo.MinSymbols {
+		t.Errorf("%d symbols < min %d", len(syms), repo.MinSymbols)
 	}
 
-	for _, s := range syms.Symbols {
+	for _, s := range syms {
 		if s.Name == "" {
 			t.Error("symbol with empty name")
 		}
@@ -130,13 +124,10 @@ func testListSymbols(t *testing.T, ctx context.Context, srv *GoCodeServer, repo 
 // --- 3. BuildCodeMap ---
 
 func testBuildCodeMap(t *testing.T, ctx context.Context, srv *GoCodeServer, repo TestRepo) {
-	resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListSymbols{ListSymbols: &codev0.ListSymbolsRequest{}},
-	})
+	syms, err := srv.symbols.ListSymbols(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	syms := resp.GetListSymbols().Symbols
 
 	var inputs []SymbolInput
 	for _, s := range syms {
@@ -315,13 +306,10 @@ func testGitOps(t *testing.T, ctx context.Context, srv *GoCodeServer) {
 func testGroundTruth(t *testing.T, ctx context.Context, srv *GoCodeServer, dir string) {
 	gtFuncs, gtTypes := countExportedSymbols(t, dir)
 
-	resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListSymbols{ListSymbols: &codev0.ListSymbolsRequest{}},
-	})
+	syms, err := srv.symbols.ListSymbols(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	syms := resp.GetListSymbols().Symbols
 
 	apiFuncs, apiTypes := 0, 0
 	for _, s := range syms {
@@ -329,9 +317,9 @@ func testGroundTruth(t *testing.T, ctx context.Context, srv *GoCodeServer, dir s
 			continue
 		}
 		switch s.Kind {
-		case codev0.SymbolKind_SYMBOL_KIND_FUNCTION:
+		case SymbolKindFunction:
 			apiFuncs++
-		case codev0.SymbolKind_SYMBOL_KIND_STRUCT:
+		case SymbolKindStruct:
 			apiTypes++
 		}
 	}

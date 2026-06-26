@@ -50,11 +50,11 @@ func installFakeLangAtAgentPath(t *testing.T, ctx context.Context, codeflyHome s
 //	launch.Launch returns Plugin{Client: ToolboxClient}
 //	  ↓
 //	lang.ToolingFromToolbox(client)  ← the typed Mind wrapper
-//	  ↓ typed call .ListSymbols(ctx, req)
-//	  ↓   bridges to CallTool("lang.list_symbols", structpb)
-//	  ↓     bridges to typed ListSymbols handler in fakeTooling
+//	  ↓ typed call .Test(ctx, req)
+//	  ↓   bridges to CallTool("lang.test", structpb)
+//	  ↓     bridges to typed Test handler in fakeTooling
 //	  ↓   returns structured Content
-//	  ↓ decodes Content → typed ListSymbolsResponse
+//	  ↓ decodes Content → typed TestResponse
 //	test asserts on the typed response
 func TestSpawn_LangBridge_RoundTrip(t *testing.T) {
 	codeflyHome := t.TempDir()
@@ -88,18 +88,10 @@ func TestSpawn_LangBridge_RoundTrip(t *testing.T) {
 	// --- Through the typed Mind wrapper ---
 	typed := lang.ToolingFromToolbox(plugin.Client)
 
-	resp, err := typed.ListSymbols(ctx, &toolingv0.ListSymbolsRequest{File: "main.go"})
-	require.NoError(t, err, "typed ListSymbols via spawned plugin must succeed")
-	require.Len(t, resp.Symbols, 2,
-		"the fake plugin's deterministic output must round-trip exactly through the bridge")
-	require.Equal(t, "alpha", resp.Symbols[0].Name)
-	require.Equal(t, "main.go:alpha", resp.Symbols[0].QualifiedName,
-		"request fields must travel through CallTool's Struct intact")
-
 	// Test counters — int32 values must not lose precision through
 	// the structpb (float64 internally) round-trip. protojson handles
 	// the cast.
-	testResp, err := typed.Test(ctx, &toolingv0.TestRequest{})
+	testResp, err := typed.Test(ctx, &toolingv0.TestRequest{Path: "pkg/fake"})
 	require.NoError(t, err)
 	require.True(t, testResp.Success)
 	require.EqualValues(t, 3, testResp.TestsRun)

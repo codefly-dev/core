@@ -11,8 +11,6 @@ import (
 	"sync"
 
 	sitter "github.com/smacker/go-tree-sitter"
-
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	"github.com/codefly-dev/core/languages"
 )
 
@@ -56,7 +54,7 @@ func (p *Parser) Config() *LanguageConfig {
 // ParseBytes parses the given content and extracts symbols via the language's
 // SymbolExtractor. relPath is used to populate Symbol.Location.File.
 // Thread-safe: each call acquires a pooled *sitter.Parser.
-func (p *Parser) ParseBytes(ctx context.Context, relPath string, content []byte) ([]*codev0.Symbol, error) {
+func (p *Parser) ParseBytes(ctx context.Context, relPath string, content []byte) ([]*Symbol, error) {
 	parser := p.pool.Get().(*sitter.Parser)
 	defer p.pool.Put(parser)
 
@@ -73,7 +71,7 @@ func (p *Parser) ParseBytes(ctx context.Context, relPath string, content []byte)
 // diagnostics (ERROR / MISSING nodes). Single parse pass, no extra work.
 func (p *Parser) ParseBytesWithDiagnostics(
 	ctx context.Context, relPath string, content []byte,
-) (syms []*codev0.Symbol, diags []DiagnosticResult, err error) {
+) (syms []*Symbol, diags []DiagnosticResult, err error) {
 	parser := p.pool.Get().(*sitter.Parser)
 	defer p.pool.Put(parser)
 
@@ -94,7 +92,7 @@ func (p *Parser) ParseBytesWithDiagnostics(
 // building call-graph edges) without re-parsing the file.
 func (p *Parser) ParseBytesAll(
 	ctx context.Context, relPath string, content []byte,
-) (syms []*codev0.Symbol, tree *sitter.Tree, err error) {
+) (syms []*Symbol, tree *sitter.Tree, err error) {
 	parser := p.pool.Get().(*sitter.Parser)
 	defer p.pool.Put(parser)
 

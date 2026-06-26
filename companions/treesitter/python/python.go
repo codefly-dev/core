@@ -15,7 +15,6 @@ import (
 	tspy "github.com/smacker/go-tree-sitter/python"
 
 	"github.com/codefly-dev/core/companions/treesitter"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	"github.com/codefly-dev/core/languages"
 )
 
@@ -32,11 +31,11 @@ func init() {
 
 // extractSymbols walks a parsed Python file and returns top-level symbols.
 // Class methods appear as children of their enclosing class.
-func extractSymbols(tree *sitter.Tree, content []byte, relPath string) []*codev0.Symbol {
+func extractSymbols(tree *sitter.Tree, content []byte, relPath string) []*treesitter.Symbol {
 	root := tree.RootNode()
 	module := modulePath(relPath)
 
-	var symbols []*codev0.Symbol
+	var symbols []*treesitter.Symbol
 	count := int(root.NamedChildCount())
 	for i := 0; i < count; i++ {
 		child := root.NamedChild(i)
@@ -55,7 +54,7 @@ func extractSymbols(tree *sitter.Tree, content []byte, relPath string) []*codev0
 					if s := funcDef(inner, content, relPath, module, ""); s != nil {
 						// Check for @dataclass-style decorators and tag.
 						if hasDecoratorName(child, content, "dataclass") {
-							s.Kind = codev0.SymbolKind_SYMBOL_KIND_CLASS
+							s.Kind = treesitter.SymbolKindClass
 						}
 						symbols = append(symbols, s)
 					}
@@ -83,17 +82,17 @@ func extractSymbols(tree *sitter.Tree, content []byte, relPath string) []*codev0
 	return symbols
 }
 
-func funcDef(n *sitter.Node, content []byte, file, module, parent string) *codev0.Symbol {
+func funcDef(n *sitter.Node, content []byte, file, module, parent string) *treesitter.Symbol {
 	nameNode := n.ChildByFieldName("name")
 	if nameNode == nil {
 		return nil
 	}
 	name := textOf(nameNode, content)
-	kind := codev0.SymbolKind_SYMBOL_KIND_FUNCTION
+	kind := treesitter.SymbolKindFunction
 	if parent != "" {
-		kind = codev0.SymbolKind_SYMBOL_KIND_METHOD
+		kind = treesitter.SymbolKindMethod
 	}
-	return &codev0.Symbol{
+	return &treesitter.Symbol{
 		Name:          name,
 		Kind:          kind,
 		Location:      rangeToLocation(n, file),
@@ -103,13 +102,13 @@ func funcDef(n *sitter.Node, content []byte, file, module, parent string) *codev
 	}
 }
 
-func classDef(n *sitter.Node, content []byte, file, module string) *codev0.Symbol {
+func classDef(n *sitter.Node, content []byte, file, module string) *treesitter.Symbol {
 	nameNode := n.ChildByFieldName("name")
 	if nameNode == nil {
 		return nil
 	}
 	name := textOf(nameNode, content)
-	var children []*codev0.Symbol
+	var children []*treesitter.Symbol
 
 	body := n.ChildByFieldName("body")
 	if body != nil {
@@ -134,9 +133,9 @@ func classDef(n *sitter.Node, content []byte, file, module string) *codev0.Symbo
 		}
 	}
 
-	return &codev0.Symbol{
+	return &treesitter.Symbol{
 		Name:          name,
-		Kind:          codev0.SymbolKind_SYMBOL_KIND_CLASS,
+		Kind:          treesitter.SymbolKindClass,
 		Location:      rangeToLocation(n, file),
 		Signature:     firstLine(textOf(n, content)),
 		Children:      children,
@@ -149,8 +148,8 @@ func classDef(n *sitter.Node, content []byte, file, module string) *codev0.Symbo
 //   - Plain:            X = value
 //   - Type-annotated:   X: T = value  (node type: assignment with left=identifier)
 //   - Tuple:            a, b = 1, 2   (left is a `pattern_list` or `tuple_pattern`)
-func assignedNames(stmt *sitter.Node, content []byte, file, module string) []*codev0.Symbol {
-	var out []*codev0.Symbol
+func assignedNames(stmt *sitter.Node, content []byte, file, module string) []*treesitter.Symbol {
+	var out []*treesitter.Symbol
 	nc := int(stmt.NamedChildCount())
 	for i := 0; i < nc; i++ {
 		c := stmt.NamedChild(i)
@@ -171,19 +170,19 @@ func assignedNames(stmt *sitter.Node, content []byte, file, module string) []*co
 
 // extractAssignTargets walks an lhs pattern and emits a VARIABLE symbol
 // for each identifier it finds.
-func extractAssignTargets(lhs, stmt *sitter.Node, content []byte, file, module string) []*codev0.Symbol {
+func extractAssignTargets(lhs, stmt *sitter.Node, content []byte, file, module string) []*treesitter.Symbol {
 	switch lhs.Type() {
 	case "identifier":
 		name := textOf(lhs, content)
-		return []*codev0.Symbol{{
+		return []*treesitter.Symbol{{
 			Name:          name,
-			Kind:          codev0.SymbolKind_SYMBOL_KIND_VARIABLE,
+			Kind:          treesitter.SymbolKindVariable,
 			Location:      rangeToLocation(lhs, file),
 			Signature:     firstLine(textOf(stmt, content)),
 			QualifiedName: qualify(module, "", name),
 		}}
 	case "pattern_list", "tuple_pattern", "list_pattern":
-		var out []*codev0.Symbol
+		var out []*treesitter.Symbol
 		nc := int(lhs.NamedChildCount())
 		for i := 0; i < nc; i++ {
 			c := lhs.NamedChild(i)
@@ -198,7 +197,7 @@ func extractAssignTargets(lhs, stmt *sitter.Node, content []byte, file, module s
 }
 
 // typeAlias handles Python 3.12+ `type Alias = T` statements.
-func typeAlias(n *sitter.Node, content []byte, file, module string) *codev0.Symbol {
+func typeAlias(n *sitter.Node, content []byte, file, module string) *treesitter.Symbol {
 	// Shape: `type` IDENTIFIER `=` <type>. Find the identifier child.
 	nc := int(n.NamedChildCount())
 	for i := 0; i < nc; i++ {
@@ -211,9 +210,9 @@ func typeAlias(n *sitter.Node, content []byte, file, module string) *codev0.Symb
 			if name == "" || name == "type" {
 				continue
 			}
-			return &codev0.Symbol{
+			return &treesitter.Symbol{
 				Name:          name,
-				Kind:          codev0.SymbolKind_SYMBOL_KIND_TYPE_ALIAS,
+				Kind:          treesitter.SymbolKindTypeAlias,
 				Location:      rangeToLocation(c, file),
 				Signature:     firstLine(textOf(n, content)),
 				QualifiedName: qualify(module, "", name),
@@ -279,10 +278,10 @@ func textOf(n *sitter.Node, content []byte) string {
 	return string(content[start:end])
 }
 
-func rangeToLocation(n *sitter.Node, file string) *codev0.Location {
+func rangeToLocation(n *sitter.Node, file string) *treesitter.Location {
 	start := n.StartPoint()
 	end := n.EndPoint()
-	return &codev0.Location{
+	return &treesitter.Location{
 		File:      file,
 		Line:      int32(start.Row) + 1,
 		Column:    int32(start.Column) + 1,

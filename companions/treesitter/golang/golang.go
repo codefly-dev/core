@@ -5,7 +5,7 @@
 //
 // ARCHITECTURE: This package is intentionally thin. It provides:
 //   - The Go grammar via github.com/smacker/go-tree-sitter/golang
-//   - A SymbolExtractor that walks the Go syntax tree and produces codev0.Symbol
+//   - A SymbolExtractor that walks the Go syntax tree and produces treesitter.Symbol
 //
 // Everything else (parsing, caching, workspace walking, diagnostics, resolve)
 // lives in the parent package and is language-agnostic.
@@ -19,7 +19,6 @@ import (
 	tsgo "github.com/smacker/go-tree-sitter/golang"
 
 	"github.com/codefly-dev/core/companions/treesitter"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	"github.com/codefly-dev/core/languages"
 )
 
@@ -36,11 +35,11 @@ func init() {
 
 // extractSymbols walks a parsed Go file and returns top-level symbols.
 // Nested struct fields and interface methods are attached as Children.
-func extractSymbols(tree *sitter.Tree, content []byte, relPath string) []*codev0.Symbol {
+func extractSymbols(tree *sitter.Tree, content []byte, relPath string) []*treesitter.Symbol {
 	root := tree.RootNode()
 	pkg := findPackageName(root, content)
 
-	var symbols []*codev0.Symbol
+	var symbols []*treesitter.Symbol
 	count := int(root.ChildCount())
 	for i := 0; i < count; i++ {
 		child := root.Child(i)
@@ -59,9 +58,9 @@ func extractSymbols(tree *sitter.Tree, content []byte, relPath string) []*codev0
 		case "type_declaration":
 			symbols = append(symbols, typeDecls(child, content, relPath, pkg)...)
 		case "const_declaration":
-			symbols = append(symbols, valueDecls(child, content, relPath, pkg, codev0.SymbolKind_SYMBOL_KIND_CONSTANT)...)
+			symbols = append(symbols, valueDecls(child, content, relPath, pkg, treesitter.SymbolKindConstant)...)
 		case "var_declaration":
-			symbols = append(symbols, valueDecls(child, content, relPath, pkg, codev0.SymbolKind_SYMBOL_KIND_VARIABLE)...)
+			symbols = append(symbols, valueDecls(child, content, relPath, pkg, treesitter.SymbolKindVariable)...)
 		}
 	}
 	return symbols
@@ -97,23 +96,23 @@ func findPackageName(root *sitter.Node, content []byte) string {
 	return ""
 }
 
-func funcDecl(n *sitter.Node, content []byte, file, pkg string) *codev0.Symbol {
+func funcDecl(n *sitter.Node, content []byte, file, pkg string) *treesitter.Symbol {
 	nameNode := n.ChildByFieldName("name")
 	if nameNode == nil {
 		return nil
 	}
 	name := textOf(nameNode, content)
 	sig := signatureLine(n, content)
-	return &codev0.Symbol{
+	return &treesitter.Symbol{
 		Name:          name,
-		Kind:          codev0.SymbolKind_SYMBOL_KIND_FUNCTION,
+		Kind:          treesitter.SymbolKindFunction,
 		Location:      rangeToLocation(n, file),
 		Signature:     sig,
 		QualifiedName: qualify(pkg, "", name),
 	}
 }
 
-func methodDecl(n *sitter.Node, content []byte, file, pkg string) *codev0.Symbol {
+func methodDecl(n *sitter.Node, content []byte, file, pkg string) *treesitter.Symbol {
 	nameNode := n.ChildByFieldName("name")
 	if nameNode == nil {
 		return nil
@@ -121,9 +120,9 @@ func methodDecl(n *sitter.Node, content []byte, file, pkg string) *codev0.Symbol
 	name := textOf(nameNode, content)
 	recv := receiverType(n, content)
 	sig := signatureLine(n, content)
-	return &codev0.Symbol{
+	return &treesitter.Symbol{
 		Name:          name,
-		Kind:          codev0.SymbolKind_SYMBOL_KIND_METHOD,
+		Kind:          treesitter.SymbolKindMethod,
 		Location:      rangeToLocation(n, file),
 		Signature:     sig,
 		Parent:        recv,
@@ -132,8 +131,8 @@ func methodDecl(n *sitter.Node, content []byte, file, pkg string) *codev0.Symbol
 }
 
 // typeDecls handles `type ( ... )` groups and single `type Foo ...`.
-func typeDecls(n *sitter.Node, content []byte, file, pkg string) []*codev0.Symbol {
-	var out []*codev0.Symbol
+func typeDecls(n *sitter.Node, content []byte, file, pkg string) []*treesitter.Symbol {
+	var out []*treesitter.Symbol
 	nc := int(n.NamedChildCount())
 	for i := 0; i < nc; i++ {
 		spec := n.NamedChild(i)
@@ -146,19 +145,19 @@ func typeDecls(n *sitter.Node, content []byte, file, pkg string) []*codev0.Symbo
 			continue
 		}
 		name := textOf(nameNode, content)
-		kind := codev0.SymbolKind_SYMBOL_KIND_TYPE_ALIAS
-		var children []*codev0.Symbol
+		kind := treesitter.SymbolKindTypeAlias
+		var children []*treesitter.Symbol
 		if typeNode != nil {
 			switch typeNode.Type() {
 			case "struct_type":
-				kind = codev0.SymbolKind_SYMBOL_KIND_STRUCT
+				kind = treesitter.SymbolKindStruct
 				children = structFields(typeNode, content, file, name)
 			case "interface_type":
-				kind = codev0.SymbolKind_SYMBOL_KIND_INTERFACE
+				kind = treesitter.SymbolKindInterface
 				children = interfaceMethods(typeNode, content, file, name)
 			}
 		}
-		out = append(out, &codev0.Symbol{
+		out = append(out, &treesitter.Symbol{
 			Name:          name,
 			Kind:          kind,
 			Location:      rangeToLocation(spec, file),
@@ -170,7 +169,7 @@ func typeDecls(n *sitter.Node, content []byte, file, pkg string) []*codev0.Symbo
 	return out
 }
 
-func structFields(structNode *sitter.Node, content []byte, file, parent string) []*codev0.Symbol {
+func structFields(structNode *sitter.Node, content []byte, file, parent string) []*treesitter.Symbol {
 	// struct_type -> field_declaration_list -> field_declaration.
 	// The list is not exposed via a field name in tree-sitter-go, so walk
 	// named children to find it.
@@ -186,7 +185,7 @@ func structFields(structNode *sitter.Node, content []byte, file, parent string) 
 	if fdl == nil {
 		return nil
 	}
-	var out []*codev0.Symbol
+	var out []*treesitter.Symbol
 	count := int(fdl.NamedChildCount())
 	for i := 0; i < count; i++ {
 		fd := fdl.NamedChild(i)
@@ -205,9 +204,9 @@ func structFields(structNode *sitter.Node, content []byte, file, parent string) 
 			if fd.FieldNameForChild(j) != "name" {
 				continue
 			}
-			out = append(out, &codev0.Symbol{
+			out = append(out, &treesitter.Symbol{
 				Name:      textOf(c, content),
-				Kind:      codev0.SymbolKind_SYMBOL_KIND_FIELD,
+				Kind:      treesitter.SymbolKindField,
 				Location:  rangeToLocation(c, file),
 				Signature: firstLine(textOf(fd, content)),
 				Parent:    parent,
@@ -217,8 +216,8 @@ func structFields(structNode *sitter.Node, content []byte, file, parent string) 
 	return out
 }
 
-func interfaceMethods(ifaceNode *sitter.Node, content []byte, file, parent string) []*codev0.Symbol {
-	var out []*codev0.Symbol
+func interfaceMethods(ifaceNode *sitter.Node, content []byte, file, parent string) []*treesitter.Symbol {
+	var out []*treesitter.Symbol
 	count := int(ifaceNode.NamedChildCount())
 	for i := 0; i < count; i++ {
 		c := ifaceNode.NamedChild(i)
@@ -234,9 +233,9 @@ func interfaceMethods(ifaceNode *sitter.Node, content []byte, file, parent strin
 		if nameNode == nil {
 			continue
 		}
-		out = append(out, &codev0.Symbol{
+		out = append(out, &treesitter.Symbol{
 			Name:      textOf(nameNode, content),
-			Kind:      codev0.SymbolKind_SYMBOL_KIND_METHOD,
+			Kind:      treesitter.SymbolKindMethod,
 			Location:  rangeToLocation(c, file),
 			Signature: firstLine(textOf(c, content)),
 			Parent:    parent,
@@ -246,10 +245,10 @@ func interfaceMethods(ifaceNode *sitter.Node, content []byte, file, parent strin
 }
 
 // valueDecls handles const/var declarations (grouped or single).
-func valueDecls(n *sitter.Node, content []byte, file, pkg string, kind codev0.SymbolKind) []*codev0.Symbol {
-	var out []*codev0.Symbol
+func valueDecls(n *sitter.Node, content []byte, file, pkg string, kind treesitter.SymbolKind) []*treesitter.Symbol {
+	var out []*treesitter.Symbol
 	specType := "const_spec"
-	if kind == codev0.SymbolKind_SYMBOL_KIND_VARIABLE {
+	if kind == treesitter.SymbolKindVariable {
 		specType = "var_spec"
 	}
 	nc := int(n.NamedChildCount())
@@ -265,7 +264,7 @@ func valueDecls(n *sitter.Node, content []byte, file, pkg string, kind codev0.Sy
 				continue
 			}
 			name := textOf(c, content)
-			out = append(out, &codev0.Symbol{
+			out = append(out, &treesitter.Symbol{
 				Name:          name,
 				Kind:          kind,
 				Location:      rangeToLocation(c, file),
@@ -340,10 +339,10 @@ func textOf(n *sitter.Node, content []byte) string {
 	return string(content[start:end])
 }
 
-func rangeToLocation(n *sitter.Node, file string) *codev0.Location {
+func rangeToLocation(n *sitter.Node, file string) *treesitter.Location {
 	start := n.StartPoint()
 	end := n.EndPoint()
-	return &codev0.Location{
+	return &treesitter.Location{
 		File:      file,
 		Line:      int32(start.Row) + 1,
 		Column:    int32(start.Column) + 1,

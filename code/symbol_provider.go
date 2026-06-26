@@ -1,16 +1,12 @@
 package code
 
-import (
-	"context"
-
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
-)
+import "context"
 
 // SymbolProvider abstracts how symbols are resolved for a codebase.
 // Default implementation: ASTSymbolProvider (Go AST via ParseGoTree).
 // Override with LSPSymbolProvider (gopls) for full cross-module resolution.
 type SymbolProvider interface {
-	ListSymbols(ctx context.Context, file string) ([]*codev0.Symbol, error)
+	ListSymbols(ctx context.Context, file string) ([]*Symbol, error)
 }
 
 // ASTSymbolProvider uses ParseGoTreeVFS to extract symbols from Go AST.
@@ -45,14 +41,14 @@ func (p *ASTSymbolProvider) ensureGraph() error {
 	return nil
 }
 
-// ListSymbols returns proto Symbol messages for a specific file or all files
+// ListSymbols returns internal Symbol records for a specific file or all files
 // (if file is empty).
-func (p *ASTSymbolProvider) ListSymbols(_ context.Context, file string) ([]*codev0.Symbol, error) {
+func (p *ASTSymbolProvider) ListSymbols(_ context.Context, file string) ([]*Symbol, error) {
 	if err := p.ensureGraph(); err != nil {
 		return nil, err
 	}
 
-	var symbols []*codev0.Symbol
+	var symbols []*Symbol
 	for _, node := range p.graph.Nodes {
 		if node.Kind == NodeFile || node.Kind == NodePackage {
 			continue
@@ -73,14 +69,14 @@ func (p *ASTSymbolProvider) Graph() (*CodeGraph, error) {
 	return p.graph, nil
 }
 
-func nodeToSymbol(n *CodeNode) *codev0.Symbol {
-	return &codev0.Symbol{
+func nodeToSymbol(n *CodeNode) *Symbol {
+	return &Symbol{
 		Name:          n.Name,
 		Kind:          nodeKindToProto(n.Kind),
 		Signature:     n.Signature,
 		Documentation: n.Doc,
 		Parent:        parentFromID(n.ID),
-		Location: &codev0.Location{
+		Location: &Location{
 			File:    n.File,
 			Line:    int32(n.Line),
 			EndLine: int32(n.EndLine),
@@ -88,16 +84,16 @@ func nodeToSymbol(n *CodeNode) *codev0.Symbol {
 	}
 }
 
-func nodeKindToProto(k NodeKind) codev0.SymbolKind {
+func nodeKindToProto(k NodeKind) SymbolKind {
 	switch k {
 	case NodeFunction:
-		return codev0.SymbolKind_SYMBOL_KIND_FUNCTION
+		return SymbolKindFunction
 	case NodeMethod:
-		return codev0.SymbolKind_SYMBOL_KIND_METHOD
+		return SymbolKindMethod
 	case NodeType:
-		return codev0.SymbolKind_SYMBOL_KIND_STRUCT
+		return SymbolKindStruct
 	default:
-		return codev0.SymbolKind_SYMBOL_KIND_UNKNOWN
+		return SymbolKindUnknown
 	}
 }
 

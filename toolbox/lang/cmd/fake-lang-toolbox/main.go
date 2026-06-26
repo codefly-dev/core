@@ -35,15 +35,6 @@ type fakeTooling struct {
 	version string
 }
 
-func (f *fakeTooling) ListSymbols(_ context.Context, req *toolingv0.ListSymbolsRequest) (*toolingv0.ListSymbolsResponse, error) {
-	return &toolingv0.ListSymbolsResponse{
-		Symbols: []*toolingv0.Symbol{
-			{Name: "alpha", QualifiedName: req.File + ":alpha"},
-			{Name: "beta", QualifiedName: req.File + ":beta"},
-		},
-	}, nil
-}
-
 func (f *fakeTooling) Test(_ context.Context, _ *toolingv0.TestRequest) (*toolingv0.TestResponse, error) {
 	return &toolingv0.TestResponse{
 		Success:     true,

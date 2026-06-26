@@ -23,8 +23,6 @@ import (
 	"sync"
 
 	sitter "github.com/smacker/go-tree-sitter"
-
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -180,11 +178,11 @@ func nodeText(n *sitter.Node, content []byte) string {
 	return string(content[n.StartByte():n.EndByte()])
 }
 
-// pointToLocation converts a tree-sitter Range to a codev0.Location (1-based).
-func pointToLocation(file string, n *sitter.Node) *codev0.Location {
+// pointToLocation converts a tree-sitter Range to a treesitter.Location (1-based).
+func pointToLocation(file string, n *sitter.Node) *Location {
 	start := n.StartPoint()
 	end := n.EndPoint()
-	return &codev0.Location{
+	return &Location{
 		File:      file,
 		Line:      int32(start.Row) + 1,
 		Column:    int32(start.Column) + 1,

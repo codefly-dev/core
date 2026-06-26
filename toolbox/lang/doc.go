@@ -2,14 +2,14 @@
 // set of tool names every language plugin (python, go, rust, ...)
 // exposes through the unified Toolbox contract.
 //
-// Why this package exists: the Tooling proto service has 17 typed
-// RPCs that every language agent implements (ListSymbols, Test, Lint,
-// FindReferences, etc.). Going forward, every callable codefly
+// Why this package exists: the Tooling proto service has typed
+// RPCs that every language agent implements (Test, Lint, dependency
+// management, project metadata, edits, etc.). Going forward, every callable codefly
 // surface speaks the Toolbox contract. To preserve Mind's typed
 // ergonomics WITHOUT keeping two parallel proto contracts, this
 // package provides:
 //
-//   - Stable convention names (Tool[ListSymbols] = "lang.list_symbols", etc.)
+//   - Stable convention names (ToolTest = "lang.test", etc.)
 //   - A bridge in both directions:
 //     NewToolboxFromTooling — wrap an existing Tooling impl as a Toolbox.
 //     Lets language agents migrate by adding

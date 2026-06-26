@@ -47,7 +47,10 @@ service Builder {
 
 ### 4. Code — Analysis (optional)
 
-For agents that support code intelligence: `ListSymbols()`, `GetSymbol()`.
+Code agents expose project metadata, dependency management, edits, file operations,
+and shell execution. Semantic code intelligence such as symbols, references,
+definitions, hover, rename, and completions belongs in Mind, not the Codefly
+plugin proto.
 
 ## Step-by-Step Guide
 

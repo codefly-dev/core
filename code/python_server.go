@@ -16,32 +16,16 @@ import (
 )
 
 // PythonCodeServer extends DefaultCodeServer with Python-specific operations:
-// GetProjectInfo (pyproject.toml + uv), ListDependencies (uv pip list),
-// and ListSymbols (via pluggable SymbolProvider — AST or LSP).
+// GetProjectInfo (pyproject.toml + uv) and ListDependencies (uv pip list).
 type PythonCodeServer struct {
 	*DefaultCodeServer
-	symbols SymbolProvider
-}
-
-// PythonServerOption configures a PythonCodeServer.
-type PythonServerOption func(*PythonCodeServer)
-
-// WithPythonSymbolProvider overrides the default symbol provider.
-func WithPythonSymbolProvider(sp SymbolProvider) PythonServerOption {
-	return func(s *PythonCodeServer) {
-		s.symbols = sp
-	}
 }
 
 // NewPythonCodeServer creates a Python-aware code server.
-func NewPythonCodeServer(dir string, serverOpts []ServerOption, pyOpts ...PythonServerOption) *PythonCodeServer {
+func NewPythonCodeServer(dir string, serverOpts []ServerOption) *PythonCodeServer {
 	base := NewDefaultCodeServer(dir, serverOpts...)
 	s := &PythonCodeServer{
 		DefaultCodeServer: base,
-		symbols:           NewPythonASTSymbolProvider(dir),
-	}
-	for _, o := range pyOpts {
-		o(s)
 	}
 	s.registerPythonOverrides()
 	return s
@@ -50,9 +34,6 @@ func NewPythonCodeServer(dir string, serverOpts []ServerOption, pyOpts ...Python
 func (s *PythonCodeServer) registerPythonOverrides() {
 	s.Override("get_project_info", s.handleGetProjectInfo)
 	s.Override("list_dependencies", s.handleListDependencies)
-	if s.symbols != nil {
-		s.Override("list_symbols", s.handleListSymbols)
-	}
 }
 
 // --- Standalone gRPC RPCs ---
@@ -65,22 +46,6 @@ func (s *PythonCodeServer) GetProjectInfo(ctx context.Context, req *codev0.GetPr
 	return resp.GetGetProjectInfo(), nil
 }
 
-func (s *PythonCodeServer) ListSymbols(ctx context.Context, req *codev0.ListSymbolsRequest) (*codev0.ListSymbolsResponse, error) {
-	if s.symbols == nil {
-		return &codev0.ListSymbolsResponse{
-			Status: &codev0.ListSymbolsStatus{State: codev0.ListSymbolsStatus_ERROR, Message: "no symbol provider configured"},
-		}, nil
-	}
-	codeReq := &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListSymbols{ListSymbols: req},
-	}
-	resp, err := s.handleListSymbols(ctx, codeReq)
-	if err != nil {
-		return nil, err
-	}
-	return resp.GetListSymbols(), nil
-}
-
 func (s *PythonCodeServer) ListDependencies(ctx context.Context, req *codev0.ListDependenciesRequest) (*codev0.ListDependenciesResponse, error) {
 	resp, err := s.handleListDependencies(ctx, nil)
 	if err != nil {
@@ -90,24 +55,6 @@ func (s *PythonCodeServer) ListDependencies(ctx context.Context, req *codev0.Lis
 }
 
 // --- Handlers ---
-
-func (s *PythonCodeServer) handleListSymbols(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
-	r := req.GetListSymbols()
-	file := ""
-	if r != nil {
-		file = r.File
-	}
-	symbols, err := s.symbols.ListSymbols(ctx, file)
-	if err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListSymbols{ListSymbols: &codev0.ListSymbolsResponse{
-			Status: &codev0.ListSymbolsStatus{State: codev0.ListSymbolsStatus_ERROR, Message: err.Error()},
-		}}}, nil
-	}
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListSymbols{ListSymbols: &codev0.ListSymbolsResponse{
-		Status:  &codev0.ListSymbolsStatus{State: codev0.ListSymbolsStatus_SUCCESS},
-		Symbols: symbols,
-	}}}, nil
-}
 
 func (s *PythonCodeServer) handleGetProjectInfo(_ context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	srcDir := s.SourceDir

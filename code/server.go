@@ -1,6 +1,6 @@
 // Package code provides the DefaultCodeServer: a complete, language-agnostic
 // implementation of the unified Code.Execute RPC. Plugins embed it and override
-// only language-specific operations (LSP, Fix, dependency management).
+// only language-specific operations (Fix, dependency management).
 package code
 
 import (
@@ -87,7 +87,7 @@ type WriteListener func(ctx context.Context, kind, path, prevPath string, conten
 
 // DefaultCodeServer implements every Code.Execute operation with sensible,
 // language-agnostic defaults. Plugins embed this and call Override to replace
-// handlers for operations they specialize (e.g. Fix, ListSymbols, deps).
+// handlers for operations they specialize (e.g. Fix, deps).
 type DefaultCodeServer struct {
 	codev0.UnimplementedCodeServer
 
@@ -242,27 +242,6 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 		return s.getProjectInfo(ctx, op.GetProjectInfo)
 	case *codev0.CodeRequest_Fix:
 		return s.fixDefault(ctx, op.Fix)
-
-	// --- LSP operations (stubs -- plugins override) ---
-
-	case *codev0.CodeRequest_ListSymbols:
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListSymbols{ListSymbols: &codev0.ListSymbolsResponse{
-			Status: &codev0.ListSymbolsStatus{State: codev0.ListSymbolsStatus_ERROR, Message: "LSP not available: no language plugin override"},
-		}}}, nil
-	case *codev0.CodeRequest_GetDiagnostics:
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetDiagnostics{GetDiagnostics: &codev0.GetDiagnosticsResponse{}}}, nil
-	case *codev0.CodeRequest_GoToDefinition:
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GoToDefinition{GoToDefinition: &codev0.GoToDefinitionResponse{}}}, nil
-	case *codev0.CodeRequest_FindReferences:
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_FindReferences{FindReferences: &codev0.FindReferencesResponse{}}}, nil
-	case *codev0.CodeRequest_RenameSymbol:
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_RenameSymbol{RenameSymbol: &codev0.RenameSymbolResponse{
-			Success: false, Error: "rename not available: no language plugin override",
-		}}}, nil
-	case *codev0.CodeRequest_GetHoverInfo:
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetHoverInfo{GetHoverInfo: &codev0.GetHoverInfoResponse{}}}, nil
-	case *codev0.CodeRequest_GetCompletions:
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetCompletions{GetCompletions: &codev0.GetCompletionsResponse{}}}, nil
 
 	// --- Dependency management (stubs -- plugins override) ---
 
@@ -837,21 +816,6 @@ func OperationName(req *codev0.CodeRequest) string {
 		return "get_project_info"
 	case *codev0.CodeRequest_Fix:
 		return "fix"
-	// LSP stubs
-	case *codev0.CodeRequest_ListSymbols:
-		return "list_symbols"
-	case *codev0.CodeRequest_GetDiagnostics:
-		return "get_diagnostics"
-	case *codev0.CodeRequest_GoToDefinition:
-		return "go_to_definition"
-	case *codev0.CodeRequest_FindReferences:
-		return "find_references"
-	case *codev0.CodeRequest_RenameSymbol:
-		return "rename_symbol"
-	case *codev0.CodeRequest_GetHoverInfo:
-		return "get_hover_info"
-	case *codev0.CodeRequest_GetCompletions:
-		return "get_completions"
 	// Dependency stubs
 	case *codev0.CodeRequest_ListDependencies:
 		return "list_dependencies"

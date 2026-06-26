@@ -15,44 +15,35 @@ func TestGoCodeServer_ListSymbols_RealRepos(t *testing.T) {
 			srv := NewGoCodeServer(dir, nil)
 			ctx := context.Background()
 
-			resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-				Operation: &codev0.CodeRequest_ListSymbols{ListSymbols: &codev0.ListSymbolsRequest{}},
-			})
+			syms, err := srv.symbols.ListSymbols(ctx, "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			syms := resp.GetListSymbols()
-			if syms == nil || syms.Status == nil {
-				t.Fatal("nil ListSymbols response")
-			}
-			if syms.Status.State != codev0.ListSymbolsStatus_SUCCESS {
-				t.Fatalf("ListSymbols failed: %s", syms.Status.Message)
-			}
-			if len(syms.Symbols) < repo.MinSymbols {
-				t.Errorf("expected >= %d symbols, got %d", repo.MinSymbols, len(syms.Symbols))
+			if len(syms) < repo.MinSymbols {
+				t.Errorf("expected >= %d symbols, got %d", repo.MinSymbols, len(syms))
 			}
 
 			funcCount, methodCount, typeCount := 0, 0, 0
-			for _, s := range syms.Symbols {
+			for _, s := range syms {
 				switch s.Kind {
-				case codev0.SymbolKind_SYMBOL_KIND_FUNCTION:
+				case SymbolKindFunction:
 					funcCount++
-				case codev0.SymbolKind_SYMBOL_KIND_METHOD:
+				case SymbolKindMethod:
 					methodCount++
-				case codev0.SymbolKind_SYMBOL_KIND_STRUCT:
+				case SymbolKindStruct:
 					typeCount++
 				}
 			}
 			t.Logf("%s: %d symbols (%d funcs, %d methods, %d types)",
-				repo.Name, len(syms.Symbols), funcCount, methodCount, typeCount)
+				repo.Name, len(syms), funcCount, methodCount, typeCount)
 
 			for _, known := range repo.KnownFunctions {
-				if !hasSymbolNamed(syms.Symbols, known) {
+				if !hasSymbolNamed(syms, known) {
 					t.Errorf("expected to find function %q", known)
 				}
 			}
 			for _, known := range repo.KnownTypes {
-				if !hasSymbolNamed(syms.Symbols, known) {
+				if !hasSymbolNamed(syms, known) {
 					t.Errorf("expected to find type %q", known)
 				}
 			}
@@ -65,25 +56,19 @@ func TestGoCodeServer_ListSymbols_SingleFile(t *testing.T) {
 	dir := EnsureRepo(t, repo)
 	srv := NewGoCodeServer(dir, nil)
 
-	resp, err := srv.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListSymbols{ListSymbols: &codev0.ListSymbolsRequest{File: "color.go"}},
-	})
+	syms, err := srv.symbols.ListSymbols(context.Background(), "color.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	syms := resp.GetListSymbols()
-	if syms.Status.State != codev0.ListSymbolsStatus_SUCCESS {
-		t.Fatalf("failed: %s", syms.Status.Message)
-	}
-	if len(syms.Symbols) == 0 {
+	if len(syms) == 0 {
 		t.Fatal("no symbols in color.go")
 	}
-	for _, s := range syms.Symbols {
+	for _, s := range syms {
 		if s.Location == nil || s.Location.File != "color.go" {
 			t.Errorf("symbol %q has wrong file: %v", s.Name, s.Location)
 		}
 	}
-	t.Logf("color.go: %d symbols", len(syms.Symbols))
+	t.Logf("color.go: %d symbols", len(syms))
 }
 
 func TestGoCodeServer_GetProjectInfo_RealRepos(t *testing.T) {
@@ -180,7 +165,7 @@ func TestGoCodeServer_InheritsDefaultOps(t *testing.T) {
 	}
 }
 
-func hasSymbolNamed(symbols []*codev0.Symbol, name string) bool {
+func hasSymbolNamed(symbols []*Symbol, name string) bool {
 	for _, s := range symbols {
 		if s.Name == name {
 			return true

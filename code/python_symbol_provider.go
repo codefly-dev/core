@@ -11,8 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
 //go:embed python_symbols.py
@@ -60,7 +58,7 @@ func (p *PythonASTSymbolProvider) Close() {
 }
 
 // ListSymbols extracts symbols from a file or the entire source directory.
-func (p *PythonASTSymbolProvider) ListSymbols(ctx context.Context, file string) ([]*codev0.Symbol, error) {
+func (p *PythonASTSymbolProvider) ListSymbols(ctx context.Context, file string) ([]*Symbol, error) {
 	if err := p.ensureScript(); err != nil {
 		return nil, err
 	}
@@ -83,7 +81,7 @@ func (p *PythonASTSymbolProvider) ListSymbols(ctx context.Context, file string) 
 		return nil, fmt.Errorf("parse symbols json: %w", err)
 	}
 
-	var symbols []*codev0.Symbol
+	var symbols []*Symbol
 	for filePath, fileSymbols := range result {
 		// Read file content for hash computation.
 		absPath := filePath
@@ -105,7 +103,7 @@ func (p *PythonASTSymbolProvider) ListSymbols(ctx context.Context, file string) 
 
 // enrichPythonSymbolHashes computes body_hash, signature_hash, and
 // qualified_name for a Python symbol. Same approach as the Go agent.
-func enrichPythonSymbolHashes(sym *codev0.Symbol, lines []string, parentQN string) {
+func enrichPythonSymbolHashes(sym *Symbol, lines []string, parentQN string) {
 	// Qualified name.
 	qn := sym.Name
 	if sym.Parent != "" {
@@ -127,9 +125,9 @@ func enrichPythonSymbolHashes(sym *codev0.Symbol, lines []string, parentQN strin
 		start := int(sym.Location.Line)
 		end := int(sym.Location.EndLine)
 		kind := sym.Kind
-		hasBody := kind == codev0.SymbolKind_SYMBOL_KIND_FUNCTION ||
-			kind == codev0.SymbolKind_SYMBOL_KIND_METHOD ||
-			kind == codev0.SymbolKind_SYMBOL_KIND_CLASS
+		hasBody := kind == SymbolKindFunction ||
+			kind == SymbolKindMethod ||
+			kind == SymbolKindClass
 		if hasBody && start > 0 && end > 0 && end <= len(lines) {
 			body := strings.Join(lines[start-1:end], "\n")
 			normalized := normalizePythonBody(body)
@@ -174,7 +172,7 @@ type pySymbol struct {
 	Children      []pySymbol `json:"children"`
 }
 
-func (s *pySymbol) toProto() *codev0.Symbol {
+func (s *pySymbol) toProto() *Symbol {
 	sig := s.Signature
 	// Prepend decorators to signature for visibility
 	if len(s.Decorators) > 0 {
@@ -185,12 +183,12 @@ func (s *pySymbol) toProto() *codev0.Symbol {
 		sig = decorStr + sig
 	}
 
-	sym := &codev0.Symbol{
+	sym := &Symbol{
 		Name:          s.Name,
 		Kind:          pyKindToProto(s.Kind),
 		Signature:     sig,
 		Documentation: s.Documentation,
-		Location: &codev0.Location{
+		Location: &Location{
 			Line:    s.Line,
 			EndLine: s.EndLine,
 		},
@@ -203,20 +201,20 @@ func (s *pySymbol) toProto() *codev0.Symbol {
 	return sym
 }
 
-func pyKindToProto(kind string) codev0.SymbolKind {
+func pyKindToProto(kind string) SymbolKind {
 	switch kind {
 	case "function":
-		return codev0.SymbolKind_SYMBOL_KIND_FUNCTION
+		return SymbolKindFunction
 	case "method", "classmethod", "staticmethod", "property":
-		return codev0.SymbolKind_SYMBOL_KIND_METHOD
+		return SymbolKindMethod
 	case "class":
-		return codev0.SymbolKind_SYMBOL_KIND_CLASS
+		return SymbolKindClass
 	case "variable":
-		return codev0.SymbolKind_SYMBOL_KIND_VARIABLE
+		return SymbolKindVariable
 	default:
 		if strings.HasPrefix(kind, "method") {
-			return codev0.SymbolKind_SYMBOL_KIND_METHOD
+			return SymbolKindMethod
 		}
-		return codev0.SymbolKind_SYMBOL_KIND_UNKNOWN
+		return SymbolKindUnknown
 	}
 }

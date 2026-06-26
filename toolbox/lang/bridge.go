@@ -55,12 +55,82 @@ type ToolboxFromTooling struct {
 	inner   toolingv0.ToolingServer
 }
 
+type toolSpec struct {
+	name        string
+	description string
+	tags        []string
+	destructive bool
+}
+
+var toolSpecs = []toolSpec{
+	{
+		name:        ToolFix,
+		description: "Auto-fix issues in a file using the language's standard fixer.",
+		tags:        []string{"modification"},
+		destructive: true,
+	},
+	{
+		name:        ToolApplyEdit,
+		description: "Apply a structured edit (find/replace, optionally with auto-fix) to a file.",
+		tags:        []string{"modification"},
+		destructive: true,
+	},
+	{
+		name:        ToolListDependencies,
+		description: "List the project's declared dependencies.",
+		tags:        []string{"dependencies"},
+	},
+	{
+		name:        ToolAddDependency,
+		description: "Add a dependency to the project's manifest and install it.",
+		tags:        []string{"dependencies"},
+		destructive: true,
+	},
+	{
+		name:        ToolRemoveDependency,
+		description: "Remove a dependency from the project's manifest.",
+		tags:        []string{"dependencies"},
+		destructive: true,
+	},
+	{
+		name:        ToolGetProjectInfo,
+		description: "Get project metadata (module, language, packages, dependencies, file hashes).",
+		tags:        []string{"metadata"},
+	},
+	{
+		name:        ToolBuild,
+		description: "Build the project.",
+		tags:        []string{"dev"},
+		destructive: true,
+	},
+	{
+		name:        ToolTest,
+		description: "Run the project's tests; returns counts + failure detail.",
+		tags:        []string{"dev"},
+	},
+	{
+		name:        ToolLint,
+		description: "Lint the project; returns success/output.",
+		tags:        []string{"dev"},
+	},
+}
+
+// ToolNames returns the conventional lang.* names derived from the same
+// specs used to register toolbox definitions.
+func ToolNames() []string {
+	names := make([]string, 0, len(toolSpecs))
+	for _, spec := range toolSpecs {
+		names = append(names, spec.name)
+	}
+	return names
+}
+
 func (b *ToolboxFromTooling) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
 	return &toolboxv0.IdentityResponse{
 		Name:           b.name,
 		Version:        b.version,
-		Description:    "Language toolbox (LSP, analysis, dev validation) bridged from the Tooling contract.",
-		SandboxSummary: "language analysis runs in-plugin; sandbox inherited from the agent process",
+		Description:    "Language toolbox (project metadata, dependencies, edits, dev validation) bridged from the Tooling contract.",
+		SandboxSummary: "language tooling runs in-plugin; sandbox inherited from the agent process",
 	}, nil
 }
 
@@ -74,19 +144,19 @@ func (b *ToolboxFromTooling) Identity(_ context.Context, _ *toolboxv0.IdentityRe
 // Handler is left nil — CallTool is overridden below to dispatch
 // per-name into the inner Tooling server's typed RPCs.
 func (b *ToolboxFromTooling) Tools() []*registry.ToolDefinition {
-	defs := make([]*registry.ToolDefinition, 0, len(AllTools))
-	for _, name := range AllTools {
+	defs := make([]*registry.ToolDefinition, 0, len(toolSpecs))
+	for _, spec := range toolSpecs {
 		idem := "idempotent"
-		if isDestructive(name) {
+		if spec.destructive {
 			idem = "side_effecting"
 		}
 		defs = append(defs, &registry.ToolDefinition{
-			Name:               name,
-			SummaryDescription: descriptionFor(name),
-			LongDescription:    descriptionFor(name),
+			Name:               spec.name,
+			SummaryDescription: spec.description,
+			LongDescription:    spec.description,
 			InputSchema:        anyObjectSchema(),
-			Destructive:        isDestructive(name),
-			Tags:               langTags(name),
+			Destructive:        spec.destructive,
+			Tags:               toolTags(spec),
 			Idempotency:        idem,
 			ErrorModes:         "Mirrors the underlying typed Tooling RPC's error semantics. See proto/codefly/services/tooling/v0/tooling.proto for canonical errors per RPC.",
 		})
@@ -94,30 +164,14 @@ func (b *ToolboxFromTooling) Tools() []*registry.ToolDefinition {
 	return defs
 }
 
-// langTags returns the conventional tags for one lang.* tool.
-// Every entry tags "lang" + "language" plus a destructive/read-only
-// marker. Domain-specific tags (lsp / dependency / dev) help
-// pre-filtering.
-func langTags(name string) []string {
+func toolTags(spec toolSpec) []string {
 	tags := []string{"lang", "language"}
-	if isDestructive(name) {
+	if spec.destructive {
 		tags = append(tags, "destructive")
 	} else {
 		tags = append(tags, "read-only")
 	}
-	switch name {
-	case ToolListSymbols, ToolGetDiagnostics, ToolGoToDefinition,
-		ToolFindReferences, ToolGetHoverInfo, ToolGetCompletions:
-		tags = append(tags, "lsp")
-	case ToolRenameSymbol, ToolFix, ToolApplyEdit:
-		tags = append(tags, "lsp", "modification")
-	case ToolListDependencies, ToolAddDependency, ToolRemoveDependency:
-		tags = append(tags, "dependencies")
-	case ToolGetProjectInfo, ToolGetCallGraph:
-		tags = append(tags, "analysis")
-	case ToolBuild, ToolTest, ToolLint:
-		tags = append(tags, "dev")
-	}
+	tags = append(tags, spec.tags...)
 	return tags
 }
 
@@ -126,20 +180,6 @@ func langTags(name string) []string {
 // is converted back to a Struct and wrapped in a Content block.
 func (b *ToolboxFromTooling) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
 	switch req.Name {
-	case ToolListSymbols:
-		return bridgeCall[toolingv0.ListSymbolsRequest, toolingv0.ListSymbolsResponse](ctx, req, b.inner.ListSymbols)
-	case ToolGetDiagnostics:
-		return bridgeCall[toolingv0.GetDiagnosticsRequest, toolingv0.GetDiagnosticsResponse](ctx, req, b.inner.GetDiagnostics)
-	case ToolGoToDefinition:
-		return bridgeCall[toolingv0.GoToDefinitionRequest, toolingv0.GoToDefinitionResponse](ctx, req, b.inner.GoToDefinition)
-	case ToolFindReferences:
-		return bridgeCall[toolingv0.FindReferencesRequest, toolingv0.FindReferencesResponse](ctx, req, b.inner.FindReferences)
-	case ToolRenameSymbol:
-		return bridgeCall[toolingv0.RenameSymbolRequest, toolingv0.RenameSymbolResponse](ctx, req, b.inner.RenameSymbol)
-	case ToolGetHoverInfo:
-		return bridgeCall[toolingv0.GetHoverInfoRequest, toolingv0.GetHoverInfoResponse](ctx, req, b.inner.GetHoverInfo)
-	case ToolGetCompletions:
-		return bridgeCall[toolingv0.GetCompletionsRequest, toolingv0.GetCompletionsResponse](ctx, req, b.inner.GetCompletions)
 	case ToolFix:
 		return bridgeCall[toolingv0.FixRequest, toolingv0.FixResponse](ctx, req, b.inner.Fix)
 	case ToolApplyEdit:
@@ -152,8 +192,6 @@ func (b *ToolboxFromTooling) CallTool(ctx context.Context, req *toolboxv0.CallTo
 		return bridgeCall[toolingv0.RemoveDependencyRequest, toolingv0.RemoveDependencyResponse](ctx, req, b.inner.RemoveDependency)
 	case ToolGetProjectInfo:
 		return bridgeCall[toolingv0.GetProjectInfoRequest, toolingv0.GetProjectInfoResponse](ctx, req, b.inner.GetProjectInfo)
-	case ToolGetCallGraph:
-		return bridgeCall[toolingv0.GetCallGraphRequest, toolingv0.GetCallGraphResponse](ctx, req, b.inner.GetCallGraph)
 	case ToolBuild:
 		return bridgeCall[toolingv0.BuildRequest, toolingv0.BuildResponse](ctx, req, b.inner.Build)
 	case ToolTest:
@@ -244,8 +282,8 @@ func errResp(format string, args ...any) *toolboxv0.CallToolResponse {
 
 // ToolingFromToolbox wraps a Toolbox client and presents the typed
 // ToolingClient interface. Mind's existing call sites continue
-// working: client.ListSymbols(ctx, req) routes to
-// CallTool("lang.list_symbols", req) under the hood.
+// working: client.Test(ctx, req) routes to CallTool("lang.test", req)
+// under the hood.
 //
 // Returns toolingv0.ToolingClient so Mind can drop this in as a
 // type-compatible replacement for a real ToolingClient over the
@@ -304,30 +342,9 @@ func callBridge[Req proto.Message, Resp proto.Message](
 	return resp, nil
 }
 
-// All ToolingClient methods follow the same shape — a one-liner
-// handing off to callBridge with the right tool name + response type.
+// All ToolingClient methods follow the same shape: hand off to callBridge
+// with the right tool name and response type.
 
-func (t *toolingFromToolbox) ListSymbols(ctx context.Context, in *toolingv0.ListSymbolsRequest, _ ...grpc.CallOption) (*toolingv0.ListSymbolsResponse, error) {
-	return callBridge(ctx, t.c, ToolListSymbols, in, &toolingv0.ListSymbolsResponse{})
-}
-func (t *toolingFromToolbox) GetDiagnostics(ctx context.Context, in *toolingv0.GetDiagnosticsRequest, _ ...grpc.CallOption) (*toolingv0.GetDiagnosticsResponse, error) {
-	return callBridge(ctx, t.c, ToolGetDiagnostics, in, &toolingv0.GetDiagnosticsResponse{})
-}
-func (t *toolingFromToolbox) GoToDefinition(ctx context.Context, in *toolingv0.GoToDefinitionRequest, _ ...grpc.CallOption) (*toolingv0.GoToDefinitionResponse, error) {
-	return callBridge(ctx, t.c, ToolGoToDefinition, in, &toolingv0.GoToDefinitionResponse{})
-}
-func (t *toolingFromToolbox) FindReferences(ctx context.Context, in *toolingv0.FindReferencesRequest, _ ...grpc.CallOption) (*toolingv0.FindReferencesResponse, error) {
-	return callBridge(ctx, t.c, ToolFindReferences, in, &toolingv0.FindReferencesResponse{})
-}
-func (t *toolingFromToolbox) RenameSymbol(ctx context.Context, in *toolingv0.RenameSymbolRequest, _ ...grpc.CallOption) (*toolingv0.RenameSymbolResponse, error) {
-	return callBridge(ctx, t.c, ToolRenameSymbol, in, &toolingv0.RenameSymbolResponse{})
-}
-func (t *toolingFromToolbox) GetHoverInfo(ctx context.Context, in *toolingv0.GetHoverInfoRequest, _ ...grpc.CallOption) (*toolingv0.GetHoverInfoResponse, error) {
-	return callBridge(ctx, t.c, ToolGetHoverInfo, in, &toolingv0.GetHoverInfoResponse{})
-}
-func (t *toolingFromToolbox) GetCompletions(ctx context.Context, in *toolingv0.GetCompletionsRequest, _ ...grpc.CallOption) (*toolingv0.GetCompletionsResponse, error) {
-	return callBridge(ctx, t.c, ToolGetCompletions, in, &toolingv0.GetCompletionsResponse{})
-}
 func (t *toolingFromToolbox) Fix(ctx context.Context, in *toolingv0.FixRequest, _ ...grpc.CallOption) (*toolingv0.FixResponse, error) {
 	return callBridge(ctx, t.c, ToolFix, in, &toolingv0.FixResponse{})
 }
@@ -345,9 +362,6 @@ func (t *toolingFromToolbox) RemoveDependency(ctx context.Context, in *toolingv0
 }
 func (t *toolingFromToolbox) GetProjectInfo(ctx context.Context, in *toolingv0.GetProjectInfoRequest, _ ...grpc.CallOption) (*toolingv0.GetProjectInfoResponse, error) {
 	return callBridge(ctx, t.c, ToolGetProjectInfo, in, &toolingv0.GetProjectInfoResponse{})
-}
-func (t *toolingFromToolbox) GetCallGraph(ctx context.Context, in *toolingv0.GetCallGraphRequest, _ ...grpc.CallOption) (*toolingv0.GetCallGraphResponse, error) {
-	return callBridge(ctx, t.c, ToolGetCallGraph, in, &toolingv0.GetCallGraphResponse{})
 }
 func (t *toolingFromToolbox) Build(ctx context.Context, in *toolingv0.BuildRequest, _ ...grpc.CallOption) (*toolingv0.BuildResponse, error) {
 	return callBridge(ctx, t.c, ToolBuild, in, &toolingv0.BuildResponse{})
@@ -370,58 +384,4 @@ func anyObjectSchema() *structpb.Struct {
 		"additionalProperties": true,
 	})
 	return s
-}
-
-// descriptionFor returns the human description for a conventional
-// tool name. Not load-bearing — Identity / catalog UI consume it.
-func descriptionFor(tool string) string {
-	switch tool {
-	case ToolListSymbols:
-		return "List symbols (functions, classes, variables) in a file via the language's LSP."
-	case ToolGetDiagnostics:
-		return "Get diagnostics (errors, warnings) for a file via the language's LSP."
-	case ToolGoToDefinition:
-		return "Resolve a symbol reference to its definition site."
-	case ToolFindReferences:
-		return "Find all references to a symbol across the project."
-	case ToolRenameSymbol:
-		return "Rename a symbol across the project (LSP-validated)."
-	case ToolGetHoverInfo:
-		return "Get hover information (type, doc) for a position in a file."
-	case ToolGetCompletions:
-		return "Get completion candidates for a position in a file."
-	case ToolFix:
-		return "Auto-fix issues in a file using the language's standard fixer."
-	case ToolApplyEdit:
-		return "Apply a structured edit (find/replace, optionally with auto-fix) to a file."
-	case ToolListDependencies:
-		return "List the project's declared dependencies."
-	case ToolAddDependency:
-		return "Add a dependency to the project's manifest and install it."
-	case ToolRemoveDependency:
-		return "Remove a dependency from the project's manifest."
-	case ToolGetProjectInfo:
-		return "Get project metadata (module, language, packages, dependencies, file hashes)."
-	case ToolGetCallGraph:
-		return "Compute the call graph (caller/callee relationships) across the project."
-	case ToolBuild:
-		return "Build the project."
-	case ToolTest:
-		return "Run the project's tests; returns counts + failure detail."
-	case ToolLint:
-		return "Lint the project; returns success/output."
-	default:
-		return ""
-	}
-}
-
-// isDestructive marks tools whose default execution mutates state.
-// Hosts apply extra confirmation UI for these.
-func isDestructive(tool string) bool {
-	switch tool {
-	case ToolRenameSymbol, ToolFix, ToolApplyEdit,
-		ToolAddDependency, ToolRemoveDependency, ToolBuild:
-		return true
-	}
-	return false
 }

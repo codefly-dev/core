@@ -5,12 +5,13 @@
 package gatewayv1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -47,18 +48,6 @@ const (
 	GatewayMoveFileProcedure = "/mind.gateway.v1.Gateway/MoveFile"
 	// GatewayCreateFileProcedure is the fully-qualified name of the Gateway's CreateFile RPC.
 	GatewayCreateFileProcedure = "/mind.gateway.v1.Gateway/CreateFile"
-	// GatewayListSymbolsProcedure is the fully-qualified name of the Gateway's ListSymbols RPC.
-	GatewayListSymbolsProcedure = "/mind.gateway.v1.Gateway/ListSymbols"
-	// GatewayGetDiagnosticsProcedure is the fully-qualified name of the Gateway's GetDiagnostics RPC.
-	GatewayGetDiagnosticsProcedure = "/mind.gateway.v1.Gateway/GetDiagnostics"
-	// GatewayGoToDefinitionProcedure is the fully-qualified name of the Gateway's GoToDefinition RPC.
-	GatewayGoToDefinitionProcedure = "/mind.gateway.v1.Gateway/GoToDefinition"
-	// GatewayFindReferencesProcedure is the fully-qualified name of the Gateway's FindReferences RPC.
-	GatewayFindReferencesProcedure = "/mind.gateway.v1.Gateway/FindReferences"
-	// GatewayRenameSymbolProcedure is the fully-qualified name of the Gateway's RenameSymbol RPC.
-	GatewayRenameSymbolProcedure = "/mind.gateway.v1.Gateway/RenameSymbol"
-	// GatewayGetHoverInfoProcedure is the fully-qualified name of the Gateway's GetHoverInfo RPC.
-	GatewayGetHoverInfoProcedure = "/mind.gateway.v1.Gateway/GetHoverInfo"
 	// GatewayFixProcedure is the fully-qualified name of the Gateway's Fix RPC.
 	GatewayFixProcedure = "/mind.gateway.v1.Gateway/Fix"
 	// GatewayApplyEditProcedure is the fully-qualified name of the Gateway's ApplyEdit RPC.
@@ -115,19 +104,6 @@ type GatewayClient interface {
 	MoveFile(context.Context, *connect.Request[v1.MoveFileRequest]) (*connect.Response[v1.MoveFileResponse], error)
 	// CreateFile creates a new file (fails if exists unless overwrite set).
 	CreateFile(context.Context, *connect.Request[v1.CreateFileRequest]) (*connect.Response[v1.CreateFileResponse], error)
-	// ListSymbols returns code symbols from a service via LSP.
-	// If service is empty, returns symbols across all services.
-	ListSymbols(context.Context, *connect.Request[v1.ListSymbolsRequest]) (*connect.Response[v1.ListSymbolsResponse], error)
-	// GetDiagnostics returns compiler/linter diagnostics from the language server.
-	GetDiagnostics(context.Context, *connect.Request[v1.GetDiagnosticsRequest]) (*connect.Response[v1.GetDiagnosticsResponse], error)
-	// GoToDefinition finds where a symbol at a given position is defined.
-	GoToDefinition(context.Context, *connect.Request[v1.GoToDefinitionRequest]) (*connect.Response[v1.GoToDefinitionResponse], error)
-	// FindReferences finds all usages of a symbol at a given position.
-	FindReferences(context.Context, *connect.Request[v1.FindReferencesRequest]) (*connect.Response[v1.FindReferencesResponse], error)
-	// RenameSymbol performs a language-aware rename across all files.
-	RenameSymbol(context.Context, *connect.Request[v1.RenameSymbolRequest]) (*connect.Response[v1.RenameSymbolResponse], error)
-	// GetHoverInfo returns type info and documentation at a position.
-	GetHoverInfo(context.Context, *connect.Request[v1.GetHoverInfoRequest]) (*connect.Response[v1.GetHoverInfoResponse], error)
 	// Fix runs language-specific fixers on a file (goimports, gofmt, prettier, etc.).
 	Fix(context.Context, *connect.Request[v1.FixRequest]) (*connect.Response[v1.FixResponse], error)
 	// ApplyEdit performs a smart FIND/REPLACE on a file.
@@ -217,42 +193,6 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			httpClient,
 			baseURL+GatewayCreateFileProcedure,
 			connect.WithSchema(gatewayMethods.ByName("CreateFile")),
-			connect.WithClientOptions(opts...),
-		),
-		listSymbols: connect.NewClient[v1.ListSymbolsRequest, v1.ListSymbolsResponse](
-			httpClient,
-			baseURL+GatewayListSymbolsProcedure,
-			connect.WithSchema(gatewayMethods.ByName("ListSymbols")),
-			connect.WithClientOptions(opts...),
-		),
-		getDiagnostics: connect.NewClient[v1.GetDiagnosticsRequest, v1.GetDiagnosticsResponse](
-			httpClient,
-			baseURL+GatewayGetDiagnosticsProcedure,
-			connect.WithSchema(gatewayMethods.ByName("GetDiagnostics")),
-			connect.WithClientOptions(opts...),
-		),
-		goToDefinition: connect.NewClient[v1.GoToDefinitionRequest, v1.GoToDefinitionResponse](
-			httpClient,
-			baseURL+GatewayGoToDefinitionProcedure,
-			connect.WithSchema(gatewayMethods.ByName("GoToDefinition")),
-			connect.WithClientOptions(opts...),
-		),
-		findReferences: connect.NewClient[v1.FindReferencesRequest, v1.FindReferencesResponse](
-			httpClient,
-			baseURL+GatewayFindReferencesProcedure,
-			connect.WithSchema(gatewayMethods.ByName("FindReferences")),
-			connect.WithClientOptions(opts...),
-		),
-		renameSymbol: connect.NewClient[v1.RenameSymbolRequest, v1.RenameSymbolResponse](
-			httpClient,
-			baseURL+GatewayRenameSymbolProcedure,
-			connect.WithSchema(gatewayMethods.ByName("RenameSymbol")),
-			connect.WithClientOptions(opts...),
-		),
-		getHoverInfo: connect.NewClient[v1.GetHoverInfoRequest, v1.GetHoverInfoResponse](
-			httpClient,
-			baseURL+GatewayGetHoverInfoProcedure,
-			connect.WithSchema(gatewayMethods.ByName("GetHoverInfo")),
 			connect.WithClientOptions(opts...),
 		),
 		fix: connect.NewClient[v1.FixRequest, v1.FixResponse](
@@ -375,12 +315,6 @@ type gatewayClient struct {
 	deleteFile       *connect.Client[v1.DeleteFileRequest, v1.DeleteFileResponse]
 	moveFile         *connect.Client[v1.MoveFileRequest, v1.MoveFileResponse]
 	createFile       *connect.Client[v1.CreateFileRequest, v1.CreateFileResponse]
-	listSymbols      *connect.Client[v1.ListSymbolsRequest, v1.ListSymbolsResponse]
-	getDiagnostics   *connect.Client[v1.GetDiagnosticsRequest, v1.GetDiagnosticsResponse]
-	goToDefinition   *connect.Client[v1.GoToDefinitionRequest, v1.GoToDefinitionResponse]
-	findReferences   *connect.Client[v1.FindReferencesRequest, v1.FindReferencesResponse]
-	renameSymbol     *connect.Client[v1.RenameSymbolRequest, v1.RenameSymbolResponse]
-	getHoverInfo     *connect.Client[v1.GetHoverInfoRequest, v1.GetHoverInfoResponse]
 	fix              *connect.Client[v1.FixRequest, v1.FixResponse]
 	applyEdit        *connect.Client[v1.ApplyEditRequest, v1.ApplyEditResponse]
 	batchApplyEdits  *connect.Client[v1.BatchApplyEditsRequest, v1.BatchApplyEditsResponse]
@@ -434,36 +368,6 @@ func (c *gatewayClient) MoveFile(ctx context.Context, req *connect.Request[v1.Mo
 // CreateFile calls mind.gateway.v1.Gateway.CreateFile.
 func (c *gatewayClient) CreateFile(ctx context.Context, req *connect.Request[v1.CreateFileRequest]) (*connect.Response[v1.CreateFileResponse], error) {
 	return c.createFile.CallUnary(ctx, req)
-}
-
-// ListSymbols calls mind.gateway.v1.Gateway.ListSymbols.
-func (c *gatewayClient) ListSymbols(ctx context.Context, req *connect.Request[v1.ListSymbolsRequest]) (*connect.Response[v1.ListSymbolsResponse], error) {
-	return c.listSymbols.CallUnary(ctx, req)
-}
-
-// GetDiagnostics calls mind.gateway.v1.Gateway.GetDiagnostics.
-func (c *gatewayClient) GetDiagnostics(ctx context.Context, req *connect.Request[v1.GetDiagnosticsRequest]) (*connect.Response[v1.GetDiagnosticsResponse], error) {
-	return c.getDiagnostics.CallUnary(ctx, req)
-}
-
-// GoToDefinition calls mind.gateway.v1.Gateway.GoToDefinition.
-func (c *gatewayClient) GoToDefinition(ctx context.Context, req *connect.Request[v1.GoToDefinitionRequest]) (*connect.Response[v1.GoToDefinitionResponse], error) {
-	return c.goToDefinition.CallUnary(ctx, req)
-}
-
-// FindReferences calls mind.gateway.v1.Gateway.FindReferences.
-func (c *gatewayClient) FindReferences(ctx context.Context, req *connect.Request[v1.FindReferencesRequest]) (*connect.Response[v1.FindReferencesResponse], error) {
-	return c.findReferences.CallUnary(ctx, req)
-}
-
-// RenameSymbol calls mind.gateway.v1.Gateway.RenameSymbol.
-func (c *gatewayClient) RenameSymbol(ctx context.Context, req *connect.Request[v1.RenameSymbolRequest]) (*connect.Response[v1.RenameSymbolResponse], error) {
-	return c.renameSymbol.CallUnary(ctx, req)
-}
-
-// GetHoverInfo calls mind.gateway.v1.Gateway.GetHoverInfo.
-func (c *gatewayClient) GetHoverInfo(ctx context.Context, req *connect.Request[v1.GetHoverInfoRequest]) (*connect.Response[v1.GetHoverInfoResponse], error) {
-	return c.getHoverInfo.CallUnary(ctx, req)
 }
 
 // Fix calls mind.gateway.v1.Gateway.Fix.
@@ -572,19 +476,6 @@ type GatewayHandler interface {
 	MoveFile(context.Context, *connect.Request[v1.MoveFileRequest]) (*connect.Response[v1.MoveFileResponse], error)
 	// CreateFile creates a new file (fails if exists unless overwrite set).
 	CreateFile(context.Context, *connect.Request[v1.CreateFileRequest]) (*connect.Response[v1.CreateFileResponse], error)
-	// ListSymbols returns code symbols from a service via LSP.
-	// If service is empty, returns symbols across all services.
-	ListSymbols(context.Context, *connect.Request[v1.ListSymbolsRequest]) (*connect.Response[v1.ListSymbolsResponse], error)
-	// GetDiagnostics returns compiler/linter diagnostics from the language server.
-	GetDiagnostics(context.Context, *connect.Request[v1.GetDiagnosticsRequest]) (*connect.Response[v1.GetDiagnosticsResponse], error)
-	// GoToDefinition finds where a symbol at a given position is defined.
-	GoToDefinition(context.Context, *connect.Request[v1.GoToDefinitionRequest]) (*connect.Response[v1.GoToDefinitionResponse], error)
-	// FindReferences finds all usages of a symbol at a given position.
-	FindReferences(context.Context, *connect.Request[v1.FindReferencesRequest]) (*connect.Response[v1.FindReferencesResponse], error)
-	// RenameSymbol performs a language-aware rename across all files.
-	RenameSymbol(context.Context, *connect.Request[v1.RenameSymbolRequest]) (*connect.Response[v1.RenameSymbolResponse], error)
-	// GetHoverInfo returns type info and documentation at a position.
-	GetHoverInfo(context.Context, *connect.Request[v1.GetHoverInfoRequest]) (*connect.Response[v1.GetHoverInfoResponse], error)
 	// Fix runs language-specific fixers on a file (goimports, gofmt, prettier, etc.).
 	Fix(context.Context, *connect.Request[v1.FixRequest]) (*connect.Response[v1.FixResponse], error)
 	// ApplyEdit performs a smart FIND/REPLACE on a file.
@@ -670,42 +561,6 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		GatewayCreateFileProcedure,
 		svc.CreateFile,
 		connect.WithSchema(gatewayMethods.ByName("CreateFile")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gatewayListSymbolsHandler := connect.NewUnaryHandler(
-		GatewayListSymbolsProcedure,
-		svc.ListSymbols,
-		connect.WithSchema(gatewayMethods.ByName("ListSymbols")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gatewayGetDiagnosticsHandler := connect.NewUnaryHandler(
-		GatewayGetDiagnosticsProcedure,
-		svc.GetDiagnostics,
-		connect.WithSchema(gatewayMethods.ByName("GetDiagnostics")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gatewayGoToDefinitionHandler := connect.NewUnaryHandler(
-		GatewayGoToDefinitionProcedure,
-		svc.GoToDefinition,
-		connect.WithSchema(gatewayMethods.ByName("GoToDefinition")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gatewayFindReferencesHandler := connect.NewUnaryHandler(
-		GatewayFindReferencesProcedure,
-		svc.FindReferences,
-		connect.WithSchema(gatewayMethods.ByName("FindReferences")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gatewayRenameSymbolHandler := connect.NewUnaryHandler(
-		GatewayRenameSymbolProcedure,
-		svc.RenameSymbol,
-		connect.WithSchema(gatewayMethods.ByName("RenameSymbol")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gatewayGetHoverInfoHandler := connect.NewUnaryHandler(
-		GatewayGetHoverInfoProcedure,
-		svc.GetHoverInfo,
-		connect.WithSchema(gatewayMethods.ByName("GetHoverInfo")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gatewayFixHandler := connect.NewUnaryHandler(
@@ -832,18 +687,6 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayMoveFileHandler.ServeHTTP(w, r)
 		case GatewayCreateFileProcedure:
 			gatewayCreateFileHandler.ServeHTTP(w, r)
-		case GatewayListSymbolsProcedure:
-			gatewayListSymbolsHandler.ServeHTTP(w, r)
-		case GatewayGetDiagnosticsProcedure:
-			gatewayGetDiagnosticsHandler.ServeHTTP(w, r)
-		case GatewayGoToDefinitionProcedure:
-			gatewayGoToDefinitionHandler.ServeHTTP(w, r)
-		case GatewayFindReferencesProcedure:
-			gatewayFindReferencesHandler.ServeHTTP(w, r)
-		case GatewayRenameSymbolProcedure:
-			gatewayRenameSymbolHandler.ServeHTTP(w, r)
-		case GatewayGetHoverInfoProcedure:
-			gatewayGetHoverInfoHandler.ServeHTTP(w, r)
 		case GatewayFixProcedure:
 			gatewayFixHandler.ServeHTTP(w, r)
 		case GatewayApplyEditProcedure:
@@ -915,30 +758,6 @@ func (UnimplementedGatewayHandler) MoveFile(context.Context, *connect.Request[v1
 
 func (UnimplementedGatewayHandler) CreateFile(context.Context, *connect.Request[v1.CreateFileRequest]) (*connect.Response[v1.CreateFileResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.CreateFile is not implemented"))
-}
-
-func (UnimplementedGatewayHandler) ListSymbols(context.Context, *connect.Request[v1.ListSymbolsRequest]) (*connect.Response[v1.ListSymbolsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ListSymbols is not implemented"))
-}
-
-func (UnimplementedGatewayHandler) GetDiagnostics(context.Context, *connect.Request[v1.GetDiagnosticsRequest]) (*connect.Response[v1.GetDiagnosticsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GetDiagnostics is not implemented"))
-}
-
-func (UnimplementedGatewayHandler) GoToDefinition(context.Context, *connect.Request[v1.GoToDefinitionRequest]) (*connect.Response[v1.GoToDefinitionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GoToDefinition is not implemented"))
-}
-
-func (UnimplementedGatewayHandler) FindReferences(context.Context, *connect.Request[v1.FindReferencesRequest]) (*connect.Response[v1.FindReferencesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.FindReferences is not implemented"))
-}
-
-func (UnimplementedGatewayHandler) RenameSymbol(context.Context, *connect.Request[v1.RenameSymbolRequest]) (*connect.Response[v1.RenameSymbolResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.RenameSymbol is not implemented"))
-}
-
-func (UnimplementedGatewayHandler) GetHoverInfo(context.Context, *connect.Request[v1.GetHoverInfoRequest]) (*connect.Response[v1.GetHoverInfoResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GetHoverInfo is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) Fix(context.Context, *connect.Request[v1.FixRequest]) (*connect.Response[v1.FixResponse], error) {

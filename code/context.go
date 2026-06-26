@@ -60,30 +60,11 @@ func BuildCodebaseContext(ctx context.Context, server CodeExecutor) (*CodebaseCo
 	}
 	cc.DepGraph = BuildDepGraph(info.Module, pkgInputs)
 
-	symResp, err := server.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListSymbols{ListSymbols: &codev0.ListSymbolsRequest{}},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list symbols: %w", err)
-	}
-	syms := symResp.GetListSymbols()
-	if syms.Status != nil && syms.Status.State == codev0.ListSymbolsStatus_SUCCESS {
-		var inputs []SymbolInput
-		for _, s := range syms.Symbols {
-			file, line := "", 0
-			if s.Location != nil {
-				file = s.Location.File
-				line = int(s.Location.Line)
-			}
-			inputs = append(inputs, SymbolInput{
-				Name: s.Name, Kind: s.Kind.String(), Signature: s.Signature,
-				File: file, Line: line, Parent: s.Parent,
-			})
-		}
-		cc.CodeMap = BuildCodeMap(cc.Language, inputs)
-	}
-
 	if gs, ok := server.(*GoCodeServer); ok {
+		symbols, err := gs.symbols.ListSymbols(ctx, "")
+		if err == nil && len(symbols) > 0 {
+			cc.CodeMap = BuildCodeMap(cc.Language, symbolInputsFromSymbols(symbols))
+		}
 		if asp, ok := gs.symbols.(*ASTSymbolProvider); ok {
 			if g, err := asp.Graph(); err == nil {
 				cc.Graph = g
@@ -100,6 +81,37 @@ func BuildCodebaseContext(ctx context.Context, server CodeExecutor) (*CodebaseCo
 	}
 
 	return cc, nil
+}
+
+func symbolInputsFromSymbols(symbols []*Symbol) []SymbolInput {
+	inputs := make([]SymbolInput, 0, len(symbols))
+	for _, sym := range symbols {
+		if sym == nil {
+			continue
+		}
+		inputs = append(inputs, symbolInputFromSymbol(sym))
+	}
+	return inputs
+}
+
+func symbolInputFromSymbol(sym *Symbol) SymbolInput {
+	input := SymbolInput{
+		Name:      sym.Name,
+		Kind:      sym.Kind.String(),
+		Signature: sym.Signature,
+		Parent:    sym.Parent,
+	}
+	if sym.Location != nil {
+		input.File = sym.Location.File
+		input.Line = int(sym.Location.Line)
+	}
+	for _, child := range sym.Children {
+		if child == nil {
+			continue
+		}
+		input.Children = append(input.Children, symbolInputFromSymbol(child))
+	}
+	return input
 }
 
 // Format produces a token-budgeted text representation for LLM system prompts.

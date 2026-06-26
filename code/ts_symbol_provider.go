@@ -10,8 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
 //go:embed ts_symbols.js
@@ -59,7 +57,7 @@ func (p *TSASTSymbolProvider) Close() {
 }
 
 // ListSymbols extracts symbols from a file or the entire source directory.
-func (p *TSASTSymbolProvider) ListSymbols(ctx context.Context, file string) ([]*codev0.Symbol, error) {
+func (p *TSASTSymbolProvider) ListSymbols(ctx context.Context, file string) ([]*Symbol, error) {
 	if err := p.ensureScript(); err != nil {
 		return nil, err
 	}
@@ -91,7 +89,7 @@ func (p *TSASTSymbolProvider) ListSymbols(ctx context.Context, file string) ([]*
 		return nil, fmt.Errorf("parse symbols json: %w", err)
 	}
 
-	var symbols []*codev0.Symbol
+	var symbols []*Symbol
 	for _, fileSymbols := range result {
 		for _, sym := range fileSymbols {
 			symbols = append(symbols, sym.toProto())
@@ -101,7 +99,7 @@ func (p *TSASTSymbolProvider) ListSymbols(ctx context.Context, file string) ([]*
 }
 
 // ListSymbolsByFile returns symbols grouped by relative file path.
-func (p *TSASTSymbolProvider) ListSymbolsByFile(ctx context.Context) (map[string][]*codev0.Symbol, error) {
+func (p *TSASTSymbolProvider) ListSymbolsByFile(ctx context.Context) (map[string][]*Symbol, error) {
 	if err := p.ensureScript(); err != nil {
 		return nil, err
 	}
@@ -119,7 +117,7 @@ func (p *TSASTSymbolProvider) ListSymbolsByFile(ctx context.Context) (map[string
 		return nil, fmt.Errorf("parse symbols json: %w", err)
 	}
 
-	out := make(map[string][]*codev0.Symbol, len(result))
+	out := make(map[string][]*Symbol, len(result))
 	for file, fileSymbols := range result {
 		for _, sym := range fileSymbols {
 			out[file] = append(out[file], sym.toProto())
@@ -146,13 +144,13 @@ type tsSymbol struct {
 	Children         []tsSymbol `json:"children"`
 }
 
-func (s *tsSymbol) toProto() *codev0.Symbol {
-	sym := &codev0.Symbol{
+func (s *tsSymbol) toProto() *Symbol {
+	sym := &Symbol{
 		Name:          s.Name,
 		Kind:          tsKindToProto(s.Kind),
 		Signature:     s.Signature,
 		Documentation: s.Documentation,
-		Location: &codev0.Location{
+		Location: &Location{
 			Line:    s.Line,
 			EndLine: s.EndLine,
 		},
@@ -165,25 +163,25 @@ func (s *tsSymbol) toProto() *codev0.Symbol {
 	return sym
 }
 
-func tsKindToProto(kind string) codev0.SymbolKind {
+func tsKindToProto(kind string) SymbolKind {
 	switch kind {
 	case "function":
-		return codev0.SymbolKind_SYMBOL_KIND_FUNCTION
+		return SymbolKindFunction
 	case "method":
-		return codev0.SymbolKind_SYMBOL_KIND_METHOD
+		return SymbolKindMethod
 	case "class":
-		return codev0.SymbolKind_SYMBOL_KIND_CLASS
+		return SymbolKindClass
 	case "interface":
-		return codev0.SymbolKind_SYMBOL_KIND_INTERFACE
+		return SymbolKindInterface
 	case "type":
-		return codev0.SymbolKind_SYMBOL_KIND_STRUCT
+		return SymbolKindStruct
 	case "variable", "property":
-		return codev0.SymbolKind_SYMBOL_KIND_VARIABLE
+		return SymbolKindVariable
 	default:
 		if strings.HasPrefix(kind, "method") {
-			return codev0.SymbolKind_SYMBOL_KIND_METHOD
+			return SymbolKindMethod
 		}
-		return codev0.SymbolKind_SYMBOL_KIND_UNKNOWN
+		return SymbolKindUnknown
 	}
 }
 

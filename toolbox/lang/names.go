@@ -6,19 +6,11 @@ package lang
 // (python, go, rust, …), and snake_case to match the Toolbox
 // convention used by other tool sets (`git.status`, `docker.list_containers`).
 //
-// These constants are the source of truth. The bidirectional bridge
-// (NewToolboxFromTooling, ToolingFromToolbox) reads them; renaming
-// one here automatically renames it on both sides.
+// These constants are the stable names used by the bidirectional bridge
+// (NewToolboxFromTooling, ToolingFromToolbox). The exported catalog is
+// derived from the bridge spec table, so callers should use ToolNames()
+// when they need the complete set.
 const (
-	// LSP / analysis
-	ToolListSymbols    = "lang.list_symbols"
-	ToolGetDiagnostics = "lang.get_diagnostics"
-	ToolGoToDefinition = "lang.go_to_definition"
-	ToolFindReferences = "lang.find_references"
-	ToolRenameSymbol   = "lang.rename_symbol"
-	ToolGetHoverInfo   = "lang.get_hover_info"
-	ToolGetCompletions = "lang.get_completions"
-
 	// Modification
 	ToolFix       = "lang.fix"
 	ToolApplyEdit = "lang.apply_edit"
@@ -28,24 +20,11 @@ const (
 	ToolAddDependency    = "lang.add_dependency"
 	ToolRemoveDependency = "lang.remove_dependency"
 
-	// Project-level analysis
+	// Project metadata
 	ToolGetProjectInfo = "lang.get_project_info"
-	ToolGetCallGraph   = "lang.get_call_graph"
 
 	// Dev validation (delegates to Runtime)
 	ToolBuild = "lang.build"
 	ToolTest  = "lang.test"
 	ToolLint  = "lang.lint"
 )
-
-// AllTools is the full conventional tool list every language plugin
-// must expose. Test fixtures use it to assert no tool was dropped on
-// the bridge.
-var AllTools = []string{
-	ToolListSymbols, ToolGetDiagnostics, ToolGoToDefinition,
-	ToolFindReferences, ToolRenameSymbol, ToolGetHoverInfo,
-	ToolGetCompletions, ToolFix, ToolApplyEdit,
-	ToolListDependencies, ToolAddDependency, ToolRemoveDependency,
-	ToolGetProjectInfo, ToolGetCallGraph,
-	ToolBuild, ToolTest, ToolLint,
-}

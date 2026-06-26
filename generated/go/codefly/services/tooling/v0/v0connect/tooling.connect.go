@@ -5,12 +5,13 @@
 package v0connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -33,20 +34,6 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// ToolingListSymbolsProcedure is the fully-qualified name of the Tooling's ListSymbols RPC.
-	ToolingListSymbolsProcedure = "/codefly.services.tooling.v0.Tooling/ListSymbols"
-	// ToolingGetDiagnosticsProcedure is the fully-qualified name of the Tooling's GetDiagnostics RPC.
-	ToolingGetDiagnosticsProcedure = "/codefly.services.tooling.v0.Tooling/GetDiagnostics"
-	// ToolingGoToDefinitionProcedure is the fully-qualified name of the Tooling's GoToDefinition RPC.
-	ToolingGoToDefinitionProcedure = "/codefly.services.tooling.v0.Tooling/GoToDefinition"
-	// ToolingFindReferencesProcedure is the fully-qualified name of the Tooling's FindReferences RPC.
-	ToolingFindReferencesProcedure = "/codefly.services.tooling.v0.Tooling/FindReferences"
-	// ToolingRenameSymbolProcedure is the fully-qualified name of the Tooling's RenameSymbol RPC.
-	ToolingRenameSymbolProcedure = "/codefly.services.tooling.v0.Tooling/RenameSymbol"
-	// ToolingGetHoverInfoProcedure is the fully-qualified name of the Tooling's GetHoverInfo RPC.
-	ToolingGetHoverInfoProcedure = "/codefly.services.tooling.v0.Tooling/GetHoverInfo"
-	// ToolingGetCompletionsProcedure is the fully-qualified name of the Tooling's GetCompletions RPC.
-	ToolingGetCompletionsProcedure = "/codefly.services.tooling.v0.Tooling/GetCompletions"
 	// ToolingFixProcedure is the fully-qualified name of the Tooling's Fix RPC.
 	ToolingFixProcedure = "/codefly.services.tooling.v0.Tooling/Fix"
 	// ToolingApplyEditProcedure is the fully-qualified name of the Tooling's ApplyEdit RPC.
@@ -61,8 +48,6 @@ const (
 	ToolingRemoveDependencyProcedure = "/codefly.services.tooling.v0.Tooling/RemoveDependency"
 	// ToolingGetProjectInfoProcedure is the fully-qualified name of the Tooling's GetProjectInfo RPC.
 	ToolingGetProjectInfoProcedure = "/codefly.services.tooling.v0.Tooling/GetProjectInfo"
-	// ToolingGetCallGraphProcedure is the fully-qualified name of the Tooling's GetCallGraph RPC.
-	ToolingGetCallGraphProcedure = "/codefly.services.tooling.v0.Tooling/GetCallGraph"
 	// ToolingBuildProcedure is the fully-qualified name of the Tooling's Build RPC.
 	ToolingBuildProcedure = "/codefly.services.tooling.v0.Tooling/Build"
 	// ToolingTestProcedure is the fully-qualified name of the Tooling's Test RPC.
@@ -73,20 +58,6 @@ const (
 
 // ToolingClient is a client for the codefly.services.tooling.v0.Tooling service.
 type ToolingClient interface {
-	// LSP operations
-	ListSymbols(context.Context, *connect.Request[v0.ListSymbolsRequest]) (*connect.Response[v0.ListSymbolsResponse], error)
-	// GetDiagnostics returns compiler, linter, or language-server diagnostics.
-	GetDiagnostics(context.Context, *connect.Request[v0.GetDiagnosticsRequest]) (*connect.Response[v0.GetDiagnosticsResponse], error)
-	// GoToDefinition resolves the declaration for a symbol at a source position.
-	GoToDefinition(context.Context, *connect.Request[v0.GoToDefinitionRequest]) (*connect.Response[v0.GoToDefinitionResponse], error)
-	// FindReferences resolves usage locations for a symbol at a source position.
-	FindReferences(context.Context, *connect.Request[v0.FindReferencesRequest]) (*connect.Response[v0.FindReferencesResponse], error)
-	// RenameSymbol applies a language-aware rename across the service.
-	RenameSymbol(context.Context, *connect.Request[v0.RenameSymbolRequest]) (*connect.Response[v0.RenameSymbolResponse], error)
-	// GetHoverInfo returns hover documentation and type information.
-	GetHoverInfo(context.Context, *connect.Request[v0.GetHoverInfoRequest]) (*connect.Response[v0.GetHoverInfoResponse], error)
-	// GetCompletions returns completion suggestions at a source position.
-	GetCompletions(context.Context, *connect.Request[v0.GetCompletionsRequest]) (*connect.Response[v0.GetCompletionsResponse], error)
 	// Code modification
 	Fix(context.Context, *connect.Request[v0.FixRequest]) (*connect.Response[v0.FixResponse], error)
 	// ApplyEdit applies a smart edit and optional language fixers.
@@ -99,8 +70,6 @@ type ToolingClient interface {
 	RemoveDependency(context.Context, *connect.Request[v0.RemoveDependencyRequest]) (*connect.Response[v0.RemoveDependencyResponse], error)
 	// Analysis
 	GetProjectInfo(context.Context, *connect.Request[v0.GetProjectInfoRequest]) (*connect.Response[v0.GetProjectInfoResponse], error)
-	// GetCallGraph runs whole-program call graph analysis.
-	GetCallGraph(context.Context, *connect.Request[v0.GetCallGraphRequest]) (*connect.Response[v0.GetCallGraphResponse], error)
 	// Dev validation
 	Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error)
 	// Test runs native tests and returns structured counts.
@@ -120,48 +89,6 @@ func NewToolingClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 	baseURL = strings.TrimRight(baseURL, "/")
 	toolingMethods := v0.File_codefly_services_tooling_v0_tooling_proto.Services().ByName("Tooling").Methods()
 	return &toolingClient{
-		listSymbols: connect.NewClient[v0.ListSymbolsRequest, v0.ListSymbolsResponse](
-			httpClient,
-			baseURL+ToolingListSymbolsProcedure,
-			connect.WithSchema(toolingMethods.ByName("ListSymbols")),
-			connect.WithClientOptions(opts...),
-		),
-		getDiagnostics: connect.NewClient[v0.GetDiagnosticsRequest, v0.GetDiagnosticsResponse](
-			httpClient,
-			baseURL+ToolingGetDiagnosticsProcedure,
-			connect.WithSchema(toolingMethods.ByName("GetDiagnostics")),
-			connect.WithClientOptions(opts...),
-		),
-		goToDefinition: connect.NewClient[v0.GoToDefinitionRequest, v0.GoToDefinitionResponse](
-			httpClient,
-			baseURL+ToolingGoToDefinitionProcedure,
-			connect.WithSchema(toolingMethods.ByName("GoToDefinition")),
-			connect.WithClientOptions(opts...),
-		),
-		findReferences: connect.NewClient[v0.FindReferencesRequest, v0.FindReferencesResponse](
-			httpClient,
-			baseURL+ToolingFindReferencesProcedure,
-			connect.WithSchema(toolingMethods.ByName("FindReferences")),
-			connect.WithClientOptions(opts...),
-		),
-		renameSymbol: connect.NewClient[v0.RenameSymbolRequest, v0.RenameSymbolResponse](
-			httpClient,
-			baseURL+ToolingRenameSymbolProcedure,
-			connect.WithSchema(toolingMethods.ByName("RenameSymbol")),
-			connect.WithClientOptions(opts...),
-		),
-		getHoverInfo: connect.NewClient[v0.GetHoverInfoRequest, v0.GetHoverInfoResponse](
-			httpClient,
-			baseURL+ToolingGetHoverInfoProcedure,
-			connect.WithSchema(toolingMethods.ByName("GetHoverInfo")),
-			connect.WithClientOptions(opts...),
-		),
-		getCompletions: connect.NewClient[v0.GetCompletionsRequest, v0.GetCompletionsResponse](
-			httpClient,
-			baseURL+ToolingGetCompletionsProcedure,
-			connect.WithSchema(toolingMethods.ByName("GetCompletions")),
-			connect.WithClientOptions(opts...),
-		),
 		fix: connect.NewClient[v0.FixRequest, v0.FixResponse](
 			httpClient,
 			baseURL+ToolingFixProcedure,
@@ -198,12 +125,6 @@ func NewToolingClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(toolingMethods.ByName("GetProjectInfo")),
 			connect.WithClientOptions(opts...),
 		),
-		getCallGraph: connect.NewClient[v0.GetCallGraphRequest, v0.GetCallGraphResponse](
-			httpClient,
-			baseURL+ToolingGetCallGraphProcedure,
-			connect.WithSchema(toolingMethods.ByName("GetCallGraph")),
-			connect.WithClientOptions(opts...),
-		),
 		build: connect.NewClient[v0.BuildRequest, v0.BuildResponse](
 			httpClient,
 			baseURL+ToolingBuildProcedure,
@@ -227,58 +148,15 @@ func NewToolingClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 
 // toolingClient implements ToolingClient.
 type toolingClient struct {
-	listSymbols      *connect.Client[v0.ListSymbolsRequest, v0.ListSymbolsResponse]
-	getDiagnostics   *connect.Client[v0.GetDiagnosticsRequest, v0.GetDiagnosticsResponse]
-	goToDefinition   *connect.Client[v0.GoToDefinitionRequest, v0.GoToDefinitionResponse]
-	findReferences   *connect.Client[v0.FindReferencesRequest, v0.FindReferencesResponse]
-	renameSymbol     *connect.Client[v0.RenameSymbolRequest, v0.RenameSymbolResponse]
-	getHoverInfo     *connect.Client[v0.GetHoverInfoRequest, v0.GetHoverInfoResponse]
-	getCompletions   *connect.Client[v0.GetCompletionsRequest, v0.GetCompletionsResponse]
 	fix              *connect.Client[v0.FixRequest, v0.FixResponse]
 	applyEdit        *connect.Client[v0.ApplyEditRequest, v0.ApplyEditResponse]
 	listDependencies *connect.Client[v0.ListDependenciesRequest, v0.ListDependenciesResponse]
 	addDependency    *connect.Client[v0.AddDependencyRequest, v0.AddDependencyResponse]
 	removeDependency *connect.Client[v0.RemoveDependencyRequest, v0.RemoveDependencyResponse]
 	getProjectInfo   *connect.Client[v0.GetProjectInfoRequest, v0.GetProjectInfoResponse]
-	getCallGraph     *connect.Client[v0.GetCallGraphRequest, v0.GetCallGraphResponse]
 	build            *connect.Client[v0.BuildRequest, v0.BuildResponse]
 	test             *connect.Client[v0.TestRequest, v0.TestResponse]
 	lint             *connect.Client[v0.LintRequest, v0.LintResponse]
-}
-
-// ListSymbols calls codefly.services.tooling.v0.Tooling.ListSymbols.
-func (c *toolingClient) ListSymbols(ctx context.Context, req *connect.Request[v0.ListSymbolsRequest]) (*connect.Response[v0.ListSymbolsResponse], error) {
-	return c.listSymbols.CallUnary(ctx, req)
-}
-
-// GetDiagnostics calls codefly.services.tooling.v0.Tooling.GetDiagnostics.
-func (c *toolingClient) GetDiagnostics(ctx context.Context, req *connect.Request[v0.GetDiagnosticsRequest]) (*connect.Response[v0.GetDiagnosticsResponse], error) {
-	return c.getDiagnostics.CallUnary(ctx, req)
-}
-
-// GoToDefinition calls codefly.services.tooling.v0.Tooling.GoToDefinition.
-func (c *toolingClient) GoToDefinition(ctx context.Context, req *connect.Request[v0.GoToDefinitionRequest]) (*connect.Response[v0.GoToDefinitionResponse], error) {
-	return c.goToDefinition.CallUnary(ctx, req)
-}
-
-// FindReferences calls codefly.services.tooling.v0.Tooling.FindReferences.
-func (c *toolingClient) FindReferences(ctx context.Context, req *connect.Request[v0.FindReferencesRequest]) (*connect.Response[v0.FindReferencesResponse], error) {
-	return c.findReferences.CallUnary(ctx, req)
-}
-
-// RenameSymbol calls codefly.services.tooling.v0.Tooling.RenameSymbol.
-func (c *toolingClient) RenameSymbol(ctx context.Context, req *connect.Request[v0.RenameSymbolRequest]) (*connect.Response[v0.RenameSymbolResponse], error) {
-	return c.renameSymbol.CallUnary(ctx, req)
-}
-
-// GetHoverInfo calls codefly.services.tooling.v0.Tooling.GetHoverInfo.
-func (c *toolingClient) GetHoverInfo(ctx context.Context, req *connect.Request[v0.GetHoverInfoRequest]) (*connect.Response[v0.GetHoverInfoResponse], error) {
-	return c.getHoverInfo.CallUnary(ctx, req)
-}
-
-// GetCompletions calls codefly.services.tooling.v0.Tooling.GetCompletions.
-func (c *toolingClient) GetCompletions(ctx context.Context, req *connect.Request[v0.GetCompletionsRequest]) (*connect.Response[v0.GetCompletionsResponse], error) {
-	return c.getCompletions.CallUnary(ctx, req)
 }
 
 // Fix calls codefly.services.tooling.v0.Tooling.Fix.
@@ -311,11 +189,6 @@ func (c *toolingClient) GetProjectInfo(ctx context.Context, req *connect.Request
 	return c.getProjectInfo.CallUnary(ctx, req)
 }
 
-// GetCallGraph calls codefly.services.tooling.v0.Tooling.GetCallGraph.
-func (c *toolingClient) GetCallGraph(ctx context.Context, req *connect.Request[v0.GetCallGraphRequest]) (*connect.Response[v0.GetCallGraphResponse], error) {
-	return c.getCallGraph.CallUnary(ctx, req)
-}
-
 // Build calls codefly.services.tooling.v0.Tooling.Build.
 func (c *toolingClient) Build(ctx context.Context, req *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error) {
 	return c.build.CallUnary(ctx, req)
@@ -333,20 +206,6 @@ func (c *toolingClient) Lint(ctx context.Context, req *connect.Request[v0.LintRe
 
 // ToolingHandler is an implementation of the codefly.services.tooling.v0.Tooling service.
 type ToolingHandler interface {
-	// LSP operations
-	ListSymbols(context.Context, *connect.Request[v0.ListSymbolsRequest]) (*connect.Response[v0.ListSymbolsResponse], error)
-	// GetDiagnostics returns compiler, linter, or language-server diagnostics.
-	GetDiagnostics(context.Context, *connect.Request[v0.GetDiagnosticsRequest]) (*connect.Response[v0.GetDiagnosticsResponse], error)
-	// GoToDefinition resolves the declaration for a symbol at a source position.
-	GoToDefinition(context.Context, *connect.Request[v0.GoToDefinitionRequest]) (*connect.Response[v0.GoToDefinitionResponse], error)
-	// FindReferences resolves usage locations for a symbol at a source position.
-	FindReferences(context.Context, *connect.Request[v0.FindReferencesRequest]) (*connect.Response[v0.FindReferencesResponse], error)
-	// RenameSymbol applies a language-aware rename across the service.
-	RenameSymbol(context.Context, *connect.Request[v0.RenameSymbolRequest]) (*connect.Response[v0.RenameSymbolResponse], error)
-	// GetHoverInfo returns hover documentation and type information.
-	GetHoverInfo(context.Context, *connect.Request[v0.GetHoverInfoRequest]) (*connect.Response[v0.GetHoverInfoResponse], error)
-	// GetCompletions returns completion suggestions at a source position.
-	GetCompletions(context.Context, *connect.Request[v0.GetCompletionsRequest]) (*connect.Response[v0.GetCompletionsResponse], error)
 	// Code modification
 	Fix(context.Context, *connect.Request[v0.FixRequest]) (*connect.Response[v0.FixResponse], error)
 	// ApplyEdit applies a smart edit and optional language fixers.
@@ -359,8 +218,6 @@ type ToolingHandler interface {
 	RemoveDependency(context.Context, *connect.Request[v0.RemoveDependencyRequest]) (*connect.Response[v0.RemoveDependencyResponse], error)
 	// Analysis
 	GetProjectInfo(context.Context, *connect.Request[v0.GetProjectInfoRequest]) (*connect.Response[v0.GetProjectInfoResponse], error)
-	// GetCallGraph runs whole-program call graph analysis.
-	GetCallGraph(context.Context, *connect.Request[v0.GetCallGraphRequest]) (*connect.Response[v0.GetCallGraphResponse], error)
 	// Dev validation
 	Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error)
 	// Test runs native tests and returns structured counts.
@@ -376,48 +233,6 @@ type ToolingHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewToolingHandler(svc ToolingHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	toolingMethods := v0.File_codefly_services_tooling_v0_tooling_proto.Services().ByName("Tooling").Methods()
-	toolingListSymbolsHandler := connect.NewUnaryHandler(
-		ToolingListSymbolsProcedure,
-		svc.ListSymbols,
-		connect.WithSchema(toolingMethods.ByName("ListSymbols")),
-		connect.WithHandlerOptions(opts...),
-	)
-	toolingGetDiagnosticsHandler := connect.NewUnaryHandler(
-		ToolingGetDiagnosticsProcedure,
-		svc.GetDiagnostics,
-		connect.WithSchema(toolingMethods.ByName("GetDiagnostics")),
-		connect.WithHandlerOptions(opts...),
-	)
-	toolingGoToDefinitionHandler := connect.NewUnaryHandler(
-		ToolingGoToDefinitionProcedure,
-		svc.GoToDefinition,
-		connect.WithSchema(toolingMethods.ByName("GoToDefinition")),
-		connect.WithHandlerOptions(opts...),
-	)
-	toolingFindReferencesHandler := connect.NewUnaryHandler(
-		ToolingFindReferencesProcedure,
-		svc.FindReferences,
-		connect.WithSchema(toolingMethods.ByName("FindReferences")),
-		connect.WithHandlerOptions(opts...),
-	)
-	toolingRenameSymbolHandler := connect.NewUnaryHandler(
-		ToolingRenameSymbolProcedure,
-		svc.RenameSymbol,
-		connect.WithSchema(toolingMethods.ByName("RenameSymbol")),
-		connect.WithHandlerOptions(opts...),
-	)
-	toolingGetHoverInfoHandler := connect.NewUnaryHandler(
-		ToolingGetHoverInfoProcedure,
-		svc.GetHoverInfo,
-		connect.WithSchema(toolingMethods.ByName("GetHoverInfo")),
-		connect.WithHandlerOptions(opts...),
-	)
-	toolingGetCompletionsHandler := connect.NewUnaryHandler(
-		ToolingGetCompletionsProcedure,
-		svc.GetCompletions,
-		connect.WithSchema(toolingMethods.ByName("GetCompletions")),
-		connect.WithHandlerOptions(opts...),
-	)
 	toolingFixHandler := connect.NewUnaryHandler(
 		ToolingFixProcedure,
 		svc.Fix,
@@ -454,12 +269,6 @@ func NewToolingHandler(svc ToolingHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(toolingMethods.ByName("GetProjectInfo")),
 		connect.WithHandlerOptions(opts...),
 	)
-	toolingGetCallGraphHandler := connect.NewUnaryHandler(
-		ToolingGetCallGraphProcedure,
-		svc.GetCallGraph,
-		connect.WithSchema(toolingMethods.ByName("GetCallGraph")),
-		connect.WithHandlerOptions(opts...),
-	)
 	toolingBuildHandler := connect.NewUnaryHandler(
 		ToolingBuildProcedure,
 		svc.Build,
@@ -480,20 +289,6 @@ func NewToolingHandler(svc ToolingHandler, opts ...connect.HandlerOption) (strin
 	)
 	return "/codefly.services.tooling.v0.Tooling/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case ToolingListSymbolsProcedure:
-			toolingListSymbolsHandler.ServeHTTP(w, r)
-		case ToolingGetDiagnosticsProcedure:
-			toolingGetDiagnosticsHandler.ServeHTTP(w, r)
-		case ToolingGoToDefinitionProcedure:
-			toolingGoToDefinitionHandler.ServeHTTP(w, r)
-		case ToolingFindReferencesProcedure:
-			toolingFindReferencesHandler.ServeHTTP(w, r)
-		case ToolingRenameSymbolProcedure:
-			toolingRenameSymbolHandler.ServeHTTP(w, r)
-		case ToolingGetHoverInfoProcedure:
-			toolingGetHoverInfoHandler.ServeHTTP(w, r)
-		case ToolingGetCompletionsProcedure:
-			toolingGetCompletionsHandler.ServeHTTP(w, r)
 		case ToolingFixProcedure:
 			toolingFixHandler.ServeHTTP(w, r)
 		case ToolingApplyEditProcedure:
@@ -506,8 +301,6 @@ func NewToolingHandler(svc ToolingHandler, opts ...connect.HandlerOption) (strin
 			toolingRemoveDependencyHandler.ServeHTTP(w, r)
 		case ToolingGetProjectInfoProcedure:
 			toolingGetProjectInfoHandler.ServeHTTP(w, r)
-		case ToolingGetCallGraphProcedure:
-			toolingGetCallGraphHandler.ServeHTTP(w, r)
 		case ToolingBuildProcedure:
 			toolingBuildHandler.ServeHTTP(w, r)
 		case ToolingTestProcedure:
@@ -522,34 +315,6 @@ func NewToolingHandler(svc ToolingHandler, opts ...connect.HandlerOption) (strin
 
 // UnimplementedToolingHandler returns CodeUnimplemented from all methods.
 type UnimplementedToolingHandler struct{}
-
-func (UnimplementedToolingHandler) ListSymbols(context.Context, *connect.Request[v0.ListSymbolsRequest]) (*connect.Response[v0.ListSymbolsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.ListSymbols is not implemented"))
-}
-
-func (UnimplementedToolingHandler) GetDiagnostics(context.Context, *connect.Request[v0.GetDiagnosticsRequest]) (*connect.Response[v0.GetDiagnosticsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.GetDiagnostics is not implemented"))
-}
-
-func (UnimplementedToolingHandler) GoToDefinition(context.Context, *connect.Request[v0.GoToDefinitionRequest]) (*connect.Response[v0.GoToDefinitionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.GoToDefinition is not implemented"))
-}
-
-func (UnimplementedToolingHandler) FindReferences(context.Context, *connect.Request[v0.FindReferencesRequest]) (*connect.Response[v0.FindReferencesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.FindReferences is not implemented"))
-}
-
-func (UnimplementedToolingHandler) RenameSymbol(context.Context, *connect.Request[v0.RenameSymbolRequest]) (*connect.Response[v0.RenameSymbolResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.RenameSymbol is not implemented"))
-}
-
-func (UnimplementedToolingHandler) GetHoverInfo(context.Context, *connect.Request[v0.GetHoverInfoRequest]) (*connect.Response[v0.GetHoverInfoResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.GetHoverInfo is not implemented"))
-}
-
-func (UnimplementedToolingHandler) GetCompletions(context.Context, *connect.Request[v0.GetCompletionsRequest]) (*connect.Response[v0.GetCompletionsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.GetCompletions is not implemented"))
-}
 
 func (UnimplementedToolingHandler) Fix(context.Context, *connect.Request[v0.FixRequest]) (*connect.Response[v0.FixResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.Fix is not implemented"))
@@ -573,10 +338,6 @@ func (UnimplementedToolingHandler) RemoveDependency(context.Context, *connect.Re
 
 func (UnimplementedToolingHandler) GetProjectInfo(context.Context, *connect.Request[v0.GetProjectInfoRequest]) (*connect.Response[v0.GetProjectInfoResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.GetProjectInfo is not implemented"))
-}
-
-func (UnimplementedToolingHandler) GetCallGraph(context.Context, *connect.Request[v0.GetCallGraphRequest]) (*connect.Response[v0.GetCallGraphResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.GetCallGraph is not implemented"))
 }
 
 func (UnimplementedToolingHandler) Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error) {

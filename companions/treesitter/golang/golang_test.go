@@ -13,7 +13,6 @@ import (
 
 	"github.com/codefly-dev/core/companions/treesitter"
 	_ "github.com/codefly-dev/core/companions/treesitter/golang"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	"github.com/codefly-dev/core/languages"
 )
 
@@ -74,21 +73,21 @@ func TestListSymbols_Go(t *testing.T) {
 		t.Fatal("no symbols returned")
 	}
 
-	byName := map[string]*codev0.Symbol{}
+	byName := map[string]*treesitter.Symbol{}
 	for _, s := range syms {
 		byName[s.Name] = s
 	}
 
 	cases := []struct {
 		name string
-		kind codev0.SymbolKind
+		kind treesitter.SymbolKind
 	}{
-		{"Greeter", codev0.SymbolKind_SYMBOL_KIND_STRUCT},
-		{"Greet", codev0.SymbolKind_SYMBOL_KIND_METHOD},
-		{"Speaker", codev0.SymbolKind_SYMBOL_KIND_INTERFACE},
-		{"Version", codev0.SymbolKind_SYMBOL_KIND_CONSTANT},
-		{"Default", codev0.SymbolKind_SYMBOL_KIND_VARIABLE},
-		{"NewGreeter", codev0.SymbolKind_SYMBOL_KIND_FUNCTION},
+		{"Greeter", treesitter.SymbolKindStruct},
+		{"Greet", treesitter.SymbolKindMethod},
+		{"Speaker", treesitter.SymbolKindInterface},
+		{"Version", treesitter.SymbolKindConstant},
+		{"Default", treesitter.SymbolKindVariable},
+		{"NewGreeter", treesitter.SymbolKindFunction},
 	}
 	for _, c := range cases {
 		s, ok := byName[c.name]
@@ -169,7 +168,7 @@ func TestDefinitionAndReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSymbols: %v", err)
 	}
-	var newGreeter *codev0.Symbol
+	var newGreeter *treesitter.Symbol
 	for _, s := range syms {
 		if s.Name == "NewGreeter" {
 			newGreeter = s

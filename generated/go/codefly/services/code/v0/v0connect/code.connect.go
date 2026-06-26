@@ -5,12 +5,13 @@
 package v0connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -35,20 +36,8 @@ const (
 const (
 	// CodeExecuteProcedure is the fully-qualified name of the Code's Execute RPC.
 	CodeExecuteProcedure = "/codefly.services.code.v0.Code/Execute"
-	// CodeListSymbolsProcedure is the fully-qualified name of the Code's ListSymbols RPC.
-	CodeListSymbolsProcedure = "/codefly.services.code.v0.Code/ListSymbols"
-	// CodeGetDiagnosticsProcedure is the fully-qualified name of the Code's GetDiagnostics RPC.
-	CodeGetDiagnosticsProcedure = "/codefly.services.code.v0.Code/GetDiagnostics"
-	// CodeGoToDefinitionProcedure is the fully-qualified name of the Code's GoToDefinition RPC.
-	CodeGoToDefinitionProcedure = "/codefly.services.code.v0.Code/GoToDefinition"
-	// CodeFindReferencesProcedure is the fully-qualified name of the Code's FindReferences RPC.
-	CodeFindReferencesProcedure = "/codefly.services.code.v0.Code/FindReferences"
-	// CodeGetHoverInfoProcedure is the fully-qualified name of the Code's GetHoverInfo RPC.
-	CodeGetHoverInfoProcedure = "/codefly.services.code.v0.Code/GetHoverInfo"
 	// CodeApplyEditProcedure is the fully-qualified name of the Code's ApplyEdit RPC.
 	CodeApplyEditProcedure = "/codefly.services.code.v0.Code/ApplyEdit"
-	// CodeGetCallGraphProcedure is the fully-qualified name of the Code's GetCallGraph RPC.
-	CodeGetCallGraphProcedure = "/codefly.services.code.v0.Code/GetCallGraph"
 	// CodeShellExecProcedure is the fully-qualified name of the Code's ShellExec RPC.
 	CodeShellExecProcedure = "/codefly.services.code.v0.Code/ShellExec"
 )
@@ -57,24 +46,10 @@ const (
 type CodeClient interface {
 	// Execute is the unified dispatch entry point for every code operation.
 	// Clients wrap the specific request type in a CodeRequest oneof; the
-	// plugin's Execute handler unwraps + dispatches. This is the path Mind
-	// uses for everything except the few direct RPCs below that predate
-	// the unification and still have live callers in codefly-cli.
+	// plugin's Execute handler unwraps and dispatches the operation.
 	Execute(context.Context, *connect.Request[v0.CodeRequest]) (*connect.Response[v0.CodeResponse], error)
-	// ListSymbols directly exposes symbol listing for older CLI callers.
-	ListSymbols(context.Context, *connect.Request[v0.ListSymbolsRequest]) (*connect.Response[v0.ListSymbolsResponse], error)
-	// GetDiagnostics directly exposes language diagnostics for older CLI callers.
-	GetDiagnostics(context.Context, *connect.Request[v0.GetDiagnosticsRequest]) (*connect.Response[v0.GetDiagnosticsResponse], error)
-	// GoToDefinition directly exposes definition lookup for older CLI callers.
-	GoToDefinition(context.Context, *connect.Request[v0.GoToDefinitionRequest]) (*connect.Response[v0.GoToDefinitionResponse], error)
-	// FindReferences directly exposes reference lookup for older CLI callers.
-	FindReferences(context.Context, *connect.Request[v0.FindReferencesRequest]) (*connect.Response[v0.FindReferencesResponse], error)
-	// GetHoverInfo directly exposes hover information for older CLI callers.
-	GetHoverInfo(context.Context, *connect.Request[v0.GetHoverInfoRequest]) (*connect.Response[v0.GetHoverInfoResponse], error)
 	// ApplyEdit directly exposes smart edits for older CLI callers.
 	ApplyEdit(context.Context, *connect.Request[v0.ApplyEditRequest]) (*connect.Response[v0.ApplyEditResponse], error)
-	// GetCallGraph directly exposes call graph analysis for older CLI callers.
-	GetCallGraph(context.Context, *connect.Request[v0.GetCallGraphRequest]) (*connect.Response[v0.GetCallGraphResponse], error)
 	// ShellExec is the one sanctioned path for running shell commands
 	// against a workspace. Clients call this instead of os/exec so all
 	// process spawning crosses the plugin boundary (the agent).
@@ -98,46 +73,10 @@ func NewCodeClient(httpClient connect.HTTPClient, baseURL string, opts ...connec
 			connect.WithSchema(codeMethods.ByName("Execute")),
 			connect.WithClientOptions(opts...),
 		),
-		listSymbols: connect.NewClient[v0.ListSymbolsRequest, v0.ListSymbolsResponse](
-			httpClient,
-			baseURL+CodeListSymbolsProcedure,
-			connect.WithSchema(codeMethods.ByName("ListSymbols")),
-			connect.WithClientOptions(opts...),
-		),
-		getDiagnostics: connect.NewClient[v0.GetDiagnosticsRequest, v0.GetDiagnosticsResponse](
-			httpClient,
-			baseURL+CodeGetDiagnosticsProcedure,
-			connect.WithSchema(codeMethods.ByName("GetDiagnostics")),
-			connect.WithClientOptions(opts...),
-		),
-		goToDefinition: connect.NewClient[v0.GoToDefinitionRequest, v0.GoToDefinitionResponse](
-			httpClient,
-			baseURL+CodeGoToDefinitionProcedure,
-			connect.WithSchema(codeMethods.ByName("GoToDefinition")),
-			connect.WithClientOptions(opts...),
-		),
-		findReferences: connect.NewClient[v0.FindReferencesRequest, v0.FindReferencesResponse](
-			httpClient,
-			baseURL+CodeFindReferencesProcedure,
-			connect.WithSchema(codeMethods.ByName("FindReferences")),
-			connect.WithClientOptions(opts...),
-		),
-		getHoverInfo: connect.NewClient[v0.GetHoverInfoRequest, v0.GetHoverInfoResponse](
-			httpClient,
-			baseURL+CodeGetHoverInfoProcedure,
-			connect.WithSchema(codeMethods.ByName("GetHoverInfo")),
-			connect.WithClientOptions(opts...),
-		),
 		applyEdit: connect.NewClient[v0.ApplyEditRequest, v0.ApplyEditResponse](
 			httpClient,
 			baseURL+CodeApplyEditProcedure,
 			connect.WithSchema(codeMethods.ByName("ApplyEdit")),
-			connect.WithClientOptions(opts...),
-		),
-		getCallGraph: connect.NewClient[v0.GetCallGraphRequest, v0.GetCallGraphResponse](
-			httpClient,
-			baseURL+CodeGetCallGraphProcedure,
-			connect.WithSchema(codeMethods.ByName("GetCallGraph")),
 			connect.WithClientOptions(opts...),
 		),
 		shellExec: connect.NewClient[v0.ShellExecRequest, v0.ShellExecResponse](
@@ -151,15 +90,9 @@ func NewCodeClient(httpClient connect.HTTPClient, baseURL string, opts ...connec
 
 // codeClient implements CodeClient.
 type codeClient struct {
-	execute        *connect.Client[v0.CodeRequest, v0.CodeResponse]
-	listSymbols    *connect.Client[v0.ListSymbolsRequest, v0.ListSymbolsResponse]
-	getDiagnostics *connect.Client[v0.GetDiagnosticsRequest, v0.GetDiagnosticsResponse]
-	goToDefinition *connect.Client[v0.GoToDefinitionRequest, v0.GoToDefinitionResponse]
-	findReferences *connect.Client[v0.FindReferencesRequest, v0.FindReferencesResponse]
-	getHoverInfo   *connect.Client[v0.GetHoverInfoRequest, v0.GetHoverInfoResponse]
-	applyEdit      *connect.Client[v0.ApplyEditRequest, v0.ApplyEditResponse]
-	getCallGraph   *connect.Client[v0.GetCallGraphRequest, v0.GetCallGraphResponse]
-	shellExec      *connect.Client[v0.ShellExecRequest, v0.ShellExecResponse]
+	execute   *connect.Client[v0.CodeRequest, v0.CodeResponse]
+	applyEdit *connect.Client[v0.ApplyEditRequest, v0.ApplyEditResponse]
+	shellExec *connect.Client[v0.ShellExecRequest, v0.ShellExecResponse]
 }
 
 // Execute calls codefly.services.code.v0.Code.Execute.
@@ -167,39 +100,9 @@ func (c *codeClient) Execute(ctx context.Context, req *connect.Request[v0.CodeRe
 	return c.execute.CallUnary(ctx, req)
 }
 
-// ListSymbols calls codefly.services.code.v0.Code.ListSymbols.
-func (c *codeClient) ListSymbols(ctx context.Context, req *connect.Request[v0.ListSymbolsRequest]) (*connect.Response[v0.ListSymbolsResponse], error) {
-	return c.listSymbols.CallUnary(ctx, req)
-}
-
-// GetDiagnostics calls codefly.services.code.v0.Code.GetDiagnostics.
-func (c *codeClient) GetDiagnostics(ctx context.Context, req *connect.Request[v0.GetDiagnosticsRequest]) (*connect.Response[v0.GetDiagnosticsResponse], error) {
-	return c.getDiagnostics.CallUnary(ctx, req)
-}
-
-// GoToDefinition calls codefly.services.code.v0.Code.GoToDefinition.
-func (c *codeClient) GoToDefinition(ctx context.Context, req *connect.Request[v0.GoToDefinitionRequest]) (*connect.Response[v0.GoToDefinitionResponse], error) {
-	return c.goToDefinition.CallUnary(ctx, req)
-}
-
-// FindReferences calls codefly.services.code.v0.Code.FindReferences.
-func (c *codeClient) FindReferences(ctx context.Context, req *connect.Request[v0.FindReferencesRequest]) (*connect.Response[v0.FindReferencesResponse], error) {
-	return c.findReferences.CallUnary(ctx, req)
-}
-
-// GetHoverInfo calls codefly.services.code.v0.Code.GetHoverInfo.
-func (c *codeClient) GetHoverInfo(ctx context.Context, req *connect.Request[v0.GetHoverInfoRequest]) (*connect.Response[v0.GetHoverInfoResponse], error) {
-	return c.getHoverInfo.CallUnary(ctx, req)
-}
-
 // ApplyEdit calls codefly.services.code.v0.Code.ApplyEdit.
 func (c *codeClient) ApplyEdit(ctx context.Context, req *connect.Request[v0.ApplyEditRequest]) (*connect.Response[v0.ApplyEditResponse], error) {
 	return c.applyEdit.CallUnary(ctx, req)
-}
-
-// GetCallGraph calls codefly.services.code.v0.Code.GetCallGraph.
-func (c *codeClient) GetCallGraph(ctx context.Context, req *connect.Request[v0.GetCallGraphRequest]) (*connect.Response[v0.GetCallGraphResponse], error) {
-	return c.getCallGraph.CallUnary(ctx, req)
 }
 
 // ShellExec calls codefly.services.code.v0.Code.ShellExec.
@@ -211,24 +114,10 @@ func (c *codeClient) ShellExec(ctx context.Context, req *connect.Request[v0.Shel
 type CodeHandler interface {
 	// Execute is the unified dispatch entry point for every code operation.
 	// Clients wrap the specific request type in a CodeRequest oneof; the
-	// plugin's Execute handler unwraps + dispatches. This is the path Mind
-	// uses for everything except the few direct RPCs below that predate
-	// the unification and still have live callers in codefly-cli.
+	// plugin's Execute handler unwraps and dispatches the operation.
 	Execute(context.Context, *connect.Request[v0.CodeRequest]) (*connect.Response[v0.CodeResponse], error)
-	// ListSymbols directly exposes symbol listing for older CLI callers.
-	ListSymbols(context.Context, *connect.Request[v0.ListSymbolsRequest]) (*connect.Response[v0.ListSymbolsResponse], error)
-	// GetDiagnostics directly exposes language diagnostics for older CLI callers.
-	GetDiagnostics(context.Context, *connect.Request[v0.GetDiagnosticsRequest]) (*connect.Response[v0.GetDiagnosticsResponse], error)
-	// GoToDefinition directly exposes definition lookup for older CLI callers.
-	GoToDefinition(context.Context, *connect.Request[v0.GoToDefinitionRequest]) (*connect.Response[v0.GoToDefinitionResponse], error)
-	// FindReferences directly exposes reference lookup for older CLI callers.
-	FindReferences(context.Context, *connect.Request[v0.FindReferencesRequest]) (*connect.Response[v0.FindReferencesResponse], error)
-	// GetHoverInfo directly exposes hover information for older CLI callers.
-	GetHoverInfo(context.Context, *connect.Request[v0.GetHoverInfoRequest]) (*connect.Response[v0.GetHoverInfoResponse], error)
 	// ApplyEdit directly exposes smart edits for older CLI callers.
 	ApplyEdit(context.Context, *connect.Request[v0.ApplyEditRequest]) (*connect.Response[v0.ApplyEditResponse], error)
-	// GetCallGraph directly exposes call graph analysis for older CLI callers.
-	GetCallGraph(context.Context, *connect.Request[v0.GetCallGraphRequest]) (*connect.Response[v0.GetCallGraphResponse], error)
 	// ShellExec is the one sanctioned path for running shell commands
 	// against a workspace. Clients call this instead of os/exec so all
 	// process spawning crosses the plugin boundary (the agent).
@@ -248,46 +137,10 @@ func NewCodeHandler(svc CodeHandler, opts ...connect.HandlerOption) (string, htt
 		connect.WithSchema(codeMethods.ByName("Execute")),
 		connect.WithHandlerOptions(opts...),
 	)
-	codeListSymbolsHandler := connect.NewUnaryHandler(
-		CodeListSymbolsProcedure,
-		svc.ListSymbols,
-		connect.WithSchema(codeMethods.ByName("ListSymbols")),
-		connect.WithHandlerOptions(opts...),
-	)
-	codeGetDiagnosticsHandler := connect.NewUnaryHandler(
-		CodeGetDiagnosticsProcedure,
-		svc.GetDiagnostics,
-		connect.WithSchema(codeMethods.ByName("GetDiagnostics")),
-		connect.WithHandlerOptions(opts...),
-	)
-	codeGoToDefinitionHandler := connect.NewUnaryHandler(
-		CodeGoToDefinitionProcedure,
-		svc.GoToDefinition,
-		connect.WithSchema(codeMethods.ByName("GoToDefinition")),
-		connect.WithHandlerOptions(opts...),
-	)
-	codeFindReferencesHandler := connect.NewUnaryHandler(
-		CodeFindReferencesProcedure,
-		svc.FindReferences,
-		connect.WithSchema(codeMethods.ByName("FindReferences")),
-		connect.WithHandlerOptions(opts...),
-	)
-	codeGetHoverInfoHandler := connect.NewUnaryHandler(
-		CodeGetHoverInfoProcedure,
-		svc.GetHoverInfo,
-		connect.WithSchema(codeMethods.ByName("GetHoverInfo")),
-		connect.WithHandlerOptions(opts...),
-	)
 	codeApplyEditHandler := connect.NewUnaryHandler(
 		CodeApplyEditProcedure,
 		svc.ApplyEdit,
 		connect.WithSchema(codeMethods.ByName("ApplyEdit")),
-		connect.WithHandlerOptions(opts...),
-	)
-	codeGetCallGraphHandler := connect.NewUnaryHandler(
-		CodeGetCallGraphProcedure,
-		svc.GetCallGraph,
-		connect.WithSchema(codeMethods.ByName("GetCallGraph")),
 		connect.WithHandlerOptions(opts...),
 	)
 	codeShellExecHandler := connect.NewUnaryHandler(
@@ -300,20 +153,8 @@ func NewCodeHandler(svc CodeHandler, opts ...connect.HandlerOption) (string, htt
 		switch r.URL.Path {
 		case CodeExecuteProcedure:
 			codeExecuteHandler.ServeHTTP(w, r)
-		case CodeListSymbolsProcedure:
-			codeListSymbolsHandler.ServeHTTP(w, r)
-		case CodeGetDiagnosticsProcedure:
-			codeGetDiagnosticsHandler.ServeHTTP(w, r)
-		case CodeGoToDefinitionProcedure:
-			codeGoToDefinitionHandler.ServeHTTP(w, r)
-		case CodeFindReferencesProcedure:
-			codeFindReferencesHandler.ServeHTTP(w, r)
-		case CodeGetHoverInfoProcedure:
-			codeGetHoverInfoHandler.ServeHTTP(w, r)
 		case CodeApplyEditProcedure:
 			codeApplyEditHandler.ServeHTTP(w, r)
-		case CodeGetCallGraphProcedure:
-			codeGetCallGraphHandler.ServeHTTP(w, r)
 		case CodeShellExecProcedure:
 			codeShellExecHandler.ServeHTTP(w, r)
 		default:
@@ -329,32 +170,8 @@ func (UnimplementedCodeHandler) Execute(context.Context, *connect.Request[v0.Cod
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.Execute is not implemented"))
 }
 
-func (UnimplementedCodeHandler) ListSymbols(context.Context, *connect.Request[v0.ListSymbolsRequest]) (*connect.Response[v0.ListSymbolsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.ListSymbols is not implemented"))
-}
-
-func (UnimplementedCodeHandler) GetDiagnostics(context.Context, *connect.Request[v0.GetDiagnosticsRequest]) (*connect.Response[v0.GetDiagnosticsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.GetDiagnostics is not implemented"))
-}
-
-func (UnimplementedCodeHandler) GoToDefinition(context.Context, *connect.Request[v0.GoToDefinitionRequest]) (*connect.Response[v0.GoToDefinitionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.GoToDefinition is not implemented"))
-}
-
-func (UnimplementedCodeHandler) FindReferences(context.Context, *connect.Request[v0.FindReferencesRequest]) (*connect.Response[v0.FindReferencesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.FindReferences is not implemented"))
-}
-
-func (UnimplementedCodeHandler) GetHoverInfo(context.Context, *connect.Request[v0.GetHoverInfoRequest]) (*connect.Response[v0.GetHoverInfoResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.GetHoverInfo is not implemented"))
-}
-
 func (UnimplementedCodeHandler) ApplyEdit(context.Context, *connect.Request[v0.ApplyEditRequest]) (*connect.Response[v0.ApplyEditResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.ApplyEdit is not implemented"))
-}
-
-func (UnimplementedCodeHandler) GetCallGraph(context.Context, *connect.Request[v0.GetCallGraphRequest]) (*connect.Response[v0.GetCallGraphResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.GetCallGraph is not implemented"))
 }
 
 func (UnimplementedCodeHandler) ShellExec(context.Context, *connect.Request[v0.ShellExecRequest]) (*connect.Response[v0.ShellExecResponse], error) {

@@ -16,9 +16,7 @@ import (
 
 // TypeScriptCodeServer extends DefaultCodeServer with TypeScript /
 // JavaScript-specific operations: GetProjectInfo (package.json +
-// per-file import scan) and ListSymbols (via the pluggable
-// SymbolProvider; TSASTSymbolProvider is the default when Node.js
-// is available).
+// per-file import scan).
 //
 // Per-file import extraction is line-based Go scanning — same
 // philosophy as PythonCodeServer's scanPackageImports. We avoid
@@ -26,34 +24,13 @@ import (
 // is the only thing that needs the TypeScript compiler API).
 type TypeScriptCodeServer struct {
 	*DefaultCodeServer
-	symbols SymbolProvider
 }
 
-// TypeScriptServerOption configures a TypeScriptCodeServer.
-type TypeScriptServerOption func(*TypeScriptCodeServer)
-
-// WithTypeScriptSymbolProvider overrides the default symbol
-// provider. Pass nil to disable list_symbols entirely (useful when
-// Node.js isn't installed and the test only exercises
-// GetProjectInfo).
-func WithTypeScriptSymbolProvider(sp SymbolProvider) TypeScriptServerOption {
-	return func(s *TypeScriptCodeServer) {
-		s.symbols = sp
-	}
-}
-
-// NewTypeScriptCodeServer creates a TS-aware code server. The
-// default symbol provider is TSASTSymbolProvider which requires
-// Node.js; tests on Node-free CI should pass
-// WithTypeScriptSymbolProvider(nil).
-func NewTypeScriptCodeServer(dir string, serverOpts []ServerOption, tsOpts ...TypeScriptServerOption) *TypeScriptCodeServer {
+// NewTypeScriptCodeServer creates a TS-aware code server.
+func NewTypeScriptCodeServer(dir string, serverOpts []ServerOption) *TypeScriptCodeServer {
 	base := NewDefaultCodeServer(dir, serverOpts...)
 	s := &TypeScriptCodeServer{
 		DefaultCodeServer: base,
-		symbols:           NewTSASTSymbolProvider(dir),
-	}
-	for _, o := range tsOpts {
-		o(s)
 	}
 	s.registerTypeScriptOverrides()
 	return s
@@ -61,9 +38,6 @@ func NewTypeScriptCodeServer(dir string, serverOpts []ServerOption, tsOpts ...Ty
 
 func (s *TypeScriptCodeServer) registerTypeScriptOverrides() {
 	s.Override("get_project_info", s.handleGetProjectInfo)
-	if s.symbols != nil {
-		s.Override("list_symbols", s.handleListSymbols)
-	}
 }
 
 // --- Standalone gRPC RPCs ---
@@ -76,41 +50,7 @@ func (s *TypeScriptCodeServer) GetProjectInfo(ctx context.Context, _ *codev0.Get
 	return resp.GetGetProjectInfo(), nil
 }
 
-func (s *TypeScriptCodeServer) ListSymbols(ctx context.Context, req *codev0.ListSymbolsRequest) (*codev0.ListSymbolsResponse, error) {
-	if s.symbols == nil {
-		return &codev0.ListSymbolsResponse{
-			Status: &codev0.ListSymbolsStatus{State: codev0.ListSymbolsStatus_ERROR, Message: "no symbol provider configured"},
-		}, nil
-	}
-	codeReq := &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListSymbols{ListSymbols: req},
-	}
-	resp, err := s.handleListSymbols(ctx, codeReq)
-	if err != nil {
-		return nil, err
-	}
-	return resp.GetListSymbols(), nil
-}
-
 // --- Handlers ---
-
-func (s *TypeScriptCodeServer) handleListSymbols(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
-	r := req.GetListSymbols()
-	file := ""
-	if r != nil {
-		file = r.File
-	}
-	symbols, err := s.symbols.ListSymbols(ctx, file)
-	if err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListSymbols{ListSymbols: &codev0.ListSymbolsResponse{
-			Status: &codev0.ListSymbolsStatus{State: codev0.ListSymbolsStatus_ERROR, Message: err.Error()},
-		}}}, nil
-	}
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListSymbols{ListSymbols: &codev0.ListSymbolsResponse{
-		Status:  &codev0.ListSymbolsStatus{State: codev0.ListSymbolsStatus_SUCCESS},
-		Symbols: symbols,
-	}}}, nil
-}
 
 func (s *TypeScriptCodeServer) handleGetProjectInfo(_ context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	srcDir := s.SourceDir
