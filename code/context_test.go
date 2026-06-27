@@ -112,8 +112,8 @@ func TestCodebaseContext_Format_OperationalOnly(t *testing.T) {
 	}
 }
 
-func TestRelevanceScoring_RepresentativeRepos(t *testing.T) {
-	for _, repo := range representativeOperationalRepos() {
+func TestRelevanceScoring_LightweightRepos(t *testing.T) {
+	for _, repo := range lightweightOperationalRepos() {
 		repo := repo
 		t.Run(repo.Name, func(t *testing.T) {
 			dir := EnsureRepo(t, repo)

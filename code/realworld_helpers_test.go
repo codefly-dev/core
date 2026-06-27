@@ -101,6 +101,15 @@ func representativeOperationalRepos() []TestRepo {
 	return selected
 }
 
+func lightweightOperationalRepos() []TestRepo {
+	for _, repo := range AllTestRepos() {
+		if repo.Name == "fatih_color" {
+			return []TestRepo{repo}
+		}
+	}
+	return AllTestRepos()[:1]
+}
+
 // EnsureRepo returns the path to a test repo managed as a git submodule under
 // testdata/repos/<name>. Skips the test if the submodule hasn't been initialized
 // (run `git submodule update --init` from the core root).

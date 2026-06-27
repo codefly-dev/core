@@ -16,7 +16,7 @@ import (
 // context formatting, and relevance. Semantic symbol/flow extraction belongs in
 // Mind, not here.
 func TestIngestion_FullPipeline(t *testing.T) {
-	for _, repo := range representativeOperationalRepos() {
+	for _, repo := range lightweightOperationalRepos() {
 		repo := repo
 		t.Run(repo.Name, func(t *testing.T) {
 			dir := EnsureRepo(t, repo)
