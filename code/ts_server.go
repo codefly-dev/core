@@ -20,8 +20,7 @@ import (
 //
 // Per-file import extraction is line-based Go scanning — same
 // philosophy as PythonCodeServer's scanPackageImports. We avoid
-// requiring Node.js for the dependency view (the symbol provider
-// is the only thing that needs the TypeScript compiler API).
+// requiring Node.js for the dependency view.
 type TypeScriptCodeServer struct {
 	*DefaultCodeServer
 }

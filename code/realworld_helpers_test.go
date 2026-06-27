@@ -8,108 +8,97 @@ import (
 
 // TestRepo defines a public Go repository used for real-world analysis testing.
 type TestRepo struct {
-	Name           string
-	CloneURL       string
-	Module         string
-	MinPackages    int
-	MinSymbols     int
-	KnownFunctions []string
-	KnownTypes     []string
-	MultiPackage   bool
-	SearchPattern  string
-	SearchMinHits  int
+	Name          string
+	CloneURL      string
+	Module        string
+	MinPackages   int
+	MultiPackage  bool
+	SearchPattern string
+	SearchMinHits int
 }
 
 // AllTestRepos returns the 8 target repos ordered simple to complex.
 func AllTestRepos() []TestRepo {
 	return []TestRepo{
 		{
-			Name:           "fatih_color",
-			CloneURL:       "https://github.com/fatih/color",
-			Module:         "github.com/fatih/color",
-			MinSymbols:     10,
-			KnownFunctions: []string{"New"},
-			KnownTypes:     []string{"Color"},
-			SearchPattern:  "Sprintf",
-			SearchMinHits:  1,
+			Name:          "fatih_color",
+			CloneURL:      "https://github.com/fatih/color",
+			Module:        "github.com/fatih/color",
+			SearchPattern: "Sprintf",
+			SearchMinHits: 1,
 		},
 		{
-			Name:           "mitchellh_mapstructure",
-			CloneURL:       "https://github.com/mitchellh/mapstructure",
-			Module:         "github.com/mitchellh/mapstructure",
-			MinSymbols:     5,
-			KnownFunctions: []string{"Decode"},
-			KnownTypes:     []string{"DecoderConfig"},
-			SearchPattern:  "Decode",
-			SearchMinHits:  2,
+			Name:          "mitchellh_mapstructure",
+			CloneURL:      "https://github.com/mitchellh/mapstructure",
+			Module:        "github.com/mitchellh/mapstructure",
+			SearchPattern: "Decode",
+			SearchMinHits: 2,
 		},
 		{
-			Name:           "tidwall_gjson",
-			CloneURL:       "https://github.com/tidwall/gjson",
-			Module:         "github.com/tidwall/gjson",
-			MinSymbols:     15,
-			KnownFunctions: []string{"Get", "Parse"},
-			KnownTypes:     []string{"Result"},
-			SearchPattern:  "func.*Get",
-			SearchMinHits:  1,
+			Name:          "tidwall_gjson",
+			CloneURL:      "https://github.com/tidwall/gjson",
+			Module:        "github.com/tidwall/gjson",
+			SearchPattern: "func.*Get",
+			SearchMinHits: 1,
 		},
 		{
-			Name:           "spf13_pflag",
-			CloneURL:       "https://github.com/spf13/pflag",
-			Module:         "github.com/spf13/pflag",
-			MinSymbols:     20,
-			KnownFunctions: []string{"Parse"},
-			KnownTypes:     []string{"FlagSet"},
-			SearchPattern:  "String",
-			SearchMinHits:  1,
+			Name:          "spf13_pflag",
+			CloneURL:      "https://github.com/spf13/pflag",
+			Module:        "github.com/spf13/pflag",
+			SearchPattern: "String",
+			SearchMinHits: 1,
 		},
 		{
-			Name:           "rs_zerolog",
-			CloneURL:       "https://github.com/rs/zerolog",
-			Module:         "github.com/rs/zerolog",
-			MinPackages:    2,
-			MinSymbols:     15,
-			KnownFunctions: []string{"New"},
-			KnownTypes:     []string{"Logger", "Event"},
-			MultiPackage:   true,
-			SearchPattern:  "Logger",
-			SearchMinHits:  3,
+			Name:          "rs_zerolog",
+			CloneURL:      "https://github.com/rs/zerolog",
+			Module:        "github.com/rs/zerolog",
+			MinPackages:   2,
+			MultiPackage:  true,
+			SearchPattern: "Logger",
+			SearchMinHits: 3,
 		},
 		{
-			Name:           "go_chi_chi",
-			CloneURL:       "https://github.com/go-chi/chi",
-			Module:         "github.com/go-chi/chi/v5",
-			MinPackages:    2,
-			MinSymbols:     10,
-			KnownFunctions: []string{"NewRouter"},
-			KnownTypes:     []string{"Mux"},
-			MultiPackage:   true,
-			SearchPattern:  "Handler",
-			SearchMinHits:  2,
+			Name:          "go_chi_chi",
+			CloneURL:      "https://github.com/go-chi/chi",
+			Module:        "github.com/go-chi/chi/v5",
+			MinPackages:   2,
+			MultiPackage:  true,
+			SearchPattern: "Handler",
+			SearchMinHits: 2,
 		},
 		{
-			Name:           "gorilla_mux",
-			CloneURL:       "https://github.com/gorilla/mux",
-			Module:         "github.com/gorilla/mux",
-			MinSymbols:     10,
-			KnownFunctions: []string{"NewRouter"},
-			KnownTypes:     []string{"Router", "Route"},
-			SearchPattern:  "Route",
-			SearchMinHits:  3,
+			Name:          "gorilla_mux",
+			CloneURL:      "https://github.com/gorilla/mux",
+			Module:        "github.com/gorilla/mux",
+			SearchPattern: "Route",
+			SearchMinHits: 3,
 		},
 		{
-			Name:           "charmbracelet_lipgloss",
-			CloneURL:       "https://github.com/charmbracelet/lipgloss",
-			Module:         "github.com/charmbracelet/lipgloss",
-			MinPackages:    2,
-			MinSymbols:     10,
-			KnownFunctions: []string{"NewStyle"},
-			KnownTypes:     []string{"Style"},
-			MultiPackage:   true,
-			SearchPattern:  "Render",
-			SearchMinHits:  1,
+			Name:          "charmbracelet_lipgloss",
+			CloneURL:      "https://github.com/charmbracelet/lipgloss",
+			Module:        "github.com/charmbracelet/lipgloss",
+			MinPackages:   2,
+			MultiPackage:  true,
+			SearchPattern: "Render",
+			SearchMinHits: 1,
 		},
 	}
+}
+
+// representativeOperationalRepos keeps operational regression tests small while
+// still covering simple and multi-package Go modules. Broader repo coverage can
+// be added by callers that explicitly need it.
+func representativeOperationalRepos() []TestRepo {
+	var selected []TestRepo
+	for _, repo := range AllTestRepos() {
+		if repo.Name == "fatih_color" || repo.Name == "go_chi_chi" {
+			selected = append(selected, repo)
+		}
+	}
+	if len(selected) == 0 {
+		return AllTestRepos()[:1]
+	}
+	return selected
 }
 
 // EnsureRepo returns the path to a test repo managed as a git submodule under

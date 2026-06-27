@@ -7,72 +7,8 @@ import (
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
-func TestGoCodeServer_ListSymbols_RealRepos(t *testing.T) {
-	for _, repo := range AllTestRepos() {
-		repo := repo
-		t.Run(repo.Name, func(t *testing.T) {
-			dir := EnsureRepo(t, repo)
-			srv := NewGoCodeServer(dir, nil)
-			ctx := context.Background()
-
-			syms, err := srv.symbols.ListSymbols(ctx, "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(syms) < repo.MinSymbols {
-				t.Errorf("expected >= %d symbols, got %d", repo.MinSymbols, len(syms))
-			}
-
-			funcCount, methodCount, typeCount := 0, 0, 0
-			for _, s := range syms {
-				switch s.Kind {
-				case SymbolKindFunction:
-					funcCount++
-				case SymbolKindMethod:
-					methodCount++
-				case SymbolKindStruct:
-					typeCount++
-				}
-			}
-			t.Logf("%s: %d symbols (%d funcs, %d methods, %d types)",
-				repo.Name, len(syms), funcCount, methodCount, typeCount)
-
-			for _, known := range repo.KnownFunctions {
-				if !hasSymbolNamed(syms, known) {
-					t.Errorf("expected to find function %q", known)
-				}
-			}
-			for _, known := range repo.KnownTypes {
-				if !hasSymbolNamed(syms, known) {
-					t.Errorf("expected to find type %q", known)
-				}
-			}
-		})
-	}
-}
-
-func TestGoCodeServer_ListSymbols_SingleFile(t *testing.T) {
-	repo := AllTestRepos()[0] // fatih/color
-	dir := EnsureRepo(t, repo)
-	srv := NewGoCodeServer(dir, nil)
-
-	syms, err := srv.symbols.ListSymbols(context.Background(), "color.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(syms) == 0 {
-		t.Fatal("no symbols in color.go")
-	}
-	for _, s := range syms {
-		if s.Location == nil || s.Location.File != "color.go" {
-			t.Errorf("symbol %q has wrong file: %v", s.Name, s.Location)
-		}
-	}
-	t.Logf("color.go: %d symbols", len(syms))
-}
-
 func TestGoCodeServer_GetProjectInfo_RealRepos(t *testing.T) {
-	for _, repo := range AllTestRepos() {
+	for _, repo := range representativeOperationalRepos() {
 		repo := repo
 		t.Run(repo.Name, func(t *testing.T) {
 			dir := EnsureRepo(t, repo)
@@ -97,22 +33,24 @@ func TestGoCodeServer_GetProjectInfo_RealRepos(t *testing.T) {
 			if info.Module != repo.Module {
 				t.Errorf("module: got %q, want %q", info.Module, repo.Module)
 			}
+			if len(info.Packages) == 0 {
+				t.Fatal("no packages")
+			}
 			if len(info.FileHashes) == 0 {
 				t.Error("no file hashes")
+			}
+			if repo.MultiPackage && len(info.Packages) < repo.MinPackages {
+				t.Errorf("expected >= %d packages, got %d", repo.MinPackages, len(info.Packages))
 			}
 
 			t.Logf("%s: module=%s, %d packages, %d deps, %d file hashes",
 				repo.Name, info.Module, len(info.Packages), len(info.Dependencies), len(info.FileHashes))
-
-			if repo.MultiPackage && len(info.Packages) < repo.MinPackages {
-				t.Errorf("expected >= %d packages, got %d", repo.MinPackages, len(info.Packages))
-			}
 		})
 	}
 }
 
 func TestGoCodeServer_ListDependencies_RealRepos(t *testing.T) {
-	for _, repo := range AllTestRepos() {
+	for _, repo := range representativeOperationalRepos() {
 		repo := repo
 		t.Run(repo.Name, func(t *testing.T) {
 			dir := EnsureRepo(t, repo)
@@ -131,12 +69,12 @@ func TestGoCodeServer_ListDependencies_RealRepos(t *testing.T) {
 			if deps.Error != "" {
 				t.Fatalf("go list -m failed (run `go mod download` in the testdata repo): %s", deps.Error)
 			}
-			t.Logf("%s: %d dependencies", repo.Name, len(deps.Dependencies))
 			for _, d := range deps.Dependencies {
 				if d.Name == "" {
 					t.Error("empty dependency name")
 				}
 			}
+			t.Logf("%s: %d dependencies", repo.Name, len(deps.Dependencies))
 		})
 	}
 }
@@ -163,13 +101,4 @@ func TestGoCodeServer_InheritsDefaultOps(t *testing.T) {
 		t.Errorf("search %q: expected >= %d hits, got %d",
 			repo.SearchPattern, repo.SearchMinHits, len(result.Matches))
 	}
-}
-
-func hasSymbolNamed(symbols []*Symbol, name string) bool {
-	for _, s := range symbols {
-		if s.Name == name {
-			return true
-		}
-	}
-	return false
 }

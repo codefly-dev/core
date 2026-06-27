@@ -13,38 +13,31 @@ type ScoredFile struct {
 	Score float64
 
 	SearchHits  int
-	SymbolHits  int
-	Callers     int
 	RecentLines int
 	Importers   int
 }
 
-// RelevanceScorer ranks files by structural relevance to a text query.
+// RelevanceScorer ranks files by operational relevance to a text query.
 // All signals are computed from data already available in CodebaseContext --
 // no embeddings or LLM calls required.
 type RelevanceScorer struct {
-	graph    *CodeGraph
 	depGraph *DepGraph
 	timeline []*FileTimeline
 	vfs      VFS
 	rootDir  string
 
-	wSearch    float64
-	wSymbol    float64
-	wCallGraph float64
-	wRecency   float64
-	wCentral   float64
+	wSearch  float64
+	wRecency float64
+	wCentral float64
 }
 
 // ScorerOption configures a RelevanceScorer.
 type ScorerOption func(*RelevanceScorer)
 
-// WithWeights sets custom signal weights. Default: 0.35, 0.25, 0.15, 0.15, 0.10.
-func WithWeights(search, symbol, callGraph, recency, centrality float64) ScorerOption {
+// WithWeights sets custom signal weights. Default: 0.60, 0.25, 0.15.
+func WithWeights(search, recency, centrality float64) ScorerOption {
 	return func(r *RelevanceScorer) {
 		r.wSearch = search
-		r.wSymbol = symbol
-		r.wCallGraph = callGraph
 		r.wRecency = recency
 		r.wCentral = centrality
 	}
@@ -54,17 +47,14 @@ func WithWeights(search, symbol, callGraph, recency, centrality float64) ScorerO
 // vfs and rootDir are used for the search signal; pass a DefaultCodeServer's FS and SourceDir.
 func NewRelevanceScorer(cc *CodebaseContext, vfs VFS, rootDir string, opts ...ScorerOption) *RelevanceScorer {
 	r := &RelevanceScorer{
-		graph:    cc.Graph,
 		depGraph: cc.DepGraph,
 		timeline: cc.Timelines,
 		vfs:      vfs,
 		rootDir:  rootDir,
 
-		wSearch:    0.35,
-		wSymbol:    0.25,
-		wCallGraph: 0.15,
-		wRecency:   0.15,
-		wCentral:   0.10,
+		wSearch:  0.60,
+		wRecency: 0.25,
+		wCentral: 0.15,
 	}
 	for _, o := range opts {
 		o(r)
@@ -77,14 +67,10 @@ func NewRelevanceScorer(cc *CodebaseContext, vfs VFS, rootDir string, opts ...Sc
 func (r *RelevanceScorer) ScoreFiles(ctx context.Context, query string, files []string) []ScoredFile {
 	terms := tokenize(query)
 	searchHits := r.searchSignal(ctx, terms)
-	symbolHits := r.symbolSignal(terms)
-	callerCounts := r.callGraphSignal(symbolHits)
 	recentLines := r.recencySignal()
 	importerCounts := r.centralitySignal()
 
 	maxSearch := maxIntMap(searchHits)
-	maxSymbol := maxIntMap(symbolHits)
-	maxCallers := maxIntMap(callerCounts)
 	maxRecent := maxIntMap(recentLines)
 	maxImporters := maxIntMap(importerCounts)
 
@@ -93,14 +79,10 @@ func (r *RelevanceScorer) ScoreFiles(ctx context.Context, query string, files []
 		sf := ScoredFile{
 			Path:        f,
 			SearchHits:  searchHits[f],
-			SymbolHits:  symbolHits[f],
-			Callers:     callerCounts[f],
 			RecentLines: recentLines[f],
 			Importers:   importerCounts[f],
 		}
 		sf.Score = r.wSearch*norm(sf.SearchHits, maxSearch) +
-			r.wSymbol*norm(sf.SymbolHits, maxSymbol) +
-			r.wCallGraph*norm(sf.Callers, maxCallers) +
 			r.wRecency*norm(sf.RecentLines, maxRecent) +
 			r.wCentral*norm(sf.Importers, maxImporters)
 		scored = append(scored, sf)
@@ -143,57 +125,7 @@ func (r *RelevanceScorer) searchSignal(ctx context.Context, terms []string) map[
 	return hits
 }
 
-// --- Signal 2: Symbol name match ---
-
-func (r *RelevanceScorer) symbolSignal(terms []string) map[string]int {
-	hits := make(map[string]int)
-	if r.graph == nil {
-		return hits
-	}
-	for _, n := range r.graph.Nodes {
-		if n.Kind == NodeFile || n.Kind == NodePackage {
-			continue
-		}
-		lower := strings.ToLower(n.Name)
-		for _, t := range terms {
-			if strings.Contains(lower, t) {
-				hits[n.File]++
-				break
-			}
-		}
-	}
-	return hits
-}
-
-// --- Signal 3: Call graph proximity ---
-// Files within 1 hop of symbol-matched files score higher.
-
-func (r *RelevanceScorer) callGraphSignal(symbolHits map[string]int) map[string]int {
-	counts := make(map[string]int)
-	if r.graph == nil {
-		return counts
-	}
-	var seedIDs []string
-	for file := range symbolHits {
-		seedIDs = append(seedIDs, r.graph.GetNodesForFile(file)...)
-	}
-	neighbors := r.graph.GetCallersOfAny(seedIDs)
-	for _, nID := range neighbors {
-		if n, ok := r.graph.Nodes[nID]; ok {
-			counts[n.File]++
-		}
-	}
-	for _, id := range seedIDs {
-		for _, calleeID := range r.graph.GetCallees(id) {
-			if n, ok := r.graph.Nodes[calleeID]; ok {
-				counts[n.File]++
-			}
-		}
-	}
-	return counts
-}
-
-// --- Signal 4: Recency ---
+// --- Signal 2: Recency ---
 // Count of recent-age lines per file.
 
 func (r *RelevanceScorer) recencySignal() map[string]int {
@@ -208,7 +140,7 @@ func (r *RelevanceScorer) recencySignal() map[string]int {
 	return counts
 }
 
-// --- Signal 5: Centrality ---
+// --- Signal 3: Centrality ---
 // Number of internal packages that import the package containing each file.
 
 func (r *RelevanceScorer) centralitySignal() map[string]int {

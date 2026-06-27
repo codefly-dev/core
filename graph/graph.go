@@ -8,25 +8,22 @@ import (
 
 // NodeKind is the type of a node in the graph (cross-repo, cross-language).
 const (
-	KindRepo    = "repo"
-	KindModule  = "module"
-	KindService = "service"
-	KindFile    = "file"
-	KindSymbol  = "symbol"
+	KindRepo     = "repo"
+	KindModule   = "module"
+	KindService  = "service"
+	KindFile     = "file"
 	KindEndpoint = "endpoint"
 )
 
-// EdgeKind is the type of an edge (dependency, containment, call, etc.).
+// EdgeKind is the type of an edge.
 const (
 	EdgeDependsOn = "depends_on"
 	EdgeContains  = "contains"
-	EdgeCalls     = "calls"
-	EdgeReferences = "references"
 	EdgeChildOf   = "child_of"
 )
 
 // Node is a vertex in the graph with a stable ID, kind, and optional attributes.
-// IDs should be unique and stable across repos/languages (e.g. "repo/module/service", "repo/module/service/file.go", "repo/module/service/file.go#SymbolName").
+// IDs should be unique and stable across repos/languages (e.g. "repo/module/service", "repo/module/service/file.go").
 type Node struct {
 	ID    string
 	Kind  string
@@ -40,21 +37,20 @@ type Edge struct {
 	Kind string
 }
 
-// Graph is a generic directed graph of nodes and edges for dependency trees and LSP-derived relationships.
-// Use it for service dependencies, module graphs, symbol trees, and call/reference edges.
+// Graph is a generic directed graph of nodes and edges for operational dependency trees.
 type Graph struct {
-	name   string
-	nodes  map[string]*Node
-	edges  map[string][]Edge // from ID -> list of edges (each has To)
-	incoming map[string]int   // count of edges into each node (for topo sort)
+	name     string
+	nodes    map[string]*Node
+	edges    map[string][]Edge // from ID -> list of edges (each has To)
+	incoming map[string]int    // count of edges into each node (for topo sort)
 }
 
 // New creates a new empty graph.
 func New(name string) *Graph {
 	return &Graph{
-		name:    name,
-		nodes:   make(map[string]*Node),
-		edges:   make(map[string][]Edge),
+		name:     name,
+		nodes:    make(map[string]*Node),
+		edges:    make(map[string][]Edge),
 		incoming: make(map[string]int),
 	}
 }
@@ -287,14 +283,9 @@ func nodeString(n *Node) string {
 	return n.ID
 }
 
-// NodeID builds a stable cross-repo node ID from components (e.g. repo/module/service, or repo/module/service/file.go#Symbol).
+// NodeID builds a stable cross-repo node ID from components.
 func NodeID(parts ...string) string {
 	return strings.Join(parts, "/")
-}
-
-// SymbolID returns a node ID for a symbol in a file within a scope (repo/module/service/file#name).
-func SymbolID(scopeRepo, scopeModule, scopeService, file, symbolName string) string {
-	return NodeID(scopeRepo, scopeModule, scopeService, file+"#"+symbolName)
 }
 
 // FileID returns a node ID for a file within a scope.

@@ -7,8 +7,7 @@ import (
 	"github.com/codefly-dev/core/graph"
 )
 
-// ToGraph converts a DAG (e.g. service or module dependencies) into the generic graph.Graph
-// so it can be merged with LSP-derived graphs for cross-repo, cross-language views.
+// ToGraph converts a DAG (e.g. service or module dependencies) into the generic graph.Graph.
 func ToGraph(dag *DAG, name string) *graph.Graph {
 	if name == "" {
 		name = dag.Name

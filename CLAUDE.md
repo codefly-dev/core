@@ -66,7 +66,6 @@ Every resource is defined by a YAML file:
 ### Companions
 - **companions/** — Sidecar containers for language tooling:
   - **proto/** — Buf-based proto compilation companion.
-  - **lsp/** — Language Server Protocol client for symbol extraction.
   - **golang/, python-poetry/, node/** — Language-specific build companions.
   - Build the images with `codefly companion build --all` (or one at a time: `codefly companion build <name>`; add `--push` to publish).
 
@@ -96,7 +95,6 @@ Every resource is defined by a YAML file:
 ```bash
 go test ./...                    # Run all tests
 go test ./resources/ -v          # Test a specific package
-go test ./companions/golang/ -run TestLSP  # LSP companion tests
 
 # Coverage
 make check-coverage

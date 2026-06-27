@@ -14,32 +14,20 @@ import (
 )
 
 // GoCodeServer extends DefaultCodeServer with Go-specific project metadata
-// and dependency operations. It provides the same data as the go-generic
-// agent but without requiring Docker or gopls.
+// and dependency operations.
 type GoCodeServer struct {
 	*DefaultCodeServer
-	symbols SymbolProvider
 }
 
 // GoServerOption configures a GoCodeServer.
 type GoServerOption func(*GoCodeServer)
 
-// WithSymbolProvider overrides the default AST-based symbol provider.
-// Use this to plug in an LSP-backed provider when gopls is available.
-func WithSymbolProvider(sp SymbolProvider) GoServerOption {
-	return func(s *GoCodeServer) {
-		s.symbols = sp
-	}
-}
-
-// NewGoCodeServer creates a Go-aware code server. By default it uses
-// ASTSymbolProvider (ParseGoTree) for internal graph construction.
+// NewGoCodeServer creates a Go-aware code server.
 // ServerOptions are forwarded to the embedded DefaultCodeServer (e.g. WithVFS).
 func NewGoCodeServer(dir string, serverOpts []ServerOption, goOpts ...GoServerOption) *GoCodeServer {
 	base := NewDefaultCodeServer(dir, serverOpts...)
 	s := &GoCodeServer{
 		DefaultCodeServer: base,
-		symbols:           NewASTSymbolProviderVFS(dir, base.FS),
 	}
 	for _, o := range goOpts {
 		o(s)

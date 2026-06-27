@@ -272,8 +272,7 @@ func (d *ServiceDependencies) EntryPoints(_ context.Context) ([]Service, error) 
 	return out, nil
 }
 
-// Graph returns the dependency graph as a generic graph.Graph so it can be merged with
-// LSP-derived or other graphs for cross-repo, cross-language views.
+// Graph returns the dependency graph as a generic graph.Graph.
 func (d *ServiceDependencies) Graph() *graph.Graph {
 	name := "services"
 	if d.Workspace != nil {

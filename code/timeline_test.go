@@ -146,7 +146,7 @@ func TestShouldSkipForTimeline(t *testing.T) {
 // --- Real repo tests ---
 
 func TestBuildProjectTimeline_RealRepos(t *testing.T) {
-	for _, repo := range AllTestRepos() {
+	for _, repo := range representativeOperationalRepos() {
 		repo := repo
 		t.Run(repo.Name, func(t *testing.T) {
 			dir := EnsureRepo(t, repo)

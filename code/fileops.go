@@ -1,6 +1,5 @@
 // Package code: FileOperation abstracts VFS-only operations (read, write, list,
-// delete, move, copy, search, replace). Used when code intelligence (LSP, Fix,
-// symbols) is not needed and the virtual system / overlay should be the single
+// delete, move, copy, search, replace). Used when the virtual system / overlay should be the single
 // source of truth.
 
 package code
@@ -69,7 +68,10 @@ func (f *fileOps) ListFiles(ctx context.Context, path string, recursive bool, ex
 		extSet[e] = true
 	}
 	var out []string
-	walkFn := func(p string, d interface{ IsDir() bool; Name() string }, err error) error {
+	walkFn := func(p string, d interface {
+		IsDir() bool
+		Name() string
+	}, err error) error {
 		if err != nil {
 			return nil
 		}

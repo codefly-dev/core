@@ -91,10 +91,6 @@ func TestNodeID(t *testing.T) {
 	if id != "repo/mod/svc/pkg/file.go" {
 		t.Errorf("NodeID: got %q", id)
 	}
-	symID := SymbolID("r", "m", "s", "f.go", "Foo")
-	if symID != "r/m/s/f.go#Foo" {
-		t.Errorf("SymbolID: got %q", symID)
-	}
 	fileID := FileID("r", "m", "s", "pkg/handlers.go")
 	if fileID != "r/m/s/pkg/handlers.go" {
 		t.Errorf("FileID: got %q", fileID)
@@ -160,13 +156,13 @@ func TestGraph_TopologicalSortCycle(t *testing.T) {
 
 func TestGraph_SetAttr(t *testing.T) {
 	g := New("attrs")
-	g.SetAttr("n", KindSymbol, "name", "Foo")
-	g.SetAttr("n", KindSymbol, "line", 42)
+	g.SetAttr("n", KindService, "name", "api")
+	g.SetAttr("n", KindService, "port", 8080)
 	n := g.Node("n")
-	if n == nil || n.Kind != KindSymbol {
+	if n == nil || n.Kind != KindService {
 		t.Fatalf("node: %+v", n)
 	}
-	if n.Attrs["name"] != "Foo" || n.Attrs["line"] != 42 {
+	if n.Attrs["name"] != "api" || n.Attrs["port"] != 8080 {
 		t.Fatalf("attrs: %+v", n.Attrs)
 	}
 }

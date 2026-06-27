@@ -4,8 +4,8 @@
 package code
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -69,10 +69,7 @@ func WithContentCache(budgetBytes int64) ServerOption {
 }
 
 // WriteListener is called after every successful file mutation so that
-// language plugins can push the new content into their LSP's in-memory
-// view via textDocument/didChange. Without this, gopls and pylsp only
-// notice the edit when their filesystem watcher fires — latency that
-// breaks the agent's "edit → query symbols → see own edit" inner loop.
+// external indexes or subscribers can stay aligned with the VFS state.
 //
 // The listener receives the mutation kind ("write", "create", "delete",
 // "move"), the relative path (destination for moves), and the new file
@@ -81,8 +78,7 @@ func WithContentCache(budgetBytes int64) ServerOption {
 // otherwise.
 //
 // Errors returned by the listener are logged by the caller but do NOT
-// fail the mutation — notification is best-effort. A failing LSP
-// shouldn't break file I/O.
+// fail the mutation; notification is best-effort.
 type WriteListener func(ctx context.Context, kind, path, prevPath string, content []byte) error
 
 // DefaultCodeServer implements every Code.Execute operation with sensible,
@@ -96,11 +92,11 @@ type DefaultCodeServer struct {
 	overrides          map[string]OperationHandler
 	wantCachedFS       bool
 	wantTrigramIndex   bool
-	contentCacheBudget int64          // 0 = no content cache
-	cachedFS           *CachedVFS     // non-nil when CachedVFS is active
-	trigramIdx         *TrigramIndex  // non-nil when trigram indexing is active
-	nativeGit          *NativeGit     // lazily opened go-git repo
-	writeListener      WriteListener  // optional post-mutation hook (LSP notify, etc.)
+	contentCacheBudget int64         // 0 = no content cache
+	cachedFS           *CachedVFS    // non-nil when CachedVFS is active
+	trigramIdx         *TrigramIndex // non-nil when trigram indexing is active
+	nativeGit          *NativeGit    // lazily opened go-git repo
+	writeListener      WriteListener // optional post-mutation hook
 }
 
 // NewDefaultCodeServer creates a server rooted at sourceDir.
@@ -165,9 +161,7 @@ func (s *DefaultCodeServer) Override(op string, handler OperationHandler) {
 
 // SetWriteListener installs a post-mutation hook. It is called after
 // every successful WriteFile, CreateFile, DeleteFile, and MoveFile
-// dispatched through Execute. Language plugins wire their LSP's
-// textDocument/didChange through this so the LSP's in-memory view
-// stays in sync with disk without waiting for the filesystem watcher.
+// dispatched through Execute.
 //
 // Safe to call after construction; nil clears the listener. The
 // listener is invoked synchronously after the mutation commits; if
@@ -178,7 +172,7 @@ func (s *DefaultCodeServer) SetWriteListener(l WriteListener) {
 }
 
 // notifyWrite fires the installed listener (if any) and swallows any
-// error it returns. Notification is best-effort — a broken LSP
+// error it returns. Notification is best-effort; a broken listener
 // should not break file I/O. Callers MUST only invoke this after a
 // successful mutation.
 func (s *DefaultCodeServer) notifyWrite(ctx context.Context, kind, path, prevPath string, content []byte) {
@@ -186,7 +180,7 @@ func (s *DefaultCodeServer) notifyWrite(ctx context.Context, kind, path, prevPat
 		return
 	}
 	// Recover panics from a misbehaving listener so the handler returns
-	// cleanly even if the LSP wiring is broken.
+	// cleanly even if notification wiring is broken.
 	defer func() { _ = recover() }()
 	_ = s.writeListener(ctx, kind, path, prevPath, content)
 }
@@ -365,9 +359,8 @@ func (s *DefaultCodeServer) moveFile(ctx context.Context, req *codev0.MoveFileRe
 	if err := s.FS.Rename(oldAbs, newAbs); err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_MoveFile{MoveFile: &codev0.MoveFileResponse{Success: false, Error: err.Error()}}}, nil
 	}
-	// After a move, the LSP needs to know the destination has new
-	// content (same bytes, new URI) AND the source is gone. We read
-	// the new file to give the listener concrete content; a read
+	// After a move, downstream consumers need the destination content
+	// and the previous path. We read the new file to give the listener concrete content; a read
 	// failure degrades to a nil-content notification rather than
 	// failing the move itself.
 	var content []byte

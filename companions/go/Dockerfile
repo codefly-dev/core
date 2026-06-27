@@ -18,13 +18,4 @@ RUN apk update && \
 # so users get the same CLI + tool set regardless of language.
 COPY --from=codeflydev/codefly:0.0.3 /bin/codefly /bin/codefly
 
-# gopls for LSP symbol queries. Installing in one RUN with:
-#   -ldflags="-s -w"  — strip symbols, ~20% smaller binary
-#   rm -rf $GOMODCACHE + $GOCACHE — `go install` leaves behind hundreds
-#     of MB of downloaded source + build cache in /go/pkg/mod and
-#     /root/.cache/go-build. The binary is in /go/bin; everything else
-#     is scaffolding and can go. This single cleanup drops ~400 MB.
-RUN go install -ldflags="-s -w" golang.org/x/tools/gopls@latest && \
-    rm -rf /go/pkg/mod /root/.cache/go-build
-
 WORKDIR /workspace
