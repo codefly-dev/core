@@ -110,6 +110,28 @@ service Gateway {
 
   // GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
   rpc GetProjectInfo(GetProjectInfoRequest) returns (GetProjectInfoResponse);
+
+  // ─── Terminal ───────────────────────────────────────────────
+  // The gateway runs INSIDE the execution box, so the PTY lives here — the one
+  // place with the worktree + shell. Mind proxies these to give users an
+  // interactive terminal in the session's working directory. Mind owns the
+  // scrollback/session state; the gateway owns the live PTY.
+
+  // OpenTerminal spawns a PTY-backed shell in the gateway's working directory.
+  rpc OpenTerminal(OpenTerminalRequest) returns (OpenTerminalResponse);
+
+  // AttachTerminal is a bidirectional stream: client input bytes in,
+  // raw PTY output bytes out, until the shell exits or the client detaches.
+  rpc AttachTerminal(stream TerminalInput) returns (stream TerminalOutput);
+
+  // ResizeTerminal changes the PTY window size (rows/cols).
+  rpc ResizeTerminal(ResizeTerminalRequest) returns (ResizeTerminalResponse);
+
+  // CloseTerminal kills the PTY + child process.
+  rpc CloseTerminal(CloseTerminalRequest) returns (CloseTerminalResponse);
+
+  // ListTerminals lists the open terminals in this gateway.
+  rpc ListTerminals(ListTerminalsRequest) returns (ListTerminalsResponse);
 }
 
 // ─── Topology ────────────────────────────────────────────────
@@ -789,4 +811,68 @@ message ListAllCommandsRequest {}
 message ListAllCommandsResponse {
   // commands are plugin or built-in commands available to callers.
   repeated AvailableCommand commands = 1;
+}
+
+// ─── Terminal ────────────────────────────────────────────────
+
+// OpenTerminalRequest spawns a shell in the gateway's working directory.
+message OpenTerminalRequest {
+  // shell to run; empty = $SHELL else /bin/sh.
+  string shell = 1;
+  // working_dir relative to the gateway root; empty = the root itself.
+  string working_dir = 2;
+  // initial PTY size; 0 = server default.
+  uint32 rows = 3;
+  uint32 cols = 4;
+}
+
+// OpenTerminalResponse identifies the spawned terminal.
+message OpenTerminalResponse {
+  string terminal_id = 1;
+  string shell = 2;
+  string working_dir = 3;
+}
+
+// TerminalInput carries client keystrokes. The FIRST message on an Attach
+// stream must set terminal_id to select the terminal.
+message TerminalInput {
+  string terminal_id = 1;
+  bytes data = 2;
+}
+
+// TerminalOutput carries raw PTY bytes (escape codes intact). done marks the
+// final frame after the child exits.
+message TerminalOutput {
+  string terminal_id = 1;
+  bytes data = 2;
+  bool done = 3;
+  int32 exit_code = 4;
+}
+
+message ResizeTerminalRequest {
+  string terminal_id = 1;
+  uint32 rows = 2;
+  uint32 cols = 3;
+}
+
+message ResizeTerminalResponse {}
+
+message CloseTerminalRequest {
+  string terminal_id = 1;
+}
+
+message CloseTerminalResponse {}
+
+message ListTerminalsRequest {}
+
+message TerminalInfo {
+  string terminal_id = 1;
+  string shell = 2;
+  string working_dir = 3;
+  // "running" | "exited"
+  string status = 4;
+}
+
+message ListTerminalsResponse {
+  repeated TerminalInfo terminals = 1;
 }

@@ -148,6 +148,31 @@ class GatewayStub:
                 request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoRequest.SerializeToString,
                 response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoResponse.FromString,
                 _registered_method=True)
+        self.OpenTerminal = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/OpenTerminal',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.OpenTerminalRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.OpenTerminalResponse.FromString,
+                _registered_method=True)
+        self.AttachTerminal = channel.stream_stream(
+                '/mind.gateway.v1.Gateway/AttachTerminal',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.TerminalInput.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.TerminalOutput.FromString,
+                _registered_method=True)
+        self.ResizeTerminal = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ResizeTerminal',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ResizeTerminalRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ResizeTerminalResponse.FromString,
+                _registered_method=True)
+        self.CloseTerminal = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/CloseTerminal',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.CloseTerminalRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.CloseTerminalResponse.FromString,
+                _registered_method=True)
+        self.ListTerminals = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ListTerminals',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListTerminalsRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListTerminalsResponse.FromString,
+                _registered_method=True)
 
 
 class GatewayServicer:
@@ -359,6 +384,48 @@ class GatewayServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def OpenTerminal(self, request, context):
+        """─── Terminal ───────────────────────────────────────────────
+        The gateway runs INSIDE the execution box, so the PTY lives here — the one
+        place with the worktree + shell. Mind proxies these to give users an
+        interactive terminal in the session's working directory. Mind owns the
+        scrollback/session state; the gateway owns the live PTY.
+
+        OpenTerminal spawns a PTY-backed shell in the gateway's working directory.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AttachTerminal(self, request_iterator, context):
+        """AttachTerminal is a bidirectional stream: client input bytes in,
+        raw PTY output bytes out, until the shell exits or the client detaches.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ResizeTerminal(self, request, context):
+        """ResizeTerminal changes the PTY window size (rows/cols).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CloseTerminal(self, request, context):
+        """CloseTerminal kills the PTY + child process.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListTerminals(self, request, context):
+        """ListTerminals lists the open terminals in this gateway.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_GatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -486,6 +553,31 @@ def add_GatewayServicer_to_server(servicer, server):
                     servicer.GetProjectInfo,
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoRequest.FromString,
                     response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoResponse.SerializeToString,
+            ),
+            'OpenTerminal': grpc.unary_unary_rpc_method_handler(
+                    servicer.OpenTerminal,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.OpenTerminalRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.OpenTerminalResponse.SerializeToString,
+            ),
+            'AttachTerminal': grpc.stream_stream_rpc_method_handler(
+                    servicer.AttachTerminal,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.TerminalInput.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.TerminalOutput.SerializeToString,
+            ),
+            'ResizeTerminal': grpc.unary_unary_rpc_method_handler(
+                    servicer.ResizeTerminal,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ResizeTerminalRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ResizeTerminalResponse.SerializeToString,
+            ),
+            'CloseTerminal': grpc.unary_unary_rpc_method_handler(
+                    servicer.CloseTerminal,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.CloseTerminalRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.CloseTerminalResponse.SerializeToString,
+            ),
+            'ListTerminals': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListTerminals,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListTerminalsRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListTerminalsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1172,6 +1264,141 @@ class Gateway:
             '/mind.gateway.v1.Gateway/GetProjectInfo',
             mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoRequest.SerializeToString,
             mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def OpenTerminal(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/OpenTerminal',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.OpenTerminalRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.OpenTerminalResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AttachTerminal(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/mind.gateway.v1.Gateway/AttachTerminal',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.TerminalInput.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.TerminalOutput.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ResizeTerminal(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ResizeTerminal',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ResizeTerminalRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ResizeTerminalResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CloseTerminal(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/CloseTerminal',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.CloseTerminalRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.CloseTerminalResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListTerminals(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ListTerminals',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ListTerminalsRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ListTerminalsResponse.FromString,
             options,
             channel_credentials,
             insecure,

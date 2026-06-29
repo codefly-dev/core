@@ -7,12 +7,11 @@
 package gatewayv1
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -4238,6 +4237,588 @@ func (x *ListAllCommandsResponse) GetCommands() []*AvailableCommand {
 	return nil
 }
 
+// OpenTerminalRequest spawns a shell in the gateway's working directory.
+type OpenTerminalRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// shell to run; empty = $SHELL else /bin/sh.
+	Shell string `protobuf:"bytes,1,opt,name=shell,proto3" json:"shell,omitempty"`
+	// working_dir relative to the gateway root; empty = the root itself.
+	WorkingDir string `protobuf:"bytes,2,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
+	// initial PTY size; 0 = server default.
+	Rows          uint32 `protobuf:"varint,3,opt,name=rows,proto3" json:"rows,omitempty"`
+	Cols          uint32 `protobuf:"varint,4,opt,name=cols,proto3" json:"cols,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OpenTerminalRequest) Reset() {
+	*x = OpenTerminalRequest{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenTerminalRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenTerminalRequest) ProtoMessage() {}
+
+func (x *OpenTerminalRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenTerminalRequest.ProtoReflect.Descriptor instead.
+func (*OpenTerminalRequest) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *OpenTerminalRequest) GetShell() string {
+	if x != nil {
+		return x.Shell
+	}
+	return ""
+}
+
+func (x *OpenTerminalRequest) GetWorkingDir() string {
+	if x != nil {
+		return x.WorkingDir
+	}
+	return ""
+}
+
+func (x *OpenTerminalRequest) GetRows() uint32 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+func (x *OpenTerminalRequest) GetCols() uint32 {
+	if x != nil {
+		return x.Cols
+	}
+	return 0
+}
+
+// OpenTerminalResponse identifies the spawned terminal.
+type OpenTerminalResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	Shell         string                 `protobuf:"bytes,2,opt,name=shell,proto3" json:"shell,omitempty"`
+	WorkingDir    string                 `protobuf:"bytes,3,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OpenTerminalResponse) Reset() {
+	*x = OpenTerminalResponse{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenTerminalResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenTerminalResponse) ProtoMessage() {}
+
+func (x *OpenTerminalResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenTerminalResponse.ProtoReflect.Descriptor instead.
+func (*OpenTerminalResponse) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{66}
+}
+
+func (x *OpenTerminalResponse) GetTerminalId() string {
+	if x != nil {
+		return x.TerminalId
+	}
+	return ""
+}
+
+func (x *OpenTerminalResponse) GetShell() string {
+	if x != nil {
+		return x.Shell
+	}
+	return ""
+}
+
+func (x *OpenTerminalResponse) GetWorkingDir() string {
+	if x != nil {
+		return x.WorkingDir
+	}
+	return ""
+}
+
+// TerminalInput carries client keystrokes. The FIRST message on an Attach
+// stream must set terminal_id to select the terminal.
+type TerminalInput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalInput) Reset() {
+	*x = TerminalInput{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalInput) ProtoMessage() {}
+
+func (x *TerminalInput) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalInput.ProtoReflect.Descriptor instead.
+func (*TerminalInput) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{67}
+}
+
+func (x *TerminalInput) GetTerminalId() string {
+	if x != nil {
+		return x.TerminalId
+	}
+	return ""
+}
+
+func (x *TerminalInput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+// TerminalOutput carries raw PTY bytes (escape codes intact). done marks the
+// final frame after the child exits.
+type TerminalOutput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	Done          bool                   `protobuf:"varint,3,opt,name=done,proto3" json:"done,omitempty"`
+	ExitCode      int32                  `protobuf:"varint,4,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalOutput) Reset() {
+	*x = TerminalOutput{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalOutput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalOutput) ProtoMessage() {}
+
+func (x *TerminalOutput) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalOutput.ProtoReflect.Descriptor instead.
+func (*TerminalOutput) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{68}
+}
+
+func (x *TerminalOutput) GetTerminalId() string {
+	if x != nil {
+		return x.TerminalId
+	}
+	return ""
+}
+
+func (x *TerminalOutput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *TerminalOutput) GetDone() bool {
+	if x != nil {
+		return x.Done
+	}
+	return false
+}
+
+func (x *TerminalOutput) GetExitCode() int32 {
+	if x != nil {
+		return x.ExitCode
+	}
+	return 0
+}
+
+type ResizeTerminalRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	Rows          uint32                 `protobuf:"varint,2,opt,name=rows,proto3" json:"rows,omitempty"`
+	Cols          uint32                 `protobuf:"varint,3,opt,name=cols,proto3" json:"cols,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResizeTerminalRequest) Reset() {
+	*x = ResizeTerminalRequest{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[69]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResizeTerminalRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResizeTerminalRequest) ProtoMessage() {}
+
+func (x *ResizeTerminalRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[69]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResizeTerminalRequest.ProtoReflect.Descriptor instead.
+func (*ResizeTerminalRequest) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{69}
+}
+
+func (x *ResizeTerminalRequest) GetTerminalId() string {
+	if x != nil {
+		return x.TerminalId
+	}
+	return ""
+}
+
+func (x *ResizeTerminalRequest) GetRows() uint32 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+func (x *ResizeTerminalRequest) GetCols() uint32 {
+	if x != nil {
+		return x.Cols
+	}
+	return 0
+}
+
+type ResizeTerminalResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResizeTerminalResponse) Reset() {
+	*x = ResizeTerminalResponse{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[70]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResizeTerminalResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResizeTerminalResponse) ProtoMessage() {}
+
+func (x *ResizeTerminalResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[70]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResizeTerminalResponse.ProtoReflect.Descriptor instead.
+func (*ResizeTerminalResponse) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{70}
+}
+
+type CloseTerminalRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CloseTerminalRequest) Reset() {
+	*x = CloseTerminalRequest{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CloseTerminalRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CloseTerminalRequest) ProtoMessage() {}
+
+func (x *CloseTerminalRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CloseTerminalRequest.ProtoReflect.Descriptor instead.
+func (*CloseTerminalRequest) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{71}
+}
+
+func (x *CloseTerminalRequest) GetTerminalId() string {
+	if x != nil {
+		return x.TerminalId
+	}
+	return ""
+}
+
+type CloseTerminalResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CloseTerminalResponse) Reset() {
+	*x = CloseTerminalResponse{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CloseTerminalResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CloseTerminalResponse) ProtoMessage() {}
+
+func (x *CloseTerminalResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CloseTerminalResponse.ProtoReflect.Descriptor instead.
+func (*CloseTerminalResponse) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{72}
+}
+
+type ListTerminalsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListTerminalsRequest) Reset() {
+	*x = ListTerminalsRequest{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[73]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListTerminalsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListTerminalsRequest) ProtoMessage() {}
+
+func (x *ListTerminalsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[73]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListTerminalsRequest.ProtoReflect.Descriptor instead.
+func (*ListTerminalsRequest) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{73}
+}
+
+type TerminalInfo struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	TerminalId string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	Shell      string                 `protobuf:"bytes,2,opt,name=shell,proto3" json:"shell,omitempty"`
+	WorkingDir string                 `protobuf:"bytes,3,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
+	// "running" | "exited"
+	Status        string `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalInfo) Reset() {
+	*x = TerminalInfo{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[74]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalInfo) ProtoMessage() {}
+
+func (x *TerminalInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[74]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalInfo.ProtoReflect.Descriptor instead.
+func (*TerminalInfo) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{74}
+}
+
+func (x *TerminalInfo) GetTerminalId() string {
+	if x != nil {
+		return x.TerminalId
+	}
+	return ""
+}
+
+func (x *TerminalInfo) GetShell() string {
+	if x != nil {
+		return x.Shell
+	}
+	return ""
+}
+
+func (x *TerminalInfo) GetWorkingDir() string {
+	if x != nil {
+		return x.WorkingDir
+	}
+	return ""
+}
+
+func (x *TerminalInfo) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type ListTerminalsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Terminals     []*TerminalInfo        `protobuf:"bytes,1,rep,name=terminals,proto3" json:"terminals,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListTerminalsResponse) Reset() {
+	*x = ListTerminalsResponse{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[75]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListTerminalsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListTerminalsResponse) ProtoMessage() {}
+
+func (x *ListTerminalsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[75]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListTerminalsResponse.ProtoReflect.Descriptor instead.
+func (*ListTerminalsResponse) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{75}
+}
+
+func (x *ListTerminalsResponse) GetTerminals() []*TerminalInfo {
+	if x != nil {
+		return x.Terminals
+	}
+	return nil
+}
+
 var File_mind_gateway_v1_gateway_proto protoreflect.FileDescriptor
 
 const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
@@ -4523,7 +5104,49 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\vdestructive\x18\a \x01(\bR\vdestructive\"\x18\n" +
 	"\x16ListAllCommandsRequest\"X\n" +
 	"\x17ListAllCommandsResponse\x12=\n" +
-	"\bcommands\x18\x01 \x03(\v2!.mind.gateway.v1.AvailableCommandR\bcommands2\xde\x10\n" +
+	"\bcommands\x18\x01 \x03(\v2!.mind.gateway.v1.AvailableCommandR\bcommands\"t\n" +
+	"\x13OpenTerminalRequest\x12\x14\n" +
+	"\x05shell\x18\x01 \x01(\tR\x05shell\x12\x1f\n" +
+	"\vworking_dir\x18\x02 \x01(\tR\n" +
+	"workingDir\x12\x12\n" +
+	"\x04rows\x18\x03 \x01(\rR\x04rows\x12\x12\n" +
+	"\x04cols\x18\x04 \x01(\rR\x04cols\"n\n" +
+	"\x14OpenTerminalResponse\x12\x1f\n" +
+	"\vterminal_id\x18\x01 \x01(\tR\n" +
+	"terminalId\x12\x14\n" +
+	"\x05shell\x18\x02 \x01(\tR\x05shell\x12\x1f\n" +
+	"\vworking_dir\x18\x03 \x01(\tR\n" +
+	"workingDir\"D\n" +
+	"\rTerminalInput\x12\x1f\n" +
+	"\vterminal_id\x18\x01 \x01(\tR\n" +
+	"terminalId\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"v\n" +
+	"\x0eTerminalOutput\x12\x1f\n" +
+	"\vterminal_id\x18\x01 \x01(\tR\n" +
+	"terminalId\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x12\n" +
+	"\x04done\x18\x03 \x01(\bR\x04done\x12\x1b\n" +
+	"\texit_code\x18\x04 \x01(\x05R\bexitCode\"`\n" +
+	"\x15ResizeTerminalRequest\x12\x1f\n" +
+	"\vterminal_id\x18\x01 \x01(\tR\n" +
+	"terminalId\x12\x12\n" +
+	"\x04rows\x18\x02 \x01(\rR\x04rows\x12\x12\n" +
+	"\x04cols\x18\x03 \x01(\rR\x04cols\"\x18\n" +
+	"\x16ResizeTerminalResponse\"7\n" +
+	"\x14CloseTerminalRequest\x12\x1f\n" +
+	"\vterminal_id\x18\x01 \x01(\tR\n" +
+	"terminalId\"\x17\n" +
+	"\x15CloseTerminalResponse\"\x16\n" +
+	"\x14ListTerminalsRequest\"~\n" +
+	"\fTerminalInfo\x12\x1f\n" +
+	"\vterminal_id\x18\x01 \x01(\tR\n" +
+	"terminalId\x12\x14\n" +
+	"\x05shell\x18\x02 \x01(\tR\x05shell\x12\x1f\n" +
+	"\vworking_dir\x18\x03 \x01(\tR\n" +
+	"workingDir\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\"T\n" +
+	"\x15ListTerminalsResponse\x12;\n" +
+	"\tterminals\x18\x01 \x03(\v2\x1d.mind.gateway.v1.TerminalInfoR\tterminals2\xb5\x14\n" +
 	"\aGateway\x12[\n" +
 	"\fListServices\x12$.mind.gateway.v1.ListServicesRequest\x1a%.mind.gateway.v1.ListServicesResponse\x12O\n" +
 	"\bReadFile\x12 .mind.gateway.v1.ReadFileRequest\x1a!.mind.gateway.v1.ReadFileResponse\x12R\n" +
@@ -4552,7 +5175,12 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x10ListDependencies\x12(.mind.gateway.v1.ListDependenciesRequest\x1a).mind.gateway.v1.ListDependenciesResponse\x12^\n" +
 	"\rAddDependency\x12%.mind.gateway.v1.AddDependencyRequest\x1a&.mind.gateway.v1.AddDependencyResponse\x12g\n" +
 	"\x10RemoveDependency\x12(.mind.gateway.v1.RemoveDependencyRequest\x1a).mind.gateway.v1.RemoveDependencyResponse\x12a\n" +
-	"\x0eGetProjectInfo\x12&.mind.gateway.v1.GetProjectInfoRequest\x1a'.mind.gateway.v1.GetProjectInfoResponseB\xc5\x01\n" +
+	"\x0eGetProjectInfo\x12&.mind.gateway.v1.GetProjectInfoRequest\x1a'.mind.gateway.v1.GetProjectInfoResponse\x12[\n" +
+	"\fOpenTerminal\x12$.mind.gateway.v1.OpenTerminalRequest\x1a%.mind.gateway.v1.OpenTerminalResponse\x12U\n" +
+	"\x0eAttachTerminal\x12\x1e.mind.gateway.v1.TerminalInput\x1a\x1f.mind.gateway.v1.TerminalOutput(\x010\x01\x12a\n" +
+	"\x0eResizeTerminal\x12&.mind.gateway.v1.ResizeTerminalRequest\x1a'.mind.gateway.v1.ResizeTerminalResponse\x12^\n" +
+	"\rCloseTerminal\x12%.mind.gateway.v1.CloseTerminalRequest\x1a&.mind.gateway.v1.CloseTerminalResponse\x12^\n" +
+	"\rListTerminals\x12%.mind.gateway.v1.ListTerminalsRequest\x1a&.mind.gateway.v1.ListTerminalsResponseB\xc5\x01\n" +
 	"\x13com.mind.gateway.v1B\fGatewayProtoP\x01ZBgithub.com/codefly-dev/core/generated/go/mind/gateway/v1;gatewayv1\xa2\x02\x03MGX\xaa\x02\x0fMind.Gateway.V1\xca\x02\x0fMind\\Gateway\\V1\xe2\x02\x1bMind\\Gateway\\V1\\GPBMetadata\xea\x02\x11Mind::Gateway::V1b\x06proto3"
 
 var (
@@ -4567,7 +5195,7 @@ func file_mind_gateway_v1_gateway_proto_rawDescGZIP() []byte {
 	return file_mind_gateway_v1_gateway_proto_rawDescData
 }
 
-var file_mind_gateway_v1_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
+var file_mind_gateway_v1_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
 var file_mind_gateway_v1_gateway_proto_goTypes = []any{
 	(*ListServicesRequest)(nil),      // 0: mind.gateway.v1.ListServicesRequest
 	(*ServiceInfo)(nil),              // 1: mind.gateway.v1.ServiceInfo
@@ -4634,7 +5262,18 @@ var file_mind_gateway_v1_gateway_proto_goTypes = []any{
 	(*AvailableCommand)(nil),         // 62: mind.gateway.v1.AvailableCommand
 	(*ListAllCommandsRequest)(nil),   // 63: mind.gateway.v1.ListAllCommandsRequest
 	(*ListAllCommandsResponse)(nil),  // 64: mind.gateway.v1.ListAllCommandsResponse
-	nil,                              // 65: mind.gateway.v1.GetProjectInfoResponse.FileHashesEntry
+	(*OpenTerminalRequest)(nil),      // 65: mind.gateway.v1.OpenTerminalRequest
+	(*OpenTerminalResponse)(nil),     // 66: mind.gateway.v1.OpenTerminalResponse
+	(*TerminalInput)(nil),            // 67: mind.gateway.v1.TerminalInput
+	(*TerminalOutput)(nil),           // 68: mind.gateway.v1.TerminalOutput
+	(*ResizeTerminalRequest)(nil),    // 69: mind.gateway.v1.ResizeTerminalRequest
+	(*ResizeTerminalResponse)(nil),   // 70: mind.gateway.v1.ResizeTerminalResponse
+	(*CloseTerminalRequest)(nil),     // 71: mind.gateway.v1.CloseTerminalRequest
+	(*CloseTerminalResponse)(nil),    // 72: mind.gateway.v1.CloseTerminalResponse
+	(*ListTerminalsRequest)(nil),     // 73: mind.gateway.v1.ListTerminalsRequest
+	(*TerminalInfo)(nil),             // 74: mind.gateway.v1.TerminalInfo
+	(*ListTerminalsResponse)(nil),    // 75: mind.gateway.v1.ListTerminalsResponse
+	nil,                              // 76: mind.gateway.v1.GetProjectInfoResponse.FileHashesEntry
 }
 var file_mind_gateway_v1_gateway_proto_depIdxs = []int32{
 	1,  // 0: mind.gateway.v1.ListServicesResponse.services:type_name -> mind.gateway.v1.ServiceInfo
@@ -4656,63 +5295,74 @@ var file_mind_gateway_v1_gateway_proto_depIdxs = []int32{
 	52, // 16: mind.gateway.v1.ListDependenciesResponse.dependencies:type_name -> mind.gateway.v1.Dependency
 	59, // 17: mind.gateway.v1.GetProjectInfoResponse.packages:type_name -> mind.gateway.v1.PackageInfo
 	52, // 18: mind.gateway.v1.GetProjectInfoResponse.dependencies:type_name -> mind.gateway.v1.Dependency
-	65, // 19: mind.gateway.v1.GetProjectInfoResponse.file_hashes:type_name -> mind.gateway.v1.GetProjectInfoResponse.FileHashesEntry
+	76, // 19: mind.gateway.v1.GetProjectInfoResponse.file_hashes:type_name -> mind.gateway.v1.GetProjectInfoResponse.FileHashesEntry
 	62, // 20: mind.gateway.v1.ListAllCommandsResponse.commands:type_name -> mind.gateway.v1.AvailableCommand
-	0,  // 21: mind.gateway.v1.Gateway.ListServices:input_type -> mind.gateway.v1.ListServicesRequest
-	3,  // 22: mind.gateway.v1.Gateway.ReadFile:input_type -> mind.gateway.v1.ReadFileRequest
-	5,  // 23: mind.gateway.v1.Gateway.WriteFile:input_type -> mind.gateway.v1.WriteFileRequest
-	7,  // 24: mind.gateway.v1.Gateway.ListFiles:input_type -> mind.gateway.v1.ListFilesRequest
-	10, // 25: mind.gateway.v1.Gateway.DeleteFile:input_type -> mind.gateway.v1.DeleteFileRequest
-	12, // 26: mind.gateway.v1.Gateway.MoveFile:input_type -> mind.gateway.v1.MoveFileRequest
-	14, // 27: mind.gateway.v1.Gateway.CreateFile:input_type -> mind.gateway.v1.CreateFileRequest
-	16, // 28: mind.gateway.v1.Gateway.Fix:input_type -> mind.gateway.v1.FixRequest
-	18, // 29: mind.gateway.v1.Gateway.ApplyEdit:input_type -> mind.gateway.v1.ApplyEditRequest
-	20, // 30: mind.gateway.v1.Gateway.BatchApplyEdits:input_type -> mind.gateway.v1.BatchApplyEditsRequest
-	23, // 31: mind.gateway.v1.Gateway.Search:input_type -> mind.gateway.v1.SearchRequest
-	26, // 32: mind.gateway.v1.Gateway.Build:input_type -> mind.gateway.v1.BuildRequest
-	29, // 33: mind.gateway.v1.Gateway.Lint:input_type -> mind.gateway.v1.LintRequest
-	31, // 34: mind.gateway.v1.Gateway.Test:input_type -> mind.gateway.v1.TestRequest
-	33, // 35: mind.gateway.v1.Gateway.RunCommand:input_type -> mind.gateway.v1.RunCommandRequest
-	63, // 36: mind.gateway.v1.Gateway.ListAllCommands:input_type -> mind.gateway.v1.ListAllCommandsRequest
-	35, // 37: mind.gateway.v1.Gateway.RunChecks:input_type -> mind.gateway.v1.RunChecksRequest
-	42, // 38: mind.gateway.v1.Gateway.GitStatus:input_type -> mind.gateway.v1.GitStatusRequest
-	45, // 39: mind.gateway.v1.Gateway.GitDiff:input_type -> mind.gateway.v1.GitDiffRequest
-	47, // 40: mind.gateway.v1.Gateway.GitLog:input_type -> mind.gateway.v1.GitLogRequest
-	50, // 41: mind.gateway.v1.Gateway.GitCommit:input_type -> mind.gateway.v1.GitCommitRequest
-	53, // 42: mind.gateway.v1.Gateway.ListDependencies:input_type -> mind.gateway.v1.ListDependenciesRequest
-	55, // 43: mind.gateway.v1.Gateway.AddDependency:input_type -> mind.gateway.v1.AddDependencyRequest
-	57, // 44: mind.gateway.v1.Gateway.RemoveDependency:input_type -> mind.gateway.v1.RemoveDependencyRequest
-	60, // 45: mind.gateway.v1.Gateway.GetProjectInfo:input_type -> mind.gateway.v1.GetProjectInfoRequest
-	2,  // 46: mind.gateway.v1.Gateway.ListServices:output_type -> mind.gateway.v1.ListServicesResponse
-	4,  // 47: mind.gateway.v1.Gateway.ReadFile:output_type -> mind.gateway.v1.ReadFileResponse
-	6,  // 48: mind.gateway.v1.Gateway.WriteFile:output_type -> mind.gateway.v1.WriteFileResponse
-	9,  // 49: mind.gateway.v1.Gateway.ListFiles:output_type -> mind.gateway.v1.ListFilesResponse
-	11, // 50: mind.gateway.v1.Gateway.DeleteFile:output_type -> mind.gateway.v1.DeleteFileResponse
-	13, // 51: mind.gateway.v1.Gateway.MoveFile:output_type -> mind.gateway.v1.MoveFileResponse
-	15, // 52: mind.gateway.v1.Gateway.CreateFile:output_type -> mind.gateway.v1.CreateFileResponse
-	17, // 53: mind.gateway.v1.Gateway.Fix:output_type -> mind.gateway.v1.FixResponse
-	19, // 54: mind.gateway.v1.Gateway.ApplyEdit:output_type -> mind.gateway.v1.ApplyEditResponse
-	22, // 55: mind.gateway.v1.Gateway.BatchApplyEdits:output_type -> mind.gateway.v1.BatchApplyEditsResponse
-	25, // 56: mind.gateway.v1.Gateway.Search:output_type -> mind.gateway.v1.SearchResponse
-	28, // 57: mind.gateway.v1.Gateway.Build:output_type -> mind.gateway.v1.BuildResponse
-	30, // 58: mind.gateway.v1.Gateway.Lint:output_type -> mind.gateway.v1.LintResponse
-	32, // 59: mind.gateway.v1.Gateway.Test:output_type -> mind.gateway.v1.TestResponse
-	34, // 60: mind.gateway.v1.Gateway.RunCommand:output_type -> mind.gateway.v1.RunCommandResponse
-	64, // 61: mind.gateway.v1.Gateway.ListAllCommands:output_type -> mind.gateway.v1.ListAllCommandsResponse
-	41, // 62: mind.gateway.v1.Gateway.RunChecks:output_type -> mind.gateway.v1.RunChecksResponse
-	44, // 63: mind.gateway.v1.Gateway.GitStatus:output_type -> mind.gateway.v1.GitStatusResponse
-	46, // 64: mind.gateway.v1.Gateway.GitDiff:output_type -> mind.gateway.v1.GitDiffResponse
-	49, // 65: mind.gateway.v1.Gateway.GitLog:output_type -> mind.gateway.v1.GitLogResponse
-	51, // 66: mind.gateway.v1.Gateway.GitCommit:output_type -> mind.gateway.v1.GitCommitResponse
-	54, // 67: mind.gateway.v1.Gateway.ListDependencies:output_type -> mind.gateway.v1.ListDependenciesResponse
-	56, // 68: mind.gateway.v1.Gateway.AddDependency:output_type -> mind.gateway.v1.AddDependencyResponse
-	58, // 69: mind.gateway.v1.Gateway.RemoveDependency:output_type -> mind.gateway.v1.RemoveDependencyResponse
-	61, // 70: mind.gateway.v1.Gateway.GetProjectInfo:output_type -> mind.gateway.v1.GetProjectInfoResponse
-	46, // [46:71] is the sub-list for method output_type
-	21, // [21:46] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	74, // 21: mind.gateway.v1.ListTerminalsResponse.terminals:type_name -> mind.gateway.v1.TerminalInfo
+	0,  // 22: mind.gateway.v1.Gateway.ListServices:input_type -> mind.gateway.v1.ListServicesRequest
+	3,  // 23: mind.gateway.v1.Gateway.ReadFile:input_type -> mind.gateway.v1.ReadFileRequest
+	5,  // 24: mind.gateway.v1.Gateway.WriteFile:input_type -> mind.gateway.v1.WriteFileRequest
+	7,  // 25: mind.gateway.v1.Gateway.ListFiles:input_type -> mind.gateway.v1.ListFilesRequest
+	10, // 26: mind.gateway.v1.Gateway.DeleteFile:input_type -> mind.gateway.v1.DeleteFileRequest
+	12, // 27: mind.gateway.v1.Gateway.MoveFile:input_type -> mind.gateway.v1.MoveFileRequest
+	14, // 28: mind.gateway.v1.Gateway.CreateFile:input_type -> mind.gateway.v1.CreateFileRequest
+	16, // 29: mind.gateway.v1.Gateway.Fix:input_type -> mind.gateway.v1.FixRequest
+	18, // 30: mind.gateway.v1.Gateway.ApplyEdit:input_type -> mind.gateway.v1.ApplyEditRequest
+	20, // 31: mind.gateway.v1.Gateway.BatchApplyEdits:input_type -> mind.gateway.v1.BatchApplyEditsRequest
+	23, // 32: mind.gateway.v1.Gateway.Search:input_type -> mind.gateway.v1.SearchRequest
+	26, // 33: mind.gateway.v1.Gateway.Build:input_type -> mind.gateway.v1.BuildRequest
+	29, // 34: mind.gateway.v1.Gateway.Lint:input_type -> mind.gateway.v1.LintRequest
+	31, // 35: mind.gateway.v1.Gateway.Test:input_type -> mind.gateway.v1.TestRequest
+	33, // 36: mind.gateway.v1.Gateway.RunCommand:input_type -> mind.gateway.v1.RunCommandRequest
+	63, // 37: mind.gateway.v1.Gateway.ListAllCommands:input_type -> mind.gateway.v1.ListAllCommandsRequest
+	35, // 38: mind.gateway.v1.Gateway.RunChecks:input_type -> mind.gateway.v1.RunChecksRequest
+	42, // 39: mind.gateway.v1.Gateway.GitStatus:input_type -> mind.gateway.v1.GitStatusRequest
+	45, // 40: mind.gateway.v1.Gateway.GitDiff:input_type -> mind.gateway.v1.GitDiffRequest
+	47, // 41: mind.gateway.v1.Gateway.GitLog:input_type -> mind.gateway.v1.GitLogRequest
+	50, // 42: mind.gateway.v1.Gateway.GitCommit:input_type -> mind.gateway.v1.GitCommitRequest
+	53, // 43: mind.gateway.v1.Gateway.ListDependencies:input_type -> mind.gateway.v1.ListDependenciesRequest
+	55, // 44: mind.gateway.v1.Gateway.AddDependency:input_type -> mind.gateway.v1.AddDependencyRequest
+	57, // 45: mind.gateway.v1.Gateway.RemoveDependency:input_type -> mind.gateway.v1.RemoveDependencyRequest
+	60, // 46: mind.gateway.v1.Gateway.GetProjectInfo:input_type -> mind.gateway.v1.GetProjectInfoRequest
+	65, // 47: mind.gateway.v1.Gateway.OpenTerminal:input_type -> mind.gateway.v1.OpenTerminalRequest
+	67, // 48: mind.gateway.v1.Gateway.AttachTerminal:input_type -> mind.gateway.v1.TerminalInput
+	69, // 49: mind.gateway.v1.Gateway.ResizeTerminal:input_type -> mind.gateway.v1.ResizeTerminalRequest
+	71, // 50: mind.gateway.v1.Gateway.CloseTerminal:input_type -> mind.gateway.v1.CloseTerminalRequest
+	73, // 51: mind.gateway.v1.Gateway.ListTerminals:input_type -> mind.gateway.v1.ListTerminalsRequest
+	2,  // 52: mind.gateway.v1.Gateway.ListServices:output_type -> mind.gateway.v1.ListServicesResponse
+	4,  // 53: mind.gateway.v1.Gateway.ReadFile:output_type -> mind.gateway.v1.ReadFileResponse
+	6,  // 54: mind.gateway.v1.Gateway.WriteFile:output_type -> mind.gateway.v1.WriteFileResponse
+	9,  // 55: mind.gateway.v1.Gateway.ListFiles:output_type -> mind.gateway.v1.ListFilesResponse
+	11, // 56: mind.gateway.v1.Gateway.DeleteFile:output_type -> mind.gateway.v1.DeleteFileResponse
+	13, // 57: mind.gateway.v1.Gateway.MoveFile:output_type -> mind.gateway.v1.MoveFileResponse
+	15, // 58: mind.gateway.v1.Gateway.CreateFile:output_type -> mind.gateway.v1.CreateFileResponse
+	17, // 59: mind.gateway.v1.Gateway.Fix:output_type -> mind.gateway.v1.FixResponse
+	19, // 60: mind.gateway.v1.Gateway.ApplyEdit:output_type -> mind.gateway.v1.ApplyEditResponse
+	22, // 61: mind.gateway.v1.Gateway.BatchApplyEdits:output_type -> mind.gateway.v1.BatchApplyEditsResponse
+	25, // 62: mind.gateway.v1.Gateway.Search:output_type -> mind.gateway.v1.SearchResponse
+	28, // 63: mind.gateway.v1.Gateway.Build:output_type -> mind.gateway.v1.BuildResponse
+	30, // 64: mind.gateway.v1.Gateway.Lint:output_type -> mind.gateway.v1.LintResponse
+	32, // 65: mind.gateway.v1.Gateway.Test:output_type -> mind.gateway.v1.TestResponse
+	34, // 66: mind.gateway.v1.Gateway.RunCommand:output_type -> mind.gateway.v1.RunCommandResponse
+	64, // 67: mind.gateway.v1.Gateway.ListAllCommands:output_type -> mind.gateway.v1.ListAllCommandsResponse
+	41, // 68: mind.gateway.v1.Gateway.RunChecks:output_type -> mind.gateway.v1.RunChecksResponse
+	44, // 69: mind.gateway.v1.Gateway.GitStatus:output_type -> mind.gateway.v1.GitStatusResponse
+	46, // 70: mind.gateway.v1.Gateway.GitDiff:output_type -> mind.gateway.v1.GitDiffResponse
+	49, // 71: mind.gateway.v1.Gateway.GitLog:output_type -> mind.gateway.v1.GitLogResponse
+	51, // 72: mind.gateway.v1.Gateway.GitCommit:output_type -> mind.gateway.v1.GitCommitResponse
+	54, // 73: mind.gateway.v1.Gateway.ListDependencies:output_type -> mind.gateway.v1.ListDependenciesResponse
+	56, // 74: mind.gateway.v1.Gateway.AddDependency:output_type -> mind.gateway.v1.AddDependencyResponse
+	58, // 75: mind.gateway.v1.Gateway.RemoveDependency:output_type -> mind.gateway.v1.RemoveDependencyResponse
+	61, // 76: mind.gateway.v1.Gateway.GetProjectInfo:output_type -> mind.gateway.v1.GetProjectInfoResponse
+	66, // 77: mind.gateway.v1.Gateway.OpenTerminal:output_type -> mind.gateway.v1.OpenTerminalResponse
+	68, // 78: mind.gateway.v1.Gateway.AttachTerminal:output_type -> mind.gateway.v1.TerminalOutput
+	70, // 79: mind.gateway.v1.Gateway.ResizeTerminal:output_type -> mind.gateway.v1.ResizeTerminalResponse
+	72, // 80: mind.gateway.v1.Gateway.CloseTerminal:output_type -> mind.gateway.v1.CloseTerminalResponse
+	75, // 81: mind.gateway.v1.Gateway.ListTerminals:output_type -> mind.gateway.v1.ListTerminalsResponse
+	52, // [52:82] is the sub-list for method output_type
+	22, // [22:52] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_mind_gateway_v1_gateway_proto_init() }
@@ -4733,7 +5383,7 @@ func file_mind_gateway_v1_gateway_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mind_gateway_v1_gateway_proto_rawDesc), len(file_mind_gateway_v1_gateway_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   66,
+			NumMessages:   77,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -5,13 +5,12 @@
 package gatewayv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -86,6 +85,16 @@ const (
 	GatewayRemoveDependencyProcedure = "/mind.gateway.v1.Gateway/RemoveDependency"
 	// GatewayGetProjectInfoProcedure is the fully-qualified name of the Gateway's GetProjectInfo RPC.
 	GatewayGetProjectInfoProcedure = "/mind.gateway.v1.Gateway/GetProjectInfo"
+	// GatewayOpenTerminalProcedure is the fully-qualified name of the Gateway's OpenTerminal RPC.
+	GatewayOpenTerminalProcedure = "/mind.gateway.v1.Gateway/OpenTerminal"
+	// GatewayAttachTerminalProcedure is the fully-qualified name of the Gateway's AttachTerminal RPC.
+	GatewayAttachTerminalProcedure = "/mind.gateway.v1.Gateway/AttachTerminal"
+	// GatewayResizeTerminalProcedure is the fully-qualified name of the Gateway's ResizeTerminal RPC.
+	GatewayResizeTerminalProcedure = "/mind.gateway.v1.Gateway/ResizeTerminal"
+	// GatewayCloseTerminalProcedure is the fully-qualified name of the Gateway's CloseTerminal RPC.
+	GatewayCloseTerminalProcedure = "/mind.gateway.v1.Gateway/CloseTerminal"
+	// GatewayListTerminalsProcedure is the fully-qualified name of the Gateway's ListTerminals RPC.
+	GatewayListTerminalsProcedure = "/mind.gateway.v1.Gateway/ListTerminals"
 )
 
 // GatewayClient is a client for the mind.gateway.v1.Gateway service.
@@ -140,6 +149,17 @@ type GatewayClient interface {
 	RemoveDependency(context.Context, *connect.Request[v1.RemoveDependencyRequest]) (*connect.Response[v1.RemoveDependencyResponse], error)
 	// GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
 	GetProjectInfo(context.Context, *connect.Request[v1.GetProjectInfoRequest]) (*connect.Response[v1.GetProjectInfoResponse], error)
+	// OpenTerminal spawns a PTY-backed shell in the gateway's working directory.
+	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
+	// AttachTerminal is a bidirectional stream: client input bytes in,
+	// raw PTY output bytes out, until the shell exits or the client detaches.
+	AttachTerminal(context.Context) *connect.BidiStreamForClient[v1.TerminalInput, v1.TerminalOutput]
+	// ResizeTerminal changes the PTY window size (rows/cols).
+	ResizeTerminal(context.Context, *connect.Request[v1.ResizeTerminalRequest]) (*connect.Response[v1.ResizeTerminalResponse], error)
+	// CloseTerminal kills the PTY + child process.
+	CloseTerminal(context.Context, *connect.Request[v1.CloseTerminalRequest]) (*connect.Response[v1.CloseTerminalResponse], error)
+	// ListTerminals lists the open terminals in this gateway.
+	ListTerminals(context.Context, *connect.Request[v1.ListTerminalsRequest]) (*connect.Response[v1.ListTerminalsResponse], error)
 }
 
 // NewGatewayClient constructs a client for the mind.gateway.v1.Gateway service. By default, it uses
@@ -303,6 +323,36 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(gatewayMethods.ByName("GetProjectInfo")),
 			connect.WithClientOptions(opts...),
 		),
+		openTerminal: connect.NewClient[v1.OpenTerminalRequest, v1.OpenTerminalResponse](
+			httpClient,
+			baseURL+GatewayOpenTerminalProcedure,
+			connect.WithSchema(gatewayMethods.ByName("OpenTerminal")),
+			connect.WithClientOptions(opts...),
+		),
+		attachTerminal: connect.NewClient[v1.TerminalInput, v1.TerminalOutput](
+			httpClient,
+			baseURL+GatewayAttachTerminalProcedure,
+			connect.WithSchema(gatewayMethods.ByName("AttachTerminal")),
+			connect.WithClientOptions(opts...),
+		),
+		resizeTerminal: connect.NewClient[v1.ResizeTerminalRequest, v1.ResizeTerminalResponse](
+			httpClient,
+			baseURL+GatewayResizeTerminalProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ResizeTerminal")),
+			connect.WithClientOptions(opts...),
+		),
+		closeTerminal: connect.NewClient[v1.CloseTerminalRequest, v1.CloseTerminalResponse](
+			httpClient,
+			baseURL+GatewayCloseTerminalProcedure,
+			connect.WithSchema(gatewayMethods.ByName("CloseTerminal")),
+			connect.WithClientOptions(opts...),
+		),
+		listTerminals: connect.NewClient[v1.ListTerminalsRequest, v1.ListTerminalsResponse](
+			httpClient,
+			baseURL+GatewayListTerminalsProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ListTerminals")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -333,6 +383,11 @@ type gatewayClient struct {
 	addDependency    *connect.Client[v1.AddDependencyRequest, v1.AddDependencyResponse]
 	removeDependency *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
 	getProjectInfo   *connect.Client[v1.GetProjectInfoRequest, v1.GetProjectInfoResponse]
+	openTerminal     *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
+	attachTerminal   *connect.Client[v1.TerminalInput, v1.TerminalOutput]
+	resizeTerminal   *connect.Client[v1.ResizeTerminalRequest, v1.ResizeTerminalResponse]
+	closeTerminal    *connect.Client[v1.CloseTerminalRequest, v1.CloseTerminalResponse]
+	listTerminals    *connect.Client[v1.ListTerminalsRequest, v1.ListTerminalsResponse]
 }
 
 // ListServices calls mind.gateway.v1.Gateway.ListServices.
@@ -460,6 +515,31 @@ func (c *gatewayClient) GetProjectInfo(ctx context.Context, req *connect.Request
 	return c.getProjectInfo.CallUnary(ctx, req)
 }
 
+// OpenTerminal calls mind.gateway.v1.Gateway.OpenTerminal.
+func (c *gatewayClient) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error) {
+	return c.openTerminal.CallUnary(ctx, req)
+}
+
+// AttachTerminal calls mind.gateway.v1.Gateway.AttachTerminal.
+func (c *gatewayClient) AttachTerminal(ctx context.Context) *connect.BidiStreamForClient[v1.TerminalInput, v1.TerminalOutput] {
+	return c.attachTerminal.CallBidiStream(ctx)
+}
+
+// ResizeTerminal calls mind.gateway.v1.Gateway.ResizeTerminal.
+func (c *gatewayClient) ResizeTerminal(ctx context.Context, req *connect.Request[v1.ResizeTerminalRequest]) (*connect.Response[v1.ResizeTerminalResponse], error) {
+	return c.resizeTerminal.CallUnary(ctx, req)
+}
+
+// CloseTerminal calls mind.gateway.v1.Gateway.CloseTerminal.
+func (c *gatewayClient) CloseTerminal(ctx context.Context, req *connect.Request[v1.CloseTerminalRequest]) (*connect.Response[v1.CloseTerminalResponse], error) {
+	return c.closeTerminal.CallUnary(ctx, req)
+}
+
+// ListTerminals calls mind.gateway.v1.Gateway.ListTerminals.
+func (c *gatewayClient) ListTerminals(ctx context.Context, req *connect.Request[v1.ListTerminalsRequest]) (*connect.Response[v1.ListTerminalsResponse], error) {
+	return c.listTerminals.CallUnary(ctx, req)
+}
+
 // GatewayHandler is an implementation of the mind.gateway.v1.Gateway service.
 type GatewayHandler interface {
 	// ListServices returns all services known to the gateway.
@@ -512,6 +592,17 @@ type GatewayHandler interface {
 	RemoveDependency(context.Context, *connect.Request[v1.RemoveDependencyRequest]) (*connect.Response[v1.RemoveDependencyResponse], error)
 	// GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
 	GetProjectInfo(context.Context, *connect.Request[v1.GetProjectInfoRequest]) (*connect.Response[v1.GetProjectInfoResponse], error)
+	// OpenTerminal spawns a PTY-backed shell in the gateway's working directory.
+	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
+	// AttachTerminal is a bidirectional stream: client input bytes in,
+	// raw PTY output bytes out, until the shell exits or the client detaches.
+	AttachTerminal(context.Context, *connect.BidiStream[v1.TerminalInput, v1.TerminalOutput]) error
+	// ResizeTerminal changes the PTY window size (rows/cols).
+	ResizeTerminal(context.Context, *connect.Request[v1.ResizeTerminalRequest]) (*connect.Response[v1.ResizeTerminalResponse], error)
+	// CloseTerminal kills the PTY + child process.
+	CloseTerminal(context.Context, *connect.Request[v1.CloseTerminalRequest]) (*connect.Response[v1.CloseTerminalResponse], error)
+	// ListTerminals lists the open terminals in this gateway.
+	ListTerminals(context.Context, *connect.Request[v1.ListTerminalsRequest]) (*connect.Response[v1.ListTerminalsResponse], error)
 }
 
 // NewGatewayHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -671,6 +762,36 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(gatewayMethods.ByName("GetProjectInfo")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayOpenTerminalHandler := connect.NewUnaryHandler(
+		GatewayOpenTerminalProcedure,
+		svc.OpenTerminal,
+		connect.WithSchema(gatewayMethods.ByName("OpenTerminal")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayAttachTerminalHandler := connect.NewBidiStreamHandler(
+		GatewayAttachTerminalProcedure,
+		svc.AttachTerminal,
+		connect.WithSchema(gatewayMethods.ByName("AttachTerminal")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayResizeTerminalHandler := connect.NewUnaryHandler(
+		GatewayResizeTerminalProcedure,
+		svc.ResizeTerminal,
+		connect.WithSchema(gatewayMethods.ByName("ResizeTerminal")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayCloseTerminalHandler := connect.NewUnaryHandler(
+		GatewayCloseTerminalProcedure,
+		svc.CloseTerminal,
+		connect.WithSchema(gatewayMethods.ByName("CloseTerminal")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayListTerminalsHandler := connect.NewUnaryHandler(
+		GatewayListTerminalsProcedure,
+		svc.ListTerminals,
+		connect.WithSchema(gatewayMethods.ByName("ListTerminals")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/mind.gateway.v1.Gateway/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case GatewayListServicesProcedure:
@@ -723,6 +844,16 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayRemoveDependencyHandler.ServeHTTP(w, r)
 		case GatewayGetProjectInfoProcedure:
 			gatewayGetProjectInfoHandler.ServeHTTP(w, r)
+		case GatewayOpenTerminalProcedure:
+			gatewayOpenTerminalHandler.ServeHTTP(w, r)
+		case GatewayAttachTerminalProcedure:
+			gatewayAttachTerminalHandler.ServeHTTP(w, r)
+		case GatewayResizeTerminalProcedure:
+			gatewayResizeTerminalHandler.ServeHTTP(w, r)
+		case GatewayCloseTerminalProcedure:
+			gatewayCloseTerminalHandler.ServeHTTP(w, r)
+		case GatewayListTerminalsProcedure:
+			gatewayListTerminalsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -830,4 +961,24 @@ func (UnimplementedGatewayHandler) RemoveDependency(context.Context, *connect.Re
 
 func (UnimplementedGatewayHandler) GetProjectInfo(context.Context, *connect.Request[v1.GetProjectInfoRequest]) (*connect.Response[v1.GetProjectInfoResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GetProjectInfo is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.OpenTerminal is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) AttachTerminal(context.Context, *connect.BidiStream[v1.TerminalInput, v1.TerminalOutput]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.AttachTerminal is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ResizeTerminal(context.Context, *connect.Request[v1.ResizeTerminalRequest]) (*connect.Response[v1.ResizeTerminalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ResizeTerminal is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) CloseTerminal(context.Context, *connect.Request[v1.CloseTerminalRequest]) (*connect.Response[v1.CloseTerminalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.CloseTerminal is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ListTerminals(context.Context, *connect.Request[v1.ListTerminalsRequest]) (*connect.Response[v1.ListTerminalsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ListTerminals is not implemented"))
 }
