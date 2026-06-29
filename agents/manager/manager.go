@@ -53,7 +53,7 @@ func FindLocalLatest(ctx context.Context, agent *resources.Agent) error {
 		return w.Wrapf(err, "finding local latest")
 	}
 
-	w.Debug("resolved to local version", wool.Field("version", agent.Version))
+	w.Trace("resolved to local version", wool.Field("version", agent.Version))
 	return nil
 }
 
@@ -93,7 +93,14 @@ func findLocalLatestInDir(dir string, agent *resources.Agent) error {
 	return nil
 }
 
-// ResolveLatest resolves agent.Version when it is "latest". Strategy:
+// ResolveLatest resolves agent.Version when it is "latest" and reports where the
+// version came from, so the caller can render a single aggregated resolution line
+// instead of the per-step cascade (which is now TRACE). Sources:
+//   - "pinned": agent.Version was already a concrete semver (no resolution done).
+//   - "local":  resolved from a locally-built binary in the agent dir.
+//   - "github": resolved from a GitHub release.
+//
+// Strategy:
 //
 //  1. If CODEFLY_AGENT_SOURCE=local: scan the local agent dir only.
 //  2. Otherwise: try FindLocalLatest first; if it succeeds, use it.
@@ -101,23 +108,24 @@ func findLocalLatestInDir(dir string, agent *resources.Agent) error {
 //     take precedence over any GitHub release, which is the intent
 //     of running `codefly` from a dev checkout.
 //  3. Fall back to PinToLatestRelease (GitHub → local fallback).
-//
-// No-op when agent.Version is already a concrete semver.
-func ResolveLatest(ctx context.Context, agent *resources.Agent) error {
+func ResolveLatest(ctx context.Context, agent *resources.Agent) (string, error) {
 	if agent.Version != "latest" {
-		return nil
+		return "pinned", nil
 	}
 	w := wool.Get(ctx).In("agents.ResolveLatest", wool.Field("agent", agent.Identifier()))
 	if AgentSourceLocal() {
-		w.Debug("CODEFLY_AGENT_SOURCE=local — resolving from local agent dir")
-		return FindLocalLatest(ctx, agent)
+		w.Trace("CODEFLY_AGENT_SOURCE=local — resolving from local agent dir")
+		return "local", FindLocalLatest(ctx, agent)
 	}
 	if err := FindLocalLatest(ctx, agent); err == nil {
-		w.Debug("resolved latest from local build", wool.Field("version", agent.Version))
-		return nil
+		w.Trace("resolved latest from local build", wool.Field("version", agent.Version))
+		return "local", nil
 	}
-	w.Debug("no local build; falling back to GitHub releases")
-	return PinToLatestRelease(ctx, agent)
+	w.Trace("no local build; falling back to GitHub releases")
+	if err := PinToLatestRelease(ctx, agent); err != nil {
+		return "", err
+	}
+	return "github", nil
 }
 
 // PinToLatestRelease queries GitHub for the latest release tag and updates
