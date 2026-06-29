@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // IsDebug returns true if the global log level is DEBUG or TRACE.
@@ -64,21 +65,24 @@ type scopeRule struct {
 	level  Loglevel
 }
 
-var (
-	scopeRules       []scopeRule
-	scopeRulesLoaded bool
-)
+// scopeRules holds the active per-scope overrides. It is read on the logging
+// hot path (Wool.LogLevel, on essentially every log call) so reads go through a
+// lock-free atomic load; the slice is replaced wholesale, never mutated in
+// place. Seeded from CODEFLY_LOG at init and replaceable via SetLogScopes.
+var scopeRules atomic.Pointer[[]scopeRule]
+
+func init() {
+	SetLogScopes(os.Getenv("CODEFLY_LOG"))
+}
 
 // SetLogScopes installs per-scope level overrides, replacing any previously set
-// (including those loaded lazily from CODEFLY_LOG). The spec is a comma list of
-// "scope=level" entries, e.g. "network=debug,resources=info,*=warn"; "*" is the
-// catch-all. A scope matches when the .In(...) name has the rule prefix; the
+// (including the CODEFLY_LOG defaults loaded at init). The spec is a comma list
+// of "scope=level" entries, e.g. "network=debug,resources=info,*=warn"; "*" is
+// the catch-all. A scope matches when the .In(...) name has the rule prefix; the
 // longest matching prefix wins. Unparseable entries are ignored.
 func SetLogScopes(spec string) {
-	lock.Lock()
-	defer lock.Unlock()
-	scopeRules = parseLogScopes(spec)
-	scopeRulesLoaded = true
+	rules := parseLogScopes(spec)
+	scopeRules.Store(&rules)
 }
 
 func parseLogScopes(spec string) []scopeRule {
@@ -101,27 +105,17 @@ func parseLogScopes(spec string) []scopeRule {
 	return rules
 }
 
-func logScopeRules() []scopeRule {
-	lock.Lock()
-	defer lock.Unlock()
-	if !scopeRulesLoaded {
-		scopeRules = parseLogScopes(os.Getenv("CODEFLY_LOG"))
-		scopeRulesLoaded = true
-	}
-	return scopeRules
-}
-
 // scopeLevelFor returns the level override for a .In(...) scope name. The
 // longest matching prefix wins; the catch-all ("*") applies when no prefix
 // matches. The second return is false when no rule applies.
 func scopeLevelFor(name string) (Loglevel, bool) {
-	rules := logScopeRules()
-	if len(rules) == 0 {
+	rules := scopeRules.Load()
+	if rules == nil {
 		return DEFAULT, false
 	}
 	matchLevel := DEFAULT
 	matchLen := -1
-	for _, r := range rules {
+	for _, r := range *rules {
 		if r.prefix == "" {
 			if matchLen < 0 {
 				matchLevel = r.level
