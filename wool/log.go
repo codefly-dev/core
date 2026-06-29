@@ -78,7 +78,11 @@ func (l *Log) String() string {
 	}
 	tokens = append(tokens, l.Message)
 	for _, f := range fields {
-		tokens = append(tokens, f.String())
+		// Fields that render to nothing (empty/nil value) are noise — a bare
+		// `key=` carries no information — so drop them from the line entirely.
+		if s := f.String(); s != "" {
+			tokens = append(tokens, s)
+		}
 	}
 	return strings.Join(tokens, " ")
 }
@@ -91,25 +95,56 @@ type LogField struct {
 	Value any      `json:"value"`
 }
 
+// String renders the field as "key=value". It returns the empty string when
+// the value renders to nothing (nil or empty), letting Log.String drop the
+// field rather than emit a meaningless bare "key=".
 func (f *LogField) String() string {
+	v := f.renderValue()
+	if v == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s=%s", f.Key, v)
+}
+
+// renderValue formats the field value, preferring fmt.Stringer over %v so
+// domain types control their own representation instead of being dumped as a
+// raw Go struct.
+func (f *LogField) renderValue() string {
 	if f.Value == nil {
-		return fmt.Sprintf("%s=nil", f.Key)
+		return ""
 	}
 	if stringer, ok := f.Value.(fmt.Stringer); ok {
-		return fmt.Sprintf("%s=%s", f.Key, stringer.String())
+		// A typed-nil pointer (e.g. (*T)(nil)) still satisfies fmt.Stringer, but
+		// its String() may dereference the nil receiver and panic. Logging must
+		// never panic, so render a nil underlying value as empty (and let
+		// Log.String drop the field) rather than calling through.
+		if rv := reflect.ValueOf(f.Value); rv.Kind() == reflect.Pointer && rv.IsNil() {
+			return ""
+		}
+		return stringer.String()
 	}
-	return fmt.Sprintf("%s=%v", f.Key, f.Value)
+	if s, ok := f.Value.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", f.Value)
 }
 
 // Loglevel defines log severity.
 type Loglevel int
 
+// Levels are ordered by severity; a message is shown when its level is >= the
+// effective log level (see Wool.LogLevel). FOCUS sits just above INFO and below
+// WARN: it is a highlighted milestone. At the default INFO level FOCUS lines are
+// shown (the highlight a user wants to see); running at FOCUS hides routine INFO
+// chatter while keeping milestones, warnings and errors — the "signal only"
+// view. FOCUS must stay above INFO so it is never accidentally filtered out by an
+// INFO-level run.
 const (
 	DEFAULT Loglevel = iota
 	TRACE
 	DEBUG
-	FOCUS
 	INFO
+	FOCUS
 	WARN
 	ERROR
 	FATAL
@@ -120,12 +155,31 @@ var levelToString = map[Loglevel]string{
 	DEFAULT: "DEFAULT",
 	TRACE:   "TRACE",
 	DEBUG:   "DEBUG",
-	FOCUS:   "FOCUS",
 	INFO:    "INFO",
+	FOCUS:   "FOCUS",
 	WARN:    "WARN",
 	ERROR:   "ERROR",
 	FATAL:   "FATAL",
 	FORWARD: "FORWARD",
+}
+
+// stringToLevel maps a lowercase level name to its Loglevel, for parsing
+// per-scope overrides (see SetLogScopes / CODEFLY_LOG).
+var stringToLevel = map[string]Loglevel{
+	"trace": TRACE,
+	"debug": DEBUG,
+	"info":  INFO,
+	"focus": FOCUS,
+	"warn":  WARN,
+	"error": ERROR,
+	"fatal": FATAL,
+}
+
+// LevelFromString resolves a level name (case-insensitive, e.g. "debug") to a
+// Loglevel. The second return is false for an unrecognized name.
+func LevelFromString(s string) (Loglevel, bool) {
+	l, ok := stringToLevel[strings.ToLower(strings.TrimSpace(s))]
+	return l, ok
 }
 
 // String returns the human-readable name of the log level (e.g. "INFO"),
@@ -276,4 +330,40 @@ func InField(s string) *LogField {
 
 func Writer() *LogField {
 	return &LogField{Key: "writer"}
+}
+
+// SecretField redacts the value at construction: the raw secret is dropped and
+// never reaches any sink (console, file, gRPC, telemetry). The field always
+// renders "****". This makes redaction a logging-layer guarantee rather than a
+// convention each call site has to remember.
+func SecretField(key string, _ any) *LogField {
+	return &LogField{Key: key, Value: "****"}
+}
+
+// sliceValue renders a slice as a bracketed, comma-separated list ("[a, b]"),
+// or "none" when empty — instead of a raw "{1 [a b]}" %v struct dump. Elements
+// that implement fmt.Stringer render via String().
+type sliceValue[T any] struct {
+	items []T
+}
+
+func (s sliceValue[T]) String() string {
+	if len(s.items) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(s.items))
+	for i, it := range s.items {
+		if str, ok := any(it).(fmt.Stringer); ok {
+			parts[i] = str.String()
+		} else {
+			parts[i] = fmt.Sprintf("%v", it)
+		}
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// SliceField formats a slice as a readable list (see sliceValue) so call sites
+// can log domain collections without dumping internal struct layout.
+func SliceField[T any](key string, items []T) *LogField {
+	return &LogField{Key: key, Value: sliceValue[T]{items: items}}
 }
