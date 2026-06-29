@@ -150,10 +150,10 @@ func isRunningInDocker() bool {
 func AgentBase(ctx context.Context) string {
 	w := wool.Get(ctx).In("AgentBase")
 	if isRunningInDocker() {
-		w.Debug("running inside docker")
+		w.Trace("running inside docker")
 		return path.Join(CodeflyHomeDir(), "containers")
 	}
-	w.Debug("running natively")
+	w.Trace("running natively")
 	return CodeflyHomeDir()
 }
 

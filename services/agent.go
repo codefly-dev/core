@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/codefly-dev/core/agents"
@@ -34,29 +35,28 @@ func LoadAgent(ctx context.Context, agent *resources.Agent) (*coreservices.Servi
 	}
 	w := wool.Get(ctx).In("services.LoadAgent", wool.Field("agent", agent.Name))
 	requestedVersion := agent.Version
-	w.Debug("loading service agent")
 
-	if err := manager.ResolveLatest(ctx, agent); err != nil {
+	source, err := manager.ResolveLatest(ctx, agent)
+	if err != nil {
 		return nil, w.Wrap(err)
 	}
 
-	fields := []*wool.LogField{
+	// One aggregated INFO line per service. The per-step resolution chatter
+	// (FindLocalLatest / ResolveLatest) is TRACE; this is the single line a
+	// default run shows for agent resolution.
+	annotations := []string{source}
+	if requestedVersion == "latest" {
+		annotations = append(annotations, "latest")
+	} else if requestedVersion != "" && requestedVersion != agent.Version {
+		annotations = append(annotations, fmt.Sprintf("requested %s", requestedVersion))
+	}
+	w.Info(
+		fmt.Sprintf("resolved %s → %s (%s)", agent.Name, agent.Version, strings.Join(annotations, ", ")),
 		wool.Field("publisher", agent.Publisher),
 		wool.Field("agent", agent.Name),
 		wool.Field("version", agent.Version),
-	}
-	message := fmt.Sprintf("loading service agent %s/%s:%s", agent.Publisher, agent.Name, agent.Version)
-	if requestedVersion != "" && requestedVersion != agent.Version {
-		fields = append(fields, wool.Field("requested-version", requestedVersion))
-		message = fmt.Sprintf(
-			"loading service agent %s/%s:%s (requested %s)",
-			agent.Publisher,
-			agent.Name,
-			agent.Version,
-			requestedVersion,
-		)
-	}
-	w.Info(message, fields...)
+		wool.Field("source", source),
+	)
 
 	conn, err := getOrCreateConn(ctx, agent)
 	if err != nil {

@@ -184,6 +184,15 @@ var (
 	active   = make(map[string]*AgentConn)
 )
 
+// sandboxWarnOnce / principalWarnOnce gate the audit-of-defaults security
+// warnings to a single emission per process. Each warning is identical
+// regardless of which agent triggered it, so emitting one per Load floods a
+// multi-service run; once is enough to surface the missing explicit choice (#19).
+var (
+	sandboxWarnOnce   sync.Once
+	principalWarnOnce sync.Once
+)
+
 // Cleanup kills an agent process by its unique key and removes it from
 // the active map.
 func Cleanup(unique string) {
@@ -544,23 +553,34 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	for _, o := range opts {
 		o(&cfg)
 	}
+	// Process-wide audit warnings: emitted once per process and identical
+	// for every agent, so they must NOT carry the per-agent field — otherwise
+	// whichever agent hits Load first permanently owns the message.
+	warnW := wool.Get(ctx).In("manager.Load")
 	if !cfg.sandboxChoiceMade {
 		// Audit-visible warning: caller didn't pick WithSandbox or
 		// WithoutSandbox, so the plugin runs with parent ambient
 		// authority by accident-of-default. Phase 2 will hard-fail
 		// here. Until every dependent caller is migrated, log loud
-		// and continue.
-		w.Warn("security: manager.Load missing explicit sandbox choice",
-			wool.Field("default", "native"),
-		)
+		// and continue. Emitted once per process: the message is
+		// identical for every agent, so a 15-service run printing it
+		// 15× is pure noise (#19).
+		sandboxWarnOnce.Do(func() {
+			warnW.Warn("security: manager.Load missing explicit sandbox choice",
+				wool.Field("default", "native"),
+			)
+		})
 	}
 	if !cfg.principalChoiceMade {
 		// Same audit-of-defaults pattern as sandbox: every callsite
 		// MUST pick WithPrincipal or WithoutPrincipal. Until the M3
 		// rollout completes (every caller migrated), log + continue.
-		w.Warn("security: manager.Load missing explicit principal choice",
-			wool.Field("default", "without authority binding"),
-		)
+		// Deduped to once per process for the same reason as above.
+		principalWarnOnce.Do(func() {
+			warnW.Warn("security: manager.Load missing explicit principal choice",
+				wool.Field("default", "without authority binding"),
+			)
+		})
 	}
 
 	bin, err := p.Path(ctx)
@@ -785,7 +805,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		}
 	}
 
-	w.Debug("agent process started", wool.Field("pid", pid), wool.Path(bin))
+	w.Trace("agent process started", wool.Field("pid", pid), wool.Path(bin))
 
 	// killAndDescribe kills the agent and returns an error wrapping the
 	// supplied sentinel + reason + the captured stderr tail. Callers
@@ -924,7 +944,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	active[p.Unique()] = agentConn
 	activeMu.Unlock()
 
-	w.Debug("connected to agent", wool.Field("addr", addr), wool.Field("pid", pid))
+	w.Trace("connected to agent", wool.Field("addr", addr), wool.Field("pid", pid))
 
 	loadSucceeded = true
 	return agentConn, nil

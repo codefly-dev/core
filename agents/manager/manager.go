@@ -53,7 +53,7 @@ func FindLocalLatest(ctx context.Context, agent *resources.Agent) error {
 		return w.Wrapf(err, "finding local latest")
 	}
 
-	w.Debug("resolved to local version", wool.Field("version", agent.Version))
+	w.Trace("resolved to local version", wool.Field("version", agent.Version))
 	return nil
 }
 
@@ -93,7 +93,14 @@ func findLocalLatestInDir(dir string, agent *resources.Agent) error {
 	return nil
 }
 
-// ResolveLatest resolves agent.Version when it is "latest". Strategy:
+// ResolveLatest resolves agent.Version when it is "latest" and reports where the
+// version came from, so the caller can render a single aggregated resolution line
+// instead of the per-step cascade (which is now TRACE). Sources:
+//   - "pinned": agent.Version was already a concrete semver (no resolution done).
+//   - "local":  resolved from a locally-built binary in the agent dir.
+//   - "github": resolved from a GitHub release.
+//
+// Strategy:
 //
 //  1. If CODEFLY_AGENT_SOURCE=local: scan the local agent dir only.
 //  2. Otherwise: try FindLocalLatest first; if it succeeds, use it.
@@ -101,64 +108,69 @@ func findLocalLatestInDir(dir string, agent *resources.Agent) error {
 //     take precedence over any GitHub release, which is the intent
 //     of running `codefly` from a dev checkout.
 //  3. Fall back to PinToLatestRelease (GitHub → local fallback).
-//
-// No-op when agent.Version is already a concrete semver.
-func ResolveLatest(ctx context.Context, agent *resources.Agent) error {
+func ResolveLatest(ctx context.Context, agent *resources.Agent) (string, error) {
 	if agent.Version != "latest" {
-		return nil
+		return "pinned", nil
 	}
 	w := wool.Get(ctx).In("agents.ResolveLatest", wool.Field("agent", agent.Identifier()))
 	if AgentSourceLocal() {
-		w.Debug("CODEFLY_AGENT_SOURCE=local — resolving from local agent dir")
-		return FindLocalLatest(ctx, agent)
+		w.Trace("CODEFLY_AGENT_SOURCE=local — resolving from local agent dir")
+		return "local", FindLocalLatest(ctx, agent)
 	}
 	if err := FindLocalLatest(ctx, agent); err == nil {
-		w.Debug("resolved latest from local build", wool.Field("version", agent.Version))
-		return nil
+		w.Trace("resolved latest from local build", wool.Field("version", agent.Version))
+		return "local", nil
 	}
-	w.Debug("no local build; falling back to GitHub releases")
-	return PinToLatestRelease(ctx, agent)
+	w.Trace("no local build; falling back to GitHub releases")
+	source, err := PinToLatestRelease(ctx, agent)
+	if err != nil {
+		return "", err
+	}
+	return source, nil
 }
 
 // PinToLatestRelease queries GitHub for the latest release tag and updates
 // the agent's version. Falls back to FindLocalLatest if GitHub is unreachable
-// or has no releases for this agent.
+// or has no releases for this agent. It returns the source the version was
+// actually resolved from — "github" for a release lookup, "local" when the
+// local-filesystem fallback (or CODEFLY_AGENT_SOURCE=local) supplied it — so
+// callers can report the true origin rather than assuming GitHub.
 //
 // When CODEFLY_AGENT_SOURCE=local (or --local-agents on the CLI),
 // GitHub is skipped entirely and resolution goes straight to the local
 // filesystem scan. This makes "version: latest" work offline and lets
 // agent developers iterate on locally-built binaries without needing
 // to cut a GitHub release.
-func PinToLatestRelease(ctx context.Context, agent *resources.Agent) error {
+func PinToLatestRelease(ctx context.Context, agent *resources.Agent) (string, error) {
 	w := wool.Get(ctx).In("agents.PinToLatestRelease", wool.Field("agent", agent.Identifier()))
 	if AgentSourceLocal() {
 		w.Debug("CODEFLY_AGENT_SOURCE=local — resolving from local agent dir")
-		return FindLocalLatest(ctx, agent)
+		return "local", FindLocalLatest(ctx, agent)
 	}
 	client := github.NewClient(nil)
 	source := toGithubSource(agent)
 	release, _, err := client.Repositories.GetLatestRelease(ctx, source.Owner, source.Repo)
 	if err != nil {
 		w.Debug("GitHub release lookup failed, trying local", wool.Field("error", err.Error()))
-		return FindLocalLatest(ctx, agent)
+		return "local", FindLocalLatest(ctx, agent)
 	}
 	// TrimPrefix, not ReplaceAll: ReplaceAll("v","") stripped EVERY 'v' in the
 	// tag (e.g. v0.0.1-vault → 0.0.1-ault), corrupting the resolved version.
 	latestVersion := strings.TrimPrefix(release.GetTagName(), "v")
 	if agent.Version == "latest" {
 		agent.Version = latestVersion
-		return nil
+		return "github", nil
 	}
 	currentVersion, err := semver.Make(agent.Version)
 	if err != nil {
-		return w.Wrapf(err, "invalid current version format")
+		return "", w.Wrapf(err, "invalid current version format")
 	}
 	newVersion, err := semver.Make(latestVersion)
 	if err != nil {
-		return w.Wrapf(err, "invalid latest version format")
+		return "", w.Wrapf(err, "invalid latest version format")
 	}
 	if newVersion.GT(currentVersion) {
 		agent.Version = latestVersion
 	}
-	return nil
+	return "github", nil
 }

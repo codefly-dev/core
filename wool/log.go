@@ -139,6 +139,21 @@ type Loglevel int
 // chatter while keeping milestones, warnings and errors — the "signal only"
 // view. FOCUS must stay above INFO so it is never accidentally filtered out by an
 // INFO-level run.
+//
+// Choosing a level — the bar that keeps the default (INFO) stream readable:
+//   - TRACE: pure internal bookkeeping only a codefly-internals dev would want —
+//     per-step load/resolve cascades, hash computation, "sending request",
+//     "running natively", "loaded agent pid=…". Never shown by default; a real
+//     workspace (15+ services) emits these dozens of times.
+//   - DEBUG: diagnostics worth seeing when something is actually wrong, but still
+//     too noisy for a normal run — fallback paths taken, retries, resolved binary
+//     paths, GitHub-lookup failures. Surfaced with --debug or CODEFLY_LOG.
+//   - INFO: a small, high-value set per service — one aggregated resolution line,
+//     "Will run N service(s)", lifecycle milestones. If a line repeats once per
+//     service or per agent and carries no new fact, it belongs at TRACE.
+//   - FOCUS: highlighted milestones (>> lines). WARN/ERROR: real problems. A
+//     warning that fires identically for every agent should be emitted once, not
+//     once per agent.
 const (
 	DEFAULT Loglevel = iota
 	TRACE

@@ -98,7 +98,7 @@ func (instance *BuilderInstance) Load(ctx context.Context, opts ...BuilderLoadOp
 		o(opt)
 	}
 	w := wool.Get(ctx).In("BuilderInstance::Load", wool.NameField(instance.Identity.Unique()))
-	w.Debug("loading", wool.ModuleField(instance.Module.Name))
+	w.Trace("loading", wool.ModuleField(instance.Module.Name))
 	req, err := instance.loadRequest(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create load request")
@@ -178,7 +178,7 @@ func (instance *BuilderInstance) Update(ctx context.Context, req *builderv0.Upda
 
 func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environment) (*runtimev0.LoadResponse, error) {
 	w := wool.Get(ctx).In("RuntimeInstance::Load", wool.NameField(instance.Identity.Unique()))
-	w.Debug("sending load request")
+	w.Trace("sending load request")
 	relativeToWorkspace, err := instance.Workspace.RelativeDir(instance.Service)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot compute relative dir")
@@ -292,7 +292,7 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	instances[instance.Identity.Unique()] = instance
 	instancesMu.Unlock()
 
-	w.Debug("loaded agent", wool.Field("agent-pid", instance.ProcessInfo.AgentPID))
+	w.Trace("loaded agent", wool.Field("agent-pid", instance.ProcessInfo.AgentPID))
 	return instance, nil
 }
 
@@ -372,7 +372,7 @@ func UpdateAgent(ctx context.Context, service *resources.Service) (*UpdateInform
 	agentVersion := service.Agent.Version
 	info := &UpdateInformation{}
 	// Fetch the latest agent version
-	err := manager.PinToLatestRelease(ctx, service.Agent)
+	_, err := manager.PinToLatestRelease(ctx, service.Agent)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}

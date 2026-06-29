@@ -36,3 +36,6 @@ companions/treesitter/typescript/
 
 # Local build artifacts from running toolbox/launch demos
 network-victim-toolbox
+
+# Rust build artifacts
+/target/
