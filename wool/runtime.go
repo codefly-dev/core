@@ -78,8 +78,9 @@ func init() {
 // SetLogScopes installs per-scope level overrides, replacing any previously set
 // (including the CODEFLY_LOG defaults loaded at init). The spec is a comma list
 // of "scope=level" entries, e.g. "network=debug,resources=info,*=warn"; "*" is
-// the catch-all. A scope matches when the .In(...) name has the rule prefix; the
-// longest matching prefix wins. Unparseable entries are ignored.
+// the catch-all. A scope matches when its prefix lines up with a leading segment
+// of the .In(...) name (see scopeMatches); the longest matching prefix wins.
+// Unparseable entries are ignored.
 func SetLogScopes(spec string) {
 	rules := parseLogScopes(spec)
 	scopeRules.Store(&rules)
@@ -97,12 +98,34 @@ func parseLogScopes(spec string) []scopeRule {
 			continue
 		}
 		name = strings.TrimSpace(name)
+		if name == "" {
+			continue // malformed "=level"; only "*" is the catch-all
+		}
 		if name == "*" {
 			name = ""
 		}
 		rules = append(rules, scopeRule{prefix: name, level: level})
 	}
 	return rules
+}
+
+// scopeMatches reports whether a non-empty rule prefix applies to a .In(...)
+// scope name. It anchors on scope-segment boundaries ('.' or '::') so "network"
+// matches "network.Runtime" and "RuntimeInstance::Load" matches "RuntimeInstance"
+// — but "net" does not spuriously match "network".
+func scopeMatches(name, prefix string) bool {
+	if name == prefix {
+		return true
+	}
+	if !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	switch name[len(prefix)] {
+	case '.', ':':
+		return true
+	default:
+		return false
+	}
 }
 
 // scopeLevelFor returns the level override for a .In(...) scope name. The
@@ -123,7 +146,7 @@ func scopeLevelFor(name string) (Loglevel, bool) {
 			}
 			continue
 		}
-		if strings.HasPrefix(name, r.prefix) && len(r.prefix) > matchLen {
+		if len(r.prefix) > matchLen && scopeMatches(name, r.prefix) {
 			matchLevel = r.level
 			matchLen = len(r.prefix)
 		}

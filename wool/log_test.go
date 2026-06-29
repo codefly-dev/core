@@ -63,6 +63,22 @@ func TestSliceField_RendersList(t *testing.T) {
 		wool.SliceField("endpoints", []string{}).String())
 }
 
+// stringerEndpoint exercises the fmt.Stringer branch of SliceField's element
+// rendering — domain types control their own representation instead of %v.
+type stringerEndpoint struct{ name string }
+
+func (e stringerEndpoint) String() string { return e.name }
+
+func TestSliceField_RendersStringerElements(t *testing.T) {
+	f := wool.SliceField("endpoints", []stringerEndpoint{{"tcp"}, {"grpc"}})
+	require.Equal(t, "endpoints=[tcp, grpc]", f.String())
+}
+
+func TestField_NilValueIsDropped(t *testing.T) {
+	require.Equal(t, "", wool.Field("k", nil).String(),
+		"a nil value must render to nothing so Log.String drops it")
+}
+
 func TestSecretField_NeverLeaksValue(t *testing.T) {
 	f := wool.SecretField("connection", "postgres://user:hunter2@host/db")
 	require.Equal(t, "connection=****", f.String())
@@ -137,6 +153,45 @@ func TestScopeLevels_LongestPrefixWins(t *testing.T) {
 
 	other := wool.Get(context.Background()).In("network.Connect")
 	require.Equal(t, wool.WARN, other.LogLevel())
+}
+
+func TestScopeLevels_MatchOnSegmentBoundary(t *testing.T) {
+	t.Cleanup(func() { wool.SetLogScopes("") })
+	wool.SetLogScopes("net=debug")
+
+	// A prefix must align with a scope segment: "net" matches "net.X" but not
+	// "network.X" — otherwise turning up one component leaks into its neighbors.
+	require.Equal(t, wool.DEBUG,
+		wool.Get(context.Background()).In("net.Dial").LogLevel())
+	require.Equal(t, wool.GlobalLogLevel(),
+		wool.Get(context.Background()).In("network.Dial").LogLevel())
+
+	// The "::" separator (used by some scopes) anchors too.
+	wool.SetLogScopes("RuntimeInstance=debug")
+	require.Equal(t, wool.DEBUG,
+		wool.Get(context.Background()).In("RuntimeInstance::Load").LogLevel())
+}
+
+func TestScopeLevels_InstanceLevelTakesPrecedence(t *testing.T) {
+	t.Cleanup(func() { wool.SetLogScopes("") })
+	wool.SetLogScopes("network=debug")
+
+	w := wool.Get(context.Background()).In("network.Connect")
+	w.WithLoglevel(wool.ERROR)
+	// An explicit per-instance level wins over a scope override — this is the
+	// contract custom processors rely on to receive every line.
+	require.Equal(t, wool.ERROR, w.LogLevel())
+}
+
+func TestScopeLevels_IgnoresMalformedEntries(t *testing.T) {
+	t.Cleanup(func() { wool.SetLogScopes("") })
+	// "=warn" has an empty name and must NOT become a catch-all.
+	wool.SetLogScopes("=warn,network=debug")
+
+	require.Equal(t, wool.GlobalLogLevel(),
+		wool.Get(context.Background()).In("resources.Load").LogLevel())
+	require.Equal(t, wool.DEBUG,
+		wool.Get(context.Background()).In("network.Dial").LogLevel())
 }
 
 func TestString_DropsEmptyFieldsEndToEnd(t *testing.T) {
