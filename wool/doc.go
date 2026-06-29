@@ -3,7 +3,9 @@
 // Loggers ("wools") attach to a context with structured fields and a
 // hierarchy ("module/component/method"); messages are routed through a
 // pluggable Provider that ships them to stdout, gRPC, OpenTelemetry, or
-// any custom sink. Levels are DEBUG, TRACE, FOCUS, INFO, WARN, ERROR.
+// any custom sink. Levels in increasing severity are TRACE, DEBUG, INFO,
+// FOCUS, WARN, ERROR — FOCUS is a highlighted milestone shown at INFO and
+// above. Per-scope level overrides come from CODEFLY_LOG (see SetLogScopes).
 //
 // Typical usage:
 //

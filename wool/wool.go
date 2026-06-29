@@ -124,10 +124,16 @@ func (w *Wool) Catch() {
 // buffered, agent loggers) receive every TRACE/DEBUG line regardless of the
 // configured level.
 func (w *Wool) LogLevel() Loglevel {
-	if w.logLevel == DEFAULT {
-		return GlobalLogLevel()
+	if w.logLevel != DEFAULT {
+		return w.logLevel
 	}
-	return w.logLevel
+	// A scope override (CODEFLY_LOG / SetLogScopes) keyed on the .In(...) name
+	// takes precedence over the global level — this is what lets "network=debug,
+	// *=info" turn up one component without the firehose everywhere.
+	if level, ok := scopeLevelFor(w.name); ok {
+		return level
+	}
+	return GlobalLogLevel()
 }
 
 func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
