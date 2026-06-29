@@ -64,6 +64,53 @@ func TestClassifyEnvError_FlaskWerkzeugResolutionNamesPackage(t *testing.T) {
 	}
 }
 
+func TestClassifyEnvError_IgnoresPipNoticeFooter(t *testing.T) {
+	raw := strings.Join([]string{
+		"ERROR: Could not find a version that satisfies the requirement selenium<4.0",
+		"ERROR: No matching distribution found for selenium<4.0",
+		"[notice] A new release of pip is available: 23.0 -> 24.0",
+		"[notice] To update, run: pip install --upgrade pip",
+	}, "\n")
+	got := ClassifyEnvError(raw, errors.New("exit status 1"))
+	if got == nil || got.Reason != "version-conflict" {
+		t.Fatalf("pip-footer install failure must be version-conflict, got %+v", got)
+	}
+	if !strings.Contains(strings.ToLower(got.Detail), "selenium") {
+		t.Fatalf("detail must keep the actionable install error, got %q", got.Detail)
+	}
+	if strings.Contains(strings.ToLower(got.Detail), "pip install --upgrade pip") {
+		t.Fatalf("detail should not select the pip notice footer: %q", got.Detail)
+	}
+}
+
+func TestClassifyEnvError_IgnoresProgressOnlyFooter(t *testing.T) {
+	raw := strings.Join([]string{
+		"FAILED tests/admin_inlines/tests.py::InlinePermissionTests::test_m2m_view_only",
+		"...........................................F............................ [100%]",
+		"[notice] To update, run: pip install --upgrade pip",
+	}, "\n")
+	got := ClassifyEnvError(raw, errors.New("exit status 1"))
+	if got == nil || got.Reason != "unknown" {
+		t.Fatalf("generic failed run should stay unknown env block, got %+v", got)
+	}
+	if !strings.Contains(got.Detail, "FAILED tests/admin_inlines/tests.py") {
+		t.Fatalf("detail should select the failed-test diagnostic, got %q", got.Detail)
+	}
+	if strings.Contains(got.Detail, "........") {
+		t.Fatalf("detail should not select progress-only output, got %q", got.Detail)
+	}
+}
+
+func TestClassifyEnvError_PipNoticeOnlyFallsBackToRunError(t *testing.T) {
+	got := ClassifyEnvError("[notice] To update, run: pip install --upgrade pip", errors.New("exit status 1"))
+	if got == nil || got.Reason != "unknown" {
+		t.Fatalf("notice-only output should stay unknown, got %+v", got)
+	}
+	if got.Detail != "exit status 1" {
+		t.Fatalf("notice-only output should not become the detail, got %q", got.Detail)
+	}
+}
+
 // A run that produced ZERO cases but carries an EnvError is ERRORED — NOT the
 // "all passed" default that zero counts would otherwise yield. This is the exact
 // misclassification fix: a blocked environment must not read as a green run.
@@ -114,6 +161,17 @@ func TestToProtoResponse_EnvErrorIsErroredNotPassed(t *testing.T) {
 	}
 	if !strings.Contains(resp.GetResult().GetMessage(), "missing-dependency") {
 		t.Fatalf("message should carry the classified reason, got %q", resp.GetResult().GetMessage())
+	}
+}
+
+func TestToProtoResponse_EnvErrorPreservesRawOutput(t *testing.T) {
+	run := &StructuredTestRun{
+		RawOutput: "ERROR: Could not find a version that satisfies the requirement selenium<4.0\n[notice] To update, run: pip install --upgrade pip",
+		EnvError:  &RunEnvError{Reason: "version-conflict", Detail: "No matching distribution found for selenium<4.0"},
+	}
+	resp := run.ToProtoResponse("python", "django", 0)
+	if !strings.Contains(resp.GetOutput(), "selenium<4.0") {
+		t.Fatalf("raw output should be preserved for env-block evidence, got %q", resp.GetOutput())
 	}
 }
 

@@ -276,6 +276,7 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	xmlBytes, _ := os.ReadFile(junitFile) //nolint:gosec // path under sourceDir
 	coverage := scrapeCoverageFromOutput(rawStr)
 	run := ParsePytestJUnit(string(xmlBytes), coverage)
+	run.RawOutput = rawStr
 
 	if opt.CacheDir != "" {
 		if err := writeLastTestOutput(opt.CacheDir, rawStr); err != nil {

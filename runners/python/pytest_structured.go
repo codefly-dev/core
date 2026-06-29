@@ -77,6 +77,11 @@ type StructuredTestRun struct {
 	// in alongside the JUnit XML. JUnit XML doesn't carry coverage.
 	CoveragePct float32
 
+	// RawOutput preserves the process output even when no test cases were parsed.
+	// Zero-case environment blocks often have no suite/case payload, but the raw
+	// install/import error is the evidence a caller needs to heal the environment.
+	RawOutput string
+
 	// truncatedCases tracks how many cases had their captured_output
 	// trimmed by the per-case cap.
 	truncatedCases int32
@@ -220,7 +225,7 @@ func resolutionDetail(raw, fallback string) string {
 	lines := strings.Split(raw, "\n")
 	var kept []string
 	for i := len(lines) - 1; i >= 0 && len(kept) < 12; i-- {
-		if l := strings.TrimSpace(lines[i]); l != "" {
+		if l := strings.TrimSpace(lines[i]); l != "" && !nonActionableRuntimeLine(l) {
 			kept = append([]string{l}, kept...)
 		}
 	}
@@ -242,6 +247,9 @@ func lastMeaningfulLine(raw string) string {
 	lines := strings.Split(raw, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		if l := strings.TrimSpace(lines[i]); l != "" {
+			if nonActionableRuntimeLine(l) {
+				continue
+			}
 			if len(l) > cap {
 				return l[:cap]
 			}
@@ -249,6 +257,53 @@ func lastMeaningfulLine(raw string) string {
 		}
 	}
 	return ""
+}
+
+func nonActionableRuntimeLine(line string) bool {
+	low := strings.ToLower(strings.TrimSpace(line))
+	if low == "" {
+		return true
+	}
+	if testProgressOnlyRuntimeLine(low) {
+		return true
+	}
+	if strings.HasPrefix(low, "[notice]") || strings.HasPrefix(low, "notice:") {
+		return true
+	}
+	if strings.Contains(low, "a new release of pip is available") {
+		return true
+	}
+	if strings.Contains(low, "pip install --upgrade pip") &&
+		(strings.Contains(low, "to update") || strings.Contains(low, "new release")) {
+		return true
+	}
+	if strings.HasPrefix(low, "warning: you are using pip version") {
+		return true
+	}
+	return false
+}
+
+func testProgressOnlyRuntimeLine(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return true
+	}
+	progressMarkers := 0
+	for _, r := range line {
+		switch {
+		case r == ' ' || r == '\t' || r == '\r':
+			continue
+		case r >= '0' && r <= '9':
+			continue
+		case strings.ContainsRune(".fesxxuupprrdd-= []()%/", r):
+			if strings.ContainsRune(".fesxxuupprrdd-", r) {
+				progressMarkers++
+			}
+		default:
+			return false
+		}
+	}
+	return progressMarkers > 0
 }
 
 // StructuredSuite is one source-file's worth of cases.
@@ -503,6 +558,10 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		legacyState = runtimev0.TestStatus_ERROR
 	}
 
+	output := legacyOutput.String()
+	if strings.TrimSpace(output) == "" && r.EnvError != nil {
+		output = r.RawOutput
+	}
 	resp := &runtimev0.TestResponse{
 		Run: &runtimev0.TestRun{
 			Runner:    runner,
@@ -519,7 +578,7 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		},
 
 		Status:       &runtimev0.TestStatus{State: legacyState, Message: runResult.Message},
-		Output:       legacyOutput.String(),
+		Output:       output,
 		TestsRun:     counts.Total,
 		TestsPassed:  counts.Passed,
 		TestsFailed:  counts.Failed,

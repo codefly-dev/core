@@ -164,14 +164,16 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 	}
 
 	runErr := cmd.Run()
+	rawStr := raw.String()
 
 	var run *StructuredTestRun
 	if spec.Output == OutputJUnitXML {
 		xmlBytes, _ := os.ReadFile(junitFile) //nolint:gosec // path under sourceDir
-		run = ParsePytestJUnit(string(xmlBytes), scrapeCoverageFromOutput(raw.String()))
+		run = ParsePytestJUnit(string(xmlBytes), scrapeCoverageFromOutput(rawStr))
 	} else {
-		run = ParseUnittestText(raw.String())
+		run = ParseUnittestText(rawStr)
 	}
+	run.RawOutput = rawStr
 
 	// Classify the run from its STRUCTURE, not the raw exit code:
 	//   - cases produced            → the tests EXECUTED; a non-zero exit is just
@@ -184,7 +186,7 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 	// Only a run that produced NOTHING and we could not even classify surfaces the
 	// raw error (defensive).
 	if runErr != nil && run.caseCount() == 0 {
-		run.EnvError = ClassifyEnvError(raw.String(), runErr)
+		run.EnvError = ClassifyEnvError(rawStr, runErr)
 	}
 	// Even when SOME cases ran (caseCount > 0), a dependency incompatibility can
 	// repeat across many of them (a mis-resolved package surfacing at fixture
@@ -192,7 +194,7 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 	// check above misses. Detect the shared error so it heals instead of reading as
 	// an ordinary test failure.
 	if run.EnvError == nil {
-		if ev := detectSharedEnvFailure(raw.String()); ev != nil {
+		if ev := detectSharedEnvFailure(rawStr); ev != nil {
 			run.EnvError = ev
 		}
 	}
