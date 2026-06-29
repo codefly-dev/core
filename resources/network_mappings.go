@@ -105,17 +105,37 @@ func FindNetworkInstanceInNetworkMappings(ctx context.Context, mappings []*basev
 	if endpoint == nil {
 		return nil, w.NewError("can't find network instance for a nil endpoint")
 	}
+	var matchedButNoAccess bool
 	for _, mapping := range mappings {
 		if mapping == nil || !endpointMatches(mapping.Endpoint, endpoint) {
 			continue
 		}
+		matchedButNoAccess = true
 		for _, instance := range mapping.Instances {
 			if accessKindMatches(instance, networkAccess) {
 				return instance, nil
 			}
 		}
 	}
-	return nil, w.NewError("no network instance for endpoint: %s", EndpointFromProto(endpoint).Unique())
+	// Diagnostic: show WHAT was available so a "no network instance" failure is
+	// debuggable — which endpoints the mappings DID carry, and (if the endpoint
+	// matched but no instance did) which access kinds were present vs requested.
+	available := make([]string, 0, len(mappings))
+	for _, m := range mappings {
+		if m != nil && m.Endpoint != nil {
+			available = append(available, EndpointFromProto(m.Endpoint).Unique())
+		}
+	}
+	wanted := "none"
+	if networkAccess != nil {
+		wanted = networkAccess.Kind
+	}
+	if matchedButNoAccess {
+		return nil, w.NewError("no network instance for endpoint %s: endpoint matched but no instance for access=%s; available mappings: %v",
+			EndpointFromProto(endpoint).Unique(), wanted, available)
+	}
+	return nil, w.NewError("no network instance for endpoint %s (access=%s): endpoint not in the %d available mappings: %v",
+		EndpointFromProto(endpoint).Unique(), wanted, len(available), available)
 }
 
 func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkMapping, error) {

@@ -222,6 +222,27 @@ func ReapStaleProcessGroups(ctx context.Context) error {
 	return nil
 }
 
+// shouldReapGroup decides whether a tracked process group is an orphan to
+// tree-kill — the process analog of dockerrun.shouldReapContainer. Rules:
+//
+//   - owner (spawning CLI) still alive → keep. A concurrent `codefly run` or a
+//     live MCP detach is actively managing it; reaping would kill a live stack.
+//   - owner dead (or never recorded), group dead → nothing to kill (caller drops
+//     the stale tracking file).
+//   - owner dead, group still ALIVE → reap. This is the leak that bit us: service
+//     binaries (e.g. eventlog/accounts under <module>/.cache/native) that survive
+//     a SIGKILLed parent, reparented to init, still holding their ports — exactly
+//     what `codefly stop` / the next run must clear.
+//
+// `hasParent` is false for legacy files predating parent tracking; those are
+// treated as orphans (reap iff alive) since they can only exist post-crash.
+func shouldReapGroup(hasParent, ownerAlive, groupAlive bool) bool {
+	if hasParent && ownerAlive {
+		return false
+	}
+	return groupAlive
+}
+
 func sweepOnce(ctx context.Context, dir string) (int, error) {
 	w := wool.Get(ctx).In("base.sweepOnce")
 
@@ -247,16 +268,15 @@ func sweepOnce(ctx context.Context, dir string) (int, error) {
 			continue
 		}
 
-		// Skip groups still owned by a live CLI (concurrent `codefly run`
-		// or live MCP detach). Files without a parent field predate the
-		// tracking change — treat those as orphans since they can only
-		// exist if the writer crashed before the upgrade anyway.
-		if rec.parent > 0 && IsProcessAlive(rec.parent) {
-			continue
-		}
-
-		if !isProcessGroupAlive(rec.pgid) {
-			_ = os.Remove(path)
+		ownerAlive := rec.parent > 0 && IsProcessAlive(rec.parent)
+		groupAlive := isProcessGroupAlive(rec.pgid)
+		if !shouldReapGroup(rec.parent > 0, ownerAlive, groupAlive) {
+			// Not an orphan to reap: either a live owner still manages it
+			// (concurrent `codefly run` / live detach — leave it), or the
+			// group is already dead — drop the stale tracking file.
+			if !groupAlive {
+				_ = os.Remove(path)
+			}
 			continue
 		}
 

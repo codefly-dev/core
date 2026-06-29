@@ -17,7 +17,7 @@ func LoadBuilder(ctx context.Context, service *resources.Service) (*coreservices
 		return nil, wool.Get(ctx).NewError("agent cannot be nil")
 	}
 
-	conn := getConn(service.Agent)
+	conn := getConn(ServiceCacheKey(service))
 
 	builder := coreservices.NewBuilderAgentClient(conn.GRPCConn())
 	builder.Agent = service.Agent

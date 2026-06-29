@@ -17,7 +17,7 @@ func LoadRuntime(ctx context.Context, service *resources.Service) (*coreservices
 		return nil, wool.Get(ctx).NewError("agent cannot be nil")
 	}
 
-	conn := getConn(service.Agent)
+	conn := getConn(ServiceCacheKey(service))
 
 	runtime := coreservices.NewRuntimeAgentClient(conn.GRPCConn())
 	runtime.Agent = service.Agent

@@ -25,13 +25,39 @@ var (
 	connCache   = make(map[string]*manager.AgentConn)
 )
 
-// LoadAgent spawns the agent binary (or reuses a cached connection) and
-// returns a ServiceAgent client. The underlying connection is cached
-// internally and used by LoadBuilder/LoadRuntime to create additional
-// gRPC clients on the same process.
-func LoadAgent(ctx context.Context, agent *resources.Agent) (*coreservices.ServiceAgent, error) {
+// ServiceCacheKey is the per-SERVICE cache key for an agent connection. Two
+// services using the same agent (e.g. two `go-grpc` services) MUST get their own
+// agent process: the agent's Runtime holds per-service state (Endpoints,
+// GrpcEndpoint, NetworkMappings) in a single struct, so a shared process lets the
+// second service's Load overwrite the first's — and the first then resolves the
+// second's endpoint ("no network instance for <other>/grpc"). Keying by service,
+// not by agent, isolates that state. A service's own Builder+Runtime+Code still
+// share ONE process (same key).
+func ServiceCacheKey(service *resources.Service) string {
+	if service == nil {
+		return ""
+	}
+	if id, err := service.Identity(); err == nil && id != nil {
+		return id.Unique()
+	}
+	if service.Agent != nil {
+		return service.Agent.Unique()
+	}
+	return ""
+}
+
+// LoadAgent spawns the agent binary (or reuses a cached connection) and returns a
+// ServiceAgent client. `cacheKey` scopes the cached connection — pass
+// ServiceCacheKey(service) so each SERVICE gets an isolated agent process; an empty
+// key falls back to the agent's unique (for non-service, agent-only operations).
+// The underlying connection is cached internally and reused by LoadBuilder/
+// LoadRuntime (which must pass the SAME key) on the same process.
+func LoadAgent(ctx context.Context, agent *resources.Agent, cacheKey string) (*coreservices.ServiceAgent, error) {
 	if agent == nil {
 		return nil, fmt.Errorf("agent cannot be nil")
+	}
+	if cacheKey == "" {
+		cacheKey = agent.Unique()
 	}
 	w := wool.Get(ctx).In("services.LoadAgent", wool.Field("agent", agent.Name))
 	requestedVersion := agent.Version
@@ -58,7 +84,7 @@ func LoadAgent(ctx context.Context, agent *resources.Agent) (*coreservices.Servi
 		wool.Field("source", source),
 	)
 
-	conn, err := getOrCreateConn(ctx, agent)
+	conn, err := getOrCreateConn(ctx, cacheKey, agent)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -81,10 +107,10 @@ func LoadAgent(ctx context.Context, agent *resources.Agent) (*coreservices.Servi
 // the CLI's spawn rate is bounded (one per service in a graph), and
 // this pattern is panic-free with no double-spawn risk. If contention
 // shows up in profiles, switch to a per-key singleflight.
-func getOrCreateConn(ctx context.Context, agent *resources.Agent) (*manager.AgentConn, error) {
+func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agent) (*manager.AgentConn, error) {
 	connCacheMu.Lock()
 	defer connCacheMu.Unlock()
-	if conn, ok := connCache[agent.Unique()]; ok {
+	if conn, ok := connCache[cacheKey]; ok {
 		return conn, nil
 	}
 	pr, pw := io.Pipe()
@@ -101,17 +127,18 @@ func getOrCreateConn(ctx context.Context, agent *resources.Agent) (*manager.Agen
 		_ = pw.Close()
 		return nil, err
 	}
-	connCache[agent.Unique()] = conn
+	connCache[cacheKey] = conn
 	return conn, nil
 }
 
-// getConn returns the cached connection for an agent. Panics if not loaded.
-func getConn(agent *resources.Agent) *manager.AgentConn {
+// getConn returns the cached connection for a cache key (see ServiceCacheKey).
+// Panics if not loaded. Callers MUST pass the SAME key LoadAgent was called with.
+func getConn(cacheKey string) *manager.AgentConn {
 	connCacheMu.Lock()
 	defer connCacheMu.Unlock()
-	conn, ok := connCache[agent.Unique()]
+	conn, ok := connCache[cacheKey]
 	if !ok {
-		panic(fmt.Sprintf("agent %s not loaded -- call LoadAgent first", agent.Unique()))
+		panic(fmt.Sprintf("agent connection %q not loaded -- call LoadAgent first", cacheKey))
 	}
 	return conn
 }

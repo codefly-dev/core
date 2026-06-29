@@ -258,8 +258,10 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 		return cached, nil
 	}
 
-	// Load agent -- spawns the binary and connects via gRPC
-	agent, err := LoadAgent(ctx, service.Agent)
+	// Load agent -- spawns the binary and connects via gRPC. Key by the SERVICE
+	// (identity.Unique()), NOT the agent: two services sharing an agent must get
+	// separate processes so the agent's per-service Runtime state can't leak.
+	agent, err := LoadAgent(ctx, service.Agent, identity.Unique())
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load agent: %s", service.Agent)
 	}
