@@ -56,6 +56,19 @@ func TestLogField_OmitsEmptyValues(t *testing.T) {
 	require.Contains(t, s, "count=3")
 }
 
+// nilDerefStringer.String() dereferences its receiver, so calling it on a
+// typed-nil pointer panics — exactly the case renderValue must guard against.
+type nilDerefStringer struct{ s string }
+
+func (n *nilDerefStringer) String() string { return n.s }
+
+func TestField_TypedNilStringer_DoesNotPanic(t *testing.T) {
+	var ns *nilDerefStringer // typed nil that still satisfies fmt.Stringer
+	f := wool.Field("x", ns)
+	require.NotPanics(t, func() { _ = f.String() })
+	require.Empty(t, f.String(), "a typed-nil stringer must render to nothing, not panic")
+}
+
 func TestSliceField_RendersList(t *testing.T) {
 	require.Equal(t, "endpoints=[a, b]",
 		wool.SliceField("endpoints", []string{"a", "b"}).String())

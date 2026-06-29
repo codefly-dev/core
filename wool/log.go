@@ -114,6 +114,13 @@ func (f *LogField) renderValue() string {
 		return ""
 	}
 	if stringer, ok := f.Value.(fmt.Stringer); ok {
+		// A typed-nil pointer (e.g. (*T)(nil)) still satisfies fmt.Stringer, but
+		// its String() may dereference the nil receiver and panic. Logging must
+		// never panic, so render a nil underlying value as empty (and let
+		// Log.String drop the field) rather than calling through.
+		if rv := reflect.ValueOf(f.Value); rv.Kind() == reflect.Pointer && rv.IsNil() {
+			return ""
+		}
 		return stringer.String()
 	}
 	if s, ok := f.Value.(string); ok {
