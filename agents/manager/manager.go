@@ -122,51 +122,55 @@ func ResolveLatest(ctx context.Context, agent *resources.Agent) (string, error) 
 		return "local", nil
 	}
 	w.Trace("no local build; falling back to GitHub releases")
-	if err := PinToLatestRelease(ctx, agent); err != nil {
+	source, err := PinToLatestRelease(ctx, agent)
+	if err != nil {
 		return "", err
 	}
-	return "github", nil
+	return source, nil
 }
 
 // PinToLatestRelease queries GitHub for the latest release tag and updates
 // the agent's version. Falls back to FindLocalLatest if GitHub is unreachable
-// or has no releases for this agent.
+// or has no releases for this agent. It returns the source the version was
+// actually resolved from — "github" for a release lookup, "local" when the
+// local-filesystem fallback (or CODEFLY_AGENT_SOURCE=local) supplied it — so
+// callers can report the true origin rather than assuming GitHub.
 //
 // When CODEFLY_AGENT_SOURCE=local (or --local-agents on the CLI),
 // GitHub is skipped entirely and resolution goes straight to the local
 // filesystem scan. This makes "version: latest" work offline and lets
 // agent developers iterate on locally-built binaries without needing
 // to cut a GitHub release.
-func PinToLatestRelease(ctx context.Context, agent *resources.Agent) error {
+func PinToLatestRelease(ctx context.Context, agent *resources.Agent) (string, error) {
 	w := wool.Get(ctx).In("agents.PinToLatestRelease", wool.Field("agent", agent.Identifier()))
 	if AgentSourceLocal() {
 		w.Debug("CODEFLY_AGENT_SOURCE=local — resolving from local agent dir")
-		return FindLocalLatest(ctx, agent)
+		return "local", FindLocalLatest(ctx, agent)
 	}
 	client := github.NewClient(nil)
 	source := toGithubSource(agent)
 	release, _, err := client.Repositories.GetLatestRelease(ctx, source.Owner, source.Repo)
 	if err != nil {
 		w.Debug("GitHub release lookup failed, trying local", wool.Field("error", err.Error()))
-		return FindLocalLatest(ctx, agent)
+		return "local", FindLocalLatest(ctx, agent)
 	}
 	// TrimPrefix, not ReplaceAll: ReplaceAll("v","") stripped EVERY 'v' in the
 	// tag (e.g. v0.0.1-vault → 0.0.1-ault), corrupting the resolved version.
 	latestVersion := strings.TrimPrefix(release.GetTagName(), "v")
 	if agent.Version == "latest" {
 		agent.Version = latestVersion
-		return nil
+		return "github", nil
 	}
 	currentVersion, err := semver.Make(agent.Version)
 	if err != nil {
-		return w.Wrapf(err, "invalid current version format")
+		return "", w.Wrapf(err, "invalid current version format")
 	}
 	newVersion, err := semver.Make(latestVersion)
 	if err != nil {
-		return w.Wrapf(err, "invalid latest version format")
+		return "", w.Wrapf(err, "invalid latest version format")
 	}
 	if newVersion.GT(currentVersion) {
 		agent.Version = latestVersion
 	}
-	return nil
+	return "github", nil
 }

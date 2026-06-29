@@ -372,7 +372,7 @@ func UpdateAgent(ctx context.Context, service *resources.Service) (*UpdateInform
 	agentVersion := service.Agent.Version
 	info := &UpdateInformation{}
 	// Fetch the latest agent version
-	err := manager.PinToLatestRelease(ctx, service.Agent)
+	_, err := manager.PinToLatestRelease(ctx, service.Agent)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}

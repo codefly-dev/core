@@ -553,6 +553,10 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	for _, o := range opts {
 		o(&cfg)
 	}
+	// Process-wide audit warnings: emitted once per process and identical
+	// for every agent, so they must NOT carry the per-agent field — otherwise
+	// whichever agent hits Load first permanently owns the message.
+	warnW := wool.Get(ctx).In("manager.Load")
 	if !cfg.sandboxChoiceMade {
 		// Audit-visible warning: caller didn't pick WithSandbox or
 		// WithoutSandbox, so the plugin runs with parent ambient
@@ -562,7 +566,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		// identical for every agent, so a 15-service run printing it
 		// 15× is pure noise (#19).
 		sandboxWarnOnce.Do(func() {
-			w.Warn("security: manager.Load missing explicit sandbox choice",
+			warnW.Warn("security: manager.Load missing explicit sandbox choice",
 				wool.Field("default", "native"),
 			)
 		})
@@ -573,7 +577,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		// rollout completes (every caller migrated), log + continue.
 		// Deduped to once per process for the same reason as above.
 		principalWarnOnce.Do(func() {
-			w.Warn("security: manager.Load missing explicit principal choice",
+			warnW.Warn("security: manager.Load missing explicit principal choice",
 				wool.Field("default", "without authority binding"),
 			)
 		})
