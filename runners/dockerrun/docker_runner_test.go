@@ -357,6 +357,47 @@ func TestDockerProcWaitReturnsExitError(t *testing.T) {
 	require.NoError(t, longRun.Stop(ctx))
 }
 
+// TestDockerProcRunCancellation runs a never-ending in-container command
+// and cancels the caller's ctx: Run must return promptly (the hijacked
+// exec connection is detached from ctx, so it has to be closed explicitly
+// for the demux goroutine to drain) and the in-container process must be
+// killed rather than leaked.
+func TestDockerProcRunCancellation(t *testing.T) {
+	requireDocker(t)
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+
+	name := fmt.Sprintf("test-cancel-%d", time.Now().UnixMilli())
+	env, err := dockerrun.NewDockerEnvironment(ctx, resources.NewDockerImage("alpine:3.19.1"), shared.Must(shared.SolvePath("testdata")), name)
+	require.NoError(t, err)
+	defer func() {
+		_ = env.Shutdown(ctx)
+	}()
+
+	env.WithPause()
+	err = env.Init(ctx)
+	require.NoError(t, err)
+
+	proc, err := env.NewProcess("sh", "good/infinite_counter.sh")
+	require.NoError(t, err)
+	proc.WithOutput(shared.NewSliceWriter())
+
+	runCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	err = proc.Run(runCtx)
+	elapsed := time.Since(start)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, elapsed, 10*time.Second, "Run must return promptly after the deadline")
+
+	require.Eventually(t, func() bool {
+		running, err := proc.IsRunning(ctx)
+		return err == nil && !running
+	}, 10*time.Second, 500*time.Millisecond, "in-container process must be killed on cancellation")
+}
+
 func TestFindFreePort(t *testing.T) {
 	port, err := base.FindFreePort()
 	require.NoError(t, err)
