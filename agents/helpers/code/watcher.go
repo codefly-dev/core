@@ -133,6 +133,10 @@ func (watcher *Watcher) Start(ctx context.Context) {
 	w := wool.Get(ctx).In("Watcher.Start")
 	// Start listening for events.
 	defer watcher.watcher.Close()
+	// Start is the sole sender on events (via Handle, only from this loop), so
+	// closing it here is race-free and lets the consumer's receive drain and
+	// exit on teardown instead of blocking forever on a channel nobody closes.
+	defer close(watcher.events)
 	for {
 		select {
 		case <-ctx.Done():
