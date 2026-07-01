@@ -63,7 +63,12 @@ func TestForwardLines_NoTrailingNewline(t *testing.T) {
 // writer fails, forwardLines keeps reading r to EOF so the child never blocks
 // on a full pipe while the forwarder is about to close the read-end.
 func TestForwardLines_DrainsAfterWriteError(t *testing.T) {
-	src := strings.NewReader("first\nsecond\nthird\n")
+	// The body must exceed bufio.Reader's internal buffer (4KiB) so that,
+	// without an explicit drain, the underlying reader would still hold
+	// unread bytes after the first failing write — the state that blocks a
+	// child on a full pipe. A body that fits the buffer gets slurped whole on
+	// the first fill and would make this pass even with no drain.
+	src := strings.NewReader("first\n" + strings.Repeat("payload line\n", 5000))
 	forwardLines(src, failingWriter{})
 
 	rest, err := io.ReadAll(src)
@@ -71,7 +76,7 @@ func TestForwardLines_DrainsAfterWriteError(t *testing.T) {
 		t.Fatalf("reading remainder: %v", err)
 	}
 	if len(rest) != 0 {
-		t.Fatalf("reader not drained after write error: %q remained", rest)
+		t.Fatalf("reader not drained after write error: %d bytes remained", len(rest))
 	}
 }
 
