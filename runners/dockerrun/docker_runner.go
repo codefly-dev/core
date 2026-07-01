@@ -816,12 +816,15 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 	// above blocks Run on the very timeout it should honor. Stop gets a
 	// fresh bounded ctx because the caller's is already dead here.
 	abort := func() {
+		// Close the connection before the (multi-second, best-effort)
+		// Stop so the demux goroutine drains immediately rather than
+		// staying blocked for the duration of the kill.
+		proc.closeExecConn()
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer stopCancel()
 		if stopErr := proc.Stop(stopCtx); stopErr != nil {
 			w.Warn("cannot stop in-container process", wool.ErrField(stopErr))
 		}
-		proc.closeExecConn()
 	}
 
 	for {
@@ -1023,7 +1026,7 @@ func (proc *DockerProc) start(ctx context.Context) error {
 		if _, err := stdcopy.StdCopy(stdoutDest, stderrDest, execResp.Reader); err != nil {
 			// A closed connection is the normal shutdown signal when Run
 			// aborts on cancellation and closes the hijacked conn itself.
-			if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
+			if !errors.Is(err, net.ErrClosed) {
 				w.Error("cannot copy output", wool.ErrField(err))
 			}
 		}

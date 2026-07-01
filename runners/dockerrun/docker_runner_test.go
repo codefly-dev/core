@@ -390,7 +390,9 @@ func TestDockerProcRunCancellation(t *testing.T) {
 	elapsed := time.Since(start)
 
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Less(t, elapsed, 10*time.Second, "Run must return promptly after the deadline")
+	// Bound must exceed abort's worst case: 2s deadline + 5s FindPid
+	// (stopCtx) + 5s kill exec (its own killCtx) = 12s.
+	require.Less(t, elapsed, 15*time.Second, "Run must return promptly after the deadline")
 
 	require.Eventually(t, func() bool {
 		running, err := proc.IsRunning(ctx)
