@@ -348,11 +348,6 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 		w.Trace("go modules have been cached")
 		return nil
 	}
-	err = req.UpdateCache(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot update go mod cache")
-	}
-
 	proc, err := r.Env().NewProcess("go", "mod", "download")
 	if err != nil {
 		return w.Wrapf(err, "cannot go mod download process")
@@ -366,6 +361,10 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot run go mod download")
+	}
+
+	if err = req.UpdateCache(ctx); err != nil {
+		return w.Wrapf(err, "cannot update go mod cache")
 	}
 	return nil
 }

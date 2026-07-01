@@ -296,10 +296,6 @@ func (r *RustRunnerEnvironment) CargoDependencyHandling(ctx context.Context) err
 		w.Trace("cargo dependencies have been cached")
 		return nil
 	}
-	if err = req.UpdateCache(ctx); err != nil {
-		return w.Wrapf(err, "cannot update cargo cache")
-	}
-
 	proc, err := r.Env().NewProcess("cargo", "fetch")
 	if err != nil {
 		return w.Wrapf(err, "cannot create cargo fetch process")
@@ -310,6 +306,10 @@ func (r *RustRunnerEnvironment) CargoDependencyHandling(ctx context.Context) err
 	proc.WithDir(moduleDir)
 	if err = proc.Run(ctx); err != nil {
 		return w.Wrapf(err, "cannot run cargo fetch")
+	}
+
+	if err = req.UpdateCache(ctx); err != nil {
+		return w.Wrapf(err, "cannot update cargo cache")
 	}
 	return nil
 }
