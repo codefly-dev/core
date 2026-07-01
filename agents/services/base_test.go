@@ -22,8 +22,17 @@ import (
 // matches on stack frames rather than a global NumGoroutine baseline so it is
 // immune to unrelated background goroutines (e.g. wool telemetry).
 func countWatcherGoroutines() int {
+	// Grow the buffer until the dump fits: runtime.Stack silently truncates to
+	// the buffer, and a truncated dump could under-count into a false pass.
 	buf := make([]byte, 1<<20)
-	dump := string(buf[:runtime.Stack(buf, true)])
+	for {
+		if n := runtime.Stack(buf, true); n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	dump := string(buf)
 	n := 0
 	for g := range strings.SplitSeq(dump, "\n\n") {
 		if strings.Contains(g, "(*Watcher).Start(") || strings.Contains(g, "SetupWatcher.func") {
@@ -89,6 +98,9 @@ func TestSetupWatcher_DrainsInFlightEventOnCancel(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
+	// Only the first handler call blocks. After the drain, the debounce
+	// goroutine can invoke the handler again; that later call must return
+	// immediately or teardown would deadlock.
 	handler := func(code.Change) error {
 		once.Do(func() {
 			close(entered)
