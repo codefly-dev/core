@@ -236,6 +236,11 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 		var last code.Change
 		for {
 			select {
+			case <-ctx.Done():
+				if timer != nil {
+					timer.Stop()
+				}
+				return
 			case event, ok := <-s.Events:
 				if !ok {
 					return
