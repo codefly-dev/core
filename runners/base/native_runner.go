@@ -446,10 +446,10 @@ func (proc *NativeProc) Wait(ctx context.Context) error {
 // log prefix was re-applied per Write call against zero-byte separators.
 // Plain io.Copy fixed the newline loss but collapsed all output into a
 // single prefix block — worse for interactive tailing. forwardLines
-// strikes the middle: scanner gives per-line Write boundaries (so log
-// prefixes apply correctly), newline is re-appended so downstream parsers
-// see the real separator, and the scanner buffer is sized for 1MiB lines
-// so large structured-log events don't silently truncate.
+// strikes the middle: per-line Write boundaries (so log prefixes apply
+// correctly) with newlines intact so downstream parsers see the real
+// separator, and no token cap so large structured-log events don't
+// silently truncate.
 func (proc *NativeProc) Forward(_ context.Context, r io.Reader) {
 	forwardLines(r, proc.output)
 }
