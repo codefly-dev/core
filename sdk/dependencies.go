@@ -153,7 +153,21 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// child's FDs independent of os.Stdout so `go test` can exit.
 	proc.Echo()
 
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Tear down the spawned CLI process group (and its supervise/signal/echo
+	// goroutines) plus any open connection on every post-spawn error path.
+	// Disarmed once we return the live Dependencies to the caller.
+	var conn *grpc.ClientConn
+	success := false
+	defer func() {
+		if !success {
+			if conn != nil {
+				_ = conn.Close()
+			}
+			_ = proc.Kill()
+		}
+	}()
+
+	conn, err = grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("cannot create gRPC client for %s: %w", addr, err)
 	}
@@ -165,15 +179,12 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 
 	conn.Connect()
 	if !waitForReady(connectCtx, conn) {
-		_ = conn.Close()
 		return nil, fmt.Errorf("gRPC connection to CLI server at %s did not become ready within %s", addr, opt.Timeout)
 	}
 
 	cli := v0.NewCLIClient(conn)
 	_, err = cli.Ping(ctx, &emptypb.Empty{})
 	if err != nil {
-		_ = conn.Close()
-		_ = proc.Kill()
 		return nil, fmt.Errorf("CLI server ping failed: %w", err)
 	}
 	runtimeContext := resources.RuntimeContextFromEnv()
@@ -186,6 +197,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err != nil {
 		return nil, err
 	}
+	success = true
 	return l, nil
 }
 
