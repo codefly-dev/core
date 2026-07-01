@@ -1,6 +1,7 @@
 package network
 
 import (
+	"fmt"
 	"os"
 	"testing"
 )
@@ -38,15 +39,15 @@ func TestCLIServerPort_DifferentWorkspacesDifferentPorts(t *testing.T) {
 }
 
 func TestCLIServerPort_InRange(t *testing.T) {
-	// Port must live in [20000, 29900) and be a multiple of 10 so
-	// CLIRestPort at +1 is a recognizable companion.
+	// Port must live in [20000, 29900) and be even so CLIRestPort at +1
+	// (odd) can never collide with another workspace's gRPC port.
 	for _, n := range []string{"a", "b", "c", "mind-server", "some-other-workspace-name"} {
 		p := CLIServerPort(n)
-		if p < 20000 || p >= 29910 {
-			t.Errorf("CLIServerPort(%q) = %d, out of range [20000, 29910)", n, p)
+		if p < 20000 || p >= 29900 {
+			t.Errorf("CLIServerPort(%q) = %d, out of range [20000, 29900)", n, p)
 		}
-		if p%10 != 0 {
-			t.Errorf("CLIServerPort(%q) = %d, not multiple of 10", n, p)
+		if p%2 != 0 {
+			t.Errorf("CLIServerPort(%q) = %d, not even", n, p)
 		}
 	}
 }
@@ -75,6 +76,24 @@ func TestCLIRestPort_IsGrpcPlusOne(t *testing.T) {
 	for _, n := range []string{"mind-server", "codefly-agents", "x"} {
 		if CLIRestPort(n) != CLIServerPort(n)+1 {
 			t.Errorf("CLIRestPort(%q) should be CLIServerPort+1", n)
+		}
+	}
+}
+
+func TestCLIServerPort_GrpcAndRestPoolsDisjoint(t *testing.T) {
+	// A gRPC port (even) must never equal any REST port (odd), no matter
+	// the workspace — otherwise a second workspace's gRPC server could
+	// steal another's REST companion port. Even/odd parity guarantees it.
+	grpc := make(map[uint16]bool)
+	rest := make(map[uint16]bool)
+	for i := range 500 {
+		n := fmt.Sprintf("workspace-%d", i)
+		grpc[CLIServerPort(n)] = true
+		rest[CLIRestPort(n)] = true
+	}
+	for p := range grpc {
+		if rest[p] {
+			t.Errorf("gRPC port %d also used as a REST port", p)
 		}
 	}
 }
