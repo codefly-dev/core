@@ -206,6 +206,9 @@ func IsRest(_ context.Context, endpoint *basev0.Endpoint) *basev0.RestAPI {
 	if endpoint.Api != standards.REST {
 		return nil
 	}
+	if endpoint.ApiDetails == nil {
+		return nil
+	}
 	switch v := endpoint.ApiDetails.Value.(type) {
 	case *basev0.API_Rest:
 		return v.Rest
@@ -219,6 +222,9 @@ func IsGRPC(_ context.Context, endpoint *basev0.Endpoint) *basev0.GrpcAPI {
 		return nil
 	}
 	if endpoint.Api != standards.GRPC {
+		return nil
+	}
+	if endpoint.ApiDetails == nil {
 		return nil
 	}
 	switch v := endpoint.ApiDetails.Value.(type) {
@@ -236,6 +242,9 @@ func IsHTTP(_ context.Context, endpoint *basev0.Endpoint) *basev0.HttpAPI {
 	if endpoint.Api != standards.HTTP {
 		return nil
 	}
+	if endpoint.ApiDetails == nil {
+		return nil
+	}
 	switch v := endpoint.ApiDetails.Value.(type) {
 	case *basev0.API_Http:
 		return v.Http
@@ -249,6 +258,9 @@ func IsTCP(_ context.Context, endpoint *basev0.Endpoint) *basev0.TcpAPI {
 		return nil
 	}
 	if endpoint.Api != standards.TCP {
+		return nil
+	}
+	if endpoint.ApiDetails == nil {
 		return nil
 	}
 	switch v := endpoint.ApiDetails.Value.(type) {

@@ -7,20 +7,16 @@ import (
 )
 
 type ServiceReplacer struct {
-	replacements map[string]string
+	replacements []generation.Replacement
 }
 
 func NewServiceReplacer(gen *generation.Service) *ServiceReplacer {
-	replacements := make(map[string]string)
-	for _, replacement := range gen.Replacements {
-		replacements[replacement.From] = replacement.To
-	}
-	return &ServiceReplacer{replacements: replacements}
+	return &ServiceReplacer{replacements: gen.Replacements}
 }
 
 func (r *ServiceReplacer) Do(content []byte) ([]byte, error) {
-	for old, to := range r.replacements {
-		content = bytes.ReplaceAll(content, []byte(old), []byte(to))
+	for _, replacement := range r.replacements {
+		content = bytes.ReplaceAll(content, []byte(replacement.From), []byte(replacement.To))
 	}
 	return content, nil
 }
