@@ -87,7 +87,7 @@ func (docker *DockerEnvironment) WithEphemeral() *DockerEnvironment {
 // nil return). Same defensive close in NewDockerHeadlessEnvironment.
 func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir, name string) (*DockerEnvironment, error) {
 	w := wool.Get(ctx).In("NewDockerEnvironment")
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, host, err := newDockerClient()
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
@@ -96,9 +96,8 @@ func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir
 	// connection refused" buried inside an unrelated wrap. Ping now
 	// so the message is loud and actionable.
 	if _, pingErr := cli.Ping(ctx); pingErr != nil {
-		host := cli.DaemonHost()
 		_ = cli.Close()
-		return nil, w.NewError("docker daemon at %s not reachable (%v) — is Docker Desktop / dockerd running? Try `docker info` to confirm (or check DOCKER_HOST)", host, pingErr)
+		return nil, w.NewError("docker daemon at %s (from %s) not reachable (%v) — is Docker Desktop / dockerd running? Try `docker info` to confirm", host.Host, host.Source, pingErr)
 	}
 
 	env := &DockerEnvironment{
@@ -121,7 +120,7 @@ func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir
 // NewDockerHeadlessEnvironment creates a new docker runner
 func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerImage, name string) (*DockerEnvironment, error) {
 	w := wool.Get(ctx).In("NewDockerRunner")
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, host, err := newDockerClient()
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
@@ -130,9 +129,8 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerIm
 	// connection refused" buried inside an unrelated wrap. Ping now
 	// so the message is loud and actionable.
 	if _, pingErr := cli.Ping(ctx); pingErr != nil {
-		host := cli.DaemonHost()
 		_ = cli.Close()
-		return nil, w.NewError("docker daemon at %s not reachable (%v) — is Docker Desktop / dockerd running? Try `docker info` to confirm (or check DOCKER_HOST)", host, pingErr)
+		return nil, w.NewError("docker daemon at %s (from %s) not reachable (%v) — is Docker Desktop / dockerd running? Try `docker info` to confirm", host.Host, host.Source, pingErr)
 	}
 	env := &DockerEnvironment{
 		client: cli,

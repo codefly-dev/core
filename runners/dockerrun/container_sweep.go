@@ -8,7 +8,6 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/client"
 
 	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
@@ -63,7 +62,7 @@ func shouldReapContainer(state string, ownerAlive, ephemeral bool) bool {
 func ReapStaleContainers(ctx context.Context) error {
 	w := wool.Get(ctx).In("base.ReapStaleContainers")
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, _, err := newDockerClient()
 	if err != nil {
 		// Docker not reachable — nothing to reap, not an error.
 		w.Trace("docker client unavailable — skipping container sweep", wool.ErrField(err))

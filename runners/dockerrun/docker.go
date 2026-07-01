@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/docker/docker/client"
 )
 
 type DockerPortMapping struct {
@@ -18,7 +17,7 @@ type DockerPortMapping struct {
 }
 
 func DockerEngineRunning(ctx context.Context) bool {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, _, err := newDockerClient()
 	if err != nil {
 		return false
 	}
@@ -84,7 +83,7 @@ type DockerContainerInstance struct {
 func GetImageID(im *resources.DockerImage) (string, error) {
 	ctx := context.Background()
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, _, err := newDockerClient()
 	if err != nil {
 		return "", fmt.Errorf("failed to create Docker client: %v", err)
 	}
