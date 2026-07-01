@@ -723,7 +723,6 @@ func (proc *DockerProc) IsRunning(ctx context.Context) (bool, error) {
 // approach) scanned /proc and could only ever return nil or ctx.Err(), so a
 // supervisor never saw a non-zero exit.
 func (proc *DockerProc) Wait(ctx context.Context) error {
-	w := wool.Get(ctx).In("DockerProc.Wait")
 	if proc.ID == "" {
 		// Process never started — nothing to wait on.
 		return nil
@@ -735,19 +734,31 @@ func (proc *DockerProc) Wait(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
-			if err != nil {
-				return w.Wrapf(err, "cannot inspect process")
+			if done, err := proc.pollExit(ctx); done || err != nil {
+				return err
 			}
-			if inspect.Running {
-				continue
-			}
-			if inspect.ExitCode == 0 {
-				return nil
-			}
-			return fmt.Errorf("process exited with code %d", inspect.ExitCode)
 		}
 	}
+}
+
+// pollExit inspects the exec once via ContainerExecInspect. While the exec is
+// still running it returns done=false, err=nil. Once it has finished, done=true
+// and err carries the exit error: nil for exit code 0, non-nil otherwise. An
+// inspect failure returns done=false with the wrapped error. Shared by Run and
+// Wait so both surface the exit status identically.
+func (proc *DockerProc) pollExit(ctx context.Context) (bool, error) {
+	w := wool.Get(ctx).In("DockerProc.pollExit")
+	inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
+	if err != nil {
+		return false, w.Wrapf(err, "cannot inspect process")
+	}
+	if inspect.Running {
+		return false, nil
+	}
+	if inspect.ExitCode == 0 {
+		return true, nil
+	}
+	return true, fmt.Errorf("process exited with code %d", inspect.ExitCode)
 }
 
 func (proc *DockerProc) WaitOn(bin string) {
@@ -795,17 +806,9 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
-			if err != nil {
-				return w.Wrapf(err, "cannot inspect process")
+			if done, err := proc.pollExit(ctx); done || err != nil {
+				return err
 			}
-			if inspect.Running {
-				continue
-			}
-			if inspect.ExitCode == 0 {
-				return nil
-			}
-			return fmt.Errorf("process exited with code %d", inspect.ExitCode)
 		}
 	}
 }
