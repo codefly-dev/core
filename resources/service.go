@@ -503,7 +503,7 @@ func (s *Service) EndpointsFromNames(endpoints []string) ([]*Endpoint, error) {
 
 func (s *Service) ExistsDependency(requirement *ServiceIdentity) (*ServiceDependency, bool) {
 	for _, dep := range s.ServiceDependencies {
-		if dep.Name == requirement.Name {
+		if dep.Name == requirement.Name && dep.Module == requirement.Module {
 			return dep, true
 		}
 	}

@@ -15,8 +15,7 @@ func ShortLowerUUID() (string, error) {
 		return "", err
 	}
 
-	uuidInt := big.NewInt(0)
-	uuidInt.SetString(id.String(), 16)
+	uuidInt := new(big.Int).SetBytes(id[:])
 
 	base26UUID := ""
 	for i := 0; i < 10; i++ {
