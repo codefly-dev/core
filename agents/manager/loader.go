@@ -70,6 +70,10 @@ type AgentConn struct {
 	// done is closed when the process exits (via the reaper goroutine).
 	done chan struct{}
 
+	// logWriter is the caller-supplied real-time stderr sink (WithLogWriter).
+	// The reaper and Close close it when it's an io.Closer; see closeLogWriter.
+	logWriter io.Writer
+
 	// permissionsCallback is the host-side server that answers
 	// the plugin's Authorized() calls. Non-nil only when the
 	// caller passed WithPermissionsCallback. Close shuts it down
@@ -105,6 +109,10 @@ const gracefulShutdownTimeout = 30 * time.Second
 // cmd.Wait must only be called once — the reaper owns it. We observe
 // completion via the `done` channel the reaper closes.
 func (c *AgentConn) Close() {
+	// Close the log-forwarding pipe last (after the process has exited and
+	// stopped writing stderr, below) so its ForwardLogs goroutine unblocks
+	// on EOF without racing an in-flight copy.
+	defer c.closeLogWriter()
 	if c.conn != nil {
 		_ = c.conn.Close()
 	}
@@ -153,6 +161,17 @@ func (c *AgentConn) Close() {
 		killAgentGroup(pid)
 		<-c.done
 		w.Info(fmt.Sprintf("agent killed after %s", time.Since(startedAt).Round(time.Millisecond)))
+	}
+}
+
+// closeLogWriter closes the WithLogWriter sink if it is an io.Closer.
+// getOrCreateConn passes an *io.PipeWriter whose read end feeds a
+// ForwardLogs goroutine; closing the write end delivers EOF so that
+// goroutine (and its pipe) don't leak. No-op for writers that aren't
+// closers or when WithLogWriter wasn't used.
+func (c *AgentConn) closeLogWriter() {
+	if closer, ok := c.logWriter.(io.Closer); ok {
+		_ = closer.Close()
 	}
 }
 
@@ -308,6 +327,11 @@ func WithDialTimeout(d time.Duration) LoadOption {
 // WithLogWriter tees the agent's stderr to w in real time, in addition
 // to buffering in the ring buffer. Useful for debug mode where the
 // gateway wants to surface agent logs.
+//
+// AgentConn takes ownership of w: it closes w (if it implements io.Closer)
+// when the process exits or the connection is torn down. Pass a writer whose
+// lifetime you're delegating to the connection — e.g. an io.Pipe writer whose
+// read end you're forwarding — not a shared or long-lived sink like os.Stderr.
 func WithLogWriter(w io.Writer) LoadOption {
 	return func(c *loadConfig) { c.logWriter = w }
 }
@@ -913,6 +937,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		stderrBuf:           stderrBuf,
 		done:                make(chan struct{}),
 		permissionsCallback: permsCallback, // nil when WithPermissionsCallback wasn't passed
+		logWriter:           cfg.logWriter, // closed on Close so ForwardLogs unblocks (nil-safe)
 	}
 
 	// Reaper goroutine: waits for the process to exit and logs unexpected
@@ -924,6 +949,12 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	go func() {
 		defer close(agentConn.done)
 		waitErr := cmd.Wait()
+		// cmd.Wait has returned, so exec's stderr copier is done and no
+		// more writes reach logWriter — safe to close it now. This unblocks
+		// the ForwardLogs goroutine even when the agent crashes and its conn
+		// is abandoned without a Close()/ClearAgents teardown. Idempotent
+		// with Close's own closeLogWriter.
+		agentConn.closeLogWriter()
 		// Agent process is confirmed dead — drop its pgid tracking file.
 		// Only the sweep's orphan check depends on this file; missing it
 		// just means the next sweep treats it as an already-dead group.

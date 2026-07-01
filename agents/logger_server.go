@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/codefly-dev/core/wool"
 )
@@ -14,12 +15,24 @@ var (
 )
 
 // LogHandler processes structured logs from agent processes.
+//
+// mu guards processors: ForwardLogs goroutines (one per spawned agent)
+// range over the slice via process() while AddProcessor appends to it,
+// so any processor registered after an agent starts streaming is a
+// concurrent read/append without this lock.
 type LogHandler struct {
+	mu         sync.RWMutex
 	processors []wool.LogProcessorWithSource
 }
 
 func AddProcessor(processor wool.LogProcessorWithSource) {
-	handler.processors = append(handler.processors, processor)
+	handler.add(processor)
+}
+
+func (h *LogHandler) add(processor wool.LogProcessorWithSource) {
+	h.mu.Lock()
+	h.processors = append(h.processors, processor)
+	h.mu.Unlock()
 }
 
 func init() {
@@ -61,7 +74,10 @@ func (h *LogHandler) process(identifier *wool.Identifier, log *wool.Log) {
 	if log.Level < wool.GlobalLogLevel() {
 		return
 	}
-	for _, processor := range h.processors {
+	h.mu.RLock()
+	processors := h.processors
+	h.mu.RUnlock()
+	for _, processor := range processors {
 		processor.ProcessWithSource(identifier, log)
 	}
 }
