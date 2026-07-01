@@ -46,3 +46,33 @@ func TestServiceCacheKey_isolatesServicesSharingOneAgent(t *testing.T) {
 		t.Fatalf("ServiceCacheKey is not stable for the same service: %q then %q", ka, again)
 	}
 }
+
+// TestClearAgents_invalidatesInstancesCache is a regression test for the
+// stale-instance bug: ClearAgents reset connCache but left the instances cache
+// (keyed identically by identity.Unique()) populated. A clear-then-reload in the
+// same process then returned a cached *Instance whose Agent/Info were built from
+// the now-closed connection, and the next LoadBuilder/LoadRuntime panicked in
+// getConn (connCache empty) or failed RPCs on the dead conn. The two caches must
+// be cleared together.
+func TestClearAgents_invalidatesInstancesCache(t *testing.T) {
+	svc := &resources.Service{Name: "accounts", Agent: &resources.Agent{Publisher: "codefly.dev", Name: "go-grpc", Version: "0.1.4"}}
+	svc.WithModule("saas")
+	id, err := svc.Identity()
+	if err != nil {
+		t.Fatalf("cannot get identity: %v", err)
+	}
+
+	instancesMu.Lock()
+	instances[id.Unique()] = &Instance{Service: svc, Identity: id}
+	instancesMu.Unlock()
+
+	ClearAgents()
+
+	instancesMu.Lock()
+	_, stillCached := instances[id.Unique()]
+	instancesMu.Unlock()
+	if stillCached {
+		t.Fatalf("ClearAgents left a stale *Instance for %q in the cache: a reload would return an "+
+			"Instance bound to the closed connection", id.Unique())
+	}
+}

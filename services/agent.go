@@ -152,6 +152,13 @@ func getConn(cacheKey string) *manager.AgentConn {
 // (SIGTERM → wait → SIGKILL fallback), so the explicit pre-signal
 // here was both redundant and harmful.
 //
+// The instances cache (service.go) MUST be reset alongside connCache:
+// both are keyed by identity.Unique(), and a cached *Instance holds an
+// Agent/Info built from a connection this function closes. Leaving it
+// behind means a clear-then-reload in the same process returns that
+// stale Instance, whose subsequent LoadBuilder/LoadRuntime panics in
+// getConn (connCache now empty) or fails RPCs on the closed conn.
+//
 // Concurrency: snapshot under lock, swap to a fresh map, then Close
 // outside the lock. Closing a gRPC conn can take several seconds
 // (graceful SIGTERM grace) — holding the lock across it would block
@@ -161,6 +168,11 @@ func ClearAgents() {
 	old := connCache
 	connCache = make(map[string]*manager.AgentConn)
 	connCacheMu.Unlock()
+
+	instancesMu.Lock()
+	instances = map[string]*Instance{}
+	instancesMu.Unlock()
+
 	for _, conn := range old {
 		conn.Close()
 	}
