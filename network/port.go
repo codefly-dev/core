@@ -70,8 +70,8 @@ func CLIServerPort(workspaceName string) uint16 {
 	}
 	// Map onto even ports across the whole range. Every gRPC port is even
 	// and its REST companion (= CLIServerPort+1) is odd, so the two pools
-	// can never overlap between workspaces. This uses the full hash width
-	// (4950 buckets) instead of collapsing to multiples of 10 (~990),
+	// can never overlap between workspaces. This uses the full even
+	// sub-range (4950 buckets) instead of collapsing to multiples of 10 (~990),
 	// which made concurrent workspaces collide well below 100 names.
 	base := HashInt(workspaceName, 10000, 14950) * 2
 	return uint16(base)
