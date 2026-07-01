@@ -70,6 +70,14 @@ type AgentConn struct {
 	// done is closed when the process exits (via the reaper goroutine).
 	done chan struct{}
 
+	// logWriter is the caller-supplied real-time stderr sink (WithLogWriter).
+	// getOrCreateConn passes an *io.PipeWriter whose read end feeds a
+	// ForwardLogs goroutine that "blocks until the reader is closed"; Close
+	// closes it (see closeLogWriter) so that goroutine and its pipe unblock
+	// on EOF instead of leaking for the daemon's lifetime on every agent
+	// spawn/restart.
+	logWriter io.Writer
+
 	// permissionsCallback is the host-side server that answers
 	// the plugin's Authorized() calls. Non-nil only when the
 	// caller passed WithPermissionsCallback. Close shuts it down
@@ -105,6 +113,10 @@ const gracefulShutdownTimeout = 30 * time.Second
 // cmd.Wait must only be called once — the reaper owns it. We observe
 // completion via the `done` channel the reaper closes.
 func (c *AgentConn) Close() {
+	// Close the log-forwarding pipe last (after the process has exited and
+	// stopped writing stderr, below) so its ForwardLogs goroutine unblocks
+	// on EOF without racing an in-flight copy.
+	defer c.closeLogWriter()
 	if c.conn != nil {
 		_ = c.conn.Close()
 	}
@@ -153,6 +165,17 @@ func (c *AgentConn) Close() {
 		killAgentGroup(pid)
 		<-c.done
 		w.Info(fmt.Sprintf("agent killed after %s", time.Since(startedAt).Round(time.Millisecond)))
+	}
+}
+
+// closeLogWriter closes the WithLogWriter sink if it is an io.Closer.
+// getOrCreateConn passes an *io.PipeWriter whose read end feeds a
+// ForwardLogs goroutine; closing the write end delivers EOF so that
+// goroutine (and its pipe) don't leak. No-op for writers that aren't
+// closers or when WithLogWriter wasn't used.
+func (c *AgentConn) closeLogWriter() {
+	if closer, ok := c.logWriter.(io.Closer); ok {
+		_ = closer.Close()
 	}
 }
 
@@ -913,6 +936,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		stderrBuf:           stderrBuf,
 		done:                make(chan struct{}),
 		permissionsCallback: permsCallback, // nil when WithPermissionsCallback wasn't passed
+		logWriter:           cfg.logWriter, // closed on Close so ForwardLogs unblocks (nil-safe)
 	}
 
 	// Reaper goroutine: waits for the process to exit and logs unexpected
