@@ -519,26 +519,21 @@ func (proc *NixProc) IsRunning(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// Wait blocks until the nix process exits or ctx is cancelled.
-// Polls IsRunning at 1s intervals — Nix wraps the binary in `nix develop`,
-// so we don't have direct access to the leaf process's cmd.Wait, and the
-// existing forwarder goroutines already hold the cmd.Wait result.
+// Wait blocks until the nix process exits or ctx is cancelled. Returns the
+// process's exit error (nil on clean exit). Safe to call multiple times: the
+// single cmd.Wait goroutine spawned in start() publishes the result to exitCh,
+// which every caller reads. Polling IsRunning (the previous approach) could
+// only ever surface nil or ctx.Err(), so a supervisor never saw a crash.
 func (proc *NixProc) Wait(ctx context.Context) error {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			running, err := proc.IsRunning(ctx)
-			if err != nil {
-				return err
-			}
-			if !running {
-				return nil
-			}
-		}
+	if proc.exitCh == nil {
+		// Process never started — nothing to wait on.
+		return nil
+	}
+	select {
+	case <-proc.exitCh:
+		return proc.exitErr
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

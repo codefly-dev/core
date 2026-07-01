@@ -316,6 +316,47 @@ func TestDockerProcWithoutPipes(t *testing.T) {
 	require.Contains(t, output.Snapshot(), "hello from docker")
 }
 
+// TestDockerProcWaitReturnsExitError verifies Wait honors the Proc.Wait
+// contract: nil for a clean exit, non-nil for a non-zero exit. The previous
+// implementation polled IsRunning and could only ever return nil, so a
+// supervisor Waiting on a crashed exec saw a clean exit.
+func TestDockerProcWaitReturnsExitError(t *testing.T) {
+	requireDocker(t)
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+
+	name := fmt.Sprintf("test-wait-%d", time.Now().UnixMilli())
+	env, err := dockerrun.NewDockerEnvironment(ctx, resources.NewDockerImage("alpine:3.19.1"), shared.Must(shared.SolvePath("testdata")), name)
+	require.NoError(t, err)
+	defer func() {
+		_ = env.Shutdown(ctx)
+	}()
+
+	env.WithPause()
+	require.NoError(t, env.Init(ctx))
+
+	// Clean exit: Wait returns nil.
+	clean, err := env.NewProcess("sh", "-c", "exit 0")
+	require.NoError(t, err)
+	require.NoError(t, clean.Start(ctx))
+	require.NoError(t, clean.Wait(ctx))
+
+	// Non-zero exit: Wait must surface the failure.
+	crashing, err := env.NewProcess("sh", "-c", "exit 3")
+	require.NoError(t, err)
+	require.NoError(t, crashing.Start(ctx))
+	require.Error(t, crashing.Wait(ctx))
+
+	// ctx cancellation short-circuits a still-running exec.
+	longRun, err := env.NewProcess("sh", "-c", "sleep 30")
+	require.NoError(t, err)
+	require.NoError(t, longRun.Start(ctx))
+	cancelCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	require.ErrorIs(t, longRun.Wait(cancelCtx), context.DeadlineExceeded)
+	require.NoError(t, longRun.Stop(ctx))
+}
+
 func TestFindFreePort(t *testing.T) {
 	port, err := base.FindFreePort()
 	require.NoError(t, err)
