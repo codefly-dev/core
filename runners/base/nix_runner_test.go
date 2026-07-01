@@ -86,6 +86,29 @@ func TestNixEnvironment_FiniteScript(t *testing.T) {
 	require.Contains(t, d.Snapshot(), "1")
 }
 
+func TestNixEnvironment_WaitReturnsExitError(t *testing.T) {
+	requireNix(t)
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+
+	dir := nixTestDir(t)
+	env, err := base.NewNixEnvironment(ctx, dir)
+	require.NoError(t, err, "nix environment not usable")
+	require.NoError(t, env.Init(ctx))
+
+	// Clean exit: Wait returns nil.
+	clean, err := env.NewProcess("sh", "good/finite_counter.sh")
+	require.NoError(t, err)
+	require.NoError(t, clean.Start(ctx))
+	require.NoError(t, clean.Wait(ctx))
+
+	// Non-zero exit: Wait must surface the failure, not report a clean exit.
+	crashing, err := env.NewProcess("sh", "crashing/crash.sh")
+	require.NoError(t, err)
+	require.NoError(t, crashing.Start(ctx))
+	require.Error(t, crashing.Wait(ctx))
+}
+
 func TestNixEnvironment_NoFlake(t *testing.T) {
 	requireNix(t)
 	ctx := context.Background()

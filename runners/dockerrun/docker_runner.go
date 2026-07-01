@@ -714,9 +714,19 @@ func (proc *DockerProc) IsRunning(ctx context.Context) (bool, error) {
 	}
 }
 
-// Wait blocks until the container process exits or ctx is cancelled.
-// Polls IsRunning since Docker doesn't expose a clean blocking-wait here.
+// Wait blocks until the container exec exits or ctx is cancelled. Returns the
+// exec's exit error: nil for a clean (exit code 0) exit, non-nil carrying the
+// code otherwise — matching Run and the Proc.Wait contract. The exit status
+// comes from ContainerExecInspect (the authoritative source Run polls too),
+// which stays queryable after the exec finishes, so repeated or late Wait
+// calls all observe the same result. Polling IsRunning (the previous
+// approach) scanned /proc and could only ever return nil or ctx.Err(), so a
+// supervisor never saw a non-zero exit.
 func (proc *DockerProc) Wait(ctx context.Context) error {
+	if proc.ID == "" {
+		// Process never started — nothing to wait on.
+		return nil
+	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -724,15 +734,31 @@ func (proc *DockerProc) Wait(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			running, err := proc.IsRunning(ctx)
-			if err != nil {
+			if done, err := proc.pollExit(ctx); done || err != nil {
 				return err
-			}
-			if !running {
-				return nil
 			}
 		}
 	}
+}
+
+// pollExit inspects the exec once via ContainerExecInspect. While the exec is
+// still running it returns done=false, err=nil. Once it has finished, done=true
+// and err carries the exit error: nil for exit code 0, non-nil otherwise. An
+// inspect failure returns done=false with the wrapped error. Shared by Run and
+// Wait so both surface the exit status identically.
+func (proc *DockerProc) pollExit(ctx context.Context) (bool, error) {
+	w := wool.Get(ctx).In("DockerProc.pollExit")
+	inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
+	if err != nil {
+		return false, w.Wrapf(err, "cannot inspect process")
+	}
+	if inspect.Running {
+		return false, nil
+	}
+	if inspect.ExitCode == 0 {
+		return true, nil
+	}
+	return true, fmt.Errorf("process exited with code %d", inspect.ExitCode)
 }
 
 func (proc *DockerProc) WaitOn(bin string) {
@@ -780,17 +806,9 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
-			if err != nil {
-				return w.Wrapf(err, "cannot inspect process")
+			if done, err := proc.pollExit(ctx); done || err != nil {
+				return err
 			}
-			if inspect.Running {
-				continue
-			}
-			if inspect.ExitCode == 0 {
-				return nil
-			}
-			return fmt.Errorf("process exited with code %d", inspect.ExitCode)
 		}
 	}
 }
