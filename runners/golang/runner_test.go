@@ -96,6 +96,53 @@ func testOutput(t *testing.T, data *shared.SliceWriter) {
 	require.Contains(t, snap[len(snap)-1], "signal received")
 }
 
+// TestGoModuleHandlingCacheAdvancesOnlyOnDownloadSuccess pins the ordering
+// invariant: the dependency hash must be persisted only after `go mod
+// download` succeeds. If it were advanced first, a failed download would be
+// masked on the next run (Updated() == false → fetch skipped, modules
+// missing). GOPROXY=off forces the subprocess offline so the failure path is
+// deterministic and network-free.
+func TestGoModuleHandlingCacheAdvancesOnlyOnDownloadSuccess(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("GOPROXY", "off")
+
+	newEnv := func(t *testing.T, gomod string) (*golang.GoRunnerEnvironment, string) {
+		t.Helper()
+		root := t.TempDir()
+		cacheDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte(gomod), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0644))
+		env, err := golang.NewNativeGoRunner(ctx, root, ".")
+		require.NoError(t, err)
+		env.WithLocalCacheDir(cacheDir)
+		env.Setup(ctx)
+		return env, filepath.Join(cacheDir, "native", "gomod.hash")
+	}
+
+	t.Run("failure leaves cache unadvanced", func(t *testing.T) {
+		// Requires a module that cannot be resolved offline, so `go mod
+		// download` fails.
+		env, hashFile := newEnv(t, "module example.com/faildl\n\ngo 1.21\n\nrequire example.com/does-not-exist v0.0.1\n")
+		defer func() { require.NoError(t, env.Shutdown(ctx)) }()
+
+		require.Error(t, env.GoModuleHandling(ctx))
+
+		_, statErr := os.Stat(hashFile)
+		require.True(t, os.IsNotExist(statErr), "cache hash was advanced despite failed download")
+	})
+
+	t.Run("success advances cache", func(t *testing.T) {
+		// No external requires: `go mod download` succeeds even offline.
+		env, hashFile := newEnv(t, "module example.com/okdl\n\ngo 1.21\n")
+		defer func() { require.NoError(t, env.Shutdown(ctx)) }()
+
+		require.NoError(t, env.GoModuleHandling(ctx))
+
+		_, statErr := os.Stat(hashFile)
+		require.NoError(t, statErr, "cache hash was not persisted after successful download")
+	})
+}
+
 func TestNativeRunWithMod(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
