@@ -9,6 +9,7 @@ import (
 
 func TestShortLowerUUID(t *testing.T) {
 	seen := make(map[string]struct{})
+	firstChars := make(map[byte]struct{})
 	for i := 0; i < 1000; i++ {
 		id, err := shared.ShortLowerUUID()
 		require.NoError(t, err)
@@ -19,5 +20,9 @@ func TestShortLowerUUID(t *testing.T) {
 		_, dup := seen[id]
 		require.False(t, dup, "duplicate id %q generated after %d iterations", id, i)
 		seen[id] = struct{}{}
+		firstChars[id[0]] = struct{}{}
 	}
+	// The full 128 bits must reach the high-order base26 digits. If only the
+	// low 32 bits were used (the pre-fix bug), every id would start with 'a'.
+	require.Greater(t, len(firstChars), 1, "leading character never varies — high-order entropy is being dropped")
 }
