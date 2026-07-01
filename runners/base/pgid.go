@@ -16,25 +16,32 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
-// forwardLines reads lines from r and writes each line — WITH its trailing
+// forwardLines reads r line by line and writes each line — WITH its trailing
 // newline — as a single Write to w. This preserves log-prefix boundaries
 // (wool's per-Write prefix still applies per line) AND keeps newline
 // separators intact (JSON-lines, structured logs, anything newline-
-// delimited works). Scanner buffer is raised to 1MiB from the 64KiB
-// default so large test output or error stacks don't silently truncate.
+// delimited works). ReadBytes grows its buffer to hold a whole line no
+// matter how large, so a single oversized event (base64 blob, minified
+// stack) is forwarded intact — unlike a bufio.Scanner, which caps its token
+// at a fixed size and, once exceeded, silently drops that line and the rest
+// of the stream. On a write failure the remaining input is drained so the
+// child never blocks on a full pipe before the forwarder closes its read-end.
 // Shared by NativeProc.Forward and NixProc.forward.
 func forwardLines(r io.Reader, w io.Writer) {
 	if w == nil {
 		_, _ = io.Copy(io.Discard, r)
 		return
 	}
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		// Re-append the newline so the downstream writer sees the real
-		// separator — losing it was the JSON-lines bug.
-		if _, err := w.Write(append(line, '\n')); err != nil {
+	br := bufio.NewReader(r)
+	for {
+		line, err := br.ReadBytes('\n')
+		if len(line) > 0 {
+			if _, werr := w.Write(line); werr != nil {
+				_, _ = io.Copy(io.Discard, br)
+				return
+			}
+		}
+		if err != nil {
 			return
 		}
 	}
