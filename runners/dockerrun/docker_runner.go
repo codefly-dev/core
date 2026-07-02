@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"runtime"
 	"strconv"
@@ -673,6 +674,13 @@ type DockerProc struct {
 	// reading proc.output never race against an in-flight
 	// stdcopy.StdCopy. Same race that bit NativeProc; same fix.
 	forwarderWG sync.WaitGroup
+
+	// closeExecConn closes the hijacked exec connection created by
+	// start(). The connection is detached from the request ctx, so when
+	// Run exits while the process may still be running it must close it
+	// explicitly — otherwise the stdcopy goroutine blocks forever and
+	// forwarderWG never drains.
+	closeExecConn func()
 }
 
 func (proc *DockerProc) WithEnvironmentVariablesAppend(ctx context.Context, added *resources.EnvironmentVariable, sep string) {
@@ -801,12 +809,38 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
+	// abort kills the in-container process and closes the hijacked exec
+	// connection so the stdcopy goroutine unblocks. Docker execs are NOT
+	// tied to the request ctx: without this, cancellation leaks the
+	// process, the goroutine + its FD, and the deferred forwarderWG.Wait
+	// above blocks Run on the very timeout it should honor. Stop gets a
+	// fresh bounded ctx because the caller's is already dead here.
+	abort := func() {
+		// Close the connection before the (multi-second, best-effort)
+		// Stop so the demux goroutine drains immediately rather than
+		// staying blocked for the duration of the kill.
+		proc.closeExecConn()
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stopCancel()
+		if stopErr := proc.Stop(stopCtx); stopErr != nil {
+			w.Warn("cannot stop in-container process", wool.ErrField(stopErr))
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
+			abort()
 			return ctx.Err()
 		case <-ticker.C:
-			if done, err := proc.pollExit(ctx); done || err != nil {
+			done, err := proc.pollExit(ctx)
+			if done {
+				return err
+			}
+			if err != nil {
+				// Inspect failed with the exec possibly still running —
+				// same leak hazard as cancellation.
+				abort()
 				return err
 			}
 		}
@@ -947,6 +981,7 @@ func (proc *DockerProc) start(ctx context.Context) error {
 		return err
 	}
 	proc.ID = execIDResp.ID
+	proc.closeExecConn = execResp.Close
 
 	// Stdin goroutine: copy from the caller's pipe into the exec connection.
 	if proc.stdinReader != nil {
@@ -989,7 +1024,11 @@ func (proc *DockerProc) start(ctx context.Context) error {
 			stderrDest = io.Discard
 		}
 		if _, err := stdcopy.StdCopy(stdoutDest, stderrDest, execResp.Reader); err != nil {
-			w.Error("cannot copy output", wool.ErrField(err))
+			// A closed connection is the normal shutdown signal when Run
+			// aborts on cancellation and closes the hijacked conn itself.
+			if !errors.Is(err, net.ErrClosed) {
+				w.Error("cannot copy output", wool.ErrField(err))
+			}
 		}
 	}()
 	return nil
