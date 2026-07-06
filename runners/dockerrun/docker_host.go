@@ -53,6 +53,15 @@ func newDockerClient() (*client.Client, dockerHost, error) {
 	return cli, host, err
 }
 
+// NewClient builds a Docker client that honors the active docker context,
+// mirroring the docker CLI's endpoint resolution (see resolveDockerHost). It
+// exists so packages outside dockerrun — notably the image builder — reach the
+// same engine as the runners instead of client.FromEnv's context-unaware default.
+func NewClient() (*client.Client, error) {
+	cli, _, err := newDockerClient()
+	return cli, err
+}
+
 func activeDockerContextName() string {
 	if c := os.Getenv("DOCKER_CONTEXT"); c != "" {
 		return c
