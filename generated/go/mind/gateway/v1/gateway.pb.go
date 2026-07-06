@@ -7,11 +7,12 @@
 package gatewayv1
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -2181,7 +2182,15 @@ type RunCommandRequest struct {
 	// timeout_seconds caps command execution time; zero uses the default.
 	TimeoutSeconds int32 `protobuf:"varint,4,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"` // 0 = default (30s)
 	// working_dir is an optional service-relative directory for command execution.
-	WorkingDir    string `protobuf:"bytes,5,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"` // optional: relative subdirectory
+	WorkingDir string `protobuf:"bytes,5,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"` // optional: relative subdirectory
+	// stdin is optional bytes written to the process's standard input.
+	//
+	// CONTRACT (single-shot stdin): the gateway writes the full payload
+	// to the child's stdin, closes the stream, then reads stdout/stderr
+	// to completion. Not a bidirectional pipe — enough for batch
+	// protocols with a fixed upfront request list, e.g. feeding
+	// `git cat-file --batch` a list of object names.
+	Stdin         []byte `protobuf:"bytes,6,opt,name=stdin,proto3" json:"stdin,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2249,6 +2258,13 @@ func (x *RunCommandRequest) GetWorkingDir() string {
 		return x.WorkingDir
 	}
 	return ""
+}
+
+func (x *RunCommandRequest) GetStdin() []byte {
+	if x != nil {
+		return x.Stdin
+	}
+	return nil
 }
 
 // RunCommandResponse returns process exit status and captured streams.
@@ -4969,14 +4985,15 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\ftests_failed\x18\x05 \x01(\x05R\vtestsFailed\x12#\n" +
 	"\rtests_skipped\x18\x06 \x01(\x05R\ftestsSkipped\x12!\n" +
 	"\fcoverage_pct\x18\a \x01(\x02R\vcoveragePct\x12\x1a\n" +
-	"\bfailures\x18\b \x03(\tR\bfailures\"\xa5\x01\n" +
+	"\bfailures\x18\b \x03(\tR\bfailures\"\xbb\x01\n" +
 	"\x11RunCommandRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x18\n" +
 	"\acommand\x18\x02 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x03 \x03(\tR\x04args\x12'\n" +
 	"\x0ftimeout_seconds\x18\x04 \x01(\x05R\x0etimeoutSeconds\x12\x1f\n" +
 	"\vworking_dir\x18\x05 \x01(\tR\n" +
-	"workingDir\"a\n" +
+	"workingDir\x12\x14\n" +
+	"\x05stdin\x18\x06 \x01(\fR\x05stdin\"a\n" +
 	"\x12RunCommandResponse\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x16\n" +
 	"\x06stdout\x18\x02 \x01(\tR\x06stdout\x12\x16\n" +

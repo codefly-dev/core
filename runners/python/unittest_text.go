@@ -33,6 +33,11 @@ var (
 	reUnittestDocResult = regexp.MustCompile(`^(.*?) \.\.\. (ok|OK|FAIL|ERROR|skipped|expected failure)`)
 	// failure/error block header: "FAIL: test_x (a.b.Class)".
 	reUnittestBlockHeader = regexp.MustCompile(`^(FAIL|ERROR): ([\w.]+) \(([\w.]+)\)`)
+	// aggregate summary lines every unittest runner prints.
+	reUnittestRan      = regexp.MustCompile(`(?m)^Ran (\d+) tests? in `)
+	reUnittestSkipped  = regexp.MustCompile(`skipped=(\d+)`)
+	reUnittestFailures = regexp.MustCompile(`failures=(\d+)`)
+	reUnittestErrors   = regexp.MustCompile(`errors=(\d+)`)
 )
 
 // unittestState maps a raw unittest result token to a structured case state.
@@ -125,7 +130,61 @@ func ParseUnittestText(output string) *StructuredTestRun {
 	}
 
 	run.Suites = buildUnittestSuites(cases)
+
+	// Aggregate summary — every unittest TextTestRunner (django's runtests.py,
+	// `python -m unittest`) ends with "Ran N tests in Xs" then a status line.
+	// At DEFAULT verbosity there are NO per-test result lines (just dots), so
+	// the passes above find zero cases and a healthy run of all-skipped or
+	// all-passing tests would be MISCLASSIFIED as "no tests executed" / env
+	// blocked. Parse the summary so the count is right regardless of verbosity;
+	// named FAIL:/ERROR: cases (parsed above) still carry the failing test ids
+	// the grader needs. Framework-agnostic: it's the unittest FORMAT, not django.
+	if m := reUnittestRan.FindStringSubmatch(output); m != nil {
+		total := atoiSafe(m[1])
+		if total > 0 {
+			failed, errored := 0, 0
+			for _, c := range cases {
+				switch c.state {
+				case runtimev0.TestCaseState_TEST_CASE_STATE_FAILED:
+					failed++
+				case runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED:
+					errored++
+				}
+			}
+			skipped := firstIntIn(reUnittestSkipped, output)
+			// Prefer explicit failures=/errors= from the status line when present.
+			if f := firstIntIn(reUnittestFailures, output); f > failed {
+				failed = f
+			}
+			if e := firstIntIn(reUnittestErrors, output); e > errored {
+				errored = e
+			}
+			passed := total - failed - errored - skipped
+			if passed < 0 {
+				passed = 0
+			}
+			run.Summary = &UnittestSummary{Total: total, Passed: passed, Failed: failed, Errored: errored, Skipped: skipped}
+		}
+	}
 	return run
+}
+
+func atoiSafe(s string) int {
+	n := 0
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return n
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
+}
+
+func firstIntIn(re *regexp.Regexp, s string) int {
+	if m := re.FindStringSubmatch(s); m != nil {
+		return atoiSafe(m[1])
+	}
+	return 0
 }
 
 // captureUnittestBlock collects a failure block body starting at `from` until

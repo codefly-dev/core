@@ -246,3 +246,41 @@ func caseByName(t *testing.T, suite *runtimev0.TestSuite) map[string]*runtimev0.
 	}
 	return out
 }
+
+// The RUNNER owns dependency-warning-as-error classification: failures caused
+// by an external dependency's DeprecationWarning (site-packages path) are
+// tagged env-blocked (dependency-warning) so the caller heals the dependency
+// instead of remediating the patch. This knowledge used to be mirrored in the
+// Mind brain, where message drift silently broke it.
+func TestToProtoResponseTagsDependencyWarningFailures(t *testing.T) {
+	run := &python.StructuredTestRun{Suites: []*python.StructuredSuite{{
+		File: "tests/test_testing.py",
+		Cases: []*python.StructuredCase{{
+			Name:  "test_session_transactions",
+			State: runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+			Output: ".cache/uv/archive/lib/python3.11/site-packages/werkzeug/test.py:862: in cookie_jar\n" +
+				"E   DeprecationWarning: The 'cookie_jar' attribute is a private API.",
+			Failure: &python.StructuredFailure{Message: "DeprecationWarning treated as error"},
+		}},
+	}}}
+	resp := run.ToProtoResponse("formula", "", 0)
+	msg := resp.GetResult().GetMessage()
+	if !strings.Contains(msg, "env-blocked (dependency-warning)") {
+		t.Fatalf("runner must tag dependency-warning failures, got %q", msg)
+	}
+
+	// A REAL test failure (no external-dep warning) must NOT be laundered
+	// into an env block.
+	real := &python.StructuredTestRun{Suites: []*python.StructuredSuite{{
+		File: "tests/test_math.py",
+		Cases: []*python.StructuredCase{{
+			Name:    "test_add",
+			State:   runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+			Output:  "assert 2 == 3",
+			Failure: &python.StructuredFailure{Message: "assertion failed"},
+		}},
+	}}}
+	if m := real.ToProtoResponse("formula", "", 0).GetResult().GetMessage(); strings.Contains(m, "env-blocked") {
+		t.Fatalf("real failure must stay a test failure, got %q", m)
+	}
+}

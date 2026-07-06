@@ -284,6 +284,33 @@ func splitPEP440Spec(spec string) (name, version string) {
 	return spec, ""
 }
 
+// pythonPackageWalkMaxDepth caps how many directory levels below the
+// source root discoverPackages recurses into. Ten levels is far deeper
+// than any sane Python package layout (skip set already excludes venvs
+// and caches); the cap bounds the walk on pathological trees such as
+// generated output or vendored data dumps.
+const pythonPackageWalkMaxDepth = 10
+
+// pythonSkipDirs are directory names discoverPackages never descends
+// into — virtualenvs, dependency trees, and VCS/cache directories.
+// Hidden dirs ("." prefix) and private/dunder dirs ("_" prefix, which
+// covers __pycache__) are skipped by prefix check at the call sites.
+var pythonSkipDirs = map[string]bool{
+	"venv":         true,
+	".venv":        true,
+	"node_modules": true,
+	"__pycache__":  true,
+	".git":         true,
+}
+
+// discoverPackages walks the source tree RECURSIVELY and emits one
+// PackageInfo per directory that directly contains .py files (an
+// __init__.py counts — it is a .py file). Intermediate directories
+// with no .py files of their own (e.g. a `src/` layout root) are not
+// emitted as packages but ARE descended into, so nested subpackages
+// like pkg/sub/mod.py surface with RelativePath "pkg/sub" and their
+// imports aggregated via scanPackageImports. Root-level .py files form
+// the "." package, preserving the historical shape consumers rely on.
 func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev0.PackageInfo {
 	var packages []*codev0.PackageInfo
 
@@ -297,59 +324,13 @@ func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev0.PackageInfo
 			continue
 		}
 		name := e.Name()
-		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || pythonSkipDirs[name] {
 			continue
 		}
-		// Skip common non-package dirs
-		skip := map[string]bool{"venv": true, ".venv": true, "node_modules": true, "__pycache__": true, ".git": true}
-		if skip[name] {
-			continue
-		}
-
-		// Check for __init__.py or .py files
-		initPath := filepath.Join(srcDir, name, "__init__.py")
-		if _, err := s.FS.Stat(initPath); err != nil {
-			// Also accept directories with .py files (namespace packages)
-			subEntries, err := s.FS.ReadDir(filepath.Join(srcDir, name))
-			if err != nil {
-				continue
-			}
-			hasPy := false
-			for _, se := range subEntries {
-				if strings.HasSuffix(se.Name(), ".py") {
-					hasPy = true
-					break
-				}
-			}
-			if !hasPy {
-				continue
-			}
-		}
-
-		pkg := &codev0.PackageInfo{
-			Name:         name,
-			RelativePath: name,
-		}
-
-		// List .py files
-		subEntries, _ := s.FS.ReadDir(filepath.Join(srcDir, name))
-		for _, se := range subEntries {
-			if strings.HasSuffix(se.Name(), ".py") {
-				pkg.Files = append(pkg.Files, se.Name())
-			}
-		}
-
-		// Scan each file for import statements and aggregate at
-		// the package level. Heuristic line-based parser — same
-		// style as parsePyprojectTOML above. Avoids a Python
-		// runtime dependency at the cost of some edge cases
-		// (imports inside triple-quoted strings will false-match).
-		pkg.Imports = s.scanPackageImports(srcDir, name, pkg.Files)
-
-		packages = append(packages, pkg)
+		s.walkPythonPackages(srcDir, name, 1, &packages)
 	}
 
-	// Also check root-level .py files
+	// Also check root-level .py files (scripts, setup.py, conftest.py).
 	rootPkg := &codev0.PackageInfo{
 		Name:         ".",
 		RelativePath: ".",
@@ -365,6 +346,59 @@ func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev0.PackageInfo
 	}
 
 	return packages
+}
+
+// walkPythonPackages emits a PackageInfo for rel if it directly holds
+// .py files, then recurses into its (non-skipped) subdirectories.
+// One FS.ReadDir per directory — the walk is a single pass over the
+// tree, bounded by pythonPackageWalkMaxDepth. Pre-order emission keeps
+// parents ahead of their subpackages and preserves the historical
+// ordering for flat repositories.
+func (s *PythonCodeServer) walkPythonPackages(srcDir, rel string, depth int, out *[]*codev0.PackageInfo) {
+	if depth > pythonPackageWalkMaxDepth {
+		return
+	}
+	entries, err := s.FS.ReadDir(filepath.Join(srcDir, rel))
+	if err != nil {
+		return
+	}
+
+	var files []string
+	var subdirs []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || pythonSkipDirs[name] {
+				continue
+			}
+			subdirs = append(subdirs, name)
+			continue
+		}
+		if strings.HasSuffix(name, ".py") {
+			files = append(files, name)
+		}
+	}
+
+	if len(files) > 0 {
+		relSlash := filepath.ToSlash(rel)
+		pkg := &codev0.PackageInfo{
+			// Name is the language-level module path: "pkg/sub" → "pkg.sub".
+			Name:         strings.ReplaceAll(relSlash, "/", "."),
+			RelativePath: relSlash,
+			Files:        files,
+		}
+		// Scan each file for import statements and aggregate at
+		// the package level. Heuristic line-based parser — same
+		// style as parsePyprojectTOML above. Avoids a Python
+		// runtime dependency at the cost of some edge cases
+		// (imports inside triple-quoted strings will false-match).
+		pkg.Imports = s.scanPackageImports(srcDir, rel, files)
+		*out = append(*out, pkg)
+	}
+
+	for _, sub := range subdirs {
+		s.walkPythonPackages(srcDir, filepath.Join(rel, sub), depth+1, out)
+	}
 }
 
 // scanPackageImports walks each .py file in the package and

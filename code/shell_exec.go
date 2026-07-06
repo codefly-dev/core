@@ -81,6 +81,16 @@ func (s *DefaultCodeServer) shellExec(ctx context.Context, req *codev0.ShellExec
 		cmd.Env = env
 	}
 
+	// Optional single-shot stdin. CONTRACT: the full payload is handed to
+	// the child as its standard input and the stream is closed at EOF —
+	// write everything, close, then read stdout/stderr to completion.
+	// This is NOT a bidirectional pipe; it is sufficient for batch
+	// protocols whose entire request list is known upfront, e.g. feeding
+	// `git cat-file --batch` a fixed list of object names.
+	if len(req.Stdin) > 0 {
+		cmd.Stdin = bytes.NewReader(req.Stdin)
+	}
+
 	// Bounded output capture. Without this cap, a runaway command could
 	// allocate gigabytes before the timeout fires.
 	var stdoutBuf, stderrBuf boundedBuffer

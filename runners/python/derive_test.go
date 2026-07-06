@@ -197,3 +197,52 @@ func TestDeriveFormula_NothingDeclared(t *testing.T) {
 		t.Fatal("a project declaring nothing runnable must return ok=false")
 	}
 }
+
+// TestDeriveBuildSystemRequires locks the source-build provisioning rule:
+// pyproject [build-system].requires carrying non-default build deps (numpy,
+// cython, …) flows into --with specs + --no-build-isolation; a default
+// setuptools/wheel-only list derives nothing.
+func TestDeriveBuildSystemRequires(t *testing.T) {
+	dir := t.TempDir()
+	py := `[build-system]
+requires = ["setuptools>=40", "wheel", "numpy>=1.14", "Cython>=0.28"]
+build-backend = "setuptools.build_meta"
+`
+	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(py), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prov := deriveProvisioning(dir)
+	if prov["no_build_isolation"] != "true" {
+		t.Fatalf("no_build_isolation = %q, want true", prov["no_build_isolation"])
+	}
+	want := "setuptools>=40,wheel,numpy>=1.14,Cython>=0.28"
+	if prov["with"] != want {
+		t.Fatalf("with = %q, want %q", prov["with"], want)
+	}
+
+	defaultsOnly := t.TempDir()
+	py2 := "[build-system]\nrequires = [\"setuptools\", \"wheel\"]\n"
+	if err := os.WriteFile(filepath.Join(defaultsOnly, "pyproject.toml"), []byte(py2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prov2 := deriveProvisioning(defaultsOnly)
+	if prov2["with"] != "" || prov2["no_build_isolation"] != "" {
+		t.Fatalf("defaults-only build-system must derive nothing, got with=%q nbi=%q", prov2["with"], prov2["no_build_isolation"])
+	}
+}
+
+// django's runtests.py recreates test DBs on every run (minutes each);
+// --keepdb is auto-injected so the agent's repeated reproduce→edit→verify
+// runs and the grader reuse the DB. No-op for pytest; idempotent.
+func TestWithDjangoKeepDB(t *testing.T) {
+	got := withDjangoKeepDB([]string{"python", "runtests.py"})
+	if len(got) != 3 || got[2] != "--keepdb" {
+		t.Fatalf("runtests.py must gain --keepdb, got %v", got)
+	}
+	if again := withDjangoKeepDB(got); len(again) != 3 {
+		t.Fatalf("--keepdb must be idempotent, got %v", again)
+	}
+	if py := withDjangoKeepDB([]string{"pytest", "-q"}); len(py) != 2 {
+		t.Fatalf("non-django command must be unchanged, got %v", py)
+	}
+}

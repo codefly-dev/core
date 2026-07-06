@@ -501,6 +501,14 @@ message RunCommandRequest {
   int32 timeout_seconds = 4;       // 0 = default (30s)
   // working_dir is an optional service-relative directory for command execution.
   string working_dir = 5;          // optional: relative subdirectory
+  // stdin is optional bytes written to the process's standard input.
+  //
+  // CONTRACT (single-shot stdin): the gateway writes the full payload
+  // to the child's stdin, closes the stream, then reads stdout/stderr
+  // to completion. Not a bidirectional pipe — enough for batch
+  // protocols with a fixed upfront request list, e.g. feeding
+  // `git cat-file --batch` a list of object names.
+  bytes stdin = 6;
 }
 
 // RunCommandResponse returns process exit status and captured streams.

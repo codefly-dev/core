@@ -89,28 +89,129 @@ type StructuredTestRun struct {
 	// EnvError, when set, means the run could NOT EXECUTE the tests — the
 	// ENVIRONMENT was blocked (a dependency failed to install, the project failed
 	// to import, the interpreter is missing) — as opposed to tests running and
-	// failing. RunFormulaStructured sets it when the process exits non-zero having
-	// produced ZERO cases. ToProtoResponse maps it to Result.State=ERRORED with a
-	// classified reason, so a caller distinguishes "tests failed" (FAILED) from
-	// "couldn't run" (ERRORED) from the STRUCTURE — never from a raw "exit status
-	// 1". This is what the Mind tooling inner loop reads to heal plugin config.
+	// failing. RunFormulaStructured sets it whenever the run produced ZERO cases
+	// (REGARDLESS of exit code: a command that discovers nothing and exits 0 is a
+	// broken invocation, never a pass). ToProtoResponse maps it to
+	// Result.State=ERRORED with a classified reason, so a caller distinguishes
+	// "tests failed" (FAILED) from "couldn't run" (ERRORED) from the STRUCTURE —
+	// never from a raw "exit status 1". This is what the Mind tooling inner loop
+	// reads to heal plugin config.
 	EnvError *RunEnvError
+
+	// Summary carries aggregate counts parsed from a unittest runner's
+	// "Ran N tests / OK (skipped=…)" trailer when DEFAULT verbosity emitted no
+	// per-test lines. Present only for the case-less unittest path; nil for
+	// pytest/JUnit and verbose unittest (where Suites carry every case).
+	Summary *UnittestSummary
+
+	// Materialized is true when the run proved the ENVIRONMENT is usable — uv
+	// resolved and built the venv, the project imported, and the test RUNNER
+	// launched into execution — even though ZERO cases completed because the run
+	// was cut off by the caller's budget (a deadline/cancel), not by a project
+	// failure. This is the exact signal an environment PRE-WARM needs: "can this
+	// env execute the project's tests?" is answered YES the moment the runner
+	// starts, without waiting for a multi-thousand-test suite (django's 7757
+	// tests) to finish. Distinct from EnvError (blocked) and from a completed
+	// run (cases > 0). ToProtoResponse surfaces it as a healthy, non-errored
+	// result carrying EnvMaterializedMessagePrefix.
+	Materialized bool
+}
+
+// EnvMaterializedMessagePrefix marks a TestResponse whose run MATERIALIZED the
+// environment (runner launched) but was budget-interrupted before any case
+// completed. Mind's health/pre-warm probe imports this constant and treats such
+// a result as HEALTHY rather than re-parsing output — codefly stays the single
+// owner of "what does a materialized-but-incomplete run look like".
+const EnvMaterializedMessagePrefix = "environment-materialized: "
+
+// environmentExecutionMarkers are framework-agnostic proof that the test RUNNER
+// launched past environment setup (uv build + project import) into execution.
+// Their presence means the environment is usable regardless of whether the run
+// finished. Lowercased-substring matched against raw output.
+// These are UNAMBIGUOUS test-runner signals — they appear only after uv
+// resolved the env and the project imported. Bare "passed"/"failed" are
+// deliberately excluded: they false-match build output ("Failed to build
+// numpy"), which would launder a genuine build failure into a healthy env.
+var environmentExecutionMarkers = []string{
+	"creating test database",   // django/unittest runner DB setUp
+	"destroying test database", // django teardown
+	"test session starts",      // pytest banner
+	"collected ",               // pytest collection ("collected 42 items")
+	"rootdir:",                 // pytest header
+	"ran ",                     // unittest summary ("Ran 12 tests")
+	"platform ",                // pytest env line ("platform darwin -- Python…")
+	"tests in ",                // unittest timing ("... tests in 3.2s")
+}
+
+// EnvironmentMaterialized reports whether raw output proves the test runner
+// launched into execution (env is usable). Used to distinguish a
+// budget-interrupted-but-healthy run from a genuine env block.
+func EnvironmentMaterialized(raw string) bool {
+	low := strings.ToLower(raw)
+	for _, m := range environmentExecutionMarkers {
+		if strings.Contains(low, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsEnvironmentMaterializedMessage reports whether a TestResponse message was
+// produced by a materialized-but-incomplete run (Mind's health probe reads
+// this instead of re-parsing output).
+func IsEnvironmentMaterializedMessage(msg string) bool {
+	return strings.HasPrefix(strings.TrimSpace(msg), strings.TrimSpace(EnvMaterializedMessagePrefix))
 }
 
 // RunEnvError classifies why the environment blocked the run. The python plugin
 // owns this classification (it knows pytest/uv exit semantics); Mind maps Reason
 // onto its BlockReason without re-parsing raw output.
 type RunEnvError struct {
-	Reason string // "missing-dependency" | "import-error" | "version-conflict" | "interpreter-missing" | "unknown"
+	// Reason is one of: "missing-dependency" | "import-error" |
+	// "version-conflict" | "interpreter-missing" | "test-collection-error" |
+	// EnvErrorNoTestsExecuted | EnvErrorNoTestsMatchedSelectors |
+	// EnvErrorInvalidCwd | "unknown".
+	Reason string
 	Detail string // the scraped failure tail, e.g. "ModuleNotFoundError: No module named 'werkzeug'"
 }
 
-// caseCount returns the total number of test cases across all suites — 0 means
-// nothing executed (the env-block signal).
+// Structural env-error reasons emitted by RunFormulaStructured itself (not
+// scraped from output). Exported so healers/callers can route on them.
+const (
+	// EnvErrorNoTestsExecuted: the run produced ZERO test cases with no
+	// selectors supplied — the invocation itself discovers nothing (a bare
+	// `python`, a wrong cwd/output format). NEVER a pass, even with exit 0.
+	EnvErrorNoTestsExecuted = "no-tests-executed"
+	// EnvErrorNoTestsMatchedSelectors: selectors were supplied and matched
+	// zero tests. Distinct from EnvErrorNoTestsExecuted so a healer knows the
+	// command may be fine and the SELECTION is what's wrong.
+	EnvErrorNoTestsMatchedSelectors = "no-tests-matched-selectors"
+	// EnvErrorInvalidCwd: the formula's provisioning "cwd" is absolute,
+	// escapes the code unit, or does not exist.
+	EnvErrorInvalidCwd = "invalid-cwd"
+	// EnvErrorProvisioningFailed: building the persistent venv (uv venv / uv pip
+	// install of the editable project + deps) failed — a real environment block
+	// the healer can act on (wrong python, missing build dep, compile error).
+	EnvErrorProvisioningFailed = "provisioning-failed"
+)
+
+// UnittestSummary is the aggregate a default-verbosity unittest runner prints
+// ("Ran N tests in Xs" + status line) when it emits no per-test result lines.
+type UnittestSummary struct {
+	Total, Passed, Failed, Errored, Skipped int
+}
+
+// caseCount returns the number of tests the run EXECUTED — from parsed cases,
+// or from the unittest aggregate summary when default verbosity printed none.
+// 0 means nothing executed (the env-block signal); a run that executed tests
+// (even all-skipped) must NOT read as 0.
 func (r *StructuredTestRun) caseCount() int {
 	n := 0
 	for _, s := range r.Suites {
 		n += len(s.Cases)
+	}
+	if n == 0 && r.Summary != nil {
+		return r.Summary.Total
 	}
 	return n
 }
@@ -118,6 +219,14 @@ func (r *StructuredTestRun) caseCount() int {
 // ClassifyEnvError inspects a run's raw output (and exit error) to decide WHY the
 // environment blocked the run. Pattern order is most-specific first. Exported so
 // RunFormulaStructured and tests share one classifier.
+//
+// Detail discipline: the detail is what a REMEDIATOR (LLM or human) acts on, so
+// it must carry the actual error line(s) — never a uv download/progress line
+// ("Downloaded numpy", "Resolved 25 packages") that happens to sit at the tail
+// of the output. Two real regressions locked by tests: a killed sklearn source
+// build classified `unknown: Downloaded numpy`, and a django flat-layout build
+// error classified `unknown: 'setup.py' are present in the directory` (a
+// wrapped fragment of the real setuptools error).
 func ClassifyEnvError(raw string, runErr error) *RunEnvError {
 	low := strings.ToLower(raw)
 	detail := lastMeaningfulLine(raw)
@@ -150,22 +259,65 @@ func ClassifyEnvError(raw string, runErr error) *RunEnvError {
 		return &RunEnvError{Reason: "version-conflict", Detail: resolutionDetail(raw, detail)}
 	case strings.Contains(low, "modulenotfounderror"),
 		strings.Contains(low, "no module named"):
-		return &RunEnvError{Reason: "missing-dependency", Detail: detail}
+		return &RunEnvError{Reason: "missing-dependency", Detail: matchedErrorLine(raw, detail, "modulenotfounderror", "no module named")}
 	case strings.Contains(low, "importerror"),
 		strings.Contains(low, "cannot import name"),
 		strings.Contains(low, "collection error"):
-		return &RunEnvError{Reason: "import-error", Detail: detail}
+		return &RunEnvError{Reason: "import-error", Detail: matchedErrorLine(raw, detail, "importerror", "cannot import name")}
+	case strings.Contains(low, "failed to build"),
+		strings.Contains(low, "failed building wheel"),
+		strings.Contains(low, "build backend returned an error"),
+		strings.Contains(low, "metadata-generation-failed"),
+		strings.Contains(low, "flat-layout"),
+		strings.Contains(low, "top-level packages discovered"),
+		strings.Contains(low, "top-level modules discovered"):
+		// A BUILD failure (uv building the project or a source dependency —
+		// setuptools backend errors, flat-layout/multiple-top-level-packages
+		// discovery refusals, C-extension compile failures). uv wraps these in
+		// multi-line `× Failed to build …` / `╰─▶ …` blocks whose LAST line is
+		// often a wrapped fragment ("'setup.py' are present in the directory"),
+		// so the detail is the multi-line error tail, not one line. Checked
+		// AFTER missing-dependency/import-error: a build that failed because a
+		// build dep is missing classifies as the more actionable reason.
+		return &RunEnvError{Reason: "build-failed", Detail: resolutionDetail(raw, detail)}
 	case strings.Contains(low, "no interpreter"),
 		strings.Contains(low, "command not found"),
 		strings.Contains(low, "not found in"),
 		strings.Contains(low, "no virtual environment"):
-		return &RunEnvError{Reason: "interpreter-missing", Detail: detail}
+		return &RunEnvError{Reason: "interpreter-missing", Detail: matchedErrorLine(raw, detail, "no interpreter", "command not found", "not found in", "no virtual environment")}
 	default:
+		// Unknown: keep the last non-progress LINES (plural) — enough tail for a
+		// remediator to see the real error, with download/progress noise
+		// filtered. A killed/truncated run can be ALL progress lines; then the
+		// exit error is the only truthful detail.
+		detail = resolutionDetail(raw, detail)
 		if detail == "" && runErr != nil {
 			detail = runErr.Error()
 		}
 		return &RunEnvError{Reason: "unknown", Detail: detail}
 	}
+}
+
+// matchedErrorLine returns the LAST raw line containing one of the (lowercase)
+// patterns that made the classifier pick a reason — the full relevant error
+// line ("ModuleNotFoundError: No module named 'numpy'"), not whatever line
+// happens to be at the tail of the output. Falls back to the supplied detail.
+func matchedErrorLine(raw, fallback string, patterns ...string) string {
+	const capLen = 400
+	lines := strings.Split(raw, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		lowLine := strings.ToLower(line)
+		for _, p := range patterns {
+			if strings.Contains(lowLine, p) {
+				if len(line) > capLen {
+					return line[:capLen]
+				}
+				return line
+			}
+		}
+	}
+	return fallback
 }
 
 // envFailureSignature matches a line indicating a DEPENDENCY/ENVIRONMENT
@@ -267,6 +419,9 @@ func nonActionableRuntimeLine(line string) bool {
 	if testProgressOnlyRuntimeLine(low) {
 		return true
 	}
+	if uvProgressRuntimeLine(low) {
+		return true
+	}
 	if strings.HasPrefix(low, "[notice]") || strings.HasPrefix(low, "notice:") {
 		return true
 	}
@@ -278,6 +433,34 @@ func nonActionableRuntimeLine(line string) bool {
 		return true
 	}
 	if strings.HasPrefix(low, "warning: you are using pip version") {
+		return true
+	}
+	return false
+}
+
+// uvProgressRuntimeLine reports whether a (lowercased, trimmed) line is
+// uv/pip DOWNLOAD/INSTALL PROGRESS — "Downloaded numpy", "Resolved 25 packages
+// in 1.2s", " + numpy==1.19.2" — noise that must never be selected as an
+// env-block detail (a killed sklearn source build once surfaced
+// `env-blocked (unknown): Downloaded numpy` to the healer). Lines carrying
+// error/failure/warning words are always kept, whatever their prefix.
+func uvProgressRuntimeLine(low string) bool {
+	if strings.Contains(low, "error") || strings.Contains(low, "failed") ||
+		strings.Contains(low, "fatal") || strings.Contains(low, "warning") {
+		return false
+	}
+	for _, prefix := range []string{
+		"downloaded ", "downloading ", "resolved ", "installed ", "uninstalled ",
+		"prepared ", "audited ", "built ", "building ", "updated ", "updating ",
+		"cloned ", "cloning ", "checked out ", "creating virtual environment",
+		"using cpython", "using python",
+	} {
+		if strings.HasPrefix(low, prefix) {
+			return true
+		}
+	}
+	// uv's install listing: " + numpy==1.19.2" / " - numpy==1.18.0".
+	if (strings.HasPrefix(low, "+ ") || strings.HasPrefix(low, "- ")) && strings.Contains(low, "==") {
 		return true
 	}
 	return false
@@ -528,6 +711,18 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		}
 	}
 
+	// Default-verbosity unittest: no per-case suites, only the aggregate
+	// trailer. Use it so Counts are correct (a healthy all-skipped/all-passing
+	// run isn't reported as zero-executed). Named FAIL:/ERROR: cases, when
+	// present, already populated counts above; only fill the gaps.
+	if counts.Total == 0 && r.Summary != nil {
+		counts.Total = int32(r.Summary.Total)
+		counts.Passed = int32(r.Summary.Passed)
+		counts.Failed = int32(r.Summary.Failed)
+		counts.Errored = int32(r.Summary.Errored)
+		counts.Skipped = int32(r.Summary.Skipped)
+	}
+
 	// Run-level result.
 	runResult := &runtimev0.TestRunResult{
 		State:   runtimev0.TestRunResult_PASSED,
@@ -536,6 +731,17 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	if counts.Failed > 0 {
 		runResult.State = runtimev0.TestRunResult_FAILED
 		runResult.Message = fmt.Sprintf("%d test(s) failed", counts.Failed)
+		// Dependency-warning-as-error: every failure is an EXTERNAL
+		// dependency's (Pending)DeprecationWarning escalated to an error by
+		// the project's warning filters — a VERSION conflict, not a defect in
+		// the patch. Tag it env-blocked so callers route to healing (pin the
+		// dep) instead of remediating the patch. This classification is
+		// PLUGIN knowledge (Python warning semantics + site-packages layout);
+		// it used to live mirrored in the Mind brain, where message drift
+		// silently broke it.
+		if detail := r.dependencyWarningBlockDetail(); detail != "" {
+			runResult.Message = fmt.Sprintf("env-blocked (dependency-warning): %s (%d test(s) failed)", detail, counts.Failed)
+		}
 	}
 	if counts.Errored > 0 {
 		runResult.State = runtimev0.TestRunResult_ERRORED
@@ -551,6 +757,14 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	if r.EnvError != nil {
 		runResult.State = runtimev0.TestRunResult_ERRORED
 		runResult.Message = fmt.Sprintf("env-blocked (%s): %s", r.EnvError.Reason, r.EnvError.Detail)
+	}
+	// Materialized-but-interrupted: the environment is USABLE (runner launched)
+	// but the run was budget-cut before any case completed. Report a healthy,
+	// non-errored result carrying the marker prefix — a pre-warm/health probe
+	// treats this as ready without demanding a full suite finish.
+	if r.Materialized && r.EnvError == nil && counts.Total == 0 {
+		runResult.State = runtimev0.TestRunResult_PASSED
+		runResult.Message = EnvMaterializedMessagePrefix + "the test runner launched and began executing before the probe budget elapsed; the environment can run the project's tests"
 	}
 
 	legacyState := runtimev0.TestStatus_SUCCESS
@@ -674,4 +888,43 @@ func (r *StructuredTestRun) LegacyTestSummary() *TestSummary {
 		}
 	}
 	return s
+}
+
+// dependencyWarningBlockDetail reports a one-line detail when the run's
+// failures are caused by an external dependency's deprecation warning being
+// treated as an error (warning filters escalate; the warning originates under
+// site-packages — i.e. NOT the project's own code). Empty when the failures
+// look like real test failures.
+func (r *StructuredTestRun) dependencyWarningBlockDetail() string {
+	var failureText strings.Builder
+	for _, suite := range r.Suites {
+		for _, c := range suite.Cases {
+			if c.State != runtimev0.TestCaseState_TEST_CASE_STATE_FAILED &&
+				c.State != runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+				continue
+			}
+			if c.Failure != nil {
+				failureText.WriteString(c.Failure.Message)
+				failureText.WriteString("\n")
+			}
+			failureText.WriteString(c.Output)
+			failureText.WriteString("\n")
+		}
+	}
+	text := failureText.String()
+	low := strings.ToLower(text)
+	if !strings.Contains(low, "deprecationwarning") && !strings.Contains(low, "pendingdeprecationwarning") {
+		return ""
+	}
+	if !strings.Contains(low, "site-packages/") && !strings.Contains(low, "site-packages\\") {
+		return ""
+	}
+	// First line naming the warning is the actionable detail.
+	for _, line := range strings.Split(text, "\n") {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "deprecationwarning") {
+			return "external dependency deprecation warning treated as error: " + strings.TrimSpace(line)
+		}
+	}
+	return "external dependency deprecation warning treated as error"
 }

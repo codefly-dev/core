@@ -101,6 +101,82 @@ func TestClassifyEnvError_IgnoresProgressOnlyFooter(t *testing.T) {
 	}
 }
 
+// REAL observed garbage #1 (sklearn source build killed mid-provisioning): the
+// output tail was pure uv download progress, and the classifier surfaced
+// `env-blocked (unknown): Downloaded numpy` to the healer LLM — an unactionable
+// detail. Progress lines must be filtered; when NOTHING actionable remains the
+// exit error is the only truthful detail.
+func TestClassifyEnvError_ProgressOnlyTailNeverBecomesDetail(t *testing.T) {
+	raw := strings.Join([]string{
+		"Resolved 28 packages in 3.41s",
+		"Downloaded cython",
+		"Downloaded scipy",
+		"Downloaded numpy",
+	}, "\n")
+	got := ClassifyEnvError(raw, errors.New("signal: killed"))
+	if got == nil || got.Reason != "unknown" {
+		t.Fatalf("killed provisioning run should stay unknown, got %+v", got)
+	}
+	if strings.Contains(got.Detail, "Downloaded") || strings.Contains(got.Detail, "Resolved") {
+		t.Fatalf("detail must not be a uv download/progress line, got %q", got.Detail)
+	}
+	if got.Detail != "signal: killed" {
+		t.Fatalf("with only progress output the exit error is the detail, got %q", got.Detail)
+	}
+}
+
+// REAL observed garbage #2 (django take-3): the setuptools flat-layout build
+// refusal, wrapped by uv's `╰─▶` renderer, classified as
+// `env-blocked (unknown): 'setup.py' are present in the directory` — a wrapped
+// FRAGMENT of the real error. It must classify as a build failure and the
+// detail must carry the full relevant error block (the flat-layout refusal +
+// the package list), scanning the error tail, not one arbitrary line.
+func TestClassifyEnvError_FlatLayoutBuildFailureKeepsFullError(t *testing.T) {
+	raw := strings.Join([]string{
+		"Using CPython 3.11.9",
+		"Resolved 12 packages in 800ms",
+		"Downloaded setuptools",
+		"  × Failed to build `django @ file:///workspace/checkout`",
+		"  ╰─▶ The build backend returned an error",
+		"      error: Multiple top-level packages discovered in a flat-layout: ['django', 'docs', 'extras', 'js_tests', 'scripts', 'tests'].",
+		"      To avoid accidental inclusion of unwanted files or directories,",
+		"      setuptools will not proceed with this build.",
+		"      Check if files like 'setup.cfg' or",
+		"      'setup.py' are present in the directory",
+	}, "\n")
+	got := ClassifyEnvError(raw, errors.New("exit status 1"))
+	if got == nil || got.Reason != "build-failed" {
+		t.Fatalf("flat-layout build refusal must classify build-failed, got %+v", got)
+	}
+	if !strings.Contains(got.Detail, "flat-layout") || !strings.Contains(got.Detail, "'django'") {
+		t.Fatalf("detail must carry the full flat-layout error with the package list, got %q", got.Detail)
+	}
+	if got.Detail == "'setup.py' are present in the directory" {
+		t.Fatalf("detail must not be a wrapped fragment of the real error: %q", got.Detail)
+	}
+	if strings.Contains(got.Detail, "Downloaded setuptools") || strings.Contains(got.Detail, "Resolved 12 packages") {
+		t.Fatalf("detail must not include download/progress lines: %q", got.Detail)
+	}
+}
+
+// Missing build dependencies inside a failed source build stay classified by
+// their more actionable reason, and the detail is the MATCHED error line —
+// never the tail progress line.
+func TestClassifyEnvError_MissingModuleDetailIsTheMatchedLine(t *testing.T) {
+	raw := strings.Join([]string{
+		"  × Failed to build `scikit-learn @ file:///workspace/checkout`",
+		"      ModuleNotFoundError: No module named 'numpy'",
+		"Downloaded joblib",
+	}, "\n")
+	got := ClassifyEnvError(raw, errors.New("exit status 1"))
+	if got == nil || got.Reason != "missing-dependency" {
+		t.Fatalf("missing build dep must classify missing-dependency, got %+v", got)
+	}
+	if !strings.Contains(got.Detail, "No module named 'numpy'") {
+		t.Fatalf("detail must be the matched ModuleNotFoundError line, got %q", got.Detail)
+	}
+}
+
 func TestClassifyEnvError_PipNoticeOnlyFallsBackToRunError(t *testing.T) {
 	got := ClassifyEnvError("[notice] To update, run: pip install --upgrade pip", errors.New("exit status 1"))
 	if got == nil || got.Reason != "unknown" {

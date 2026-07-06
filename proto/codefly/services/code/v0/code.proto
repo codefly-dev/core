@@ -479,6 +479,16 @@ message ShellExecRequest {
 
   // Timeout in seconds. 0 means the agent's default (30s).
   int32 timeout_seconds = 5;
+
+  // Optional bytes written to the process's standard input.
+  //
+  // CONTRACT (single-shot stdin): the agent writes the full payload to
+  // the child's stdin, closes the stream, then reads stdout/stderr to
+  // completion. There is no interleaved request/response streaming —
+  // this is NOT a bidirectional pipe. It is sufficient for batch
+  // protocols whose entire request list is known upfront, e.g.
+  // `git cat-file --batch` fed a fixed list of object names.
+  bytes stdin = 6;
 }
 
 // ShellExecResponse returns process exit status and captured streams.

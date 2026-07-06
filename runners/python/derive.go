@@ -39,7 +39,112 @@ func DeriveFormula(sourceDir string) (cmd []string, output string, env, prov map
 	if len(argv) == 0 {
 		return nil, "", nil, nil, false
 	}
-	return argv, output, nil, deriveProvisioning(sourceDir), true
+	prov = deriveProvisioning(sourceDir)
+	if cwd := djangoRuntestsCwd(sourceDir, argv); cwd != "" {
+		prov["cwd"] = cwd
+	}
+	return argv, output, nil, prov, true
+}
+
+// djangoRuntestsCwd resolves the directory a BARE `runtests.py` command must
+// run from. django's test runner usually lives in tests/runtests.py; a derived
+// command of bare "runtests.py" (no dir) launched from the repo root fails with
+// "can't open file 'runtests.py'". Setting cwd=tests fixes it WITHOUT waiting
+// for the heal loop to discover it (the real reason django's first test probe
+// blocked and healing then thrashed). Empty when the command already carries a
+// path (tests/runtests.py runs fine from root) or runtests.py is at the root.
+func djangoRuntestsCwd(sourceDir string, argv []string) string {
+	bare := false
+	for _, a := range argv {
+		if strings.Contains(a, "/runtests.py") {
+			return "" // command already names the dir; run from root
+		}
+		if a == "runtests.py" {
+			bare = true
+		}
+	}
+	if !bare {
+		return ""
+	}
+	if fileExists(filepath.Join(sourceDir, "runtests.py")) {
+		return "" // already at the root
+	}
+	if fileExists(filepath.Join(sourceDir, "tests", "runtests.py")) {
+		return "tests"
+	}
+	return ""
+}
+
+func fileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
+}
+
+// withDjangoKeepDB appends --keepdb to a django `runtests.py` command.
+// django's test runner RECREATES the test databases (running every migration
+// for the whole test project) on EVERY invocation — 5-9 minutes each,
+// dominating the run regardless of how narrow the selector is. --keepdb reuses
+// the databases across invocations, so only the FIRST run pays DB creation and
+// every subsequent run (the agent's reproduce→edit→verify loop, and the
+// post-hoc grader) is seconds. A working agent that needs 3-4 test runs was
+// timing out purely on repeated DB setup. django recreates the DB itself if a
+// migration actually changed, so --keepdb stays correct across model edits.
+// No-op for non-django commands (pytest, unittest discover) and idempotent.
+func withDjangoKeepDB(argv []string) []string {
+	isRuntests := false
+	for _, a := range argv {
+		if strings.Contains(a, "runtests.py") {
+			isRuntests = true
+		}
+		if a == "--keepdb" {
+			return argv // already present
+		}
+	}
+	if !isRuntests {
+		return argv
+	}
+	return append(argv, "--keepdb")
+}
+
+// DeriveProvisioning exposes the packaging-metadata provisioning derivation
+// (editable install, python pin, requirement files) for callers that already
+// HAVE a command — a SUPPLIED formula names WHAT to run, but the uv
+// environment around it is still the plugin's to derive. Without this, a
+// caller-supplied bare command (e.g. django's captured
+// "cd tests && python runtests.py") runs `uv run` with no --with-editable,
+// and the project's own package isn't importable ("Django module not found").
+func DeriveProvisioning(sourceDir string) map[string]string {
+	return deriveProvisioning(sourceDir)
+}
+
+// EnrichSuppliedProvisioning fills the gaps in a SUPPLIED formula's
+// provisioning bag from the project's own packaging metadata. The caller
+// (Mind, service.yaml, a healed runtime config) owns WHAT to run; the uv
+// environment around it — editable install of the project, interpreter pin,
+// requirement files, build deps — is the plugin's to derive. Explicitly
+// supplied keys always win, so a caller can still force editable=false or a
+// python version. This is THE shared enrichment point: the gRPC agent's
+// resolveTestFormula AND Mind's in-process runtime both call it, so the
+// health PROBE and the Test RPC resolve identical formulas. Observed failure
+// this closes: a captured django formula ("cd tests && python runtests.py")
+// arriving with an empty bag ran `uv run` without --with-editable . and
+// env-blocked with "ModuleNotFoundError: No module named 'django'".
+func EnrichSuppliedProvisioning(supplied map[string]string, sourceDir string) map[string]string {
+	if sourceDir == "" {
+		return supplied
+	}
+	derived := deriveProvisioning(sourceDir)
+	if len(derived) == 0 {
+		return supplied
+	}
+	merged := make(map[string]string, len(derived)+len(supplied))
+	for k, v := range derived {
+		merged[k] = v
+	}
+	for k, v := range supplied {
+		merged[k] = v
+	}
+	return merged
 }
 
 // ── declaration collection (os-backed; the plugin sees project files) ──
@@ -377,12 +482,28 @@ func nextBlockLine(lines []string, from int) string {
 // optional-dependencies test/tests/dev). Best-effort: every field is optional and
 // the tooling inner loop heals what derivation can't see.
 func deriveProvisioning(dir string) map[string]string {
-	prov := map[string]string{"no_project": "true", "editable": "true"}
+	prov := map[string]string{"no_project": "true"}
+	// --with-editable . only makes sense when the project IS an installable
+	// package (setup.py / setup.cfg / pyproject.toml). A bare test directory
+	// with no packaging metadata must not get an editable install injected —
+	// uv would fail the build instead of running the tests.
+	if hasInstallablePackaging(dir) {
+		prov["editable"] = "true"
+	}
 	if v := derivePythonVersion(dir); v != "" {
 		prov["python"] = v
 	}
 	if reqs := deriveRequirementFiles(dir); len(reqs) > 0 {
 		prov["requirements"] = strings.Join(reqs, ",")
+	}
+	// Source builds of C-extension projects: pyproject [build-system].requires
+	// names the packages the BUILD needs (numpy, cython, setuptools plugins…).
+	// Editable installs run that build, so carry the declared build deps as
+	// --with specs and disable build isolation so the build sees them. Pure
+	// project data — no package names are hardcoded here.
+	if buildReqs := deriveBuildSystemRequires(dir); len(buildReqs) > 0 {
+		prov["with"] = strings.Join(buildReqs, ",")
+		prov["no_build_isolation"] = "true"
 	}
 	// NOTE: pyproject [project.optional-dependencies] test/dev extras (`.[test]`)
 	// are a known gap — SpecFromFormula has no `--extra` flag yet. When a project
@@ -390,6 +511,61 @@ func deriveProvisioning(dir string) map[string]string {
 	// add `extras` support to SpecFromFormula to derive them up front.
 	return prov
 }
+
+// hasInstallablePackaging reports whether the project declares packaging
+// metadata an editable install can build from: setup.py, setup.cfg, or a
+// pyproject.toml. (django's setup.cfg-declared package is the canonical case:
+// its tests import the package, so the derived/enriched provisioning must
+// install it editable for ANY supplied or derived test command to run.)
+func hasInstallablePackaging(dir string) bool {
+	for _, name := range []string{"setup.py", "setup.cfg", "pyproject.toml"} {
+		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+// deriveBuildSystemRequires parses pyproject [build-system] requires entries.
+// Only non-default build deps matter: setuptools/wheel are what uv's default
+// isolated build already provides, so a requires list of just those returns
+// nil (no reason to disable isolation).
+func deriveBuildSystemRequires(dir string) []string {
+	py := readFileString(filepath.Join(dir, "pyproject.toml"))
+	if py == "" {
+		return nil
+	}
+	m := reBuildRequires.FindStringSubmatch(py)
+	if len(m) != 2 {
+		return nil
+	}
+	var reqs []string
+	nonDefault := false
+	for _, entry := range reBuildRequireEntry.FindAllStringSubmatch(m[1], -1) {
+		spec := strings.TrimSpace(entry[1])
+		if spec == "" {
+			continue
+		}
+		name := strings.ToLower(spec)
+		for i, r := range name {
+			if !(r == '-' || r == '_' || r == '.' || ('a' <= r && r <= 'z') || ('0' <= r && r <= '9')) {
+				name = name[:i]
+				break
+			}
+		}
+		if name != "setuptools" && name != "wheel" {
+			nonDefault = true
+		}
+		reqs = append(reqs, spec)
+	}
+	if !nonDefault {
+		return nil
+	}
+	return reqs
+}
+
+var reBuildRequires = regexp.MustCompile(`(?s)\[build-system\][^\[]*?requires\s*=\s*\[(.*?)\]`)
+var reBuildRequireEntry = regexp.MustCompile(`["']([^"']+)["']`)
 
 var rePyRequires = regexp.MustCompile(`requires-python\s*=\s*["']([^"']+)["']`)
 var rePyVerNum = regexp.MustCompile(`3\.\d+`)

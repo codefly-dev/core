@@ -2659,8 +2659,17 @@ type ShellExecRequest struct {
 	Env []string `protobuf:"bytes,4,rep,name=env,proto3" json:"env,omitempty"`
 	// Timeout in seconds. 0 means the agent's default (30s).
 	TimeoutSeconds int32 `protobuf:"varint,5,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Optional bytes written to the process's standard input.
+	//
+	// CONTRACT (single-shot stdin): the agent writes the full payload to
+	// the child's stdin, closes the stream, then reads stdout/stderr to
+	// completion. There is no interleaved request/response streaming —
+	// this is NOT a bidirectional pipe. It is sufficient for batch
+	// protocols whose entire request list is known upfront, e.g.
+	// `git cat-file --batch` fed a fixed list of object names.
+	Stdin         []byte `protobuf:"bytes,6,opt,name=stdin,proto3" json:"stdin,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ShellExecRequest) Reset() {
@@ -2726,6 +2735,13 @@ func (x *ShellExecRequest) GetTimeoutSeconds() int32 {
 		return x.TimeoutSeconds
 	}
 	return 0
+}
+
+func (x *ShellExecRequest) GetStdin() []byte {
+	if x != nil {
+		return x.Stdin
+	}
+	return nil
 }
 
 // ShellExecResponse returns process exit status and captured streams.
@@ -3720,13 +3736,14 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\acontent\x18\x05 \x01(\tR\acontent\"f\n" +
 	"\x10GitBlameResponse\x12<\n" +
 	"\x05lines\x18\x01 \x03(\v2&.codefly.services.code.v0.GitBlameLineR\x05lines\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x96\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xac\x01\n" +
 	"\x10ShellExecRequest\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args\x12\x19\n" +
 	"\bwork_dir\x18\x03 \x01(\tR\aworkDir\x12\x10\n" +
 	"\x03env\x18\x04 \x03(\tR\x03env\x12'\n" +
-	"\x0ftimeout_seconds\x18\x05 \x01(\x05R\x0etimeoutSeconds\"\x93\x01\n" +
+	"\x0ftimeout_seconds\x18\x05 \x01(\x05R\x0etimeoutSeconds\x12\x14\n" +
+	"\x05stdin\x18\x06 \x01(\fR\x05stdin\"\x93\x01\n" +
 	"\x11ShellExecResponse\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x16\n" +
 	"\x06stdout\x18\x02 \x01(\tR\x06stdout\x12\x16\n" +

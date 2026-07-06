@@ -386,6 +386,135 @@ func TestShellExec_EnvOverride(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────────────────
+// Stdin: single-shot payload written to the child's stdin
+// ──────────────────────────────────────────────────────────
+
+func TestShellExec_StdinSingleShot(t *testing.T) {
+	s, _ := newShellExecServer(t)
+	ctx := context.Background()
+
+	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_ShellExec{
+			ShellExec: &codev0.ShellExecRequest{
+				Command: "cat",
+				Stdin:   []byte("line-one\nline-two\n"),
+			},
+		},
+	})
+	r := extractShellExec(t, resp)
+
+	if r.ExitCode != 0 {
+		t.Fatalf("exit=%d stderr=%q", r.ExitCode, r.Stderr)
+	}
+	if r.Stdout != "line-one\nline-two\n" {
+		t.Errorf("stdin not echoed back verbatim: %q", r.Stdout)
+	}
+}
+
+// TestShellExec_StdinEmptyClosesImmediately verifies that when no stdin
+// payload is supplied, the child sees an immediately-closed stdin (the
+// exec default) rather than blocking forever waiting for input.
+func TestShellExec_StdinEmptyClosesImmediately(t *testing.T) {
+	s, _ := newShellExecServer(t)
+	ctx := context.Background()
+
+	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_ShellExec{
+			ShellExec: &codev0.ShellExecRequest{
+				Command:        "cat",
+				TimeoutSeconds: 5,
+			},
+		},
+	})
+	r := extractShellExec(t, resp)
+
+	if r.TimedOut {
+		t.Fatal("cat with no stdin should exit immediately, not hang")
+	}
+	if r.ExitCode != 0 {
+		t.Errorf("exit=%d stderr=%q", r.ExitCode, r.Stderr)
+	}
+}
+
+// TestShellExec_Stdin_GitCatFileBatch drives the exact protocol the
+// stdin field exists for: `git cat-file --batch` fed a fixed, upfront
+// list of object names over stdin, with all blob contents read back
+// from stdout in one shot. This is the transport contract Mind's
+// batched file reads (ShowFilesBatch) will build on.
+func TestShellExec_Stdin_GitCatFileBatch(t *testing.T) {
+	s, dir := newShellExecServer(t)
+	ctx := context.Background()
+
+	// Build a tiny fixture repo with two committed files.
+	run := func(command string) *codev0.ShellExecResponse {
+		t.Helper()
+		resp, err := s.Execute(ctx, &codev0.CodeRequest{
+			Operation: &codev0.CodeRequest_ShellExec{
+				ShellExec: &codev0.ShellExecRequest{
+					Command: command,
+					Env: []string{
+						"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+						"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+					},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("Execute(%q): %v", command, err)
+		}
+		r := extractShellExec(t, resp)
+		if r.ExitCode != 0 {
+			t.Fatalf("%q: exit=%d stderr=%q", command, r.ExitCode, r.Stderr)
+		}
+		return r
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("alpha contents\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub", "b.txt"), []byte("beta contents\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("git init -q")
+	run("git add .")
+	run("git commit -q -m fixture")
+
+	// The batch request: one object name per line, written upfront.
+	resp, err := s.Execute(ctx, &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_ShellExec{
+			ShellExec: &codev0.ShellExecRequest{
+				Args:  []string{"git", "cat-file", "--batch"},
+				Stdin: []byte("HEAD:a.txt\nHEAD:sub/b.txt\nHEAD:missing.txt\n"),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	r := extractShellExec(t, resp)
+
+	if r.ExitCode != 0 {
+		t.Fatalf("git cat-file --batch: exit=%d stderr=%q", r.ExitCode, r.Stderr)
+	}
+	if !strings.Contains(r.Stdout, "alpha contents") {
+		t.Errorf("stdout missing a.txt blob: %q", r.Stdout)
+	}
+	if !strings.Contains(r.Stdout, "beta contents") {
+		t.Errorf("stdout missing sub/b.txt blob: %q", r.Stdout)
+	}
+	// cat-file reports each blob as "<sha> blob <size>" and unknown
+	// requests as "<name> missing" — both on stdout, in request order.
+	if !strings.Contains(r.Stdout, " blob ") {
+		t.Errorf("stdout missing blob headers: %q", r.Stdout)
+	}
+	if !strings.Contains(r.Stdout, "missing") {
+		t.Errorf("stdout should report the unknown object as missing: %q", r.Stdout)
+	}
+}
+
+// ──────────────────────────────────────────────────────────
 // Missing operation arguments
 // ──────────────────────────────────────────────────────────
 
