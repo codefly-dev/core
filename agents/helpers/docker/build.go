@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/wool"
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/client"
 )
 
 type Env struct {
@@ -50,7 +50,7 @@ type BuilderOutput struct {
 
 func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	w := wool.Get(ctx).In("Builder.Build", wool.DirField(builder.Root))
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := dockerrun.NewClient()
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
