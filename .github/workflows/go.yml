@@ -59,6 +59,15 @@ jobs:
           echo "apt install failed after 3 attempts" >&2
           exit 1
 
+      - name: Install uv
+        # Strict — uv drives core/runners/python's formula runner tests
+        # (formula_run_test.go), which exercise the REAL uv+python toolchain
+        # and fail-loud (requireUv never skips) when uv is absent. astral-sh's
+        # setup-uv is the de-facto standard installer for GH Actions: pinned,
+        # deterministic, adds uv to PATH. uv provisions its own Python on
+        # demand, so no separate python setup is needed.
+        uses: astral-sh/setup-uv@v5
+
       - name: Install Nix
         # Strict — nix is core to the platform; if it doesn't install,
         # CI must fail loud rather than silently skipping nix tests.
