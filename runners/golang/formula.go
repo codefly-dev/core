@@ -23,7 +23,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
@@ -43,6 +46,12 @@ const (
 	// EnvErrorToolchainMissing: the `go` binary is not available to the
 	// runner at all.
 	EnvErrorToolchainMissing = "go-toolchain-missing"
+	// EnvErrorNoTestsExecuted / EnvErrorNoTestsMatchedSelectors mirror the
+	// python runner's structural zero-case reasons — SAME strings, so
+	// language-blind consumers route both runners identically. A run that
+	// grades zero cases is never a pass, even on exit 0.
+	EnvErrorNoTestsExecuted         = "no-tests-executed"
+	EnvErrorNoTestsMatchedSelectors = "no-tests-matched-selectors"
 )
 
 // DeriveFormula derives the module-local test formula for a Go module:
@@ -109,8 +118,10 @@ func ClassifyEnvError(raw string, runErr error) (reason, detail string) {
 // RunFormula executes a Go test formula in sourceDir and returns the
 // structured proto response. Command may be empty (derived via
 // DeriveFormula). Selectors follow the shared convention: package-shaped
-// selectors ("./pkg", "example.com/x") scope the packages under test; other
-// selectors are test-name patterns OR'd into `-run`.
+// selectors ("./pkg", "example.com/x") REPLACE the command's package scope;
+// other selectors are LITERAL test names ("TestFoo", "TestFoo/case") —
+// regexp-escaped and anchored into `-run`, so "TestFoo" never selects
+// "TestFooBar" and bracketed subtest names stay literal.
 //
 // The run always sets GOWORK=off: a formula run tests THIS module in
 // isolation, and a go.work in any parent directory (common when fixtures
@@ -125,35 +136,62 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 		command = derived
 	}
 
-	args, pkgs := append([]string(nil), command[1:]...), []string(nil)
+	args, cmdPkgs := append([]string(nil), command[1:]...), []string(nil)
 	// Peel the trailing package pattern off the command so selectors can
 	// re-scope it; default back to ./... when absent.
 	if n := len(args); n > 0 && isPackagePath(args[n-1]) {
-		pkgs = []string{args[n-1]}
+		cmdPkgs = []string{args[n-1]}
 		args = args[:n-1]
 	}
-	var runPatterns []string
+	var runSelectors, selPkgs []string
 	for _, sel := range selectors {
 		if sel == "" {
 			continue
 		}
 		if isPackagePath(sel) {
-			pkgs = append(pkgs, sel)
+			selPkgs = append(selPkgs, sel)
 			continue
 		}
-		runPatterns = append(runPatterns, sel)
+		runSelectors = append(runSelectors, sel)
 	}
-	if pat := combineRunRegex(runPatterns); pat != "" {
+	if pat := buildRunPattern(runSelectors); pat != "" {
 		args = append(args, "-run", pat)
+	}
+	// Package selectors NARROW the run: they replace the command's own
+	// package scope (usually ./...) rather than joining it — otherwise
+	// ./... would keep matching everything and the selector is a no-op.
+	pkgs := selPkgs
+	if len(pkgs) == 0 {
+		pkgs = cmdPkgs
 	}
 	if len(pkgs) == 0 {
 		pkgs = []string{"./..."}
+	}
+	// The parser reads only the -json event stream. A supplied formula that
+	// omits it (`go test ./...`) would parse zero events and grade an unread
+	// run — inject the flag right after the subcommand.
+	if len(args) > 0 && args[0] == "test" && !slices.Contains(args, "-json") {
+		args = slices.Insert(args, 1, "-json")
 	}
 	args = append(args, pkgs...)
 
 	cmd := exec.CommandContext(ctx, command[0], args...)
 	cmd.Dir = sourceDir
 	cmd.Env = append(os.Environ(), "GOWORK=off")
+	// `go test` runs each compiled test binary as its own child; killing
+	// just the `go` tool on ctx cancellation orphans them mid-test. Kill
+	// the whole process group — SIGTERM first, SIGKILL after a grace —
+	// mirroring the python twin's RunFormulaStructured.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		pgid := cmd.Process.Pid
+		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+		time.AfterFunc(5*time.Second, func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+		return nil
+	}
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
@@ -162,11 +200,12 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 
 	structured := ParseTestJSONStructured(raw)
 	resp := structured.ToProtoResponse("gotest", "", time.Since(start))
+	total := resp.GetCounts().GetTotal()
 
 	// Environment classification runs only when the process failed and the
 	// structured stream produced NOTHING to grade — a completed (even failing)
 	// test run is never an environment block.
-	if runErr != nil && resp.GetCounts().GetTotal() == 0 {
+	if runErr != nil && total == 0 {
 		msg := "go test errored before any test could execute"
 		if reason, detail := ClassifyEnvError(raw, runErr); reason != "" {
 			msg = fmt.Sprintf("env-blocked (%s): %s", reason, detail)
@@ -175,14 +214,100 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 			// test): surface the first concrete line so the caller can act.
 			msg = fmt.Sprintf("go test errored before any test could execute: %s", excerpt)
 		}
-		return &runtimev0.TestResponse{
-			Status: &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg},
-			Result: &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: msg},
-			Counts: &runtimev0.TestCounts{},
-			Output: raw,
-		}, nil
+		return erroredResponse(msg, raw), nil
+	}
+
+	// Zero cases on a clean exit is never a pass: `go test` exits 0 when a
+	// -run pattern matches nothing or the scoped packages have no test
+	// files. Same structural reasons — and reason strings — as the python
+	// twin, so language-blind consumers route both identically.
+	if total == 0 {
+		reason := EnvErrorNoTestsExecuted
+		detail := "test command executed zero tests — a command that discovers nothing is a broken invocation, not a passing run"
+		if len(runSelectors) > 0 || len(selPkgs) > 0 {
+			reason = EnvErrorNoTestsMatchedSelectors
+			detail = fmt.Sprintf("selectors %v matched zero tests — the selectors do not name any test in the module", selectors)
+		}
+		msg := fmt.Sprintf("env-blocked (%s): %s", reason, detail)
+		return erroredResponse(msg, raw), nil
+	}
+
+	// go test failed but every parsed case passed: an interrupted or killed
+	// run whose partial stream happens to be all-green (ctx cancellation
+	// kills the run mid-flight). A run that did not complete is never green.
+	if runErr != nil && resp.GetResult().GetState() == runtimev0.TestRunResult_PASSED {
+		msg := fmt.Sprintf("go test did not run to completion: %v", runErr)
+		if ctx.Err() != nil {
+			msg = fmt.Sprintf("go test interrupted (%v) with partial results: %v", ctx.Err(), runErr)
+		}
+		resp.Result = &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: msg}
+		resp.Status = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg}
 	}
 	return resp, nil
+}
+
+// erroredResponse is the shared shape for runs that produced no gradable
+// cases: an explicit ERRORED result carrying the classification message and
+// the raw stream for diagnosis.
+func erroredResponse(msg, raw string) *runtimev0.TestResponse {
+	return &runtimev0.TestResponse{
+		Status: &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg},
+		Result: &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: msg},
+		Counts: &runtimev0.TestCounts{},
+		Output: raw,
+	}
+}
+
+// buildRunPattern renders literal test selectors into a `go test -run`
+// expression. go test splits the expression on "/" and matches each element
+// against the corresponding level of the test name, so every selector
+// segment is regexp-escaped and anchored: literal names never over-match
+// ("TestFoo" must not select "TestFooBar") and metacharacters in subtest
+// names (t.Run("edge [1]")) stay literal.
+//
+// Multiple selectors are OR'd level by level. When selectors have different
+// depths, only their common prefix depth is constrained; same-depth
+// selectors constrain every level. Either way the result can over-select
+// sibling subtests (a superset) — never miss a selected one.
+func buildRunPattern(selectors []string) string {
+	if len(selectors) == 0 {
+		return ""
+	}
+	split := make([][]string, 0, len(selectors))
+	sameDepth := true
+	minDepth := 0
+	for i, sel := range selectors {
+		segs := strings.Split(sel, "/")
+		split = append(split, segs)
+		if i == 0 || len(segs) < minDepth {
+			minDepth = len(segs)
+		}
+		if len(segs) != len(split[0]) {
+			sameDepth = false
+		}
+	}
+	levels := minDepth
+	if sameDepth {
+		levels = len(split[0])
+	}
+	parts := make([]string, levels)
+	for i := 0; i < levels; i++ {
+		var alts []string
+		seen := make(map[string]bool)
+		for _, segs := range split {
+			q := regexp.QuoteMeta(segs[i])
+			if !seen[q] {
+				seen[q] = true
+				alts = append(alts, q)
+			}
+		}
+		if len(alts) == 1 {
+			parts[i] = "^" + alts[0] + "$"
+		} else {
+			parts[i] = "^(" + strings.Join(alts, "|") + ")$"
+		}
+	}
+	return strings.Join(parts, "/")
 }
 
 // firstOutputLine returns the first non-empty, non-JSON line of a raw go
