@@ -221,14 +221,21 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 	// -run pattern matches nothing or the scoped packages have no test
 	// files. Same structural reasons — and reason strings — as the python
 	// twin, so language-blind consumers route both identically.
+	//
+	// TAG CONTRACT: the two zero-case shapes carry DIFFERENT tags because
+	// they demand different remediation. Selector-scoped zero-match is the
+	// CALLER naming tests that don't exist — the module may be perfectly
+	// healthy, so tagging it env-blocked sends the caller repairing an
+	// environment that isn't broken. It gets `test-selection-error (...)`:
+	// actionable feedback to fix the selection, never an environment claim.
 	if total == 0 {
-		reason := EnvErrorNoTestsExecuted
-		detail := "test command executed zero tests — a command that discovers nothing is a broken invocation, not a passing run"
 		if len(runSelectors) > 0 || len(selPkgs) > 0 {
-			reason = EnvErrorNoTestsMatchedSelectors
-			detail = fmt.Sprintf("selectors %v matched zero tests — the selectors do not name any test in the module", selectors)
+			msg := fmt.Sprintf("test-selection-error (%s): selectors %v matched zero tests — the selectors do not name any test in the module",
+				EnvErrorNoTestsMatchedSelectors, selectors)
+			return erroredResponse(msg, raw), nil
 		}
-		msg := fmt.Sprintf("env-blocked (%s): %s", reason, detail)
+		msg := fmt.Sprintf("env-blocked (%s): test command executed zero tests — a command that discovers nothing is a broken invocation, not a passing run",
+			EnvErrorNoTestsExecuted)
 		return erroredResponse(msg, raw), nil
 	}
 

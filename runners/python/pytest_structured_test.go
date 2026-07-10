@@ -284,3 +284,30 @@ func TestToProtoResponseTagsDependencyWarningFailures(t *testing.T) {
 		t.Fatalf("real failure must stay a test failure, got %q", m)
 	}
 }
+
+// Selector-scoped zero-match is the CALLER naming tests that don't exist; the
+// environment may be perfectly healthy. It must carry the test-selection-error
+// tag — never env-blocked, which routes callers into environment repair (seen
+// live: a healthy Go fixture spiraling into prepare-env remediation). The
+// no-selector twin (nothing discovered at all) stays env-blocked.
+func TestToProtoResponseTagsSelectorZeroMatchAsSelectionError(t *testing.T) {
+	selMiss := &python.StructuredTestRun{EnvError: &python.RunEnvError{
+		Reason: python.EnvErrorNoTestsMatchedSelectors,
+		Detail: "selectors [test_nope] matched zero tests",
+	}}
+	msg := selMiss.ToProtoResponse("formula", "", 0).GetResult().GetMessage()
+	if !strings.Contains(msg, "test-selection-error ("+python.EnvErrorNoTestsMatchedSelectors+")") {
+		t.Fatalf("want test-selection-error tag, got %q", msg)
+	}
+	if strings.Contains(msg, "env-blocked") {
+		t.Fatalf("selector zero-match must not claim the environment, got %q", msg)
+	}
+
+	noneRun := &python.StructuredTestRun{EnvError: &python.RunEnvError{
+		Reason: python.EnvErrorNoTestsExecuted,
+		Detail: "test command executed zero tests",
+	}}
+	if m := noneRun.ToProtoResponse("formula", "", 0).GetResult().GetMessage(); !strings.Contains(m, "env-blocked ("+python.EnvErrorNoTestsExecuted+")") {
+		t.Fatalf("no-selector zero-discovery stays env-blocked, got %q", m)
+	}
+}

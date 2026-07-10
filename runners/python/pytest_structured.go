@@ -756,7 +756,16 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	// without re-parsing raw output.
 	if r.EnvError != nil {
 		runResult.State = runtimev0.TestRunResult_ERRORED
-		runResult.Message = fmt.Sprintf("env-blocked (%s): %s", r.EnvError.Reason, r.EnvError.Detail)
+		// TAG CONTRACT: selector-scoped zero-match is the CALLER naming tests
+		// that don't exist — the environment may be perfectly healthy, so it
+		// must not carry the env-blocked tag (which routes callers to
+		// environment repair). It gets `test-selection-error (...)` instead:
+		// fix the selection, not the environment. Same tag as the Go twin.
+		tag := "env-blocked"
+		if r.EnvError.Reason == EnvErrorNoTestsMatchedSelectors {
+			tag = "test-selection-error"
+		}
+		runResult.Message = fmt.Sprintf("%s (%s): %s", tag, r.EnvError.Reason, r.EnvError.Detail)
 	}
 	// Materialized-but-interrupted: the environment is USABLE (runner launched)
 	// but the run was budget-cut before any case completed. Report a healthy,
