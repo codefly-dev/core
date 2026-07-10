@@ -6,6 +6,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/languages"
@@ -330,9 +332,12 @@ func isPackagePath(s string) bool {
 	if strings.HasPrefix(s, "./") || strings.HasPrefix(s, "../") {
 		return true
 	}
-	// Contains a slash but doesn't start with uppercase (test names start uppercase)
+	// Contains a slash but doesn't start with uppercase: test functions
+	// (TestX, BenchmarkY, FuzzZ, ExampleW) start uppercase, so a slash after
+	// an uppercase head is a subtest path ("TestX/case"), not a package.
 	if strings.Contains(s, "/") {
-		return true
+		r, _ := utf8.DecodeRuneInString(s)
+		return !unicode.IsUpper(r)
 	}
 	return false
 }
