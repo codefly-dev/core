@@ -135,6 +135,34 @@ func TestSetupWatcher_DrainsInFlightEventOnCancel(t *testing.T) {
 	waitWatcherGoroutines(t, 0, 3*time.Second)
 }
 
+// TestStopWatcher_ExitsWithoutContextCancel is the regression for the actual
+// production teardown path: Runtime.Stop calls StopWatcher() (it must NOT close
+// s.Events — that second close raced the watcher into a "close of closed
+// channel" panic). The context passed to SetupWatcher is NOT cancelled here, so
+// this proves StopWatcher alone ends both goroutines via its stored cancelFunc,
+// whose `defer close(Events)` unblocks the debounce consumer.
+func TestStopWatcher_ExitsWithoutContextCancel(t *testing.T) {
+	base := &Base{
+		Wool:     wool.Get(context.Background()),
+		Location: t.TempDir(),
+	}
+
+	// Background context — the test never cancels it; only StopWatcher can.
+	conf := NewWatchConfiguration(builders.NewDependencies("test"))
+	require.NoError(t, base.SetupWatcher(context.Background(), conf, func(code.Change) error { return nil }))
+
+	waitWatcherGoroutines(t, 2, time.Second) // Start loop + debounce goroutine
+
+	base.StopWatcher()
+
+	waitWatcherGoroutines(t, 0, 3*time.Second)
+
+	// Idempotent: a second StopWatcher is safe (Runtime.Stop may run twice), and
+	// StopWatcher on a Base that never set up a watcher must also be a no-op.
+	base.StopWatcher()
+	(&Base{Wool: wool.Get(context.Background())}).StopWatcher()
+}
+
 // save performs an atomic-rename save (write temp → rename over original),
 // which is how most editors save and what the directory watcher observes.
 func save(t *testing.T, target, content string) {
