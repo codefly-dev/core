@@ -43,6 +43,7 @@ done
 case "$id" in
   codefly/dev/token) printf 'aws-token-value' ;;
   codefly/dev/auth0) printf '{"client_secret":"aws-client-secret","client_id":"abc"}' ;;
+  codefly/dev/nested) printf '{"obj":{"a":1},"count":42,"account":123456789012345678}' ;;
   *) echo "aws: secret not found: $id" 1>&2; exit 1 ;;
 esac
 `
@@ -125,6 +126,23 @@ func TestAWSSecretsManagerResolver(t *testing.T) {
 	ref, _ = ParseSecretReference("aws-sm://codefly/dev/auth0#missing")
 	_, err = r.Resolve(ctx, ref)
 	require.Error(t, err)
+
+	// A nested object key is re-encoded as JSON, not Go's map syntax.
+	ref, _ = ParseSecretReference("aws-sm://codefly/dev/nested#obj")
+	v, err = r.Resolve(ctx, ref)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"a":1}`, v)
+
+	// Numeric keys stay exact — no float64 round-trip.
+	ref, _ = ParseSecretReference("aws-sm://codefly/dev/nested#count")
+	v, err = r.Resolve(ctx, ref)
+	require.NoError(t, err)
+	require.Equal(t, "42", v)
+
+	ref, _ = ParseSecretReference("aws-sm://codefly/dev/nested#account")
+	v, err = r.Resolve(ctx, ref)
+	require.NoError(t, err)
+	require.Equal(t, "123456789012345678", v)
 }
 
 func TestResolversFromEnvironment(t *testing.T) {

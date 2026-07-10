@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -154,7 +155,29 @@ func (r *AWSSecretsManagerResolver) Resolve(ctx context.Context, ref *SecretRefe
 	if !ok {
 		return "", fmt.Errorf("key %q not found in secret %q", key, id)
 	}
-	return fmt.Sprintf("%v", val), nil
+	return jsonFieldToString(val)
+}
+
+// jsonFieldToString renders a value extracted from a JSON secret. Scalars
+// become their literal string (numbers kept exact via json.Number); a nested
+// object or array is re-encoded as JSON rather than Go's %v map syntax.
+func jsonFieldToString(val any) (string, error) {
+	switch v := val.(type) {
+	case string:
+		return v, nil
+	case json.Number:
+		return v.String(), nil
+	case bool:
+		return strconv.FormatBool(v), nil
+	case nil:
+		return "", nil
+	default:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
 }
 
 // runCommand runs a resolver's CLI and returns its stdout with a single
