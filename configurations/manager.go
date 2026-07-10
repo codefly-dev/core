@@ -98,9 +98,9 @@ func (manager *Manager) Load(ctx context.Context, env *resources.Environment) er
 	return nil
 }
 
-// resolveSecrets resolves reference-valued secrets (op://…, aws-sm://…)
-// produced by the loaders, in place, before they are consolidated. Plaintext
-// secret values pass through untouched.
+// resolveSecrets resolves reference-valued secrets (op://…) produced by the
+// loaders, in place, before they are consolidated. Plaintext secret values
+// pass through untouched.
 func (manager *Manager) resolveSecrets(ctx context.Context, env *resources.Environment) error {
 	w := wool.Get(ctx).In("configurations.Manager.resolveSecrets")
 	fromEnv, err := ResolversFromEnvironment(env)

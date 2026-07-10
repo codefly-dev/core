@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
-	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -23,33 +22,21 @@ import (
 // scheme names a secret provider:
 //
 //	client_secret: op://dev-vault/auth0/client_secret
-//	client_secret: aws-sm://codefly/dev/auth0#client_secret
 //
 // References are safe to commit; the resolved value never touches disk. Only
-// these known schemes are treated as references — a plaintext value that
-// happens to contain "://" (a postgres:// URL, say) is passed through
-// untouched.
-const (
-	OnePasswordScheme       = "op"
-	AWSSecretsManagerScheme = "aws-sm"
-	DopplerScheme           = "doppler"
-)
+// known schemes are treated as references — a plaintext value that happens to
+// contain "://" (a postgres:// URL, say) is passed through untouched. The
+// resolver seam (SecretResolver) is designed so more backends can be added.
+const OnePasswordScheme = "op"
 
-// Provider names selected via an environment's `secrets` block.
-const (
-	ProviderOnePassword       = "1password"
-	ProviderAWSSecretsManager = "aws-secrets-manager"
-	ProviderDoppler           = "doppler"
-)
+// ProviderOnePassword is the `secrets.kind` that selects the 1Password backend.
+const ProviderOnePassword = "1password"
 
 var secretReferenceSchemes = map[string]bool{
-	OnePasswordScheme:       true,
-	AWSSecretsManagerScheme: true,
-	DopplerScheme:           true,
+	OnePasswordScheme: true,
 }
 
-// SecretReference is a parsed secret URI: op://vault/item/field or
-// aws-sm://secret-id#json-key.
+// SecretReference is a parsed secret URI, e.g. op://vault/item/field.
 type SecretReference struct {
 	Scheme string
 	Path   string
@@ -85,13 +72,9 @@ func ResolversFromEnvironment(env *resources.Environment) ([]SecretResolver, err
 		switch provider.Kind {
 		case ProviderOnePassword:
 			resolvers = append(resolvers, NewOnePasswordResolver(provider.Account))
-		case ProviderAWSSecretsManager:
-			resolvers = append(resolvers, NewAWSSecretsManagerResolver(provider.Region))
-		case ProviderDoppler:
-			resolvers = append(resolvers, NewDopplerResolver(provider.Project, provider.Config))
 		default:
-			return nil, fmt.Errorf("unknown secret provider %q (supported: %s, %s, %s)",
-				provider.Kind, ProviderOnePassword, ProviderAWSSecretsManager, ProviderDoppler)
+			return nil, fmt.Errorf("unknown secret provider %q (supported: %s)",
+				provider.Kind, ProviderOnePassword)
 		}
 	}
 	return resolvers, nil
@@ -117,98 +100,6 @@ func (r *OnePasswordResolver) Resolve(ctx context.Context, ref *SecretReference)
 		args = append(args, "--account", r.account)
 	}
 	args = append(args, ref.Raw)
-	return runCommand(ctx, r.bin, args...)
-}
-
-// AWSSecretsManagerResolver resolves aws-sm://secret-id[#json-key] references
-// through the `aws` CLI, which authenticates via the ambient IAM credentials.
-// Without a #json-key the whole SecretString is returned; with one the
-// SecretString is parsed as JSON and the named key extracted.
-type AWSSecretsManagerResolver struct {
-	region string
-	bin    string
-}
-
-func NewAWSSecretsManagerResolver(region string) *AWSSecretsManagerResolver {
-	return &AWSSecretsManagerResolver{region: region, bin: "aws"}
-}
-
-func (r *AWSSecretsManagerResolver) Scheme() string { return AWSSecretsManagerScheme }
-
-func (r *AWSSecretsManagerResolver) Resolve(ctx context.Context, ref *SecretReference) (string, error) {
-	id, key, hasKey := strings.Cut(ref.Path, "#")
-	args := []string{"secretsmanager", "get-secret-value", "--secret-id", id, "--query", "SecretString", "--output", "text"}
-	if r.region != "" {
-		args = append(args, "--region", r.region)
-	}
-	out, err := runCommand(ctx, r.bin, args...)
-	if err != nil {
-		return "", err
-	}
-	if !hasKey {
-		return out, nil
-	}
-	// UseNumber keeps numeric fields exact — a large integer secret must not be
-	// mangled by a float64 round-trip.
-	dec := json.NewDecoder(strings.NewReader(out))
-	dec.UseNumber()
-	var fields map[string]any
-	if err := dec.Decode(&fields); err != nil {
-		return "", fmt.Errorf("cannot parse secret %q as JSON to extract key %q: %w", id, key, err)
-	}
-	val, ok := fields[key]
-	if !ok {
-		return "", fmt.Errorf("key %q not found in secret %q", key, id)
-	}
-	return jsonFieldToString(val)
-}
-
-// jsonFieldToString renders a value extracted from a JSON secret. Scalars
-// become their literal string (numbers kept exact via json.Number); a nested
-// object or array is re-encoded as JSON rather than Go's %v map syntax.
-func jsonFieldToString(val any) (string, error) {
-	switch v := val.(type) {
-	case string:
-		return v, nil
-	case json.Number:
-		return v.String(), nil
-	case bool:
-		return strconv.FormatBool(v), nil
-	case nil:
-		return "", nil
-	default:
-		b, err := json.Marshal(v)
-		if err != nil {
-			return "", err
-		}
-		return string(b), nil
-	}
-}
-
-// DopplerResolver resolves doppler://SECRET_NAME references through the
-// `doppler` CLI. The project and config (Doppler's per-environment scope)
-// come from the provider settings; when empty the CLI falls back to its
-// ambient context (doppler.yaml / DOPPLER_* env / a service token).
-type DopplerResolver struct {
-	project string
-	config  string
-	bin     string
-}
-
-func NewDopplerResolver(project, config string) *DopplerResolver {
-	return &DopplerResolver{project: project, config: config, bin: "doppler"}
-}
-
-func (r *DopplerResolver) Scheme() string { return DopplerScheme }
-
-func (r *DopplerResolver) Resolve(ctx context.Context, ref *SecretReference) (string, error) {
-	args := []string{"secrets", "get", ref.Path, "--plain"}
-	if r.project != "" {
-		args = append(args, "--project", r.project)
-	}
-	if r.config != "" {
-		args = append(args, "--config", r.config)
-	}
 	return runCommand(ctx, r.bin, args...)
 }
 
@@ -403,6 +294,6 @@ func (e *secretResolution) warnPlaintext(ctx context.Context, env *resources.Env
 	}
 	e.warned[origin] = true
 	w := wool.Get(ctx).In("configurations.secrets")
-	w.Warn("plaintext secret used with a configured secret backend — dev-only, prefer a op://… or aws-sm://… reference",
+	w.Warn("plaintext secret used with a configured secret backend — dev-only, prefer an op://… reference",
 		wool.Field("origin", origin), wool.Field("environment", env.Name))
 }

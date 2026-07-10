@@ -30,39 +30,6 @@ case "$uri" in
 esac
 `
 
-// awsStub stands in for the `aws` CLI: it prints the SecretString for known
-// --secret-id values.
-const awsStub = `#!/bin/sh
-id=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --secret-id) id="$2"; shift 2 ;;
-    *) shift ;;
-  esac
-done
-case "$id" in
-  codefly/dev/token) printf 'aws-token-value' ;;
-  codefly/dev/auth0) printf '{"client_secret":"aws-client-secret","client_id":"abc"}' ;;
-  codefly/dev/nested) printf '{"obj":{"a":1},"count":42,"account":123456789012345678}' ;;
-  *) echo "aws: secret not found: $id" 1>&2; exit 1 ;;
-esac
-`
-
-// dopplerStub stands in for the `doppler` CLI: `doppler secrets get NAME
-// --plain [...]` prints the value for known secret names.
-const dopplerStub = `#!/bin/sh
-name=""
-capture=0
-for a in "$@"; do
-  if [ "$capture" = "1" ]; then name="$a"; capture=0; continue; fi
-  if [ "$a" = "get" ]; then capture=1; fi
-done
-case "$name" in
-  STRIPE_KEY) printf 'sk_test_123\n' ;;
-  *) echo "doppler: secret not found: $name" 1>&2; exit 1 ;;
-esac
-`
-
 func writeStub(t *testing.T, name, body string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), name)
@@ -78,7 +45,8 @@ func TestParseSecretReference(t *testing.T) {
 		path   string
 	}{
 		{"op://dev-vault/auth0/client_secret", true, "op", "dev-vault/auth0/client_secret"},
-		{"aws-sm://codefly/dev/auth0#client_secret", true, "aws-sm", "codefly/dev/auth0#client_secret"},
+		// A scheme with no registered backend is not a reference — passthrough.
+		{"aws-sm://codefly/dev/auth0#client_secret", false, "", ""},
 		{"postgres://user:pass@host/db", false, "", ""},
 		{"literal-plaintext", false, "", ""},
 		{"", false, "", ""},
@@ -123,60 +91,6 @@ func TestResolverPreservesMultilineSecret(t *testing.T) {
 	require.Equal(t, "-----BEGIN KEY-----\nline1\nline2\n-----END KEY-----", v)
 }
 
-func TestAWSSecretsManagerResolver(t *testing.T) {
-	ctx := context.Background()
-	r := NewAWSSecretsManagerResolver("us-east-1")
-	r.bin = writeStub(t, "aws", awsStub)
-
-	ref, _ := ParseSecretReference("aws-sm://codefly/dev/token")
-	v, err := r.Resolve(ctx, ref)
-	require.NoError(t, err)
-	require.Equal(t, "aws-token-value", v)
-
-	ref, _ = ParseSecretReference("aws-sm://codefly/dev/auth0#client_secret")
-	v, err = r.Resolve(ctx, ref)
-	require.NoError(t, err)
-	require.Equal(t, "aws-client-secret", v)
-
-	ref, _ = ParseSecretReference("aws-sm://codefly/dev/auth0#missing")
-	_, err = r.Resolve(ctx, ref)
-	require.Error(t, err)
-
-	// A nested object key is re-encoded as JSON, not Go's map syntax.
-	ref, _ = ParseSecretReference("aws-sm://codefly/dev/nested#obj")
-	v, err = r.Resolve(ctx, ref)
-	require.NoError(t, err)
-	require.JSONEq(t, `{"a":1}`, v)
-
-	// Numeric keys stay exact — no float64 round-trip.
-	ref, _ = ParseSecretReference("aws-sm://codefly/dev/nested#count")
-	v, err = r.Resolve(ctx, ref)
-	require.NoError(t, err)
-	require.Equal(t, "42", v)
-
-	ref, _ = ParseSecretReference("aws-sm://codefly/dev/nested#account")
-	v, err = r.Resolve(ctx, ref)
-	require.NoError(t, err)
-	require.Equal(t, "123456789012345678", v)
-}
-
-func TestDopplerResolver(t *testing.T) {
-	ctx := context.Background()
-	r := NewDopplerResolver("codefly", "dev")
-	r.bin = writeStub(t, "doppler", dopplerStub)
-
-	ref, ok := ParseSecretReference("doppler://STRIPE_KEY")
-	require.True(t, ok)
-	require.Equal(t, DopplerScheme, r.Scheme())
-	v, err := r.Resolve(ctx, ref)
-	require.NoError(t, err)
-	require.Equal(t, "sk_test_123", v)
-
-	ref, _ = ParseSecretReference("doppler://MISSING")
-	_, err = r.Resolve(ctx, ref)
-	require.Error(t, err)
-}
-
 func TestResolversFromEnvironment(t *testing.T) {
 	rs, err := ResolversFromEnvironment(&resources.Environment{Name: "local"})
 	require.NoError(t, err)
@@ -189,21 +103,6 @@ func TestResolversFromEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rs, 1)
 	require.Equal(t, OnePasswordScheme, rs[0].Scheme())
-
-	// Multiple backends coexist in one environment.
-	rs, err = ResolversFromEnvironment(&resources.Environment{
-		Name: "prod",
-		Secrets: []*resources.EnvironmentSecretProvider{
-			{Kind: ProviderOnePassword},
-			{Kind: ProviderAWSSecretsManager, Region: "us-east-1"},
-			{Kind: ProviderDoppler, Project: "codefly", Config: "prd"},
-		},
-	})
-	require.NoError(t, err)
-	require.Len(t, rs, 3)
-	require.Equal(t, OnePasswordScheme, rs[0].Scheme())
-	require.Equal(t, AWSSecretsManagerScheme, rs[1].Scheme())
-	require.Equal(t, DopplerScheme, rs[2].Scheme())
 
 	_, err = ResolversFromEnvironment(&resources.Environment{
 		Name:    "prod",
@@ -225,12 +124,10 @@ func TestManagerResolvesSecretReferences(t *testing.T) {
 
 	op := NewOnePasswordResolver("")
 	op.bin = writeStub(t, "op", opStub)
-	aws := NewAWSSecretsManagerResolver("")
-	aws.bin = writeStub(t, "aws", awsStub)
 
 	manager, err := NewManager(ctx, ws)
 	require.NoError(t, err)
-	manager.WithLoader(loader).WithSecretResolver(op, aws)
+	manager.WithLoader(loader).WithSecretResolver(op)
 
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -243,16 +140,6 @@ func TestManagerResolvesSecretReferences(t *testing.T) {
 	v, err := resources.GetConfigurationValue(ctx, frontend, "auth0/frontend", "client_secret")
 	require.NoError(t, err)
 	require.Equal(t, "op-client-secret", v)
-
-	// aws references resolved (whole SecretString + json-key extraction)
-	awsConf, err := resources.FindWorkspaceConfiguration(ctx, confs, "aws")
-	require.NoError(t, err)
-	tok, err := resources.GetConfigurationValue(ctx, awsConf, "aws", "token")
-	require.NoError(t, err)
-	require.Equal(t, "aws-token-value", tok)
-	dbp, err := resources.GetConfigurationValue(ctx, awsConf, "aws", "db_password")
-	require.NoError(t, err)
-	require.Equal(t, "aws-client-secret", dbp)
 
 	// plaintext and unknown-scheme values pass through untouched
 	plain, err := resources.FindWorkspaceConfiguration(ctx, confs, "plain")
@@ -275,14 +162,14 @@ func TestManagerResolvesSecretReferences(t *testing.T) {
 	require.Equal(t, "op-client-secret", parsed["client_secret"])
 	nested, ok := parsed["nested"].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, "aws-token-value", nested["api_token"])
+	require.Equal(t, "op-db-password", nested["api_token"])
 	require.Equal(t, "keep-me", nested["plain"])
 }
 
 // End-to-end through the real selection path: the environment declared in
-// workspace.codefly.yaml (`secrets:`) drives resolver construction, and those
-// resolvers use the default `op`/`aws` binaries — here shadowed by stubs on
-// PATH. No resolvers are injected.
+// workspace.codefly.yaml (`secrets:`) drives resolver construction, and that
+// resolver uses the default `op` binary — here shadowed by a stub on PATH.
+// No resolvers are injected.
 func TestManagerResolvesViaEnvironmentProvider(t *testing.T) {
 	ctx := context.Background()
 	dir, err := shared.SolvePath("testdata/secrets")
@@ -290,15 +177,13 @@ func TestManagerResolvesViaEnvironmentProvider(t *testing.T) {
 	ws, err := resources.LoadWorkspaceFromDir(ctx, dir)
 	require.NoError(t, err)
 
-	// The workspace's "local" environment declares both backends.
 	env := ws.FindEnvironment("local")
 	require.NotNil(t, env)
-	require.Len(t, env.Secrets, 2)
+	require.Len(t, env.Secrets, 1)
 	require.Equal(t, ProviderOnePassword, env.Secrets[0].Kind)
 
 	stubDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(stubDir, "op"), []byte(opStub), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(stubDir, "aws"), []byte(awsStub), 0o755))
 	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	loader, err := NewConfigurationLocalReader(ctx, ws)
@@ -317,12 +202,6 @@ func TestManagerResolvesViaEnvironmentProvider(t *testing.T) {
 	v, err := resources.GetConfigurationValue(ctx, frontend, "auth0/frontend", "client_secret")
 	require.NoError(t, err)
 	require.Equal(t, "op-client-secret", v)
-
-	awsConf, err := resources.FindWorkspaceConfiguration(ctx, confs, "aws")
-	require.NoError(t, err)
-	tok, err := resources.GetConfigurationValue(ctx, awsConf, "aws", "token")
-	require.NoError(t, err)
-	require.Equal(t, "aws-token-value", tok)
 
 	// Service-level reference resolved through the same environment backend.
 	sconfs, err := manager.GetServiceConfigurations(ctx)

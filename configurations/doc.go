@@ -26,26 +26,23 @@
 // literal plaintext or a reference the environment's secret backend
 // resolves at Load() time:
 //
-//	client_secret: op://dev-vault/auth0/client_secret       # 1Password
-//	client_secret: aws-sm://codefly/dev/auth0#client_secret # AWS Secrets Manager
-//	client_secret: doppler://AUTH0_CLIENT_SECRET            # Doppler
+//	client_secret: op://dev-vault/auth0/client_secret # 1Password
 //
-// Backends are selected per environment via workspace.codefly.yaml. More
-// than one can be listed so op:// and aws-sm:// references coexist:
+// Backends are selected per environment via workspace.codefly.yaml. It is a
+// list so more backends can be added later:
 //
 //	environments:
 //	  - name: local
 //	    secrets:
 //	      - kind: 1password
 //	        account: my-team
-//	  - name: production
-//	    secrets:
-//	      - kind: aws-secrets-manager
-//	        region: us-east-1
 //
 // References are safe to commit and resolved in memory — the plaintext
 // value never touches disk. A reference whose backend is not configured
 // for the environment fails the load rather than leaking the raw URI.
+//
+// 1Password is the only backend today; SecretResolver is the seam for
+// adding AWS Secrets Manager, Doppler, Vault, etc.
 //
 // Plaintext secret values still work (the CONNECTION=postgres://… escape
 // hatch), but they sit unencrypted on disk and are local/dev-only; a
