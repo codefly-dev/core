@@ -32,17 +32,20 @@ import (
 const (
 	OnePasswordScheme       = "op"
 	AWSSecretsManagerScheme = "aws-sm"
+	DopplerScheme           = "doppler"
 )
 
-// Provider names selected via an environment's `secrets.provider`.
+// Provider names selected via an environment's `secrets` block.
 const (
 	ProviderOnePassword       = "1password"
 	ProviderAWSSecretsManager = "aws-secrets-manager"
+	ProviderDoppler           = "doppler"
 )
 
 var secretReferenceSchemes = map[string]bool{
 	OnePasswordScheme:       true,
 	AWSSecretsManagerScheme: true,
+	DopplerScheme:           true,
 }
 
 // SecretReference is a parsed secret URI: op://vault/item/field or
@@ -84,9 +87,11 @@ func ResolversFromEnvironment(env *resources.Environment) ([]SecretResolver, err
 			resolvers = append(resolvers, NewOnePasswordResolver(provider.Account))
 		case ProviderAWSSecretsManager:
 			resolvers = append(resolvers, NewAWSSecretsManagerResolver(provider.Region))
+		case ProviderDoppler:
+			resolvers = append(resolvers, NewDopplerResolver(provider.Project, provider.Config))
 		default:
-			return nil, fmt.Errorf("unknown secret provider %q (supported: %s, %s)",
-				provider.Kind, ProviderOnePassword, ProviderAWSSecretsManager)
+			return nil, fmt.Errorf("unknown secret provider %q (supported: %s, %s, %s)",
+				provider.Kind, ProviderOnePassword, ProviderAWSSecretsManager, ProviderDoppler)
 		}
 	}
 	return resolvers, nil
@@ -178,6 +183,33 @@ func jsonFieldToString(val any) (string, error) {
 		}
 		return string(b), nil
 	}
+}
+
+// DopplerResolver resolves doppler://SECRET_NAME references through the
+// `doppler` CLI. The project and config (Doppler's per-environment scope)
+// come from the provider settings; when empty the CLI falls back to its
+// ambient context (doppler.yaml / DOPPLER_* env / a service token).
+type DopplerResolver struct {
+	project string
+	config  string
+	bin     string
+}
+
+func NewDopplerResolver(project, config string) *DopplerResolver {
+	return &DopplerResolver{project: project, config: config, bin: "doppler"}
+}
+
+func (r *DopplerResolver) Scheme() string { return DopplerScheme }
+
+func (r *DopplerResolver) Resolve(ctx context.Context, ref *SecretReference) (string, error) {
+	args := []string{"secrets", "get", ref.Path, "--plain"}
+	if r.project != "" {
+		args = append(args, "--project", r.project)
+	}
+	if r.config != "" {
+		args = append(args, "--config", r.config)
+	}
+	return runCommand(ctx, r.bin, args...)
 }
 
 // runCommand runs a resolver's CLI and returns its stdout with a single

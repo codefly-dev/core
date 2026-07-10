@@ -53,18 +53,23 @@ type EnvironmentRegistry struct {
 
 // EnvironmentSecretProvider configures one secret backend for an environment.
 // With a backend configured, secret values in *.secret.* files are references
-// (op://…, aws-sm://…) resolved at Load() time through the backend's CLI;
-// nothing secret is written to disk. Multiple providers can be listed so
-// op:// and aws-sm:// references coexist in the same environment.
+// (op://…, aws-sm://…, doppler://…) resolved at Load() time through the
+// backend's CLI; nothing secret is written to disk. Multiple providers can be
+// listed so different schemes coexist in the same environment.
 //
-//	Kind:    "1password" or "aws-secrets-manager".
+//	Kind:    "1password", "aws-secrets-manager", or "doppler".
 //	Account: 1Password account shorthand passed as `op --account`.
 //	Region:  AWS region passed as `aws --region` (defaults to the caller's
 //	         ambient AWS config when empty).
+//	Project: Doppler project passed as `doppler --project`.
+//	Config:  Doppler config (its per-environment scope, e.g. dev/stg/prd)
+//	         passed as `doppler --config`.
 type EnvironmentSecretProvider struct {
 	Kind    string `yaml:"kind"`
 	Account string `yaml:"account,omitempty"`
 	Region  string `yaml:"region,omitempty"`
+	Project string `yaml:"project,omitempty"`
+	Config  string `yaml:"config,omitempty"`
 }
 
 // Environment is a configuration for an environment

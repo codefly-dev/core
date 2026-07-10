@@ -48,6 +48,21 @@ case "$id" in
 esac
 `
 
+// dopplerStub stands in for the `doppler` CLI: `doppler secrets get NAME
+// --plain [...]` prints the value for known secret names.
+const dopplerStub = `#!/bin/sh
+name=""
+capture=0
+for a in "$@"; do
+  if [ "$capture" = "1" ]; then name="$a"; capture=0; continue; fi
+  if [ "$a" = "get" ]; then capture=1; fi
+done
+case "$name" in
+  STRIPE_KEY) printf 'sk_test_123\n' ;;
+  *) echo "doppler: secret not found: $name" 1>&2; exit 1 ;;
+esac
+`
+
 func writeStub(t *testing.T, name, body string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), name)
@@ -145,6 +160,23 @@ func TestAWSSecretsManagerResolver(t *testing.T) {
 	require.Equal(t, "123456789012345678", v)
 }
 
+func TestDopplerResolver(t *testing.T) {
+	ctx := context.Background()
+	r := NewDopplerResolver("codefly", "dev")
+	r.bin = writeStub(t, "doppler", dopplerStub)
+
+	ref, ok := ParseSecretReference("doppler://STRIPE_KEY")
+	require.True(t, ok)
+	require.Equal(t, DopplerScheme, r.Scheme())
+	v, err := r.Resolve(ctx, ref)
+	require.NoError(t, err)
+	require.Equal(t, "sk_test_123", v)
+
+	ref, _ = ParseSecretReference("doppler://MISSING")
+	_, err = r.Resolve(ctx, ref)
+	require.Error(t, err)
+}
+
 func TestResolversFromEnvironment(t *testing.T) {
 	rs, err := ResolversFromEnvironment(&resources.Environment{Name: "local"})
 	require.NoError(t, err)
@@ -164,12 +196,14 @@ func TestResolversFromEnvironment(t *testing.T) {
 		Secrets: []*resources.EnvironmentSecretProvider{
 			{Kind: ProviderOnePassword},
 			{Kind: ProviderAWSSecretsManager, Region: "us-east-1"},
+			{Kind: ProviderDoppler, Project: "codefly", Config: "prd"},
 		},
 	})
 	require.NoError(t, err)
-	require.Len(t, rs, 2)
+	require.Len(t, rs, 3)
 	require.Equal(t, OnePasswordScheme, rs[0].Scheme())
 	require.Equal(t, AWSSecretsManagerScheme, rs[1].Scheme())
+	require.Equal(t, DopplerScheme, rs[2].Scheme())
 
 	_, err = ResolversFromEnvironment(&resources.Environment{
 		Name:    "prod",

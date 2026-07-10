@@ -28,6 +28,7 @@
 //
 //	client_secret: op://dev-vault/auth0/client_secret       # 1Password
 //	client_secret: aws-sm://codefly/dev/auth0#client_secret # AWS Secrets Manager
+//	client_secret: doppler://AUTH0_CLIENT_SECRET            # Doppler
 //
 // Backends are selected per environment via workspace.codefly.yaml. More
 // than one can be listed so op:// and aws-sm:// references coexist:
