@@ -51,6 +51,18 @@ type EnvironmentRegistry struct {
 	Auth string `yaml:"auth,omitempty"`
 }
 
+// EnvironmentSecretProvider configures one secret backend for an environment.
+// With a backend configured, secret values in *.secret.* files are references
+// (op://…) resolved at Load() time through the backend's CLI; nothing secret
+// is written to disk. It is a list so more backends can be added later.
+//
+//	Kind:    "1password".
+//	Account: 1Password account shorthand passed as `op --account`.
+type EnvironmentSecretProvider struct {
+	Kind    string `yaml:"kind"`
+	Account string `yaml:"account,omitempty"`
+}
+
 // Environment is a configuration for an environment
 type Environment struct {
 	Name        string `yaml:"name"`
@@ -64,6 +76,10 @@ type Environment struct {
 	Cluster   *EnvironmentCluster  `yaml:"cluster,omitempty"`
 	Registry  *EnvironmentRegistry `yaml:"registry,omitempty"`
 	Namespace string               `yaml:"namespace,omitempty"`
+
+	// Secrets lists the secret backends for this environment. Empty means
+	// plaintext *.secret.* files (local-only). CLI-side; not serialized to proto.
+	Secrets []*EnvironmentSecretProvider `yaml:"secrets,omitempty"`
 }
 
 func (env *Environment) Proto() (*basev0.Environment, error) {
