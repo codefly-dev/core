@@ -14,6 +14,10 @@ import (
 type Loader interface {
 	Identity() string
 	Load(ctx context.Context, env *resources.Environment) error
+	// Configurations returns the configurations produced by Load. It must
+	// return the same instances on every call (not fresh copies): after Load,
+	// the Manager resolves secret references in these objects in place, and
+	// LoadConfigurations reads them back expecting the resolved values.
 	Configurations() []*basev0.Configuration
 	DNS() []*basev0.DNS
 }

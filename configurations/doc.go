@@ -29,13 +29,18 @@
 //	client_secret: op://dev-vault/auth0/client_secret       # 1Password
 //	client_secret: aws-sm://codefly/dev/auth0#client_secret # AWS Secrets Manager
 //
-// The backend is selected per environment via workspace.codefly.yaml:
+// Backends are selected per environment via workspace.codefly.yaml. More
+// than one can be listed so op:// and aws-sm:// references coexist:
 //
 //	environments:
 //	  - name: local
-//	    secrets: { provider: 1password, account: my-team }
+//	    secrets:
+//	      - kind: 1password
+//	        account: my-team
 //	  - name: production
-//	    secrets: { provider: aws-secrets-manager, region: us-east-1 }
+//	    secrets:
+//	      - kind: aws-secrets-manager
+//	        region: us-east-1
 //
 // References are safe to commit and resolved in memory — the plaintext
 // value never touches disk. A reference whose backend is not configured

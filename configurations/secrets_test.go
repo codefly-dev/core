@@ -25,6 +25,7 @@ done
 case "$uri" in
   op://dev-vault/auth0/client_secret) printf 'op-client-secret' ;;
   op://dev-vault/db/password) printf 'op-db-password' ;;
+  op://dev-vault/tls/key) printf '%s\n' '-----BEGIN KEY-----' 'line1' 'line2' '-----END KEY-----' ;;
   *) echo "op: item not found: $uri" 1>&2; exit 1 ;;
 esac
 `
@@ -93,6 +94,19 @@ func TestOnePasswordResolver(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Only the single trailing newline the CLI appends is stripped; the secret's
+// own internal newlines (a PEM key, say) survive intact.
+func TestResolverPreservesMultilineSecret(t *testing.T) {
+	ctx := context.Background()
+	r := NewOnePasswordResolver("")
+	r.bin = writeStub(t, "op", opStub)
+
+	ref, _ := ParseSecretReference("op://dev-vault/tls/key")
+	v, err := r.Resolve(ctx, ref)
+	require.NoError(t, err)
+	require.Equal(t, "-----BEGIN KEY-----\nline1\nline2\n-----END KEY-----", v)
+}
+
 func TestAWSSecretsManagerResolver(t *testing.T) {
 	ctx := context.Background()
 	r := NewAWSSecretsManagerResolver("us-east-1")
@@ -120,23 +134,28 @@ func TestResolversFromEnvironment(t *testing.T) {
 
 	rs, err = ResolversFromEnvironment(&resources.Environment{
 		Name:    "local",
-		Secrets: &resources.EnvironmentSecrets{Provider: ProviderOnePassword},
+		Secrets: []*resources.EnvironmentSecretProvider{{Kind: ProviderOnePassword}},
 	})
 	require.NoError(t, err)
 	require.Len(t, rs, 1)
 	require.Equal(t, OnePasswordScheme, rs[0].Scheme())
 
+	// Multiple backends coexist in one environment.
 	rs, err = ResolversFromEnvironment(&resources.Environment{
-		Name:    "prod",
-		Secrets: &resources.EnvironmentSecrets{Provider: ProviderAWSSecretsManager},
+		Name: "prod",
+		Secrets: []*resources.EnvironmentSecretProvider{
+			{Kind: ProviderOnePassword},
+			{Kind: ProviderAWSSecretsManager, Region: "us-east-1"},
+		},
 	})
 	require.NoError(t, err)
-	require.Len(t, rs, 1)
-	require.Equal(t, AWSSecretsManagerScheme, rs[0].Scheme())
+	require.Len(t, rs, 2)
+	require.Equal(t, OnePasswordScheme, rs[0].Scheme())
+	require.Equal(t, AWSSecretsManagerScheme, rs[1].Scheme())
 
 	_, err = ResolversFromEnvironment(&resources.Environment{
 		Name:    "prod",
-		Secrets: &resources.EnvironmentSecrets{Provider: "vault"},
+		Secrets: []*resources.EnvironmentSecretProvider{{Kind: "vault"}},
 	})
 	require.Error(t, err)
 }
@@ -206,6 +225,60 @@ func TestManagerResolvesSecretReferences(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "aws-token-value", nested["api_token"])
 	require.Equal(t, "keep-me", nested["plain"])
+}
+
+// End-to-end through the real selection path: the environment declared in
+// workspace.codefly.yaml (`secrets:`) drives resolver construction, and those
+// resolvers use the default `op`/`aws` binaries — here shadowed by stubs on
+// PATH. No resolvers are injected.
+func TestManagerResolvesViaEnvironmentProvider(t *testing.T) {
+	ctx := context.Background()
+	dir, err := shared.SolvePath("testdata/secrets")
+	require.NoError(t, err)
+	ws, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	// The workspace's "local" environment declares both backends.
+	env := ws.FindEnvironment("local")
+	require.NotNil(t, env)
+	require.Len(t, env.Secrets, 2)
+	require.Equal(t, ProviderOnePassword, env.Secrets[0].Kind)
+
+	stubDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(stubDir, "op"), []byte(opStub), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stubDir, "aws"), []byte(awsStub), 0o755))
+	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	loader, err := NewConfigurationLocalReader(ctx, ws)
+	require.NoError(t, err)
+	manager, err := NewManager(ctx, ws)
+	require.NoError(t, err)
+	manager.WithLoader(loader) // no injected resolvers — backend comes from the environment
+
+	require.NoError(t, manager.Load(ctx, env))
+
+	confs, err := manager.GetWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+
+	frontend, err := resources.FindWorkspaceConfiguration(ctx, confs, "auth0/frontend")
+	require.NoError(t, err)
+	v, err := resources.GetConfigurationValue(ctx, frontend, "auth0/frontend", "client_secret")
+	require.NoError(t, err)
+	require.Equal(t, "op-client-secret", v)
+
+	awsConf, err := resources.FindWorkspaceConfiguration(ctx, confs, "aws")
+	require.NoError(t, err)
+	tok, err := resources.GetConfigurationValue(ctx, awsConf, "aws", "token")
+	require.NoError(t, err)
+	require.Equal(t, "aws-token-value", tok)
+
+	// Service-level reference resolved through the same environment backend.
+	sconfs, err := manager.GetServiceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Len(t, sconfs, 1)
+	pw, err := resources.GetConfigurationValue(ctx, sconfs[0], "db", "password")
+	require.NoError(t, err)
+	require.Equal(t, "op-db-password", pw)
 }
 
 // A reference whose backend is not configured for the environment must fail

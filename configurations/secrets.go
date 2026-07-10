@@ -70,21 +70,25 @@ type SecretResolver interface {
 }
 
 // ResolversFromEnvironment builds the secret resolvers an environment selects
-// via its `secrets` block. An empty provider means plaintext-only (no
-// resolvers): secret values are used verbatim from the files.
+// via its `secrets` block. No providers means plaintext-only (no resolvers):
+// secret values are used verbatim from the files.
 func ResolversFromEnvironment(env *resources.Environment) ([]SecretResolver, error) {
-	if env == nil || env.Secrets == nil || env.Secrets.Provider == "" {
+	if env == nil {
 		return nil, nil
 	}
-	switch env.Secrets.Provider {
-	case ProviderOnePassword:
-		return []SecretResolver{NewOnePasswordResolver(env.Secrets.Account)}, nil
-	case ProviderAWSSecretsManager:
-		return []SecretResolver{NewAWSSecretsManagerResolver(env.Secrets.Region)}, nil
-	default:
-		return nil, fmt.Errorf("unknown secret provider %q (supported: %s, %s)",
-			env.Secrets.Provider, ProviderOnePassword, ProviderAWSSecretsManager)
+	var resolvers []SecretResolver
+	for _, provider := range env.Secrets {
+		switch provider.Kind {
+		case ProviderOnePassword:
+			resolvers = append(resolvers, NewOnePasswordResolver(provider.Account))
+		case ProviderAWSSecretsManager:
+			resolvers = append(resolvers, NewAWSSecretsManagerResolver(provider.Region))
+		default:
+			return nil, fmt.Errorf("unknown secret provider %q (supported: %s, %s)",
+				provider.Kind, ProviderOnePassword, ProviderAWSSecretsManager)
+		}
 	}
+	return resolvers, nil
 }
 
 // OnePasswordResolver resolves op://vault/item/field references through the
@@ -138,8 +142,12 @@ func (r *AWSSecretsManagerResolver) Resolve(ctx context.Context, ref *SecretRefe
 	if !hasKey {
 		return out, nil
 	}
+	// UseNumber keeps numeric fields exact — a large integer secret must not be
+	// mangled by a float64 round-trip.
+	dec := json.NewDecoder(strings.NewReader(out))
+	dec.UseNumber()
 	var fields map[string]any
-	if err := json.Unmarshal([]byte(out), &fields); err != nil {
+	if err := dec.Decode(&fields); err != nil {
 		return "", fmt.Errorf("cannot parse secret %q as JSON to extract key %q: %w", id, key, err)
 	}
 	val, ok := fields[key]
@@ -149,8 +157,11 @@ func (r *AWSSecretsManagerResolver) Resolve(ctx context.Context, ref *SecretRefe
 	return fmt.Sprintf("%v", val), nil
 }
 
-// runCommand runs a resolver's CLI and returns its trimmed stdout. Only stderr
-// is surfaced on failure so a resolved secret value never reaches an error or a log.
+// runCommand runs a resolver's CLI and returns its stdout with a single
+// trailing newline stripped — the one the CLI appends. Leading and internal
+// whitespace is preserved so a multi-line secret (a PEM key, say) survives
+// intact. Only stderr is surfaced on failure so a resolved secret value never
+// reaches an error or a log.
 func runCommand(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	var stdout, stderr bytes.Buffer
@@ -162,7 +173,9 @@ func runCommand(ctx context.Context, name string, args ...string) (string, error
 		}
 		return "", fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	out := strings.TrimSuffix(stdout.String(), "\n")
+	out = strings.TrimSuffix(out, "\r")
+	return out, nil
 }
 
 // secretResolution resolves references across a single Load pass, caching by
@@ -170,6 +183,7 @@ func runCommand(ctx context.Context, name string, args ...string) (string, error
 type secretResolution struct {
 	resolvers map[string]SecretResolver
 	cache     map[string]string
+	warned    map[string]bool
 }
 
 func newSecretResolution(resolvers []SecretResolver) *secretResolution {
@@ -179,7 +193,7 @@ func newSecretResolution(resolvers []SecretResolver) *secretResolution {
 			m[r.Scheme()] = r
 		}
 	}
-	return &secretResolution{resolvers: m, cache: make(map[string]string)}
+	return &secretResolution{resolvers: m, cache: make(map[string]string), warned: make(map[string]bool)}
 }
 
 func (e *secretResolution) resolve(ctx context.Context, ref *SecretReference) (string, error) {
@@ -248,7 +262,9 @@ func (e *secretResolution) resolveData(ctx context.Context, data *basev0.Configu
 			return err
 		}
 	case "json":
-		if err := json.Unmarshal(data.Content, &node); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(data.Content))
+		dec.UseNumber()
+		if err := dec.Decode(&node); err != nil {
 			return err
 		}
 	default:
@@ -293,6 +309,19 @@ func (e *secretResolution) resolveNode(ctx context.Context, node any) (any, bool
 			}
 		}
 		return v, changed, nil
+	case map[any]any:
+		changed := false
+		for key, val := range v {
+			nv, c, err := e.resolveNode(ctx, val)
+			if err != nil {
+				return nil, false, err
+			}
+			if c {
+				v[key] = nv
+				changed = true
+			}
+		}
+		return v, changed, nil
 	case []any:
 		changed := false
 		for i, val := range v {
@@ -314,9 +343,10 @@ func (e *secretResolution) resolveNode(ctx context.Context, node any) (any, bool
 // warnPlaintext flags a plaintext secret used where a backend is configured.
 // Local envs stay silent — plaintext is the sanctioned local escape hatch.
 func (e *secretResolution) warnPlaintext(ctx context.Context, env *resources.Environment, origin string) {
-	if len(e.resolvers) == 0 || env == nil || env.Local() {
+	if len(e.resolvers) == 0 || env == nil || env.Local() || e.warned[origin] {
 		return
 	}
+	e.warned[origin] = true
 	w := wool.Get(ctx).In("configurations.secrets")
 	w.Warn("plaintext secret used with a configured secret backend — dev-only, prefer a op://… or aws-sm://… reference",
 		wool.Field("origin", origin), wool.Field("environment", env.Name))
