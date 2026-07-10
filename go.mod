@@ -16,6 +16,7 @@ require (
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/cheggaaa/pb/v3 v3.1.7
+	github.com/codefly-dev/gortk v0.2.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/docker/go-connections v0.7.0
 	github.com/fatih/color v1.19.0
@@ -27,7 +28,6 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/hashicorp/go-multierror v1.1.1
-	github.com/mind-build/gortk v0.1.0
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/muesli/termenv v0.16.0
 	github.com/pkg/errors v0.9.1
