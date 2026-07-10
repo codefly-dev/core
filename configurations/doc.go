@@ -19,4 +19,31 @@
 // Loader is the abstract interface a service must implement to plug
 // into the manager (Identity, Load, Configurations, DNS). Concrete
 // loaders live in core/cli and similar consumer packages.
+//
+// # Secrets
+//
+// Secret values (from *.secret.env / *.secret.yaml files) may be either
+// literal plaintext or a reference the environment's secret backend
+// resolves at Load() time:
+//
+//	client_secret: op://dev-vault/auth0/client_secret       # 1Password
+//	client_secret: aws-sm://codefly/dev/auth0#client_secret # AWS Secrets Manager
+//
+// The backend is selected per environment via workspace.codefly.yaml:
+//
+//	environments:
+//	  - name: local
+//	    secrets: { provider: 1password, account: my-team }
+//	  - name: production
+//	    secrets: { provider: aws-secrets-manager, region: us-east-1 }
+//
+// References are safe to commit and resolved in memory — the plaintext
+// value never touches disk. A reference whose backend is not configured
+// for the environment fails the load rather than leaking the raw URI.
+//
+// Plaintext secret values still work (the CONNECTION=postgres://… escape
+// hatch), but they sit unencrypted on disk and are local/dev-only; a
+// plaintext secret used against a configured backend in a non-local
+// environment is logged as a warning. See secrets.go (SecretResolver,
+// ParseSecretReference, ResolversFromEnvironment).
 package configurations
