@@ -81,6 +81,10 @@ type Base struct {
 	// Code Watcher
 	Watcher *code.Watcher
 	Events  chan code.Change
+	// watcherCancel stops the Watcher.Start goroutine so its `defer close(Events)`
+	// runs — that deferred close is the SINGLE close of Events. nil when no
+	// watcher is running. See SetupWatcher / StopWatcher.
+	watcherCancel context.CancelFunc
 
 	// Command registry for agent-provided tools (exposed via ListCommands/RunPluginCommand)
 	commands *CommandRegistry
@@ -219,7 +223,15 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 	if err != nil {
 		return err
 	}
-	go s.Watcher.Start(ctx)
+	// The Watcher is the SOLE closer of s.Events: its Start goroutine runs
+	// `defer close(events)` on exit. Give it a dedicated cancelable context
+	// stored on the Base so StopWatcher can end that goroutine and let the
+	// deferred close fire exactly once. Runtime.Stop must NOT close s.Events
+	// itself — a second close raced this goroutine into a "close of closed
+	// channel" panic that crashed the agent.
+	watcherCtx, cancel := context.WithCancel(ctx)
+	s.watcherCancel = cancel
+	go s.Watcher.Start(watcherCtx)
 
 	// DEBOUNCE file-change events. A single save often fires a burst (multi-file
 	// saves, gofmt rewriting several files, editor temp churn), and the handler
@@ -272,6 +284,23 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 // into before the watcher fires one rebuild. Long enough to coalesce a save's
 // multi-file churn, short enough to feel instant.
 const WatchDebounce = 600 * time.Millisecond
+
+// StopWatcher tears down the file watcher. It cancels the Watcher.Start
+// goroutine, whose `defer close(Events)` then closes the events channel exactly
+// once — unblocking the debounce consumer — and closes the underlying fsnotify
+// handle. Idempotent: safe when no watcher is running and safe to call more than
+// once. Runtime.Stop implementations MUST use this instead of closing s.Events
+// directly; the Watcher is the sole closer, and a second close raced the watcher
+// goroutine into a "close of closed channel" panic that crashed the agent.
+func (s *Base) StopWatcher() {
+	if s.Watcher != nil {
+		s.Watcher.Pause()
+	}
+	if s.watcherCancel != nil {
+		s.watcherCancel()
+		s.watcherCancel = nil
+	}
+}
 
 func (s *Base) Local(f string, args ...any) string {
 	return path.Join(s.Location, fmt.Sprintf(f, args...))

@@ -133,9 +133,12 @@ func (watcher *Watcher) Start(ctx context.Context) {
 	w := wool.Get(ctx).In("Watcher.Start")
 	// Start listening for events.
 	defer watcher.watcher.Close()
-	// Start is the sole sender on events (via Handle, only from this loop), so
-	// closing it here is race-free and lets the consumer's receive drain and
-	// exit on teardown instead of blocking forever on a channel nobody closes.
+	// Start is the sole sender on events (via Handle, only from this loop) AND
+	// the sole closer: closing it here is the single close of the channel, which
+	// lets the consumer's receive drain and exit on teardown. Nothing else may
+	// close Events — a second closer (an earlier version had Runtime.Stop close
+	// it too) races this goroutine into a "close of closed channel" panic. To end
+	// this goroutine, cancel its context (see services.Base.StopWatcher).
 	defer close(watcher.events)
 	for {
 		select {
