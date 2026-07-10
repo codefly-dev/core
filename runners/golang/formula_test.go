@@ -280,8 +280,14 @@ func TestRunFormula_NoMatchSelectorIsNeverGreen(t *testing.T) {
 	if resp.GetResult().GetState() != runtimev0.TestRunResult_ERRORED {
 		t.Fatalf("a selector matching nothing must not read as a pass: state = %s (%s)", resp.GetResult().GetState(), resp.GetResult().GetMessage())
 	}
-	if !strings.Contains(resp.GetResult().GetMessage(), "env-blocked ("+EnvErrorNoTestsMatchedSelectors+")") {
-		t.Fatalf("want %s classification, got: %s", EnvErrorNoTestsMatchedSelectors, resp.GetResult().GetMessage())
+	if !strings.Contains(resp.GetResult().GetMessage(), "test-selection-error ("+EnvErrorNoTestsMatchedSelectors+")") {
+		t.Fatalf("want test-selection-error(%s) classification, got: %s", EnvErrorNoTestsMatchedSelectors, resp.GetResult().GetMessage())
+	}
+	// The selection tag must NOT claim the environment: a healthy module with
+	// a bad selector routed to env repair sends the caller healing infra that
+	// isn't broken (seen live: gofixture 01-healthy spiraling into prepare-env).
+	if strings.Contains(resp.GetResult().GetMessage(), "env-blocked") {
+		t.Fatalf("selector zero-match must not carry the env-blocked tag: %s", resp.GetResult().GetMessage())
 	}
 }
 
