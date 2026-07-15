@@ -72,6 +72,7 @@ type SignalWriter struct {
 	Writer  io.Writer
 	signal  chan struct{}
 	hasData bool
+	mu      sync.Mutex
 }
 
 func NewSignalWriter(writer io.Writer) *SignalWriter {
@@ -83,6 +84,11 @@ func NewSignalWriter(writer io.Writer) *SignalWriter {
 }
 
 func (sw *SignalWriter) Write(p []byte) (n int, err error) {
+	// SignalWriter is shared by container-log and exec-output forwarders. The
+	// wrapped writer is not necessarily concurrency-safe, so serialize both the
+	// write and the first-data notification state.
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
 	n, err = sw.Writer.Write(p)
 	if !sw.hasData && n > 0 {
 		select {

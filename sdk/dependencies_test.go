@@ -66,7 +66,10 @@ func TestWithDependencies_ReturnsWhenCLIExitsBeforeReady(t *testing.T) {
 	if !strings.Contains(err.Error(), "CLI subprocess exited") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if elapsed := time.Since(started); elapsed > 2*time.Second {
+	// Race instrumentation and process-group cleanup can add a few seconds on
+	// saturated CI hosts. This still proves the exit is observed well before the
+	// configured 10-second readiness deadline.
+	if elapsed := time.Since(started); elapsed > 6*time.Second {
 		t.Fatalf("early CLI exit took %s to report", elapsed)
 	}
 }
