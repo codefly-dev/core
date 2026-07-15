@@ -10,12 +10,12 @@ import (
 	"time"
 )
 
-// TestWithDependencies_KillsProcessGroupOnReadyTimeout verifies that when a
-// post-spawn error path is hit (here: the CLI server never becomes gRPC-ready),
+// TestWithDependencies_KillsProcessGroupOnCancellation verifies that when a
+// post-spawn error path is hit (here: cancellation before gRPC readiness),
 // WithDependencies tears down the entire spawned process group instead of
 // leaking it. A stand-in "codefly" binary backgrounds a child, records both
 // PIDs, then blocks forever without ever serving gRPC.
-func TestWithDependencies_KillsProcessGroupOnReadyTimeout(t *testing.T) {
+func TestWithDependencies_KillsProcessGroupOnCancellation(t *testing.T) {
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "pids")
 	binPath := filepath.Join(dir, "codefly")
@@ -32,15 +32,29 @@ func TestWithDependencies_KillsProcessGroupOnReadyTimeout(t *testing.T) {
 
 	t.Setenv("CODEFLY_BINARY", binPath)
 
-	// Race-enabled repository sweeps can saturate the host while compiling
-	// dozens of packages; allow the spawned shell enough scheduling headroom to
-	// record its PIDs before the intentional readiness timeout fires.
-	_, err := WithDependencies(context.Background(), WithTimeout(5*time.Second))
-	if err == nil {
-		t.Fatal("expected WithDependencies to fail (fake CLI never becomes ready)")
-	}
+	// Do not use a short readiness timeout as an implicit "the child started"
+	// signal. An all-package race sweep can starve the newly spawned shell long
+	// enough for that deadline to fire before it records its PIDs. Wait for the
+	// explicit PID-file handshake, then cancel to exercise the same post-spawn
+	// cleanup path deterministically.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := WithDependencies(ctx, WithTimeout(30*time.Second))
+		result <- err
+	}()
 
 	leaderPID, childPID := readPIDFile(t, pidFile)
+	cancel()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("expected WithDependencies to fail after cancellation")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("WithDependencies did not return after cancellation")
+	}
 
 	if !waitFor(3*time.Second, func() bool { return !pidAlive(leaderPID) }) {
 		t.Errorf("group leader %d still alive after WithDependencies error — process group leaked", leaderPID)

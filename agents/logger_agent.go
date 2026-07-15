@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"sync"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
@@ -14,6 +16,12 @@ import (
 // The CLI reads these from the spawned process's stderr.
 type AgentLogger struct {
 	source *wool.Identifier
+	writer io.Writer
+	lines  chan []byte
+	done   chan struct{}
+	once   sync.Once
+	mu     sync.RWMutex
+	closed bool
 }
 
 // LogMessage is the JSON envelope written to stderr.
@@ -28,46 +36,83 @@ func (w *AgentLogger) Process(log *wool.Log) {
 	if err != nil {
 		return
 	}
-	// Write as a single line to stderr
-	fmt.Fprintf(os.Stderr, "%s\n", data)
+
+	// Marshal before returning so the queued line owns an immutable snapshot of
+	// every field. Log fields commonly point at request/configuration objects that
+	// callers are free to mutate as soon as Process returns; queueing the *Log
+	// itself would race that mutation in the background writer.
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if w.closed {
+		return
+	}
+	select {
+	case w.lines <- data:
+	default:
+		// Logging must never backpressure an agent. A dropped diagnostic is less
+		// harmful than wedging the service when the parent stops reading stderr.
+	}
+}
+
+func (w *AgentLogger) run() {
+	for line := range w.lines {
+		_, _ = fmt.Fprintf(w.writer, "%s\n", line)
+	}
+	close(w.done)
+}
+
+// Flush writes every queued line and permanently closes the logger. It is safe
+// to call concurrently with Process and more than once.
+func (w *AgentLogger) Flush() {
+	w.once.Do(func() {
+		w.mu.Lock()
+		w.closed = true
+		close(w.lines)
+		w.mu.Unlock()
+	})
+	<-w.done
+}
+
+func newAgentLogger(source *wool.Identifier, writer io.Writer, bufferSize int) *AgentLogger {
+	if bufferSize <= 0 {
+		bufferSize = 256
+	}
+	logger := &AgentLogger{
+		source: source,
+		writer: writer,
+		lines:  make(chan []byte, bufferSize),
+		done:   make(chan struct{}),
+	}
+	go logger.run()
+	return logger
 }
 
 // NewAgentLogger creates a log processor for an agent that writes to stderr.
-func NewAgentLogger(agent *resources.Agent) wool.LogProcessor {
+func NewAgentLogger(agent *resources.Agent) *AgentLogger {
 	r := agent.AsResource()
 	source := &wool.Identifier{Kind: r.Kind, Unique: r.Unique}
-	return &AgentLogger{source: source}
+	return newAgentLogger(source, os.Stderr, 0)
 }
 
 // NewAgentServiceLogger creates a log processor for a service agent.
-func NewAgentServiceLogger(identity *resources.ServiceIdentity) wool.LogProcessor {
+func NewAgentServiceLogger(identity *resources.ServiceIdentity) *AgentLogger {
 	r := identity.AsAgentResource()
 	source := &wool.Identifier{Kind: r.Kind, Unique: r.Unique}
-	return &AgentLogger{source: source}
+	return newAgentLogger(source, os.Stderr, 0)
 }
 
 // NewServiceLogger creates a log processor for a service.
-func NewServiceLogger(identity *resources.ServiceIdentity) wool.LogProcessor {
+func NewServiceLogger(identity *resources.ServiceIdentity) *AgentLogger {
 	r := identity.AsResource()
 	source := &wool.Identifier{Kind: r.Kind, Unique: r.Unique}
-	return &AgentLogger{source: source}
-}
-
-// nonBlocking wraps a log processor so writing a log NEVER blocks the agent on a
-// slow/stalled parent consumer. The synchronous stderr write in AgentLogger.Process
-// otherwise backpressures the whole agent (and can wedge shutdown) when the CLI is
-// slow to drain — an agent must never block on logging, the same discipline as
-// "never panic". Bounded queue, drop-on-full: a dropped log line is strictly better
-// than a wedged agent.
-func nonBlocking(inner wool.LogProcessor) wool.LogProcessor {
-	return wool.NewBufferedProcessor(inner, 0) // 0 → default capacity (256)
+	return newAgentLogger(source, os.Stderr, 0)
 }
 
 // NewAgentProvider creates a wool provider for an agent.
 func NewAgentProvider(ctx context.Context, agent *resources.Agent) *wool.Provider {
 	res := agent.AsResource()
 	provider := wool.New(ctx, res)
-	provider.WithLogger(nonBlocking(NewAgentLogger(agent)))
+	provider.WithLogger(NewAgentLogger(agent))
 	return provider
 }
 
@@ -75,7 +120,7 @@ func NewAgentProvider(ctx context.Context, agent *resources.Agent) *wool.Provide
 func NewServiceAgentProvider(ctx context.Context, identity *resources.ServiceIdentity) *wool.Provider {
 	res := identity.AsAgentResource()
 	provider := wool.New(ctx, res)
-	provider.WithLogger(nonBlocking(NewAgentServiceLogger(identity)))
+	provider.WithLogger(NewAgentServiceLogger(identity))
 	return provider
 }
 
@@ -83,6 +128,6 @@ func NewServiceAgentProvider(ctx context.Context, identity *resources.ServiceIde
 func NewServiceProvider(ctx context.Context, identity *resources.ServiceIdentity) *wool.Provider {
 	res := identity.AsResource()
 	provider := wool.New(ctx, res)
-	provider.WithLogger(nonBlocking(NewServiceLogger(identity)))
+	provider.WithLogger(NewServiceLogger(identity))
 	return provider
 }
