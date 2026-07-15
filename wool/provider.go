@@ -123,7 +123,7 @@ type Console struct {
 
 // NewMessageConsole returns a Console that only prints the message text.
 func NewMessageConsole() *Console {
-	return &Console{level: globalLogLevel, messageOnly: true}
+	return &Console{level: GlobalLogLevel(), messageOnly: true}
 }
 
 func (c Console) Process(msg *Log) {
@@ -164,7 +164,7 @@ func get(ctx context.Context) (*Provider, error) {
 //
 // wool.Get is on essentially every function's hot path, so it avoids work on
 // the common (provider-present) branch: no stack walk, no throwaway error, and
-// getFallbackLogger() (which takes a lock + allocates a Console) is only called
+// getFallbackLogger() (which reads the fallback sink + allocates a Console) is only called
 // when there is genuinely no provider logger to use.
 func Get(ctx context.Context) *Wool {
 	if ctx == nil {

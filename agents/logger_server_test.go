@@ -3,9 +3,11 @@ package agents
 import (
 	"encoding/json"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/codefly-dev/core/wool"
 )
@@ -96,4 +98,51 @@ func TestForwardLogs_DispatchesToProcessors(t *testing.T) {
 	if got := proc.n.Load(); got != count {
 		t.Fatalf("processor received %d logs, want %d", got, count)
 	}
+}
+
+func TestForwardLogs_AcceptsLogLinesLargerThanScannerDefault(t *testing.T) {
+	h := &LogHandler{}
+	proc := &countingProcessor{}
+	h.add(proc)
+
+	msg, err := json.Marshal(&LogMessage{
+		Log:    &wool.Log{Level: wool.INFO, Message: strings.Repeat("x", 128<<10)},
+		Source: wool.System(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.ForwardLogs(strings.NewReader(string(msg) + "\n"))
+	if got := proc.n.Load(); got != 1 {
+		t.Fatalf("processor received %d logs, want 1", got)
+	}
+}
+
+func TestForwardLogs_DrainsAfterOversizedLogLine(t *testing.T) {
+	h := &LogHandler{}
+	pr, pw := io.Pipe()
+	forwarded := make(chan struct{})
+	go func() {
+		defer close(forwarded)
+		h.ForwardLogs(pr)
+	}()
+
+	written := make(chan error, 1)
+	go func() {
+		_, err := io.WriteString(pw, strings.Repeat("x", (4<<20)+1)+"\n")
+		if closeErr := pw.Close(); err == nil {
+			err = closeErr
+		}
+		written <- err
+	}()
+
+	select {
+	case err := <-written:
+		if err != nil {
+			t.Fatalf("oversized writer remained unhealthy: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("oversized log line blocked the pipe writer")
+	}
+	<-forwarded
 }

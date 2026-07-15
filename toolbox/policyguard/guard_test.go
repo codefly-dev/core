@@ -138,14 +138,11 @@ func TestGuard_CallTool_JSONPolicy_Granular(t *testing.T) {
 	require.Contains(t, resp.Error, "default-deny")
 }
 
-func TestGuard_NilPDP_DefaultsToAllowAll(t *testing.T) {
-	// Construction with nil PDP must NOT panic and MUST behave like
-	// allow-all. This is the migration safety net — installing the
-	// guard with a not-yet-configured PDP should be a no-op.
+func TestGuard_NilPDP_FailsClosed(t *testing.T) {
 	dir := gitWorkspace(t)
 	g := policyguard.New(git.New(dir, "guard-test"), nil, "git")
 	resp, err := g.CallTool(context.Background(),
 		&toolboxv0.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
-	require.Empty(t, resp.Error, "nil PDP must default to allow-all (migration safety)")
+	require.Contains(t, resp.Error, "deny-all", "nil PDP must not disable enforcement")
 }

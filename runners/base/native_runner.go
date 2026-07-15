@@ -89,6 +89,12 @@ type NativeProc struct {
 	exec   *exec.Cmd
 	envs   []*resources.EnvironmentVariable
 
+	// lifecycleMu serializes Start's cmd.Start/exec publication with Stop and
+	// IsRunning. stopRequested prevents a Stop-before-Start race from launching
+	// a process after Stop has already returned.
+	lifecycleMu   sync.Mutex
+	stopRequested bool
+
 	stopped  chan interface{}
 	stopOnce sync.Once
 
@@ -170,10 +176,13 @@ func (proc *NativeProc) IsRunning(ctx context.Context) (bool, error) {
 	default:
 	}
 	// Check the PID
-	if proc.exec == nil || proc.exec.Process == nil {
+	proc.lifecycleMu.Lock()
+	runningCmd := proc.exec
+	proc.lifecycleMu.Unlock()
+	if runningCmd == nil || runningCmd.Process == nil {
 		return false, nil
 	}
-	pid := proc.exec.Process.Pid
+	pid := runningCmd.Process.Pid
 	w.Trace("checking if process is running", wool.Field("pid", pid))
 	// #nosec G204
 	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid))
@@ -230,7 +239,7 @@ func (native *NativeEnvironment) Stop(context.Context) error {
 
 func (proc *NativeProc) Run(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Run")
-	w.Trace("running process", wool.Field("cmd", proc.cmd))
+	w.Trace("running process", wool.Field("cmd", CommandSummary(proc.cmd)))
 	err := proc.start(ctx)
 	if err != nil {
 		return err
@@ -274,7 +283,7 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 
 func (proc *NativeProc) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Start")
-	w.Trace("starting process", wool.Field("cmd", proc.cmd))
+	w.Trace("starting process", wool.Field("cmd", CommandSummary(proc.cmd)))
 	return proc.start(ctx)
 }
 
@@ -339,11 +348,10 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		err = cmd.Start()
+		err = proc.startCommand(cmd)
 		if err != nil {
 			return err
 		}
-		proc.exec = cmd
 		proc.forwarderWG.Add(1)
 		go func() {
 			defer proc.forwarderWG.Done()
@@ -371,11 +379,10 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		err = cmd.Start()
+		err = proc.startCommand(cmd)
 		if err != nil {
 			return err
 		}
-		proc.exec = cmd
 		proc.forwarderWG.Add(2)
 		go func() {
 			defer proc.forwarderWG.Done()
@@ -413,6 +420,22 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	}
 
 	w.Trace("done")
+	return nil
+}
+
+func (proc *NativeProc) startCommand(cmd *exec.Cmd) error {
+	proc.lifecycleMu.Lock()
+	defer proc.lifecycleMu.Unlock()
+	if proc.stopRequested {
+		return errors.New("process was stopped before it could start")
+	}
+	if proc.exec != nil {
+		return errors.New("process already started")
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	proc.exec = cmd
 	return nil
 }
 
@@ -478,13 +501,18 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("NativeProc.Stop")
 	w.Trace("stopping process")
 
-	if proc.exec == nil || proc.exec.Process == nil {
+	proc.lifecycleMu.Lock()
+	proc.stopRequested = true
+	cmd := proc.exec
+	proc.lifecycleMu.Unlock()
+	if cmd == nil || cmd.Process == nil {
 		w.Trace("process not started, nothing to stop")
+		proc.stopOnce.Do(func() { close(proc.stopped) })
 		return nil
 	}
 
 	// Kill the entire process group (negative PID) so child processes also die.
-	pgid := proc.exec.Process.Pid
+	pgid := cmd.Process.Pid
 	w.Trace("sending SIGTERM to process group", wool.Field("pgid", pgid))
 	_ = syscall.Kill(-pgid, syscall.SIGTERM)
 

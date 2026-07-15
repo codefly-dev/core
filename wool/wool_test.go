@@ -3,7 +3,6 @@ package wool_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/wool"
@@ -66,11 +65,24 @@ func TestIn_ChainsNames(t *testing.T) {
 	// each layer manually stamping its own name.
 	w := wool.Get(context.Background()).In("Service").In("Method")
 	err := w.Wrapf(errors.New("boom"), "step")
-	// Both names must appear in the message; order-stability isn't
-	// part of the contract but presence is.
-	require.True(t,
-		strings.Contains(err.Error(), "Service") || strings.Contains(err.Error(), "Method"),
-		"nested In() names should appear in error: %s", err.Error())
+	require.Equal(t, "Service.Method", w.Name())
+	require.Contains(t, err.Error(), "Service.Method")
+}
+
+func TestIn_InheritsParentFields(t *testing.T) {
+	cap := &capture{}
+	w := wool.Get(context.Background()).WithLogger(cap).
+		In("Service", wool.Field("service", "api")).
+		In("Method", wool.Field("method", "start"))
+	w.Info("hello")
+
+	cap.mu.Lock()
+	defer cap.mu.Unlock()
+	require.Len(t, cap.logs, 1)
+	require.Equal(t, "Service.Method", cap.logs[0].Header)
+	require.Len(t, cap.logs[0].Fields, 2)
+	require.Equal(t, "service", cap.logs[0].Fields[0].Key)
+	require.Equal(t, "method", cap.logs[0].Fields[1].Key)
 }
 
 func TestField_Construction(t *testing.T) {

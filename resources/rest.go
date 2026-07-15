@@ -350,7 +350,7 @@ func (loader *ExtendedRouteLoader[T]) Save(ctx context.Context) error {
 
 func sanitizeRoute(route string) string {
 	route = strings.TrimPrefix(route, "/")
-	return strings.ReplaceAll(route, "/", "_")
+	return strings.NewReplacer("/", "_", "\\", "_").Replace(route)
 }
 
 func sanitizePath(route string) string {
@@ -359,9 +359,22 @@ func sanitizePath(route string) string {
 }
 
 func FilePathForRest(ctx context.Context, dir string, unique string, routePath string) (string, error) {
-	dir = path.Join(dir, unique)
+	if err := validateServiceUniquePath(unique); err != nil {
+		return "", err
+	}
+	if strings.ContainsRune(routePath, '\x00') {
+		return "", fmt.Errorf("REST route path contains NUL")
+	}
+	root := dir
+	if _, err := shared.CheckDirectoryOrCreate(ctx, root); err != nil {
+		return "", err
+	}
+	dir = path.Join(root, unique)
 	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
+		return "", err
+	}
+	if err := validateResolvedPathWithin(root, dir); err != nil {
 		return "", err
 	}
 	file := path.Join(dir, fmt.Sprintf("%s%s", sanitizeRoute(routePath), RestRouteFileSuffix))
@@ -375,22 +388,11 @@ func (g *RestRouteGroup) Save(ctx context.Context, dir string) error {
 		return w.Wrapf(err, "cannot get file path for route to save")
 	}
 	w.Trace("saving", wool.FileField(file))
-	f, err := os.Create(file)
-	if err != nil {
-		return w.Wrapf(err, "cannot create file for route")
-	}
-	defer func(f *os.File) {
-		err := f.Close()
-		if err != nil {
-			w.Error("cannot close file", wool.ErrField(err))
-		}
-	}(f)
 	out, err := yaml.Marshal(g)
 	if err != nil {
 		return w.Wrapf(err, "cannot marshal route")
 	}
-	_, err = f.Write(out)
-	if err != nil {
+	if err := shared.WriteFileAtomic(ctx, file, out, 0o600); err != nil {
 		return w.With(wool.FileField(file)).Wrapf(err, "cannot write route")
 	}
 	return nil
@@ -403,22 +405,11 @@ func (g *ExtendedRestRouteGroup[T]) Save(ctx context.Context, dir string) error 
 		return w.Wrapf(err, "cannot get file path for route to save")
 	}
 	w.Debug("saving", wool.FileField(file), wool.Field("content", g))
-	f, err := os.Create(file)
-	if err != nil {
-		return w.Wrapf(err, "cannot create file for route")
-	}
-	defer func(f *os.File) {
-		err := f.Close()
-		if err != nil {
-			w.Error("cannot close file", wool.ErrField(err))
-		}
-	}(f)
 	out, err := yaml.Marshal(g)
 	if err != nil {
 		return w.Wrapf(err, "cannot marshal route")
 	}
-	_, err = f.Write(out)
-	if err != nil {
+	if err := shared.WriteFileAtomic(ctx, file, out, 0o600); err != nil {
 		return w.With(wool.FileField(file)).Wrapf(err, "cannot write route")
 	}
 	return nil

@@ -261,6 +261,7 @@ func erroredResponse(msg, raw string) *runtimev0.TestResponse {
 		Status: &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg},
 		Result: &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: msg},
 		Counts: &runtimev0.TestCounts{},
+		Run:    &runtimev0.TestRun{Runner: "gotest"},
 		Output: raw,
 	}
 }

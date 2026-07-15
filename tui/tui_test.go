@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -41,6 +42,26 @@ func TestTranscriptFromModelReturnsRetainedLogs(t *testing.T) {
 	}
 	if !strings.Contains(transcript, "second line") {
 		t.Fatalf("expected transcript to include second line, got %q", transcript)
+	}
+}
+
+func TestProtectTUIWorkerReportsPanic(t *testing.T) {
+	reported := make(chan error, 1)
+	sentinel := errors.New("worker exploded")
+
+	protectTUIWorker("test worker", func(err error) {
+		reported <- err
+	}, func() {
+		panic(sentinel)
+	})
+
+	select {
+	case err := <-reported:
+		if !strings.Contains(err.Error(), "test worker panicked: worker exploded") {
+			t.Fatalf("unexpected recovered error: %v", err)
+		}
+	default:
+		t.Fatal("expected worker panic to be reported")
 	}
 }
 

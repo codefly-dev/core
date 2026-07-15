@@ -2,6 +2,8 @@ package manager
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -139,7 +141,7 @@ func (s *OCIStore) Pull(ctx context.Context, agent *resources.Agent) (string, er
 
 	// Step 2: Download the blob (the agent binary).
 	blobURL := fmt.Sprintf("%s://%s/v2/%s/blobs/%s", s.scheme, s.registry, repo, digest)
-	if err := s.downloadBlob(ctx, blobURL, localPath); err != nil {
+	if err := s.downloadBlob(ctx, blobURL, digest, localPath); err != nil {
 		return "", fmt.Errorf("download blob %s: %w", digest, err)
 	}
 
@@ -182,8 +184,20 @@ func (s *OCIStore) fetchBlobDigest(ctx context.Context, manifestURL string) (str
 	return extractFirstLayerDigest(body)
 }
 
-// downloadBlob fetches a blob from the registry and saves it to dst.
-func (s *OCIStore) downloadBlob(ctx context.Context, blobURL, dst string) error {
+const maxAgentBinarySize = int64(1 << 30)
+
+// downloadBlob fetches a blob, verifies the OCI sha256 digest, and atomically
+// installs it at dst. A failed or interrupted pull never becomes a valid cache
+// hit on the next run.
+func (s *OCIStore) downloadBlob(ctx context.Context, blobURL, expectedDigest, dst string) error {
+	algorithm, encoded, ok := strings.Cut(expectedDigest, ":")
+	if !ok || algorithm != "sha256" || len(encoded) != sha256.Size*2 {
+		return fmt.Errorf("unsupported or malformed blob digest %q", expectedDigest)
+	}
+	if _, err := hex.DecodeString(encoded); err != nil {
+		return fmt.Errorf("malformed blob digest %q: %w", expectedDigest, err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, blobURL, nil)
 	if err != nil {
 		return err
@@ -205,14 +219,41 @@ func (s *OCIStore) downloadBlob(ctx context.Context, blobURL, dst string) error 
 		return err
 	}
 
-	f, err := os.Create(dst)
+	f, err := os.CreateTemp(filepath.Dir(dst), ".agent-*.partial")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	tmpPath := f.Name()
+	defer func() {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+	}()
 
-	_, err = io.Copy(f, resp.Body)
-	return err
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, maxAgentBinarySize+1))
+	if err != nil {
+		return err
+	}
+	if n > maxAgentBinarySize {
+		return fmt.Errorf("agent blob exceeds %d-byte limit", maxAgentBinarySize)
+	}
+	actualDigest := "sha256:" + hex.EncodeToString(h.Sum(nil))
+	if actualDigest != expectedDigest {
+		return fmt.Errorf("agent blob digest mismatch: got %s, want %s", actualDigest, expectedDigest)
+	}
+	if err := f.Chmod(0o755); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, dst); err != nil {
+		return err
+	}
+	return nil
 }
 
 // localCachePath returns where the agent binary should be stored locally.

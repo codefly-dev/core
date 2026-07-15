@@ -26,10 +26,9 @@ import (
 //  5. Record observability for every decision (allow/deny/error).
 //
 // The gateway is the FIRST defense layer; the plugin's Guard is
-// the second. Even if a host bug causes the gateway to mint a
-// fraudulent token, the plugin's Guard verifies the signature and
-// — if absent or invalid — falls back to the PDP-via-callback
-// path. Three independent layers; defense in depth.
+// the second. The Guard verifies presented credentials locally,
+// denies invalid credentials, and uses the PDP-via-callback path
+// only when the credential is absent.
 type GatewayEvaluator struct {
 	// ToolPolicies maps "<toolbox>:<tool>" or "<toolbox>:*" to
 	// the operator's tool policy. Lookups try the exact key

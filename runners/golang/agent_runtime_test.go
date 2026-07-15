@@ -1,6 +1,7 @@
 package golang
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,36 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 )
+
+func TestGoAgentSettingsRejectEscapingSourceDir(t *testing.T) {
+	for _, sourceDir := range []string{"../outside", "/absolute", `nested\windows`} {
+		settings := &GoAgentSettings{SourceDir: sourceDir}
+		if err := settings.Validate(); err == nil {
+			t.Errorf("Validate(%q) succeeded", sourceDir)
+		}
+	}
+	for _, sourceDir := range []string{"", ".", "cmd/server"} {
+		settings := &GoAgentSettings{SourceDir: sourceDir}
+		if err := settings.Validate(); err != nil {
+			t.Errorf("Validate(%q): %v", sourceDir, err)
+		}
+	}
+}
+
+func TestCreateRunnerRejectsNilAndEscapingInputs(t *testing.T) {
+	ctx := context.Background()
+	if _, err := CreateRunner(ctx, nil, RunnerConfig{}); err == nil {
+		t.Fatal("nil runtime context succeeded")
+	}
+	if _, err := CreateRunner(ctx, resources.NewRuntimeContextNative(), RunnerConfig{}); err == nil {
+		t.Fatal("nil settings succeeded")
+	}
+	if _, err := CreateRunner(ctx, resources.NewRuntimeContextNative(), RunnerConfig{
+		Settings: &GoAgentSettings{SourceDir: "../outside"},
+	}); err == nil {
+		t.Fatal("escaping source dir succeeded")
+	}
+}
 
 // buildTestArgs replicates the arg construction inside RunGoTests so we
 // can assert on the resulting `go test` invocation without needing a live

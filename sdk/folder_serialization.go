@@ -78,8 +78,20 @@ func HasValidExtension(path string, extensions []string) bool {
 // Request -> Folder
 
 func RecreateDirectory(request *utils.Directory, destPath string) error {
+	// destPath is the trust boundary: request.Files come from a serialized
+	// Directory that may originate across a gRPC boundary, so a hostile or
+	// buggy peer could set file.Path to "../../.ssh/authorized_keys" and write
+	// outside destPath (zip-slip). Confine every entry to destPath.
+	destRoot, err := filepath.Abs(destPath)
+	if err != nil {
+		return fmt.Errorf("cannot resolve destination %q: %w", destPath, err)
+	}
 	for _, file := range request.Files {
-		fullPath := filepath.Join(destPath, file.Path)
+		fullPath := filepath.Join(destRoot, file.Path)
+		rel, err := filepath.Rel(destRoot, fullPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("refusing to write %q: path escapes destination %q", file.Path, destPath)
+		}
 
 		if file.IsDirectory {
 			if err := os.MkdirAll(fullPath, 0755); err != nil {

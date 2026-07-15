@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -184,8 +185,14 @@ type NewModuleInput struct {
 }
 
 // NewModule creates an module in a workspace
-func (workspace *Workspace) NewModule(ctx context.Context, action *actionsv0.NewModule) (*Module, error) {
+func (workspace *Workspace) NewModule(ctx context.Context, action *actionsv0.NewModule) (createdModule *Module, result error) {
+	if action == nil {
+		return nil, wool.Get(ctx).In("configurations.NewModule").NewError("module action is nil")
+	}
 	w := wool.Get(ctx).In("configurations.NewModule", wool.NameField(action.Name))
+	if err := validateResourcePathComponent("module", action.Name); err != nil {
+		return nil, w.Wrap(err)
+	}
 	if workspace.ExistsModule(action.Name) {
 		return nil, w.NewError("module already exists: %s", action.Name)
 	}
@@ -198,16 +205,6 @@ func (workspace *Workspace) NewModule(ctx context.Context, action *actionsv0.New
 	}
 	mod.WithDir(dir)
 
-	err := workspace.AddModuleReference(mod.Reference())
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot add module to workspace")
-	}
-
-	err = workspace.Save(ctx)
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot save workspace configuration")
-	}
-
 	exists, err := shared.DirectoryExists(ctx, mod.dir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot check directory: %s", mod.dir)
@@ -216,11 +213,24 @@ func (workspace *Workspace) NewModule(ctx context.Context, action *actionsv0.New
 		return nil, w.NewError("directory %s already exists", mod.dir)
 	}
 
-	_, err = shared.CheckDirectoryOrCreate(ctx, mod.dir)
-
+	createdDir, err := shared.CheckDirectoryOrCreate(ctx, mod.dir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create module directory")
 	}
+	if !createdDir {
+		return nil, w.NewError("module directory %s already exists", mod.dir)
+	}
+	originalReferences := append([]*ModuleReference(nil), workspace.Modules...)
+	defer func() {
+		if result == nil {
+			return
+		}
+		workspace.Modules = originalReferences
+		if err := os.RemoveAll(mod.dir); err != nil {
+			result = errors.Join(result, w.Wrapf(err, "cannot remove partial module directory"))
+		}
+	}()
+
 	err = mod.Save(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot save module configuration")
@@ -229,6 +239,13 @@ func (workspace *Workspace) NewModule(ctx context.Context, action *actionsv0.New
 	err = templates.CopyAndApply(ctx, shared.Embed(fs), "templates/module", mod.dir, mod)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot copy and apply template")
+	}
+
+	if err := workspace.AddModuleReference(mod.Reference()); err != nil {
+		return nil, w.Wrapf(err, "cannot add module to workspace")
+	}
+	if err := workspace.Save(ctx); err != nil {
+		return nil, w.Wrapf(err, "cannot save workspace configuration")
 	}
 
 	return mod, nil
@@ -287,6 +304,9 @@ func LoadModuleFromCurrentPath(ctx context.Context) (*Module, error) {
 }
 
 func (mod *Module) postLoad(ctx context.Context) error {
+	if err := mod.validatePaths(); err != nil {
+		return err
+	}
 	for _, ref := range mod.ServiceReferences {
 		ref.Module = mod.Name
 	}
@@ -302,6 +322,9 @@ func (mod *Module) SaveToDir(ctx context.Context, dir string) error {
 	w := wool.Get(ctx).In("configurations.SaveToDir", wool.DirField(dir))
 	if dir == "" {
 		return w.NewError("can't save module to empty directory")
+	}
+	if err := mod.validatePaths(); err != nil {
+		return w.Wrap(err)
 	}
 	// preSave blanks the redundant Module field; restore it AFTER marshalling
 	// so the in-memory references (shared with the workspace in flat layout)
@@ -355,6 +378,9 @@ func (mod *Module) preSave() func() {
 }
 
 func (mod *Module) AddServiceReference(_ context.Context, ref *ServiceReference) error {
+	if err := validateServiceReferencePath(ref); err != nil {
+		return err
+	}
 	w := wool.Get(context.Background()).In("configurations.AddServiceReference", wool.NameField(ref.Name))
 	w.Trace("adding service reference", wool.Field("service", ref))
 	for _, s := range mod.ServiceReferences {
@@ -410,6 +436,9 @@ func (mod *Module) ServicePath(_ context.Context, ref *ServiceReference) string 
 }
 
 func (mod *Module) LoadServiceFromReference(ctx context.Context, ref *ServiceReference) (*Service, error) {
+	if err := validateServiceReferencePath(ref); err != nil {
+		return nil, wool.Get(ctx).In("configurations.LoadServiceFromReference").Wrap(err)
+	}
 	w := wool.Get(ctx).In("configurations.LoadServiceFromReference", wool.Field("service", ref))
 	dir := mod.ServicePath(ctx, ref)
 	service, err := LoadServiceFromDir(ctx, dir)
@@ -427,6 +456,9 @@ func (mod *Module) LoadServiceFromReference(ctx context.Context, ref *ServiceRef
 // returns ResourceNotFound error if not found
 func (mod *Module) LoadServiceFromName(ctx context.Context, name string) (*Service, error) {
 	w := wool.Get(ctx).In("configurations.LoadServiceFromName", wool.NameField(name))
+	if err := validateResourcePathComponent("service", name); err != nil {
+		return nil, w.Wrap(err)
+	}
 	for _, ref := range mod.ServiceReferences {
 		if ReferenceMatch(ref.Name, name) {
 			return mod.LoadServiceFromReference(ctx, ref)
@@ -454,6 +486,9 @@ func ReloadModule(ctx context.Context, app *Module) (*Module, error) {
 // DeleteService deletes a service from an module
 func (mod *Module) DeleteService(ctx context.Context, name string) error {
 	w := wool.Get(ctx).In("configurations.DeleteService", wool.NameField(name))
+	if err := validateResourcePathComponent("service", name); err != nil {
+		return w.Wrap(err)
+	}
 	var services []*ServiceReference
 	for _, s := range mod.ServiceReferences {
 		if s.Name != name {
@@ -624,6 +659,9 @@ func (mod *Module) ApplicationPath(_ context.Context, ref *ApplicationReference)
 
 // AddApplicationReference adds an application reference to the module
 func (mod *Module) AddApplicationReference(_ context.Context, ref *ApplicationReference) error {
+	if err := validateApplicationReferencePath(ref); err != nil {
+		return err
+	}
 	w := wool.Get(context.Background()).In("Module.AddApplicationReference", wool.NameField(ref.Name))
 	w.Trace("adding application reference", wool.Field("application", ref))
 	for _, a := range mod.ApplicationReferences {
@@ -637,6 +675,9 @@ func (mod *Module) AddApplicationReference(_ context.Context, ref *ApplicationRe
 
 // LoadApplicationFromReference loads an application from a reference
 func (mod *Module) LoadApplicationFromReference(ctx context.Context, ref *ApplicationReference) (*Application, error) {
+	if err := validateApplicationReferencePath(ref); err != nil {
+		return nil, wool.Get(ctx).In("Module.LoadApplicationFromReference").Wrap(err)
+	}
 	w := wool.Get(ctx).In("Module.LoadApplicationFromReference", wool.Field("application", ref))
 	dir := mod.ApplicationPath(ctx, ref)
 	app, err := LoadApplicationFromDir(ctx, dir)
@@ -650,6 +691,9 @@ func (mod *Module) LoadApplicationFromReference(ctx context.Context, ref *Applic
 // LoadApplicationFromName loads an application from a module by name
 func (mod *Module) LoadApplicationFromName(ctx context.Context, name string) (*Application, error) {
 	w := wool.Get(ctx).In("Module.LoadApplicationFromName", wool.NameField(name))
+	if err := validateResourcePathComponent("application", name); err != nil {
+		return nil, w.Wrap(err)
+	}
 	for _, ref := range mod.ApplicationReferences {
 		if ref.Name == name {
 			return mod.LoadApplicationFromReference(ctx, ref)
@@ -674,6 +718,9 @@ func (mod *Module) LoadApplications(ctx context.Context) ([]*Application, error)
 // DeleteApplication deletes an application from a module
 func (mod *Module) DeleteApplication(ctx context.Context, name string) error {
 	w := wool.Get(ctx).In("Module.DeleteApplication", wool.NameField(name))
+	if err := validateResourcePathComponent("application", name); err != nil {
+		return w.Wrap(err)
+	}
 	var applications []*ApplicationReference
 	for _, a := range mod.ApplicationReferences {
 		if a.Name != name {
@@ -693,9 +740,16 @@ func (mod *Module) DeleteApplication(ctx context.Context, name string) error {
 }
 
 // NewApplication creates an application in a module
-func (mod *Module) NewApplication(ctx context.Context, action *actionsv0.AddApplication) (*Application, error) {
+func (mod *Module) NewApplication(ctx context.Context, action *actionsv0.AddApplication) (createdApplication *Application, result error) {
+	if action == nil {
+		return nil, wool.Get(ctx).In("mod.NewApplication").NewError("application action is nil")
+	}
 	w := wool.Get(ctx).In("mod.NewApplication", wool.NameField(action.Name))
-	if mod.ExistsApplication(ctx, action.Name) {
+	if err := validateResourcePathComponent("application", action.Name); err != nil {
+		return nil, w.Wrap(err)
+	}
+	hadReference := mod.ExistsApplication(ctx, action.Name)
+	if hadReference {
 		// Check for override
 		override := shared.GetOverride(ctx)
 		if !override.Replace(action.Name) {
@@ -719,9 +773,26 @@ func (mod *Module) NewApplication(ctx context.Context, action *actionsv0.AddAppl
 	dir := path.Join(mod.ApplicationsDir(), action.Name)
 	app.dir = dir
 
-	_, err = shared.CheckDirectoryOrCreate(ctx, dir)
+	originalReferences := append([]*ApplicationReference(nil), mod.ApplicationReferences...)
+	createdDir := false
+	defer func() {
+		if result == nil {
+			return
+		}
+		mod.ApplicationReferences = originalReferences
+		if createdDir {
+			if err := os.RemoveAll(dir); err != nil {
+				result = errors.Join(result, w.Wrapf(err, "cannot remove partial application directory"))
+			}
+		}
+	}()
+
+	createdDir, err = shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return nil, w.Wrap(err)
+	}
+	if !createdDir && !hadReference {
+		return nil, w.NewError("application directory %s already exists without a module reference", dir)
 	}
 	err = app.Save(ctx)
 	if err != nil {

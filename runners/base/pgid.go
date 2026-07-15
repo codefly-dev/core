@@ -105,8 +105,30 @@ func writePgidFile(pgid int, cwd string, argv []string) error {
 	// owner is dead. Without this, a second `codefly run` would reap the
 	// first one's still-live children.
 	content := fmt.Sprintf("pgid=%d\nparent=%d\nstarted=%d\ncwd=%s\ncmd=%s\n",
-		pgid, os.Getpid(), time.Now().Unix(), cwd, strings.Join(argv, " "))
-	return os.WriteFile(path, []byte(content), 0o644)
+		pgid, os.Getpid(), time.Now().Unix(), cwd, CommandSummary(argv))
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.Write([]byte(content)); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+// CommandSummary is safe for logs and process metadata: it identifies the
+// executable and argument count without persisting tokens, passwords, or other
+// values commonly passed on argv.
+func CommandSummary(argv []string) string {
+	if len(argv) == 0 {
+		return "<empty>"
+	}
+	return fmt.Sprintf("%s <%d args>", filepath.Base(argv[0]), len(argv)-1)
 }
 
 func removePgidFile(pgid int) error {

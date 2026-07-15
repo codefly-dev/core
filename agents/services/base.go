@@ -179,9 +179,6 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 		Agent:   s.Agent,
 	}
 
-	// Register base commands available to all agents (bash, etc.)
-	s.RegisterBaseCommands()
-
 	s.loaded = true
 	return nil
 }
@@ -217,21 +214,28 @@ func NewWatchConfiguration(dependencies *builders.Dependencies) *WatchConfigurat
 
 func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handler func(event code.Change) error) error {
 	s.Wool.Debug("watching for changes", wool.Field("dependencies", builders.MakeDependenciesSummary(conf.dependencies)))
-	s.Events = make(chan code.Change)
+	// Init is an RPC, so its context is cancelled as soon as the handler
+	// returns. A watcher is runtime state and must survive that request. Keep
+	// the logging/value chain but detach cancellation; StopWatcher owns the
+	// explicit lifetime.
+	watcherCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	events := make(chan code.Change)
 	var err error
-	s.Watcher, err = code.NewWatcher(ctx, s.Events, s.Location, conf.dependencies)
+	watcher, err := code.NewWatcher(ctx, events, s.Location, conf.dependencies)
 	if err != nil {
+		cancel()
 		return err
 	}
+	s.Events = events
+	s.Watcher = watcher
 	// The Watcher is the SOLE closer of s.Events: its Start goroutine runs
 	// `defer close(events)` on exit. Give it a dedicated cancelable context
 	// stored on the Base so StopWatcher can end that goroutine and let the
 	// deferred close fire exactly once. Runtime.Stop must NOT close s.Events
 	// itself — a second close raced this goroutine into a "close of closed
 	// channel" panic that crashed the agent.
-	watcherCtx, cancel := context.WithCancel(ctx)
 	s.watcherCancel = cancel
-	go s.Watcher.Start(watcherCtx)
+	go watcher.Start(watcherCtx)
 
 	// DEBOUNCE file-change events. A single save often fires a burst (multi-file
 	// saves, gofmt rewriting several files, editor temp churn), and the handler
@@ -248,7 +252,7 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 		var last code.Change
 		for {
 			select {
-			case event, ok := <-s.Events:
+			case event, ok := <-events:
 				if !ok {
 					return
 				}

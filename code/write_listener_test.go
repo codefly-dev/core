@@ -183,6 +183,30 @@ func TestWriteListener_MoveFile(t *testing.T) {
 	}
 }
 
+func TestWriteListener_ApplyEdit(t *testing.T) {
+	s, drain, dir := newListenerServer(t)
+	if err := os.WriteFile(filepath.Join(dir, "edit.txt"), []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := s.Execute(context.Background(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_ApplyEdit{
+			ApplyEdit: &codev0.ApplyEditRequest{File: "edit.txt", Find: "before", Replace: "after"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events := drain()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %+v", events)
+	}
+	if got := events[0]; got.kind != "write" || got.path != "edit.txt" || got.content != "after" {
+		t.Fatalf("unexpected apply-edit event: %+v", got)
+	}
+}
+
 // ──────────────────────────────────────────────────────────
 // Failed write → NO event
 // ──────────────────────────────────────────────────────────

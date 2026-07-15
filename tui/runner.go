@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -268,6 +269,15 @@ func (t *ServiceTUI) PumpLogs(logCh <-chan agents.ChannelLog) {
 	}
 }
 
+func protectTUIWorker(name string, report func(error), worker func()) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			report(fmt.Errorf("%s panicked: %v", name, recovered))
+		}
+	}()
+	worker()
+}
+
 // RunServiceTUI creates and runs a full-screen TUI for a service.
 // startFn is called in a goroutine to start the service flow; it should
 // call tui.SendReady/SendError when the flow reaches steady state.
@@ -301,14 +311,36 @@ func RunServiceTUI(service string, logCh <-chan agents.ChannelLog, startFn func(
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	t := &ServiceTUI{p: p}
+	workerPanics := make(chan error, 2)
+	reportWorkerPanic := func(err error) {
+		select {
+		case workerPanics <- err:
+		default:
+		}
+		t.SendDone(err)
+	}
 
-	go t.PumpLogs(logCh)
-	go startFn(t)
+	go protectTUIWorker("TUI log pump", reportWorkerPanic, func() {
+		t.PumpLogs(logCh)
+	})
+	go protectTUIWorker("TUI service worker", reportWorkerPanic, func() {
+		startFn(t)
+	})
 
-	finalModel, err := p.Run()
+	// Restore the terminal while unwinding as well as on a normal return. The
+	// nested scope keeps restoration before transcript output on the success
+	// path, while its defer still runs if Bubbletea itself panics.
+	finalModel, err := func() (tea.Model, error) {
+		if saved != nil {
+			defer func() { _ = term.Restore(fd, saved) }()
+		}
+		return p.Run()
+	}()
 
-	if saved != nil {
-		_ = term.Restore(fd, saved)
+	select {
+	case panicErr := <-workerPanics:
+		err = errors.Join(err, panicErr)
+	default:
 	}
 	printTranscript(finalModel)
 	return err

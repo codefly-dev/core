@@ -57,11 +57,11 @@ func waitWatcherGoroutines(t *testing.T, want int, timeout time.Duration) {
 	}
 }
 
-// TestSetupWatcher_GoroutinesExitOnCancel is the regression for the debounce
-// goroutine leak: on cancellation the fsnotify Start loop returns and closes
-// s.Events, and the debounce goroutine must observe that close and exit rather
-// than block forever on a channel nobody closes.
-func TestSetupWatcher_GoroutinesExitOnCancel(t *testing.T) {
+// TestSetupWatcher_OutlivesRequestAndStopsExplicitly locks the watcher
+// lifetime: SetupWatcher is normally called from Init, whose RPC context is
+// cancelled immediately after the response. Runtime state must outlive that
+// request and terminate only when StopWatcher is called.
+func TestSetupWatcher_OutlivesRequestAndStopsExplicitly(t *testing.T) {
 	base := &Base{
 		Wool:     wool.Get(context.Background()),
 		Location: t.TempDir(),
@@ -74,16 +74,19 @@ func TestSetupWatcher_GoroutinesExitOnCancel(t *testing.T) {
 	waitWatcherGoroutines(t, 2, time.Second) // Start loop + debounce goroutine
 
 	cancel()
+	time.Sleep(100 * time.Millisecond)
+	waitWatcherGoroutines(t, 2, time.Second)
 
+	base.StopWatcher()
 	waitWatcherGoroutines(t, 0, 3*time.Second)
 }
 
-// TestSetupWatcher_DrainsInFlightEventOnCancel exercises teardown while the
+// TestSetupWatcher_DrainsInFlightEventOnStop exercises teardown while the
 // handler is running and a fresh event is mid-send: Start blocks sending to
 // s.Events because the debounce goroutine is busy in the handler. Cancellation
 // must still unwind cleanly — Start's in-flight send has to be drained (not
 // stranded) so both goroutines exit.
-func TestSetupWatcher_DrainsInFlightEventOnCancel(t *testing.T) {
+func TestSetupWatcher_DrainsInFlightEventOnStop(t *testing.T) {
 	dir := t.TempDir()
 	codeDir := filepath.Join(dir, "code")
 	require.NoError(t, os.MkdirAll(codeDir, 0o755))
@@ -109,7 +112,7 @@ func TestSetupWatcher_DrainsInFlightEventOnCancel(t *testing.T) {
 		return nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := context.Background()
 	conf := NewWatchConfiguration(builders.NewDependencies("test",
 		builders.NewDependency("code").WithPathSelect(shared.NewSelect("*.go"))))
 	require.NoError(t, base.SetupWatcher(ctx, conf, handler))
@@ -126,10 +129,10 @@ func TestSetupWatcher_DrainsInFlightEventOnCancel(t *testing.T) {
 	}
 
 	// Second save while the handler is blocked → Start parks on the send to
-	// s.Events. Then cancel mid-handler and release.
+	// s.Events. Then stop mid-handler and release.
 	save(t, target, "package main\n// two\n")
 	time.Sleep(150 * time.Millisecond) // let the second event reach Start's send
-	cancel()
+	base.StopWatcher()
 	close(release)
 
 	waitWatcherGoroutines(t, 0, 3*time.Second)

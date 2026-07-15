@@ -102,9 +102,8 @@ func DirectoryExists(ctx context.Context, dir string) (bool, error) {
 	return true, nil
 }
 
-// CheckEmptyDirectoryOrCreate checks if a directory exists and is empty
-// bool if created
-// err only for unexpected behavior or if exists
+// CheckEmptyDirectoryOrCreate ensures dir exists and is empty.
+// It reports whether the directory was created.
 func CheckEmptyDirectoryOrCreate(ctx context.Context, dir string) (bool, error) {
 	w := wool.Get(ctx).In("shared.CheckEmptyDirectoryOrCreate", wool.DirField(dir))
 	if dir == "" {
@@ -114,18 +113,18 @@ func CheckEmptyDirectoryOrCreate(ctx context.Context, dir string) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	if exists {
-		return false, nil
+	if !exists {
+		return CheckDirectoryOrCreate(ctx, dir)
 	}
-	// Check if directory is empty
+
 	empty, err := CheckEmptyDirectory(ctx, dir)
 	if err != nil {
 		return false, w.Wrapf(err, "cannot check directory")
 	}
-	if empty {
-		return CheckDirectoryOrCreate(ctx, dir)
+	if !empty {
+		return false, w.NewError("directory is not empty")
 	}
-	return true, nil
+	return false, nil
 }
 
 // CheckEmptyDirectory checks if a directory exists and is empty
@@ -240,6 +239,46 @@ func checkDirectoryOrCreateMode(ctx context.Context, dir string, mode os.FileMod
 	return true, nil
 }
 
+// WriteFileAtomic writes data to a temporary file in the destination directory,
+// flushes it, and renames it over path. Keeping the temporary file on the same
+// filesystem makes the rename atomic, so readers observe either the old file or
+// the complete new file rather than a truncated intermediate state.
+func WriteFileAtomic(ctx context.Context, path string, data []byte, mode os.FileMode) error {
+	w := wool.Get(ctx).In("shared.WriteFileAtomic", wool.Field("path", path))
+	dir := filepath.Dir(path)
+	if _, err := CheckDirectoryOrCreate(ctx, dir); err != nil {
+		return w.Wrapf(err, "cannot ensure parent dir")
+	}
+
+	tmp, err := os.CreateTemp(dir, ".codefly-write-*")
+	if err != nil {
+		return w.Wrapf(err, "cannot create temporary file")
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	closeWithError := func(cause error) error {
+		_ = tmp.Close()
+		return cause
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		return closeWithError(w.Wrapf(err, "cannot chmod temporary file"))
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return closeWithError(w.Wrapf(err, "cannot write temporary file"))
+	}
+	if err := tmp.Sync(); err != nil {
+		return closeWithError(w.Wrapf(err, "cannot sync temporary file"))
+	}
+	if err := tmp.Close(); err != nil {
+		return w.Wrapf(err, "cannot close temporary file")
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return w.Wrapf(err, "cannot rename temporary file to %s", path)
+	}
+	return nil
+}
+
 // WriteFileSecure writes data to path with 0o600 perms (owner
 // read+write only). Use for secrets — refresh token signing keys,
 // Vault tokens, dev fixture passwords, etc. The parent directory
@@ -253,29 +292,7 @@ func WriteFileSecure(ctx context.Context, path string, data []byte) error {
 	if _, err := CheckDirectoryOrCreateSecure(ctx, dir); err != nil {
 		return w.Wrapf(err, "cannot ensure parent dir")
 	}
-	tmp, err := os.CreateTemp(dir, ".codefly-secret-*")
-	if err != nil {
-		return w.Wrapf(err, "cannot create tmp file")
-	}
-	tmpPath := tmp.Name()
-	// Best-effort cleanup of the tmp file on any failure path below;
-	// rename() swallows it on success.
-	defer func() { _ = os.Remove(tmpPath) }()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return w.Wrapf(err, "cannot chmod tmp file")
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return w.Wrapf(err, "cannot write tmp file")
-	}
-	if err := tmp.Close(); err != nil {
-		return w.Wrapf(err, "cannot close tmp file")
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return w.Wrapf(err, "cannot rename tmp file to %s", path)
-	}
-	return nil
+	return WriteFileAtomic(ctx, path, data, 0o600)
 }
 
 func CopyFile(_ context.Context, from string, to string) error {

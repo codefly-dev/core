@@ -1,10 +1,100 @@
 package services
 
 import (
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/codefly-dev/core/agents/manager"
 	"github.com/codefly-dev/core/resources"
 )
+
+func resetConnectionCacheForTest() {
+	connCacheMu.Lock()
+	connCache = make(map[string]*manager.AgentConn)
+	connLoads = make(map[string]*connLoad)
+	connGeneration = 0
+	connCacheMu.Unlock()
+}
+
+func TestGetOrCreateConnLaunchesDifferentKeysConcurrently(t *testing.T) {
+	resetConnectionCacheForTest()
+	originalLoad := managerLoad
+	defer func() {
+		managerLoad = originalLoad
+		resetConnectionCacheForTest()
+	}()
+
+	var calls atomic.Int32
+	var serialized atomic.Bool
+	bothEntered := make(chan struct{})
+	managerLoad = func(context.Context, *resources.Agent, ...manager.LoadOption) (*manager.AgentConn, error) {
+		if calls.Add(1) == 2 {
+			close(bothEntered)
+		}
+		select {
+		case <-bothEntered:
+		case <-time.After(500 * time.Millisecond):
+			serialized.Store(true)
+		}
+		return nil, errors.New("test launch failure")
+	}
+
+	agent := &resources.Agent{Publisher: "codefly.dev", Name: "test", Version: "1"}
+	var wg sync.WaitGroup
+	for _, key := range []string{"module/one", "module/two"} {
+		key := key
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = getOrCreateConn(context.Background(), key, agent)
+		}()
+	}
+	wg.Wait()
+	if serialized.Load() || calls.Load() != 2 {
+		t.Fatalf("different keys were serialized: calls=%d serialized=%v", calls.Load(), serialized.Load())
+	}
+}
+
+func TestGetOrCreateConnCoalescesSameKey(t *testing.T) {
+	resetConnectionCacheForTest()
+	originalLoad := managerLoad
+	defer func() {
+		managerLoad = originalLoad
+		resetConnectionCacheForTest()
+	}()
+
+	var calls atomic.Int32
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	managerLoad = func(context.Context, *resources.Agent, ...manager.LoadOption) (*manager.AgentConn, error) {
+		if calls.Add(1) == 1 {
+			close(entered)
+		}
+		<-release
+		return nil, errors.New("test launch failure")
+	}
+
+	agent := &resources.Agent{Publisher: "codefly.dev", Name: "test", Version: "1"}
+	var wg sync.WaitGroup
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = getOrCreateConn(context.Background(), "module/service", agent)
+		}()
+	}
+	<-entered
+	time.Sleep(50 * time.Millisecond)
+	if calls.Load() != 1 {
+		t.Fatalf("same key launched %d agents, want 1", calls.Load())
+	}
+	close(release)
+	wg.Wait()
+}
 
 // TestServiceCacheKey_isolatesServicesSharingOneAgent is a regression test for the
 // shared-agent-state bug.
@@ -15,7 +105,9 @@ import (
 // whose per-service state (Endpoints, GrpcEndpoint, NetworkMappings) lives in one
 // struct, so the second service's Load OVERWROTE the first's — and the first then
 // resolved the second's endpoint at Init, failing with
-//   "no network instance for endpoint: platform/eventlog/grpc"
+//
+//	"no network instance for endpoint: platform/eventlog/grpc"
+//
 // while starting saas/accounts. Deterministic, and only when two services share an
 // agent (which is why a single go-grpc service per workspace never hit it).
 //

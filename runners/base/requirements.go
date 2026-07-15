@@ -36,38 +36,35 @@ func CheckPythonPath() (string, error) {
 	return "", fmt.Errorf("python/python3 is required and is not installed")
 }
 
-func CheckForRuntimes(ctx context.Context, requirements []*agentv0.Runtime) error {
-	w := wool.Get(ctx).In("CheckForRuntimes")
-	for _, req := range requirements {
-		switch req.Type {
-		case agentv0.Runtime_GO:
-			_, err := exec.LookPath("go")
-			if err != nil {
-				w.Warn("Go is required to run in native mode. But don't worry, you can still run in container mode!")
-			}
-		case agentv0.Runtime_NPM:
-			_, err := exec.LookPath("npm")
-			if err != nil {
-				w.Warn("NPM is required to run in native mode. But don't worry, you can still run in container mode!")
-			}
-		case agentv0.Runtime_PYTHON:
-			_, err := CheckPythonPath()
-			if err != nil {
+// CheckToolchains warns (does not fail) when a host toolchain required for LOCAL
+// mode is missing. Toolchains are irrelevant for the NIX/DOCKER backends (nix
+// availability is checked separately at runtime-context resolution), so this
+// only concerns the native/LOCAL path.
+func CheckToolchains(ctx context.Context, toolchains []*agentv0.Toolchain) error {
+	w := wool.Get(ctx).In("CheckToolchains")
+	warnMissing := func(bin, label string) {
+		if _, err := exec.LookPath(bin); err != nil {
+			w.Warn(label + " is required to run in native mode. But don't worry, you can still run in container mode!")
+		}
+	}
+	for _, tc := range toolchains {
+		switch tc.Type {
+		case agentv0.Toolchain_GO:
+			warnMissing("go", "Go")
+		case agentv0.Toolchain_NPM:
+			warnMissing("npm", "NPM")
+		case agentv0.Toolchain_PYTHON:
+			if _, err := CheckPythonPath(); err != nil {
 				w.Warn("Python is required to run in native mode. But don't worry, you can still run in container mode!")
 			}
-		case agentv0.Runtime_PYTHON_POETRY:
-			_, err := exec.LookPath("poetry")
-			if err != nil {
-				w.Warn("Poetry is required to run in native mode. But don't worry, you can still run in container mode!")
-			}
-		case agentv0.Runtime_NIX:
-			if !CheckNixInstalled() {
-				if IsNixSupported() {
-					w.Warn("Nix is not installed. Install with: " + NixInstallCommand())
-				} else {
-					w.Warn("Nix is not supported on this OS: " + runtime.GOOS)
-				}
-			}
+		case agentv0.Toolchain_PYTHON_POETRY:
+			warnMissing("poetry", "Poetry")
+		case agentv0.Toolchain_RUST:
+			warnMissing("rustc", "Rust")
+		case agentv0.Toolchain_CARGO:
+			warnMissing("cargo", "Cargo")
+		case agentv0.Toolchain_SWIFT:
+			warnMissing("swift", "Swift")
 		}
 	}
 	return nil

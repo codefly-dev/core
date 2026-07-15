@@ -56,9 +56,9 @@ Two issues:
 The gateway should evaluate the **tool's policy** (which can be
 richer than just RBAC — rate limits, conditional logic, time
 windows) and forward a **proof of evaluation** to the plugin. The
-plugin verifies the proof and proceeds without re-evaluating —
-unless the proof is missing/invalid, in which case it falls back
-to the existing callback.
+plugin verifies the proof and proceeds without re-evaluating. A
+missing proof falls back to the existing callback; a proof that is
+present but invalid is rejected without credential downgrade.
 
 This is the standard **API Gateway → backend** pattern (AWS
 APIGateway → Lambda, Kong → microservice, Envoy → upstream)
@@ -290,13 +290,13 @@ func (g *Guard) CallTool(ctx, req) (resp, err) {
             // Trust the gateway's decision; skip the PDP callback.
             return g.inner.CallTool(ctx, req)
         }
-        // Token present but invalid — log + fall through to PDP.
-        // Don't outright deny: the gateway might have a bug; the PDP
-        // is the SECOND defense layer that should catch it.
-        wool.Get(ctx).Warn("scoped-authz invalid; falling back to PDP",
+        // Token present but invalid — deny. It must not downgrade to
+        // the credential-less PDP path.
+        wool.Get(ctx).Warn("scoped-authz invalid; denying request",
             wool.Field("error", verr.Error()))
+        return denied("scoped-authz: invalid token")
     }
-    // No token, or invalid token — fall back to the existing PDP path.
+    // No token — fall back to the existing PDP path.
     return g.evaluateViaPDP(ctx, req)
 }
 ```
@@ -380,8 +380,8 @@ When does each layer run?
 | User invokes via Mind, hot path | ✅ mints token | ✅ verifies token (fast) | If plugin asks |
 | User invokes via Mind, gateway eval errors | (returns error) | (call never sent) | — |
 | Direct host call without gateway | — | ✅ falls back to PDP | If plugin asks |
-| Forged token | (didn't mint) | ✅ verify fails → PDP | If plugin asks |
-| Token expired mid-call | (didn't mint) | ✅ verify rejects → PDP | If plugin asks |
+| Forged token | (didn't mint) | ✅ verify fails → deny | — |
+| Token expired mid-call | (didn't mint) | ✅ verify rejects → deny | — |
 | Compromised plugin | (already vetted) | ✅ token bounds blast radius | (also bounded) |
 
 The defense-in-depth property: any single layer's failure leaves
@@ -430,7 +430,7 @@ can't escalate.
 | Adversary | Defense |
 |---|---|
 | Buggy plugin | Gateway-pre-vetted token; max_uses bounds; per-call scope |
-| Buggy gateway | Plugin's PDP fallback enforces if token absent/invalid |
+| Buggy gateway | Missing token uses PDP fallback; invalid token is denied |
 | Network attacker reading metadata | Token is short-lived + scoped; UDS transport limits visibility |
 | Network attacker injecting tokens | HMAC signature; per-spawn secret; audience binding |
 | Replay | Unique token id + max_uses + expiry |
@@ -621,11 +621,11 @@ operators don't think they're configuring something.
    bound to AgentConn lifetime. We already have this pattern with
    `CODEFLY_AGENT_TOKEN`.
 
-6. **Fallback policy when token verify fails.** Two options:
-   (a) deny outright, (b) fall through to PDP. **Recommendation:
-   (b) fall through with a WARN log.** A misconfigured gateway
-   shouldn't break the system; the PDP is the second defense
-   layer that should catch any actual abuse.
+6. **Fallback policy when token verify fails.** A present invalid
+   credential is denied with a WARN audit event. Only an absent
+   credential falls through to the PDP. This prevents an attacker
+   from converting failed authentication into an unauthenticated
+   authorization attempt.
 
 7. **Metadata header name.** Recommendation: `x-codefly-scoped-authz`
    (consistent with `x-codefly-token`, `x-codefly-principal`).

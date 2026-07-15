@@ -110,6 +110,7 @@ func TestNativeGit_Branches(t *testing.T) {
 		}
 	}
 	git("init", "-b", "main")
+	git("config", "commit.gpgsign", "false")
 	git("commit", "--allow-empty", "-m", "init")
 
 	ng := OpenNativeGit(dir)

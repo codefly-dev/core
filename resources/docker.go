@@ -9,11 +9,17 @@ type DockerImage struct {
 	Repository string
 	Name       string
 	Tag        string
+	// Digest pins an immutable manifest (for example sha256:...). When set it
+	// takes precedence over Tag in FullName; Tag can still retain the human
+	// release label associated with the digest.
+	Digest string
 }
 
 func (image *DockerImage) FullName() string {
 	base := image.Name
-	if image.Tag != "" {
+	if image.Digest != "" {
+		base = fmt.Sprintf("%s@%s", image.Name, image.Digest)
+	} else if image.Tag != "" {
 		base = fmt.Sprintf("%s:%s", image.Name, image.Tag)
 	}
 	if image.Repository == "" {

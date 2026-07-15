@@ -25,8 +25,8 @@ type CachedVFS struct {
 	entries      map[string]*cachedEntry // absolute path → entry
 	watcher      *fsnotify.Watcher
 	stopCh       chan struct{}
-	contentCache *ByteLRU       // optional: caches file content in RAM (nil = disabled)
-	trigramIdx   *TrigramIndex  // optional: trigram index for fast search (nil = disabled)
+	contentCache *ByteLRU      // optional: caches file content in RAM (nil = disabled)
+	trigramIdx   *TrigramIndex // optional: trigram index for fast search (nil = disabled)
 }
 
 type cachedEntry struct {
@@ -103,25 +103,44 @@ func (c *CachedVFS) addWatchDirs() {
 
 // watchLoop processes fsnotify events and updates the cache.
 func (c *CachedVFS) watchLoop() {
-	// Debounce: collect events for 50ms then process batch
-	timer := time.NewTimer(50 * time.Millisecond)
-	timer.Stop()
-	var pending []fsnotify.Event
+	// Use a bounded 50ms collection window. Resetting a debounce timer on every
+	// event can postpone processing forever under sustained filesystem churn.
+	var timer *time.Timer
+	var timerC <-chan time.Time
+	pending := make(map[string]fsnotify.Event)
 
 	for {
 		select {
 		case <-c.stopCh:
-			timer.Stop()
+			if timer != nil {
+				timer.Stop()
+			}
 			return
 		case ev, ok := <-c.watcher.Events:
 			if !ok {
 				return
 			}
-			pending = append(pending, ev)
-			timer.Reset(50 * time.Millisecond)
-		case <-timer.C:
-			c.processBatch(pending)
-			pending = pending[:0]
+			// The last event for a path describes its final state within this
+			// window (important for atomic rename-then-create saves).
+			pending[filepath.Clean(ev.Name)] = ev
+			if timer == nil {
+				timer = time.NewTimer(50 * time.Millisecond)
+				timerC = timer.C
+			}
+		case <-timerC:
+			paths := make([]string, 0, len(pending))
+			for path := range pending {
+				paths = append(paths, path)
+			}
+			sort.Strings(paths)
+			events := make([]fsnotify.Event, 0, len(paths))
+			for _, path := range paths {
+				events = append(events, pending[path])
+				delete(pending, path)
+			}
+			timer = nil
+			timerC = nil
+			c.processBatch(events)
 		case _, ok := <-c.watcher.Errors:
 			if !ok {
 				return
@@ -131,66 +150,124 @@ func (c *CachedVFS) watchLoop() {
 }
 
 func (c *CachedVFS) processBatch(events []fsnotify.Event) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	for _, ev := range events {
 		abs := filepath.Clean(ev.Name)
 
 		if ev.Has(fsnotify.Remove) || ev.Has(fsnotify.Rename) {
-			// Remove entry and all children (if directory)
-			if entry, ok := c.entries[abs]; ok && entry.isDir {
-				prefix := abs + string(filepath.Separator)
-				for p := range c.entries {
-					if strings.HasPrefix(p, prefix) {
-						delete(c.entries, p)
-						if c.contentCache != nil {
-							c.contentCache.Invalidate(p)
-						}
-					}
-				}
-				if c.watcher != nil {
-					_ = c.watcher.Remove(abs)
-				}
-			}
-			delete(c.entries, abs)
-			if c.contentCache != nil {
-				c.contentCache.Invalidate(abs)
-			}
-			if c.trigramIdx != nil {
-				rel, _ := filepath.Rel(c.root, abs)
-				c.trigramIdx.RemoveFile(rel)
-			}
+			c.removeCachedPath(abs)
 			continue
 		}
 
 		if ev.Has(fsnotify.Create) || ev.Has(fsnotify.Write) || ev.Has(fsnotify.Chmod) {
 			info, err := c.base.Stat(abs)
 			if err != nil {
-				delete(c.entries, abs)
+				c.removeCachedPath(abs)
 				continue
 			}
-			c.entries[abs] = &cachedEntry{
+			if info.IsDir() {
+				if skipDirs[info.Name()] {
+					c.removeCachedPath(abs)
+					continue
+				}
+				entries, watchDirs := c.scanSubtree(abs)
+				c.mu.Lock()
+				for path, entry := range entries {
+					c.entries[path] = entry
+				}
+				c.mu.Unlock()
+				if c.watcher != nil {
+					for _, dir := range watchDirs {
+						_ = c.watcher.Add(dir)
+					}
+				}
+				c.refreshFileIndexes(entries)
+				continue
+			}
+
+			entry := &cachedEntry{
 				name:    info.Name(),
 				size:    info.Size(),
 				modTime: info.ModTime(),
-				isDir:   info.IsDir(),
+				isDir:   false,
 			}
-			if info.IsDir() && !skipDirs[info.Name()] && c.watcher != nil {
-				_ = c.watcher.Add(abs)
+			c.mu.Lock()
+			c.entries[abs] = entry
+			c.mu.Unlock()
+			if c.contentCache != nil {
+				c.contentCache.Invalidate(abs)
 			}
-			if !info.IsDir() {
-				// Invalidate content cache on file change (lazy reload on next read).
-				if c.contentCache != nil {
-					c.contentCache.Invalidate(abs)
+			if c.trigramIdx != nil {
+				rel, _ := filepath.Rel(c.root, abs)
+				if data, err := c.base.ReadFile(abs); err == nil {
+					c.trigramIdx.AddFile(rel, data)
 				}
-				// Update trigram index with new content.
-				if c.trigramIdx != nil {
-					rel, _ := filepath.Rel(c.root, abs)
-					if data, err := c.base.ReadFile(abs); err == nil {
-						c.trigramIdx.AddFile(rel, data)
-					}
-				}
+			}
+		}
+	}
+}
+
+func (c *CachedVFS) scanSubtree(root string) (map[string]*cachedEntry, []string) {
+	entries := make(map[string]*cachedEntry)
+	var watchDirs []string
+	_ = c.base.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && skipDirs[d.Name()] && filepath.Clean(path) != filepath.Clean(root) {
+			return fs.SkipDir
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		abs := filepath.Clean(path)
+		entries[abs] = &cachedEntry{name: d.Name(), size: info.Size(), modTime: info.ModTime(), isDir: d.IsDir()}
+		if d.IsDir() {
+			watchDirs = append(watchDirs, abs)
+		}
+		return nil
+	})
+	return entries, watchDirs
+}
+
+func (c *CachedVFS) removeCachedPath(abs string) {
+	prefix := abs + string(filepath.Separator)
+	removed := map[string]struct{}{abs: {}}
+	c.mu.Lock()
+	for path := range c.entries {
+		if path == abs || strings.HasPrefix(path, prefix) {
+			removed[path] = struct{}{}
+			delete(c.entries, path)
+		}
+	}
+	c.mu.Unlock()
+
+	for path := range removed {
+		if c.contentCache != nil {
+			c.contentCache.Invalidate(path)
+		}
+		if c.trigramIdx != nil {
+			rel, _ := filepath.Rel(c.root, path)
+			c.trigramIdx.RemoveFile(rel)
+		}
+	}
+	if c.watcher != nil {
+		_ = c.watcher.Remove(abs)
+	}
+}
+
+func (c *CachedVFS) refreshFileIndexes(entries map[string]*cachedEntry) {
+	for path, entry := range entries {
+		if entry.isDir {
+			continue
+		}
+		if c.contentCache != nil {
+			c.contentCache.Invalidate(path)
+		}
+		if c.trigramIdx != nil {
+			rel, _ := filepath.Rel(c.root, path)
+			if data, err := c.base.ReadFile(path); err == nil {
+				c.trigramIdx.AddFile(rel, data)
 			}
 		}
 	}
@@ -277,13 +354,65 @@ func (c *CachedVFS) Rename(oldpath, newpath string) error {
 	}
 	oldAbs := filepath.Clean(oldpath)
 	newAbs := filepath.Clean(newpath)
+	oldPrefix := oldAbs + string(filepath.Separator)
+	type movedPath struct {
+		old, new string
+		entry    *cachedEntry
+	}
+	var moved []movedPath
 	c.mu.Lock()
-	if entry, ok := c.entries[oldAbs]; ok {
-		entry.name = filepath.Base(newAbs)
-		c.entries[newAbs] = entry
-		delete(c.entries, oldAbs)
+	for path, entry := range c.entries {
+		if path != oldAbs && !strings.HasPrefix(path, oldPrefix) {
+			continue
+		}
+		rel, relErr := filepath.Rel(oldAbs, path)
+		if relErr != nil {
+			continue
+		}
+		target := newAbs
+		if rel != "." {
+			target = filepath.Join(newAbs, rel)
+		}
+		copyEntry := *entry
+		if path == oldAbs {
+			copyEntry.name = filepath.Base(newAbs)
+		}
+		moved = append(moved, movedPath{old: path, new: target, entry: &copyEntry})
+	}
+	for _, item := range moved {
+		delete(c.entries, item.old)
+		c.entries[item.new] = item.entry
 	}
 	c.mu.Unlock()
+
+	// Invalidate the explicit endpoints even when metadata was absent. A file
+	// can be read into the content cache before its fsnotify Create is flushed.
+	if c.contentCache != nil {
+		c.contentCache.Invalidate(oldAbs)
+		c.contentCache.Invalidate(newAbs)
+	}
+	if c.trigramIdx != nil {
+		oldRel, _ := filepath.Rel(c.root, oldAbs)
+		c.trigramIdx.RemoveFile(oldRel)
+	}
+	for _, item := range moved {
+		if c.contentCache != nil {
+			c.contentCache.Invalidate(item.old)
+			c.contentCache.Invalidate(item.new)
+		}
+		if c.trigramIdx != nil && !item.entry.isDir {
+			oldRel, _ := filepath.Rel(c.root, item.old)
+			newRel, _ := filepath.Rel(c.root, item.new)
+			c.trigramIdx.RemoveFile(oldRel)
+			if data, readErr := c.base.ReadFile(item.new); readErr == nil {
+				c.trigramIdx.AddFile(newRel, data)
+			}
+		}
+		if item.entry.isDir && c.watcher != nil {
+			_ = c.watcher.Remove(item.old)
+			_ = c.watcher.Add(item.new)
+		}
+	}
 	return nil
 }
 
@@ -317,6 +446,7 @@ func (c *CachedVFS) MkdirAll(path string, perm os.FileMode) error {
 		return err
 	}
 	abs := filepath.Clean(path)
+	var added []string
 	c.mu.Lock()
 	for d := abs; d != filepath.Dir(d); d = filepath.Dir(d) {
 		if _, ok := c.entries[d]; ok {
@@ -327,8 +457,14 @@ func (c *CachedVFS) MkdirAll(path string, perm os.FileMode) error {
 			isDir:   true,
 			modTime: time.Now(),
 		}
+		added = append(added, d)
 	}
 	c.mu.Unlock()
+	if c.watcher != nil {
+		for _, dir := range added {
+			_ = c.watcher.Add(dir)
+		}
+	}
 	return nil
 }
 
@@ -415,9 +551,14 @@ type cachedDirEntry struct {
 	entry *cachedEntry
 }
 
-func (d *cachedDirEntry) Name() string               { return d.entry.name }
-func (d *cachedDirEntry) IsDir() bool                 { return d.entry.isDir }
-func (d *cachedDirEntry) Type() fs.FileMode           { if d.entry.isDir { return fs.ModeDir }; return 0 }
-func (d *cachedDirEntry) Info() (fs.FileInfo, error)   {
+func (d *cachedDirEntry) Name() string { return d.entry.name }
+func (d *cachedDirEntry) IsDir() bool  { return d.entry.isDir }
+func (d *cachedDirEntry) Type() fs.FileMode {
+	if d.entry.isDir {
+		return fs.ModeDir
+	}
+	return 0
+}
+func (d *cachedDirEntry) Info() (fs.FileInfo, error) {
 	return &memFileInfo{name: d.entry.name, size: d.entry.size, dir: d.entry.isDir, modTime: d.entry.modTime}, nil
 }

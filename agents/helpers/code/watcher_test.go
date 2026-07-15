@@ -114,3 +114,84 @@ func TestWatcher_SkipsTransientTempFiles(t *testing.T) {
 		t.Fatal("real .go write produced no change — hot-reload broken")
 	}
 }
+
+// TestWatcher_NamedFileDependencyDoesNotMatchSiblings locks the component
+// scoping rule: a dependency on service.codefly.yaml must not turn its parent
+// directory into an unfiltered watch root.
+func TestWatcher_NamedFileDependencyDoesNotMatchSiblings(t *testing.T) {
+	base := t.TempDir()
+	serviceFile := filepath.Join(base, "service.codefly.yaml")
+	if err := os.WriteFile(serviceFile, []byte("name: test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	deps := builders.NewDependencies("test", builders.NewDependency("service.codefly.yaml"))
+	events := make(chan Change, 16)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w, err := NewWatcher(ctx, events, base, deps)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	go w.Start(ctx)
+	time.Sleep(150 * time.Millisecond)
+
+	if err := os.WriteFile(filepath.Join(base, "README.md"), []byte("unrelated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-events:
+		t.Fatalf("unrelated sibling fired a change: %q", ev.Path)
+	case <-time.After(400 * time.Millisecond):
+	}
+
+	if err := os.WriteFile(serviceFile, []byte("name: changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-events:
+		if filepath.Base(ev.Path) != "service.codefly.yaml" {
+			t.Fatalf("change path = %q, want service.codefly.yaml", ev.Path)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("named dependency update produced no change")
+	}
+}
+
+func TestWatcher_CancelUnblocksPendingEventSend(t *testing.T) {
+	base := t.TempDir()
+	codeDir := filepath.Join(base, "code")
+	if err := os.MkdirAll(codeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(codeDir, "main.go")
+	if err := os.WriteFile(target, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Deliberately leave this unbuffered with no receiver: the watcher must
+	// still honor cancellation while an event delivery is pending.
+	events := make(chan Change)
+	ctx, cancel := context.WithCancel(context.Background())
+	w, err := NewWatcher(ctx, events, base, builders.NewDependencies("test",
+		builders.NewDependency("code").WithPathSelect(shared.NewSelect("*.go"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		w.Start(ctx)
+		close(done)
+	}()
+	time.Sleep(150 * time.Millisecond)
+	if err := os.WriteFile(target, []byte("package main\n// changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("watcher remained blocked sending an event after cancellation")
+	}
+}

@@ -1,6 +1,9 @@
 package code
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 // TrigramIndex provides sub-linear text search by maintaining posting lists
 // of trigrams (3-byte sequences) to file IDs. A search query extracts trigrams,
@@ -8,11 +11,12 @@ import "sync"
 //
 // Typical speedup: 10-100x on large repos vs linear scan.
 type TrigramIndex struct {
-	mu      sync.RWMutex
-	posting map[trigram]map[uint32]struct{} // trigram -> set of file IDs
-	fileIDs map[string]uint32              // path -> numeric ID
-	idFiles map[uint32]string              // numeric ID -> path
-	nextID  uint32
+	mu           sync.RWMutex
+	posting      map[trigram]map[uint32]struct{} // trigram -> set of file IDs
+	fileIDs      map[string]uint32               // path -> numeric ID
+	idFiles      map[uint32]string               // numeric ID -> path
+	fileTrigrams map[uint32][]trigram            // file ID -> its posting keys
+	nextID       uint32
 }
 
 // trigram is a 3-byte sequence used as an index key.
@@ -21,9 +25,10 @@ type trigram [3]byte
 // NewTrigramIndex creates an empty trigram index.
 func NewTrigramIndex() *TrigramIndex {
 	return &TrigramIndex{
-		posting: make(map[trigram]map[uint32]struct{}),
-		fileIDs: make(map[string]uint32),
-		idFiles: make(map[uint32]string),
+		posting:      make(map[trigram]map[uint32]struct{}),
+		fileIDs:      make(map[string]uint32),
+		idFiles:      make(map[uint32]string),
+		fileTrigrams: make(map[uint32][]trigram),
 	}
 }
 
@@ -33,15 +38,18 @@ func (idx *TrigramIndex) AddFile(path string, content []byte) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	// Remove old entry if exists.
-	if id, ok := idx.fileIDs[path]; ok {
-		idx.removeFileID(id)
+	// Reuse the existing ID on reindex. The previous implementation allocated
+	// a new ID but never removed the old idFiles entry, so short-pattern queries
+	// accumulated duplicate stale paths after every save.
+	id, ok := idx.fileIDs[path]
+	if ok {
+		idx.removeFilePostings(id)
+	} else {
+		id = idx.nextID
+		idx.nextID++
+		idx.fileIDs[path] = id
+		idx.idFiles[id] = path
 	}
-
-	id := idx.nextID
-	idx.nextID++
-	idx.fileIDs[path] = id
-	idx.idFiles[id] = path
 
 	// Extract lowercase trigrams for case-insensitive matching.
 	// Storing lowercase means case-insensitive queries work naturally.
@@ -54,6 +62,7 @@ func (idx *TrigramIndex) AddFile(path string, content []byte) {
 			continue
 		}
 		seen[t] = struct{}{}
+		idx.fileTrigrams[id] = append(idx.fileTrigrams[id], t)
 		if idx.posting[t] == nil {
 			idx.posting[t] = make(map[uint32]struct{})
 		}
@@ -70,19 +79,22 @@ func (idx *TrigramIndex) RemoveFile(path string) {
 	if !ok {
 		return
 	}
-	idx.removeFileID(id)
+	idx.removeFilePostings(id)
 	delete(idx.fileIDs, path)
 	delete(idx.idFiles, id)
 }
 
-// removeFileID removes a file ID from all posting lists. Must be called with mu held.
-func (idx *TrigramIndex) removeFileID(id uint32) {
-	for t, files := range idx.posting {
+// removeFilePostings removes a file ID from only its own posting lists. Must be
+// called with mu held.
+func (idx *TrigramIndex) removeFilePostings(id uint32) {
+	for _, t := range idx.fileTrigrams[id] {
+		files := idx.posting[t]
 		delete(files, id)
 		if len(files) == 0 {
 			delete(idx.posting, t)
 		}
 	}
+	delete(idx.fileTrigrams, id)
 }
 
 // Query returns candidate file paths that contain ALL trigrams from the pattern.
@@ -100,6 +112,7 @@ func (idx *TrigramIndex) Query(pattern string) []string {
 		for _, path := range idx.idFiles {
 			result = append(result, path)
 		}
+		sort.Strings(result)
 		return result
 	}
 
@@ -140,6 +153,7 @@ func (idx *TrigramIndex) Query(pattern string) []string {
 			result = append(result, path)
 		}
 	}
+	sort.Strings(result)
 	return result
 }
 

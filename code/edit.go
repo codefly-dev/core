@@ -13,40 +13,72 @@ type EditResult struct {
 	OK       bool
 }
 
-// SmartEdit tries all matching strategies to apply a FIND/REPLACE on content.
-// Strategies are tried in order of decreasing precision:
+// SmartEditOptions controls strategies that may replace text which is not
+// equivalent to the FIND block. Approximate matching is disabled by default.
+type SmartEditOptions struct {
+	AllowFuzzy bool
+}
+
+type editAttempt struct {
+	content   string
+	matched   bool
+	ambiguous bool
+}
+
+type editStrategy struct {
+	name string
+	try  func() editAttempt
+}
+
+// SmartEdit applies only exact/equivalent FIND strategies. Use
+// SmartEditWithOptions with AllowFuzzy for explicit approximate recovery.
+func SmartEdit(content, find, replace string) EditResult {
+	return SmartEditWithOptions(content, find, replace, SmartEditOptions{})
+}
+
+// SmartEditWithOptions tries matching strategies in decreasing precision:
 //  1. Exact substring match
 //  2. Trailing whitespace normalized
 //  3. Fully trimmed (all leading+trailing whitespace per line)
 //  4. Indentation-shifted (same content, different indent level)
+//
+// When AllowFuzzy is true it additionally enables:
 //  5. Anchor-based (first+last unique lines locate the region)
 //  6. Fuzzy scored (Levenshtein per line)
 //  7. Fuzzy block (60% line match threshold)
-func SmartEdit(content, find, replace string) EditResult {
-	if strings.Contains(content, find) {
+func SmartEditWithOptions(content, find, replace string, opts SmartEditOptions) EditResult {
+	if find == "" {
+		return EditResult{OK: false}
+	}
+	if count := strings.Count(content, find); count > 1 {
+		return EditResult{Strategy: "ambiguous", OK: false}
+	} else if count == 1 {
 		return EditResult{
 			Content:  strings.Replace(content, find, replace, 1),
 			Strategy: "exact",
 			OK:       true,
 		}
 	}
-	if updated, ok := tryNormReplace(content, find, replace, normTrailing); ok {
-		return EditResult{Content: updated, Strategy: "trailing", OK: true}
+	strategies := []editStrategy{
+		{"trailing", func() editAttempt { return tryNormReplace(content, find, replace, normTrailing) }},
+		{"trimmed", func() editAttempt { return tryNormReplace(content, find, replace, normFull) }},
+		{"indent_shifted", func() editAttempt { return tryIndentShifted(content, find, replace) }},
 	}
-	if updated, ok := tryNormReplace(content, find, replace, normFull); ok {
-		return EditResult{Content: updated, Strategy: "trimmed", OK: true}
+	if opts.AllowFuzzy {
+		strategies = append(strategies,
+			editStrategy{"anchor", func() editAttempt { return tryAnchor(content, find, replace) }},
+			editStrategy{"fuzzy_score", func() editAttempt { return fuzzyScore(content, find, replace) }},
+			editStrategy{"fuzzy_block", func() editAttempt { return fuzzyBlock(content, find, replace) }},
+		)
 	}
-	if updated, ok := tryIndentShifted(content, find, replace); ok {
-		return EditResult{Content: updated, Strategy: "indent_shifted", OK: true}
-	}
-	if updated, ok := tryAnchor(content, find, replace); ok {
-		return EditResult{Content: updated, Strategy: "anchor", OK: true}
-	}
-	if updated, ok := fuzzyScore(content, find, replace); ok {
-		return EditResult{Content: updated, Strategy: "fuzzy_score", OK: true}
-	}
-	if updated, ok := fuzzyBlock(content, find, replace); ok {
-		return EditResult{Content: updated, Strategy: "fuzzy_block", OK: true}
+	for _, strategy := range strategies {
+		attempt := strategy.try()
+		if attempt.ambiguous {
+			return EditResult{Strategy: "ambiguous", OK: false}
+		}
+		if attempt.matched {
+			return EditResult{Content: attempt.content, Strategy: strategy.name, OK: true}
+		}
 	}
 	return EditResult{OK: false}
 }
@@ -71,15 +103,16 @@ func normFull(s string) string {
 
 // ─── Strategy 2/3: Normalized replace ────────────────────────
 
-func tryNormReplace(content, find, replace string, norm func(string) string) (string, bool) {
+func tryNormReplace(content, find, replace string, norm func(string) string) editAttempt {
 	contentLines := strings.Split(content, "\n")
 	nf := norm(find)
 	findLines := strings.Split(nf, "\n")
 
 	if nf == "" {
-		return "", false
+		return editAttempt{}
 	}
 
+	matchIdx := -1
 	for i := 0; i <= len(contentLines)-len(findLines); i++ {
 		match := true
 		for j := 0; j < len(findLines); j++ {
@@ -89,29 +122,29 @@ func tryNormReplace(content, find, replace string, norm func(string) string) (st
 			}
 		}
 		if match {
-			var result []string
-			result = append(result, contentLines[:i]...)
-			result = append(result, strings.Split(replace, "\n")...)
-			result = append(result, contentLines[i+len(findLines):]...)
-			return strings.Join(result, "\n"), true
+			if matchIdx >= 0 {
+				return editAttempt{ambiguous: true}
+			}
+			matchIdx = i
 		}
 	}
-	return "", false
+	return replaceLines(contentLines, matchIdx, len(findLines), replace)
 }
 
 // ─── Strategy 4: Indentation-shifted ─────────────────────────
 
-func tryIndentShifted(content, find, replace string) (string, bool) {
+func tryIndentShifted(content, find, replace string) editAttempt {
 	contentLines := strings.Split(content, "\n")
 	findLines := strings.Split(find, "\n")
 	n := len(findLines)
 
 	if n == 0 || n > len(contentLines) {
-		return "", false
+		return editAttempt{}
 	}
 
 	dedentedFind := DedentLines(findLines)
 
+	matchIdx := -1
 	for i := 0; i <= len(contentLines)-n; i++ {
 		slice := contentLines[i : i+n]
 		dedentedSlice := DedentLines(slice)
@@ -124,14 +157,13 @@ func tryIndentShifted(content, find, replace string) (string, bool) {
 			}
 		}
 		if match {
-			var result []string
-			result = append(result, contentLines[:i]...)
-			result = append(result, strings.Split(replace, "\n")...)
-			result = append(result, contentLines[i+n:]...)
-			return strings.Join(result, "\n"), true
+			if matchIdx >= 0 {
+				return editAttempt{ambiguous: true}
+			}
+			matchIdx = i
 		}
 	}
-	return "", false
+	return replaceLines(contentLines, matchIdx, n, replace)
 }
 
 // DedentLines strips the minimum common leading whitespace from all non-empty lines.
@@ -164,13 +196,13 @@ func DedentLines(lines []string) []string {
 
 // ─── Strategy 5: Anchor-based ────────────────────────────────
 
-func tryAnchor(content, find, replace string) (string, bool) {
+func tryAnchor(content, find, replace string) editAttempt {
 	findLines := strings.Split(find, "\n")
 	contentLines := strings.Split(content, "\n")
 	n := len(findLines)
 
 	if n < 3 {
-		return "", false
+		return editAttempt{}
 	}
 
 	firstAnchor, lastAnchor := "", ""
@@ -188,40 +220,45 @@ func tryAnchor(content, find, replace string) (string, bool) {
 	}
 
 	if firstAnchor == "" || lastAnchor == "" || firstAnchor == lastAnchor {
-		return "", false
+		return editAttempt{}
 	}
 
-	firstIdx := -1
-	for i, l := range contentLines {
-		if strings.TrimSpace(l) == firstAnchor && firstIdx < 0 {
-			firstIdx = i
+	matchStart, matchSpan := -1, 0
+	for start, line := range contentLines {
+		if strings.TrimSpace(line) != firstAnchor {
+			continue
 		}
-		if firstIdx >= 0 && strings.TrimSpace(l) == lastAnchor && i > firstIdx {
-			span := i - firstIdx + 1
-			if span >= n*7/10 && span <= n*13/10 {
-				var result []string
-				result = append(result, contentLines[:firstIdx]...)
-				result = append(result, strings.Split(replace, "\n")...)
-				result = append(result, contentLines[i+1:]...)
-				return strings.Join(result, "\n"), true
+		for end := start + 1; end < len(contentLines); end++ {
+			span := end - start + 1
+			if span > n*13/10 {
+				break
+			}
+			if strings.TrimSpace(contentLines[end]) == lastAnchor {
+				if span >= n*7/10 && span <= n*13/10 {
+					if matchStart >= 0 {
+						return editAttempt{ambiguous: true}
+					}
+					matchStart, matchSpan = start, span
+				}
 			}
 		}
 	}
-	return "", false
+	return replaceLines(contentLines, matchStart, matchSpan, replace)
 }
 
 // ─── Strategy 6: Fuzzy scored (Levenshtein) ──────────────────
 
-func fuzzyScore(content, find, replace string) (string, bool) {
+func fuzzyScore(content, find, replace string) editAttempt {
 	contentLines := strings.Split(content, "\n")
 	findLines := strings.Split(find, "\n")
 	n := len(findLines)
 
 	if n == 0 || n > len(contentLines) {
-		return "", false
+		return editAttempt{}
 	}
 
 	bestIdx, bestDist := -1, -1
+	tied := false
 
 	for i := 0; i <= len(contentLines)-n; i++ {
 		totalDist := 0
@@ -246,18 +283,19 @@ func fuzzyScore(content, find, replace string) (string, bool) {
 		if bestDist < 0 || totalDist < bestDist {
 			bestDist = totalDist
 			bestIdx = i
+			tied = false
+		} else if totalDist == bestDist {
+			tied = true
 		}
 	}
 
-	if bestIdx < 0 || bestDist/n > 3 {
-		return "", false
+	if bestIdx < 0 || bestDist > n*3 {
+		return editAttempt{}
 	}
-
-	var result []string
-	result = append(result, contentLines[:bestIdx]...)
-	result = append(result, strings.Split(replace, "\n")...)
-	result = append(result, contentLines[bestIdx+n:]...)
-	return strings.Join(result, "\n"), true
+	if tied {
+		return editAttempt{ambiguous: true}
+	}
+	return replaceLines(contentLines, bestIdx, n, replace)
 }
 
 // Levenshtein computes the edit distance between two strings.
@@ -302,16 +340,17 @@ func min3(a, b, c int) int {
 
 // ─── Strategy 7: Fuzzy block (60% threshold) ─────────────────
 
-func fuzzyBlock(content, find, replace string) (string, bool) {
+func fuzzyBlock(content, find, replace string) editAttempt {
 	contentLines := strings.Split(content, "\n")
 	findLines := strings.Split(find, "\n")
 	n := len(findLines)
 
 	if n == 0 || n > len(contentLines) {
-		return "", false
+		return editAttempt{}
 	}
 
 	bestIdx, bestScore := -1, 0
+	tied := false
 
 	for i := 0; i <= len(contentLines)-n; i++ {
 		score := 0
@@ -323,20 +362,32 @@ func fuzzyBlock(content, find, replace string) (string, bool) {
 		if score > bestScore {
 			bestScore = score
 			bestIdx = i
+			tied = false
+		} else if score == bestScore && score > 0 {
+			tied = true
 		}
 	}
 
-	threshold := (n * 6) / 10
+	threshold := (n*6 + 9) / 10 // ceil(60%); two lines require two matches.
 	if threshold < 1 {
 		threshold = 1
 	}
 	if bestScore < threshold {
-		return "", false
+		return editAttempt{}
 	}
+	if tied {
+		return editAttempt{ambiguous: true}
+	}
+	return replaceLines(contentLines, bestIdx, n, replace)
+}
 
+func replaceLines(contentLines []string, start, count int, replace string) editAttempt {
+	if start < 0 || count <= 0 {
+		return editAttempt{}
+	}
 	var result []string
-	result = append(result, contentLines[:bestIdx]...)
+	result = append(result, contentLines[:start]...)
 	result = append(result, strings.Split(replace, "\n")...)
-	result = append(result, contentLines[bestIdx+n:]...)
-	return strings.Join(result, "\n"), true
+	result = append(result, contentLines[start+count:]...)
+	return editAttempt{content: strings.Join(result, "\n"), matched: true}
 }

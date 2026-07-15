@@ -629,10 +629,9 @@ func TestE2E_ScopedAuth_DefensePathFallsBackToPDP(t *testing.T) {
 		"defense path: PDP must be consulted when no token is present")
 }
 
-// TestE2E_ScopedAuth_InvalidTokenFallsBackToPDP — tampered or
-// expired token → Guard logs WARN + falls back to PDP. Defense
-// in depth: a buggy gateway can't break enforcement.
-func TestE2E_ScopedAuth_InvalidTokenFallsBackToPDP(t *testing.T) {
+// TestE2E_ScopedAuth_InvalidTokenFailsClosed — a present invalid token is
+// denied without downgrading to the credential-less PDP path.
+func TestE2E_ScopedAuth_InvalidTokenFailsClosed(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -664,8 +663,7 @@ func TestE2E_ScopedAuth_InvalidTokenFallsBackToPDP(t *testing.T) {
 	require.NoError(t, err)
 	defer plugin.Close()
 
-	// Send a bogus token — verify fails, Guard falls back to
-	// PDP, PDP denies.
+	// Send a bogus token — verification fails closed before PDP evaluation.
 	md := metadata.Pairs(policy.ScopedAuthMetadataKey, "totally.fake.token")
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
@@ -675,9 +673,9 @@ func TestE2E_ScopedAuth_InvalidTokenFallsBackToPDP(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error,
-		"invalid token + deny-PDP: defense path catches the bypass attempt")
-	require.Equal(t, 1, denyPDP.CallCount(),
-		"PDP MUST be consulted when token verify fails")
+		"invalid token must be rejected")
+	require.Equal(t, 0, denyPDP.CallCount(),
+		"invalid credentials must not downgrade to the credential-less PDP path")
 }
 
 // =====================================================================

@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"container/list"
 	"context"
 	"fmt"
 	"sync"
@@ -41,6 +42,10 @@ type SaasPDP struct {
 	// hits the backend). Recommended: 5-30 seconds for hot paths.
 	// Longer TTLs trade staleness for latency.
 	CacheTTL time.Duration
+	// CacheMaxEntries bounds positive decisions retained in memory. WithCache
+	// uses DefaultSaasCacheMaxEntries; callers with a known workload can use
+	// WithCacheLimit to select a different positive bound.
+	CacheMaxEntries int
 
 	// Metrics, when non-nil, gets every decision recorded via
 	// RecordDecision. Wire to Prometheus/OTEL via Snapshot().
@@ -57,9 +62,12 @@ type SaasPDP struct {
 	// this, a network blip becomes a permission bypass.
 	FailClosed bool
 
-	mu    sync.Mutex
-	cache map[saasCacheKey]saasCacheEntry
+	mu         sync.Mutex
+	cache      map[saasCacheKey]*list.Element
+	cacheOrder *list.List
 }
+
+const DefaultSaasCacheMaxEntries = 4096
 
 // saasCacheKey identifies a cached decision. Including orgID and
 // scope distinguishes cross-org / cross-scope checks for the same
@@ -73,6 +81,7 @@ type saasCacheKey struct {
 }
 
 type saasCacheEntry struct {
+	key       saasCacheKey
 	expiresAt time.Time
 	// Only positive decisions are cached, so we don't need a
 	// "decision" field — entry presence == allow.
@@ -97,11 +106,31 @@ func NewSaasPDP(backend PermissionsBackend) *SaasPDP {
 // WithCache enables the LRU cache with the given TTL. Returns the
 // receiver for fluent configuration.
 func (s *SaasPDP) WithCache(ttl time.Duration) *SaasPDP {
+	return s.WithCacheLimit(ttl, DefaultSaasCacheMaxEntries)
+}
+
+// WithCacheLimit enables a positive-decision LRU with an explicit bound.
+func (s *SaasPDP) WithCacheLimit(ttl time.Duration, maxEntries int) *SaasPDP {
+	if ttl > 0 && maxEntries <= 0 {
+		panic("policy.SaasPDP.WithCacheLimit: maxEntries must be positive when cache is enabled")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.CacheTTL = ttl
-	if ttl > 0 && s.cache == nil {
-		s.cache = make(map[saasCacheKey]saasCacheEntry)
+	s.CacheMaxEntries = maxEntries
+	if ttl <= 0 {
+		s.cache = nil
+		s.cacheOrder = nil
+		return s
+	}
+	if s.cache == nil {
+		s.cache = make(map[saasCacheKey]*list.Element)
+	}
+	if s.cacheOrder == nil {
+		s.cacheOrder = list.New()
+	}
+	for len(s.cache) > maxEntries {
+		s.removeOldestCacheEntry()
 	}
 	return s
 }
@@ -200,14 +229,16 @@ func (s *SaasPDP) cacheLookup(key saasCacheKey) bool {
 	if s.cache == nil {
 		return false
 	}
-	entry, ok := s.cache[key]
+	element, ok := s.cache[key]
 	if !ok {
 		return false
 	}
+	entry := element.Value.(saasCacheEntry)
 	if time.Now().After(entry.expiresAt) {
-		delete(s.cache, key)
+		s.removeCacheElement(element)
 		return false
 	}
+	s.cacheOrder.MoveToFront(element)
 	return true
 }
 
@@ -218,11 +249,45 @@ func (s *SaasPDP) cacheStore(key saasCacheKey) {
 		return
 	}
 	if s.cache == nil {
-		s.cache = make(map[saasCacheKey]saasCacheEntry)
+		s.cache = make(map[saasCacheKey]*list.Element)
 	}
-	s.cache[key] = saasCacheEntry{
+	if s.cacheOrder == nil {
+		s.cacheOrder = list.New()
+	}
+	if element, ok := s.cache[key]; ok {
+		entry := element.Value.(saasCacheEntry)
+		entry.expiresAt = time.Now().Add(s.CacheTTL)
+		element.Value = entry
+		s.cacheOrder.MoveToFront(element)
+		return
+	}
+	maxEntries := s.CacheMaxEntries
+	if maxEntries <= 0 {
+		maxEntries = DefaultSaasCacheMaxEntries
+	}
+	for len(s.cache) >= maxEntries {
+		s.removeOldestCacheEntry()
+	}
+	entry := saasCacheEntry{
+		key:       key,
 		expiresAt: time.Now().Add(s.CacheTTL),
 	}
+	s.cache[key] = s.cacheOrder.PushFront(entry)
+}
+
+func (s *SaasPDP) removeOldestCacheEntry() {
+	if s.cacheOrder == nil {
+		return
+	}
+	if oldest := s.cacheOrder.Back(); oldest != nil {
+		s.removeCacheElement(oldest)
+	}
+}
+
+func (s *SaasPDP) removeCacheElement(element *list.Element) {
+	entry := element.Value.(saasCacheEntry)
+	delete(s.cache, entry.key)
+	s.cacheOrder.Remove(element)
 }
 
 // failClosedDecision produces the deny that surfaces when Backend

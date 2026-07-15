@@ -61,16 +61,26 @@ func (w *Wool) Close() error {
 
 // In creates a scoped child Wool with a method name and optional fields.
 func (w *Wool) In(method string, fields ...*LogField) *Wool {
-	newW := &Wool{
-		source:   w.source,
-		ctx:      w.ctx,
-		provider: w.provider,
-		logger:   w.logger,
-		logLevel: w.logLevel,
-		span:     w.span,
+	name := method
+	if w.name != "" && method != "" {
+		name = w.name + "." + method
+	} else if method == "" {
+		name = w.name
 	}
-	newW.name = method
-	newW.fields = fields
+	inheritedFields := make([]*LogField, 0, len(w.fields)+len(fields))
+	inheritedFields = append(inheritedFields, w.fields...)
+	inheritedFields = append(inheritedFields, fields...)
+	newW := &Wool{
+		name:         name,
+		source:       w.source,
+		fields:       inheritedFields,
+		ctx:          w.ctx,
+		provider:     w.provider,
+		logger:       w.logger,
+		logLevel:     w.logLevel,
+		span:         w.span,
+		disableCatch: w.disableCatch,
+	}
 	return newW
 }
 

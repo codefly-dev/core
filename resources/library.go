@@ -61,16 +61,14 @@ type LibraryDependency struct {
 // NewLibrary creates a new Library
 func NewLibrary(ctx context.Context, name string) (*Library, error) {
 	w := wool.Get(ctx).In("NewLibrary", wool.NameField(name))
+	if err := validateResourcePathComponent("library", name); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	lib := &Library{
 		Kind:    "library",
 		Name:    name,
 		Version: "0.0.1",
-	}
-
-	// Validate name
-	if name == "" {
-		return nil, w.NewError("library name cannot be empty")
 	}
 
 	return lib, nil
@@ -97,6 +95,9 @@ func (lib *Library) SaveToDir(ctx context.Context, dir string) error {
 
 	if dir == "" {
 		return w.NewError("library directory is empty")
+	}
+	if err := lib.validatePaths(); err != nil {
+		return w.Wrap(err)
 	}
 
 	return SaveToDir[Library](ctx, lib, dir)
@@ -143,6 +144,9 @@ func LoadLibraryFromDir(ctx context.Context, dir string) (*Library, error) {
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
+	if err := lib.validatePaths(); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	lib.dir = dir
 	return lib, nil
@@ -151,6 +155,12 @@ func LoadLibraryFromDir(ctx context.Context, dir string) (*Library, error) {
 // AddLanguage adds a language export to the library
 func (lib *Library) AddLanguage(ctx context.Context, name, agent, relPath string) error {
 	w := wool.Get(ctx).In("Library.AddLanguage", wool.Field("language", name))
+	if err := validateResourcePathComponent("language", name); err != nil {
+		return w.Wrap(err)
+	}
+	if err := validateResourceRelativePath("language", relPath); err != nil {
+		return w.Wrap(err)
+	}
 
 	// Check if language already exists
 	for _, lang := range lib.Languages {
@@ -165,6 +175,24 @@ func (lib *Library) AddLanguage(ctx context.Context, name, agent, relPath string
 		Path:  relPath,
 	})
 
+	return nil
+}
+
+func (lib *Library) validatePaths() error {
+	if err := validateResourcePathComponent("library", lib.Name); err != nil {
+		return err
+	}
+	for _, lang := range lib.Languages {
+		if lang == nil {
+			return fmt.Errorf("library %q contains a nil language", lib.Name)
+		}
+		if err := validateResourcePathComponent("language", lang.Name); err != nil {
+			return err
+		}
+		if err := validateResourceRelativePath("language", lang.Path); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -264,6 +292,9 @@ type LibraryIdentity struct {
 // LoadLibraryFromName loads a library by name from a workspace
 func (workspace *Workspace) LoadLibraryFromName(ctx context.Context, name string) (*Library, error) {
 	w := wool.Get(ctx).In("Workspace.LoadLibraryFromName", wool.NameField(name))
+	if err := validateResourcePathComponent("library", name); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	libDir := path.Join(workspace.Dir(), "libraries", name)
 	exists, err := shared.DirectoryExists(ctx, libDir)
@@ -316,6 +347,15 @@ func (workspace *Workspace) LoadLibraries(ctx context.Context) ([]*Library, erro
 // CreateLibrary creates a new library in the workspace
 func (workspace *Workspace) CreateLibrary(ctx context.Context, name string, languages []string) (*Library, error) {
 	w := wool.Get(ctx).In("Workspace.CreateLibrary", wool.NameField(name))
+	lib, err := NewLibrary(ctx, name)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	for _, lang := range languages {
+		if err := validateResourcePathComponent("language", lang); err != nil {
+			return nil, w.Wrap(err)
+		}
+	}
 
 	libDir := path.Join(workspace.Dir(), "libraries", name)
 
@@ -332,10 +372,6 @@ func (workspace *Workspace) CreateLibrary(ctx context.Context, name string, lang
 		return nil, w.Wrapf(err, "failed to create library directory")
 	}
 
-	lib, err := NewLibrary(ctx, name)
-	if err != nil {
-		return nil, w.Wrap(err)
-	}
 	lib.dir = libDir
 
 	// Add languages
@@ -363,6 +399,12 @@ func (workspace *Workspace) CreateLibrary(ctx context.Context, name string, lang
 // AddLibraryAsSubmodule adds an external library as a git submodule
 func (workspace *Workspace) AddLibraryAsSubmodule(ctx context.Context, name, remote, branch string) (*Library, error) {
 	w := wool.Get(ctx).In("Workspace.AddLibraryAsSubmodule", wool.NameField(name))
+	if err := validateResourcePathComponent("library", name); err != nil {
+		return nil, w.Wrap(err)
+	}
+	if strings.TrimSpace(remote) == "" {
+		return nil, w.NewError("library git remote cannot be empty")
+	}
 
 	libDir := path.Join(workspace.Dir(), "libraries", name)
 
@@ -377,7 +419,7 @@ func (workspace *Workspace) AddLibraryAsSubmodule(ctx context.Context, name, rem
 	if branch != "" {
 		args = append(args, "-b", branch)
 	}
-	args = append(args, remote, libDir)
+	args = append(args, "--", remote, libDir)
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = workspace.Dir()

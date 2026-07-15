@@ -309,6 +309,12 @@ func (s *DefaultCodeServer) closeGit() {
 
 // gitLogNative uses go-git when available, falls back to exec.
 func (s *DefaultCodeServer) gitLogNative(ctx context.Context, req *codev0.GitLogRequest) (*codev0.CodeResponse, error) {
+	if err := validateGitRef(req.Ref); err != nil {
+		return nil, err
+	}
+	if err := validateGitPath(s.SourceDir, req.Path); err != nil {
+		return nil, err
+	}
 	if ng := s.openGitRepo(); ng != nil {
 		commits, err := ng.Log(ctx, int(req.MaxCount), req.Ref, req.Path, req.Since)
 		if err == nil {
@@ -329,6 +335,12 @@ func (s *DefaultCodeServer) gitLogNative(ctx context.Context, req *codev0.GitLog
 
 // gitShowNative uses go-git when available, falls back to exec.
 func (s *DefaultCodeServer) gitShowNative(ctx context.Context, req *codev0.GitShowRequest) (*codev0.CodeResponse, error) {
+	if err := validateGitRef(req.Ref); err != nil {
+		return nil, err
+	}
+	if err := validateGitPath(s.SourceDir, req.Path); err != nil {
+		return nil, err
+	}
 	if ng := s.openGitRepo(); ng != nil {
 		content, exists, err := ng.Show(ctx, req.Ref, req.Path)
 		if err == nil {

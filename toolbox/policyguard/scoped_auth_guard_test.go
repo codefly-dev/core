@@ -24,7 +24,7 @@ import (
 // configured. The Guard must:
 //   - On valid token: skip PDP, dispatch to inner
 //   - On missing token: fall back to PDP (defense path)
-//   - On invalid token: log + fall back to PDP (defense in depth)
+//   - On invalid token: deny without credential downgrade
 //   - Honor MaxUses (replay tracking)
 //   - Stamp the verified ScopedAuthorization on ctx for handler
 
@@ -144,23 +144,24 @@ func TestGuard_DefensePath_NoToken_PDPDeniesIsHonored(t *testing.T) {
 	require.Empty(t, inner.calls, "denied call must NOT reach the handler")
 }
 
-func TestGuard_InvalidToken_FallsBackToPDP(t *testing.T) {
+func TestGuard_InvalidToken_DeniedWithoutPDPDowngrade(t *testing.T) {
 	secret := policy.NewSpawnSecret()
 	allowPDP := testharness.NewFakeAllow()
 	inner := &recordingToolboxServer{}
 	guard := policyguard.NewWithScopedAuth(inner, allowPDP, "test-toolbox",
 		secret, "codefly.dev/test:1.0")
 
-	// Tampered token — verification fails, falls back to PDP.
+	// Tampered token — verification fails even though the fallback PDP would
+	// otherwise allow the tool.
 	bogus := "definitely.notavalid.token"
 	ctx := ctxWithScopedAuth(context.Background(), bogus)
 
 	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
-	require.Empty(t, resp.Error,
-		"invalid token does NOT outright deny — defense in depth: PDP catches")
-	require.Equal(t, 1, allowPDP.CallCount(),
-		"PDP MUST be consulted on invalid-token path")
+	require.Contains(t, resp.Error, "invalid token")
+	require.Equal(t, 0, allowPDP.CallCount(),
+		"invalid credentials must not downgrade to the credential-less PDP path")
+	require.Empty(t, inner.calls)
 }
 
 func TestGuard_InvalidToken_PDPDeniesStillRefuses(t *testing.T) {
@@ -174,7 +175,8 @@ func TestGuard_InvalidToken_PDPDeniesStillRefuses(t *testing.T) {
 	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error,
-		"defense path catches when the gateway layer was bypassed")
+		"invalid credentials are denied before the PDP path")
+	require.Equal(t, 0, denyPDP.CallCount())
 	require.Empty(t, inner.calls)
 }
 
@@ -191,7 +193,7 @@ func TestGuard_WrongAudience_FallsBackToPDP(t *testing.T) {
 
 	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
-	// Audience mismatch → token verify fails → PDP fallback → deny
+	// Audience mismatch → token verification fails closed.
 	require.NotEmpty(t, resp.Error,
 		"audience-mismatched token must not authorize this plugin")
 }
@@ -417,20 +419,21 @@ func TestGuard_ConfigMutators_RaceFree(t *testing.T) {
 // We can't assert the log line directly without a wool sink, so
 // this test just pins the BEHAVIOR (fall-through, no panic) and
 // leaves the log assertion to integration coverage.
-func TestGuard_MissingToken_DefensePathTakesOver(t *testing.T) {
+func TestGuard_EmptyTokenIsInvalid(t *testing.T) {
 	secret := policy.NewSpawnSecret()
 	allowPDP := testharness.NewFakeAllow()
 	inner := &recordingToolboxServer{}
 	guard := policyguard.NewWithScopedAuth(inner, allowPDP, "test-toolbox",
 		secret, "codefly.dev/test:1.0")
 
-	// Empty token value — should fall through identically to "no md".
+	// An explicitly supplied empty credential is invalid, unlike an absent
+	// header, and must not downgrade to the PDP path.
 	md := metadata.Pairs(policy.ScopedAuthMetadataKey, "")
 	ctx := metadata.NewIncomingContext(context.Background(), md)
 
 	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
-	require.Empty(t, resp.Error)
-	require.Equal(t, 1, allowPDP.CallCount(),
-		"empty token must fall through to PDP, not crash or short-circuit")
+	require.Contains(t, resp.Error, "invalid token")
+	require.Equal(t, 0, allowPDP.CallCount())
+	require.Empty(t, inner.calls)
 }

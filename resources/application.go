@@ -66,16 +66,14 @@ type Application struct {
 // NewApplication creates a new Application
 func NewApplication(ctx context.Context, name string) (*Application, error) {
 	w := wool.Get(ctx).In("NewApplication", wool.NameField(name))
+	if err := validateResourcePathComponent("application", name); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	app := &Application{
 		Kind:    "application",
 		Name:    name,
 		Version: "0.0.1",
-	}
-
-	// Validate name
-	if name == "" {
-		return nil, w.NewError("application name cannot be empty")
 	}
 
 	return app, nil
@@ -143,6 +141,9 @@ func LoadApplicationFromDir(ctx context.Context, dir string) (*Application, erro
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load application")
 	}
+	if err := app.validatePaths(); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	app.dir = dir
 
@@ -151,6 +152,9 @@ func LoadApplicationFromDir(ctx context.Context, dir string) (*Application, erro
 
 // SaveToDir saves the application configuration to a directory
 func (app *Application) SaveToDir(ctx context.Context, dir string) error {
+	if err := app.validatePaths(); err != nil {
+		return wool.Get(ctx).In("Application.SaveToDir").Wrap(err)
+	}
 	app.dir = dir
 	return SaveToDir(ctx, app, dir)
 }

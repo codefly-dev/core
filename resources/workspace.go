@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -95,6 +96,9 @@ func (workspace *Workspace) Dir() string {
 
 func NewWorkspace(ctx context.Context, name string, layout string) (*Workspace, error) {
 	w := wool.Get(ctx).In("New", wool.NameField(name))
+	if err := validateResourcePathComponent("workspace", name); err != nil {
+		return nil, w.Wrap(err)
+	}
 	workspace := &Workspace{Name: name, Layout: layout}
 	_, err := workspace.Proto(ctx)
 	if err != nil {
@@ -104,8 +108,14 @@ func NewWorkspace(ctx context.Context, name string, layout string) (*Workspace, 
 }
 
 // CreateWorkspace creates a new Workspace
-func CreateWorkspace(ctx context.Context, action *actionsv0.NewWorkspace) (*Workspace, error) {
+func CreateWorkspace(ctx context.Context, action *actionsv0.NewWorkspace) (createdWorkspace *Workspace, result error) {
+	if action == nil {
+		return nil, wool.Get(ctx).In("CreateWorkspace").NewError("workspace action is nil")
+	}
 	w := wool.Get(ctx).In("CreateWorkspace", wool.NameField(action.Name), wool.DirField(action.Path))
+	if err := validateResourcePathComponent("workspace", action.Name); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	dir := path.Join(action.Path, action.Name)
 
@@ -117,10 +127,21 @@ func CreateWorkspace(ctx context.Context, action *actionsv0.NewWorkspace) (*Work
 		return nil, w.NewError(" directory already exists")
 	}
 
-	_, err = shared.CheckDirectoryOrCreate(ctx, dir)
+	createdDir, err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create  directory")
 	}
+	if !createdDir {
+		return nil, w.NewError("workspace directory %s already exists", dir)
+	}
+	defer func() {
+		if result == nil || !createdDir {
+			return
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			result = errors.Join(result, w.Wrapf(err, "cannot remove partial workspace directory"))
+		}
+	}()
 
 	workspace, err := NewWorkspace(ctx, action.Name, action.Layout)
 	if err != nil {
@@ -214,6 +235,9 @@ func FindWorkspaceUp(ctx context.Context) (*Workspace, error) {
 
 // LoadModuleFromReference loads an module from a reference
 func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *ModuleReference) (*Module, error) {
+	if err := validateModuleReferencePath(ref); err != nil {
+		return nil, wool.Get(ctx).In("Workspace::LoadModuleFromReference").Wrap(err)
+	}
 	w := wool.Get(ctx).In("Workspace::LoadModuleFromReference", wool.NameField(ref.Name))
 
 	if workspace.Layout == LayoutKindFlat && ref.Name == workspace.Name {
@@ -302,25 +326,54 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot validate proto")
 	}
+	if err := workspace.validatePaths(); err != nil {
+		return w.Wrapf(err, "invalid workspace path data")
+	}
 	if workspace.Layout == LayoutKindFlat {
 		workspace.Modules = []*ModuleReference{{Name: workspace.Name}}
 
 		// Backward compat: migrate from module.codefly.yaml if it exists
 		moduleFile := path.Join(workspace.Dir(), ModuleConfigurationName)
 		if ok, _ := shared.FileExists(ctx, moduleFile); ok {
-			if len(workspace.Services) == 0 {
-				mod, loadErr := LoadFromDir[Module](ctx, workspace.Dir())
-				if loadErr == nil && len(mod.ServiceReferences) > 0 {
-					workspace.Services = mod.ServiceReferences
-					w.Info("migrated services from module.codefly.yaml into workspace")
-				}
+			mod, loadErr := LoadFromDir[Module](ctx, workspace.Dir())
+			if loadErr != nil {
+				return w.Wrapf(loadErr, "cannot load legacy module for migration")
 			}
-			_ = os.Remove(moduleFile)
-			// Persist the migration: write a clean copy without Modules
-			clean := workspace.Clone()
-			clean.Modules = nil
-			if saveErr := SaveToDir[Workspace](ctx, clean, workspace.Dir()); saveErr != nil {
-				w.Warn("cannot save workspace after migration", wool.ErrField(saveErr))
+			if pathErr := mod.validatePaths(); pathErr != nil {
+				return w.Wrapf(pathErr, "legacy module contains invalid path data")
+			}
+
+			referenceConflict := hasServiceReferenceConflict(workspace.Services, mod.ServiceReferences) ||
+				hasJobReferenceConflict(workspace.Jobs, mod.JobReferences)
+			servicesBefore := len(workspace.Services)
+			jobsBefore := len(workspace.Jobs)
+			workspace.Services = mergeServiceReferences(workspace.Services, mod.ServiceReferences)
+			workspace.Jobs = mergeJobReferences(workspace.Jobs, mod.JobReferences)
+			if pathErr := workspace.validatePaths(); pathErr != nil {
+				return w.Wrapf(pathErr, "migrated workspace contains invalid path data")
+			}
+			changed := len(workspace.Services) != servicesBefore || len(workspace.Jobs) != jobsBefore
+			if changed {
+				// Persist the complete destination before deleting the only legacy
+				// copy. SaveToDir uses an atomic temp+rename write, so a crash leaves
+				// either the old workspace plus module or the complete new workspace.
+				clean := workspace.Clone()
+				clean.Modules = nil
+				if saveErr := SaveToDir[Workspace](ctx, clean, workspace.Dir()); saveErr != nil {
+					return w.Wrapf(saveErr, "cannot save workspace after migration")
+				}
+				w.Info("migrated legacy module references into workspace",
+					wool.Field("services", len(workspace.Services)-servicesBefore),
+					wool.Field("jobs", len(workspace.Jobs)-jobsBefore))
+			}
+
+			// These fields have no representation in a flat Workspace. Keep the
+			// legacy file so an automatic load can never discard them; an explicit
+			// migration can decide where they belong.
+			if referenceConflict || legacyModuleHasUnrepresentableData(mod) {
+				w.Warn("legacy module contains data that cannot be represented in a flat workspace; keeping module.codefly.yaml")
+			} else if removeErr := os.Remove(moduleFile); removeErr != nil {
+				return w.Wrapf(removeErr, "cannot remove migrated legacy module")
 			}
 		}
 	}
@@ -331,11 +384,101 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 	return err
 }
 
+func optionalPathValue(path *string) string {
+	if path == nil {
+		return ""
+	}
+	return *path
+}
+
+func hasServiceReferenceConflict(current, legacy []*ServiceReference) bool {
+	paths := make(map[string]string, len(current))
+	for _, ref := range current {
+		if ref != nil {
+			paths[ref.Name] = optionalPathValue(ref.PathOverride)
+		}
+	}
+	for _, ref := range legacy {
+		if ref == nil {
+			continue
+		}
+		if path, exists := paths[ref.Name]; exists && path != optionalPathValue(ref.PathOverride) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasJobReferenceConflict(current, legacy []*JobReference) bool {
+	paths := make(map[string]string, len(current))
+	for _, ref := range current {
+		if ref != nil {
+			paths[ref.Name] = optionalPathValue(ref.PathOverride)
+		}
+	}
+	for _, ref := range legacy {
+		if ref == nil {
+			continue
+		}
+		if path, exists := paths[ref.Name]; exists && path != optionalPathValue(ref.PathOverride) {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeServiceReferences(current, legacy []*ServiceReference) []*ServiceReference {
+	seen := make(map[string]struct{}, len(current))
+	for _, ref := range current {
+		if ref != nil {
+			seen[ref.Name] = struct{}{}
+		}
+	}
+	for _, ref := range legacy {
+		if ref == nil {
+			continue
+		}
+		if _, exists := seen[ref.Name]; exists {
+			continue
+		}
+		current = append(current, ref)
+		seen[ref.Name] = struct{}{}
+	}
+	return current
+}
+
+func mergeJobReferences(current, legacy []*JobReference) []*JobReference {
+	seen := make(map[string]struct{}, len(current))
+	for _, ref := range current {
+		if ref != nil {
+			seen[ref.Name] = struct{}{}
+		}
+	}
+	for _, ref := range legacy {
+		if ref == nil {
+			continue
+		}
+		if _, exists := seen[ref.Name]; exists {
+			continue
+		}
+		current = append(current, ref)
+		seen[ref.Name] = struct{}{}
+	}
+	return current
+}
+
+func legacyModuleHasUnrepresentableData(mod *Module) bool {
+	return mod.Description != "" || mod.PathOverride != nil || mod.Interface != nil || mod.Agent != nil || len(mod.ApplicationReferences) > 0
+}
+
 func (workspace *Workspace) preSave(ctx context.Context) (*Workspace, error) {
 	w := wool.Get(ctx).In("preSave", wool.NameField(workspace.Name))
 	_, err := workspace.Proto(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot validate proto")
+	}
+	if err := workspace.validatePaths(); err != nil {
+		return nil, w.Wrapf(err, "invalid workspace path data")
 	}
 	serialized := workspace.Clone()
 	if workspace.Layout == LayoutKindFlat {
@@ -370,6 +513,9 @@ func (workspace *Workspace) ExistsModule(name string) bool {
 
 // AddModuleReference adds an module to the
 func (workspace *Workspace) AddModuleReference(modRef *ModuleReference) error {
+	if err := validateModuleReferencePath(modRef); err != nil {
+		return err
+	}
 	for _, mod := range workspace.Modules {
 		if mod.Name == modRef.Name {
 			return nil

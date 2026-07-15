@@ -2,7 +2,6 @@ package wool
 
 import (
 	"sync"
-	"sync/atomic"
 )
 
 // BufferedProcessor wraps a LogProcessor with channel-based async batching.
@@ -12,7 +11,8 @@ type BufferedProcessor struct {
 	ch     chan *Log
 	done   chan struct{}
 	once   sync.Once
-	closed atomic.Bool
+	mu     sync.RWMutex
+	closed bool
 }
 
 // NewBufferedProcessor creates a buffered wrapper around a LogProcessor.
@@ -42,7 +42,9 @@ func (bp *BufferedProcessor) run() {
 // Safe to call concurrently with (and after) Flush: once Flushed, messages
 // are dropped rather than sent on the closed channel, which would panic.
 func (bp *BufferedProcessor) Process(msg *Log) {
-	if bp.closed.Load() {
+	bp.mu.RLock()
+	defer bp.mu.RUnlock()
+	if bp.closed {
 		return
 	}
 	select {
@@ -55,11 +57,13 @@ func (bp *BufferedProcessor) Process(msg *Log) {
 // Flush closes the buffer and waits for all queued messages to be processed.
 func (bp *BufferedProcessor) Flush() {
 	bp.once.Do(func() {
-		// Mark closed before closing the channel so any concurrent Process
-		// observes the flag and takes the drop path instead of racing a send
-		// onto the about-to-be-closed channel.
-		bp.closed.Store(true)
+		// Hold the exclusive lock while marking and closing. Process keeps a
+		// read lock across its non-blocking send, so no sender can pass the
+		// closed check and race the channel close.
+		bp.mu.Lock()
+		bp.closed = true
 		close(bp.ch)
+		bp.mu.Unlock()
 	})
 	<-bp.done
 }

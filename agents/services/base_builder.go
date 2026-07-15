@@ -51,13 +51,13 @@ func (s *BuilderWrapper) LoadResponse() (*builderv0.LoadResponse, error) {
 func (s *BuilderWrapper) LoadError(err error) (*builderv0.LoadResponse, error) {
 	return &builderv0.LoadResponse{
 		State: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: err.Error()},
-	}, err
+	}, nil
 }
 
 func (s *BuilderWrapper) LoadErrorf(err error, msg string, args ...any) (*builderv0.LoadResponse, error) {
 	return &builderv0.LoadResponse{
 		State: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
-	}, err
+	}, nil
 }
 
 func (s *BuilderWrapper) InitResponse() (*builderv0.InitResponse, error) {
@@ -72,13 +72,13 @@ func (s *BuilderWrapper) InitResponse() (*builderv0.InitResponse, error) {
 func (s *BuilderWrapper) InitError(err error) (*builderv0.InitResponse, error) {
 	return &builderv0.InitResponse{
 		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: err.Error()},
-	}, err
+	}, nil
 }
 
 func (s *BuilderWrapper) InitErrorf(err error, msg string, args ...any) (*builderv0.InitResponse, error) {
 	return &builderv0.InitResponse{
 		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
-	}, err
+	}, nil
 }
 
 func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*builderv0.CreateResponse, error) {
@@ -99,23 +99,24 @@ func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*bui
 
 	err = s.Service.Save(ctx)
 	if err != nil {
-		return nil, s.Wool.Wrapf(err, "base: cannot save configuration")
+		return s.CreateErrorf(err, "base: cannot save configuration")
 	}
 	return &builderv0.CreateResponse{
 		Endpoints: s.Endpoints,
+		State:     &builderv0.CreateStatus{State: builderv0.CreateStatus_CREATED},
 	}, nil
 }
 
 func (s *BuilderWrapper) CreateError(err error) (*builderv0.CreateResponse, error) {
 	return &builderv0.CreateResponse{
 		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error()},
-	}, err
+	}, nil
 }
 
 func (s *BuilderWrapper) CreateErrorf(err error, msg string, args ...any) (*builderv0.CreateResponse, error) {
 	return &builderv0.CreateResponse{
 		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
-	}, err
+	}, nil
 }
 
 func (s *BuilderWrapper) UpdateResponse() (*builderv0.UpdateResponse, error) {
@@ -131,7 +132,7 @@ func (s *BuilderWrapper) UpdateResponse() (*builderv0.UpdateResponse, error) {
 func (s *BuilderWrapper) UpdateError(err error) (*builderv0.UpdateResponse, error) {
 	return &builderv0.UpdateResponse{
 		State: &builderv0.UpdateStatus{State: builderv0.UpdateStatus_ERROR, Message: err.Error()},
-	}, err
+	}, nil
 }
 
 func (s *BuilderWrapper) SyncResponse() (*builderv0.SyncResponse, error) {
@@ -144,7 +145,7 @@ func (s *BuilderWrapper) SyncResponse() (*builderv0.SyncResponse, error) {
 
 func (s *BuilderWrapper) SyncError(err error) (*builderv0.SyncResponse, error) {
 	return &builderv0.SyncResponse{
-		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}}, err
+		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}}, nil
 }
 
 func (s *BuilderWrapper) WithDockerImages(ims ...*resources.DockerImage) {
@@ -166,7 +167,7 @@ func (s *BuilderWrapper) BuildResponse() (*builderv0.BuildResponse, error) {
 	if !s.loaded {
 		return s.BuildError(fmt.Errorf("not loaded"))
 	}
-	resp := &builderv0.BuildResponse{}
+	resp := &builderv0.BuildResponse{State: &builderv0.BuildStatus{State: builderv0.BuildStatus_SUCCESS}}
 	if s.BuildResult != nil {
 		resp.Result = s.BuildResult
 	}
@@ -175,7 +176,7 @@ func (s *BuilderWrapper) BuildResponse() (*builderv0.BuildResponse, error) {
 
 func (s *BuilderWrapper) BuildError(err error) (*builderv0.BuildResponse, error) {
 	return &builderv0.BuildResponse{
-		State: &builderv0.BuildStatus{State: builderv0.BuildStatus_ERROR, Message: err.Error()}}, err
+		State: &builderv0.BuildStatus{State: builderv0.BuildStatus_ERROR, Message: err.Error()}}, nil
 }
 
 func (s *BuilderWrapper) DeployResponse() (*builderv0.DeploymentResponse, error) {
@@ -185,12 +186,13 @@ func (s *BuilderWrapper) DeployResponse() (*builderv0.DeploymentResponse, error)
 	return &builderv0.DeploymentResponse{
 		Configuration: s.Configuration,
 		Deployment:    s.DeployOutput,
+		State:         &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_SUCCESS},
 	}, nil
 }
 
 func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, error) {
 	return &builderv0.DeploymentResponse{
-		State: &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_ERROR, Message: err.Error()}}, err
+		State: &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_ERROR, Message: err.Error()}}, nil
 }
 
 // AuditResponse builds a successful AuditResponse. State is CLEAN if
@@ -214,13 +216,13 @@ func (s *BuilderWrapper) AuditResponse(findings []*builderv0.AuditFinding, outda
 func (s *BuilderWrapper) AuditError(err error) (*builderv0.AuditResponse, error) {
 	return &builderv0.AuditResponse{
 		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: err.Error()},
-	}, err
+	}, nil
 }
 
 func (s *BuilderWrapper) AuditErrorf(err error, msg string, args ...any) (*builderv0.AuditResponse, error) {
 	return &builderv0.AuditResponse{
 		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
-	}, err
+	}, nil
 }
 
 // UpgradeResponse builds a successful UpgradeResponse. State is NOOP if
@@ -240,13 +242,13 @@ func (s *BuilderWrapper) UpgradeResponse(changes []*builderv0.UpgradeChange, loc
 func (s *BuilderWrapper) UpgradeError(err error) (*builderv0.UpgradeResponse, error) {
 	return &builderv0.UpgradeResponse{
 		State: &builderv0.UpgradeStatus{State: builderv0.UpgradeStatus_ERROR, Message: err.Error()},
-	}, err
+	}, nil
 }
 
 func (s *BuilderWrapper) UpgradeErrorf(err error, msg string, args ...any) (*builderv0.UpgradeResponse, error) {
 	return &builderv0.UpgradeResponse{
 		State: &builderv0.UpgradeStatus{State: builderv0.UpgradeStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
-	}, err
+	}, nil
 }
 
 type DeploymentBase struct {

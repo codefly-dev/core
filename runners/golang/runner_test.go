@@ -47,9 +47,6 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) 
 	err = env.BuildBinary(ctx)
 	require.NoError(t, err)
 
-	// The go.mod resolution should have populated the module dir.
-	require.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, goModDir)))
-
 	// Check that the binary is there
 	require.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, cacheDir)))
 

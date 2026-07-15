@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/codefly-dev/core/shared"
 
@@ -21,7 +22,7 @@ type Watcher struct {
 	// internal
 	base         string
 	dependencies *builders.Dependencies
-	pause        bool
+	paused       atomic.Bool
 }
 
 type Change struct {
@@ -121,9 +122,28 @@ func (watcher *Watcher) keep(absPath string) bool {
 	if watcher.dependencies == nil {
 		return true
 	}
+	absPath = filepath.Clean(absPath)
 	for _, dep := range watcher.dependencies.Components {
-		if dep.Keep(absPath) {
-			return true
+		for _, component := range dep.Components() {
+			root := component
+			if !filepath.IsAbs(root) {
+				root = filepath.Join(watcher.base, root)
+			}
+			root = filepath.Clean(root)
+
+			// A dependency can name either one file (service.codefly.yaml) or
+			// a directory tree (code/). PathSelect only answers the second half
+			// of that question; applying it without first checking the component
+			// scope made every no-select file dependency match every event in its
+			// parent directory.
+			inScope := absPath == root
+			if info, err := os.Stat(root); err == nil && info.IsDir() {
+				rel, relErr := filepath.Rel(root, absPath)
+				inScope = relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+			}
+			if inScope && dep.Keep(absPath) {
+				return true
+			}
 		}
 	}
 	return false
@@ -185,7 +205,9 @@ func (watcher *Watcher) Start(ctx context.Context) {
 					Path:       rel,
 					IsRelative: true,
 				}
-				watcher.Handle(change)
+				if !watcher.send(ctx, change) {
+					return
+				}
 
 				continue
 			}
@@ -197,17 +219,29 @@ func (watcher *Watcher) Start(ctx context.Context) {
 	}
 }
 
+func (watcher *Watcher) send(ctx context.Context, event Change) bool {
+	if watcher.paused.Load() {
+		return true
+	}
+	select {
+	case watcher.events <- event:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 func (watcher *Watcher) Handle(event Change) {
-	if watcher.pause {
+	if watcher.paused.Load() {
 		return
 	}
 	watcher.events <- event
 }
 
 func (watcher *Watcher) Pause() {
-	watcher.pause = true
+	watcher.paused.Store(true)
 }
 
 func (watcher *Watcher) Resume() {
-	watcher.pause = false
+	watcher.paused.Store(false)
 }

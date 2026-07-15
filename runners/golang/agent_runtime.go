@@ -68,6 +68,15 @@ type RunnerConfig struct {
 // For container runtimes, the caller is responsible for port bindings (agent-specific).
 func CreateRunner(ctx context.Context, runtimeCtx *basev0.RuntimeContext, cfg RunnerConfig) (*GoRunnerEnvironment, error) {
 	w := wool.Get(ctx).In("golang.CreateRunner")
+	if runtimeCtx == nil {
+		return nil, w.NewError("runtime context is nil")
+	}
+	if cfg.Settings == nil {
+		return nil, w.NewError("go agent settings are nil")
+	}
+	if err := cfg.Settings.Validate(); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	sourceRelative := path.Join(cfg.RelativeSource, cfg.Settings.GoSourceDir())
 

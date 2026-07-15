@@ -19,7 +19,8 @@ func runGit(dir string, args ...string) error {
 }
 
 func runGitWithEnv(dir string, args ...string) error {
-	c := exec.Command("git", args...)
+	gitArgs := append([]string{"-c", "commit.gpgsign=false"}, args...)
+	c := exec.Command("git", gitArgs...)
 	c.Dir = dir
 	c.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",

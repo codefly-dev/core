@@ -357,6 +357,12 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 		proc.WithOutput(r.out)
 	}
 	proc.WithDir(moduleDir)
+	// Keep dependency resolution consistent with BuildBinary. Without this,
+	// an unrelated parent go.work can capture the service module and make
+	// `go mod download` fetch every module in the surrounding monorepo.
+	if !r.withGoWorkspace {
+		proc.WithEnvironmentVariables(ctx, resources.Env("GOWORK", "off"))
+	}
 
 	err = proc.Run(ctx)
 	if err != nil {

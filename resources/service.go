@@ -2,7 +2,9 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path"
 	"strings"
 
@@ -138,9 +140,16 @@ func (s ServiceWithModule) String() string {
 }
 
 // NewService creates a service in an module
-func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService) (*Service, error) {
+func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService) (createdService *Service, result error) {
+	if action == nil {
+		return nil, wool.Get(ctx).In("mod.NewService").NewError("service action is nil")
+	}
 	w := wool.Get(ctx).In("mod.NewService", wool.NameField(action.Name))
-	if mod.ExistsService(ctx, action.Name) {
+	if err := validateResourcePathComponent("service", action.Name); err != nil {
+		return nil, w.Wrap(err)
+	}
+	hadReference := mod.ExistsService(ctx, action.Name)
+	if hadReference {
 		// Check for override
 		override := shared.GetOverride(ctx)
 		if !override.Replace(action.Name) {
@@ -159,12 +168,41 @@ func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService)
 		Spec:    make(map[string]any),
 	}
 
-	dir := path.Join(mod.Dir(), "services", action.Name)
+	ref := &ServiceReference{Name: action.Name}
+	if hadReference {
+		existing, err := mod.GetServiceReferences(action.Name)
+		if err != nil {
+			return nil, w.Wrap(err)
+		}
+		if existing == nil {
+			return nil, w.NewError("service reference <%s> disappeared", action.Name)
+		}
+		ref = existing
+		service.PathOverride = existing.PathOverride
+	}
+	dir := mod.ServicePath(ctx, ref)
 	service.dir = dir
 
-	_, err = shared.CheckDirectoryOrCreate(ctx, dir)
+	originalReferences := append([]*ServiceReference(nil), mod.ServiceReferences...)
+	createdDir := false
+	defer func() {
+		if result == nil {
+			return
+		}
+		mod.ServiceReferences = originalReferences
+		if createdDir {
+			if err := os.RemoveAll(dir); err != nil {
+				result = errors.Join(result, w.Wrapf(err, "cannot remove partial service directory"))
+			}
+		}
+	}()
+
+	createdDir, err = shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
 		return nil, w.Wrap(err)
+	}
+	if !createdDir && !hadReference {
+		return nil, w.NewError("service directory %s already exists without a module reference", dir)
 	}
 	err = service.Save(ctx)
 	if err != nil {
@@ -177,7 +215,7 @@ func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService)
 		return nil, w.Wrapf(err, "cannot copy and apply template")
 	}
 
-	err = mod.AddServiceReference(ctx, service.Reference())
+	err = mod.AddServiceReference(ctx, ref)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
@@ -339,6 +377,9 @@ func (s *Service) SaveAtDir(ctx context.Context, dir string) error {
 
 func (s *Service) Save(ctx context.Context) error {
 	w := wool.Get(ctx).In("Service::Save", wool.NameField(s.Name))
+	if err := s.validatePaths(); err != nil {
+		return w.Wrap(err)
+	}
 	// preSave blanks fields that are redundant on disk (module/service are
 	// implied by location). It returns a restore func so the in-memory model
 	// is put back AFTER marshalling — otherwise Save corrupts live objects
@@ -412,6 +453,9 @@ func ReloadService(ctx context.Context, service *Service) (*Service, error) {
 
 func (s *Service) postLoad(ctx context.Context) error {
 	w := wool.Get(ctx).In("Service::postLoad", wool.NameField(s.Name), wool.ModuleField(s.module))
+	if err := s.validatePaths(); err != nil {
+		return w.Wrap(err)
+	}
 	for _, dep := range s.ServiceDependencies {
 		if dep.Module == "" && s.module != "" {
 			w.Trace("setting module for dependency", wool.NameField(dep.Name))

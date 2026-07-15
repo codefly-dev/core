@@ -265,7 +265,10 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 // --- File operations ---
 
 func (s *DefaultCodeServer) readFile(_ context.Context, req *codev0.ReadFileRequest) (*codev0.CodeResponse, error) {
-	absPath := filepath.Join(s.SourceDir, req.Path)
+	absPath, err := resolvePath(s.SourceDir, req.Path)
+	if err != nil {
+		return nil, err
+	}
 	data, err := s.FS.ReadFile(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -277,7 +280,10 @@ func (s *DefaultCodeServer) readFile(_ context.Context, req *codev0.ReadFileRequ
 }
 
 func (s *DefaultCodeServer) writeFile(ctx context.Context, req *codev0.WriteFileRequest) (*codev0.CodeResponse, error) {
-	absPath := filepath.Join(s.SourceDir, req.Path)
+	absPath, err := resolvePath(s.SourceDir, req.Path)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.FS.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_WriteFile{WriteFile: &codev0.WriteFileResponse{Success: false, Error: err.Error()}}}, nil
 	}
@@ -293,7 +299,11 @@ func (s *DefaultCodeServer) listFiles(_ context.Context, req *codev0.ListFilesRe
 	root := s.SourceDir
 	base := root
 	if req.Path != "" {
-		base = filepath.Join(root, req.Path)
+		var err error
+		base, err = resolvePath(root, req.Path)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	extSet := make(map[string]bool, len(req.Extensions))
@@ -338,7 +348,10 @@ func (s *DefaultCodeServer) listFiles(_ context.Context, req *codev0.ListFilesRe
 }
 
 func (s *DefaultCodeServer) deleteFile(ctx context.Context, req *codev0.DeleteFileRequest) (*codev0.CodeResponse, error) {
-	absPath := filepath.Join(s.SourceDir, req.Path)
+	absPath, err := resolvePath(s.SourceDir, req.Path)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.FS.Remove(absPath); err != nil {
 		msg := err.Error()
 		if os.IsNotExist(err) {
@@ -351,8 +364,14 @@ func (s *DefaultCodeServer) deleteFile(ctx context.Context, req *codev0.DeleteFi
 }
 
 func (s *DefaultCodeServer) moveFile(ctx context.Context, req *codev0.MoveFileRequest) (*codev0.CodeResponse, error) {
-	oldAbs := filepath.Join(s.SourceDir, req.OldPath)
-	newAbs := filepath.Join(s.SourceDir, req.NewPath)
+	oldAbs, err := resolvePath(s.SourceDir, req.OldPath)
+	if err != nil {
+		return nil, err
+	}
+	newAbs, err := resolvePath(s.SourceDir, req.NewPath)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.FS.MkdirAll(filepath.Dir(newAbs), 0o755); err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_MoveFile{MoveFile: &codev0.MoveFileResponse{Success: false, Error: fmt.Sprintf("mkdir: %v", err)}}}, nil
 	}
@@ -372,7 +391,10 @@ func (s *DefaultCodeServer) moveFile(ctx context.Context, req *codev0.MoveFileRe
 }
 
 func (s *DefaultCodeServer) createFile(ctx context.Context, req *codev0.CreateFileRequest) (*codev0.CodeResponse, error) {
-	absPath := filepath.Join(s.SourceDir, req.Path)
+	absPath, err := resolvePath(s.SourceDir, req.Path)
+	if err != nil {
+		return nil, err
+	}
 	if !req.Overwrite {
 		if _, err := s.FS.Stat(absPath); err == nil {
 			return &codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: false, Error: "file already exists"}}}, nil
@@ -392,6 +414,11 @@ func (s *DefaultCodeServer) createFile(ctx context.Context, req *codev0.CreateFi
 // --- Search ---
 
 func (s *DefaultCodeServer) search(ctx context.Context, req *codev0.SearchRequest) (*codev0.CodeResponse, error) {
+	if req.Path != "" {
+		if _, err := resolvePath(s.SourceDir, req.Path); err != nil {
+			return nil, err
+		}
+	}
 	opts := SearchOpts{
 		Pattern:         req.Pattern,
 		Literal:         req.Literal,
@@ -428,8 +455,11 @@ func (s *DefaultCodeServer) search(ctx context.Context, req *codev0.SearchReques
 
 // --- ApplyEdit ---
 
-func (s *DefaultCodeServer) applyEdit(_ context.Context, req *codev0.ApplyEditRequest) (*codev0.CodeResponse, error) {
-	absPath := filepath.Join(s.SourceDir, req.File)
+func (s *DefaultCodeServer) applyEdit(ctx context.Context, req *codev0.ApplyEditRequest) (*codev0.CodeResponse, error) {
+	absPath, err := resolvePath(s.SourceDir, req.File)
+	if err != nil {
+		return nil, err
+	}
 	data, err := s.FS.ReadFile(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -442,8 +472,12 @@ func (s *DefaultCodeServer) applyEdit(_ context.Context, req *codev0.ApplyEditRe
 
 	result := SmartEdit(string(data), req.Find, req.Replace)
 	if !result.OK {
+		errorMessage := "FIND block does not match any content in the file"
+		if result.Strategy == "ambiguous" {
+			errorMessage = "FIND block matches multiple regions; include more surrounding context"
+		}
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{
-			Success: false, Error: "FIND block does not match any content in the file",
+			Success: false, Error: errorMessage,
 		}}}, nil
 	}
 
@@ -452,6 +486,7 @@ func (s *DefaultCodeServer) applyEdit(_ context.Context, req *codev0.ApplyEditRe
 			Success: false, Error: fmt.Sprintf("write: %v", err),
 		}}}, nil
 	}
+	s.notifyWrite(ctx, "write", req.File, "", []byte(result.Content))
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{
 		Success: true, Content: result.Content, Strategy: result.Strategy,
 	}}}, nil
@@ -460,7 +495,10 @@ func (s *DefaultCodeServer) applyEdit(_ context.Context, req *codev0.ApplyEditRe
 // --- Fix (no-op default: returns file content unchanged) ---
 
 func (s *DefaultCodeServer) fixDefault(_ context.Context, req *codev0.FixRequest) (*codev0.CodeResponse, error) {
-	absPath := filepath.Join(s.SourceDir, req.File)
+	absPath, err := resolvePath(s.SourceDir, req.File)
+	if err != nil {
+		return nil, err
+	}
 	data, err := s.FS.ReadFile(absPath)
 	if err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{
@@ -526,6 +564,12 @@ func ComputeFileHashes(vfs VFS, dir string, extensions map[string]bool) map[stri
 // --- Git operations ---
 
 func (s *DefaultCodeServer) gitLog(ctx context.Context, req *codev0.GitLogRequest) (*codev0.CodeResponse, error) {
+	if err := validateGitRef(req.Ref); err != nil {
+		return nil, err
+	}
+	if err := validateGitPath(s.SourceDir, req.Path); err != nil {
+		return nil, err
+	}
 	maxCount := int(req.MaxCount)
 	if maxCount <= 0 {
 		maxCount = 50
@@ -578,6 +622,15 @@ func parseGitLog(output string) []*codev0.GitCommit {
 }
 
 func (s *DefaultCodeServer) gitDiff(ctx context.Context, req *codev0.GitDiffRequest) (*codev0.CodeResponse, error) {
+	if err := validateGitRef(req.BaseRef); err != nil {
+		return nil, err
+	}
+	if err := validateGitRef(req.HeadRef); err != nil {
+		return nil, err
+	}
+	if err := validateGitPath(s.SourceDir, req.Path); err != nil {
+		return nil, err
+	}
 	args := []string{"diff"}
 	if req.ContextLines > 0 {
 		args = append(args, fmt.Sprintf("-U%d", req.ContextLines))
@@ -692,6 +745,12 @@ func parseGitDiffStats(output string, statOnly bool) []*codev0.GitDiffFile {
 }
 
 func (s *DefaultCodeServer) gitShow(ctx context.Context, req *codev0.GitShowRequest) (*codev0.CodeResponse, error) {
+	if err := validateGitRef(req.Ref); err != nil {
+		return nil, err
+	}
+	if err := validateGitPath(s.SourceDir, req.Path); err != nil {
+		return nil, err
+	}
 	ref := req.Ref
 	if ref == "" {
 		ref = "HEAD"
@@ -708,6 +767,9 @@ func (s *DefaultCodeServer) gitShow(ctx context.Context, req *codev0.GitShowRequ
 }
 
 func (s *DefaultCodeServer) gitBlame(ctx context.Context, req *codev0.GitBlameRequest) (*codev0.CodeResponse, error) {
+	if err := validateGitPath(s.SourceDir, req.Path); err != nil {
+		return nil, err
+	}
 	args := []string{"blame", "--porcelain"}
 	if req.StartLine > 0 {
 		end := req.EndLine
@@ -768,6 +830,21 @@ func (s *DefaultCodeServer) runGit(ctx context.Context, args ...string) (string,
 		return "", fmt.Errorf("git %s: %s", args[0], strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
+}
+
+func validateGitRef(ref string) error {
+	if strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("git ref must not be an option: %q", ref)
+	}
+	return nil
+}
+
+func validateGitPath(root, requested string) error {
+	if requested == "" {
+		return nil
+	}
+	_, err := resolvePath(root, requested)
+	return err
 }
 
 // --- Helpers ---

@@ -32,7 +32,10 @@ func TestWithDependencies_KillsProcessGroupOnReadyTimeout(t *testing.T) {
 
 	t.Setenv("CODEFLY_BINARY", binPath)
 
-	_, err := WithDependencies(context.Background(), WithTimeout(2*time.Second))
+	// Race-enabled repository sweeps can saturate the host while compiling
+	// dozens of packages; allow the spawned shell enough scheduling headroom to
+	// record its PIDs before the intentional readiness timeout fires.
+	_, err := WithDependencies(context.Background(), WithTimeout(5*time.Second))
 	if err == nil {
 		t.Fatal("expected WithDependencies to fail (fake CLI never becomes ready)")
 	}
@@ -47,11 +50,32 @@ func TestWithDependencies_KillsProcessGroupOnReadyTimeout(t *testing.T) {
 	}
 }
 
+func TestWithDependencies_ReturnsWhenCLIExitsBeforeReady(t *testing.T) {
+	dir := t.TempDir()
+	binPath := filepath.Join(dir, "codefly")
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\nexit 23\n"), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	t.Setenv("CODEFLY_BINARY", binPath)
+
+	started := time.Now()
+	_, err := WithDependencies(context.Background(), WithTimeout(10*time.Second))
+	if err == nil {
+		t.Fatal("expected WithDependencies to report the early CLI exit")
+	}
+	if !strings.Contains(err.Error(), "CLI subprocess exited") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("early CLI exit took %s to report", elapsed)
+	}
+}
+
 // readPIDFile waits for the fake binary to record its two PIDs, then parses them.
 func readPIDFile(t *testing.T, path string) (int, int) {
 	t.Helper()
 	var content []byte
-	if !waitFor(2*time.Second, func() bool {
+	if !waitFor(5*time.Second, func() bool {
 		b, err := os.ReadFile(path)
 		if err != nil || len(strings.Fields(string(b))) < 2 {
 			return false

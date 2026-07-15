@@ -30,9 +30,11 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 )
 
 // DefaultStartupTimeout is how long Load waits for the agent to print
@@ -79,6 +81,9 @@ type AgentConn struct {
 	// caller passed WithPermissionsCallback. Close shuts it down
 	// alongside the gRPC connection so the UDS file is removed.
 	permissionsCallback *policy.PermissionsCallbackServer
+
+	closeOnce      sync.Once
+	activeIdentity string
 }
 
 // GRPCConn returns the shared gRPC connection to the agent.
@@ -109,6 +114,11 @@ const gracefulShutdownTimeout = 30 * time.Second
 // cmd.Wait must only be called once — the reaper owns it. We observe
 // completion via the `done` channel the reaper closes.
 func (c *AgentConn) Close() {
+	c.closeOnce.Do(c.close)
+}
+
+func (c *AgentConn) close() {
+	unregisterActive(c)
 	// Close the log-forwarding pipe last (after the process has exited and
 	// stopped writing stderr, below) so its ForwardLogs goroutine unblocks
 	// on EOF without racing an in-flight copy.
@@ -200,8 +210,29 @@ func (c *AgentConn) StderrTail() string {
 // active tracks running agent connections for cleanup.
 var (
 	activeMu sync.Mutex
-	active   = make(map[string]*AgentConn)
+	active   = make(map[string]map[*AgentConn]struct{})
 )
+
+func registerActive(identity string, conn *AgentConn) {
+	activeMu.Lock()
+	defer activeMu.Unlock()
+	conn.activeIdentity = identity
+	if active[identity] == nil {
+		active[identity] = make(map[*AgentConn]struct{})
+	}
+	active[identity][conn] = struct{}{}
+}
+
+func unregisterActive(conn *AgentConn) {
+	activeMu.Lock()
+	defer activeMu.Unlock()
+	identity := conn.activeIdentity
+	connections := active[identity]
+	delete(connections, conn)
+	if len(connections) == 0 {
+		delete(active, identity)
+	}
+}
 
 // sandboxWarnOnce / principalWarnOnce gate the audit-of-defaults security
 // warnings to a single emission per process. Each warning is identical
@@ -216,13 +247,15 @@ var (
 // the active map.
 func Cleanup(unique string) {
 	activeMu.Lock()
-	conn, ok := active[unique]
-	if ok {
-		delete(active, unique)
+	connections := active[unique]
+	delete(active, unique)
+	snapshot := make([]*AgentConn, 0, len(connections))
+	for conn := range connections {
+		snapshot = append(snapshot, conn)
 	}
 	activeMu.Unlock()
 
-	if ok {
+	for _, conn := range snapshot {
 		conn.Close()
 	}
 }
@@ -231,11 +264,13 @@ func Cleanup(unique string) {
 // graceful daemon shutdown.
 func CleanupAll() {
 	activeMu.Lock()
-	snapshot := make(map[string]*AgentConn, len(active))
-	for k, v := range active {
-		snapshot[k] = v
+	var snapshot []*AgentConn
+	for _, connections := range active {
+		for conn := range connections {
+			snapshot = append(snapshot, conn)
+		}
 	}
-	active = make(map[string]*AgentConn)
+	active = make(map[string]map[*AgentConn]struct{})
 	activeMu.Unlock()
 
 	for _, conn := range snapshot {
@@ -873,6 +908,10 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 			return
 		}
 		handshakeCh <- handshakeResult{line: strings.TrimSpace(scanner.Text())}
+		// stdout is protocol-only for the first handshake line. Drain anything
+		// written afterwards so a noisy or buggy agent cannot fill the OS pipe and
+		// deadlock itself after an otherwise successful startup.
+		_, _ = io.Copy(io.Discard, stdout)
 	}()
 
 	var line string
@@ -939,6 +978,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		permissionsCallback: permsCallback, // nil when WithPermissionsCallback wasn't passed
 		logWriter:           cfg.logWriter, // closed on Close so ForwardLogs unblocks (nil-safe)
 	}
+	registerActive(p.Unique(), agentConn)
 
 	// Reaper goroutine: waits for the process to exit and logs unexpected
 	// terminations. This prevents zombie processes when the agent dies on
@@ -948,6 +988,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	reaperCtx := context.Background()
 	go func() {
 		defer close(agentConn.done)
+		defer unregisterActive(agentConn)
 		waitErr := cmd.Wait()
 		// cmd.Wait has returned, so exec's stderr copier is done and no
 		// more writes reach logWriter — safe to close it now. This unblocks
@@ -970,10 +1011,6 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 				wool.Field("stderr_tail", stderrBuf.String()))
 		}
 	}()
-
-	activeMu.Lock()
-	active[p.Unique()] = agentConn
-	activeMu.Unlock()
 
 	w.Trace("connected to agent", wool.Field("addr", addr), wool.Field("pid", pid))
 
@@ -1003,14 +1040,17 @@ func waitForReady(ctx context.Context, conn *grpc.ClientConn) bool {
 	// registers via SetServingStatus("", SERVING).
 	hc := healthpb.NewHealthClient(conn)
 	resp, err := hc.Check(ctx, &healthpb.HealthCheckRequest{Service: ""})
+	return healthResponseReady(ctx, resp, err)
+}
+
+func healthResponseReady(ctx context.Context, resp *healthpb.HealthCheckResponse, err error) bool {
 	if err != nil {
-		// Older agents (before health-server registration landed) won't
-		// have the health endpoint; treat that as "ready" so we don't
-		// regress them. Newer agents that ARE failing health get caught
-		// by the Status check below.
-		return ctx.Err() == nil
+		// Compatibility is limited to the precise signal that the older agent
+		// does not implement grpc.health.v1. Transport failures, crashes, and
+		// deadline errors must not be promoted to readiness.
+		return ctx.Err() == nil && status.Code(err) == codes.Unimplemented
 	}
-	return resp.GetStatus() == healthpb.HealthCheckResponse_SERVING
+	return resp != nil && resp.GetStatus() == healthpb.HealthCheckResponse_SERVING
 }
 
 // ---------------------------------------------------------------------------

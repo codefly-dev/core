@@ -61,8 +61,10 @@ func (r *CommandRegistry) Run(ctx context.Context, name string, args []string) (
 
 // --- Base integration ---
 
-// RegisterBaseCommands registers commands available on every agent.
-// Called automatically during Load.
+// RegisterBaseCommands explicitly opts an agent into unrestricted shell
+// commands. Base.Load deliberately does not call this: plugin commands are
+// reachable through MCP/gateway surfaces, and ambient shell execution must not
+// be granted to every service agent automatically.
 func (s *Base) RegisterBaseCommands() {
 	// NOTE: `bash` shares the SAME unrestricted handler as `bash_write` — there
 	// is no read-only enforcement (sandbox/allowlist) yet. Until there is, it

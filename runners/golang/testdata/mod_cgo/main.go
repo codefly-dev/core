@@ -7,8 +7,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 /*
@@ -40,7 +38,7 @@ func main() {
 			os.Exit(0)
 
 		default:
-			logrus.Infof("running")
+			fmt.Println("running")
 			time.Sleep(100 * time.Millisecond)
 		}
 	}

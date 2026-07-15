@@ -52,7 +52,7 @@ func TestSmartEdit_Anchor(t *testing.T) {
 	content := "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tx := 1\n\ty := 2\n\tz := x + y\n\tfmt.Println(z)\n}\n"
 	find := "func main() {\n\tx := 1\n\ty := 3\n\tz := x + y\n\tfmt.Println(z)\n}"
 	replace := "func main() {\n\tx := 10\n\ty := 20\n\tz := x + y\n\tfmt.Println(z)\n}"
-	r := SmartEdit(content, find, replace)
+	r := SmartEditWithOptions(content, find, replace, SmartEditOptions{AllowFuzzy: true})
 	if !r.OK {
 		t.Fatal("expected anchor/fuzzy match")
 	}
@@ -65,7 +65,7 @@ func TestSmartEdit_FuzzyScore(t *testing.T) {
 	content := "func calculate(a, b int) int {\n\tresult := a + b\n\treturn result\n}\n"
 	find := "func calculate(a, b int) int {\n\treslt := a + b\n\treturn reslt\n}"
 	replace := "func calculate(a, b int) int {\n\tresult := a * b\n\treturn result\n}"
-	r := SmartEdit(content, find, replace)
+	r := SmartEditWithOptions(content, find, replace, SmartEditOptions{AllowFuzzy: true})
 	if !r.OK {
 		t.Fatal("expected fuzzy score match")
 	}
@@ -78,6 +78,53 @@ func TestSmartEdit_NoMatch(t *testing.T) {
 	r := SmartEdit("func foo() {}\n", "something completely different\nthat has no overlap\nwith the file", "replaced")
 	if r.OK {
 		t.Fatal("expected no match")
+	}
+}
+
+func TestSmartEditFuzzyMatchingRequiresExplicitOptIn(t *testing.T) {
+	content := "func calculate() {\n\tresult := 1\n}\n"
+	find := "func calculate() {\n\treslt := 1\n}"
+	if result := SmartEdit(content, find, "changed"); result.OK {
+		t.Fatalf("default SmartEdit used approximate strategy %q", result.Strategy)
+	}
+	result := SmartEditWithOptions(content, find, "changed", SmartEditOptions{AllowFuzzy: true})
+	if !result.OK {
+		t.Fatal("explicit fuzzy edit did not match")
+	}
+}
+
+func TestSmartEdit_RejectsAmbiguousExactMatch(t *testing.T) {
+	content := "first\nrepeat\nmiddle\nrepeat\nlast\n"
+	r := SmartEdit(content, "repeat", "changed")
+	if r.OK || r.Strategy != "ambiguous" {
+		t.Fatalf("expected ambiguous failure, got ok=%v strategy=%q", r.OK, r.Strategy)
+	}
+	if r.Content != "" {
+		t.Fatalf("ambiguous edit returned modified content: %q", r.Content)
+	}
+}
+
+func TestSmartEdit_RejectsAmbiguousNormalizedMatch(t *testing.T) {
+	content := "func one() {  \n\treturn\n}\n\nfunc one() {\t\n\treturn\n}\n"
+	find := "func one() {\n\treturn\n}"
+	r := SmartEdit(content, find, "changed")
+	if r.OK || r.Strategy != "ambiguous" {
+		t.Fatalf("expected ambiguous failure, got ok=%v strategy=%q", r.OK, r.Strategy)
+	}
+}
+
+func TestFuzzyBlockRequiresCeilingSixtyPercent(t *testing.T) {
+	attempt := fuzzyBlock("alpha\nwrong\n", "alpha\nbeta", "changed")
+	if attempt.matched || attempt.ambiguous {
+		t.Fatalf("one of two matching lines must not be enough: %+v", attempt)
+	}
+}
+
+func TestFuzzyBlockRejectsTiedBestMatch(t *testing.T) {
+	content := "alpha\nbeta\nother\nalpha\nbeta\n"
+	attempt := fuzzyBlock(content, "alpha\nbeta", "changed")
+	if !attempt.ambiguous || attempt.matched {
+		t.Fatalf("expected tied fuzzy blocks to be ambiguous: %+v", attempt)
 	}
 }
 

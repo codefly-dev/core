@@ -128,9 +128,8 @@ func (j *JobIdentity) Unique() string {
 func NewJob(ctx context.Context, name string) (*Job, error) {
 	w := wool.Get(ctx).In("NewJob", wool.NameField(name))
 
-	// Validate name
-	if name == "" {
-		return nil, w.NewError("job name cannot be empty")
+	if err := validateResourcePathComponent("job", name); err != nil {
+		return nil, w.Wrap(err)
 	}
 
 	job := &Job{
@@ -178,6 +177,9 @@ func (job *Job) SaveToDir(ctx context.Context, dir string) error {
 
 	if dir == "" {
 		return w.NewError("job directory is empty")
+	}
+	if err := validateResourcePathComponent("job", job.Name); err != nil {
+		return w.Wrap(err)
 	}
 
 	return SaveToDir[Job](ctx, job, dir)
@@ -254,6 +256,9 @@ func LoadJobFromDir(ctx context.Context, dir string) (*Job, error) {
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
+	if err := validateResourcePathComponent("job", job.Name); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	job.dir = dir
 	return job, nil
@@ -264,6 +269,9 @@ func LoadJobFromDir(ctx context.Context, dir string) (*Job, error) {
 // LoadJobFromName loads a job by name from a module
 func (mod *Module) LoadJobFromName(ctx context.Context, name string) (*Job, error) {
 	w := wool.Get(ctx).In("Module.LoadJobFromName", wool.NameField(name))
+	if err := validateResourcePathComponent("job", name); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	for _, ref := range mod.JobReferences {
 		if ReferenceMatch(ref.Name, name) {
@@ -276,6 +284,9 @@ func (mod *Module) LoadJobFromName(ctx context.Context, name string) (*Job, erro
 
 // LoadJobFromReference loads a job from a reference
 func (mod *Module) LoadJobFromReference(ctx context.Context, ref *JobReference) (*Job, error) {
+	if err := validateJobReferencePath(ref); err != nil {
+		return nil, wool.Get(ctx).In("Module.LoadJobFromReference").Wrap(err)
+	}
 	w := wool.Get(ctx).In("Module.LoadJobFromReference", wool.NameField(ref.Name))
 
 	var jobDir string
@@ -339,6 +350,9 @@ func (mod *Module) NewJob(ctx context.Context, name string) (*Job, error) {
 
 // AddJobReference adds a job reference to the module
 func (mod *Module) AddJobReference(ctx context.Context, ref *JobReference) error {
+	if err := validateJobReferencePath(ref); err != nil {
+		return wool.Get(ctx).In("Module.AddJobReference").Wrap(err)
+	}
 	w := wool.Get(ctx).In("Module.AddJobReference", wool.NameField(ref.Name))
 
 	// Check for duplicates

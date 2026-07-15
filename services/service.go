@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/codefly-dev/core/agents/manager"
@@ -109,7 +110,14 @@ func (instance *BuilderInstance) Load(ctx context.Context, opts ...BuilderLoadOp
 	if opt.sync {
 		req.SyncMode = &builderv0.SyncMode{Communicate: true}
 	}
-	return instance.Builder.Load(ctx, req)
+	resp, err := instance.Builder.Load(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+	if resp != nil && resp.State != nil && resp.State.State == builderv0.LoadStatus_ERROR {
+		return resp, operationStatusError("builder load", resp.State.Message)
+	}
+	return resp, nil
 }
 
 func (instance *BuilderInstance) Create(ctx context.Context, req *builderv0.CreateRequest, handler communicate.AnswerProvider) (*builderv0.CreateResponse, error) {
@@ -127,7 +135,14 @@ func (instance *BuilderInstance) Create(ctx context.Context, req *builderv0.Crea
 			w.Wrapf(err, "communicate failed")
 	}
 
-	return instance.Builder.Create(ctx, req)
+	resp, err := instance.Builder.Create(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+	if resp != nil && resp.State != nil && resp.State.State == builderv0.CreateStatus_ERROR {
+		return resp, operationStatusError("builder create", resp.State.Message)
+	}
+	return resp, nil
 }
 
 func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRequest, handler communicate.AnswerProvider) (*builderv0.SyncResponse, error) {
@@ -145,33 +160,64 @@ func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRe
 			w.Wrapf(err, "communicate failed")
 	}
 
-	return instance.Builder.Sync(ctx, req)
+	resp, err := instance.Builder.Sync(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+	if resp != nil && resp.State != nil && resp.State.State == builderv0.SyncStatus_ERROR {
+		return resp, operationStatusError("builder sync", resp.State.Message)
+	}
+	return resp, nil
 }
 
 // Delegations to the gRPC BuilderClient
 
 func (instance *BuilderInstance) Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error) {
-	return instance.Builder.Init(ctx, req)
+	resp, err := instance.Builder.Init(ctx, req)
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.InitStatus_ERROR {
+		err = operationStatusError("builder init", resp.State.Message)
+	}
+	return resp, err
 }
 
 func (instance *BuilderInstance) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
-	return instance.Builder.Build(ctx, req)
+	resp, err := instance.Builder.Build(ctx, req)
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.BuildStatus_ERROR {
+		err = operationStatusError("builder build", resp.State.Message)
+	}
+	return resp, err
 }
 
 func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
-	return instance.Builder.Deploy(ctx, req)
+	resp, err := instance.Builder.Deploy(ctx, req)
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.DeploymentStatus_ERROR {
+		err = operationStatusError("builder deploy", resp.State.Message)
+	}
+	return resp, err
 }
 
 func (instance *BuilderInstance) Audit(ctx context.Context, req *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
-	return instance.Builder.Audit(ctx, req)
+	resp, err := instance.Builder.Audit(ctx, req)
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.AuditStatus_ERROR {
+		err = operationStatusError("builder audit", resp.State.Message)
+	}
+	return resp, err
 }
 
 func (instance *BuilderInstance) Upgrade(ctx context.Context, req *builderv0.UpgradeRequest) (*builderv0.UpgradeResponse, error) {
-	return instance.Builder.Upgrade(ctx, req)
+	resp, err := instance.Builder.Upgrade(ctx, req)
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.UpgradeStatus_ERROR {
+		err = operationStatusError("builder upgrade", resp.State.Message)
+	}
+	return resp, err
 }
 
 func (instance *BuilderInstance) Update(ctx context.Context, req *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
-	return instance.Builder.Update(ctx, req)
+	resp, err := instance.Builder.Update(ctx, req)
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.UpdateStatus_ERROR {
+		err = operationStatusError("builder update", resp.State.Message)
+	}
+	return resp, err
 }
 
 // Runtime methods
@@ -199,33 +245,63 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 	if err != nil {
 		return nil, w.Wrapf(err, "invalid request")
 	}
-	return instance.Runtime.Load(ctx, req)
+	resp, err := instance.Runtime.Load(ctx, req)
+	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.LoadStatus_ERROR {
+		err = operationStatusError("runtime load", resp.Status.Message)
+	}
+	return resp, err
 }
 
 // Delegations to the gRPC RuntimeClient
 
 func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
-	return instance.Runtime.Init(ctx, req)
+	resp, err := instance.Runtime.Init(ctx, req)
+	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.InitStatus_ERROR {
+		err = operationStatusError("runtime init", resp.Status.Message)
+	}
+	return resp, err
 }
 
 func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
-	return instance.Runtime.Start(ctx, req)
+	resp, err := instance.Runtime.Start(ctx, req)
+	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.StartStatus_ERROR {
+		err = operationStatusError("runtime start", resp.Status.Message)
+	}
+	return resp, err
 }
 
 func (instance *RuntimeInstance) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
-	return instance.Runtime.Stop(ctx, req)
+	resp, err := instance.Runtime.Stop(ctx, req)
+	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.StopStatus_ERROR {
+		err = operationStatusError("runtime stop", resp.Status.Message)
+	}
+	return resp, err
 }
 
 func (instance *RuntimeInstance) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
+	// Test failures carry structured suites/counts that callers render. Preserve
+	// the response-level status here instead of collapsing it into a Go error.
 	return instance.Runtime.Test(ctx, req)
 }
 
 func (instance *RuntimeInstance) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*runtimev0.DestroyResponse, error) {
-	return instance.Runtime.Destroy(ctx, req)
+	resp, err := instance.Runtime.Destroy(ctx, req)
+	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.DestroyStatus_ERROR {
+		err = operationStatusError("runtime destroy", resp.Status.Message)
+	}
+	return resp, err
 }
 
 func (instance *RuntimeInstance) Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
 	return instance.Runtime.Information(ctx, req)
+}
+
+func operationStatusError(operation, message string) error {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = "agent returned an error status"
+	}
+	return fmt.Errorf("%s failed: %s", operation, message)
 }
 
 // Loader
@@ -321,9 +397,9 @@ func (instance *Instance) LoadRuntime(ctx context.Context, withRuntimeCheck bool
 		return w.Wrapf(err, "missing runtime capability")
 	}
 	if withRuntimeCheck {
-		err = runners.CheckForRuntimes(ctx, instance.Info.RuntimeRequirements)
+		err = runners.CheckToolchains(ctx, instance.Info.Toolchains)
 		if err != nil {
-			return w.Wrapf(err, "missing some runtimes")
+			return w.Wrapf(err, "missing some toolchains")
 		}
 	}
 	runtime, err := LoadRuntime(ctx, instance.Service)

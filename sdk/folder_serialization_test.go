@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	utils "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
 	"github.com/codefly-dev/core/sdk"
 	"github.com/stretchr/testify/require"
 )
@@ -98,4 +99,26 @@ func TestDirectoryRequestRoundTrip(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+// TestRecreateDirectoryRejectsTraversal pins the zip-slip guard: a serialized
+// Directory whose file path escapes the destination (e.g. from a hostile gRPC
+// peer) must be refused, and nothing may be written outside destPath.
+func TestRecreateDirectoryRejectsTraversal(t *testing.T) {
+	dest, err := os.MkdirTemp("", "recreate_dest")
+	require.NoError(t, err)
+	defer os.RemoveAll(dest)
+
+	outside := filepath.Join(filepath.Dir(dest), "escaped_marker.txt")
+	_ = os.Remove(outside)
+
+	req := &utils.Directory{Files: []*utils.FileInfo{
+		{Path: filepath.Join("..", "escaped_marker.txt"), Content: []byte("pwned")},
+	}}
+
+	err = sdk.RecreateDirectory(req, dest)
+	require.Error(t, err, "traversal path must be rejected")
+
+	_, statErr := os.Stat(outside)
+	require.True(t, os.IsNotExist(statErr), "no file may be written outside destPath")
 }

@@ -87,8 +87,24 @@ func TestTrigramIndex_UpdateFile(t *testing.T) {
 	}
 
 	candidates = idx.Query("world")
-	if len(candidates) != 1 {
+	if len(candidates) != 1 || candidates[0] != "a.go" {
 		t.Errorf("after update, Query('world') = %v, want [a.go]", candidates)
+	}
+	if candidates := idx.Query("a"); len(candidates) != 1 || candidates[0] != "a.go" {
+		t.Errorf("short query exposed stale reindex IDs: %v", candidates)
+	}
+}
+
+func TestTrigramIndex_QueryIsSorted(t *testing.T) {
+	idx := NewTrigramIndex()
+	idx.AddFile("z.go", []byte("common text"))
+	idx.AddFile("a.go", []byte("common text"))
+	idx.AddFile("m.go", []byte("common text"))
+
+	want := []string{"a.go", "m.go", "z.go"}
+	got := idx.Query("common")
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("Query order = %v, want %v", got, want)
 	}
 }
 

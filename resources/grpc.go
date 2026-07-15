@@ -37,22 +37,11 @@ func (g *GRPCRoute) Save(ctx context.Context, dir string) error {
 		return w.Wrapf(err, "cannot get file path for route to save")
 	}
 	w.Trace("saving", wool.FileField(file))
-	f, err := os.Create(file)
-	if err != nil {
-		return w.Wrapf(err, "cannot create file for route")
-	}
-	defer func(f *os.File) {
-		err := f.Close()
-		if err != nil {
-			w.Error("cannot close file", wool.ErrField(err))
-		}
-	}(f)
 	out, err := yaml.Marshal(g)
 	if err != nil {
 		return w.Wrapf(err, "cannot marshal route")
 	}
-	_, err = f.Write(out)
-	if err != nil {
+	if err := shared.WriteFileAtomic(ctx, file, out, 0o600); err != nil {
 		return w.With(wool.FileField(file)).Wrapf(err, "cannot write route")
 	}
 	return nil
@@ -82,9 +71,22 @@ func (g *GRPCRoute) Route() string {
 }
 
 func FilePathForGRPC(ctx context.Context, dir string, unique string, name string) (string, error) {
-	dir = path.Join(dir, unique)
+	if err := validateServiceUniquePath(unique); err != nil {
+		return "", err
+	}
+	if err := validateResourcePathComponent("gRPC route", name); err != nil {
+		return "", err
+	}
+	root := dir
+	if _, err := shared.CheckDirectoryOrCreate(ctx, root); err != nil {
+		return "", err
+	}
+	dir = path.Join(root, unique)
 	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
 	if err != nil {
+		return "", err
+	}
+	if err := validateResolvedPathWithin(root, dir); err != nil {
 		return "", err
 	}
 	file := path.Join(dir, fmt.Sprintf("%s%s", name, GRPCRouteFileSuffix))
@@ -98,22 +100,11 @@ func (g *ExtendedGRPCRoute[T]) Save(ctx context.Context, dir string) error {
 		return w.Wrapf(err, "cannot get file path for route to save")
 	}
 	w.Debug("saving", wool.FileField(file), wool.Field("content", g))
-	f, err := os.Create(file)
-	if err != nil {
-		return w.Wrapf(err, "cannot create file for route")
-	}
-	defer func(f *os.File) {
-		err := f.Close()
-		if err != nil {
-			w.Error("cannot close file", wool.ErrField(err))
-		}
-	}(f)
 	out, err := yaml.Marshal(g)
 	if err != nil {
 		return w.Wrapf(err, "cannot marshal route")
 	}
-	_, err = f.Write(out)
-	if err != nil {
+	if err := shared.WriteFileAtomic(ctx, file, out, 0o600); err != nil {
 		return w.With(wool.FileField(file)).Wrapf(err, "cannot write route")
 	}
 	return nil

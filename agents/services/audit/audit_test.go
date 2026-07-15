@@ -1,10 +1,30 @@
 package audit
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
+
+func TestGolangReportsMissingWhenOnlyGoIsAvailable(t *testing.T) {
+	bin := t.TempDir()
+	goPath := filepath.Join(bin, "go")
+	if err := os.WriteFile(goPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	result, err := Golang(context.Background(), t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tool != "missing" {
+		t.Fatalf("Tool = %q, want missing without govulncheck", result.Tool)
+	}
+}
 
 // Real outputs from each tool, copied from production runs and trimmed
 // to one finding apiece. No mocks — the actual JSON produced by the

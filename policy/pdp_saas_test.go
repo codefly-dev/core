@@ -226,6 +226,37 @@ func TestSaasPDP_Cache_DistinctKeys(t *testing.T) {
 	require.Equal(t, 3, be.CallCount(), "all three keys cached distinctly")
 }
 
+func TestSaasPDP_Cache_EvictsLeastRecentlyUsed(t *testing.T) {
+	be := policy.NewFakeBackend(true)
+	pdp := policy.NewSaasPDP(be).WithCacheLimit(time.Hour, 2)
+	mk := func(action string) *policy.PDPRequest {
+		return &policy.PDPRequest{
+			Tool: action,
+			Identity: map[string]any{
+				"principal_id":     "p-1",
+				"principal_org_id": "org-1",
+			},
+		}
+	}
+
+	pdp.Evaluate(context.Background(), mk("tool.a"))
+	pdp.Evaluate(context.Background(), mk("tool.b"))
+	pdp.Evaluate(context.Background(), mk("tool.a")) // a is most-recently used
+	pdp.Evaluate(context.Background(), mk("tool.c")) // evicts b
+	require.Equal(t, 3, be.CallCount())
+
+	pdp.Evaluate(context.Background(), mk("tool.a"))
+	require.Equal(t, 3, be.CallCount(), "recent entry should remain cached")
+	pdp.Evaluate(context.Background(), mk("tool.b"))
+	require.Equal(t, 4, be.CallCount(), "least-recently used entry should be evicted")
+}
+
+func TestSaasPDP_CacheLimitRejectsInvalidBound(t *testing.T) {
+	require.Panics(t, func() {
+		policy.NewSaasPDP(policy.NewFakeBackend(true)).WithCacheLimit(time.Minute, 0)
+	})
+}
+
 func TestSaasPDP_Metrics_RecordsAllowsAndDenies(t *testing.T) {
 	be := policy.NewFakeBackend(false).
 		Allow("p-1", "git.status", "", "org-1")

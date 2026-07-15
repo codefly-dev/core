@@ -139,6 +139,32 @@ func TestNixEnvironment_NewProcess_DirectWhenMaterialized(t *testing.T) {
 	}
 }
 
+func TestNixProc_MaterializedModeResolvesBinaryFromDevShellPATH(t *testing.T) {
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "nix-store-bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tool := filepath.Join(binDir, "codefly-materialized-test-tool")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\necho from-materialized-path\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	env := &NixEnvironment{dir: dir, materialized: map[string]string{"PATH": binDir}}
+	proc, err := env.NewProcess("codefly-materialized-test-tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	proc.WithOutput(&output)
+	if err := proc.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "from-materialized-path") {
+		t.Fatalf("unexpected output %q", output.String())
+	}
+}
+
 // ─── NixProc env composition (start path, unit-testable portion) ───
 
 // TestNixProc_EnvComposition_MaterializedFirstThenCodeflyOverrides

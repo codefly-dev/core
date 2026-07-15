@@ -7,12 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	logrus.SetOutput(os.Stdout)
 	ctx := context.Background()
 	// Signal handling
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
@@ -24,7 +21,7 @@ func main() {
 			os.Exit(0)
 
 		default:
-			logrus.Infof("running")
+			fmt.Println("running")
 			time.Sleep(100 * time.Millisecond)
 		}
 	}

@@ -123,6 +123,7 @@ func gitCommitAt(t *testing.T, dir, iso string) {
 	run(nil, "init", "-q")
 	run(nil, "config", "user.email", "t@t")
 	run(nil, "config", "user.name", "t")
+	run(nil, "config", "commit.gpgsign", "false")
 	writeFile(t, dir, "f.txt", "x")
 	run(nil, "add", ".")
 	run([]string{"GIT_AUTHOR_DATE=" + iso, "GIT_COMMITTER_DATE=" + iso}, "commit", "-qm", "c")

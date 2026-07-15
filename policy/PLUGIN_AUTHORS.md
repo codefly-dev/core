@@ -197,7 +197,8 @@ gateway logs the same id at mint time.
 
 When `sa` is nil, your call took the **defense path** — the Guard
 fell back to the PDP-via-callback for outer authorization (gateway
-not deployed, or token verify failed and the PDP caught the call).
+not deployed or no scoped credential was supplied). A credential
+that is present but invalid is rejected before the handler runs.
 Behavior is identical from your handler's perspective; the `nil`
 just means there's no gateway-side trace id to correlate with.
 

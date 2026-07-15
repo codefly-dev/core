@@ -57,9 +57,28 @@ message Capability {
   Type type = 1;
 }
 
-// Runtime describes a toolchain/runtime required by an agent.
-message Runtime {
-  // Type enumerates runtime toolchains agents may require.
+// Backend describes an execution environment a service can run in. It is
+// orthogonal to Toolchain: a backend is HOW the service runs (native process,
+// nix shell, container), a toolchain is WHAT the host needs for LOCAL mode.
+message Backend {
+  // Type enumerates supported execution backends.
+  enum Type {
+    // UNKNOWN is the default value when type is not specified.
+    UNKNOWN = 0;
+    // LOCAL runs the service's binary/interpreter directly on the host.
+    LOCAL = 1;
+    // NIX runs the service Docker-free inside a nix shell.
+    NIX = 2;
+    // DOCKER runs the service inside a container image.
+    DOCKER = 3;
+  }
+  // type is a supported execution backend.
+  Type type = 1;
+}
+
+// Toolchain describes a host toolchain a service needs to run in LOCAL mode.
+message Toolchain {
+  // Type enumerates language/tool toolchains an agent may require on the host.
   enum Type {
     // UNKNOWN is the default value when type is not specified.
     UNKNOWN = 0;
@@ -77,16 +96,16 @@ message Runtime {
     RUBY_GEM = 6;
     // RUBY_BUNDLE is the Bundler toolchain.
     RUBY_BUNDLE = 7;
-    // NIX is the Nix runtime/toolchain.
-    NIX = 8;
     // RUST is the Rust toolchain.
-    RUST = 9;
+    RUST = 8;
     // CARGO is the Cargo build tool/package manager.
-    CARGO = 10;
+    CARGO = 9;
+    // SWIFT is the Swift toolchain.
+    SWIFT = 10;
   }
-  // type is the required runtime toolchain.
+  // type is the required toolchain.
   Type type = 1;
-  // version is the semantic or service-specific version for this resource.
+  // version is the semantic or service-specific version for this toolchain.
   string version = 2;
 }
 
@@ -124,8 +143,8 @@ message AgentTechnique {
 
 // AgentInformation is the manifest and documentation surface returned by an agent.
 message AgentInformation {
-  // runtime_requirements are toolchains the user must have available.
-  repeated Runtime runtime_requirements = 1;
+  reserved 1;                          // was `runtime_requirements` (Runtime); split into supported_backends + toolchains
+  reserved "runtime_requirements";
   // capabilities describes which optional protocol features are supported.
   repeated Capability capabilities = 2;
   // protocols are endpoint protocols the agent can expose.
@@ -138,6 +157,18 @@ message AgentInformation {
   repeated ConfigurationValueDetail configuration_details = 6;
   // techniques are reusable workflows or prompts the agent can apply.
   repeated AgentTechnique techniques = 7;
+  // supported_backends are the execution environments the service can run in
+  // (LOCAL/NIX/DOCKER), in PREFERENCE ORDER: element [0] is the backend the
+  // plugin prefers, the rest are acceptable fallbacks in descending preference.
+  // The CLI resolves a "free" service to the first supported backend that is
+  // actually available in the environment (Docker reachable, nix installed,
+  // toolchain present), unless the user overrides via preferences.yaml or an
+  // explicit runtime context. Example: Go advertises [LOCAL, NIX, DOCKER] —
+  // prefer native, then a nix shell, then a container.
+  repeated Backend supported_backends = 8;
+  // toolchains are host toolchains the user must have available to run the
+  // service in LOCAL mode (ignored for NIX/DOCKER backends).
+  repeated Toolchain toolchains = 9;
 }
 
 // AgentInformationRequest asks an agent to describe its capabilities and settings.

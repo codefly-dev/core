@@ -45,7 +45,8 @@ func (c *ByteLRU) Get(key string) []byte {
 		return nil
 	}
 	c.order.MoveToFront(elem)
-	return elem.Value.(*lruEntry).data
+	// Never hand out the cache's interior buffer: callers may mutate a VFS read.
+	return append([]byte(nil), elem.Value.(*lruEntry).data...)
 }
 
 // Put stores data under key. If the entry exceeds MaxEntrySize, it is not cached.
@@ -59,6 +60,8 @@ func (c *ByteLRU) Put(key string, data []byte) {
 	if isBinary(data) {
 		return
 	}
+	// The caller retains ownership of its input buffer.
+	data = append([]byte(nil), data...)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()

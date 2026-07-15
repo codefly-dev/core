@@ -217,6 +217,60 @@ message TestStatus {
   string message = 2;
 }
 
+// TestSelection is a language-neutral, structured description of the tests to
+// execute. It deliberately contains no runner command, regex, framework name,
+// or selector grammar. The runtime plugin owns the translation to its native
+// runner.
+message TestSelection {
+  // scope selects exactly one semantic granularity for this request.
+  oneof scope {
+    // package selects every test owned by one package/module/crate.
+    TestPackageSelection package = 1;
+    // file selects every test declared by one workspace-relative file.
+    TestFileSelection file = 2;
+    // suite selects one runtime-declared suite such as unit or integration.
+    TestSuiteSelection suite = 3;
+    // test_case selects one exact logical test, including nested names.
+    TestCaseSelection test_case = 4;
+  }
+}
+
+// TestPackageSelection identifies a package using the runtime plugin's
+// project-level package identity. It is data, never a command-line fragment.
+message TestPackageSelection {
+  // package is the package/module/crate identity understood by the plugin.
+  string package = 1;
+}
+
+// TestFileSelection identifies a canonical, workspace-relative source path.
+message TestFileSelection {
+  // path is a canonical, workspace-relative path using forward slashes.
+  string path = 1;
+}
+
+// TestSuiteSelection identifies a suite declared by the runtime plugin or the
+// project configuration.
+message TestSuiteSelection {
+  // name is the runtime-declared suite identity.
+  string name = 1;
+}
+
+// TestCaseSelection identifies one exact logical test. qualified_name stores
+// outer-to-inner name segments (for example class, method, subtest) so callers
+// never construct framework delimiters such as "::", "/", or regexes. At
+// least one of package or path must be present and qualified_name must be
+// non-empty; runtime implementations must reject invalid selections.
+message TestCaseSelection {
+  // package optionally narrows the case to one package/module/crate.
+  string package = 1;
+  // path optionally narrows the case to one workspace-relative file.
+  string path = 2;
+  // suite optionally narrows the case to one runtime-declared suite.
+  string suite = 3;
+  // qualified_name lists logical name segments from outermost to leaf case.
+  repeated string qualified_name = 4;
+}
+
 // TestRequest asks the runtime agent to run native tests for this service.
 message TestRequest {
   // Optional target: package or directory scope (e.g. "./handlers" for Go,
@@ -267,6 +321,19 @@ message TestRequest {
   // renders the formula into `uv run …` and parses by `output`. Selectors come
   // from `target`/`filters`. This is how the brain stays framework-blind.
   TestFormula formula = 9;
+
+  // selection is the authoritative structured scope. When present, runtime
+  // implementations MUST apply it exactly or return an ERRORED result; they
+  // must never silently fall back to the broad/default test scope.
+  TestSelection selection = 10;
+
+  // selection_id is an opaque, caller-generated identity for selection.
+  // It is required whenever selection is present. A runtime echoes it in
+  // TestRun.selection_id only after it has honored selection. Callers MUST
+  // reject a response that does not echo the expected identity. This makes an
+  // older peer that ignores the additive selection field fail closed instead
+  // of accidentally certifying a broad test run.
+  string selection_id = 11;
 }
 
 // TestFormula is a fully-described test invocation as DATA — and it is
@@ -372,6 +439,14 @@ message TestRun {
 
   // Wall-clock duration of the entire run.
   google.protobuf.Duration duration = 3;
+
+  // requested_selection is the exact structured selection the runtime
+  // applied. It is omitted only for an unscoped/default test run.
+  TestSelection requested_selection = 4;
+
+  // selection_id echoes TestRequest.selection_id after the runtime has
+  // validated and honored requested_selection.
+  string selection_id = 5;
 }
 
 // TestRunResult is the run-level outcome. Distinct from per-case

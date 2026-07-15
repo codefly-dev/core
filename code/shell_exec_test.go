@@ -173,6 +173,30 @@ func TestShellExec_WorkDir_TraversalRejected(t *testing.T) {
 	}
 }
 
+func TestShellExec_WorkDir_EscapingSymlinkCannotRunOutsideRoot(t *testing.T) {
+	s, dir := newShellExecServer(t)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, "escape")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	resp, _ := s.Execute(context.Background(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_ShellExec{
+			ShellExec: &codev0.ShellExecRequest{
+				Command: "touch escaped.txt",
+				WorkDir: "escape",
+			},
+		},
+	})
+	r := extractShellExec(t, resp)
+	if r.ExitCode == 0 {
+		t.Fatal("shell unexpectedly ran through an escaping work-dir symlink")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "escaped.txt")); !os.IsNotExist(err) {
+		t.Fatalf("shell escaped source root through symlink: %v", err)
+	}
+}
+
 // ──────────────────────────────────────────────────────────
 // Args mode (no shell interpretation)
 // ──────────────────────────────────────────────────────────
@@ -478,6 +502,7 @@ func TestShellExec_Stdin_GitCatFileBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	run("git init -q")
+	run("git config commit.gpgsign false")
 	run("git add .")
 	run("git commit -q -m fixture")
 

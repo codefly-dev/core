@@ -20,11 +20,9 @@ import (
 	"github.com/codefly-dev/core/runners/dockerrun"
 )
 
-// EnvFactory is a constructor that returns a RunnerEnvironment bound to
-// dir. Each backend provides one. Returning (nil, nil) is a programmer
-// error — backends MUST be available when the matrix runs. If a backend
-// can't be available on every dev/CI box, exclude it via Only(...) at
-// the call site instead.
+// EnvFactory is a constructor that returns a RunnerEnvironment bound to dir.
+// Returning (nil, nil) means the backend is unavailable on this host. The
+// default matrix skips it; an explicit Only(...) selection makes it required.
 type EnvFactory func(ctx context.Context, dir string) (runners.RunnerEnvironment, error)
 
 // Case wraps a (name, factory) pair for a single backend.
@@ -62,11 +60,11 @@ func Only(names ...string) Option {
 }
 
 // ForEachEnvironment runs fn against each supported backend as a sub-test.
-// A backend that isn't available on the host (Docker not running, nix
-// not installed, missing flake.nix) FAILS the sub-test loudly — silent
-// skips hide drift. To exclude an irrelevant backend at the call site,
-// use Only("native", "nix"). To exclude all infra-dependent backends
-// from a build, set the `skip_infra` build tag at the test-file level.
+// A backend unavailable on the host (Docker not running, Nix not installed,
+// missing flake.nix) is skipped in the default matrix. Passing Only(...) is an
+// explicit assertion that those backends must exist and turns absence into a
+// failure. This keeps local/default suites portable without weakening CI jobs
+// that deliberately require a backend.
 //
 // `dir` is the workspace or source directory the plugin expects to
 // operate on. For native/nix it's used as cwd; for docker it's bind-mounted.
@@ -84,7 +82,10 @@ func ForEachEnvironment(t *testing.T, dir string, fn func(t *testing.T, env runn
 				t.Fatalf("%s: cannot create env: %v", c.Name, err)
 			}
 			if env == nil {
-				t.Fatalf("%s: backend not available on this host — install/start it, restrict the matrix with Only(...), or run with -tags skip_infra", c.Name)
+				if cfg.onlyNames != nil {
+					t.Fatalf("%s: explicitly requested backend is not available on this host", c.Name)
+				}
+				t.Skipf("%s: backend not available on this host", c.Name)
 			}
 			t.Cleanup(func() {
 				_ = env.Shutdown(context.Background())
@@ -109,7 +110,15 @@ func casesFor(cfg *options) []Case {
 						return nil, nil
 					}
 					uniq := filepath.Base(dir) + "-testmatrix"
-					return dockerrun.NewDockerEnvironment(ctx, img, dir, uniq)
+					env, err := dockerrun.NewDockerEnvironment(ctx, img, dir, uniq)
+					if err != nil {
+						return nil, err
+					}
+					// Matrix containers host later docker-exec processes; without a
+					// long-lived command, images such as alpine default to /bin/sh and
+					// exit immediately because no interactive stdin is attached.
+					env.WithPause()
+					return env, nil
 				}
 			}
 		}
@@ -160,7 +169,12 @@ func defaultCases() []Case {
 				// richer image should use a custom Case in their package.
 				img := &resources.DockerImage{Name: "alpine", Tag: "3.20"}
 				uniq := filepath.Base(dir) + "-testmatrix"
-				return dockerrun.NewDockerEnvironment(ctx, img, dir, uniq)
+				env, err := dockerrun.NewDockerEnvironment(ctx, img, dir, uniq)
+				if err != nil {
+					return nil, err
+				}
+				env.WithPause()
+				return env, nil
 			},
 		},
 	}

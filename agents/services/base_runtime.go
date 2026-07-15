@@ -63,14 +63,14 @@ func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: err.Error()}
-	return &runtimev0.LoadResponse{Status: s.LoadStatus}, err
+	return &runtimev0.LoadResponse{Status: s.LoadStatus}, nil
 }
 
 func (s *RuntimeWrapper) LoadErrorf(err error, msg string, args ...any) (*runtimev0.LoadResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
-	return &runtimev0.LoadResponse{Status: s.LoadStatus}, err
+	return &runtimev0.LoadResponse{Status: s.LoadStatus}, nil
 }
 
 // ── Init ──────────────────────────────────────────────────
@@ -90,14 +90,14 @@ func (s *RuntimeWrapper) InitError(err error) (*runtimev0.InitResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: err.Error()}
-	return &runtimev0.InitResponse{Status: s.InitStatus}, err
+	return &runtimev0.InitResponse{Status: s.InitStatus}, nil
 }
 
 func (s *RuntimeWrapper) InitErrorf(err error, msg string, args ...any) (*runtimev0.InitResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
-	return &runtimev0.InitResponse{Status: s.InitStatus}, err
+	return &runtimev0.InitResponse{Status: s.InitStatus}, nil
 }
 
 // ── Start ─────────────────────────────────────────────────
@@ -113,14 +113,14 @@ func (s *RuntimeWrapper) StartError(err error) (*runtimev0.StartResponse, error)
 	s.Lock()
 	defer s.Unlock()
 	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: err.Error()}
-	return &runtimev0.StartResponse{Status: s.StartStatus}, err
+	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
 }
 
 func (s *RuntimeWrapper) StartErrorf(err error, msg string, args ...any) (*runtimev0.StartResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
-	return &runtimev0.StartResponse{Status: s.StartStatus}, err
+	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
 }
 
 // MarkRunnerExited records that the underlying runner process exited
@@ -171,21 +171,21 @@ func (s *RuntimeWrapper) TestResponseWithResults(run, passed, failed, skipped in
 		TestsSkipped: skipped,
 		CoveragePct:  coverage,
 		Failures:     failures,
-	}, err
+	}, nil
 }
 
 func (s *RuntimeWrapper) TestError(err error) (*runtimev0.TestResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: err.Error()}
-	return &runtimev0.TestResponse{Status: s.TestStatus}, err
+	return &runtimev0.TestResponse{Status: s.TestStatus}, nil
 }
 
 func (s *RuntimeWrapper) TestErrorf(err error, msg string, args ...any) (*runtimev0.TestResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
-	return &runtimev0.TestResponse{Status: s.TestStatus}, err
+	return &runtimev0.TestResponse{Status: s.TestStatus}, nil
 }
 
 // ── Build ─────────────────────────────────────────────────
@@ -201,14 +201,14 @@ func (s *RuntimeWrapper) BuildError(err error) (*runtimev0.BuildResponse, error)
 	s.Lock()
 	defer s.Unlock()
 	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_ERROR, Message: err.Error()}
-	return &runtimev0.BuildResponse{Status: s.BuildStatus}, err
+	return &runtimev0.BuildResponse{Status: s.BuildStatus}, nil
 }
 
 func (s *RuntimeWrapper) BuildErrorf(err error, msg string, args ...any) (*runtimev0.BuildResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
-	return &runtimev0.BuildResponse{Status: s.BuildStatus}, err
+	return &runtimev0.BuildResponse{Status: s.BuildStatus}, nil
 }
 
 // ── Lint ──────────────────────────────────────────────────
@@ -224,38 +224,38 @@ func (s *RuntimeWrapper) LintError(err error) (*runtimev0.LintResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_ERROR, Message: err.Error()}
-	return &runtimev0.LintResponse{Status: s.LintStatus}, err
+	return &runtimev0.LintResponse{Status: s.LintStatus}, nil
 }
 
 func (s *RuntimeWrapper) LintErrorf(err error, msg string, args ...any) (*runtimev0.LintResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
-	return &runtimev0.LintResponse{Status: s.LintStatus}, err
+	return &runtimev0.LintResponse{Status: s.LintStatus}, nil
 }
 
 // ── Stop / Destroy ────────────────────────────────────────
 
 func (s *RuntimeWrapper) StopResponse() (*runtimev0.StopResponse, error) {
-	return &runtimev0.StopResponse{}, nil
+	return &runtimev0.StopResponse{Status: &runtimev0.StopStatus{State: runtimev0.StopStatus_SUCCESS}}, nil
 }
 
 func (s *RuntimeWrapper) StopError(err error) (*runtimev0.StopResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.StopStatus = &runtimev0.StopStatus{State: runtimev0.StopStatus_ERROR, Message: err.Error()}
-	return &runtimev0.StopResponse{Status: s.StopStatus}, err
+	return &runtimev0.StopResponse{Status: s.StopStatus}, nil
 }
 
 func (s *RuntimeWrapper) DestroyResponse() (*runtimev0.DestroyResponse, error) {
-	return &runtimev0.DestroyResponse{}, nil
+	return &runtimev0.DestroyResponse{Status: &runtimev0.DestroyStatus{State: runtimev0.DestroyStatus_SUCCESS}}, nil
 }
 
 func (s *RuntimeWrapper) DestroyError(err error) (*runtimev0.DestroyResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.DestroyStatus = &runtimev0.DestroyStatus{State: runtimev0.DestroyStatus_ERROR, Message: err.Error()}
-	return &runtimev0.DestroyResponse{Status: s.DestroyStatus}, err
+	return &runtimev0.DestroyResponse{Status: s.DestroyStatus}, nil
 }
 
 // ── Information ───────────────────────────────────────────

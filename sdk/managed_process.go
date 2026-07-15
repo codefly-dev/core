@@ -56,6 +56,7 @@ type managedProcess struct {
 	sigCh      chan os.Signal
 	waitedOnce sync.Once
 	waitErr    error
+	done       chan struct{}
 }
 
 // startManaged starts cmd in its own process group with the lifecycle
@@ -93,6 +94,7 @@ func startManaged(_ any, cmd *exec.Cmd) (*managedProcess, error) {
 		cmd:     cmd,
 		stdoutR: bufio.NewReader(stdoutPipe),
 		stderrR: bufio.NewReader(stderrPipe),
+		done:    make(chan struct{}),
 	}
 
 	// Supervisor goroutine — reaps the child on exit.
@@ -134,7 +136,21 @@ func (mp *managedProcess) supervise() {
 		mp.exited = true
 		mp.waitErr = err
 		mp.mu.Unlock()
+		close(mp.done)
 	})
+}
+
+// Done is closed when the supervised child has exited and been reaped.
+func (mp *managedProcess) Done() <-chan struct{} {
+	return mp.done
+}
+
+// WaitError reports the child's exit result after Done has closed.
+func (mp *managedProcess) WaitError() error {
+	<-mp.done
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+	return mp.waitErr
 }
 
 // watchSignals blocks until a shutdown signal arrives, then kills the

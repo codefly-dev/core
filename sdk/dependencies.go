@@ -176,9 +176,24 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// for it to become ready, matching the pattern in agents/manager/loader.go.
 	connectCtx, connectCancel := context.WithTimeout(ctx, opt.Timeout)
 	defer connectCancel()
+	go func() {
+		select {
+		case <-proc.Done():
+			connectCancel()
+		case <-connectCtx.Done():
+		}
+	}()
 
 	conn.Connect()
 	if !waitForReady(connectCtx, conn) {
+		select {
+		case <-proc.Done():
+			if exitErr := proc.WaitError(); exitErr != nil {
+				return nil, fmt.Errorf("CLI subprocess exited before its gRPC server became ready: %w", exitErr)
+			}
+			return nil, fmt.Errorf("CLI subprocess exited before its gRPC server became ready")
+		default:
+		}
 		return nil, fmt.Errorf("gRPC connection to CLI server at %s did not become ready within %s", addr, opt.Timeout)
 	}
 

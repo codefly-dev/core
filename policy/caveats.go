@@ -420,6 +420,8 @@ type rateLimitState struct {
 	windows map[string][]time.Time // key → mint timestamps in last 60s
 }
 
+const maxRateLimitKeys = 10_000
+
 func newRateLimitState() *rateLimitState {
 	return &rateLimitState{windows: map[string][]time.Time{}}
 }
@@ -429,6 +431,12 @@ func (s *rateLimitState) check(key string, perMinute int, now time.Time) error {
 	defer s.mu.Unlock()
 
 	cutoff := now.Add(-time.Minute)
+	if _, exists := s.windows[key]; !exists && len(s.windows) >= maxRateLimitKeys {
+		s.pruneExpired(cutoff)
+		if len(s.windows) >= maxRateLimitKeys {
+			return fmt.Errorf("rate_limit: state capacity exceeded (%d active keys)", maxRateLimitKeys)
+		}
+	}
 	timestamps := s.windows[key]
 
 	// Drop any entries before the cutoff.
@@ -445,6 +453,22 @@ func (s *rateLimitState) check(key string, perMinute int, now time.Time) error {
 	pruned = append(pruned, now)
 	s.windows[key] = pruned
 	return nil
+}
+
+func (s *rateLimitState) pruneExpired(cutoff time.Time) {
+	for key, timestamps := range s.windows {
+		pruned := timestamps[:0]
+		for _, timestamp := range timestamps {
+			if timestamp.After(cutoff) {
+				pruned = append(pruned, timestamp)
+			}
+		}
+		if len(pruned) == 0 {
+			delete(s.windows, key)
+			continue
+		}
+		s.windows[key] = pruned
+	}
 }
 
 func rateLimitKey(scope string, in EvaluationInput) string {

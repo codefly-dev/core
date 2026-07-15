@@ -36,19 +36,23 @@ func NewFileOps(vfs VFS, root string) FileOperation {
 	return &fileOps{vfs: vfs, root: root}
 }
 
-func (f *fileOps) abs(path string) string {
-	if filepath.IsAbs(path) {
-		return path
-	}
-	return filepath.Join(f.root, path)
+func (f *fileOps) abs(path string) (string, error) {
+	return resolvePath(f.root, path)
 }
 
 func (f *fileOps) ReadFile(ctx context.Context, path string) ([]byte, error) {
-	return f.vfs.ReadFile(f.abs(path))
+	abs, err := f.abs(path)
+	if err != nil {
+		return nil, err
+	}
+	return f.vfs.ReadFile(abs)
 }
 
 func (f *fileOps) WriteFile(ctx context.Context, path string, data []byte) error {
-	abs := f.abs(path)
+	abs, err := f.abs(path)
+	if err != nil {
+		return err
+	}
 	if err := f.vfs.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return err
 	}
@@ -58,7 +62,11 @@ func (f *fileOps) WriteFile(ctx context.Context, path string, data []byte) error
 func (f *fileOps) ListFiles(ctx context.Context, path string, recursive bool, extensions []string) ([]string, error) {
 	base := f.root
 	if path != "" {
-		base = filepath.Join(f.root, path)
+		var err error
+		base, err = f.abs(path)
+		if err != nil {
+			return nil, err
+		}
 	}
 	extSet := make(map[string]bool)
 	for _, e := range extensions {
@@ -103,12 +111,22 @@ func (f *fileOps) ListFiles(ctx context.Context, path string, recursive bool, ex
 }
 
 func (f *fileOps) DeleteFile(ctx context.Context, path string) error {
-	return f.vfs.Remove(f.abs(path))
+	abs, err := f.abs(path)
+	if err != nil {
+		return err
+	}
+	return f.vfs.Remove(abs)
 }
 
 func (f *fileOps) MoveFile(ctx context.Context, oldPath, newPath string) error {
-	oldAbs := f.abs(oldPath)
-	newAbs := f.abs(newPath)
+	oldAbs, err := f.abs(oldPath)
+	if err != nil {
+		return err
+	}
+	newAbs, err := f.abs(newPath)
+	if err != nil {
+		return err
+	}
 	if err := f.vfs.MkdirAll(filepath.Dir(newAbs), 0o755); err != nil {
 		return err
 	}
@@ -116,7 +134,11 @@ func (f *fileOps) MoveFile(ctx context.Context, oldPath, newPath string) error {
 }
 
 func (f *fileOps) CopyFile(ctx context.Context, srcPath, destPath string) error {
-	data, err := f.vfs.ReadFile(f.abs(srcPath))
+	srcAbs, err := f.abs(srcPath)
+	if err != nil {
+		return err
+	}
+	data, err := f.vfs.ReadFile(srcAbs)
 	if err != nil {
 		return err
 	}
@@ -124,11 +146,20 @@ func (f *fileOps) CopyFile(ctx context.Context, srcPath, destPath string) error 
 }
 
 func (f *fileOps) Search(ctx context.Context, opts SearchOpts) (*SearchResult, error) {
+	if opts.Path != "" {
+		if _, err := f.abs(opts.Path); err != nil {
+			return nil, err
+		}
+	}
 	return SearchVFS(ctx, f.vfs, f.root, opts)
 }
 
 func (f *fileOps) ReplaceInFile(ctx context.Context, path, find, replace string) (changed bool, err error) {
-	data, err := f.vfs.ReadFile(f.abs(path))
+	abs, err := f.abs(path)
+	if err != nil {
+		return false, err
+	}
+	data, err := f.vfs.ReadFile(abs)
 	if err != nil {
 		return false, err
 	}

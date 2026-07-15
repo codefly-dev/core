@@ -163,10 +163,26 @@ func MakeConfigurationInformationSummary(info *basev0.ConfigurationInformation) 
 }
 
 func MakeConfigurationValueSummary(value *basev0.ConfigurationValue) string {
-	if value.Secret {
+	if value == nil {
+		return ""
+	}
+	if value.Secret || IsSensitiveKey(value.Key) {
 		return fmt.Sprintf("%s=****", value.Key)
 	}
 	return fmt.Sprintf("%s=%s", value.Key, value.Value)
+}
+
+// IsSensitiveKey recognizes conventional credential-bearing names even when a
+// caller forgot to set ConfigurationValue.Secret. Secret metadata remains the
+// primary signal; this is defense in depth for logs and diagnostics.
+func IsSensitiveKey(key string) bool {
+	key = strings.ToUpper(key)
+	for _, marker := range []string{"PASSWORD", "PASSWD", "SECRET", "TOKEN", "CREDENTIAL", "API_KEY", "PRIVATE_KEY", "ACCESS_KEY", "AUTH", "DATABASE_URL", "CONNECTION", "DSN", "COOKIE", "SESSION"} {
+		if strings.Contains(key, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // configRuntimeKind folds the nix runtime onto native for configuration

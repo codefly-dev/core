@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/codefly-dev/core/agents/communicate"
 
@@ -17,8 +19,28 @@ type AddOutput struct {
 	ReadMe string
 }
 
-func Add(ctx context.Context, workspace *resources.Workspace, module *resources.Module, input *actionservice.AddService, handler communicate.AnswerProvider) (*AddOutput, error) {
+func Add(ctx context.Context, workspace *resources.Workspace, module *resources.Module, input *actionservice.AddService, handler communicate.AnswerProvider) (output *AddOutput, result error) {
+	if workspace == nil {
+		return nil, fmt.Errorf("workspace is nil")
+	}
+	if module == nil {
+		return nil, fmt.Errorf("module is nil")
+	}
+	if input == nil {
+		return nil, fmt.Errorf("add service input is nil")
+	}
 	w := wool.Get(ctx).In("services.Add", wool.Field("workspace", workspace.Name), wool.Field("module", module.Name), wool.Field("input", input))
+	created := !module.ExistsService(ctx, input.Name)
+	var service *resources.Service
+	defer func() {
+		if result == nil || !created || service == nil {
+			return
+		}
+		cleanupCtx := context.WithoutCancel(ctx)
+		if err := module.DeleteService(cleanupCtx, service.Name); err != nil {
+			result = errors.Join(result, w.Wrapf(err, "cannot roll back partial service"))
+		}
+	}()
 
 	action, err := actionservice.NewActionAddService(ctx, input)
 	if err != nil {
@@ -30,7 +52,7 @@ func Add(ctx context.Context, workspace *resources.Workspace, module *resources.
 		return nil, w.Wrapf(err, "cannot run AddService action")
 	}
 
-	service, err := actions.As[resources.Service](out)
+	service, err = actions.As[resources.Service](out)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get service back from action output")
 	}
@@ -52,7 +74,7 @@ func Add(ctx context.Context, workspace *resources.Workspace, module *resources.
 		return nil, w.Wrapf(err, "cannot get agent information")
 	}
 
-	output := &AddOutput{
+	output = &AddOutput{
 		ReadMe: info.ReadMe,
 	}
 

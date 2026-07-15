@@ -48,6 +48,11 @@ func GetLogHandler() *LogHandler {
 // registered log processors. Blocks until the reader is closed.
 func (h *LogHandler) ForwardLogs(r io.Reader) {
 	scanner := bufio.NewScanner(r)
+	// Agent logs can legitimately contain generated source, compiler output, or
+	// structured fields larger than Scanner's 64 KiB default token limit.
+	// Keep a bounded ceiling, but never abandon an io.Pipe reader on overflow:
+	// doing so leaves the writer blocked forever and can wedge the agent process.
+	scanner.Buffer(make([]byte, 64*1024), 4<<20)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -66,6 +71,9 @@ func (h *LogHandler) ForwardLogs(r io.Reader) {
 		}
 
 		h.process(msg.Source, msg.Log)
+	}
+	if scanner.Err() != nil {
+		_, _ = io.Copy(io.Discard, r)
 	}
 }
 

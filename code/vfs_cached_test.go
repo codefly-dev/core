@@ -1,11 +1,13 @@
 package code
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,6 +54,52 @@ func TestCachedVFS_BasicOperations(t *testing.T) {
 	}
 	if string(data) != "# Hello" {
 		t.Fatalf("expected '# Hello', got %q", string(data))
+	}
+}
+
+func TestCachedVFSDirectoryCreateIngestsExistingSubtree(t *testing.T) {
+	dir := t.TempDir()
+	cached, err := NewCachedVFS(LocalVFS{}, dir)
+	require.NoError(t, err)
+	defer cached.Close()
+
+	subtree := filepath.Join(dir, "incoming")
+	child := filepath.Join(subtree, "nested", "child.txt")
+	require.NoError(t, os.MkdirAll(filepath.Dir(child), 0o755))
+	require.NoError(t, os.WriteFile(child, []byte("child"), 0o644))
+
+	cached.processBatch([]fsnotify.Event{{Name: subtree, Op: fsnotify.Create}})
+	cached.mu.RLock()
+	_, present := cached.entries[child]
+	cached.mu.RUnlock()
+	if !present {
+		t.Fatal("created directory subtree was not ingested into the cache")
+	}
+}
+
+func TestCachedVFSRenameInvalidatesOldContentAndMovesSubtree(t *testing.T) {
+	dir := t.TempDir()
+	oldDir := filepath.Join(dir, "old")
+	oldFile := filepath.Join(oldDir, "child.txt")
+	require.NoError(t, os.MkdirAll(oldDir, 0o755))
+	require.NoError(t, os.WriteFile(oldFile, []byte("cached"), 0o644))
+
+	cached, err := NewCachedVFS(LocalVFS{}, dir)
+	require.NoError(t, err)
+	defer cached.Close()
+	cached.contentCache = NewByteLRU(1024)
+	_, err = cached.ReadFile(oldFile)
+	require.NoError(t, err)
+
+	newDir := filepath.Join(dir, "new")
+	require.NoError(t, cached.Rename(oldDir, newDir))
+	if _, err := cached.ReadFile(oldFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old cached path remained readable after rename: %v", err)
+	}
+	children, err := cached.ReadDir(newDir)
+	require.NoError(t, err)
+	if len(children) != 1 || children[0].Name() != "child.txt" {
+		t.Fatalf("renamed subtree not moved in cache: %v", children)
 	}
 }
 

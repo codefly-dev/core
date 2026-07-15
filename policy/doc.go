@@ -136,10 +136,10 @@
 //     enforcing MaxUses across calls.
 //
 // **Two-level defense:** Guard tries the fast path (verify token)
-// first; on missing/invalid token, falls back to the full PDP
-// path. Three independent layers: gateway pre-evaluation, plugin
-// outer Guard, inline Authorizer for sub-operations. Any single
-// layer's failure leaves the others enforcing.
+// first. A missing token falls back to the full PDP path; a token
+// that is present but invalid is denied without credential
+// downgrade. The layers are gateway pre-evaluation, plugin outer
+// Guard, and inline Authorizer for sub-operations.
 //
 // See TWO_LEVEL_AUTHZ.md for the design rationale and security
 // analysis.

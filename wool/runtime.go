@@ -13,49 +13,42 @@ func IsDebug() bool {
 	return l == DEBUG || l == TRACE
 }
 
-var lock *sync.Mutex
+var globalLogLevel atomic.Int32
 
-func init() {
-	lock = &sync.Mutex{}
-}
+func init() { globalLogLevel.Store(int32(INFO)) }
 
 // GlobalLogLevel returns the current global log level (thread-safe).
 func GlobalLogLevel() Loglevel {
-	lock.Lock()
-	defer lock.Unlock()
-	return globalLogLevel
+	return Loglevel(globalLogLevel.Load())
 }
 
 // SetGlobalLogLevel sets the global log level (thread-safe).
 func SetGlobalLogLevel(loglevel Loglevel) {
-	lock.Lock()
-	defer lock.Unlock()
-	globalLogLevel = loglevel
+	globalLogLevel.Store(int32(loglevel))
 }
-
-var globalLogLevel = INFO
 
 // fallbackLogger is used by Get() when no Provider is found in context.
 // Set this to redirect orphan logs (e.g. from context.Background()) away
 // from Console/stdout, which is critical when a TUI owns the terminal.
 var fallbackLogger LogProcessor
+var fallbackLoggerMu sync.RWMutex
 
 // SetFallbackLogger sets (or clears) the global fallback LogProcessor.
 // Pass nil to revert to the default Console logger.
 func SetFallbackLogger(l LogProcessor) {
-	lock.Lock()
-	defer lock.Unlock()
+	fallbackLoggerMu.Lock()
+	defer fallbackLoggerMu.Unlock()
 	fallbackLogger = l
 }
 
 // getFallbackLogger returns the fallback logger or a Console if none is set.
 func getFallbackLogger() LogProcessor {
-	lock.Lock()
-	defer lock.Unlock()
+	fallbackLoggerMu.RLock()
+	defer fallbackLoggerMu.RUnlock()
 	if fallbackLogger != nil {
 		return fallbackLogger
 	}
-	return &Console{level: globalLogLevel}
+	return &Console{level: GlobalLogLevel()}
 }
 
 // scopeRule maps a scope-name prefix to a log level. A rule with an empty

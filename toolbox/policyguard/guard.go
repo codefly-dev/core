@@ -44,8 +44,8 @@ type Guard struct {
 	// minted ScopedAuthorization tokens. When set (non-zero
 	// length), CallTool first checks for a token in the request
 	// metadata: valid token → trust the gateway's pre-evaluation,
-	// skip the PDP round-trip; missing/invalid → fall back to
-	// the PDP path (defense in depth).
+	// skip the PDP round-trip; missing → fall back to the PDP;
+	// present but invalid → deny without credential downgrade.
 	//
 	// Lifecycle: set by NewWithScopedAuth or from the
 	// CODEFLY_SCOPED_AUTHZ_SECRET env at process startup. May
@@ -73,17 +73,18 @@ type Guard struct {
 	trl *policy.TokenRevocationList
 }
 
-// New wraps inner. If pdp is nil, an AllowAllPDP is substituted —
-// the wrapper is then a no-op. This makes Guard always-safe-to-
-// install: code paths that haven't migrated their config to a real
-// PDP get the same behavior they had before.
+// New wraps inner. A nil PDP is a configuration error and fails closed with a
+// DenyAllPDP. Explicit policy-off mode is handled by agents.Serve by registering
+// the raw toolbox without a Guard; silently turning a present guard into
+// allow-all would make a missing dependency indistinguishable from a deliberate
+// security choice.
 //
 // Without scoped-auth wiring, every CallTool consults the PDP. To
 // enable the two-level scoped-auth fast path, use NewWithScopedAuth
 // or set the secret/audience via the With* helpers.
 func New(inner toolboxv0.ToolboxServer, pdp policy.PDP, toolboxName string) *Guard {
 	if pdp == nil {
-		pdp = policy.AllowAllPDP{}
+		pdp = policy.DenyAllPDP{}
 	}
 	g := &Guard{
 		inner:   inner,
@@ -247,11 +248,9 @@ func (g *Guard) ListPrompts(ctx context.Context, req *toolboxv0.ListPromptsReque
 //     ScopedAuthorization on ctx for handler visibility, dispatch
 //     to inner. The PDP is NOT consulted on this path.
 //
-//  2. **Defense path** (when scoped-auth is unwired OR token is
-//     missing/invalid): full PDP evaluation. Same behavior as the
-//     one-level model. Token-invalid logs a warning so operators
-//     see "scoped-auth verify failed" events without breaking the
-//     call (the PDP catches abuse).
+//  2. **Defense path** (when scoped-auth is unwired OR the token is absent):
+//     full PDP evaluation. A present-but-invalid token is denied immediately;
+//     it must not downgrade into the credential-less path.
 //
 // Refused calls return a CallToolResponse with the deny reason in
 // Error — the SAME envelope a tool that refused itself would
@@ -288,7 +287,11 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 
 	// Try the fast path first when scoped-auth is configured.
 	if len(secret) > 0 {
-		if sa, ok := g.tryVerifyScopedAuthWith(ctx, req, secret, audience, verifiers); ok {
+		sa, tokenPresent, verifyErr := g.tryVerifyScopedAuthWith(ctx, req, secret, audience, verifiers)
+		if verifyErr != nil {
+			return &toolboxv0.CallToolResponse{Error: "scoped-authz: invalid token"}, nil
+		}
+		if tokenPresent {
 			// Resource binding: a resource-scoped token must only authorize a
 			// call that carries the SAME resource. The Verify primitive skips
 			// this when the call presents no resource arg, so enforce it here —
@@ -311,8 +314,7 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 			ctx = policy.WithScopedAuth(ctx, sa)
 			return g.inner.CallTool(ctx, req)
 		}
-		// Fall through to PDP path. The verify failure (if any)
-		// has already been logged by tryVerifyScopedAuthWith.
+		// A genuinely absent token falls through to the PDP path.
 	}
 
 	// Defense path: PDP-via-callback (single-level model).
@@ -344,9 +346,9 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 // here so a concurrent With* mutator can't tear the view between
 // CallTool's "secret is set" check and Verify's actual HMAC.
 //
-// Returns the verified token + true on success; (nil, false) when:
-//   - no token in metadata (silent: defense path takes over)
-//   - token present but invalid (logs WARN; defense path takes over)
+// Returns the verified token, whether a credential was present, and any
+// verification failure. Missing credentials are distinct from malformed or
+// unverifiable credentials: only absence may fall back to the PDP path.
 //
 // Token absence is NOT a deny by itself — the defense path (PDP)
 // still runs. This is the load-bearing two-level property: each
@@ -357,7 +359,7 @@ func (g *Guard) tryVerifyScopedAuthWith(
 	secret []byte,
 	audience string,
 	verifiers map[string]policy.CaveatVerifier,
-) (*policy.ScopedAuthorization, bool) {
+) (*policy.ScopedAuthorization, bool, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		// No request metadata at all — silently fall through to
@@ -368,14 +370,22 @@ func (g *Guard) tryVerifyScopedAuthWith(
 		wool.Get(ctx).In("policyguard.tryVerifyScopedAuthWith").
 			Debug("no metadata on request; falling back to PDP",
 				wool.Field("tool", req.GetName()))
-		return nil, false
+		return nil, false, nil
 	}
 	values := md.Get(policy.ScopedAuthMetadataKey)
-	if len(values) == 0 || values[0] == "" {
+	if len(values) == 0 {
 		wool.Get(ctx).In("policyguard.tryVerifyScopedAuthWith").
 			Debug("scoped-auth token absent; falling back to PDP",
 				wool.Field("tool", req.GetName()))
-		return nil, false
+		return nil, false, nil
+	}
+	if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
+		err := policy.ErrScopedAuthInvalid
+		wool.Get(ctx).In("policyguard.tryVerifyScopedAuthWith").
+			Warn("scoped-authz invalid; denying request",
+				wool.Field("error", "expected exactly one non-empty token"),
+				wool.Field("tool", req.GetName()))
+		return nil, true, err
 	}
 
 	resource := ""
@@ -401,18 +411,13 @@ func (g *Guard) tryVerifyScopedAuthWith(
 
 	sa, err := policy.Verify(values[0], expect, secret)
 	if err != nil {
-		// Token present but failed verify — log a warning and
-		// fall through to the defense path. We don't OUTRIGHT
-		// DENY here: a misconfigured gateway shouldn't break the
-		// system, and the PDP is the second layer that catches
-		// any actual abuse.
 		wool.Get(ctx).In("policyguard.tryVerifyScopedAuthWith").
-			Warn("scoped-authz invalid; falling back to PDP",
+			Warn("scoped-authz invalid; denying request",
 				wool.Field("error", err.Error()),
 				wool.Field("tool", req.GetName()))
-		return nil, false
+		return nil, true, err
 	}
-	return sa, true
+	return sa, true, nil
 }
 
 // ReadResource is policy-gated for the same reason CallTool is —

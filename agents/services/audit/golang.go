@@ -17,10 +17,11 @@ import (
 // Both tools are skipped (Tool="missing") if not on PATH so the agent
 // scan still completes — the CLI surfaces the missing-tool warning.
 func Golang(ctx context.Context, dir string, includeOutdated bool) (*Result, error) {
-	res := &Result{Language: "GO", Tool: "go list -u"}
+	res := &Result{Language: "GO"}
 	tools := []string{}
+	govulncheckAvailable := have("govulncheck")
 
-	if have("govulncheck") {
+	if govulncheckAvailable {
 		tools = append(tools, "govulncheck")
 		findings, err := runGovulncheck(ctx, dir)
 		if err != nil {
@@ -30,6 +31,7 @@ func Golang(ctx context.Context, dir string, includeOutdated bool) (*Result, err
 	}
 
 	if includeOutdated && have("go") {
+		tools = append(tools, "go list -u")
 		outdated, err := runGoListUpdates(ctx, dir)
 		if err != nil {
 			return nil, err
@@ -37,10 +39,14 @@ func Golang(ctx context.Context, dir string, includeOutdated bool) (*Result, err
 		res.Outdated = outdated
 	}
 
-	if len(tools) == 0 && !have("go") {
+	// A Go vulnerability audit is incomplete without govulncheck. Keep
+	// Tool="missing" even when `go list -u` successfully collected outdated
+	// dependencies so security-gating callers cannot mistake that metadata for
+	// a completed vulnerability scan.
+	if !govulncheckAvailable {
 		res.Tool = "missing"
-	} else if len(tools) > 0 {
-		res.Tool = strings.Join(append(tools, "go list -u"), "+")
+	} else {
+		res.Tool = strings.Join(tools, "+")
 	}
 	return res, nil
 }

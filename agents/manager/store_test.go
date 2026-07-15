@@ -1,8 +1,65 @@
 package manager
 
 import (
+	"context"
+	"crypto/sha256"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestOCIStoreDownloadBlobVerifiesDigestAndInstallsAtomically(t *testing.T) {
+	payload := []byte("verified agent binary")
+	sum := sha256.Sum256(payload)
+	digest := fmt.Sprintf("sha256:%x", sum[:])
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	dst := filepath.Join(t.TempDir(), "agent")
+	store := NewOCIStore("unused", "https", slog.Default())
+	if err := store.downloadBlob(context.Background(), server.URL, digest, dst); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("installed %q, want %q", got, payload)
+	}
+}
+
+func TestOCIStoreDownloadBlobRejectsMismatchWithoutCacheEntry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("tampered"))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "agent")
+	store := NewOCIStore("unused", "https", slog.Default())
+	err := store.downloadBlob(context.Background(), server.URL, "sha256:"+strings.Repeat("0", 64), dst)
+	if err == nil {
+		t.Fatal("expected digest mismatch")
+	}
+	if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
+		t.Fatalf("mismatched blob became a cache entry: %v", statErr)
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("partial files leaked after mismatch: %+v", entries)
+	}
+}
 
 func TestExtractFirstLayerDigest(t *testing.T) {
 	// OCI Image Manifest v1

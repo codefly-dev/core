@@ -21,6 +21,22 @@ func TestByteLRU_PutGet(t *testing.T) {
 	}
 }
 
+func TestByteLRUDoesNotExposeInteriorBuffers(t *testing.T) {
+	c := NewByteLRU(1024)
+	input := []byte("hello")
+	c.Put("a", input)
+	input[0] = 'X'
+
+	first := c.Get("a")
+	if string(first) != "hello" {
+		t.Fatalf("cache changed through Put input: %q", first)
+	}
+	first[0] = 'Y'
+	if got := string(c.Get("a")); got != "hello" {
+		t.Fatalf("cache changed through Get result: %q", got)
+	}
+}
+
 func TestByteLRU_Eviction(t *testing.T) {
 	c := NewByteLRU(100) // 100 bytes capacity
 
@@ -114,7 +130,7 @@ func TestByteLRU_Clear(t *testing.T) {
 
 func TestByteLRU_SkipLargeEntry(t *testing.T) {
 	c := NewByteLRU(1024 * 1024) // 1MB capacity
-	c.MaxEntrySize = 100          // but max entry is 100 bytes
+	c.MaxEntrySize = 100         // but max entry is 100 bytes
 
 	c.Put("big", []byte(strings.Repeat("x", 200)))
 

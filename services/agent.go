@@ -21,9 +21,18 @@ import (
 // the cache check + insert and double-spawn the process (the
 // first connection then leaks, no Close).
 var (
-	connCacheMu sync.Mutex
-	connCache   = make(map[string]*manager.AgentConn)
+	connCacheMu    sync.Mutex
+	connCache      = make(map[string]*manager.AgentConn)
+	connLoads      = make(map[string]*connLoad)
+	connGeneration uint64
+	managerLoad    = manager.Load
 )
+
+type connLoad struct {
+	done chan struct{}
+	conn *manager.AgentConn
+	err  error
+}
 
 // ServiceCacheKey is the per-SERVICE cache key for an agent connection. Two
 // services using the same agent (e.g. two `go-grpc` services) MUST get their own
@@ -100,19 +109,29 @@ func LoadAgent(ctx context.Context, agent *resources.Agent, cacheKey string) (*c
 // It wires agent stderr through ForwardLogs so structured logs reach the
 // CLI display pipeline.
 //
-// Concurrency note: we hold connCacheMu across the cache check, the
-// process spawn, AND the cache insert. That serializes concurrent
-// LoadAgent calls for DIFFERENT agents — slightly slower than the
-// finer-grained "spawn outside lock then re-check" alternative, but
-// the CLI's spawn rate is bounded (one per service in a graph), and
-// this pattern is panic-free with no double-spawn risk. If contention
-// shows up in profiles, switch to a per-key singleflight.
+// Concurrent requests for one cache key share an in-flight launch; different
+// keys spawn independently. The generation check prevents a launch completing
+// after ClearAgents from repopulating the freshly-cleared cache.
 func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agent) (*manager.AgentConn, error) {
 	connCacheMu.Lock()
-	defer connCacheMu.Unlock()
 	if conn, ok := connCache[cacheKey]; ok {
+		connCacheMu.Unlock()
 		return conn, nil
 	}
+	if load, ok := connLoads[cacheKey]; ok {
+		connCacheMu.Unlock()
+		select {
+		case <-load.done:
+			return load.conn, load.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	load := &connLoad{done: make(chan struct{})}
+	generation := connGeneration
+	connLoads[cacheKey] = load
+	connCacheMu.Unlock()
+
 	pr, pw := io.Pipe()
 	go agents.GetLogHandler().ForwardLogs(pr)
 	// Explicit WithoutSandbox: service agents (Runtime, Builder, Code)
@@ -120,15 +139,34 @@ func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agen
 	// ambient authority. Per-agent sandbox profiles are the right
 	// long-term fix; this opt-out is the audit-visible marker for
 	// the gap. See toolbox/launch for the path that DOES sandbox.
-	conn, err := manager.Load(ctx, agent,
+	conn, err := managerLoad(ctx, agent,
 		manager.WithLogWriter(pw),
 		manager.WithoutSandbox())
 	if err != nil {
 		_ = pw.Close()
-		return nil, err
 	}
-	connCache[cacheKey] = conn
-	return conn, nil
+
+	connCacheMu.Lock()
+	if current, ok := connLoads[cacheKey]; ok && current == load {
+		delete(connLoads, cacheKey)
+	}
+	if err == nil && generation != connGeneration {
+		err = fmt.Errorf("agent connection cache was cleared while %q was loading", cacheKey)
+	}
+	if err == nil {
+		connCache[cacheKey] = conn
+	}
+	load.conn, load.err = conn, err
+	if err != nil {
+		load.conn = nil
+	}
+	close(load.done)
+	connCacheMu.Unlock()
+
+	if err != nil && conn != nil {
+		conn.Close()
+	}
+	return load.conn, load.err
 }
 
 // getConn returns the cached connection for a cache key (see ServiceCacheKey).
@@ -167,6 +205,8 @@ func ClearAgents() {
 	connCacheMu.Lock()
 	old := connCache
 	connCache = make(map[string]*manager.AgentConn)
+	connLoads = make(map[string]*connLoad)
+	connGeneration++
 	connCacheMu.Unlock()
 
 	instancesMu.Lock()

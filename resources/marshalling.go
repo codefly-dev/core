@@ -94,7 +94,7 @@ func SaveToDir[C Configuration](ctx context.Context, c *C, dir string) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot marshal")
 	}
-	err = os.WriteFile(file, content, 0600)
+	err = shared.WriteFileAtomic(ctx, file, content, 0o600)
 	if err != nil {
 		return w.Wrapf(err, "cannot write")
 	}

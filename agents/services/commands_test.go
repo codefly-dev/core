@@ -88,9 +88,18 @@ func TestBase_ListCommands_Empty(t *testing.T) {
 	b := &Base{}
 	resp, err := b.ListCommands(context.Background(), &agentv0.ListCommandsRequest{})
 	require.NoError(t, err)
-	// Base registers bash + bash_write automatically, but only after Load()
-	// Without Load, commands is nil
 	assert.Empty(t, resp.Commands)
+}
+
+func TestBaseShellCommandsRequireExplicitOptIn(t *testing.T) {
+	b := &Base{}
+	b.RegisterBaseCommands()
+	resp, err := b.ListCommands(context.Background(), &agentv0.ListCommandsRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.Commands, 2)
+	for _, command := range resp.Commands {
+		assert.True(t, command.Destructive, "%s must remain explicitly destructive", command.Name)
+	}
 }
 
 func TestBase_RunPluginCommand_NoCommands(t *testing.T) {

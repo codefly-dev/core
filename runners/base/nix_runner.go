@@ -37,6 +37,10 @@ type NixEnvironment struct {
 	dir       string
 	flakePath string
 
+	// mu guards envs and materialized. Init/materialization can overlap with
+	// process construction in orchestration, while environment overrides may be
+	// appended from another goroutine.
+	mu   sync.RWMutex
 	envs []*resources.EnvironmentVariable
 
 	// materialized holds the devShell's exported env vars captured once
@@ -109,7 +113,9 @@ func (nix *NixEnvironment) Init(ctx context.Context) error {
 	// flake hasn't changed. Skips `nix print-dev-env --json` entirely.
 	if nix.cacheDir != "" {
 		if loaded, err := nix.loadCachedMaterialization(ctx); err == nil && loaded != nil {
+			nix.mu.Lock()
 			nix.materialized = loaded
+			nix.mu.Unlock()
 			wool.Get(ctx).In("NixEnvironment.Init").
 				Info("reloaded materialized nix env from cache",
 					wool.Field("vars", len(loaded)))
@@ -227,7 +233,8 @@ func (nix *NixEnvironment) loadCachedMaterialization(ctx context.Context) (map[s
 // sibling .tmp file + rename — a crash mid-write leaves the previous
 // cache intact.
 func (nix *NixEnvironment) saveCachedMaterialization(ctx context.Context) error {
-	if nix.materialized == nil {
+	materialized, _ := nix.runtimeSnapshot()
+	if materialized == nil {
 		return nil
 	}
 	if err := os.MkdirAll(nix.cacheDir, 0o755); err != nil {
@@ -240,7 +247,7 @@ func (nix *NixEnvironment) saveCachedMaterialization(ctx context.Context) error 
 	payload := cachedEnvPayload{
 		SchemaVersion: cachedEnvSchemaVersion,
 		Fingerprint:   fp,
-		Env:           nix.materialized,
+		Env:           materialized,
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -312,7 +319,9 @@ func (nix *NixEnvironment) materialize(ctx context.Context) error {
 		env["TMPDIR"] = t
 	}
 
+	nix.mu.Lock()
 	nix.materialized = env
+	nix.mu.Unlock()
 	w.Info("nix dev env materialized", wool.Field("vars", len(env)))
 	return nil
 }
@@ -347,7 +356,9 @@ func parseNixDevEnv(data []byte) (map[string]string, error) {
 
 func (nix *NixEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("NixEnvironment.WithEnvironmentVariables")
-	w.Trace("adding", wool.Field("envs", envs))
+	w.Trace("adding environment variables", wool.Field("count", len(envs)))
+	nix.mu.Lock()
+	defer nix.mu.Unlock()
 	nix.envs = append(nix.envs, envs...)
 }
 
@@ -372,7 +383,8 @@ func (nix *NixEnvironment) Shutdown(context.Context) error {
 // in `nix develop <dir> --command <bin> <args...>`.
 func (nix *NixEnvironment) NewProcess(bin string, args ...string) (Proc, error) {
 	var cmd []string
-	if nix.materialized != nil {
+	materialized, _ := nix.runtimeSnapshot()
+	if materialized != nil {
 		cmd = append([]string{bin}, args...)
 	} else {
 		cmd = append([]string{
@@ -387,6 +399,19 @@ func (nix *NixEnvironment) NewProcess(bin string, args ...string) (Proc, error) 
 		stopped: make(chan interface{}),
 		exitCh:  make(chan struct{}),
 	}, nil
+}
+
+func (nix *NixEnvironment) runtimeSnapshot() (map[string]string, []*resources.EnvironmentVariable) {
+	nix.mu.RLock()
+	defer nix.mu.RUnlock()
+	var materialized map[string]string
+	if nix.materialized != nil {
+		materialized = make(map[string]string, len(nix.materialized))
+		for key, value := range nix.materialized {
+			materialized[key] = value
+		}
+	}
+	return materialized, append([]*resources.EnvironmentVariable(nil), nix.envs...)
 }
 
 // publishExit records the process exit error and unblocks Run().
@@ -409,6 +434,9 @@ type NixProc struct {
 	cmd    []string
 	exec   *exec.Cmd
 	envs   []*resources.EnvironmentVariable
+
+	lifecycleMu   sync.Mutex
+	stopRequested bool
 
 	stopped  chan interface{}
 	stopOnce sync.Once
@@ -471,7 +499,7 @@ func (proc *NixProc) StdoutPipe() (io.ReadCloser, error) {
 
 func (proc *NixProc) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("NixProc.WithEnvironmentVariables")
-	w.Trace("adding", wool.Field("envs", envs))
+	w.Trace("adding environment variables", wool.Field("count", len(envs)))
 	proc.envs = append(proc.envs, envs...)
 }
 
@@ -498,10 +526,13 @@ func (proc *NixProc) IsRunning(ctx context.Context) (bool, error) {
 		return false, nil
 	default:
 	}
-	if proc.exec == nil || proc.exec.Process == nil {
+	proc.lifecycleMu.Lock()
+	runningCmd := proc.exec
+	proc.lifecycleMu.Unlock()
+	if runningCmd == nil || runningCmd.Process == nil {
 		return false, nil
 	}
-	pid := proc.exec.Process.Pid
+	pid := runningCmd.Process.Pid
 	w.Trace("checking if process is running", wool.Field("pid", pid))
 	// #nosec G204
 	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid))
@@ -539,7 +570,7 @@ func (proc *NixProc) Wait(ctx context.Context) error {
 
 func (proc *NixProc) Run(ctx context.Context) error {
 	w := wool.Get(ctx).In("NixProc.Run")
-	w.Trace("running nix process", wool.Field("cmd", proc.cmd))
+	w.Trace("running nix process", wool.Field("cmd", CommandSummary(proc.cmd)))
 	if err := proc.start(ctx); err != nil {
 		return err
 	}
@@ -580,14 +611,34 @@ func (proc *NixProc) Run(ctx context.Context) error {
 
 func (proc *NixProc) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("NixProc.Start")
-	w.Trace("starting nix process", wool.Field("cmd", proc.cmd))
+	w.Trace("starting nix process", wool.Field("cmd", CommandSummary(proc.cmd)))
 	return proc.start(ctx)
 }
 
 func (proc *NixProc) start(ctx context.Context) error {
 	w := wool.Get(ctx).In("NixProc.start", wool.DirField(proc.env.dir))
+	materialized, environmentVariables := proc.env.runtimeSnapshot()
+	bin := proc.cmd[0]
+	if materialized != nil && !strings.ContainsRune(bin, filepath.Separator) {
+		pathValue := materialized["PATH"]
+		for _, env := range environmentVariables {
+			if env != nil && env.Key == "PATH" {
+				pathValue = env.ValueAsString()
+			}
+		}
+		for _, env := range proc.envs {
+			if env != nil && env.Key == "PATH" {
+				pathValue = env.ValueAsString()
+			}
+		}
+		resolved, err := lookPathIn(bin, pathValue)
+		if err != nil {
+			return w.Wrapf(err, "cannot resolve %q in materialized devShell PATH", bin)
+		}
+		bin = resolved
+	}
 	// #nosec G204
-	cmd := exec.CommandContext(ctx, proc.cmd[0], proc.cmd[1:]...)
+	cmd := exec.CommandContext(ctx, bin, proc.cmd[1:]...)
 
 	cmd.Dir = proc.env.dir
 	if proc.dir != "" {
@@ -606,9 +657,9 @@ func (proc *NixProc) start(ctx context.Context) error {
 	cmd.WaitDelay = 5 * time.Second
 	// Materialized devShell env comes first so that codefly-supplied vars
 	// (env.envs, proc.envs) override Nix defaults when keys collide.
-	if proc.env.materialized != nil {
+	if materialized != nil {
 		hostHome := os.Getenv("HOME")
-		for k, v := range proc.env.materialized {
+		for k, v := range materialized {
 			// `nix print-dev-env` exports HOME=/homeless-shelter (its "no home"
 			// sentinel) — a non-existent, unwritable path. Any spawned tool that
 			// writes to $HOME then fails and exits: `vault server -dev` aborts on
@@ -622,7 +673,7 @@ func (proc *NixProc) start(ctx context.Context) error {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 	}
-	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.env.envs)...)
+	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(environmentVariables)...)
 	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
 
 	// Wire stdin pipe if requested
@@ -648,10 +699,9 @@ func (proc *NixProc) start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err = cmd.Start(); err != nil {
+		if err = proc.startCommand(cmd); err != nil {
 			return w.Wrapf(err, "cannot start nix process")
 		}
-		proc.exec = cmd
 		proc.forwarderWG.Add(1)
 		go func() {
 			defer proc.forwarderWG.Done()
@@ -681,10 +731,9 @@ func (proc *NixProc) start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err = cmd.Start(); err != nil {
+		if err = proc.startCommand(cmd); err != nil {
 			return w.Wrapf(err, "cannot start nix process")
 		}
-		proc.exec = cmd
 		proc.forwarderWG.Add(2)
 		go func() {
 			defer proc.forwarderWG.Done()
@@ -725,6 +774,40 @@ func (proc *NixProc) start(ctx context.Context) error {
 	return nil
 }
 
+func (proc *NixProc) startCommand(cmd *exec.Cmd) error {
+	proc.lifecycleMu.Lock()
+	defer proc.lifecycleMu.Unlock()
+	if proc.stopRequested {
+		return errors.New("process was stopped before it could start")
+	}
+	if proc.exec != nil {
+		return errors.New("process already started")
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	proc.exec = cmd
+	return nil
+}
+
+func lookPathIn(file, pathValue string) (string, error) {
+	if pathValue == "" {
+		return "", fmt.Errorf("PATH is empty")
+	}
+	for _, dir := range filepath.SplitList(pathValue) {
+		if dir == "" {
+			dir = "."
+		}
+		candidate := filepath.Join(dir, file)
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() || info.Mode().Perm()&0o111 == 0 {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf("executable %q not found", file)
+}
+
 // forward streams r → proc.output one line at a time, preserving newlines.
 // See forwardLines in pgid.go for the rationale. Shared across native/nix
 // so both backends have identical output semantics.
@@ -736,12 +819,17 @@ func (proc *NixProc) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("NixProc.Stop")
 	w.Trace("stopping nix process")
 
-	if proc.exec == nil || proc.exec.Process == nil {
+	proc.lifecycleMu.Lock()
+	proc.stopRequested = true
+	cmd := proc.exec
+	proc.lifecycleMu.Unlock()
+	if cmd == nil || cmd.Process == nil {
 		w.Trace("nix process not started, nothing to stop")
+		proc.stopOnce.Do(func() { close(proc.stopped) })
 		return nil
 	}
 
-	pgid := proc.exec.Process.Pid
+	pgid := cmd.Process.Pid
 	w.Trace("sending SIGTERM to process group", wool.Field("pgid", pgid))
 	// Tree-kill via negative PID — previously Signal() only reached the
 	// nix-develop wrapper, leaking any test workers it had spawned.

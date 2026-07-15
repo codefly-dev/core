@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/gortk"
+	"github.com/google/uuid"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -51,10 +53,21 @@ type DockerEnvironment struct {
 	mounts       []mount.Mount
 	envs         []*resources.EnvironmentVariable
 	portMappings []*DockerPortMapping
+	dockerSocket bool
+	publicPorts  bool
 
 	instance *DockerContainerInstance
 	out      io.Writer
+	logMu    sync.Mutex
 	reader   io.ReadCloser
+	// logSince is set immediately before a container start so the first
+	// follower includes startup output without replaying logs from an older
+	// incarnation of a reused container.
+	logSince      time.Time
+	logGeneration uint64
+	logAttaching  bool
+	logResetting  bool
+	logClosing    bool
 	// forwarderWG tracks the follow-mode log-forwarding goroutine spawned by
 	// GetLogs. Shutdown waits on it before closing the reader so the goroutine
 	// can't race a concurrent Close (and so we don't leak it + the hijacked
@@ -182,6 +195,11 @@ func (docker *DockerEnvironment) ensureContainerRunning(ctx context.Context) err
 	}
 
 	if inspect.State.Running {
+		docker.logMu.Lock()
+		if docker.logSince.IsZero() {
+			docker.logSince = time.Now().UTC()
+		}
+		docker.logMu.Unlock()
 		docker.running = true
 		return nil
 	}
@@ -222,7 +240,11 @@ func generateDockerCreateCommand(containerConfig *container.Config, hostConfig *
 	// Add port bindings
 	for port, bindings := range hostConfig.PortBindings {
 		for _, binding := range bindings {
-			cmd = append(cmd, "--publish", fmt.Sprintf("%s:%s", binding.HostPort, port.Port()))
+			host := binding.HostPort
+			if binding.HostIP != "" {
+				host = binding.HostIP + ":" + host
+			}
+			cmd = append(cmd, "--publish", fmt.Sprintf("%s:%s", host, port.Port()))
 		}
 	}
 
@@ -242,15 +264,39 @@ func generateDockerCreateCommand(containerConfig *container.Config, hostConfig *
 	return strings.Join(cmd, " ")
 }
 
+func redactedContainerConfig(config *container.Config) *container.Config {
+	if config == nil {
+		return nil
+	}
+	redacted := *config
+	redacted.Env = make([]string, len(config.Env))
+	for i, assignment := range config.Env {
+		key, _, found := strings.Cut(assignment, "=")
+		if found && resources.IsSensitiveKey(key) {
+			redacted.Env[i] = key + "=****"
+		} else {
+			redacted.Env[i] = assignment
+		}
+	}
+	if len(config.Cmd) > 0 {
+		redacted.Cmd = append(config.Cmd[:0:0], config.Cmd...)
+		for i := 1; i < len(redacted.Cmd); i++ {
+			redacted.Cmd[i] = "<redacted>"
+		}
+	}
+	return &redacted
+}
+
 func (docker *DockerEnvironment) createAndStartContainer(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.createAndStartContainer")
 
 	containerConfig := docker.createContainerConfig(ctx)
 	hostConfig := docker.createHostConfig(ctx)
+	logConfig := redactedContainerConfig(containerConfig)
 
 	w.Debug("create container config",
-		wool.Field("CLI equivalent", generateDockerCreateCommand(containerConfig, hostConfig, docker.name)),
-		wool.Field("container", containerConfig),
+		wool.Field("CLI equivalent", generateDockerCreateCommand(logConfig, hostConfig, docker.name)),
+		wool.Field("container", logConfig),
 		wool.Field("host", hostConfig),
 	)
 
@@ -287,9 +333,13 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	envCopy := append([]*resources.EnvironmentVariable(nil), docker.envs...)
 	docker.mu.Unlock()
 	config := &container.Config{
-		Image:        docker.image.FullName(),
-		Env:          resources.EnvironmentVariableAsStrings(envCopy),
-		Tty:          true,
+		Image: docker.image.FullName(),
+		Env:   resources.EnvironmentVariableAsStrings(envCopy),
+		// Service containers are background processes, not interactive terminal
+		// sessions. A pseudo-TTY merges stdout/stderr, changes application
+		// buffering/color behavior, and makes Docker's log stream incompatible
+		// with stdcopy framing used by diagnostics and log followers.
+		Tty:          false,
 		WorkingDir:   docker.workingDir,
 		ExposedPorts: docker.exposedPortSet(),
 		// Ryuk-style session labels. Every codefly-created container is
@@ -315,7 +365,7 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	}
 
 	if len(docker.cmd) > 0 {
-		w.Debug("overriding command", wool.Field("cmd", docker.cmd))
+		w.Debug("overriding command", wool.Field("cmd", base.CommandSummary(docker.cmd)))
 		config.Cmd = docker.cmd
 	} else if docker.pause {
 		config.Cmd = []string{"sleep", "infinity"}
@@ -352,14 +402,16 @@ func EphemeralContainers() bool { return ephemeralContainers.Load() }
 func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.HostConfig {
 	docker.mu.Lock()
 	userMounts := append([]mount.Mount(nil), docker.mounts...)
+	dockerSocket := docker.dockerSocket
 	docker.mu.Unlock()
-	mounts := append([]mount.Mount{
-		{
+	mounts := userMounts
+	if dockerSocket {
+		mounts = append([]mount.Mount{{
 			Type:   mount.TypeBind,
 			Source: "/var/run/docker.sock",
 			Target: "/var/run/docker.sock",
-		},
-	}, userMounts...)
+		}}, mounts...)
+	}
 
 	hostConfig := &container.HostConfig{
 		Mounts:       mounts,
@@ -376,12 +428,35 @@ func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.
 
 func (docker *DockerEnvironment) startContainer(ctx context.Context, containerID string) error {
 	w := wool.Get(ctx).In("Docker.startContainer")
+	docker.prepareLogFollowerForStart()
 
 	if err := docker.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
 		return w.Wrapf(err, "cannot start container")
 	}
 
 	return docker.waitForContainerToRun(ctx, containerID)
+}
+
+// prepareLogFollowerForStart stops any follower from an earlier container
+// incarnation and records the cursor before ContainerStart. GetLogs can then
+// include startup messages while excluding retained logs from previous runs.
+func (docker *DockerEnvironment) prepareLogFollowerForStart() {
+	docker.logMu.Lock()
+	docker.logResetting = true
+	docker.logGeneration++
+	reader := docker.reader
+	docker.reader = nil
+	docker.logMu.Unlock()
+
+	if reader != nil {
+		_ = reader.Close()
+	}
+	docker.forwarderWG.Wait()
+
+	docker.logMu.Lock()
+	docker.logSince = time.Now().UTC()
+	docker.logResetting = false
+	docker.logMu.Unlock()
 }
 
 func (docker *DockerEnvironment) waitForContainerToRun(ctx context.Context, containerID string) error {
@@ -414,7 +489,7 @@ func (docker *DockerEnvironment) waitForContainerToRun(ctx context.Context, cont
 
 func (docker *DockerEnvironment) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("WithEnvironmentVariables")
-	w.Trace("adding", wool.Field("envs", envs))
+	w.Trace("adding environment variables", wool.Field("count", len(envs)))
 	docker.mu.Lock()
 	defer docker.mu.Unlock()
 	docker.envs = append(docker.envs, envs...)
@@ -435,6 +510,26 @@ func (docker *DockerEnvironment) WithMount(sourceDir string, targetDir string) {
 		Source: sourceDir,
 		Target: targetDir,
 	})
+}
+
+// WithDockerSocket explicitly grants the container control of the host Docker
+// daemon. The socket is root-equivalent host access, so ordinary service and
+// database containers never receive it by default.
+func (docker *DockerEnvironment) WithDockerSocket() *DockerEnvironment {
+	docker.mu.Lock()
+	docker.dockerSocket = true
+	docker.mu.Unlock()
+	return docker
+}
+
+// WithPublicPorts explicitly publishes subsequent Docker port mappings on all
+// host interfaces. The secure default is loopback-only because Codefly's
+// service and companion ports are consumed by the local CLI and workspace.
+func (docker *DockerEnvironment) WithPublicPorts() *DockerEnvironment {
+	docker.mu.Lock()
+	docker.publicPorts = true
+	docker.mu.Unlock()
+	return docker
 }
 
 func (docker *DockerEnvironment) WithPause() {
@@ -499,16 +594,20 @@ func (docker *DockerEnvironment) TailLogs(ctx context.Context, lines int) string
 		return ""
 	}
 	defer r.Close()
-	var stdout, stderr bytes.Buffer
-	if _, err := stdcopy.StdCopy(&stdout, &stderr, r); err != nil {
-		// Some images don't use the multiplexed stream — fall back
-		// to the raw bytes we already buffered.
-	}
-	combined := strings.TrimSpace(stdout.String() + stderr.String())
-	if combined == "" {
+	inspect, err := docker.client.ContainerInspect(ctx, docker.instance.ID)
+	if err != nil {
 		return ""
 	}
-	return combined
+	tty := inspect.Config != nil && inspect.Config.Tty
+	var combined bytes.Buffer
+	if err := copyContainerOutput(&combined, r, tty); err != nil {
+		return ""
+	}
+	output := strings.TrimSpace(gortk.StripControl(combined.String()))
+	if output == "" {
+		return ""
+	}
+	return output
 }
 
 func (docker *DockerEnvironment) GetLogs(ctx context.Context) error {
@@ -517,29 +616,74 @@ func (docker *DockerEnvironment) GetLogs(ctx context.Context) error {
 	if !docker.running {
 		return nil
 	}
-	// Close any prior follow-mode reader before opening a new one. GetLogs is
-	// re-invoked on every GetContainer (i.e. each DockerProc.start); without
-	// this, each call leaked a hijacked connection + Forward goroutine and
-	// overwrote docker.reader so the old one could never be closed. Closing
-	// the reader unblocks the previous forwarder goroutine; wait for it to
-	// finish before replacing docker.reader so the two don't race.
-	if docker.reader != nil {
-		_ = docker.reader.Close()
-		docker.reader = nil
-		docker.forwarderWG.Wait()
+
+	docker.logMu.Lock()
+	if docker.logClosing || docker.logResetting || docker.logAttaching || docker.reader != nil {
+		docker.logMu.Unlock()
+		return nil
 	}
-	options := container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: false}
+	docker.logAttaching = true
+	docker.logGeneration++
+	generation := docker.logGeneration
+	since := docker.logSince
+	// Reserve a WaitGroup slot while holding logMu. Shutdown sets logClosing
+	// under the same lock, which prevents Add from racing its Wait.
+	docker.forwarderWG.Add(1)
+	docker.logMu.Unlock()
+
+	inspect, err := docker.client.ContainerInspect(ctx, docker.instance.ID)
+	if err != nil {
+		docker.finishLogAttachFailure()
+		return w.Wrapf(err, "cannot inspect container log stream")
+	}
+	tty := inspect.Config != nil && inspect.Config.Tty
+	options := container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Timestamps: false,
+	}
+	if !since.IsZero() {
+		options.Since = since.Format(time.RFC3339Nano)
+	}
 	logReader, err := docker.client.ContainerLogs(ctx, docker.instance.ID, options)
 	if err != nil {
+		docker.finishLogAttachFailure()
 		return w.Wrapf(err, "cannot get container logs")
 	}
+
+	docker.logMu.Lock()
+	if docker.logClosing || docker.logResetting || generation != docker.logGeneration {
+		docker.logAttaching = false
+		docker.logMu.Unlock()
+		_ = logReader.Close()
+		docker.forwarderWG.Done()
+		return nil
+	}
 	docker.reader = logReader
-	docker.forwarderWG.Add(1)
+	docker.logAttaching = false
+	docker.logMu.Unlock()
+
 	go func() {
 		defer docker.forwarderWG.Done()
-		forwardContainerLines(ctx, logReader, docker.out)
+		defer logReader.Close()
+		forwardContainerOutput(ctx, logReader, docker.out, tty)
+
+		docker.logMu.Lock()
+		if generation == docker.logGeneration {
+			docker.reader = nil
+			docker.logSince = time.Now().UTC()
+		}
+		docker.logMu.Unlock()
 	}()
 	return nil
+}
+
+func (docker *DockerEnvironment) finishLogAttachFailure() {
+	docker.logMu.Lock()
+	docker.logAttaching = false
+	docker.logMu.Unlock()
+	docker.forwarderWG.Done()
 }
 
 func (docker *DockerEnvironment) exposedPortSet() nat.PortSet {
@@ -557,13 +701,17 @@ func (docker *DockerEnvironment) exposedPortSet() nat.PortSet {
 func (docker *DockerEnvironment) portBindings() nat.PortMap {
 	docker.mu.Lock()
 	mappings := append([]*DockerPortMapping(nil), docker.portMappings...)
+	hostIP := "127.0.0.1"
+	if docker.publicPorts {
+		hostIP = "0.0.0.0"
+	}
 	docker.mu.Unlock()
 	portMap := nat.PortMap{}
 	for _, portMapping := range mappings {
 		port := nat.Port(fmt.Sprintf("%d/tcp", portMapping.Container))
 		portMap[port] = []nat.PortBinding{
 			{
-				HostIP:   "0.0.0.0",
+				HostIP:   hostIP,
 				HostPort: fmt.Sprintf("%d", portMapping.Host),
 			},
 		}
@@ -603,9 +751,14 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 	// Close the follow-mode log reader held by GetLogs. Without this, the
 	// Forward goroutine streaming container logs keeps a file descriptor
 	// open against the docker daemon for every agent that started logging.
-	if docker.reader != nil {
-		_ = docker.reader.Close()
-		docker.reader = nil
+	docker.logMu.Lock()
+	docker.logClosing = true
+	docker.logGeneration++
+	reader := docker.reader
+	docker.reader = nil
+	docker.logMu.Unlock()
+	if reader != nil {
+		_ = reader.Close()
 	}
 	// Wait for the follow-mode forwarder goroutine to drain and exit before
 	// proceeding — closing the reader above unblocks it. This must run even
@@ -661,6 +814,11 @@ type DockerProc struct {
 	dir    string
 	ID     string
 	waitOn string
+	// pidFile is written from inside the container immediately before the
+	// exec'd command starts. Docker's ExecInspect.Pid is the daemon/host PID on
+	// some engines (including Docker Desktop/OrbStack), not the PID visible to
+	// an in-container kill command.
+	pidFile string
 
 	// Pipe support for interactive/bidirectional communication.
 	// Set before Start() via StdinPipe()/StdoutPipe().
@@ -779,7 +937,7 @@ func (proc *DockerProc) WithDir(dir string) {
 
 func (proc *DockerProc) WithEnvironmentVariables(ctx context.Context, envs ...*resources.EnvironmentVariable) {
 	w := wool.Get(ctx).In("WithEnvironmentVariables")
-	w.Trace("adding", wool.Field("envs", envs))
+	w.Trace("adding environment variables", wool.Field("count", len(envs)))
 	proc.envs = append(proc.envs, envs...)
 }
 
@@ -789,7 +947,7 @@ func (docker *DockerEnvironment) NewProcess(bin string, args ...string) (base.Pr
 }
 func (proc *DockerProc) Run(ctx context.Context) error {
 	w := wool.Get(ctx).In("DockerProc.Run")
-	w.Debug("running process", wool.Field("cmd", proc.cmd))
+	w.Debug("running process", wool.Field("cmd", base.CommandSummary(proc.cmd)))
 
 	if err := proc.start(ctx); err != nil {
 		return w.Wrapf(err, "cannot start process")
@@ -858,11 +1016,27 @@ func (proc *DockerProc) Run(ctx context.Context) error {
 // (NUL-separated in the kernel — we convert NUL→space for splitting).
 func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
 	w := wool.Get(ctx).In("DockerProc.FindPid")
+	// The PID handoff is tied to this exact exec and uses the PID namespace
+	// visible from inside the container. Verify the exec is still running
+	// before trusting the file, so a stale PID cannot kill a later process that
+	// reused the same numeric ID.
+	if proc.ID != "" && proc.waitOn == "" && proc.pidFile != "" {
+		inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
+		if err != nil {
+			return 0, w.Wrapf(err, "cannot inspect process")
+		}
+		if !inspect.Running {
+			return -1, nil
+		}
+		return proc.readContainerPID(ctx)
+	}
 
 	// Shell-based /proc scanner. Needs /bin/sh which every Linux container
 	// has; no ps, no procps dependency.
-	script := `for d in /proc/[0-9]*; do
+	script := `self=$$
+for d in /proc/[0-9]*; do
   pid=${d##*/}
+  [ "$pid" = "$self" ] && continue
   if [ -r "$d/cmdline" ]; then
     cmd=$(tr '\0' ' ' < "$d/cmdline")
     if [ -z "$cmd" ]; then
@@ -930,15 +1104,64 @@ done`
 	return -1, nil
 }
 
+func (proc *DockerProc) readContainerPID(ctx context.Context) (int, error) {
+	w := wool.Get(ctx).In("DockerProc.readContainerPID")
+	script := `if IFS= read -r pid < "$1"; then printf '%s\n' "$pid"; fi`
+	execConfig := container.ExecOptions{
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          []string{"/bin/sh", "-c", script, "codefly-read-pid", proc.pidFile},
+	}
+	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
+	if err != nil {
+		return 0, w.Wrapf(err, "cannot create exec to read process PID")
+	}
+	execResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, container.ExecAttachOptions{})
+	if err != nil {
+		return 0, w.Wrapf(err, "cannot attach to PID reader")
+	}
+	defer execResp.Close()
+
+	var stdout, stderr strings.Builder
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, execResp.Reader); err != nil {
+		return 0, w.Wrapf(err, "cannot read process PID")
+	}
+	pidText := strings.TrimSpace(stdout.String())
+	if pidText == "" {
+		return -1, nil
+	}
+	pid, err := strconv.Atoi(pidText)
+	if err != nil || pid <= 0 {
+		return 0, w.NewError("invalid in-container PID %q", pidText)
+	}
+	return pid, nil
+}
+
 func (proc *DockerProc) Start(ctx context.Context) error {
 	w := wool.Get(ctx).In("DockerProc.Start")
-	w.Debug("starting process", wool.Field("cmd", proc.cmd))
+	w.Debug("starting process", wool.Field("cmd", base.CommandSummary(proc.cmd)))
 	return proc.start(ctx)
+}
+
+func (proc *DockerProc) prepareCommand() []string {
+	if proc.waitOn != "" {
+		return proc.cmd
+	}
+	proc.pidFile = "/tmp/.codefly-exec-" + uuid.NewString() + ".pid"
+	// Positional parameters preserve every argument exactly and avoid shell
+	// interpolation. exec replaces the wrapper, so signals and exit status
+	// remain those of the requested process.
+	wrapper := []string{
+		"/bin/sh", "-c",
+		`umask 077; printf '%s\n' "$$" > "$1"; shift; exec "$@"`,
+		"codefly-exec", proc.pidFile,
+	}
+	return append(wrapper, proc.cmd...)
 }
 
 func (proc *DockerProc) start(ctx context.Context) error {
 	w := wool.Get(ctx).In("DockerProc.start")
-	w.Debug("running process", wool.Field("cmd", proc.cmd), wool.Field("envs", proc.env.envs))
+	w.Debug("running process", wool.Field("cmd", base.CommandSummary(proc.cmd)))
 
 	// Ensure the container is running
 	err := proc.env.GetContainer(ctx)
@@ -954,18 +1177,19 @@ func (proc *DockerProc) start(ctx context.Context) error {
 		}
 		envs = append(envs, env)
 	}
+	command := proc.prepareCommand()
 	// Create an exec configuration
 	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		AttachStdin:  proc.stdinReader != nil,
 		Env:          resources.EnvironmentVariableAsStrings(envs),
-		Cmd:          proc.cmd,
+		Cmd:          command,
 	}
 	if proc.dir != "" {
 		execConfig.WorkingDir = proc.dir
 	}
-	w.Trace("creating exec", wool.Field("cmd", proc.cmd))
+	w.Trace("creating exec", wool.Field("cmd", base.CommandSummary(proc.cmd)))
 	// Create an exec instance
 	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
 	if err != nil {
@@ -1036,7 +1260,7 @@ func (proc *DockerProc) start(ctx context.Context) error {
 
 func (proc *DockerProc) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("DockerProc.Stop")
-	w.Debug("stopping process", wool.Field("cmd", proc.cmd))
+	w.Debug("stopping process", wool.Field("cmd", base.CommandSummary(proc.cmd)))
 
 	pid, err := proc.FindPid(ctx)
 	if err != nil {
@@ -1045,7 +1269,7 @@ func (proc *DockerProc) Stop(ctx context.Context) error {
 	if pid < 0 {
 		return nil
 	}
-	w.Debug("killing process", wool.Field("pid", pid), wool.Field("cmd", proc.cmd))
+	w.Debug("killing process", wool.Field("pid", pid), wool.Field("cmd", base.CommandSummary(proc.cmd)))
 	err = proc.stop(ctx, pid, false)
 
 	// Force-kill after a delay if the process is still running. Previously
@@ -1154,10 +1378,14 @@ func (proc *DockerProc) StdoutPipe() (io.ReadCloser, error) {
 }
 
 func (proc *DockerProc) Match(cmd []string) bool {
-	if proc.waitOn != "" {
-		return cmd[0] == proc.waitOn
+	if len(cmd) == 0 || len(proc.cmd) == 0 {
+		return false
 	}
-	return strings.Contains(proc.cmd[0], cmd[0])
+	target := proc.cmd[0]
+	if proc.waitOn != "" {
+		target = proc.waitOn
+	}
+	return filepath.Base(cmd[0]) == filepath.Base(target)
 }
 
 func (docker *DockerEnvironment) GetImageIfNotPresent(ctx context.Context, imag *resources.DockerImage) error {
@@ -1184,7 +1412,9 @@ func GetImageIfNotPresent(ctx context.Context, c *client.Client, imag *resources
 	// here was both redundant (scanner already drained) and racy after
 	// the close, surfacing as "read on closed response body" once the
 	// FD-leak fix landed.
-	PrintDownloadPercentage(progress, out)
+	if err := PrintDownloadPercentage(progress, out); err != nil {
+		return w.Wrapf(err, "cannot pull image: %s", imag.FullName())
+	}
 	_, _ = w.Forward([]byte("Docker image pulled."))
 	w.Debug("done pulling")
 	return nil
@@ -1213,6 +1443,79 @@ func Forward(ctx context.Context, reader io.Reader, writer io.Writer) {
 	go forwardContainerLines(ctx, reader, writer)
 }
 
+func copyContainerOutput(writer io.Writer, reader io.Reader, tty bool) error {
+	if tty {
+		_, err := io.Copy(writer, reader)
+		return err
+	}
+	_, err := stdcopy.StdCopy(writer, writer, reader)
+	return err
+}
+
+const maxBufferedContainerLine = 4 << 20
+
+type containerLineWriter struct {
+	ctx     context.Context
+	writer  io.Writer
+	pending []byte
+}
+
+func (writer *containerLineWriter) Write(p []byte) (int, error) {
+	written := len(p)
+	writer.pending = append(writer.pending, p...)
+	for {
+		newline := bytes.IndexByte(writer.pending, '\n')
+		if newline < 0 {
+			if len(writer.pending) <= maxBufferedContainerLine {
+				return written, nil
+			}
+			if err := writer.writeLine(writer.pending[:maxBufferedContainerLine]); err != nil {
+				return 0, err
+			}
+			writer.pending = writer.pending[maxBufferedContainerLine:]
+			continue
+		}
+		if err := writer.writeLine(writer.pending[:newline]); err != nil {
+			return 0, err
+		}
+		writer.pending = writer.pending[newline+1:]
+	}
+}
+
+func (writer *containerLineWriter) Flush() error {
+	if len(writer.pending) == 0 {
+		return nil
+	}
+	err := writer.writeLine(writer.pending)
+	writer.pending = nil
+	return err
+}
+
+func (writer *containerLineWriter) writeLine(line []byte) error {
+	select {
+	case <-writer.ctx.Done():
+		return writer.ctx.Err()
+	default:
+	}
+	line = bytes.TrimSuffix(line, []byte{'\r'})
+	_, err := writer.writer.Write(append([]byte(gortk.StripControl(string(line))), '\n'))
+	return err
+}
+
+func forwardContainerOutput(ctx context.Context, reader io.Reader, writer io.Writer, tty bool) {
+	lineWriter := &containerLineWriter{ctx: ctx, writer: writer}
+	err := copyContainerOutput(lineWriter, reader, tty)
+	flushErr := lineWriter.Flush()
+	if err == nil {
+		err = flushErr
+	}
+	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) ||
+		strings.Contains(err.Error(), "use of closed network connection") {
+		return
+	}
+	_, _ = writer.Write([]byte(fmt.Sprintf("Error while reading container logs: %s\n", err)))
+}
+
 // forwardContainerLines synchronously scans reader and forwards each line to
 // writer, returning when the reader is exhausted/closed or ctx is cancelled.
 // It's the drain body shared by the fire-and-forget Forward and GetLogs'
@@ -1222,6 +1525,7 @@ func Forward(ctx context.Context, reader io.Reader, writer io.Writer) {
 // errors (closed connection / EOF) as normal rather than reportable.
 func forwardContainerLines(ctx context.Context, reader io.Reader, writer io.Writer) {
 	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 64*1024), maxBufferedContainerLine)
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():

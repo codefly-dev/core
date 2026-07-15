@@ -173,6 +173,10 @@ func TestNewJob(t *testing.T) {
 	// Empty name should fail
 	_, err = resources.NewJob(ctx, "")
 	require.Error(t, err)
+	for _, name := range []string{"../escape", "nested/job", `nested\job`, ".", ".."} {
+		_, err = resources.NewJob(ctx, name)
+		require.Error(t, err, name)
+	}
 }
 
 func TestSplitUnique(t *testing.T) {

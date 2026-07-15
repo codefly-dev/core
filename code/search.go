@@ -57,7 +57,11 @@ func Search(ctx context.Context, root string, opts SearchOpts) (*SearchResult, e
 	// a cassette-keyed LLM prompt (Mind tests). Without --sort, the
 	// parallel walker emits matches in unpredictable order and
 	// truncation produces a different 50-line slice on every run.
-	args := []string{"rg", "--line-number", "--no-heading", "--color=never", "--sort=path"}
+	rgPath, err := exec.LookPath("rg")
+	if err != nil {
+		return nil, fmt.Errorf("ripgrep is required for local search: %w", err)
+	}
+	args := []string{"--line-number", "--no-heading", "--color=never", "--sort=path"}
 	if opts.Literal {
 		args = append(args, "--fixed-strings")
 	}
@@ -77,8 +81,25 @@ func Search(ctx context.Context, root string, opts SearchOpts) (*SearchResult, e
 	args = append(args, fmt.Sprintf("--max-count=%d", maxResults))
 	args = append(args, opts.Pattern, searchDir)
 
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	out, _ := cmd.Output()
+	cmd := exec.CommandContext(ctx, rgPath, args...)
+	out, err := cmd.Output()
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("ripgrep search canceled: %w", ctxErr)
+		}
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			return nil, fmt.Errorf("ripgrep search failed: %w", err)
+		}
+		if exitErr.ExitCode() != 1 {
+			message := strings.TrimSpace(string(exitErr.Stderr))
+			if message != "" {
+				return nil, fmt.Errorf("ripgrep search failed: %s: %w", message, err)
+			}
+			return nil, fmt.Errorf("ripgrep search failed: %w", err)
+		}
+		// ripgrep exit code 1 means a successful search with no matches.
+	}
 
 	matches, truncated := parseOutput(string(out), root, maxResults)
 	// Ripgrep runs file traversal in parallel workers and emits matches
@@ -253,6 +274,9 @@ func SearchTrigram(_ context.Context, vfs VFS, idx *TrigramIndex, root string, o
 	if candidates == nil {
 		return &SearchResult{}, nil
 	}
+	// Query is sorted too, but retain this boundary guarantee if another index
+	// implementation is introduced later. Truncation must select a stable prefix.
+	sort.Strings(candidates)
 
 	// Filter candidates by path and extension.
 	extSet := make(map[string]bool, len(opts.Extensions))

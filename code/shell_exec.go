@@ -176,27 +176,11 @@ func (s *DefaultCodeServer) resolveShellWorkDir(requested string) (string, error
 	if filepath.IsAbs(cleaned) {
 		return "", fmt.Errorf("shell_exec: absolute work_dir not allowed: %q", requested)
 	}
-	abs := filepath.Join(root, cleaned)
-	// Guard: the resolved abs must still be under the root.
-	if !isWithin(abs, root) {
+	abs, err := resolvePath(root, cleaned)
+	if err != nil {
 		return "", fmt.Errorf("shell_exec: work_dir escapes source root: %q", requested)
 	}
 	return abs, nil
-}
-
-// isWithin returns true if path is equal to root or a descendant of it.
-func isWithin(path, root string) bool {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return false
-	}
-	if rel == "." {
-		return true
-	}
-	if len(rel) >= 2 && rel[:2] == ".." {
-		return false
-	}
-	return true
 }
 
 // shellExecTimeout returns the effective timeout, applying defaults and
