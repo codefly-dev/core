@@ -14,6 +14,10 @@ import (
 type Loader interface {
 	Identity() string
 	Load(ctx context.Context, env *resources.Environment) error
+	// Configurations returns the configurations produced by Load. It must
+	// return the same instances on every call (not fresh copies): after Load,
+	// the Manager resolves secret references in these objects in place, and
+	// LoadConfigurations reads them back expecting the resolved values.
 	Configurations() []*basev0.Configuration
 	DNS() []*basev0.DNS
 }
@@ -23,6 +27,10 @@ type Manager struct {
 	services  map[string]*resources.Service
 
 	loaders []Loader
+
+	// Secret resolvers registered explicitly (tests, custom backends). The
+	// environment's own `secrets.provider` adds to these at Load() time.
+	secretResolvers []SecretResolver
 
 	// Per Name in
 	worspaceConfigurations map[string]*basev0.Configuration
@@ -53,6 +61,14 @@ func (manager *Manager) WithLoader(loader Loader) *Manager {
 	return manager
 }
 
+// WithSecretResolver registers a secret resolver. Resolvers selected by the
+// environment's `secrets` block are added automatically at Load() time; this
+// is for tests and custom backends.
+func (manager *Manager) WithSecretResolver(resolvers ...SecretResolver) *Manager {
+	manager.secretResolvers = append(manager.secretResolvers, resolvers...)
+	return manager
+}
+
 func (manager *Manager) Load(ctx context.Context, env *resources.Environment) error {
 	if manager == nil {
 		return nil
@@ -65,6 +81,9 @@ func (manager *Manager) Load(ctx context.Context, env *resources.Environment) er
 			return w.Wrapf(err, "cannot load loader %s", loader.Identity())
 		}
 	}
+	if err := manager.resolveSecrets(ctx, env); err != nil {
+		return w.Wrapf(err, "cannot resolve secrets")
+	}
 	err := manager.LoadConfigurations(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot load configurations")
@@ -76,6 +95,27 @@ func (manager *Manager) Load(ctx context.Context, env *resources.Environment) er
 	}
 
 	w.Debug("loaded", wool.Field("dns", resources.MakeManyDNSSummary(manager.dns)))
+	return nil
+}
+
+// resolveSecrets resolves reference-valued secrets (op://…) produced by the
+// loaders, in place, before they are consolidated. Plaintext secret values
+// pass through untouched.
+func (manager *Manager) resolveSecrets(ctx context.Context, env *resources.Environment) error {
+	w := wool.Get(ctx).In("configurations.Manager.resolveSecrets")
+	fromEnv, err := ResolversFromEnvironment(env)
+	if err != nil {
+		return w.Wrapf(err, "cannot build secret resolvers for environment %s", env.Name)
+	}
+	resolvers := append(append([]SecretResolver{}, manager.secretResolvers...), fromEnv...)
+	resolution := newSecretResolution(resolvers)
+	for _, loader := range manager.loaders {
+		for _, conf := range loader.Configurations() {
+			if err := resolution.resolveConfiguration(ctx, conf, env); err != nil {
+				return w.Wrapf(err, "cannot resolve secrets from loader %s", loader.Identity())
+			}
+		}
+	}
 	return nil
 }
 
