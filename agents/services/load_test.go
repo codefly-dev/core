@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
@@ -51,6 +52,31 @@ func TestRuntimeLoadServiceLoadsEnvironmentAndEndpoints(t *testing.T) {
 	require.Equal(t, runtimev0.LoadStatus_READY, response.GetStatus().GetState())
 	require.True(t, resolved)
 	require.Equal(t, "test", base.Environment.GetName())
+}
+
+func TestRuntimeLoadServiceHonorsDisableCatch(t *testing.T) {
+	ctx := context.Background()
+	identity := saveLoadTestService(t, ctx)
+	base := NewServiceBase(ctx, &resources.Agent{Kind: resources.ServiceAgent, Name: "test", Version: "0.0.1"})
+
+	response, err := base.Runtime.LoadService(ctx, &runtimev0.LoadRequest{
+		Identity:     identity,
+		Environment:  &basev0.Environment{Name: "test"},
+		DisableCatch: true,
+	}, RuntimeLoad{Settings: &struct{}{}})
+	require.NoError(t, err)
+	require.Equal(t, runtimev0.LoadStatus_READY, response.GetStatus().GetState())
+
+	sentinel := errors.New("sentinel panic")
+	var recovered any
+	func() {
+		defer func() { recovered = recover() }()
+		defer base.Wool.Catch()
+		panic(sentinel)
+	}()
+	recoveredErr, ok := recovered.(error)
+	require.True(t, ok, "expected disabled catch to propagate the panic, got %#v", recovered)
+	require.ErrorIs(t, recoveredErr, sentinel)
 }
 
 func saveLoadTestService(t *testing.T, ctx context.Context) *basev0.ServiceIdentity {

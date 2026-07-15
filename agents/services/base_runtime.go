@@ -62,6 +62,9 @@ func (s *RuntimeWrapper) LoadService(ctx context.Context, req *runtimev0.LoadReq
 		return s.LoadErrorf(err, "loading base")
 	}
 	ctx = s.Wool.Inject(ctx)
+	if req.GetDisableCatch() {
+		s.Wool.DisableCatch()
+	}
 	s.SetEnvironment(req.GetEnvironment())
 	if load.Requirements != nil {
 		load.Requirements.Localize(s.Location)
