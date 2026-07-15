@@ -60,7 +60,6 @@ type Server struct {
 	*registry.Base
 
 	workspace string
-	version   string
 	client    *gh.Client
 }
 
@@ -70,21 +69,16 @@ func New(workspace, token, version string) *Server {
 	httpClient := &http.Client{Transport: tokenTransport{token: token, base: http.DefaultTransport}}
 	s := &Server{
 		workspace: workspace,
-		version:   version,
 		client:    gh.NewClient(httpClient),
 	}
-	s.Base = registry.NewBase(s)
-	return s
-}
-
-func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
-	return &toolboxv0.IdentityResponse{
+	s.Base = registry.NewBase(registry.Descriptor{
 		Name:           "github",
-		Version:        s.version,
+		Version:        version,
 		Description:    "GitHub PRs, issues, and CI runs via the go-github SDK; output compacted for LLM context.",
 		CanonicalFor:   []string{"github"},
 		SandboxSummary: "network required (api.github.com); reads GitHub via GITHUB_TOKEN; owner/repo from origin remote",
-	}, nil
+	}, s.Tools()...)
+	return s
 }
 
 func (s *Server) Tools() []*registry.ToolDefinition {

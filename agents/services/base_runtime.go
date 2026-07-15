@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/codefly-dev/core/builders"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 
@@ -40,6 +41,42 @@ type RuntimeWrapper struct {
 	DesiredState *runtimev0.DesiredState
 
 	sync.RWMutex
+}
+
+// RuntimeLoad describes a conventional plugin Runtime.Load implementation.
+// ResolveEndpoints selects the endpoints the plugin needs after core loads the
+// service declaration.
+type RuntimeLoad struct {
+	Settings         any
+	Requirements     *builders.Dependencies
+	ResolveEndpoints func(context.Context, []*basev0.Endpoint) error
+}
+
+// LoadService implements the conventional service runtime Load lifecycle.
+func (s *RuntimeWrapper) LoadService(ctx context.Context, req *runtimev0.LoadRequest, load RuntimeLoad) (*runtimev0.LoadResponse, error) {
+	if req == nil || req.GetIdentity() == nil {
+		return s.LoadError(s.Wool.NewError("runtime load requires a service identity"))
+	}
+	s.LogLoadRequest(req)
+	if err := s.Base.Load(ctx, req.GetIdentity(), load.Settings); err != nil {
+		return s.LoadErrorf(err, "loading base")
+	}
+	ctx = s.Wool.Inject(ctx)
+	s.SetEnvironment(req.GetEnvironment())
+	if load.Requirements != nil {
+		load.Requirements.Localize(s.Location)
+	}
+	endpoints, err := s.Service.LoadEndpoints(ctx)
+	if err != nil {
+		return s.LoadErrorf(err, "cannot load endpoints")
+	}
+	s.Endpoints = endpoints
+	if load.ResolveEndpoints != nil {
+		if err = load.ResolveEndpoints(ctx, endpoints); err != nil {
+			return s.LoadError(err)
+		}
+	}
+	return s.LoadResponse()
 }
 
 // ── Load ──────────────────────────────────────────────────
@@ -310,22 +347,22 @@ func (s *RuntimeWrapper) DesiredStart() {
 
 func (s *RuntimeWrapper) LogLoadRequest(req *runtimev0.LoadRequest) {
 	s.Wool.In("runtime::load").Debug("input",
-		wool.Field("environment", req.Environment),
-		wool.Field("identity", req.Identity))
+		wool.Field("environment", req.GetEnvironment()),
+		wool.Field("identity", req.GetIdentity()))
 }
 
 func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {
 	s.Wool.In("runtime::init").Debug("input",
-		wool.Field("runtime-context", req.RuntimeContext.Kind),
-		wool.Field("configurations", resources.MakeConfigurationSummary(req.Configuration)),
-		wool.Field("dependencies configurations", resources.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
-		wool.Field("dependency endpoints", resources.MakeManyEndpointSummary(req.DependenciesEndpoints)),
-		wool.Field("network mapping", resources.MakeManyNetworkMappingSummary(req.ProposedNetworkMappings)))
+		wool.Field("runtime-context", req.GetRuntimeContext().GetKind()),
+		wool.Field("configurations", resources.MakeConfigurationSummary(req.GetConfiguration())),
+		wool.Field("dependencies configurations", resources.MakeManyConfigurationSummary(req.GetDependenciesConfigurations())),
+		wool.Field("dependency endpoints", resources.MakeManyEndpointSummary(req.GetDependenciesEndpoints())),
+		wool.Field("network mapping", resources.MakeManyNetworkMappingSummary(req.GetProposedNetworkMappings())))
 }
 
 func (s *RuntimeWrapper) LogStartRequest(req *runtimev0.StartRequest) {
 	s.Wool.In("runtime::start").Debug("input",
-		wool.Field("other network mappings", resources.MakeManyNetworkMappingSummary(req.DependenciesNetworkMappings)))
+		wool.Field("other network mappings", resources.MakeManyNetworkMappingSummary(req.GetDependenciesNetworkMappings())))
 }
 
 // ── Runtime Context ───────────────────────────────────────
@@ -345,6 +382,13 @@ func (s *RuntimeWrapper) IsNixRuntime() bool {
 
 func (s *RuntimeWrapper) IsNativeRuntime() bool {
 	return s.RuntimeContext == nil || s.RuntimeContext.Kind == resources.RuntimeContextNative
+}
+
+// NetworkAccess returns the address family appropriate for the runtime selected
+// by the orchestrator. Native and Nix processes use host-native addresses;
+// container runtimes use container-network addresses.
+func (s *RuntimeWrapper) NetworkAccess() *basev0.NetworkAccess {
+	return resources.NetworkAccessFromRuntimeContext(s.RuntimeContext)
 }
 
 func (s *RuntimeWrapper) WithContext(runtimeContext *basev0.RuntimeContext) {

@@ -61,26 +61,21 @@ func mustCompile(name, arrayField string) gortk.Filter {
 type Server struct {
 	*registry.Base
 
-	apiKey  string
-	version string
-	client  *http.Client
+	apiKey string
+	client *http.Client
 }
 
 // New returns a Server using the given Linear API key.
 func New(apiKey, version string) *Server {
-	s := &Server{apiKey: apiKey, version: version, client: &http.Client{Timeout: 20 * time.Second}}
-	s.Base = registry.NewBase(s)
-	return s
-}
-
-func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
-	return &toolboxv0.IdentityResponse{
+	s := &Server{apiKey: apiKey, client: &http.Client{Timeout: 20 * time.Second}}
+	s.Base = registry.NewBase(registry.Descriptor{
 		Name:           "linear",
-		Version:        s.version,
+		Version:        version,
 		Description:    "Linear issues via GraphQL, compacted to one line per issue for LLM context.",
 		CanonicalFor:   []string{"linear"},
 		SandboxSummary: "network required (api.linear.app); reads Linear via LINEAR_API_KEY",
-	}, nil
+	}, s.Tools()...)
+	return s
 }
 
 func (s *Server) Tools() []*registry.ToolDefinition {

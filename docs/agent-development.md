@@ -1,273 +1,323 @@
-# How to Write an Agent
+# Writing a Codefly Service Plugin
 
-An agent is a gRPC server process that implements codefly's development API for a specific service type. When the CLI needs to run, build, test, or scaffold a service, it spawns the agent binary, connects over gRPC, and calls the appropriate methods.
+This document covers service plugins. For callable capability plugins, see
+[`toolbox-development.md`](toolbox-development.md).
 
-## The 4 Interfaces
+A service plugin is a small gRPC process that tells Codefly how to create, run,
+test, build, and deploy one kind of service. Core owns the protocol, lifecycle
+responses, configuration plumbing, template rendering, and common deployment
+pipeline. A plugin should contain only the behavior unique to its technology.
 
-An agent can implement up to 4 gRPC interfaces:
+## Pick the plugin shape first
 
-### 1. Agent — Identity
+Use one of these shapes instead of copying the nearest plugin blindly:
 
-Every agent has an identity defined in `agent.codefly.yaml`:
+| Shape | Runs | Typical deploy behavior |
+| --- | --- | --- |
+| Application | User code, such as Go, Rust, FastAPI, or Next.js | Built image plus own/dependency endpoints and configuration |
+| Managed resource | A database or infrastructure service, such as Redis | Stock workload plus an exported connection configuration |
+| External or migration-only resource | No managed server workload | Optional migration Job only; never pretend to deploy the server |
+| Gateway | Generated proxy/router configuration | Application workload plus a route-generation hook |
+
+Managed and external resources are deliberately different. Turning migrations
+off for a managed database must omit only its migration Job, not its StatefulSet
+and Service.
+
+## Recommended layout
+
+```text
+service-example/
+├── agent.codefly.yaml
+├── go.mod
+├── main.go                 # agent metadata, Service, registration
+├── builder.go              # create/build/deploy specializations
+├── runtime.go              # local run/test lifecycle
+├── deployment_test.go      # one-line manifest conformance test
+└── templates/
+    ├── agent/
+    ├── factory/
+    └── deployment/kustomize/
+        ├── base/
+        └── overlays/environment/
+```
+
+`agent.codefly.yaml` is the published plugin identity:
 
 ```yaml
-name: go-grpc
-version: 0.1.0
-publisher: codefly.dev
+publisher: example.com
+kind: codefly:service
+name: example
+version: 0.0.1
 ```
 
-### 2. Runtime — Run & Test
+## Base service and registration
 
-```protobuf
-service Runtime {
-  rpc Load(LoadRequest)       returns (LoadResponse);     // Read config, declare endpoints
-  rpc Init(InitRequest)       returns (InitResponse);     // Compile, resolve deps, accept port mappings
-  rpc Start(StartRequest)     returns (StartResponse);    // Start the service process
-  rpc Stop(StopRequest)       returns (StopResponse);     // Graceful shutdown
-  rpc Destroy(DestroyRequest) returns (DestroyResponse);  // Full cleanup
-  rpc Build(BuildRequest)     returns (BuildResponse);    // Dev compile check
-  rpc Test(TestRequest)       returns (TestResponse);     // Run tests
-}
-```
-
-### 3. Builder — Scaffold, Build & Deploy
-
-```protobuf
-service Builder {
-  rpc Load(LoadRequest)           returns (LoadResponse);       // Read config
-  rpc Init(InitRequest)           returns (InitResponse);       // Prepare build context
-  rpc Create(CreateRequest)       returns (CreateResponse);     // Scaffold new service
-  rpc Update(UpdateRequest)       returns (UpdateResponse);     // Update existing service
-  rpc Sync(SyncRequest)           returns (SyncResponse);       // Sync data
-  rpc Build(BuildRequest)         returns (BuildResponse);      // Compile/package
-  rpc Deploy(DeploymentRequest)   returns (DeploymentResponse); // Ship to environment
-  rpc Communicate(stream Answer)  returns (stream Question);    // Interactive Q&A
-}
-```
-
-### 4. Code — Analysis (optional)
-
-Code agents expose project metadata, dependency management, edits, file operations,
-and shell execution. Semantic code intelligence such as symbols, references,
-definitions, hover, rename, and completions belongs in Mind, not the Codefly
-plugin proto.
-
-## Step-by-Step Guide
-
-### Directory Structure
-
-```
-agents/services/go-grpc/
-├── agent.codefly.yaml      # Agent identity
-├── go.mod
-├── main.go                 # Entry point: register + serve
-├── runtime.go              # Runtime interface implementation
-├── builder.go              # Builder interface implementation
-└── testdata/               # Test fixtures
-```
-
-### main.go — Entry Point
-
-```go
-package main
-
-import (
-    "github.com/codefly-dev/core/agents"
-)
-
-func main() {
-    // Create the agent with both Runtime and Builder implementations
-    agent := &Agent{}
-    agents.Serve(agent)
-}
-```
-
-### The Agent Struct
-
-```go
-type Agent struct {
-    // Embed the base types for unimplemented methods
-    runtimev0.UnimplementedRuntimeServer
-    builderv0.UnimplementedBuilderServer
-
-    // Agent state
-    identity  *basev0.ServiceIdentity
-    endpoints []*basev0.Endpoint
-    settings  *Settings
-}
-```
-
-### Settings Pattern
-
-Agent settings are Go structs stored in `service.codefly.yaml` under the agent's key:
+Embed `*services.Base`; do not embed generated protobuf servers or manage the
+gRPC listener yourself.
 
 ```go
 type Settings struct {
-    GoVersion   string `yaml:"go-version"`
-    WithGateway bool   `yaml:"with-gateway"`
+    HotReload bool `yaml:"hot-reload"`
+}
+
+type Service struct {
+    *services.Base
+    *Settings
+    HTTPEndpoint *basev0.Endpoint
+}
+
+func NewService() *Service {
+    return &Service{
+        Base:     services.NewServiceBase(context.Background(), agent.Of(resources.ServiceAgent)),
+        Settings: &Settings{},
+    }
+}
+
+func main() {
+    service := NewService()
+    agents.Serve(agents.PluginRegistration{
+        Agent:   service,
+        Runtime: NewRuntime(),
+        Builder: NewBuilder(),
+    })
 }
 ```
 
-```yaml
-# service.codefly.yaml
-name: my-api
-agent: go-grpc
-# Agent reads its settings from this file
-go-version: "1.25"
-with-gateway: true
-```
+Each registration gets its own `Service` instance because runtime and builder
+state have different lifetimes.
 
-### Runtime Implementation
+## Builder: implement only the special cases
+
+Embed `*services.DefaultBuilder`. It provides correct successful no-op `Init`,
+`Update`, `Sync`, and `Build` responses plus an empty `Communicate` stream.
+Implement a method only when the plugin has real work for that phase.
 
 ```go
-func (a *Agent) Load(ctx context.Context, req *runtimev0.LoadRequest) (*runtimev0.LoadResponse, error) {
-    // 1. Store identity
-    a.identity = req.Identity
-
-    // 2. Load service.codefly.yaml from the service directory
-    svc, err := resources.LoadServiceFromDir(ctx, a.serviceDir())
-    if err != nil {
-        return nil, err
-    }
-
-    // 3. Load endpoints
-    endpoints, err := svc.LoadEndpoints(ctx)
-    if err != nil {
-        return nil, err
-    }
-
-    // 4. Convert to proto endpoints
-    var protoEndpoints []*basev0.Endpoint
-    for _, ep := range endpoints {
-        p, _ := ep.Proto()
-        protoEndpoints = append(protoEndpoints, p)
-    }
-    a.endpoints = protoEndpoints
-
-    return &runtimev0.LoadResponse{
-        Endpoints: protoEndpoints,
-    }, nil
+type Builder struct {
+    *services.DefaultBuilder
+    *Service
 }
 
-func (a *Agent) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
-    // 1. Receive network mappings (ports allocated by the CLI)
-    a.networkMappings = req.ProposedNetworkMappings
-
-    // 2. Find the port assigned to our gRPC endpoint
-    instance, err := resources.FindNetworkInstanceInNetworkMappings(ctx,
-        a.networkMappings,
-        a.grpcEndpoint,
-        resources.NewNativeNetworkAccess(),
-    )
-    if err != nil {
-        return nil, err
+func NewBuilder() *Builder {
+    service := NewService()
+    return &Builder{
+        DefaultBuilder: services.NewDefaultBuilder(service.Builder),
+        Service:        service,
     }
-    a.port = uint16(instance.Port)
-
-    // 3. Compile if needed
-    // ...
-
-    return &runtimev0.InitResponse{
-        // Pass accepted mappings and any runtime configs back
-    }, nil
-}
-
-func (a *Agent) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
-    // 1. Start the service process
-    cmd := exec.Command("go", "run", ".", "-port", fmt.Sprintf("%d", a.port))
-    cmd.Dir = a.serviceDir()
-    if err := cmd.Start(); err != nil {
-        return nil, err
-    }
-
-    // 2. Wait for readiness (real health check, not TCP)
-    if err := a.waitForReady(ctx); err != nil {
-        return nil, err
-    }
-
-    return &runtimev0.StartResponse{}, nil
 }
 ```
 
-## Port Allocation
-
-### Deterministic Ports (default)
-
-Use `network.ToNamedPort()` for user-facing services. The port is a deterministic hash of workspace+module+service+endpoint+api, so it stays stable across restarts.
+The conventional `Load` path is declarative too:
 
 ```go
-port := network.ToNamedPort(ctx, workspace, module, service, endpointName, api)
-// Same inputs → same port, always
-```
-
-This matters because users connect tools (pgAdmin, DataGrip, browsers) to these ports. Changing ports breaks their workflow.
-
-### Ephemeral Ports (tests)
-
-Use `RuntimeManager.WithTemporaryPorts()` for test environments where stable ports do not matter and parallel tests need isolated ports.
-
-```go
-mgr, _ := network.NewRuntimeManager(ctx, nil)
-mgr.WithTemporaryPorts() // random starting port, dedup tracking
-```
-
-### Port Collision Prevention
-
-The `RuntimeManager` tracks all allocated ports in `allocatedPorts map[uint16]string`. If a port is already allocated to a different service, `GenerateNetworkMappings` returns an error. Always use the manager -- never allocate ports manually.
-
-## Readiness
-
-Each agent owns its readiness definition. Implement `waitForReady` with real health checks:
-
-```go
-func (a *Agent) waitForReady(ctx context.Context) error {
-    // For gRPC services: use gRPC health check
-    // For databases: run a real query
-    // For HTTP: hit a health endpoint
-    // NEVER just check if the TCP port is open
-
-    deadline := time.Now().Add(30 * time.Second)
-    for time.Now().Before(deadline) {
-        conn, err := grpc.Dial(addr, grpc.WithInsecure())
-        if err == nil {
-            healthClient := grpc_health_v1.NewHealthClient(conn)
-            resp, err := healthClient.Check(ctx, &grpc_health_v1.HealthCheckRequest{})
-            if err == nil && resp.Status == grpc_health_v1.HealthCheckResponse_SERVING {
-                return nil
+func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builderv0.LoadResponse, error) {
+    return s.Builder.LoadService(ctx, req, services.BuilderLoad{
+        Settings:         s.Settings,
+        Requirements:     requirements,
+        FactoryTemplates: factoryFS,
+        ResolveEndpoints: func(ctx context.Context, endpoints []*basev0.Endpoint) error {
+            endpoint, err := resources.FindHTTPEndpoint(ctx, endpoints)
+            if err != nil {
+                return err
             }
-        }
-        time.Sleep(500 * time.Millisecond)
-    }
-    return fmt.Errorf("service not ready after 30s")
+            s.HTTPEndpoint = endpoint
+            return nil
+        },
+    })
 }
 ```
 
-## How Agents Receive Data
+Core now owns identity/settings loading, dependency localization, creation-mode
+Getting Started rendering, endpoint loading, catch configuration, and the
+structured response.
 
-### Endpoints
+## Deployment golden paths
 
-Declared in `service.codefly.yaml`, loaded by the agent in `Load()`, returned as proto `Endpoint` objects to the CLI.
+### Application
 
-### Network Mappings
+The common application path is a single call:
 
-The CLI allocates ports and sends `NetworkMapping` objects to the agent in `Init()`. Each mapping contains multiple `NetworkInstance` entries (native, container, public). The agent picks the one matching its runtime context.
+```go
+func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
+    return s.Builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
+        EnvironmentVariables: s.EnvironmentVariables,
+        Templates:             deploymentFS,
+        Inputs:                services.ApplicationDeploymentInputs(),
+    })
+}
+```
 
-### Dependency Configs
+This collects container-local own endpoints, dependency endpoints, service and
+dependency configuration, separates secrets, renders Kustomize, and returns a
+structured response.
 
-If your service depends on postgres, the CLI starts postgres first, extracts its configuration (connection string, port), and injects it as environment variables before calling your agent's `Init()`.
+If an application intentionally consumes fewer inputs, declare them explicitly:
 
-## Common Pitfalls
+```go
+Inputs: services.DeploymentInputs{
+    OwnConfiguration:         true,
+    DependencyConfigurations: true,
+},
+```
 
-1. **TCP-only readiness.** A port being open does not mean the service is ready. Always use application-level health checks.
-2. **Port collisions.** Never hardcode ports. Never allocate ports without going through `RuntimeManager`. Parallel tests with the same deterministic ports will collide -- use `WithTemporaryPorts()`.
-3. **Missing cleanup.** Always implement `Stop()` and `Destroy()` properly. Kill child processes, remove temp files, release ports.
-4. **Forgetting to return endpoints from Load().** The CLI needs the endpoint list to allocate ports. If `Load()` returns empty endpoints, nothing works downstream.
-5. **Ignoring the network mapping from Init().** Do not compute your own port. Use the port from `ProposedNetworkMappings` -- the CLI has already ensured it is free and tracked.
+### Managed resource
 
-## Reference: go-grpc Agent
+A managed resource usually has one unique operation: derive the connection
+configuration clients should receive.
 
-The `go-grpc` agent is the gold standard implementation. Study it for patterns around:
-- Proto compilation via the proto companion
-- Gateway generation (gRPC → REST)
-- Hot reload via file watching
-- Test execution with `go test`
+```go
+func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
+    return s.Builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
+        EnvironmentVariables: s.EnvironmentVariables,
+        Templates:             deploymentFS,
+        Prepare: func(ctx context.Context, deployment *services.KustomizeDeploymentContext) error {
+            instance, err := resources.FindNetworkInstanceInNetworkMappings(
+                ctx, req.GetNetworkMappings(), s.TCPEndpoint, resources.NewPublicNetworkAccess(),
+            )
+            if err != nil {
+                return err
+            }
+            configuration, err := s.CreateConnectionConfiguration(ctx, req.GetConfiguration(), instance)
+            if err != nil {
+                return err
+            }
+            return deployment.ExportConfiguration(ctx, configuration)
+        },
+    })
+}
+```
+
+The preparation context can also set `deployment.Parameters`, call
+`deployment.AddConfigMap(...)`, or call `deployment.AddSecrets(...)`. Raw secret
+values added this way are base64-encoded by core before rendering.
+
+### Gateway
+
+Gateways use the same pipeline and set generated configuration in the hook:
+
+```go
+Prepare: func(ctx context.Context, deployment *services.KustomizeDeploymentContext) error {
+    config, err := buildRoutes(ctx, req.GetDependenciesNetworkMappings())
+    if err != nil {
+        return err
+    }
+    deployment.Parameters = Parameters{Configuration: string(config)}
+    return nil
+},
+```
+
+### Migration-only resource
+
+Keep the early no-migration return only when the plugin truly owns no server
+workload. A managed database should always render its workload and conditionally
+include its Job in `kustomization.yaml.tmpl`:
+
+```gotemplate
+resources:
+  - stateful-set.yaml
+  - service.yaml
+{{- if .Deployment.Parameters.WithMigration }}
+  - job.yaml
+{{- end }}
+```
+
+## Deployment template context
+
+Core exposes stable shallow fields for common templates:
+
+| Field | Meaning |
+| --- | --- |
+| `.Name` | DNS-safe service name |
+| `.Namespace` | Kubernetes namespace |
+| `.Environment` | target environment |
+| `.Image` | full tag- or digest-pinned image reference |
+| `.Sha` | deployment change marker |
+| `.Replicas` | default replica count |
+| `.ConfigMap` | non-secret environment map |
+| `.SecretMap` | base64-encoded secret map |
+| `.Deployment.Parameters` | plugin-specific parameter object |
+
+Render maps explicitly; inserting a Go map directly is not valid Kubernetes
+YAML:
+
+```gotemplate
+data:
+{{- range $key, $value := .SecretMap }}
+  {{ $key }}: "{{ $value }}"
+{{- end }}
+```
+
+## Runtime
+
+Embed `*services.DefaultRuntime`; it supplies the shared `Information` method.
+Start, Stop, Destroy, and Test intentionally remain explicit because process
+ownership and cleanup cannot safely be guessed.
+
+```go
+type Runtime struct {
+    *services.DefaultRuntime
+    *Service
+    runner *exec.Cmd
+}
+
+func NewRuntime() *Runtime {
+    service := NewService()
+    return &Runtime{
+        DefaultRuntime: services.NewDefaultRuntime(service.Runtime),
+        Service:        service,
+    }
+}
+```
+
+Use `Runtime.LoadService` for the standard load path, response helpers such as
+`InitResponse`, `StartError`, `TestResponseWithResults`, and `DestroyResponse`,
+and `Base.StopWatcher()` for watcher cleanup. When a spawned process exits after
+Start, call `Runtime.MarkRunnerExited(err)` so the CLI observes the failure.
+
+## Response states: use helpers, not aliases
+
+Do not introduce local aliases for generated values such as
+`runtimev0.InitStatus_READY`. The generated enum is the wire contract; another
+alias adds a second vocabulary that can drift. Plugin code normally should not
+mention the enum at all—return `s.Runtime.InitResponse()` or an error helper.
+Core owns the exact generated status value.
+
+Error helpers return a structured RPC response and a nil transport error. This
+lets the CLI display the lifecycle failure instead of losing it as a generic
+gRPC error.
+
+## Required deployment test
+
+Every plugin with deployment templates should have this test:
+
+```go
+func TestDeploymentTemplates(t *testing.T) {
+    agenttesting.AssertKustomizeTemplates(t, deploymentFS, Parameters{})
+}
+```
+
+It renders representative config, secrets, image data, and plugin parameters;
+then checks for unexpanded expressions, malformed YAML, invalid Secret/ConfigMap
+data, and dangling Kustomize resources. It needs no cluster or external binary.
+
+Add focused assertions for conditional resources such as migration Jobs.
+
+## Release checks
+
+Workspace tests prove integration against local core. Standalone tests prove the
+plugin's published core pin is sufficient. Run both:
+
+```sh
+go test ./...
+go test -race ./...
+go vet ./...
+GOWORK=off go test ./...
+GOWORK=off go vet ./...
+```
+
+Use `codefly agent deps` while developing locally and
+`codefly agent deps --pin <core-version> --ci` before publishing.
+
+The best current small reference is `service-redis`; `service-envoy` shows the
+gateway hook, and `service-postgres` shows a managed resource with an optional
+migration Job.

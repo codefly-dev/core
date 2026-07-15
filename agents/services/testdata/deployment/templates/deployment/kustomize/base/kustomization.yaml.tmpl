@@ -1,0 +1,10 @@
+name: {{ .Service.Name }}
+parameter: {{ .Deployment.Parameters.Name }}
+config:
+{{- range $key, $value := .Deployment.ConfigMap }}
+  {{ $key }}: {{ $value }}
+{{- end }}
+secrets:
+{{- range $key, $value := .Deployment.SecretMap }}
+  {{ $key }}: {{ $value }}
+{{- end }}

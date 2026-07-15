@@ -2,7 +2,10 @@ package testing_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	agents_services "github.com/codefly-dev/core/agents/services"
 	agents_testing "github.com/codefly-dev/core/agents/testing"
@@ -46,4 +49,20 @@ name: widget
 				t.Errorf("Name = %q, want widget", s.Name)
 			}
 		})
+}
+
+func TestAssertKustomizeTemplates_RendersAndValidates(t *testing.T) {
+	templates := fstest.MapFS{
+		"templates/deployment/kustomize/base/kustomization.yaml.tmpl":                 {Data: []byte("resources:\n  - namespace.yaml\n")},
+		"templates/deployment/kustomize/base/namespace.yaml.tmpl":                     {Data: []byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {{ .Namespace }}\n")},
+		"templates/deployment/kustomize/overlays/environment/kustomization.yaml.tmpl": {Data: []byte("resources:\n  - ../../base\n")},
+	}
+	dir := agents_testing.AssertKustomizeTemplates(t, templates, nil)
+	content, err := os.ReadFile(filepath.Join(dir, "base", "namespace.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: codefly-test\n" {
+		t.Fatalf("unexpected rendered namespace:\n%s", content)
+	}
 }

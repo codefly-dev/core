@@ -68,6 +68,9 @@ func RuntimeContextFromEnv() *basev0.RuntimeContext {
 // NetworkAccessFromRuntimeContext returns a NetworkAccess from a runtime context.
 // Both native and nix run on the host, so they map to native network access.
 func NetworkAccessFromRuntimeContext(runtimeContext *basev0.RuntimeContext) *basev0.NetworkAccess {
+	if runtimeContext == nil {
+		return NewNativeNetworkAccess()
+	}
 	switch runtimeContext.Kind {
 	case RuntimeContextContainer:
 		return NewContainerNetworkAccess()

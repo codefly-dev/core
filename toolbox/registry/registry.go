@@ -25,6 +25,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -177,17 +178,20 @@ func FindSpec(defs []*ToolDefinition, name string) *toolboxv0.ToolSpec {
 	return nil
 }
 
-// Tooler exposes a toolbox's tool list. Base uses this virtual to
-// project the four RPC envelopes — the embedding plugin defines
-// Tools() once, gets ListTools/ListToolSummaries/DescribeTool/
-// CallTool for free.
-type Tooler interface {
-	Tools() []*ToolDefinition
+// Descriptor is the static identity of a toolbox plugin. Passing it to
+// NewBase gives the plugin a complete Identity RPC and automatically adds the
+// toolbox name to every tool's tags.
+type Descriptor struct {
+	Name           string
+	Version        string
+	Description    string
+	CanonicalFor   []string
+	SandboxSummary string
 }
 
-// Base is an embeddable that provides the boilerplate four RPCs of
-// the Toolbox service. A plugin's Server type embeds *Base and
-// implements Identity() + Tools() — the rest is handled here.
+// Base is an embeddable that provides every Toolbox RPC. A plugin declares its
+// descriptor and tool definitions once; Base owns identity, catalog projection,
+// schema validation, and dispatch.
 //
 // Usage:
 //
@@ -196,39 +200,122 @@ type Tooler interface {
 //	    // ... plugin-specific fields
 //	}
 //
-//	func New() *Server {
+//	func New(version string) *Server {
 //	    s := &Server{}
-//	    s.Base = registry.NewBase(s)
+//	    s.Base = registry.NewBase(registry.Descriptor{Name: "example", Version: version}, s.Tools()...)
 //	    return s
 //	}
-//
-//	func (s *Server) Tools() []*registry.ToolDefinition { ... }
-//	func (s *Server) Identity(...) (*toolboxv0.IdentityResponse, error) { ... }
-//
-// The two-step (NewBase + assign) is required because the Tooler
-// pointer needs to point back at the embedding type, not at Base
-// itself — Go embedding doesn't give us "self" automatically.
 type Base struct {
 	toolboxv0.UnimplementedToolboxServer
 
-	tooler Tooler
+	mu          sync.RWMutex
+	descriptor  Descriptor
+	definitions []*ToolDefinition
+	tools       []*ToolDefinition
 }
 
-// NewBase wires a Base to its owning Tooler.
-func NewBase(t Tooler) *Base {
-	return &Base{tooler: t}
+// NewBase constructs the complete shared toolbox implementation. Descriptor is
+// required; there is no partially-wired mode.
+func NewBase(descriptor Descriptor, definitions ...*ToolDefinition) *Base {
+	validateDescriptor(descriptor)
+	b := &Base{descriptor: descriptor}
+	b.setTools(definitions)
+	return b
+}
+
+// SetDescriptor replaces a dynamically discovered identity. It is primarily
+// used by protocol adapters such as mcprev after their initialization
+// handshake. Native plugins should supply the final descriptor to NewBase.
+func (b *Base) SetDescriptor(descriptor Descriptor) {
+	validateDescriptor(descriptor)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.descriptor = descriptor
+	b.tools = normalizeDefinitions(b.definitions, descriptor.Name)
+}
+
+// SetTools replaces the declared tool surface atomically. Native plugins set
+// tools in NewBase; dynamic protocol adapters use this after discovery.
+func (b *Base) SetTools(definitions ...*ToolDefinition) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.setTools(definitions)
+}
+
+func (b *Base) setTools(definitions []*ToolDefinition) {
+	b.definitions = append([]*ToolDefinition(nil), definitions...)
+	b.tools = normalizeDefinitions(definitions, b.descriptor.Name)
+}
+
+func validateDescriptor(descriptor Descriptor) {
+	if strings.TrimSpace(descriptor.Name) == "" {
+		panic("registry.NewBase: descriptor name is required")
+	}
+}
+
+// Identity returns the descriptor supplied at construction.
+func (b *Base) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return &toolboxv0.IdentityResponse{
+		Name:           b.descriptor.Name,
+		Version:        b.descriptor.Version,
+		Description:    b.descriptor.Description,
+		CanonicalFor:   append([]string(nil), b.descriptor.CanonicalFor...),
+		SandboxSummary: b.descriptor.SandboxSummary,
+	}, nil
+}
+
+func (b *Base) snapshotTools() []*ToolDefinition {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return append([]*ToolDefinition(nil), b.tools...)
+}
+
+func normalizeDefinitions(definitions []*ToolDefinition, toolboxName string) []*ToolDefinition {
+	tools := make([]*ToolDefinition, 0, len(definitions))
+	seen := make(map[string]struct{}, len(definitions))
+	for index, definition := range definitions {
+		if definition == nil {
+			panic(fmt.Sprintf("registry.NewBase: tool definition %d is nil", index))
+		}
+		if strings.TrimSpace(definition.Name) == "" {
+			panic(fmt.Sprintf("registry.NewBase: tool definition %d has no name", index))
+		}
+		if _, exists := seen[definition.Name]; exists {
+			panic(fmt.Sprintf("registry.NewBase: duplicate tool %q", definition.Name))
+		}
+		seen[definition.Name] = struct{}{}
+
+		copy := *definition
+		copy.Tags = append([]string(nil), definition.Tags...)
+		if toolboxName != "" && !contains(copy.Tags, toolboxName) {
+			copy.Tags = append([]string{toolboxName}, copy.Tags...)
+		}
+		tools = append(tools, &copy)
+	}
+	return tools
+}
+
+func contains(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 // ListTools (legacy) — returns the heavy envelope for every tool.
 func (b *Base) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{Tools: AsTools(b.tooler.Tools())}, nil
+	return &toolboxv0.ListToolsResponse{Tools: AsTools(b.snapshotTools())}, nil
 }
 
 // ListToolSummaries (catalog) — lightweight, with optional tags
 // filter. AND semantics: every tag in tags_filter must be present.
 func (b *Base) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
 	return &toolboxv0.ListToolSummariesResponse{
-		Tools: AsSummaries(b.tooler.Tools(), req.GetTagsFilter()),
+		Tools: AsSummaries(b.snapshotTools(), req.GetTagsFilter()),
 	}, nil
 }
 
@@ -237,7 +324,7 @@ func (b *Base) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSumma
 // return the error in-band rather than as a gRPC error because the
 // LLM caller benefits from a human-readable hint.
 func (b *Base) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
-	spec := FindSpec(b.tooler.Tools(), req.GetName())
+	spec := FindSpec(b.snapshotTools(), req.GetName())
 	if spec == nil {
 		return &toolboxv0.DescribeToolResponse{
 			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
@@ -264,7 +351,7 @@ func (b *Base) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolReques
 // preserves backward compatibility with toolboxes that haven't
 // declared one. Production toolboxes should always declare a schema.
 func (b *Base) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
-	for _, d := range b.tooler.Tools() {
+	for _, d := range b.snapshotTools() {
 		if d.Name != req.GetName() {
 			continue
 		}

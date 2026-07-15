@@ -15,6 +15,15 @@ type DockerImage struct {
 	Digest string
 }
 
+// String lets templates use the concise {{ .Image }} form while preserving
+// the exact tag-or-digest semantics of FullName.
+func (image *DockerImage) String() string {
+	if image == nil {
+		return ""
+	}
+	return image.FullName()
+}
+
 func (image *DockerImage) FullName() string {
 	base := image.Name
 	if image.Digest != "" {

@@ -11,12 +11,22 @@
 package testing
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/codefly-dev/core/agents/services"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/wool"
 )
 
 // BaseHolder is the minimal shape every agent's Service satisfies: it
@@ -82,4 +92,100 @@ func AssertYAMLRoundTrip[S any](t *testing.T, yamlDoc string, check func(t *test
 // where a shared helper doesn't apply.
 func MissingField(field string) string {
 	return fmt.Sprintf("%s not populated (intentional for agents without this setting)", field)
+}
+
+// AssertKustomizeTemplates renders a plugin's embedded deployment templates
+// with representative config, secret, image, and plugin parameters. It then
+// validates every emitted YAML document and every local resource referenced by
+// a kustomization. This catches stale template-context fields, unexpanded Go
+// template expressions, malformed YAML, and dangling resource paths without a
+// Kubernetes cluster or external binary.
+//
+// The returned directory can be used for plugin-specific assertions:
+//
+//	dir := agenttesting.AssertKustomizeTemplates(t, deploymentFS, Parameters{})
+//	manifest, _ := os.ReadFile(filepath.Join(dir, "base", "deployment.yaml"))
+func AssertKustomizeTemplates(t *testing.T, templates fs.FS, parameters any) string {
+	t.Helper()
+	ctx := context.Background()
+	identity := &resources.ServiceIdentity{
+		Workspace: "workspace",
+		Module:    "module",
+		Name:      "example-service",
+		Version:   "1.2.3",
+	}
+	base := &services.Base{
+		Wool:        wool.Get(ctx),
+		Identity:    identity,
+		Information: &services.Information{Service: resources.ToServiceWithCase(identity), Module: resources.ToModuleWithCase(identity)},
+	}
+	base.SetDockerImage(resources.NewDockerImage("example/service:1.2.3"))
+	builder := &services.BuilderWrapper{Base: base}
+	base.Builder = builder
+
+	destination := t.TempDir()
+	deployment := &builderv0.KubernetesDeployment{Namespace: "codefly-test", Destination: destination}
+	params := services.DeploymentParameters{
+		ConfigMap:  services.EnvironmentMap{"CODEFLY_TEST_VALUE": "value"},
+		SecretMap:  services.EnvironmentMap{"CODEFLY_TEST_SECRET": "c2VjcmV0"},
+		Parameters: parameters,
+	}
+	if err := builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, deployment, templates, params); err != nil {
+		t.Fatalf("render kustomize templates: %v", err)
+	}
+
+	err := filepath.WalkDir(destination, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || (filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml") {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(content), "{{") || strings.Contains(string(content), "}}") {
+			return fmt.Errorf("%s contains an unexpanded template expression", path)
+		}
+		decoder := yaml.NewDecoder(strings.NewReader(string(content)))
+		for {
+			var document map[string]any
+			if err = decoder.Decode(&document); err == io.EOF {
+				break
+			}
+			if err != nil {
+				return fmt.Errorf("decode %s: %w", path, err)
+			}
+			kind, _ := document["kind"].(string)
+			if kind == "Secret" || kind == "ConfigMap" {
+				if data, exists := document["data"]; exists {
+					if _, ok := data.(map[string]any); !ok {
+						return fmt.Errorf("%s %s.data must be a mapping, got %T", path, kind, data)
+					}
+				}
+			}
+		}
+		if filepath.Base(path) == "kustomization.yaml" {
+			var kustomization struct {
+				Resources []string `yaml:"resources"`
+			}
+			if err = yaml.Unmarshal(content, &kustomization); err != nil {
+				return fmt.Errorf("decode resources in %s: %w", path, err)
+			}
+			for _, resource := range kustomization.Resources {
+				if strings.Contains(resource, "://") {
+					continue
+				}
+				if _, err = os.Stat(filepath.Clean(filepath.Join(filepath.Dir(path), resource))); err != nil {
+					return fmt.Errorf("resource %q from %s: %w", resource, path, err)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return destination
 }

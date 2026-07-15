@@ -23,7 +23,7 @@ func (f *fakeToolbox) Tools() []*registry.ToolDefinition { return f.defs }
 
 func newFake(defs []*registry.ToolDefinition) *fakeToolbox {
 	f := &fakeToolbox{defs: defs}
-	f.Base = registry.NewBase(f)
+	f.Base = registry.NewBase(registry.Descriptor{Name: "fake"}, defs...)
 	return f
 }
 
@@ -214,4 +214,41 @@ func TestBase_CallTool_NilHandler_SurfacesPluginBug(t *testing.T) {
 	resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: "broken"})
 	require.NoError(t, err, "no panic, no gRPC error — clean in-band response")
 	require.Contains(t, strings.ToLower(resp.Error), "no handler")
+}
+
+func TestBase_DescriptorProvidesIdentityAndParentTag(t *testing.T) {
+	f := &fakeToolbox{defs: []*registry.ToolDefinition{{
+		Name:               "example.read",
+		SummaryDescription: "read an example",
+		Tags:               []string{"read-only"},
+	}}}
+	f.Base = registry.NewBase(registry.Descriptor{
+		Name:           "example",
+		Version:        "1.2.3",
+		Description:    "Example toolbox",
+		CanonicalFor:   []string{"examplectl"},
+		SandboxSummary: "reads only",
+	}, f.defs...)
+
+	identity, err := f.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	require.NoError(t, err)
+	require.Equal(t, "example", identity.Name)
+	require.Equal(t, "1.2.3", identity.Version)
+	require.Equal(t, []string{"examplectl"}, identity.CanonicalFor)
+
+	summaries, err := f.ListToolSummaries(context.Background(), &toolboxv0.ListToolSummariesRequest{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"example", "read-only"}, summaries.Tools[0].Tags)
+	// The plugin-owned definition is not mutated while normalizing metadata.
+	require.Equal(t, []string{"read-only"}, f.defs[0].Tags)
+}
+
+func TestNewBaseRejectsDuplicateToolNames(t *testing.T) {
+	f := &fakeToolbox{defs: []*registry.ToolDefinition{
+		{Name: "duplicate"},
+		{Name: "duplicate"},
+	}}
+	require.PanicsWithValue(t, `registry.NewBase: duplicate tool "duplicate"`, func() {
+		registry.NewBase(registry.Descriptor{Name: "fake"}, f.defs...)
+	})
 }

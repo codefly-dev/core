@@ -562,3 +562,9 @@ func Serve(reg PluginRegistration) {
 		os.Exit(1)
 	}
 }
+
+// ServeToolbox is the one-capability startup path for toolbox plugins.
+// Service plugins should continue to use Serve with PluginRegistration.
+func ServeToolbox(server toolboxv0.ToolboxServer) {
+	Serve(PluginRegistration{Toolbox: server})
+}

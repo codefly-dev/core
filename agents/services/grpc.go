@@ -6,6 +6,9 @@ package services
 // types directly. This keeps all gRPC infrastructure in core.
 
 import (
+	"context"
+	"errors"
+
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
@@ -27,4 +30,74 @@ type BuilderServer struct {
 // CodeServer interface. Plugins override methods they implement.
 type CodeServer struct {
 	codev0.UnimplementedCodeServer
+}
+
+// DefaultBuilder supplies the successful no-op lifecycle methods used by most
+// plugins. Embed it instead of BuilderServer and implement only the operations
+// the plugin actually specializes (usually Load, Create, Deploy, and optionally
+// Build). Explicit plugin methods always take precedence over these promoted
+// defaults.
+type DefaultBuilder struct {
+	BuilderServer
+	wrapper *BuilderWrapper
+}
+
+var errDefaultBuilderNotWired = errors.New("default builder is not wired")
+
+func NewDefaultBuilder(wrapper *BuilderWrapper) *DefaultBuilder {
+	return &DefaultBuilder{wrapper: wrapper}
+}
+
+func (s *DefaultBuilder) Init(context.Context, *builderv0.InitRequest) (*builderv0.InitResponse, error) {
+	if s == nil || s.wrapper == nil {
+		return (&BuilderWrapper{}).InitError(errDefaultBuilderNotWired)
+	}
+	return s.wrapper.InitResponse()
+}
+
+func (s *DefaultBuilder) Update(context.Context, *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
+	if s == nil || s.wrapper == nil {
+		return (&BuilderWrapper{}).UpdateError(errDefaultBuilderNotWired)
+	}
+	return s.wrapper.UpdateResponse()
+}
+
+func (s *DefaultBuilder) Sync(context.Context, *builderv0.SyncRequest) (*builderv0.SyncResponse, error) {
+	if s == nil || s.wrapper == nil {
+		return (&BuilderWrapper{}).SyncError(errDefaultBuilderNotWired)
+	}
+	return s.wrapper.SyncResponse()
+}
+
+func (s *DefaultBuilder) Build(context.Context, *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
+	if s == nil || s.wrapper == nil {
+		return (&BuilderWrapper{}).BuildError(errDefaultBuilderNotWired)
+	}
+	return s.wrapper.BuildResponse()
+}
+
+// Communicate is an empty question stream by default. Plugins with creation or
+// synchronization questions override it with their own implementation.
+func (s *DefaultBuilder) Communicate(builderv0.Builder_CommunicateServer) error {
+	return nil
+}
+
+// DefaultRuntime supplies lifecycle methods that are universally safe to
+// share. Process-owning operations such as Start, Stop, Destroy, and Test stay
+// explicit so a plugin cannot accidentally skip cleanup or claim a false test
+// success.
+type DefaultRuntime struct {
+	RuntimeServer
+	wrapper *RuntimeWrapper
+}
+
+func NewDefaultRuntime(wrapper *RuntimeWrapper) *DefaultRuntime {
+	return &DefaultRuntime{wrapper: wrapper}
+}
+
+func (s *DefaultRuntime) Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
+	if s == nil || s.wrapper == nil {
+		return (&RuntimeWrapper{}).InformationResponse(ctx, req)
+	}
+	return s.wrapper.InformationResponse(ctx, req)
 }

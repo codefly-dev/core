@@ -2,12 +2,14 @@ package services
 
 import (
 	"context"
-	"embed"
 	"fmt"
+	"io/fs"
 	"path"
 	"strings"
 
+	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -25,6 +27,57 @@ type BuilderWrapper struct {
 
 	CreationMode *builderv0.CreationMode
 	SyncMode     *builderv0.SyncMode
+}
+
+// BuilderLoad describes the small set of choices in a conventional plugin
+// Builder.Load implementation. Endpoint resolution is the plugin-specific
+// seam; the base owns identity/settings loading, creation-mode documentation,
+// endpoint loading, dependency localization, and structured responses.
+type BuilderLoad struct {
+	Settings         any
+	Requirements     *builders.Dependencies
+	FactoryTemplates fs.FS
+	ResolveEndpoints func(context.Context, []*basev0.Endpoint) error
+}
+
+// LoadService implements the conventional service builder Load lifecycle.
+func (s *BuilderWrapper) LoadService(ctx context.Context, req *builderv0.LoadRequest, load BuilderLoad) (*builderv0.LoadResponse, error) {
+	if req == nil || req.GetIdentity() == nil {
+		return s.LoadError(fmt.Errorf("builder load requires a service identity"))
+	}
+	if err := s.Base.Load(ctx, req.GetIdentity(), load.Settings); err != nil {
+		return s.LoadError(err)
+	}
+	ctx = s.Wool.Inject(ctx)
+	if req.GetDisableCatch() {
+		s.Wool.DisableCatch()
+	}
+	if load.Requirements != nil {
+		load.Requirements.Localize(s.Location)
+	}
+	if req.GetCreationMode() != nil {
+		s.CreationMode = req.GetCreationMode()
+		if load.FactoryTemplates != nil {
+			gettingStarted, err := templates.ApplyTemplateFrom(ctx, shared.Embed(load.FactoryTemplates), "templates/factory/GETTING_STARTED.md", s.Information)
+			if err != nil {
+				return s.LoadError(err)
+			}
+			s.GettingStarted = gettingStarted
+		}
+		return s.LoadResponse()
+	}
+
+	endpoints, err := s.Service.LoadEndpoints(ctx)
+	if err != nil {
+		return s.LoadError(err)
+	}
+	s.Endpoints = endpoints
+	if load.ResolveEndpoints != nil {
+		if err = load.ResolveEndpoints(ctx, endpoints); err != nil {
+			return s.LoadError(err)
+		}
+	}
+	return s.LoadResponse()
 }
 
 func ErrorMessage(err error, msg string, args ...any) string {
@@ -317,6 +370,76 @@ type DeploymentParameters struct {
 	Parameters any
 }
 
+// DeploymentInputs declares which standard Codefly inputs a Kubernetes
+// workload consumes. Keeping this policy explicit lets resource plugins avoid
+// receiving application-only values while application plugins can opt into the
+// complete, conventional environment with one helper.
+type DeploymentInputs struct {
+	OwnEndpoints             bool
+	DependencyEndpoints      bool
+	OwnConfiguration         bool
+	DependencyConfigurations bool
+}
+
+// ApplicationDeploymentInputs returns the conventional inputs for an
+// application workload: its own container-local endpoints plus dependency
+// endpoints and both service and dependency configuration.
+func ApplicationDeploymentInputs() DeploymentInputs {
+	return DeploymentInputs{
+		OwnEndpoints:             true,
+		DependencyEndpoints:      true,
+		OwnConfiguration:         true,
+		DependencyConfigurations: true,
+	}
+}
+
+// KustomizeDeployment describes the common deployment pipeline used by
+// Codefly service plugins. Prepare is the plugin-specific seam: managed
+// resources typically use it to derive and export their connection
+// configuration, while gateways use it to generate route configuration and
+// set Parameters.
+type KustomizeDeployment struct {
+	EnvironmentVariables *resources.EnvironmentVariableManager
+	Templates            fs.FS
+	Inputs               DeploymentInputs
+	Parameters           any
+	Prepare              func(context.Context, *KustomizeDeploymentContext) error
+}
+
+// KustomizeDeploymentContext is passed to a plugin's Prepare hook after the
+// requested standard inputs have been collected and before ConfigMap/Secret
+// data is rendered.
+type KustomizeDeploymentContext struct {
+	Builder              *BuilderWrapper
+	Request              *builderv0.DeploymentRequest
+	Kubernetes           *builderv0.KubernetesDeployment
+	EnvironmentVariables *resources.EnvironmentVariableManager
+	Parameters           any
+	ConfigMap            []*resources.EnvironmentVariable
+	Secrets              []*resources.EnvironmentVariable
+}
+
+// ExportConfiguration publishes a resource's connection configuration in the
+// deployment response and makes its values available to the rendered
+// workload. This is the standard operation for managed resource plugins.
+func (d *KustomizeDeploymentContext) ExportConfiguration(ctx context.Context, configuration *basev0.Configuration) error {
+	if configuration == nil {
+		return fmt.Errorf("cannot export a nil configuration")
+	}
+	d.Builder.Configuration = configuration
+	return d.EnvironmentVariables.AddConfigurations(ctx, configuration)
+}
+
+// AddConfigMap appends raw, non-secret values to the generated ConfigMap.
+func (d *KustomizeDeploymentContext) AddConfigMap(values ...*resources.EnvironmentVariable) {
+	d.ConfigMap = append(d.ConfigMap, values...)
+}
+
+// AddSecrets appends raw secret values to the generated Kubernetes Secret.
+func (d *KustomizeDeploymentContext) AddSecrets(values ...*resources.EnvironmentVariable) {
+	d.Secrets = append(d.Secrets, values...)
+}
+
 func EnvsAsConfigMapData(envs ...*resources.EnvironmentVariable) (EnvironmentMap, error) {
 	m := make(EnvironmentMap)
 	for _, env := range envs {
@@ -334,13 +457,107 @@ func EnvsAsSecretData(envs ...*resources.EnvironmentVariable) (EnvironmentMap, e
 }
 
 func (s *BuilderWrapper) KubernetesDeploymentRequest(_ context.Context, req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, error) {
+	if req == nil {
+		return nil, s.Wool.Wrapf(fmt.Errorf("deployment request is nil"), "cannot deploy")
+	}
+	if req.Deployment == nil {
+		return nil, s.Wool.Wrapf(fmt.Errorf("deployment target is missing"), "cannot deploy")
+	}
 	switch v := req.Deployment.Kind.(type) {
 	case *builderv0.Deployment_Kubernetes:
+		if v.Kubernetes == nil {
+			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes deployment is missing"), "cannot deploy")
+		}
 		s.DeployOutput = KustomizeOutput()
 		return v.Kubernetes, nil
 	default:
 		return nil, s.Wool.Wrapf(fmt.Errorf("unsupported deployment kind: %T", v), "cannot deploy")
 	}
+}
+
+// DeployKustomize runs the standard service-plugin Kubernetes deployment
+// pipeline: validate the target, collect declared inputs, run the plugin's
+// preparation hook, split configuration from secrets, render Kustomize, and
+// return the structured builder response.
+func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.DeploymentRequest, deployment KustomizeDeployment) (*builderv0.DeploymentResponse, error) {
+	if deployment.EnvironmentVariables == nil {
+		return s.DeployError(fmt.Errorf("kustomize deployment requires an environment variable manager"))
+	}
+	if deployment.Templates == nil {
+		return s.DeployError(fmt.Errorf("kustomize deployment requires templates"))
+	}
+
+	kubernetes, err := s.KubernetesDeploymentRequest(ctx, req)
+	if err != nil {
+		return s.DeployError(err)
+	}
+
+	s.LogDeployRequest(req, s.Wool.Debug)
+	manager := deployment.EnvironmentVariables
+	manager.SetRunning()
+
+	if deployment.Inputs.OwnEndpoints {
+		err = manager.AddEndpoints(ctx,
+			resources.LocalizeNetworkMapping(req.GetNetworkMappings(), "localhost"),
+			resources.NewContainerNetworkAccess())
+		if err != nil {
+			return s.DeployError(err)
+		}
+	}
+	if deployment.Inputs.DependencyEndpoints {
+		err = manager.AddEndpoints(ctx, req.GetDependenciesNetworkMappings(), resources.NewContainerNetworkAccess())
+		if err != nil {
+			return s.DeployError(err)
+		}
+	}
+	if deployment.Inputs.OwnConfiguration {
+		if err = manager.AddConfigurations(ctx, req.GetConfiguration()); err != nil {
+			return s.DeployError(err)
+		}
+	}
+	if deployment.Inputs.DependencyConfigurations {
+		if err = manager.AddConfigurations(ctx, req.GetDependenciesConfigurations()...); err != nil {
+			return s.DeployError(err)
+		}
+	}
+
+	deploymentContext := &KustomizeDeploymentContext{
+		Builder:              s,
+		Request:              req,
+		Kubernetes:           kubernetes,
+		EnvironmentVariables: manager,
+		Parameters:           deployment.Parameters,
+	}
+	if deployment.Prepare != nil {
+		if err = deployment.Prepare(ctx, deploymentContext); err != nil {
+			return s.DeployError(err)
+		}
+	}
+
+	configurations, err := manager.Configurations()
+	if err != nil {
+		return s.DeployError(err)
+	}
+	configurations = append(configurations, deploymentContext.ConfigMap...)
+	configMap, err := EnvsAsConfigMapData(configurations...)
+	if err != nil {
+		return s.DeployError(err)
+	}
+	secrets := append(manager.Secrets(), deploymentContext.Secrets...)
+	secretMap, err := EnvsAsSecretData(secrets...)
+	if err != nil {
+		return s.DeployError(err)
+	}
+
+	parameters := DeploymentParameters{
+		ConfigMap:  configMap,
+		SecretMap:  secretMap,
+		Parameters: deploymentContext.Parameters,
+	}
+	if err = s.KustomizeDeploy(ctx, req.GetEnvironment(), kubernetes, deployment.Templates, parameters); err != nil {
+		return s.DeployError(err)
+	}
+	return s.DeployResponse()
 }
 
 func KustomizeOutput() *builderv0.DeploymentOutput {
@@ -353,14 +570,14 @@ func KustomizeOutput() *builderv0.DeploymentOutput {
 	}
 }
 
-func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Environment, req *builderv0.KubernetesDeployment, fs embed.FS, params any) error {
+func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Environment, req *builderv0.KubernetesDeployment, fsys fs.FS, params any) error {
 	defer s.Wool.Catch()
 
 	b, err := s.CreateKubernetesBase(ctx, env, req.Namespace, req.BuildContext)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot create base")
 	}
-	err = s.Builder.GenerateGenericKustomize(ctx, fs, req, b, params)
+	err = s.Builder.GenerateGenericKustomize(ctx, fsys, req, b, params)
 	if err != nil {
 		return err
 	}
@@ -374,36 +591,56 @@ func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Enviro
 // nil-Override default silently truncated every existing file). Agents that
 // genuinely need to overwrite specific files set an explicit .WithOverride(...)
 // — e.g. go-grpc overwrites everything except *.proto.
-func WithFactory(fs embed.FS) *TemplateWrapper {
-	return &TemplateWrapper{fs: shared.Embed(fs), dir: "templates/factory", Override: shared.SkipAll()}
+func WithFactory(fsys fs.FS) *TemplateWrapper {
+	return &TemplateWrapper{fs: shared.Embed(fsys), dir: "templates/factory", Override: shared.SkipAll()}
 }
 
 // WithBuilder renders build-time templates (Dockerfile, etc.). These are
 // regenerated artifacts, not user-editable, so they overwrite by default.
-func WithBuilder(fs embed.FS) *TemplateWrapper {
-	return &TemplateWrapper{fs: shared.Embed(fs), dir: "templates/builder", relative: "builder"}
+func WithBuilder(fsys fs.FS) *TemplateWrapper {
+	return &TemplateWrapper{fs: shared.Embed(fsys), dir: "templates/builder", relative: "builder"}
 }
 
-func WithDeployment(fs embed.FS, sub string) *TemplateWrapper {
+func WithDeployment(fsys fs.FS, sub string) *TemplateWrapper {
 	return &TemplateWrapper{
-		fs: shared.Embed(fs), dir: fmt.Sprintf("templates/deployment/%s", sub), relative: "deployment"}
+		fs: shared.Embed(fsys), dir: fmt.Sprintf("templates/deployment/%s", sub), relative: "deployment"}
 }
 
 type DeploymentWrapper struct {
 	*DeploymentBase
 	Deployment any
+
+	// Stable convenience aliases for plugin templates. These keep the golden
+	// path shallow ({{ .Name }}, {{ range .SecretMap }}) while Deployment keeps
+	// the complete plugin-specific parameter object available.
+	Name      string
+	ConfigMap EnvironmentMap
+	SecretMap EnvironmentMap
 }
 
-func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.FS, k *builderv0.KubernetesDeployment, base *DeploymentBase, params any) error {
+func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.FS, k *builderv0.KubernetesDeployment, base *DeploymentBase, params any) error {
 	wrapper := &DeploymentWrapper{DeploymentBase: base, Deployment: params}
+	if base.Information != nil && base.Information.Service != nil {
+		wrapper.Name = base.Information.Service.Name.DNSCase
+	}
+	switch deployment := params.(type) {
+	case DeploymentParameters:
+		wrapper.ConfigMap = deployment.ConfigMap
+		wrapper.SecretMap = deployment.SecretMap
+	case *DeploymentParameters:
+		if deployment != nil {
+			wrapper.ConfigMap = deployment.ConfigMap
+			wrapper.SecretMap = deployment.SecretMap
+		}
+	}
 	// Delete
 	err := shared.EmptyDir(ctx, k.Destination)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot empty destination")
 	}
 	err = s.Templates(ctx, wrapper,
-		WithDeployment(fs, "kustomize/base").WithDestination("%s", path.Join(k.Destination, "base")),
-		WithDeployment(fs, "kustomize/overlays/environment").WithDestination("%s", path.Join(k.Destination, "overlays", base.Environment.Name)),
+		WithDeployment(fsys, "kustomize/base").WithDestination("%s", path.Join(k.Destination, "base")),
+		WithDeployment(fsys, "kustomize/overlays/environment").WithDestination("%s", path.Join(k.Destination, "overlays", base.Environment.Name)),
 	)
 	if err != nil {
 		return err
@@ -414,16 +651,20 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fs embed.
 func (s *BuilderWrapper) LogInitRequest(req *builderv0.InitRequest) {
 	w := s.Wool.In("builder::init")
 	w.Debug("input",
-		wool.Field("dependency endpoints", resources.MakeManyEndpointSummary(req.DependenciesEndpoints)),
+		wool.Field("dependency endpoints", resources.MakeManyEndpointSummary(req.GetDependenciesEndpoints())),
 	)
 }
 
 func (s *BuilderWrapper) LogDeployRequest(req *builderv0.DeploymentRequest, log wool.LogFunc) {
+	if req == nil {
+		log("input", wool.Field("request", "nil"))
+		return
+	}
 	log("input",
-		wool.Field("configuration", resources.MakeConfigurationSummary(req.Configuration)),
-		wool.Field("dependencies configurations", resources.MakeManyConfigurationSummary(req.DependenciesConfigurations)),
-		wool.Field("network mappings", resources.MakeManyNetworkMappingSummary(req.NetworkMappings)),
-		wool.Field("dependencies network mappings", resources.MakeManyNetworkMappingSummary(req.DependenciesNetworkMappings)),
+		wool.Field("configuration", resources.MakeConfigurationSummary(req.GetConfiguration())),
+		wool.Field("dependencies configurations", resources.MakeManyConfigurationSummary(req.GetDependenciesConfigurations())),
+		wool.Field("network mappings", resources.MakeManyNetworkMappingSummary(req.GetNetworkMappings())),
+		wool.Field("dependencies network mappings", resources.MakeManyNetworkMappingSummary(req.GetDependenciesNetworkMappings())),
 	)
 }
 

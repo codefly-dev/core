@@ -33,8 +33,13 @@ import (
 // directly or goes through the Toolbox via ToolingFromToolbox —
 // the bridge round-trips the typed proto messages intact.
 func NewToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
-	b := &ToolboxFromTooling{name: name, version: version, inner: t}
-	b.Base = registry.NewBase(b)
+	b := &ToolboxFromTooling{inner: t}
+	b.Base = registry.NewBase(registry.Descriptor{
+		Name:           name,
+		Version:        version,
+		Description:    "Language toolbox (project metadata, dependencies, edits, dev validation) bridged from the Tooling contract.",
+		SandboxSummary: "language tooling runs in-plugin; sandbox inherited from the agent process",
+	}, b.Tools()...)
 	return b
 }
 
@@ -50,9 +55,7 @@ func NewToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *Too
 // anyway.
 type ToolboxFromTooling struct {
 	*registry.Base
-	name    string
-	version string
-	inner   toolingv0.ToolingServer
+	inner toolingv0.ToolingServer
 }
 
 type toolSpec struct {
@@ -123,15 +126,6 @@ func ToolNames() []string {
 		names = append(names, spec.name)
 	}
 	return names
-}
-
-func (b *ToolboxFromTooling) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
-	return &toolboxv0.IdentityResponse{
-		Name:           b.name,
-		Version:        b.version,
-		Description:    "Language toolbox (project metadata, dependencies, edits, dev validation) bridged from the Tooling contract.",
-		SandboxSummary: "language tooling runs in-plugin; sandbox inherited from the agent process",
-	}, nil
 }
 
 // Tools projects the conventional lang.* surface into the registry's

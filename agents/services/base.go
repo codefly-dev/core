@@ -2,8 +2,8 @@ package services
 
 import (
 	"context"
-	"embed"
 	"fmt"
+	"io/fs"
 	"path"
 	"time"
 
@@ -358,9 +358,9 @@ func (wrapper *TemplateWrapper) WithOverride(override shared.Override) *Template
 	return wrapper
 }
 
-func WithTemplate(fs embed.FS, from string, to string) *TemplateWrapper {
+func WithTemplate(fsys fs.FS, from string, to string) *TemplateWrapper {
 	return &TemplateWrapper{
-		fs: shared.Embed(fs), dir: fmt.Sprintf("templates/%s", from), relative: to}
+		fs: shared.Embed(fsys), dir: fmt.Sprintf("templates/%s", from), relative: to}
 }
 
 func (wrapper *TemplateWrapper) WithDestination(destination string, args ...any) *TemplateWrapper {

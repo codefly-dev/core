@@ -91,58 +91,11 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 // Handles environment variable setup, config maps, secrets, and kustomize generation.
 func DeployGoKubernetes(ctx context.Context, builder *services.BuilderWrapper, req *builderv0.DeploymentRequest,
 	envVars *resources.EnvironmentVariableManager, deploymentFS embed.FS) (*builderv0.DeploymentResponse, error) {
-
-	w := wool.Get(ctx).In("golang.DeployGoKubernetes")
-
-	builder.LogDeployRequest(req, w.Debug)
-	envVars.SetRunning()
-
-	k, err := builder.KubernetesDeploymentRequest(ctx, req)
-	if err != nil {
-		return builder.DeployError(err)
-	}
-
-	err = envVars.AddEndpoints(ctx,
-		resources.LocalizeNetworkMapping(req.NetworkMappings, "localhost"),
-		resources.NewContainerNetworkAccess())
-	if err != nil {
-		return builder.DeployError(err)
-	}
-	err = envVars.AddEndpoints(ctx, req.DependenciesNetworkMappings, resources.NewContainerNetworkAccess())
-	if err != nil {
-		return builder.DeployError(err)
-	}
-	err = envVars.AddConfigurations(ctx, req.Configuration)
-	if err != nil {
-		return builder.DeployError(err)
-	}
-	err = envVars.AddConfigurations(ctx, req.DependenciesConfigurations...)
-	if err != nil {
-		return builder.DeployError(err)
-	}
-
-	confs, err := envVars.Configurations()
-	if err != nil {
-		return builder.DeployError(err)
-	}
-	cm, err := services.EnvsAsConfigMapData(confs...)
-	if err != nil {
-		return builder.DeployError(err)
-	}
-	secrets, err := services.EnvsAsSecretData(envVars.Secrets()...)
-	if err != nil {
-		return builder.DeployError(err)
-	}
-
-	params := services.DeploymentParameters{
-		ConfigMap: cm,
-		SecretMap: secrets,
-	}
-	err = builder.KustomizeDeploy(ctx, req.Environment, k, deploymentFS, params)
-	if err != nil {
-		return builder.DeployError(err)
-	}
-	return builder.DeployResponse()
+	return builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
+		EnvironmentVariables: envVars,
+		Templates:            deploymentFS,
+		Inputs:               services.ApplicationDeploymentInputs(),
+	})
 }
 
 // SplitSourceDir splits a source directory like "code/cmd/server" into

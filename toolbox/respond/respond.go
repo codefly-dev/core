@@ -73,6 +73,18 @@ func Text(text string) *toolboxv0.CallToolResponse {
 	}
 }
 
+// MustStruct converts a JSON-shaped Go map to a proto Struct. It is intended
+// for static plugin metadata such as tool examples and schemas: values are
+// authored in code, so an unsupported value is a plugin bug that should fail
+// immediately during construction rather than ship a broken contract.
+func MustStruct(m map[string]any) *structpb.Struct {
+	s, err := structpb.NewStruct(m)
+	if err != nil {
+		panic(fmt.Sprintf("respond.MustStruct: cannot encode metadata: %v", err))
+	}
+	return s
+}
+
 // Schema converts a JSON-Schema-shaped Go map to a proto Struct.
 // Used at server construction to bake the input/output schemas
 // into Tool definitions; a failure here is a programmer typo and
@@ -80,9 +92,5 @@ func Text(text string) *toolboxv0.CallToolResponse {
 // one means the binary is shipping a broken contract. Hence panic
 // rather than returning an error.
 func Schema(m map[string]any) *structpb.Struct {
-	s, err := structpb.NewStruct(m)
-	if err != nil {
-		panic(fmt.Sprintf("respond.Schema: bad input schema: %v", err))
-	}
-	return s
+	return MustStruct(m)
 }

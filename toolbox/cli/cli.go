@@ -30,28 +30,23 @@ import (
 type Toolbox struct {
 	*registry.Base
 
-	env     runners.RunnerEnvironment
-	bin     string
-	version string
+	env runners.RunnerEnvironment
+	bin string
 }
 
 // New wraps `bin`, running it through env. The caller constructs and Init's the
 // environment (Native/Nix/Docker), which decides how `bin` is provisioned.
 func New(env runners.RunnerEnvironment, bin, version string) *Toolbox {
-	t := &Toolbox{env: env, bin: bin, version: version}
-	t.Base = registry.NewBase(t)
-	return t
-}
-
-func (t *Toolbox) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
-	return &toolboxv0.IdentityResponse{
+	t := &Toolbox{env: env, bin: bin}
+	t.Base = registry.NewBase(registry.Descriptor{
 		Name:         t.bin,
-		Version:      t.version,
+		Version:      version,
 		Description:  fmt.Sprintf("Runs `%s` in a provisioned environment; output compressed for LLM context.", t.bin),
 		CanonicalFor: []string{t.bin},
 		SandboxSummary: fmt.Sprintf(
 			"executes `%s` via the configured runner environment (Nix/Docker/Native provisions the binary)", t.bin),
-	}, nil
+	}, t.Tools()...)
+	return t
 }
 
 func (t *Toolbox) Tools() []*registry.ToolDefinition {

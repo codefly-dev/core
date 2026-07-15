@@ -98,7 +98,7 @@ func New(stdin io.Writer, stdout io.Reader, closer io.Closer) *ReverseTranscoder
 		pending:   make(map[int64]chan *jsonRPCResponse),
 		unclaimed: make(map[int64]*jsonRPCResponse),
 	}
-	r.Base = registry.NewBase(r)
+	r.Base = registry.NewBase(registry.Descriptor{Name: "mcp-pending"})
 	return r
 }
 
@@ -121,6 +121,12 @@ func (r *ReverseTranscoder) Initialize(ctx context.Context) error {
 		return fmt.Errorf("initialize: %w", err)
 	}
 	r.parseServerInfo(initResp)
+	r.Base.SetDescriptor(registry.Descriptor{
+		Name:           r.serverName,
+		Version:        r.serverVersion,
+		Description:    "MCP server wrapped as a codefly toolbox via mcprev.",
+		SandboxSummary: "inherits the wrapper's sandbox; the MCP subprocess runs inside it",
+	})
 
 	// Per MCP spec the client MUST send `notifications/initialized`
 	// after a successful initialize before any further requests.
@@ -136,6 +142,7 @@ func (r *ReverseTranscoder) Initialize(ctx context.Context) error {
 		return fmt.Errorf("tools/list: %w", err)
 	}
 	r.tools = parseMCPToolList(listResp, r.callTool)
+	r.Base.SetTools(r.tools...)
 	return nil
 }
 
@@ -160,15 +167,6 @@ func (r *ReverseTranscoder) Close() error {
 // version come from the server's initialize response; description
 // is generic since MCP doesn't expose a server-level description
 // field (only per-tool ones).
-func (r *ReverseTranscoder) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
-	return &toolboxv0.IdentityResponse{
-		Name:           r.serverName,
-		Version:        r.serverVersion,
-		Description:    "MCP server wrapped as a codefly toolbox via mcprev.",
-		SandboxSummary: "inherits the wrapper's sandbox; the MCP subprocess runs inside it",
-	}, nil
-}
-
 // Tools returns the tool catalog cached at Initialize time. The
 // embedded registry.Base then projects this into ListTools /
 // ListToolSummaries / DescribeTool / CallTool — same shape any

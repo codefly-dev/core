@@ -21,25 +21,20 @@ type Server struct {
 	*registry.Base
 
 	workspace string
-	version   string
 }
 
 // New returns a Server bound to a workspace directory (the workspace may be at
 // or above it).
 func New(workspace, version string) *Server {
-	s := &Server{workspace: workspace, version: version}
-	s.Base = registry.NewBase(s)
-	return s
-}
-
-func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
-	return &toolboxv0.IdentityResponse{
+	s := &Server{workspace: workspace}
+	s.Base = registry.NewBase(registry.Descriptor{
 		Name:           "codefly",
-		Version:        s.version,
+		Version:        version,
 		Description:    "Inspect the codefly workspace: modules, services, layout. Read-only.",
 		CanonicalFor:   []string{"codefly"},
-		SandboxSummary: fmt.Sprintf("reads the codefly workspace at %s; no network", s.workspace),
-	}, nil
+		SandboxSummary: fmt.Sprintf("reads the codefly workspace at %s; no network", workspace),
+	}, s.Tools()...)
+	return s
 }
 
 func (s *Server) Tools() []*registry.ToolDefinition {

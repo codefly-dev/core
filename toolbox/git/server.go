@@ -15,9 +15,8 @@ import (
 // Server implements the codefly.services.toolbox.v0.Toolbox contract
 // for git operations against a single workspace directory.
 //
-// Embeds *registry.Base for the four boilerplate RPCs (ListTools,
-// ListToolSummaries, DescribeTool, CallTool); the plugin only owns
-// Identity() + Tools() and the per-tool handler methods.
+// Embeds *registry.Base for identity, catalog, validation, and dispatch; the
+// plugin only owns its tool declarations and handlers.
 //
 // Construct with the workspace root; every Tool dispatches against
 // that directory. Multi-repo workspaces would either need one Server
@@ -28,7 +27,6 @@ type Server struct {
 	*registry.Base
 
 	workspace string
-	version   string
 }
 
 // New returns a Server bound to the given workspace directory.
@@ -36,21 +34,17 @@ type Server struct {
 // entry — validation defers to the first git operation that needs
 // to open the repo, which surfaces a clear go-git error.
 func New(workspace, version string) *Server {
-	s := &Server{workspace: workspace, version: version}
-	s.Base = registry.NewBase(s)
-	return s
-}
-
-func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
-	return &toolboxv0.IdentityResponse{
+	s := &Server{workspace: workspace}
+	s.Base = registry.NewBase(registry.Descriptor{
 		Name:         "git",
-		Version:      s.version,
+		Version:      version,
 		Description:  "Git repository operations as typed RPCs (status, log, diff, ...).",
 		CanonicalFor: []string{"git"},
 		SandboxSummary: fmt.Sprintf(
 			"reads+writes %s; network deny (push/pull need explicit grant)",
-			s.workspace),
-	}, nil
+			workspace),
+	}, s.Tools()...)
+	return s
 }
 
 // Tools is the single source of truth for this toolbox's callable
@@ -64,8 +58,8 @@ func (s *Server) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*too
 //     spec; spell out edge cases and when not to use
 //   - Examples (≥1) — LLMs do dramatically better with examples
 //     than with schemas alone
-//   - Tags — at minimum the toolbox name + a read-only/destructive
-//     marker; add domain tags to help pre-filtering
+//   - Tags — add capability tags such as read-only/destructive; core adds the
+//     parent toolbox name
 //   - Handler — the implementation. Base.CallTool dispatches here.
 func (s *Server) Tools() []*registry.ToolDefinition {
 	return []*registry.ToolDefinition{
