@@ -9,11 +9,11 @@ import (
 	"syscall"
 )
 
-// agentSocketDir is where per-spawn UDS sockets live (see loader.go). Each
-// socket is named agent-<owner-pid>-<nano>.sock, where owner-pid is the codefly
-// process that spawned the agent.
+// agentSocketDir is the parent of private per-spawn UDS directories (see
+// loader.go). Each directory is named codefly-uds-<owner-pid>-<random>, where
+// owner-pid is the codefly process that spawned the agent.
 func agentSocketDir() string {
-	return filepath.Join(os.TempDir(), "codefly-uds")
+	return os.TempDir()
 }
 
 var socketSweepOnce sync.Once
@@ -26,9 +26,10 @@ func sweepStaleAgentSocketsOnce() {
 	socketSweepOnce.Do(func() { _ = SweepStaleAgentSockets() })
 }
 
-// SweepStaleAgentSockets removes UDS socket files whose owning codefly process
-// (encoded in the filename) is no longer alive. Sockets owned by a live process
-// — including this one — are left untouched. Returns the number removed.
+// SweepStaleAgentSockets removes private UDS directories whose owning codefly
+// process (encoded in the directory name) is no longer alive. Directories owned
+// by a live process — including this one — are left untouched. Returns the
+// number removed.
 // Best-effort: filesystem/parse errors are skipped, never fatal.
 func SweepStaleAgentSockets() int {
 	dir := agentSocketDir()
@@ -40,11 +41,11 @@ func SweepStaleAgentSockets() int {
 	removed := 0
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".sock") || !strings.HasPrefix(name, "agent-") {
+		if !e.IsDir() || !strings.HasPrefix(name, "codefly-uds-") {
 			continue
 		}
-		// agent-<pid>-<nano>.sock
-		core := strings.TrimSuffix(strings.TrimPrefix(name, "agent-"), ".sock")
+		// codefly-uds-<pid>-<random>
+		core := strings.TrimPrefix(name, "codefly-uds-")
 		dash := strings.IndexByte(core, '-')
 		if dash <= 0 {
 			continue
@@ -56,7 +57,7 @@ func SweepStaleAgentSockets() int {
 		if pid == self || pidAlive(pid) {
 			continue // owner still running — its socket may be in use
 		}
-		if os.Remove(filepath.Join(dir, name)) == nil {
+		if os.RemoveAll(filepath.Join(dir, name)) == nil {
 			removed++
 		}
 	}
@@ -75,10 +76,10 @@ func CountStaleAgentSockets() int {
 	count := 0
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".sock") || !strings.HasPrefix(name, "agent-") {
+		if !e.IsDir() || !strings.HasPrefix(name, "codefly-uds-") {
 			continue
 		}
-		core := strings.TrimSuffix(strings.TrimPrefix(name, "agent-"), ".sock")
+		core := strings.TrimPrefix(name, "codefly-uds-")
 		dash := strings.IndexByte(core, '-')
 		if dash <= 0 {
 			continue

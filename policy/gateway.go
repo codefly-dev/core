@@ -60,6 +60,16 @@ type EvaluationInput struct {
 	Toolbox   string // canonical identity, e.g. "codefly.dev/github-bot:0.1.0"
 	Tool      string // dotted action, e.g. "github.merge_pr"
 	Resource  string // typed identifier, e.g. "repo:codefly/x"
+	// CatalogDigest and RequestDigest bind the minted token to the host-approved
+	// discovery snapshot and exact serialized call.
+	CatalogDigest string
+	RequestDigest string
+
+	// Caveats are trusted, already-validated host bindings to copy into the
+	// scoped token (for example tenant/environment/resource constraints).
+	// Tool-policy producers may add provider-specific caveats, but a duplicate
+	// key is rejected so neither source can silently override the other.
+	Caveats map[string]any
 
 	// Context is the runtime context for caveat evaluation
 	// (ci_status, labels, request body summary, etc.). Tool
@@ -151,14 +161,28 @@ func (g *GatewayEvaluator) EvaluateAndMint(ctx context.Context, in EvaluationInp
 		ttl = 120 * time.Second
 	}
 
+	caveats := policy.ResolvedCaveats(in.Context)
+	if len(in.Caveats) > 0 {
+		if caveats == nil {
+			caveats = make(map[string]any, len(in.Caveats))
+		}
+		for key, value := range in.Caveats {
+			if _, duplicate := caveats[key]; duplicate {
+				return nil, fmt.Errorf("%w: duplicate caveat binding %q", ErrGatewayDeny, key)
+			}
+			caveats[key] = value
+		}
+	}
 	encoded, sa, err := Mint(MintInput{
-		Principal:  in.Principal,
-		Action:     in.Tool,
-		Resource:   in.Resource,
-		AudienceID: in.Toolbox,
-		TTL:        ttl,
-		MaxUses:    policy.MaxUses,
-		Caveats:    policy.ResolvedCaveats(in.Context),
+		Principal:     in.Principal,
+		Action:        in.Tool,
+		Resource:      in.Resource,
+		AudienceID:    in.Toolbox,
+		CatalogDigest: in.CatalogDigest,
+		RequestDigest: in.RequestDigest,
+		TTL:           ttl,
+		MaxUses:       policy.MaxUses,
+		Caveats:       caveats,
 	}, g.Secret)
 	if err != nil {
 		// Mint failure (insufficient secret, etc.) is a

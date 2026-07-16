@@ -142,6 +142,14 @@ func TestPermissionPolicy_Allows_EmptyResource_MatchesAny(t *testing.T) {
 	require.True(t, p.Allows("fs.read", "anything"))
 }
 
+func TestPermissionPolicy_DeclaresAction_IgnoresResourceUntilInvocation(t *testing.T) {
+	p := policy.PermissionPolicy{
+		Required: []policy.PermissionDeclaration{{Action: "postgres.query.*", Resource: "database:tenant-a"}},
+	}
+	require.True(t, p.DeclaresAction("postgres.query.execute"))
+	require.False(t, p.DeclaresAction("postgres.admin.drop"))
+}
+
 func TestPermissionPolicy_RiskLevelOf_DefaultsLow(t *testing.T) {
 	p := policy.PermissionPolicy{
 		RiskLevels: map[string]string{

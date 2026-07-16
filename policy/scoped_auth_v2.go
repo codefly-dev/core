@@ -117,6 +117,8 @@ func MintEd25519(input MintInput, privateKey ed25519.PrivateKey) (string, *Scope
 		ExpiresAtUnix:  issuedAt.Add(input.TTL).Unix(),
 		MaxUses:        maxUses,
 		AudienceID:     input.AudienceID,
+		CatalogDigest:  input.CatalogDigest,
+		RequestDigest:  input.RequestDigest,
 		Caveats:        input.Caveats,
 	}
 
@@ -329,14 +331,26 @@ func checkScopedAuthClaims(sa *ScopedAuthorization, expect VerifyExpectations) e
 	// signature/claims verifier. Enforcing that a resource-scoped token is only
 	// accepted when the CALL actually carries a matching resource is the Guard's
 	// job (policyguard.CallTool), which knows both the token and the call.
-	if expect.Resource != "" && sa.Resource != "" && sa.Resource != expect.Resource {
+	if expect.Resource != "" && sa.Resource != expect.Resource {
 		return fmt.Errorf("%w: resource mismatch (token=%q, want=%q)", ErrScopedAuthInvalid, sa.Resource, expect.Resource)
 	}
-	if expect.Audience != "" && sa.AudienceID != "" && sa.AudienceID != expect.Audience {
+	if expect.Audience != "" && sa.AudienceID != expect.Audience {
 		return fmt.Errorf("%w: audience mismatch (token=%q, want=%q)", ErrScopedAuthInvalid, sa.AudienceID, expect.Audience)
+	}
+	if expect.CatalogDigest != "" && sa.CatalogDigest != expect.CatalogDigest {
+		return fmt.Errorf("%w: catalog digest mismatch (token=%q, want=%q)", ErrScopedAuthInvalid, sa.CatalogDigest, expect.CatalogDigest)
+	}
+	if expect.RequestDigest != "" && sa.RequestDigest != expect.RequestDigest {
+		return fmt.Errorf("%w: request digest mismatch (token=%q, want=%q)", ErrScopedAuthInvalid, sa.RequestDigest, expect.RequestDigest)
 	}
 	if expect.PrincipalID != "" && sa.PrincipalID != expect.PrincipalID {
 		return fmt.Errorf("%w: principal mismatch (token=%q, want=%q)", ErrScopedAuthInvalid, sa.PrincipalID, expect.PrincipalID)
+	}
+	if expect.PrincipalKind != "" && sa.PrincipalKind != expect.PrincipalKind {
+		return fmt.Errorf("%w: principal kind mismatch (token=%q, want=%q)", ErrScopedAuthInvalid, sa.PrincipalKind, expect.PrincipalKind)
+	}
+	if expect.OrganizationID != "" && sa.PrincipalOrgID != expect.OrganizationID {
+		return fmt.Errorf("%w: organization mismatch (token=%q, want=%q)", ErrScopedAuthInvalid, sa.PrincipalOrgID, expect.OrganizationID)
 	}
 
 	for key, value := range sa.Caveats {
@@ -346,6 +360,14 @@ func checkScopedAuthClaims(sa *ScopedAuthorization, expect VerifyExpectations) e
 		}
 		if err := verifier(value); err != nil {
 			return fmt.Errorf("%w: caveat %q rejected: %v", ErrScopedAuthInvalid, key, err)
+		}
+	}
+	for _, key := range expect.RequiredCaveats {
+		if _, ok := sa.Caveats[key]; !ok {
+			return fmt.Errorf("%w: required caveat %q is missing", ErrScopedAuthInvalid, key)
+		}
+		if _, ok := expect.CaveatVerifiers[key]; !ok {
+			return fmt.Errorf("%w: required caveat %q has no registered verifier", ErrScopedAuthInvalid, key)
 		}
 	}
 

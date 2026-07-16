@@ -22,6 +22,11 @@ You DO NOT:
 The host does all of that. Your plugin trusts that *if a tool call
 reached your handler, the principal had authority to make it.*
 
+For a native Toolbox, use `registry.Base` to declare the tool surface once and
+`agents.ServeToolbox(server)` to start it. `ServeToolbox` automatically installs
+the callback-backed guard, scoped-token verifier, and canonical audience when
+the host launches the process; plugin authors do not compose PDP wiring.
+
 ---
 
 ## 1. DECLARE — `toolbox.codefly.yaml`
@@ -154,12 +159,7 @@ import "github.com/codefly-dev/core/policy"
 func (s *server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
     p := policy.PrincipalFrom(ctx)  // may be nil
 
-    // Use p for AUDIT or DISPLAY purposes:
-    if p != nil {
-        log.Printf("tool %s called by %s (%s)", req.Name, p.DisplayName, p.ID)
-    }
-
-    // Use p to decide what to RETURN (filter to what the principal owns):
+    // Use p only to choose the already-authorized data partition.
     if p != nil && p.Kind == policy.KindHuman {
         return findUserOwnedResources(ctx, p.ID)
     }
@@ -179,14 +179,9 @@ Inside the handler:
 ```go
 sa := policy.ScopedAuthFrom(ctx)  // may be nil (single-level mode)
 if sa != nil {
-    log.Printf("authorized via gateway: action=%s resource=%s expires=%s id=%s",
-        sa.Action, sa.Resource,
-        time.Unix(sa.ExpiresAtUnix, 0).Format(time.RFC3339),
-        sa.ID)
-    // Optional: surface caveats
-    if ci, ok := sa.Caveats["ci_status"]; ok {
-        log.Printf("CI was %s when authorized", ci)
-    }
+	// sa.ID is a safe audit correlation reference. Do not log the token,
+	// principal, resource, tenant caveats, or raw request/result.
+	recordAuthorizationReference(sa.ID)
 }
 ```
 
@@ -208,12 +203,9 @@ detail and (rarely) for caveat-aware behavior.
 
 ### What you CAN do with the principal
 
-**Audit logging**: include the principal ID in your plugin's logs
-so support can trace "what did this user run".
-
-**Display attribution**: when your tool returns text, you may want
-to say "as antoine@example.com" — the principal's `DisplayName`
-is what surfaces in audit UI.
+**Audit attribution**: let the host's structured `ToolboxSession` audit sink
+record principal references. Ordinary plugin logs should use the scoped
+authorization/invocation correlation ID, not principal or tenant identifiers.
 
 **Data filtering**: if your tool returns lists scoped to "things
 the principal owns", filter by `p.ID` or `p.OrgID`. This is NOT
@@ -275,16 +267,16 @@ should immediately deny — caching breaks that property.
 
 - The host called `WithoutPrincipal()` at load
 - The host called `Load` without picking either option (legacy)
-- The principal token was invalid and the interceptor logged-and-
-  fell-through
 
-In these cases, your handler runs WITHOUT principal context. Your
+Malformed spawn authority and per-call principal replacement are rejected as
+`Unauthenticated` before the handler. In explicit no-principal local mode, your
 behavior:
 
 - **DON'T crash**: a nil principal is a valid state.
 - **DON'T fail closed in the handler**: the PDP did or didn't
   authorize the call before you got it. You're past authz.
-- **DO emit audit with `actor=anonymous`** if you log.
+- **DO let the host audit sink record anonymous attribution**; do not add raw
+  identity data to ordinary plugin logs.
 
 ---
 
@@ -475,8 +467,6 @@ manage the grant. It declares the request, awaits the result.
 **When to use escalation:**
 
 - Your role grants `read` but a one-off operation needs `write`
-- Your manifest doesn't declare an action, but the user explicitly
-  asked for it (and you want to record their consent in audit)
 - You're a routine bot that needs a human in the loop for high-
   risk actions
 
@@ -530,45 +520,62 @@ import (
     "context"
 
     "github.com/codefly-dev/core/agents"
-    "github.com/codefly-dev/core/policy"
     toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+    "github.com/codefly-dev/core/toolbox"
+    "github.com/codefly-dev/core/toolbox/registry"
+    "github.com/codefly-dev/core/toolbox/respond"
 )
 
 type server struct {
-    toolboxv0.UnimplementedToolboxServer
+	*registry.Base
 }
 
-func (s *server) ListTools(ctx context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-    return &toolboxv0.ListToolsResponse{Tools: []*toolboxv0.Tool{
-        {Name: "github.read_pr", Description: "Fetch PR details"},
-        {Name: "github.merge_pr", Description: "Merge a PR"},
-    }}, nil
+func newServer(version string) *server {
+	s := &server{}
+	s.Base = registry.NewBase(registry.Descriptor{
+		Name: "github-bot", Version: version,
+		Description: "Read and merge approved GitHub pull requests.",
+	}, s.tools()...)
+	return s
 }
 
-func (s *server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
-    // Optional: read the principal for audit logging.
-    if p := policy.PrincipalFrom(ctx); p != nil {
-        // log structured: actor=p.ID, action=req.Name, ...
-    }
-
-    switch req.Name {
-    case "github.read_pr":
-        return s.readPR(ctx, req)
-    case "github.merge_pr":
-        return s.mergePR(ctx, req)
-    }
-    return &toolboxv0.CallToolResponse{Error: "unknown tool"}, nil
+func (s *server) tools() []*registry.ToolDefinition {
+	object := respond.Schema(map[string]any{
+		"type": "object", "additionalProperties": false,
+	})
+	return []*registry.ToolDefinition{
+		{
+			Name: "github.read_pr",
+			SummaryDescription: "Read pull-request status and review metadata.",
+			InputSchema: object,
+			Tags: []string{"read-only", "network"},
+			Idempotency: "idempotent",
+			Handler: s.readPR,
+		},
+		{
+			Name: "github.merge_pr",
+			SummaryDescription: "Merge one policy-approved pull request.",
+			InputSchema: object,
+			Destructive: true,
+			Tags: []string{"destructive", "network"},
+			Idempotency: "side_effecting",
+			Handler: s.mergePR,
+		},
+	}
 }
 
-// ... readPR / mergePR implementations ...
-// They DON'T check permissions. The PDP did. They just do the work.
+func (s *server) readPR(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+	// Call GitHub and return typed content. No permission check here.
+	return respond.Struct(map[string]any{"state": "open"})
+}
+
+func (s *server) mergePR(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+	// Perform the declared operation. The host and Guard already authorized it.
+	return respond.Struct(map[string]any{"merged": true})
+}
 
 func main() {
-    agents.Serve(agents.PluginRegistration{
-        Toolbox: &server{},
-        // PDP is wired by the host on PluginRegistration.PDP at
-        // load time — the plugin author doesn't construct one.
-    })
+	agents.ServeToolbox(newServer(toolbox.Version()))
 }
 ```
 
@@ -630,13 +637,11 @@ plugin sees the OUTCOME (call allowed or denied). If you need to
 introspect, the host has APIs for that — call from the host, not
 from inside the plugin.
 
-### "What about my existing plugin that doesn't have a permissions block?"
+### "What about a plugin that doesn't have a permissions block?"
 
-During the M4 rollout window, plugins without a manifest pass the
-ceiling check (`RequireManifest=false`). Once `CODEFLY_PDP_REQUIRE_MANIFEST=true`
-is flipped, plugins without permissions blocks deny ALL actions.
-Add your `permissions:` block as soon as you can — it's a one-time
-edit that future-proofs the plugin.
+It is not production-admissible. Add explicit sandbox and permission
+declarations matching the runtime catalog; production startup rejects empty or
+drifting manifests before resolving or launching the binary.
 
 ---
 
@@ -652,9 +657,12 @@ edit that future-proofs the plugin.
   stamps the principal on ctx
 - `core/agents/manager/loader.go` — `WithPrincipal` LoadOption
 - `core/toolbox/policyguard/guard.go` — Toolbox→PDP wrapper
+- `core/toolbox/registry/registry.go` — single-source tool definitions
+- `core/toolbox/session/session.go` — supported host lifecycle
+- `core/toolbox/conformance/host/harness.go` — external-host proof
 - `core/toolbox/launch/cmd/network-victim-toolbox/main.go` —
   reference implementation including the `who.am.i` tool that
   reads the principal context
 
-End-to-end tests in `core/toolbox/launch/permission_e2e_test.go`
-prove the wire works.
+End-to-end tests in `core/toolbox/session/session_test.go` prove the full
+two-phase, guarded, sandboxed, correlated, and cleaned-up wire.

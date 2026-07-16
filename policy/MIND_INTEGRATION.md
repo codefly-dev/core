@@ -9,22 +9,61 @@ For plugin authors, see PLUGIN_AUTHORS.md.
 
 ## What a "host" is
 
-A host is any process that calls `manager.Load(...)` to spawn
+A host is any process that opens `session.ToolboxSession` instances to use
 plugins. The host owns:
 
 - **Principal resolution** — figuring out who's making each request
   (user-driven via session JWT, agent-driven via service principal)
 - **Decider construction** — wiring saas-starter's permission RPCs
   into the codefly `policy.Decider` interface
-- **Plugin lifecycle** — spawning, configuring, and tearing down
-  plugins for each user session or job
-- **Outer tool authorization** — wrapping plugins' Toolbox with
-  `policyguard.Guard` so every CallTool routes through the PDP
-- **Inline authorization callback** — exposing a `WithPermissions
-  Callback(decider)` so plugins can call `Authorized()` for
-  sub-operation gating
+- **Session lifecycle** — one process and authority envelope per principal,
+  tenant, and job/session
+- **Outer tool authorization** — supplying the host `policy.Decider`; the
+  supported session API owns guarded launch, catalog/request binding, and
+  single-use authorization minting
+- **Audit sink** — persisting the redacted lifecycle events emitted by the
+  session
 
-## The four interfaces you'll touch
+## Supported host API
+
+External hosts should use `core/toolbox/session`, not compose raw
+`manager.LoadOption` values. `ToolboxSession` validates production admission,
+launches through a private per-spawn UDS directory, discovers identity and
+summaries, describes the selected tool on demand, evaluates host policy, mints
+an authorization bound to the exact descriptor and request digests, invokes,
+audits, and cleans up.
+
+The CLI-independent proof harness is importable from
+`core/toolbox/conformance/host`:
+
+```go
+proof, err := conformancehost.RunIdentityProof(ctx,
+    conformancehost.IdentityProofOptions{
+        Session: session.Options{
+            Manifest:  manifest,
+            Principal: principal,
+            Decider:   decider,
+            Scope: session.Scope{
+                TenantID: tenantID,
+                Environment: environment,
+                ReleaseID: releaseID,
+            },
+        },
+        RequestID: requestID,
+        ObjectiveID: objectiveID,
+        TaskID: taskID,
+    })
+```
+
+The harness and session never expose the scoped token or spawn secret. Audit
+events carry correlation IDs and digests, not raw arguments/results or tenant
+authority.
+
+## Authorization interfaces beneath the session
+
+`ToolboxSession` composes these interfaces. Host implementers normally provide
+only a `Decider` (often backed by `PermissionsBackend`) and an `AuditSink`;
+the remaining wiring is documented here for core maintainers.
 
 ### 1. `policy.PermissionsBackend` — adapt your auth backend
 
@@ -141,9 +180,11 @@ The plugin's outer call routes through the host's permission
 callback by design. The plugin doesn't need to construct a PDP at
 all if it relies on the callback for everything.
 
-### 4. `manager.WithPermissionsCallback(decider)` — the load option
+### 4. `manager.WithPermissionsCallback(decider)` — session internals
 
-This is the one new wire you add when calling `manager.Load`:
+`ToolboxSession` installs this option together with the principal, private UDS,
+per-spawn secret, bound-digest requirement, and strict production admission.
+Core-level tests may compose it directly:
 
 ```go
 import "github.com/codefly-dev/core/agents/manager"
@@ -175,33 +216,39 @@ to "review my open PRs". Mind:
    extracts `principal_id=u-antoine`, `org_id=org-codefly`
 2. Constructs a `policy.Principal{ID: "u-antoine", Kind: KindHuman,
    OrgID: "org-codefly", DisplayName: "antoine@codefly.dev"}`
-3. Spawns the github plugin with that principal:
+3. Opens one Toolbox session with that principal and trusted tenant scope:
 
 ```go
-agent, _ := resources.LoadAgent(...)  // github-bot agent
-
 decider := policy.NewSaasPDP(saasBackend).WithCache(15 * time.Second)
-
-agentConn, err := manager.Load(ctx, agent,
-    manager.WithSandbox(sb),
-    manager.WithPrincipal(antoineAsPrincipal),
-    manager.WithPermissionsCallback(decider),
-)
+toolboxSession, err := session.Open(ctx, session.Options{
+    Manifest: githubManifest,
+    Principal: antoineAsPrincipal,
+    Decider: decider,
+    Scope: session.Scope{
+        TenantID: trustedTenantID,
+        Environment: "production",
+    },
+    Audit: auditSink,
+})
 if err != nil {
-    return fmt.Errorf("load github plugin: %w", err)
+    return fmt.Errorf("open github toolbox: %w", err)
 }
-defer agentConn.Close()
+defer toolboxSession.Close()
 
-// Use the plugin
-client := toolboxv0.NewToolboxClient(agentConn.GRPCConn())
-resp, err := client.CallTool(ctx, &toolboxv0.CallToolRequest{
+result, err := toolboxSession.Call(ctx, session.CallRequest{
     Name: "github.list_prs",
-    Arguments: ...,
+    Arguments: arguments,
+    Resource: "repo:codefly-dev/codefly.dev",
+    RequestID: requestID,
+    ObjectiveID: objectiveID,
+    TaskID: taskID,
 })
 ```
 
 What happens behind the scenes:
 
+- The session lists summaries and describes only `github.list_prs`
+- Host policy approves the exact descriptor/request/resource/scope
 - The plugin's outer `CallTool` arrives at its `agents.Serve` server
 - `principalUnaryInterceptor` extracts the Principal from
   `CODEFLY_PRINCIPAL_TOKEN` env and stamps it on ctx
@@ -213,10 +260,10 @@ What happens behind the scenes:
   for fine-grained per-resource gating — same UDS, same
   decider, same cache
 
-When `agentConn.Close()` runs:
+When `toolboxSession.Close()` runs:
 - gRPC connection closes
 - UDS callback server shuts down
-- Socket file removed from `/tmp`
+- The process exits and its private socket directory is removed
 
 ## Mode switching: shadow → enforce
 
@@ -240,49 +287,14 @@ Production rollout (M5 in the master plan):
    rollback ready: `CODEFLY_PDP_MODE=shadow` on the same env
    reverts in seconds (no code redeploy needed).
 
-## Multi-tenant: scope per request
+## Multi-tenant rule: one authority envelope per session
 
-If your host serves multiple users with different principals, you
-have two patterns:
-
-### Pattern A: one plugin spawn per user session
-
-Spawn a fresh plugin process per user. Each spawn has its own
-principal binding via `WithPrincipal`. Plugin lifecycle = session
-lifecycle. Simple but heavyweight.
-
-```go
-// Per session:
-agentConn := manager.Load(ctx, agent,
-    manager.WithPrincipal(sessionUser),
-    manager.WithPermissionsCallback(decider))
-defer agentConn.Close()
-```
-
-### Pattern B: one plugin spawn, principal per request
-
-Spawn the plugin once. Pass per-request principal via gRPC
-metadata header `x-codefly-principal` (overrides the spawn-time
-binding for that call only).
-
-```go
-// Per request:
-md := metadata.Pairs(
-    "x-codefly-principal", policy.MustEncodeToken(requestUser),
-)
-ctx = metadata.NewOutgoingContext(ctx, md)
-client.CallTool(ctx, ...)
-```
-
-The plugin's interceptor uses the per-call header, falling back
-to env if absent.
-
-**Caveat:** the host's permission callback uses the SPAWN-TIME
-principal as the trusted subject for `Authorized()` checks. If
-you swap principals per-request, inline `Authorized()` calls
-will check against the wrong principal. Pattern A is safer when
-plugins use inline `Authorized()`; Pattern B is fine when only
-the outer Guard is in play.
+A Toolbox process is bound to exactly one principal and trusted session scope.
+Open a separate `ToolboxSession` when the principal, organization, tenant, or
+environment changes. The `x-codefly-principal` metadata key is reserved and any
+attempt to replace spawn authority per call is rejected as `Unauthenticated`.
+This keeps outer authorization, inline `Authorized()` callbacks, replay state,
+trace context, and audit attribution on the same identity.
 
 ## Audit story
 
@@ -316,6 +328,12 @@ func (a AuditingPDP) Evaluate(ctx context.Context, req *policy.PDPRequest) polic
 ```
 
 ## Two-level model: gateway pre-evaluation + scoped tokens
+
+This section explains the machinery owned by `ToolboxSession`; it is not a
+second supported host integration path. Manually copying only part of the
+example will fail strict verification because production tokens must bind the
+principal/organization, audience, selected descriptor digest, exact request
+digest, resource, scope caveats, expiry, and one-use budget.
 
 For defense-in-depth + the performance win, wire the gateway-layer
 evaluator. Two new pieces:
@@ -414,7 +432,7 @@ evaluator := &policy.GatewayEvaluator{
 
 Core has no dependency on Cedar/OPA. You bring the engine.
 
-### 2. Pass the same secret to the spawned plugin
+### 2. Pass the same secret to the spawned plugin (session internals)
 
 ```go
 agentConn, err := manager.Load(ctx, agent,
@@ -430,7 +448,7 @@ agentConn, err := manager.Load(ctx, agent,
 Guard picks it up automatically and uses it to verify incoming
 tokens.
 
-### 3. Mint + attach token per outgoing call
+### 3. Mint + attach token per outgoing call (session internals)
 
 ```go
 result, err := evaluator.EvaluateAndMint(ctx, policy.EvaluationInput{
@@ -438,6 +456,9 @@ result, err := evaluator.EvaluateAndMint(ctx, policy.EvaluationInput{
     Toolbox:   "codefly.dev/github-bot:0.1.0",
     Tool:      "github.merge_pr",
     Resource:  "repo:codefly-dev/codefly.dev",
+    CatalogDigest: approvedTool.Digest,
+    RequestDigest: requestDigest,
+    Caveats: wellKnownCaveats,
     Context:   contextForCaveats,
 })
 if err != nil {
@@ -467,12 +488,12 @@ runs with the verified `ScopedAuthorization` stamped on `ctx`.
   time-of-day) into tokens; verifier rejects if conditions
   changed by call time.
 
-### What if you don't deploy the gateway layer
+### Local low-level mode
 
-Skip `WithScopedAuthSecret` and the GatewayEvaluator. Plugin's
-Guard falls back to the PDP-via-callback path on every call —
-the single-level model. **Zero code changes to plugins.** The
-two-level model is purely additive.
+Low-level local tests may omit scoped authorization and exercise the callback
+PDP path directly. This is not production admission: a production
+`ToolboxSession` always requires the principal, callback, enforcing sandbox,
+per-spawn secret, catalog/request binding, and guarded token path.
 
 See `TWO_LEVEL_AUTHZ.md` in this directory for the full design
 rationale, security analysis, and threat model.
@@ -539,7 +560,11 @@ from existing core types.
 
 ## Testing your host wiring
 
-Use `policy.NewFakeBackend` for unit tests:
+Use the conformance fixture plus the CLI-independent host harness for the
+supported integration path. Backend adapter unit tests may use the policy test
+harness, but V3/V4 host qualification must launch the real fixture process.
+
+Example backend unit setup:
 
 ```go
 backend := policy.NewFakeBackend(false /* default deny */).
@@ -552,10 +577,9 @@ decider := policy.NewSaasPDP(backend)
 // principal fails.
 ```
 
-End-to-end smoke test pattern: see
-`core/toolbox/launch/permission_e2e_test.go` for examples
-that spawn a real plugin under sandbox + with a callback wired
-to a fake decider.
+End-to-end examples live in `core/toolbox/session/session_test.go`; they cover
+production sandbox admission, allow/deny, expiry, wrong scope, timeout,
+cancellation, process loss, concurrency, redaction, and cleanup.
 
 ## Where the code lives
 
@@ -566,6 +590,8 @@ to a fake decider.
 | `PermissionsCallbackServer` (host UDS server) | `core/policy/callback.go` |
 | `callbackAuthorizer` (plugin UDS client) | `core/policy/callback.go` |
 | `WithPermissionsCallback` LoadOption | `core/agents/manager/loader.go` |
+| Supported external-host lifecycle | `core/toolbox/session/session.go` |
+| CLI-independent conformance harness | `core/toolbox/conformance/host/harness.go` |
 | Plugin-side principal + authorizer ctx stamping | `core/agents/principal_interceptor.go` |
 | `BuildPDP` (Shadow/Ceiling/Inner composition) | `core/policy/pdp_mode.go` |
 | Reference plugin (Authorized example) | `core/toolbox/launch/cmd/network-victim-toolbox/main.go` |
@@ -581,7 +607,3 @@ to a fake decider.
   saas-starter's `delegation_grants` table. Not in core yet.
 - **M9 audit UI** — saas-starter's audit_events query interface.
   Independent of core; needs Mind/saas-starter UI work.
-- **Per-call principal swap** (Pattern B above) — supported by the
-  interceptor's header-fallback logic, but testing the full path
-  with the callback's spawn-time-principal-override is a known
-  gap.

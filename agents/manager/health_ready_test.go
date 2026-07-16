@@ -9,18 +9,16 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestHealthResponseReadyOnlyAllowsServingOrLegacyUnimplemented(t *testing.T) {
+func TestHealthResponseReadyOnlyAllowsServing(t *testing.T) {
 	ctx := context.Background()
 	if !healthResponseReady(ctx, &healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING}, nil) {
 		t.Fatal("SERVING response was rejected")
 	}
-	if !healthResponseReady(ctx, nil, status.Error(codes.Unimplemented, "legacy agent")) {
-		t.Fatal("legacy unimplemented health endpoint was rejected")
-	}
 	for name, err := range map[string]error{
-		"unavailable": status.Error(codes.Unavailable, "connection lost"),
-		"deadline":    status.Error(codes.DeadlineExceeded, "timeout"),
-		"unknown":     status.Error(codes.Unknown, "server failed"),
+		"unimplemented": status.Error(codes.Unimplemented, "health service required"),
+		"unavailable":   status.Error(codes.Unavailable, "connection lost"),
+		"deadline":      status.Error(codes.DeadlineExceeded, "timeout"),
+		"unknown":       status.Error(codes.Unknown, "server failed"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if healthResponseReady(ctx, nil, err) {

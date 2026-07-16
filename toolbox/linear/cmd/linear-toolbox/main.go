@@ -16,9 +16,7 @@ import (
 
 func main() {
 	version := envOrDefault("CODEFLY_TOOLBOX_VERSION", "0.0.0-dev")
-	agents.Serve(agents.PluginRegistration{
-		Toolbox: linear.New(os.Getenv("LINEAR_API_KEY"), version),
-	})
+	agents.ServeToolbox(linear.New(os.Getenv("LINEAR_API_KEY"), version))
 }
 
 func envOrDefault(key, def string) string {

@@ -81,9 +81,14 @@ func TestBase_DescribeTool_UnknownTool_ReturnsInBandError(t *testing.T) {
 
 func TestBase_CallTool_DispatchesToHandler(t *testing.T) {
 	var captured *toolboxv0.CallToolRequest
+	schema, err := structpb.NewStruct(map[string]any{
+		"type": "object", "properties": map[string]any{"k": map[string]any{"type": "string"}},
+		"additionalProperties": false,
+	})
+	require.NoError(t, err)
 	f := newFake([]*registry.ToolDefinition{
 		{
-			Name: "x.do",
+			Name: "x.do", InputSchema: schema,
 			Handler: func(_ context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
 				captured = req
 				return &toolboxv0.CallToolResponse{}
@@ -176,11 +181,7 @@ func TestBase_CallTool_ValidatesAgainstInputSchema(t *testing.T) {
 	})
 }
 
-// TestBase_CallTool_NoSchema_PassesThrough confirms backward compat:
-// tools without an InputSchema still dispatch (skipping validation).
-// Production toolboxes should always declare a schema, but legacy
-// or test ones without one shouldn't break.
-func TestBase_CallTool_NoSchema_PassesThrough(t *testing.T) {
+func TestBase_CallTool_NoSchemaFailsClosed(t *testing.T) {
 	handlerCalled := false
 	f := newFake([]*registry.ToolDefinition{
 		{
@@ -199,8 +200,8 @@ func TestBase_CallTool_NoSchema_PassesThrough(t *testing.T) {
 		Arguments: args,
 	})
 	require.NoError(t, err)
-	require.Empty(t, resp.Error)
-	require.True(t, handlerCalled)
+	require.Contains(t, resp.Error, "input schema is required")
+	require.False(t, handlerCalled)
 }
 
 func TestBase_CallTool_NilHandler_SurfacesPluginBug(t *testing.T) {

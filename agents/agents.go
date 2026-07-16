@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -32,8 +31,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ProtocolVersion is used for future-proofing the stdout handshake.
-const ProtocolVersion = 1
+// ProtocolVersion is the strict stdout handshake contract. Version 2 removes
+// the ambiguous numeric-port endpoint used by pre-UDS agents.
+const ProtocolVersion = 2
 
 // agentShutdownHardDeadline bounds how long the agent may take to exit AFTER a
 // shutdown signal before it force-exits itself. Larger than the graceful budget
@@ -116,12 +116,8 @@ type PluginRegistration struct {
 // case-insensitive but the wire form is lowercase.
 const AuthMetadataKey = "x-codefly-token"
 
-// authUnaryInterceptor verifies the per-spawn token on every unary
-// gRPC call. When expectedToken is empty (legacy callers that don't
-// set CODEFLY_AGENT_TOKEN), it accepts everything — preserves
-// backward compat. When set, requests without a matching bearer in
-// the metadata get rejected with Unauthenticated before the handler
-// is reached.
+// authUnaryInterceptor verifies the per-spawn token on every unary gRPC call.
+// An empty expected token is a server misconfiguration and fails closed.
 //
 // The health-check service is exempt: the host's readiness probe
 // uses grpc.health.v1.Health/Check which fires BEFORE the host has
@@ -130,11 +126,11 @@ const AuthMetadataKey = "x-codefly-token"
 // is safe — it returns only SERVING/NOT_SERVING, no privileged data.
 func authUnaryInterceptor(expectedToken string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if expectedToken == "" {
-			return handler(ctx, req)
-		}
 		if isHealthMethod(info.FullMethod) {
 			return handler(ctx, req)
+		}
+		if expectedToken == "" {
+			return nil, status.Error(codes.Unauthenticated, "agent auth token is not configured")
 		}
 		if err := verifyAuthToken(ctx, expectedToken); err != nil {
 			return nil, err
@@ -147,11 +143,11 @@ func authUnaryInterceptor(expectedToken string) grpc.UnaryServerInterceptor {
 // RPCs. Same exemption for health checks.
 func authStreamInterceptor(expectedToken string) grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		if expectedToken == "" {
-			return handler(srv, ss)
-		}
 		if isHealthMethod(info.FullMethod) {
 			return handler(srv, ss)
+		}
+		if expectedToken == "" {
+			return status.Error(codes.Unauthenticated, "agent auth token is not configured")
 		}
 		if err := verifyAuthToken(ss.Context(), expectedToken); err != nil {
 			return err
@@ -209,8 +205,8 @@ func panicRecoveryInterceptor() grpc.UnaryServerInterceptor {
 				if idx := strings.LastIndex(method, "/"); idx >= 0 {
 					method = method[idx+1:]
 				}
-				fmt.Fprintf(os.Stderr, "[agent] %s PANIC: %v\n%s\n", method, r, debug.Stack())
-				err = status.Errorf(codes.Internal, "agent panicked in %s: %v", method, r)
+				fmt.Fprintf(os.Stderr, "[agent] %s PANIC (value redacted)\n%s\n", method, debug.Stack())
+				err = status.Errorf(codes.Internal, "agent panicked in %s", method)
 			}
 		}()
 		return handler(ctx, req)
@@ -343,15 +339,12 @@ func ResetRPCStats() {
 //     filesystem-permission–based access control. Removes the socket
 //     file on graceful shutdown; the host removes stale files before
 //     respawn after crashes.
-//   - CODEFLY_AGENT_BIND_ADDR=<host> — TCP fallback bind host (port
-//     stays :0). Set when CLI and plugin run in different network
-//     namespaces (Docker on Linux without host networking, sidecar
-//     deploys). Implies "0.0.0.0" pairs with TLS + auth — both TODO.
-//   - Neither set: TCP on 127.0.0.1:0 (random loopback port).
+//   - No UDS path: TCP on 127.0.0.1:0 (random loopback port), represented as
+//     an explicit dns:/// endpoint. Remote agent transport requires a separate
+//     authenticated/TLS protocol; Serve never opens an ambient 0.0.0.0 socket.
 //
 // Handshake on stdout: "<ProtocolVersion>|<endpoint>" where endpoint
-// is either a numeric port (TCP) or "unix:<path>" (UDS). Both forms
-// are accepted by the host loader.
+// is either an explicit dns:/// loopback target or "unix:<path>" (UDS).
 func Serve(reg PluginRegistration) {
 	udsPath := os.Getenv("CODEFLY_AGENT_UDS_PATH")
 	var (
@@ -374,18 +367,13 @@ func Serve(reg PluginRegistration) {
 		endpoint = "unix:" + udsPath
 		defer func() { _ = os.Remove(udsPath) }()
 	} else {
-		bindHost := os.Getenv("CODEFLY_AGENT_BIND_ADDR")
-		if bindHost == "" {
-			bindHost = "127.0.0.1"
-		}
+		bindHost := "127.0.0.1"
 		lis, err = net.Listen("tcp", bindHost+":0")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "agents.Serve: cannot listen on %s:0: %v\n", bindHost, err)
 			os.Exit(1)
 		}
-		// Numeric port — preserves the legacy handshake shape so old
-		// hosts dialing newly-built plugins still work.
-		endpoint = strconv.Itoa(lis.Addr().(*net.TCPAddr).Port)
+		endpoint = fmt.Sprintf("dns:///%s:%d", bindHost, lis.Addr().(*net.TCPAddr).Port)
 	}
 
 	// Per-spawn auth token. The host generates a random token and
@@ -397,11 +385,11 @@ func Serve(reg PluginRegistration) {
 	// belt-and-braces there. TCP loopback has nothing else, so this
 	// is load-bearing on that path.
 	//
-	// When CODEFLY_AGENT_TOKEN is unset (legacy callers), we accept
-	// every request — backward compatible, but the host's audit log
-	// already warns if no sandbox choice was made. A future Phase 2
-	// requires the token unconditionally.
 	expectedToken := os.Getenv("CODEFLY_AGENT_TOKEN")
+	if strings.TrimSpace(expectedToken) == "" {
+		fmt.Fprintln(os.Stderr, "agents.Serve: CODEFLY_AGENT_TOKEN is required; launch agents through manager.Load")
+		os.Exit(1)
+	}
 
 	// A handler panic should be a clean RPC error the host can SEE, never a
 	// process crash or a silently-swallowed log line. Catch re-raises (instead
@@ -452,15 +440,14 @@ func Serve(reg PluginRegistration) {
 		// decision. Pass-through for non-side-effecting RPCs
 		// (Identity/ListTools/etc.) — see Guard documentation.
 		//
-		// PDP=nil ⇒ no Guard, legacy passthrough. CODEFLY_PDP_MODE
+		// PDP=nil selects the explicit local raw-server path. CODEFLY_PDP_MODE
 		// gates this:
 		//   - enforce: a nil PDP with a registered Toolbox is a
 		//     misconfiguration and we exit(1) at startup. Operators
 		//     have explicitly opted into fail-closed authorization.
 		//   - shadow: warn loudly so the rollout state is visible
-		//     in logs but proceed (legacy passthrough).
-		//   - off / unset: silent (the historical default during
-		//     the M3 shadow window).
+		//     in logs but proceed.
+		//   - off / unset: explicit local policy-off mode.
 		if reg.PDP == nil {
 			mode, modeErr := policy.ResolvePDPMode()
 			switch {
@@ -503,9 +490,8 @@ func Serve(reg PluginRegistration) {
 	healthpb.RegisterHealthServer(s, healthSrv)
 
 	// Signal the endpoint to the parent (CLI) using the handshake
-	// protocol: "VERSION|<endpoint>\n". Endpoint is a numeric TCP
-	// port (legacy shape) or "unix:<path>" (UDS). The host loader
-	// distinguishes by prefix.
+	// protocol: "VERSION|<endpoint>\n". Endpoint is an explicit
+	// dns:/// loopback target or "unix:<path>" (UDS).
 	fmt.Fprintf(os.Stdout, "%d|%s\n", ProtocolVersion, endpoint)
 
 	// Graceful shutdown on SIGTERM/SIGINT.
@@ -566,5 +552,28 @@ func Serve(reg PluginRegistration) {
 // ServeToolbox is the one-capability startup path for toolbox plugins.
 // Service plugins should continue to use Serve with PluginRegistration.
 func ServeToolbox(server toolboxv0.ToolboxServer) {
-	Serve(PluginRegistration{Toolbox: server})
+	Serve(toolboxRegistration(server))
+}
+
+// toolboxRegistration is the secure composition shared by every standalone
+// toolbox. A host that supplied scoped authorization or a permissions callback
+// gets a callback-backed Guard automatically; an enforce-mode process without
+// that wiring reaches Serve with PDP=nil and is rejected at startup. With no
+// security env, local development mode keeps the raw server explicit.
+func toolboxRegistration(server toolboxv0.ToolboxServer) PluginRegistration {
+	hasCallback := os.Getenv(policy.EnvPermissionsSocket) != ""
+	hasScopedAuth := os.Getenv("CODEFLY_SCOPED_AUTHZ_SECRET") != ""
+	if !hasCallback && !hasScopedAuth {
+		return PluginRegistration{Toolbox: server}
+	}
+
+	audience := os.Getenv("CODEFLY_TOOLBOX_AUDIENCE")
+	if audience == "" {
+		audience = os.Getenv("CODEFLY_TOOLBOX_NAME")
+	}
+	return PluginRegistration{
+		Toolbox:        server,
+		PDP:            policy.NewCallbackPDPFromEnv(),
+		PDPToolboxName: audience,
+	}
 }

@@ -44,6 +44,11 @@ var (
 	// listening on the announced port but isn't accepting connections —
 	// usually a server misconfiguration or a TLS mismatch.
 	ErrAgentDialTimeout = errors.New("agent: gRPC dial timeout")
+
+	// ErrAgentAdmission is returned before binary resolution when a caller omits
+	// an explicit sandbox/principal choice or production admission lacks its
+	// enforcing sandbox, principal, PDP callback, or scoped secret.
+	ErrAgentAdmission = errors.New("agent: admission denied")
 )
 
 // Sentinels for the AgentStore implementations.

@@ -64,9 +64,10 @@ type Toolbox struct {
 
 	// Sandbox declares the OS-level confinement this toolbox's
 	// processes run under. Translated to a sandbox.Sandbox at
-	// runtime via policy.SandboxPolicy.Apply. Empty/missing block
-	// means "deny network, no writes outside cwd" defaults — secure
-	// by default.
+	// runtime via policy.SandboxPolicy.Apply. In local compatibility
+	// mode, an empty/missing block preserves the historical unconfined
+	// launch behavior. Production admission rejects an empty block and
+	// also requires an enforcing OS backend.
 	Sandbox policy.SandboxPolicy `yaml:"sandbox,omitempty"`
 
 	// CanonicalFor lists binaries this toolbox claims as the canonical
@@ -173,6 +174,45 @@ func (t *Toolbox) Validate() error {
 			return fmt.Errorf("toolbox.canonical_for[%d] = %q: duplicates an earlier entry", i, b)
 		}
 		seen[b] = struct{}{}
+	}
+	return nil
+}
+
+// ValidateForProduction applies the admission rules required before a toolbox
+// may inherit production data or credentials. Validate remains the structural
+// parser boundary used by local development and manifest tooling; this method
+// deliberately adds the capacity and authority declarations that production
+// cannot safely infer.
+func (t *Toolbox) ValidateForProduction() error {
+	if err := t.Validate(); err != nil {
+		return err
+	}
+	if t.Sandbox.IsEmpty() {
+		return fmt.Errorf("toolbox.sandbox: production admission requires an explicit capacity policy")
+	}
+	if t.Permissions.IsEmpty() {
+		return fmt.Errorf("toolbox.permissions: production admission requires at least one declared permission")
+	}
+	return nil
+}
+
+// ValidateToolCatalog verifies that every tool advertised by the running
+// plugin is covered by the reviewed manifest permission ceiling. It belongs at
+// the discovery/startup boundary: a binary/manifest mismatch must be rejected
+// before the host authorizes its first invocation.
+func (t *Toolbox) ValidateToolCatalog(toolNames ...string) error {
+	seen := make(map[string]struct{}, len(toolNames))
+	for i, name := range toolNames {
+		if name == "" {
+			return fmt.Errorf("toolbox catalog[%d]: empty tool name", i)
+		}
+		if _, ok := seen[name]; ok {
+			return fmt.Errorf("toolbox catalog[%d]: duplicate tool %q", i, name)
+		}
+		seen[name] = struct{}{}
+		if !t.Permissions.DeclaresAction(name) {
+			return fmt.Errorf("toolbox catalog[%d]: tool %q is not declared by toolbox.permissions", i, name)
+		}
 	}
 	return nil
 }

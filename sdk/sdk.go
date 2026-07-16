@@ -164,7 +164,10 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 	// need ambient authority to bind ports, mount volumes, and
 	// access the user's docker socket. Per-agent sandbox profiles
 	// are the right long-term fix; this opt-out is the audit marker.
-	agentConn, err := manager.Load(ctx, agent, manager.WithoutSandbox())
+	agentConn, err := manager.Load(ctx, agent,
+		manager.WithoutSandbox(),
+		manager.WithoutPrincipal(),
+	)
 	if err != nil {
 		return fmt.Errorf("load agent %s: %w", agentName, err)
 	}

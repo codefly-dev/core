@@ -230,3 +230,48 @@ canonical_for:
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "canonical_for")
 }
+
+func productionToolbox() *resources.Toolbox {
+	return &resources.Toolbox{
+		Name:    "fixture",
+		Version: "0.0.1",
+		Agent: &resources.Agent{
+			Kind: resources.ToolboxAgent, Name: "fixture", Publisher: "codefly.dev", Version: "0.0.1",
+		},
+		Sandbox: policy.SandboxPolicy{Network: policy.NetworkLoopback},
+		Permissions: policy.PermissionPolicy{Required: []policy.PermissionDeclaration{{
+			Action: "fixture.identity.describe", Reason: "Return deterministic fixture identity.",
+		}}},
+	}
+}
+
+func TestToolbox_ValidateForProduction_RequiresCapacityAndAuthority(t *testing.T) {
+	tb := productionToolbox()
+	require.NoError(t, tb.ValidateForProduction())
+
+	tb.Sandbox = policy.SandboxPolicy{}
+	err := tb.ValidateForProduction()
+	require.ErrorContains(t, err, "explicit capacity policy")
+
+	tb = productionToolbox()
+	tb.Permissions = policy.PermissionPolicy{}
+	err = tb.ValidateForProduction()
+	require.ErrorContains(t, err, "at least one declared permission")
+}
+
+func TestToolbox_ValidateToolCatalog_RejectsManifestBinaryDrift(t *testing.T) {
+	tb := productionToolbox()
+	require.NoError(t, tb.ValidateToolCatalog("fixture.identity.describe"))
+
+	err := tb.ValidateToolCatalog("fixture.identity.describe", "fixture.effect.denied")
+	require.ErrorContains(t, err, "fixture.effect.denied")
+	require.ErrorContains(t, err, "not declared")
+}
+
+func TestToolbox_ValidateToolCatalog_RejectsMalformedCatalog(t *testing.T) {
+	tb := productionToolbox()
+	require.ErrorContains(t, tb.ValidateToolCatalog(""), "empty tool name")
+	require.ErrorContains(t,
+		tb.ValidateToolCatalog("fixture.identity.describe", "fixture.identity.describe"),
+		"duplicate tool")
+}

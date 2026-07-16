@@ -26,15 +26,14 @@ import (
 	"github.com/codefly-dev/core/resources"
 	runnersbase "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/runners/sandbox"
+	coretoolbox "github.com/codefly-dev/core/toolbox"
 	"github.com/codefly-dev/core/wool"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/status"
 )
 
 // DefaultStartupTimeout is how long Load waits for the agent to print
@@ -65,6 +64,12 @@ type AgentConn struct {
 	cmd  *exec.Cmd
 	info *ProcessInfo
 
+	// runtimeDir is the private per-spawn directory containing the agent's
+	// Unix socket. It is removed after the child exits (including crashes) and
+	// on every failed-load path. Keeping one directory per process prevents a
+	// sandboxed plugin from discovering sibling plugin sockets.
+	runtimeDir string
+
 	// stderrBuf holds the last stderrCapacity bytes of the agent's
 	// stderr output for inclusion in error messages.
 	stderrBuf *ringBuffer
@@ -82,8 +87,9 @@ type AgentConn struct {
 	// alongside the gRPC connection so the UDS file is removed.
 	permissionsCallback *policy.PermissionsCallbackServer
 
-	closeOnce      sync.Once
-	activeIdentity string
+	closeOnce             sync.Once
+	runtimeDirCleanupOnce sync.Once
+	activeIdentity        string
 }
 
 // GRPCConn returns the shared gRPC connection to the agent.
@@ -119,6 +125,7 @@ func (c *AgentConn) Close() {
 
 func (c *AgentConn) close() {
 	unregisterActive(c)
+	defer c.cleanupRuntimeDir()
 	// Close the log-forwarding pipe last (after the process has exited and
 	// stopped writing stderr, below) so its ForwardLogs goroutine unblocks
 	// on EOF without racing an in-flight copy.
@@ -172,6 +179,14 @@ func (c *AgentConn) close() {
 		<-c.done
 		w.Info(fmt.Sprintf("agent killed after %s", time.Since(startedAt).Round(time.Millisecond)))
 	}
+}
+
+func (c *AgentConn) cleanupRuntimeDir() {
+	c.runtimeDirCleanupOnce.Do(func() {
+		if c.runtimeDir != "" {
+			_ = os.RemoveAll(c.runtimeDir)
+		}
+	})
 }
 
 // closeLogWriter closes the WithLogWriter sink if it is an io.Closer.
@@ -234,15 +249,6 @@ func unregisterActive(conn *AgentConn) {
 	}
 }
 
-// sandboxWarnOnce / principalWarnOnce gate the audit-of-defaults security
-// warnings to a single emission per process. Each warning is identical
-// regardless of which agent triggered it, so emitting one per Load floods a
-// multi-service run; once is enough to surface the missing explicit choice (#19).
-var (
-	sandboxWarnOnce   sync.Once
-	principalWarnOnce sync.Once
-)
-
 // Cleanup kills an agent process by its unique key and removes it from
 // the active map.
 func Cleanup(unique string) {
@@ -293,15 +299,11 @@ type loadConfig struct {
 	// principal is the authority context the spawned plugin runs
 	// under. When non-nil, the plugin's tool calls are PDP-gated
 	// against this principal's permissions. nil means "no principal
-	// binding" — plugin runs with no authority claim, falling back
-	// to the codefly-host process's own scope (legacy behavior).
+	// binding" — plugin runs with no authority claim.
 	principal *policy.Principal
 
-	// principalChoiceMade mirrors sandboxChoiceMade: WithPrincipal
-	// or WithoutPrincipal flip this true. Calls to Load that DON'T
-	// pick get a stderr security warning. Phase 2 will hard-fail on
-	// missing choice. Same audit-of-defaults pattern as the sandbox
-	// surface — every callsite makes an explicit, greppable choice.
+	// principalChoiceMade mirrors sandboxChoiceMade: WithPrincipal or
+	// WithoutPrincipal flip this true. Load rejects an omitted choice.
 	principalChoiceMade bool
 
 	// permissionsCallback is the host's Decider for plugin-side
@@ -331,13 +333,14 @@ type loadConfig struct {
 	// is borderline; we refuse rather than silently weaken.
 	scopedAuthSecret []byte
 
-	// sandboxChoiceMade is set by WithSandbox or WithoutSandbox.
-	// When false (no explicit choice), Load logs a warning to stderr
-	// pointing at the security review. Phase 2 (post-CLI migration)
-	// flips this to fail-loud — every callsite must make an explicit
-	// security decision rather than inheriting silent ambient
-	// authority.
+	// sandboxChoiceMade is set by WithSandbox or WithoutSandbox. Load rejects
+	// an omitted choice so ambient process authority is never inherited by
+	// accident.
 	sandboxChoiceMade bool
+
+	// productionAdmission adds the complete production security envelope on top
+	// of the mandatory explicit sandbox/principal choices.
+	productionAdmission bool
 }
 
 func defaultLoadConfig() loadConfig {
@@ -398,10 +401,9 @@ func WithEnv(vars ...string) LoadOption {
 //   - Access control is filesystem permissions on the socket file —
 //     a random LAN client can't even speculatively dial.
 //
-// Why this is opt-in (for now): the plugin protocol still emits a
-// numeric TCP port when CODEFLY_AGENT_UDS_PATH isn't set, so old
-// hosts and old plugins keep working. New hosts that want the
-// performance/security wins flip this option on per-spawn.
+// Why this remains opt-in: service agents that supervise local processes can
+// use explicit loopback transport, while security-sensitive Toolbox sessions
+// select a private UDS per spawn.
 //
 // Cleanup: the plugin removes the socket file on graceful shutdown;
 // the host removes any stale path before listening (belt and
@@ -426,11 +428,8 @@ func WithUDS() LoadOption {
 // launch layer translates the policy to a sandbox.Sandbox and
 // passes it here.
 //
-// Counterpart: WithoutSandbox() to make an explicit "skip the
-// sandbox" decision. Calling Load with neither option logs a
-// warning pointing at the security review — Phase 2 will fail
-// loud. Don't rely on the silent-default behavior; every callsite
-// should pick.
+// Counterpart: WithoutSandbox() to make an explicit "skip the sandbox"
+// decision. Load rejects calls that pick neither option.
 func WithSandbox(sb sandbox.Sandbox) LoadOption {
 	return func(c *loadConfig) {
 		c.sandbox = sb
@@ -477,9 +476,8 @@ func WithoutSandbox() LoadOption {
 // from what the binary CAN do at the syscall level.
 //
 // Counterpart: WithoutPrincipal() to make an explicit "no authority
-// binding" choice. Calling Load with neither option logs a security
-// warning pointing at the migration. Greppable in source: every
-// callsite picks; the choice itself is auditable.
+// binding" choice. Load rejects calls that pick neither option. Greppable in
+// source: every callsite picks; the choice itself is auditable.
 //
 // The Principal MUST already be validated and have a non-expired
 // token. Load itself does not re-verify; that's done upstream where
@@ -492,9 +490,8 @@ func WithPrincipal(p *policy.Principal) LoadOption {
 }
 
 // WithoutPrincipal is the explicit "spawn this plugin without a
-// principal binding" choice. Plugin runs sandboxed but without
-// authority claims; tool calls fall back to legacy authorization
-// (or none, depending on the PDP wiring at the toolbox level).
+// principal binding" choice. Plugin runs without authority claims; toolbox
+// policy behavior is still determined by its explicit PDP mode.
 //
 // Use ONLY when:
 //   - The agent is system infrastructure that doesn't act on a
@@ -595,6 +592,45 @@ func WithPermissionsCallback(decider policy.Decider) LoadOption {
 	}
 }
 
+// WithProductionAdmission requires the complete production security envelope
+// before Load resolves or starts the agent binary. The caller must also supply:
+// an enforcing sandbox, a valid non-expired principal, a host-side permissions
+// callback/PDP, and a scoped-authorization secret of at least 32 bytes.
+//
+// This option validates the final composed Load configuration, independent of
+// option order. It is therefore safe for a higher-level launcher to append it
+// after caller-provided options.
+func WithProductionAdmission() LoadOption {
+	return func(c *loadConfig) {
+		c.productionAdmission = true
+	}
+}
+
+func validateProductionAdmission(c *loadConfig) error {
+	if !c.sandboxChoiceMade || c.sandbox == nil {
+		return fmt.Errorf("%w: an explicit enforcing sandbox is required", ErrAgentAdmission)
+	}
+	if c.sandbox.Backend() == sandbox.BackendNative {
+		return fmt.Errorf("%w: sandbox backend %q does not enforce confinement", ErrAgentAdmission, c.sandbox.Backend())
+	}
+	if !c.principalChoiceMade || c.principal == nil {
+		return fmt.Errorf("%w: a principal binding is required", ErrAgentAdmission)
+	}
+	if err := c.principal.Validate(); err != nil {
+		return fmt.Errorf("%w: invalid principal: %v", ErrAgentAdmission, err)
+	}
+	if c.principal.IsExpired() {
+		return fmt.Errorf("%w: principal credential is expired", ErrAgentAdmission)
+	}
+	if c.permissionsCallback == nil {
+		return fmt.Errorf("%w: a host permissions callback/PDP is required", ErrAgentAdmission)
+	}
+	if len(c.scopedAuthSecret) < policy.MinScopedAuthSecretBytes {
+		return fmt.Errorf("%w: scoped-authorization secret must be at least %d bytes", ErrAgentAdmission, policy.MinScopedAuthSecretBytes)
+	}
+	return nil
+}
+
 // Load spawns an agent binary, reads the gRPC port from its stdout,
 // and establishes a gRPC connection. The agent binary is downloaded
 // if not already present.
@@ -612,36 +648,25 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	for _, o := range opts {
 		o(&cfg)
 	}
-	// Process-wide audit warnings: emitted once per process and identical
-	// for every agent, so they must NOT carry the per-agent field — otherwise
-	// whichever agent hits Load first permanently owns the message.
-	warnW := wool.Get(ctx).In("manager.Load")
 	if !cfg.sandboxChoiceMade {
-		// Audit-visible warning: caller didn't pick WithSandbox or
-		// WithoutSandbox, so the plugin runs with parent ambient
-		// authority by accident-of-default. Phase 2 will hard-fail
-		// here. Until every dependent caller is migrated, log loud
-		// and continue. Emitted once per process: the message is
-		// identical for every agent, so a 15-service run printing it
-		// 15× is pure noise (#19).
-		sandboxWarnOnce.Do(func() {
-			warnW.Warn("security: manager.Load missing explicit sandbox choice",
-				wool.Field("default", "native"),
-			)
-		})
+		return nil, fmt.Errorf("%w: manager.Load requires WithSandbox or WithoutSandbox", ErrAgentAdmission)
 	}
 	if !cfg.principalChoiceMade {
-		// Same audit-of-defaults pattern as sandbox: every callsite
-		// MUST pick WithPrincipal or WithoutPrincipal. Until the M3
-		// rollout completes (every caller migrated), log + continue.
-		// Deduped to once per process for the same reason as above.
-		principalWarnOnce.Do(func() {
-			warnW.Warn("security: manager.Load missing explicit principal choice",
-				wool.Field("default", "without authority binding"),
-			)
-		})
+		return nil, fmt.Errorf("%w: manager.Load requires WithPrincipal or WithoutPrincipal", ErrAgentAdmission)
 	}
-
+	if cfg.principal != nil {
+		if err := cfg.principal.Validate(); err != nil {
+			return nil, fmt.Errorf("%w: invalid principal: %v", ErrAgentAdmission, err)
+		}
+		if cfg.principal.IsExpired() {
+			return nil, fmt.Errorf("%w: principal credential is expired", ErrAgentAdmission)
+		}
+	}
+	if cfg.productionAdmission {
+		if err := validateProductionAdmission(&cfg); err != nil {
+			return nil, err
+		}
+	}
 	bin, err := p.Path(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot compute agent path")
@@ -704,22 +729,39 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		// honors the last KEY=VALUE for any duplicate key.
 		cmd.Env = append(cmd.Env, cfg.extraEnv...)
 	}
-	// UDS path setup: pick a unique socket path and pass it to the
+	if cfg.productionAdmission {
+		// Append after caller env so production cannot be downgraded to shadow/off
+		// by an inherited or caller-supplied duplicate value.
+		cmd.Env = append(cmd.Env, policy.EnvPDPMode+"="+string(policy.PDPModeEnforce))
+		cmd.Env = append(cmd.Env, coretoolbox.RequireBoundAuthorizationEnvironment+"=1")
+	}
+	// UDS path setup: create a private per-spawn directory and pass its socket
+	// path to the
 	// plugin via env. Plugin-side: agents.Serve listens on the path
 	// instead of TCP. Host-side: we already accept "unix:<path>" in
-	// the handshake parser. Cleanup on the host is a defensive
-	// pre-Listen Remove on the plugin side; the host doesn't need to
-	// race the plugin to clear stale files.
+	// the handshake parser. The host owns removal of the whole directory on
+	// failed load, process exit, and Close.
 	udsPath := ""
+	udsRuntimeDir := ""
 	if cfg.useUDS && runtime.GOOS != "windows" {
-		// Per-spawn dir keeps paths short (UDS limit is ~104 chars on
-		// macOS) and lets the host clean up the whole dir if needed.
-		dir := filepath.Join(os.TempDir(), "codefly-uds")
-		_ = os.MkdirAll(dir, 0o700)
-		udsPath = filepath.Join(dir, fmt.Sprintf("agent-%d-%d.sock", os.Getpid(), time.Now().UnixNano()))
+		// The owner pid in the prefix lets a later CLI safely sweep directories
+		// left by a crash. MkdirTemp creates the directory with mode 0700.
+		var mkdirErr error
+		udsRuntimeDir, mkdirErr = os.MkdirTemp(os.TempDir(), fmt.Sprintf("codefly-uds-%d-", os.Getpid()))
+		if mkdirErr != nil {
+			return nil, w.Wrapf(mkdirErr, "create private agent socket directory")
+		}
+		udsPath = filepath.Join(udsRuntimeDir, "agent.sock")
 		cmd.Env = append(cmd.Env, "CODEFLY_AGENT_UDS_PATH="+udsPath)
+		if cfg.sandbox != nil {
+			// The Linux sandbox replaces /tmp with a private tmpfs. Bind the
+			// per-spawn directory explicitly so the plugin-created socket remains
+			// visible to the host; the macOS backend needs the same directory as a
+			// file-write and unix-socket exception.
+			aliases := sandboxPathAliases(udsRuntimeDir)
+			cfg.sandbox.WithWritePaths(aliases...).WithUnixSockets(aliases...)
+		}
 	}
-	_ = udsPath // referenced below for diagnostics; kept for future cleanup hook
 
 	// Per-spawn auth token. Random 32 bytes hex-encoded → 64-char
 	// bearer in CODEFLY_AGENT_TOKEN env. Plugin's gRPC server
@@ -765,7 +807,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// short secrets — HMAC strength below 32 bytes is a real
 	// risk we don't silently accept.
 	if len(cfg.scopedAuthSecret) > 0 {
-		if len(cfg.scopedAuthSecret) < 32 {
+		if len(cfg.scopedAuthSecret) < policy.MinScopedAuthSecretBytes {
 			return nil, w.NewError("scoped-auth secret must be >= 32 bytes (got %d)", len(cfg.scopedAuthSecret))
 		}
 		encoded := base64.RawURLEncoding.EncodeToString(cfg.scopedAuthSecret)
@@ -795,6 +837,12 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 			return boundPrincipal
 		})
 		cmd.Env = append(cmd.Env, "CODEFLY_PERMISSIONS_SOCKET="+permsCallback.SocketPath())
+		if cfg.sandbox != nil {
+			// The callback socket is host-created after manifest translation, so
+			// manager owns this narrow control-plane exception rather than forcing
+			// every plugin manifest to predict a per-spawn path.
+			cfg.sandbox.WithUnixSockets(sandboxPathAliases(permsCallback.SocketPath())...)
+		}
 	}
 	// Cleanup discipline: any subsequent error path in Load must close the
 	// callback server so the UDS file and goroutine don't leak. We flip
@@ -807,6 +855,9 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	defer func() {
 		if !loadSucceeded && permsCallback != nil {
 			_ = permsCallback.Close()
+		}
+		if !loadSucceeded && udsRuntimeDir != "" {
+			_ = os.RemoveAll(udsRuntimeDir)
 		}
 	}()
 
@@ -973,6 +1024,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		conn:                conn,
 		cmd:                 cmd,
 		info:                &ProcessInfo{PID: pid},
+		runtimeDir:          udsRuntimeDir,
 		stderrBuf:           stderrBuf,
 		done:                make(chan struct{}),
 		permissionsCallback: permsCallback, // nil when WithPermissionsCallback wasn't passed
@@ -989,6 +1041,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	go func() {
 		defer close(agentConn.done)
 		defer unregisterActive(agentConn)
+		defer agentConn.cleanupRuntimeDir()
 		waitErr := cmd.Wait()
 		// cmd.Wait has returned, so exec's stderr copier is done and no
 		// more writes reach logWriter — safe to close it now. This unblocks
@@ -1018,6 +1071,19 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	return agentConn, nil
 }
 
+// sandboxPathAliases returns both the caller-visible path and its symlink-
+// resolved form. macOS reports sandbox operations against canonical
+// /private/var/... paths even when os.TempDir returned /var/..., so granting
+// only the latter leaves a seemingly-correct UDS exception ineffective.
+func sandboxPathAliases(path string) []string {
+	aliases := []string{path}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil && resolved != "" && resolved != path {
+		aliases = append(aliases, resolved)
+	}
+	return aliases
+}
+
 // waitForReady blocks until conn reaches connectivity.Ready AND the
 // agent's grpc.health.v1 endpoint reports SERVING, or ctx expires.
 //
@@ -1045,10 +1111,7 @@ func waitForReady(ctx context.Context, conn *grpc.ClientConn) bool {
 
 func healthResponseReady(ctx context.Context, resp *healthpb.HealthCheckResponse, err error) bool {
 	if err != nil {
-		// Compatibility is limited to the precise signal that the older agent
-		// does not implement grpc.health.v1. Transport failures, crashes, and
-		// deadline errors must not be promoted to readiness.
-		return ctx.Err() == nil && status.Code(err) == codes.Unimplemented
+		return false
 	}
 	return resp != nil && resp.GetStatus() == healthpb.HealthCheckResponse_SERVING
 }
@@ -1125,13 +1188,9 @@ var errAgentVersionMismatch = errors.New("agent protocol version mismatch")
 // parseAgentHandshake parses a "VERSION|<endpoint>" line emitted by
 // agents.Serve and returns the gRPC dial address.
 //
-// Endpoint forms:
-//   - numeric port (legacy TCP):    "54321"        → "127.0.0.1:54321"
-//   - UDS URI (preferred):          "unix:/path"   → "unix:/path" (verbatim;
-//     grpc.NewClient resolves)
-//
-// Both forms are accepted so a new host can dial both old (TCP-only)
-// plugins and new (UDS-capable) plugins.
+// Endpoint forms are explicit: unix:/absolute/path or
+// dns:///127.0.0.1:<port>. Remote TCP is intentionally not part of this local
+// process protocol.
 func parseAgentHandshake(line string) (addr string, err error) {
 	parts := strings.SplitN(line, "|", 2)
 	if len(parts) != 2 {
@@ -1144,14 +1203,21 @@ func parseAgentHandshake(line string) (addr string, err error) {
 	}
 	endpoint := parts[1]
 	if strings.HasPrefix(endpoint, "unix:") {
-		// gRPC's unix resolver accepts the URI verbatim.
+		path := strings.TrimPrefix(endpoint, "unix:")
+		if !filepath.IsAbs(path) {
+			return "", fmt.Errorf("invalid agent endpoint: unix socket path must be absolute")
+		}
 		return endpoint, nil
 	}
-	port, perr := strconv.Atoi(endpoint)
-	if perr != nil || port <= 0 || port > 65535 {
-		return "", fmt.Errorf("invalid agent endpoint: %q (expected numeric port or unix:<path>)", endpoint)
+	const loopbackPrefix = "dns:///127.0.0.1:"
+	if !strings.HasPrefix(endpoint, loopbackPrefix) {
+		return "", fmt.Errorf("invalid agent endpoint: %q (expected unix:/absolute/path or dns:///127.0.0.1:<port>)", endpoint)
 	}
-	return fmt.Sprintf("127.0.0.1:%d", port), nil
+	port, perr := strconv.Atoi(strings.TrimPrefix(endpoint, loopbackPrefix))
+	if perr != nil || port <= 0 || port > 65535 {
+		return "", fmt.Errorf("invalid agent loopback port in endpoint %q", endpoint)
+	}
+	return endpoint, nil
 }
 
 // mintAgentToken returns 32 random bytes hex-encoded. 256 bits of

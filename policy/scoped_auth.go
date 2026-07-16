@@ -86,6 +86,11 @@ type ScopedAuthorization struct {
 	// tests; production tokens always set this.
 	AudienceID string `json:"audience,omitempty"`
 
+	// CatalogDigest binds the token to the exact discovery snapshot approved
+	// by the host. RequestDigest binds it to the exact CallTool protobuf.
+	CatalogDigest string `json:"catalog_digest,omitempty"`
+	RequestDigest string `json:"request_digest,omitempty"`
+
 	// Caveats carry per-tool conditions the verifier checks. The
 	// keys are well-known names (ci_status, labels, body_hash,
 	// ip_range, ...) plus operator-defined extensions. The
@@ -97,10 +102,10 @@ type ScopedAuthorization struct {
 // scopedAuthFormat is the only currently-recognized format tag.
 const scopedAuthFormat = "v1-hmac"
 
-// scopedAuthClockSkew is the tolerance applied to ExpiresAt at
-// verify time. Tokens up to this much past expiry are STILL
-// rejected; tokens issued in the future by up to this skew ARE
-// accepted (for clock-drift tolerance between gateway and plugin).
+// scopedAuthClockSkew is the tolerance applied to token timestamps at verify
+// time. A verifier may accept a token for this long after the issuer's expiry
+// timestamp to tolerate host/plugin clock drift. Replay state must therefore be
+// retained through the same window.
 const scopedAuthClockSkew = 30 * time.Second
 
 // ErrScopedAuthInvalid is the umbrella error for verification
@@ -113,6 +118,11 @@ var ErrScopedAuthInvalid = errors.New("scoped-authz: invalid")
 // token is OTHERWISE valid — only repeat-use exceeded.
 var ErrScopedAuthExhausted = errors.New("scoped-authz: max uses exhausted")
 
+// MinScopedAuthSecretBytes is the minimum HMAC key size accepted by minting,
+// verification, and production agent admission. Keep the boundary centralized
+// so hosts cannot accidentally enforce a weaker requirement than plugins.
+const MinScopedAuthSecretBytes = 32
+
 // =====================================================================
 // Mint (gateway-side)
 // =====================================================================
@@ -120,15 +130,17 @@ var ErrScopedAuthExhausted = errors.New("scoped-authz: max uses exhausted")
 // MintInput carries everything Mint needs to produce a signed
 // token. Fields are required unless tagged optional.
 type MintInput struct {
-	Principal  *Principal // required; supplies PrincipalID/Kind/OrgID
-	Action     string     // required
-	Resource   string     // optional; "" = any resource
-	AudienceID string     // recommended; binds to a specific plugin
-	TTL        time.Duration
-	MaxUses    int            // 0 → defaults to 1
-	Caveats    map[string]any // optional
-	NowFunc    func() time.Time
-	IDFunc     func() string
+	Principal     *Principal // required; supplies PrincipalID/Kind/OrgID
+	Action        string     // required
+	Resource      string     // optional; "" = any resource
+	AudienceID    string     // recommended; binds to a specific plugin
+	CatalogDigest string     // recommended; binds to approved discovery snapshot
+	RequestDigest string     // recommended; binds to exact CallTool request
+	TTL           time.Duration
+	MaxUses       int            // 0 → defaults to 1
+	Caveats       map[string]any // optional
+	NowFunc       func() time.Time
+	IDFunc        func() string
 }
 
 // Mint produces a signed token from input + secret. The secret
@@ -153,7 +165,7 @@ func Mint(input MintInput, secret []byte) (string, *ScopedAuthorization, error) 
 	if input.TTL <= 0 {
 		return "", nil, fmt.Errorf("%w: TTL must be > 0", ErrScopedAuthInvalid)
 	}
-	if len(secret) < 32 {
+	if len(secret) < MinScopedAuthSecretBytes {
 		return "", nil, fmt.Errorf("%w: secret < 32 bytes (HMAC strength insufficient)", ErrScopedAuthInvalid)
 	}
 	now := time.Now
@@ -186,6 +198,8 @@ func Mint(input MintInput, secret []byte) (string, *ScopedAuthorization, error) 
 		ExpiresAtUnix:  issuedAt.Add(input.TTL).Unix(),
 		MaxUses:        maxUses,
 		AudienceID:     input.AudienceID,
+		CatalogDigest:  input.CatalogDigest,
+		RequestDigest:  input.RequestDigest,
 		Caveats:        input.Caveats,
 	}
 
@@ -215,19 +229,29 @@ type VerifyExpectations struct {
 	// the SAME action; mismatch → reject.
 	Action string
 
-	// Resource: the actual call's resource. Token's Resource
-	// must match exactly OR be empty (token-says-any-resource).
-	// Empty Expectations.Resource skips the check.
+	// Resource: the actual call's resource. When non-empty, the token's
+	// Resource must match exactly; an unbound token cannot authorize a
+	// resource-specific call. Empty Expectations.Resource skips the check.
 	Resource string
 
-	// Audience: the verifying plugin's identity. Token's
-	// AudienceID must match OR be empty (test tokens). Empty
-	// Expectations.Audience skips the check (test fixture).
+	// Audience: the verifying plugin's canonical identity. When non-empty,
+	// the token's AudienceID must match exactly; an empty token audience is
+	// not a wildcard. Empty Expectations.Audience skips the low-level check.
 	Audience string
+
+	// CatalogDigest and RequestDigest require exact non-empty token matches
+	// when populated by a host-side session.
+	CatalogDigest string
+	RequestDigest string
 
 	// PrincipalID: the principal stamped on the request ctx.
 	// Token's PrincipalID must match. Empty skips check.
 	PrincipalID string
+
+	// PrincipalKind and OrganizationID bind the remaining trusted principal
+	// dimensions. Empty skips the corresponding low-level check.
+	PrincipalKind  string
+	OrganizationID string
 
 	// Now: the clock the verifier uses for expiry. Empty →
 	// time.Now. Tests pass an explicit clock.
@@ -239,6 +263,11 @@ type VerifyExpectations struct {
 	// — security default; an attacker could try to encode a
 	// caveat the verifier doesn't understand).
 	CaveatVerifiers map[string]CaveatVerifier
+
+	// RequiredCaveats lists caveats the verifier expects the token to carry.
+	// Registering a verifier alone only constrains a caveat when present; this
+	// field prevents omission from weakening a tenant/resource/budget binding.
+	RequiredCaveats []string
 }
 
 // CaveatVerifier checks a single caveat against the call context.
@@ -261,7 +290,7 @@ func Verify(token string, expect VerifyExpectations, secret []byte) (*ScopedAuth
 	if token == "" {
 		return nil, fmt.Errorf("%w: empty token", ErrScopedAuthInvalid)
 	}
-	if len(secret) < 32 {
+	if len(secret) < MinScopedAuthSecretBytes {
 		return nil, fmt.Errorf("%w: verifier secret < 32 bytes", ErrScopedAuthInvalid)
 	}
 
@@ -352,7 +381,7 @@ func (r *ReplayTracker) Consume(sa *ScopedAuthorization) error {
 	now := r.clock()
 	r.pruneLocked(now)
 
-	expiresAt := time.Unix(sa.ExpiresAtUnix, 0)
+	expiresAt := time.Unix(sa.ExpiresAtUnix, 0).Add(scopedAuthClockSkew)
 	entry, ok := r.uses[sa.ID]
 	if !ok {
 		entry = &replayEntry{expiresAt: expiresAt}
@@ -432,7 +461,7 @@ const ScopedAuthMetadataKey = "x-codefly-scoped-authz"
 // Panics on rand source failure — that's an unrecoverable system
 // issue, not something to swallow.
 func NewSpawnSecret() []byte {
-	buf := make([]byte, 32)
+	buf := make([]byte, MinScopedAuthSecretBytes)
 	if _, err := rand.Read(buf); err != nil {
 		panic(fmt.Sprintf("policy: crypto/rand failure: %v", err))
 	}

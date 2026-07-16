@@ -277,6 +277,30 @@ func TestVerify_AudienceMismatch_Rejected(t *testing.T) {
 	require.Contains(t, err.Error(), "audience")
 }
 
+func TestVerify_EmptyAudienceCannotSatisfyBoundExpectation(t *testing.T) {
+	secret := policy.NewSpawnSecret()
+	token := mustMint(t, policy.MintInput{
+		Principal: defaultPrincipal(), Action: "x.y", TTL: time.Minute,
+	}, secret)
+	_, err := policy.Verify(token, policy.VerifyExpectations{
+		Action: "x.y", Audience: "codefly.dev/fixture:1.0.0",
+	}, secret)
+	require.ErrorIs(t, err, policy.ErrScopedAuthInvalid)
+	require.ErrorContains(t, err, "audience mismatch")
+}
+
+func TestVerify_UnboundResourceCannotSatisfyResourceExpectation(t *testing.T) {
+	secret := policy.NewSpawnSecret()
+	token := mustMint(t, policy.MintInput{
+		Principal: defaultPrincipal(), Action: "x.y", TTL: time.Minute,
+	}, secret)
+	_, err := policy.Verify(token, policy.VerifyExpectations{
+		Action: "x.y", Resource: "database:tenant-1",
+	}, secret)
+	require.ErrorIs(t, err, policy.ErrScopedAuthInvalid)
+	require.ErrorContains(t, err, "resource mismatch")
+}
+
 func TestVerify_PrincipalMismatch_Rejected(t *testing.T) {
 	secret := policy.NewSpawnSecret()
 	token := mustMint(t, policy.MintInput{
@@ -290,6 +314,25 @@ func TestVerify_PrincipalMismatch_Rejected(t *testing.T) {
 	}, secret)
 	require.ErrorIs(t, err, policy.ErrScopedAuthInvalid)
 	require.Contains(t, err.Error(), "principal")
+}
+
+func TestVerify_PrincipalKindAndOrganizationMismatchRejected(t *testing.T) {
+	secret := policy.NewSpawnSecret()
+	token := mustMint(t, policy.MintInput{
+		Principal: defaultPrincipal(), Action: "x.y", TTL: time.Minute,
+	}, secret)
+
+	_, err := policy.Verify(token, policy.VerifyExpectations{
+		Action: "x.y", PrincipalKind: policy.KindAgent,
+	}, secret)
+	require.ErrorIs(t, err, policy.ErrScopedAuthInvalid)
+	require.ErrorContains(t, err, "principal kind")
+
+	_, err = policy.Verify(token, policy.VerifyExpectations{
+		Action: "x.y", OrganizationID: "org-other",
+	}, secret)
+	require.ErrorIs(t, err, policy.ErrScopedAuthInvalid)
+	require.ErrorContains(t, err, "organization")
 }
 
 func TestVerify_EmptyExpectations_SkipsChecks(t *testing.T) {
@@ -510,6 +553,18 @@ func TestReplayTracker_Pruning_RemovesExpired(t *testing.T) {
 	// pruneLocked ran; expired entry should be gone, fresh remains.
 	require.Equal(t, 1, tracker.Size(),
 		"expired entries pruned on next Consume")
+}
+
+func TestReplayTracker_RetainsUseThroughVerificationClockSkew(t *testing.T) {
+	tracker := policy.NewReplayTracker()
+	token := &policy.ScopedAuthorization{
+		ID: "tok-within-skew", MaxUses: 1,
+		ExpiresAtUnix: time.Now().Add(-10 * time.Second).Unix(),
+	}
+
+	require.NoError(t, tracker.Consume(token))
+	require.ErrorIs(t, tracker.Consume(token), policy.ErrScopedAuthExhausted,
+		"a token accepted during clock skew must not regain a use after its nominal expiry")
 }
 
 // =====================================================================

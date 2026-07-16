@@ -4261,7 +4261,8 @@ type OpenTerminalRequest struct {
 	// working_dir relative to the gateway root; empty = the root itself.
 	WorkingDir string `protobuf:"bytes,2,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
 	// initial PTY size; 0 = server default.
-	Rows          uint32 `protobuf:"varint,3,opt,name=rows,proto3" json:"rows,omitempty"`
+	Rows uint32 `protobuf:"varint,3,opt,name=rows,proto3" json:"rows,omitempty"`
+	// cols is the initial terminal width; 0 selects the server default.
 	Cols          uint32 `protobuf:"varint,4,opt,name=cols,proto3" json:"cols,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4327,10 +4328,13 @@ func (x *OpenTerminalRequest) GetCols() uint32 {
 
 // OpenTerminalResponse identifies the spawned terminal.
 type OpenTerminalResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
-	Shell         string                 `protobuf:"bytes,2,opt,name=shell,proto3" json:"shell,omitempty"`
-	WorkingDir    string                 `protobuf:"bytes,3,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// terminal_id is the opaque identifier used by attach, resize, and close calls.
+	TerminalId string `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	// shell is the resolved shell executable selected by the server.
+	Shell string `protobuf:"bytes,2,opt,name=shell,proto3" json:"shell,omitempty"`
+	// working_dir is the resolved directory in which the shell was started.
+	WorkingDir    string `protobuf:"bytes,3,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4389,9 +4393,11 @@ func (x *OpenTerminalResponse) GetWorkingDir() string {
 // TerminalInput carries client keystrokes. The FIRST message on an Attach
 // stream must set terminal_id to select the terminal.
 type TerminalInput struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
-	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// terminal_id selects the terminal and is required on the first stream message.
+	TerminalId string `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	// data contains raw bytes to write to the terminal's PTY.
+	Data          []byte `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4443,11 +4449,15 @@ func (x *TerminalInput) GetData() []byte {
 // TerminalOutput carries raw PTY bytes (escape codes intact). done marks the
 // final frame after the child exits.
 type TerminalOutput struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
-	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
-	Done          bool                   `protobuf:"varint,3,opt,name=done,proto3" json:"done,omitempty"`
-	ExitCode      int32                  `protobuf:"varint,4,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// terminal_id identifies the terminal that produced this frame.
+	TerminalId string `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	// data contains raw PTY output bytes, including terminal escape sequences.
+	Data []byte `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	// done is true on the final frame after the child process exits.
+	Done bool `protobuf:"varint,3,opt,name=done,proto3" json:"done,omitempty"`
+	// exit_code is the child process exit status and is meaningful when done is true.
+	ExitCode      int32 `protobuf:"varint,4,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4510,11 +4520,15 @@ func (x *TerminalOutput) GetExitCode() int32 {
 	return 0
 }
 
+// ResizeTerminalRequest changes the PTY dimensions of a running terminal.
 type ResizeTerminalRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
-	Rows          uint32                 `protobuf:"varint,2,opt,name=rows,proto3" json:"rows,omitempty"`
-	Cols          uint32                 `protobuf:"varint,3,opt,name=cols,proto3" json:"cols,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// terminal_id identifies the terminal whose PTY should be resized.
+	TerminalId string `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	// rows is the requested terminal height in character cells.
+	Rows uint32 `protobuf:"varint,2,opt,name=rows,proto3" json:"rows,omitempty"`
+	// cols is the requested terminal width in character cells.
+	Cols          uint32 `protobuf:"varint,3,opt,name=cols,proto3" json:"cols,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4570,6 +4584,7 @@ func (x *ResizeTerminalRequest) GetCols() uint32 {
 	return 0
 }
 
+// ResizeTerminalResponse confirms that the resize request was applied.
 type ResizeTerminalResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -4606,9 +4621,11 @@ func (*ResizeTerminalResponse) Descriptor() ([]byte, []int) {
 	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{70}
 }
 
+// CloseTerminalRequest terminates and removes one terminal session.
 type CloseTerminalRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// terminal_id identifies the terminal to close.
+	TerminalId    string `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4650,6 +4667,7 @@ func (x *CloseTerminalRequest) GetTerminalId() string {
 	return ""
 }
 
+// CloseTerminalResponse confirms that the terminal was closed.
 type CloseTerminalResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -4686,6 +4704,7 @@ func (*CloseTerminalResponse) Descriptor() ([]byte, []int) {
 	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{72}
 }
 
+// ListTerminalsRequest requests every terminal visible to this gateway session.
 type ListTerminalsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -4722,12 +4741,16 @@ func (*ListTerminalsRequest) Descriptor() ([]byte, []int) {
 	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{73}
 }
 
+// TerminalInfo describes one terminal session without exposing its PTY stream.
 type TerminalInfo struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	TerminalId string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
-	Shell      string                 `protobuf:"bytes,2,opt,name=shell,proto3" json:"shell,omitempty"`
-	WorkingDir string                 `protobuf:"bytes,3,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
-	// "running" | "exited"
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// terminal_id is the opaque identifier used by terminal operations.
+	TerminalId string `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	// shell is the executable running inside the terminal.
+	Shell string `protobuf:"bytes,2,opt,name=shell,proto3" json:"shell,omitempty"`
+	// working_dir is the directory in which the shell was started.
+	WorkingDir string `protobuf:"bytes,3,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
+	// status is either "running" or "exited".
 	Status        string `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4791,9 +4814,11 @@ func (x *TerminalInfo) GetStatus() string {
 	return ""
 }
 
+// ListTerminalsResponse returns the terminal sessions visible to the caller.
 type ListTerminalsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Terminals     []*TerminalInfo        `protobuf:"bytes,1,rep,name=terminals,proto3" json:"terminals,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// terminals contains one entry per visible terminal session.
+	Terminals     []*TerminalInfo `protobuf:"bytes,1,rep,name=terminals,proto3" json:"terminals,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

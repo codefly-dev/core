@@ -13,6 +13,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/manager"
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/toolbox/launch"
 )
@@ -128,6 +129,61 @@ func TestLaunch_NilAgent_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no agent",
 		"missing agent must be a clear launch-time error")
+}
+
+func strictToolbox() *resources.Toolbox {
+	return &resources.Toolbox{
+		Name:    "fixture",
+		Version: "0.0.1",
+		Agent: &resources.Agent{
+			Kind: resources.ToolboxAgent, Name: "fixture", Publisher: "codefly.dev", Version: "0.0.1",
+		},
+		Sandbox: policy.SandboxPolicy{Network: policy.NetworkLoopback},
+		Permissions: policy.PermissionPolicy{Required: []policy.PermissionDeclaration{{
+			Action: "fixture.identity.describe", Reason: "Return fixture identity.",
+		}}},
+	}
+}
+
+func TestLaunch_ProductionAdmissionRejectsUnsafeManifestBeforeResolution(t *testing.T) {
+	tb := strictToolbox()
+	tb.Sandbox = policy.SandboxPolicy{}
+	_, err := launch.LaunchWithOptions(context.Background(), tb,
+		launch.Options{Admission: launch.AdmissionProduction})
+	require.ErrorContains(t, err, "explicit capacity policy")
+
+	tb = strictToolbox()
+	tb.Permissions = policy.PermissionPolicy{}
+	_, err = launch.LaunchWithOptions(context.Background(), tb,
+		launch.Options{Admission: launch.AdmissionProduction})
+	require.ErrorContains(t, err, "at least one declared permission")
+}
+
+func TestLaunch_ProductionAdmissionRejectsBypassAndUnknownMode(t *testing.T) {
+	tb := strictToolbox()
+	_, err := launch.LaunchWithOptions(context.Background(), tb,
+		launch.Options{Admission: launch.AdmissionProduction, SkipSandbox: true})
+	require.ErrorContains(t, err, "forbids SkipSandbox")
+
+	_, err = launch.LaunchWithOptions(context.Background(), tb,
+		launch.Options{Admission: "hopeful"})
+	require.ErrorContains(t, err, "unknown admission mode")
+}
+
+func TestLaunch_RejectsUnknownSandboxPlaceholderBeforeBackendDiscovery(t *testing.T) {
+	tb := strictToolbox()
+	tb.Sandbox.ReadPaths = []string{"${TYPO_WORKSPACE}"}
+	_, err := launch.LaunchWithOptions(context.Background(), tb,
+		launch.Options{Admission: launch.AdmissionProduction})
+	require.ErrorContains(t, err, "unknown placeholder")
+}
+
+func TestLaunch_ProductionAdmissionRejectsUnknownNetwork(t *testing.T) {
+	tb := strictToolbox()
+	tb.Sandbox.Network = "allow"
+	_, err := launch.LaunchWithOptions(context.Background(), tb,
+		launch.Options{Admission: launch.AdmissionProduction})
+	require.ErrorContains(t, err, "not one of {deny, open, loopback}")
 }
 
 func TestLaunch_AgentResolutionFailure_PropagatesError(t *testing.T) {

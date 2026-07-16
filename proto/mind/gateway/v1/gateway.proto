@@ -831,56 +831,81 @@ message OpenTerminalRequest {
   string working_dir = 2;
   // initial PTY size; 0 = server default.
   uint32 rows = 3;
+  // cols is the initial terminal width; 0 selects the server default.
   uint32 cols = 4;
 }
 
 // OpenTerminalResponse identifies the spawned terminal.
 message OpenTerminalResponse {
+  // terminal_id is the opaque identifier used by attach, resize, and close calls.
   string terminal_id = 1;
+  // shell is the resolved shell executable selected by the server.
   string shell = 2;
+  // working_dir is the resolved directory in which the shell was started.
   string working_dir = 3;
 }
 
 // TerminalInput carries client keystrokes. The FIRST message on an Attach
 // stream must set terminal_id to select the terminal.
 message TerminalInput {
+  // terminal_id selects the terminal and is required on the first stream message.
   string terminal_id = 1;
+  // data contains raw bytes to write to the terminal's PTY.
   bytes data = 2;
 }
 
 // TerminalOutput carries raw PTY bytes (escape codes intact). done marks the
 // final frame after the child exits.
 message TerminalOutput {
+  // terminal_id identifies the terminal that produced this frame.
   string terminal_id = 1;
+  // data contains raw PTY output bytes, including terminal escape sequences.
   bytes data = 2;
+  // done is true on the final frame after the child process exits.
   bool done = 3;
+  // exit_code is the child process exit status and is meaningful when done is true.
   int32 exit_code = 4;
 }
 
+// ResizeTerminalRequest changes the PTY dimensions of a running terminal.
 message ResizeTerminalRequest {
+  // terminal_id identifies the terminal whose PTY should be resized.
   string terminal_id = 1;
+  // rows is the requested terminal height in character cells.
   uint32 rows = 2;
+  // cols is the requested terminal width in character cells.
   uint32 cols = 3;
 }
 
+// ResizeTerminalResponse confirms that the resize request was applied.
 message ResizeTerminalResponse {}
 
+// CloseTerminalRequest terminates and removes one terminal session.
 message CloseTerminalRequest {
+  // terminal_id identifies the terminal to close.
   string terminal_id = 1;
 }
 
+// CloseTerminalResponse confirms that the terminal was closed.
 message CloseTerminalResponse {}
 
+// ListTerminalsRequest requests every terminal visible to this gateway session.
 message ListTerminalsRequest {}
 
+// TerminalInfo describes one terminal session without exposing its PTY stream.
 message TerminalInfo {
+  // terminal_id is the opaque identifier used by terminal operations.
   string terminal_id = 1;
+  // shell is the executable running inside the terminal.
   string shell = 2;
+  // working_dir is the directory in which the shell was started.
   string working_dir = 3;
-  // "running" | "exited"
+  // status is either "running" or "exited".
   string status = 4;
 }
 
+// ListTerminalsResponse returns the terminal sessions visible to the caller.
 message ListTerminalsResponse {
+  // terminals contains one entry per visible terminal session.
   repeated TerminalInfo terminals = 1;
 }

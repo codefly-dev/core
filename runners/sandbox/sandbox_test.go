@@ -281,4 +281,7 @@ func TestSandboxExec_RegexQuote(t *testing.T) {
 	profile := cmd.Args[2]
 	require.True(t, strings.Contains(profile, `\.`),
 		"profile should escape dots; got:\n%s", profile)
+	require.Contains(t, profile,
+		`(allow network-bind network-inbound network-outbound (regex #"^/var/run/it\.has\.dots\.sock"))`,
+		"a declared UNIX socket must permit both plugin servers and clients")
 }

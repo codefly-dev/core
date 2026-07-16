@@ -3,6 +3,7 @@ package policyguard
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	"github.com/codefly-dev/core/policy"
+	coretoolbox "github.com/codefly-dev/core/toolbox"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -67,10 +69,22 @@ type Guard struct {
 	// scoped_auth.go.
 	caveatVerifiers map[string]policy.CaveatVerifier
 
+	// wellKnownExpectations are trusted spawn/session bindings. Per-call
+	// organization and resource expectations are added from the stamped
+	// principal and exact request before verification.
+	wellKnownExpectations policy.WellKnownCaveatExpectations
+
 	// trl is the token-revocation list (hardening). A revoked-but-unexpired
 	// scoped-auth token id is denied even though its HMAC verifies. Populated
 	// from CODEFLY_REVOKED_TOKEN_IDS at startup; nil when unset.
 	trl *policy.TokenRevocationList
+
+	// catalog is the plugin's phase-one identity/summary snapshot. The exact
+	// selected descriptor is fetched and hashed at call time, matching the
+	// host's two-phase approval and detecting contract changes after discovery.
+	catalog             *coretoolbox.CatalogSnapshot
+	catalogErr          error
+	requireBoundDigests bool
 }
 
 // New wraps inner. A nil PDP is a configuration error and fails closed with a
@@ -90,6 +104,18 @@ func New(inner toolboxv0.ToolboxServer, pdp policy.PDP, toolboxName string) *Gua
 		inner:   inner,
 		pdp:     pdp,
 		toolbox: toolboxName,
+	}
+	if snapshot, err := coretoolbox.SnapshotServer(context.Background(), inner); err != nil {
+		g.catalogErr = err
+	} else {
+		g.catalog = snapshot
+	}
+	g.requireBoundDigests = os.Getenv(coretoolbox.RequireBoundAuthorizationEnvironment) == "1"
+	g.wellKnownExpectations = policy.WellKnownCaveatExpectations{
+		TenantID:    os.Getenv(policy.EnvToolboxTenantID),
+		Environment: os.Getenv(policy.EnvToolboxEnvironment),
+		ReleaseID:   os.Getenv(policy.EnvToolboxReleaseID),
+		ApprovalID:  os.Getenv(policy.EnvToolboxApprovalID),
 	}
 	// Token revocation list (hardening). Operators publish revoked scoped-auth
 	// token ids via CODEFLY_REVOKED_TOKEN_IDS (comma-separated); CallTool denies
@@ -168,6 +194,26 @@ func (g *Guard) WithCaveatVerifiers(verifiers map[string]policy.CaveatVerifier) 
 	g.configMu.Lock()
 	defer g.configMu.Unlock()
 	g.caveatVerifiers = verifiers
+	return g
+}
+
+// WithWellKnownCaveatExpectations installs trusted scope bindings for embedded
+// hosts and tests. Process toolboxes normally receive these from session-owned
+// environment variables at spawn.
+func (g *Guard) WithWellKnownCaveatExpectations(expect policy.WellKnownCaveatExpectations) *Guard {
+	g.configMu.Lock()
+	defer g.configMu.Unlock()
+	g.wellKnownExpectations = expect
+	return g
+}
+
+// WithRequiredAuthorizationBindings requires catalog and request digests on
+// scoped tokens. Production startup enables this via environment; tests and
+// embedded hosts may opt in directly.
+func (g *Guard) WithRequiredAuthorizationBindings() *Guard {
+	g.configMu.Lock()
+	defer g.configMu.Unlock()
+	g.requireBoundDigests = true
 	return g
 }
 
@@ -265,6 +311,8 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 	tracker := g.replayTracker
 	audience := g.audienceID
 	verifiers := g.caveatVerifiers
+	wellKnownExpectations := g.wellKnownExpectations
+	requireBoundDigests := g.requireBoundDigests
 	g.configMu.RUnlock()
 
 	// Delegation-depth cap (hardening): reject a Principal whose delegation
@@ -287,7 +335,7 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 
 	// Try the fast path first when scoped-auth is configured.
 	if len(secret) > 0 {
-		sa, tokenPresent, verifyErr := g.tryVerifyScopedAuthWith(ctx, req, secret, audience, verifiers)
+		sa, tokenPresent, verifyErr := g.tryVerifyScopedAuthWith(ctx, req, secret, audience, verifiers, wellKnownExpectations, requireBoundDigests)
 		if verifyErr != nil {
 			return &toolboxv0.CallToolResponse{Error: "scoped-authz: invalid token"}, nil
 		}
@@ -313,6 +361,12 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 			}
 			ctx = policy.WithScopedAuth(ctx, sa)
 			return g.inner.CallTool(ctx, req)
+		}
+		if requireBoundDigests {
+			// Bound mode is the production session contract. Falling back to
+			// the raw PDP here would bypass the exact catalog/request binding
+			// and single-use replay semantics that the host just established.
+			return &toolboxv0.CallToolResponse{Error: "scoped-authz: token required"}, nil
 		}
 		// A genuinely absent token falls through to the PDP path.
 	}
@@ -359,6 +413,8 @@ func (g *Guard) tryVerifyScopedAuthWith(
 	secret []byte,
 	audience string,
 	verifiers map[string]policy.CaveatVerifier,
+	wellKnownExpectations policy.WellKnownCaveatExpectations,
+	requireBoundDigests bool,
 ) (*policy.ScopedAuthorization, bool, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
@@ -394,12 +450,32 @@ func (g *Guard) tryVerifyScopedAuthWith(
 			resource = v
 		}
 	}
-
 	expect := policy.VerifyExpectations{
-		Action:          req.GetName(),
-		Resource:        resource,
-		Audience:        audience,
-		CaveatVerifiers: verifiers,
+		Action:   req.GetName(),
+		Resource: resource,
+		Audience: audience,
+	}
+	if requireBoundDigests {
+		if g.catalogErr != nil {
+			return nil, true, g.catalogErr
+		}
+		if g.catalog == nil {
+			return nil, true, policy.ErrScopedAuthInvalid
+		}
+		description, err := g.inner.DescribeTool(ctx, &toolboxv0.DescribeToolRequest{Name: req.GetName()})
+		if err != nil {
+			return nil, true, err
+		}
+		approved, err := g.catalog.ApproveTool(req.GetName(), description)
+		if err != nil {
+			return nil, true, err
+		}
+		requestDigest, err := coretoolbox.DigestCallToolRequest(req)
+		if err != nil {
+			return nil, true, err
+		}
+		expect.CatalogDigest = approved.Digest
+		expect.RequestDigest = requestDigest
 	}
 	// Bind to the Principal stamped on ctx (set by the
 	// principalUnaryInterceptor). When no Principal is on ctx,
@@ -407,7 +483,42 @@ func (g *Guard) tryVerifyScopedAuthWith(
 	// check; the audience+action+resource binding still applies.
 	if p := policy.PrincipalFrom(ctx); p != nil {
 		expect.PrincipalID = p.ID
+		expect.PrincipalKind = p.Kind
+		expect.OrganizationID = p.OrgID
+		wellKnownExpectations.OrganizationID = p.OrgID
 	}
+	wellKnownExpectations.ResourceBinding = resource
+	if args := req.GetArguments(); args != nil {
+		values := args.AsMap()
+		if rawQueryID, present := values["query_id"]; present {
+			queryID, ok := rawQueryID.(string)
+			if !ok || strings.TrimSpace(queryID) == "" {
+				return nil, true, fmt.Errorf("query_id must be a non-empty string")
+			}
+			wellKnownExpectations.QueryID = queryID
+		}
+		if rawBudget, present := values["result_budget"]; present {
+			budget, err := policy.ParseResultBudget(rawBudget)
+			if err != nil {
+				return nil, true, err
+			}
+			wellKnownExpectations.ResultBudget = &budget
+		}
+	}
+	verification, err := policy.NewWellKnownCaveatVerification(wellKnownExpectations)
+	if err != nil {
+		return nil, true, err
+	}
+	// Resource is already a mandatory first-class scoped-auth claim. Register
+	// the typed caveat verifier when present, but do not require a redundant
+	// caveat from low-level hosts that bind the exact Resource claim directly.
+	verification.Required = withoutString(verification.Required, string(policy.CaveatResourceBinding))
+	verification.Verifiers, err = mergeCaveatVerifiers(verification.Verifiers, verifiers)
+	if err != nil {
+		return nil, true, err
+	}
+	expect.CaveatVerifiers = verification.Verifiers
+	expect.RequiredCaveats = verification.Required
 
 	sa, err := policy.Verify(values[0], expect, secret)
 	if err != nil {
@@ -418,6 +529,33 @@ func (g *Guard) tryVerifyScopedAuthWith(
 		return nil, true, err
 	}
 	return sa, true, nil
+}
+
+func withoutString(values []string, omitted string) []string {
+	out := values[:0]
+	for _, value := range values {
+		if value != omitted {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func mergeCaveatVerifiers(
+	wellKnown map[string]policy.CaveatVerifier,
+	provider map[string]policy.CaveatVerifier,
+) (map[string]policy.CaveatVerifier, error) {
+	merged := make(map[string]policy.CaveatVerifier, len(wellKnown)+len(provider))
+	for key, verifier := range wellKnown {
+		merged[key] = verifier
+	}
+	for key, verifier := range provider {
+		if _, reserved := merged[key]; reserved {
+			return nil, fmt.Errorf("provider caveat verifier attempts to replace well-known binding %q", key)
+		}
+		merged[key] = verifier
+	}
+	return merged, nil
 }
 
 // ReadResource is policy-gated for the same reason CallTool is —

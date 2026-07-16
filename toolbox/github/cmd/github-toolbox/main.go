@@ -23,9 +23,7 @@ func main() {
 			workspace = cwd
 		}
 	}
-	agents.Serve(agents.PluginRegistration{
-		Toolbox: github.New(workspace, os.Getenv("GITHUB_TOKEN"), version),
-	})
+	agents.ServeToolbox(github.New(workspace, os.Getenv("GITHUB_TOKEN"), version))
 }
 
 func envOrDefault(key, def string) string {

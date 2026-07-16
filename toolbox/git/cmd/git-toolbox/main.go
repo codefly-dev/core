@@ -33,9 +33,7 @@ func main() {
 			workspace = cwd
 		}
 	}
-	agents.Serve(agents.PluginRegistration{
-		Toolbox: git.New(workspace, version),
-	})
+	agents.ServeToolbox(git.New(workspace, version))
 }
 
 func envOrDefault(key, def string) string {

@@ -46,9 +46,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	agents.Serve(agents.PluginRegistration{
-		Toolbox: cli.New(env, bin, version),
-	})
+	agents.ServeToolbox(cli.New(env, bin, version))
 }
 
 func buildEnv(ctx context.Context, kind, workspace string) (runners.RunnerEnvironment, error) {

@@ -119,11 +119,8 @@ func TestAuthUnaryInterceptor_HealthExempt(t *testing.T) {
 	}
 }
 
-// TestAuthUnaryInterceptor_NoExpectedToken covers backward-compat:
-// when CODEFLY_AGENT_TOKEN isn't set on the plugin (legacy path),
-// every caller is accepted. Lets old hosts dial newly-built plugins.
-func TestAuthUnaryInterceptor_NoExpectedToken(t *testing.T) {
-	intercept := authUnaryInterceptor("") // empty = legacy mode
+func TestAuthUnaryInterceptor_NoExpectedTokenFailsClosed(t *testing.T) {
+	intercept := authUnaryInterceptor("")
 	handlerRan := false
 	handler := func(_ context.Context, _ any) (any, error) {
 		handlerRan = true
@@ -131,11 +128,26 @@ func TestAuthUnaryInterceptor_NoExpectedToken(t *testing.T) {
 	}
 	info := &grpc.UnaryServerInfo{FullMethod: "/example.Service/Method"}
 
-	if _, err := intercept(context.Background(), nil, info, handler); err != nil {
-		t.Fatalf("legacy mode must accept everything: %v", err)
+	_, err := intercept(context.Background(), nil, info, handler)
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("missing server token must fail closed with Unauthenticated: %v", err)
 	}
-	if !handlerRan {
-		t.Fatal("handler MUST run in legacy mode")
+	if handlerRan {
+		t.Fatal("handler MUST NOT run when the server has no expected token")
+	}
+}
+
+func TestPanicRecoveryInterceptorRedactsPanicValue(t *testing.T) {
+	const secret = "database-password-must-not-escape"
+	intercept := panicRecoveryInterceptor()
+	_, err := intercept(context.Background(), nil,
+		&grpc.UnaryServerInfo{FullMethod: "/example.Service/Call"},
+		func(context.Context, any) (any, error) { panic(secret) })
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("panic must normalize to Internal: %v", err)
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("panic value leaked through RPC error: %v", err)
 	}
 }
 

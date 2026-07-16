@@ -71,7 +71,7 @@ Every resource is defined by a YAML file:
 
 ### Code Generation
 - **proto/** — Proto source of truth (the `.proto` files for `codefly/*` and `mind/*`). Lives in-tree so a schema change + its regenerated bindings land in one PR. The standalone `codefly-dev/proto` repo is being retired in favor of this.
-- **generated/** — Proto-generated Go code. Structure: `generated/go/codefly/{base,services,actions,cli,mcp,observability}/v0/`. Regenerate with `codefly generate proto --proto ../proto --output ./generated --local`.
+- **generated/** — Proto-generated Go code. Structure: `generated/go/codefly/{base,services,actions,cli,mcp,observability}/v0/`. From `core/`, regenerate with `codefly generate proto --proto ./proto --output ./generated --local`.
 - **generation/** — Code generation utilities.
 - **templates/** — Template engine for agent scaffolding.
 - **openapi/** — OpenAPI spec generation from proto definitions.
@@ -103,7 +103,7 @@ make check-coverage
 codefly companion build --all
 
 # Proto regeneration — edit proto sources, then (offline, version-pinned plugins):
-codefly generate proto --proto ../proto --output ./generated --local
+codefly generate proto --proto ./proto --output ./generated --local
 ```
 
 ## Key Patterns

@@ -58,7 +58,23 @@ type Options struct {
 	// callers should never set this. Logged via the agent's stderr
 	// when active so an audit can flag the bypass.
 	SkipSandbox bool
+
+	// Admission selects the startup trust boundary. The zero value is the
+	// explicit local-development mode. Production requires non-empty manifest
+	// capacity/authority, an enforcing OS sandbox, and manager-level
+	// principal/PDP/scoped-authorization wiring.
+	Admission AdmissionMode
 }
+
+// AdmissionMode separates local development/tests from production startup.
+// It is deliberately a typed value rather than an environment variable so the
+// security decision is visible and reviewable at each host composition root.
+type AdmissionMode string
+
+const (
+	AdmissionLocal      AdmissionMode = "local"
+	AdmissionProduction AdmissionMode = "production"
+)
 
 // Launch is the convenience entrypoint: take a resources.Toolbox
 // manifest, spawn the plugin via manager.Load (under the manifest's
@@ -95,6 +111,23 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 	if t.Agent == nil {
 		return nil, fmt.Errorf("launch %s: manifest has no agent", t.Identity())
 	}
+	production := false
+	switch lopts.Admission {
+	case "", AdmissionLocal:
+		// Zero-value local development is intentional and documented above.
+	case AdmissionProduction:
+		production = true
+	default:
+		return nil, fmt.Errorf("launch %s: unknown admission mode %q", t.Identity(), lopts.Admission)
+	}
+	if production {
+		if lopts.SkipSandbox {
+			return nil, fmt.Errorf("launch %s: production admission forbids SkipSandbox", t.Identity())
+		}
+		if err := t.ValidateForProduction(); err != nil {
+			return nil, fmt.Errorf("launch %s: production manifest admission: %w", t.Identity(), err)
+		}
+	}
 
 	// Compose options — toolbox-standard env first; caller options
 	// last (so caller wins on duplicates). Sandbox lands somewhere in
@@ -102,6 +135,9 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 	// surface that BEFORE any process is created.
 	allOpts := []manager.LoadOption{
 		manager.WithEnv(toolboxStandardEnv(t)...),
+		// ToolboxSession and other authority-aware hosts override this through
+		// caller options below. Raw local launches are explicitly anonymous.
+		manager.WithoutPrincipal(),
 	}
 	if !lopts.SkipSandbox {
 		sb, err := buildSandbox(t, lopts.Workspace)
@@ -121,6 +157,9 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 		allOpts = append(allOpts, manager.WithoutSandbox())
 	}
 	allOpts = append(allOpts, opts...)
+	if production {
+		allOpts = append(allOpts, manager.WithProductionAdmission())
+	}
 
 	conn, err := manager.Load(ctx, t.Agent, allOpts...)
 	if err != nil {
@@ -134,9 +173,8 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 }
 
 // buildSandbox translates the manifest's SandboxPolicy into a configured
-// sandbox.Sandbox. Returns nil (unconfined) for a manifest with an empty policy
-// and no canonical_for binaries — the documented historical default (see the
-// fail-closed note in the body for why that flip is deferred).
+// sandbox.Sandbox. It returns nil only for an explicitly local manifest with no
+// declared policy and no canonical binaries; production admission rejects it.
 //
 // **Network default.** policy.SandboxPolicy.Apply translates an
 // UNSET network field to NetworkDeny. NetworkDeny is too aggressive
@@ -160,7 +198,7 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 // platforms where bwrap isn't installed; production deployments
 // should ensure the backend is present.
 func buildSandbox(t *resources.Toolbox, workspace string) (sandbox.Sandbox, error) {
-	// Empty policy → no sandbox (unconfined), the documented historical default.
+	// Empty local-development policy → no sandbox (unconfined).
 	//
 	// NOTE: an earlier revision made this fail-closed (empty policy → a
 	// loopback-network sandbox). That broke plugin spawn on Linux: bwrap's
@@ -175,11 +213,6 @@ func buildSandbox(t *resources.Toolbox, workspace string) (sandbox.Sandbox, erro
 		return nil, nil
 	}
 
-	sb, err := sandbox.New()
-	if err != nil {
-		return nil, fmt.Errorf("sandbox backend unavailable: %w", err)
-	}
-
 	// Apply a copy of the manifest policy with the default-network override so
 	// we don't mutate the caller's *resources.Toolbox.
 	pol := t.Sandbox
@@ -188,6 +221,19 @@ func buildSandbox(t *resources.Toolbox, workspace string) (sandbox.Sandbox, erro
 		pol.Network = policy.NetworkLoopback
 	}
 	expand := policy.NewExpander(workspace)
+	if err := pol.Validate(); err != nil {
+		return nil, err
+	}
+	// Validate path expansion before backend discovery so a malformed manifest
+	// reports its own deterministic error even on a host missing bwrap.
+	if err := pol.Apply(sandbox.NewNative(), expand); err != nil {
+		return nil, fmt.Errorf("validate sandbox policy: %w", err)
+	}
+
+	sb, err := sandbox.New()
+	if err != nil {
+		return nil, fmt.Errorf("sandbox backend unavailable: %w", err)
+	}
 	if err := pol.Apply(sb, expand); err != nil {
 		return nil, fmt.Errorf("apply sandbox policy: %w", err)
 	}
@@ -200,11 +246,7 @@ func buildSandbox(t *resources.Toolbox, workspace string) (sandbox.Sandbox, erro
 // privileged"). Such manifests are typically tests or in-process
 // helpers that don't represent any real authority claim.
 func isEmptyPolicy(t *resources.Toolbox) bool {
-	pol := t.Sandbox
-	if len(pol.ReadPaths) > 0 ||
-		len(pol.WritePaths) > 0 ||
-		len(pol.UnixSockets) > 0 ||
-		pol.Network != "" {
+	if !t.Sandbox.IsEmpty() {
 		return false
 	}
 	if len(t.CanonicalFor) > 0 {
@@ -220,6 +262,7 @@ func toolboxStandardEnv(t *resources.Toolbox) []string {
 	env := []string{
 		"CODEFLY_TOOLBOX_NAME=" + t.Name,
 		"CODEFLY_TOOLBOX_VERSION=" + t.Version,
+		"CODEFLY_TOOLBOX_AUDIENCE=" + t.Agent.String(),
 	}
 	if t.Dir() != "" {
 		env = append(env, "CODEFLY_TOOLBOX_DIR="+t.Dir())

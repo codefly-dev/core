@@ -27,10 +27,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	coretoolbox "github.com/codefly-dev/core/toolbox"
 )
 
 // ToolDefinition is the single source of truth for one tool's
@@ -338,8 +338,8 @@ func (b *Base) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolReques
 // "unimplemented" error response (developer mistake; surface clearly
 // rather than panic).
 //
-// **Schema validation.** When a tool's InputSchema is set, the
-// arguments are validated against it BEFORE the handler runs. The
+// **Schema validation.** Every tool must declare InputSchema and arguments are
+// validated against it BEFORE the handler runs. The
 // LLM-attack-surface is the args map: every plugin handler used to
 // have to type-assert and nil-check by hand, with the failure mode
 // being either a bad response or a runtime panic in the plugin
@@ -347,9 +347,7 @@ func (b *Base) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolReques
 // fail-closed by default, with a clear in-band error so the model
 // can repair its call.
 //
-// Schemas with no InputSchema set are passed through unchecked —
-// preserves backward compatibility with toolboxes that haven't
-// declared one. Production toolboxes should always declare a schema.
+// A missing or malformed schema fails closed as a plugin contract bug.
 func (b *Base) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
 	for _, d := range b.snapshotTools() {
 		if d.Name != req.GetName() {
@@ -360,69 +358,16 @@ func (b *Base) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*t
 				Error: fmt.Sprintf("tool %q has no handler — toolbox plugin bug", d.Name),
 			}, nil
 		}
-		if d.InputSchema != nil {
-			if reason := validateAgainstSchema(d.InputSchema, req.GetArguments()); reason != "" {
-				return &toolboxv0.CallToolResponse{
-					Error: fmt.Sprintf("invalid arguments for %q: %s", d.Name, reason),
-				}, nil
-			}
+		if err := coretoolbox.ValidateArguments(d.InputSchema, req.GetArguments()); err != nil {
+			return &toolboxv0.CallToolResponse{
+				Error: fmt.Sprintf("invalid arguments for %q: %s", d.Name, err),
+			}, nil
 		}
 		return d.Handler(ctx, req), nil
 	}
 	return &toolboxv0.CallToolResponse{
 		Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
 	}, nil
-}
-
-// validateAgainstSchema validates args against schema (a JSON Schema
-// document). Returns "" on success or a human-readable failure
-// reason. The reason is surfaced verbatim to the LLM in the in-band
-// Error field — short, actionable, no internal stack traces.
-//
-// Schemas are compiled per-call. We could cache a compiled schema
-// per ToolDefinition, but ToolDefinition slices are small and
-// rebuilt per request today; correctness first, perf when it shows
-// up in a profile.
-func validateAgainstSchema(schema, args *structpb.Struct) string {
-	if schema == nil {
-		return ""
-	}
-	schemaMap := schema.AsMap()
-	// Empty / pure-`{type: object, properties: {}}` schemas accept
-	// anything. Skip the compile cost.
-	if len(schemaMap) == 0 {
-		return ""
-	}
-
-	c := jsonschema.NewCompiler()
-	if err := c.AddResource("inline.json", schemaMap); err != nil {
-		// Schema author shipped a malformed schema. The right place
-		// to catch this is at construction time (panic in
-		// respond.Schema), but we still want the runtime path to
-		// fail closed rather than skip validation.
-		return "schema definition malformed (plugin bug): " + err.Error()
-	}
-	compiled, err := c.Compile("inline.json")
-	if err != nil {
-		return "schema compile failed (plugin bug): " + err.Error()
-	}
-
-	// args == nil is legitimate when the schema requires nothing;
-	// jsonschema needs an actual map to validate, so synthesize one.
-	var argsAny any = map[string]any{}
-	if args != nil {
-		argsAny = args.AsMap()
-	}
-	if err := compiled.Validate(argsAny); err != nil {
-		// Trim the verbose wrapper jsonschema adds; keep only the
-		// human-relevant part.
-		msg := err.Error()
-		// Replace newlines with " | " so the error fits in a single
-		// line in the model's tool-result UI.
-		msg = strings.ReplaceAll(msg, "\n", " | ")
-		return msg
-	}
-	return ""
 }
 
 // hasAllTags returns true when toolTags includes every entry in

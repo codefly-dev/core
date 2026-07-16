@@ -52,8 +52,20 @@ type SandboxPolicy struct {
 	UnixSockets []string      `yaml:"unix_sockets,omitempty" json:"unix_sockets,omitempty"`
 }
 
+// IsEmpty reports whether the manifest declares no capacity boundary at all.
+// Local/test compatibility launch may accept this explicitly; production
+// admission must reject it because an omitted policy otherwise inherits the
+// host process's ambient filesystem and network authority.
+func (p SandboxPolicy) IsEmpty() bool {
+	return len(p.ReadPaths) == 0 &&
+		len(p.WritePaths) == 0 &&
+		p.Network == "" &&
+		len(p.UnixSockets) == 0
+}
+
 // Validate checks the policy is internally consistent. Empty policies
-// are allowed (zero-trust default applied at Apply time).
+// are allowed here because this is structural validation. Admission policy
+// decides whether an empty declaration is acceptable for the target runtime.
 func (p *SandboxPolicy) Validate() error {
 	if slices.Contains(p.ReadPaths, "") {
 		return fmt.Errorf("sandbox.read_paths contains an empty entry")
@@ -436,6 +448,19 @@ func (p PermissionPolicy) Allows(action, resource string) bool {
 			continue
 		}
 		if d.Resource == "" || globMatch(d.Resource, resource) {
+			return true
+		}
+	}
+	return false
+}
+
+// DeclaresAction reports whether at least one permission declaration covers
+// action, independent of its resource constraint. Hosts use this during catalog
+// admission: every advertised tool must have an install-time authority entry,
+// while the concrete resource match remains a per-invocation decision.
+func (p PermissionPolicy) DeclaresAction(action string) bool {
+	for _, d := range p.All() {
+		if globMatch(d.Action, action) {
 			return true
 		}
 	}

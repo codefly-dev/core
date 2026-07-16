@@ -9,6 +9,11 @@ import (
 
 const VersionEnvironment = "CODEFLY_TOOLBOX_VERSION"
 
+// RequireBoundAuthorizationEnvironment makes the plugin guard require catalog
+// and exact-request digests on every scoped authorization. Production manager
+// admission sets it after caller-provided environment values.
+const RequireBoundAuthorizationEnvironment = "CODEFLY_TOOLBOX_REQUIRE_BOUND_AUTHZ"
+
 // Version returns the version injected by the host, or the development value
 // used when a toolbox binary is launched directly.
 func Version() string {

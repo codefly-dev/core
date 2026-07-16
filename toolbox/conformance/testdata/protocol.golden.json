@@ -1,0 +1,223 @@
+{
+  "canonical_tool_names": [
+    "fixture.identity.describe",
+    "fixture.error.deterministic",
+    "fixture.effect.increment",
+    "fixture.effect.count",
+    "fixture.wait",
+    "fixture.process.crash"
+  ],
+  "identity": {
+    "canonical_for": [],
+    "description": "Deterministic Codefly Toolbox conformance fixture.",
+    "name": "conformance-fixture",
+    "sandbox_summary": "no filesystem access; loopback transport only",
+    "version": "0.0.1"
+  },
+  "summaries": {
+    "tools": [
+      {
+        "description": "Return the fixture's deterministic structured identity document.",
+        "destructive": false,
+        "name": "fixture.identity.describe",
+        "tags": [
+          "conformance-fixture",
+          "read-only",
+          "conformance",
+          "structured"
+        ]
+      },
+      {
+        "description": "Return the fixture's stable in-band error without side effects.",
+        "destructive": false,
+        "name": "fixture.error.deterministic",
+        "tags": [
+          "conformance-fixture",
+          "read-only",
+          "conformance",
+          "error"
+        ]
+      },
+      {
+        "description": "Increment the observable fixture counter; destructive and single-use by policy.",
+        "destructive": true,
+        "name": "fixture.effect.increment",
+        "tags": [
+          "conformance-fixture",
+          "destructive",
+          "conformance",
+          "effect"
+        ]
+      },
+      {
+        "description": "Read the observable fixture effect counter without mutating it.",
+        "destructive": false,
+        "name": "fixture.effect.count",
+        "tags": [
+          "conformance-fixture",
+          "read-only",
+          "conformance",
+          "effect"
+        ]
+      },
+      {
+        "description": "Wait for a bounded duration while honoring cancellation and deadlines.",
+        "destructive": false,
+        "name": "fixture.wait",
+        "tags": [
+          "conformance-fixture",
+          "read-only",
+          "conformance",
+          "timing"
+        ]
+      },
+      {
+        "description": "Terminate the fixture process with exit code 86 for recovery tests.",
+        "destructive": true,
+        "name": "fixture.process.crash",
+        "tags": [
+          "conformance-fixture",
+          "destructive",
+          "conformance",
+          "crash"
+        ]
+      }
+    ]
+  },
+  "identity_description": {
+    "error": "",
+    "tool": {
+      "description": "Returns a stable structured payload used to verify discovery, description, schema projection, invocation, and result decoding without external dependencies.",
+      "destructive": false,
+      "error_modes": "Schema-invalid arguments are rejected before dispatch.",
+      "examples": [
+        {
+          "arguments": {},
+          "description": "Read the default fixture identity.",
+          "expected_outcome": "A structured codefly.toolbox.conformance/v1 identity document."
+        }
+      ],
+      "idempotency": "idempotent",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "subject": {
+            "default": "codefly",
+            "type": "string",
+            "x-codefly-sensitive": true
+          }
+        },
+        "type": "object"
+      },
+      "name": "fixture.identity.describe",
+      "output_schema": {
+        "required": [
+          "contract",
+          "fixture",
+          "subject",
+          "capabilities"
+        ],
+        "type": "object"
+      },
+      "tags": [
+        "conformance-fixture",
+        "read-only",
+        "conformance",
+        "structured"
+      ]
+    }
+  },
+  "legacy_tools": {
+    "tools": [
+      {
+        "description": "Returns a stable structured payload used to verify discovery, description, schema projection, invocation, and result decoding without external dependencies.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "subject": {
+              "default": "codefly",
+              "type": "string",
+              "x-codefly-sensitive": true
+            }
+          },
+          "type": "object"
+        },
+        "name": "fixture.identity.describe",
+        "output_schema": {
+          "required": [
+            "contract",
+            "fixture",
+            "subject",
+            "capabilities"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Always returns the exact deterministic v1 error string for error normalization tests.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "name": "fixture.error.deterministic",
+        "output_schema": null
+      },
+      {
+        "description": "Increments an in-memory counter exactly once. Hosts deny this tool to prove policy short-circuits before handler dispatch, then read fixture.effect.count as evidence.",
+        "destructive": true,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "name": "fixture.effect.increment",
+        "output_schema": null
+      },
+      {
+        "description": "Returns the current in-memory effect count as denial and replay evidence.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "name": "fixture.effect.count",
+        "output_schema": null
+      },
+      {
+        "description": "Waits for duration_ms or returns when the request context is canceled. Used for deterministic timeout and cancellation conformance.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "duration_ms": {
+              "maximum": 5000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "duration_ms"
+          ],
+          "type": "object"
+        },
+        "name": "fixture.wait",
+        "output_schema": null
+      },
+      {
+        "description": "Deliberately terminates the fixture process during execution. Test-only destructive operation for transport and cleanup recovery.",
+        "destructive": true,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "name": "fixture.process.crash",
+        "output_schema": null
+      }
+    ]
+  }
+}

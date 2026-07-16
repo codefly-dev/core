@@ -23,9 +23,7 @@ func main() {
 			workspace = cwd
 		}
 	}
-	agents.Serve(agents.PluginRegistration{
-		Toolbox: codefly.New(workspace, version),
-	})
+	agents.ServeToolbox(codefly.New(workspace, version))
 }
 
 func envOrDefault(key, def string) string {

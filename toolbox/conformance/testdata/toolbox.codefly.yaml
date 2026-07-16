@@ -1,0 +1,38 @@
+name: conformance-fixture
+version: 0.0.1
+description: Deterministic fixture for certifying the Codefly Toolbox host contract.
+
+agent:
+  kind: codefly:toolbox
+  name: conformance-fixture
+  publisher: codefly.dev
+  version: 0.0.1
+
+sandbox:
+  read_paths: []
+  write_paths: []
+  network: loopback
+  unix_sockets: []
+
+canonical_for: []
+
+permissions:
+  required:
+    - action: fixture.identity.describe
+      reason: Return the deterministic structured fixture identity.
+    - action: fixture.error.deterministic
+      reason: Return a stable in-band error for protocol normalization tests.
+    - action: fixture.effect.increment
+      reason: Exercise a bounded observable effect when host policy explicitly allows it.
+    - action: fixture.effect.count
+      reason: Read the effect counter as denial and replay evidence.
+    - action: fixture.wait
+      reason: Exercise bounded timeout and cancellation behavior.
+    - action: fixture.process.crash
+      reason: Terminate the disposable fixture process for recovery testing.
+  risk_levels:
+    fixture.effect.increment: high
+    fixture.process.crash: high
+
+spec:
+  fixture_contract: codefly.toolbox.conformance/v1

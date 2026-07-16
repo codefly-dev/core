@@ -146,12 +146,16 @@ func (s *sandboxExecSandbox) buildProfile() (string, error) {
 		b.WriteString("(deny network*)\n")
 	}
 
-	// --- Unix-socket allowlist (network-outbound by path regex) ---
+	// --- Unix-socket allowlist by path regex ---
+	// A toolbox may be either the client (permissions callback) or the server
+	// (agent transport), so the narrow path grant must cover bind, inbound, and
+	// outbound operations. The predicate keeps network:deny from turning into
+	// ambient UNIX-socket authority.
 	for _, p := range s.unixSockets {
 		if p == "" {
 			return "", fmt.Errorf("empty unix-socket path")
 		}
-		fmt.Fprintf(&b, "(allow network-outbound (regex #\"^%s\"))\n", regexQuote(p))
+		fmt.Fprintf(&b, "(allow network-bind network-inbound network-outbound (regex #\"^%s\"))\n", regexQuote(p))
 	}
 
 	// readPaths are advisory on macOS under this model: file-read* is

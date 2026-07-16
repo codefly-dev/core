@@ -8,18 +8,14 @@ import (
 	"github.com/codefly-dev/core/agents"
 )
 
-// TestParseAgentHandshake_LegacyNumericPort covers the original
-// VERSION|PORT form emitted by plugins compiled before UDS support
-// landed. New hosts must keep dialing them — anything else would
-// silently break old plugin binaries on disk.
-func TestParseAgentHandshake_LegacyNumericPort(t *testing.T) {
-	line := versionPrefix() + "|54321"
+func TestParseAgentHandshake_ExplicitLoopback(t *testing.T) {
+	line := versionPrefix() + "|dns:///127.0.0.1:54321"
 	addr, err := parseAgentHandshake(line)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if addr != "127.0.0.1:54321" {
-		t.Fatalf("legacy numeric port should resolve to TCP loopback, got %q", addr)
+	if addr != "dns:///127.0.0.1:54321" {
+		t.Fatalf("explicit loopback endpoint changed, got %q", addr)
 	}
 }
 
@@ -58,10 +54,13 @@ func TestParseAgentHandshake_Malformed(t *testing.T) {
 		name string
 		line string
 	}{
-		{"missing pipe", "1 54321"},
-		{"port out of range", versionPrefix() + "|99999"},
-		{"port zero", versionPrefix() + "|0"},
-		{"port negative", versionPrefix() + "|-1"},
+		{"missing pipe", versionPrefix() + " dns:///127.0.0.1:54321"},
+		{"numeric endpoint removed", versionPrefix() + "|54321"},
+		{"port out of range", versionPrefix() + "|dns:///127.0.0.1:99999"},
+		{"port zero", versionPrefix() + "|dns:///127.0.0.1:0"},
+		{"port negative", versionPrefix() + "|dns:///127.0.0.1:-1"},
+		{"remote endpoint forbidden", versionPrefix() + "|dns:///10.0.0.1:5000"},
+		{"relative unix path", versionPrefix() + "|unix:relative/agent.sock"},
 		{"garbage endpoint", versionPrefix() + "|tcp://x:1"},
 	}
 	for _, tc := range cases {

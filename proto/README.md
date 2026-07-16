@@ -18,7 +18,7 @@ published snapshot and the generated Go.
 Edit the `.proto` files here, then from `core/`:
 
 ```bash
-codefly generate proto --proto ../proto --output ./generated --local
+codefly generate proto --proto ./proto --output ./generated --local
 ```
 
 That regenerates the Go bindings into `core/generated/go/` (pinned plugin
@@ -37,6 +37,8 @@ consumers do not — they import `github.com/codefly-dev/core/generated/go/...`.
 ## Rules
 
 - All codefly services are `v0` (still evolving); Mind services are `v1`.
-- NEVER break backward compatibility without coordinating across core + CLI + agents.
+- This is pre-customer: breaking changes are normal and compatibility shims are
+  not carried. Update core source/bindings and every aggregate-workspace
+  consumer together so the workspace and released artifact set stay atomic.
 - `buf lint` before committing.
 - Validation uses CEL via protovalidate (field constraints in the `.proto`s).
