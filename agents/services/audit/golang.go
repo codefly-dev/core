@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -96,7 +97,10 @@ func runGovulncheck(ctx context.Context, dir string) ([]*builderv0.AuditFinding,
 func runGovulncheckParseBytes(out []byte) ([]*builderv0.AuditFinding, error) {
 	// Build OSV id → summary lookup as we stream.
 	summaries := map[string]string{}
-	var findings []*builderv0.AuditFinding
+	// govulncheck emits one finding per reachable call trace. A single
+	// advisory can therefore appear hundreds of times for the same affected
+	// module. Release evidence is advisory/module based, not call-path based.
+	findingsByKey := map[string]*builderv0.AuditFinding{}
 
 	dec := json.NewDecoder(strings.NewReader(string(out)))
 	for dec.More() {
@@ -113,17 +117,37 @@ func runGovulncheckParseBytes(out []byte) ([]*builderv0.AuditFinding, error) {
 		}
 		if msg.Finding != nil && len(msg.Finding.Trace) > 0 {
 			t := msg.Finding.Trace[0]
-			findings = append(findings, &builderv0.AuditFinding{
-				Severity:       builderv0.AuditFinding_HIGH, // govulncheck only reports actually-reachable vulns
-				Id:             msg.Finding.OSV,
-				Package:        t.Module,
-				CurrentVersion: t.Version,
-				FixedVersion:   msg.Finding.FixedVersion,
-				Summary:        summaries[msg.Finding.OSV],
-				Url:            "https://pkg.go.dev/vuln/" + msg.Finding.OSV,
-			})
+			key := msg.Finding.OSV + "\x00" + t.Module + "\x00" + t.Version
+			finding, exists := findingsByKey[key]
+			if !exists {
+				finding = &builderv0.AuditFinding{
+					Severity:       builderv0.AuditFinding_HIGH, // govulncheck only reports actually-reachable vulns
+					Id:             msg.Finding.OSV,
+					Package:        t.Module,
+					CurrentVersion: t.Version,
+					Url:            "https://pkg.go.dev/vuln/" + msg.Finding.OSV,
+				}
+				findingsByKey[key] = finding
+			}
+			if finding.FixedVersion == "" && msg.Finding.FixedVersion != "" {
+				finding.FixedVersion = msg.Finding.FixedVersion
+			}
 		}
 	}
+	findings := make([]*builderv0.AuditFinding, 0, len(findingsByKey))
+	for _, finding := range findingsByKey {
+		finding.Summary = summaries[finding.Id]
+		findings = append(findings, finding)
+	}
+	sort.Slice(findings, func(i, j int) bool {
+		if findings[i].GetId() != findings[j].GetId() {
+			return findings[i].GetId() < findings[j].GetId()
+		}
+		if findings[i].GetPackage() != findings[j].GetPackage() {
+			return findings[i].GetPackage() < findings[j].GetPackage()
+		}
+		return findings[i].GetCurrentVersion() < findings[j].GetCurrentVersion()
+	})
 	return findings, nil
 }
 

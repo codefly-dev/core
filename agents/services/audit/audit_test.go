@@ -93,6 +93,24 @@ func TestParseGovulncheck_findings(t *testing.T) {
 	}
 }
 
+func TestParseGovulncheckDeduplicatesReachableCallTraces(t *testing.T) {
+	out := `{"finding":{"osv":"GO-2026-4883","trace":[{"module":"github.com/docker/docker","version":"v28.5.2","package":"github.com/docker/docker/client"}]}}
+{"finding":{"osv":"GO-2026-4883","fixed_version":"v28.5.3","trace":[{"module":"github.com/docker/docker","version":"v28.5.2","package":"github.com/docker/docker/daemon"}]}}
+{"osv":{"id":"GO-2026-4883","summary":"Docker authorization bypass"}}
+`
+	findings, err := runGovulncheckParse(out)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected one advisory/module finding, got %d: %+v", len(findings), findings)
+	}
+	finding := findings[0]
+	if finding.FixedVersion != "v28.5.3" || finding.Summary != "Docker authorization bypass" {
+		t.Fatalf("deduplicated finding lost metadata: %+v", finding)
+	}
+}
+
 // runGovulncheckParse exposes the JSON parsing path of runGovulncheck
 // for testing without invoking govulncheck. Not exported on purpose —
 // keeps the public surface small.
