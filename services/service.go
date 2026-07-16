@@ -164,8 +164,13 @@ func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRe
 	if err != nil {
 		return resp, err
 	}
-	if resp != nil && resp.State != nil && resp.State.State == builderv0.SyncStatus_ERROR {
-		return resp, operationStatusError("builder sync", resp.State.Message)
+	if resp != nil && resp.State != nil {
+		switch resp.State.State {
+		case builderv0.SyncStatus_ERROR:
+			return resp, operationStatusError("builder sync", resp.State.Message)
+		case builderv0.SyncStatus_UNSUPPORTED:
+			return resp, operationStatusError("builder sync unsupported", resp.State.Message)
+		}
 	}
 	return resp, nil
 }
@@ -198,8 +203,26 @@ func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv0.Depl
 
 func (instance *BuilderInstance) Audit(ctx context.Context, req *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
 	resp, err := instance.Builder.Audit(ctx, req)
-	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.AuditStatus_ERROR {
-		err = operationStatusError("builder audit", resp.State.Message)
+	if err == nil && resp != nil && resp.State != nil {
+		switch resp.State.State {
+		case builderv0.AuditStatus_ERROR:
+			err = operationStatusError("builder audit", resp.State.Message)
+		case builderv0.AuditStatus_UNSUPPORTED:
+			err = operationStatusError("builder audit unsupported", resp.State.Message)
+		}
+	}
+	return resp, err
+}
+
+func (instance *BuilderInstance) SBOM(ctx context.Context, req *builderv0.SBOMRequest) (*builderv0.SBOMResponse, error) {
+	resp, err := instance.Builder.SBOM(ctx, req)
+	if err == nil && resp != nil && resp.State != nil {
+		switch resp.State.State {
+		case builderv0.SBOMStatus_ERROR:
+			err = operationStatusError("builder SBOM", resp.State.Message)
+		case builderv0.SBOMStatus_UNSUPPORTED:
+			err = operationStatusError("builder SBOM unsupported", resp.State.Message)
+		}
 	}
 	return resp, err
 }

@@ -186,10 +186,40 @@ message BuildStatus {
   string message = 2;
 }
 
+// ValidationSelection is a language-neutral, authoritative source selection
+// shared by lint and native compile/typecheck operations.
+message ValidationSelection {
+  // scope selects exactly one semantic granularity for this request.
+  oneof scope {
+    // package selects one language package/module/crate by canonical path.
+    ValidationPackageSelection package = 1;
+    // file selects one canonical, workspace-relative source path.
+    ValidationFileSelection file = 2;
+  }
+}
+
+// ValidationPackageSelection identifies one package/module/crate.
+message ValidationPackageSelection {
+  // path is the canonical package path understood by the runtime agent.
+  string path = 1;
+}
+
+// ValidationFileSelection identifies one source file.
+message ValidationFileSelection {
+  // path is canonical and relative to the service source root.
+  string path = 1;
+}
+
 // BuildRequest asks the runtime agent to run the native build or compile check.
 message BuildRequest {
   // Optional target scope: package path (e.g. "./handlers"), file, or empty for all.
   string target = 1;
+  // selection is the authoritative structured scope. When present, runtimes
+  // must apply it exactly or return an error; they must not broaden the build.
+  ValidationSelection selection = 2;
+  // selection_id is required with selection and must be echoed only after the
+  // runtime has honored the authoritative selection.
+  string selection_id = 3;
 }
 
 // BuildResponse returns build status and raw tool output for diagnostics.
@@ -198,6 +228,10 @@ message BuildResponse {
   BuildStatus status = 1;
   // output is raw command, build, lint, or test output preserved for diagnostics.
   string output = 2;
+  // requested_selection is the exact authoritative selection applied.
+  ValidationSelection requested_selection = 3;
+  // selection_id echoes BuildRequest.selection_id after selection was honored.
+  string selection_id = 4;
 }
 
 // TestStatus reports the state and message for the test lifecycle phase.
@@ -720,6 +754,39 @@ message LintStatus {
   string message = 2;
 }
 
+// LintDiagnostic is one language-neutral lint finding.
+message LintDiagnostic {
+  // Severity classifies the finding without exposing a tool-specific level.
+  enum Severity {
+    // SEVERITY_UNSPECIFIED means the agent could not classify the finding.
+    SEVERITY_UNSPECIFIED = 0;
+    // SEVERITY_INFO is advisory and does not normally fail policy.
+    SEVERITY_INFO = 1;
+    // SEVERITY_WARNING is a warning whose failure policy belongs to the agent.
+    SEVERITY_WARNING = 2;
+    // SEVERITY_ERROR is an error finding.
+    SEVERITY_ERROR = 3;
+  }
+  // file is canonical and relative to the service source root when possible.
+  string file = 1;
+  // line is one-based; zero means unavailable.
+  int32 line = 2;
+  // column is one-based; zero means unavailable.
+  int32 column = 3;
+  // end_line is the optional inclusive end line.
+  int32 end_line = 4;
+  // end_column is the optional inclusive end column.
+  int32 end_column = 5;
+  // severity is the normalized finding severity.
+  Severity severity = 6;
+  // rule is the native linter rule identifier when available.
+  string rule = 7;
+  // message explains the finding.
+  string message = 8;
+  // fix_available reports whether Runtime.Lint with fix=true can address it.
+  bool fix_available = 9;
+}
+
 // LintRequest asks the runtime agent to run the native linter.
 message LintRequest {
   // Optional target scope: package path, file, or empty for all.
@@ -727,6 +794,12 @@ message LintRequest {
 
   // Optional: auto-fix linting issues where possible.
   bool fix = 2;
+  // selection is the authoritative structured scope. When present, runtimes
+  // must apply it exactly or return an error; they must not broaden linting.
+  ValidationSelection selection = 3;
+  // selection_id is required with selection and must be echoed only after the
+  // runtime has honored the authoritative selection.
+  string selection_id = 4;
 }
 
 // LintResponse returns lint status and raw tool output for diagnostics.
@@ -735,6 +808,14 @@ message LintResponse {
   LintStatus status = 1;
   // output is raw command, build, lint, or test output preserved for diagnostics.
   string output = 2;
+  // diagnostics are structured findings suitable for reports and IDE links.
+  repeated LintDiagnostic diagnostics = 3;
+  // requested_selection is the exact authoritative selection applied.
+  ValidationSelection requested_selection = 4;
+  // selection_id echoes LintRequest.selection_id after selection was honored.
+  string selection_id = 5;
+  // output_truncated is true when output was bounded by the agent.
+  bool output_truncated = 6;
 }
 
 // StopRequest asks the runtime agent to stop the service process.

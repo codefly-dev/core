@@ -7,12 +7,15 @@ import (
 	"path"
 	"strings"
 
+	serviceaudit "github.com/codefly-dev/core/agents/services/audit"
+	servicesbom "github.com/codefly-dev/core/agents/services/sbom"
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/shared"
 )
@@ -201,6 +204,14 @@ func (s *BuilderWrapper) SyncError(err error) (*builderv0.SyncResponse, error) {
 		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}}, nil
 }
 
+// SyncUnsupported reports that the requested synchronization mode cannot be
+// performed authoritatively. CI dry-run callers must never infer "no drift"
+// from an agent that only implements mutating Sync.
+func (s *BuilderWrapper) SyncUnsupported(message string) (*builderv0.SyncResponse, error) {
+	return &builderv0.SyncResponse{
+		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_UNSUPPORTED, Message: message}}, nil
+}
+
 func (s *BuilderWrapper) WithDockerImages(ims ...*resources.DockerImage) {
 	var imgs []string
 	for _, im := range ims {
@@ -252,13 +263,23 @@ func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, 
 // findings is empty, FINDINGS otherwise. Tool/language identify the
 // scanner used so the CLI can render "[govulncheck+go list -u] go-grpc/api"
 // in mixed-workspace audits.
-func (s *BuilderWrapper) AuditResponse(findings []*builderv0.AuditFinding, outdated []*builderv0.OutdatedDep, tool, language string) (*builderv0.AuditResponse, error) {
+func (s *BuilderWrapper) AuditResponse(req *builderv0.AuditRequest, findings []*builderv0.AuditFinding, outdated []*builderv0.OutdatedDep, tool, language string) (*builderv0.AuditResponse, error) {
 	state := builderv0.AuditStatus_CLEAN
+	message := ""
 	if len(findings) > 0 {
 		state = builderv0.AuditStatus_FINDINGS
 	}
+	if req.GetFailOnVuln() {
+		for _, finding := range findings {
+			if finding.GetSeverity() >= builderv0.AuditFinding_HIGH {
+				state = builderv0.AuditStatus_ERROR
+				message = "audit found HIGH or CRITICAL vulnerabilities"
+				break
+			}
+		}
+	}
 	return &builderv0.AuditResponse{
-		State:    &builderv0.AuditStatus{State: state},
+		State:    &builderv0.AuditStatus{State: state, Message: message},
 		Findings: findings,
 		Outdated: outdated,
 		Tool:     tool,
@@ -276,6 +297,57 @@ func (s *BuilderWrapper) AuditErrorf(err error, msg string, args ...any) (*build
 	return &builderv0.AuditResponse{
 		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
 	}, nil
+}
+
+// AuditUnsupported reports that this agent has no authoritative scanner.
+func (s *BuilderWrapper) AuditUnsupported(message string) (*builderv0.AuditResponse, error) {
+	return &builderv0.AuditResponse{
+		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_UNSUPPORTED, Message: message},
+	}, nil
+}
+
+// AuditContainer is the shared implementation for stock-image service agents.
+func (s *BuilderWrapper) AuditContainer(ctx context.Context, req *builderv0.AuditRequest, image string) (*builderv0.AuditResponse, error) {
+	result, err := serviceaudit.Docker(ctx, image)
+	if err != nil {
+		return s.AuditError(err)
+	}
+	return s.AuditResponse(req, result.Findings, result.Outdated, result.Tool, result.Language)
+}
+
+// SBOMResponse builds a complete, authoritative CycloneDX response.
+func (s *BuilderWrapper) SBOMResponse(bom *agentv0.Bom, tool, language, sha256 string) (*builderv0.SBOMResponse, error) {
+	return &builderv0.SBOMResponse{
+		State:    &builderv0.SBOMStatus{State: builderv0.SBOMStatus_COMPLETE},
+		Bom:      bom,
+		Tool:     tool,
+		Language: language,
+		Sha256:   sha256,
+	}, nil
+}
+
+// SBOMError reports a failed inventory. It never returns an empty COMPLETE
+// response because incomplete inventories are unsafe release evidence.
+func (s *BuilderWrapper) SBOMError(err error) (*builderv0.SBOMResponse, error) {
+	return &builderv0.SBOMResponse{
+		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_ERROR, Message: err.Error()},
+	}, nil
+}
+
+// SBOMUnsupported reports that this plugin has no authoritative generator.
+func (s *BuilderWrapper) SBOMUnsupported(message string) (*builderv0.SBOMResponse, error) {
+	return &builderv0.SBOMResponse{
+		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_UNSUPPORTED, Message: message},
+	}, nil
+}
+
+// SBOMContainer is the shared implementation for stock-image service agents.
+func (s *BuilderWrapper) SBOMContainer(ctx context.Context, image string) (*builderv0.SBOMResponse, error) {
+	result, err := servicesbom.Container(ctx, image)
+	if err != nil {
+		return s.SBOMError(err)
+	}
+	return s.SBOMResponse(result.Bom, result.Tool, result.Language, result.SHA256)
 }
 
 // UpgradeResponse builds a successful UpgradeResponse. State is NOOP if

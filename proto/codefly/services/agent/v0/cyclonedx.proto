@@ -14,20 +14,64 @@ message Component {
   string group = 4; // Optional
   // purl is the package URL identifying a software component.
   string purl = 5; // Package URL
-  // Add other fields as per the CycloneDX spec
+  // bom_ref is the stable identifier used by dependency relationships.
+  string bom_ref = 6;
+  // licenses contains SPDX license identifiers declared by the component.
+  repeated string licenses = 7;
+  // hashes contains content digests when the package manager exposes them.
+  repeated Hash hashes = 8;
 }
 
 // ComponentType enumerates the CycloneDX component categories Codefly currently emits.
 enum ComponentType {
+  // COMPONENT_TYPE_UNSPECIFIED is invalid for an emitted component.
+  COMPONENT_TYPE_UNSPECIFIED = 0;
   // LIBRARY is a software library dependency.
-  LIBRARY = 0;
+  LIBRARY = 1;
   // FRAMEWORK is an application framework dependency.
-  FRAMEWORK = 1;
+  FRAMEWORK = 2;
   // MODULE is a Codefly or language module component.
-  MODULE = 2;
+  MODULE = 3;
   // CONTAINER is a container image component.
-  CONTAINER = 3;
-  // Add other component types
+  CONTAINER = 4;
+  // APPLICATION is a runnable service, agent, or toolbox artifact.
+  APPLICATION = 5;
+}
+
+// Hash is a content digest attached to a component.
+message Hash {
+  // algorithm is the canonical digest name, for example SHA-256 or SHA-512.
+  string algorithm = 1;
+  // content is the lowercase hexadecimal digest.
+  string content = 2;
+}
+
+// Dependency describes one CycloneDX dependency-graph edge set.
+message Dependency {
+  // ref identifies the component whose dependencies are listed.
+  string ref = 1;
+  // depends_on contains bom_ref values for direct dependencies.
+  repeated string depends_on = 2;
+}
+
+// Tool identifies software that produced the SBOM.
+message Tool {
+  // vendor is the tool publisher.
+  string vendor = 1;
+  // name is the tool name.
+  string name = 2;
+  // version is the exact tool version or protocol revision.
+  string version = 3;
+}
+
+// Metadata identifies the subject and generator of the SBOM.
+message Metadata {
+  // timestamp is an RFC3339 UTC generation time.
+  string timestamp = 1;
+  // component is the root application, module, or artifact being described.
+  Component component = 2;
+  // tools identifies every generator involved in producing the document.
+  repeated Tool tools = 3;
 }
 
 // Bom is the CycloneDX software bill of materials emitted by an agent.
@@ -42,5 +86,8 @@ message Bom {
   int32 version = 4;
   // components are software components included in the SBOM.
   repeated Component components = 5;
-  // Add other fields like metadata, dependencies, vulnerabilities, etc.
+  // dependencies is the direct dependency graph keyed by component bom_ref.
+  repeated Dependency dependencies = 6;
+  // metadata identifies the SBOM subject and generator.
+  Metadata metadata = 7;
 }

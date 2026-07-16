@@ -3,10 +3,16 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
+
+// GovulncheckVersion is the scanner revision Codefly resolves when no
+// operator-provided binary is present. Pinning it makes release evidence
+// reproducible and avoids the old host-PATH-dependent silent skip.
+const GovulncheckVersion = "v1.6.0"
 
 // Golang scans a Go module rooted at dir.
 //
@@ -14,21 +20,18 @@ import (
 // reports vulns the binary can actually reach). Outdated: go list -m
 // -u -json all (returns each module with its current + Update fields).
 //
-// Both tools are skipped (Tool="missing") if not on PATH so the agent
-// scan still completes — the CLI surfaces the missing-tool warning.
+// A PATH-installed govulncheck is honored for hermetic/operator-managed
+// environments. Otherwise Codefly runs the pinned scanner through the Go tool,
+// which uses Go's content-addressed module/build cache without modifying the
+// audited module. If neither path is possible the audit fails explicitly.
 func Golang(ctx context.Context, dir string, includeOutdated bool) (*Result, error) {
 	res := &Result{Language: "GO"}
-	tools := []string{}
-	govulncheckAvailable := have("govulncheck")
-
-	if govulncheckAvailable {
-		tools = append(tools, "govulncheck")
-		findings, err := runGovulncheck(ctx, dir)
-		if err != nil {
-			return nil, err
-		}
-		res.Findings = findings
+	findings, scanner, err := runGovulncheck(ctx, dir)
+	if err != nil {
+		return nil, err
 	}
+	res.Findings = findings
+	tools := []string{scanner}
 
 	if includeOutdated && have("go") {
 		tools = append(tools, "go list -u")
@@ -39,15 +42,7 @@ func Golang(ctx context.Context, dir string, includeOutdated bool) (*Result, err
 		res.Outdated = outdated
 	}
 
-	// A Go vulnerability audit is incomplete without govulncheck. Keep
-	// Tool="missing" even when `go list -u` successfully collected outdated
-	// dependencies so security-gating callers cannot mistake that metadata for
-	// a completed vulnerability scan.
-	if !govulncheckAvailable {
-		res.Tool = "missing"
-	} else {
-		res.Tool = strings.Join(tools, "+")
-	}
+	res.Tool = strings.Join(tools, "+")
 	return res, nil
 }
 
@@ -72,16 +67,28 @@ type govulncheckOutput struct {
 	} `json:"osv,omitempty"`
 }
 
-func runGovulncheck(ctx context.Context, dir string) ([]*builderv0.AuditFinding, error) {
-	out, err := runCmd(ctx, dir, "govulncheck", "-json", "./...")
+func runGovulncheck(ctx context.Context, dir string) ([]*builderv0.AuditFinding, string, error) {
+	name := "govulncheck"
+	args := []string{"-json", "./..."}
+	tool := "govulncheck"
+	if !have(name) {
+		if !have("go") {
+			return nil, "", fmt.Errorf("govulncheck unavailable: neither govulncheck nor go is installed")
+		}
+		name = "go"
+		args = []string{"run", "golang.org/x/vuln/cmd/govulncheck@" + GovulncheckVersion, "-json", "./..."}
+		tool = "govulncheck@" + GovulncheckVersion
+	}
+	out, err := runCmd(ctx, dir, name, args...)
 	// govulncheck exits non-zero when findings exist; we still parse.
 	// But a genuine run failure (module not initialized, binary errors)
 	// produces no output to parse — propagate it instead of masking the
 	// scan failure as "no vulnerabilities". Mirrors runGoListUpdates.
 	if err != nil && len(out) == 0 {
-		return nil, err
+		return nil, "", err
 	}
-	return runGovulncheckParseBytes(out)
+	findings, parseErr := runGovulncheckParseBytes(out)
+	return findings, tool, parseErr
 }
 
 // runGovulncheckParseBytes is the pure JSON-parsing path, exposed for

@@ -3,6 +3,10 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -13,19 +17,24 @@ import (
 // `npm outdated --json` (returns {} when nothing outdated).
 //
 // Both commands exit non-zero on findings, which is normal — we still
-// parse the JSON output. Missing tool → Tool="missing".
+// parse the JSON output. Missing npm is an incomplete audit and fails.
 func Node(ctx context.Context, dir string, includeOutdated bool) (*Result, error) {
 	res := &Result{Language: "TYPESCRIPT", Tool: "npm-audit"}
 	if !have("npm") {
-		res.Tool = "missing"
-		return res, nil
+		return nil, fmt.Errorf("npm audit unavailable: npm is not installed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "package-lock.json")); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("npm audit requires package-lock.json")
+		}
+		return nil, fmt.Errorf("inspect package-lock.json: %w", err)
 	}
 
 	out, err := runCmd(ctx, dir, "npm", "audit", "--json")
 	if err != nil && len(out) == 0 {
 		// `npm audit` failed completely (e.g. missing tool/lockfile);
 		// nothing to parse — non-zero exit on findings still yields output.
-		return res, nil
+		return nil, fmt.Errorf("npm audit failed: %w", err)
 	}
 	findings, err := parseNpmAudit(out)
 	if err != nil {
@@ -34,10 +43,12 @@ func Node(ctx context.Context, dir string, includeOutdated bool) (*Result, error
 	res.Findings = findings
 
 	if includeOutdated {
-		o, err := runCmd(ctx, dir, "npm", "outdated", "--json")
+		// package-lock-only makes "current" come from the release lock rather
+		// than an arbitrary node_modules tree on the operator's machine.
+		o, err := runCmd(ctx, dir, "npm", "outdated", "--json", "--package-lock-only")
 		if err != nil && len(o) == 0 {
 			// `npm outdated` failed completely; skip outdated portion.
-			return res, nil
+			return nil, fmt.Errorf("npm outdated failed: %w", err)
 		}
 		res.Outdated = parseNpmOutdated(o)
 		res.Tool = "npm-audit+outdated"
@@ -67,10 +78,10 @@ func parseNpmAudit(out []byte) ([]*builderv0.AuditFinding, error) {
 		// try to recover by slicing from the first '{'.
 		if i := strings.IndexByte(string(out), '{'); i >= 0 {
 			if err := json.Unmarshal(out[i:], &a); err != nil {
-				return nil, nil // give up gracefully
+				return nil, err
 			}
 		} else {
-			return nil, nil
+			return nil, err
 		}
 	}
 	var findings []*builderv0.AuditFinding
@@ -100,6 +111,12 @@ func parseNpmAudit(out []byte) ([]*builderv0.AuditFinding, error) {
 			Url:            url,
 		})
 	}
+	sort.Slice(findings, func(i, j int) bool {
+		if findings[i].GetPackage() != findings[j].GetPackage() {
+			return findings[i].GetPackage() < findings[j].GetPackage()
+		}
+		return findings[i].GetId() < findings[j].GetId()
+	})
 	return findings, nil
 }
 
@@ -153,5 +170,6 @@ func parseNpmOutdated(out []byte) []*builderv0.OutdatedDep {
 			LatestMajor: e.Latest,
 		})
 	}
+	sort.Slice(deps, func(i, j int) bool { return deps[i].GetPackage() < deps[j].GetPackage() })
 	return deps
 }

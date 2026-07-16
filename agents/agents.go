@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -134,6 +135,19 @@ func authUnaryInterceptor(expectedToken string) grpc.UnaryServerInterceptor {
 		}
 		if err := verifyAuthToken(ctx, expectedToken); err != nil {
 			return nil, err
+		}
+		return handler(ctx, req)
+	}
+}
+
+// runtimeLoadTracker records that this agent process has actually entered the
+// Runtime lifecycle. Builder-only invocations still register a Runtime server,
+// but must not call Runtime.Stop during process shutdown: many agents cannot
+// safely tear down runtime state that was never loaded.
+func runtimeLoadTracker(loaded *atomic.Bool) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if info.FullMethod == runtimev0.Runtime_Load_FullMethodName {
+			loaded.Store(true)
 		}
 		return handler(ctx, req)
 	}
@@ -396,6 +410,7 @@ func Serve(reg PluginRegistration) {
 	// of swallowing) so the recovery interceptor below turns it into one.
 	wool.SetRethrowAfterCatch(true)
 
+	var runtimeLoaded atomic.Bool
 	s := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			// panicRecovery is OUTERMOST so it catches panics from the
@@ -410,6 +425,7 @@ func Serve(reg PluginRegistration) {
 			// insecure default.
 			authUnaryInterceptor(expectedToken),
 			principalUnaryInterceptor(),
+			runtimeLoadTracker(&runtimeLoaded),
 			agentRPCInterceptor(),
 		),
 		grpc.ChainStreamInterceptor(
@@ -519,7 +535,7 @@ func Serve(reg PluginRegistration) {
 			fmt.Fprintln(os.Stderr, "[agent] shutdown exceeded deadline — forcing exit (avoids the parent's SIGKILL)")
 			os.Exit(0)
 		}()
-		if reg.Runtime != nil {
+		if reg.Runtime != nil && runtimeLoaded.Load() {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_, _ = reg.Runtime.Stop(stopCtx, &runtimev0.StopRequest{})
 			cancel()

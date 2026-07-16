@@ -62,9 +62,12 @@ func (s *DefaultBuilder) Update(context.Context, *builderv0.UpdateRequest) (*bui
 	return s.wrapper.UpdateResponse()
 }
 
-func (s *DefaultBuilder) Sync(context.Context, *builderv0.SyncRequest) (*builderv0.SyncResponse, error) {
+func (s *DefaultBuilder) Sync(_ context.Context, request *builderv0.SyncRequest) (*builderv0.SyncResponse, error) {
 	if s == nil || s.wrapper == nil {
 		return (&BuilderWrapper{}).SyncError(errDefaultBuilderNotWired)
+	}
+	if request.GetDryRun() {
+		return s.wrapper.SyncUnsupported("this service agent does not provide non-mutating sync drift detection")
 	}
 	return s.wrapper.SyncResponse()
 }
@@ -74,6 +77,20 @@ func (s *DefaultBuilder) Build(context.Context, *builderv0.BuildRequest) (*build
 		return (&BuilderWrapper{}).BuildError(errDefaultBuilderNotWired)
 	}
 	return s.wrapper.BuildResponse()
+}
+
+func (s *DefaultBuilder) Audit(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+	if s == nil || s.wrapper == nil {
+		return (&BuilderWrapper{}).AuditUnsupported(errDefaultBuilderNotWired.Error())
+	}
+	return s.wrapper.AuditUnsupported("this service agent does not provide an authoritative vulnerability audit")
+}
+
+func (s *DefaultBuilder) SBOM(context.Context, *builderv0.SBOMRequest) (*builderv0.SBOMResponse, error) {
+	if s == nil || s.wrapper == nil {
+		return (&BuilderWrapper{}).SBOMUnsupported(errDefaultBuilderNotWired.Error())
+	}
+	return s.wrapper.SBOMUnsupported("this service agent does not provide an authoritative SBOM")
 }
 
 // Communicate is an empty question stream by default. Plugins with creation or

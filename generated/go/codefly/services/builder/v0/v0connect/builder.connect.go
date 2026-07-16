@@ -51,6 +51,8 @@ const (
 	BuilderDeployProcedure = "/codefly.services.builder.v0.Builder/Deploy"
 	// BuilderAuditProcedure is the fully-qualified name of the Builder's Audit RPC.
 	BuilderAuditProcedure = "/codefly.services.builder.v0.Builder/Audit"
+	// BuilderSBOMProcedure is the fully-qualified name of the Builder's SBOM RPC.
+	BuilderSBOMProcedure = "/codefly.services.builder.v0.Builder/SBOM"
 	// BuilderUpgradeProcedure is the fully-qualified name of the Builder's Upgrade RPC.
 	BuilderUpgradeProcedure = "/codefly.services.builder.v0.Builder/Upgrade"
 	// BuilderConfigureProcedure is the fully-qualified name of the Builder's Configure RPC.
@@ -77,6 +79,8 @@ type BuilderClient interface {
 	Deploy(context.Context, *connect.Request[v0.DeploymentRequest]) (*connect.Response[v0.DeploymentResponse], error)
 	// Audit runs dependency and image vulnerability checks.
 	Audit(context.Context, *connect.Request[v0.AuditRequest]) (*connect.Response[v0.AuditResponse], error)
+	// SBOM returns an authoritative CycloneDX inventory for the loaded service.
+	SBOM(context.Context, *connect.Request[v0.SBOMRequest]) (*connect.Response[v0.SBOMResponse], error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(context.Context, *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error)
 	// Configure applies structured config changes to the service and PERSISTS them
@@ -150,6 +154,12 @@ func NewBuilderClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(builderMethods.ByName("Audit")),
 			connect.WithClientOptions(opts...),
 		),
+		sBOM: connect.NewClient[v0.SBOMRequest, v0.SBOMResponse](
+			httpClient,
+			baseURL+BuilderSBOMProcedure,
+			connect.WithSchema(builderMethods.ByName("SBOM")),
+			connect.WithClientOptions(opts...),
+		),
 		upgrade: connect.NewClient[v0.UpgradeRequest, v0.UpgradeResponse](
 			httpClient,
 			baseURL+BuilderUpgradeProcedure,
@@ -181,6 +191,7 @@ type builderClient struct {
 	build       *connect.Client[v0.BuildRequest, v0.BuildResponse]
 	deploy      *connect.Client[v0.DeploymentRequest, v0.DeploymentResponse]
 	audit       *connect.Client[v0.AuditRequest, v0.AuditResponse]
+	sBOM        *connect.Client[v0.SBOMRequest, v0.SBOMResponse]
 	upgrade     *connect.Client[v0.UpgradeRequest, v0.UpgradeResponse]
 	configure   *connect.Client[v0.ConfigureRequest, v0.ConfigureResponse]
 	communicate *connect.Client[v01.Answer, v01.Question]
@@ -226,6 +237,11 @@ func (c *builderClient) Audit(ctx context.Context, req *connect.Request[v0.Audit
 	return c.audit.CallUnary(ctx, req)
 }
 
+// SBOM calls codefly.services.builder.v0.Builder.SBOM.
+func (c *builderClient) SBOM(ctx context.Context, req *connect.Request[v0.SBOMRequest]) (*connect.Response[v0.SBOMResponse], error) {
+	return c.sBOM.CallUnary(ctx, req)
+}
+
 // Upgrade calls codefly.services.builder.v0.Builder.Upgrade.
 func (c *builderClient) Upgrade(ctx context.Context, req *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error) {
 	return c.upgrade.CallUnary(ctx, req)
@@ -259,6 +275,8 @@ type BuilderHandler interface {
 	Deploy(context.Context, *connect.Request[v0.DeploymentRequest]) (*connect.Response[v0.DeploymentResponse], error)
 	// Audit runs dependency and image vulnerability checks.
 	Audit(context.Context, *connect.Request[v0.AuditRequest]) (*connect.Response[v0.AuditResponse], error)
+	// SBOM returns an authoritative CycloneDX inventory for the loaded service.
+	SBOM(context.Context, *connect.Request[v0.SBOMRequest]) (*connect.Response[v0.SBOMResponse], error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(context.Context, *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error)
 	// Configure applies structured config changes to the service and PERSISTS them
@@ -328,6 +346,12 @@ func NewBuilderHandler(svc BuilderHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(builderMethods.ByName("Audit")),
 		connect.WithHandlerOptions(opts...),
 	)
+	builderSBOMHandler := connect.NewUnaryHandler(
+		BuilderSBOMProcedure,
+		svc.SBOM,
+		connect.WithSchema(builderMethods.ByName("SBOM")),
+		connect.WithHandlerOptions(opts...),
+	)
 	builderUpgradeHandler := connect.NewUnaryHandler(
 		BuilderUpgradeProcedure,
 		svc.Upgrade,
@@ -364,6 +388,8 @@ func NewBuilderHandler(svc BuilderHandler, opts ...connect.HandlerOption) (strin
 			builderDeployHandler.ServeHTTP(w, r)
 		case BuilderAuditProcedure:
 			builderAuditHandler.ServeHTTP(w, r)
+		case BuilderSBOMProcedure:
+			builderSBOMHandler.ServeHTTP(w, r)
 		case BuilderUpgradeProcedure:
 			builderUpgradeHandler.ServeHTTP(w, r)
 		case BuilderConfigureProcedure:
@@ -409,6 +435,10 @@ func (UnimplementedBuilderHandler) Deploy(context.Context, *connect.Request[v0.D
 
 func (UnimplementedBuilderHandler) Audit(context.Context, *connect.Request[v0.AuditRequest]) (*connect.Response[v0.AuditResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.builder.v0.Builder.Audit is not implemented"))
+}
+
+func (UnimplementedBuilderHandler) SBOM(context.Context, *connect.Request[v0.SBOMRequest]) (*connect.Response[v0.SBOMResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.builder.v0.Builder.SBOM is not implemented"))
 }
 
 func (UnimplementedBuilderHandler) Upgrade(context.Context, *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error) {

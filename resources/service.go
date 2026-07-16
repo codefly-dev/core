@@ -620,8 +620,12 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 			base.ApiDetails = ToRestAPI(rest)
 			out = append(out, base)
 		case standards.GRPC:
-			w.Debug("loading gRPC endpoint", wool.Path(standards.ProtoPath))
-			grpc, err := LoadGrpcAPI(ctx, s.LocalOrNil(ctx, standards.ProtoPath))
+			contract := s.LocalOrNil(ctx, standards.DependencyProtoPath)
+			if contract == nil {
+				contract = s.LocalOrNil(ctx, standards.ProtoPath)
+			}
+			w.Debug("loading gRPC endpoint", wool.Field("contract", contract))
+			grpc, err := LoadGrpcAPI(ctx, contract)
 			if err != nil {
 				multi = multierror.Append(multi, err)
 				continue

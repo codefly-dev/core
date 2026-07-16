@@ -57,6 +57,88 @@ message Capability {
   Type type = 1;
 }
 
+// ValidationScope describes the semantic granularity an agent can validate.
+// It is language- and runner-neutral; the agent owns translation to native
+// package, file, or test-case selectors.
+enum ValidationScope {
+  // VALIDATION_SCOPE_UNSPECIFIED means no scope contract was declared.
+  VALIDATION_SCOPE_UNSPECIFIED = 0;
+  // VALIDATION_SCOPE_WORKSPACE validates the complete service source tree.
+  VALIDATION_SCOPE_WORKSPACE = 1;
+  // VALIDATION_SCOPE_PACKAGE validates one language package/module/crate.
+  VALIDATION_SCOPE_PACKAGE = 2;
+  // VALIDATION_SCOPE_FILE validates one canonical workspace-relative file.
+  VALIDATION_SCOPE_FILE = 3;
+  // VALIDATION_SCOPE_CASE validates one exact logical test case.
+  VALIDATION_SCOPE_CASE = 4;
+}
+
+// TestDependencyMode declares which live service graph a named suite needs.
+// Selection of validation targets remains separate from starting runtime
+// prerequisites for one target's suite.
+enum TestDependencyMode {
+  // TEST_DEPENDENCY_MODE_UNSPECIFIED means the suite contract is incomplete.
+  TEST_DEPENDENCY_MODE_UNSPECIFIED = 0;
+  // TEST_DEPENDENCY_MODE_NONE initializes only the validation target.
+  TEST_DEPENDENCY_MODE_NONE = 1;
+  // TEST_DEPENDENCY_MODE_START_DEPENDENCIES starts the target's dependency
+  // closure, but does not start the target service process.
+  TEST_DEPENDENCY_MODE_START_DEPENDENCIES = 2;
+  // TEST_DEPENDENCY_MODE_START_STACK starts dependencies and the target service.
+  TEST_DEPENDENCY_MODE_START_STACK = 3;
+}
+
+// ValidationOperationCapability advertises one non-test validation operation.
+message ValidationOperationCapability {
+  // supported is authoritative when AgentInformation.validation is present.
+  bool supported = 1;
+  // scopes are the semantic granularities the operation accepts.
+  repeated ValidationScope scopes = 2;
+  // supports_fix is meaningful for lint and false for read-only operations.
+  bool supports_fix = 3;
+}
+
+// TestSuiteCapability advertises one stable suite identity and its live graph.
+message TestSuiteCapability {
+  // name is the value accepted by Runtime.Test's suite selection.
+  string name = 1;
+  // dependency_mode controls which services remain live during this suite.
+  TestDependencyMode dependency_mode = 2;
+  // default_suite marks the suite selected when no explicit suite was supplied.
+  bool default_suite = 3;
+}
+
+// TestValidationCapability advertises Runtime.Test behavior.
+message TestValidationCapability {
+  // supported is authoritative when AgentInformation.validation is present.
+  bool supported = 1;
+  // scopes are the semantic granularities Runtime.Test accepts.
+  repeated ValidationScope scopes = 2;
+  // suites are the named test suites the agent understands.
+  repeated TestSuiteCapability suites = 3;
+}
+
+// ValidationCapabilities advertises the validation operations implemented by
+// an agent. A nil AgentInformation.validation denotes a legacy agent whose RPCs
+// must be compatibility-probed. A present message is authoritative: false
+// means unsupported, while true requires the corresponding RPC to exist.
+message ValidationCapabilities {
+  // lint describes the Runtime.Lint operation.
+  ValidationOperationCapability lint = 1;
+  // compile describes Runtime.Build (native compile/typecheck/application build).
+  ValidationOperationCapability compile = 2;
+  // test describes Runtime.Test, its scopes, and named suites.
+  TestValidationCapability test = 3;
+  // audit describes Builder.Audit.
+  ValidationOperationCapability audit = 4;
+  // artifact_build describes Builder.Build's deployable artifact operation.
+  ValidationOperationCapability artifact_build = 5;
+  // sbom describes Builder.SBOM's authoritative component inventory.
+  ValidationOperationCapability sbom = 6;
+  // sync describes Builder.Sync, including non-mutating drift detection.
+  ValidationOperationCapability sync = 7;
+}
+
 // Backend describes an execution environment a service can run in. It is
 // orthogonal to Toolchain: a backend is HOW the service runs (native process,
 // nix shell, container), a toolchain is WHAT the host needs for LOCAL mode.
@@ -169,6 +251,9 @@ message AgentInformation {
   // toolchains are host toolchains the user must have available to run the
   // service in LOCAL mode (ignored for NIX/DOCKER backends).
   repeated Toolchain toolchains = 9;
+  // validation is the authoritative validation contract for new agents. It is
+  // absent for legacy agents, which keeps compatibility RPC probing explicit.
+  ValidationCapabilities validation = 10;
 }
 
 // AgentInformationRequest asks an agent to describe its capabilities and settings.

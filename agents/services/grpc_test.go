@@ -25,6 +25,10 @@ func TestDefaultBuilderProvidesSuccessfulNoopLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, builderv0.SyncStatus_SUCCESS, syncResponse.GetState().GetState())
 
+	dryRunResponse, err := defaults.Sync(context.Background(), &builderv0.SyncRequest{DryRun: true})
+	require.NoError(t, err)
+	require.Equal(t, builderv0.SyncStatus_UNSUPPORTED, dryRunResponse.GetState().GetState())
+
 	buildResponse, err := defaults.Build(context.Background(), &builderv0.BuildRequest{})
 	require.NoError(t, err)
 	require.Equal(t, builderv0.BuildStatus_SUCCESS, buildResponse.GetState().GetState())

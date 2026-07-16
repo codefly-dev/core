@@ -25,7 +25,10 @@ var (
 	connCache      = make(map[string]*manager.AgentConn)
 	connLoads      = make(map[string]*connLoad)
 	connGeneration uint64
-	managerLoad    = manager.Load
+	// connKeyGenerations lets one completed flow evict only the service agents
+	// it owned without invalidating unrelated parallel launches.
+	connKeyGenerations = make(map[string]uint64)
+	managerLoad        = manager.Load
 )
 
 type connLoad struct {
@@ -129,6 +132,7 @@ func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agen
 	}
 	load := &connLoad{done: make(chan struct{})}
 	generation := connGeneration
+	keyGeneration := connKeyGenerations[cacheKey]
 	connLoads[cacheKey] = load
 	connCacheMu.Unlock()
 
@@ -141,7 +145,12 @@ func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agen
 	// the gap. See toolbox/launch for the path that DOES sandbox.
 	conn, err := managerLoad(ctx, agent,
 		manager.WithLogWriter(pw),
-		manager.WithoutSandbox())
+		manager.WithoutSandbox(),
+		// Service lifecycle agents are orchestration plumbing: they compile and
+		// run the user's own code but do not act as a SaaS end-user principal.
+		// Keep that authority choice explicit so manager admission fails closed
+		// everywhere a caller forgets to decide.
+		manager.WithoutPrincipal())
 	if err != nil {
 		_ = pw.Close()
 	}
@@ -150,7 +159,7 @@ func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agen
 	if current, ok := connLoads[cacheKey]; ok && current == load {
 		delete(connLoads, cacheKey)
 	}
-	if err == nil && generation != connGeneration {
+	if err == nil && (generation != connGeneration || keyGeneration != connKeyGenerations[cacheKey]) {
 		err = fmt.Errorf("agent connection cache was cleared while %q was loading", cacheKey)
 	}
 	if err == nil {
@@ -206,6 +215,7 @@ func ClearAgents() {
 	old := connCache
 	connCache = make(map[string]*manager.AgentConn)
 	connLoads = make(map[string]*connLoad)
+	connKeyGenerations = make(map[string]uint64)
 	connGeneration++
 	connCacheMu.Unlock()
 
@@ -214,6 +224,31 @@ func ClearAgents() {
 	instancesMu.Unlock()
 
 	for _, conn := range old {
+		if conn != nil {
+			conn.Close()
+		}
+	}
+}
+
+// ClearAgent evicts one service-scoped agent connection and its cached
+// Instance. It is safe to call while unrelated service agents are loading or
+// running. A same-key launch already in flight is invalidated and cannot
+// repopulate the cache after this call.
+func ClearAgent(cacheKey string) {
+	if cacheKey == "" {
+		return
+	}
+	connCacheMu.Lock()
+	conn := connCache[cacheKey]
+	delete(connCache, cacheKey)
+	connKeyGenerations[cacheKey]++
+	connCacheMu.Unlock()
+
+	instancesMu.Lock()
+	delete(instances, cacheKey)
+	instancesMu.Unlock()
+
+	if conn != nil {
 		conn.Close()
 	}
 }

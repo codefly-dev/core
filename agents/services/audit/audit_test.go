@@ -9,7 +9,7 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
 
-func TestGolangReportsMissingWhenOnlyGoIsAvailable(t *testing.T) {
+func TestGolangUsesManagedScannerWhenOnlyGoIsAvailable(t *testing.T) {
 	bin := t.TempDir()
 	goPath := filepath.Join(bin, "go")
 	if err := os.WriteFile(goPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
@@ -21,8 +21,50 @@ func TestGolangReportsMissingWhenOnlyGoIsAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Tool != "missing" {
-		t.Fatalf("Tool = %q, want missing without govulncheck", result.Tool)
+	if result.Tool != "govulncheck@"+GovulncheckVersion {
+		t.Fatalf("Tool = %q, want managed govulncheck", result.Tool)
+	}
+}
+
+func TestPythonAuditsFrozenUVSnapshotNotAmbientEnvironment(t *testing.T) {
+	bin := t.TempDir()
+	uvPath := filepath.Join(bin, "uv")
+	uvScript := `#!/bin/sh
+if [ "$1" = "export" ]; then
+  printf '%s\n' 'demo==1.0.0 --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+else
+  printf '%s\n' 'demo-app v0.1.0' '└── demo v1.0.0 (latest: v1.1.0)'
+fi
+`
+	if err := os.WriteFile(uvPath, []byte(uvScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pipAuditPath := filepath.Join(bin, "pip-audit")
+	pipAuditScript := `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-r" ]; then
+    shift
+    IFS= read -r requirement < "$1"
+    [ "$requirement" = "demo==1.0.0 --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ] || exit 20
+  fi
+  shift
+done
+printf '%s\n' '{"dependencies":[]}'
+`
+	if err := os.WriteFile(pipAuditPath, []byte(pipAuditScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	result, err := Python(context.Background(), t.TempDir(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tool != "uv-export+pip-audit+uv-tree-outdated" {
+		t.Fatalf("Tool = %q", result.Tool)
+	}
+	if len(result.Outdated) != 1 || result.Outdated[0].Package != "demo" {
+		t.Fatalf("outdated = %+v", result.Outdated)
 	}
 }
 
@@ -146,12 +188,37 @@ func TestParsePipAudit(t *testing.T) {
 	}
 }
 
-func TestParsePipOutdated(t *testing.T) {
-	out := []byte(`[
-		{"name": "django", "version": "4.2.0", "latest_version": "5.0.1", "latest_filetype": "wheel"}
-	]`)
-	deps := parsePipOutdated(out)
-	if len(deps) != 1 || deps[0].Package != "django" || deps[0].LatestSafe != "5.0.1" {
+func TestParseOSVGroupsAliasesAndKeepsUnknownSeverityGating(t *testing.T) {
+	out := []byte(`{
+		"results": [{"packages": [{
+			"package": {"name": "regex", "version": "1.5.1", "ecosystem": "crates.io"},
+			"vulnerabilities": [
+				{"id": "GHSA-m5pq-gvj9-9vr8", "aliases": ["RUSTSEC-2022-0013"], "summary": "regex denial of service"},
+				{"id": "RUSTSEC-2022-0013", "aliases": ["GHSA-m5pq-gvj9-9vr8"], "summary": "regex denial of service", "affected": [{"package":{"name":"regex"},"ranges":[{"events":[{"introduced":"0"},{"fixed":"1.5.5"}]}]}]}
+			],
+			"groups": [{"ids": ["GHSA-m5pq-gvj9-9vr8", "RUSTSEC-2022-0013"]}]
+		}]}]
+	}`)
+	findings, err := parseOSV(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected aliases to collapse to one finding, got %+v", findings)
+	}
+	finding := findings[0]
+	if finding.Id != "RUSTSEC-2022-0013" || finding.FixedVersion != "1.5.5" {
+		t.Fatalf("finding wrong: %+v", finding)
+	}
+	if finding.Severity != builderv0.AuditFinding_HIGH {
+		t.Fatalf("unclassified vulnerability must remain release-gating: %+v", finding)
+	}
+}
+
+func TestParseUVTreeOutdated(t *testing.T) {
+	out := []byte("demo v0.1.0\n├── django v4.2.0 (latest: v5.0.1)\n└── anyio v4.9.0\n")
+	deps := parseUVTreeOutdated(out)
+	if len(deps) != 1 || deps[0].Package != "django" || deps[0].LatestSafe != "" || deps[0].LatestMajor != "5.0.1" {
 		t.Fatalf("dep wrong: %+v", deps)
 	}
 }

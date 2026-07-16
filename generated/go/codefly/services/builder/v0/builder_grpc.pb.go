@@ -29,6 +29,7 @@ const (
 	Builder_Build_FullMethodName       = "/codefly.services.builder.v0.Builder/Build"
 	Builder_Deploy_FullMethodName      = "/codefly.services.builder.v0.Builder/Deploy"
 	Builder_Audit_FullMethodName       = "/codefly.services.builder.v0.Builder/Audit"
+	Builder_SBOM_FullMethodName        = "/codefly.services.builder.v0.Builder/SBOM"
 	Builder_Upgrade_FullMethodName     = "/codefly.services.builder.v0.Builder/Upgrade"
 	Builder_Configure_FullMethodName   = "/codefly.services.builder.v0.Builder/Configure"
 	Builder_Communicate_FullMethodName = "/codefly.services.builder.v0.Builder/Communicate"
@@ -61,6 +62,8 @@ type BuilderClient interface {
 	Deploy(ctx context.Context, in *DeploymentRequest, opts ...grpc.CallOption) (*DeploymentResponse, error)
 	// Audit runs dependency and image vulnerability checks.
 	Audit(ctx context.Context, in *AuditRequest, opts ...grpc.CallOption) (*AuditResponse, error)
+	// SBOM returns an authoritative CycloneDX inventory for the loaded service.
+	SBOM(ctx context.Context, in *SBOMRequest, opts ...grpc.CallOption) (*SBOMResponse, error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(ctx context.Context, in *UpgradeRequest, opts ...grpc.CallOption) (*UpgradeResponse, error)
 	// Configure applies structured config changes to the service and PERSISTS them
@@ -163,6 +166,16 @@ func (c *builderClient) Audit(ctx context.Context, in *AuditRequest, opts ...grp
 	return out, nil
 }
 
+func (c *builderClient) SBOM(ctx context.Context, in *SBOMRequest, opts ...grpc.CallOption) (*SBOMResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SBOMResponse)
+	err := c.cc.Invoke(ctx, Builder_SBOM_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *builderClient) Upgrade(ctx context.Context, in *UpgradeRequest, opts ...grpc.CallOption) (*UpgradeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpgradeResponse)
@@ -223,6 +236,8 @@ type BuilderServer interface {
 	Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error)
 	// Audit runs dependency and image vulnerability checks.
 	Audit(context.Context, *AuditRequest) (*AuditResponse, error)
+	// SBOM returns an authoritative CycloneDX inventory for the loaded service.
+	SBOM(context.Context, *SBOMRequest) (*SBOMResponse, error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(context.Context, *UpgradeRequest) (*UpgradeResponse, error)
 	// Configure applies structured config changes to the service and PERSISTS them
@@ -268,6 +283,9 @@ func (UnimplementedBuilderServer) Deploy(context.Context, *DeploymentRequest) (*
 }
 func (UnimplementedBuilderServer) Audit(context.Context, *AuditRequest) (*AuditResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Audit not implemented")
+}
+func (UnimplementedBuilderServer) SBOM(context.Context, *SBOMRequest) (*SBOMResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SBOM not implemented")
 }
 func (UnimplementedBuilderServer) Upgrade(context.Context, *UpgradeRequest) (*UpgradeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Upgrade not implemented")
@@ -443,6 +461,24 @@ func _Builder_Audit_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Builder_SBOM_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SBOMRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BuilderServer).SBOM(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Builder_SBOM_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BuilderServer).SBOM(ctx, req.(*SBOMRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Builder_Upgrade_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpgradeRequest)
 	if err := dec(in); err != nil {
@@ -524,6 +560,10 @@ var Builder_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Audit",
 			Handler:    _Builder_Audit_Handler,
+		},
+		{
+			MethodName: "SBOM",
+			Handler:    _Builder_SBOM_Handler,
 		},
 		{
 			MethodName: "Upgrade",

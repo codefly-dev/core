@@ -8,6 +8,7 @@ import "codefly/base/v0/endpoint.proto";
 import "codefly/base/v0/environment.proto";
 import "codefly/base/v0/configuration.proto";
 import "codefly/services/agent/v0/communicate.proto";
+import "codefly/services/agent/v0/cyclonedx.proto";
 import "codefly/services/builder/v0/docker.proto";
 import "codefly/services/builder/v0/deployment.proto";
 
@@ -187,6 +188,10 @@ Sync re-generate what needs to be re-generated
 
 // SyncRequest asks the builder to resynchronize generated or configuration-derived files.
 message SyncRequest {
+  // dry_run asks the agent to compute generated/configuration-derived output
+  // without modifying the service tree. Agents that cannot guarantee a
+  // non-mutating check must return UNSUPPORTED.
+  bool dry_run = 1;
 }
 
 // SyncStatus reports the state and message for the sync lifecycle phase.
@@ -199,6 +204,9 @@ message SyncStatus {
     SUCCESS = 1;
     // ERROR means the phase failed and message carries diagnostics.
     ERROR = 2;
+    // UNSUPPORTED means the requested sync mode is not implemented. In
+    // particular, an agent must not silently ignore dry_run.
+    UNSUPPORTED = 3;
   }
   // state is the machine-readable lifecycle state.
   Status state = 1;
@@ -210,6 +218,9 @@ message SyncStatus {
 message SyncResponse {
   // state is the machine-readable lifecycle state.
   SyncStatus state = 1;
+  // changed_files lists workspace-relative paths whose canonical generated
+  // content differs. It is populated by dry_run and sorted deterministically.
+  repeated string changed_files = 2;
 }
 
 /*
@@ -330,7 +341,7 @@ message DeploymentResponse {
 
 Audit — security + outdated-dep scan. Per-language under the hood
 (govulncheck/go list -u for Go, npm audit/outdated for Node,
-pip-audit for Python, trivy for Docker images). Pure read-only.
+uv/pip-audit for Python, OSV for Rust, trivy for Docker images). Pure read-only.
 
 */
 
@@ -399,6 +410,8 @@ message AuditStatus {
     FINDINGS = 2;  // findings present (still a successful scan)
     // ERROR means the phase failed and message carries diagnostics.
     ERROR = 3;     // tool failed or fail_on_vuln tripped
+    // UNSUPPORTED means this agent has no authoritative scanner for its subject.
+    UNSUPPORTED = 4;
   }
   // state is the machine-readable lifecycle state.
   Status state = 1;
@@ -415,12 +428,60 @@ message AuditResponse {
   // outdated are dependency update opportunities returned by the audit.
   repeated OutdatedDep outdated = 3;
   // tool identifies what produced the report, e.g. "govulncheck+go-list-u",
-  // "npm-audit+outdated", "pip-audit", "trivy", or "missing" when the
-  // required tool is not installed (still returns a successful empty scan).
+  // "npm-audit+outdated", "uv-export+pip-audit", "osv-scanner", or "trivy".
   string tool = 4;
   // language is the source language the agent audited (matches
   // core/languages constants: GO, PYTHON, TYPESCRIPT, RUST, DOCKER).
   string language = 5;
+}
+
+/*
+
+SBOM — deterministic CycloneDX component inventory and dependency graph.
+The agent owns ecosystem-specific lockfile/module interpretation; callers do
+not shell out to language tools or attempt to infer dependency semantics.
+
+*/
+
+// SBOMRequest asks the builder agent to inventory the loaded service source.
+message SBOMRequest {
+  // include_dev_dependencies includes development/test-only dependencies when
+  // the ecosystem lockfile distinguishes them.
+  bool include_dev_dependencies = 1;
+}
+
+// SBOMStatus reports whether the inventory completed.
+message SBOMStatus {
+  // Status enumerates SBOM lifecycle states.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // COMPLETE means the returned CycloneDX document is authoritative for the
+    // requested source subject.
+    COMPLETE = 1;
+    // ERROR means generation failed and message carries diagnostics.
+    ERROR = 2;
+    // UNSUPPORTED means this agent does not yet provide an authoritative SBOM.
+    UNSUPPORTED = 3;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+}
+
+// SBOMResponse returns a typed CycloneDX inventory plus provenance metadata.
+message SBOMResponse {
+  // state reports complete, unsupported, or failed generation.
+  SBOMStatus state = 1;
+  // bom is the CycloneDX inventory and direct dependency graph.
+  codefly.services.agent.v0.Bom bom = 2;
+  // tool identifies the ecosystem resolver used to create the inventory.
+  string tool = 3;
+  // language is the source ecosystem (GO, TYPESCRIPT, PYTHON, and so on).
+  string language = 4;
+  // sha256 is the lowercase digest of the deterministic protobuf document.
+  string sha256 = 5;
 }
 
 /*
@@ -564,6 +625,8 @@ service Builder {
 
   // Audit runs dependency and image vulnerability checks.
   rpc Audit (AuditRequest) returns (AuditResponse) {}
+  // SBOM returns an authoritative CycloneDX inventory for the loaded service.
+  rpc SBOM (SBOMRequest) returns (SBOMResponse) {}
   // Upgrade applies or previews dependency version bumps.
   rpc Upgrade (UpgradeRequest) returns (UpgradeResponse) {}
 

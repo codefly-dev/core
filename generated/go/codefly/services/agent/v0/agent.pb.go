@@ -22,6 +22,129 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ValidationScope describes the semantic granularity an agent can validate.
+// It is language- and runner-neutral; the agent owns translation to native
+// package, file, or test-case selectors.
+type ValidationScope int32
+
+const (
+	// VALIDATION_SCOPE_UNSPECIFIED means no scope contract was declared.
+	ValidationScope_VALIDATION_SCOPE_UNSPECIFIED ValidationScope = 0
+	// VALIDATION_SCOPE_WORKSPACE validates the complete service source tree.
+	ValidationScope_VALIDATION_SCOPE_WORKSPACE ValidationScope = 1
+	// VALIDATION_SCOPE_PACKAGE validates one language package/module/crate.
+	ValidationScope_VALIDATION_SCOPE_PACKAGE ValidationScope = 2
+	// VALIDATION_SCOPE_FILE validates one canonical workspace-relative file.
+	ValidationScope_VALIDATION_SCOPE_FILE ValidationScope = 3
+	// VALIDATION_SCOPE_CASE validates one exact logical test case.
+	ValidationScope_VALIDATION_SCOPE_CASE ValidationScope = 4
+)
+
+// Enum value maps for ValidationScope.
+var (
+	ValidationScope_name = map[int32]string{
+		0: "VALIDATION_SCOPE_UNSPECIFIED",
+		1: "VALIDATION_SCOPE_WORKSPACE",
+		2: "VALIDATION_SCOPE_PACKAGE",
+		3: "VALIDATION_SCOPE_FILE",
+		4: "VALIDATION_SCOPE_CASE",
+	}
+	ValidationScope_value = map[string]int32{
+		"VALIDATION_SCOPE_UNSPECIFIED": 0,
+		"VALIDATION_SCOPE_WORKSPACE":   1,
+		"VALIDATION_SCOPE_PACKAGE":     2,
+		"VALIDATION_SCOPE_FILE":        3,
+		"VALIDATION_SCOPE_CASE":        4,
+	}
+)
+
+func (x ValidationScope) Enum() *ValidationScope {
+	p := new(ValidationScope)
+	*p = x
+	return p
+}
+
+func (x ValidationScope) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ValidationScope) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_services_agent_v0_agent_proto_enumTypes[0].Descriptor()
+}
+
+func (ValidationScope) Type() protoreflect.EnumType {
+	return &file_codefly_services_agent_v0_agent_proto_enumTypes[0]
+}
+
+func (x ValidationScope) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ValidationScope.Descriptor instead.
+func (ValidationScope) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{0}
+}
+
+// TestDependencyMode declares which live service graph a named suite needs.
+// Selection of validation targets remains separate from starting runtime
+// prerequisites for one target's suite.
+type TestDependencyMode int32
+
+const (
+	// TEST_DEPENDENCY_MODE_UNSPECIFIED means the suite contract is incomplete.
+	TestDependencyMode_TEST_DEPENDENCY_MODE_UNSPECIFIED TestDependencyMode = 0
+	// TEST_DEPENDENCY_MODE_NONE initializes only the validation target.
+	TestDependencyMode_TEST_DEPENDENCY_MODE_NONE TestDependencyMode = 1
+	// TEST_DEPENDENCY_MODE_START_DEPENDENCIES starts the target's dependency
+	// closure, but does not start the target service process.
+	TestDependencyMode_TEST_DEPENDENCY_MODE_START_DEPENDENCIES TestDependencyMode = 2
+	// TEST_DEPENDENCY_MODE_START_STACK starts dependencies and the target service.
+	TestDependencyMode_TEST_DEPENDENCY_MODE_START_STACK TestDependencyMode = 3
+)
+
+// Enum value maps for TestDependencyMode.
+var (
+	TestDependencyMode_name = map[int32]string{
+		0: "TEST_DEPENDENCY_MODE_UNSPECIFIED",
+		1: "TEST_DEPENDENCY_MODE_NONE",
+		2: "TEST_DEPENDENCY_MODE_START_DEPENDENCIES",
+		3: "TEST_DEPENDENCY_MODE_START_STACK",
+	}
+	TestDependencyMode_value = map[string]int32{
+		"TEST_DEPENDENCY_MODE_UNSPECIFIED":        0,
+		"TEST_DEPENDENCY_MODE_NONE":               1,
+		"TEST_DEPENDENCY_MODE_START_DEPENDENCIES": 2,
+		"TEST_DEPENDENCY_MODE_START_STACK":        3,
+	}
+)
+
+func (x TestDependencyMode) Enum() *TestDependencyMode {
+	p := new(TestDependencyMode)
+	*p = x
+	return p
+}
+
+func (x TestDependencyMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TestDependencyMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_services_agent_v0_agent_proto_enumTypes[1].Descriptor()
+}
+
+func (TestDependencyMode) Type() protoreflect.EnumType {
+	return &file_codefly_services_agent_v0_agent_proto_enumTypes[1]
+}
+
+func (x TestDependencyMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TestDependencyMode.Descriptor instead.
+func (TestDependencyMode) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{1}
+}
+
 // Type enumerates implementation languages an agent can generate or analyze.
 type Language_Type int32
 
@@ -71,11 +194,11 @@ func (x Language_Type) String() string {
 }
 
 func (Language_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_codefly_services_agent_v0_agent_proto_enumTypes[0].Descriptor()
+	return file_codefly_services_agent_v0_agent_proto_enumTypes[2].Descriptor()
 }
 
 func (Language_Type) Type() protoreflect.EnumType {
-	return &file_codefly_services_agent_v0_agent_proto_enumTypes[0]
+	return &file_codefly_services_agent_v0_agent_proto_enumTypes[2]
 }
 
 func (x Language_Type) Number() protoreflect.EnumNumber {
@@ -120,11 +243,11 @@ func (x Protocol_Type) String() string {
 }
 
 func (Protocol_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_codefly_services_agent_v0_agent_proto_enumTypes[1].Descriptor()
+	return file_codefly_services_agent_v0_agent_proto_enumTypes[3].Descriptor()
 }
 
 func (Protocol_Type) Type() protoreflect.EnumType {
-	return &file_codefly_services_agent_v0_agent_proto_enumTypes[1]
+	return &file_codefly_services_agent_v0_agent_proto_enumTypes[3]
 }
 
 func (x Protocol_Type) Number() protoreflect.EnumNumber {
@@ -177,11 +300,11 @@ func (x Capability_Type) String() string {
 }
 
 func (Capability_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_codefly_services_agent_v0_agent_proto_enumTypes[2].Descriptor()
+	return file_codefly_services_agent_v0_agent_proto_enumTypes[4].Descriptor()
 }
 
 func (Capability_Type) Type() protoreflect.EnumType {
-	return &file_codefly_services_agent_v0_agent_proto_enumTypes[2]
+	return &file_codefly_services_agent_v0_agent_proto_enumTypes[4]
 }
 
 func (x Capability_Type) Number() protoreflect.EnumNumber {
@@ -234,11 +357,11 @@ func (x Backend_Type) String() string {
 }
 
 func (Backend_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_codefly_services_agent_v0_agent_proto_enumTypes[3].Descriptor()
+	return file_codefly_services_agent_v0_agent_proto_enumTypes[5].Descriptor()
 }
 
 func (Backend_Type) Type() protoreflect.EnumType {
-	return &file_codefly_services_agent_v0_agent_proto_enumTypes[3]
+	return &file_codefly_services_agent_v0_agent_proto_enumTypes[5]
 }
 
 func (x Backend_Type) Number() protoreflect.EnumNumber {
@@ -247,7 +370,7 @@ func (x Backend_Type) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Backend_Type.Descriptor instead.
 func (Backend_Type) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{3, 0}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{7, 0}
 }
 
 // Type enumerates language/tool toolchains an agent may require on the host.
@@ -319,11 +442,11 @@ func (x Toolchain_Type) String() string {
 }
 
 func (Toolchain_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_codefly_services_agent_v0_agent_proto_enumTypes[4].Descriptor()
+	return file_codefly_services_agent_v0_agent_proto_enumTypes[6].Descriptor()
 }
 
 func (Toolchain_Type) Type() protoreflect.EnumType {
-	return &file_codefly_services_agent_v0_agent_proto_enumTypes[4]
+	return &file_codefly_services_agent_v0_agent_proto_enumTypes[6]
 }
 
 func (x Toolchain_Type) Number() protoreflect.EnumNumber {
@@ -332,7 +455,7 @@ func (x Toolchain_Type) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Toolchain_Type.Descriptor instead.
 func (Toolchain_Type) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{4, 0}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{8, 0}
 }
 
 // Language identifies an implementation language supported by an agent.
@@ -473,6 +596,301 @@ func (x *Capability) GetType() Capability_Type {
 	return Capability_UNKNOWN
 }
 
+// ValidationOperationCapability advertises one non-test validation operation.
+type ValidationOperationCapability struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// supported is authoritative when AgentInformation.validation is present.
+	Supported bool `protobuf:"varint,1,opt,name=supported,proto3" json:"supported,omitempty"`
+	// scopes are the semantic granularities the operation accepts.
+	Scopes []ValidationScope `protobuf:"varint,2,rep,packed,name=scopes,proto3,enum=codefly.services.agent.v0.ValidationScope" json:"scopes,omitempty"`
+	// supports_fix is meaningful for lint and false for read-only operations.
+	SupportsFix   bool `protobuf:"varint,3,opt,name=supports_fix,json=supportsFix,proto3" json:"supports_fix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ValidationOperationCapability) Reset() {
+	*x = ValidationOperationCapability{}
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidationOperationCapability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidationOperationCapability) ProtoMessage() {}
+
+func (x *ValidationOperationCapability) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidationOperationCapability.ProtoReflect.Descriptor instead.
+func (*ValidationOperationCapability) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ValidationOperationCapability) GetSupported() bool {
+	if x != nil {
+		return x.Supported
+	}
+	return false
+}
+
+func (x *ValidationOperationCapability) GetScopes() []ValidationScope {
+	if x != nil {
+		return x.Scopes
+	}
+	return nil
+}
+
+func (x *ValidationOperationCapability) GetSupportsFix() bool {
+	if x != nil {
+		return x.SupportsFix
+	}
+	return false
+}
+
+// TestSuiteCapability advertises one stable suite identity and its live graph.
+type TestSuiteCapability struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the value accepted by Runtime.Test's suite selection.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// dependency_mode controls which services remain live during this suite.
+	DependencyMode TestDependencyMode `protobuf:"varint,2,opt,name=dependency_mode,json=dependencyMode,proto3,enum=codefly.services.agent.v0.TestDependencyMode" json:"dependency_mode,omitempty"`
+	// default_suite marks the suite selected when no explicit suite was supplied.
+	DefaultSuite  bool `protobuf:"varint,3,opt,name=default_suite,json=defaultSuite,proto3" json:"default_suite,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestSuiteCapability) Reset() {
+	*x = TestSuiteCapability{}
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestSuiteCapability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestSuiteCapability) ProtoMessage() {}
+
+func (x *TestSuiteCapability) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestSuiteCapability.ProtoReflect.Descriptor instead.
+func (*TestSuiteCapability) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *TestSuiteCapability) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *TestSuiteCapability) GetDependencyMode() TestDependencyMode {
+	if x != nil {
+		return x.DependencyMode
+	}
+	return TestDependencyMode_TEST_DEPENDENCY_MODE_UNSPECIFIED
+}
+
+func (x *TestSuiteCapability) GetDefaultSuite() bool {
+	if x != nil {
+		return x.DefaultSuite
+	}
+	return false
+}
+
+// TestValidationCapability advertises Runtime.Test behavior.
+type TestValidationCapability struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// supported is authoritative when AgentInformation.validation is present.
+	Supported bool `protobuf:"varint,1,opt,name=supported,proto3" json:"supported,omitempty"`
+	// scopes are the semantic granularities Runtime.Test accepts.
+	Scopes []ValidationScope `protobuf:"varint,2,rep,packed,name=scopes,proto3,enum=codefly.services.agent.v0.ValidationScope" json:"scopes,omitempty"`
+	// suites are the named test suites the agent understands.
+	Suites        []*TestSuiteCapability `protobuf:"bytes,3,rep,name=suites,proto3" json:"suites,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestValidationCapability) Reset() {
+	*x = TestValidationCapability{}
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestValidationCapability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestValidationCapability) ProtoMessage() {}
+
+func (x *TestValidationCapability) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestValidationCapability.ProtoReflect.Descriptor instead.
+func (*TestValidationCapability) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *TestValidationCapability) GetSupported() bool {
+	if x != nil {
+		return x.Supported
+	}
+	return false
+}
+
+func (x *TestValidationCapability) GetScopes() []ValidationScope {
+	if x != nil {
+		return x.Scopes
+	}
+	return nil
+}
+
+func (x *TestValidationCapability) GetSuites() []*TestSuiteCapability {
+	if x != nil {
+		return x.Suites
+	}
+	return nil
+}
+
+// ValidationCapabilities advertises the validation operations implemented by
+// an agent. A nil AgentInformation.validation denotes a legacy agent whose RPCs
+// must be compatibility-probed. A present message is authoritative: false
+// means unsupported, while true requires the corresponding RPC to exist.
+type ValidationCapabilities struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// lint describes the Runtime.Lint operation.
+	Lint *ValidationOperationCapability `protobuf:"bytes,1,opt,name=lint,proto3" json:"lint,omitempty"`
+	// compile describes Runtime.Build (native compile/typecheck/application build).
+	Compile *ValidationOperationCapability `protobuf:"bytes,2,opt,name=compile,proto3" json:"compile,omitempty"`
+	// test describes Runtime.Test, its scopes, and named suites.
+	Test *TestValidationCapability `protobuf:"bytes,3,opt,name=test,proto3" json:"test,omitempty"`
+	// audit describes Builder.Audit.
+	Audit *ValidationOperationCapability `protobuf:"bytes,4,opt,name=audit,proto3" json:"audit,omitempty"`
+	// artifact_build describes Builder.Build's deployable artifact operation.
+	ArtifactBuild *ValidationOperationCapability `protobuf:"bytes,5,opt,name=artifact_build,json=artifactBuild,proto3" json:"artifact_build,omitempty"`
+	// sbom describes Builder.SBOM's authoritative component inventory.
+	Sbom *ValidationOperationCapability `protobuf:"bytes,6,opt,name=sbom,proto3" json:"sbom,omitempty"`
+	// sync describes Builder.Sync, including non-mutating drift detection.
+	Sync          *ValidationOperationCapability `protobuf:"bytes,7,opt,name=sync,proto3" json:"sync,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ValidationCapabilities) Reset() {
+	*x = ValidationCapabilities{}
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidationCapabilities) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidationCapabilities) ProtoMessage() {}
+
+func (x *ValidationCapabilities) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidationCapabilities.ProtoReflect.Descriptor instead.
+func (*ValidationCapabilities) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ValidationCapabilities) GetLint() *ValidationOperationCapability {
+	if x != nil {
+		return x.Lint
+	}
+	return nil
+}
+
+func (x *ValidationCapabilities) GetCompile() *ValidationOperationCapability {
+	if x != nil {
+		return x.Compile
+	}
+	return nil
+}
+
+func (x *ValidationCapabilities) GetTest() *TestValidationCapability {
+	if x != nil {
+		return x.Test
+	}
+	return nil
+}
+
+func (x *ValidationCapabilities) GetAudit() *ValidationOperationCapability {
+	if x != nil {
+		return x.Audit
+	}
+	return nil
+}
+
+func (x *ValidationCapabilities) GetArtifactBuild() *ValidationOperationCapability {
+	if x != nil {
+		return x.ArtifactBuild
+	}
+	return nil
+}
+
+func (x *ValidationCapabilities) GetSbom() *ValidationOperationCapability {
+	if x != nil {
+		return x.Sbom
+	}
+	return nil
+}
+
+func (x *ValidationCapabilities) GetSync() *ValidationOperationCapability {
+	if x != nil {
+		return x.Sync
+	}
+	return nil
+}
+
 // Backend describes an execution environment a service can run in. It is
 // orthogonal to Toolchain: a backend is HOW the service runs (native process,
 // nix shell, container), a toolchain is WHAT the host needs for LOCAL mode.
@@ -486,7 +904,7 @@ type Backend struct {
 
 func (x *Backend) Reset() {
 	*x = Backend{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[3]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -498,7 +916,7 @@ func (x *Backend) String() string {
 func (*Backend) ProtoMessage() {}
 
 func (x *Backend) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[3]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -511,7 +929,7 @@ func (x *Backend) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Backend.ProtoReflect.Descriptor instead.
 func (*Backend) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{3}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Backend) GetType() Backend_Type {
@@ -534,7 +952,7 @@ type Toolchain struct {
 
 func (x *Toolchain) Reset() {
 	*x = Toolchain{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[4]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -546,7 +964,7 @@ func (x *Toolchain) String() string {
 func (*Toolchain) ProtoMessage() {}
 
 func (x *Toolchain) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[4]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -559,7 +977,7 @@ func (x *Toolchain) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Toolchain.ProtoReflect.Descriptor instead.
 func (*Toolchain) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{4}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Toolchain) GetType() Toolchain_Type {
@@ -589,7 +1007,7 @@ type ConfigurationValueInformation struct {
 
 func (x *ConfigurationValueInformation) Reset() {
 	*x = ConfigurationValueInformation{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[5]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -601,7 +1019,7 @@ func (x *ConfigurationValueInformation) String() string {
 func (*ConfigurationValueInformation) ProtoMessage() {}
 
 func (x *ConfigurationValueInformation) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[5]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -614,7 +1032,7 @@ func (x *ConfigurationValueInformation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigurationValueInformation.ProtoReflect.Descriptor instead.
 func (*ConfigurationValueInformation) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{5}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ConfigurationValueInformation) GetName() string {
@@ -646,7 +1064,7 @@ type ConfigurationValueDetail struct {
 
 func (x *ConfigurationValueDetail) Reset() {
 	*x = ConfigurationValueDetail{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[6]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -658,7 +1076,7 @@ func (x *ConfigurationValueDetail) String() string {
 func (*ConfigurationValueDetail) ProtoMessage() {}
 
 func (x *ConfigurationValueDetail) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[6]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -671,7 +1089,7 @@ func (x *ConfigurationValueDetail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigurationValueDetail.ProtoReflect.Descriptor instead.
 func (*ConfigurationValueDetail) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{6}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ConfigurationValueDetail) GetName() string {
@@ -714,7 +1132,7 @@ type AgentTechnique struct {
 
 func (x *AgentTechnique) Reset() {
 	*x = AgentTechnique{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[7]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -726,7 +1144,7 @@ func (x *AgentTechnique) String() string {
 func (*AgentTechnique) ProtoMessage() {}
 
 func (x *AgentTechnique) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[7]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -739,7 +1157,7 @@ func (x *AgentTechnique) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentTechnique.ProtoReflect.Descriptor instead.
 func (*AgentTechnique) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{7}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *AgentTechnique) GetId() string {
@@ -803,14 +1221,17 @@ type AgentInformation struct {
 	SupportedBackends []*Backend `protobuf:"bytes,8,rep,name=supported_backends,json=supportedBackends,proto3" json:"supported_backends,omitempty"`
 	// toolchains are host toolchains the user must have available to run the
 	// service in LOCAL mode (ignored for NIX/DOCKER backends).
-	Toolchains    []*Toolchain `protobuf:"bytes,9,rep,name=toolchains,proto3" json:"toolchains,omitempty"`
+	Toolchains []*Toolchain `protobuf:"bytes,9,rep,name=toolchains,proto3" json:"toolchains,omitempty"`
+	// validation is the authoritative validation contract for new agents. It is
+	// absent for legacy agents, which keeps compatibility RPC probing explicit.
+	Validation    *ValidationCapabilities `protobuf:"bytes,10,opt,name=validation,proto3" json:"validation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AgentInformation) Reset() {
 	*x = AgentInformation{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[8]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -822,7 +1243,7 @@ func (x *AgentInformation) String() string {
 func (*AgentInformation) ProtoMessage() {}
 
 func (x *AgentInformation) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[8]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -835,7 +1256,7 @@ func (x *AgentInformation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentInformation.ProtoReflect.Descriptor instead.
 func (*AgentInformation) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{8}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AgentInformation) GetCapabilities() []*Capability {
@@ -894,6 +1315,13 @@ func (x *AgentInformation) GetToolchains() []*Toolchain {
 	return nil
 }
 
+func (x *AgentInformation) GetValidation() *ValidationCapabilities {
+	if x != nil {
+		return x.Validation
+	}
+	return nil
+}
+
 // AgentInformationRequest asks an agent to describe its capabilities and settings.
 type AgentInformationRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -903,7 +1331,7 @@ type AgentInformationRequest struct {
 
 func (x *AgentInformationRequest) Reset() {
 	*x = AgentInformationRequest{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[9]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -915,7 +1343,7 @@ func (x *AgentInformationRequest) String() string {
 func (*AgentInformationRequest) ProtoMessage() {}
 
 func (x *AgentInformationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[9]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -928,7 +1356,7 @@ func (x *AgentInformationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentInformationRequest.ProtoReflect.Descriptor instead.
 func (*AgentInformationRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{9}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{13}
 }
 
 // CommandDefinition describes a command that a plugin agent provides.
@@ -957,7 +1385,7 @@ type CommandDefinition struct {
 
 func (x *CommandDefinition) Reset() {
 	*x = CommandDefinition{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[10]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -969,7 +1397,7 @@ func (x *CommandDefinition) String() string {
 func (*CommandDefinition) ProtoMessage() {}
 
 func (x *CommandDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[10]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -982,7 +1410,7 @@ func (x *CommandDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandDefinition.ProtoReflect.Descriptor instead.
 func (*CommandDefinition) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{10}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *CommandDefinition) GetName() string {
@@ -1050,7 +1478,7 @@ type ListCommandsRequest struct {
 
 func (x *ListCommandsRequest) Reset() {
 	*x = ListCommandsRequest{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[11]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1062,7 +1490,7 @@ func (x *ListCommandsRequest) String() string {
 func (*ListCommandsRequest) ProtoMessage() {}
 
 func (x *ListCommandsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[11]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1075,7 +1503,7 @@ func (x *ListCommandsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCommandsRequest.ProtoReflect.Descriptor instead.
 func (*ListCommandsRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{11}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{15}
 }
 
 // ListCommandsResponse returns plugin and built-in commands available to callers.
@@ -1089,7 +1517,7 @@ type ListCommandsResponse struct {
 
 func (x *ListCommandsResponse) Reset() {
 	*x = ListCommandsResponse{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[12]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1101,7 +1529,7 @@ func (x *ListCommandsResponse) String() string {
 func (*ListCommandsResponse) ProtoMessage() {}
 
 func (x *ListCommandsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[12]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1114,7 +1542,7 @@ func (x *ListCommandsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCommandsResponse.ProtoReflect.Descriptor instead.
 func (*ListCommandsResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{12}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListCommandsResponse) GetCommands() []*CommandDefinition {
@@ -1137,7 +1565,7 @@ type RunPluginCommandRequest struct {
 
 func (x *RunPluginCommandRequest) Reset() {
 	*x = RunPluginCommandRequest{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[13]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1149,7 +1577,7 @@ func (x *RunPluginCommandRequest) String() string {
 func (*RunPluginCommandRequest) ProtoMessage() {}
 
 func (x *RunPluginCommandRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[13]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1162,7 +1590,7 @@ func (x *RunPluginCommandRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunPluginCommandRequest.ProtoReflect.Descriptor instead.
 func (*RunPluginCommandRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{13}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RunPluginCommandRequest) GetCommand() string {
@@ -1194,7 +1622,7 @@ type RunPluginCommandResponse struct {
 
 func (x *RunPluginCommandResponse) Reset() {
 	*x = RunPluginCommandResponse{}
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[14]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1206,7 +1634,7 @@ func (x *RunPluginCommandResponse) String() string {
 func (*RunPluginCommandResponse) ProtoMessage() {}
 
 func (x *RunPluginCommandResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[14]
+	mi := &file_codefly_services_agent_v0_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1219,7 +1647,7 @@ func (x *RunPluginCommandResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunPluginCommandResponse.ProtoReflect.Descriptor instead.
 func (*RunPluginCommandResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{14}
+	return file_codefly_services_agent_v0_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RunPluginCommandResponse) GetSuccess() bool {
@@ -1273,7 +1701,27 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\aBUILDER\x10\x01\x12\v\n" +
 	"\aRUNTIME\x10\x02\x12\x0e\n" +
 	"\n" +
-	"HOT_RELOAD\x10\x03\"{\n" +
+	"HOT_RELOAD\x10\x03\"\xa4\x01\n" +
+	"\x1dValidationOperationCapability\x12\x1c\n" +
+	"\tsupported\x18\x01 \x01(\bR\tsupported\x12B\n" +
+	"\x06scopes\x18\x02 \x03(\x0e2*.codefly.services.agent.v0.ValidationScopeR\x06scopes\x12!\n" +
+	"\fsupports_fix\x18\x03 \x01(\bR\vsupportsFix\"\xa6\x01\n" +
+	"\x13TestSuiteCapability\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12V\n" +
+	"\x0fdependency_mode\x18\x02 \x01(\x0e2-.codefly.services.agent.v0.TestDependencyModeR\x0edependencyMode\x12#\n" +
+	"\rdefault_suite\x18\x03 \x01(\bR\fdefaultSuite\"\xc4\x01\n" +
+	"\x18TestValidationCapability\x12\x1c\n" +
+	"\tsupported\x18\x01 \x01(\bR\tsupported\x12B\n" +
+	"\x06scopes\x18\x02 \x03(\x0e2*.codefly.services.agent.v0.ValidationScopeR\x06scopes\x12F\n" +
+	"\x06suites\x18\x03 \x03(\v2..codefly.services.agent.v0.TestSuiteCapabilityR\x06suites\"\xd0\x04\n" +
+	"\x16ValidationCapabilities\x12L\n" +
+	"\x04lint\x18\x01 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x04lint\x12R\n" +
+	"\acompile\x18\x02 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\acompile\x12G\n" +
+	"\x04test\x18\x03 \x01(\v23.codefly.services.agent.v0.TestValidationCapabilityR\x04test\x12N\n" +
+	"\x05audit\x18\x04 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x05audit\x12_\n" +
+	"\x0eartifact_build\x18\x05 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\rartifactBuild\x12L\n" +
+	"\x04sbom\x18\x06 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x04sbom\x12L\n" +
+	"\x04sync\x18\a \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x04sync\"{\n" +
 	"\aBackend\x12;\n" +
 	"\x04type\x18\x01 \x01(\x0e2'.codefly.services.agent.v0.Backend.TypeR\x04type\"3\n" +
 	"\x04Type\x12\v\n" +
@@ -1311,7 +1759,7 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
 	"\x04tags\x18\x04 \x03(\tR\x04tags\x12\x16\n" +
-	"\x06prompt\x18\x05 \x01(\tR\x06prompt\"\xe6\x04\n" +
+	"\x06prompt\x18\x05 \x01(\tR\x06prompt\"\xb9\x05\n" +
 	"\x10AgentInformation\x12I\n" +
 	"\fcapabilities\x18\x02 \x03(\v2%.codefly.services.agent.v0.CapabilityR\fcapabilities\x12A\n" +
 	"\tprotocols\x18\x03 \x03(\v2#.codefly.services.agent.v0.ProtocolR\tprotocols\x12A\n" +
@@ -1324,7 +1772,11 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x12supported_backends\x18\b \x03(\v2\".codefly.services.agent.v0.BackendR\x11supportedBackends\x12D\n" +
 	"\n" +
 	"toolchains\x18\t \x03(\v2$.codefly.services.agent.v0.ToolchainR\n" +
-	"toolchainsJ\x04\b\x01\x10\x02R\x14runtime_requirements\"\x19\n" +
+	"toolchains\x12Q\n" +
+	"\n" +
+	"validation\x18\n" +
+	" \x01(\v21.codefly.services.agent.v0.ValidationCapabilitiesR\n" +
+	"validationJ\x04\b\x01\x10\x02R\x14runtime_requirements\"\x19\n" +
 	"\x17AgentInformationRequest\"\xec\x01\n" +
 	"\x11CommandDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
@@ -1344,7 +1796,18 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x18RunPluginCommandResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error2\xf3\x02\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error*\xa7\x01\n" +
+	"\x0fValidationScope\x12 \n" +
+	"\x1cVALIDATION_SCOPE_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aVALIDATION_SCOPE_WORKSPACE\x10\x01\x12\x1c\n" +
+	"\x18VALIDATION_SCOPE_PACKAGE\x10\x02\x12\x19\n" +
+	"\x15VALIDATION_SCOPE_FILE\x10\x03\x12\x19\n" +
+	"\x15VALIDATION_SCOPE_CASE\x10\x04*\xac\x01\n" +
+	"\x12TestDependencyMode\x12$\n" +
+	" TEST_DEPENDENCY_MODE_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19TEST_DEPENDENCY_MODE_NONE\x10\x01\x12+\n" +
+	"'TEST_DEPENDENCY_MODE_START_DEPENDENCIES\x10\x02\x12$\n" +
+	" TEST_DEPENDENCY_MODE_START_STACK\x10\x032\xf3\x02\n" +
 	"\x05Agent\x12x\n" +
 	"\x13GetAgentInformation\x122.codefly.services.agent.v0.AgentInformationRequest\x1a+.codefly.services.agent.v0.AgentInformation\"\x00\x12q\n" +
 	"\fListCommands\x12..codefly.services.agent.v0.ListCommandsRequest\x1a/.codefly.services.agent.v0.ListCommandsResponse\"\x00\x12}\n" +
@@ -1364,56 +1827,74 @@ func file_codefly_services_agent_v0_agent_proto_rawDescGZIP() []byte {
 	return file_codefly_services_agent_v0_agent_proto_rawDescData
 }
 
-var file_codefly_services_agent_v0_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_codefly_services_agent_v0_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_codefly_services_agent_v0_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_codefly_services_agent_v0_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_codefly_services_agent_v0_agent_proto_goTypes = []any{
-	(Language_Type)(0),                    // 0: codefly.services.agent.v0.Language.Type
-	(Protocol_Type)(0),                    // 1: codefly.services.agent.v0.Protocol.Type
-	(Capability_Type)(0),                  // 2: codefly.services.agent.v0.Capability.Type
-	(Backend_Type)(0),                     // 3: codefly.services.agent.v0.Backend.Type
-	(Toolchain_Type)(0),                   // 4: codefly.services.agent.v0.Toolchain.Type
-	(*Language)(nil),                      // 5: codefly.services.agent.v0.Language
-	(*Protocol)(nil),                      // 6: codefly.services.agent.v0.Protocol
-	(*Capability)(nil),                    // 7: codefly.services.agent.v0.Capability
-	(*Backend)(nil),                       // 8: codefly.services.agent.v0.Backend
-	(*Toolchain)(nil),                     // 9: codefly.services.agent.v0.Toolchain
-	(*ConfigurationValueInformation)(nil), // 10: codefly.services.agent.v0.ConfigurationValueInformation
-	(*ConfigurationValueDetail)(nil),      // 11: codefly.services.agent.v0.ConfigurationValueDetail
-	(*AgentTechnique)(nil),                // 12: codefly.services.agent.v0.AgentTechnique
-	(*AgentInformation)(nil),              // 13: codefly.services.agent.v0.AgentInformation
-	(*AgentInformationRequest)(nil),       // 14: codefly.services.agent.v0.AgentInformationRequest
-	(*CommandDefinition)(nil),             // 15: codefly.services.agent.v0.CommandDefinition
-	(*ListCommandsRequest)(nil),           // 16: codefly.services.agent.v0.ListCommandsRequest
-	(*ListCommandsResponse)(nil),          // 17: codefly.services.agent.v0.ListCommandsResponse
-	(*RunPluginCommandRequest)(nil),       // 18: codefly.services.agent.v0.RunPluginCommandRequest
-	(*RunPluginCommandResponse)(nil),      // 19: codefly.services.agent.v0.RunPluginCommandResponse
+	(ValidationScope)(0),                  // 0: codefly.services.agent.v0.ValidationScope
+	(TestDependencyMode)(0),               // 1: codefly.services.agent.v0.TestDependencyMode
+	(Language_Type)(0),                    // 2: codefly.services.agent.v0.Language.Type
+	(Protocol_Type)(0),                    // 3: codefly.services.agent.v0.Protocol.Type
+	(Capability_Type)(0),                  // 4: codefly.services.agent.v0.Capability.Type
+	(Backend_Type)(0),                     // 5: codefly.services.agent.v0.Backend.Type
+	(Toolchain_Type)(0),                   // 6: codefly.services.agent.v0.Toolchain.Type
+	(*Language)(nil),                      // 7: codefly.services.agent.v0.Language
+	(*Protocol)(nil),                      // 8: codefly.services.agent.v0.Protocol
+	(*Capability)(nil),                    // 9: codefly.services.agent.v0.Capability
+	(*ValidationOperationCapability)(nil), // 10: codefly.services.agent.v0.ValidationOperationCapability
+	(*TestSuiteCapability)(nil),           // 11: codefly.services.agent.v0.TestSuiteCapability
+	(*TestValidationCapability)(nil),      // 12: codefly.services.agent.v0.TestValidationCapability
+	(*ValidationCapabilities)(nil),        // 13: codefly.services.agent.v0.ValidationCapabilities
+	(*Backend)(nil),                       // 14: codefly.services.agent.v0.Backend
+	(*Toolchain)(nil),                     // 15: codefly.services.agent.v0.Toolchain
+	(*ConfigurationValueInformation)(nil), // 16: codefly.services.agent.v0.ConfigurationValueInformation
+	(*ConfigurationValueDetail)(nil),      // 17: codefly.services.agent.v0.ConfigurationValueDetail
+	(*AgentTechnique)(nil),                // 18: codefly.services.agent.v0.AgentTechnique
+	(*AgentInformation)(nil),              // 19: codefly.services.agent.v0.AgentInformation
+	(*AgentInformationRequest)(nil),       // 20: codefly.services.agent.v0.AgentInformationRequest
+	(*CommandDefinition)(nil),             // 21: codefly.services.agent.v0.CommandDefinition
+	(*ListCommandsRequest)(nil),           // 22: codefly.services.agent.v0.ListCommandsRequest
+	(*ListCommandsResponse)(nil),          // 23: codefly.services.agent.v0.ListCommandsResponse
+	(*RunPluginCommandRequest)(nil),       // 24: codefly.services.agent.v0.RunPluginCommandRequest
+	(*RunPluginCommandResponse)(nil),      // 25: codefly.services.agent.v0.RunPluginCommandResponse
 }
 var file_codefly_services_agent_v0_agent_proto_depIdxs = []int32{
-	0,  // 0: codefly.services.agent.v0.Language.type:type_name -> codefly.services.agent.v0.Language.Type
-	1,  // 1: codefly.services.agent.v0.Protocol.type:type_name -> codefly.services.agent.v0.Protocol.Type
-	2,  // 2: codefly.services.agent.v0.Capability.type:type_name -> codefly.services.agent.v0.Capability.Type
-	3,  // 3: codefly.services.agent.v0.Backend.type:type_name -> codefly.services.agent.v0.Backend.Type
-	4,  // 4: codefly.services.agent.v0.Toolchain.type:type_name -> codefly.services.agent.v0.Toolchain.Type
-	10, // 5: codefly.services.agent.v0.ConfigurationValueDetail.fields:type_name -> codefly.services.agent.v0.ConfigurationValueInformation
-	7,  // 6: codefly.services.agent.v0.AgentInformation.capabilities:type_name -> codefly.services.agent.v0.Capability
-	6,  // 7: codefly.services.agent.v0.AgentInformation.protocols:type_name -> codefly.services.agent.v0.Protocol
-	5,  // 8: codefly.services.agent.v0.AgentInformation.languages:type_name -> codefly.services.agent.v0.Language
-	11, // 9: codefly.services.agent.v0.AgentInformation.configuration_details:type_name -> codefly.services.agent.v0.ConfigurationValueDetail
-	12, // 10: codefly.services.agent.v0.AgentInformation.techniques:type_name -> codefly.services.agent.v0.AgentTechnique
-	8,  // 11: codefly.services.agent.v0.AgentInformation.supported_backends:type_name -> codefly.services.agent.v0.Backend
-	9,  // 12: codefly.services.agent.v0.AgentInformation.toolchains:type_name -> codefly.services.agent.v0.Toolchain
-	15, // 13: codefly.services.agent.v0.ListCommandsResponse.commands:type_name -> codefly.services.agent.v0.CommandDefinition
-	14, // 14: codefly.services.agent.v0.Agent.GetAgentInformation:input_type -> codefly.services.agent.v0.AgentInformationRequest
-	16, // 15: codefly.services.agent.v0.Agent.ListCommands:input_type -> codefly.services.agent.v0.ListCommandsRequest
-	18, // 16: codefly.services.agent.v0.Agent.RunPluginCommand:input_type -> codefly.services.agent.v0.RunPluginCommandRequest
-	13, // 17: codefly.services.agent.v0.Agent.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
-	17, // 18: codefly.services.agent.v0.Agent.ListCommands:output_type -> codefly.services.agent.v0.ListCommandsResponse
-	19, // 19: codefly.services.agent.v0.Agent.RunPluginCommand:output_type -> codefly.services.agent.v0.RunPluginCommandResponse
-	17, // [17:20] is the sub-list for method output_type
-	14, // [14:17] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	2,  // 0: codefly.services.agent.v0.Language.type:type_name -> codefly.services.agent.v0.Language.Type
+	3,  // 1: codefly.services.agent.v0.Protocol.type:type_name -> codefly.services.agent.v0.Protocol.Type
+	4,  // 2: codefly.services.agent.v0.Capability.type:type_name -> codefly.services.agent.v0.Capability.Type
+	0,  // 3: codefly.services.agent.v0.ValidationOperationCapability.scopes:type_name -> codefly.services.agent.v0.ValidationScope
+	1,  // 4: codefly.services.agent.v0.TestSuiteCapability.dependency_mode:type_name -> codefly.services.agent.v0.TestDependencyMode
+	0,  // 5: codefly.services.agent.v0.TestValidationCapability.scopes:type_name -> codefly.services.agent.v0.ValidationScope
+	11, // 6: codefly.services.agent.v0.TestValidationCapability.suites:type_name -> codefly.services.agent.v0.TestSuiteCapability
+	10, // 7: codefly.services.agent.v0.ValidationCapabilities.lint:type_name -> codefly.services.agent.v0.ValidationOperationCapability
+	10, // 8: codefly.services.agent.v0.ValidationCapabilities.compile:type_name -> codefly.services.agent.v0.ValidationOperationCapability
+	12, // 9: codefly.services.agent.v0.ValidationCapabilities.test:type_name -> codefly.services.agent.v0.TestValidationCapability
+	10, // 10: codefly.services.agent.v0.ValidationCapabilities.audit:type_name -> codefly.services.agent.v0.ValidationOperationCapability
+	10, // 11: codefly.services.agent.v0.ValidationCapabilities.artifact_build:type_name -> codefly.services.agent.v0.ValidationOperationCapability
+	10, // 12: codefly.services.agent.v0.ValidationCapabilities.sbom:type_name -> codefly.services.agent.v0.ValidationOperationCapability
+	10, // 13: codefly.services.agent.v0.ValidationCapabilities.sync:type_name -> codefly.services.agent.v0.ValidationOperationCapability
+	5,  // 14: codefly.services.agent.v0.Backend.type:type_name -> codefly.services.agent.v0.Backend.Type
+	6,  // 15: codefly.services.agent.v0.Toolchain.type:type_name -> codefly.services.agent.v0.Toolchain.Type
+	16, // 16: codefly.services.agent.v0.ConfigurationValueDetail.fields:type_name -> codefly.services.agent.v0.ConfigurationValueInformation
+	9,  // 17: codefly.services.agent.v0.AgentInformation.capabilities:type_name -> codefly.services.agent.v0.Capability
+	8,  // 18: codefly.services.agent.v0.AgentInformation.protocols:type_name -> codefly.services.agent.v0.Protocol
+	7,  // 19: codefly.services.agent.v0.AgentInformation.languages:type_name -> codefly.services.agent.v0.Language
+	17, // 20: codefly.services.agent.v0.AgentInformation.configuration_details:type_name -> codefly.services.agent.v0.ConfigurationValueDetail
+	18, // 21: codefly.services.agent.v0.AgentInformation.techniques:type_name -> codefly.services.agent.v0.AgentTechnique
+	14, // 22: codefly.services.agent.v0.AgentInformation.supported_backends:type_name -> codefly.services.agent.v0.Backend
+	15, // 23: codefly.services.agent.v0.AgentInformation.toolchains:type_name -> codefly.services.agent.v0.Toolchain
+	13, // 24: codefly.services.agent.v0.AgentInformation.validation:type_name -> codefly.services.agent.v0.ValidationCapabilities
+	21, // 25: codefly.services.agent.v0.ListCommandsResponse.commands:type_name -> codefly.services.agent.v0.CommandDefinition
+	20, // 26: codefly.services.agent.v0.Agent.GetAgentInformation:input_type -> codefly.services.agent.v0.AgentInformationRequest
+	22, // 27: codefly.services.agent.v0.Agent.ListCommands:input_type -> codefly.services.agent.v0.ListCommandsRequest
+	24, // 28: codefly.services.agent.v0.Agent.RunPluginCommand:input_type -> codefly.services.agent.v0.RunPluginCommandRequest
+	19, // 29: codefly.services.agent.v0.Agent.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
+	23, // 30: codefly.services.agent.v0.Agent.ListCommands:output_type -> codefly.services.agent.v0.ListCommandsResponse
+	25, // 31: codefly.services.agent.v0.Agent.RunPluginCommand:output_type -> codefly.services.agent.v0.RunPluginCommandResponse
+	29, // [29:32] is the sub-list for method output_type
+	26, // [26:29] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_agent_v0_agent_proto_init() }
@@ -1426,8 +1907,8 @@ func file_codefly_services_agent_v0_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_agent_v0_agent_proto_rawDesc), len(file_codefly_services_agent_v0_agent_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   15,
+			NumEnums:      7,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,7 +18,65 @@ func resetConnectionCacheForTest() {
 	connCache = make(map[string]*manager.AgentConn)
 	connLoads = make(map[string]*connLoad)
 	connGeneration = 0
+	connKeyGenerations = make(map[string]uint64)
 	connCacheMu.Unlock()
+}
+
+func TestClearAgentInvalidatesOnlyOneServiceCache(t *testing.T) {
+	resetConnectionCacheForTest()
+	defer resetConnectionCacheForTest()
+
+	connCacheMu.Lock()
+	connCache["module/one"] = nil
+	connCache["module/two"] = nil
+	connCacheMu.Unlock()
+	instancesMu.Lock()
+	instances["module/one"] = &Instance{}
+	instances["module/two"] = &Instance{}
+	instancesMu.Unlock()
+
+	ClearAgent("module/one")
+
+	connCacheMu.Lock()
+	_, oneConn := connCache["module/one"]
+	_, twoConn := connCache["module/two"]
+	connCacheMu.Unlock()
+	instancesMu.Lock()
+	_, oneInstance := instances["module/one"]
+	_, twoInstance := instances["module/two"]
+	instancesMu.Unlock()
+	if oneConn || oneInstance || !twoConn || !twoInstance {
+		t.Fatalf("scoped clear state: one=(conn:%v instance:%v) two=(conn:%v instance:%v)", oneConn, oneInstance, twoConn, twoInstance)
+	}
+}
+
+func TestClearAgentInvalidatesSameKeyLaunchInFlight(t *testing.T) {
+	resetConnectionCacheForTest()
+	originalLoad := managerLoad
+	defer func() {
+		managerLoad = originalLoad
+		resetConnectionCacheForTest()
+	}()
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	managerLoad = func(context.Context, *resources.Agent, ...manager.LoadOption) (*manager.AgentConn, error) {
+		close(entered)
+		<-release
+		return nil, nil
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := getOrCreateConn(context.Background(), "module/service", &resources.Agent{Publisher: "codefly.dev", Name: "test", Version: "1"})
+		done <- err
+	}()
+	<-entered
+	ClearAgent("module/service")
+	close(release)
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "was cleared while") {
+		t.Fatalf("in-flight launch error = %v, want scoped invalidation", err)
+	}
 }
 
 func TestGetOrCreateConnLaunchesDifferentKeysConcurrently(t *testing.T) {

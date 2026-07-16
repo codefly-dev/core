@@ -8,6 +8,7 @@ import (
 )
 
 const ProtoPath = "proto/api.proto"
+const DependencyProtoPath = "proto/codefly/api.proto"
 const OpenAPIPath = "openapi/api.swagger.json"
 
 var (

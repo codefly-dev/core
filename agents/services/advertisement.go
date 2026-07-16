@@ -31,6 +31,10 @@ type Advertisement struct {
 	Config []*agentv0.ConfigurationValueDetail
 	// Techniques are reusable workflows/prompts the agent can apply.
 	Techniques []*agentv0.AgentTechnique
+	// Validation is the authoritative validation contract. Leave nil only for a
+	// legacy agent that has not migrated; an explicit empty message advertises
+	// that no validation operations are supported.
+	Validation *agentv0.ValidationCapabilities
 }
 
 // Build assembles the AgentInformation, applying the common defaults.
@@ -55,6 +59,7 @@ func (a Advertisement) Build() *agentv0.AgentInformation {
 		ConfigurationDetails: a.Config,
 		Techniques:           a.Techniques,
 		Protocols:            []*agentv0.Protocol{},
+		Validation:           a.Validation,
 	}
 	for _, t := range a.Toolchains {
 		info.Toolchains = append(info.Toolchains, &agentv0.Toolchain{Type: t})

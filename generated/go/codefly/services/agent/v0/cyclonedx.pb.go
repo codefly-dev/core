@@ -26,29 +26,37 @@ const (
 type ComponentType int32
 
 const (
+	// COMPONENT_TYPE_UNSPECIFIED is invalid for an emitted component.
+	ComponentType_COMPONENT_TYPE_UNSPECIFIED ComponentType = 0
 	// LIBRARY is a software library dependency.
-	ComponentType_LIBRARY ComponentType = 0
+	ComponentType_LIBRARY ComponentType = 1
 	// FRAMEWORK is an application framework dependency.
-	ComponentType_FRAMEWORK ComponentType = 1
+	ComponentType_FRAMEWORK ComponentType = 2
 	// MODULE is a Codefly or language module component.
-	ComponentType_MODULE ComponentType = 2
+	ComponentType_MODULE ComponentType = 3
 	// CONTAINER is a container image component.
-	ComponentType_CONTAINER ComponentType = 3 // Add other component types
+	ComponentType_CONTAINER ComponentType = 4
+	// APPLICATION is a runnable service, agent, or toolbox artifact.
+	ComponentType_APPLICATION ComponentType = 5
 )
 
 // Enum value maps for ComponentType.
 var (
 	ComponentType_name = map[int32]string{
-		0: "LIBRARY",
-		1: "FRAMEWORK",
-		2: "MODULE",
-		3: "CONTAINER",
+		0: "COMPONENT_TYPE_UNSPECIFIED",
+		1: "LIBRARY",
+		2: "FRAMEWORK",
+		3: "MODULE",
+		4: "CONTAINER",
+		5: "APPLICATION",
 	}
 	ComponentType_value = map[string]int32{
-		"LIBRARY":   0,
-		"FRAMEWORK": 1,
-		"MODULE":    2,
-		"CONTAINER": 3,
+		"COMPONENT_TYPE_UNSPECIFIED": 0,
+		"LIBRARY":                    1,
+		"FRAMEWORK":                  2,
+		"MODULE":                     3,
+		"CONTAINER":                  4,
+		"APPLICATION":                5,
 	}
 )
 
@@ -91,7 +99,13 @@ type Component struct {
 	// group is the CycloneDX component group or package namespace.
 	Group string `protobuf:"bytes,4,opt,name=group,proto3" json:"group,omitempty"` // Optional
 	// purl is the package URL identifying a software component.
-	Purl          string `protobuf:"bytes,5,opt,name=purl,proto3" json:"purl,omitempty"` // Package URL
+	Purl string `protobuf:"bytes,5,opt,name=purl,proto3" json:"purl,omitempty"` // Package URL
+	// bom_ref is the stable identifier used by dependency relationships.
+	BomRef string `protobuf:"bytes,6,opt,name=bom_ref,json=bomRef,proto3" json:"bom_ref,omitempty"`
+	// licenses contains SPDX license identifiers declared by the component.
+	Licenses []string `protobuf:"bytes,7,rep,name=licenses,proto3" json:"licenses,omitempty"`
+	// hashes contains content digests when the package manager exposes them.
+	Hashes        []*Hash `protobuf:"bytes,8,rep,name=hashes,proto3" json:"hashes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -144,7 +158,7 @@ func (x *Component) GetType() ComponentType {
 	if x != nil {
 		return x.Type
 	}
-	return ComponentType_LIBRARY
+	return ComponentType_COMPONENT_TYPE_UNSPECIFIED
 }
 
 func (x *Component) GetGroup() string {
@@ -161,6 +175,265 @@ func (x *Component) GetPurl() string {
 	return ""
 }
 
+func (x *Component) GetBomRef() string {
+	if x != nil {
+		return x.BomRef
+	}
+	return ""
+}
+
+func (x *Component) GetLicenses() []string {
+	if x != nil {
+		return x.Licenses
+	}
+	return nil
+}
+
+func (x *Component) GetHashes() []*Hash {
+	if x != nil {
+		return x.Hashes
+	}
+	return nil
+}
+
+// Hash is a content digest attached to a component.
+type Hash struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// algorithm is the canonical digest name, for example SHA-256 or SHA-512.
+	Algorithm string `protobuf:"bytes,1,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
+	// content is the lowercase hexadecimal digest.
+	Content       string `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Hash) Reset() {
+	*x = Hash{}
+	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Hash) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Hash) ProtoMessage() {}
+
+func (x *Hash) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Hash.ProtoReflect.Descriptor instead.
+func (*Hash) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_cyclonedx_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Hash) GetAlgorithm() string {
+	if x != nil {
+		return x.Algorithm
+	}
+	return ""
+}
+
+func (x *Hash) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+// Dependency describes one CycloneDX dependency-graph edge set.
+type Dependency struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ref identifies the component whose dependencies are listed.
+	Ref string `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	// depends_on contains bom_ref values for direct dependencies.
+	DependsOn     []string `protobuf:"bytes,2,rep,name=depends_on,json=dependsOn,proto3" json:"depends_on,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Dependency) Reset() {
+	*x = Dependency{}
+	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Dependency) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Dependency) ProtoMessage() {}
+
+func (x *Dependency) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Dependency.ProtoReflect.Descriptor instead.
+func (*Dependency) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_cyclonedx_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Dependency) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+func (x *Dependency) GetDependsOn() []string {
+	if x != nil {
+		return x.DependsOn
+	}
+	return nil
+}
+
+// Tool identifies software that produced the SBOM.
+type Tool struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// vendor is the tool publisher.
+	Vendor string `protobuf:"bytes,1,opt,name=vendor,proto3" json:"vendor,omitempty"`
+	// name is the tool name.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// version is the exact tool version or protocol revision.
+	Version       string `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Tool) Reset() {
+	*x = Tool{}
+	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Tool) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Tool) ProtoMessage() {}
+
+func (x *Tool) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Tool.ProtoReflect.Descriptor instead.
+func (*Tool) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_cyclonedx_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Tool) GetVendor() string {
+	if x != nil {
+		return x.Vendor
+	}
+	return ""
+}
+
+func (x *Tool) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Tool) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+// Metadata identifies the subject and generator of the SBOM.
+type Metadata struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// timestamp is an RFC3339 UTC generation time.
+	Timestamp string `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// component is the root application, module, or artifact being described.
+	Component *Component `protobuf:"bytes,2,opt,name=component,proto3" json:"component,omitempty"`
+	// tools identifies every generator involved in producing the document.
+	Tools         []*Tool `protobuf:"bytes,3,rep,name=tools,proto3" json:"tools,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Metadata) Reset() {
+	*x = Metadata{}
+	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Metadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Metadata) ProtoMessage() {}
+
+func (x *Metadata) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Metadata.ProtoReflect.Descriptor instead.
+func (*Metadata) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_cyclonedx_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Metadata) GetTimestamp() string {
+	if x != nil {
+		return x.Timestamp
+	}
+	return ""
+}
+
+func (x *Metadata) GetComponent() *Component {
+	if x != nil {
+		return x.Component
+	}
+	return nil
+}
+
+func (x *Metadata) GetTools() []*Tool {
+	if x != nil {
+		return x.Tools
+	}
+	return nil
+}
+
 // Bom is the CycloneDX software bill of materials emitted by an agent.
 type Bom struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -173,14 +446,18 @@ type Bom struct {
 	// version is the SBOM document version.
 	Version int32 `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"`
 	// components are software components included in the SBOM.
-	Components    []*Component `protobuf:"bytes,5,rep,name=components,proto3" json:"components,omitempty"` // Add other fields like metadata, dependencies, vulnerabilities, etc.
+	Components []*Component `protobuf:"bytes,5,rep,name=components,proto3" json:"components,omitempty"`
+	// dependencies is the direct dependency graph keyed by component bom_ref.
+	Dependencies []*Dependency `protobuf:"bytes,6,rep,name=dependencies,proto3" json:"dependencies,omitempty"`
+	// metadata identifies the SBOM subject and generator.
+	Metadata      *Metadata `protobuf:"bytes,7,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Bom) Reset() {
 	*x = Bom{}
-	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[1]
+	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -192,7 +469,7 @@ func (x *Bom) String() string {
 func (*Bom) ProtoMessage() {}
 
 func (x *Bom) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[1]
+	mi := &file_codefly_services_agent_v0_cyclonedx_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -205,7 +482,7 @@ func (x *Bom) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Bom.ProtoReflect.Descriptor instead.
 func (*Bom) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_cyclonedx_proto_rawDescGZIP(), []int{1}
+	return file_codefly_services_agent_v0_cyclonedx_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Bom) GetBomFormat() string {
@@ -243,17 +520,50 @@ func (x *Bom) GetComponents() []*Component {
 	return nil
 }
 
+func (x *Bom) GetDependencies() []*Dependency {
+	if x != nil {
+		return x.Dependencies
+	}
+	return nil
+}
+
+func (x *Bom) GetMetadata() *Metadata {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
 var File_codefly_services_agent_v0_cyclonedx_proto protoreflect.FileDescriptor
 
 const file_codefly_services_agent_v0_cyclonedx_proto_rawDesc = "" +
 	"\n" +
-	")codefly/services/agent/v0/cyclonedx.proto\x12\x19codefly.services.agent.v0\"\xa1\x01\n" +
+	")codefly/services/agent/v0/cyclonedx.proto\x12\x19codefly.services.agent.v0\"\x8f\x02\n" +
 	"\tComponent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12<\n" +
 	"\x04type\x18\x03 \x01(\x0e2(.codefly.services.agent.v0.ComponentTypeR\x04type\x12\x14\n" +
 	"\x05group\x18\x04 \x01(\tR\x05group\x12\x12\n" +
-	"\x04purl\x18\x05 \x01(\tR\x04purl\"\xcc\x01\n" +
+	"\x04purl\x18\x05 \x01(\tR\x04purl\x12\x17\n" +
+	"\abom_ref\x18\x06 \x01(\tR\x06bomRef\x12\x1a\n" +
+	"\blicenses\x18\a \x03(\tR\blicenses\x127\n" +
+	"\x06hashes\x18\b \x03(\v2\x1f.codefly.services.agent.v0.HashR\x06hashes\">\n" +
+	"\x04Hash\x12\x1c\n" +
+	"\talgorithm\x18\x01 \x01(\tR\talgorithm\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\"=\n" +
+	"\n" +
+	"Dependency\x12\x10\n" +
+	"\x03ref\x18\x01 \x01(\tR\x03ref\x12\x1d\n" +
+	"\n" +
+	"depends_on\x18\x02 \x03(\tR\tdependsOn\"L\n" +
+	"\x04Tool\x12\x16\n" +
+	"\x06vendor\x18\x01 \x01(\tR\x06vendor\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion\"\xa3\x01\n" +
+	"\bMetadata\x12\x1c\n" +
+	"\ttimestamp\x18\x01 \x01(\tR\ttimestamp\x12B\n" +
+	"\tcomponent\x18\x02 \x01(\v2$.codefly.services.agent.v0.ComponentR\tcomponent\x125\n" +
+	"\x05tools\x18\x03 \x03(\v2\x1f.codefly.services.agent.v0.ToolR\x05tools\"\xd8\x02\n" +
 	"\x03Bom\x12\x1d\n" +
 	"\n" +
 	"bom_format\x18\x01 \x01(\tR\tbomFormat\x12!\n" +
@@ -262,13 +572,17 @@ const file_codefly_services_agent_v0_cyclonedx_proto_rawDesc = "" +
 	"\aversion\x18\x04 \x01(\x05R\aversion\x12D\n" +
 	"\n" +
 	"components\x18\x05 \x03(\v2$.codefly.services.agent.v0.ComponentR\n" +
-	"components*F\n" +
-	"\rComponentType\x12\v\n" +
-	"\aLIBRARY\x10\x00\x12\r\n" +
-	"\tFRAMEWORK\x10\x01\x12\n" +
+	"components\x12I\n" +
+	"\fdependencies\x18\x06 \x03(\v2%.codefly.services.agent.v0.DependencyR\fdependencies\x12?\n" +
+	"\bmetadata\x18\a \x01(\v2#.codefly.services.agent.v0.MetadataR\bmetadata*w\n" +
+	"\rComponentType\x12\x1e\n" +
+	"\x1aCOMPONENT_TYPE_UNSPECIFIED\x10\x00\x12\v\n" +
+	"\aLIBRARY\x10\x01\x12\r\n" +
+	"\tFRAMEWORK\x10\x02\x12\n" +
 	"\n" +
-	"\x06MODULE\x10\x02\x12\r\n" +
-	"\tCONTAINER\x10\x03B\xfb\x01\n" +
+	"\x06MODULE\x10\x03\x12\r\n" +
+	"\tCONTAINER\x10\x04\x12\x0f\n" +
+	"\vAPPLICATION\x10\x05B\xfb\x01\n" +
 	"\x1dcom.codefly.services.agent.v0B\x0eCyclonedxProtoP\x01ZBgithub.com/codefly-dev/core/generated/go/codefly/services/agent/v0\xa2\x02\x04CSAV\xaa\x02\x19Codefly.Services.Agent.V0\xca\x02\x19Codefly\\Services\\Agent\\V0\xe2\x02%Codefly\\Services\\Agent\\V0\\GPBMetadata\xea\x02\x1cCodefly::Services::Agent::V0b\x06proto3"
 
 var (
@@ -284,20 +598,29 @@ func file_codefly_services_agent_v0_cyclonedx_proto_rawDescGZIP() []byte {
 }
 
 var file_codefly_services_agent_v0_cyclonedx_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_codefly_services_agent_v0_cyclonedx_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_codefly_services_agent_v0_cyclonedx_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_codefly_services_agent_v0_cyclonedx_proto_goTypes = []any{
 	(ComponentType)(0), // 0: codefly.services.agent.v0.ComponentType
 	(*Component)(nil),  // 1: codefly.services.agent.v0.Component
-	(*Bom)(nil),        // 2: codefly.services.agent.v0.Bom
+	(*Hash)(nil),       // 2: codefly.services.agent.v0.Hash
+	(*Dependency)(nil), // 3: codefly.services.agent.v0.Dependency
+	(*Tool)(nil),       // 4: codefly.services.agent.v0.Tool
+	(*Metadata)(nil),   // 5: codefly.services.agent.v0.Metadata
+	(*Bom)(nil),        // 6: codefly.services.agent.v0.Bom
 }
 var file_codefly_services_agent_v0_cyclonedx_proto_depIdxs = []int32{
 	0, // 0: codefly.services.agent.v0.Component.type:type_name -> codefly.services.agent.v0.ComponentType
-	1, // 1: codefly.services.agent.v0.Bom.components:type_name -> codefly.services.agent.v0.Component
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	2, // 1: codefly.services.agent.v0.Component.hashes:type_name -> codefly.services.agent.v0.Hash
+	1, // 2: codefly.services.agent.v0.Metadata.component:type_name -> codefly.services.agent.v0.Component
+	4, // 3: codefly.services.agent.v0.Metadata.tools:type_name -> codefly.services.agent.v0.Tool
+	1, // 4: codefly.services.agent.v0.Bom.components:type_name -> codefly.services.agent.v0.Component
+	3, // 5: codefly.services.agent.v0.Bom.dependencies:type_name -> codefly.services.agent.v0.Dependency
+	5, // 6: codefly.services.agent.v0.Bom.metadata:type_name -> codefly.services.agent.v0.Metadata
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_agent_v0_cyclonedx_proto_init() }
@@ -311,7 +634,7 @@ func file_codefly_services_agent_v0_cyclonedx_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_agent_v0_cyclonedx_proto_rawDesc), len(file_codefly_services_agent_v0_cyclonedx_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   2,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

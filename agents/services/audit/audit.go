@@ -3,9 +3,9 @@
 // point that shells out to the canonical CVE scanner + outdated-dep
 // reporter for that ecosystem and returns structured findings.
 //
-// The package never fails the agent if a tool is missing — it returns
-// Tool="missing" with empty findings so the CLI can render
-// "[missing govulncheck] go-grpc/api: skipped" instead of erroring.
+// Required scanners fail explicitly when they cannot run. A missing scanner
+// must never be represented as a successful empty result: release gates need
+// to distinguish "clean" from "not scanned".
 package audit
 
 import (
@@ -20,7 +20,7 @@ import (
 
 // Result is the language-agnostic shape returned by every Scan*
 // function. Tool identifies what produced it ("govulncheck+go-list-u",
-// "npm-audit+outdated", "pip-audit", "trivy", or "missing").
+// "npm-audit+outdated", "uv-export+pip-audit", "osv-scanner", or "trivy").
 type Result struct {
 	Findings []*builderv0.AuditFinding
 	Outdated []*builderv0.OutdatedDep
