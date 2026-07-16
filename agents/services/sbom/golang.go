@@ -63,9 +63,9 @@ func parseGoModules(data []byte) ([]*agentv0.Component, *agentv0.Component, map[
 		if err := decoder.Decode(&module); err != nil {
 			return nil, nil, nil, fmt.Errorf("decode go module graph: %w", err)
 		}
-		resolved := module
-		if module.Replace != nil {
-			resolved.Version = module.Replace.Version
+		resolvedVersion := module.Version
+		if module.Replace != nil && module.Replace.Version != "" {
+			resolvedVersion = module.Replace.Version
 		}
 		componentType := agentv0.ComponentType_LIBRARY
 		if module.Main {
@@ -73,13 +73,13 @@ func parseGoModules(data []byte) ([]*agentv0.Component, *agentv0.Component, map[
 		}
 		group, name := splitName(module.Path)
 		purl := "pkg:golang/" + module.Path
-		if resolved.Version != "" {
-			purl += "@" + resolved.Version
+		if resolvedVersion != "" {
+			purl += "@" + resolvedVersion
 		}
 		component := &agentv0.Component{
 			Name:    name,
 			Group:   group,
-			Version: resolved.Version,
+			Version: resolvedVersion,
 			Type:    componentType,
 			Purl:    purl,
 			BomRef:  purl,
