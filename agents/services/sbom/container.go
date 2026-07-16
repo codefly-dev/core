@@ -13,6 +13,9 @@ const (
 	// an operator-managed syft binary is not available.
 	SyftVersion = "v1.48.0"
 	SyftImage   = "anchore/syft@sha256:b4f1df79f97b817682d8b5ff941eb6bfe74f6172553a5e312c75bbc2eabc405c"
+	// SyftScratchSize bounds temporary layer extraction. 64 MiB is too small
+	// for normal service images such as Redis once their layers are expanded.
+	SyftScratchSize = "512m"
 )
 
 // Container generates a package-level inventory for a registry image. The
@@ -30,11 +33,7 @@ func Container(ctx context.Context, image string) (*Result, error) {
 			return nil, fmt.Errorf("%w: neither syft nor docker is installed", ErrUnsupported)
 		}
 		name = "docker"
-		args = []string{
-			"run", "--rm", "--network", "bridge", "--read-only", "--cap-drop", "ALL",
-			"--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
-			SyftImage, "registry:" + image, "-q", "-o", "cyclonedx-json@1.5",
-		}
+		args = managedSyftArgs(image)
 		tool = "syft@" + SyftVersion
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -45,4 +44,12 @@ func Container(ctx context.Context, image string) (*Result, error) {
 		return nil, fmt.Errorf("%s container SBOM failed: %w: %s", tool, err, strings.TrimSpace(stderr.String()))
 	}
 	return parseCycloneDX(stdout.Bytes(), tool, "DOCKER")
+}
+
+func managedSyftArgs(image string) []string {
+	return []string{
+		"run", "--rm", "--network", "bridge", "--read-only", "--cap-drop", "ALL",
+		"--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,noexec,nosuid,size=" + SyftScratchSize,
+		SyftImage, "registry:" + image, "-q", "-o", "cyclonedx-json@1.5",
+	}
 }

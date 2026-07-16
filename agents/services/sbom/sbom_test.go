@@ -33,6 +33,30 @@ func TestParseGoModulesAndGraph(t *testing.T) {
 	require.Equal(t, first.Bom.GetSerialNumber(), second.Bom.GetSerialNumber())
 }
 
+func TestManagedSyftArgsRemainHardenedWithBoundedScratch(t *testing.T) {
+	args := strings.Join(managedSyftArgs("redis@sha256:abc"), " ")
+	require.Contains(t, args, "--read-only")
+	require.Contains(t, args, "--cap-drop ALL")
+	require.Contains(t, args, "--security-opt no-new-privileges")
+	require.Contains(t, args, "size="+SyftScratchSize)
+	require.Contains(t, args, SyftImage)
+	require.NotContains(t, args, "/var/run/docker.sock")
+	require.NotContains(t, args, "--privileged")
+}
+
+func TestParseGoModulesPreservesVersionForLocalReplacement(t *testing.T) {
+	modules := strings.Join([]string{
+		`{"Path":"example.com/app","Main":true}`,
+		`{"Path":"github.com/codefly-dev/core","Version":"v0.2.20","Replace":{"Path":"/workspace/core"}}`,
+	}, "\n")
+	components, _, byToken, err := parseGoModules([]byte(modules))
+	require.NoError(t, err)
+	require.Len(t, components, 1)
+	require.Equal(t, "v0.2.20", components[0].GetVersion())
+	require.Equal(t, "pkg:golang/github.com/codefly-dev/core@v0.2.20", components[0].GetPurl())
+	require.Equal(t, components[0].GetBomRef(), byToken["github.com/codefly-dev/core@v0.2.20"])
+}
+
 func TestPackageLockResultHonorsDevAndDependencyGraph(t *testing.T) {
 	hash := base64.StdEncoding.EncodeToString(make([]byte, 64))
 	lock := &packageLock{
