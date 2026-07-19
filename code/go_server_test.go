@@ -24,8 +24,8 @@ func TestGoCodeServer_GetProjectInfo_RealRepos(t *testing.T) {
 			if info == nil {
 				t.Fatal("nil GetProjectInfo response")
 			}
-			if info.Error != "" {
-				t.Fatalf("error: %s", info.Error)
+			if resp.GetFailure() != nil {
+				t.Fatalf("failure: %v", resp.GetFailure())
 			}
 			if info.Language != "go" {
 				t.Errorf("language: got %q, want go", info.Language)
@@ -66,8 +66,8 @@ func TestGoCodeServer_ListDependencies_RealRepos(t *testing.T) {
 			if deps == nil {
 				t.Fatal("nil response")
 			}
-			if deps.Error != "" {
-				t.Fatalf("go list -m failed (run `go mod download` in the testdata repo): %s", deps.Error)
+			if resp.GetFailure() != nil {
+				t.Fatalf("go list -m failed (run `go mod download` in the testdata repo): %v", resp.GetFailure())
 			}
 			for _, d := range deps.Dependencies {
 				if d.Name == "" {

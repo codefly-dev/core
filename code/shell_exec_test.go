@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
@@ -66,8 +67,8 @@ func TestShellExec_EchoHello(t *testing.T) {
 	if r.TimedOut {
 		t.Errorf("unexpected TimedOut=true")
 	}
-	if r.Error != "" {
-		t.Errorf("unexpected Error: %q", r.Error)
+	if resp.GetFailure() != nil {
+		t.Errorf("unexpected failure: %v", resp.GetFailure())
 	}
 }
 
@@ -146,8 +147,8 @@ func TestShellExec_WorkDir_AbsoluteRejected(t *testing.T) {
 	if r.ExitCode != -1 {
 		t.Errorf("expected exit -1, got %d", r.ExitCode)
 	}
-	if !strings.Contains(r.Error, "absolute work_dir not allowed") {
-		t.Errorf("expected absolute-path error, got %q", r.Error)
+	if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT || !strings.Contains(resp.GetFailure().GetMessage(), "absolute work_dir not allowed") {
+		t.Errorf("expected typed absolute-path failure, got %v", resp.GetFailure())
 	}
 }
 
@@ -168,8 +169,8 @@ func TestShellExec_WorkDir_TraversalRejected(t *testing.T) {
 	if r.ExitCode != -1 {
 		t.Errorf("expected exit -1, got %d", r.ExitCode)
 	}
-	if !strings.Contains(r.Error, "escapes source root") {
-		t.Errorf("expected traversal error, got %q", r.Error)
+	if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT || !strings.Contains(resp.GetFailure().GetMessage(), "escapes source root") {
+		t.Errorf("expected typed traversal failure, got %v", resp.GetFailure())
 	}
 }
 
@@ -248,6 +249,9 @@ func TestShellExec_NonZeroExitCode(t *testing.T) {
 	if r.TimedOut {
 		t.Errorf("unexpected TimedOut=true")
 	}
+	if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED || resp.GetFailure().GetProcess().GetExitCode() != 42 {
+		t.Fatalf("non-zero exit failure = %v, want process failure with exit 42", resp.GetFailure())
+	}
 }
 
 // ──────────────────────────────────────────────────────────
@@ -300,6 +304,9 @@ func TestShellExec_Timeout(t *testing.T) {
 
 	if !r.TimedOut {
 		t.Errorf("expected TimedOut=true, got false")
+	}
+	if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_TIMEOUT {
+		t.Fatalf("timeout failure = %v, want timeout", resp.GetFailure())
 	}
 	// Should finish well before the sleep would (30s) — within ~4s
 	// (1s timeout + up to 2s graceful + margin).
@@ -552,10 +559,8 @@ func TestShellExec_EmptyCommandAndArgs(t *testing.T) {
 			ShellExec: &codev0.ShellExecRequest{},
 		},
 	})
-	r := extractShellExec(t, resp)
-
-	if r.Error == "" {
-		t.Error("expected error for empty command+args")
+	if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT {
+		t.Fatalf("expected invalid-argument failure for empty command+args, got %v", resp.GetFailure())
 	}
 }
 

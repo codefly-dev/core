@@ -36,10 +36,6 @@ const (
 const (
 	// CodeExecuteProcedure is the fully-qualified name of the Code's Execute RPC.
 	CodeExecuteProcedure = "/codefly.services.code.v0.Code/Execute"
-	// CodeApplyEditProcedure is the fully-qualified name of the Code's ApplyEdit RPC.
-	CodeApplyEditProcedure = "/codefly.services.code.v0.Code/ApplyEdit"
-	// CodeShellExecProcedure is the fully-qualified name of the Code's ShellExec RPC.
-	CodeShellExecProcedure = "/codefly.services.code.v0.Code/ShellExec"
 )
 
 // CodeClient is a client for the codefly.services.code.v0.Code service.
@@ -48,12 +44,6 @@ type CodeClient interface {
 	// Clients wrap the specific request type in a CodeRequest oneof; the
 	// plugin's Execute handler unwraps and dispatches the operation.
 	Execute(context.Context, *connect.Request[v0.CodeRequest]) (*connect.Response[v0.CodeResponse], error)
-	// ApplyEdit directly exposes smart edits for older CLI callers.
-	ApplyEdit(context.Context, *connect.Request[v0.ApplyEditRequest]) (*connect.Response[v0.ApplyEditResponse], error)
-	// ShellExec is the one sanctioned path for running shell commands
-	// against a workspace. Clients call this instead of os/exec so all
-	// process spawning crosses the plugin boundary (the agent).
-	ShellExec(context.Context, *connect.Request[v0.ShellExecRequest]) (*connect.Response[v0.ShellExecResponse], error)
 }
 
 // NewCodeClient constructs a client for the codefly.services.code.v0.Code service. By default, it
@@ -73,41 +63,17 @@ func NewCodeClient(httpClient connect.HTTPClient, baseURL string, opts ...connec
 			connect.WithSchema(codeMethods.ByName("Execute")),
 			connect.WithClientOptions(opts...),
 		),
-		applyEdit: connect.NewClient[v0.ApplyEditRequest, v0.ApplyEditResponse](
-			httpClient,
-			baseURL+CodeApplyEditProcedure,
-			connect.WithSchema(codeMethods.ByName("ApplyEdit")),
-			connect.WithClientOptions(opts...),
-		),
-		shellExec: connect.NewClient[v0.ShellExecRequest, v0.ShellExecResponse](
-			httpClient,
-			baseURL+CodeShellExecProcedure,
-			connect.WithSchema(codeMethods.ByName("ShellExec")),
-			connect.WithClientOptions(opts...),
-		),
 	}
 }
 
 // codeClient implements CodeClient.
 type codeClient struct {
-	execute   *connect.Client[v0.CodeRequest, v0.CodeResponse]
-	applyEdit *connect.Client[v0.ApplyEditRequest, v0.ApplyEditResponse]
-	shellExec *connect.Client[v0.ShellExecRequest, v0.ShellExecResponse]
+	execute *connect.Client[v0.CodeRequest, v0.CodeResponse]
 }
 
 // Execute calls codefly.services.code.v0.Code.Execute.
 func (c *codeClient) Execute(ctx context.Context, req *connect.Request[v0.CodeRequest]) (*connect.Response[v0.CodeResponse], error) {
 	return c.execute.CallUnary(ctx, req)
-}
-
-// ApplyEdit calls codefly.services.code.v0.Code.ApplyEdit.
-func (c *codeClient) ApplyEdit(ctx context.Context, req *connect.Request[v0.ApplyEditRequest]) (*connect.Response[v0.ApplyEditResponse], error) {
-	return c.applyEdit.CallUnary(ctx, req)
-}
-
-// ShellExec calls codefly.services.code.v0.Code.ShellExec.
-func (c *codeClient) ShellExec(ctx context.Context, req *connect.Request[v0.ShellExecRequest]) (*connect.Response[v0.ShellExecResponse], error) {
-	return c.shellExec.CallUnary(ctx, req)
 }
 
 // CodeHandler is an implementation of the codefly.services.code.v0.Code service.
@@ -116,12 +82,6 @@ type CodeHandler interface {
 	// Clients wrap the specific request type in a CodeRequest oneof; the
 	// plugin's Execute handler unwraps and dispatches the operation.
 	Execute(context.Context, *connect.Request[v0.CodeRequest]) (*connect.Response[v0.CodeResponse], error)
-	// ApplyEdit directly exposes smart edits for older CLI callers.
-	ApplyEdit(context.Context, *connect.Request[v0.ApplyEditRequest]) (*connect.Response[v0.ApplyEditResponse], error)
-	// ShellExec is the one sanctioned path for running shell commands
-	// against a workspace. Clients call this instead of os/exec so all
-	// process spawning crosses the plugin boundary (the agent).
-	ShellExec(context.Context, *connect.Request[v0.ShellExecRequest]) (*connect.Response[v0.ShellExecResponse], error)
 }
 
 // NewCodeHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -137,26 +97,10 @@ func NewCodeHandler(svc CodeHandler, opts ...connect.HandlerOption) (string, htt
 		connect.WithSchema(codeMethods.ByName("Execute")),
 		connect.WithHandlerOptions(opts...),
 	)
-	codeApplyEditHandler := connect.NewUnaryHandler(
-		CodeApplyEditProcedure,
-		svc.ApplyEdit,
-		connect.WithSchema(codeMethods.ByName("ApplyEdit")),
-		connect.WithHandlerOptions(opts...),
-	)
-	codeShellExecHandler := connect.NewUnaryHandler(
-		CodeShellExecProcedure,
-		svc.ShellExec,
-		connect.WithSchema(codeMethods.ByName("ShellExec")),
-		connect.WithHandlerOptions(opts...),
-	)
 	return "/codefly.services.code.v0.Code/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CodeExecuteProcedure:
 			codeExecuteHandler.ServeHTTP(w, r)
-		case CodeApplyEditProcedure:
-			codeApplyEditHandler.ServeHTTP(w, r)
-		case CodeShellExecProcedure:
-			codeShellExecHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -168,12 +112,4 @@ type UnimplementedCodeHandler struct{}
 
 func (UnimplementedCodeHandler) Execute(context.Context, *connect.Request[v0.CodeRequest]) (*connect.Response[v0.CodeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.Execute is not implemented"))
-}
-
-func (UnimplementedCodeHandler) ApplyEdit(context.Context, *connect.Request[v0.ApplyEditRequest]) (*connect.Response[v0.ApplyEditResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.ApplyEdit is not implemented"))
-}
-
-func (UnimplementedCodeHandler) ShellExec(context.Context, *connect.Request[v0.ShellExecRequest]) (*connect.Response[v0.ShellExecResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.code.v0.Code.ShellExec is not implemented"))
 }

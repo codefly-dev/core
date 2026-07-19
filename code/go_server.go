@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
@@ -39,24 +40,6 @@ func NewGoCodeServer(dir string, serverOpts []ServerOption, goOpts ...GoServerOp
 // VFS returns the underlying VFS of the code server.
 func (s *GoCodeServer) VFS() VFS { return s.FS }
 
-// GetProjectInfo implements the standalone gRPC RPC (not through Execute).
-func (s *GoCodeServer) GetProjectInfo(ctx context.Context, req *codev0.GetProjectInfoRequest) (*codev0.GetProjectInfoResponse, error) {
-	resp, err := s.handleGetProjectInfo(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	return resp.GetGetProjectInfo(), nil
-}
-
-// ListDependencies implements the standalone gRPC RPC.
-func (s *GoCodeServer) ListDependencies(ctx context.Context, req *codev0.ListDependenciesRequest) (*codev0.ListDependenciesResponse, error) {
-	resp, err := s.handleListDependencies(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	return resp.GetListDependencies(), nil
-}
-
 func (s *GoCodeServer) registerGoOverrides() {
 	s.Override("get_project_info", s.handleGetProjectInfo)
 	s.Override("list_dependencies", s.handleListDependencies)
@@ -70,8 +53,7 @@ func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeR
 
 	modData, err := s.FS.ReadFile(filepath.Join(srcDir, "go.mod"))
 	if err != nil {
-		resp.Error = fmt.Sprintf("read go.mod: %v", err)
-		return wrapProjectInfo(resp), nil
+		return codeFailure(wrapProjectInfo(resp), basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.get-project-info", fmt.Sprintf("read go.mod: %v", err)), nil
 	}
 	for _, line := range strings.Split(string(modData), "\n") {
 		line = strings.TrimSpace(line)
@@ -101,9 +83,9 @@ func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeR
 func (s *GoCodeServer) handleListDependencies(ctx context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	deps, err := goListDependencies(ctx, s.SourceDir)
 	if err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{
-			ListDependencies: &codev0.ListDependenciesResponse{Error: fmt.Sprintf("go list -m failed: %v", err)},
-		}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{
+			ListDependencies: &codev0.ListDependenciesResponse{},
+		}}, basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.list-dependencies", fmt.Sprintf("go list -m failed: %v", err)), nil
 	}
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{
 		ListDependencies: &codev0.ListDependenciesResponse{Dependencies: deps},

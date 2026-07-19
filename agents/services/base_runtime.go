@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/codefly-dev/core/builders"
+	codeflyfailures "github.com/codefly-dev/core/failures"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 
@@ -102,14 +103,15 @@ func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
 func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: err.Error()}
+	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.load", err, err.Error())}
 	return &runtimev0.LoadResponse{Status: s.LoadStatus}, nil
 }
 
 func (s *RuntimeWrapper) LoadErrorf(err error, msg string, args ...any) (*runtimev0.LoadResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
+	message := ErrorMessage(err, msg, args...)
+	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: message, Failure: operationFailure("runtime.load", err, message)}
 	return &runtimev0.LoadResponse{Status: s.LoadStatus}, nil
 }
 
@@ -129,14 +131,15 @@ func (s *RuntimeWrapper) InitResponse() (*runtimev0.InitResponse, error) {
 func (s *RuntimeWrapper) InitError(err error) (*runtimev0.InitResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: err.Error()}
+	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.init", err, err.Error())}
 	return &runtimev0.InitResponse{Status: s.InitStatus}, nil
 }
 
 func (s *RuntimeWrapper) InitErrorf(err error, msg string, args ...any) (*runtimev0.InitResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
+	message := ErrorMessage(err, msg, args...)
+	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: message, Failure: operationFailure("runtime.init", err, message)}
 	return &runtimev0.InitResponse{Status: s.InitStatus}, nil
 }
 
@@ -152,14 +155,15 @@ func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
 func (s *RuntimeWrapper) StartError(err error) (*runtimev0.StartResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: err.Error()}
+	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.start", err, err.Error())}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
 }
 
 func (s *RuntimeWrapper) StartErrorf(err error, msg string, args ...any) (*runtimev0.StartResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
+	message := ErrorMessage(err, msg, args...)
+	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: message, Failure: operationFailure("runtime.start", err, message)}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
 }
 
@@ -179,7 +183,7 @@ func (s *RuntimeWrapper) MarkRunnerExited(err error) {
 	if err != nil {
 		msg = err.Error()
 	}
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: msg}
+	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: msg, Failure: operationFailure("runtime.start", err, msg)}
 }
 
 // ── Test ──────────────────────────────────────────────────
@@ -196,10 +200,15 @@ func (s *RuntimeWrapper) TestResponseWithResults(run, passed, failed, skipped in
 	defer s.Unlock()
 	if err != nil || failed > 0 {
 		msg := ""
+		var failure *basev0.Failure
 		if err != nil {
 			msg = err.Error()
+			failure = operationFailure("runtime.test", err, msg)
+		} else {
+			msg = "one or more tests failed"
+			failure = codeflyfailures.New(basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "runtime.test", msg)
 		}
-		s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg}
+		s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg, Failure: failure}
 	} else {
 		s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_SUCCESS}
 	}
@@ -217,14 +226,15 @@ func (s *RuntimeWrapper) TestResponseWithResults(run, passed, failed, skipped in
 func (s *RuntimeWrapper) TestError(err error) (*runtimev0.TestResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: err.Error()}
+	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.test", err, err.Error())}
 	return &runtimev0.TestResponse{Status: s.TestStatus}, nil
 }
 
 func (s *RuntimeWrapper) TestErrorf(err error, msg string, args ...any) (*runtimev0.TestResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
+	message := ErrorMessage(err, msg, args...)
+	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: message, Failure: operationFailure("runtime.test", err, message)}
 	return &runtimev0.TestResponse{Status: s.TestStatus}, nil
 }
 
@@ -240,14 +250,15 @@ func (s *RuntimeWrapper) BuildResponse(output string) (*runtimev0.BuildResponse,
 func (s *RuntimeWrapper) BuildError(err error) (*runtimev0.BuildResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_ERROR, Message: err.Error()}
+	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.compile", err, err.Error())}
 	return &runtimev0.BuildResponse{Status: s.BuildStatus}, nil
 }
 
 func (s *RuntimeWrapper) BuildErrorf(err error, msg string, args ...any) (*runtimev0.BuildResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
+	message := ErrorMessage(err, msg, args...)
+	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_ERROR, Message: message, Failure: operationFailure("runtime.compile", err, message)}
 	return &runtimev0.BuildResponse{Status: s.BuildStatus}, nil
 }
 
@@ -263,15 +274,16 @@ func (s *RuntimeWrapper) LintResponse(output string) (*runtimev0.LintResponse, e
 func (s *RuntimeWrapper) LintError(err error) (*runtimev0.LintResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_ERROR, Message: err.Error()}
-	return &runtimev0.LintResponse{Status: s.LintStatus}, nil
+	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.lint", err, err.Error())}
+	return &runtimev0.LintResponse{Status: s.LintStatus, Output: err.Error()}, nil
 }
 
 func (s *RuntimeWrapper) LintErrorf(err error, msg string, args ...any) (*runtimev0.LintResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_ERROR, Message: ErrorMessage(err, msg, args...)}
-	return &runtimev0.LintResponse{Status: s.LintStatus}, nil
+	message := ErrorMessage(err, msg, args...)
+	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_ERROR, Message: message, Failure: operationFailure("runtime.lint", err, message)}
+	return &runtimev0.LintResponse{Status: s.LintStatus, Output: message}, nil
 }
 
 // ── Stop / Destroy ────────────────────────────────────────
@@ -283,7 +295,7 @@ func (s *RuntimeWrapper) StopResponse() (*runtimev0.StopResponse, error) {
 func (s *RuntimeWrapper) StopError(err error) (*runtimev0.StopResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.StopStatus = &runtimev0.StopStatus{State: runtimev0.StopStatus_ERROR, Message: err.Error()}
+	s.StopStatus = &runtimev0.StopStatus{State: runtimev0.StopStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.stop", err, err.Error())}
 	return &runtimev0.StopResponse{Status: s.StopStatus}, nil
 }
 
@@ -294,7 +306,7 @@ func (s *RuntimeWrapper) DestroyResponse() (*runtimev0.DestroyResponse, error) {
 func (s *RuntimeWrapper) DestroyError(err error) (*runtimev0.DestroyResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.DestroyStatus = &runtimev0.DestroyStatus{State: runtimev0.DestroyStatus_ERROR, Message: err.Error()}
+	s.DestroyStatus = &runtimev0.DestroyStatus{State: runtimev0.DestroyStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.destroy", err, err.Error())}
 	return &runtimev0.DestroyResponse{Status: s.DestroyStatus}, nil
 }
 

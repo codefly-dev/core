@@ -93,6 +93,13 @@ func (s *DefaultBuilder) SBOM(context.Context, *builderv0.SBOMRequest) (*builder
 	return s.wrapper.SBOMUnsupported("this service agent does not provide an authoritative SBOM")
 }
 
+func (s *DefaultBuilder) Package(context.Context, *builderv0.PackageRequest) (*builderv0.PackageResponse, error) {
+	if s == nil || s.wrapper == nil {
+		return (&BuilderWrapper{}).PackageUnsupported(errDefaultBuilderNotWired.Error())
+	}
+	return s.wrapper.PackageUnsupported("this service agent does not provide portable source packaging")
+}
+
 // Communicate is an empty question stream by default. Plugins with creation or
 // synchronization questions override it with their own implementation.
 func (s *DefaultBuilder) Communicate(builderv0.Builder_CommunicateServer) error {

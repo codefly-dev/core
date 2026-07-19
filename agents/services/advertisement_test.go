@@ -9,9 +9,8 @@ import (
 func TestAdvertisementPreservesValidationContract(t *testing.T) {
 	validation := &agentv0.ValidationCapabilities{
 		Lint: &agentv0.ValidationOperationCapability{
-			Supported:   true,
-			Scopes:      []agentv0.ValidationScope{agentv0.ValidationScope_VALIDATION_SCOPE_WORKSPACE},
-			SupportsFix: true,
+			Supported: true,
+			Scopes:    []agentv0.ValidationScope{agentv0.ValidationScope_VALIDATION_SCOPE_WORKSPACE},
 		},
 		Test: &agentv0.TestValidationCapability{
 			Supported: true,

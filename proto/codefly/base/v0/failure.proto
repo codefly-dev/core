@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+package codefly.base.v0;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
+import "google/rpc/code.proto";
+
+// FailureCode is the stable, provider- and plugin-neutral reason taxonomy.
+// It complements google.rpc.Code: the RPC code controls transport behavior,
+// while this value explains the Codefly operation failure.
+enum FailureCode {
+  // FAILURE_CODE_UNSPECIFIED means no stable reason was supplied.
+  FAILURE_CODE_UNSPECIFIED = 0;
+  // FAILURE_CODE_INVALID_ARGUMENT means request data is malformed.
+  FAILURE_CODE_INVALID_ARGUMENT = 1;
+  // FAILURE_CODE_INVALID_CONFIGURATION means persisted Codefly/plugin config is invalid.
+  FAILURE_CODE_INVALID_CONFIGURATION = 2;
+  // FAILURE_CODE_VALIDATION_FAILED means source or artifact validation failed.
+  FAILURE_CODE_VALIDATION_FAILED = 3;
+  // FAILURE_CODE_NOT_FOUND means a requested resource does not exist.
+  FAILURE_CODE_NOT_FOUND = 4;
+  // FAILURE_CODE_ALREADY_EXISTS means creation conflicts with existing state.
+  FAILURE_CODE_ALREADY_EXISTS = 5;
+  // FAILURE_CODE_UNSUPPORTED_OPERATION means the plugin authoritatively does not support the operation.
+  FAILURE_CODE_UNSUPPORTED_OPERATION = 6;
+  // FAILURE_CODE_UNIMPLEMENTED means advertised behavior has no implementation.
+  FAILURE_CODE_UNIMPLEMENTED = 7;
+  // FAILURE_CODE_UNAUTHENTICATED means no valid principal was established.
+  FAILURE_CODE_UNAUTHENTICATED = 8;
+  // FAILURE_CODE_PERMISSION_DENIED means the principal cannot perform the operation.
+  FAILURE_CODE_PERMISSION_DENIED = 9;
+  // FAILURE_CODE_CONFLICT means current state conflicts with the requested transition.
+  FAILURE_CODE_CONFLICT = 10;
+  // FAILURE_CODE_PRECONDITION_FAILED means a required invariant is not satisfied.
+  FAILURE_CODE_PRECONDITION_FAILED = 11;
+  // FAILURE_CODE_DEPENDENCY_FAILED means an upstream Codefly resource failed.
+  FAILURE_CODE_DEPENDENCY_FAILED = 12;
+  // FAILURE_CODE_DEPENDENCY_UNAVAILABLE means an upstream resource cannot be reached.
+  FAILURE_CODE_DEPENDENCY_UNAVAILABLE = 13;
+  // FAILURE_CODE_TOOLCHAIN_UNAVAILABLE means the owning plugin cannot access its required toolchain.
+  FAILURE_CODE_TOOLCHAIN_UNAVAILABLE = 14;
+  // FAILURE_CODE_RUNTIME_UNAVAILABLE means no supported execution backend is available.
+  FAILURE_CODE_RUNTIME_UNAVAILABLE = 15;
+  // FAILURE_CODE_TIMEOUT means the operation exceeded its deadline.
+  FAILURE_CODE_TIMEOUT = 16;
+  // FAILURE_CODE_CANCELLED means the caller or scheduler cancelled the operation.
+  FAILURE_CODE_CANCELLED = 17;
+  // FAILURE_CODE_RATE_LIMITED means policy or an upstream system throttled the operation.
+  FAILURE_CODE_RATE_LIMITED = 18;
+  // FAILURE_CODE_RESOURCE_EXHAUSTED means memory, disk, process, or capacity limits were reached.
+  FAILURE_CODE_RESOURCE_EXHAUSTED = 19;
+  // FAILURE_CODE_INTEGRITY_FAILED means source, generated, or artifact integrity verification failed.
+  FAILURE_CODE_INTEGRITY_FAILED = 20;
+  // FAILURE_CODE_GENERATED_DRIFT means canonical generated output differs from tracked output.
+  FAILURE_CODE_GENERATED_DRIFT = 21;
+  // FAILURE_CODE_COMPATIBILITY_FAILED means a public contract has an incompatible change.
+  FAILURE_CODE_COMPATIBILITY_FAILED = 22;
+  // FAILURE_CODE_SECURITY_POLICY_FAILED means vulnerability or security policy rejected the result.
+  FAILURE_CODE_SECURITY_POLICY_FAILED = 23;
+  // FAILURE_CODE_PROCESS_FAILED means a plugin-owned process exited unsuccessfully.
+  FAILURE_CODE_PROCESS_FAILED = 24;
+  // FAILURE_CODE_IO_FAILED means a filesystem or stream operation failed.
+  FAILURE_CODE_IO_FAILED = 25;
+  // FAILURE_CODE_NETWORK_FAILED means a network operation failed.
+  FAILURE_CODE_NETWORK_FAILED = 26;
+  // FAILURE_CODE_TEMPORARILY_UNAVAILABLE means retrying later may succeed.
+  FAILURE_CODE_TEMPORARILY_UNAVAILABLE = 27;
+  // FAILURE_CODE_INTERNAL means an invariant or unexpected implementation failure occurred.
+  FAILURE_CODE_INTERNAL = 28;
+}
+
+// ResourceReference identifies the Codefly subject associated with a failure.
+message ResourceReference {
+  // kind is the Codefly resource family, such as workspace, module, service, or agent.
+  string kind = 1;
+  // workspace is the owning workspace when applicable.
+  string workspace = 2;
+  // module is the owning module when applicable.
+  string module = 3;
+  // name is the resource name.
+  string name = 4;
+  // version is the resource or plugin version when applicable.
+  string version = 5;
+}
+
+// FieldViolation describes invalid request or configuration data.
+message FieldViolation {
+  // field is the protobuf field path or stable configuration path.
+  string field = 1;
+  // description explains the violated constraint without exposing secrets.
+  string description = 2;
+}
+
+// SourceLocation points to source associated with a diagnostic.
+message SourceLocation {
+  // path is canonical and relative to the owning resource whenever possible.
+  string path = 1;
+  // line is one-based; zero means unavailable.
+  int32 line = 2;
+  // column is one-based; zero means unavailable.
+  int32 column = 3;
+  // end_line is the optional inclusive end line.
+  int32 end_line = 4;
+  // end_column is the optional inclusive end column.
+  int32 end_column = 5;
+}
+
+// FailureDiagnostic is one normalized diagnostic associated with a failure.
+message FailureDiagnostic {
+  // Severity is independent of any native tool's level names.
+  enum Severity {
+    // SEVERITY_UNSPECIFIED means the plugin could not classify severity.
+    SEVERITY_UNSPECIFIED = 0;
+    // INFO is informational.
+    INFO = 1;
+    // WARNING requires attention but may not fail policy.
+    WARNING = 2;
+    // ERROR caused or explains operation failure.
+    ERROR = 3;
+  }
+  // severity is the normalized diagnostic severity.
+  Severity severity = 1;
+  // code is a native or plugin-stable rule identifier.
+  string code = 2;
+  // message is the bounded human-readable diagnostic.
+  string message = 3;
+  // location points to related source when available.
+  SourceLocation location = 4;
+}
+
+// ProcessFailure captures bounded evidence from a plugin-owned process.
+message ProcessFailure {
+  // tool is the stable tool identity, not an arbitrary shell command.
+  string tool = 1;
+  // exit_code is the native process exit code when available.
+  int32 exit_code = 2;
+  // signal is the termination signal when applicable.
+  string signal = 3;
+  // output is bounded diagnostic output with secrets removed by the plugin.
+  string output = 4;
+  // output_truncated reports that the plugin bounded process output.
+  bool output_truncated = 5;
+  // backend is the execution backend such as local, nix, or docker.
+  string backend = 6;
+}
+
+// Failure is the universal structured error detail exchanged across Codefly
+// plugin, CLI, daemon, Mind, editor, and CI boundaries.
+message Failure {
+  // code is the stable Codefly reason.
+  FailureCode code = 1;
+  // message is a safe human-readable summary.
+  string message = 2;
+  // transport_code is the corresponding google.rpc.Code when transported as a gRPC error.
+  google.rpc.Code transport_code = 3;
+  // retryable declares whether the same operation may succeed without user changes.
+  bool retryable = 4;
+  // operation is the stable semantic operation, such as lint, test, sync, or package.
+  string operation = 5;
+  // resource identifies the failing subject.
+  ResourceReference resource = 6;
+  // field_violations identify invalid request/configuration fields.
+  repeated FieldViolation field_violations = 7;
+  // diagnostics contain normalized source or policy findings.
+  repeated FailureDiagnostic diagnostics = 8;
+  // process contains bounded evidence from a plugin-owned native process.
+  ProcessFailure process = 9;
+  // retry_after is meaningful for retryable throttling/unavailable failures.
+  google.protobuf.Duration retry_after = 10;
+  // details carries additional typed protobuf messages, packed as Any.
+  repeated google.protobuf.Any details = 11;
+  // causes retains structured causal failures from dependencies or nested operations.
+  repeated Failure causes = 12;
+}

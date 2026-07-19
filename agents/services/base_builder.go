@@ -10,6 +10,7 @@ import (
 	serviceaudit "github.com/codefly-dev/core/agents/services/audit"
 	servicesbom "github.com/codefly-dev/core/agents/services/sbom"
 	"github.com/codefly-dev/core/builders"
+	"github.com/codefly-dev/core/failures"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
@@ -88,6 +89,17 @@ func ErrorMessage(err error, msg string, args ...any) string {
 	return fmt.Sprintf("%s: %s", msg, err)
 }
 
+func operationFailure(operation string, err error, message string) *basev0.Failure {
+	failure := failures.FromError(operation, err)
+	if failure == nil && message != "" {
+		failure = failures.New(basev0.FailureCode_FAILURE_CODE_INTERNAL, operation, message)
+	}
+	if failure != nil && message != "" {
+		failure.Message = message
+	}
+	return failure
+}
+
 func (s *BuilderWrapper) LoadResponse() (*builderv0.LoadResponse, error) {
 	if !s.loaded {
 		return s.LoadError(fmt.Errorf("not loaded"))
@@ -106,13 +118,14 @@ func (s *BuilderWrapper) LoadResponse() (*builderv0.LoadResponse, error) {
 
 func (s *BuilderWrapper) LoadError(err error) (*builderv0.LoadResponse, error) {
 	return &builderv0.LoadResponse{
-		State: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: err.Error()},
+		State: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.load", err, err.Error())},
 	}, nil
 }
 
 func (s *BuilderWrapper) LoadErrorf(err error, msg string, args ...any) (*builderv0.LoadResponse, error) {
+	message := ErrorMessage(err, msg, args...)
 	return &builderv0.LoadResponse{
-		State: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
+		State: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: message, Failure: operationFailure("builder.load", err, message)},
 	}, nil
 }
 
@@ -127,13 +140,14 @@ func (s *BuilderWrapper) InitResponse() (*builderv0.InitResponse, error) {
 
 func (s *BuilderWrapper) InitError(err error) (*builderv0.InitResponse, error) {
 	return &builderv0.InitResponse{
-		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: err.Error()},
+		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.init", err, err.Error())},
 	}, nil
 }
 
 func (s *BuilderWrapper) InitErrorf(err error, msg string, args ...any) (*builderv0.InitResponse, error) {
+	message := ErrorMessage(err, msg, args...)
 	return &builderv0.InitResponse{
-		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
+		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: message, Failure: operationFailure("builder.init", err, message)},
 	}, nil
 }
 
@@ -165,13 +179,14 @@ func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*bui
 
 func (s *BuilderWrapper) CreateError(err error) (*builderv0.CreateResponse, error) {
 	return &builderv0.CreateResponse{
-		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error()},
+		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.create", err, err.Error())},
 	}, nil
 }
 
 func (s *BuilderWrapper) CreateErrorf(err error, msg string, args ...any) (*builderv0.CreateResponse, error) {
+	message := ErrorMessage(err, msg, args...)
 	return &builderv0.CreateResponse{
-		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
+		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: message, Failure: operationFailure("builder.create", err, message)},
 	}, nil
 }
 
@@ -187,7 +202,7 @@ func (s *BuilderWrapper) UpdateResponse() (*builderv0.UpdateResponse, error) {
 
 func (s *BuilderWrapper) UpdateError(err error) (*builderv0.UpdateResponse, error) {
 	return &builderv0.UpdateResponse{
-		State: &builderv0.UpdateStatus{State: builderv0.UpdateStatus_ERROR, Message: err.Error()},
+		State: &builderv0.UpdateStatus{State: builderv0.UpdateStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.update", err, err.Error())},
 	}, nil
 }
 
@@ -201,7 +216,7 @@ func (s *BuilderWrapper) SyncResponse() (*builderv0.SyncResponse, error) {
 
 func (s *BuilderWrapper) SyncError(err error) (*builderv0.SyncResponse, error) {
 	return &builderv0.SyncResponse{
-		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}}, nil
+		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sync", err, err.Error())}}, nil
 }
 
 // SyncUnsupported reports that the requested synchronization mode cannot be
@@ -209,7 +224,7 @@ func (s *BuilderWrapper) SyncError(err error) (*builderv0.SyncResponse, error) {
 // from an agent that only implements mutating Sync.
 func (s *BuilderWrapper) SyncUnsupported(message string) (*builderv0.SyncResponse, error) {
 	return &builderv0.SyncResponse{
-		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_UNSUPPORTED, Message: message}}, nil
+		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_UNSUPPORTED, Message: message, Failure: failures.New(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.sync", message)}}, nil
 }
 
 func (s *BuilderWrapper) WithDockerImages(ims ...*resources.DockerImage) {
@@ -240,7 +255,7 @@ func (s *BuilderWrapper) BuildResponse() (*builderv0.BuildResponse, error) {
 
 func (s *BuilderWrapper) BuildError(err error) (*builderv0.BuildResponse, error) {
 	return &builderv0.BuildResponse{
-		State: &builderv0.BuildStatus{State: builderv0.BuildStatus_ERROR, Message: err.Error()}}, nil
+		State: &builderv0.BuildStatus{State: builderv0.BuildStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.build", err, err.Error())}}, nil
 }
 
 func (s *BuilderWrapper) DeployResponse() (*builderv0.DeploymentResponse, error) {
@@ -256,7 +271,7 @@ func (s *BuilderWrapper) DeployResponse() (*builderv0.DeploymentResponse, error)
 
 func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, error) {
 	return &builderv0.DeploymentResponse{
-		State: &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_ERROR, Message: err.Error()}}, nil
+		State: &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.deploy", err, err.Error())}}, nil
 }
 
 // AuditResponse builds a successful AuditResponse. State is CLEAN if
@@ -266,6 +281,7 @@ func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, 
 func (s *BuilderWrapper) AuditResponse(req *builderv0.AuditRequest, findings []*builderv0.AuditFinding, outdated []*builderv0.OutdatedDep, tool, language string) (*builderv0.AuditResponse, error) {
 	state := builderv0.AuditStatus_CLEAN
 	message := ""
+	var failure *basev0.Failure
 	if len(findings) > 0 {
 		state = builderv0.AuditStatus_FINDINGS
 	}
@@ -274,12 +290,13 @@ func (s *BuilderWrapper) AuditResponse(req *builderv0.AuditRequest, findings []*
 			if finding.GetSeverity() >= builderv0.AuditFinding_HIGH {
 				state = builderv0.AuditStatus_ERROR
 				message = "audit found HIGH or CRITICAL vulnerabilities"
+				failure = failures.New(basev0.FailureCode_FAILURE_CODE_SECURITY_POLICY_FAILED, "builder.audit", message)
 				break
 			}
 		}
 	}
 	return &builderv0.AuditResponse{
-		State:    &builderv0.AuditStatus{State: state, Message: message},
+		State:    &builderv0.AuditStatus{State: state, Message: message, Failure: failure},
 		Findings: findings,
 		Outdated: outdated,
 		Tool:     tool,
@@ -289,20 +306,21 @@ func (s *BuilderWrapper) AuditResponse(req *builderv0.AuditRequest, findings []*
 
 func (s *BuilderWrapper) AuditError(err error) (*builderv0.AuditResponse, error) {
 	return &builderv0.AuditResponse{
-		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: err.Error()},
+		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.audit", err, err.Error())},
 	}, nil
 }
 
 func (s *BuilderWrapper) AuditErrorf(err error, msg string, args ...any) (*builderv0.AuditResponse, error) {
+	message := ErrorMessage(err, msg, args...)
 	return &builderv0.AuditResponse{
-		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
+		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: message, Failure: operationFailure("builder.audit", err, message)},
 	}, nil
 }
 
 // AuditUnsupported reports that this agent has no authoritative scanner.
 func (s *BuilderWrapper) AuditUnsupported(message string) (*builderv0.AuditResponse, error) {
 	return &builderv0.AuditResponse{
-		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_UNSUPPORTED, Message: message},
+		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_UNSUPPORTED, Message: message, Failure: failures.New(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.audit", message)},
 	}, nil
 }
 
@@ -330,14 +348,14 @@ func (s *BuilderWrapper) SBOMResponse(bom *agentv0.Bom, tool, language, sha256 s
 // response because incomplete inventories are unsafe release evidence.
 func (s *BuilderWrapper) SBOMError(err error) (*builderv0.SBOMResponse, error) {
 	return &builderv0.SBOMResponse{
-		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_ERROR, Message: err.Error()},
+		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sbom", err, err.Error())},
 	}, nil
 }
 
 // SBOMUnsupported reports that this plugin has no authoritative generator.
 func (s *BuilderWrapper) SBOMUnsupported(message string) (*builderv0.SBOMResponse, error) {
 	return &builderv0.SBOMResponse{
-		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_UNSUPPORTED, Message: message},
+		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_UNSUPPORTED, Message: message, Failure: failures.New(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.sbom", message)},
 	}, nil
 }
 
@@ -348,6 +366,39 @@ func (s *BuilderWrapper) SBOMContainer(ctx context.Context, image string) (*buil
 		return s.SBOMError(err)
 	}
 	return s.SBOMResponse(result.Bom, result.Tool, result.Language, result.SHA256)
+}
+
+// PackageResponse builds a successful portable-package response.
+func (s *BuilderWrapper) PackageResponse(artifacts []*builderv0.PackageArtifact) (*builderv0.PackageResponse, error) {
+	if !s.loaded {
+		return s.PackageError(fmt.Errorf("not loaded"))
+	}
+	return &builderv0.PackageResponse{
+		State:     &builderv0.PackageStatus{State: builderv0.PackageStatus_SUCCESS},
+		Artifacts: artifacts,
+	}, nil
+}
+
+// PackageError reports a failed portable-package operation.
+func (s *BuilderWrapper) PackageError(err error) (*builderv0.PackageResponse, error) {
+	return &builderv0.PackageResponse{
+		State: &builderv0.PackageStatus{
+			State:   builderv0.PackageStatus_ERROR,
+			Message: err.Error(),
+			Failure: operationFailure("builder.package", err, err.Error()),
+		},
+	}, nil
+}
+
+// PackageUnsupported reports that the plugin cannot package its loaded source.
+func (s *BuilderWrapper) PackageUnsupported(message string) (*builderv0.PackageResponse, error) {
+	return &builderv0.PackageResponse{
+		State: &builderv0.PackageStatus{
+			State:   builderv0.PackageStatus_UNSUPPORTED,
+			Message: message,
+			Failure: failures.New(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.package", message),
+		},
+	}, nil
 }
 
 // UpgradeResponse builds a successful UpgradeResponse. State is NOOP if
@@ -366,13 +417,14 @@ func (s *BuilderWrapper) UpgradeResponse(changes []*builderv0.UpgradeChange, loc
 
 func (s *BuilderWrapper) UpgradeError(err error) (*builderv0.UpgradeResponse, error) {
 	return &builderv0.UpgradeResponse{
-		State: &builderv0.UpgradeStatus{State: builderv0.UpgradeStatus_ERROR, Message: err.Error()},
+		State: &builderv0.UpgradeStatus{State: builderv0.UpgradeStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.upgrade", err, err.Error())},
 	}, nil
 }
 
 func (s *BuilderWrapper) UpgradeErrorf(err error, msg string, args ...any) (*builderv0.UpgradeResponse, error) {
+	message := ErrorMessage(err, msg, args...)
 	return &builderv0.UpgradeResponse{
-		State: &builderv0.UpgradeStatus{State: builderv0.UpgradeStatus_ERROR, Message: ErrorMessage(err, msg, args...)},
+		State: &builderv0.UpgradeStatus{State: builderv0.UpgradeStatus_ERROR, Message: message, Failure: operationFailure("builder.upgrade", err, message)},
 	}, nil
 }
 

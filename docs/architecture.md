@@ -22,6 +22,71 @@ BuilderService.Deploy()   →  Ship to target environment
 
 Same API surface regardless of whether the service is Go, Python, Rust, or a managed database. The agent plugin handles language-specific implementation. This makes development operations composable, discoverable, and automatable by both humans and AI agents.
 
+Development operations are local-first plugin contracts. Runtime `Lint`,
+`Build` (native compile/typecheck), and `Test`, plus Builder `Sync`, `Audit`,
+`SBOM`, and deployable `Build`, are invoked unchanged by local CLI commands,
+Mind/editor integrations, and CI. CI may select affected resources, expand
+dependencies, schedule, cache, enforce policy, and persist a report; it must
+not introduce a parallel execution service or own language/schema commands.
+
+## Contract source of truth
+
+Protobuf is the default source of truth for Codefly contracts. This applies not
+only to gRPC methods, but also to public reports, manifests exchanged between
+components, persisted evidence, events, policy envelopes, and any state that
+crosses a package, process, language, or repository boundary.
+
+- define the schema under `core/proto` before writing consumer code;
+- generate bindings with Codefly itself:
+
+  ```text
+  codefly generate proto --proto ./proto --output ./generated --local
+  ```
+
+- import the generated binding from `core/generated`; do not mirror it with a
+  handwritten Go/TypeScript/Python DTO;
+- evolve contracts additively with stable field numbers and an explicit schema
+  or protocol version where the artifact has an independent lifecycle;
+- dispatch schema lint, compatibility, generation, and drift through the
+  owning Codefly schema plugin, then run the affected generated consumers.
+  Provider workflows and language plugins must not invoke `buf`, `protoc`, or
+  generator binaries directly.
+
+Handwritten structs are reserved for private, in-process implementation state
+that has no serialization or compatibility meaning. An exception at a public
+boundary must be explicit and documented; convenience alone is not an
+exception.
+
+### Universal failures
+
+Plugin boundaries use `codefly.base.v0.Failure` as the universal structured
+error detail. gRPC failures carry it inside standard `google.rpc.Status`;
+domain responses may embed the same message when partial output or failure
+evidence must still be returned. Callers must branch on `FailureCode`, not parse
+human-readable messages.
+
+The contract separates transport behavior (`google.rpc.Code`) from the stable
+Codefly reason, and includes retryability, operation/resource identity, field
+violations, normalized diagnostics, bounded process evidence, typed `Any`
+details, retry delay, and causal failures. Operation-specific enums remain only
+for meaningful domain outcomes such as audit `CLEAN/FINDINGS` or SBOM
+`COMPLETE`; repeated string error channels are removed and their protobuf
+names/numbers reserved rather than maintained as a second failure model.
+
+All Builder and Runtime lifecycle statuses expose an optional `Failure` field.
+Core's shared response wrappers populate it automatically, and
+`failures.Wrap` lets plugin implementations classify native errors once while
+preserving the original Go cause. When Core turns an error status into a host
+error, it retains the typed detail; CLI, Mind, editor, and CI consumers can
+therefore apply the same retry, policy, and remediation behavior.
+
+The Code service has one RPC, `Execute`, and one failure location,
+`CodeResponse.failure`; operation-specific result messages never carry their
+own error channel. Every Tooling RPC response carries `Failure` directly
+because each response is its own RPC envelope. Unsuccessful build, test, and
+lint outcomes must include a failure even when they also retain structured
+diagnostics, counts, or process output.
+
 ## Resource Hierarchy
 
 ```

@@ -5,6 +5,7 @@ managed:
     default: {{.GoPackagePrefix}}
     except:
       - buf.build/googleapis/googleapis
+      - buf.build/bufbuild/protovalidate
 plugins:
   - plugin: buf.build/protocolbuffers/go
     out: {{.Destination}}

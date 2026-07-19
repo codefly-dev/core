@@ -12,7 +12,7 @@ Core is the shared library for the entire codefly ecosystem. Every agent, the CL
 
 Running systems have formal APIs (REST, gRPC). But development operations — "run tests", "start dependencies", "build", "deploy", "scaffold a service", "generate protos" — have always been **implicit**, buried in scripts and READMEs.
 
-Codefly formalizes development operations as **typed gRPC APIs**: `RuntimeService.Test()`, `BuilderService.Build()`, `BuilderService.Deploy()`, `CodeService.ApplyEdit()`, and dependency/project metadata operations. Same API surface regardless of whether the service is Go, Python, or Rust — the agent plugin handles language-specific implementation. This makes development operations composable, discoverable, and automatable by both humans and AI agents.
+Codefly formalizes development operations as **typed gRPC APIs**: `RuntimeService.Test()`, `BuilderService.Build()`, `BuilderService.Deploy()`, and the operation variants carried by `CodeService.Execute()`. Same API surface regardless of whether the service is Go, Python, or Rust — the agent plugin handles language-specific implementation. This makes development operations composable, discoverable, and automatable by both humans and AI agents.
 
 ## Architecture Overview
 

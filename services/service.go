@@ -8,6 +8,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/manager"
 	"github.com/codefly-dev/core/agents/services"
+	"github.com/codefly-dev/core/failures"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
 
@@ -115,7 +116,7 @@ func (instance *BuilderInstance) Load(ctx context.Context, opts ...BuilderLoadOp
 		return resp, err
 	}
 	if resp != nil && resp.State != nil && resp.State.State == builderv0.LoadStatus_ERROR {
-		return resp, operationStatusError("builder load", resp.State.Message)
+		return resp, operationStatusFailure("builder load", resp.State.Message, resp.State.Failure)
 	}
 	return resp, nil
 }
@@ -126,12 +127,12 @@ func (instance *BuilderInstance) Create(ctx context.Context, req *builderv0.Crea
 	// Run interactive Q&A via bidirectional streaming
 	stream, err := instance.Builder.Communicate(ctx)
 	if err != nil {
-		return &builderv0.CreateResponse{State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error()}},
+		return &builderv0.CreateResponse{State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.create", err)}},
 			w.Wrapf(err, "cannot open communicate stream")
 	}
 	err = communicate.Do(ctx, stream, handler)
 	if err != nil {
-		return &builderv0.CreateResponse{State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error()}},
+		return &builderv0.CreateResponse{State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.create", err)}},
 			w.Wrapf(err, "communicate failed")
 	}
 
@@ -140,7 +141,7 @@ func (instance *BuilderInstance) Create(ctx context.Context, req *builderv0.Crea
 		return resp, err
 	}
 	if resp != nil && resp.State != nil && resp.State.State == builderv0.CreateStatus_ERROR {
-		return resp, operationStatusError("builder create", resp.State.Message)
+		return resp, operationStatusFailure("builder create", resp.State.Message, resp.State.Failure)
 	}
 	return resp, nil
 }
@@ -151,12 +152,12 @@ func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRe
 	// Run interactive Q&A via bidirectional streaming
 	stream, err := instance.Builder.Communicate(ctx)
 	if err != nil {
-		return &builderv0.SyncResponse{State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}},
+		return &builderv0.SyncResponse{State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.sync", err)}},
 			w.Wrapf(err, "cannot open communicate stream")
 	}
 	err = communicate.Do(ctx, stream, handler)
 	if err != nil {
-		return &builderv0.SyncResponse{State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error()}},
+		return &builderv0.SyncResponse{State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.sync", err)}},
 			w.Wrapf(err, "communicate failed")
 	}
 
@@ -167,9 +168,9 @@ func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRe
 	if resp != nil && resp.State != nil {
 		switch resp.State.State {
 		case builderv0.SyncStatus_ERROR:
-			return resp, operationStatusError("builder sync", resp.State.Message)
+			return resp, operationStatusFailure("builder sync", resp.State.Message, resp.State.Failure)
 		case builderv0.SyncStatus_UNSUPPORTED:
-			return resp, operationStatusError("builder sync unsupported", resp.State.Message)
+			return resp, operationStatusFailure("builder sync unsupported", resp.State.Message, resp.State.Failure)
 		}
 	}
 	return resp, nil
@@ -180,7 +181,7 @@ func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRe
 func (instance *BuilderInstance) Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error) {
 	resp, err := instance.Builder.Init(ctx, req)
 	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.InitStatus_ERROR {
-		err = operationStatusError("builder init", resp.State.Message)
+		err = operationStatusFailure("builder init", resp.State.Message, resp.State.Failure)
 	}
 	return resp, err
 }
@@ -188,7 +189,7 @@ func (instance *BuilderInstance) Init(ctx context.Context, req *builderv0.InitRe
 func (instance *BuilderInstance) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
 	resp, err := instance.Builder.Build(ctx, req)
 	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.BuildStatus_ERROR {
-		err = operationStatusError("builder build", resp.State.Message)
+		err = operationStatusFailure("builder build", resp.State.Message, resp.State.Failure)
 	}
 	return resp, err
 }
@@ -196,7 +197,7 @@ func (instance *BuilderInstance) Build(ctx context.Context, req *builderv0.Build
 func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
 	resp, err := instance.Builder.Deploy(ctx, req)
 	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.DeploymentStatus_ERROR {
-		err = operationStatusError("builder deploy", resp.State.Message)
+		err = operationStatusFailure("builder deploy", resp.State.Message, resp.State.Failure)
 	}
 	return resp, err
 }
@@ -206,9 +207,9 @@ func (instance *BuilderInstance) Audit(ctx context.Context, req *builderv0.Audit
 	if err == nil && resp != nil && resp.State != nil {
 		switch resp.State.State {
 		case builderv0.AuditStatus_ERROR:
-			err = operationStatusError("builder audit", resp.State.Message)
+			err = operationStatusFailure("builder audit", resp.State.Message, resp.State.Failure)
 		case builderv0.AuditStatus_UNSUPPORTED:
-			err = operationStatusError("builder audit unsupported", resp.State.Message)
+			err = operationStatusFailure("builder audit unsupported", resp.State.Message, resp.State.Failure)
 		}
 	}
 	return resp, err
@@ -219,9 +220,22 @@ func (instance *BuilderInstance) SBOM(ctx context.Context, req *builderv0.SBOMRe
 	if err == nil && resp != nil && resp.State != nil {
 		switch resp.State.State {
 		case builderv0.SBOMStatus_ERROR:
-			err = operationStatusError("builder SBOM", resp.State.Message)
+			err = operationStatusFailure("builder SBOM", resp.State.Message, resp.State.Failure)
 		case builderv0.SBOMStatus_UNSUPPORTED:
-			err = operationStatusError("builder SBOM unsupported", resp.State.Message)
+			err = operationStatusFailure("builder SBOM unsupported", resp.State.Message, resp.State.Failure)
+		}
+	}
+	return resp, err
+}
+
+func (instance *BuilderInstance) Package(ctx context.Context, req *builderv0.PackageRequest) (*builderv0.PackageResponse, error) {
+	resp, err := instance.Builder.Package(ctx, req)
+	if err == nil && resp != nil && resp.State != nil {
+		switch resp.State.State {
+		case builderv0.PackageStatus_ERROR:
+			err = operationStatusFailure("builder package", resp.State.Message, resp.State.Failure)
+		case builderv0.PackageStatus_UNSUPPORTED:
+			err = operationStatusFailure("builder package unsupported", resp.State.Message, resp.State.Failure)
 		}
 	}
 	return resp, err
@@ -230,7 +244,7 @@ func (instance *BuilderInstance) SBOM(ctx context.Context, req *builderv0.SBOMRe
 func (instance *BuilderInstance) Upgrade(ctx context.Context, req *builderv0.UpgradeRequest) (*builderv0.UpgradeResponse, error) {
 	resp, err := instance.Builder.Upgrade(ctx, req)
 	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.UpgradeStatus_ERROR {
-		err = operationStatusError("builder upgrade", resp.State.Message)
+		err = operationStatusFailure("builder upgrade", resp.State.Message, resp.State.Failure)
 	}
 	return resp, err
 }
@@ -238,7 +252,7 @@ func (instance *BuilderInstance) Upgrade(ctx context.Context, req *builderv0.Upg
 func (instance *BuilderInstance) Update(ctx context.Context, req *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
 	resp, err := instance.Builder.Update(ctx, req)
 	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.UpdateStatus_ERROR {
-		err = operationStatusError("builder update", resp.State.Message)
+		err = operationStatusFailure("builder update", resp.State.Message, resp.State.Failure)
 	}
 	return resp, err
 }
@@ -270,7 +284,7 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 	}
 	resp, err := instance.Runtime.Load(ctx, req)
 	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.LoadStatus_ERROR {
-		err = operationStatusError("runtime load", resp.Status.Message)
+		err = operationStatusFailure("runtime load", resp.Status.Message, resp.Status.Failure)
 	}
 	return resp, err
 }
@@ -280,7 +294,7 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
 	resp, err := instance.Runtime.Init(ctx, req)
 	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.InitStatus_ERROR {
-		err = operationStatusError("runtime init", resp.Status.Message)
+		err = operationStatusFailure("runtime init", resp.Status.Message, resp.Status.Failure)
 	}
 	return resp, err
 }
@@ -288,7 +302,7 @@ func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRe
 func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
 	resp, err := instance.Runtime.Start(ctx, req)
 	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.StartStatus_ERROR {
-		err = operationStatusError("runtime start", resp.Status.Message)
+		err = operationStatusFailure("runtime start", resp.Status.Message, resp.Status.Failure)
 	}
 	return resp, err
 }
@@ -296,7 +310,7 @@ func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.Start
 func (instance *RuntimeInstance) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
 	resp, err := instance.Runtime.Stop(ctx, req)
 	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.StopStatus_ERROR {
-		err = operationStatusError("runtime stop", resp.Status.Message)
+		err = operationStatusFailure("runtime stop", resp.Status.Message, resp.Status.Failure)
 	}
 	return resp, err
 }
@@ -310,7 +324,7 @@ func (instance *RuntimeInstance) Test(ctx context.Context, req *runtimev0.TestRe
 func (instance *RuntimeInstance) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*runtimev0.DestroyResponse, error) {
 	resp, err := instance.Runtime.Destroy(ctx, req)
 	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.DestroyStatus_ERROR {
-		err = operationStatusError("runtime destroy", resp.Status.Message)
+		err = operationStatusFailure("runtime destroy", resp.Status.Message, resp.Status.Failure)
 	}
 	return resp, err
 }
@@ -320,11 +334,19 @@ func (instance *RuntimeInstance) Information(ctx context.Context, req *runtimev0
 }
 
 func operationStatusError(operation, message string) error {
+	return operationStatusFailure(operation, message, nil)
+}
+
+func operationStatusFailure(operation, message string, failure *basev0.Failure) error {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		message = "agent returned an error status"
 	}
-	return fmt.Errorf("%s failed: %s", operation, message)
+	presentation := fmt.Sprintf("%s failed: %s", operation, message)
+	if failure == nil {
+		return fmt.Errorf("%s", presentation)
+	}
+	return failures.FromFailure(failure, presentation, nil)
 }
 
 // Loader

@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 	"github.com/codefly-dev/core/toolbox/lang"
@@ -97,12 +98,29 @@ func TestBridge_ListTools_ContainsAllConventionalNames(t *testing.T) {
 		"ListTools must return EXACTLY the convention set — no more, no less")
 }
 
+func TestSourceBridgeAdvertisesOnlyImplementedSourceTools(t *testing.T) {
+	bridge := lang.NewSourceToolboxFromTooling("source", "1.0.0", fakeTooling{})
+	listed, err := bridge.ListTools(context.Background(), &toolboxv0.ListToolsRequest{})
+	require.NoError(t, err)
+	require.Equal(t, []string{lang.ToolFix, lang.ToolApplyEdit, lang.ToolGetProjectInfo}, []string{
+		listed.Tools[0].GetName(), listed.Tools[1].GetName(), listed.Tools[2].GetName(),
+	})
+	require.True(t, listed.Tools[0].GetDestructive())
+	properties := listed.Tools[0].GetInputSchema().GetFields()["properties"].GetStructValue().GetFields()
+	require.Contains(t, properties, "mode")
+	require.Contains(t, properties, "dryRun")
+
+	unsupported, err := bridge.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: lang.ToolTest})
+	require.NoError(t, err)
+	require.Contains(t, unsupported.GetError(), "ListTools")
+}
+
 func TestBridge_RoundTrip_ApplyEdit_PreservesRequestEcho(t *testing.T) {
 	typed, _ := startBridgedTooling(t, fakeTooling{})
 
 	// Call through the typed wrapper (Mind's perspective).
 	resp, err := typed.ApplyEdit(context.Background(),
-		&toolingv0.ApplyEditRequest{File: "main.go", Find: "old", Replace: "new", AutoFix: true})
+		&toolingv0.ApplyEditRequest{File: "main.go", Find: "old", Replace: "new", FixMode: basev0.FixMode_FIX_MODE_AGGRESSIVE})
 	require.NoError(t, err, "typed ApplyEdit via bridge must succeed")
 
 	require.True(t, resp.Success)

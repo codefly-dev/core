@@ -158,7 +158,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("ApplyEdit main.go: %v", err)
 	}
 	if !editResp.GetApplyEdit().Success {
-		t.Fatalf("ApplyEdit main.go failed: %s", editResp.GetApplyEdit().Error)
+		t.Fatalf("ApplyEdit main.go failed: %v", editResp.GetFailure())
 	}
 	t.Logf("  main.go edit: strategy=%s", editResp.GetApplyEdit().Strategy)
 
@@ -194,7 +194,7 @@ func TestHandleRoot(t *testing.T) {`,
 		t.Fatalf("ApplyEdit main_test.go: %v", err)
 	}
 	if !editResp.GetApplyEdit().Success {
-		t.Fatalf("ApplyEdit main_test.go failed: %s", editResp.GetApplyEdit().Error)
+		t.Fatalf("ApplyEdit main_test.go failed: %v", editResp.GetFailure())
 	}
 	t.Logf("  main_test.go edit: strategy=%s", editResp.GetApplyEdit().Strategy)
 

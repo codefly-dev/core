@@ -20,11 +20,23 @@ type goModule struct {
 	Replace *goModule `json:"Replace,omitempty"`
 }
 
-// Golang inventories the exact module graph selected by go.mod/go.sum without
-// mutating either file. GOWORK is disabled so an ambient developer workspace
-// cannot silently change the released service SBOM.
+// GolangOptions selects the same dependency context used by the owning plugin.
+type GolangOptions struct {
+	// UseWorkspace keeps the active go.work graph. It must be true when the
+	// package/build operation also used that Codefly-managed workspace.
+	UseWorkspace bool
+}
+
+// Golang inventories the exact isolated module graph selected by go.mod/go.sum
+// without mutating either file. Ambient go.work files are disabled by default.
 func Golang(ctx context.Context, dir string) (*Result, error) {
-	modulesOut, err := runGo(ctx, dir, "list", "-mod=readonly", "-m", "-json", "all")
+	return GolangWithOptions(ctx, dir, GolangOptions{})
+}
+
+// GolangWithOptions inventories the module graph in the dependency context
+// explicitly selected by the language plugin.
+func GolangWithOptions(ctx context.Context, dir string, options GolangOptions) (*Result, error) {
+	modulesOut, err := runGo(ctx, dir, options, "list", "-mod=readonly", "-m", "-json", "all")
 	if err != nil {
 		return nil, fmt.Errorf("go module inventory: %w", err)
 	}
@@ -32,7 +44,7 @@ func Golang(ctx context.Context, dir string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	graphOut, err := runGo(ctx, dir, "mod", "graph")
+	graphOut, err := runGo(ctx, dir, options, "mod", "graph")
 	if err != nil {
 		return nil, fmt.Errorf("go dependency graph: %w", err)
 	}
@@ -40,10 +52,13 @@ func Golang(ctx context.Context, dir string) (*Result, error) {
 	return finish(root, modules, dependencies, "go-list", "GO")
 }
 
-func runGo(ctx context.Context, dir string, args ...string) ([]byte, error) {
+func runGo(ctx context.Context, dir string, options GolangOptions, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOWORK=off")
+	cmd.Env = os.Environ()
+	if !options.UseWorkspace {
+		cmd.Env = append(cmd.Env, "GOWORK=off")
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

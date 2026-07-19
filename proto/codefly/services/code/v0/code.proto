@@ -1,6 +1,9 @@
 syntax = "proto3";
 package codefly.services.code.v0;
 
+import "codefly/base/v0/failure.proto";
+import "codefly/base/v0/source.proto";
+
 /*
 Code service: provides code-level access to a service's codebase.
 
@@ -37,10 +40,10 @@ message WriteFileRequest {
 
 // WriteFileResponse reports whether the file write succeeded.
 message WriteFileResponse {
+  reserved 2;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
 }
 
 // ListFilesRequest carries optional filters for listing files.
@@ -72,22 +75,35 @@ message ListFilesResponse {
 // --- Fix ---
 
 // FixRequest asks the agent to run language-specific fixers on a file.
-// For Go: goimports + gofmt. For Python: ruff/isort + black. For TS: prettier.
 message FixRequest {
   // file is a workspace- or service-relative source file path.
   string file = 1;  // relative path within the service
+  // mode selects safe fixes, no fixes, or explicitly aggressive fixes.
+  codefly.base.v0.FixMode mode = 2;
+  // dry_run returns the fixed content and evidence without writing the file.
+  bool dry_run = 3;
 }
 
 // FixResponse returns the formatted content and the fixer actions that ran.
 message FixResponse {
+  reserved 3;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
   // content is the fixed file content; it may be empty when no rewrite was needed.
   string content = 2;          // the fixed file content (empty if unchanged)
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 3;            // non-fatal: fixer not available, etc.
   // actions are native formatter, fixer, or lifecycle actions performed by the agent.
   repeated string actions = 4; // what was done: "goimports", "gofmt", etc.
+  // changed reports whether the fixed content differs from the original file.
+  bool changed = 5;
+  // before_sha256 is the lowercase SHA-256 digest of the original content.
+  string before_sha256 = 6;
+  // after_sha256 is the lowercase SHA-256 digest of the returned content.
+  string after_sha256 = 7;
+  // wrote reports whether the agent committed the returned content to its VFS.
+  bool wrote = 8;
+  // output preserves bounded formatter/fixer output useful for follow-up linting.
+  string output = 9;
 }
 
 // --- ApplyEdit ---
@@ -103,22 +119,34 @@ message ApplyEditRequest {
   string find = 2;        // text to find (may not be an exact match)
   // replace is the replacement text used by an edit operation.
   string replace = 3;     // replacement text
-  // auto_fix asks the agent to run language fixers after editing.
-  bool auto_fix = 4;      // if true, run language-specific fixers after edit
+  // fix_mode controls language-aware rewriting after the edit. SAFE is the default.
+  codefly.base.v0.FixMode fix_mode = 4;
+  // dry_run returns the edited and fixed content without writing the file.
+  bool dry_run = 6;
 }
 
 // ApplyEditResponse reports the selected matching strategy and post-edit content.
 message ApplyEditResponse {
+  reserved 3;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
   // content is the file content after the edit and optional fixers.
   string content = 2;              // the file content after edit + fix
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 3;                // why the edit failed (e.g. "FIND block not matched")
   // strategy names the edit or execution strategy that produced the result.
   string strategy = 4;             // which matching strategy was used: "exact", "trailing", "trimmed", "indent_shifted", "anchor", "fuzzy_score", "fuzzy_block"
   // fix_actions names formatters or import fixers that ran after the edit.
   repeated string fix_actions = 5; // what fixers ran: "goimports", "gofmt", etc.
+  // changed reports whether the returned content differs from the original file.
+  bool changed = 6;
+  // before_sha256 is the lowercase SHA-256 digest of the original content.
+  string before_sha256 = 7;
+  // after_sha256 is the lowercase SHA-256 digest of the returned content.
+  string after_sha256 = 8;
+  // wrote reports whether the agent committed the returned content to its VFS.
+  bool wrote = 9;
+  // output preserves bounded formatter/fixer output useful for follow-up linting.
+  string output = 10;
 }
 
 // --- Search ---
@@ -177,10 +205,10 @@ message DeleteFileRequest {
 
 // DeleteFileResponse reports whether the file was removed.
 message DeleteFileResponse {
+  reserved 2;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
 }
 
 // --- MoveFile ---
@@ -197,10 +225,10 @@ message MoveFileRequest {
 
 // MoveFileResponse reports the move and any files rewritten because imports changed.
 message MoveFileResponse {
+  reserved 2;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
   // updated_files lists files whose imports or references were rewritten.
   repeated string updated_files = 3; // files whose imports were rewritten
 }
@@ -219,10 +247,10 @@ message CreateFileRequest {
 
 // CreateFileResponse reports whether the file was created.
 message CreateFileResponse {
+  reserved 2;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
 }
 
 // --- ListDependencies ---
@@ -242,10 +270,10 @@ message ListDependenciesRequest {}
 
 // ListDependenciesResponse returns dependencies discovered by the native package manager.
 message ListDependenciesResponse {
+  reserved 2;
+  reserved "error";
   // dependencies are packages or services required by this resource.
   repeated Dependency dependencies = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
 }
 
 // --- AddDependency ---
@@ -260,10 +288,10 @@ message AddDependencyRequest {
 
 // AddDependencyResponse reports the dependency version resolved by the package manager.
 message AddDependencyResponse {
+  reserved 2;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
   // installed_version is the version resolved by the package manager.
   string installed_version = 3;
 }
@@ -278,10 +306,10 @@ message RemoveDependencyRequest {
 
 // RemoveDependencyResponse reports whether the package manager removed the dependency.
 message RemoveDependencyResponse {
+  reserved 2;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
 }
 
 // --- GetProjectInfo ---
@@ -305,6 +333,8 @@ message GetProjectInfoRequest {}
 
 // GetProjectInfoResponse returns language metadata useful for ingestion and planning.
 message GetProjectInfoResponse {
+  reserved 7;
+  reserved "error";
   // module is the Codefly module name that groups services.
   string module = 1;                    // e.g. "github.com/codefly-dev/mind"
   // language is the implementation language detected for this service or project.
@@ -317,8 +347,6 @@ message GetProjectInfoResponse {
   repeated Dependency dependencies = 5; // reuse existing Dependency message
   // file_hashes maps source paths to content hashes for change detection.
   map<string, string> file_hashes = 6;  // path -> SHA-256 for change detection
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 7;
 }
 
 // --- Git Operations ---
@@ -353,10 +381,10 @@ message GitCommit {
 
 // GitLogResponse returns commit history for the requested ref and path filter.
 message GitLogResponse {
+  reserved 2;
+  reserved "error";
   // commits are git history entries ordered newest first.
   repeated GitCommit commits = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
 }
 
 // GitDiffRequest returns a unified diff between two refs or the working tree.
@@ -387,12 +415,12 @@ message GitDiffFile {
 
 // GitDiffResponse returns unified diff text and per-file change stats.
 message GitDiffResponse {
+  reserved 3;
+  reserved "error";
   // diff is the unified diff for the file or git change.
   string diff = 1;             // unified diff text (empty if stat_only)
   // files are workspace- or service-relative file paths affected by this operation.
   repeated GitDiffFile files = 2;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 3;
 }
 
 // GitShowRequest returns file content at a specific git ref.
@@ -405,12 +433,12 @@ message GitShowRequest {
 
 // GitShowResponse returns file content as it existed at the requested git ref.
 message GitShowResponse {
+  reserved 3;
+  reserved "error";
   // content is the file body at ref; it is empty when exists is false.
   string content = 1;
   // exists reports whether the path existed at the requested ref.
   bool exists = 2;             // false if the file didn't exist at that ref
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 3;
 }
 
 // GitBlameRequest returns per-line blame information for a file.
@@ -439,10 +467,10 @@ message GitBlameLine {
 
 // GitBlameResponse returns blame attribution for the requested line range.
 message GitBlameResponse {
+  reserved 2;
+  reserved "error";
   // lines are blame records in source order.
   repeated GitBlameLine lines = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
 }
 
 // --- Shell execution ---
@@ -493,6 +521,8 @@ message ShellExecRequest {
 
 // ShellExecResponse returns process exit status and captured streams.
 message ShellExecResponse {
+  reserved 5, 6;
+  reserved "error", "failure";
   // exit_code is the process exit status returned by the operating system.
   int32  exit_code = 1;
   // stdout is the process standard output stream.
@@ -501,9 +531,6 @@ message ShellExecResponse {
   string stderr = 3;
   // True if the command was terminated because it exceeded timeout_seconds.
   bool   timed_out = 4;
-  // If the agent could not even launch the process, error carries the
-  // reason. exit_code is then left at -1 and stdout/stderr are empty.
-  string error = 5;
 }
 
 // --- Unified Request/Response ---
@@ -512,8 +539,7 @@ message ShellExecResponse {
 // Plugins implement one Execute RPC; core provides default handlers for
 // file I/O, git, fix, apply-edit, dependency mgmt, project info. Mind
 // never handles any of these directly — it ALWAYS forwards to the
-// appropriate codefly plugin via Execute (or via one of the remaining
-// direct RPCs: ApplyEdit / ShellExec).
+// appropriate codefly plugin via Execute.
 message CodeRequest {
   // operation selects exactly one supported operation variant.
   oneof operation {
@@ -564,6 +590,8 @@ message CodeRequest {
 
 // CodeResponse wraps all code operation results.
 message CodeResponse {
+  // failure is the structured cause when no result or a partial result failed.
+  codefly.base.v0.Failure failure = 1;
   // result selects exactly one supported result variant.
   oneof result {
     // fix returns formatted content and fixer actions.
@@ -615,12 +643,4 @@ service Code {
   // Clients wrap the specific request type in a CodeRequest oneof; the
   // plugin's Execute handler unwraps and dispatches the operation.
   rpc Execute(CodeRequest) returns (CodeResponse) {}
-
-  // ApplyEdit directly exposes smart edits for older CLI callers.
-  rpc ApplyEdit(ApplyEditRequest) returns (ApplyEditResponse) {}
-
-  // ShellExec is the one sanctioned path for running shell commands
-  // against a workspace. Clients call this instead of os/exec so all
-  // process spawning crosses the plugin boundary (the agent).
-  rpc ShellExec(ShellExecRequest) returns (ShellExecResponse) {}
 }

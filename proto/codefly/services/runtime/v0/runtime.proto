@@ -9,6 +9,7 @@ import "codefly/base/v0/service.proto";
 import "codefly/base/v0/endpoint.proto";
 import "codefly/base/v0/network.proto";
 import "codefly/base/v0/configuration.proto";
+import "codefly/base/v0/failure.proto";
 
 import "codefly/services/agent/v0/communicate.proto";
 
@@ -40,6 +41,8 @@ message LoadStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 
@@ -88,6 +91,8 @@ message InitStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // InitRequest provides resolved context and dependency information before startup.
@@ -161,6 +166,8 @@ message StartStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // StartResponse reports whether the service process reached the started state.
@@ -184,6 +191,8 @@ message BuildStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // ValidationSelection is a language-neutral, authoritative source selection
@@ -249,6 +258,8 @@ message TestStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // TestSelection is a language-neutral, structured description of the tests to
@@ -507,6 +518,8 @@ message TestRunResult {
   State state = 1;
   // Human-readable summary suitable for a status line.
   string message = 2;
+  // failure is the universal structured cause for ERRORED or TIMED_OUT runs.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // TestCounts is the aggregate ledger. Errored is distinct from
@@ -752,6 +765,8 @@ message LintStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // LintDiagnostic is one language-neutral lint finding.
@@ -783,17 +798,17 @@ message LintDiagnostic {
   string rule = 7;
   // message explains the finding.
   string message = 8;
-  // fix_available reports whether Runtime.Lint with fix=true can address it.
+  // fix_available reports whether the language Tooling/Code Fix RPC can address it.
   bool fix_available = 9;
 }
 
-// LintRequest asks the runtime agent to run the native linter.
+// LintRequest asks the runtime agent to run the native linter. Lint is always
+// read-only; callers use the language Tooling/Code Fix RPC for mutations.
 message LintRequest {
+  reserved 2;
+  reserved "fix";
   // Optional target scope: package path, file, or empty for all.
   string target = 1;
-
-  // Optional: auto-fix linting issues where possible.
-  bool fix = 2;
   // selection is the authoritative structured scope. When present, runtimes
   // must apply it exactly or return an error; they must not broaden linting.
   ValidationSelection selection = 3;
@@ -838,6 +853,8 @@ message StopStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // StopResponse reports whether the service process stopped cleanly.
@@ -867,6 +884,8 @@ message DestroyStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // DestroyResponse reports whether runtime resources were destroyed cleanly.

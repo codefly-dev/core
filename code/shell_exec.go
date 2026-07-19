@@ -8,15 +8,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
 // ARCHITECTURE: ShellExec is the sanctioned path for running shell commands
 // against a workspace. Mind (the brain) never calls os/exec directly —
-// it always goes through an agent's Code.ShellExec RPC. The agent IS the
+// it always goes through the shell_exec operation of Code.Execute. The agent IS the
 // plugin boundary; running processes here is explicitly allowed because
 // the agent IS the hands.
 //
@@ -45,32 +47,28 @@ const (
 )
 
 // shellExec runs a single command inside the agent's sandbox and returns
-// a ShellExecResponse. Errors are always encoded in the response's
-// `error` field — the returned Go error is reserved for impossible-to-
-// represent failures (never hit in practice).
+// a ShellExecResponse. Operation failures use CodeResponse.failure; the
+// returned Go error is reserved for transport failures.
 func (s *DefaultCodeServer) shellExec(ctx context.Context, req *codev0.ShellExecRequest) (*codev0.CodeResponse, error) {
 	resp := &codev0.ShellExecResponse{}
 
 	if req == nil {
 		resp.ExitCode = -1
-		resp.Error = "shell_exec: nil request"
-		return wrapShellExec(resp), nil
+		return wrapShellExecFailure(resp, basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "shell_exec: nil request", ""), nil
 	}
 
 	// Resolve working directory relative to source root, with traversal check.
 	workDir, err := s.resolveShellWorkDir(req.WorkDir)
 	if err != nil {
 		resp.ExitCode = -1
-		resp.Error = err.Error()
-		return wrapShellExec(resp), nil
+		return wrapShellExecFailure(resp, basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, err.Error(), ""), nil
 	}
 
 	// Build the command. Two modes: shell line (Command) or argv (Args).
 	cmd, err := buildShellCommand(ctx, req)
 	if err != nil {
 		resp.ExitCode = -1
-		resp.Error = err.Error()
-		return wrapShellExec(resp), nil
+		return wrapShellExecFailure(resp, basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, err.Error(), ""), nil
 	}
 	cmd.Dir = workDir
 
@@ -108,8 +106,7 @@ func (s *DefaultCodeServer) shellExec(ctx context.Context, req *codev0.ShellExec
 
 	if err := cmd.Start(); err != nil {
 		resp.ExitCode = -1
-		resp.Error = fmt.Sprintf("shell_exec: cannot start process: %v", err)
-		return wrapShellExec(resp), nil
+		return wrapShellExecFailure(resp, basev0.FailureCode_FAILURE_CODE_TOOLCHAIN_UNAVAILABLE, fmt.Sprintf("shell_exec: cannot start process: %v", err), shellExecTool(req)), nil
 	}
 
 	// Enforce timeout with an explicit goroutine rather than relying on
@@ -118,12 +115,16 @@ func (s *DefaultCodeServer) shellExec(ctx context.Context, req *codev0.ShellExec
 	timeout := shellExecTimeout(req.TimeoutSeconds)
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
+	failureCode := basev0.FailureCode_FAILURE_CODE_UNSPECIFIED
+	failureMessage := ""
 
 	select {
 	case err := <-done:
 		resp.ExitCode = int32(extractExitCode(err))
 	case <-time.After(timeout):
 		resp.TimedOut = true
+		failureCode = basev0.FailureCode_FAILURE_CODE_TIMEOUT
+		failureMessage = fmt.Sprintf("shell_exec exceeded %s", timeout)
 		pgid := cmd.Process.Pid
 		// SIGTERM to the group, wait briefly, then SIGKILL if still alive.
 		_ = syscall.Kill(-pgid, syscall.SIGTERM)
@@ -141,12 +142,29 @@ func (s *DefaultCodeServer) shellExec(ctx context.Context, req *codev0.ShellExec
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 		<-done // reap
 		resp.ExitCode = -1
-		resp.Error = fmt.Sprintf("shell_exec: context cancelled: %v", ctx.Err())
+		failureCode = basev0.FailureCode_FAILURE_CODE_CANCELLED
+		failureMessage = fmt.Sprintf("shell_exec: context cancelled: %v", ctx.Err())
 	}
 
 	resp.Stdout = stdoutBuf.String()
 	resp.Stderr = stderrBuf.String()
+	if failureCode != basev0.FailureCode_FAILURE_CODE_UNSPECIFIED {
+		return wrapShellExecFailure(resp, failureCode, failureMessage, shellExecTool(req)), nil
+	}
+	if resp.ExitCode != 0 {
+		return wrapShellExecFailure(resp, basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, fmt.Sprintf("shell_exec exited with code %d", resp.ExitCode), shellExecTool(req)), nil
+	}
 	return wrapShellExec(resp), nil
+}
+
+func shellExecTool(req *codev0.ShellExecRequest) string {
+	if req == nil {
+		return ""
+	}
+	if len(req.GetArgs()) > 0 {
+		return filepath.Base(req.GetArgs()[0])
+	}
+	return "shell"
 }
 
 // buildShellCommand builds an *exec.Cmd from the request, using args-mode
@@ -213,6 +231,17 @@ func wrapShellExec(resp *codev0.ShellExecResponse) *codev0.CodeResponse {
 	return &codev0.CodeResponse{
 		Result: &codev0.CodeResponse_ShellExec{ShellExec: resp},
 	}
+}
+
+func wrapShellExecFailure(resp *codev0.ShellExecResponse, code basev0.FailureCode, message, tool string) *codev0.CodeResponse {
+	response := codeFailure(wrapShellExec(resp), code, "code.shell-exec", message)
+	response.Failure.Process = &basev0.ProcessFailure{
+		Tool:     tool,
+		ExitCode: resp.GetExitCode(),
+		Output:   strings.TrimSpace(resp.GetStderr()),
+		Backend:  "native",
+	}
+	return response
 }
 
 // boundedBuffer is an io.Writer that accepts up to `limit` bytes and

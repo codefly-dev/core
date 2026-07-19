@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package codefly.ci.v0;
+
+import "codefly/base/v0/failure.proto";
+import "google/protobuf/struct.proto";
+
+// AgentCIReport is the provider-neutral record emitted by codefly agent ci.
+// It is a public artifact contract; the protobuf schema, not a handwritten
+// language-specific DTO, is its source of truth.
+message AgentCIReport {
+  // schema_version is the compatibility version of this report document.
+  uint32 schema_version = 1;
+  // command is the canonical Codefly command that produced the report.
+  string command = 2;
+  // agent identifies the validated agent release candidate.
+  AgentCIIdentity agent = 3;
+  // options records release-policy choices and explicit local waivers.
+  AgentCIOptions options = 4;
+  // status is the aggregate passed or failed outcome.
+  string status = 5;
+  // started_at is an RFC 3339 timestamp.
+  string started_at = 6;
+  // finished_at is an RFC 3339 timestamp.
+  string finished_at = 7;
+  // duration_ms is total elapsed wall time in milliseconds.
+  int32 duration_ms = 8;
+  // summary counts terminal stage outcomes.
+  AgentCISummary summary = 9;
+  // stages are ordered by the canonical agent-CI lifecycle.
+  repeated AgentCIStage stages = 10;
+  // artifacts are persisted release evidence with content digests.
+  repeated AgentCIArtifact artifacts = 11;
+  // workspace_report embeds the independently versioned workspace-CI report.
+  // Struct is deliberate here: the nested report owns its own schema version
+  // and is also persisted verbatim as workspace/report.json.
+  google.protobuf.Struct workspace_report = 12;
+  // error is present when the aggregate status is failed.
+  optional string error = 13;
+  // failure is the typed aggregate cause when status is failed.
+  codefly.base.v0.Failure failure = 14;
+}
+
+// AgentCIIdentity identifies one concrete Codefly agent candidate.
+message AgentCIIdentity {
+  // publisher is the agent publisher namespace.
+  string publisher = 1;
+  // kind is the Codefly agent kind, such as codefly:service.
+  string kind = 2;
+  // name is the agent name.
+  string name = 3;
+  // version is the candidate agent version.
+  string version = 4;
+}
+
+// AgentCIOptions records policy choices that change release coverage.
+message AgentCIOptions {
+  // native_only means the Linux release binary was explicitly waived.
+  bool native_only = 1;
+  // audit_enabled reports whether the agent-binary vulnerability stage ran.
+  bool audit_enabled = 2;
+  // fail_on_vuln gates actionable high and critical findings when auditing.
+  bool fail_on_vuln = 3;
+  // conformance_enabled reports whether generated-service conformance ran.
+  bool conformance_enabled = 4;
+}
+
+// AgentCISummary counts terminal agent-CI stage outcomes.
+message AgentCISummary {
+  // total is the number of registered stages.
+  uint32 total = 1;
+  // passed is the number of successful stages.
+  uint32 passed = 2;
+  // failed is the number of failed stages.
+  uint32 failed = 3;
+  // skipped is the number of explicitly or transitively skipped stages.
+  uint32 skipped = 4;
+}
+
+// AgentCIStage reports one ordered agent-CI lifecycle stage.
+message AgentCIStage {
+  // name is the stable stage identity.
+  string name = 1;
+  // status is pending, running, passed, failed, or skipped.
+  string status = 2;
+  // started_at is present only when the stage executed.
+  optional string started_at = 3;
+  // finished_at is present only when the stage executed.
+  optional string finished_at = 4;
+  // duration_ms is stage elapsed wall time in milliseconds.
+  int32 duration_ms = 5;
+  // error is present when the stage failed.
+  optional string error = 6;
+  // failure is the typed stage cause when status is failed.
+  codefly.base.v0.Failure failure = 7;
+}
+
+// AgentCIArtifact identifies one persisted release-evidence artifact.
+message AgentCIArtifact {
+  // kind is the stable artifact classification.
+  string kind = 1;
+  // path is relative to the outer report directory.
+  string path = 2;
+  // sha256 is the lowercase digest prefixed with sha256:.
+  string sha256 = 3;
+  // target is the release platform, such as darwin/arm64 or linux/amd64.
+  string target = 4;
+}

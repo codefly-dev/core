@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package codefly.services.agent.v0;
 
+import "codefly/base/v0/failure.proto";
+
 /*
 Agent
 */
@@ -22,6 +24,8 @@ message Language {
     RUBY = 4;
     // RUST is the Rust language.
     RUST = 5;
+    // SWIFT is the Swift language.
+    SWIFT = 6;
   }
   // type is the language represented by this entry.
   Type type = 1;
@@ -90,12 +94,12 @@ enum TestDependencyMode {
 
 // ValidationOperationCapability advertises one non-test validation operation.
 message ValidationOperationCapability {
+  reserved 3;
+  reserved "supports_fix";
   // supported is authoritative when AgentInformation.validation is present.
   bool supported = 1;
   // scopes are the semantic granularities the operation accepts.
   repeated ValidationScope scopes = 2;
-  // supports_fix is meaningful for lint and false for read-only operations.
-  bool supports_fix = 3;
 }
 
 // TestSuiteCapability advertises one stable suite identity and its live graph.
@@ -137,6 +141,9 @@ message ValidationCapabilities {
   ValidationOperationCapability sbom = 6;
   // sync describes Builder.Sync, including non-mutating drift detection.
   ValidationOperationCapability sync = 7;
+  // source_package describes Builder.Package, which emits portable release
+  // artifacts from the loaded source resource without deployment semantics.
+  ValidationOperationCapability source_package = 8;
 }
 
 // Backend describes an execution environment a service can run in. It is
@@ -310,6 +317,8 @@ message RunPluginCommandResponse {
   string output = 2;
   // error explains why the operation failed; empty means success at this layer.
   string error = 3;
+  // failure is the structured plugin-neutral cause when success is false.
+  codefly.base.v0.Failure failure = 4;
 }
 
 // Agent exposes plugin identity, metadata, and plugin-defined commands.

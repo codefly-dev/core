@@ -17,6 +17,26 @@ func TestRuntimeErrorHelperReturnsStructuredResponseWithoutTransportError(t *tes
 	if response.GetStatus().GetState() != runtimev0.InitStatus_ERROR || response.GetStatus().GetMessage() != "compiler unavailable" {
 		t.Fatalf("InitError response = %+v", response)
 	}
+	if response.GetStatus().GetFailure().GetOperation() != "runtime.init" || response.GetStatus().GetFailure().GetMessage() != "compiler unavailable" {
+		t.Fatalf("InitError failure = %+v", response.GetStatus().GetFailure())
+	}
+}
+
+func TestRuntimeLintErrorPreservesFailureOutput(t *testing.T) {
+	wrapper := &RuntimeWrapper{}
+	response, err := wrapper.LintErrorf(errors.New("main.go:4:2: undefined: value"), "lint failed")
+	if err != nil {
+		t.Fatalf("LintErrorf returned transport error: %v", err)
+	}
+	if response.GetStatus().GetState() != runtimev0.LintStatus_ERROR {
+		t.Fatalf("LintErrorf status = %+v", response.GetStatus())
+	}
+	if response.GetOutput() != "lint failed: main.go:4:2: undefined: value" {
+		t.Fatalf("LintErrorf output = %q", response.GetOutput())
+	}
+	if response.GetStatus().GetFailure().GetOperation() != "runtime.lint" {
+		t.Fatalf("LintErrorf failure = %+v", response.GetStatus().GetFailure())
+	}
 }
 
 func TestBuilderErrorHelperReturnsStructuredResponseWithoutTransportError(t *testing.T) {
@@ -27,5 +47,8 @@ func TestBuilderErrorHelperReturnsStructuredResponseWithoutTransportError(t *tes
 	}
 	if response.GetState().GetState() != builderv0.BuildStatus_ERROR || response.GetState().GetMessage() != "image build failed" {
 		t.Fatalf("BuildError response = %+v", response)
+	}
+	if response.GetState().GetFailure().GetOperation() != "builder.build" || response.GetState().GetFailure().GetMessage() != "image build failed" {
+		t.Fatalf("BuildError failure = %+v", response.GetState().GetFailure())
 	}
 }

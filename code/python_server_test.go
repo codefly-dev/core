@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
 // newPythonProject materializes a fixture Python project on disk and
@@ -31,9 +33,13 @@ func newPythonProject(t *testing.T, files map[string]string) *PythonCodeServer {
 // packagesByPath indexes a GetProjectInfo package list by RelativePath.
 func packagesByPath(t *testing.T, s *PythonCodeServer) map[string]pkgView {
 	t.Helper()
-	info, err := s.GetProjectInfo(context.Background(), nil)
+	response, err := s.Execute(context.Background(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}}})
 	if err != nil {
 		t.Fatalf("GetProjectInfo: %v", err)
+	}
+	info := response.GetGetProjectInfo()
+	if info == nil || response.GetFailure() != nil {
+		t.Fatalf("GetProjectInfo response: %+v", response)
 	}
 	out := make(map[string]pkgView, len(info.Packages))
 	for _, p := range info.Packages {

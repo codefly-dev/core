@@ -232,6 +232,14 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	}
 	proc.WithDir(goTestWorkDir(sourceLocation))
 	proc.WithEnvironmentVariables(ctx, envVars...)
+	// ARCHITECTURE: with-workspace=false makes the service's go.mod the
+	// authority for every Go operation, not only the long-running build. A
+	// parent repository may carry a go.work that deliberately omits a newly
+	// generated standalone service; inheriting it here makes `codefly test`
+	// fail before it can discover any tests.
+	if !env.withGoWorkspace {
+		proc.WithEnvironmentVariables(ctx, resources.Env("GOWORK", "off"))
+	}
 
 	runErr := proc.Run(ctx)
 	rawOutput := capture.String()
@@ -304,6 +312,9 @@ func RunGoBuild(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	proc.WithOutput(&capture)
 	proc.WithDir(sourceLocation)
 	proc.WithEnvironmentVariables(ctx, envVars...)
+	if !env.withGoWorkspace {
+		proc.WithEnvironmentVariables(ctx, resources.Env("GOWORK", "off"))
+	}
 
 	runErr := proc.Run(ctx)
 	return capture.String(), runErr
@@ -331,6 +342,9 @@ func RunGoLint(ctx context.Context, env *GoRunnerEnvironment, sourceLocation str
 	proc.WithOutput(&capture)
 	proc.WithDir(sourceLocation)
 	proc.WithEnvironmentVariables(ctx, envVars...)
+	if !env.withGoWorkspace {
+		proc.WithEnvironmentVariables(ctx, resources.Env("GOWORK", "off"))
+	}
 
 	runErr := proc.Run(ctx)
 	return capture.String(), runErr

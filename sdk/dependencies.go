@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -142,6 +143,12 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// subprocess (go test, CI, MCP, pipes).
 	args = append(args, "--exclude-root", "--cli-server", "--headless")
 	cmd := exec.CommandContext(ctx, codeflyBinary(), args...)
+	// ARCHITECTURE: the SDK owns the control channel for the child it starts.
+	// Pass the exact selected port to the CLI instead of asking two separately
+	// versioned binaries to reproduce the same hash algorithm. This keeps
+	// headless test communication stable while core and the CLI roll forward
+	// independently.
+	cmd.Env = withCLIServerPort(os.Environ(), addr)
 	wool.Get(ctx).In("sdk.WithDependencies").Debug("starting CLI subprocess", wool.Field("cmd", cmd.String()))
 
 	proc, err := startManaged(ctx, cmd)
@@ -229,6 +236,30 @@ func cliServerAddress(ctx context.Context, namingScope string) string {
 	}
 	port := int(network.CLIServerPort(wsName))
 	return fmt.Sprintf("127.0.0.1:%d", port)
+}
+
+// withCLIServerPort pins the spawned CLI to the control port already selected
+// by the SDK. CODEFLY_CLI_SERVER_PORT is the shared, backwards-compatible
+// override understood by every supported CLI; replacing any inherited value
+// also guarantees the child receives exactly one authoritative setting.
+func withCLIServerPort(environment []string, address string) []string {
+	const key = "CODEFLY_CLI_SERVER_PORT"
+	prefix := key + "="
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		// cliServerAddress always returns a valid loopback host:port. Keep this
+		// helper total so an unexpected future address shape cannot strip an
+		// explicit operator override from the child environment.
+		return environment
+	}
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return append(result, prefix+port)
 }
 
 func codeflyBinary() string {

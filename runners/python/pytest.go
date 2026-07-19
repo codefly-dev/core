@@ -355,9 +355,16 @@ func writeLastTestOutput(cacheDir, raw string) error {
 	return os.Rename(tmp, path)
 }
 
-// RunPythonLint runs ruff check and returns the output.
-func RunPythonLint(ctx context.Context, sourceDir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "uv", "run", "ruff", "check", ".")
+// RunPythonLint runs read-only Ruff checks and returns the output. target is a
+// service-relative file/directory when present; an option-looking target is
+// rejected by Ruff after the explicit "--" separator rather than being
+// interpreted as a new command flag.
+func RunPythonLint(ctx context.Context, sourceDir string, targets ...string) (string, error) {
+	target := "."
+	if len(targets) > 0 && targets[0] != "" {
+		target = targets[0]
+	}
+	cmd := exec.CommandContext(ctx, "uv", "run", "ruff", "check", "--", target)
 	cmd.Dir = sourceDir
 	var out bytes.Buffer
 	cmd.Stdout = &out

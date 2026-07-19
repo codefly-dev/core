@@ -109,7 +109,7 @@ func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir
 	// down — failures surface later as cryptic "EOF" or "connect:
 	// connection refused" buried inside an unrelated wrap. Ping now
 	// so the message is loud and actionable.
-	if _, pingErr := cli.Ping(ctx); pingErr != nil {
+	if pingErr := pingDockerClient(ctx, cli); pingErr != nil {
 		_ = cli.Close()
 		return nil, w.NewError("docker daemon at %s (from %s) not reachable (%v) — is Docker Desktop / dockerd running? Try `docker info` to confirm", host.Host, host.Source, pingErr)
 	}
@@ -142,7 +142,7 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerIm
 	// down — failures surface later as cryptic "EOF" or "connect:
 	// connection refused" buried inside an unrelated wrap. Ping now
 	// so the message is loud and actionable.
-	if _, pingErr := cli.Ping(ctx); pingErr != nil {
+	if pingErr := pingDockerClient(ctx, cli); pingErr != nil {
 		_ = cli.Close()
 		return nil, w.NewError("docker daemon at %s (from %s) not reachable (%v) — is Docker Desktop / dockerd running? Try `docker info` to confirm", host.Host, host.Source, pingErr)
 	}

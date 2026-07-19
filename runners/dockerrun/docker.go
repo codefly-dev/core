@@ -11,7 +11,14 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/docker/docker/api/types"
 )
+
+// dockerProbeTimeout bounds backend discovery. Companion selection is a
+// control-plane decision and must never inherit an unbounded command context:
+// an unhealthy Docker socket would otherwise wedge every code generation,
+// build, and test request instead of allowing the Nix/local fallback.
+const dockerProbeTimeout = 5 * time.Second
 
 type DockerPortMapping struct {
 	Host      uint16
@@ -24,8 +31,16 @@ func DockerEngineRunning(ctx context.Context) bool {
 		return false
 	}
 	defer cli.Close()
-	_, err = cli.Ping(ctx)
-	return err == nil
+	return pingDockerClient(ctx, cli) == nil
+}
+
+func pingDockerClient(ctx context.Context, cli interface {
+	Ping(context.Context) (types.Ping, error)
+}) error {
+	probeCtx, cancel := context.WithTimeout(ctx, dockerProbeTimeout)
+	defer cancel()
+	_, err := cli.Ping(probeCtx)
+	return err
 }
 
 type ProgressDetail struct {

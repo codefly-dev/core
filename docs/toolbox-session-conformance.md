@@ -80,30 +80,31 @@ Every external toolbox manifest now uses a valid network enum and declares an
 explicit permission for every advertised tool. Each owning repository has a
 manifest/catalog conformance test.
 
-## V0-V4 verification
+## V0-V4 verification contract
 
-The following gates pass in the aggregate workspace:
+The aggregate release gate must be expressed only through Codefly-owned
+operations:
 
 ```text
 core:
-  go test -p 1 ./...
-  go test -race ./policy/... ./toolbox/...
-  codefly generate proto --proto ./proto --output ./generated --local
-  buf lint
-  buf breaking . --against '../.git#branch=main,subdir=proto'
+  codefly test source --dir .
+  codefly schema generate
+  codefly schema lint
+  codefly schema breaking
 
 cli:
-  go test ./...
-  go test -race ./pkg/deployments/... ./pkg/orchestration/... ./cmd/...
+  codefly test source --dir .
 
 service-postgres:
-  go test ./...
-  go test -race ./...
+  codefly test source --dir .
 
 toolbox-docker, toolbox-grpc, toolbox-nix, toolbox-python-repl, toolbox-web:
-  go test ./...
-  go test -race ./...
+  codefly test source --dir .
 ```
+
+The schema commands above name the canonical plugin-owned surface. Until the
+schema-agent migration is complete, the release gate must report that surface
+as unavailable rather than embedding raw Buf commands in CI or this contract.
 
 The core suite is package-serialized because its Docker/SDK fixtures share
 machine-level ports and process resources. A package-parallel run reproduced

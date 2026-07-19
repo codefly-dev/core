@@ -20,9 +20,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Code_Execute_FullMethodName   = "/codefly.services.code.v0.Code/Execute"
-	Code_ApplyEdit_FullMethodName = "/codefly.services.code.v0.Code/ApplyEdit"
-	Code_ShellExec_FullMethodName = "/codefly.services.code.v0.Code/ShellExec"
+	Code_Execute_FullMethodName = "/codefly.services.code.v0.Code/Execute"
 )
 
 // CodeClient is the client API for Code service.
@@ -35,12 +33,6 @@ type CodeClient interface {
 	// Clients wrap the specific request type in a CodeRequest oneof; the
 	// plugin's Execute handler unwraps and dispatches the operation.
 	Execute(ctx context.Context, in *CodeRequest, opts ...grpc.CallOption) (*CodeResponse, error)
-	// ApplyEdit directly exposes smart edits for older CLI callers.
-	ApplyEdit(ctx context.Context, in *ApplyEditRequest, opts ...grpc.CallOption) (*ApplyEditResponse, error)
-	// ShellExec is the one sanctioned path for running shell commands
-	// against a workspace. Clients call this instead of os/exec so all
-	// process spawning crosses the plugin boundary (the agent).
-	ShellExec(ctx context.Context, in *ShellExecRequest, opts ...grpc.CallOption) (*ShellExecResponse, error)
 }
 
 type codeClient struct {
@@ -61,26 +53,6 @@ func (c *codeClient) Execute(ctx context.Context, in *CodeRequest, opts ...grpc.
 	return out, nil
 }
 
-func (c *codeClient) ApplyEdit(ctx context.Context, in *ApplyEditRequest, opts ...grpc.CallOption) (*ApplyEditResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplyEditResponse)
-	err := c.cc.Invoke(ctx, Code_ApplyEdit_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *codeClient) ShellExec(ctx context.Context, in *ShellExecRequest, opts ...grpc.CallOption) (*ShellExecResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ShellExecResponse)
-	err := c.cc.Invoke(ctx, Code_ShellExec_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // CodeServer is the server API for Code service.
 // All implementations must embed UnimplementedCodeServer
 // for forward compatibility.
@@ -91,12 +63,6 @@ type CodeServer interface {
 	// Clients wrap the specific request type in a CodeRequest oneof; the
 	// plugin's Execute handler unwraps and dispatches the operation.
 	Execute(context.Context, *CodeRequest) (*CodeResponse, error)
-	// ApplyEdit directly exposes smart edits for older CLI callers.
-	ApplyEdit(context.Context, *ApplyEditRequest) (*ApplyEditResponse, error)
-	// ShellExec is the one sanctioned path for running shell commands
-	// against a workspace. Clients call this instead of os/exec so all
-	// process spawning crosses the plugin boundary (the agent).
-	ShellExec(context.Context, *ShellExecRequest) (*ShellExecResponse, error)
 	mustEmbedUnimplementedCodeServer()
 }
 
@@ -109,12 +75,6 @@ type UnimplementedCodeServer struct{}
 
 func (UnimplementedCodeServer) Execute(context.Context, *CodeRequest) (*CodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Execute not implemented")
-}
-func (UnimplementedCodeServer) ApplyEdit(context.Context, *ApplyEditRequest) (*ApplyEditResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ApplyEdit not implemented")
-}
-func (UnimplementedCodeServer) ShellExec(context.Context, *ShellExecRequest) (*ShellExecResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ShellExec not implemented")
 }
 func (UnimplementedCodeServer) mustEmbedUnimplementedCodeServer() {}
 func (UnimplementedCodeServer) testEmbeddedByValue()              {}
@@ -155,42 +115,6 @@ func _Code_Execute_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Code_ApplyEdit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ApplyEditRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CodeServer).ApplyEdit(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Code_ApplyEdit_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CodeServer).ApplyEdit(ctx, req.(*ApplyEditRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Code_ShellExec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ShellExecRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(CodeServer).ShellExec(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Code_ShellExec_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CodeServer).ShellExec(ctx, req.(*ShellExecRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // Code_ServiceDesc is the grpc.ServiceDesc for Code service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -201,14 +125,6 @@ var Code_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Execute",
 			Handler:    _Code_Execute_Handler,
-		},
-		{
-			MethodName: "ApplyEdit",
-			Handler:    _Code_ApplyEdit_Handler,
-		},
-		{
-			MethodName: "ShellExec",
-			Handler:    _Code_ShellExec_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

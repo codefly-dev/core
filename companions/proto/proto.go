@@ -21,18 +21,30 @@ import (
 type Buf struct {
 	Dir string
 
-	// Keep the proto hash for cashing
+	// Keep the complete generation-input hash for caching. Buf configuration
+	// and dependency-lock changes are just as generation-relevant as .proto
+	// sources.
 	dependencies *builders.Dependencies
 
 	// internal cache for hash
 	cache string
+
+	// generatedDirs are generator-owned output roots removed immediately
+	// before buf generate. Cleaning prevents package or service renames from
+	// leaving stale generated Go packages in an otherwise green build.
+	generatedDirs []string
 }
 
 func NewBuf(ctx context.Context, dir string) (*Buf, error) {
 	w := wool.Get(ctx).In("proto.NewBuf")
 	w.Debug("Creating new proto generator", wool.DirField(dir))
 	deps := builders.NewDependencies("proto",
-		builders.NewDependency(dir).WithPathSelect(shared.NewSelect("*.proto")),
+		builders.NewDependency(dir).WithPathSelect(shared.NewSelect(
+			"*.proto",
+			"buf.gen.yaml",
+			"buf.yaml",
+			"buf.lock",
+		)),
 	)
 	deps.Localize(dir)
 	return &Buf{
@@ -40,6 +52,14 @@ func NewBuf(ctx context.Context, dir string) (*Buf, error) {
 		dependencies: deps,
 		cache:        dir,
 	}, nil
+}
+
+// WithGeneratedDirs declares output directories that are wholly owned by Buf
+// generation. Directories must be strict descendants of Dir; this invariant
+// keeps regeneration cleanup scoped to the managed service.
+func (g *Buf) WithGeneratedDirs(dirs ...string) *Buf {
+	g.generatedDirs = append(g.generatedDirs, dirs...)
+	return g
 }
 
 // Generate runs buf in a companion (golden wrapper) to regenerate code from local proto files.
@@ -104,6 +124,10 @@ func (g *Buf) Generate(ctx context.Context) error {
 	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot update buf")
+	}
+
+	if err := g.cleanGeneratedDirs(); err != nil {
+		return w.Wrapf(err, "cannot clean stale generated output")
 	}
 
 	proc, err = runner.NewProcess("buf", "generate")
@@ -179,6 +203,30 @@ func (g *Buf) Generate(ctx context.Context) error {
 	err = g.dependencies.UpdateCache(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot update cache")
+	}
+	return nil
+}
+
+func (g *Buf) cleanGeneratedDirs() error {
+	root, err := filepath.Abs(g.Dir)
+	if err != nil {
+		return fmt.Errorf("resolve generator root: %w", err)
+	}
+	for _, dir := range g.generatedDirs {
+		output, err := filepath.Abs(dir)
+		if err != nil {
+			return fmt.Errorf("resolve generated directory %q: %w", dir, err)
+		}
+		rel, err := filepath.Rel(root, output)
+		if err != nil {
+			return fmt.Errorf("scope generated directory %q: %w", dir, err)
+		}
+		if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("generated directory %q is not a strict descendant of %q", output, root)
+		}
+		if err := os.RemoveAll(output); err != nil {
+			return fmt.Errorf("remove generated directory %q: %w", output, err)
+		}
 	}
 	return nil
 }

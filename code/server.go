@@ -16,9 +16,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/codefly-dev/core/failures"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // OperationHandler processes a single code operation within Execute.
@@ -30,6 +30,13 @@ type ServerOption func(*DefaultCodeServer)
 // WithVFS sets a custom VFS backend. Defaults to LocalVFS.
 func WithVFS(vfs VFS) ServerOption {
 	return func(s *DefaultCodeServer) { s.FS = vfs }
+}
+
+// WithSourceFixer installs the language-aware formatter/fixer used by Fix and
+// ApplyEdit. The server owns all reads and writes; the fixer only transforms an
+// in-memory source snapshot.
+func WithSourceFixer(fixer SourceFixer) ServerOption {
+	return func(s *DefaultCodeServer) { s.sourceFixer = fixer }
 }
 
 // WithCachedFS enables in-memory file tree caching backed by fsnotify.
@@ -97,6 +104,7 @@ type DefaultCodeServer struct {
 	trigramIdx         *TrigramIndex // non-nil when trigram indexing is active
 	nativeGit          *NativeGit    // lazily opened go-git repo
 	writeListener      WriteListener // optional post-mutation hook
+	sourceFixer        SourceFixer   // optional language-aware in-memory fixer
 }
 
 // NewDefaultCodeServer creates a server rooted at sourceDir.
@@ -108,7 +116,9 @@ func NewDefaultCodeServer(sourceDir string, opts ...ServerOption) *DefaultCodeSe
 		overrides: make(map[string]OperationHandler),
 	}
 	for _, o := range opts {
-		o(s)
+		if o != nil {
+			o(s)
+		}
 	}
 	// Apply CachedVFS after all options (needs final SourceDir)
 	if s.wantCachedFS {
@@ -171,6 +181,12 @@ func (s *DefaultCodeServer) SetWriteListener(l WriteListener) {
 	s.writeListener = l
 }
 
+// SetSourceFixer replaces the language-aware fixer used by Fix and ApplyEdit.
+// Plugins normally call this once while registering their language overrides.
+func (s *DefaultCodeServer) SetSourceFixer(fixer SourceFixer) {
+	s.sourceFixer = fixer
+}
+
 // notifyWrite fires the installed listener (if any) and swallows any
 // error it returns. Notification is best-effort; a broken listener
 // should not break file I/O. Callers MUST only invoke this after a
@@ -189,7 +205,7 @@ func (s *DefaultCodeServer) notifyWrite(ctx context.Context, kind, path, prevPat
 func (s *DefaultCodeServer) Execute(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	opName := OperationName(req)
 	if opName == "" {
-		return nil, status.Error(codes.InvalidArgument, "empty CodeRequest: no operation set")
+		return nil, failures.GRPC(failures.New(basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "code.execute", "empty CodeRequest: no operation set"))
 	}
 	if h, ok := s.overrides[opName]; ok {
 		return h(ctx, req)
@@ -240,17 +256,14 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 	// --- Dependency management (stubs -- plugins override) ---
 
 	case *codev0.CodeRequest_ListDependencies:
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{ListDependencies: &codev0.ListDependenciesResponse{
-			Error: "dependency listing not available: no language plugin override",
-		}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{ListDependencies: &codev0.ListDependenciesResponse{}}},
+			basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.list-dependencies", "dependency listing not available: no language plugin override"), nil
 	case *codev0.CodeRequest_AddDependency:
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_AddDependency{AddDependency: &codev0.AddDependencyResponse{
-			Success: false, Error: "add dependency not available: no language plugin override",
-		}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_AddDependency{AddDependency: &codev0.AddDependencyResponse{Success: false}}},
+			basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.add-dependency", "add dependency not available: no language plugin override"), nil
 	case *codev0.CodeRequest_RemoveDependency:
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_RemoveDependency{RemoveDependency: &codev0.RemoveDependencyResponse{
-			Success: false, Error: "remove dependency not available: no language plugin override",
-		}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_RemoveDependency{RemoveDependency: &codev0.RemoveDependencyResponse{Success: false}}},
+			basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.remove-dependency", "remove dependency not available: no language plugin override"), nil
 
 	// --- Shell execution ---
 
@@ -258,8 +271,13 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 		return s.shellExec(ctx, op.ShellExec)
 
 	default:
-		return nil, status.Errorf(codes.Unimplemented, "unknown operation: %T", req.Operation)
+		return nil, failures.GRPC(failures.New(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.execute", fmt.Sprintf("unknown operation: %T", req.Operation)))
 	}
+}
+
+func codeFailure(response *codev0.CodeResponse, code basev0.FailureCode, operation, message string) *codev0.CodeResponse {
+	response.Failure = failures.New(code, operation, message)
+	return response
 }
 
 // --- File operations ---
@@ -285,11 +303,11 @@ func (s *DefaultCodeServer) writeFile(ctx context.Context, req *codev0.WriteFile
 		return nil, err
 	}
 	if err := s.FS.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_WriteFile{WriteFile: &codev0.WriteFileResponse{Success: false, Error: err.Error()}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_WriteFile{WriteFile: &codev0.WriteFileResponse{Success: false}}}, basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.write-file", err.Error()), nil
 	}
 	content := []byte(req.Content)
 	if err := s.FS.WriteFile(absPath, content, 0o644); err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_WriteFile{WriteFile: &codev0.WriteFileResponse{Success: false, Error: err.Error()}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_WriteFile{WriteFile: &codev0.WriteFileResponse{Success: false}}}, basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.write-file", err.Error()), nil
 	}
 	s.notifyWrite(ctx, "write", req.Path, "", content)
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_WriteFile{WriteFile: &codev0.WriteFileResponse{Success: true}}}, nil
@@ -320,8 +338,10 @@ func (s *DefaultCodeServer) listFiles(_ context.Context, req *codev0.ListFilesRe
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() && strings.HasPrefix(d.Name(), ".") && path != base {
-			return fs.SkipDir
+		if d.IsDir() && path != base {
+			if strings.HasPrefix(d.Name(), ".") || isGeneratedSourceDirectory(d.Name()) {
+				return fs.SkipDir
+			}
 		}
 		if !req.Recursive && d.IsDir() && path != base {
 			return fs.SkipDir
@@ -347,6 +367,15 @@ func (s *DefaultCodeServer) listFiles(_ context.Context, req *codev0.ListFilesRe
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListFiles{ListFiles: &codev0.ListFilesResponse{Files: files}}}, nil
 }
 
+func isGeneratedSourceDirectory(name string) bool {
+	switch name {
+	case "vendor", "node_modules", "target", "dist", "build", "__pycache__", ".cache":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *DefaultCodeServer) deleteFile(ctx context.Context, req *codev0.DeleteFileRequest) (*codev0.CodeResponse, error) {
 	absPath, err := resolvePath(s.SourceDir, req.Path)
 	if err != nil {
@@ -354,10 +383,12 @@ func (s *DefaultCodeServer) deleteFile(ctx context.Context, req *codev0.DeleteFi
 	}
 	if err := s.FS.Remove(absPath); err != nil {
 		msg := err.Error()
+		failureCode := basev0.FailureCode_FAILURE_CODE_IO_FAILED
 		if os.IsNotExist(err) {
 			msg = "file not found"
+			failureCode = basev0.FailureCode_FAILURE_CODE_NOT_FOUND
 		}
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_DeleteFile{DeleteFile: &codev0.DeleteFileResponse{Success: false, Error: msg}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_DeleteFile{DeleteFile: &codev0.DeleteFileResponse{Success: false}}}, failureCode, "code.delete-file", msg), nil
 	}
 	s.notifyWrite(ctx, "delete", req.Path, "", nil)
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_DeleteFile{DeleteFile: &codev0.DeleteFileResponse{Success: true}}}, nil
@@ -373,10 +404,10 @@ func (s *DefaultCodeServer) moveFile(ctx context.Context, req *codev0.MoveFileRe
 		return nil, err
 	}
 	if err := s.FS.MkdirAll(filepath.Dir(newAbs), 0o755); err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_MoveFile{MoveFile: &codev0.MoveFileResponse{Success: false, Error: fmt.Sprintf("mkdir: %v", err)}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_MoveFile{MoveFile: &codev0.MoveFileResponse{Success: false}}}, basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.move-file", fmt.Sprintf("mkdir: %v", err)), nil
 	}
 	if err := s.FS.Rename(oldAbs, newAbs); err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_MoveFile{MoveFile: &codev0.MoveFileResponse{Success: false, Error: err.Error()}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_MoveFile{MoveFile: &codev0.MoveFileResponse{Success: false}}}, basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.move-file", err.Error()), nil
 	}
 	// After a move, downstream consumers need the destination content
 	// and the previous path. We read the new file to give the listener concrete content; a read
@@ -397,15 +428,15 @@ func (s *DefaultCodeServer) createFile(ctx context.Context, req *codev0.CreateFi
 	}
 	if !req.Overwrite {
 		if _, err := s.FS.Stat(absPath); err == nil {
-			return &codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: false, Error: "file already exists"}}}, nil
+			return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: false}}}, basev0.FailureCode_FAILURE_CODE_ALREADY_EXISTS, "code.create-file", "file already exists"), nil
 		}
 	}
 	if err := s.FS.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: false, Error: fmt.Sprintf("mkdir: %v", err)}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: false}}}, basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.create-file", fmt.Sprintf("mkdir: %v", err)), nil
 	}
 	content := []byte(req.Content)
 	if err := s.FS.WriteFile(absPath, content, 0o644); err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: false, Error: err.Error()}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: false}}}, basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.create-file", err.Error()), nil
 	}
 	s.notifyWrite(ctx, "create", req.Path, "", content)
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_CreateFile{CreateFile: &codev0.CreateFileResponse{Success: true}}}, nil
@@ -463,9 +494,8 @@ func (s *DefaultCodeServer) applyEdit(ctx context.Context, req *codev0.ApplyEdit
 	data, err := s.FS.ReadFile(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{
-				Success: false, Error: fmt.Sprintf("file not found: %s", req.File),
-			}}}, nil
+			return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{Success: false}}},
+				basev0.FailureCode_FAILURE_CODE_NOT_FOUND, "code.apply-edit", fmt.Sprintf("file not found: %s", req.File)), nil
 		}
 		return nil, fmt.Errorf("reading %s: %w", req.File, err)
 	}
@@ -476,36 +506,99 @@ func (s *DefaultCodeServer) applyEdit(ctx context.Context, req *codev0.ApplyEdit
 		if result.Strategy == "ambiguous" {
 			errorMessage = "FIND block matches multiple regions; include more surrounding context"
 		}
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{
-			Success: false, Error: errorMessage,
-		}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{Success: false}}},
+			basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-edit", errorMessage), nil
 	}
 
-	if err := s.FS.WriteFile(absPath, []byte(result.Content), 0o644); err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{
-			Success: false, Error: fmt.Sprintf("write: %v", err),
-		}}}, nil
+	content := []byte(result.Content)
+	var actions []string
+	var output string
+	if req.GetFixMode() != basev0.FixMode_FIX_MODE_NONE && s.sourceFixer != nil {
+		fixed, fixErr := s.sourceFixer(ctx, FixInput{Path: req.GetFile(), Content: content, Mode: req.GetFixMode()})
+		if fixErr != nil {
+			return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{Success: false}}},
+				basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.apply-edit.fix", fixErr.Error()), nil
+		}
+		content = fixed.Content
+		actions = fixed.Actions
+		output = boundedFixOutput(fixed.Output)
 	}
-	s.notifyWrite(ctx, "write", req.File, "", []byte(result.Content))
+
+	changed := !bytes.Equal(data, content)
+	wrote := false
+	if !req.GetDryRun() && changed {
+		if err := s.FS.WriteFile(absPath, content, 0o644); err != nil {
+			return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{Success: false}}},
+				basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.apply-edit", fmt.Sprintf("write: %v", err)), nil
+		}
+		wrote = true
+		s.notifyWrite(ctx, "write", req.File, "", content)
+	}
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{
-		Success: true, Content: result.Content, Strategy: result.Strategy,
+		Success:      true,
+		Content:      string(content),
+		Strategy:     result.Strategy,
+		FixActions:   actions,
+		Changed:      changed,
+		BeforeSha256: sourceDigest(data),
+		AfterSha256:  sourceDigest(content),
+		Wrote:        wrote,
+		Output:       output,
 	}}}, nil
 }
 
-// --- Fix (no-op default: returns file content unchanged) ---
+// --- Fix ---
 
-func (s *DefaultCodeServer) fixDefault(_ context.Context, req *codev0.FixRequest) (*codev0.CodeResponse, error) {
+func (s *DefaultCodeServer) fixDefault(ctx context.Context, req *codev0.FixRequest) (*codev0.CodeResponse, error) {
 	absPath, err := resolvePath(s.SourceDir, req.File)
 	if err != nil {
 		return nil, err
 	}
 	data, err := s.FS.ReadFile(absPath)
 	if err != nil {
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{Success: false}}},
+			basev0.FailureCode_FAILURE_CODE_NOT_FOUND, "code.fix", fmt.Sprintf("file not found: %s", req.File)), nil
+	}
+	if req.GetMode() == basev0.FixMode_FIX_MODE_NONE {
+		digest := sourceDigest(data)
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{
-			Success: false, Error: fmt.Sprintf("file not found: %s", req.File),
+			Success: true, Content: string(data), BeforeSha256: digest, AfterSha256: digest,
 		}}}, nil
 	}
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{Success: true, Content: string(data)}}}, nil
+	if s.sourceFixer == nil {
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{Success: false}}},
+			basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.fix", "language-aware source fixer is not configured"), nil
+	}
+	fixed, fixErr := s.sourceFixer(ctx, FixInput{Path: req.GetFile(), Content: data, Mode: req.GetMode()})
+	if fixErr != nil {
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{Success: false}}},
+			basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.fix", fixErr.Error()), nil
+	}
+	changed := !bytes.Equal(data, fixed.Content)
+	wrote := false
+	if !req.GetDryRun() && changed {
+		if err := s.FS.WriteFile(absPath, fixed.Content, 0o644); err != nil {
+			return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{Success: false}}},
+				basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.fix", fmt.Sprintf("write: %v", err)), nil
+		}
+		wrote = true
+		s.notifyWrite(ctx, "write", req.File, "", fixed.Content)
+	}
+	return &codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{
+		Success:      true,
+		Content:      string(fixed.Content),
+		Actions:      fixed.Actions,
+		Changed:      changed,
+		BeforeSha256: sourceDigest(data),
+		AfterSha256:  sourceDigest(fixed.Content),
+		Wrote:        wrote,
+		Output:       boundedFixOutput(fixed.Output),
+	}}}, nil
+}
+
+func sourceDigest(content []byte) string {
+	digest := sha256.Sum256(content)
+	return hex.EncodeToString(digest[:])
 }
 
 // --- GetProjectInfo (generic: file walk + hashes) ---
@@ -589,7 +682,7 @@ func (s *DefaultCodeServer) gitLog(ctx context.Context, req *codev0.GitLogReques
 
 	out, err := s.runGit(ctx, args...)
 	if err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GitLog{GitLog: &codev0.GitLogResponse{Error: err.Error()}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_GitLog{GitLog: &codev0.GitLogResponse{}}}, basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.git-log", err.Error()), nil
 	}
 
 	commits := parseGitLog(out)
@@ -651,7 +744,7 @@ func (s *DefaultCodeServer) gitDiff(ctx context.Context, req *codev0.GitDiffRequ
 
 	out, err := s.runGit(ctx, args...)
 	if err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GitDiff{GitDiff: &codev0.GitDiffResponse{Error: err.Error()}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_GitDiff{GitDiff: &codev0.GitDiffResponse{}}}, basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.git-diff", err.Error()), nil
 	}
 
 	// Plain `git diff` omits UNTRACKED files entirely, so a working-tree
@@ -761,7 +854,7 @@ func (s *DefaultCodeServer) gitShow(ctx context.Context, req *codev0.GitShowRequ
 		if strings.Contains(errStr, "does not exist") || strings.Contains(errStr, "fatal: path") {
 			return &codev0.CodeResponse{Result: &codev0.CodeResponse_GitShow{GitShow: &codev0.GitShowResponse{Exists: false}}}, nil
 		}
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GitShow{GitShow: &codev0.GitShowResponse{Error: errStr}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_GitShow{GitShow: &codev0.GitShowResponse{}}}, basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.git-show", errStr), nil
 	}
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_GitShow{GitShow: &codev0.GitShowResponse{Content: out, Exists: true}}}, nil
 }
@@ -782,7 +875,7 @@ func (s *DefaultCodeServer) gitBlame(ctx context.Context, req *codev0.GitBlameRe
 
 	out, err := s.runGit(ctx, args...)
 	if err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_GitBlame{GitBlame: &codev0.GitBlameResponse{Error: err.Error()}}}, nil
+		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_GitBlame{GitBlame: &codev0.GitBlameResponse{}}}, basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.git-blame", err.Error()), nil
 	}
 
 	blameLines := parseGitBlame(out)

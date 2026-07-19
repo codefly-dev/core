@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package codefly.base.v0;
+
+// FixMode controls how language-aware source fixers may rewrite code.
+// SAFE is deliberately the zero value so agent edits are formatted and have
+// imports organized unless a caller explicitly opts out.
+enum FixMode {
+  // FIX_MODE_SAFE enables deterministic formatting, import organization, and
+  // tool-reported safe fixes that should not intentionally change behavior.
+  FIX_MODE_SAFE = 0;
+  // FIX_MODE_NONE disables all language-aware rewriting.
+  FIX_MODE_NONE = 1;
+  // FIX_MODE_AGGRESSIVE additionally permits tool-reported unsafe or semantic
+  // fixes. Callers must opt into this mode explicitly.
+  FIX_MODE_AGGRESSIVE = 2;
+}

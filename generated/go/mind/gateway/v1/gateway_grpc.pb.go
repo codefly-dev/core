@@ -20,36 +20,37 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Gateway_ListServices_FullMethodName     = "/mind.gateway.v1.Gateway/ListServices"
-	Gateway_ReadFile_FullMethodName         = "/mind.gateway.v1.Gateway/ReadFile"
-	Gateway_WriteFile_FullMethodName        = "/mind.gateway.v1.Gateway/WriteFile"
-	Gateway_ListFiles_FullMethodName        = "/mind.gateway.v1.Gateway/ListFiles"
-	Gateway_DeleteFile_FullMethodName       = "/mind.gateway.v1.Gateway/DeleteFile"
-	Gateway_MoveFile_FullMethodName         = "/mind.gateway.v1.Gateway/MoveFile"
-	Gateway_CreateFile_FullMethodName       = "/mind.gateway.v1.Gateway/CreateFile"
-	Gateway_Fix_FullMethodName              = "/mind.gateway.v1.Gateway/Fix"
-	Gateway_ApplyEdit_FullMethodName        = "/mind.gateway.v1.Gateway/ApplyEdit"
-	Gateway_BatchApplyEdits_FullMethodName  = "/mind.gateway.v1.Gateway/BatchApplyEdits"
-	Gateway_Search_FullMethodName           = "/mind.gateway.v1.Gateway/Search"
-	Gateway_Build_FullMethodName            = "/mind.gateway.v1.Gateway/Build"
-	Gateway_Lint_FullMethodName             = "/mind.gateway.v1.Gateway/Lint"
-	Gateway_Test_FullMethodName             = "/mind.gateway.v1.Gateway/Test"
-	Gateway_RunCommand_FullMethodName       = "/mind.gateway.v1.Gateway/RunCommand"
-	Gateway_ListAllCommands_FullMethodName  = "/mind.gateway.v1.Gateway/ListAllCommands"
-	Gateway_RunChecks_FullMethodName        = "/mind.gateway.v1.Gateway/RunChecks"
-	Gateway_GitStatus_FullMethodName        = "/mind.gateway.v1.Gateway/GitStatus"
-	Gateway_GitDiff_FullMethodName          = "/mind.gateway.v1.Gateway/GitDiff"
-	Gateway_GitLog_FullMethodName           = "/mind.gateway.v1.Gateway/GitLog"
-	Gateway_GitCommit_FullMethodName        = "/mind.gateway.v1.Gateway/GitCommit"
-	Gateway_ListDependencies_FullMethodName = "/mind.gateway.v1.Gateway/ListDependencies"
-	Gateway_AddDependency_FullMethodName    = "/mind.gateway.v1.Gateway/AddDependency"
-	Gateway_RemoveDependency_FullMethodName = "/mind.gateway.v1.Gateway/RemoveDependency"
-	Gateway_GetProjectInfo_FullMethodName   = "/mind.gateway.v1.Gateway/GetProjectInfo"
-	Gateway_OpenTerminal_FullMethodName     = "/mind.gateway.v1.Gateway/OpenTerminal"
-	Gateway_AttachTerminal_FullMethodName   = "/mind.gateway.v1.Gateway/AttachTerminal"
-	Gateway_ResizeTerminal_FullMethodName   = "/mind.gateway.v1.Gateway/ResizeTerminal"
-	Gateway_CloseTerminal_FullMethodName    = "/mind.gateway.v1.Gateway/CloseTerminal"
-	Gateway_ListTerminals_FullMethodName    = "/mind.gateway.v1.Gateway/ListTerminals"
+	Gateway_ListServices_FullMethodName              = "/mind.gateway.v1.Gateway/ListServices"
+	Gateway_ReadFile_FullMethodName                  = "/mind.gateway.v1.Gateway/ReadFile"
+	Gateway_WriteFile_FullMethodName                 = "/mind.gateway.v1.Gateway/WriteFile"
+	Gateway_ListFiles_FullMethodName                 = "/mind.gateway.v1.Gateway/ListFiles"
+	Gateway_SubscribeWorkspaceChanges_FullMethodName = "/mind.gateway.v1.Gateway/SubscribeWorkspaceChanges"
+	Gateway_DeleteFile_FullMethodName                = "/mind.gateway.v1.Gateway/DeleteFile"
+	Gateway_MoveFile_FullMethodName                  = "/mind.gateway.v1.Gateway/MoveFile"
+	Gateway_CreateFile_FullMethodName                = "/mind.gateway.v1.Gateway/CreateFile"
+	Gateway_Fix_FullMethodName                       = "/mind.gateway.v1.Gateway/Fix"
+	Gateway_ApplyEdit_FullMethodName                 = "/mind.gateway.v1.Gateway/ApplyEdit"
+	Gateway_BatchApplyEdits_FullMethodName           = "/mind.gateway.v1.Gateway/BatchApplyEdits"
+	Gateway_Search_FullMethodName                    = "/mind.gateway.v1.Gateway/Search"
+	Gateway_Build_FullMethodName                     = "/mind.gateway.v1.Gateway/Build"
+	Gateway_Lint_FullMethodName                      = "/mind.gateway.v1.Gateway/Lint"
+	Gateway_Test_FullMethodName                      = "/mind.gateway.v1.Gateway/Test"
+	Gateway_RunCommand_FullMethodName                = "/mind.gateway.v1.Gateway/RunCommand"
+	Gateway_ListAllCommands_FullMethodName           = "/mind.gateway.v1.Gateway/ListAllCommands"
+	Gateway_RunChecks_FullMethodName                 = "/mind.gateway.v1.Gateway/RunChecks"
+	Gateway_GitStatus_FullMethodName                 = "/mind.gateway.v1.Gateway/GitStatus"
+	Gateway_GitDiff_FullMethodName                   = "/mind.gateway.v1.Gateway/GitDiff"
+	Gateway_GitLog_FullMethodName                    = "/mind.gateway.v1.Gateway/GitLog"
+	Gateway_GitCommit_FullMethodName                 = "/mind.gateway.v1.Gateway/GitCommit"
+	Gateway_ListDependencies_FullMethodName          = "/mind.gateway.v1.Gateway/ListDependencies"
+	Gateway_AddDependency_FullMethodName             = "/mind.gateway.v1.Gateway/AddDependency"
+	Gateway_RemoveDependency_FullMethodName          = "/mind.gateway.v1.Gateway/RemoveDependency"
+	Gateway_GetProjectInfo_FullMethodName            = "/mind.gateway.v1.Gateway/GetProjectInfo"
+	Gateway_OpenTerminal_FullMethodName              = "/mind.gateway.v1.Gateway/OpenTerminal"
+	Gateway_AttachTerminal_FullMethodName            = "/mind.gateway.v1.Gateway/AttachTerminal"
+	Gateway_ResizeTerminal_FullMethodName            = "/mind.gateway.v1.Gateway/ResizeTerminal"
+	Gateway_CloseTerminal_FullMethodName             = "/mind.gateway.v1.Gateway/CloseTerminal"
+	Gateway_ListTerminals_FullMethodName             = "/mind.gateway.v1.Gateway/ListTerminals"
 )
 
 // GatewayClient is the client API for Gateway service.
@@ -67,6 +68,10 @@ type GatewayClient interface {
 	WriteFile(ctx context.Context, in *WriteFileRequest, opts ...grpc.CallOption) (*WriteFileResponse, error)
 	// ListFiles lists files in a service's source tree.
 	ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error)
+	// SubscribeWorkspaceChanges streams metadata-only filesystem wakeups from
+	// the Codefly execution boundary. Events are sequenced and replayable over a
+	// bounded window; consumers must still reconcile with authoritative reads.
+	SubscribeWorkspaceChanges(ctx context.Context, in *SubscribeWorkspaceChangesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorkspaceChangeEvent], error)
 	// DeleteFile removes a file from a service's source tree.
 	DeleteFile(ctx context.Context, in *DeleteFileRequest, opts ...grpc.CallOption) (*DeleteFileResponse, error)
 	// MoveFile renames or moves a file, optionally updating imports.
@@ -169,6 +174,25 @@ func (c *gatewayClient) ListFiles(ctx context.Context, in *ListFilesRequest, opt
 	}
 	return out, nil
 }
+
+func (c *gatewayClient) SubscribeWorkspaceChanges(ctx context.Context, in *SubscribeWorkspaceChangesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorkspaceChangeEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Gateway_ServiceDesc.Streams[0], Gateway_SubscribeWorkspaceChanges_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[SubscribeWorkspaceChangesRequest, WorkspaceChangeEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Gateway_SubscribeWorkspaceChangesClient = grpc.ServerStreamingClient[WorkspaceChangeEvent]
 
 func (c *gatewayClient) DeleteFile(ctx context.Context, in *DeleteFileRequest, opts ...grpc.CallOption) (*DeleteFileResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -392,7 +416,7 @@ func (c *gatewayClient) OpenTerminal(ctx context.Context, in *OpenTerminalReques
 
 func (c *gatewayClient) AttachTerminal(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TerminalInput, TerminalOutput], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Gateway_ServiceDesc.Streams[0], Gateway_AttachTerminal_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &Gateway_ServiceDesc.Streams[1], Gateway_AttachTerminal_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -448,6 +472,10 @@ type GatewayServer interface {
 	WriteFile(context.Context, *WriteFileRequest) (*WriteFileResponse, error)
 	// ListFiles lists files in a service's source tree.
 	ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error)
+	// SubscribeWorkspaceChanges streams metadata-only filesystem wakeups from
+	// the Codefly execution boundary. Events are sequenced and replayable over a
+	// bounded window; consumers must still reconcile with authoritative reads.
+	SubscribeWorkspaceChanges(*SubscribeWorkspaceChangesRequest, grpc.ServerStreamingServer[WorkspaceChangeEvent]) error
 	// DeleteFile removes a file from a service's source tree.
 	DeleteFile(context.Context, *DeleteFileRequest) (*DeleteFileResponse, error)
 	// MoveFile renames or moves a file, optionally updating imports.
@@ -522,6 +550,9 @@ func (UnimplementedGatewayServer) WriteFile(context.Context, *WriteFileRequest) 
 }
 func (UnimplementedGatewayServer) ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListFiles not implemented")
+}
+func (UnimplementedGatewayServer) SubscribeWorkspaceChanges(*SubscribeWorkspaceChangesRequest, grpc.ServerStreamingServer[WorkspaceChangeEvent]) error {
+	return status.Error(codes.Unimplemented, "method SubscribeWorkspaceChanges not implemented")
 }
 func (UnimplementedGatewayServer) DeleteFile(context.Context, *DeleteFileRequest) (*DeleteFileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteFile not implemented")
@@ -693,6 +724,17 @@ func _Gateway_ListFiles_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	return interceptor(ctx, in, info, handler)
 }
+
+func _Gateway_SubscribeWorkspaceChanges_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeWorkspaceChangesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(GatewayServer).SubscribeWorkspaceChanges(m, &grpc.GenericServerStream[SubscribeWorkspaceChangesRequest, WorkspaceChangeEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Gateway_SubscribeWorkspaceChangesServer = grpc.ServerStreamingServer[WorkspaceChangeEvent]
 
 func _Gateway_DeleteFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteFileRequest)
@@ -1276,6 +1318,11 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SubscribeWorkspaceChanges",
+			Handler:       _Gateway_SubscribeWorkspaceChanges_Handler,
+			ServerStreams: true,
+		},
 		{
 			StreamName:    "AttachTerminal",
 			Handler:       _Gateway_AttachTerminal_Handler,

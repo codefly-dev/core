@@ -456,12 +456,14 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	}
 	proc.WithDir(r.sourceDir)
 	if r.withCGO {
-		_, err := exec.LookPath("cc")
-		if err != nil {
-			return w.Wrapf(err, "cannot find cc")
-		}
-		if r.companion == nil || r.companion.Backend() != companion.BackendDocker {
-			proc.WithEnvironmentVariablesAppend(ctx, resources.Env("PATH", "/usr/bin:/usr/local/bin:/usr/sbin"), ":")
+		// A native build uses the host toolchain, so fail early when its C
+		// compiler is missing. Docker and Nix builds must resolve cc inside
+		// their own environment; injecting the host PATH hides the devShell
+		// tools (including go itself) and breaks reproducibility.
+		if r.local != nil {
+			if _, err := exec.LookPath("cc"); err != nil {
+				return w.Wrapf(err, "cannot find cc")
+			}
 		}
 		proc.WithEnvironmentVariables(ctx, resources.Env("CC", "cc"))
 		proc.WithEnvironmentVariables(ctx, resources.Env("CGO_ENABLED", "1"))

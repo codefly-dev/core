@@ -11,6 +11,7 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 
+	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
@@ -1055,7 +1056,9 @@ type CallToolResponse struct {
 	// RoutedTo is the toolbox the agent should call instead, when
 	// CanonicalRouted is true. Empty when the binary has no claimed
 	// owner (use the built-in fallback's hint in error).
-	RoutedTo      string `protobuf:"bytes,4,opt,name=routed_to,json=routedTo,proto3" json:"routed_to,omitempty"`
+	RoutedTo string `protobuf:"bytes,4,opt,name=routed_to,json=routedTo,proto3" json:"routed_to,omitempty"`
+	// Failure is the structured plugin-neutral cause when the tool refused or failed.
+	Failure       *v0.Failure `protobuf:"bytes,5,opt,name=failure,proto3" json:"failure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1116,6 +1119,13 @@ func (x *CallToolResponse) GetRoutedTo() string {
 		return x.RoutedTo
 	}
 	return ""
+}
+
+func (x *CallToolResponse) GetFailure() *v0.Failure {
+	if x != nil {
+		return x.Failure
+	}
+	return nil
 }
 
 // Resource describes read-only context the toolbox can expose to agents.
@@ -1749,7 +1759,7 @@ var File_codefly_services_toolbox_v0_toolbox_proto protoreflect.FileDescriptor
 
 const file_codefly_services_toolbox_v0_toolbox_proto_rawDesc = "" +
 	"\n" +
-	")codefly/services/toolbox/v0/toolbox.proto\x12\x1bcodefly.services.toolbox.v0\x1a\x1cgoogle/protobuf/struct.proto\"\x11\n" +
+	")codefly/services/toolbox/v0/toolbox.proto\x12\x1bcodefly.services.toolbox.v0\x1a\x1dcodefly/base/v0/failure.proto\x1a\x1cgoogle/protobuf/struct.proto\"\x11\n" +
 	"\x0fIdentityRequest\"\xb0\x01\n" +
 	"\x10IdentityResponse\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
@@ -1810,12 +1820,13 @@ const file_codefly_services_toolbox_v0_toolbox_proto_rawDesc = "" +
 	"\x04Blob\x12\x1d\n" +
 	"\n" +
 	"media_type\x18\x01 \x01(\tR\tmediaType\x12\x12\n" +
-	"\x04data\x18\x02 \x01(\fR\x04data\"\xb0\x01\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"\xe4\x01\n" +
 	"\x10CallToolResponse\x12>\n" +
 	"\acontent\x18\x01 \x03(\v2$.codefly.services.toolbox.v0.ContentR\acontent\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12)\n" +
 	"\x10canonical_routed\x18\x03 \x01(\bR\x0fcanonicalRouted\x12\x1b\n" +
-	"\trouted_to\x18\x04 \x01(\tR\broutedTo\"o\n" +
+	"\trouted_to\x18\x04 \x01(\tR\broutedTo\x122\n" +
+	"\afailure\x18\x05 \x01(\v2\x18.codefly.base.v0.FailureR\afailure\"o\n" +
 	"\bResource\x12\x10\n" +
 	"\x03uri\x18\x01 \x01(\tR\x03uri\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
@@ -1903,6 +1914,7 @@ var file_codefly_services_toolbox_v0_toolbox_proto_goTypes = []any{
 	(*PromptMessage)(nil),             // 26: codefly.services.toolbox.v0.PromptMessage
 	(*GetPromptResponse)(nil),         // 27: codefly.services.toolbox.v0.GetPromptResponse
 	(*structpb.Struct)(nil),           // 28: google.protobuf.Struct
+	(*v0.Failure)(nil),                // 29: codefly.base.v0.Failure
 }
 var file_codefly_services_toolbox_v0_toolbox_proto_depIdxs = []int32{
 	28, // 0: codefly.services.toolbox.v0.Tool.input_schema:type_name -> google.protobuf.Struct
@@ -1918,36 +1930,37 @@ var file_codefly_services_toolbox_v0_toolbox_proto_depIdxs = []int32{
 	28, // 10: codefly.services.toolbox.v0.Content.structured:type_name -> google.protobuf.Struct
 	14, // 11: codefly.services.toolbox.v0.Content.blob:type_name -> codefly.services.toolbox.v0.Blob
 	13, // 12: codefly.services.toolbox.v0.CallToolResponse.content:type_name -> codefly.services.toolbox.v0.Content
-	16, // 13: codefly.services.toolbox.v0.ListResourcesResponse.resources:type_name -> codefly.services.toolbox.v0.Resource
-	13, // 14: codefly.services.toolbox.v0.ReadResourceResponse.content:type_name -> codefly.services.toolbox.v0.Content
-	21, // 15: codefly.services.toolbox.v0.Prompt.arguments:type_name -> codefly.services.toolbox.v0.PromptArgument
-	22, // 16: codefly.services.toolbox.v0.ListPromptsResponse.prompts:type_name -> codefly.services.toolbox.v0.Prompt
-	28, // 17: codefly.services.toolbox.v0.GetPromptRequest.arguments:type_name -> google.protobuf.Struct
-	13, // 18: codefly.services.toolbox.v0.PromptMessage.content:type_name -> codefly.services.toolbox.v0.Content
-	26, // 19: codefly.services.toolbox.v0.GetPromptResponse.messages:type_name -> codefly.services.toolbox.v0.PromptMessage
-	0,  // 20: codefly.services.toolbox.v0.Toolbox.Identity:input_type -> codefly.services.toolbox.v0.IdentityRequest
-	10, // 21: codefly.services.toolbox.v0.Toolbox.ListTools:input_type -> codefly.services.toolbox.v0.ListToolsRequest
-	6,  // 22: codefly.services.toolbox.v0.Toolbox.ListToolSummaries:input_type -> codefly.services.toolbox.v0.ListToolSummariesRequest
-	8,  // 23: codefly.services.toolbox.v0.Toolbox.DescribeTool:input_type -> codefly.services.toolbox.v0.DescribeToolRequest
-	12, // 24: codefly.services.toolbox.v0.Toolbox.CallTool:input_type -> codefly.services.toolbox.v0.CallToolRequest
-	17, // 25: codefly.services.toolbox.v0.Toolbox.ListResources:input_type -> codefly.services.toolbox.v0.ListResourcesRequest
-	19, // 26: codefly.services.toolbox.v0.Toolbox.ReadResource:input_type -> codefly.services.toolbox.v0.ReadResourceRequest
-	23, // 27: codefly.services.toolbox.v0.Toolbox.ListPrompts:input_type -> codefly.services.toolbox.v0.ListPromptsRequest
-	25, // 28: codefly.services.toolbox.v0.Toolbox.GetPrompt:input_type -> codefly.services.toolbox.v0.GetPromptRequest
-	1,  // 29: codefly.services.toolbox.v0.Toolbox.Identity:output_type -> codefly.services.toolbox.v0.IdentityResponse
-	11, // 30: codefly.services.toolbox.v0.Toolbox.ListTools:output_type -> codefly.services.toolbox.v0.ListToolsResponse
-	7,  // 31: codefly.services.toolbox.v0.Toolbox.ListToolSummaries:output_type -> codefly.services.toolbox.v0.ListToolSummariesResponse
-	9,  // 32: codefly.services.toolbox.v0.Toolbox.DescribeTool:output_type -> codefly.services.toolbox.v0.DescribeToolResponse
-	15, // 33: codefly.services.toolbox.v0.Toolbox.CallTool:output_type -> codefly.services.toolbox.v0.CallToolResponse
-	18, // 34: codefly.services.toolbox.v0.Toolbox.ListResources:output_type -> codefly.services.toolbox.v0.ListResourcesResponse
-	20, // 35: codefly.services.toolbox.v0.Toolbox.ReadResource:output_type -> codefly.services.toolbox.v0.ReadResourceResponse
-	24, // 36: codefly.services.toolbox.v0.Toolbox.ListPrompts:output_type -> codefly.services.toolbox.v0.ListPromptsResponse
-	27, // 37: codefly.services.toolbox.v0.Toolbox.GetPrompt:output_type -> codefly.services.toolbox.v0.GetPromptResponse
-	29, // [29:38] is the sub-list for method output_type
-	20, // [20:29] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	29, // 13: codefly.services.toolbox.v0.CallToolResponse.failure:type_name -> codefly.base.v0.Failure
+	16, // 14: codefly.services.toolbox.v0.ListResourcesResponse.resources:type_name -> codefly.services.toolbox.v0.Resource
+	13, // 15: codefly.services.toolbox.v0.ReadResourceResponse.content:type_name -> codefly.services.toolbox.v0.Content
+	21, // 16: codefly.services.toolbox.v0.Prompt.arguments:type_name -> codefly.services.toolbox.v0.PromptArgument
+	22, // 17: codefly.services.toolbox.v0.ListPromptsResponse.prompts:type_name -> codefly.services.toolbox.v0.Prompt
+	28, // 18: codefly.services.toolbox.v0.GetPromptRequest.arguments:type_name -> google.protobuf.Struct
+	13, // 19: codefly.services.toolbox.v0.PromptMessage.content:type_name -> codefly.services.toolbox.v0.Content
+	26, // 20: codefly.services.toolbox.v0.GetPromptResponse.messages:type_name -> codefly.services.toolbox.v0.PromptMessage
+	0,  // 21: codefly.services.toolbox.v0.Toolbox.Identity:input_type -> codefly.services.toolbox.v0.IdentityRequest
+	10, // 22: codefly.services.toolbox.v0.Toolbox.ListTools:input_type -> codefly.services.toolbox.v0.ListToolsRequest
+	6,  // 23: codefly.services.toolbox.v0.Toolbox.ListToolSummaries:input_type -> codefly.services.toolbox.v0.ListToolSummariesRequest
+	8,  // 24: codefly.services.toolbox.v0.Toolbox.DescribeTool:input_type -> codefly.services.toolbox.v0.DescribeToolRequest
+	12, // 25: codefly.services.toolbox.v0.Toolbox.CallTool:input_type -> codefly.services.toolbox.v0.CallToolRequest
+	17, // 26: codefly.services.toolbox.v0.Toolbox.ListResources:input_type -> codefly.services.toolbox.v0.ListResourcesRequest
+	19, // 27: codefly.services.toolbox.v0.Toolbox.ReadResource:input_type -> codefly.services.toolbox.v0.ReadResourceRequest
+	23, // 28: codefly.services.toolbox.v0.Toolbox.ListPrompts:input_type -> codefly.services.toolbox.v0.ListPromptsRequest
+	25, // 29: codefly.services.toolbox.v0.Toolbox.GetPrompt:input_type -> codefly.services.toolbox.v0.GetPromptRequest
+	1,  // 30: codefly.services.toolbox.v0.Toolbox.Identity:output_type -> codefly.services.toolbox.v0.IdentityResponse
+	11, // 31: codefly.services.toolbox.v0.Toolbox.ListTools:output_type -> codefly.services.toolbox.v0.ListToolsResponse
+	7,  // 32: codefly.services.toolbox.v0.Toolbox.ListToolSummaries:output_type -> codefly.services.toolbox.v0.ListToolSummariesResponse
+	9,  // 33: codefly.services.toolbox.v0.Toolbox.DescribeTool:output_type -> codefly.services.toolbox.v0.DescribeToolResponse
+	15, // 34: codefly.services.toolbox.v0.Toolbox.CallTool:output_type -> codefly.services.toolbox.v0.CallToolResponse
+	18, // 35: codefly.services.toolbox.v0.Toolbox.ListResources:output_type -> codefly.services.toolbox.v0.ListResourcesResponse
+	20, // 36: codefly.services.toolbox.v0.Toolbox.ReadResource:output_type -> codefly.services.toolbox.v0.ReadResourceResponse
+	24, // 37: codefly.services.toolbox.v0.Toolbox.ListPrompts:output_type -> codefly.services.toolbox.v0.ListPromptsResponse
+	27, // 38: codefly.services.toolbox.v0.Toolbox.GetPrompt:output_type -> codefly.services.toolbox.v0.GetPromptResponse
+	30, // [30:39] is the sub-list for method output_type
+	21, // [21:30] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_toolbox_v0_toolbox_proto_init() }

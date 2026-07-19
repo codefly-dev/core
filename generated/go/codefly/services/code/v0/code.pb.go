@@ -11,6 +11,7 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 
+	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
@@ -182,9 +183,7 @@ func (x *WriteFileRequest) GetContent() string {
 type WriteFileResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// success is true when the requested operation completed successfully.
-	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Success       bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -224,13 +223,6 @@ func (x *WriteFileResponse) GetSuccess() bool {
 		return x.Success
 	}
 	return false
-}
-
-func (x *WriteFileResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // ListFilesRequest carries optional filters for listing files.
@@ -408,11 +400,14 @@ func (x *ListFilesResponse) GetFiles() []*FileInfo {
 }
 
 // FixRequest asks the agent to run language-specific fixers on a file.
-// For Go: goimports + gofmt. For Python: ruff/isort + black. For TS: prettier.
 type FixRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// file is a workspace- or service-relative source file path.
-	File          string `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"` // relative path within the service
+	File string `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"` // relative path within the service
+	// mode selects safe fixes, no fixes, or explicitly aggressive fixes.
+	Mode v0.FixMode `protobuf:"varint,2,opt,name=mode,proto3,enum=codefly.base.v0.FixMode" json:"mode,omitempty"`
+	// dry_run returns the fixed content and evidence without writing the file.
+	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -454,6 +449,20 @@ func (x *FixRequest) GetFile() string {
 	return ""
 }
 
+func (x *FixRequest) GetMode() v0.FixMode {
+	if x != nil {
+		return x.Mode
+	}
+	return v0.FixMode(0)
+}
+
+func (x *FixRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 // FixResponse returns the formatted content and the fixer actions that ran.
 type FixResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -461,10 +470,18 @@ type FixResponse struct {
 	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	// content is the fixed file content; it may be empty when no rewrite was needed.
 	Content string `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"` // the fixed file content (empty if unchanged)
-	// error explains why the operation failed; empty means success at this layer.
-	Error string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"` // non-fatal: fixer not available, etc.
 	// actions are native formatter, fixer, or lifecycle actions performed by the agent.
-	Actions       []string `protobuf:"bytes,4,rep,name=actions,proto3" json:"actions,omitempty"` // what was done: "goimports", "gofmt", etc.
+	Actions []string `protobuf:"bytes,4,rep,name=actions,proto3" json:"actions,omitempty"` // what was done: "goimports", "gofmt", etc.
+	// changed reports whether the fixed content differs from the original file.
+	Changed bool `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
+	// before_sha256 is the lowercase SHA-256 digest of the original content.
+	BeforeSha256 string `protobuf:"bytes,6,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
+	// after_sha256 is the lowercase SHA-256 digest of the returned content.
+	AfterSha256 string `protobuf:"bytes,7,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
+	// wrote reports whether the agent committed the returned content to its VFS.
+	Wrote bool `protobuf:"varint,8,opt,name=wrote,proto3" json:"wrote,omitempty"`
+	// output preserves bounded formatter/fixer output useful for follow-up linting.
+	Output        string `protobuf:"bytes,9,opt,name=output,proto3" json:"output,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -513,18 +530,46 @@ func (x *FixResponse) GetContent() string {
 	return ""
 }
 
-func (x *FixResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
-}
-
 func (x *FixResponse) GetActions() []string {
 	if x != nil {
 		return x.Actions
 	}
 	return nil
+}
+
+func (x *FixResponse) GetChanged() bool {
+	if x != nil {
+		return x.Changed
+	}
+	return false
+}
+
+func (x *FixResponse) GetBeforeSha256() string {
+	if x != nil {
+		return x.BeforeSha256
+	}
+	return ""
+}
+
+func (x *FixResponse) GetAfterSha256() string {
+	if x != nil {
+		return x.AfterSha256
+	}
+	return ""
+}
+
+func (x *FixResponse) GetWrote() bool {
+	if x != nil {
+		return x.Wrote
+	}
+	return false
+}
+
+func (x *FixResponse) GetOutput() string {
+	if x != nil {
+		return x.Output
+	}
+	return ""
 }
 
 // ApplyEdit performs a smart FIND/REPLACE on a file at the plugin level.
@@ -539,8 +584,10 @@ type ApplyEditRequest struct {
 	Find string `protobuf:"bytes,2,opt,name=find,proto3" json:"find,omitempty"` // text to find (may not be an exact match)
 	// replace is the replacement text used by an edit operation.
 	Replace string `protobuf:"bytes,3,opt,name=replace,proto3" json:"replace,omitempty"` // replacement text
-	// auto_fix asks the agent to run language fixers after editing.
-	AutoFix       bool `protobuf:"varint,4,opt,name=auto_fix,json=autoFix,proto3" json:"auto_fix,omitempty"` // if true, run language-specific fixers after edit
+	// fix_mode controls language-aware rewriting after the edit. SAFE is the default.
+	FixMode v0.FixMode `protobuf:"varint,4,opt,name=fix_mode,json=fixMode,proto3,enum=codefly.base.v0.FixMode" json:"fix_mode,omitempty"`
+	// dry_run returns the edited and fixed content without writing the file.
+	DryRun        bool `protobuf:"varint,6,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -596,9 +643,16 @@ func (x *ApplyEditRequest) GetReplace() string {
 	return ""
 }
 
-func (x *ApplyEditRequest) GetAutoFix() bool {
+func (x *ApplyEditRequest) GetFixMode() v0.FixMode {
 	if x != nil {
-		return x.AutoFix
+		return x.FixMode
+	}
+	return v0.FixMode(0)
+}
+
+func (x *ApplyEditRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
 	}
 	return false
 }
@@ -610,12 +664,20 @@ type ApplyEditResponse struct {
 	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	// content is the file content after the edit and optional fixers.
 	Content string `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"` // the file content after edit + fix
-	// error explains why the operation failed; empty means success at this layer.
-	Error string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"` // why the edit failed (e.g. "FIND block not matched")
 	// strategy names the edit or execution strategy that produced the result.
 	Strategy string `protobuf:"bytes,4,opt,name=strategy,proto3" json:"strategy,omitempty"` // which matching strategy was used: "exact", "trailing", "trimmed", "indent_shifted", "anchor", "fuzzy_score", "fuzzy_block"
 	// fix_actions names formatters or import fixers that ran after the edit.
-	FixActions    []string `protobuf:"bytes,5,rep,name=fix_actions,json=fixActions,proto3" json:"fix_actions,omitempty"` // what fixers ran: "goimports", "gofmt", etc.
+	FixActions []string `protobuf:"bytes,5,rep,name=fix_actions,json=fixActions,proto3" json:"fix_actions,omitempty"` // what fixers ran: "goimports", "gofmt", etc.
+	// changed reports whether the returned content differs from the original file.
+	Changed bool `protobuf:"varint,6,opt,name=changed,proto3" json:"changed,omitempty"`
+	// before_sha256 is the lowercase SHA-256 digest of the original content.
+	BeforeSha256 string `protobuf:"bytes,7,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
+	// after_sha256 is the lowercase SHA-256 digest of the returned content.
+	AfterSha256 string `protobuf:"bytes,8,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
+	// wrote reports whether the agent committed the returned content to its VFS.
+	Wrote bool `protobuf:"varint,9,opt,name=wrote,proto3" json:"wrote,omitempty"`
+	// output preserves bounded formatter/fixer output useful for follow-up linting.
+	Output        string `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -664,13 +726,6 @@ func (x *ApplyEditResponse) GetContent() string {
 	return ""
 }
 
-func (x *ApplyEditResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
-}
-
 func (x *ApplyEditResponse) GetStrategy() string {
 	if x != nil {
 		return x.Strategy
@@ -683,6 +738,41 @@ func (x *ApplyEditResponse) GetFixActions() []string {
 		return x.FixActions
 	}
 	return nil
+}
+
+func (x *ApplyEditResponse) GetChanged() bool {
+	if x != nil {
+		return x.Changed
+	}
+	return false
+}
+
+func (x *ApplyEditResponse) GetBeforeSha256() string {
+	if x != nil {
+		return x.BeforeSha256
+	}
+	return ""
+}
+
+func (x *ApplyEditResponse) GetAfterSha256() string {
+	if x != nil {
+		return x.AfterSha256
+	}
+	return ""
+}
+
+func (x *ApplyEditResponse) GetWrote() bool {
+	if x != nil {
+		return x.Wrote
+	}
+	return false
+}
+
+func (x *ApplyEditResponse) GetOutput() string {
+	if x != nil {
+		return x.Output
+	}
+	return ""
 }
 
 // SearchRequest searches service files using either regex or literal matching.
@@ -990,9 +1080,7 @@ func (x *DeleteFileRequest) GetPath() string {
 type DeleteFileResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// success is true when the requested operation completed successfully.
-	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Success       bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1032,13 +1120,6 @@ func (x *DeleteFileResponse) GetSuccess() bool {
 		return x.Success
 	}
 	return false
-}
-
-func (x *DeleteFileResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // MoveFile renames or moves a file within the service, optionally updating imports.
@@ -1110,8 +1191,6 @@ type MoveFileResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// success is true when the requested operation completed successfully.
 	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// error explains why the operation failed; empty means success at this layer.
-	Error string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
 	// updated_files lists files whose imports or references were rewritten.
 	UpdatedFiles  []string `protobuf:"bytes,3,rep,name=updated_files,json=updatedFiles,proto3" json:"updated_files,omitempty"` // files whose imports were rewritten
 	unknownFields protoimpl.UnknownFields
@@ -1153,13 +1232,6 @@ func (x *MoveFileResponse) GetSuccess() bool {
 		return x.Success
 	}
 	return false
-}
-
-func (x *MoveFileResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 func (x *MoveFileResponse) GetUpdatedFiles() []string {
@@ -1237,9 +1309,7 @@ func (x *CreateFileRequest) GetOverwrite() bool {
 type CreateFileResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// success is true when the requested operation completed successfully.
-	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Success       bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1279,13 +1349,6 @@ func (x *CreateFileResponse) GetSuccess() bool {
 		return x.Success
 	}
 	return false
-}
-
-func (x *CreateFileResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // Dependency represents a package/module dependency.
@@ -1393,9 +1456,7 @@ func (*ListDependenciesRequest) Descriptor() ([]byte, []int) {
 type ListDependenciesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// dependencies are packages or services required by this resource.
-	Dependencies []*Dependency `protobuf:"bytes,1,rep,name=dependencies,proto3" json:"dependencies,omitempty"`
-	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Dependencies  []*Dependency `protobuf:"bytes,1,rep,name=dependencies,proto3" json:"dependencies,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1435,13 +1496,6 @@ func (x *ListDependenciesResponse) GetDependencies() []*Dependency {
 		return x.Dependencies
 	}
 	return nil
-}
-
-func (x *ListDependenciesResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // AddDependency adds a package/module via the language package manager.
@@ -1504,8 +1558,6 @@ type AddDependencyResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// success is true when the requested operation completed successfully.
 	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// error explains why the operation failed; empty means success at this layer.
-	Error string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
 	// installed_version is the version resolved by the package manager.
 	InstalledVersion string `protobuf:"bytes,3,opt,name=installed_version,json=installedVersion,proto3" json:"installed_version,omitempty"`
 	unknownFields    protoimpl.UnknownFields
@@ -1547,13 +1599,6 @@ func (x *AddDependencyResponse) GetSuccess() bool {
 		return x.Success
 	}
 	return false
-}
-
-func (x *AddDependencyResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 func (x *AddDependencyResponse) GetInstalledVersion() string {
@@ -1613,9 +1658,7 @@ func (x *RemoveDependencyRequest) GetPackageName() string {
 type RemoveDependencyResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// success is true when the requested operation completed successfully.
-	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Success       bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1655,13 +1698,6 @@ func (x *RemoveDependencyResponse) GetSuccess() bool {
 		return x.Success
 	}
 	return false
-}
-
-func (x *RemoveDependencyResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // PackageInfo describes a single package/module within the project.
@@ -1797,9 +1833,7 @@ type GetProjectInfoResponse struct {
 	// dependencies are packages discovered from manifests or lock files.
 	Dependencies []*Dependency `protobuf:"bytes,5,rep,name=dependencies,proto3" json:"dependencies,omitempty"` // reuse existing Dependency message
 	// file_hashes maps source paths to content hashes for change detection.
-	FileHashes map[string]string `protobuf:"bytes,6,rep,name=file_hashes,json=fileHashes,proto3" json:"file_hashes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // path -> SHA-256 for change detection
-	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
+	FileHashes    map[string]string `protobuf:"bytes,6,rep,name=file_hashes,json=fileHashes,proto3" json:"file_hashes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // path -> SHA-256 for change detection
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1874,13 +1908,6 @@ func (x *GetProjectInfoResponse) GetFileHashes() map[string]string {
 		return x.FileHashes
 	}
 	return nil
-}
-
-func (x *GetProjectInfoResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // GitLogRequest returns recent commit history.
@@ -2051,9 +2078,7 @@ func (x *GitCommit) GetFilesChanged() int32 {
 type GitLogResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// commits are git history entries ordered newest first.
-	Commits []*GitCommit `protobuf:"bytes,1,rep,name=commits,proto3" json:"commits,omitempty"`
-	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Commits       []*GitCommit `protobuf:"bytes,1,rep,name=commits,proto3" json:"commits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2093,13 +2118,6 @@ func (x *GitLogResponse) GetCommits() []*GitCommit {
 		return x.Commits
 	}
 	return nil
-}
-
-func (x *GitLogResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // GitDiffRequest returns a unified diff between two refs or the working tree.
@@ -2263,9 +2281,7 @@ type GitDiffResponse struct {
 	// diff is the unified diff for the file or git change.
 	Diff string `protobuf:"bytes,1,opt,name=diff,proto3" json:"diff,omitempty"` // unified diff text (empty if stat_only)
 	// files are workspace- or service-relative file paths affected by this operation.
-	Files []*GitDiffFile `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
-	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	Files         []*GitDiffFile `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2312,13 +2328,6 @@ func (x *GitDiffResponse) GetFiles() []*GitDiffFile {
 		return x.Files
 	}
 	return nil
-}
-
-func (x *GitDiffResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // GitShowRequest returns file content at a specific git ref.
@@ -2382,9 +2391,7 @@ type GitShowResponse struct {
 	// content is the file body at ref; it is empty when exists is false.
 	Content string `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`
 	// exists reports whether the path existed at the requested ref.
-	Exists bool `protobuf:"varint,2,opt,name=exists,proto3" json:"exists,omitempty"` // false if the file didn't exist at that ref
-	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	Exists        bool `protobuf:"varint,2,opt,name=exists,proto3" json:"exists,omitempty"` // false if the file didn't exist at that ref
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2431,13 +2438,6 @@ func (x *GitShowResponse) GetExists() bool {
 		return x.Exists
 	}
 	return false
-}
-
-func (x *GitShowResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // GitBlameRequest returns per-line blame information for a file.
@@ -2590,9 +2590,7 @@ func (x *GitBlameLine) GetContent() string {
 type GitBlameResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// lines are blame records in source order.
-	Lines []*GitBlameLine `protobuf:"bytes,1,rep,name=lines,proto3" json:"lines,omitempty"`
-	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Lines         []*GitBlameLine `protobuf:"bytes,1,rep,name=lines,proto3" json:"lines,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2632,13 +2630,6 @@ func (x *GitBlameResponse) GetLines() []*GitBlameLine {
 		return x.Lines
 	}
 	return nil
-}
-
-func (x *GitBlameResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 // ShellExecRequest asks the code agent to run a command inside its service sandbox.
@@ -2754,10 +2745,7 @@ type ShellExecResponse struct {
 	// stderr is the process standard error stream.
 	Stderr string `protobuf:"bytes,3,opt,name=stderr,proto3" json:"stderr,omitempty"`
 	// True if the command was terminated because it exceeded timeout_seconds.
-	TimedOut bool `protobuf:"varint,4,opt,name=timed_out,json=timedOut,proto3" json:"timed_out,omitempty"`
-	// If the agent could not even launch the process, error carries the
-	// reason. exit_code is then left at -1 and stdout/stderr are empty.
-	Error         string `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	TimedOut      bool `protobuf:"varint,4,opt,name=timed_out,json=timedOut,proto3" json:"timed_out,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2820,19 +2808,11 @@ func (x *ShellExecResponse) GetTimedOut() bool {
 	return false
 }
 
-func (x *ShellExecResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
-}
-
 // CodeRequest wraps all code operations into a single dispatch envelope.
 // Plugins implement one Execute RPC; core provides default handlers for
 // file I/O, git, fix, apply-edit, dependency mgmt, project info. Mind
 // never handles any of these directly — it ALWAYS forwards to the
-// appropriate codefly plugin via Execute (or via one of the remaining
-// direct RPCs: ApplyEdit / ShellExec).
+// appropriate codefly plugin via Execute.
 type CodeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// operation selects exactly one supported operation variant.
@@ -3198,6 +3178,8 @@ func (*CodeRequest_ShellExec) isCodeRequest_Operation() {}
 // CodeResponse wraps all code operation results.
 type CodeResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// failure is the structured cause when no result or a partial result failed.
+	Failure *v0.Failure `protobuf:"bytes,1,opt,name=failure,proto3" json:"failure,omitempty"`
 	// result selects exactly one supported result variant.
 	//
 	// Types that are valid to be assigned to Result:
@@ -3253,6 +3235,13 @@ func (x *CodeResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CodeResponse.ProtoReflect.Descriptor instead.
 func (*CodeResponse) Descriptor() ([]byte, []int) {
 	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *CodeResponse) GetFailure() *v0.Failure {
+	if x != nil {
+		return x.Failure
+	}
+	return nil
 }
 
 func (x *CodeResponse) GetResult() isCodeResponse_Result {
@@ -3558,7 +3547,7 @@ var File_codefly_services_code_v0_code_proto protoreflect.FileDescriptor
 
 const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\n" +
-	"#codefly/services/code/v0/code.proto\x12\x18codefly.services.code.v0\"%\n" +
+	"#codefly/services/code/v0/code.proto\x12\x18codefly.services.code.v0\x1a\x1dcodefly/base/v0/failure.proto\x1a\x1ccodefly/base/v0/source.proto\"%\n" +
 	"\x0fReadFileRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\"D\n" +
 	"\x10ReadFileResponse\x12\x18\n" +
@@ -3566,10 +3555,9 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\x06exists\x18\x02 \x01(\bR\x06exists\"@\n" +
 	"\x10WriteFileRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\"C\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\":\n" +
 	"\x11WriteFileResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"d\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccessJ\x04\b\x02\x10\x03R\x05error\"d\n" +
 	"\x10ListFilesRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1e\n" +
 	"\n" +
@@ -3582,27 +3570,39 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"size_bytes\x18\x02 \x01(\x03R\tsizeBytes\x12!\n" +
 	"\fis_directory\x18\x03 \x01(\bR\visDirectory\"M\n" +
 	"\x11ListFilesResponse\x128\n" +
-	"\x05files\x18\x01 \x03(\v2\".codefly.services.code.v0.FileInfoR\x05files\" \n" +
+	"\x05files\x18\x01 \x03(\v2\".codefly.services.code.v0.FileInfoR\x05files\"g\n" +
 	"\n" +
 	"FixRequest\x12\x12\n" +
-	"\x04file\x18\x01 \x01(\tR\x04file\"q\n" +
+	"\x04file\x18\x01 \x01(\tR\x04file\x12,\n" +
+	"\x04mode\x18\x02 \x01(\x0e2\x18.codefly.base.v0.FixModeR\x04mode\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\xf8\x01\n" +
 	"\vFixResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\x12\x18\n" +
-	"\aactions\x18\x04 \x03(\tR\aactions\"o\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\x12\x18\n" +
+	"\aactions\x18\x04 \x03(\tR\aactions\x12\x18\n" +
+	"\achanged\x18\x05 \x01(\bR\achanged\x12#\n" +
+	"\rbefore_sha256\x18\x06 \x01(\tR\fbeforeSha256\x12!\n" +
+	"\fafter_sha256\x18\a \x01(\tR\vafterSha256\x12\x14\n" +
+	"\x05wrote\x18\b \x01(\bR\x05wrote\x12\x16\n" +
+	"\x06output\x18\t \x01(\tR\x06outputJ\x04\b\x03\x10\x04R\x05error\"\xa2\x01\n" +
 	"\x10ApplyEditRequest\x12\x12\n" +
 	"\x04file\x18\x01 \x01(\tR\x04file\x12\x12\n" +
 	"\x04find\x18\x02 \x01(\tR\x04find\x12\x18\n" +
-	"\areplace\x18\x03 \x01(\tR\areplace\x12\x19\n" +
-	"\bauto_fix\x18\x04 \x01(\bR\aautoFix\"\x9a\x01\n" +
+	"\areplace\x18\x03 \x01(\tR\areplace\x123\n" +
+	"\bfix_mode\x18\x04 \x01(\x0e2\x18.codefly.base.v0.FixModeR\afixMode\x12\x17\n" +
+	"\adry_run\x18\x06 \x01(\bR\x06dryRun\"\xa1\x02\n" +
 	"\x11ApplyEditResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\x12\x1a\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1a\n" +
 	"\bstrategy\x18\x04 \x01(\tR\bstrategy\x12\x1f\n" +
 	"\vfix_actions\x18\x05 \x03(\tR\n" +
-	"fixActions\"\x82\x02\n" +
+	"fixActions\x12\x18\n" +
+	"\achanged\x18\x06 \x01(\bR\achanged\x12#\n" +
+	"\rbefore_sha256\x18\a \x01(\tR\fbeforeSha256\x12!\n" +
+	"\fafter_sha256\x18\b \x01(\tR\vafterSha256\x12\x14\n" +
+	"\x05wrote\x18\t \x01(\bR\x05wrote\x12\x16\n" +
+	"\x06output\x18\n" +
+	" \x01(\tR\x06outputJ\x04\b\x03\x10\x04R\x05error\"\x82\x02\n" +
 	"\rSearchRequest\x12\x18\n" +
 	"\apattern\x18\x01 \x01(\tR\apattern\x12\x18\n" +
 	"\aliteral\x18\x02 \x01(\bR\aliteral\x12)\n" +
@@ -3626,53 +3626,47 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\ttruncated\x18\x02 \x01(\bR\ttruncated\x12#\n" +
 	"\rtotal_matches\x18\x03 \x01(\x05R\ftotalMatches\"'\n" +
 	"\x11DeleteFileRequest\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\"D\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\";\n" +
 	"\x12DeleteFileResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"n\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccessJ\x04\b\x02\x10\x03R\x05error\"n\n" +
 	"\x0fMoveFileRequest\x12\x19\n" +
 	"\bold_path\x18\x01 \x01(\tR\aoldPath\x12\x19\n" +
 	"\bnew_path\x18\x02 \x01(\tR\anewPath\x12%\n" +
-	"\x0eupdate_imports\x18\x03 \x01(\bR\rupdateImports\"g\n" +
+	"\x0eupdate_imports\x18\x03 \x01(\bR\rupdateImports\"^\n" +
 	"\x10MoveFileResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\x12#\n" +
-	"\rupdated_files\x18\x03 \x03(\tR\fupdatedFiles\"_\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
+	"\rupdated_files\x18\x03 \x03(\tR\fupdatedFilesJ\x04\b\x02\x10\x03R\x05error\"_\n" +
 	"\x11CreateFileRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1c\n" +
-	"\toverwrite\x18\x03 \x01(\bR\toverwrite\"D\n" +
+	"\toverwrite\x18\x03 \x01(\bR\toverwrite\";\n" +
 	"\x12CreateFileResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"R\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccessJ\x04\b\x02\x10\x03R\x05error\"R\n" +
 	"\n" +
 	"Dependency\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x16\n" +
 	"\x06direct\x18\x03 \x01(\bR\x06direct\"\x19\n" +
-	"\x17ListDependenciesRequest\"z\n" +
+	"\x17ListDependenciesRequest\"q\n" +
 	"\x18ListDependenciesResponse\x12H\n" +
-	"\fdependencies\x18\x01 \x03(\v2$.codefly.services.code.v0.DependencyR\fdependencies\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"S\n" +
+	"\fdependencies\x18\x01 \x03(\v2$.codefly.services.code.v0.DependencyR\fdependenciesJ\x04\b\x02\x10\x03R\x05error\"S\n" +
 	"\x14AddDependencyRequest\x12!\n" +
 	"\fpackage_name\x18\x01 \x01(\tR\vpackageName\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion\"t\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"k\n" +
 	"\x15AddDependencyResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\x12+\n" +
-	"\x11installed_version\x18\x03 \x01(\tR\x10installedVersion\"<\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12+\n" +
+	"\x11installed_version\x18\x03 \x01(\tR\x10installedVersionJ\x04\b\x02\x10\x03R\x05error\"<\n" +
 	"\x17RemoveDependencyRequest\x12!\n" +
-	"\fpackage_name\x18\x01 \x01(\tR\vpackageName\"J\n" +
+	"\fpackage_name\x18\x01 \x01(\tR\vpackageName\"A\n" +
 	"\x18RemoveDependencyResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x88\x01\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccessJ\x04\b\x02\x10\x03R\x05error\"\x88\x01\n" +
 	"\vPackageInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
 	"\rrelative_path\x18\x02 \x01(\tR\frelativePath\x12\x14\n" +
 	"\x05files\x18\x03 \x03(\tR\x05files\x12\x18\n" +
 	"\aimports\x18\x04 \x03(\tR\aimports\x12\x10\n" +
 	"\x03doc\x18\x05 \x01(\tR\x03doc\"\x17\n" +
-	"\x15GetProjectInfoRequest\"\xbc\x03\n" +
+	"\x15GetProjectInfoRequest\"\xb3\x03\n" +
 	"\x16GetProjectInfoResponse\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\tR\x06module\x12\x1a\n" +
 	"\blanguage\x18\x02 \x01(\tR\blanguage\x12)\n" +
@@ -3680,11 +3674,10 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\bpackages\x18\x04 \x03(\v2%.codefly.services.code.v0.PackageInfoR\bpackages\x12H\n" +
 	"\fdependencies\x18\x05 \x03(\v2$.codefly.services.code.v0.DependencyR\fdependencies\x12a\n" +
 	"\vfile_hashes\x18\x06 \x03(\v2@.codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntryR\n" +
-	"fileHashes\x12\x14\n" +
-	"\x05error\x18\a \x01(\tR\x05error\x1a=\n" +
+	"fileHashes\x1a=\n" +
 	"\x0fFileHashesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"h\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\a\x10\bR\x05error\"h\n" +
 	"\rGitLogRequest\x12\x1b\n" +
 	"\tmax_count\x18\x01 \x01(\x05R\bmaxCount\x12\x14\n" +
 	"\x05since\x18\x02 \x01(\tR\x05since\x12\x12\n" +
@@ -3697,10 +3690,9 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\x06author\x18\x03 \x01(\tR\x06author\x12\x12\n" +
 	"\x04date\x18\x04 \x01(\tR\x04date\x12\x18\n" +
 	"\amessage\x18\x05 \x01(\tR\amessage\x12#\n" +
-	"\rfiles_changed\x18\x06 \x01(\x05R\ffilesChanged\"e\n" +
+	"\rfiles_changed\x18\x06 \x01(\x05R\ffilesChanged\"\\\n" +
 	"\x0eGitLogResponse\x12=\n" +
-	"\acommits\x18\x01 \x03(\v2#.codefly.services.code.v0.GitCommitR\acommits\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x9c\x01\n" +
+	"\acommits\x18\x01 \x03(\v2#.codefly.services.code.v0.GitCommitR\acommitsJ\x04\b\x02\x10\x03R\x05error\"\x9c\x01\n" +
 	"\x0eGitDiffRequest\x12\x19\n" +
 	"\bbase_ref\x18\x01 \x01(\tR\abaseRef\x12\x19\n" +
 	"\bhead_ref\x18\x02 \x01(\tR\aheadRef\x12\x12\n" +
@@ -3711,18 +3703,16 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1c\n" +
 	"\tadditions\x18\x02 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x03 \x01(\x05R\tdeletions\x12\x16\n" +
-	"\x06status\x18\x04 \x01(\tR\x06status\"x\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\"o\n" +
 	"\x0fGitDiffResponse\x12\x12\n" +
 	"\x04diff\x18\x01 \x01(\tR\x04diff\x12;\n" +
-	"\x05files\x18\x02 \x03(\v2%.codefly.services.code.v0.GitDiffFileR\x05files\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"6\n" +
+	"\x05files\x18\x02 \x03(\v2%.codefly.services.code.v0.GitDiffFileR\x05filesJ\x04\b\x03\x10\x04R\x05error\"6\n" +
 	"\x0eGitShowRequest\x12\x10\n" +
 	"\x03ref\x18\x01 \x01(\tR\x03ref\x12\x12\n" +
-	"\x04path\x18\x02 \x01(\tR\x04path\"Y\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\"P\n" +
 	"\x0fGitShowResponse\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\tR\acontent\x12\x16\n" +
-	"\x06exists\x18\x02 \x01(\bR\x06exists\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"_\n" +
+	"\x06exists\x18\x02 \x01(\bR\x06existsJ\x04\b\x03\x10\x04R\x05error\"_\n" +
 	"\x0fGitBlameRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1d\n" +
 	"\n" +
@@ -3733,23 +3723,21 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\x06author\x18\x02 \x01(\tR\x06author\x12\x12\n" +
 	"\x04date\x18\x03 \x01(\tR\x04date\x12\x12\n" +
 	"\x04line\x18\x04 \x01(\x05R\x04line\x12\x18\n" +
-	"\acontent\x18\x05 \x01(\tR\acontent\"f\n" +
+	"\acontent\x18\x05 \x01(\tR\acontent\"]\n" +
 	"\x10GitBlameResponse\x12<\n" +
-	"\x05lines\x18\x01 \x03(\v2&.codefly.services.code.v0.GitBlameLineR\x05lines\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xac\x01\n" +
+	"\x05lines\x18\x01 \x03(\v2&.codefly.services.code.v0.GitBlameLineR\x05linesJ\x04\b\x02\x10\x03R\x05error\"\xac\x01\n" +
 	"\x10ShellExecRequest\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args\x12\x19\n" +
 	"\bwork_dir\x18\x03 \x01(\tR\aworkDir\x12\x10\n" +
 	"\x03env\x18\x04 \x03(\tR\x03env\x12'\n" +
 	"\x0ftimeout_seconds\x18\x05 \x01(\x05R\x0etimeoutSeconds\x12\x14\n" +
-	"\x05stdin\x18\x06 \x01(\fR\x05stdin\"\x93\x01\n" +
+	"\x05stdin\x18\x06 \x01(\fR\x05stdin\"\x99\x01\n" +
 	"\x11ShellExecResponse\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x16\n" +
 	"\x06stdout\x18\x02 \x01(\tR\x06stdout\x12\x16\n" +
 	"\x06stderr\x18\x03 \x01(\tR\x06stderr\x12\x1b\n" +
-	"\ttimed_out\x18\x04 \x01(\bR\btimedOut\x12\x14\n" +
-	"\x05error\x18\x05 \x01(\tR\x05error\"\x95\v\n" +
+	"\ttimed_out\x18\x04 \x01(\bR\btimedOutJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x05errorR\afailure\"\x95\v\n" +
 	"\vCodeRequest\x128\n" +
 	"\x03fix\x18\r \x01(\v2$.codefly.services.code.v0.FixRequestH\x00R\x03fix\x12K\n" +
 	"\n" +
@@ -3775,8 +3763,9 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\bgit_diff\x18$ \x01(\v2(.codefly.services.code.v0.GitDiffRequestH\x00R\agitDiff\x12K\n" +
 	"\n" +
 	"shell_exec\x18% \x01(\v2*.codefly.services.code.v0.ShellExecRequestH\x00R\tshellExecB\v\n" +
-	"\toperation\"\xa5\v\n" +
-	"\fCodeResponse\x129\n" +
+	"\toperation\"\xd9\v\n" +
+	"\fCodeResponse\x122\n" +
+	"\afailure\x18\x01 \x01(\v2\x18.codefly.base.v0.FailureR\afailure\x129\n" +
 	"\x03fix\x18\r \x01(\v2%.codefly.services.code.v0.FixResponseH\x00R\x03fix\x12L\n" +
 	"\n" +
 	"apply_edit\x18\x0e \x01(\v2+.codefly.services.code.v0.ApplyEditResponseH\x00R\tapplyEdit\x12a\n" +
@@ -3801,11 +3790,9 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\bgit_diff\x18$ \x01(\v2).codefly.services.code.v0.GitDiffResponseH\x00R\agitDiff\x12L\n" +
 	"\n" +
 	"shell_exec\x18% \x01(\v2+.codefly.services.code.v0.ShellExecResponseH\x00R\tshellExecB\b\n" +
-	"\x06result2\xb2\x02\n" +
+	"\x06result2b\n" +
 	"\x04Code\x12Z\n" +
-	"\aExecute\x12%.codefly.services.code.v0.CodeRequest\x1a&.codefly.services.code.v0.CodeResponse\"\x00\x12f\n" +
-	"\tApplyEdit\x12*.codefly.services.code.v0.ApplyEditRequest\x1a+.codefly.services.code.v0.ApplyEditResponse\"\x00\x12f\n" +
-	"\tShellExec\x12*.codefly.services.code.v0.ShellExecRequest\x1a+.codefly.services.code.v0.ShellExecResponse\"\x00B\xf0\x01\n" +
+	"\aExecute\x12%.codefly.services.code.v0.CodeRequest\x1a&.codefly.services.code.v0.CodeResponse\"\x00B\xf0\x01\n" +
 	"\x1ccom.codefly.services.code.v0B\tCodeProtoP\x01ZAgithub.com/codefly-dev/core/generated/go/codefly/services/code/v0\xa2\x02\x04CSCV\xaa\x02\x18Codefly.Services.Code.V0\xca\x02\x18Codefly\\Services\\Code\\V0\xe2\x02$Codefly\\Services\\Code\\V0\\GPBMetadata\xea\x02\x1bCodefly::Services::Code::V0b\x06proto3"
 
 var (
@@ -3868,64 +3855,65 @@ var file_codefly_services_code_v0_code_proto_goTypes = []any{
 	(*CodeRequest)(nil),              // 43: codefly.services.code.v0.CodeRequest
 	(*CodeResponse)(nil),             // 44: codefly.services.code.v0.CodeResponse
 	nil,                              // 45: codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
+	(v0.FixMode)(0),                  // 46: codefly.base.v0.FixMode
+	(*v0.Failure)(nil),               // 47: codefly.base.v0.Failure
 }
 var file_codefly_services_code_v0_code_proto_depIdxs = []int32{
 	5,  // 0: codefly.services.code.v0.ListFilesResponse.files:type_name -> codefly.services.code.v0.FileInfo
-	12, // 1: codefly.services.code.v0.SearchResponse.matches:type_name -> codefly.services.code.v0.SearchMatch
-	20, // 2: codefly.services.code.v0.ListDependenciesResponse.dependencies:type_name -> codefly.services.code.v0.Dependency
-	27, // 3: codefly.services.code.v0.GetProjectInfoResponse.packages:type_name -> codefly.services.code.v0.PackageInfo
-	20, // 4: codefly.services.code.v0.GetProjectInfoResponse.dependencies:type_name -> codefly.services.code.v0.Dependency
-	45, // 5: codefly.services.code.v0.GetProjectInfoResponse.file_hashes:type_name -> codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
-	31, // 6: codefly.services.code.v0.GitLogResponse.commits:type_name -> codefly.services.code.v0.GitCommit
-	34, // 7: codefly.services.code.v0.GitDiffResponse.files:type_name -> codefly.services.code.v0.GitDiffFile
-	39, // 8: codefly.services.code.v0.GitBlameResponse.lines:type_name -> codefly.services.code.v0.GitBlameLine
-	7,  // 9: codefly.services.code.v0.CodeRequest.fix:type_name -> codefly.services.code.v0.FixRequest
-	9,  // 10: codefly.services.code.v0.CodeRequest.apply_edit:type_name -> codefly.services.code.v0.ApplyEditRequest
-	21, // 11: codefly.services.code.v0.CodeRequest.list_dependencies:type_name -> codefly.services.code.v0.ListDependenciesRequest
-	23, // 12: codefly.services.code.v0.CodeRequest.add_dependency:type_name -> codefly.services.code.v0.AddDependencyRequest
-	25, // 13: codefly.services.code.v0.CodeRequest.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyRequest
-	28, // 14: codefly.services.code.v0.CodeRequest.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoRequest
-	0,  // 15: codefly.services.code.v0.CodeRequest.read_file:type_name -> codefly.services.code.v0.ReadFileRequest
-	2,  // 16: codefly.services.code.v0.CodeRequest.write_file:type_name -> codefly.services.code.v0.WriteFileRequest
-	18, // 17: codefly.services.code.v0.CodeRequest.create_file:type_name -> codefly.services.code.v0.CreateFileRequest
-	14, // 18: codefly.services.code.v0.CodeRequest.delete_file:type_name -> codefly.services.code.v0.DeleteFileRequest
-	16, // 19: codefly.services.code.v0.CodeRequest.move_file:type_name -> codefly.services.code.v0.MoveFileRequest
-	4,  // 20: codefly.services.code.v0.CodeRequest.list_files:type_name -> codefly.services.code.v0.ListFilesRequest
-	11, // 21: codefly.services.code.v0.CodeRequest.search:type_name -> codefly.services.code.v0.SearchRequest
-	30, // 22: codefly.services.code.v0.CodeRequest.git_log:type_name -> codefly.services.code.v0.GitLogRequest
-	36, // 23: codefly.services.code.v0.CodeRequest.git_show:type_name -> codefly.services.code.v0.GitShowRequest
-	38, // 24: codefly.services.code.v0.CodeRequest.git_blame:type_name -> codefly.services.code.v0.GitBlameRequest
-	33, // 25: codefly.services.code.v0.CodeRequest.git_diff:type_name -> codefly.services.code.v0.GitDiffRequest
-	41, // 26: codefly.services.code.v0.CodeRequest.shell_exec:type_name -> codefly.services.code.v0.ShellExecRequest
-	8,  // 27: codefly.services.code.v0.CodeResponse.fix:type_name -> codefly.services.code.v0.FixResponse
-	10, // 28: codefly.services.code.v0.CodeResponse.apply_edit:type_name -> codefly.services.code.v0.ApplyEditResponse
-	22, // 29: codefly.services.code.v0.CodeResponse.list_dependencies:type_name -> codefly.services.code.v0.ListDependenciesResponse
-	24, // 30: codefly.services.code.v0.CodeResponse.add_dependency:type_name -> codefly.services.code.v0.AddDependencyResponse
-	26, // 31: codefly.services.code.v0.CodeResponse.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyResponse
-	29, // 32: codefly.services.code.v0.CodeResponse.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoResponse
-	1,  // 33: codefly.services.code.v0.CodeResponse.read_file:type_name -> codefly.services.code.v0.ReadFileResponse
-	3,  // 34: codefly.services.code.v0.CodeResponse.write_file:type_name -> codefly.services.code.v0.WriteFileResponse
-	19, // 35: codefly.services.code.v0.CodeResponse.create_file:type_name -> codefly.services.code.v0.CreateFileResponse
-	15, // 36: codefly.services.code.v0.CodeResponse.delete_file:type_name -> codefly.services.code.v0.DeleteFileResponse
-	17, // 37: codefly.services.code.v0.CodeResponse.move_file:type_name -> codefly.services.code.v0.MoveFileResponse
-	6,  // 38: codefly.services.code.v0.CodeResponse.list_files:type_name -> codefly.services.code.v0.ListFilesResponse
-	13, // 39: codefly.services.code.v0.CodeResponse.search:type_name -> codefly.services.code.v0.SearchResponse
-	32, // 40: codefly.services.code.v0.CodeResponse.git_log:type_name -> codefly.services.code.v0.GitLogResponse
-	37, // 41: codefly.services.code.v0.CodeResponse.git_show:type_name -> codefly.services.code.v0.GitShowResponse
-	40, // 42: codefly.services.code.v0.CodeResponse.git_blame:type_name -> codefly.services.code.v0.GitBlameResponse
-	35, // 43: codefly.services.code.v0.CodeResponse.git_diff:type_name -> codefly.services.code.v0.GitDiffResponse
-	42, // 44: codefly.services.code.v0.CodeResponse.shell_exec:type_name -> codefly.services.code.v0.ShellExecResponse
-	43, // 45: codefly.services.code.v0.Code.Execute:input_type -> codefly.services.code.v0.CodeRequest
-	9,  // 46: codefly.services.code.v0.Code.ApplyEdit:input_type -> codefly.services.code.v0.ApplyEditRequest
-	41, // 47: codefly.services.code.v0.Code.ShellExec:input_type -> codefly.services.code.v0.ShellExecRequest
-	44, // 48: codefly.services.code.v0.Code.Execute:output_type -> codefly.services.code.v0.CodeResponse
-	10, // 49: codefly.services.code.v0.Code.ApplyEdit:output_type -> codefly.services.code.v0.ApplyEditResponse
-	42, // 50: codefly.services.code.v0.Code.ShellExec:output_type -> codefly.services.code.v0.ShellExecResponse
-	48, // [48:51] is the sub-list for method output_type
-	45, // [45:48] is the sub-list for method input_type
-	45, // [45:45] is the sub-list for extension type_name
-	45, // [45:45] is the sub-list for extension extendee
-	0,  // [0:45] is the sub-list for field type_name
+	46, // 1: codefly.services.code.v0.FixRequest.mode:type_name -> codefly.base.v0.FixMode
+	46, // 2: codefly.services.code.v0.ApplyEditRequest.fix_mode:type_name -> codefly.base.v0.FixMode
+	12, // 3: codefly.services.code.v0.SearchResponse.matches:type_name -> codefly.services.code.v0.SearchMatch
+	20, // 4: codefly.services.code.v0.ListDependenciesResponse.dependencies:type_name -> codefly.services.code.v0.Dependency
+	27, // 5: codefly.services.code.v0.GetProjectInfoResponse.packages:type_name -> codefly.services.code.v0.PackageInfo
+	20, // 6: codefly.services.code.v0.GetProjectInfoResponse.dependencies:type_name -> codefly.services.code.v0.Dependency
+	45, // 7: codefly.services.code.v0.GetProjectInfoResponse.file_hashes:type_name -> codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
+	31, // 8: codefly.services.code.v0.GitLogResponse.commits:type_name -> codefly.services.code.v0.GitCommit
+	34, // 9: codefly.services.code.v0.GitDiffResponse.files:type_name -> codefly.services.code.v0.GitDiffFile
+	39, // 10: codefly.services.code.v0.GitBlameResponse.lines:type_name -> codefly.services.code.v0.GitBlameLine
+	7,  // 11: codefly.services.code.v0.CodeRequest.fix:type_name -> codefly.services.code.v0.FixRequest
+	9,  // 12: codefly.services.code.v0.CodeRequest.apply_edit:type_name -> codefly.services.code.v0.ApplyEditRequest
+	21, // 13: codefly.services.code.v0.CodeRequest.list_dependencies:type_name -> codefly.services.code.v0.ListDependenciesRequest
+	23, // 14: codefly.services.code.v0.CodeRequest.add_dependency:type_name -> codefly.services.code.v0.AddDependencyRequest
+	25, // 15: codefly.services.code.v0.CodeRequest.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyRequest
+	28, // 16: codefly.services.code.v0.CodeRequest.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoRequest
+	0,  // 17: codefly.services.code.v0.CodeRequest.read_file:type_name -> codefly.services.code.v0.ReadFileRequest
+	2,  // 18: codefly.services.code.v0.CodeRequest.write_file:type_name -> codefly.services.code.v0.WriteFileRequest
+	18, // 19: codefly.services.code.v0.CodeRequest.create_file:type_name -> codefly.services.code.v0.CreateFileRequest
+	14, // 20: codefly.services.code.v0.CodeRequest.delete_file:type_name -> codefly.services.code.v0.DeleteFileRequest
+	16, // 21: codefly.services.code.v0.CodeRequest.move_file:type_name -> codefly.services.code.v0.MoveFileRequest
+	4,  // 22: codefly.services.code.v0.CodeRequest.list_files:type_name -> codefly.services.code.v0.ListFilesRequest
+	11, // 23: codefly.services.code.v0.CodeRequest.search:type_name -> codefly.services.code.v0.SearchRequest
+	30, // 24: codefly.services.code.v0.CodeRequest.git_log:type_name -> codefly.services.code.v0.GitLogRequest
+	36, // 25: codefly.services.code.v0.CodeRequest.git_show:type_name -> codefly.services.code.v0.GitShowRequest
+	38, // 26: codefly.services.code.v0.CodeRequest.git_blame:type_name -> codefly.services.code.v0.GitBlameRequest
+	33, // 27: codefly.services.code.v0.CodeRequest.git_diff:type_name -> codefly.services.code.v0.GitDiffRequest
+	41, // 28: codefly.services.code.v0.CodeRequest.shell_exec:type_name -> codefly.services.code.v0.ShellExecRequest
+	47, // 29: codefly.services.code.v0.CodeResponse.failure:type_name -> codefly.base.v0.Failure
+	8,  // 30: codefly.services.code.v0.CodeResponse.fix:type_name -> codefly.services.code.v0.FixResponse
+	10, // 31: codefly.services.code.v0.CodeResponse.apply_edit:type_name -> codefly.services.code.v0.ApplyEditResponse
+	22, // 32: codefly.services.code.v0.CodeResponse.list_dependencies:type_name -> codefly.services.code.v0.ListDependenciesResponse
+	24, // 33: codefly.services.code.v0.CodeResponse.add_dependency:type_name -> codefly.services.code.v0.AddDependencyResponse
+	26, // 34: codefly.services.code.v0.CodeResponse.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyResponse
+	29, // 35: codefly.services.code.v0.CodeResponse.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoResponse
+	1,  // 36: codefly.services.code.v0.CodeResponse.read_file:type_name -> codefly.services.code.v0.ReadFileResponse
+	3,  // 37: codefly.services.code.v0.CodeResponse.write_file:type_name -> codefly.services.code.v0.WriteFileResponse
+	19, // 38: codefly.services.code.v0.CodeResponse.create_file:type_name -> codefly.services.code.v0.CreateFileResponse
+	15, // 39: codefly.services.code.v0.CodeResponse.delete_file:type_name -> codefly.services.code.v0.DeleteFileResponse
+	17, // 40: codefly.services.code.v0.CodeResponse.move_file:type_name -> codefly.services.code.v0.MoveFileResponse
+	6,  // 41: codefly.services.code.v0.CodeResponse.list_files:type_name -> codefly.services.code.v0.ListFilesResponse
+	13, // 42: codefly.services.code.v0.CodeResponse.search:type_name -> codefly.services.code.v0.SearchResponse
+	32, // 43: codefly.services.code.v0.CodeResponse.git_log:type_name -> codefly.services.code.v0.GitLogResponse
+	37, // 44: codefly.services.code.v0.CodeResponse.git_show:type_name -> codefly.services.code.v0.GitShowResponse
+	40, // 45: codefly.services.code.v0.CodeResponse.git_blame:type_name -> codefly.services.code.v0.GitBlameResponse
+	35, // 46: codefly.services.code.v0.CodeResponse.git_diff:type_name -> codefly.services.code.v0.GitDiffResponse
+	42, // 47: codefly.services.code.v0.CodeResponse.shell_exec:type_name -> codefly.services.code.v0.ShellExecResponse
+	43, // 48: codefly.services.code.v0.Code.Execute:input_type -> codefly.services.code.v0.CodeRequest
+	44, // 49: codefly.services.code.v0.Code.Execute:output_type -> codefly.services.code.v0.CodeResponse
+	49, // [49:50] is the sub-list for method output_type
+	48, // [48:49] is the sub-list for method input_type
+	48, // [48:48] is the sub-list for extension type_name
+	48, // [48:48] is the sub-list for extension extendee
+	0,  // [0:48] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_code_v0_code_proto_init() }

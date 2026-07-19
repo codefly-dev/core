@@ -36,24 +36,6 @@ func (s *PythonCodeServer) registerPythonOverrides() {
 	s.Override("list_dependencies", s.handleListDependencies)
 }
 
-// --- Standalone gRPC RPCs ---
-
-func (s *PythonCodeServer) GetProjectInfo(ctx context.Context, req *codev0.GetProjectInfoRequest) (*codev0.GetProjectInfoResponse, error) {
-	resp, err := s.handleGetProjectInfo(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	return resp.GetGetProjectInfo(), nil
-}
-
-func (s *PythonCodeServer) ListDependencies(ctx context.Context, req *codev0.ListDependenciesRequest) (*codev0.ListDependenciesResponse, error) {
-	resp, err := s.handleListDependencies(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	return resp.GetListDependencies(), nil
-}
-
 // --- Handlers ---
 
 func (s *PythonCodeServer) handleGetProjectInfo(_ context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {

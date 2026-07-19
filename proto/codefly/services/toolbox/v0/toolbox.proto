@@ -1,6 +1,7 @@
 syntax = "proto3";
 package codefly.services.toolbox.v0;
 
+import "codefly/base/v0/failure.proto";
 import "google/protobuf/struct.proto";
 
 // Toolbox is the codefly toolbox contract.
@@ -299,6 +300,8 @@ message CallToolResponse {
   // CanonicalRouted is true. Empty when the binary has no claimed
   // owner (use the built-in fallback's hint in error).
   string routed_to = 4;
+  // Failure is the structured plugin-neutral cause when the tool refused or failed.
+  codefly.base.v0.Failure failure = 5;
 }
 
 // --- Resources ---------------------------------------------------

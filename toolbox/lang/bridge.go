@@ -33,7 +33,36 @@ import (
 // directly or goes through the Toolbox via ToolingFromToolbox —
 // the bridge round-trips the typed proto messages intact.
 func NewToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
-	b := &ToolboxFromTooling{inner: t}
+	return newToolboxFromTooling(name, version, t, toolSpecs)
+}
+
+// NewSourceToolboxFromTooling exposes only the source-authoring operations
+// implemented by code.SourceTooling. This keeps ListTools honest for small
+// language plugins that format and edit source but do not own dependency or
+// validation behavior yet.
+func NewSourceToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
+	return newToolboxFromTooling(name, version, t, selectToolSpecs(ToolFix, ToolApplyEdit, ToolGetProjectInfo))
+}
+
+// NewValidationToolboxFromTooling exposes source authoring plus build, test,
+// and lint for language plugins that do not implement dependency mutation.
+func NewValidationToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
+	return newToolboxFromTooling(name, version, t, selectToolSpecs(
+		ToolFix, ToolApplyEdit, ToolGetProjectInfo, ToolBuild, ToolTest, ToolLint,
+	))
+}
+
+// NewEditToolboxFromTooling is the language-neutral subset for a plugin that
+// supports structured editing and metadata but has no language-aware fixer.
+func NewEditToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
+	return newToolboxFromTooling(name, version, t, selectToolSpecs(ToolApplyEdit, ToolGetProjectInfo))
+}
+
+func newToolboxFromTooling(name, version string, t toolingv0.ToolingServer, specs []toolSpec) *ToolboxFromTooling {
+	b := &ToolboxFromTooling{inner: t, specs: specs, allowed: make(map[string]struct{}, len(specs))}
+	for _, spec := range specs {
+		b.allowed[spec.name] = struct{}{}
+	}
 	b.Base = registry.NewBase(registry.Descriptor{
 		Name:           name,
 		Version:        version,
@@ -55,7 +84,9 @@ func NewToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *Too
 // anyway.
 type ToolboxFromTooling struct {
 	*registry.Base
-	inner toolingv0.ToolingServer
+	inner   toolingv0.ToolingServer
+	specs   []toolSpec
+	allowed map[string]struct{}
 }
 
 type toolSpec struct {
@@ -68,14 +99,14 @@ type toolSpec struct {
 var toolSpecs = []toolSpec{
 	{
 		name:        ToolFix,
-		description: "Auto-fix issues in a file using the language's standard fixer.",
-		tags:        []string{"modification"},
+		description: "Format and safely repair one source file. SAFE is the default; AGGRESSIVE must be explicit. Supports evidence-only dry runs.",
+		tags:        []string{"modification", "source", "safe-by-default"},
 		destructive: true,
 	},
 	{
 		name:        ToolApplyEdit,
-		description: "Apply a structured edit (find/replace, optionally with auto-fix) to a file.",
-		tags:        []string{"modification"},
+		description: "Apply a structured edit and, by default, the language's safe source fixer in one staged write. Supports evidence-only dry runs.",
+		tags:        []string{"modification", "source", "safe-by-default"},
 		destructive: true,
 	},
 	{
@@ -128,6 +159,20 @@ func ToolNames() []string {
 	return names
 }
 
+func selectToolSpecs(names ...string) []toolSpec {
+	wanted := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		wanted[name] = struct{}{}
+	}
+	selected := make([]toolSpec, 0, len(names))
+	for _, spec := range toolSpecs {
+		if _, ok := wanted[spec.name]; ok {
+			selected = append(selected, spec)
+		}
+	}
+	return selected
+}
+
 // Tools projects the conventional lang.* surface into the registry's
 // ToolDefinition shape — same source-of-truth pattern the
 // capability toolboxes use. Bridge-specific note: the inner Tooling
@@ -138,8 +183,8 @@ func ToolNames() []string {
 // Handler is left nil — CallTool is overridden below to dispatch
 // per-name into the inner Tooling server's typed RPCs.
 func (b *ToolboxFromTooling) Tools() []*registry.ToolDefinition {
-	defs := make([]*registry.ToolDefinition, 0, len(toolSpecs))
-	for _, spec := range toolSpecs {
+	defs := make([]*registry.ToolDefinition, 0, len(b.specs))
+	for _, spec := range b.specs {
 		idem := "idempotent"
 		if spec.destructive {
 			idem = "side_effecting"
@@ -148,7 +193,7 @@ func (b *ToolboxFromTooling) Tools() []*registry.ToolDefinition {
 			Name:               spec.name,
 			SummaryDescription: spec.description,
 			LongDescription:    spec.description,
-			InputSchema:        anyObjectSchema(),
+			InputSchema:        schemaForTool(spec.name),
 			Destructive:        spec.destructive,
 			Tags:               toolTags(spec),
 			Idempotency:        idem,
@@ -173,6 +218,9 @@ func toolTags(spec toolSpec) []string {
 // converted to the typed proto request via protojson; the response
 // is converted back to a Struct and wrapped in a Content block.
 func (b *ToolboxFromTooling) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+	if _, ok := b.allowed[req.GetName()]; !ok {
+		return &toolboxv0.CallToolResponse{Error: fmt.Sprintf("unknown lang tool %q (call ListTools to enumerate)", req.GetName())}, nil
+	}
 	switch req.Name {
 	case ToolFix:
 		return bridgeCall[toolingv0.FixRequest, toolingv0.FixResponse](ctx, req, b.inner.Fix)
@@ -378,4 +426,36 @@ func anyObjectSchema() *structpb.Struct {
 		"additionalProperties": true,
 	})
 	return s
+}
+
+func schemaForTool(name string) *structpb.Struct {
+	var schema map[string]any
+	switch name {
+	case ToolFix:
+		schema = map[string]any{
+			"type": "object", "additionalProperties": false,
+			"required": []any{"file"},
+			"properties": map[string]any{
+				"file":   map[string]any{"type": "string", "minLength": 1, "description": "Source-root-relative file path."},
+				"mode":   map[string]any{"type": "string", "enum": []any{"FIX_MODE_SAFE", "FIX_MODE_NONE", "FIX_MODE_AGGRESSIVE"}, "default": "FIX_MODE_SAFE"},
+				"dryRun": map[string]any{"type": "boolean", "default": false, "description": "Return content and hashes without writing."},
+			},
+		}
+	case ToolApplyEdit:
+		schema = map[string]any{
+			"type": "object", "additionalProperties": false,
+			"required": []any{"file", "find", "replace"},
+			"properties": map[string]any{
+				"file":    map[string]any{"type": "string", "minLength": 1, "description": "Source-root-relative file path."},
+				"find":    map[string]any{"type": "string"},
+				"replace": map[string]any{"type": "string"},
+				"fixMode": map[string]any{"type": "string", "enum": []any{"FIX_MODE_SAFE", "FIX_MODE_NONE", "FIX_MODE_AGGRESSIVE"}, "default": "FIX_MODE_SAFE"},
+				"dryRun":  map[string]any{"type": "boolean", "default": false, "description": "Return content and hashes without writing."},
+			},
+		}
+	default:
+		return anyObjectSchema()
+	}
+	result, _ := structpb.NewStruct(schema)
+	return result
 }

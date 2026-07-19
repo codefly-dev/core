@@ -11,6 +11,7 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 
+	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
@@ -161,6 +162,8 @@ const (
 	Language_RUBY Language_Type = 4
 	// RUST is the Rust language.
 	Language_RUST Language_Type = 5
+	// SWIFT is the Swift language.
+	Language_SWIFT Language_Type = 6
 )
 
 // Enum value maps for Language_Type.
@@ -172,6 +175,7 @@ var (
 		3: "TYPESCRIPT",
 		4: "RUBY",
 		5: "RUST",
+		6: "SWIFT",
 	}
 	Language_Type_value = map[string]int32{
 		"GO":         0,
@@ -180,6 +184,7 @@ var (
 		"TYPESCRIPT": 3,
 		"RUBY":       4,
 		"RUST":       5,
+		"SWIFT":      6,
 	}
 )
 
@@ -602,9 +607,7 @@ type ValidationOperationCapability struct {
 	// supported is authoritative when AgentInformation.validation is present.
 	Supported bool `protobuf:"varint,1,opt,name=supported,proto3" json:"supported,omitempty"`
 	// scopes are the semantic granularities the operation accepts.
-	Scopes []ValidationScope `protobuf:"varint,2,rep,packed,name=scopes,proto3,enum=codefly.services.agent.v0.ValidationScope" json:"scopes,omitempty"`
-	// supports_fix is meaningful for lint and false for read-only operations.
-	SupportsFix   bool `protobuf:"varint,3,opt,name=supports_fix,json=supportsFix,proto3" json:"supports_fix,omitempty"`
+	Scopes        []ValidationScope `protobuf:"varint,2,rep,packed,name=scopes,proto3,enum=codefly.services.agent.v0.ValidationScope" json:"scopes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -651,13 +654,6 @@ func (x *ValidationOperationCapability) GetScopes() []ValidationScope {
 		return x.Scopes
 	}
 	return nil
-}
-
-func (x *ValidationOperationCapability) GetSupportsFix() bool {
-	if x != nil {
-		return x.SupportsFix
-	}
-	return false
 }
 
 // TestSuiteCapability advertises one stable suite identity and its live graph.
@@ -807,7 +803,10 @@ type ValidationCapabilities struct {
 	// sbom describes Builder.SBOM's authoritative component inventory.
 	Sbom *ValidationOperationCapability `protobuf:"bytes,6,opt,name=sbom,proto3" json:"sbom,omitempty"`
 	// sync describes Builder.Sync, including non-mutating drift detection.
-	Sync          *ValidationOperationCapability `protobuf:"bytes,7,opt,name=sync,proto3" json:"sync,omitempty"`
+	Sync *ValidationOperationCapability `protobuf:"bytes,7,opt,name=sync,proto3" json:"sync,omitempty"`
+	// source_package describes Builder.Package, which emits portable release
+	// artifacts from the loaded source resource without deployment semantics.
+	SourcePackage *ValidationOperationCapability `protobuf:"bytes,8,opt,name=source_package,json=sourcePackage,proto3" json:"source_package,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -887,6 +886,13 @@ func (x *ValidationCapabilities) GetSbom() *ValidationOperationCapability {
 func (x *ValidationCapabilities) GetSync() *ValidationOperationCapability {
 	if x != nil {
 		return x.Sync
+	}
+	return nil
+}
+
+func (x *ValidationCapabilities) GetSourcePackage() *ValidationOperationCapability {
+	if x != nil {
+		return x.SourcePackage
 	}
 	return nil
 }
@@ -1615,7 +1621,9 @@ type RunPluginCommandResponse struct {
 	// output is raw command, build, lint, or test output preserved for diagnostics.
 	Output string `protobuf:"bytes,2,opt,name=output,proto3" json:"output,omitempty"`
 	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	Error string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	// failure is the structured plugin-neutral cause when success is false.
+	Failure       *v0.Failure `protobuf:"bytes,4,opt,name=failure,proto3" json:"failure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1671,13 +1679,20 @@ func (x *RunPluginCommandResponse) GetError() string {
 	return ""
 }
 
+func (x *RunPluginCommandResponse) GetFailure() *v0.Failure {
+	if x != nil {
+		return x.Failure
+	}
+	return nil
+}
+
 var File_codefly_services_agent_v0_agent_proto protoreflect.FileDescriptor
 
 const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\n" +
-	"%codefly/services/agent/v0/agent.proto\x12\x19codefly.services.agent.v0\"\x98\x01\n" +
+	"%codefly/services/agent/v0/agent.proto\x12\x19codefly.services.agent.v0\x1a\x1dcodefly/base/v0/failure.proto\"\xa3\x01\n" +
 	"\bLanguage\x12<\n" +
-	"\x04type\x18\x01 \x01(\x0e2(.codefly.services.agent.v0.Language.TypeR\x04type\"N\n" +
+	"\x04type\x18\x01 \x01(\x0e2(.codefly.services.agent.v0.Language.TypeR\x04type\"Y\n" +
 	"\x04Type\x12\x06\n" +
 	"\x02GO\x10\x00\x12\n" +
 	"\n" +
@@ -1687,7 +1702,8 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\n" +
 	"TYPESCRIPT\x10\x03\x12\b\n" +
 	"\x04RUBY\x10\x04\x12\b\n" +
-	"\x04RUST\x10\x05\"d\n" +
+	"\x04RUST\x10\x05\x12\t\n" +
+	"\x05SWIFT\x10\x06\"d\n" +
 	"\bProtocol\x12<\n" +
 	"\x04type\x18\x01 \x01(\x0e2(.codefly.services.agent.v0.Protocol.TypeR\x04type\"\x1a\n" +
 	"\x04Type\x12\b\n" +
@@ -1701,11 +1717,10 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\aBUILDER\x10\x01\x12\v\n" +
 	"\aRUNTIME\x10\x02\x12\x0e\n" +
 	"\n" +
-	"HOT_RELOAD\x10\x03\"\xa4\x01\n" +
+	"HOT_RELOAD\x10\x03\"\x95\x01\n" +
 	"\x1dValidationOperationCapability\x12\x1c\n" +
 	"\tsupported\x18\x01 \x01(\bR\tsupported\x12B\n" +
-	"\x06scopes\x18\x02 \x03(\x0e2*.codefly.services.agent.v0.ValidationScopeR\x06scopes\x12!\n" +
-	"\fsupports_fix\x18\x03 \x01(\bR\vsupportsFix\"\xa6\x01\n" +
+	"\x06scopes\x18\x02 \x03(\x0e2*.codefly.services.agent.v0.ValidationScopeR\x06scopesJ\x04\b\x03\x10\x04R\fsupports_fix\"\xa6\x01\n" +
 	"\x13TestSuiteCapability\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12V\n" +
 	"\x0fdependency_mode\x18\x02 \x01(\x0e2-.codefly.services.agent.v0.TestDependencyModeR\x0edependencyMode\x12#\n" +
@@ -1713,7 +1728,7 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x18TestValidationCapability\x12\x1c\n" +
 	"\tsupported\x18\x01 \x01(\bR\tsupported\x12B\n" +
 	"\x06scopes\x18\x02 \x03(\x0e2*.codefly.services.agent.v0.ValidationScopeR\x06scopes\x12F\n" +
-	"\x06suites\x18\x03 \x03(\v2..codefly.services.agent.v0.TestSuiteCapabilityR\x06suites\"\xd0\x04\n" +
+	"\x06suites\x18\x03 \x03(\v2..codefly.services.agent.v0.TestSuiteCapabilityR\x06suites\"\xb1\x05\n" +
 	"\x16ValidationCapabilities\x12L\n" +
 	"\x04lint\x18\x01 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x04lint\x12R\n" +
 	"\acompile\x18\x02 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\acompile\x12G\n" +
@@ -1721,7 +1736,8 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x05audit\x18\x04 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x05audit\x12_\n" +
 	"\x0eartifact_build\x18\x05 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\rartifactBuild\x12L\n" +
 	"\x04sbom\x18\x06 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x04sbom\x12L\n" +
-	"\x04sync\x18\a \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x04sync\"{\n" +
+	"\x04sync\x18\a \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x04sync\x12_\n" +
+	"\x0esource_package\x18\b \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\rsourcePackage\"{\n" +
 	"\aBackend\x12;\n" +
 	"\x04type\x18\x01 \x01(\x0e2'.codefly.services.agent.v0.Backend.TypeR\x04type\"3\n" +
 	"\x04Type\x12\v\n" +
@@ -1792,11 +1808,12 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\bcommands\x18\x01 \x03(\v2,.codefly.services.agent.v0.CommandDefinitionR\bcommands\"G\n" +
 	"\x17RunPluginCommandRequest\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
-	"\x04args\x18\x02 \x03(\tR\x04args\"b\n" +
+	"\x04args\x18\x02 \x03(\tR\x04args\"\x96\x01\n" +
 	"\x18RunPluginCommandResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error*\xa7\x01\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\x122\n" +
+	"\afailure\x18\x04 \x01(\v2\x18.codefly.base.v0.FailureR\afailure*\xa7\x01\n" +
 	"\x0fValidationScope\x12 \n" +
 	"\x1cVALIDATION_SCOPE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aVALIDATION_SCOPE_WORKSPACE\x10\x01\x12\x1c\n" +
@@ -1856,6 +1873,7 @@ var file_codefly_services_agent_v0_agent_proto_goTypes = []any{
 	(*ListCommandsResponse)(nil),          // 23: codefly.services.agent.v0.ListCommandsResponse
 	(*RunPluginCommandRequest)(nil),       // 24: codefly.services.agent.v0.RunPluginCommandRequest
 	(*RunPluginCommandResponse)(nil),      // 25: codefly.services.agent.v0.RunPluginCommandResponse
+	(*v0.Failure)(nil),                    // 26: codefly.base.v0.Failure
 }
 var file_codefly_services_agent_v0_agent_proto_depIdxs = []int32{
 	2,  // 0: codefly.services.agent.v0.Language.type:type_name -> codefly.services.agent.v0.Language.Type
@@ -1872,29 +1890,31 @@ var file_codefly_services_agent_v0_agent_proto_depIdxs = []int32{
 	10, // 11: codefly.services.agent.v0.ValidationCapabilities.artifact_build:type_name -> codefly.services.agent.v0.ValidationOperationCapability
 	10, // 12: codefly.services.agent.v0.ValidationCapabilities.sbom:type_name -> codefly.services.agent.v0.ValidationOperationCapability
 	10, // 13: codefly.services.agent.v0.ValidationCapabilities.sync:type_name -> codefly.services.agent.v0.ValidationOperationCapability
-	5,  // 14: codefly.services.agent.v0.Backend.type:type_name -> codefly.services.agent.v0.Backend.Type
-	6,  // 15: codefly.services.agent.v0.Toolchain.type:type_name -> codefly.services.agent.v0.Toolchain.Type
-	16, // 16: codefly.services.agent.v0.ConfigurationValueDetail.fields:type_name -> codefly.services.agent.v0.ConfigurationValueInformation
-	9,  // 17: codefly.services.agent.v0.AgentInformation.capabilities:type_name -> codefly.services.agent.v0.Capability
-	8,  // 18: codefly.services.agent.v0.AgentInformation.protocols:type_name -> codefly.services.agent.v0.Protocol
-	7,  // 19: codefly.services.agent.v0.AgentInformation.languages:type_name -> codefly.services.agent.v0.Language
-	17, // 20: codefly.services.agent.v0.AgentInformation.configuration_details:type_name -> codefly.services.agent.v0.ConfigurationValueDetail
-	18, // 21: codefly.services.agent.v0.AgentInformation.techniques:type_name -> codefly.services.agent.v0.AgentTechnique
-	14, // 22: codefly.services.agent.v0.AgentInformation.supported_backends:type_name -> codefly.services.agent.v0.Backend
-	15, // 23: codefly.services.agent.v0.AgentInformation.toolchains:type_name -> codefly.services.agent.v0.Toolchain
-	13, // 24: codefly.services.agent.v0.AgentInformation.validation:type_name -> codefly.services.agent.v0.ValidationCapabilities
-	21, // 25: codefly.services.agent.v0.ListCommandsResponse.commands:type_name -> codefly.services.agent.v0.CommandDefinition
-	20, // 26: codefly.services.agent.v0.Agent.GetAgentInformation:input_type -> codefly.services.agent.v0.AgentInformationRequest
-	22, // 27: codefly.services.agent.v0.Agent.ListCommands:input_type -> codefly.services.agent.v0.ListCommandsRequest
-	24, // 28: codefly.services.agent.v0.Agent.RunPluginCommand:input_type -> codefly.services.agent.v0.RunPluginCommandRequest
-	19, // 29: codefly.services.agent.v0.Agent.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
-	23, // 30: codefly.services.agent.v0.Agent.ListCommands:output_type -> codefly.services.agent.v0.ListCommandsResponse
-	25, // 31: codefly.services.agent.v0.Agent.RunPluginCommand:output_type -> codefly.services.agent.v0.RunPluginCommandResponse
-	29, // [29:32] is the sub-list for method output_type
-	26, // [26:29] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	10, // 14: codefly.services.agent.v0.ValidationCapabilities.source_package:type_name -> codefly.services.agent.v0.ValidationOperationCapability
+	5,  // 15: codefly.services.agent.v0.Backend.type:type_name -> codefly.services.agent.v0.Backend.Type
+	6,  // 16: codefly.services.agent.v0.Toolchain.type:type_name -> codefly.services.agent.v0.Toolchain.Type
+	16, // 17: codefly.services.agent.v0.ConfigurationValueDetail.fields:type_name -> codefly.services.agent.v0.ConfigurationValueInformation
+	9,  // 18: codefly.services.agent.v0.AgentInformation.capabilities:type_name -> codefly.services.agent.v0.Capability
+	8,  // 19: codefly.services.agent.v0.AgentInformation.protocols:type_name -> codefly.services.agent.v0.Protocol
+	7,  // 20: codefly.services.agent.v0.AgentInformation.languages:type_name -> codefly.services.agent.v0.Language
+	17, // 21: codefly.services.agent.v0.AgentInformation.configuration_details:type_name -> codefly.services.agent.v0.ConfigurationValueDetail
+	18, // 22: codefly.services.agent.v0.AgentInformation.techniques:type_name -> codefly.services.agent.v0.AgentTechnique
+	14, // 23: codefly.services.agent.v0.AgentInformation.supported_backends:type_name -> codefly.services.agent.v0.Backend
+	15, // 24: codefly.services.agent.v0.AgentInformation.toolchains:type_name -> codefly.services.agent.v0.Toolchain
+	13, // 25: codefly.services.agent.v0.AgentInformation.validation:type_name -> codefly.services.agent.v0.ValidationCapabilities
+	21, // 26: codefly.services.agent.v0.ListCommandsResponse.commands:type_name -> codefly.services.agent.v0.CommandDefinition
+	26, // 27: codefly.services.agent.v0.RunPluginCommandResponse.failure:type_name -> codefly.base.v0.Failure
+	20, // 28: codefly.services.agent.v0.Agent.GetAgentInformation:input_type -> codefly.services.agent.v0.AgentInformationRequest
+	22, // 29: codefly.services.agent.v0.Agent.ListCommands:input_type -> codefly.services.agent.v0.ListCommandsRequest
+	24, // 30: codefly.services.agent.v0.Agent.RunPluginCommand:input_type -> codefly.services.agent.v0.RunPluginCommandRequest
+	19, // 31: codefly.services.agent.v0.Agent.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
+	23, // 32: codefly.services.agent.v0.Agent.ListCommands:output_type -> codefly.services.agent.v0.ListCommandsResponse
+	25, // 33: codefly.services.agent.v0.Agent.RunPluginCommand:output_type -> codefly.services.agent.v0.RunPluginCommandResponse
+	31, // [31:34] is the sub-list for method output_type
+	28, // [28:31] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_agent_v0_agent_proto_init() }

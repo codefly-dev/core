@@ -208,6 +208,46 @@ func TestGoTestWorkDirFallsBackWithoutModule(t *testing.T) {
 	}
 }
 
+// TestRunGoTestsStandaloneModuleIgnoresParentWorkspace is the regression for
+// generated services living in a repository that already has a go.work. A
+// standalone service (with-workspace=false) must be tested from its own
+// go.mod even when the parent workspace has not opted that new module in.
+func TestRunGoTestsStandaloneModuleIgnoresParentWorkspace(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	standalone := filepath.Join(root, "standalone")
+	included := filepath.Join(root, "included")
+	for _, dir := range []string{standalone, included} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	files := map[string]string{
+		filepath.Join(root, "go.work"):               "go 1.24.0\nuse ./included\n",
+		filepath.Join(included, "go.mod"):            "module example.com/included\ngo 1.24.0\n",
+		filepath.Join(standalone, "go.mod"):          "module example.com/standalone\ngo 1.24.0\n",
+		filepath.Join(standalone, "service_test.go"): "package standalone\n\nimport \"testing\"\n\nfunc TestGeneratedService(t *testing.T) {}\n",
+	}
+	for name, contents := range files {
+		if err := os.WriteFile(name, []byte(contents), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	env, err := NewNativeGoRunner(ctx, root, "standalone")
+	if err != nil {
+		t.Fatalf("new native runner: %v", err)
+	}
+	env.WithWorkspace(false)
+	summary, err := RunGoTests(ctx, env, standalone, nil)
+	if err != nil {
+		t.Fatalf("RunGoTests: %v (summary: %+v)", err, summary)
+	}
+	if summary.Passed != 1 || summary.Failed != 0 {
+		t.Fatalf("summary = %+v, want one passing test", summary)
+	}
+}
+
 func TestCombineRunRegex(t *testing.T) {
 	cases := []struct {
 		in   []string

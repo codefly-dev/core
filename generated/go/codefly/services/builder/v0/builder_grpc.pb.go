@@ -30,6 +30,7 @@ const (
 	Builder_Deploy_FullMethodName      = "/codefly.services.builder.v0.Builder/Deploy"
 	Builder_Audit_FullMethodName       = "/codefly.services.builder.v0.Builder/Audit"
 	Builder_SBOM_FullMethodName        = "/codefly.services.builder.v0.Builder/SBOM"
+	Builder_Package_FullMethodName     = "/codefly.services.builder.v0.Builder/Package"
 	Builder_Upgrade_FullMethodName     = "/codefly.services.builder.v0.Builder/Upgrade"
 	Builder_Configure_FullMethodName   = "/codefly.services.builder.v0.Builder/Configure"
 	Builder_Communicate_FullMethodName = "/codefly.services.builder.v0.Builder/Communicate"
@@ -56,7 +57,7 @@ type BuilderClient interface {
 	Update(ctx context.Context, in *UpdateRequest, opts ...grpc.CallOption) (*UpdateResponse, error)
 	// Sync regenerates configuration-derived or template-derived service files.
 	Sync(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*SyncResponse, error)
-	// Build compiles or packages the service artifact.
+	// Build creates the deployable service artifact, usually a container image.
 	Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error)
 	// Deploy emits or applies deployment artifacts for the target environment.
 	Deploy(ctx context.Context, in *DeploymentRequest, opts ...grpc.CallOption) (*DeploymentResponse, error)
@@ -64,6 +65,8 @@ type BuilderClient interface {
 	Audit(ctx context.Context, in *AuditRequest, opts ...grpc.CallOption) (*AuditResponse, error)
 	// SBOM returns an authoritative CycloneDX inventory for the loaded service.
 	SBOM(ctx context.Context, in *SBOMRequest, opts ...grpc.CallOption) (*SBOMResponse, error)
+	// Package emits portable source release artifacts through the owning plugin.
+	Package(ctx context.Context, in *PackageRequest, opts ...grpc.CallOption) (*PackageResponse, error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(ctx context.Context, in *UpgradeRequest, opts ...grpc.CallOption) (*UpgradeResponse, error)
 	// Configure applies structured config changes to the service and PERSISTS them
@@ -176,6 +179,16 @@ func (c *builderClient) SBOM(ctx context.Context, in *SBOMRequest, opts ...grpc.
 	return out, nil
 }
 
+func (c *builderClient) Package(ctx context.Context, in *PackageRequest, opts ...grpc.CallOption) (*PackageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PackageResponse)
+	err := c.cc.Invoke(ctx, Builder_Package_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *builderClient) Upgrade(ctx context.Context, in *UpgradeRequest, opts ...grpc.CallOption) (*UpgradeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpgradeResponse)
@@ -230,7 +243,7 @@ type BuilderServer interface {
 	Update(context.Context, *UpdateRequest) (*UpdateResponse, error)
 	// Sync regenerates configuration-derived or template-derived service files.
 	Sync(context.Context, *SyncRequest) (*SyncResponse, error)
-	// Build compiles or packages the service artifact.
+	// Build creates the deployable service artifact, usually a container image.
 	Build(context.Context, *BuildRequest) (*BuildResponse, error)
 	// Deploy emits or applies deployment artifacts for the target environment.
 	Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error)
@@ -238,6 +251,8 @@ type BuilderServer interface {
 	Audit(context.Context, *AuditRequest) (*AuditResponse, error)
 	// SBOM returns an authoritative CycloneDX inventory for the loaded service.
 	SBOM(context.Context, *SBOMRequest) (*SBOMResponse, error)
+	// Package emits portable source release artifacts through the owning plugin.
+	Package(context.Context, *PackageRequest) (*PackageResponse, error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(context.Context, *UpgradeRequest) (*UpgradeResponse, error)
 	// Configure applies structured config changes to the service and PERSISTS them
@@ -286,6 +301,9 @@ func (UnimplementedBuilderServer) Audit(context.Context, *AuditRequest) (*AuditR
 }
 func (UnimplementedBuilderServer) SBOM(context.Context, *SBOMRequest) (*SBOMResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SBOM not implemented")
+}
+func (UnimplementedBuilderServer) Package(context.Context, *PackageRequest) (*PackageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Package not implemented")
 }
 func (UnimplementedBuilderServer) Upgrade(context.Context, *UpgradeRequest) (*UpgradeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Upgrade not implemented")
@@ -479,6 +497,24 @@ func _Builder_SBOM_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Builder_Package_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PackageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BuilderServer).Package(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Builder_Package_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BuilderServer).Package(ctx, req.(*PackageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Builder_Upgrade_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpgradeRequest)
 	if err := dec(in); err != nil {
@@ -564,6 +600,10 @@ var Builder_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SBOM",
 			Handler:    _Builder_SBOM_Handler,
+		},
+		{
+			MethodName: "Package",
+			Handler:    _Builder_Package_Handler,
 		},
 		{
 			MethodName: "Upgrade",

@@ -2,11 +2,42 @@ package code
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
+
+func TestListFilesSkipsGeneratedDependencyTrees(t *testing.T) {
+	dir := t.TempDir()
+	for _, path := range []string{"main.ts", "src/app.ts", "node_modules/pkg/index.ts", "dist/bundle.ts", "target/generated.rs"} {
+		absolute := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte("source"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response, err := NewDefaultCodeServer(dir).Execute(context.Background(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_ListFiles{ListFiles: &codev0.ListFilesRequest{
+		Extensions: []string{".ts", ".rs"}, Recursive: true,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, file := range response.GetListFiles().GetFiles() {
+		if !file.GetIsDirectory() {
+			paths = append(paths, filepath.ToSlash(file.GetPath()))
+		}
+	}
+	if got, want := strings.Join(paths, ","), "main.ts,src/app.ts"; got != want {
+		t.Fatalf("files = %q, want %q", got, want)
+	}
+}
 
 type serverTestCase struct {
 	name      string
@@ -57,7 +88,7 @@ func TestExecute_ApplyEdit(t *testing.T) {
 			}
 			ae := resp.GetApplyEdit()
 			if !ae.Success {
-				t.Fatalf("expected success, got error: %s", ae.Error)
+				t.Fatalf("expected success, got failure: %v", resp.GetFailure())
 			}
 			if ae.Strategy != "exact" {
 				t.Errorf("expected exact strategy, got %s", ae.Strategy)
@@ -120,7 +151,7 @@ func TestOperationName(t *testing.T) {
 	}
 }
 
-func TestExecute_Fix_Default(t *testing.T) {
+func TestExecute_FixModeNoneReturnsUnchangedContent(t *testing.T) {
 	for _, tc := range serverTestCases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir, srv := tc.setupFunc(t)
@@ -128,7 +159,7 @@ func TestExecute_Fix_Default(t *testing.T) {
 			srv.FS.WriteFile(filepath.Join(dir, "fix_me.go"), []byte("package main\n"), 0o644)
 
 			resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-				Operation: &codev0.CodeRequest_Fix{Fix: &codev0.FixRequest{File: "fix_me.go"}},
+				Operation: &codev0.CodeRequest_Fix{Fix: &codev0.FixRequest{File: "fix_me.go", Mode: basev0.FixMode_FIX_MODE_NONE}},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -138,7 +169,7 @@ func TestExecute_Fix_Default(t *testing.T) {
 				t.Fatal("expected FixResponse")
 			}
 			if !fr.Success {
-				t.Error("default fix should succeed (no-op)")
+				t.Error("FIX_MODE_NONE should succeed without a configured fixer")
 			}
 			if fr.Content != "package main\n" {
 				t.Errorf("expected file content unchanged, got %q", fr.Content)
@@ -184,8 +215,8 @@ func TestExecute_ListDependencies_Stub(t *testing.T) {
 			if ld == nil {
 				t.Fatal("expected ListDependenciesResponse")
 			}
-			if ld.Error == "" {
-				t.Error("dependency stub should return an error message")
+			if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION {
+				t.Fatalf("dependency stub failure = %v, want unsupported operation", resp.GetFailure())
 			}
 		})
 	}

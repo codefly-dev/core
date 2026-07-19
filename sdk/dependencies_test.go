@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -85,6 +87,40 @@ func TestWithDependencies_ReturnsWhenCLIExitsBeforeReady(t *testing.T) {
 	// configured 10-second readiness deadline.
 	if elapsed := time.Since(started); elapsed > 6*time.Second {
 		t.Fatalf("early CLI exit took %s to report", elapsed)
+	}
+}
+
+func TestWithCLIServerPortPinsChildControlChannel(t *testing.T) {
+	environment := []string{
+		"PATH=/usr/bin",
+		"CODEFLY_CLI_SERVER_PORT=21854",
+		"HOME=/tmp/home",
+		"CODEFLY_CLI_SERVER_PORT=stale-duplicate",
+	}
+
+	got := withCLIServerPort(environment, "127.0.0.1:25870")
+	var controlSettings []string
+	for _, entry := range got {
+		if strings.HasPrefix(entry, "CODEFLY_CLI_SERVER_PORT=") {
+			controlSettings = append(controlSettings, entry)
+		}
+	}
+	if len(controlSettings) != 1 {
+		t.Fatalf("control-port settings = %v, want exactly one", controlSettings)
+	}
+	if controlSettings[0] != "CODEFLY_CLI_SERVER_PORT=25870" {
+		t.Fatalf("control-port setting = %q, want SDK-selected port", controlSettings[0])
+	}
+	if !slices.Contains(got, "PATH=/usr/bin") || !slices.Contains(got, "HOME=/tmp/home") {
+		t.Fatalf("unrelated child environment was not preserved: %v", got)
+	}
+}
+
+func TestWithCLIServerPortLeavesEnvironmentForInvalidAddress(t *testing.T) {
+	environment := []string{"CODEFLY_CLI_SERVER_PORT=32100", "PATH=/usr/bin"}
+	got := withCLIServerPort(environment, "not-an-address")
+	if !reflect.DeepEqual(got, environment) {
+		t.Fatalf("invalid address changed environment: got %v want %v", got, environment)
 	}
 }
 

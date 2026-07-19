@@ -3,6 +3,7 @@ syntax = "proto3";
 package codefly.services.builder.v0;
 
 import "codefly/base/v0/service.proto";
+import "codefly/base/v0/failure.proto";
 import "codefly/base/v0/network.proto";
 import "codefly/base/v0/endpoint.proto";
 import "codefly/base/v0/environment.proto";
@@ -28,6 +29,8 @@ message LoadStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // LoadRequest starts a builder agent and asks it to read service metadata.
@@ -102,6 +105,8 @@ message CreateStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // CreateResponse reports generated endpoints and creation status.
@@ -131,6 +136,8 @@ message InitStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // InitRequest provides dependency metadata needed before build/deploy operations.
@@ -167,6 +174,8 @@ message UpdateStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // UpdateRequest asks the builder to update an existing service from its template or agent rules.
@@ -212,6 +221,8 @@ message SyncStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR or UNSUPPORTED.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // SyncResponse reports whether synchronization completed.
@@ -277,6 +288,8 @@ message BuildStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // BuildResponse returns the structured build outcome.
@@ -324,6 +337,8 @@ message DeploymentStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // DeploymentResponse returns deployment status and any configuration produced by deployment.
@@ -417,6 +432,8 @@ message AuditStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR or UNSUPPORTED.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // AuditResponse returns vulnerability findings, outdated dependencies, and tool metadata.
@@ -468,6 +485,8 @@ message SBOMStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR or UNSUPPORTED.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // SBOMResponse returns a typed CycloneDX inventory plus provenance metadata.
@@ -482,6 +501,102 @@ message SBOMResponse {
   string language = 4;
   // sha256 is the lowercase digest of the deterministic protobuf document.
   string sha256 = 5;
+}
+
+/*
+
+Package — create portable release artifacts from the loaded source resource.
+Unlike Runtime.Build, this operation emits files. Unlike Builder.Build, it has
+no container/deployment semantics. The owning language plugin chooses the
+native toolchain invocation.
+
+*/
+
+// PackageTarget identifies one requested operating-system/architecture pair.
+message PackageTarget {
+  // os is the target operating system, such as darwin or linux.
+  string os = 1;
+  // architecture is the target architecture, such as arm64 or amd64.
+  string architecture = 2;
+}
+
+// PackageSubject supplies release identity independent of the source wrapper's
+// service name.
+message PackageSubject {
+  // publisher is the namespace releasing the artifact.
+  string publisher = 1;
+  // name is the logical release artifact name.
+  string name = 2;
+  // version is the release version.
+  string version = 3;
+}
+
+// PackageRequest asks the builder plugin to emit release artifacts.
+message PackageRequest {
+  // targets lists the requested target platforms. Empty means the host target.
+  repeated PackageTarget targets = 1;
+  // output_directory is an absolute destination owned by the caller.
+  string output_directory = 2;
+  // artifact_name is the portable base filename. Empty uses the resource name.
+  string artifact_name = 3;
+  // include_sbom asks the plugin to emit an SBOM artifact alongside packages.
+  bool include_sbom = 4;
+  // subject is the release identity attached to package evidence.
+  PackageSubject subject = 5;
+}
+
+// PackageArtifact is one content-addressed file emitted by Package.
+message PackageArtifact {
+  // Kind identifies the artifact's semantic purpose.
+  enum Kind {
+    // KIND_UNSPECIFIED means the plugin did not classify the artifact.
+    KIND_UNSPECIFIED = 0;
+    // EXECUTABLE is a directly executable binary.
+    EXECUTABLE = 1;
+    // ARCHIVE is a portable source or binary archive.
+    ARCHIVE = 2;
+    // SBOM is a software bill of materials associated with a package.
+    SBOM = 3;
+  }
+  // kind is the normalized artifact classification.
+  Kind kind = 1;
+  // path is the absolute path of the emitted artifact.
+  string path = 2;
+  // target identifies the artifact platform when applicable.
+  PackageTarget target = 3;
+  // sha256 is the lowercase hexadecimal content digest.
+  string sha256 = 4;
+  // media_type identifies the artifact representation.
+  string media_type = 5;
+}
+
+// PackageStatus reports whether portable packaging completed.
+message PackageStatus {
+  // Status enumerates package lifecycle states.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means every requested artifact was emitted.
+    SUCCESS = 1;
+    // ERROR means packaging failed and message carries diagnostics.
+    ERROR = 2;
+    // UNSUPPORTED means this plugin cannot package its loaded source resource.
+    UNSUPPORTED = 3;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR or UNSUPPORTED.
+  codefly.base.v0.Failure failure = 3;
+}
+
+// PackageResponse returns all portable artifacts emitted by the plugin.
+message PackageResponse {
+  // state reports successful, unsupported, or failed packaging.
+  PackageStatus state = 1;
+  // artifacts are sorted deterministically by target and path.
+  repeated PackageArtifact artifacts = 2;
 }
 
 /*
@@ -530,6 +645,8 @@ message UpgradeStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // UpgradeResponse reports dependency changes applied or proposed by the upgrade.
@@ -585,6 +702,8 @@ message ConfigureStatus {
   Status state = 1;
   // message is a human-readable status or diagnostic summary.
   string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // ConfigureResponse reports whether the configuration was applied.
@@ -618,7 +737,7 @@ service Builder {
   // Sync regenerates configuration-derived or template-derived service files.
   rpc Sync (SyncRequest) returns (SyncResponse) {}
 
-  // Build compiles or packages the service artifact.
+  // Build creates the deployable service artifact, usually a container image.
   rpc Build (BuildRequest) returns (BuildResponse) {}
   // Deploy emits or applies deployment artifacts for the target environment.
   rpc Deploy (DeploymentRequest) returns (DeploymentResponse) {}
@@ -627,6 +746,8 @@ service Builder {
   rpc Audit (AuditRequest) returns (AuditResponse) {}
   // SBOM returns an authoritative CycloneDX inventory for the loaded service.
   rpc SBOM (SBOMRequest) returns (SBOMResponse) {}
+  // Package emits portable source release artifacts through the owning plugin.
+  rpc Package (PackageRequest) returns (PackageResponse) {}
   // Upgrade applies or previews dependency version bumps.
   rpc Upgrade (UpgradeRequest) returns (UpgradeResponse) {}
 

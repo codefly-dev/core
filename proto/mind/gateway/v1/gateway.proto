@@ -3,6 +3,9 @@ package mind.gateway.v1;
 
 option go_package = "github.com/codefly-dev/core/generated/go/mind/gateway/v1;gatewayv1";
 
+import "codefly/base/v0/source.proto";
+import "google/protobuf/timestamp.proto";
+
 // Gateway is the ONLY service Mind talks to.
 // Codefly CLI implements it. Everything else is behind this wall.
 //
@@ -29,6 +32,11 @@ service Gateway {
 
   // ListFiles lists files in a service's source tree.
   rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+
+  // SubscribeWorkspaceChanges streams metadata-only filesystem wakeups from
+  // the Codefly execution boundary. Events are sequenced and replayable over a
+  // bounded window; consumers must still reconcile with authoritative reads.
+  rpc SubscribeWorkspaceChanges(SubscribeWorkspaceChangesRequest) returns (stream WorkspaceChangeEvent);
 
   // DeleteFile removes a file from a service's source tree.
   rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
@@ -221,6 +229,47 @@ message ListFilesResponse {
   repeated FileInfo files = 1;
 }
 
+// WorkspaceChangeOperation describes why a repository path may have changed.
+// RESCAN is an explicit uncertainty marker (watch overflow, replay gap, or a
+// directory-level change) and requires an authoritative manifest pull.
+enum WorkspaceChangeOperation {
+  WORKSPACE_CHANGE_OPERATION_UNSPECIFIED = 0;
+  WORKSPACE_CHANGE_OPERATION_CREATE = 1;
+  WORKSPACE_CHANGE_OPERATION_WRITE = 2;
+  WORKSPACE_CHANGE_OPERATION_REMOVE = 3;
+  WORKSPACE_CHANGE_OPERATION_METADATA = 4;
+  WORKSPACE_CHANGE_OPERATION_RESCAN = 5;
+}
+
+// WorkspaceChangeCursor resumes one monitor epoch after an acknowledged
+// sequence. Both fields are required together; an empty cursor starts live.
+message WorkspaceChangeCursor {
+  string source_id = 1;
+  uint64 sequence = 2;
+}
+
+message SubscribeWorkspaceChangesRequest {
+  string service = 1;
+  WorkspaceChangeCursor after = 2;
+}
+
+// WorkspaceChange contains metadata only. Source bytes remain behind ReadFile
+// and version-aware Gateway operations.
+message WorkspaceChange {
+  WorkspaceChangeOperation operation = 1;
+  string path = 2;
+  string previous_path = 3;
+  string reason = 4;
+}
+
+// WorkspaceChangeEvent is one deterministic coalesced watcher batch.
+message WorkspaceChangeEvent {
+  string source_id = 1;
+  uint64 sequence = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  repeated WorkspaceChange changes = 4;
+}
+
 // DeleteFileRequest identifies the file resource to delete.
 message DeleteFileRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
@@ -287,6 +336,10 @@ message FixRequest {
   string service = 1;
   // path is a workspace- or service-relative filesystem path.
   string path = 2;            // relative to service root
+  // mode selects safe fixes, no fixes, or explicitly aggressive fixes.
+  codefly.base.v0.FixMode mode = 3;
+  // dry_run returns the fixed content and evidence without writing the file.
+  bool dry_run = 4;
 }
 
 // FixResponse returns the fixed content and the formatter actions that ran.
@@ -299,6 +352,16 @@ message FixResponse {
   string error = 3;           // non-fatal: fixer not available, etc.
   // actions are native formatter, fixer, or lifecycle actions performed by the agent.
   repeated string actions = 4; // what was done: "goimports", "gofmt", etc.
+  // changed reports whether the returned content differs from the original file.
+  bool changed = 5;
+  // before_sha256 is the lowercase SHA-256 digest of the original content.
+  string before_sha256 = 6;
+  // after_sha256 is the lowercase SHA-256 digest of the returned content.
+  string after_sha256 = 7;
+  // wrote reports whether the plugin committed the returned content.
+  bool wrote = 8;
+  // output preserves bounded formatter/fixer output useful for follow-up linting.
+  string output = 9;
 }
 
 // ─── Code Edit ────────────────────────────────────────────────
@@ -313,8 +376,10 @@ message ApplyEditRequest {
   string find = 3;          // text to find (smart matching at plugin level)
   // replace is the replacement text used by an edit operation.
   string replace = 4;       // replacement text
-  // auto_fix asks the agent to run language fixers after editing.
-  bool auto_fix = 5;        // if true, plugin runs fixers after edit
+  // fix_mode controls language-aware rewriting after the edit. SAFE is the default.
+  codefly.base.v0.FixMode fix_mode = 5;
+  // dry_run returns the edited and fixed content without writing the file.
+  bool dry_run = 6;
 }
 
 // ApplyEditResponse reports the selected strategy and post-edit content.
@@ -329,6 +394,16 @@ message ApplyEditResponse {
   string strategy = 4;             // which matching strategy
   // fix_actions names formatters or import fixers that ran after the edit.
   repeated string fix_actions = 5; // fixers that ran
+  // changed reports whether the returned content differs from the original file.
+  bool changed = 6;
+  // before_sha256 is the lowercase SHA-256 digest of the original content.
+  string before_sha256 = 7;
+  // after_sha256 is the lowercase SHA-256 digest of the returned content.
+  string after_sha256 = 8;
+  // wrote reports whether the plugin committed the returned content.
+  bool wrote = 9;
+  // output preserves bounded formatter/fixer output useful for follow-up linting.
+  string output = 10;
 }
 
 // BatchApplyEditsRequest applies multiple edits in one call.

@@ -29,7 +29,9 @@ import (
 	"syscall"
 	"time"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	"github.com/codefly-dev/core/failures"
 )
 
 // OutputGoTestJSON is the formula output format produced by `go test -json`.
@@ -247,8 +249,13 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 		if ctx.Err() != nil {
 			msg = fmt.Sprintf("go test interrupted (%v) with partial results: %v", ctx.Err(), runErr)
 		}
-		resp.Result = &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: msg}
-		resp.Status = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg}
+		failure := failures.New(basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "runtime.test", msg)
+		if ctx.Err() != nil {
+			failure = failures.FromError("runtime.test", ctx.Err())
+			failure.Message = msg
+		}
+		resp.Result = &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: msg, Failure: failure}
+		resp.Status = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg, Failure: failure}
 	}
 	return resp, nil
 }
@@ -257,9 +264,19 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 // cases: an explicit ERRORED result carrying the classification message and
 // the raw stream for diagnosis.
 func erroredResponse(msg, raw string) *runtimev0.TestResponse {
+	failureCode := basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED
+	switch {
+	case strings.Contains(msg, EnvErrorToolchainMissing):
+		failureCode = basev0.FailureCode_FAILURE_CODE_TOOLCHAIN_UNAVAILABLE
+	case strings.Contains(msg, EnvErrorModuleBroken):
+		failureCode = basev0.FailureCode_FAILURE_CODE_INVALID_CONFIGURATION
+	case strings.Contains(msg, EnvErrorNoTestsExecuted), strings.Contains(msg, EnvErrorNoTestsMatchedSelectors):
+		failureCode = basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED
+	}
+	failure := failures.New(failureCode, "runtime.test", msg)
 	return &runtimev0.TestResponse{
-		Status: &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg},
-		Result: &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: msg},
+		Status: &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg, Failure: failure},
+		Result: &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: msg, Failure: failure},
 		Counts: &runtimev0.TestCounts{},
 		Run:    &runtimev0.TestRun{Runner: "gotest"},
 		Output: raw,

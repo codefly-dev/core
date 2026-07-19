@@ -42,6 +42,9 @@ const (
 	GatewayWriteFileProcedure = "/mind.gateway.v1.Gateway/WriteFile"
 	// GatewayListFilesProcedure is the fully-qualified name of the Gateway's ListFiles RPC.
 	GatewayListFilesProcedure = "/mind.gateway.v1.Gateway/ListFiles"
+	// GatewaySubscribeWorkspaceChangesProcedure is the fully-qualified name of the Gateway's
+	// SubscribeWorkspaceChanges RPC.
+	GatewaySubscribeWorkspaceChangesProcedure = "/mind.gateway.v1.Gateway/SubscribeWorkspaceChanges"
 	// GatewayDeleteFileProcedure is the fully-qualified name of the Gateway's DeleteFile RPC.
 	GatewayDeleteFileProcedure = "/mind.gateway.v1.Gateway/DeleteFile"
 	// GatewayMoveFileProcedure is the fully-qualified name of the Gateway's MoveFile RPC.
@@ -108,6 +111,10 @@ type GatewayClient interface {
 	WriteFile(context.Context, *connect.Request[v1.WriteFileRequest]) (*connect.Response[v1.WriteFileResponse], error)
 	// ListFiles lists files in a service's source tree.
 	ListFiles(context.Context, *connect.Request[v1.ListFilesRequest]) (*connect.Response[v1.ListFilesResponse], error)
+	// SubscribeWorkspaceChanges streams metadata-only filesystem wakeups from
+	// the Codefly execution boundary. Events are sequenced and replayable over a
+	// bounded window; consumers must still reconcile with authoritative reads.
+	SubscribeWorkspaceChanges(context.Context, *connect.Request[v1.SubscribeWorkspaceChangesRequest]) (*connect.ServerStreamForClient[v1.WorkspaceChangeEvent], error)
 	// DeleteFile removes a file from a service's source tree.
 	DeleteFile(context.Context, *connect.Request[v1.DeleteFileRequest]) (*connect.Response[v1.DeleteFileResponse], error)
 	// MoveFile renames or moves a file, optionally updating imports.
@@ -196,6 +203,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			httpClient,
 			baseURL+GatewayListFilesProcedure,
 			connect.WithSchema(gatewayMethods.ByName("ListFiles")),
+			connect.WithClientOptions(opts...),
+		),
+		subscribeWorkspaceChanges: connect.NewClient[v1.SubscribeWorkspaceChangesRequest, v1.WorkspaceChangeEvent](
+			httpClient,
+			baseURL+GatewaySubscribeWorkspaceChangesProcedure,
+			connect.WithSchema(gatewayMethods.ByName("SubscribeWorkspaceChanges")),
 			connect.WithClientOptions(opts...),
 		),
 		deleteFile: connect.NewClient[v1.DeleteFileRequest, v1.DeleteFileResponse](
@@ -359,36 +372,37 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 
 // gatewayClient implements GatewayClient.
 type gatewayClient struct {
-	listServices     *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
-	readFile         *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
-	writeFile        *connect.Client[v1.WriteFileRequest, v1.WriteFileResponse]
-	listFiles        *connect.Client[v1.ListFilesRequest, v1.ListFilesResponse]
-	deleteFile       *connect.Client[v1.DeleteFileRequest, v1.DeleteFileResponse]
-	moveFile         *connect.Client[v1.MoveFileRequest, v1.MoveFileResponse]
-	createFile       *connect.Client[v1.CreateFileRequest, v1.CreateFileResponse]
-	fix              *connect.Client[v1.FixRequest, v1.FixResponse]
-	applyEdit        *connect.Client[v1.ApplyEditRequest, v1.ApplyEditResponse]
-	batchApplyEdits  *connect.Client[v1.BatchApplyEditsRequest, v1.BatchApplyEditsResponse]
-	search           *connect.Client[v1.SearchRequest, v1.SearchResponse]
-	build            *connect.Client[v1.BuildRequest, v1.BuildResponse]
-	lint             *connect.Client[v1.LintRequest, v1.LintResponse]
-	test             *connect.Client[v1.TestRequest, v1.TestResponse]
-	runCommand       *connect.Client[v1.RunCommandRequest, v1.RunCommandResponse]
-	listAllCommands  *connect.Client[v1.ListAllCommandsRequest, v1.ListAllCommandsResponse]
-	runChecks        *connect.Client[v1.RunChecksRequest, v1.RunChecksResponse]
-	gitStatus        *connect.Client[v1.GitStatusRequest, v1.GitStatusResponse]
-	gitDiff          *connect.Client[v1.GitDiffRequest, v1.GitDiffResponse]
-	gitLog           *connect.Client[v1.GitLogRequest, v1.GitLogResponse]
-	gitCommit        *connect.Client[v1.GitCommitRequest, v1.GitCommitResponse]
-	listDependencies *connect.Client[v1.ListDependenciesRequest, v1.ListDependenciesResponse]
-	addDependency    *connect.Client[v1.AddDependencyRequest, v1.AddDependencyResponse]
-	removeDependency *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
-	getProjectInfo   *connect.Client[v1.GetProjectInfoRequest, v1.GetProjectInfoResponse]
-	openTerminal     *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
-	attachTerminal   *connect.Client[v1.TerminalInput, v1.TerminalOutput]
-	resizeTerminal   *connect.Client[v1.ResizeTerminalRequest, v1.ResizeTerminalResponse]
-	closeTerminal    *connect.Client[v1.CloseTerminalRequest, v1.CloseTerminalResponse]
-	listTerminals    *connect.Client[v1.ListTerminalsRequest, v1.ListTerminalsResponse]
+	listServices              *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
+	readFile                  *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
+	writeFile                 *connect.Client[v1.WriteFileRequest, v1.WriteFileResponse]
+	listFiles                 *connect.Client[v1.ListFilesRequest, v1.ListFilesResponse]
+	subscribeWorkspaceChanges *connect.Client[v1.SubscribeWorkspaceChangesRequest, v1.WorkspaceChangeEvent]
+	deleteFile                *connect.Client[v1.DeleteFileRequest, v1.DeleteFileResponse]
+	moveFile                  *connect.Client[v1.MoveFileRequest, v1.MoveFileResponse]
+	createFile                *connect.Client[v1.CreateFileRequest, v1.CreateFileResponse]
+	fix                       *connect.Client[v1.FixRequest, v1.FixResponse]
+	applyEdit                 *connect.Client[v1.ApplyEditRequest, v1.ApplyEditResponse]
+	batchApplyEdits           *connect.Client[v1.BatchApplyEditsRequest, v1.BatchApplyEditsResponse]
+	search                    *connect.Client[v1.SearchRequest, v1.SearchResponse]
+	build                     *connect.Client[v1.BuildRequest, v1.BuildResponse]
+	lint                      *connect.Client[v1.LintRequest, v1.LintResponse]
+	test                      *connect.Client[v1.TestRequest, v1.TestResponse]
+	runCommand                *connect.Client[v1.RunCommandRequest, v1.RunCommandResponse]
+	listAllCommands           *connect.Client[v1.ListAllCommandsRequest, v1.ListAllCommandsResponse]
+	runChecks                 *connect.Client[v1.RunChecksRequest, v1.RunChecksResponse]
+	gitStatus                 *connect.Client[v1.GitStatusRequest, v1.GitStatusResponse]
+	gitDiff                   *connect.Client[v1.GitDiffRequest, v1.GitDiffResponse]
+	gitLog                    *connect.Client[v1.GitLogRequest, v1.GitLogResponse]
+	gitCommit                 *connect.Client[v1.GitCommitRequest, v1.GitCommitResponse]
+	listDependencies          *connect.Client[v1.ListDependenciesRequest, v1.ListDependenciesResponse]
+	addDependency             *connect.Client[v1.AddDependencyRequest, v1.AddDependencyResponse]
+	removeDependency          *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
+	getProjectInfo            *connect.Client[v1.GetProjectInfoRequest, v1.GetProjectInfoResponse]
+	openTerminal              *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
+	attachTerminal            *connect.Client[v1.TerminalInput, v1.TerminalOutput]
+	resizeTerminal            *connect.Client[v1.ResizeTerminalRequest, v1.ResizeTerminalResponse]
+	closeTerminal             *connect.Client[v1.CloseTerminalRequest, v1.CloseTerminalResponse]
+	listTerminals             *connect.Client[v1.ListTerminalsRequest, v1.ListTerminalsResponse]
 }
 
 // ListServices calls mind.gateway.v1.Gateway.ListServices.
@@ -409,6 +423,11 @@ func (c *gatewayClient) WriteFile(ctx context.Context, req *connect.Request[v1.W
 // ListFiles calls mind.gateway.v1.Gateway.ListFiles.
 func (c *gatewayClient) ListFiles(ctx context.Context, req *connect.Request[v1.ListFilesRequest]) (*connect.Response[v1.ListFilesResponse], error) {
 	return c.listFiles.CallUnary(ctx, req)
+}
+
+// SubscribeWorkspaceChanges calls mind.gateway.v1.Gateway.SubscribeWorkspaceChanges.
+func (c *gatewayClient) SubscribeWorkspaceChanges(ctx context.Context, req *connect.Request[v1.SubscribeWorkspaceChangesRequest]) (*connect.ServerStreamForClient[v1.WorkspaceChangeEvent], error) {
+	return c.subscribeWorkspaceChanges.CallServerStream(ctx, req)
 }
 
 // DeleteFile calls mind.gateway.v1.Gateway.DeleteFile.
@@ -551,6 +570,10 @@ type GatewayHandler interface {
 	WriteFile(context.Context, *connect.Request[v1.WriteFileRequest]) (*connect.Response[v1.WriteFileResponse], error)
 	// ListFiles lists files in a service's source tree.
 	ListFiles(context.Context, *connect.Request[v1.ListFilesRequest]) (*connect.Response[v1.ListFilesResponse], error)
+	// SubscribeWorkspaceChanges streams metadata-only filesystem wakeups from
+	// the Codefly execution boundary. Events are sequenced and replayable over a
+	// bounded window; consumers must still reconcile with authoritative reads.
+	SubscribeWorkspaceChanges(context.Context, *connect.Request[v1.SubscribeWorkspaceChangesRequest], *connect.ServerStream[v1.WorkspaceChangeEvent]) error
 	// DeleteFile removes a file from a service's source tree.
 	DeleteFile(context.Context, *connect.Request[v1.DeleteFileRequest]) (*connect.Response[v1.DeleteFileResponse], error)
 	// MoveFile renames or moves a file, optionally updating imports.
@@ -635,6 +658,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		GatewayListFilesProcedure,
 		svc.ListFiles,
 		connect.WithSchema(gatewayMethods.ByName("ListFiles")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewaySubscribeWorkspaceChangesHandler := connect.NewServerStreamHandler(
+		GatewaySubscribeWorkspaceChangesProcedure,
+		svc.SubscribeWorkspaceChanges,
+		connect.WithSchema(gatewayMethods.ByName("SubscribeWorkspaceChanges")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gatewayDeleteFileHandler := connect.NewUnaryHandler(
@@ -803,6 +832,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayWriteFileHandler.ServeHTTP(w, r)
 		case GatewayListFilesProcedure:
 			gatewayListFilesHandler.ServeHTTP(w, r)
+		case GatewaySubscribeWorkspaceChangesProcedure:
+			gatewaySubscribeWorkspaceChangesHandler.ServeHTTP(w, r)
 		case GatewayDeleteFileProcedure:
 			gatewayDeleteFileHandler.ServeHTTP(w, r)
 		case GatewayMoveFileProcedure:
@@ -878,6 +909,10 @@ func (UnimplementedGatewayHandler) WriteFile(context.Context, *connect.Request[v
 
 func (UnimplementedGatewayHandler) ListFiles(context.Context, *connect.Request[v1.ListFilesRequest]) (*connect.Response[v1.ListFilesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ListFiles is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) SubscribeWorkspaceChanges(context.Context, *connect.Request[v1.SubscribeWorkspaceChangesRequest], *connect.ServerStream[v1.WorkspaceChangeEvent]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.SubscribeWorkspaceChanges is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) DeleteFile(context.Context, *connect.Request[v1.DeleteFileRequest]) (*connect.Response[v1.DeleteFileResponse], error) {

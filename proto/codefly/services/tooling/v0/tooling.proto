@@ -1,6 +1,9 @@
 syntax = "proto3";
 package codefly.services.tooling.v0;
 
+import "codefly/base/v0/failure.proto";
+import "codefly/base/v0/source.proto";
+
 /*
 Tooling service: command-oriented language tooling backed by a codefly agent.
 
@@ -88,18 +91,34 @@ message PackageInfo {
 message FixRequest {
   // file is a workspace- or service-relative source file path.
   string file = 1;
+  // mode selects safe fixes, no fixes, or explicitly aggressive fixes.
+  codefly.base.v0.FixMode mode = 2;
+  // dry_run returns the fixed content and evidence without writing the file.
+  bool dry_run = 3;
 }
 
 // FixResponse returns the fixed content and the formatter actions that ran.
 message FixResponse {
+  reserved 3;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
   // content is the file content after formatting; it may be empty when unchanged.
   string content = 2;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 3;
   // actions names formatters or fixers executed by the agent.
   repeated string actions = 4;
+  // failure is the sole structured cause when success is false.
+  codefly.base.v0.Failure failure = 5;
+  // changed reports whether the fixed content differs from the original file.
+  bool changed = 6;
+  // before_sha256 is the lowercase SHA-256 digest of the original content.
+  string before_sha256 = 7;
+  // after_sha256 is the lowercase SHA-256 digest of the returned content.
+  string after_sha256 = 8;
+  // wrote reports whether the agent committed the returned content to its VFS.
+  bool wrote = 9;
+  // output preserves bounded formatter/fixer output useful for follow-up linting.
+  string output = 10;
 }
 
 // ApplyEditRequest asks the agent to apply a language-aware find/replace edit.
@@ -110,22 +129,36 @@ message ApplyEditRequest {
   string find = 2;
   // replace is the replacement text inserted by the edit.
   string replace = 3;
-  // auto_fix asks the agent to run formatters after the edit.
-  bool auto_fix = 4;
+  // fix_mode controls language-aware rewriting after the edit. SAFE is the default.
+  codefly.base.v0.FixMode fix_mode = 4;
+  // dry_run returns the edited and fixed content without writing the file.
+  bool dry_run = 5;
 }
 
 // ApplyEditResponse reports the selected strategy and post-edit content.
 message ApplyEditResponse {
+  reserved 3;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
   // content is the file content after the edit and optional fixers.
   string content = 2;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 3;
   // strategy names the edit or execution strategy that produced the result.
   string strategy = 4;
   // fix_actions names formatters or import fixers that ran after the edit.
   repeated string fix_actions = 5;
+  // failure is the sole structured cause when success is false.
+  codefly.base.v0.Failure failure = 6;
+  // changed reports whether the returned content differs from the original file.
+  bool changed = 7;
+  // before_sha256 is the lowercase SHA-256 digest of the original content.
+  string before_sha256 = 8;
+  // after_sha256 is the lowercase SHA-256 digest of the returned content.
+  string after_sha256 = 9;
+  // wrote reports whether the agent committed the returned content to its VFS.
+  bool wrote = 10;
+  // output preserves bounded formatter/fixer output useful for follow-up linting.
+  string output = 11;
 }
 
 // ── Dependency Management (require package manager) ─────
@@ -135,10 +168,12 @@ message ListDependenciesRequest {}
 
 // ListDependenciesResponse returns dependencies discovered by the native package manager.
 message ListDependenciesResponse {
+  reserved 2;
+  reserved "error";
   // dependencies are packages or services required by this resource.
   repeated Dependency dependencies = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
+  // failure is the sole structured cause when dependency discovery fails.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // AddDependencyRequest identifies a package to install with the native package manager.
@@ -151,12 +186,14 @@ message AddDependencyRequest {
 
 // AddDependencyResponse reports the dependency version resolved by the package manager.
 message AddDependencyResponse {
+  reserved 2;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
   // installed_version is the version resolved by the package manager.
   string installed_version = 3;
+  // failure is the sole structured cause when success is false.
+  codefly.base.v0.Failure failure = 4;
 }
 
 // RemoveDependencyRequest identifies a package to remove with the native package manager.
@@ -167,10 +204,12 @@ message RemoveDependencyRequest {
 
 // RemoveDependencyResponse reports whether the package manager removed the dependency.
 message RemoveDependencyResponse {
+  reserved 2;
+  reserved "error";
   // success is true when the requested operation completed successfully.
   bool success = 1;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 2;
+  // failure is the sole structured cause when success is false.
+  codefly.base.v0.Failure failure = 3;
 }
 
 // ── Project Metadata ────────────────────────────────────
@@ -180,6 +219,8 @@ message GetProjectInfoRequest {}
 
 // GetProjectInfoResponse returns language metadata useful for ingestion and planning.
 message GetProjectInfoResponse {
+  reserved 7;
+  reserved "error";
   // module is the Codefly module name that groups services.
   string module = 1;
   // language is the implementation language reported by tooling or project metadata.
@@ -192,8 +233,8 @@ message GetProjectInfoResponse {
   repeated Dependency dependencies = 5;
   // file_hashes maps source paths to hashes for change detection.
   map<string, string> file_hashes = 6;
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 7;
+  // failure is the sole structured cause when project inspection fails.
+  codefly.base.v0.Failure failure = 8;
 }
 
 // ── Dev Validation (require toolchain) ──────────────────
@@ -209,6 +250,8 @@ message BuildResponse {
   string output = 2;
   // diagnostics are compiler, linter, or language-server findings.
   repeated Diagnostic diagnostics = 3;
+  // failure classifies an unsuccessful build without parsing output.
+  codefly.base.v0.Failure failure = 4;
 }
 
 // TestRequest asks the agent to run native tests, optionally scoped by path.
@@ -237,6 +280,8 @@ message TestResponse {
   float coverage_pct = 7;
   // failures are concise failing test names or messages.
   repeated string failures = 8;
+  // failure classifies an unsuccessful test operation without parsing output.
+  codefly.base.v0.Failure failure = 9;
 }
 
 // LintRequest asks the agent to run native linting, optionally scoped to one file.
@@ -253,6 +298,8 @@ message LintResponse {
   string output = 2;
   // diagnostics are compiler, linter, or language-server findings.
   repeated Diagnostic diagnostics = 3;
+  // failure classifies an unsuccessful lint operation without parsing output.
+  codefly.base.v0.Failure failure = 4;
 }
 
 // ── Service Definition ─────────────────────────────────

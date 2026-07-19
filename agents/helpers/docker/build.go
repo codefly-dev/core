@@ -90,6 +90,7 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	// image gets pushed/referenced downstream.
 	scanner := bufio.NewScanner(imageBuildResponse.Body)
 	var buildErr string
+	diagnostics := newBuildDiagnostics(8, 6000)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
@@ -114,6 +115,7 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 			if len(out) == 0 {
 				continue
 			}
+			diagnostics.Add(out)
 			if _, err := builder.Output.Write([]byte(out)); err != nil {
 				w.Error("cannot write build output", wool.ErrField(err))
 				buildErr = err.Error()
@@ -125,9 +127,64 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 		return nil, w.Wrapf(err, "cannot read docker build output")
 	}
 	if buildErr != "" {
+		if detail := diagnostics.String(); detail != "" {
+			return nil, w.NewError("docker build failed: %s\nlast build output:\n%s", buildErr, detail)
+		}
 		return nil, w.NewError("docker build failed: %s", buildErr)
 	}
 	return &BuilderOutput{Image: builder.Destination.FullName()}, nil
+}
+
+type buildDiagnostics struct {
+	maxChunks int
+	maxBytes  int
+	chunks    []string
+}
+
+func newBuildDiagnostics(maxChunks, maxBytes int) *buildDiagnostics {
+	return &buildDiagnostics{maxChunks: maxChunks, maxBytes: maxBytes}
+}
+
+func (diagnostics *buildDiagnostics) Add(output string) {
+	if diagnostics == nil || diagnostics.maxChunks <= 0 || diagnostics.maxBytes <= 0 {
+		return
+	}
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return
+	}
+	if len(output) > diagnostics.maxBytes {
+		// Build tools commonly emit the actual cause first, followed by long
+		// usage/help text. Preserve that cause and a small ending for context.
+		end := diagnostics.maxBytes / 4
+		marker := "\n… output truncated …\n"
+		start := diagnostics.maxBytes - end - len(marker)
+		if start < 0 {
+			start = 0
+		}
+		output = output[:start] + marker + output[len(output)-end:]
+	}
+	diagnostics.chunks = append(diagnostics.chunks, output)
+	if len(diagnostics.chunks) > diagnostics.maxChunks {
+		diagnostics.chunks = append([]string(nil), diagnostics.chunks[len(diagnostics.chunks)-diagnostics.maxChunks:]...)
+	}
+}
+
+func (diagnostics *buildDiagnostics) String() string {
+	if diagnostics == nil {
+		return ""
+	}
+	joined := strings.Join(diagnostics.chunks, "\n")
+	if len(joined) <= diagnostics.maxBytes {
+		return joined
+	}
+	end := diagnostics.maxBytes / 4
+	marker := "\n… output truncated …\n"
+	start := diagnostics.maxBytes - end - len(marker)
+	if start < 0 {
+		start = 0
+	}
+	return joined[:start] + marker + joined[len(joined)-end:]
 }
 
 func (builder *Builder) readDockerignore(ctx context.Context) ([]string, error) {

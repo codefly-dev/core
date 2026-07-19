@@ -625,7 +625,7 @@ func TestCodeServer_ViaOverlay_ApplyEdit(t *testing.T) {
 	}
 	ae := resp.GetApplyEdit()
 	if !ae.Success {
-		t.Fatalf("apply edit failed: %s", ae.Error)
+		t.Fatalf("apply edit failed: %v", resp.GetFailure())
 	}
 
 	mainContent, _ := code.FileOps().ReadFile(ctx, "main.go")
