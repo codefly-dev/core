@@ -85,6 +85,10 @@ func (s *bwrapSandbox) Wrap(cmd *exec.Cmd) error {
 	}
 
 	args := s.buildArgs()
+	// The payload can live outside the declared data paths (for example in the
+	// per-user agent cache). Mount only the executable itself so the sandbox can
+	// start it without exposing sibling agents or the rest of the cache.
+	args = append(args, "--ro-bind", cmd.Path, cmd.Path)
 	args = append(args, "--")
 	args = append(args, cmd.Path)
 	args = append(args, cmd.Args[1:]...)

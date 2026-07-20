@@ -191,14 +191,15 @@ func TestBwrap_NetworkLoopback_UsesIsolatedNetwork(t *testing.T) {
 	}
 
 	sb = sb.WithNetwork(sandbox.NetworkLoopback)
-	cmd := exec.Command("/bin/echo", "hi")
+	cmd := exec.Command("/tmp/codefly-agent", "--fixture")
 	require.NoError(t, sb.Wrap(cmd))
 
 	args := strings.Join(cmd.Args, " ")
 	require.Contains(t, args, "--unshare-net",
 		"NetworkLoopback must request a fresh network namespace")
+	require.Contains(t, args, "--ro-bind /tmp/codefly-agent /tmp/codefly-agent")
 	require.NotContains(t, args, "ip link set lo up")
-	require.Equal(t, []string{"/bin/echo", "hi"}, cmd.Args[len(cmd.Args)-2:])
+	require.Equal(t, []string{"/tmp/codefly-agent", "--fixture"}, cmd.Args[len(cmd.Args)-2:])
 }
 
 func TestSandbox_Wrap_RefusesDoubleWrap(t *testing.T) {
