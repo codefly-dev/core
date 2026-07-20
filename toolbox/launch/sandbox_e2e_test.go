@@ -426,11 +426,9 @@ func TestE2E_NoSandbox_ChildShellAllowsForbiddenWrite(t *testing.T) {
 	require.NoError(t, err, "control child-write must produce the file on disk")
 }
 
-// The Loopback-policy E2E test (network-handshake counterpart of
-// the write-blocking test) lives in sandbox_e2e_loopback_darwin_test.go
-// — darwin-only because bwrap (Linux) doesn't support
-// NetworkLoopback yet. See project_security_e2e.md for the netns
-// follow-up.
+// The Seatbelt-specific Loopback-policy E2E test lives in
+// sandbox_e2e_loopback_darwin_test.go. Linux bwrap startup under
+// NetworkLoopback is exercised by the production session test.
 
 // resolveSymlinks returns the symlink-resolved absolute path. On
 // macOS t.TempDir paths are symlinks; the sandbox profile matches

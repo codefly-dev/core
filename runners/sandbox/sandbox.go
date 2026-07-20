@@ -29,12 +29,8 @@ const (
 	//
 	// Backend status:
 	//   macOS sandbox-exec — implemented (rule on localhost ip).
-	//   Linux bwrap        — NOT implemented; needs `ip link set lo up`
-	//                        inside the unshared netns (the new netns
-	//                        has lo DOWN by default). Falls back to
-	//                        a clear error from Wrap so callers see
-	//                        the limitation rather than silent
-	//                        under/over-permissive behavior.
+	//   Linux bwrap        — implemented with bwrap's isolated network
+	//                        namespace and configured loopback device.
 	NetworkLoopback
 )
 

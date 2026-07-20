@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -16,17 +17,16 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
 
-// Secret values live in *.secret.* files as either a literal plaintext value
-// (the local/dev-only escape hatch — unencrypted on disk) or a reference the
-// configured backend resolves at Load() time. A reference is a URI whose
-// scheme names a secret provider:
+// Legacy *.secret.* files accept either local plaintext or provider references.
+// Files named *.secret.ref.* are validated by the local reader so every value
+// must be a reference. A reference is a URI whose scheme names a provider:
 //
 //	client_secret: op://dev-vault/auth0/client_secret
 //
-// References are safe to commit; the resolved value never touches disk. Only
-// known schemes are treated as references — a plaintext value that happens to
-// contain "://" (a postgres:// URL, say) is passed through untouched. The
-// resolver seam (SecretResolver) is designed so more backends can be added.
+// Reference-only manifests are safe to commit; legacy secret files are not.
+// Resolved values never touch disk. In legacy files only known schemes are
+// references, so a postgres:// plaintext value still passes through. The
+// SecretResolver seam allows additional backends without changing loaders.
 const OnePasswordScheme = "op"
 
 // ProviderOnePassword is the `secrets.kind` that selects the 1Password backend.
@@ -43,15 +43,46 @@ type SecretReference struct {
 	Raw    string
 }
 
-// ParseSecretReference reports whether value is a known secret reference and,
-// if so, splits it into scheme and path. Unknown schemes return false so the
-// value is treated as plaintext.
+// ParseSecretReference reports whether value is a known, non-empty secret
+// reference and, if so, splits it into scheme and path. Unknown schemes return
+// false so legacy secret files continue to treat them as plaintext.
 func ParseSecretReference(value string) (*SecretReference, bool) {
 	scheme, path, found := strings.Cut(value, "://")
-	if !found || !secretReferenceSchemes[scheme] {
+	if !found || path == "" || !secretReferenceSchemes[scheme] {
 		return nil, false
 	}
 	return &SecretReference{Scheme: scheme, Path: path, Raw: value}, true
+}
+
+func validateReferenceOnlySecret(value string) error {
+	if _, ok := ParseSecretReference(value); ok {
+		return nil
+	}
+	scheme, _, found := strings.Cut(value, "://")
+	if !found || !validURIScheme(scheme) {
+		return fmt.Errorf("plaintext is not allowed; use a supported provider reference")
+	}
+	if !secretReferenceSchemes[scheme] {
+		return fmt.Errorf("unknown secret provider scheme %q", scheme)
+	}
+	return fmt.Errorf("invalid %q secret provider reference", scheme)
+}
+
+func validURIScheme(scheme string) bool {
+	if scheme == "" || !asciiLetter(scheme[0]) {
+		return false
+	}
+	for i := 1; i < len(scheme); i++ {
+		c := scheme[i]
+		if !asciiLetter(c) && (c < '0' || c > '9') && c != '+' && c != '-' && c != '.' {
+			return false
+		}
+	}
+	return true
+}
+
+func asciiLetter(c byte) bool {
+	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z'
 }
 
 // SecretResolver resolves references for a single backend.
@@ -61,8 +92,8 @@ type SecretResolver interface {
 }
 
 // ResolversFromEnvironment builds the secret resolvers an environment selects
-// via its `secrets` block. No providers means plaintext-only (no resolvers):
-// secret values are used verbatim from the files.
+// via its `secrets` block. With no providers, legacy plaintext remains verbatim
+// while any provider reference fails during resolution.
 func ResolversFromEnvironment(env *resources.Environment) ([]SecretResolver, error) {
 	if env == nil {
 		return nil, nil
@@ -106,18 +137,17 @@ func (r *OnePasswordResolver) Resolve(ctx context.Context, ref *SecretReference)
 // runCommand runs a resolver's CLI and returns its stdout with a single
 // trailing newline stripped — the one the CLI appends. Leading and internal
 // whitespace is preserved so a multi-line secret (a PEM key, say) survives
-// intact. Only stderr is surfaced on failure so a resolved secret value never
-// reaches an error or a log.
+// intact. Provider output is suppressed on failure because neither stream is
+// guaranteed to be free of secret material.
 func runCommand(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	var stdout, stderr bytes.Buffer
+	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return "", fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, msg)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", fmt.Errorf("secret provider command %q canceled: %w", name, ctxErr)
 		}
-		return "", fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+		return "", fmt.Errorf("secret provider command %q failed: %w", name, err)
 	}
 	out := strings.TrimSuffix(stdout.String(), "\n")
 	out = strings.TrimSuffix(out, "\r")
@@ -130,6 +160,19 @@ type secretResolution struct {
 	resolvers map[string]SecretResolver
 	cache     map[string]string
 	warned    map[string]bool
+}
+
+type secretResolverFailure struct {
+	scheme string
+	cause  error
+}
+
+func (failure *secretResolverFailure) Error() string {
+	return fmt.Sprintf("secret provider %q failed", failure.scheme)
+}
+
+func (failure *secretResolverFailure) Unwrap() error {
+	return failure.cause
 }
 
 func newSecretResolution(resolvers []SecretResolver) *secretResolution {
@@ -148,11 +191,11 @@ func (e *secretResolution) resolve(ctx context.Context, ref *SecretReference) (s
 	}
 	resolver, ok := e.resolvers[ref.Scheme]
 	if !ok {
-		return "", fmt.Errorf("secret reference %q requires the %q backend, which is not configured for this environment", ref.Raw, ref.Scheme)
+		return "", fmt.Errorf("secret reference using scheme %q requires a backend that is not configured", ref.Scheme)
 	}
 	v, err := resolver.Resolve(ctx, ref)
 	if err != nil {
-		return "", err
+		return "", &secretResolverFailure{scheme: ref.Scheme, cause: err}
 	}
 	e.cache[ref.Raw] = v
 	return v, nil
@@ -180,7 +223,7 @@ func (e *secretResolution) resolveConfiguration(ctx context.Context, conf *basev
 			}
 			resolved, changed, err := e.resolveString(ctx, value.Value)
 			if err != nil {
-				return err
+				return fmt.Errorf("configuration %q key %q from %q: %w", info.Name, value.Key, conf.Origin, err)
 			}
 			if changed {
 				value.Value = resolved
@@ -190,7 +233,7 @@ func (e *secretResolution) resolveConfiguration(ctx context.Context, conf *basev
 		}
 		if info.Data != nil && info.Data.Secret {
 			if err := e.resolveData(ctx, info.Data, env, conf.Origin); err != nil {
-				return err
+				return fmt.Errorf("configuration %q from %q: %w", info.Name, conf.Origin, err)
 			}
 		}
 	}
@@ -216,7 +259,7 @@ func (e *secretResolution) resolveData(ctx context.Context, data *basev0.Configu
 	default:
 		return nil
 	}
-	resolved, changed, err := e.resolveNode(ctx, node)
+	resolved, changed, err := e.resolveNode(ctx, node, "$")
 	if err != nil {
 		return err
 	}
@@ -238,14 +281,23 @@ func (e *secretResolution) resolveData(ctx context.Context, data *basev0.Configu
 	return nil
 }
 
-func (e *secretResolution) resolveNode(ctx context.Context, node any) (any, bool, error) {
+func (e *secretResolution) resolveNode(ctx context.Context, node any, keyPath string) (any, bool, error) {
 	switch v := node.(type) {
 	case string:
-		return e.resolveString(ctx, v)
+		resolved, changed, err := e.resolveString(ctx, v)
+		if err != nil {
+			return nil, false, fmt.Errorf("secret at %s: %w", keyPath, err)
+		}
+		return resolved, changed, nil
 	case map[string]any:
 		changed := false
-		for key, val := range v {
-			nv, c, err := e.resolveNode(ctx, val)
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			nv, c, err := e.resolveNode(ctx, v[key], appendSecretKeyPath(keyPath, key))
 			if err != nil {
 				return nil, false, err
 			}
@@ -257,8 +309,15 @@ func (e *secretResolution) resolveNode(ctx context.Context, node any) (any, bool
 		return v, changed, nil
 	case map[any]any:
 		changed := false
-		for key, val := range v {
-			nv, c, err := e.resolveNode(ctx, val)
+		keys := make([]any, 0, len(v))
+		for key := range v {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			return fmt.Sprintf("%T:%v", keys[i], keys[i]) < fmt.Sprintf("%T:%v", keys[j], keys[j])
+		})
+		for _, key := range keys {
+			nv, c, err := e.resolveNode(ctx, v[key], appendSecretKeyPath(keyPath, fmt.Sprint(key)))
 			if err != nil {
 				return nil, false, err
 			}
@@ -271,7 +330,7 @@ func (e *secretResolution) resolveNode(ctx context.Context, node any) (any, bool
 	case []any:
 		changed := false
 		for i, val := range v {
-			nv, c, err := e.resolveNode(ctx, val)
+			nv, c, err := e.resolveNode(ctx, val, fmt.Sprintf("%s[%d]", keyPath, i))
 			if err != nil {
 				return nil, false, err
 			}
@@ -284,6 +343,10 @@ func (e *secretResolution) resolveNode(ctx context.Context, node any) (any, bool
 	default:
 		return node, false, nil
 	}
+}
+
+func appendSecretKeyPath(keyPath, key string) string {
+	return fmt.Sprintf("%s[%q]", keyPath, key)
 }
 
 // warnPlaintext flags a plaintext secret used where a backend is configured.
