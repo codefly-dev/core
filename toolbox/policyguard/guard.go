@@ -509,9 +509,10 @@ func (g *Guard) tryVerifyScopedAuthWith(
 	if err != nil {
 		return nil, true, err
 	}
-	// Resource is already a mandatory first-class scoped-auth claim. Register
-	// the typed caveat verifier when present, but do not require a redundant
-	// caveat from low-level hosts that bind the exact Resource claim directly.
+	// Organization and resource are signed first-class scoped-auth claims.
+	// Register their typed caveat verifiers when present, but do not require
+	// redundant caveats from low-level hosts that bind the exact claims directly.
+	verification.Required = withoutString(verification.Required, string(policy.CaveatOrganizationID))
 	verification.Required = withoutString(verification.Required, string(policy.CaveatResourceBinding))
 	verification.Verifiers, err = mergeCaveatVerifiers(verification.Verifiers, verifiers)
 	if err != nil {

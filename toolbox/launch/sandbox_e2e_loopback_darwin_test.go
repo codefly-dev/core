@@ -1,15 +1,7 @@
 //go:build sandbox_e2e && darwin
 
-// Loopback policy E2E — darwin-only because bwrap (Linux) doesn't
-// support NetworkLoopback yet (lo is DOWN in the unshared netns,
-// bringing it up needs a netns helper not yet implemented). On
-// macOS it works via sandbox-exec's localhost rule. Splitting this
-// into a darwin-tagged file replaces a runtime t.Fatal on Linux —
-// per the no-t.Skip rule, missing-platform-support is expressed as
-// a build tag, not a runtime skip-or-fail.
-//
-// Linux follow-up: the netns-loopback helper. See
-// project_security_e2e.md.
+// Seatbelt-specific Loopback policy E2E. Linux bwrap startup under
+// NetworkLoopback is exercised by the production session test.
 package launch_test
 
 import (

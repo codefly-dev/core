@@ -91,6 +91,24 @@ func TestGuard_FastPath_ValidToken_SkipsPDP(t *testing.T) {
 		"fast path: PDP must NOT be consulted when token is valid")
 }
 
+func TestGuard_FastPath_PrincipalOrganizationUsesSignedClaim(t *testing.T) {
+	secret := policy.NewSpawnSecret()
+	inner := &recordingToolboxServer{}
+	guard := policyguard.NewWithScopedAuth(inner, testharness.NewFakeDeny(),
+		"test-toolbox", secret, "codefly.dev/test:1.0")
+
+	token := mintForTest(t, secret, "git.status", "", "codefly.dev/test:1.0", time.Minute)
+	ctx := policy.WithPrincipal(context.Background(), &policy.Principal{
+		ID: "u-antoine", Kind: policy.KindHuman, OrgID: "org",
+	})
+	ctx = ctxWithScopedAuth(ctx, token)
+
+	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	require.NoError(t, err)
+	require.Empty(t, resp.Error)
+	require.Len(t, inner.calls, 1)
+}
+
 func TestGuard_FastPath_StampsScopedAuthOnCtx(t *testing.T) {
 	secret := policy.NewSpawnSecret()
 	inner := &recordingToolboxServer{}

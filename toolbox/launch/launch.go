@@ -189,9 +189,8 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 //
 // Both backends now implement NetworkLoopback:
 //   - macOS sandbox-exec: rule on the localhost ip
-//   - Linux bwrap: --unshare-net + a /bin/sh preamble that runs
-//     `ip link set lo up` before execing the payload (uses
-//     CAP_NET_ADMIN inside the unprivileged user namespace).
+//   - Linux bwrap: an isolated network namespace whose configured
+//     interface is loopback.
 //
 // The native (no-op) sandbox is used as a fallback when the host
 // has no enforcing backend. That preserves the existing behavior on
@@ -200,15 +199,9 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 func buildSandbox(t *resources.Toolbox, workspace string) (sandbox.Sandbox, error) {
 	// Empty local-development policy → no sandbox (unconfined).
 	//
-	// NOTE: an earlier revision made this fail-closed (empty policy → a
-	// loopback-network sandbox). That broke plugin spawn on Linux: bwrap's
-	// NetworkLoopback runs `ip link set lo up`, which needs CAP_NET_ADMIN that
-	// CI (and many prod Linux user-namespaces) lack — the agent then fails its
-	// handshake ("RTNETLINK answers: Operation not permitted"). The fail-closed
-	// flip is a real deployment-wide migration (it needs the bwrap-loopback
-	// capability story solved first), not a mechanical default change, so it is
-	// intentionally NOT enabled here. Callers that want confinement declare a
-	// policy; callers that want an unconfined process can pass SkipSandbox.
+	// Empty policy remains the explicit local-development contract. Callers that
+	// want confinement declare a policy; callers that want an unconfined process
+	// can pass SkipSandbox.
 	if isEmptyPolicy(t) {
 		return nil, nil
 	}
