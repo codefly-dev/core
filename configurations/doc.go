@@ -22,6 +22,12 @@
 //
 // # Secrets
 //
+// Git worktrees share repository history but not ignored files. Copying or
+// symlinking plaintext secrets from another checkout makes that checkout a
+// secret authority and exposes credentials to every process that can read the
+// worktree. Reference-only manifests separate commit-safe discovery data from
+// resolved credentials.
+//
 // Files named *.secret.ref.env and *.secret.ref.yaml are reference-only secret
 // manifests. Every value, including every scalar nested in YAML maps and
 // arrays, must be a recognized provider reference:
@@ -32,6 +38,11 @@
 //	# database.secret.ref.yaml
 //	credentials:
 //	  password: op://development-vault/database/password
+//
+// Both names map to the configuration name before .secret.ref and are always
+// secret. Their contract applies in local environments too, and mixing either
+// format with a plaintext-capable source for the same logical configuration is
+// a load error.
 //
 // Backends are selected per environment via workspace.codefly.yaml. It is a
 // list so more backends can be added later:
@@ -57,6 +68,17 @@
 // be copied or symlinked between worktrees. A locked, unavailable, or
 // misconfigured provider fails closed; Codefly does not fall back to raw
 // environment variables or values from a worktree manager.
+//
+// Project ignore rules should include:
+//
+//	*.secret.env
+//	*.secret.yaml
+//
+// Manager.Restrict prevents resolution for excluded service origins. Workspace
+// configurations are currently resolved during Manager.Load, before dependency
+// names passed later to GetWorkspaceDependenciesConfigurations are known.
+// Reference-only manifests do not change the loader's existing symlink
+// traversal policy; filesystem and repository permissions remain the boundary.
 //
 // Git owns the non-secret manifest and workspace configuration, Core validates
 // and resolves only provider references, the CLI selects the declared
