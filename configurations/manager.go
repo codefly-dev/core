@@ -111,6 +111,9 @@ func (manager *Manager) resolveSecrets(ctx context.Context, env *resources.Envir
 	resolution := newSecretResolution(resolvers)
 	for _, loader := range manager.loaders {
 		for _, conf := range loader.Configurations() {
+			if conf.Origin != resources.ConfigurationWorkspace && manager.skip(conf.Origin) {
+				continue
+			}
 			if err := resolution.resolveConfiguration(ctx, conf, env); err != nil {
 				return w.Wrapf(err, "cannot resolve secrets from loader %s", loader.Identity())
 			}
@@ -155,9 +158,14 @@ func (manager *Manager) GetWorkspaceConfigurations(_ context.Context) ([]*basev0
 	if manager == nil {
 		return nil, nil
 	}
-	var out []*basev0.Configuration
-	for _, conf := range manager.worspaceConfigurations {
-		out = append(out, conf)
+	names := make([]string, 0, len(manager.worspaceConfigurations))
+	for name := range manager.worspaceConfigurations {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	out := make([]*basev0.Configuration, 0, len(names))
+	for _, name := range names {
+		out = append(out, manager.worspaceConfigurations[name])
 	}
 	return out, nil
 }
@@ -186,9 +194,14 @@ func (manager *Manager) GetServiceConfigurations(_ context.Context) ([]*basev0.C
 	if manager == nil {
 		return nil, nil
 	}
-	var out []*basev0.Configuration
-	for _, conf := range manager.serviceConfigurations {
-		out = append(out, conf)
+	origins := make([]string, 0, len(manager.serviceConfigurations))
+	for origin := range manager.serviceConfigurations {
+		origins = append(origins, origin)
+	}
+	slices.Sort(origins)
+	out := make([]*basev0.Configuration, 0, len(origins))
+	for _, origin := range origins {
+		out = append(out, manager.serviceConfigurations[origin])
 	}
 	return out, nil
 }

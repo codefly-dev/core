@@ -52,9 +52,9 @@ type EnvironmentRegistry struct {
 }
 
 // EnvironmentSecretProvider configures one secret backend for an environment.
-// With a backend configured, secret values in *.secret.* files are references
-// (op://…) resolved at Load() time through the backend's CLI; nothing secret
-// is written to disk. It is a list so more backends can be added later.
+// Values in *.secret.ref.* manifests are references (op://…) resolved at Load
+// time through the backend's CLI; nothing secret is written to disk. It is a
+// list so more backends can be added later.
 //
 //	Kind:    "1password".
 //	Account: 1Password account shorthand passed as `op --account`.
@@ -77,8 +77,9 @@ type Environment struct {
 	Registry  *EnvironmentRegistry `yaml:"registry,omitempty"`
 	Namespace string               `yaml:"namespace,omitempty"`
 
-	// Secrets lists the secret backends for this environment. Empty means
-	// plaintext *.secret.* files (local-only). CLI-side; not serialized to proto.
+	// Secrets lists the secret backends for this environment. Reference-only
+	// manifests fail when their backend is absent. Legacy plaintext *.secret.*
+	// files remain local-only. CLI-side; not serialized to proto.
 	Secrets []*EnvironmentSecretProvider `yaml:"secrets,omitempty"`
 }
 

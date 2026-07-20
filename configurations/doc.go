@@ -22,11 +22,16 @@
 //
 // # Secrets
 //
-// Secret values (from *.secret.env / *.secret.yaml files) may be either
-// literal plaintext or a reference the environment's secret backend
-// resolves at Load() time:
+// Files named *.secret.ref.env and *.secret.ref.yaml are reference-only secret
+// manifests. Every value, including every scalar nested in YAML maps and
+// arrays, must be a recognized provider reference:
 //
-//	client_secret: op://dev-vault/auth0/client_secret # 1Password
+//	# auth.secret.ref.env
+//	CLIENT_SECRET=op://development-vault/auth-service/client-secret
+//
+//	# database.secret.ref.yaml
+//	credentials:
+//	  password: op://development-vault/database/password
 //
 // Backends are selected per environment via workspace.codefly.yaml. It is a
 // list so more backends can be added later:
@@ -37,16 +42,26 @@
 //	      - kind: 1password
 //	        account: my-team
 //
-// References are safe to commit and resolved in memory — the plaintext
-// value never touches disk. A reference whose backend is not configured
-// for the environment fails the load rather than leaking the raw URI.
+// Reference-only manifests are safe to commit by construction: plaintext,
+// unknown schemes, malformed references, duplicate legacy/reference sources,
+// and references without a configured backend all fail the load. Provider
+// output is resolved in memory and is never written back to the manifest or
+// included in provider failure output. A subsequent load resolves the stable
+// reference again, so provider-side rotation requires no Git change.
 //
 // 1Password is the only backend today; SecretResolver is the seam for
 // adding AWS Secrets Manager, Doppler, Vault, etc.
 //
-// Plaintext secret values still work (the CONNECTION=postgres://… escape
-// hatch), but they sit unencrypted on disk and are local/dev-only; a
-// plaintext secret used against a configured backend in a non-local
-// environment is logged as a warning. See secrets.go (SecretResolver,
-// ParseSecretReference, ResolversFromEnvironment).
+// Legacy *.secret.env and *.secret.yaml files remain a local plaintext escape
+// hatch. They are ambiguous by design, must stay ignored by Git, and must not
+// be copied or symlinked between worktrees. A locked, unavailable, or
+// misconfigured provider fails closed; Codefly does not fall back to raw
+// environment variables or values from a worktree manager.
+//
+// Git owns the non-secret manifest and workspace configuration, Core validates
+// and resolves only provider references, the CLI selects the declared
+// environment, and applications consume only the configuration Codefly routes
+// to them. Worktree managers may run readiness checks but do not provision
+// plaintext. See secrets.go (SecretResolver, ParseSecretReference,
+// ResolversFromEnvironment).
 package configurations
