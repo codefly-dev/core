@@ -82,6 +82,19 @@ func TestOnePasswordResolver(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOnePasswordResolverClassifiesAuthenticationWithoutLeakingOutput(t *testing.T) {
+	const canary = "PROVIDER_AUTH_OUTPUT_CANARY"
+	r := NewOnePasswordResolver("")
+	r.bin = writeStub(t, "op", "#!/bin/sh\nprintf 'you are not currently signed in "+canary+"' 1>&2\nexit 1\n")
+	ref, ok := ParseSecretReference("op://dev-vault/item/field")
+	require.True(t, ok)
+
+	_, err := r.Resolve(context.Background(), ref)
+	require.ErrorIs(t, err, ErrSecretProviderAuthenticationRequired)
+	require.NotContains(t, err.Error(), canary)
+	require.NotContains(t, err.Error(), ref.Raw)
+}
+
 // Only the single trailing newline the CLI appends is stripped; the secret's
 // own internal newlines (a PEM key, say) survive intact.
 func TestResolverPreservesMultilineSecret(t *testing.T) {

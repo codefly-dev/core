@@ -207,6 +207,7 @@ func TestReferenceOnlyManifestRejectsDuplicateSecretDefinitionsDeterministically
 	_, firstErr := configurations.LoadConfigurationInformationsFromFiles(context.Background(), dir)
 	_, secondErr := configurations.LoadConfigurationInformationsFromFiles(context.Background(), dir)
 	require.Error(t, firstErr)
+	require.ErrorIs(t, firstErr, configurations.ErrConfigurationConflict)
 	require.EqualError(t, secondErr, firstErr.Error())
 	require.Contains(t, firstErr.Error(), `configuration "database"`)
 	require.Contains(t, firstErr.Error(), "database.secret.env")
@@ -220,6 +221,7 @@ func TestConfigurationDataDefinitionErrorsIncludeBothSources(t *testing.T) {
 
 	_, err := configurations.LoadConfigurationInformationsFromFiles(context.Background(), dir)
 	require.Error(t, err)
+	require.ErrorIs(t, err, configurations.ErrConfigurationConflict)
 	require.Contains(t, err.Error(), `configuration "database"`)
 	require.Contains(t, err.Error(), "database.yaml")
 	require.Contains(t, err.Error(), "database.secret.ref.env")

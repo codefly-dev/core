@@ -3,6 +3,7 @@ package configurations
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,11 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/wool"
 )
+
+// ErrConfigurationConflict marks configuration definitions that cannot be
+// composed into one logical configuration. Callers should use errors.Is
+// instead of matching the human-readable diagnostic.
+var ErrConfigurationConflict = errors.New("configuration definitions conflict")
 
 type ConfigurationInformationWrapper struct {
 	*basev0.ConfigurationInformation
@@ -306,24 +312,24 @@ func validateConfigurationDefinitions(files []*configurationFile) error {
 		if file.secret {
 			if file.referenceOnly {
 				if definition.reference != "" {
-					return fmt.Errorf("configuration %q has duplicate reference-only secret definitions in %q and %q", file.name, definition.reference, file.relative)
+					return fmt.Errorf("configuration %q has duplicate reference-only secret definitions in %q and %q: %w", file.name, definition.reference, file.relative, ErrConfigurationConflict)
 				}
 				if definition.legacy != "" {
-					return fmt.Errorf("configuration %q is defined by plaintext-capable secret file %q and reference-only manifest %q", file.name, definition.legacy, file.relative)
+					return fmt.Errorf("configuration %q is defined by plaintext-capable secret file %q and reference-only manifest %q: %w", file.name, definition.legacy, file.relative, ErrConfigurationConflict)
 				}
 				definition.reference = file.relative
 			} else {
 				if definition.reference != "" {
-					return fmt.Errorf("configuration %q is defined by reference-only manifest %q and plaintext-capable secret file %q", file.name, definition.reference, file.relative)
+					return fmt.Errorf("configuration %q is defined by reference-only manifest %q and plaintext-capable secret file %q: %w", file.name, definition.reference, file.relative, ErrConfigurationConflict)
 				}
 				definition.legacy = file.relative
 			}
 		}
 		if file.kind == "yaml" && definition.first != "" {
-			return fmt.Errorf("configuration %q has incompatible data definitions in %q and %q", file.name, definition.first, file.relative)
+			return fmt.Errorf("configuration %q has incompatible data definitions in %q and %q: %w", file.name, definition.first, file.relative, ErrConfigurationConflict)
 		}
 		if definition.data != "" {
-			return fmt.Errorf("configuration %q has incompatible data definitions in %q and %q", file.name, definition.data, file.relative)
+			return fmt.Errorf("configuration %q has incompatible data definitions in %q and %q: %w", file.name, definition.data, file.relative, ErrConfigurationConflict)
 		}
 		if definition.first == "" {
 			definition.first = file.relative
@@ -461,8 +467,7 @@ func ExtractFromPath(p string) string {
 }
 
 // ConsolidateInfo consolidate informations values per name
-func ConsolidateInfo(ctx context.Context, infos []*basev0.ConfigurationInformation) ([]*basev0.ConfigurationInformation, error) {
-	w := wool.Get(ctx).In("provider.ConsolidateInfo")
+func ConsolidateInfo(_ context.Context, infos []*basev0.ConfigurationInformation) ([]*basev0.ConfigurationInformation, error) {
 	ordered := append([]*basev0.ConfigurationInformation(nil), infos...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		return ordered[i].Name < ordered[j].Name
@@ -471,13 +476,13 @@ func ConsolidateInfo(ctx context.Context, infos []*basev0.ConfigurationInformati
 	for _, info := range ordered {
 		if info.Data != nil {
 			if _, found := consolidated[info.Name]; found {
-				return nil, w.NewError("duplicate configuration data: %s", info.Name)
+				return nil, fmt.Errorf("duplicate configuration data: %s: %w", info.Name, ErrConfigurationConflict)
 			}
 			consolidated[info.Name] = info
 			continue
 		}
 		if existing, ok := consolidated[info.Name]; ok && existing.Data != nil {
-			return nil, w.NewError("duplicate configuration data: %s", info.Name)
+			return nil, fmt.Errorf("duplicate configuration data: %s: %w", info.Name, ErrConfigurationConflict)
 		}
 		if _, ok := consolidated[info.Name]; !ok {
 			consolidated[info.Name] = &basev0.ConfigurationInformation{

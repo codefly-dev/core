@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -31,6 +33,13 @@ const OnePasswordScheme = "op"
 
 // ProviderOnePassword is the `secrets.kind` that selects the 1Password backend.
 const ProviderOnePassword = "1password"
+
+// ErrSecretProviderAuthenticationRequired marks a provider failure that can
+// be resolved by authenticating or unlocking the provider. Provider output is
+// intentionally not exposed through the returned error.
+var ErrSecretProviderAuthenticationRequired = errors.New("secret provider authentication required")
+
+var providerAuthenticationPattern = regexp.MustCompile(`(?i)(sign ?in|signed in|authenticat|authoriz|session|biometric|locked|no account|account is not)`)
 
 var secretReferenceSchemes = map[string]bool{
 	OnePasswordScheme: true,
@@ -142,10 +151,15 @@ func (r *OnePasswordResolver) Resolve(ctx context.Context, ref *SecretReference)
 func runCommand(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	var stdout bytes.Buffer
+	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return "", fmt.Errorf("secret provider command %q canceled: %w", name, ctxErr)
+		}
+		if providerAuthenticationPattern.Match(stderr.Bytes()) {
+			return "", fmt.Errorf("secret provider command %q failed: %w", name, ErrSecretProviderAuthenticationRequired)
 		}
 		return "", fmt.Errorf("secret provider command %q failed: %w", name, err)
 	}
