@@ -483,8 +483,7 @@ func ConfigurationAsRawEnvironmentVariables(conf *basev0.Configuration) []*Envir
 }
 
 func ServiceConfigurationKeyFromUnique(unique string, name string, key string) string {
-	k := fmt.Sprintf("%s__%s__%s", ServiceConfigurationEnvironmentKeyPrefixFromUnique(unique), name, key)
-	return strings.ToUpper(k)
+	return fmt.Sprintf("%s__%s__%s", ServiceConfigurationEnvironmentKeyPrefixFromUnique(unique), NameToKey(name), NameToKey(key))
 }
 
 func ServiceConfigurationKey(service *ServiceIdentity, name string, key string) string {
@@ -492,8 +491,7 @@ func ServiceConfigurationKey(service *ServiceIdentity, name string, key string) 
 }
 
 func ServiceSecretConfigurationKeyFromUnique(unique string, name string, key string) string {
-	k := fmt.Sprintf("%s__%s__%s", ServiceSecretConfigurationEnvironmentKeyPrefixFromUnique(unique), name, key)
-	return strings.ToUpper(k)
+	return fmt.Sprintf("%s__%s__%s", ServiceSecretConfigurationEnvironmentKeyPrefixFromUnique(unique), NameToKey(name), NameToKey(key))
 }
 
 func ServiceSecretConfigurationKey(service *ServiceIdentity, name string, key string) string {
@@ -501,7 +499,7 @@ func ServiceSecretConfigurationKey(service *ServiceIdentity, name string, key st
 }
 
 func NameToKey(name string) string {
-	return strings.ToUpper(name)
+	return strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 }
 
 func ConfigurationEnvironmentKeyPrefix(conf *basev0.Configuration) string {

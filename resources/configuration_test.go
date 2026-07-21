@@ -69,3 +69,31 @@ func TestServiceConfigurationsAsEnvironmentVariables(t *testing.T) {
 	}
 	require.ElementsMatch(t, resources.EnvironmentVariableAsStrings(envs), needs)
 }
+
+func TestConfigurationEnvironmentKeysNormalizeHyphens(t *testing.T) {
+	conf := &basev0.Configuration{
+		Origin: "coordination/work-coordinator",
+		Infos: []*basev0.ConfigurationInformation{{
+			Name: "mutation-permit",
+			ConfigurationValues: []*basev0.ConfigurationValue{{
+				Key: "ed25519-seed-base64", Value: "redacted", Secret: true,
+			}},
+		}},
+	}
+
+	emitted := resources.ConfigurationAsEnvironmentVariables(conf, true)
+	require.Equal(t,
+		"CODEFLY__SERVICE_SECRET_CONFIGURATION__COORDINATION__WORK_COORDINATOR__MUTATION_PERMIT__ED25519_SEED_BASE64=redacted",
+		requireSingleEnvironmentVariable(t, emitted),
+	)
+	require.Equal(t,
+		"CODEFLY__SERVICE_SECRET_CONFIGURATION__COORDINATION__WORK_COORDINATOR__MUTATION_PERMIT__ED25519_SEED_BASE64",
+		resources.ServiceSecretConfigurationKeyFromUnique("coordination/work-coordinator", "mutation-permit", "ed25519-seed-base64"),
+	)
+}
+
+func requireSingleEnvironmentVariable(t *testing.T, envs []*resources.EnvironmentVariable) string {
+	t.Helper()
+	require.Len(t, envs, 1)
+	return envs[0].String()
+}
