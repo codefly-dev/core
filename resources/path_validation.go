@@ -118,6 +118,21 @@ func (mod *Module) validatePaths() error {
 	if err := validateResourcePathOverride("module", mod.PathOverride); err != nil {
 		return err
 	}
+	if mod.ServiceEntry != "" {
+		if err := validateResourcePathComponent("service entry", mod.ServiceEntry); err != nil {
+			return err
+		}
+		found := false
+		for _, ref := range mod.ServiceReferences {
+			if ref.Name == mod.ServiceEntry {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("module service entry %q does not reference a declared service", mod.ServiceEntry)
+		}
+	}
 	for _, ref := range mod.ServiceReferences {
 		if err := validateServiceReferencePath(ref); err != nil {
 			return err

@@ -48,6 +48,11 @@ type Module struct {
 
 	Description string `yaml:"description,omitempty"`
 
+	// ServiceEntry is the module's default runnable service. Commands that
+	// operate from the module or a single-module workspace can use it without
+	// prompting the user to choose from every service in the module.
+	ServiceEntry string `yaml:"service-entry,omitempty"`
+
 	// Module interface: the formal contract for what this module exposes
 	Interface *ModuleInterface `yaml:"interface,omitempty"`
 
@@ -71,8 +76,9 @@ func (mod *Module) Unique() string {
 
 func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
 	proto := &basev0.Module{
-		Name:        mod.Name,
-		Description: mod.Description,
+		Name:         mod.Name,
+		Description:  mod.Description,
+		ServiceEntry: mod.ServiceEntry,
 	}
 
 	// Convert interface
