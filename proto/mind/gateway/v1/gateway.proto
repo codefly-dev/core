@@ -4,6 +4,7 @@ package mind.gateway.v1;
 option go_package = "github.com/codefly-dev/core/generated/go/mind/gateway/v1;gatewayv1";
 
 import "codefly/base/v0/source.proto";
+import "codefly/services/runtime/v0/runtime.proto";
 import "google/protobuf/timestamp.proto";
 
 // Gateway is the ONLY service Mind talks to.
@@ -57,6 +58,18 @@ service Gateway {
 
   // BatchApplyEdits applies multiple edits atomically across files/services.
   rpc BatchApplyEdits(BatchApplyEditsRequest) returns (BatchApplyEditsResponse);
+
+  // ConfigureMutationAuthority pins the SaaS coordinator verification key and
+  // this gateway's workspace identity before prepared mutations are allowed.
+  rpc ConfigureMutationAuthority(ConfigureMutationAuthorityRequest) returns (ConfigureMutationAuthorityResponse);
+
+  // PrepareMutation resolves one proposed edit against current project bytes
+  // without writing them and seals the exact result behind a content digest.
+  rpc PrepareMutation(PrepareMutationRequest) returns (PrepareMutationResponse);
+
+  // ApplyPreparedMutation verifies the prepared digest, current resource
+  // preconditions, and a coordinator-signed fenced permit before one write.
+  rpc ApplyPreparedMutation(ApplyPreparedMutationRequest) returns (ApplyPreparedMutationResponse);
 
   // ─── Search ─────────────────────────────────────────────────
 
@@ -242,7 +255,8 @@ enum WorkspaceChangeOperation {
 }
 
 // WorkspaceChangeCursor resumes one monitor epoch after an acknowledged
-// sequence. Both fields are required together; an empty cursor starts live.
+// sequence. Both fields are required together; an empty cursor first emits an
+// explicit rescan because the consumer cannot prove prior completeness.
 message WorkspaceChangeCursor {
   string source_id = 1;
   uint64 sequence = 2;
@@ -262,7 +276,9 @@ message WorkspaceChange {
   string reason = 4;
 }
 
-// WorkspaceChangeEvent is one deterministic coalesced watcher batch.
+// WorkspaceChangeEvent is one durable watcher cursor position. Current
+// producers emit one canonical change per position so downstream journals can
+// acknowledge it atomically; consumers must treat any future batch atomically.
 message WorkspaceChangeEvent {
   string source_id = 1;
   uint64 sequence = 2;
@@ -436,6 +452,99 @@ message BatchApplyEditsResponse {
   int32 failed = 3;
 }
 
+// ConfigureMutationAuthorityRequest establishes the trust anchor for the
+// coordinated mutation path. A running gateway may repeat the same binding,
+// but it rejects attempts to replace it with another authority or workspace.
+message ConfigureMutationAuthorityRequest {
+  string authority_id = 1;
+  string workspace_id = 2;
+  bytes ed25519_public_key = 3;
+}
+
+message ConfigureMutationAuthorityResponse {
+  string authority_id = 1;
+  string workspace_id = 2;
+}
+
+enum PreparedFileOperation {
+  PREPARED_FILE_OPERATION_UNSPECIFIED = 0;
+  PREPARED_FILE_OPERATION_MODIFY = 1;
+}
+
+// PreparedFileMutation is a source-free identity for exact bytes retained by
+// Codefly inside the execution box. Mind and the SaaS coordinator receive only
+// hashes and resource identity; project content never crosses this RPC.
+message PreparedFileMutation {
+  string path = 1;
+  PreparedFileOperation operation = 2;
+  string before_sha256 = 3;
+  string after_sha256 = 4;
+  reserved 5;
+  string strategy = 6;
+  repeated string fix_actions = 7;
+}
+
+// PreparedMutation is one immutable, version-bound write proposal. The digest
+// is SHA-256 over deterministic protobuf bytes with mutation_digest cleared.
+message PreparedMutation {
+  uint32 schema_version = 1;
+  string preparation_id = 2;
+  string authority_id = 3;
+  string workspace_id = 4;
+  string service = 5;
+  string workspace_version = 6;
+  string mutation_digest = 7;
+  repeated PreparedFileMutation files = 8;
+  google.protobuf.Timestamp prepared_at = 9;
+  google.protobuf.Timestamp expires_at = 10;
+}
+
+message PrepareApplyEditMutation {
+  string file = 1;
+  string find = 2;
+  string replace = 3;
+  codefly.base.v0.FixMode fix_mode = 4;
+}
+
+message PrepareMutationRequest {
+  string service = 1;
+  string workspace_version = 2;
+  oneof mutation {
+    PrepareApplyEditMutation apply_edit = 10;
+  }
+}
+
+message PrepareMutationResponse {
+  bool success = 1;
+  string error = 2;
+  PreparedMutation prepared = 3;
+}
+
+message ApplyPreparedMutationRequest {
+  string service = 1;
+  string preparation_id = 2;
+  // mutation_permit is Codefly's v2 Ed25519 scoped-authorization token,
+  // minted only after the Work Coordinator admits this exact prepared
+  // mutation under a current plan and lease. Codefly verifies it locally.
+  string mutation_permit = 3;
+  string mutation_digest = 4;
+}
+
+message AppliedFileMutation {
+  string path = 1;
+  PreparedFileOperation operation = 2;
+  string before_sha256 = 3;
+  string after_sha256 = 4;
+}
+
+message ApplyPreparedMutationResponse {
+  bool success = 1;
+  string error = 2;
+  string preparation_id = 3;
+  string mutation_digest = 4;
+  repeated AppliedFileMutation files = 5;
+}
+
 // ─── Search ───────────────────────────────────────────────────
 
 // SearchRequest searches service files through the gateway.
@@ -540,6 +649,11 @@ message LintResponse {
 message TestRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
+  // runtime_request is the authoritative typed operation forwarded unchanged
+  // to the service runtime. In particular, structured selections and their
+  // acknowledgement identity must survive this boundary; the gateway must
+  // never broaden a scoped request into a whole-service test run.
+  codefly.services.runtime.v0.TestRequest runtime_request = 2;
 }
 
 // TestResponse returns service test counts and raw runner output.
@@ -560,6 +674,10 @@ message TestResponse {
   float coverage_pct = 7;
   // failures are concise failing test names or messages.
   repeated string failures = 8;
+  // runtime_response is the authoritative typed runtime result. Callers use
+  // it to verify structured-selection acknowledgement and consume the full
+  // suite tree. The flat fields above remain a presentation-compatible view.
+  codefly.services.runtime.v0.TestResponse runtime_response = 9;
 }
 
 // ─── Execution ───────────────────────────────────────────────

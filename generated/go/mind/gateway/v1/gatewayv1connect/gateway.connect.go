@@ -57,6 +57,14 @@ const (
 	GatewayApplyEditProcedure = "/mind.gateway.v1.Gateway/ApplyEdit"
 	// GatewayBatchApplyEditsProcedure is the fully-qualified name of the Gateway's BatchApplyEdits RPC.
 	GatewayBatchApplyEditsProcedure = "/mind.gateway.v1.Gateway/BatchApplyEdits"
+	// GatewayConfigureMutationAuthorityProcedure is the fully-qualified name of the Gateway's
+	// ConfigureMutationAuthority RPC.
+	GatewayConfigureMutationAuthorityProcedure = "/mind.gateway.v1.Gateway/ConfigureMutationAuthority"
+	// GatewayPrepareMutationProcedure is the fully-qualified name of the Gateway's PrepareMutation RPC.
+	GatewayPrepareMutationProcedure = "/mind.gateway.v1.Gateway/PrepareMutation"
+	// GatewayApplyPreparedMutationProcedure is the fully-qualified name of the Gateway's
+	// ApplyPreparedMutation RPC.
+	GatewayApplyPreparedMutationProcedure = "/mind.gateway.v1.Gateway/ApplyPreparedMutation"
 	// GatewaySearchProcedure is the fully-qualified name of the Gateway's Search RPC.
 	GatewaySearchProcedure = "/mind.gateway.v1.Gateway/Search"
 	// GatewayBuildProcedure is the fully-qualified name of the Gateway's Build RPC.
@@ -127,6 +135,15 @@ type GatewayClient interface {
 	ApplyEdit(context.Context, *connect.Request[v1.ApplyEditRequest]) (*connect.Response[v1.ApplyEditResponse], error)
 	// BatchApplyEdits applies multiple edits atomically across files/services.
 	BatchApplyEdits(context.Context, *connect.Request[v1.BatchApplyEditsRequest]) (*connect.Response[v1.BatchApplyEditsResponse], error)
+	// ConfigureMutationAuthority pins the SaaS coordinator verification key and
+	// this gateway's workspace identity before prepared mutations are allowed.
+	ConfigureMutationAuthority(context.Context, *connect.Request[v1.ConfigureMutationAuthorityRequest]) (*connect.Response[v1.ConfigureMutationAuthorityResponse], error)
+	// PrepareMutation resolves one proposed edit against current project bytes
+	// without writing them and seals the exact result behind a content digest.
+	PrepareMutation(context.Context, *connect.Request[v1.PrepareMutationRequest]) (*connect.Response[v1.PrepareMutationResponse], error)
+	// ApplyPreparedMutation verifies the prepared digest, current resource
+	// preconditions, and a coordinator-signed fenced permit before one write.
+	ApplyPreparedMutation(context.Context, *connect.Request[v1.ApplyPreparedMutationRequest]) (*connect.Response[v1.ApplyPreparedMutationResponse], error)
 	// Search performs text search across a service's source tree.
 	Search(context.Context, *connect.Request[v1.SearchRequest]) (*connect.Response[v1.SearchResponse], error)
 	// Build compiles the service (and its dependencies if needed).
@@ -245,6 +262,24 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			httpClient,
 			baseURL+GatewayBatchApplyEditsProcedure,
 			connect.WithSchema(gatewayMethods.ByName("BatchApplyEdits")),
+			connect.WithClientOptions(opts...),
+		),
+		configureMutationAuthority: connect.NewClient[v1.ConfigureMutationAuthorityRequest, v1.ConfigureMutationAuthorityResponse](
+			httpClient,
+			baseURL+GatewayConfigureMutationAuthorityProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ConfigureMutationAuthority")),
+			connect.WithClientOptions(opts...),
+		),
+		prepareMutation: connect.NewClient[v1.PrepareMutationRequest, v1.PrepareMutationResponse](
+			httpClient,
+			baseURL+GatewayPrepareMutationProcedure,
+			connect.WithSchema(gatewayMethods.ByName("PrepareMutation")),
+			connect.WithClientOptions(opts...),
+		),
+		applyPreparedMutation: connect.NewClient[v1.ApplyPreparedMutationRequest, v1.ApplyPreparedMutationResponse](
+			httpClient,
+			baseURL+GatewayApplyPreparedMutationProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ApplyPreparedMutation")),
 			connect.WithClientOptions(opts...),
 		),
 		search: connect.NewClient[v1.SearchRequest, v1.SearchResponse](
@@ -372,37 +407,40 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 
 // gatewayClient implements GatewayClient.
 type gatewayClient struct {
-	listServices              *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
-	readFile                  *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
-	writeFile                 *connect.Client[v1.WriteFileRequest, v1.WriteFileResponse]
-	listFiles                 *connect.Client[v1.ListFilesRequest, v1.ListFilesResponse]
-	subscribeWorkspaceChanges *connect.Client[v1.SubscribeWorkspaceChangesRequest, v1.WorkspaceChangeEvent]
-	deleteFile                *connect.Client[v1.DeleteFileRequest, v1.DeleteFileResponse]
-	moveFile                  *connect.Client[v1.MoveFileRequest, v1.MoveFileResponse]
-	createFile                *connect.Client[v1.CreateFileRequest, v1.CreateFileResponse]
-	fix                       *connect.Client[v1.FixRequest, v1.FixResponse]
-	applyEdit                 *connect.Client[v1.ApplyEditRequest, v1.ApplyEditResponse]
-	batchApplyEdits           *connect.Client[v1.BatchApplyEditsRequest, v1.BatchApplyEditsResponse]
-	search                    *connect.Client[v1.SearchRequest, v1.SearchResponse]
-	build                     *connect.Client[v1.BuildRequest, v1.BuildResponse]
-	lint                      *connect.Client[v1.LintRequest, v1.LintResponse]
-	test                      *connect.Client[v1.TestRequest, v1.TestResponse]
-	runCommand                *connect.Client[v1.RunCommandRequest, v1.RunCommandResponse]
-	listAllCommands           *connect.Client[v1.ListAllCommandsRequest, v1.ListAllCommandsResponse]
-	runChecks                 *connect.Client[v1.RunChecksRequest, v1.RunChecksResponse]
-	gitStatus                 *connect.Client[v1.GitStatusRequest, v1.GitStatusResponse]
-	gitDiff                   *connect.Client[v1.GitDiffRequest, v1.GitDiffResponse]
-	gitLog                    *connect.Client[v1.GitLogRequest, v1.GitLogResponse]
-	gitCommit                 *connect.Client[v1.GitCommitRequest, v1.GitCommitResponse]
-	listDependencies          *connect.Client[v1.ListDependenciesRequest, v1.ListDependenciesResponse]
-	addDependency             *connect.Client[v1.AddDependencyRequest, v1.AddDependencyResponse]
-	removeDependency          *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
-	getProjectInfo            *connect.Client[v1.GetProjectInfoRequest, v1.GetProjectInfoResponse]
-	openTerminal              *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
-	attachTerminal            *connect.Client[v1.TerminalInput, v1.TerminalOutput]
-	resizeTerminal            *connect.Client[v1.ResizeTerminalRequest, v1.ResizeTerminalResponse]
-	closeTerminal             *connect.Client[v1.CloseTerminalRequest, v1.CloseTerminalResponse]
-	listTerminals             *connect.Client[v1.ListTerminalsRequest, v1.ListTerminalsResponse]
+	listServices               *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
+	readFile                   *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
+	writeFile                  *connect.Client[v1.WriteFileRequest, v1.WriteFileResponse]
+	listFiles                  *connect.Client[v1.ListFilesRequest, v1.ListFilesResponse]
+	subscribeWorkspaceChanges  *connect.Client[v1.SubscribeWorkspaceChangesRequest, v1.WorkspaceChangeEvent]
+	deleteFile                 *connect.Client[v1.DeleteFileRequest, v1.DeleteFileResponse]
+	moveFile                   *connect.Client[v1.MoveFileRequest, v1.MoveFileResponse]
+	createFile                 *connect.Client[v1.CreateFileRequest, v1.CreateFileResponse]
+	fix                        *connect.Client[v1.FixRequest, v1.FixResponse]
+	applyEdit                  *connect.Client[v1.ApplyEditRequest, v1.ApplyEditResponse]
+	batchApplyEdits            *connect.Client[v1.BatchApplyEditsRequest, v1.BatchApplyEditsResponse]
+	configureMutationAuthority *connect.Client[v1.ConfigureMutationAuthorityRequest, v1.ConfigureMutationAuthorityResponse]
+	prepareMutation            *connect.Client[v1.PrepareMutationRequest, v1.PrepareMutationResponse]
+	applyPreparedMutation      *connect.Client[v1.ApplyPreparedMutationRequest, v1.ApplyPreparedMutationResponse]
+	search                     *connect.Client[v1.SearchRequest, v1.SearchResponse]
+	build                      *connect.Client[v1.BuildRequest, v1.BuildResponse]
+	lint                       *connect.Client[v1.LintRequest, v1.LintResponse]
+	test                       *connect.Client[v1.TestRequest, v1.TestResponse]
+	runCommand                 *connect.Client[v1.RunCommandRequest, v1.RunCommandResponse]
+	listAllCommands            *connect.Client[v1.ListAllCommandsRequest, v1.ListAllCommandsResponse]
+	runChecks                  *connect.Client[v1.RunChecksRequest, v1.RunChecksResponse]
+	gitStatus                  *connect.Client[v1.GitStatusRequest, v1.GitStatusResponse]
+	gitDiff                    *connect.Client[v1.GitDiffRequest, v1.GitDiffResponse]
+	gitLog                     *connect.Client[v1.GitLogRequest, v1.GitLogResponse]
+	gitCommit                  *connect.Client[v1.GitCommitRequest, v1.GitCommitResponse]
+	listDependencies           *connect.Client[v1.ListDependenciesRequest, v1.ListDependenciesResponse]
+	addDependency              *connect.Client[v1.AddDependencyRequest, v1.AddDependencyResponse]
+	removeDependency           *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
+	getProjectInfo             *connect.Client[v1.GetProjectInfoRequest, v1.GetProjectInfoResponse]
+	openTerminal               *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
+	attachTerminal             *connect.Client[v1.TerminalInput, v1.TerminalOutput]
+	resizeTerminal             *connect.Client[v1.ResizeTerminalRequest, v1.ResizeTerminalResponse]
+	closeTerminal              *connect.Client[v1.CloseTerminalRequest, v1.CloseTerminalResponse]
+	listTerminals              *connect.Client[v1.ListTerminalsRequest, v1.ListTerminalsResponse]
 }
 
 // ListServices calls mind.gateway.v1.Gateway.ListServices.
@@ -458,6 +496,21 @@ func (c *gatewayClient) ApplyEdit(ctx context.Context, req *connect.Request[v1.A
 // BatchApplyEdits calls mind.gateway.v1.Gateway.BatchApplyEdits.
 func (c *gatewayClient) BatchApplyEdits(ctx context.Context, req *connect.Request[v1.BatchApplyEditsRequest]) (*connect.Response[v1.BatchApplyEditsResponse], error) {
 	return c.batchApplyEdits.CallUnary(ctx, req)
+}
+
+// ConfigureMutationAuthority calls mind.gateway.v1.Gateway.ConfigureMutationAuthority.
+func (c *gatewayClient) ConfigureMutationAuthority(ctx context.Context, req *connect.Request[v1.ConfigureMutationAuthorityRequest]) (*connect.Response[v1.ConfigureMutationAuthorityResponse], error) {
+	return c.configureMutationAuthority.CallUnary(ctx, req)
+}
+
+// PrepareMutation calls mind.gateway.v1.Gateway.PrepareMutation.
+func (c *gatewayClient) PrepareMutation(ctx context.Context, req *connect.Request[v1.PrepareMutationRequest]) (*connect.Response[v1.PrepareMutationResponse], error) {
+	return c.prepareMutation.CallUnary(ctx, req)
+}
+
+// ApplyPreparedMutation calls mind.gateway.v1.Gateway.ApplyPreparedMutation.
+func (c *gatewayClient) ApplyPreparedMutation(ctx context.Context, req *connect.Request[v1.ApplyPreparedMutationRequest]) (*connect.Response[v1.ApplyPreparedMutationResponse], error) {
+	return c.applyPreparedMutation.CallUnary(ctx, req)
 }
 
 // Search calls mind.gateway.v1.Gateway.Search.
@@ -586,6 +639,15 @@ type GatewayHandler interface {
 	ApplyEdit(context.Context, *connect.Request[v1.ApplyEditRequest]) (*connect.Response[v1.ApplyEditResponse], error)
 	// BatchApplyEdits applies multiple edits atomically across files/services.
 	BatchApplyEdits(context.Context, *connect.Request[v1.BatchApplyEditsRequest]) (*connect.Response[v1.BatchApplyEditsResponse], error)
+	// ConfigureMutationAuthority pins the SaaS coordinator verification key and
+	// this gateway's workspace identity before prepared mutations are allowed.
+	ConfigureMutationAuthority(context.Context, *connect.Request[v1.ConfigureMutationAuthorityRequest]) (*connect.Response[v1.ConfigureMutationAuthorityResponse], error)
+	// PrepareMutation resolves one proposed edit against current project bytes
+	// without writing them and seals the exact result behind a content digest.
+	PrepareMutation(context.Context, *connect.Request[v1.PrepareMutationRequest]) (*connect.Response[v1.PrepareMutationResponse], error)
+	// ApplyPreparedMutation verifies the prepared digest, current resource
+	// preconditions, and a coordinator-signed fenced permit before one write.
+	ApplyPreparedMutation(context.Context, *connect.Request[v1.ApplyPreparedMutationRequest]) (*connect.Response[v1.ApplyPreparedMutationResponse], error)
 	// Search performs text search across a service's source tree.
 	Search(context.Context, *connect.Request[v1.SearchRequest]) (*connect.Response[v1.SearchResponse], error)
 	// Build compiles the service (and its dependencies if needed).
@@ -700,6 +762,24 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		GatewayBatchApplyEditsProcedure,
 		svc.BatchApplyEdits,
 		connect.WithSchema(gatewayMethods.ByName("BatchApplyEdits")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayConfigureMutationAuthorityHandler := connect.NewUnaryHandler(
+		GatewayConfigureMutationAuthorityProcedure,
+		svc.ConfigureMutationAuthority,
+		connect.WithSchema(gatewayMethods.ByName("ConfigureMutationAuthority")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayPrepareMutationHandler := connect.NewUnaryHandler(
+		GatewayPrepareMutationProcedure,
+		svc.PrepareMutation,
+		connect.WithSchema(gatewayMethods.ByName("PrepareMutation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayApplyPreparedMutationHandler := connect.NewUnaryHandler(
+		GatewayApplyPreparedMutationProcedure,
+		svc.ApplyPreparedMutation,
+		connect.WithSchema(gatewayMethods.ByName("ApplyPreparedMutation")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gatewaySearchHandler := connect.NewUnaryHandler(
@@ -846,6 +926,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayApplyEditHandler.ServeHTTP(w, r)
 		case GatewayBatchApplyEditsProcedure:
 			gatewayBatchApplyEditsHandler.ServeHTTP(w, r)
+		case GatewayConfigureMutationAuthorityProcedure:
+			gatewayConfigureMutationAuthorityHandler.ServeHTTP(w, r)
+		case GatewayPrepareMutationProcedure:
+			gatewayPrepareMutationHandler.ServeHTTP(w, r)
+		case GatewayApplyPreparedMutationProcedure:
+			gatewayApplyPreparedMutationHandler.ServeHTTP(w, r)
 		case GatewaySearchProcedure:
 			gatewaySearchHandler.ServeHTTP(w, r)
 		case GatewayBuildProcedure:
@@ -937,6 +1023,18 @@ func (UnimplementedGatewayHandler) ApplyEdit(context.Context, *connect.Request[v
 
 func (UnimplementedGatewayHandler) BatchApplyEdits(context.Context, *connect.Request[v1.BatchApplyEditsRequest]) (*connect.Response[v1.BatchApplyEditsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.BatchApplyEdits is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ConfigureMutationAuthority(context.Context, *connect.Request[v1.ConfigureMutationAuthorityRequest]) (*connect.Response[v1.ConfigureMutationAuthorityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ConfigureMutationAuthority is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) PrepareMutation(context.Context, *connect.Request[v1.PrepareMutationRequest]) (*connect.Response[v1.PrepareMutationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.PrepareMutation is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ApplyPreparedMutation(context.Context, *connect.Request[v1.ApplyPreparedMutationRequest]) (*connect.Response[v1.ApplyPreparedMutationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ApplyPreparedMutation is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) Search(context.Context, *connect.Request[v1.SearchRequest]) (*connect.Response[v1.SearchResponse], error) {

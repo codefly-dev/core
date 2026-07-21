@@ -20,37 +20,40 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Gateway_ListServices_FullMethodName              = "/mind.gateway.v1.Gateway/ListServices"
-	Gateway_ReadFile_FullMethodName                  = "/mind.gateway.v1.Gateway/ReadFile"
-	Gateway_WriteFile_FullMethodName                 = "/mind.gateway.v1.Gateway/WriteFile"
-	Gateway_ListFiles_FullMethodName                 = "/mind.gateway.v1.Gateway/ListFiles"
-	Gateway_SubscribeWorkspaceChanges_FullMethodName = "/mind.gateway.v1.Gateway/SubscribeWorkspaceChanges"
-	Gateway_DeleteFile_FullMethodName                = "/mind.gateway.v1.Gateway/DeleteFile"
-	Gateway_MoveFile_FullMethodName                  = "/mind.gateway.v1.Gateway/MoveFile"
-	Gateway_CreateFile_FullMethodName                = "/mind.gateway.v1.Gateway/CreateFile"
-	Gateway_Fix_FullMethodName                       = "/mind.gateway.v1.Gateway/Fix"
-	Gateway_ApplyEdit_FullMethodName                 = "/mind.gateway.v1.Gateway/ApplyEdit"
-	Gateway_BatchApplyEdits_FullMethodName           = "/mind.gateway.v1.Gateway/BatchApplyEdits"
-	Gateway_Search_FullMethodName                    = "/mind.gateway.v1.Gateway/Search"
-	Gateway_Build_FullMethodName                     = "/mind.gateway.v1.Gateway/Build"
-	Gateway_Lint_FullMethodName                      = "/mind.gateway.v1.Gateway/Lint"
-	Gateway_Test_FullMethodName                      = "/mind.gateway.v1.Gateway/Test"
-	Gateway_RunCommand_FullMethodName                = "/mind.gateway.v1.Gateway/RunCommand"
-	Gateway_ListAllCommands_FullMethodName           = "/mind.gateway.v1.Gateway/ListAllCommands"
-	Gateway_RunChecks_FullMethodName                 = "/mind.gateway.v1.Gateway/RunChecks"
-	Gateway_GitStatus_FullMethodName                 = "/mind.gateway.v1.Gateway/GitStatus"
-	Gateway_GitDiff_FullMethodName                   = "/mind.gateway.v1.Gateway/GitDiff"
-	Gateway_GitLog_FullMethodName                    = "/mind.gateway.v1.Gateway/GitLog"
-	Gateway_GitCommit_FullMethodName                 = "/mind.gateway.v1.Gateway/GitCommit"
-	Gateway_ListDependencies_FullMethodName          = "/mind.gateway.v1.Gateway/ListDependencies"
-	Gateway_AddDependency_FullMethodName             = "/mind.gateway.v1.Gateway/AddDependency"
-	Gateway_RemoveDependency_FullMethodName          = "/mind.gateway.v1.Gateway/RemoveDependency"
-	Gateway_GetProjectInfo_FullMethodName            = "/mind.gateway.v1.Gateway/GetProjectInfo"
-	Gateway_OpenTerminal_FullMethodName              = "/mind.gateway.v1.Gateway/OpenTerminal"
-	Gateway_AttachTerminal_FullMethodName            = "/mind.gateway.v1.Gateway/AttachTerminal"
-	Gateway_ResizeTerminal_FullMethodName            = "/mind.gateway.v1.Gateway/ResizeTerminal"
-	Gateway_CloseTerminal_FullMethodName             = "/mind.gateway.v1.Gateway/CloseTerminal"
-	Gateway_ListTerminals_FullMethodName             = "/mind.gateway.v1.Gateway/ListTerminals"
+	Gateway_ListServices_FullMethodName               = "/mind.gateway.v1.Gateway/ListServices"
+	Gateway_ReadFile_FullMethodName                   = "/mind.gateway.v1.Gateway/ReadFile"
+	Gateway_WriteFile_FullMethodName                  = "/mind.gateway.v1.Gateway/WriteFile"
+	Gateway_ListFiles_FullMethodName                  = "/mind.gateway.v1.Gateway/ListFiles"
+	Gateway_SubscribeWorkspaceChanges_FullMethodName  = "/mind.gateway.v1.Gateway/SubscribeWorkspaceChanges"
+	Gateway_DeleteFile_FullMethodName                 = "/mind.gateway.v1.Gateway/DeleteFile"
+	Gateway_MoveFile_FullMethodName                   = "/mind.gateway.v1.Gateway/MoveFile"
+	Gateway_CreateFile_FullMethodName                 = "/mind.gateway.v1.Gateway/CreateFile"
+	Gateway_Fix_FullMethodName                        = "/mind.gateway.v1.Gateway/Fix"
+	Gateway_ApplyEdit_FullMethodName                  = "/mind.gateway.v1.Gateway/ApplyEdit"
+	Gateway_BatchApplyEdits_FullMethodName            = "/mind.gateway.v1.Gateway/BatchApplyEdits"
+	Gateway_ConfigureMutationAuthority_FullMethodName = "/mind.gateway.v1.Gateway/ConfigureMutationAuthority"
+	Gateway_PrepareMutation_FullMethodName            = "/mind.gateway.v1.Gateway/PrepareMutation"
+	Gateway_ApplyPreparedMutation_FullMethodName      = "/mind.gateway.v1.Gateway/ApplyPreparedMutation"
+	Gateway_Search_FullMethodName                     = "/mind.gateway.v1.Gateway/Search"
+	Gateway_Build_FullMethodName                      = "/mind.gateway.v1.Gateway/Build"
+	Gateway_Lint_FullMethodName                       = "/mind.gateway.v1.Gateway/Lint"
+	Gateway_Test_FullMethodName                       = "/mind.gateway.v1.Gateway/Test"
+	Gateway_RunCommand_FullMethodName                 = "/mind.gateway.v1.Gateway/RunCommand"
+	Gateway_ListAllCommands_FullMethodName            = "/mind.gateway.v1.Gateway/ListAllCommands"
+	Gateway_RunChecks_FullMethodName                  = "/mind.gateway.v1.Gateway/RunChecks"
+	Gateway_GitStatus_FullMethodName                  = "/mind.gateway.v1.Gateway/GitStatus"
+	Gateway_GitDiff_FullMethodName                    = "/mind.gateway.v1.Gateway/GitDiff"
+	Gateway_GitLog_FullMethodName                     = "/mind.gateway.v1.Gateway/GitLog"
+	Gateway_GitCommit_FullMethodName                  = "/mind.gateway.v1.Gateway/GitCommit"
+	Gateway_ListDependencies_FullMethodName           = "/mind.gateway.v1.Gateway/ListDependencies"
+	Gateway_AddDependency_FullMethodName              = "/mind.gateway.v1.Gateway/AddDependency"
+	Gateway_RemoveDependency_FullMethodName           = "/mind.gateway.v1.Gateway/RemoveDependency"
+	Gateway_GetProjectInfo_FullMethodName             = "/mind.gateway.v1.Gateway/GetProjectInfo"
+	Gateway_OpenTerminal_FullMethodName               = "/mind.gateway.v1.Gateway/OpenTerminal"
+	Gateway_AttachTerminal_FullMethodName             = "/mind.gateway.v1.Gateway/AttachTerminal"
+	Gateway_ResizeTerminal_FullMethodName             = "/mind.gateway.v1.Gateway/ResizeTerminal"
+	Gateway_CloseTerminal_FullMethodName              = "/mind.gateway.v1.Gateway/CloseTerminal"
+	Gateway_ListTerminals_FullMethodName              = "/mind.gateway.v1.Gateway/ListTerminals"
 )
 
 // GatewayClient is the client API for Gateway service.
@@ -84,6 +87,15 @@ type GatewayClient interface {
 	ApplyEdit(ctx context.Context, in *ApplyEditRequest, opts ...grpc.CallOption) (*ApplyEditResponse, error)
 	// BatchApplyEdits applies multiple edits atomically across files/services.
 	BatchApplyEdits(ctx context.Context, in *BatchApplyEditsRequest, opts ...grpc.CallOption) (*BatchApplyEditsResponse, error)
+	// ConfigureMutationAuthority pins the SaaS coordinator verification key and
+	// this gateway's workspace identity before prepared mutations are allowed.
+	ConfigureMutationAuthority(ctx context.Context, in *ConfigureMutationAuthorityRequest, opts ...grpc.CallOption) (*ConfigureMutationAuthorityResponse, error)
+	// PrepareMutation resolves one proposed edit against current project bytes
+	// without writing them and seals the exact result behind a content digest.
+	PrepareMutation(ctx context.Context, in *PrepareMutationRequest, opts ...grpc.CallOption) (*PrepareMutationResponse, error)
+	// ApplyPreparedMutation verifies the prepared digest, current resource
+	// preconditions, and a coordinator-signed fenced permit before one write.
+	ApplyPreparedMutation(ctx context.Context, in *ApplyPreparedMutationRequest, opts ...grpc.CallOption) (*ApplyPreparedMutationResponse, error)
 	// Search performs text search across a service's source tree.
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error)
 	// Build compiles the service (and its dependencies if needed).
@@ -248,6 +260,36 @@ func (c *gatewayClient) BatchApplyEdits(ctx context.Context, in *BatchApplyEdits
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BatchApplyEditsResponse)
 	err := c.cc.Invoke(ctx, Gateway_BatchApplyEdits_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) ConfigureMutationAuthority(ctx context.Context, in *ConfigureMutationAuthorityRequest, opts ...grpc.CallOption) (*ConfigureMutationAuthorityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConfigureMutationAuthorityResponse)
+	err := c.cc.Invoke(ctx, Gateway_ConfigureMutationAuthority_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) PrepareMutation(ctx context.Context, in *PrepareMutationRequest, opts ...grpc.CallOption) (*PrepareMutationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PrepareMutationResponse)
+	err := c.cc.Invoke(ctx, Gateway_PrepareMutation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) ApplyPreparedMutation(ctx context.Context, in *ApplyPreparedMutationRequest, opts ...grpc.CallOption) (*ApplyPreparedMutationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyPreparedMutationResponse)
+	err := c.cc.Invoke(ctx, Gateway_ApplyPreparedMutation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -488,6 +530,15 @@ type GatewayServer interface {
 	ApplyEdit(context.Context, *ApplyEditRequest) (*ApplyEditResponse, error)
 	// BatchApplyEdits applies multiple edits atomically across files/services.
 	BatchApplyEdits(context.Context, *BatchApplyEditsRequest) (*BatchApplyEditsResponse, error)
+	// ConfigureMutationAuthority pins the SaaS coordinator verification key and
+	// this gateway's workspace identity before prepared mutations are allowed.
+	ConfigureMutationAuthority(context.Context, *ConfigureMutationAuthorityRequest) (*ConfigureMutationAuthorityResponse, error)
+	// PrepareMutation resolves one proposed edit against current project bytes
+	// without writing them and seals the exact result behind a content digest.
+	PrepareMutation(context.Context, *PrepareMutationRequest) (*PrepareMutationResponse, error)
+	// ApplyPreparedMutation verifies the prepared digest, current resource
+	// preconditions, and a coordinator-signed fenced permit before one write.
+	ApplyPreparedMutation(context.Context, *ApplyPreparedMutationRequest) (*ApplyPreparedMutationResponse, error)
 	// Search performs text search across a service's source tree.
 	Search(context.Context, *SearchRequest) (*SearchResponse, error)
 	// Build compiles the service (and its dependencies if needed).
@@ -571,6 +622,15 @@ func (UnimplementedGatewayServer) ApplyEdit(context.Context, *ApplyEditRequest) 
 }
 func (UnimplementedGatewayServer) BatchApplyEdits(context.Context, *BatchApplyEditsRequest) (*BatchApplyEditsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method BatchApplyEdits not implemented")
+}
+func (UnimplementedGatewayServer) ConfigureMutationAuthority(context.Context, *ConfigureMutationAuthorityRequest) (*ConfigureMutationAuthorityResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConfigureMutationAuthority not implemented")
+}
+func (UnimplementedGatewayServer) PrepareMutation(context.Context, *PrepareMutationRequest) (*PrepareMutationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PrepareMutation not implemented")
+}
+func (UnimplementedGatewayServer) ApplyPreparedMutation(context.Context, *ApplyPreparedMutationRequest) (*ApplyPreparedMutationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplyPreparedMutation not implemented")
 }
 func (UnimplementedGatewayServer) Search(context.Context, *SearchRequest) (*SearchResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Search not implemented")
@@ -840,6 +900,60 @@ func _Gateway_BatchApplyEdits_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GatewayServer).BatchApplyEdits(ctx, req.(*BatchApplyEditsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_ConfigureMutationAuthority_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfigureMutationAuthorityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).ConfigureMutationAuthority(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_ConfigureMutationAuthority_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).ConfigureMutationAuthority(ctx, req.(*ConfigureMutationAuthorityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_PrepareMutation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrepareMutationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).PrepareMutation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_PrepareMutation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).PrepareMutation(ctx, req.(*PrepareMutationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_ApplyPreparedMutation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyPreparedMutationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).ApplyPreparedMutation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_ApplyPreparedMutation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).ApplyPreparedMutation(ctx, req.(*ApplyPreparedMutationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1239,6 +1353,18 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchApplyEdits",
 			Handler:    _Gateway_BatchApplyEdits_Handler,
+		},
+		{
+			MethodName: "ConfigureMutationAuthority",
+			Handler:    _Gateway_ConfigureMutationAuthority_Handler,
+		},
+		{
+			MethodName: "PrepareMutation",
+			Handler:    _Gateway_PrepareMutation_Handler,
+		},
+		{
+			MethodName: "ApplyPreparedMutation",
+			Handler:    _Gateway_ApplyPreparedMutation_Handler,
 		},
 		{
 			MethodName: "Search",
