@@ -382,22 +382,34 @@ const (
 	LabelCodeflySession   = "codefly.session"   // PID of the spawning CLI
 	LabelCodeflyName      = "codefly.name"      // container's logical name
 	LabelCodeflyEphemeral = "codefly.ephemeral" // "true" for SDK/test (--cli-server) containers
+	// EphemeralContainersEnvironment crosses the CLI → agent process boundary.
+	// The CLI owns orchestration, but service agents create the containers.
+	EphemeralContainersEnvironment = "CODEFLY_EPHEMERAL_CONTAINERS"
 )
 
 // ephemeralContainers marks this CLI process as running in SDK/test
 // (`--cli-server`) mode, where spawned dependency containers are per-run
 // throwaways. Set once at startup (service.go), read at container creation.
-// A process-level flag (not env/context) keeps the runner — which already
-// reads os.Getpid() at the same point — dependency-free.
+// The atomic flag serves in-process callers. The environment marker carries
+// the same lifecycle intent into separately spawned service-agent processes.
 var ephemeralContainers atomic.Bool
 
 // SetEphemeralContainers marks dependency containers spawned by this process as
 // ephemeral so the startup sweep reaps them even while running. The CLI calls
-// this when it parses --cli-server.
-func SetEphemeralContainers(v bool) { ephemeralContainers.Store(v) }
+// this before spawning agents, which inherit the environment marker.
+func SetEphemeralContainers(v bool) {
+	ephemeralContainers.Store(v)
+	if v {
+		_ = os.Setenv(EphemeralContainersEnvironment, "1")
+		return
+	}
+	_ = os.Unsetenv(EphemeralContainersEnvironment)
+}
 
 // EphemeralContainers reports whether this process spawns ephemeral containers.
-func EphemeralContainers() bool { return ephemeralContainers.Load() }
+func EphemeralContainers() bool {
+	return ephemeralContainers.Load() || os.Getenv(EphemeralContainersEnvironment) == "1"
+}
 
 func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.HostConfig {
 	docker.mu.Lock()
