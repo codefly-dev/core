@@ -37,7 +37,7 @@ type RuntimeManager struct {
 func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := "host.docker.internal"
 	instance := resources.NewNetworkInstance(host, port)
-	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+	if standards.IsHTTPBasedAPI(endpoint.Api) {
 		instance = resources.NewHTTPNetworkInstance(host, port, false)
 	}
 	instance.Access = resources.NewContainerNetworkAccess()
@@ -47,7 +47,7 @@ func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := Localhost
 	var instance *basev0.NetworkInstance
-	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+	if standards.IsHTTPBasedAPI(endpoint.Api) {
 		instance = resources.NewHTTPNetworkInstance(host, port, false)
 	} else {
 		instance = resources.NewNetworkInstance(host, port)
@@ -80,7 +80,7 @@ func NativeFor(ctx context.Context, workspace, module, service, namingScope stri
 func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := Localhost
 	var instance *basev0.NetworkInstance
-	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+	if standards.IsHTTPBasedAPI(endpoint.Api) {
 		instance = resources.NewHTTPNetworkInstance(host, port, false)
 	} else {
 		instance = resources.NewNetworkInstance(host, port)
@@ -91,7 +91,7 @@ func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstan
 
 func DNS(_ *resources.ServiceIdentity, endpoint *basev0.Endpoint, dns *basev0.DNS) *basev0.NetworkInstance {
 	var instance *basev0.NetworkInstance
-	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+	if standards.IsHTTPBasedAPI(endpoint.Api) {
 		instance = resources.NewHTTPNetworkInstance(dns.Host, uint16(dns.Port), dns.Secured)
 	} else {
 		instance = resources.NewNetworkInstance(dns.Host, uint16(dns.Port))

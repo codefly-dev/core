@@ -6,11 +6,38 @@ import (
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/standards"
 
 	"github.com/codefly-dev/core/network"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestConnectNetworkInstancesUseHTTPAddresses(t *testing.T) {
+	endpoint := &basev0.Endpoint{Api: standards.CONNECT}
+	for name, instance := range map[string]*basev0.NetworkInstance{
+		"native":    network.Native(endpoint, 8081),
+		"container": network.Container(endpoint, 8081),
+		"public":    network.PublicDefault(endpoint, 8081),
+		"dns": network.DNS(
+			nil,
+			endpoint,
+			&basev0.DNS{Host: "accounts.example.test", Port: 443, Secured: true},
+		),
+	} {
+		require.Contains(t, instance.Address, "://", name)
+	}
+	require.Equal(t, "http://localhost:8081", network.Native(endpoint, 8081).Address)
+	require.Equal(
+		t,
+		"https://accounts.example.test:443",
+		network.DNS(nil, endpoint, &basev0.DNS{
+			Host:    "accounts.example.test",
+			Port:    443,
+			Secured: true,
+		}).Address,
+	)
+}
 
 // testDnsManager returns no DNS for any endpoint. Used to drive the
 // named-port branch of GenerateNetworkMappings.

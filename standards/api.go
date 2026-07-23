@@ -37,6 +37,12 @@ func IsSupportedAPI(kind string) error {
 	return fmt.Errorf("unsupported api: %s", kind)
 }
 
+// IsHTTPBasedAPI reports whether an endpoint uses an HTTP URL transport.
+// Connect RPC is HTTP-based even though it has its own API identifier.
+func IsHTTPBasedAPI(kind string) bool {
+	return kind == HTTP || kind == REST || kind == CONNECT
+}
+
 func PortAddress(api string) string {
 	return fmt.Sprintf(":%d", Port(api))
 }

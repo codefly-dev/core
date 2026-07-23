@@ -16,6 +16,19 @@ func TestIsSupportedAPI(t *testing.T) {
 	}
 }
 
+func TestIsHTTPBasedAPI(t *testing.T) {
+	for _, api := range []string{HTTP, REST, CONNECT} {
+		if !IsHTTPBasedAPI(api) {
+			t.Fatalf("%s should be HTTP-based", api)
+		}
+	}
+	for _, api := range []string{GRPC, TCP, Unknown} {
+		if IsHTTPBasedAPI(api) {
+			t.Fatalf("%s should not be HTTP-based", api)
+		}
+	}
+}
+
 func TestPort_KnownAPIs(t *testing.T) {
 	cases := map[string]uint16{
 		GRPC:    9090,

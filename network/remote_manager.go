@@ -45,7 +45,7 @@ func (m *RemoteManager) GetNamespace(_ context.Context, env *resources.Environme
 func (m *RemoteManager) KubernetesService(service *resources.ServiceIdentity, endpoint *basev0.Endpoint, namespace string, port uint16) *basev0.NetworkInstance {
 	host := fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, namespace)
 	var instance *basev0.NetworkInstance
-	if endpoint.Api == standards.HTTP || endpoint.Api == standards.REST {
+	if standards.IsHTTPBasedAPI(endpoint.Api) {
 		instance = resources.NewHTTPNetworkInstance(host, port, false)
 	} else {
 		instance = resources.NewNetworkInstance(host, port)
