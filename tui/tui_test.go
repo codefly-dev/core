@@ -95,7 +95,7 @@ func TestFormatServiceLogLinesTrimsForwardNewlines(t *testing.T) {
 	}
 }
 
-func TestFormatServiceLogLinesWrapsWithContinuationIndent(t *testing.T) {
+func TestFormatServiceLogLinesWrapsWithContinuationGutter(t *testing.T) {
 	lines := formatServiceLogLines(ServiceLogMsg{
 		Level:   wool.FORWARD,
 		Source:  "infra/neo4j",
@@ -108,7 +108,7 @@ func TestFormatServiceLogLinesWrapsWithContinuationIndent(t *testing.T) {
 	if lines[0] != "infra/neo4j      > This instance is" {
 		t.Fatalf("unexpected first line: %q", lines[0])
 	}
-	if lines[1] != "                   ServerId{257a2499}" {
+	if lines[1] != "infra/neo4j      > ServerId{257a2499}" {
 		t.Fatalf("unexpected continuation line: %q", lines[1])
 	}
 }

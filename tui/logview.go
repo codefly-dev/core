@@ -129,21 +129,18 @@ func wrapLogLine(prefix, message string, width int) []string {
 	if bodyWidth < 20 {
 		return []string{prefix + message}
 	}
-	continuation := strings.Repeat(" ", len(prefix))
 	var out []string
 	remaining := message
-	currentPrefix := prefix
-	for len(currentPrefix)+len(remaining) > width {
+	for len(prefix)+len(remaining) > width {
 		cut := bodyWidth
 		if idx := strings.LastIndexByte(remaining[:bodyWidth], ' '); idx > 0 {
 			cut = idx
 		}
-		out = append(out, currentPrefix+strings.TrimRight(remaining[:cut], " "))
+		out = append(out, prefix+strings.TrimRight(remaining[:cut], " "))
 		remaining = strings.TrimLeft(remaining[cut:], " ")
-		currentPrefix = continuation
 	}
 	if remaining != "" {
-		out = append(out, currentPrefix+remaining)
+		out = append(out, prefix+remaining)
 	}
 	return out
 }
