@@ -2,6 +2,7 @@ package golang
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -156,6 +157,12 @@ type TestOptions struct {
 	OnEvent func(TestEvent)
 }
 
+// defaultTestPackageParallelism bounds `go test` package fan-out. Tests may
+// provision real dependency stacks, so the Go command's CPU-count default can
+// otherwise start dozens of databases and agents concurrently on large hosts.
+// ExtraArgs remain last and may explicitly override this agent-owned default.
+const defaultTestPackageParallelism = 4
+
 // RunGoTests runs `go test -json` with optional target/flags and returns
 // parsed results. `-cover` is opt-in via TestOptions.Coverage.
 //
@@ -168,7 +175,7 @@ type TestOptions struct {
 func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation string, envVars []*resources.EnvironmentVariable, opts ...TestOptions) (*TestSummary, error) {
 	_ = env.Env().WithBinary("codefly")
 
-	args := []string{"test", "-json"}
+	args := []string{"test", "-json", "-p", fmt.Sprint(defaultTestPackageParallelism)}
 
 	var opt TestOptions
 	if len(opts) > 0 {
