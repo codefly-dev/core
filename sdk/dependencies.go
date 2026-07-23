@@ -41,6 +41,7 @@ type Option struct {
 	Debug                bool
 	Timeout              time.Duration
 	NamingScope          string
+	Fixture              string
 	Silents              []string
 	ExcludedDependencies []string
 	KeepRunning          bool
@@ -63,6 +64,15 @@ func WithTimeout(timeout time.Duration) OptionFunc {
 func WithNamingScope(scope string) OptionFunc {
 	return func(o *Option) {
 		o.NamingScope = scope
+	}
+}
+
+// WithFixture selects a real Codefly module fixture for the dependency stack.
+// The CLI propagates the selection to every service through the standard
+// CODEFLY__FIXTURE runtime configuration.
+func WithFixture(fixture string) OptionFunc {
+	return func(o *Option) {
+		o.Fixture = fixture
 	}
 }
 
@@ -114,6 +124,9 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	}
 	if opt.NamingScope != "" {
 		args = append(args, "--naming-scope", opt.NamingScope)
+	}
+	if opt.Fixture != "" {
+		args = append(args, "--fixture", opt.Fixture)
 	}
 	if len(opt.Silents) > 0 {
 		args = append(args, "--silent", strings.Join(opt.Silents, ","))
