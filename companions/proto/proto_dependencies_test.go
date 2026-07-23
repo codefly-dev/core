@@ -59,3 +59,39 @@ func TestBufCleanGeneratedDirsIsStrictlyScoped(t *testing.T) {
 		t.Fatalf("outside directory was touched: %v", err)
 	}
 }
+
+func TestBufCleanGeneratedDirsSupportsNestedProtocolRoots(t *testing.T) {
+	serviceRoot := t.TempDir()
+	bufRoot := filepath.Join(serviceRoot, "code")
+	generated := filepath.Join(serviceRoot, "openapi")
+	if err := os.MkdirAll(bufRoot, 0o755); err != nil {
+		t.Fatalf("mkdir Buf root: %v", err)
+	}
+	if err := os.MkdirAll(generated, 0o755); err != nil {
+		t.Fatalf("mkdir generated directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(generated, "stale.json"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write generated file: %v", err)
+	}
+
+	generator, err := NewBuf(context.Background(), bufRoot)
+	if err != nil {
+		t.Fatalf("NewBuf: %v", err)
+	}
+	generator.WithGeneratedRoot(serviceRoot).WithGeneratedDirs(generated)
+	if err := generator.cleanGeneratedDirs(); err != nil {
+		t.Fatalf("cleanGeneratedDirs: %v", err)
+	}
+	if _, err := os.Stat(generated); !os.IsNotExist(err) {
+		t.Fatalf("generated directory still exists or stat failed unexpectedly: %v", err)
+	}
+
+	outside := t.TempDir()
+	generator.generatedDirs = []string{outside}
+	if err := generator.cleanGeneratedDirs(); err == nil {
+		t.Fatal("cleanGeneratedDirs accepted an output outside the service root")
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("outside directory was touched: %v", err)
+	}
+}

@@ -22,12 +22,14 @@ RUN apk add --no-cache git python3 py3-pip nodejs npm protobuf
 # cleanup at the end actually takes effect in the final image layer.
 # Each binary is copied out individually in the runtime stage; the
 # module cache is not.
-RUN go install -ldflags="-s -w" github.com/bufbuild/buf/cmd/buf@latest && \
-    go install -ldflags="-s -w" github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest && \
-    go install -ldflags="-s -w" github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest && \
-    go install -ldflags="-s -w" connectrpc.com/connect/cmd/protoc-gen-connect-go@latest && \
-    go install -ldflags="-s -w" github.com/go-swagger/go-swagger/cmd/swagger@latest && \
-    go install -ldflags="-s -w" github.com/envoyproxy/protoc-gen-validate@latest
+RUN go install -ldflags="-s -w" github.com/bufbuild/buf/cmd/buf@v1.71.0 && \
+    go install -ldflags="-s -w" google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 && \
+    go install -ldflags="-s -w" google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1 && \
+    go install -ldflags="-s -w" github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.29.0 && \
+    go install -ldflags="-s -w" github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@v2.29.0 && \
+    go install -ldflags="-s -w" connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.20.0 && \
+    go install -ldflags="-s -w" github.com/go-swagger/go-swagger/cmd/swagger@v0.35.3 && \
+    go install -ldflags="-s -w" github.com/envoyproxy/protoc-gen-validate@v1.2.1
 
 # Python grpcio-tools (for grpc_* helpers) — built in a separate venv
 # so site-packages doesn't collide with the system Python.
@@ -54,12 +56,14 @@ FROM codeflydev/codefly:0.0.3
 #     without bringing the Go runtime.
 RUN apk add --no-cache nodejs npm protobuf go && \
     npm install -g \
-        openapi-typescript \
-        swagger2openapi \
-        @bufbuild/protoc-gen-es@^2 && \
+        openapi-typescript@7.13.0 \
+        swagger2openapi@7.0.8 \
+        @bufbuild/protoc-gen-es@2.11.0 && \
     npm cache clean --force
 
 COPY --from=builder /go/bin/buf /usr/local/bin/
+COPY --from=builder /go/bin/protoc-gen-go /usr/local/bin/
+COPY --from=builder /go/bin/protoc-gen-go-grpc /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-grpc-gateway /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-openapiv2 /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-validate /usr/local/bin/

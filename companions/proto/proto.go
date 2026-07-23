@@ -33,6 +33,11 @@ type Buf struct {
 	// before buf generate. Cleaning prevents package or service renames from
 	// leaving stale generated Go packages in an otherwise green build.
 	generatedDirs []string
+
+	// generatedRoot is the service boundary that contains every generated
+	// directory. It defaults to Dir, but a service whose protocol tree lives
+	// below the service root can widen this boundary explicitly.
+	generatedRoot string
 }
 
 func NewBuf(ctx context.Context, dir string) (*Buf, error) {
@@ -48,15 +53,25 @@ func NewBuf(ctx context.Context, dir string) (*Buf, error) {
 	)
 	deps.Localize(dir)
 	return &Buf{
-		Dir:          dir,
-		dependencies: deps,
-		cache:        dir,
+		Dir:           dir,
+		dependencies:  deps,
+		cache:         dir,
+		generatedRoot: dir,
 	}, nil
 }
 
+// WithGeneratedRoot declares the service root that owns generated outputs.
+// This is distinct from Dir for nested protocol layouts such as code/proto:
+// Buf runs from code/, while generated OpenAPI may still live at the service
+// root. cleanGeneratedDirs continues to reject every path outside this root.
+func (g *Buf) WithGeneratedRoot(root string) *Buf {
+	g.generatedRoot = root
+	return g
+}
+
 // WithGeneratedDirs declares output directories that are wholly owned by Buf
-// generation. Directories must be strict descendants of Dir; this invariant
-// keeps regeneration cleanup scoped to the managed service.
+// generation. Directories must be strict descendants of the generated root;
+// this invariant keeps regeneration cleanup scoped to the managed service.
 func (g *Buf) WithGeneratedDirs(dirs ...string) *Buf {
 	g.generatedDirs = append(g.generatedDirs, dirs...)
 	return g
@@ -208,7 +223,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 }
 
 func (g *Buf) cleanGeneratedDirs() error {
-	root, err := filepath.Abs(g.Dir)
+	root, err := filepath.Abs(g.generatedRoot)
 	if err != nil {
 		return fmt.Errorf("resolve generator root: %w", err)
 	}

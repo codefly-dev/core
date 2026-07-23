@@ -49,7 +49,7 @@ func TestCreateRunnerRejectsNilAndEscapingInputs(t *testing.T) {
 // If this function ever drifts from the real RunGoTests logic, the unit
 // tests here will start passing against stale args — keep them aligned.
 func buildTestArgs(opt TestOptions) []string {
-	args := []string{"test", "-json"}
+	args := []string{"test", "-json", "-p", "4"}
 	if opt.Verbose {
 		args = append(args, "-v")
 	}
@@ -76,6 +76,18 @@ func buildTestArgs(opt TestOptions) []string {
 	args = append(args, pkg)
 	args = append(args, opt.ExtraArgs...)
 	return args
+}
+
+func TestGoTestArgs_BoundsPackageParallelism(t *testing.T) {
+	args := buildTestArgs(TestOptions{})
+	if joined := strings.Join(args, " "); !strings.Contains(joined, " -p 4 ") {
+		t.Fatalf("default package parallelism is not bounded: %q", joined)
+	}
+
+	args = buildTestArgs(TestOptions{ExtraArgs: []string{"-p=1"}})
+	if got := args[len(args)-1]; got != "-p=1" {
+		t.Fatalf("explicit package parallelism override = %q, want -p=1", got)
+	}
 }
 
 func TestGoTestArgs_CoverageOptIn(t *testing.T) {

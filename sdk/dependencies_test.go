@@ -124,6 +124,14 @@ func TestWithCLIServerPortLeavesEnvironmentForInvalidAddress(t *testing.T) {
 	}
 }
 
+func TestWithFixtureSelectsDependencyStackFixture(t *testing.T) {
+	option := &Option{}
+	WithFixture("dev-admin")(option)
+	if option.Fixture != "dev-admin" {
+		t.Fatalf("fixture = %q, want dev-admin", option.Fixture)
+	}
+}
+
 // readPIDFile waits for the fake binary to record its two PIDs, then parses them.
 func readPIDFile(t *testing.T, path string) (int, int) {
 	t.Helper()

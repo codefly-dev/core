@@ -22,4 +22,12 @@ func TestGoClientGenerationPreservesProtovalidatePackage(t *testing.T) {
 	if !strings.Contains(string(configuration), "buf.build/bufbuild/protovalidate") {
 		t.Fatal("Go client generation rewrites Protovalidate into the client package")
 	}
+	if strings.Contains(string(configuration), "plugin: buf.build/protocolbuffers/go") ||
+		strings.Contains(string(configuration), "plugin: buf.build/grpc/go") {
+		t.Fatal("Go client generation depends on mutable remote plugins")
+	}
+	if !strings.Contains(string(configuration), "- name: go\n") ||
+		!strings.Contains(string(configuration), "- name: go-grpc\n") {
+		t.Fatal("Go client generation does not use companion-pinned local plugins")
+	}
 }
