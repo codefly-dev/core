@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -105,10 +106,34 @@ func TestFormatServiceLogLinesWrapsWithContinuationGutter(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("expected wrapped lines, got %#v", lines)
 	}
-	if lines[0] != "infra/neo4j      > This instance is" {
+	gutter := "infra/neo4j      > "
+	if lines[0] != gutter+"This instance is" {
 		t.Fatalf("unexpected first line: %q", lines[0])
 	}
-	if lines[1] != "infra/neo4j      > ServerId{257a2499}" {
+	for i, line := range lines {
+		if !strings.HasPrefix(line, gutter) {
+			t.Fatalf("line %d missing service gutter: %q", i, line)
+		}
+	}
+}
+
+func TestFormatServiceLogLinesWrapsByDisplayWidth(t *testing.T) {
+	// Wide runes occupy two display columns each; byte-length wrapping would
+	// break far too early and misalign the continuation gutter.
+	lines := formatServiceLogLines(ServiceLogMsg{
+		Level:   wool.FORWARD,
+		Source:  "svc",
+		Message: "上上上上上上上上上上 tail",
+	}, 40)
+
+	if len(lines) < 2 {
+		t.Fatalf("expected wrapped lines, got %#v", lines)
+	}
+	prefix := fmt.Sprintf("%s > ", padServiceSource("svc"))
+	if lines[0] != prefix+"上上上上上上上上上上" {
+		t.Fatalf("unexpected first line: %q", lines[0])
+	}
+	if lines[1] != prefix+"tail" {
 		t.Fatalf("unexpected continuation line: %q", lines[1])
 	}
 }

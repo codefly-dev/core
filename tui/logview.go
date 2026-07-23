@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -122,25 +123,18 @@ func padServiceSource(source string) string {
 }
 
 func wrapLogLine(prefix, message string, width int) []string {
-	if width <= 0 || len(prefix)+len(message) <= width {
+	prefixWidth := ansi.StringWidth(prefix)
+	if width <= 0 || prefixWidth+ansi.StringWidth(message) <= width {
 		return []string{prefix + message}
 	}
-	bodyWidth := width - len(prefix)
+	bodyWidth := width - prefixWidth
 	if bodyWidth < 20 {
 		return []string{prefix + message}
 	}
-	var out []string
-	remaining := message
-	for len(prefix)+len(remaining) > width {
-		cut := bodyWidth
-		if idx := strings.LastIndexByte(remaining[:bodyWidth], ' '); idx > 0 {
-			cut = idx
-		}
-		out = append(out, prefix+strings.TrimRight(remaining[:cut], " "))
-		remaining = strings.TrimLeft(remaining[cut:], " ")
-	}
-	if remaining != "" {
-		out = append(out, prefix+remaining)
+	bodies := strings.Split(ansi.Wrap(message, bodyWidth, ""), "\n")
+	out := make([]string, 0, len(bodies))
+	for _, body := range bodies {
+		out = append(out, prefix+body)
 	}
 	return out
 }
