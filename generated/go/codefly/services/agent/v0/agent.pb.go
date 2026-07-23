@@ -276,6 +276,9 @@ const (
 	Capability_RUNTIME Capability_Type = 2
 	// Hot Reload is a runtime where a running process will NOT be restarted
 	Capability_HOT_RELOAD Capability_Type = 3
+	// EXECUTION_EXPORTER means the plugin implements the product-neutral
+	// ExecutionExporter service.
+	Capability_EXECUTION_EXPORTER Capability_Type = 4
 )
 
 // Enum value maps for Capability_Type.
@@ -285,12 +288,14 @@ var (
 		1: "BUILDER",
 		2: "RUNTIME",
 		3: "HOT_RELOAD",
+		4: "EXECUTION_EXPORTER",
 	}
 	Capability_Type_value = map[string]int32{
-		"UNKNOWN":    0,
-		"BUILDER":    1,
-		"RUNTIME":    2,
-		"HOT_RELOAD": 3,
+		"UNKNOWN":            0,
+		"BUILDER":            1,
+		"RUNTIME":            2,
+		"HOT_RELOAD":         3,
+		"EXECUTION_EXPORTER": 4,
 	}
 )
 
@@ -1708,16 +1713,17 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x04type\x18\x01 \x01(\x0e2(.codefly.services.agent.v0.Protocol.TypeR\x04type\"\x1a\n" +
 	"\x04Type\x12\b\n" +
 	"\x04HTTP\x10\x00\x12\b\n" +
-	"\x04GRPC\x10\x01\"\x8b\x01\n" +
+	"\x04GRPC\x10\x01\"\xa3\x01\n" +
 	"\n" +
 	"Capability\x12>\n" +
-	"\x04type\x18\x01 \x01(\x0e2*.codefly.services.agent.v0.Capability.TypeR\x04type\"=\n" +
+	"\x04type\x18\x01 \x01(\x0e2*.codefly.services.agent.v0.Capability.TypeR\x04type\"U\n" +
 	"\x04Type\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aBUILDER\x10\x01\x12\v\n" +
 	"\aRUNTIME\x10\x02\x12\x0e\n" +
 	"\n" +
-	"HOT_RELOAD\x10\x03\"\x95\x01\n" +
+	"HOT_RELOAD\x10\x03\x12\x16\n" +
+	"\x12EXECUTION_EXPORTER\x10\x04\"\x95\x01\n" +
 	"\x1dValidationOperationCapability\x12\x1c\n" +
 	"\tsupported\x18\x01 \x01(\bR\tsupported\x12B\n" +
 	"\x06scopes\x18\x02 \x03(\x0e2*.codefly.services.agent.v0.ValidationScopeR\x06scopesJ\x04\b\x03\x10\x04R\fsupports_fix\"\xa6\x01\n" +

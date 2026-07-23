@@ -56,6 +56,9 @@ message Capability {
     RUNTIME = 2;
     // Hot Reload is a runtime where a running process will NOT be restarted
     HOT_RELOAD = 3;
+    // EXECUTION_EXPORTER means the plugin implements the product-neutral
+    // ExecutionExporter service.
+    EXECUTION_EXPORTER = 4;
   }
   // type is the advertised capability.
   Type type = 1;

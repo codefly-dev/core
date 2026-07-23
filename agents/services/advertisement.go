@@ -21,6 +21,11 @@ type Advertisement struct {
 	HotReload bool
 	// RuntimeOnly advertises RUNTIME only (no BUILDER) — for passthrough agents.
 	RuntimeOnly bool
+	// CapabilityOnly suppresses BUILDER/RUNTIME for plugins that expose only an
+	// additive capability such as ExecutionExporter.
+	CapabilityOnly bool
+	// ExecutionExporter advertises the product-neutral receipt exporter service.
+	ExecutionExporter bool
 	// Languages the agent can create, run, or analyze.
 	Languages []agentv0.Language_Type
 	// Protocols the agent can expose.
@@ -40,16 +45,21 @@ type Advertisement struct {
 // Build assembles the AgentInformation, applying the common defaults.
 func (a Advertisement) Build() *agentv0.AgentInformation {
 	var caps []*agentv0.Capability
-	if a.RuntimeOnly {
-		caps = append(caps, &agentv0.Capability{Type: agentv0.Capability_RUNTIME})
-	} else {
-		caps = append(caps,
-			&agentv0.Capability{Type: agentv0.Capability_BUILDER},
-			&agentv0.Capability{Type: agentv0.Capability_RUNTIME},
-		)
+	if !a.CapabilityOnly {
+		if a.RuntimeOnly {
+			caps = append(caps, &agentv0.Capability{Type: agentv0.Capability_RUNTIME})
+		} else {
+			caps = append(caps,
+				&agentv0.Capability{Type: agentv0.Capability_BUILDER},
+				&agentv0.Capability{Type: agentv0.Capability_RUNTIME},
+			)
+		}
 	}
 	if a.HotReload {
 		caps = append(caps, &agentv0.Capability{Type: agentv0.Capability_HOT_RELOAD})
+	}
+	if a.ExecutionExporter {
+		caps = append(caps, &agentv0.Capability{Type: agentv0.Capability_EXECUTION_EXPORTER})
 	}
 
 	info := &agentv0.AgentInformation{

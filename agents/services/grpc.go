@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 
+	executionv1 "github.com/codefly-dev/core/generated/go/codefly/execution/v1"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
@@ -30,6 +31,11 @@ type BuilderServer struct {
 // CodeServer interface. Plugins override methods they implement.
 type CodeServer struct {
 	codev0.UnimplementedCodeServer
+}
+
+// ExecutionExporterServer is embedded by execution receipt exporter plugins.
+type ExecutionExporterServer struct {
+	executionv1.UnimplementedExecutionExporterServer
 }
 
 // DefaultBuilder supplies the successful no-op lifecycle methods used by most

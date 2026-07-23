@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	executionv1 "github.com/codefly-dev/core/generated/go/codefly/execution/v1"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
@@ -51,6 +52,7 @@ const agentShutdownHardDeadline = 12 * time.Second
 //   - Application (go-grpc, python-fastapi): Agent + Runtime + Builder + Tooling/Toolbox
 //   - Capability toolboxes (git, docker, nix, web, grpc): Agent + Toolbox only
 //   - Tooling-only (go-analyzer): Agent + Tooling
+//   - Execution exporters: Agent + ExecutionExporter only
 //
 // Separation of concerns:
 //   - Runtime: service lifecycle (Load/Init/Start/Stop/Destroy)
@@ -64,13 +66,16 @@ const agentShutdownHardDeadline = 12 * time.Second
 //     Prompts. The unified contract going forward. Capability plugins (git, docker,
 //     nix, web, grpc) expose only this; language plugins expose it alongside Tooling
 //     until the migration completes.
+//   - ExecutionExporter: durable product-neutral execution receipt delivery. Exporter
+//     plugins never participate in, alter, or authorize the underlying execution.
 type PluginRegistration struct {
-	Agent   agentv0.AgentServer
-	Runtime runtimev0.RuntimeServer
-	Builder builderv0.BuilderServer
-	Code    codev0.CodeServer       // Deprecated: use Tooling/Toolbox for language-specific operations.
-	Tooling toolingv0.ToolingServer // Transitional: collapses into Toolbox via lang.* convention.
-	Toolbox toolboxv0.ToolboxServer // The unified callable contract (MCP-shape).
+	Agent             agentv0.AgentServer
+	Runtime           runtimev0.RuntimeServer
+	Builder           builderv0.BuilderServer
+	Code              codev0.CodeServer                   // Deprecated: use Tooling/Toolbox for language-specific operations.
+	Tooling           toolingv0.ToolingServer             // Transitional: collapses into Toolbox via lang.* convention.
+	Toolbox           toolboxv0.ToolboxServer             // The unified callable contract (MCP-shape).
+	ExecutionExporter executionv1.ExecutionExporterServer // Product-neutral receipt exporter plugin.
 
 	// PDP gates Toolbox tool calls when non-nil. Wires the
 	// policyguard.Guard around the registered Toolbox before gRPC
@@ -445,6 +450,9 @@ func Serve(reg PluginRegistration) {
 	}
 	if reg.Code != nil {
 		codev0.RegisterCodeServer(s, reg.Code)
+	}
+	if reg.ExecutionExporter != nil {
+		executionv1.RegisterExecutionExporterServer(s, reg.ExecutionExporter)
 	}
 	if reg.Tooling != nil {
 		toolingv0.RegisterToolingServer(s, reg.Tooling)

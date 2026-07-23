@@ -34,3 +34,13 @@ func TestAdvertisementLeavesLegacyValidationAbsent(t *testing.T) {
 		t.Fatalf("legacy advertisement unexpectedly became authoritative: %v", validation)
 	}
 }
+
+func TestAdvertisementSupportsExecutionExporterOnlyPlugin(t *testing.T) {
+	info := (Advertisement{CapabilityOnly: true, ExecutionExporter: true}).Build()
+	if len(info.GetCapabilities()) != 1 {
+		t.Fatalf("capabilities = %v, want execution exporter only", info.GetCapabilities())
+	}
+	if got := info.GetCapabilities()[0].GetType(); got != agentv0.Capability_EXECUTION_EXPORTER {
+		t.Fatalf("capability = %v, want EXECUTION_EXPORTER", got)
+	}
+}

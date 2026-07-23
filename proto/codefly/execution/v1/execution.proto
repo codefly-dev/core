@@ -1,0 +1,172 @@
+syntax = "proto3";
+package codefly.execution.v1;
+
+import "buf/validate/validate.proto";
+import "codefly/base/v0/work_context.proto";
+import "google/protobuf/timestamp.proto";
+
+// ExecutionStage is one causally ordered fact in an execution attempt.
+enum ExecutionStage {
+  // EXECUTION_STAGE_UNSPECIFIED is invalid for a persisted receipt.
+  EXECUTION_STAGE_UNSPECIFIED = 0;
+  // EXECUTION_STAGE_ADMITTED records successful policy admission.
+  EXECUTION_STAGE_ADMITTED = 1;
+  // EXECUTION_STAGE_STARTED is durably recorded before the effect begins.
+  EXECUTION_STAGE_STARTED = 2;
+  // EXECUTION_STAGE_SUCCEEDED records a completed successful effect.
+  EXECUTION_STAGE_SUCCEEDED = 3;
+  // EXECUTION_STAGE_FAILED records a completed failed effect.
+  EXECUTION_STAGE_FAILED = 4;
+  // EXECUTION_STAGE_COMPENSATED records a completed compensating effect.
+  EXECUTION_STAGE_COMPENSATED = 5;
+  // EXECUTION_STAGE_UNCERTAIN records an attempt whose terminal state cannot be proven.
+  EXECUTION_STAGE_UNCERTAIN = 6;
+}
+
+// ExecutionAssurance states which boundary directly observed the effect.
+enum ExecutionAssurance {
+  // EXECUTION_ASSURANCE_UNSPECIFIED is invalid for a persisted receipt.
+  EXECUTION_ASSURANCE_UNSPECIFIED = 0;
+  // EXECUTION_ASSURANCE_GATEWAY_EXECUTED means the Codefly Gateway performed the effect.
+  EXECUTION_ASSURANCE_GATEWAY_EXECUTED = 1;
+  // EXECUTION_ASSURANCE_PLUGIN_EXECUTED means a Codefly plugin returned the typed effect result.
+  EXECUTION_ASSURANCE_PLUGIN_EXECUTED = 2;
+  // EXECUTION_ASSURANCE_COORDINATOR_PERMITTED proves admission, not execution by itself.
+  EXECUTION_ASSURANCE_COORDINATOR_PERMITTED = 3;
+  // EXECUTION_ASSURANCE_OBSERVED_ONLY is observation without executor proof.
+  EXECUTION_ASSURANCE_OBSERVED_ONLY = 4;
+}
+
+// ExecutionReceiptV1 is the product-neutral immutable execution fact exported
+// by Codefly. It contains bounded metadata, never source bytes, patches,
+// unbounded process output, bearer tokens, or a product-specific evidence
+// envelope.
+message ExecutionReceiptV1 {
+  // schema is fixed to "codefly.execution-receipt/v1".
+  string schema = 1 [(buf.validate.field).string.const = "codefly.execution-receipt/v1"];
+  // receipt_id uniquely identifies this immutable stage receipt.
+  string receipt_id = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // operation_id is stable across transport retries of one logical operation.
+  string operation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // attempt_id changes only when the effect is intentionally re-executed.
+  string attempt_id = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // stage is one admitted/started/terminal lifecycle fact.
+  ExecutionStage stage = 5 [(buf.validate.field).enum.defined_only = true];
+  // operation_kind is an extensible namespaced kind such as "code.apply-edit".
+  string operation_kind = 6 [(buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 128];
+  // producer identifies the generic component and immutable release.
+  ExecutionProducerV1 producer = 7 [(buf.validate.field).required = true];
+  // assurance states which boundary directly observed the effect.
+  ExecutionAssurance assurance = 8 [(buf.validate.field).enum.defined_only = true];
+  // work_context is a verified claims snapshot, not the signed bearer token.
+  codefly.base.v0.WorkContextV1 work_context = 9 [(buf.validate.field).required = true];
+  // work_context_sha256 binds the snapshot to the admitted signed token.
+  string work_context_sha256 = 10 [(buf.validate.field).string.pattern = "^[0-9a-f]{64}$"];
+  // target identifies the Codefly workspace/service boundary.
+  ExecutionTargetV1 target = 11 [(buf.validate.field).required = true];
+  // started_at is shared by every receipt for the same attempt.
+  google.protobuf.Timestamp started_at = 12 [(buf.validate.field).required = true];
+  // completed_at is set only on terminal receipts.
+  optional google.protobuf.Timestamp completed_at = 13;
+  // resources are bounded safe references and digests affected by the operation.
+  repeated ExecutionResourceV1 resources = 14 [(buf.validate.field).repeated.max_items = 128];
+  // result contains bounded generic status and numeric result facts.
+  ExecutionResultV1 result = 15;
+  // extension_schema identifies optional plugin-owned canonical extension JSON.
+  optional string extension_schema = 16 [(buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 128];
+  // extension_json is canonical JSON validated by extension_schema and capped at 16 KiB.
+  optional bytes extension_json = 17 [(buf.validate.field).bytes.max_len = 16384];
+  // payload_sha256 is the digest of deterministic receipt bytes with this field empty.
+  string payload_sha256 = 18 [(buf.validate.field).string.pattern = "^[0-9a-f]{64}$"];
+}
+
+// ExecutionProducerV1 identifies the neutral producer and its release.
+message ExecutionProducerV1 {
+  // id is a stable namespaced producer ID such as "codefly.execution".
+  string id = 1 [(buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 128];
+  // component identifies the actual Gateway or plugin component.
+  string component = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 256];
+  // release is the immutable component release.
+  string release = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 256];
+}
+
+// ExecutionTargetV1 identifies where Codefly admitted the execution.
+message ExecutionTargetV1 {
+  // workspace_id is the Codefly workspace identity.
+  string workspace_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // service is the Codefly service identity.
+  string service = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // project_id optionally identifies the product/repository project.
+  optional string project_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+}
+
+// ExecutionResourceV1 is a safe resource reference and immutable digest set.
+message ExecutionResourceV1 {
+  // kind is a namespaced resource kind such as "workspace.path".
+  string kind = 1 [(buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 128];
+  // reference is a bounded canonical reference; policy may choose a digest instead of a path.
+  string reference = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 2048];
+  // previous_reference is used by moves/renames.
+  optional string previous_reference = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 2048];
+  // before_sha256 is the previous content digest when known.
+  optional string before_sha256 = 4 [(buf.validate.field).string.pattern = "^[0-9a-f]{64}$"];
+  // after_sha256 is the resulting content digest when known.
+  optional string after_sha256 = 5 [(buf.validate.field).string.pattern = "^[0-9a-f]{64}$"];
+  // changed says whether the operation changed this resource.
+  bool changed = 6;
+}
+
+// ExecutionResultV1 contains bounded generic outcome facts. Rich
+// operation-specific metadata belongs in a versioned extension schema.
+message ExecutionResultV1 {
+  // status is a bounded machine status owned by the operation producer.
+  string status = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // error_code is a bounded stable error class and never an unbounded message.
+  optional string error_code = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // exit_code is present for command-like operations.
+  optional int32 exit_code = 3;
+  // duration_ms is the measured operation latency.
+  uint64 duration_ms = 4;
+  // passed_count is a bounded successful-item/test count.
+  uint64 passed_count = 5;
+  // failed_count is a bounded failed-item/test count.
+  uint64 failed_count = 6;
+  // skipped_count is a bounded skipped-item/test count.
+  uint64 skipped_count = 7;
+}
+
+// ExecutionAttestationV1 is a Gateway-signed receipt. The signature covers the
+// deterministic protobuf encoding of receipt after payload_sha256 is populated.
+message ExecutionAttestationV1 {
+  // receipt is the immutable signed payload.
+  ExecutionReceiptV1 receipt = 1 [(buf.validate.field).required = true];
+  // signer_id identifies one registered Codefly Gateway installation.
+  string signer_id = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // key_id selects a registered Gateway verification key during rotation.
+  string key_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // algorithm is fixed to "Ed25519".
+  string algorithm = 4 [(buf.validate.field).string.const = "Ed25519"];
+  // signature is exactly one Ed25519 signature over the receipt.
+  bytes signature = 5 [(buf.validate.field).bytes.len = 64];
+}
+
+// ExportExecutionRequest delivers one durable attestation to an exporter plugin.
+message ExportExecutionRequest {
+  // attestation is the Gateway-signed execution receipt.
+  ExecutionAttestationV1 attestation = 1 [(buf.validate.field).required = true];
+}
+
+// ExportExecutionResponse acknowledges durable exporter acceptance.
+message ExportExecutionResponse {
+  // receipt_id repeats the accepted receipt identity.
+  string receipt_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // duplicate is true when the exporter had already accepted identical bytes.
+  bool duplicate = 2;
+}
+
+// ExecutionExporter is the product-neutral Codefly plugin API. Installing or
+// removing an exporter changes only receipt delivery, never execution behavior.
+service ExecutionExporter {
+  // Export durably accepts one idempotent signed receipt.
+  rpc Export(ExportExecutionRequest) returns (ExportExecutionResponse);
+}
