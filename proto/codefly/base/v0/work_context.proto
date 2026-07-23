@@ -1,0 +1,72 @@
+syntax = "proto3";
+package codefly.base.v0;
+
+import "buf/validate/validate.proto";
+
+// WorkContextV1 is the product-neutral identity and authority capability for
+// one Task/Session hop. The signed wire representation is owned by Codefly
+// SDKs; applications must never serialize this message into a bearer token or
+// construct the transport header themselves.
+//
+// Task identity is the tuple (tenant_id, owner_principal_id, task_id).
+// Starting a child agent keeps that tuple and exchanges the parent capability
+// for a new child session capability. It never mutates an existing capability.
+message WorkContextV1 {
+  // typ is fixed to "codefly.work-context/v1".
+  string typ = 1 [(buf.validate.field).string.const = "codefly.work-context/v1"];
+  // algorithm is fixed to "Ed25519".
+  string algorithm = 2 [(buf.validate.field).string.const = "Ed25519"];
+  // key_id selects one public verification key during rotation.
+  string key_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // issuer is the authority that verified identity and minted this context.
+  string issuer = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // audience is the exact service or trust boundary allowed to consume it.
+  string audience = 5 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  int64 not_before_unix = 6;
+  int64 issued_at_unix = 7;
+  int64 expires_at_unix = 8;
+  // nonce identifies the capability. Replay behavior is separately explicit.
+  string nonce = 9 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // authorization_revision is the issuer's current membership/policy revision.
+  uint64 authorization_revision = 10;
+  // replay_policy is "idempotent" or "single-use". A verifier still needs a
+  // durable replay store to enforce single-use consumption.
+  string replay_policy = 11 [(buf.validate.field).string.in = "idempotent", (buf.validate.field).string.in = "single-use"];
+
+  string tenant_id = 12 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  string owner_principal_id = 13 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  string task_id = 14 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  string session_id = 15 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  optional string parent_session_id = 16 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+
+  // authority_scopes are the maximum scopes the owner delegated into this
+  // Work Context. Each actor hop's granted_scopes must be a subset of the
+  // preceding effective scopes.
+  repeated WorkScopeV1 authority_scopes = 17;
+  // actor_chain is ordered from the first delegated actor to the current actor.
+  // The owner is not duplicated here merely to make a direct call look uniform.
+  repeated WorkActorV1 actor_chain = 18;
+  // attribution_team_ids is an immutable verified attribution snapshot. It
+  // explains ownership; current authorization is still evaluated separately.
+  repeated string attribution_team_ids = 19;
+  optional string workspace_id = 20 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  optional string project_id = 21 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+}
+
+// WorkScopeV1 is a structured, product-neutral capability scope. Empty
+// resource_ids means every resource of resource_kind; a child may narrow that
+// wildcard to explicit IDs but may never widen an explicit parent set.
+message WorkScopeV1 {
+  string resource_kind = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  repeated string actions = 2;
+  repeated string resource_ids = 3;
+}
+
+// WorkActorV1 is one verified delegated actor. granted_scopes are the actor's
+// effective scopes and must monotonically attenuate the previous hop.
+message WorkActorV1 {
+  string principal_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  string principal_kind = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  string delegation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  repeated WorkScopeV1 granted_scopes = 4;
+}
