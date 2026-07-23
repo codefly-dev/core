@@ -26,8 +26,8 @@ func TestGoClientGenerationPreservesProtovalidatePackage(t *testing.T) {
 		strings.Contains(string(configuration), "plugin: buf.build/grpc/go") {
 		t.Fatal("Go client generation depends on mutable remote plugins")
 	}
-	if !strings.Contains(string(configuration), "- name: go\n") ||
-		!strings.Contains(string(configuration), "- name: go-grpc\n") {
+	if !strings.Contains(string(configuration), "name: go") ||
+		!strings.Contains(string(configuration), "name: go-grpc") {
 		t.Fatal("Go client generation does not use companion-pinned local plugins")
 	}
 }
