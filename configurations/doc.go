@@ -75,10 +75,13 @@
 //	*.secret.yaml
 //
 // Manager.Restrict prevents resolution for excluded service origins. Workspace
-// configurations are currently resolved during Manager.Load, before dependency
-// names passed later to GetWorkspaceDependenciesConfigurations are known.
-// Reference-only manifests do not change the loader's existing symlink
-// traversal policy; filesystem and repository permissions remain the boundary.
+// configurations resolve lazily: Manager.Load resolves only service-origin
+// references, and a workspace reference is resolved when a caller selects it by
+// name through GetWorkspaceDependenciesConfigurations (or requests them all via
+// GetWorkspaceConfigurations). All selected configurations share one per-load
+// URI cache, so a reference used by several is fetched once. Reference-only
+// manifests do not change the loader's existing symlink traversal policy;
+// filesystem and repository permissions remain the boundary.
 //
 // Git owns the non-secret manifest and workspace configuration, Core validates
 // and resolves only provider references, the CLI selects the declared

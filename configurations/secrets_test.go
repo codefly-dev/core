@@ -346,7 +346,9 @@ func TestReferenceOnlyManifestMissingBackendDoesNotExposeReference(t *testing.T)
 	require.NoError(t, err)
 	manager.WithLoader(loader)
 
-	err = manager.Load(ctx, resources.LocalEnvironment())
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	_, err = manager.GetWorkspaceDependenciesConfigurations(ctx, "auth")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not configured")
 	require.Contains(t, err.Error(), `configuration "auth" key "TOKEN"`)
@@ -391,7 +393,9 @@ func TestResolverErrorsAreWrappedWithoutLeakingValues(t *testing.T) {
 	require.NoError(t, err)
 	manager.WithLoader(loader).WithSecretResolver(&failingSecretResolver{cause: cause})
 
-	err = manager.Load(ctx, resources.LocalEnvironment())
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	_, err = manager.GetWorkspaceDependenciesConfigurations(ctx, "auth")
 	require.ErrorIs(t, err, cause)
 	require.Contains(t, err.Error(), `secret provider "op" failed`)
 	require.NotContains(t, err.Error(), canary)
@@ -441,6 +445,12 @@ func TestResolvedSecretsDoNotAppearInLogs(t *testing.T) {
 		"op://dev-vault/auth/token": canary,
 	}})
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	resolved, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "auth")
+	require.NoError(t, err)
+	value, err := resources.GetConfigurationValue(ctx, resolved[0], "auth", "token")
+	require.NoError(t, err)
+	require.Equal(t, canary, value)
 
 	for _, log := range capture.logs {
 		require.NotContains(t, log.String(), canary)
@@ -580,7 +590,8 @@ a: op://dev-vault/item/a
 		manager, err := NewManager(ctx, workspace)
 		require.NoError(t, err)
 		manager.WithLoader(loader)
-		err = manager.Load(ctx, resources.LocalEnvironment())
+		require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+		_, err = manager.GetWorkspaceDependenciesConfigurations(ctx, "auth")
 		require.Error(t, err)
 		if first == "" {
 			first = err.Error()
@@ -588,4 +599,129 @@ a: op://dev-vault/item/a
 		require.Equal(t, first, err.Error())
 	}
 	require.Contains(t, first, `$["a"]`)
+}
+
+// Only the workspace configurations named at the selection boundary are
+// resolved; references belonging to unselected ones are never fetched.
+func TestWorkspaceSelectionResolvesOnlySelectedConfigurations(t *testing.T) {
+	ctx := context.Background()
+	root := referenceOnlyWorkspace(t)
+	writeSecretTestFile(t, root, "configurations/local/selected.secret.ref.env", "TOKEN=op://dev-vault/selected/token\n")
+	writeSecretTestFile(t, root, "configurations/local/unselected.secret.ref.env", "TOKEN=op://dev-vault/unselected/token\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	resolver := &recordingSecretResolver{values: map[string]string{
+		"op://dev-vault/selected/token":   "selected-value",
+		"op://dev-vault/unselected/token": "unselected-value",
+	}}
+	manager, err := NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader).WithSecretResolver(resolver)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	confs, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "selected")
+	require.NoError(t, err)
+	require.Len(t, confs, 1)
+	value, err := resources.GetConfigurationValue(ctx, confs[0], "selected", "token")
+	require.NoError(t, err)
+	require.Equal(t, "selected-value", value)
+	require.Equal(t, 1, resolver.calls["op://dev-vault/selected/token"])
+	require.Zero(t, resolver.calls["op://dev-vault/unselected/token"])
+}
+
+// A reference in an unselected configuration whose backend is unavailable must
+// not fail the selection: only the selected graph is resolved.
+func TestWorkspaceSelectionIgnoresUnselectedUnresolvableReferences(t *testing.T) {
+	ctx := context.Background()
+	root := referenceOnlyWorkspace(t)
+	writeSecretTestFile(t, root, "configurations/local/good.secret.ref.env", "TOKEN=op://dev-vault/good/token\n")
+	writeSecretTestFile(t, root, "configurations/local/broken.secret.ref.env", "TOKEN=op://missing-vault/broken/token\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	resolver := &recordingSecretResolver{values: map[string]string{
+		"op://dev-vault/good/token": "good-value",
+	}}
+	manager, err := NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader).WithSecretResolver(resolver)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	confs, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "good")
+	require.NoError(t, err)
+	value, err := resources.GetConfigurationValue(ctx, confs[0], "good", "token")
+	require.NoError(t, err)
+	require.Equal(t, "good-value", value)
+
+	_, err = manager.GetWorkspaceDependenciesConfigurations(ctx, "broken")
+	require.Error(t, err)
+}
+
+// The per-load URI cache spans selected configurations: a reference shared by
+// two selected configurations is fetched from the provider once.
+func TestWorkspaceSelectionSharesURICacheAcrossConfigurations(t *testing.T) {
+	ctx := context.Background()
+	root := referenceOnlyWorkspace(t)
+	const shared = "op://dev-vault/shared/token"
+	writeSecretTestFile(t, root, "configurations/local/auth.secret.ref.env", "TOKEN="+shared+"\n")
+	writeSecretTestFile(t, root, "configurations/local/mirror.secret.ref.env", "TOKEN="+shared+"\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	resolver := &recordingSecretResolver{values: map[string]string{shared: "shared-value"}}
+	manager, err := NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader).WithSecretResolver(resolver)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	confs, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "auth", "mirror")
+	require.NoError(t, err)
+	require.Len(t, confs, 2)
+	for _, name := range []string{"auth", "mirror"} {
+		conf, err := resources.FindWorkspaceConfiguration(ctx, confs, name)
+		require.NoError(t, err)
+		value, err := resources.GetConfigurationValue(ctx, conf, name, "token")
+		require.NoError(t, err)
+		require.Equal(t, "shared-value", value)
+	}
+	require.Equal(t, 1, resolver.calls[shared])
+
+	// A repeated selection resolves nothing new — the cache and the per-config
+	// resolved marker both hold.
+	_, err = manager.GetWorkspaceDependenciesConfigurations(ctx, "auth")
+	require.NoError(t, err)
+	require.Equal(t, 1, resolver.calls[shared])
+}
+
+// Cancellation surfaces through the selection boundary rather than injecting a
+// raw reference as a resolved value.
+func TestWorkspaceSelectionResolutionCancellation(t *testing.T) {
+	ctx := context.Background()
+	root := referenceOnlyWorkspace(t)
+	writeSecretTestFile(t, root, "configurations/local/auth.secret.ref.env", "TOKEN=op://dev-vault/auth/token\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	op := NewOnePasswordResolver("")
+	op.bin = writeStub(t, "op", "#!/bin/sh\nwhile :; do :; done\n")
+	manager, err := NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader).WithSecretResolver(op)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	cancelCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err = manager.GetWorkspaceDependenciesConfigurations(cancelCtx, "auth")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, time.Since(started), 2*time.Second)
 }

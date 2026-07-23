@@ -44,6 +44,13 @@ type Manager struct {
 
 	reduced  []string
 	doReduce bool
+
+	// resolution and env are captured at Load() so workspace-origin secrets,
+	// deferred until a caller selects them, resolve through the same per-load
+	// URI cache the service-origin pass already used.
+	resolution        *secretResolution
+	env               *resources.Environment
+	resolvedWorkspace map[string]bool
 }
 
 func NewManager(_ context.Context, workspace *resources.Workspace) (*Manager, error) {
@@ -53,6 +60,7 @@ func NewManager(_ context.Context, workspace *resources.Workspace) (*Manager, er
 		worspaceConfigurations:           make(map[string]*basev0.Configuration),
 		serviceConfigurations:            make(map[string]*basev0.Configuration),
 		exposedFromServiceConfigurations: make(map[string][]*basev0.Configuration),
+		resolvedWorkspace:                make(map[string]bool),
 	}, nil
 }
 
@@ -100,7 +108,9 @@ func (manager *Manager) Load(ctx context.Context, env *resources.Environment) er
 
 // resolveSecrets resolves reference-valued secrets (op://…) produced by the
 // loaders, in place, before they are consolidated. Plaintext secret values
-// pass through untouched.
+// pass through untouched. Workspace-origin configurations are deferred: Core
+// does not yet know which dependencies a caller selects, so their references
+// are resolved lazily by resolveWorkspaceConfiguration once names arrive.
 func (manager *Manager) resolveSecrets(ctx context.Context, env *resources.Environment) error {
 	w := wool.Get(ctx).In("configurations.Manager.resolveSecrets")
 	fromEnv, err := ResolversFromEnvironment(env)
@@ -108,17 +118,38 @@ func (manager *Manager) resolveSecrets(ctx context.Context, env *resources.Envir
 		return w.Wrapf(err, "cannot build secret resolvers for environment %s", env.Name)
 	}
 	resolvers := append(append([]SecretResolver{}, manager.secretResolvers...), fromEnv...)
-	resolution := newSecretResolution(resolvers)
+	manager.resolution = newSecretResolution(resolvers)
+	manager.env = env
 	for _, loader := range manager.loaders {
 		for _, conf := range loader.Configurations() {
-			if conf.Origin != resources.ConfigurationWorkspace && manager.skip(conf.Origin) {
+			if conf.Origin == resources.ConfigurationWorkspace {
 				continue
 			}
-			if err := resolution.resolveConfiguration(ctx, conf, env); err != nil {
+			if manager.skip(conf.Origin) {
+				continue
+			}
+			if err := manager.resolution.resolveConfiguration(ctx, conf, env); err != nil {
 				return w.Wrapf(err, "cannot resolve secrets from loader %s", loader.Identity())
 			}
 		}
 	}
+	return nil
+}
+
+// resolveWorkspaceConfiguration resolves a selected workspace configuration in
+// place, at most once per load. The per-load URI cache is shared with every
+// other selected configuration and with the service-origin pass, so a reference
+// used by several is fetched from its provider only once.
+func (manager *Manager) resolveWorkspaceConfiguration(ctx context.Context, name string, conf *basev0.Configuration) error {
+	if manager.resolvedWorkspace[name] {
+		return nil
+	}
+	if manager.resolution != nil {
+		if err := manager.resolution.resolveConfiguration(ctx, conf, manager.env); err != nil {
+			return err
+		}
+	}
+	manager.resolvedWorkspace[name] = true
 	return nil
 }
 
@@ -154,10 +185,11 @@ func (manager *Manager) LoadConfigurations(_ context.Context) error {
 	return nil
 }
 
-func (manager *Manager) GetWorkspaceConfigurations(_ context.Context) ([]*basev0.Configuration, error) {
+func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
+	w := wool.Get(ctx).In("Manager.GetWorkspaceConfigurations")
 	names := make([]string, 0, len(manager.worspaceConfigurations))
 	for name := range manager.worspaceConfigurations {
 		names = append(names, name)
@@ -165,7 +197,11 @@ func (manager *Manager) GetWorkspaceConfigurations(_ context.Context) ([]*basev0
 	slices.Sort(names)
 	out := make([]*basev0.Configuration, 0, len(names))
 	for _, name := range names {
-		out = append(out, manager.worspaceConfigurations[name])
+		conf := manager.worspaceConfigurations[name]
+		if err := manager.resolveWorkspaceConfiguration(ctx, name, conf); err != nil {
+			return nil, w.Wrapf(err, "cannot resolve workspace configuration %s", name)
+		}
+		out = append(out, conf)
 	}
 	return out, nil
 }
@@ -175,17 +211,16 @@ func (manager *Manager) GetWorkspaceDependenciesConfigurations(ctx context.Conte
 		return nil, nil
 	}
 	w := wool.Get(ctx).In("Manager.GetWorkspaceDependenciesConfigurations")
-	var confs []*basev0.Configuration
-	w.Focus("Found configurations", wool.Field("configurations", resources.MakeManyConfigurationSummary(confs)))
-
-	var out []*basev0.Configuration
+	out := make([]*basev0.Configuration, 0, len(deps))
 	for _, dep := range deps {
-		if conf, ok := manager.worspaceConfigurations[dep]; ok {
-			out = append(out, conf)
-			continue
+		conf, ok := manager.worspaceConfigurations[dep]
+		if !ok {
+			return nil, w.NewError("no configuration found for %s", dep)
 		}
-		return nil, w.NewError("no configuration found for %s", dep)
-
+		if err := manager.resolveWorkspaceConfiguration(ctx, dep, conf); err != nil {
+			return nil, w.Wrapf(err, "cannot resolve workspace configuration %s", dep)
+		}
+		out = append(out, conf)
 	}
 	return out, nil
 }
