@@ -7,10 +7,10 @@ managed:
       - buf.build/googleapis/googleapis
       - buf.build/bufbuild/protovalidate
 plugins:
-  - plugin: buf.build/protocolbuffers/go
+  - name: go
     out: {{.Destination}}
     opt: paths=source_relative
-  - plugin: buf.build/grpc/go
+  - name: go-grpc
     out: {{.Destination}}
     opt: paths=source_relative
   - name: openapiv2
