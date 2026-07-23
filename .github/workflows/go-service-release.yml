@@ -1,0 +1,47 @@
+name: go-service-release
+
+on:
+  workflow_call:
+    inputs:
+      setup-run:
+        description: Optional shell command run before the test suite (e.g. docker pull of a test dependency).
+        type: string
+        default: ''
+      goreleaser-version:
+        description: Version constraint passed to goreleaser-action.
+        type: string
+        default: '~> v2'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Setup
+        if: inputs.setup-run != ''
+        run: ${{ inputs.setup-run }}
+      - name: Test
+        run: go test -v ./...
+
+  goreleaser:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: ${{ inputs.goreleaser-version }}
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
