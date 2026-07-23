@@ -56,9 +56,11 @@ func buildTestArgs(opt TestOptions) []string {
 	if opt.Race {
 		args = append(args, "-race")
 	}
-	if opt.Timeout != "" {
-		args = append(args, "-timeout", opt.Timeout)
+	timeout := opt.Timeout
+	if timeout == "" {
+		timeout = defaultTestTimeout
 	}
+	args = append(args, "-timeout", timeout)
 	if opt.Coverage {
 		args = append(args, "-cover")
 	}
@@ -87,6 +89,18 @@ func TestGoTestArgs_BoundsPackageParallelism(t *testing.T) {
 	args = buildTestArgs(TestOptions{ExtraArgs: []string{"-p=1"}})
 	if got := args[len(args)-1]; got != "-p=1" {
 		t.Fatalf("explicit package parallelism override = %q, want -p=1", got)
+	}
+}
+
+func TestGoTestArgs_OwnsExplicitDefaultTimeout(t *testing.T) {
+	defaultArgs := strings.Join(buildTestArgs(TestOptions{}), " ")
+	if !strings.Contains(defaultArgs, " -timeout 30m ") {
+		t.Fatalf("default test timeout is not explicit: %q", defaultArgs)
+	}
+
+	overrideArgs := strings.Join(buildTestArgs(TestOptions{Timeout: "90m"}), " ")
+	if !strings.Contains(overrideArgs, " -timeout 90m ") {
+		t.Fatalf("typed test timeout override was not honored: %q", overrideArgs)
 	}
 }
 
