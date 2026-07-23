@@ -1,6 +1,9 @@
 package dockerrun
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 // TestShouldReapContainer pins the orphan-reap decision — including the fix for
 // the OrbStack-memory-blowup leak: a RUNNING ephemeral (test) container with a
@@ -41,5 +44,16 @@ func TestEphemeralContainersFlag(t *testing.T) {
 	if !EphemeralContainers() {
 		t.Fatal("SetEphemeralContainers(true) did not take effect")
 	}
+	if got := os.Getenv(EphemeralContainersEnvironment); got != "1" {
+		t.Fatalf("ephemeral process marker = %q, want 1", got)
+	}
+
+	ephemeralContainers.Store(false)
+	if !EphemeralContainers() {
+		t.Fatal("agent process did not inherit the ephemeral environment marker")
+	}
 	SetEphemeralContainers(false) // reset for other tests
+	if _, ok := os.LookupEnv(EphemeralContainersEnvironment); ok {
+		t.Fatal("ephemeral process marker was not cleared")
+	}
 }
