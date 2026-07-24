@@ -25,6 +25,7 @@ type DockerTemplating struct {
 	SourceDir     string // e.g. "code/cmd/server" — the Go main package location
 	ModuleRoot    string // e.g. "code" — where go.mod lives
 	BuildTarget   string // e.g. "./cmd/server" — package to build (relative to ModuleRoot)
+	WithCGO       bool   // install a native toolchain and compile packages that require cgo
 }
 
 // DockerEnv is a key-value pair for Docker environment variables.
