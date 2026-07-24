@@ -3,11 +3,12 @@ package dockerrun
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
 )
 
 func TestContainerConfigDisablesPseudoTTY(t *testing.T) {
@@ -22,10 +23,8 @@ func TestContainerConfigDisablesPseudoTTY(t *testing.T) {
 
 func TestForwardContainerOutputDemultiplexesDockerFrames(t *testing.T) {
 	var framed bytes.Buffer
-	stdout := stdcopy.NewStdWriter(&framed, stdcopy.Stdout)
-	stderr := stdcopy.NewStdWriter(&framed, stdcopy.Stderr)
-	_, _ = stdout.Write([]byte("ready\n"))
-	_, _ = stderr.Write([]byte("warning\n"))
+	writeDockerFrame(&framed, stdcopy.Stdout, []byte("ready\n"))
+	writeDockerFrame(&framed, stdcopy.Stderr, []byte("warning\n"))
 
 	var output bytes.Buffer
 	forwardContainerOutput(context.Background(), &framed, &output, false)
@@ -33,6 +32,18 @@ func TestForwardContainerOutputDemultiplexesDockerFrames(t *testing.T) {
 	if got := output.String(); got != "ready\nwarning\n" {
 		t.Fatalf("demultiplexed output = %q", got)
 	}
+}
+
+// writeDockerFrame encodes the wire format consumed by stdcopy.StdCopy. Moby's
+// split API module intentionally exposes the demultiplexer but not the daemon's
+// internal framing writer, so this test constructs the eight-byte protocol
+// header directly.
+func writeDockerFrame(dst *bytes.Buffer, stream stdcopy.StdType, payload []byte) {
+	var header [8]byte
+	header[0] = byte(stream)
+	binary.BigEndian.PutUint32(header[4:], uint32(len(payload)))
+	_, _ = dst.Write(header[:])
+	_, _ = dst.Write(payload)
 }
 
 func TestForwardContainerOutputSupportsLegacyTTYAndStripsControl(t *testing.T) {

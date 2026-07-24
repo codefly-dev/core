@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	gogit "github.com/go-git/go-git/v5"
-	gh "github.com/google/go-github/v37/github"
+	gh "github.com/google/go-github/v74/github"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"

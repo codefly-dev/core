@@ -56,9 +56,10 @@ type govulncheckOutput struct {
 		OSV          string `json:"osv"`
 		FixedVersion string `json:"fixed_version"`
 		Trace        []struct {
-			Module  string `json:"module"`
-			Version string `json:"version"`
-			Package string `json:"package"`
+			Module   string `json:"module"`
+			Version  string `json:"version"`
+			Package  string `json:"package"`
+			Function string `json:"function"`
 		} `json:"trace"`
 	} `json:"finding,omitempty"`
 	OSV *struct {
@@ -117,6 +118,14 @@ func runGovulncheckParseBytes(out []byte) ([]*builderv0.AuditFinding, error) {
 		}
 		if msg.Finding != nil && len(msg.Finding.Trace) > 0 {
 			t := msg.Finding.Trace[0]
+			// Symbol-mode govulncheck emits module-, package-, and symbol-level
+			// findings as it progressively analyzes the graph. Only a frame
+			// with a function is a reachable vulnerability; module/package
+			// frames are inventory evidence and are reported separately by
+			// govulncheck as "not called".
+			if t.Function == "" {
+				continue
+			}
 			key := msg.Finding.OSV + "\x00" + t.Module + "\x00" + t.Version
 			finding, exists := findingsByKey[key]
 			if !exists {

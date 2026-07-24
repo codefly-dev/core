@@ -11,7 +11,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/google/go-github/v37/github"
+	"github.com/google/go-github/v74/github"
 )
 
 // AgentSourceEnv selects where "latest" agent versions are resolved from.

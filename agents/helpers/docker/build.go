@@ -14,7 +14,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/wool"
-	"github.com/docker/docker/api/types"
+	"github.com/moby/moby/client"
 )
 
 type Env struct {
@@ -66,7 +66,7 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	imageBuildResponse, err := cli.ImageBuild(
 		ctx,
 		bytes.NewReader(buildContext),
-		types.ImageBuildOptions{
+		client.ImageBuildOptions{
 			Dockerfile: builder.Dockerfile,
 			Tags:       []string{builder.Destination.FullName()},
 			Remove:     true,

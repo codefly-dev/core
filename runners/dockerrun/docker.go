@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/docker/docker/api/types"
+	"github.com/moby/moby/client"
 )
 
 // dockerProbeTimeout bounds backend discovery. Companion selection is a
@@ -35,11 +35,11 @@ func DockerEngineRunning(ctx context.Context) bool {
 }
 
 func pingDockerClient(ctx context.Context, cli interface {
-	Ping(context.Context) (types.Ping, error)
+	Ping(context.Context, client.PingOptions) (client.PingResult, error)
 }) error {
 	probeCtx, cancel := context.WithTimeout(ctx, dockerProbeTimeout)
 	defer cancel()
-	_, err := cli.Ping(probeCtx)
+	_, err := cli.Ping(probeCtx, client.PingOptions{NegotiateAPIVersion: true})
 	return err
 }
 
@@ -139,7 +139,7 @@ func GetImageID(im *resources.DockerImage) (string, error) {
 
 	// Inspect the image
 
-	inspect, _, err := cli.ImageInspectWithRaw(ctx, im.FullName())
+	inspect, err := cli.ImageInspect(ctx, im.FullName())
 	if err != nil {
 		return "", fmt.Errorf("failed to inspect im: %v", err)
 	}

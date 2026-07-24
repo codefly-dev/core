@@ -6,8 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
+	"github.com/moby/moby/client"
 
 	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
@@ -75,18 +74,16 @@ func ReapStaleContainers(ctx context.Context) error {
 	// could rename a container, but the label sticks.
 	listCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	containers, err := cli.ContainerList(listCtx, container.ListOptions{
-		All: true,
-		Filters: filters.NewArgs(
-			filters.Arg("label", LabelCodeflyOwner+"=true"),
-		),
+	containerList, err := cli.ContainerList(listCtx, client.ContainerListOptions{
+		All:     true,
+		Filters: make(client.Filters).Add("label", LabelCodeflyOwner+"=true"),
 	})
 	if err != nil {
 		return fmt.Errorf("cannot list codefly containers: %w", err)
 	}
 
 	reaped := 0
-	for _, c := range containers {
+	for _, c := range containerList.Items {
 		sessionStr := c.Labels[LabelCodeflySession]
 		if sessionStr == "" {
 			continue // older unlabeled container — don't touch
@@ -96,7 +93,7 @@ func ReapStaleContainers(ctx context.Context) error {
 			continue // malformed label — conservative: leave it
 		}
 		ephemeral := c.Labels[LabelCodeflyEphemeral] == "true"
-		if !shouldReapContainer(c.State, base.IsProcessAlive(pid), ephemeral) {
+		if !shouldReapContainer(string(c.State), base.IsProcessAlive(pid), ephemeral) {
 			continue
 		}
 
@@ -109,7 +106,7 @@ func ReapStaleContainers(ctx context.Context) error {
 		// Short bounded context per remove — one unresponsive container
 		// shouldn't stall the whole sweep.
 		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if rmErr := cli.ContainerRemove(rmCtx, c.ID, container.RemoveOptions{Force: true}); rmErr != nil {
+		if _, rmErr := cli.ContainerRemove(rmCtx, c.ID, client.ContainerRemoveOptions{Force: true}); rmErr != nil {
 			w.Warn("cannot remove stale container",
 				wool.Field("container", c.ID[:12]), wool.ErrField(rmErr))
 		} else {
