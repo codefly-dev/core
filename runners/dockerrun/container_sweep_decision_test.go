@@ -2,6 +2,7 @@ package dockerrun
 
 import (
 	"os"
+	"strconv"
 	"testing"
 )
 
@@ -44,14 +45,27 @@ func TestEphemeralContainersFlag(t *testing.T) {
 	if !EphemeralContainers() {
 		t.Fatal("SetEphemeralContainers(true) did not take effect")
 	}
-	if got := os.Getenv(EphemeralContainersEnvironment); got != "1" {
-		t.Fatalf("ephemeral process marker = %q, want 1", got)
+	// The marker records the enabling process's PID so spawned children can
+	// scope-check it, not a bare flag.
+	if got := os.Getenv(EphemeralContainersEnvironment); got != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("ephemeral process marker = %q, want this process's PID %d", got, os.Getpid())
 	}
 
+	// A spawned agent inherits the marker naming its live parent: with the
+	// in-process flag off, a marker equal to our parent's PID still counts.
 	ephemeralContainers.Store(false)
+	_ = os.Setenv(EphemeralContainersEnvironment, strconv.Itoa(os.Getppid()))
 	if !EphemeralContainers() {
-		t.Fatal("agent process did not inherit the ephemeral environment marker")
+		t.Fatal("agent process did not inherit the ephemeral environment marker from its live parent")
 	}
+
+	// A stale marker naming some unrelated process is deliberately ignored, so
+	// an ambient value cannot silently enable reaping of running containers.
+	_ = os.Setenv(EphemeralContainersEnvironment, "999999999")
+	if EphemeralContainers() {
+		t.Fatal("stale ephemeral marker not naming the live parent must be ignored")
+	}
+
 	SetEphemeralContainers(false) // reset for other tests
 	if _, ok := os.LookupEnv(EphemeralContainersEnvironment); ok {
 		t.Fatal("ephemeral process marker was not cleared")

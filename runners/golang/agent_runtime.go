@@ -166,6 +166,10 @@ const defaultTestPackageParallelism = 4
 // defaultTestTimeout is the runtime-owned budget for an unscoped Test RPC.
 // Real-infrastructure suites may legitimately exceed Go's implicit ten-minute
 // default; callers can still request a narrower or wider typed timeout.
+//
+// This is always emitted as an explicit `-timeout` on the command line, so it
+// deliberately overrides any ambient GOFLAGS timeout (e.g. a repo Makefile's
+// GOFLAGS=-timeout=…): the agent, not the caller's shell, owns this budget.
 const defaultTestTimeout = "30m"
 
 // RunGoTests runs `go test -json` with optional target/flags and returns

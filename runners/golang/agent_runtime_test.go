@@ -2,6 +2,7 @@ package golang
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ func TestCreateRunnerRejectsNilAndEscapingInputs(t *testing.T) {
 // If this function ever drifts from the real RunGoTests logic, the unit
 // tests here will start passing against stale args — keep them aligned.
 func buildTestArgs(opt TestOptions) []string {
-	args := []string{"test", "-json", "-p", "4"}
+	args := []string{"test", "-json", "-p", fmt.Sprint(defaultTestPackageParallelism)}
 	if opt.Verbose {
 		args = append(args, "-v")
 	}
