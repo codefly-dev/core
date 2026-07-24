@@ -163,6 +163,15 @@ type TestOptions struct {
 // ExtraArgs remain last and may explicitly override this agent-owned default.
 const defaultTestPackageParallelism = 4
 
+// defaultTestTimeout is the runtime-owned budget for an unscoped Test RPC.
+// Real-infrastructure suites may legitimately exceed Go's implicit ten-minute
+// default; callers can still request a narrower or wider typed timeout.
+//
+// This is always emitted as an explicit `-timeout` on the command line, so it
+// deliberately overrides any ambient GOFLAGS timeout (e.g. a repo Makefile's
+// GOFLAGS=-timeout=…): the agent, not the caller's shell, owns this budget.
+const defaultTestTimeout = "30m"
+
 // RunGoTests runs `go test -json` with optional target/flags and returns
 // parsed results. `-cover` is opt-in via TestOptions.Coverage.
 //
@@ -188,9 +197,11 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	if opt.Race {
 		args = append(args, "-race")
 	}
-	if opt.Timeout != "" {
-		args = append(args, "-timeout", opt.Timeout)
+	timeout := opt.Timeout
+	if timeout == "" {
+		timeout = defaultTestTimeout
 	}
+	args = append(args, "-timeout", timeout)
 	if opt.Coverage {
 		args = append(args, "-cover")
 	}
