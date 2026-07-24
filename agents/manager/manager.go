@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,32 @@ import (
 
 	"github.com/google/go-github/v37/github"
 )
+
+// newGitHubReleaseClient returns a go-github client authenticated with
+// GITHUB_TOKEN/GH_TOKEN when either is set, matching the token-via-transport
+// convention used elsewhere in core (toolbox/github). Unauthenticated GitHub
+// API access is capped at 60 requests/hour per IP, so resolving "latest" for
+// several agents can flakily 403; a token raises the cap to 5000/hour.
+func newGitHubReleaseClient() *github.Client {
+	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
+	}
+	if token == "" {
+		return github.NewClient(nil)
+	}
+	return github.NewClient(&http.Client{Transport: githubTokenTransport{token: token}})
+}
+
+// githubTokenTransport adds a bearer token to each request without pulling in
+// the oauth2 dependency (same approach as core/toolbox/github).
+type githubTokenTransport struct{ token string }
+
+func (t githubTokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.Header.Set("Authorization", "Bearer "+t.token)
+	return http.DefaultTransport.RoundTrip(clone)
+}
 
 // AgentSourceEnv selects where "latest" agent versions are resolved from.
 //   - "" or "remote" (default): GitHub releases first, fall back to local.
@@ -147,7 +174,7 @@ func PinToLatestRelease(ctx context.Context, agent *resources.Agent) (string, er
 		w.Debug("CODEFLY_AGENT_SOURCE=local — resolving from local agent dir")
 		return "local", FindLocalLatest(ctx, agent)
 	}
-	client := github.NewClient(nil)
+	client := newGitHubReleaseClient()
 	source := toGithubSource(agent)
 	release, _, err := client.Repositories.GetLatestRelease(ctx, source.Owner, source.Repo)
 	if err != nil {
