@@ -52,6 +52,7 @@ type DockerEnvironment struct {
 	mu           sync.Mutex
 	mounts       []mount.Mount
 	envs         []*resources.EnvironmentVariable
+	user         string
 	portMappings []*DockerPortMapping
 	dockerSocket bool
 	publicPorts  bool
@@ -228,6 +229,11 @@ func generateDockerCreateCommand(containerConfig *container.Config, hostConfig *
 		cmd = append(cmd, "--workdir", containerConfig.WorkingDir)
 	}
 
+	// Add the explicit runtime identity used for host bind mounts.
+	if containerConfig.User != "" {
+		cmd = append(cmd, "--user", containerConfig.User)
+	}
+
 	// Add exposed ports
 	for port := range containerConfig.ExposedPorts {
 		cmd = append(cmd, "--expose", port.String())
@@ -336,10 +342,12 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	w := wool.Get(ctx).In("Docker.createContainerConfig")
 	docker.mu.Lock()
 	envCopy := append([]*resources.EnvironmentVariable(nil), docker.envs...)
+	user := docker.user
 	docker.mu.Unlock()
 	config := &container.Config{
 		Image: docker.image.FullName(),
 		Env:   resources.EnvironmentVariableAsStrings(envCopy),
+		User:  user,
 		// Service containers are background processes, not interactive terminal
 		// sessions. A pseudo-TTY merges stdout/stderr, changes application
 		// buffering/color behavior, and makes Docker's log stream incompatible
@@ -528,6 +536,16 @@ func (docker *DockerEnvironment) WithMount(sourceDir string, targetDir string) {
 		Source: sourceDir,
 		Target: targetDir,
 	})
+}
+
+// WithUser runs the container as an explicit numeric uid[:gid]. Companions
+// that write through a bind mount use this to preserve host ownership instead
+// of leaving root-owned generated artifacts behind.
+func (docker *DockerEnvironment) WithUser(user string) *DockerEnvironment {
+	docker.mu.Lock()
+	docker.user = user
+	docker.mu.Unlock()
+	return docker
 }
 
 // WithDockerSocket explicitly grants the container control of the host Docker

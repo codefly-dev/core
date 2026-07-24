@@ -21,6 +21,21 @@ func TestContainerConfigDisablesPseudoTTY(t *testing.T) {
 	}
 }
 
+func TestContainerConfigPreservesExplicitUser(t *testing.T) {
+	env := &DockerEnvironment{image: resources.NewDockerImage("example:1")}
+	env.WithUser("1001:1002")
+
+	config := env.createContainerConfig(context.Background())
+
+	if config.User != "1001:1002" {
+		t.Fatalf("container user = %q, want 1001:1002", config.User)
+	}
+	command := generateDockerCreateCommand(config, env.createHostConfig(context.Background()), "companion")
+	if !strings.Contains(command, "--user 1001:1002") {
+		t.Fatalf("diagnostic Docker command omitted explicit user: %s", command)
+	}
+}
+
 func TestForwardContainerOutputDemultiplexesDockerFrames(t *testing.T) {
 	var framed bytes.Buffer
 	writeDockerFrame(&framed, stdcopy.Stdout, []byte("ready\n"))
