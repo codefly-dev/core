@@ -301,6 +301,9 @@ func TestSaveAndLoadCachedMaterialization(t *testing.T) {
 	if err := nix.saveCachedMaterialization(ctx); err != nil {
 		t.Fatalf("save: %v", err)
 	}
+	if err := os.Mkdir(filepath.Join(cacheDir, nixDevShellProfileName), 0o755); err != nil {
+		t.Fatalf("create materialization profile fixture: %v", err)
+	}
 
 	// Fresh instance — simulates a new agent process reading the cache.
 	fresh := &NixEnvironment{dir: dir, cacheDir: cacheDir}
@@ -393,6 +396,80 @@ func TestLoadCachedMaterialization_MissingFileIsSilentMiss(t *testing.T) {
 	}
 	if loaded != nil {
 		t.Errorf("missing cache should return nil map, got %v", loaded)
+	}
+}
+
+// TestLoadCachedMaterialization_RejectsMissingProfile proves a serialized
+// environment cannot outlive its Nix GC root. Without this check, a later
+// process can reload PATH entries whose packages were already collected.
+func TestLoadCachedMaterialization_RejectsMissingProfile(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cacheDir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "flake.nix"), "{ x = 1; }")
+
+	saver := &NixEnvironment{
+		dir:          dir,
+		cacheDir:     cacheDir,
+		materialized: map[string]string{"PATH": "/nix/store/collectable/bin"},
+	}
+	if err := saver.saveCachedMaterialization(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := &NixEnvironment{dir: dir, cacheDir: cacheDir}
+	loaded, err := fresh.loadCachedMaterialization(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != nil {
+		t.Fatalf("cache without a materialization profile must miss, got %v", loaded)
+	}
+}
+
+// TestMaterializationProfile_EphemeralRootRemovedOnShutdown proves an uncached
+// environment roots its dev shell under an owner-scoped temp directory, that
+// the path is idempotent, and that Shutdown removes the directory and clears
+// the in-memory state — so a short-lived environment leaves no leaked GC root.
+func TestMaterializationProfile_EphemeralRootRemovedOnShutdown(t *testing.T) {
+	nix := &NixEnvironment{dir: t.TempDir()} // no cacheDir => ephemeral profile
+
+	profile, err := nix.materializationProfile()
+	if err != nil {
+		t.Fatalf("materializationProfile: %v", err)
+	}
+	root := nix.ephemeralProfileRoot
+	if root == "" {
+		t.Fatal("ephemeral profile root was not recorded")
+	}
+	if filepath.Dir(profile) != root {
+		t.Fatalf("profile %q is not under ephemeral root %q", profile, root)
+	}
+	if _, err := os.Stat(root); err != nil {
+		t.Fatalf("ephemeral profile root should exist after materialization: %v", err)
+	}
+
+	// Idempotent: a second call reuses the same path and does not allocate a
+	// second temp root.
+	again, err := nix.materializationProfile()
+	if err != nil {
+		t.Fatalf("second materializationProfile: %v", err)
+	}
+	if again != profile {
+		t.Fatalf("materializationProfile not idempotent: %q != %q", again, profile)
+	}
+	if nix.ephemeralProfileRoot != root {
+		t.Fatalf("ephemeral root changed on repeat call: %q != %q", nix.ephemeralProfileRoot, root)
+	}
+
+	if err := nix.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("ephemeral profile root must be removed by Shutdown, stat err = %v", err)
+	}
+	if nix.ephemeralProfileRoot != "" || nix.profilePath != "" {
+		t.Fatal("Shutdown must clear ephemeral profile state")
 	}
 }
 
