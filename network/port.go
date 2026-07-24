@@ -30,10 +30,14 @@ const (
 	PortModeContainer = "container"
 )
 
-// PortModeFor folds a resolved runtime context to the host-port contention
-// axis. "free" MUST already be resolved to a concrete context before this
-// call (the flow resolves it before start); anything that is not an explicit
-// container is treated as host-bound.
+// PortModeFor folds a runtime context to the host-port contention axis. Only a
+// container is published onto the host by Docker and can therefore coexist with
+// a host process, so it gets its own mode. native, nix, and free all bind (or
+// resolve to) the host port directly and are mutually exclusive ways to run the
+// SAME service — you run one or the other — so they intentionally share the host
+// mode: separating them would gain no collision safety and would move existing
+// native/nix ports. Any empty or unrecognized kind (including an unresolved
+// "free") is likewise treated as host-bound.
 func PortModeFor(runtimeContext string) string {
 	if runtimeContext == resources.RuntimeContextContainer {
 		return PortModeContainer

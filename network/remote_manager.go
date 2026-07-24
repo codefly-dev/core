@@ -54,7 +54,11 @@ func (m *RemoteManager) KubernetesService(service *resources.ServiceIdentity, en
 	return instance
 }
 
-// GenerateNetworkMappings generates network mappings for a service endpoints
+// GenerateNetworkMappings generates network mappings for a service endpoints.
+//
+// Unlike RuntimeManager, this takes no runtime context: remote (k8s) mappings
+// use canonical per-API ports (standards.Port) and cluster-internal DNS, not
+// the runtime-dependent named-port hash, so the runtime can't affect the port.
 func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 	env *resources.Environment,
 	workspace *resources.Workspace,
