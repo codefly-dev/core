@@ -45,7 +45,7 @@ func Node(ctx context.Context, dir string, includeOutdated bool) (*Result, error
 	if includeOutdated {
 		// package-lock-only makes "current" come from the release lock rather
 		// than an arbitrary node_modules tree on the operator's machine.
-		o, err := runCmd(ctx, dir, "npm", "outdated", "--json", "--package-lock-only")
+		o, err := runCmd(ctx, dir, "npm", "outdated", "--json", "--package-lock-only", "--depth=0")
 		if err != nil && len(o) == 0 {
 			// `npm outdated` failed completely; skip outdated portion.
 			return nil, fmt.Errorf("npm outdated failed: %w", err)
@@ -157,12 +157,25 @@ func parseNpmOutdated(out []byte) []*builderv0.OutdatedDep {
 	if len(out) == 0 {
 		return nil
 	}
-	m := map[string]npmOutdatedEntry{}
-	if err := json.Unmarshal(out, &m); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil
 	}
 	var deps []*builderv0.OutdatedDep
-	for name, e := range m {
+	for name, data := range raw {
+		var entries []npmOutdatedEntry
+		if len(data) > 0 && data[0] == '[' {
+			if err := json.Unmarshal(data, &entries); err != nil || len(entries) == 0 {
+				continue
+			}
+		} else {
+			var entry npmOutdatedEntry
+			if err := json.Unmarshal(data, &entry); err != nil {
+				continue
+			}
+			entries = []npmOutdatedEntry{entry}
+		}
+		e := entries[0]
 		deps = append(deps, &builderv0.OutdatedDep{
 			Package:     name,
 			Current:     e.Current,

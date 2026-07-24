@@ -105,8 +105,8 @@ func WithWorkspaceChangeSubscriberBuffer(size int) WorkspaceChangeMonitorOption 
 }
 
 // WorkspaceChangeMonitor owns recursive fsnotify observation inside Codefly.
-// It retains a bounded replay window, sequences deterministic coalesced event
-// batches, and converts every uncertainty into an explicit rescan event.
+// It retains a bounded replay ring, sequences deterministic single-change
+// events, and converts every uncertainty into an explicit rescan event.
 type WorkspaceChangeMonitor struct {
 	root    string
 	watcher *fsnotify.Watcher
@@ -115,6 +115,7 @@ type WorkspaceChangeMonitor struct {
 	mu          sync.Mutex
 	sequence    uint64
 	replay      []WorkspaceChangeEvent
+	replayStart int
 	subscribers map[uint64]*workspaceChangeSubscriber
 	nextID      uint64
 	watchDirs   map[string]struct{}
@@ -149,6 +150,11 @@ func NewWorkspaceChangeMonitor(root string, options ...WorkspaceChangeMonitorOpt
 	if err != nil {
 		return nil, fmt.Errorf("workspace change monitor root: %w", err)
 	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return nil, fmt.Errorf("workspace change monitor resolve root: %w", err)
+	}
+	absolute = resolved
 	info, err := LocalVFS{}.Stat(absolute)
 	if err != nil {
 		return nil, fmt.Errorf("workspace change monitor stat root: %w", err)
@@ -266,7 +272,10 @@ func (monitor *WorkspaceChangeMonitor) run() {
 			if !ok {
 				return
 			}
-			flush()
+			// Uncertainty supersedes every pending path. Publishing those paths
+			// first could create a short targeted-reconciliation window before
+			// the authoritative rescan arrives.
+			clear(pending)
 			monitor.publish([]WorkspaceChange{{Kind: WorkspaceChangeRescan, Reason: "watcher_error"}})
 		}
 	}
@@ -282,7 +291,11 @@ func (monitor *WorkspaceChangeMonitor) compileChanges(pending map[string]fsnotif
 	for _, absolute := range paths {
 		op := pending[absolute]
 		relative, err := filepath.Rel(monitor.root, absolute)
-		if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if relative == "." {
+			changes = append(changes, WorkspaceChange{Kind: WorkspaceChangeRescan, Reason: "workspace_root_changed"})
 			continue
 		}
 		relative = filepath.ToSlash(relative)
@@ -382,9 +395,13 @@ func (monitor *WorkspaceChangeMonitor) publishLocked(changes []WorkspaceChange) 
 		SourceID: monitor.config.sourceID, Sequence: monitor.sequence,
 		ObservedAt: monitor.config.now().UTC(), Changes: append([]WorkspaceChange(nil), changes...),
 	}
-	monitor.replay = append(monitor.replay, event)
-	if len(monitor.replay) > monitor.config.replayLimit {
-		monitor.replay = append([]WorkspaceChangeEvent(nil), monitor.replay[len(monitor.replay)-monitor.config.replayLimit:]...)
+	if len(monitor.replay) < monitor.config.replayLimit {
+		monitor.replay = append(monitor.replay, event)
+	} else {
+		// Fixed-size ring: steady-state publication is O(1), even after a
+		// long-running gateway has observed millions of edits.
+		monitor.replay[monitor.replayStart] = event
+		monitor.replayStart = (monitor.replayStart + 1) % len(monitor.replay)
 	}
 	for id, subscriber := range monitor.subscribers {
 		select {
@@ -421,6 +438,11 @@ func (monitor *WorkspaceChangeMonitor) Subscribe(ctx context.Context, cursor Wor
 	}
 	monitor.subscribers[subscriber.id] = subscriber
 	if cursor.SourceID == "" {
+		// A missing cursor cannot prove that the consumer observed the current
+		// workspace state (notably after a consumer restart). Make that
+		// uncertainty durable immediately instead of waiting for the periodic
+		// reconciliation backstop.
+		monitor.publishLocked([]WorkspaceChange{{Kind: WorkspaceChangeRescan, Reason: "initial_subscription"}})
 		return &WorkspaceChangeSubscription{subscriber: subscriber}, nil
 	}
 	if cursor.SourceID != monitor.config.sourceID {
@@ -432,10 +454,10 @@ func (monitor *WorkspaceChangeMonitor) Subscribe(ctx context.Context, cursor Wor
 		return &WorkspaceChangeSubscription{subscriber: subscriber}, nil
 	}
 	start := 0
-	for start < len(monitor.replay) && monitor.replay[start].Sequence <= cursor.Sequence {
+	for start < len(monitor.replay) && monitor.replayAtLocked(start).Sequence <= cursor.Sequence {
 		start++
 	}
-	if len(monitor.replay) > 0 && cursor.Sequence+1 < monitor.replay[0].Sequence {
+	if len(monitor.replay) > 0 && cursor.Sequence+1 < monitor.replayAtLocked(0).Sequence {
 		monitor.publishLocked([]WorkspaceChange{{Kind: WorkspaceChangeRescan, Reason: "replay_window_exceeded"}})
 		return &WorkspaceChangeSubscription{subscriber: subscriber}, nil
 	}
@@ -443,10 +465,14 @@ func (monitor *WorkspaceChangeMonitor) Subscribe(ctx context.Context, cursor Wor
 		monitor.publishLocked([]WorkspaceChange{{Kind: WorkspaceChangeRescan, Reason: "subscriber_replay_overflow"}})
 		return &WorkspaceChangeSubscription{subscriber: subscriber}, nil
 	}
-	for _, event := range monitor.replay[start:] {
-		subscriber.events <- cloneWorkspaceChangeEvent(event)
+	for index := start; index < len(monitor.replay); index++ {
+		subscriber.events <- cloneWorkspaceChangeEvent(monitor.replayAtLocked(index))
 	}
 	return &WorkspaceChangeSubscription{subscriber: subscriber}, nil
+}
+
+func (monitor *WorkspaceChangeMonitor) replayAtLocked(index int) WorkspaceChangeEvent {
+	return monitor.replay[(monitor.replayStart+index)%len(monitor.replay)]
 }
 
 // Cursor returns the monitor's current replay position for health checks and
