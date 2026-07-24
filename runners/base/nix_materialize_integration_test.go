@@ -118,6 +118,38 @@ func TestNixMaterialize_PinsGoCache(t *testing.T) {
 	}
 }
 
+// TestNixMaterialize_CreatesPersistentGCRoot proves materialization protects
+// its complete store closure from Nix garbage collection. Long-lived services
+// such as Postgres load extension libraries after startup; an exported PATH
+// alone does not keep those libraries alive.
+func TestNixMaterialize_CreatesPersistentGCRoot(t *testing.T) {
+	dir := requireWorkingNix(t)
+	ctx := context.Background()
+	cacheDir := t.TempDir()
+
+	env, err := base.NewNixEnvironment(ctx, dir)
+	if err != nil {
+		t.Fatalf("NewNixEnvironment: %v", err)
+	}
+	env.WithCacheDir(cacheDir)
+	if err := env.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	profile := filepath.Join(cacheDir, "nix-devshell-profile")
+	if _, err := os.Stat(profile); err != nil {
+		t.Fatalf("materialized Nix profile is not a live GC root: %v", err)
+	}
+	query := exec.Command("nix-store", "-qR", profile)
+	closure, err := query.CombinedOutput()
+	if err != nil {
+		t.Fatalf("query materialized profile closure: %v\n%s", err, closure)
+	}
+	if !strings.Contains(string(closure), "coreutils") {
+		t.Fatalf("materialized profile closure does not contain the dev-shell package:\n%s", closure)
+	}
+}
+
 // TestNixMaterialize_FallsBackGracefullyOnBadNix — if we gave Nix a
 // flake that fails to evaluate, Init must NOT return an error. Instead
 // it logs a warning and leaves materialized=nil, which makes subsequent

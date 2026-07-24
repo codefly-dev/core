@@ -301,6 +301,9 @@ func TestSaveAndLoadCachedMaterialization(t *testing.T) {
 	if err := nix.saveCachedMaterialization(ctx); err != nil {
 		t.Fatalf("save: %v", err)
 	}
+	if err := os.Mkdir(filepath.Join(cacheDir, "nix-devshell-profile"), 0o755); err != nil {
+		t.Fatalf("create materialization profile fixture: %v", err)
+	}
 
 	// Fresh instance — simulates a new agent process reading the cache.
 	fresh := &NixEnvironment{dir: dir, cacheDir: cacheDir}
@@ -393,6 +396,34 @@ func TestLoadCachedMaterialization_MissingFileIsSilentMiss(t *testing.T) {
 	}
 	if loaded != nil {
 		t.Errorf("missing cache should return nil map, got %v", loaded)
+	}
+}
+
+// TestLoadCachedMaterialization_RejectsMissingProfile proves a serialized
+// environment cannot outlive its Nix GC root. Without this check, a later
+// process can reload PATH entries whose packages were already collected.
+func TestLoadCachedMaterialization_RejectsMissingProfile(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cacheDir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "flake.nix"), "{ x = 1; }")
+
+	saver := &NixEnvironment{
+		dir:          dir,
+		cacheDir:     cacheDir,
+		materialized: map[string]string{"PATH": "/nix/store/collectable/bin"},
+	}
+	if err := saver.saveCachedMaterialization(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := &NixEnvironment{dir: dir, cacheDir: cacheDir}
+	loaded, err := fresh.loadCachedMaterialization(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != nil {
+		t.Fatalf("cache without a materialization profile must miss, got %v", loaded)
 	}
 }
 

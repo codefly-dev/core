@@ -56,6 +56,14 @@ type NixEnvironment struct {
 	// cached env is inspectable on disk.
 	cacheDir string
 
+	// profilePath is a Nix profile that roots every store path referenced by
+	// the materialized dev shell. Capturing only the exported environment is
+	// insufficient: Nix is then free to garbage-collect binaries and shared
+	// libraries while long-lived children are still using them. The profile is
+	// persistent when cacheDir is set and process-scoped otherwise.
+	profilePath          string
+	ephemeralProfileRoot string
+
 	out io.Writer
 	ctx context.Context
 }
@@ -110,7 +118,8 @@ func (nix *NixEnvironment) Init(ctx context.Context) error {
 	nix.ctx = ctx
 
 	// Fast path: reload a previously-materialized env from disk if the
-	// flake hasn't changed. Skips `nix print-dev-env --json` entirely.
+	// flake hasn't changed and its GC-rooting profile still exists. Skips
+	// `nix print-dev-env --json` entirely.
 	if nix.cacheDir != "" {
 		if loaded, err := nix.loadCachedMaterialization(ctx); err == nil && loaded != nil {
 			nix.mu.Lock()
@@ -206,6 +215,14 @@ func (nix *NixEnvironment) loadCachedMaterialization(ctx context.Context) (map[s
 	if err != nil {
 		return nil, nil // miss, not an error
 	}
+	// The environment cache contains store paths but is not itself a Nix GC
+	// root. A missing/broken profile means those paths are no longer protected,
+	// so rematerialize instead of launching children against collectable state.
+	profile := filepath.Join(nix.cacheDir, "nix-devshell-profile")
+	if _, err := os.Stat(profile); err != nil {
+		w.Trace("materialization profile missing; invalidating cache")
+		return nil, nil
+	}
 	var payload cachedEnvPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
 		w.Trace("cache file exists but won't parse; ignoring", wool.ErrField(err))
@@ -270,10 +287,14 @@ func (nix *NixEnvironment) saveCachedMaterialization(ctx context.Context) error 
 func (nix *NixEnvironment) materialize(ctx context.Context) error {
 	w := wool.Get(ctx).In("NixEnvironment.materialize", wool.DirField(nix.dir))
 
+	profile, err := nix.materializationProfile()
+	if err != nil {
+		return err
+	}
 	// #nosec G204
 	cmd := exec.CommandContext(ctx,
 		"nix", "--extra-experimental-features", "nix-command flakes",
-		"print-dev-env", "--json", nix.flakeRef())
+		"print-dev-env", "--json", "--profile", profile, nix.flakeRef())
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -326,6 +347,32 @@ func (nix *NixEnvironment) materialize(ctx context.Context) error {
 	return nil
 }
 
+// materializationProfile returns a profile path that keeps the dev shell's
+// complete Nix closure alive. Persistent caches use a stable profile beside
+// the serialized environment; uncached environments use an owner-scoped
+// temporary root removed by Shutdown.
+func (nix *NixEnvironment) materializationProfile() (string, error) {
+	nix.mu.Lock()
+	defer nix.mu.Unlock()
+	if nix.profilePath != "" {
+		return nix.profilePath, nil
+	}
+	if nix.cacheDir != "" {
+		if err := os.MkdirAll(nix.cacheDir, 0o755); err != nil {
+			return "", fmt.Errorf("create nix materialization cache: %w", err)
+		}
+		nix.profilePath = filepath.Join(nix.cacheDir, "nix-devshell-profile")
+		return nix.profilePath, nil
+	}
+	root, err := os.MkdirTemp("", "codefly-nix-profile-*")
+	if err != nil {
+		return "", fmt.Errorf("create nix materialization profile root: %w", err)
+	}
+	nix.ephemeralProfileRoot = root
+	nix.profilePath = filepath.Join(root, "profile")
+	return nix.profilePath, nil
+}
+
 // parseNixDevEnv parses `nix print-dev-env --json` output into a flat
 // string map. Only `exported` and `var` scalar entries are kept —
 // bash arrays, associative arrays, and functions are dropped because
@@ -372,7 +419,15 @@ func (nix *NixEnvironment) Stop(context.Context) error {
 }
 
 func (nix *NixEnvironment) Shutdown(context.Context) error {
-	return nil
+	nix.mu.Lock()
+	root := nix.ephemeralProfileRoot
+	nix.ephemeralProfileRoot = ""
+	nix.profilePath = ""
+	nix.mu.Unlock()
+	if root == "" {
+		return nil
+	}
+	return os.RemoveAll(root)
 }
 
 // NewProcess creates a process that runs under the Nix devShell.
