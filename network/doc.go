@@ -6,8 +6,10 @@
 //
 //   - RuntimeManager — local execution. Allocates deterministic
 //     ports via ToNamedPort (a stable hash of workspace + module +
-//     service + endpoint) so a developer's pgAdmin/DataGrip/browser
-//     bookmark survives a `codefly run` restart.
+//     service + endpoint + runtime port mode) so a developer's
+//     pgAdmin/DataGrip/browser bookmark survives a `codefly run`
+//     restart, while the same service running under distinct runtimes
+//     (native/nix vs container) gets non-colliding host ports.
 //
 //   - RemoteManager — k8s deploy. Generates network mappings backed
 //     by cluster-internal Service DNS (<svc>.<ns>.svc.cluster.local)
