@@ -45,6 +45,62 @@ func TestInOnly(t *testing.T) {
 	}
 }
 
+func TestParseNpmOutdatedSupportsWorkspaceArrays(t *testing.T) {
+	out := []byte(`{
+		"react": [
+			{"current":"19.2.4","wanted":"19.2.4","latest":"19.2.7","dependent":"app"},
+			{"current":"19.2.4","wanted":"19.2.7","latest":"19.2.7","dependent":"ui"}
+		],
+		"next": {"current":"16.2.9","wanted":"16.2.10","latest":"16.2.10"}
+	}`)
+	entries, err := parseNpmOutdated(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entries["react"][0]; got.Current != "19.2.4" || got.Wanted != "19.2.4" || got.Latest != "19.2.7" || got.Dependent != "app" {
+		t.Fatalf("react = %+v", got)
+	}
+	if got := entries["next"][0]; got.Current != "16.2.9" || got.Wanted != "16.2.10" {
+		t.Fatalf("next = %+v", got)
+	}
+}
+
+func TestNpmLatestInstallGroupsAreAtomicAndWorkspaceAware(t *testing.T) {
+	entries := map[string][]npmOutdatedEntry{
+		"react-dom": {{Current: "19.2.4", Latest: "19.2.7", Dependent: "app"}},
+		"react": {
+			{Current: "19.2.4", Latest: "19.2.7", Dependent: "app"},
+			{Current: "19.2.4", Latest: "19.2.7", Dependent: "ui"},
+		},
+		"typescript": {{Current: "5.9.3", Latest: "7.0.0", Dependent: "app"}},
+	}
+	got := npmLatestInstallGroups(entries, []string{"react", "react-dom"}, map[string]string{"ui": "@scope/ui"})
+	want := []npmInstallGroup{
+		{Workspace: "@scope/ui", Packages: []string{"react@latest"}},
+		{Packages: []string{"react-dom@latest", "react@latest"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("groups = %v, want %v", got, want)
+	}
+}
+
+func TestMergeUpgradeChangesKeepsWorkspaceOnlyChanges(t *testing.T) {
+	planned := []*builderv0.UpgradeChange{
+		{Package: "react", From: "19.2.7", To: "19.2.8"},
+		{Package: "react-dom", From: "19.2.7", To: "19.2.8"},
+	}
+	observed := []*builderv0.UpgradeChange{
+		{Package: "react-dom", From: "19.2.7", To: "19.2.9"},
+	}
+	want := []*builderv0.UpgradeChange{
+		{Package: "react", From: "19.2.7", To: "19.2.8"},
+		{Package: "react-dom", From: "19.2.7", To: "19.2.9"},
+	}
+	if got := mergeUpgradeChanges(observed, planned); !reflect.DeepEqual(got, want) {
+		t.Fatalf("changes = %v, want %v", got, want)
+	}
+}
+
 func TestMajorOf(t *testing.T) {
 	cases := map[string]string{
 		"5.4.5":   "5",

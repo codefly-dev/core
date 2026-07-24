@@ -166,7 +166,10 @@ func TestParseNpmAudit(t *testing.T) {
 
 func TestParseNpmOutdated(t *testing.T) {
 	out := []byte(`{
-		"react": {"current": "18.0.0", "wanted": "18.3.1", "latest": "19.0.0"},
+		"react": [
+			{"current": "18.0.0", "wanted": "18.3.1", "latest": "19.0.0"},
+			{"current": "18.0.0", "wanted": "19.0.0", "latest": "19.0.0"}
+		],
 		"typescript": {"current": "5.0.0", "wanted": "5.4.5", "latest": "5.4.5"}
 	}`)
 	deps := parseNpmOutdated(out)
