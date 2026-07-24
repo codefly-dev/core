@@ -73,7 +73,7 @@ func NativeFor(ctx context.Context, workspace, module, service, namingScope stri
 	if namingScope != "" {
 		name = fmt.Sprintf("%s-%s", endpoint.Name, namingScope)
 	}
-	port := ToNamedPort(ctx, workspace, module, service, name, endpoint.Api)
+	port := ToNamedPort(ctx, workspace, module, service, name, endpoint.Api, PortModeHost)
 	return Native(endpoint, port)
 }
 
@@ -145,11 +145,13 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 	env *resources.Environment,
 	workspace *resources.Workspace,
 	service *resources.ServiceIdentity,
-	endpoints []*basev0.Endpoint) ([]*basev0.NetworkMapping, error) {
+	endpoints []*basev0.Endpoint,
+	runtimeContext *basev0.RuntimeContext) ([]*basev0.NetworkMapping, error) {
 	if m == nil {
 		return nil, nil
 	}
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
+	mode := PortModeFor(runtimeContext.GetKind())
 	var out []*basev0.NetworkMapping
 	for _, endpoint := range endpoints {
 		nm := &basev0.NetworkMapping{
@@ -185,7 +187,7 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 		if m.withTemporaryPorts {
 			port = m.GetFreePort()
 		} else {
-			port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, name, endpoint.Api)
+			port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, name, endpoint.Api, mode)
 
 		}
 		w.Debug("allocating port", wool.Field("port", port), wool.Field("service", service.Unique()))

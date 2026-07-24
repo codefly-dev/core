@@ -89,7 +89,7 @@ func TestRuntimeNetworkMappingGenerationNoDNS(t *testing.T) {
 
 	manager, err := network.NewRuntimeManager(ctx, dnsManager)
 	require.NoError(t, err)
-	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, endpoints)
+	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, endpoints, resources.NewRuntimeContextNative())
 	require.NoError(t, err)
 	require.Equal(t, 2, len(mappings))
 }
@@ -116,7 +116,7 @@ func TestRuntimeNetworkMappingAccessKinds_NoDNS(t *testing.T) {
 
 	manager, err := network.NewRuntimeManager(ctx, &testDnsManager{})
 	require.NoError(t, err)
-	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, endpoints)
+	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, endpoints, resources.NewRuntimeContextNative())
 	require.NoError(t, err)
 	require.Equal(t, 2, len(mappings))
 
@@ -172,7 +172,7 @@ func TestRuntimeNetworkMappingAccessKinds_ExternalDNS(t *testing.T) {
 
 	manager, err := network.NewRuntimeManager(ctx, dnsManager)
 	require.NoError(t, err)
-	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, []*basev0.Endpoint{endpoint})
+	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, []*basev0.Endpoint{endpoint}, resources.NewRuntimeContextNative())
 	require.NoError(t, err)
 	require.Len(t, mappings, 1)
 
@@ -218,7 +218,7 @@ func TestRuntimeNetworkMappingAccessKinds_FindNative(t *testing.T) {
 	dnsManager := &fixedDNSManager{host: "localhost", port: 5432}
 	manager, err := network.NewRuntimeManager(ctx, dnsManager)
 	require.NoError(t, err)
-	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, []*basev0.Endpoint{endpoint})
+	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, []*basev0.Endpoint{endpoint}, resources.NewRuntimeContextNative())
 	require.NoError(t, err)
 
 	found, err := resources.FindNetworkInstanceInNetworkMappings(ctx, mappings, endpoint, resources.NewNativeNetworkAccess())
@@ -232,6 +232,44 @@ func TestRuntimeNetworkMappingAccessKinds_FindNative(t *testing.T) {
 	require.NoError(t, err, "Container lookup must also succeed")
 	require.NotNil(t, foundC)
 	require.Equal(t, resources.NetworkAccessContainer, foundC.Access.Kind)
+}
+
+// TestGenerateNetworkMappings_RuntimeContextSeparatesPorts proves the fix for
+// issue #65: the same service resolved under a container runtime versus a
+// host runtime must be handed distinct ports, so two runtimes of the same
+// thing can run concurrently without colliding on the host port.
+func TestGenerateNetworkMappings_RuntimeContextSeparatesPorts(t *testing.T) {
+	ctx := context.Background()
+	workspace := &resources.Workspace{Name: "test-workspace"}
+	service, err := resources.LoadServiceFromDir(ctx, "testdata/endpoints/basic")
+	require.NoError(t, err)
+	service.WithModule("test-module")
+
+	endpoints, err := service.LoadEndpoints(ctx)
+	require.NoError(t, err)
+
+	identity, err := service.Identity()
+	require.NoError(t, err)
+	env := resources.LocalEnvironment()
+
+	hostManager, err := network.NewRuntimeManager(ctx, &testDnsManager{})
+	require.NoError(t, err)
+	hostMappings, err := hostManager.GenerateNetworkMappings(ctx, env, workspace, identity, endpoints, resources.NewRuntimeContextNative())
+	require.NoError(t, err)
+
+	containerManager, err := network.NewRuntimeManager(ctx, &testDnsManager{})
+	require.NoError(t, err)
+	containerMappings, err := containerManager.GenerateNetworkMappings(ctx, env, workspace, identity, endpoints, resources.NewRuntimeContextContainer())
+	require.NoError(t, err)
+
+	require.Equal(t, len(hostMappings), len(containerMappings))
+	for i := range hostMappings {
+		hostPort := hostMappings[i].Instances[0].Port
+		containerPort := containerMappings[i].Instances[0].Port
+		require.NotEqual(t, hostPort, containerPort,
+			"endpoint %s: container and host runtimes must not share a port",
+			hostMappings[i].Endpoint.Name)
+	}
 }
 
 // accessKindsOf returns the set of Access.Kind strings present in a
@@ -300,7 +338,7 @@ func TestNativeFor_MatchesGenerateNetworkMappings(t *testing.T) {
 	manager, err := network.NewRuntimeManager(ctx, &testDnsManager{})
 	require.NoError(t, err)
 	env := resources.LocalEnvironment()
-	mappings, err := manager.GenerateNetworkMappings(ctx, env, workspace, identity, endpoints)
+	mappings, err := manager.GenerateNetworkMappings(ctx, env, workspace, identity, endpoints, resources.NewRuntimeContextNative())
 	require.NoError(t, err)
 
 	for _, mapping := range mappings {

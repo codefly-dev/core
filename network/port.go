@@ -11,8 +11,39 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 )
+
+// Port modes fold a service's resolved runtime context down to the only axis
+// that actually contends for a HOST port: a native/nix service binds the host
+// port directly, while a containerized service has Docker publish it. Two
+// separate runs of the same service — one native, one containerized — would
+// otherwise hash to the same host port and collide (`bind: address already in
+// use`). Folding the mode into the port hash keeps them disjoint.
+//
+// PortModeHost is the empty string on purpose: its hash is byte-identical to
+// the pre-mode scheme, so existing native/nix ports never move — only
+// container-published ports shift onto a separate value.
+const (
+	PortModeHost      = ""
+	PortModeContainer = "container"
+)
+
+// PortModeFor folds a runtime context to the host-port contention axis. Only a
+// container is published onto the host by Docker and can therefore coexist with
+// a host process, so it gets its own mode. native, nix, and free all bind (or
+// resolve to) the host port directly and are mutually exclusive ways to run the
+// SAME service — you run one or the other — so they intentionally share the host
+// mode: separating them would gain no collision safety and would move existing
+// native/nix ports. Any empty or unrecognized kind (including an unresolved
+// "free") is likewise treated as host-bound.
+func PortModeFor(runtimeContext string) string {
+	if runtimeContext == resources.RuntimeContextContainer {
+		return PortModeContainer
+	}
+	return PortModeHost
+}
 
 type FixedStrategy struct {
 }
@@ -83,9 +114,16 @@ func CLIRestPort(workspaceName string) uint16 {
 	return CLIServerPort(workspaceName) + 1
 }
 
-func ToNamedPort(_ context.Context, ws, mod, svc, name, api string) uint16 {
-	// Combine all inputs except GetAPI into a single string
-	combined := strings.Join([]string{ws, mod, svc, name}, "-")
+func ToNamedPort(_ context.Context, ws, mod, svc, name, api, mode string) uint16 {
+	// Combine all inputs except GetAPI into a single string. mode (see
+	// PortModeFor) is appended only when non-empty so host-bound (native/nix)
+	// ports keep the legacy hash and only container-published ports shift onto
+	// a disjoint value.
+	segments := []string{ws, mod, svc, name}
+	if mode != "" {
+		segments = append(segments, mode)
+	}
+	combined := strings.Join(segments, "-")
 
 	// Use SHA-256 to get a more uniformly distributed hash
 	hash := sha256.Sum256([]byte(combined))

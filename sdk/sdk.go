@@ -232,7 +232,7 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 		RelativeToWorkspace: fmt.Sprintf("mod/%s", serviceName),
 	}
 
-	networkMappings, err := networkManager.GenerateNetworkMappings(ctx, env, workspace, serviceIdentity, loadResp.Endpoints)
+	networkMappings, err := networkManager.GenerateNetworkMappings(ctx, env, workspace, serviceIdentity, loadResp.Endpoints, resources.NewRuntimeContextFree())
 	if err != nil {
 		agentConn.Close()
 		return fmt.Errorf("network mappings: %w", err)
