@@ -71,6 +71,9 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 	runner.WithMount(destination, "/workspace/output")
 	runner.WithMount(tmpDir, "/workspace")
 	runner.WithWorkDir("/workspace")
+	if err := configureBindMountOwnership(ctx, runner); err != nil {
+		return w.Wrapf(err, "cannot configure generated-file ownership")
+	}
 	runner.WithPause()
 
 	defer func() {

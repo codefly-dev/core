@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/user"
 	"path"
 	"path/filepath"
 	"strings"
@@ -117,15 +116,9 @@ func (g *Buf) Generate(ctx context.Context) error {
 	if runner.Backend() == companion.BackendDocker {
 		runner.WithMount(g.Dir, "/workspace")
 		runner.WithWorkDir("/workspace/proto")
-		currentUser, err := user.Current()
-		if err != nil {
-			return w.Wrapf(err, "cannot resolve host identity for generated-file ownership")
+		if err := configureBindMountOwnership(ctx, runner); err != nil {
+			return w.Wrapf(err, "cannot configure generated-file ownership")
 		}
-		if currentUser.Uid == "" || currentUser.Gid == "" {
-			return w.NewError("host identity has empty uid or gid")
-		}
-		runner.WithUser(currentUser.Uid + ":" + currentUser.Gid)
-		runner.RunnerEnv().WithEnvironmentVariables(ctx, resources.Env("HOME", "/tmp"))
 	} else {
 		runner.WithWorkDir(path.Join(g.Dir, "proto"))
 	}
