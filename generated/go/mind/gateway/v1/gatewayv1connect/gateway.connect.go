@@ -73,6 +73,8 @@ const (
 	GatewayLintProcedure = "/mind.gateway.v1.Gateway/Lint"
 	// GatewayTestProcedure is the fully-qualified name of the Gateway's Test RPC.
 	GatewayTestProcedure = "/mind.gateway.v1.Gateway/Test"
+	// GatewayFormatProcedure is the fully-qualified name of the Gateway's Format RPC.
+	GatewayFormatProcedure = "/mind.gateway.v1.Gateway/Format"
 	// GatewayRunCommandProcedure is the fully-qualified name of the Gateway's RunCommand RPC.
 	GatewayRunCommandProcedure = "/mind.gateway.v1.Gateway/RunCommand"
 	// GatewayListAllCommandsProcedure is the fully-qualified name of the Gateway's ListAllCommands RPC.
@@ -87,6 +89,27 @@ const (
 	GatewayGitLogProcedure = "/mind.gateway.v1.Gateway/GitLog"
 	// GatewayGitCommitProcedure is the fully-qualified name of the Gateway's GitCommit RPC.
 	GatewayGitCommitProcedure = "/mind.gateway.v1.Gateway/GitCommit"
+	// GatewayGitBranchProcedure is the fully-qualified name of the Gateway's GitBranch RPC.
+	GatewayGitBranchProcedure = "/mind.gateway.v1.Gateway/GitBranch"
+	// GatewayGitCheckoutProcedure is the fully-qualified name of the Gateway's GitCheckout RPC.
+	GatewayGitCheckoutProcedure = "/mind.gateway.v1.Gateway/GitCheckout"
+	// GatewayGitPushProcedure is the fully-qualified name of the Gateway's GitPush RPC.
+	GatewayGitPushProcedure = "/mind.gateway.v1.Gateway/GitPush"
+	// GatewayGitTagProcedure is the fully-qualified name of the Gateway's GitTag RPC.
+	GatewayGitTagProcedure = "/mind.gateway.v1.Gateway/GitTag"
+	// GatewayGitMergeProcedure is the fully-qualified name of the Gateway's GitMerge RPC.
+	GatewayGitMergeProcedure = "/mind.gateway.v1.Gateway/GitMerge"
+	// GatewayGitRevertProcedure is the fully-qualified name of the Gateway's GitRevert RPC.
+	GatewayGitRevertProcedure = "/mind.gateway.v1.Gateway/GitRevert"
+	// GatewayForgePullRequestStatusProcedure is the fully-qualified name of the Gateway's
+	// ForgePullRequestStatus RPC.
+	GatewayForgePullRequestStatusProcedure = "/mind.gateway.v1.Gateway/ForgePullRequestStatus"
+	// GatewayForgeMergePullRequestProcedure is the fully-qualified name of the Gateway's
+	// ForgeMergePullRequest RPC.
+	GatewayForgeMergePullRequestProcedure = "/mind.gateway.v1.Gateway/ForgeMergePullRequest"
+	// GatewayForgeRequestReviewProcedure is the fully-qualified name of the Gateway's
+	// ForgeRequestReview RPC.
+	GatewayForgeRequestReviewProcedure = "/mind.gateway.v1.Gateway/ForgeRequestReview"
 	// GatewayListDependenciesProcedure is the fully-qualified name of the Gateway's ListDependencies
 	// RPC.
 	GatewayListDependenciesProcedure = "/mind.gateway.v1.Gateway/ListDependencies"
@@ -152,6 +175,8 @@ type GatewayClient interface {
 	Lint(context.Context, *connect.Request[v1.LintRequest]) (*connect.Response[v1.LintResponse], error)
 	// Test runs the configured test command on the service.
 	Test(context.Context, *connect.Request[v1.TestRequest]) (*connect.Response[v1.TestResponse], error)
+	// Format applies the service plugin's canonical formatter/import organizer.
+	Format(context.Context, *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error)
 	// RunCommand executes an arbitrary command in the service context.
 	RunCommand(context.Context, *connect.Request[v1.RunCommandRequest]) (*connect.Response[v1.RunCommandResponse], error)
 	// ListAllCommands returns commands from all loaded plugins plus built-in ones.
@@ -166,6 +191,24 @@ type GatewayClient interface {
 	GitLog(context.Context, *connect.Request[v1.GitLogRequest]) (*connect.Response[v1.GitLogResponse], error)
 	// GitCommit commits staged changes.
 	GitCommit(context.Context, *connect.Request[v1.GitCommitRequest]) (*connect.Response[v1.GitCommitResponse], error)
+	// GitBranch creates a branch at an explicit start point.
+	GitBranch(context.Context, *connect.Request[v1.GitBranchRequest]) (*connect.Response[v1.GitBranchResponse], error)
+	// GitCheckout switches the worktree to an existing branch or revision.
+	GitCheckout(context.Context, *connect.Request[v1.GitCheckoutRequest]) (*connect.Response[v1.GitCheckoutResponse], error)
+	// GitPush publishes a local branch to a remote.
+	GitPush(context.Context, *connect.Request[v1.GitPushRequest]) (*connect.Response[v1.GitPushResponse], error)
+	// GitTag creates an annotated or signed tag.
+	GitTag(context.Context, *connect.Request[v1.GitTagRequest]) (*connect.Response[v1.GitTagResponse], error)
+	// GitMerge merges one revision into the checked-out branch.
+	GitMerge(context.Context, *connect.Request[v1.GitMergeRequest]) (*connect.Response[v1.GitMergeResponse], error)
+	// GitRevert creates a commit that reverts one revision.
+	GitRevert(context.Context, *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error)
+	// ForgePullRequestStatus returns one vendor-neutral PR/check/review snapshot.
+	ForgePullRequestStatus(context.Context, *connect.Request[v1.ForgePullRequestStatusRequest]) (*connect.Response[v1.ForgePullRequestStatusResponse], error)
+	// ForgeMergePullRequest merges a PR after enforcing its requested check policy.
+	ForgeMergePullRequest(context.Context, *connect.Request[v1.ForgeMergePullRequestRequest]) (*connect.Response[v1.ForgeMergePullRequestResponse], error)
+	// ForgeRequestReview requests reviewers on a PR.
+	ForgeRequestReview(context.Context, *connect.Request[v1.ForgeRequestReviewRequest]) (*connect.Response[v1.ForgeRequestReviewResponse], error)
 	// ListDependencies returns all dependencies with versions.
 	ListDependencies(context.Context, *connect.Request[v1.ListDependenciesRequest]) (*connect.Response[v1.ListDependenciesResponse], error)
 	// AddDependency adds a package via the language package manager.
@@ -306,6 +349,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(gatewayMethods.ByName("Test")),
 			connect.WithClientOptions(opts...),
 		),
+		format: connect.NewClient[v1.FormatRequest, v1.FormatResponse](
+			httpClient,
+			baseURL+GatewayFormatProcedure,
+			connect.WithSchema(gatewayMethods.ByName("Format")),
+			connect.WithClientOptions(opts...),
+		),
 		runCommand: connect.NewClient[v1.RunCommandRequest, v1.RunCommandResponse](
 			httpClient,
 			baseURL+GatewayRunCommandProcedure,
@@ -346,6 +395,60 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			httpClient,
 			baseURL+GatewayGitCommitProcedure,
 			connect.WithSchema(gatewayMethods.ByName("GitCommit")),
+			connect.WithClientOptions(opts...),
+		),
+		gitBranch: connect.NewClient[v1.GitBranchRequest, v1.GitBranchResponse](
+			httpClient,
+			baseURL+GatewayGitBranchProcedure,
+			connect.WithSchema(gatewayMethods.ByName("GitBranch")),
+			connect.WithClientOptions(opts...),
+		),
+		gitCheckout: connect.NewClient[v1.GitCheckoutRequest, v1.GitCheckoutResponse](
+			httpClient,
+			baseURL+GatewayGitCheckoutProcedure,
+			connect.WithSchema(gatewayMethods.ByName("GitCheckout")),
+			connect.WithClientOptions(opts...),
+		),
+		gitPush: connect.NewClient[v1.GitPushRequest, v1.GitPushResponse](
+			httpClient,
+			baseURL+GatewayGitPushProcedure,
+			connect.WithSchema(gatewayMethods.ByName("GitPush")),
+			connect.WithClientOptions(opts...),
+		),
+		gitTag: connect.NewClient[v1.GitTagRequest, v1.GitTagResponse](
+			httpClient,
+			baseURL+GatewayGitTagProcedure,
+			connect.WithSchema(gatewayMethods.ByName("GitTag")),
+			connect.WithClientOptions(opts...),
+		),
+		gitMerge: connect.NewClient[v1.GitMergeRequest, v1.GitMergeResponse](
+			httpClient,
+			baseURL+GatewayGitMergeProcedure,
+			connect.WithSchema(gatewayMethods.ByName("GitMerge")),
+			connect.WithClientOptions(opts...),
+		),
+		gitRevert: connect.NewClient[v1.GitRevertRequest, v1.GitRevertResponse](
+			httpClient,
+			baseURL+GatewayGitRevertProcedure,
+			connect.WithSchema(gatewayMethods.ByName("GitRevert")),
+			connect.WithClientOptions(opts...),
+		),
+		forgePullRequestStatus: connect.NewClient[v1.ForgePullRequestStatusRequest, v1.ForgePullRequestStatusResponse](
+			httpClient,
+			baseURL+GatewayForgePullRequestStatusProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ForgePullRequestStatus")),
+			connect.WithClientOptions(opts...),
+		),
+		forgeMergePullRequest: connect.NewClient[v1.ForgeMergePullRequestRequest, v1.ForgeMergePullRequestResponse](
+			httpClient,
+			baseURL+GatewayForgeMergePullRequestProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ForgeMergePullRequest")),
+			connect.WithClientOptions(opts...),
+		),
+		forgeRequestReview: connect.NewClient[v1.ForgeRequestReviewRequest, v1.ForgeRequestReviewResponse](
+			httpClient,
+			baseURL+GatewayForgeRequestReviewProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ForgeRequestReview")),
 			connect.WithClientOptions(opts...),
 		),
 		listDependencies: connect.NewClient[v1.ListDependenciesRequest, v1.ListDependenciesResponse](
@@ -425,6 +528,7 @@ type gatewayClient struct {
 	build                      *connect.Client[v1.BuildRequest, v1.BuildResponse]
 	lint                       *connect.Client[v1.LintRequest, v1.LintResponse]
 	test                       *connect.Client[v1.TestRequest, v1.TestResponse]
+	format                     *connect.Client[v1.FormatRequest, v1.FormatResponse]
 	runCommand                 *connect.Client[v1.RunCommandRequest, v1.RunCommandResponse]
 	listAllCommands            *connect.Client[v1.ListAllCommandsRequest, v1.ListAllCommandsResponse]
 	runChecks                  *connect.Client[v1.RunChecksRequest, v1.RunChecksResponse]
@@ -432,6 +536,15 @@ type gatewayClient struct {
 	gitDiff                    *connect.Client[v1.GitDiffRequest, v1.GitDiffResponse]
 	gitLog                     *connect.Client[v1.GitLogRequest, v1.GitLogResponse]
 	gitCommit                  *connect.Client[v1.GitCommitRequest, v1.GitCommitResponse]
+	gitBranch                  *connect.Client[v1.GitBranchRequest, v1.GitBranchResponse]
+	gitCheckout                *connect.Client[v1.GitCheckoutRequest, v1.GitCheckoutResponse]
+	gitPush                    *connect.Client[v1.GitPushRequest, v1.GitPushResponse]
+	gitTag                     *connect.Client[v1.GitTagRequest, v1.GitTagResponse]
+	gitMerge                   *connect.Client[v1.GitMergeRequest, v1.GitMergeResponse]
+	gitRevert                  *connect.Client[v1.GitRevertRequest, v1.GitRevertResponse]
+	forgePullRequestStatus     *connect.Client[v1.ForgePullRequestStatusRequest, v1.ForgePullRequestStatusResponse]
+	forgeMergePullRequest      *connect.Client[v1.ForgeMergePullRequestRequest, v1.ForgeMergePullRequestResponse]
+	forgeRequestReview         *connect.Client[v1.ForgeRequestReviewRequest, v1.ForgeRequestReviewResponse]
 	listDependencies           *connect.Client[v1.ListDependenciesRequest, v1.ListDependenciesResponse]
 	addDependency              *connect.Client[v1.AddDependencyRequest, v1.AddDependencyResponse]
 	removeDependency           *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
@@ -533,6 +646,11 @@ func (c *gatewayClient) Test(ctx context.Context, req *connect.Request[v1.TestRe
 	return c.test.CallUnary(ctx, req)
 }
 
+// Format calls mind.gateway.v1.Gateway.Format.
+func (c *gatewayClient) Format(ctx context.Context, req *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error) {
+	return c.format.CallUnary(ctx, req)
+}
+
 // RunCommand calls mind.gateway.v1.Gateway.RunCommand.
 func (c *gatewayClient) RunCommand(ctx context.Context, req *connect.Request[v1.RunCommandRequest]) (*connect.Response[v1.RunCommandResponse], error) {
 	return c.runCommand.CallUnary(ctx, req)
@@ -566,6 +684,51 @@ func (c *gatewayClient) GitLog(ctx context.Context, req *connect.Request[v1.GitL
 // GitCommit calls mind.gateway.v1.Gateway.GitCommit.
 func (c *gatewayClient) GitCommit(ctx context.Context, req *connect.Request[v1.GitCommitRequest]) (*connect.Response[v1.GitCommitResponse], error) {
 	return c.gitCommit.CallUnary(ctx, req)
+}
+
+// GitBranch calls mind.gateway.v1.Gateway.GitBranch.
+func (c *gatewayClient) GitBranch(ctx context.Context, req *connect.Request[v1.GitBranchRequest]) (*connect.Response[v1.GitBranchResponse], error) {
+	return c.gitBranch.CallUnary(ctx, req)
+}
+
+// GitCheckout calls mind.gateway.v1.Gateway.GitCheckout.
+func (c *gatewayClient) GitCheckout(ctx context.Context, req *connect.Request[v1.GitCheckoutRequest]) (*connect.Response[v1.GitCheckoutResponse], error) {
+	return c.gitCheckout.CallUnary(ctx, req)
+}
+
+// GitPush calls mind.gateway.v1.Gateway.GitPush.
+func (c *gatewayClient) GitPush(ctx context.Context, req *connect.Request[v1.GitPushRequest]) (*connect.Response[v1.GitPushResponse], error) {
+	return c.gitPush.CallUnary(ctx, req)
+}
+
+// GitTag calls mind.gateway.v1.Gateway.GitTag.
+func (c *gatewayClient) GitTag(ctx context.Context, req *connect.Request[v1.GitTagRequest]) (*connect.Response[v1.GitTagResponse], error) {
+	return c.gitTag.CallUnary(ctx, req)
+}
+
+// GitMerge calls mind.gateway.v1.Gateway.GitMerge.
+func (c *gatewayClient) GitMerge(ctx context.Context, req *connect.Request[v1.GitMergeRequest]) (*connect.Response[v1.GitMergeResponse], error) {
+	return c.gitMerge.CallUnary(ctx, req)
+}
+
+// GitRevert calls mind.gateway.v1.Gateway.GitRevert.
+func (c *gatewayClient) GitRevert(ctx context.Context, req *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error) {
+	return c.gitRevert.CallUnary(ctx, req)
+}
+
+// ForgePullRequestStatus calls mind.gateway.v1.Gateway.ForgePullRequestStatus.
+func (c *gatewayClient) ForgePullRequestStatus(ctx context.Context, req *connect.Request[v1.ForgePullRequestStatusRequest]) (*connect.Response[v1.ForgePullRequestStatusResponse], error) {
+	return c.forgePullRequestStatus.CallUnary(ctx, req)
+}
+
+// ForgeMergePullRequest calls mind.gateway.v1.Gateway.ForgeMergePullRequest.
+func (c *gatewayClient) ForgeMergePullRequest(ctx context.Context, req *connect.Request[v1.ForgeMergePullRequestRequest]) (*connect.Response[v1.ForgeMergePullRequestResponse], error) {
+	return c.forgeMergePullRequest.CallUnary(ctx, req)
+}
+
+// ForgeRequestReview calls mind.gateway.v1.Gateway.ForgeRequestReview.
+func (c *gatewayClient) ForgeRequestReview(ctx context.Context, req *connect.Request[v1.ForgeRequestReviewRequest]) (*connect.Response[v1.ForgeRequestReviewResponse], error) {
+	return c.forgeRequestReview.CallUnary(ctx, req)
 }
 
 // ListDependencies calls mind.gateway.v1.Gateway.ListDependencies.
@@ -656,6 +819,8 @@ type GatewayHandler interface {
 	Lint(context.Context, *connect.Request[v1.LintRequest]) (*connect.Response[v1.LintResponse], error)
 	// Test runs the configured test command on the service.
 	Test(context.Context, *connect.Request[v1.TestRequest]) (*connect.Response[v1.TestResponse], error)
+	// Format applies the service plugin's canonical formatter/import organizer.
+	Format(context.Context, *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error)
 	// RunCommand executes an arbitrary command in the service context.
 	RunCommand(context.Context, *connect.Request[v1.RunCommandRequest]) (*connect.Response[v1.RunCommandResponse], error)
 	// ListAllCommands returns commands from all loaded plugins plus built-in ones.
@@ -670,6 +835,24 @@ type GatewayHandler interface {
 	GitLog(context.Context, *connect.Request[v1.GitLogRequest]) (*connect.Response[v1.GitLogResponse], error)
 	// GitCommit commits staged changes.
 	GitCommit(context.Context, *connect.Request[v1.GitCommitRequest]) (*connect.Response[v1.GitCommitResponse], error)
+	// GitBranch creates a branch at an explicit start point.
+	GitBranch(context.Context, *connect.Request[v1.GitBranchRequest]) (*connect.Response[v1.GitBranchResponse], error)
+	// GitCheckout switches the worktree to an existing branch or revision.
+	GitCheckout(context.Context, *connect.Request[v1.GitCheckoutRequest]) (*connect.Response[v1.GitCheckoutResponse], error)
+	// GitPush publishes a local branch to a remote.
+	GitPush(context.Context, *connect.Request[v1.GitPushRequest]) (*connect.Response[v1.GitPushResponse], error)
+	// GitTag creates an annotated or signed tag.
+	GitTag(context.Context, *connect.Request[v1.GitTagRequest]) (*connect.Response[v1.GitTagResponse], error)
+	// GitMerge merges one revision into the checked-out branch.
+	GitMerge(context.Context, *connect.Request[v1.GitMergeRequest]) (*connect.Response[v1.GitMergeResponse], error)
+	// GitRevert creates a commit that reverts one revision.
+	GitRevert(context.Context, *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error)
+	// ForgePullRequestStatus returns one vendor-neutral PR/check/review snapshot.
+	ForgePullRequestStatus(context.Context, *connect.Request[v1.ForgePullRequestStatusRequest]) (*connect.Response[v1.ForgePullRequestStatusResponse], error)
+	// ForgeMergePullRequest merges a PR after enforcing its requested check policy.
+	ForgeMergePullRequest(context.Context, *connect.Request[v1.ForgeMergePullRequestRequest]) (*connect.Response[v1.ForgeMergePullRequestResponse], error)
+	// ForgeRequestReview requests reviewers on a PR.
+	ForgeRequestReview(context.Context, *connect.Request[v1.ForgeRequestReviewRequest]) (*connect.Response[v1.ForgeRequestReviewResponse], error)
 	// ListDependencies returns all dependencies with versions.
 	ListDependencies(context.Context, *connect.Request[v1.ListDependenciesRequest]) (*connect.Response[v1.ListDependenciesResponse], error)
 	// AddDependency adds a package via the language package manager.
@@ -806,6 +989,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(gatewayMethods.ByName("Test")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayFormatHandler := connect.NewUnaryHandler(
+		GatewayFormatProcedure,
+		svc.Format,
+		connect.WithSchema(gatewayMethods.ByName("Format")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gatewayRunCommandHandler := connect.NewUnaryHandler(
 		GatewayRunCommandProcedure,
 		svc.RunCommand,
@@ -846,6 +1035,60 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		GatewayGitCommitProcedure,
 		svc.GitCommit,
 		connect.WithSchema(gatewayMethods.ByName("GitCommit")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayGitBranchHandler := connect.NewUnaryHandler(
+		GatewayGitBranchProcedure,
+		svc.GitBranch,
+		connect.WithSchema(gatewayMethods.ByName("GitBranch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayGitCheckoutHandler := connect.NewUnaryHandler(
+		GatewayGitCheckoutProcedure,
+		svc.GitCheckout,
+		connect.WithSchema(gatewayMethods.ByName("GitCheckout")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayGitPushHandler := connect.NewUnaryHandler(
+		GatewayGitPushProcedure,
+		svc.GitPush,
+		connect.WithSchema(gatewayMethods.ByName("GitPush")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayGitTagHandler := connect.NewUnaryHandler(
+		GatewayGitTagProcedure,
+		svc.GitTag,
+		connect.WithSchema(gatewayMethods.ByName("GitTag")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayGitMergeHandler := connect.NewUnaryHandler(
+		GatewayGitMergeProcedure,
+		svc.GitMerge,
+		connect.WithSchema(gatewayMethods.ByName("GitMerge")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayGitRevertHandler := connect.NewUnaryHandler(
+		GatewayGitRevertProcedure,
+		svc.GitRevert,
+		connect.WithSchema(gatewayMethods.ByName("GitRevert")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayForgePullRequestStatusHandler := connect.NewUnaryHandler(
+		GatewayForgePullRequestStatusProcedure,
+		svc.ForgePullRequestStatus,
+		connect.WithSchema(gatewayMethods.ByName("ForgePullRequestStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayForgeMergePullRequestHandler := connect.NewUnaryHandler(
+		GatewayForgeMergePullRequestProcedure,
+		svc.ForgeMergePullRequest,
+		connect.WithSchema(gatewayMethods.ByName("ForgeMergePullRequest")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayForgeRequestReviewHandler := connect.NewUnaryHandler(
+		GatewayForgeRequestReviewProcedure,
+		svc.ForgeRequestReview,
+		connect.WithSchema(gatewayMethods.ByName("ForgeRequestReview")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gatewayListDependenciesHandler := connect.NewUnaryHandler(
@@ -940,6 +1183,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayLintHandler.ServeHTTP(w, r)
 		case GatewayTestProcedure:
 			gatewayTestHandler.ServeHTTP(w, r)
+		case GatewayFormatProcedure:
+			gatewayFormatHandler.ServeHTTP(w, r)
 		case GatewayRunCommandProcedure:
 			gatewayRunCommandHandler.ServeHTTP(w, r)
 		case GatewayListAllCommandsProcedure:
@@ -954,6 +1199,24 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayGitLogHandler.ServeHTTP(w, r)
 		case GatewayGitCommitProcedure:
 			gatewayGitCommitHandler.ServeHTTP(w, r)
+		case GatewayGitBranchProcedure:
+			gatewayGitBranchHandler.ServeHTTP(w, r)
+		case GatewayGitCheckoutProcedure:
+			gatewayGitCheckoutHandler.ServeHTTP(w, r)
+		case GatewayGitPushProcedure:
+			gatewayGitPushHandler.ServeHTTP(w, r)
+		case GatewayGitTagProcedure:
+			gatewayGitTagHandler.ServeHTTP(w, r)
+		case GatewayGitMergeProcedure:
+			gatewayGitMergeHandler.ServeHTTP(w, r)
+		case GatewayGitRevertProcedure:
+			gatewayGitRevertHandler.ServeHTTP(w, r)
+		case GatewayForgePullRequestStatusProcedure:
+			gatewayForgePullRequestStatusHandler.ServeHTTP(w, r)
+		case GatewayForgeMergePullRequestProcedure:
+			gatewayForgeMergePullRequestHandler.ServeHTTP(w, r)
+		case GatewayForgeRequestReviewProcedure:
+			gatewayForgeRequestReviewHandler.ServeHTTP(w, r)
 		case GatewayListDependenciesProcedure:
 			gatewayListDependenciesHandler.ServeHTTP(w, r)
 		case GatewayAddDependencyProcedure:
@@ -1053,6 +1316,10 @@ func (UnimplementedGatewayHandler) Test(context.Context, *connect.Request[v1.Tes
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.Test is not implemented"))
 }
 
+func (UnimplementedGatewayHandler) Format(context.Context, *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.Format is not implemented"))
+}
+
 func (UnimplementedGatewayHandler) RunCommand(context.Context, *connect.Request[v1.RunCommandRequest]) (*connect.Response[v1.RunCommandResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.RunCommand is not implemented"))
 }
@@ -1079,6 +1346,42 @@ func (UnimplementedGatewayHandler) GitLog(context.Context, *connect.Request[v1.G
 
 func (UnimplementedGatewayHandler) GitCommit(context.Context, *connect.Request[v1.GitCommitRequest]) (*connect.Response[v1.GitCommitResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GitCommit is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) GitBranch(context.Context, *connect.Request[v1.GitBranchRequest]) (*connect.Response[v1.GitBranchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GitBranch is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) GitCheckout(context.Context, *connect.Request[v1.GitCheckoutRequest]) (*connect.Response[v1.GitCheckoutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GitCheckout is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) GitPush(context.Context, *connect.Request[v1.GitPushRequest]) (*connect.Response[v1.GitPushResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GitPush is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) GitTag(context.Context, *connect.Request[v1.GitTagRequest]) (*connect.Response[v1.GitTagResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GitTag is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) GitMerge(context.Context, *connect.Request[v1.GitMergeRequest]) (*connect.Response[v1.GitMergeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GitMerge is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) GitRevert(context.Context, *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GitRevert is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ForgePullRequestStatus(context.Context, *connect.Request[v1.ForgePullRequestStatusRequest]) (*connect.Response[v1.ForgePullRequestStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ForgePullRequestStatus is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ForgeMergePullRequest(context.Context, *connect.Request[v1.ForgeMergePullRequestRequest]) (*connect.Response[v1.ForgeMergePullRequestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ForgeMergePullRequest is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ForgeRequestReview(context.Context, *connect.Request[v1.ForgeRequestReviewRequest]) (*connect.Response[v1.ForgeRequestReviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ForgeRequestReview is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) ListDependencies(context.Context, *connect.Request[v1.ListDependenciesRequest]) (*connect.Response[v1.ListDependenciesResponse], error) {

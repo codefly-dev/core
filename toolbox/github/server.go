@@ -21,9 +21,12 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	gh "github.com/google/go-github/v37/github"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	gatewayv1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 	"github.com/codefly-dev/core/llmout"
 	"github.com/codefly-dev/core/toolbox/registry"
 	"github.com/codefly-dev/core/toolbox/respond"
@@ -146,6 +149,60 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Examples:   []*toolboxv0.ToolExample{{Description: "Show 10 latest runs.", Arguments: mustStruct(map[string]any{"limit": 10}), ExpectedOutcome: "Compact run lines with conclusions."}},
 			Handler:    s.runList,
 		},
+		{
+			Name:               "forge.pr_status",
+			SummaryDescription: "Return typed PR, required-check, and review state. Read-only.",
+			LongDescription:    "Returns one provider-neutral pull-request snapshot with mergeability, checks, reviews, and a blocking reason. The GitHub API is authoritative; callers never need to parse command output.",
+			InputSchema: respond.Schema(map[string]any{
+				"type":       "object",
+				"properties": merge(repoProps, map[string]any{"number": map[string]any{"type": "integer", "minimum": 1, "description": "Pull-request number."}}),
+				"required":   []any{"number"},
+			}),
+			Tags: []string{"forge", "github", "read-only", "network", "ci"}, Idempotency: "idempotent",
+			ErrorModes: "Returns `github: ...` on auth/API failure or when owner/repo cannot be resolved.",
+			Examples:   []*toolboxv0.ToolExample{{Description: "Read PR #42 status.", Arguments: mustStruct(map[string]any{"number": 42}), ExpectedOutcome: "Typed mergeability, checks, reviews, and blocking reason."}},
+			Handler:    s.forgePRStatus,
+		},
+		{
+			Name:               "forge.merge_pr",
+			SummaryDescription: "Merge a PR with an explicit method and check policy.",
+			LongDescription:    "Fetches authoritative status, enforces required checks unless bypass is explicitly selected, merges through the GitHub API, and returns a stable act identity that reconciles with the inbound merge event.",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": merge(repoProps, map[string]any{
+					"number":         map[string]any{"type": "integer", "minimum": 1, "description": "Pull-request number."},
+					"method":         map[string]any{"type": "string", "enum": []any{"merge", "squash", "rebase"}, "description": "Merge strategy."},
+					"check_policy":   map[string]any{"type": "string", "enum": []any{"require_passing", "bypass"}, "description": "Required-check policy."},
+					"commit_title":   map[string]any{"type": "string", "description": "Optional merge commit title."},
+					"commit_message": map[string]any{"type": "string", "description": "Optional merge commit body."},
+				}),
+				"required": []any{"number", "method", "check_policy"},
+			}),
+			Destructive: true,
+			Tags:        []string{"forge", "github", "network", "destructive"}, Idempotency: "side_effecting",
+			ErrorModes: "Returns a typed blocked response when required checks/reviews do not pass; API failures return `github: ...`.",
+			Examples:   []*toolboxv0.ToolExample{{Description: "Squash PR #42 after required checks pass.", Arguments: mustStruct(map[string]any{"number": 42, "method": "squash", "check_policy": "require_passing"}), ExpectedOutcome: "Provider-confirmed merge receipt and post-merge status."}},
+			Handler:    s.forgeMergePR,
+		},
+		{
+			Name:               "forge.request_review",
+			SummaryDescription: "Request users or teams to review a PR.",
+			LongDescription:    "Requests reviewers through the GitHub API and returns the provider-accepted reviewer set plus a stable act identity.",
+			InputSchema: respond.Schema(map[string]any{
+				"type": "object",
+				"properties": merge(repoProps, map[string]any{
+					"number":         map[string]any{"type": "integer", "minimum": 1, "description": "Pull-request number."},
+					"reviewers":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "User logins."},
+					"team_reviewers": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Team slugs."},
+				}),
+				"required": []any{"number"},
+			}),
+			Destructive: true,
+			Tags:        []string{"forge", "github", "network", "destructive"}, Idempotency: "side_effecting",
+			ErrorModes: "Returns `github: ...` on auth/API failure; rejects calls with no user or team reviewers.",
+			Examples:   []*toolboxv0.ToolExample{{Description: "Request alice on PR #42.", Arguments: mustStruct(map[string]any{"number": 42, "reviewers": []any{"alice"}}), ExpectedOutcome: "Provider-confirmed reviewer request receipt."}},
+			Handler:    s.forgeRequestReview,
+		},
 	}
 }
 
@@ -240,6 +297,45 @@ func (s *Server) runList(ctx context.Context, req *toolboxv0.CallToolRequest) *t
 		})
 	}
 	return compact(runFilter, items)
+}
+
+func (s *Server) forgePRStatus(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+	args := respond.Args(req)
+	status, err := s.PullRequestStatus(ctx, forgeRepositoryArg(args), int64(intArg(args, "number", 0)))
+	if err != nil {
+		return respond.Error("github: %v", err)
+	}
+	return protoResponse(status)
+}
+
+func (s *Server) forgeMergePR(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+	args := respond.Args(req)
+	result, err := s.MergePullRequest(ctx, &gatewayv1.ForgeMergePullRequestRequest{
+		Repository:    forgeRepositoryArg(args),
+		Number:        int64(intArg(args, "number", 0)),
+		Method:        forgeMergeMethodArg(args),
+		CheckPolicy:   forgeCheckPolicyArg(args),
+		CommitTitle:   stringArg(args, "commit_title"),
+		CommitMessage: stringArg(args, "commit_message"),
+	})
+	if err != nil {
+		return respond.Error("github: %v", err)
+	}
+	return protoResponse(result)
+}
+
+func (s *Server) forgeRequestReview(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+	args := respond.Args(req)
+	result, err := s.RequestReview(ctx, &gatewayv1.ForgeRequestReviewRequest{
+		Repository:    forgeRepositoryArg(args),
+		Number:        int64(intArg(args, "number", 0)),
+		Reviewers:     stringSliceArg(args, "reviewers"),
+		TeamReviewers: stringSliceArg(args, "team_reviewers"),
+	})
+	if err != nil {
+		return respond.Error("github: %v", err)
+	}
+	return protoResponse(result)
 }
 
 // compact marshals normalized items to JSON and runs the gortk filter over them.
@@ -342,6 +438,66 @@ func intArg(args map[string]any, key string, def int) int {
 		return int(v)
 	}
 	return def
+}
+
+func stringArg(args map[string]any, key string) string {
+	value, _ := args[key].(string)
+	return value
+}
+
+func stringSliceArg(args map[string]any, key string) []string {
+	values, _ := args[key].([]any)
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if text, ok := value.(string); ok && text != "" {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
+func forgeRepositoryArg(args map[string]any) *gatewayv1.ForgeRepository {
+	return &gatewayv1.ForgeRepository{
+		Provider: "github",
+		Owner:    stringArg(args, "owner"),
+		Name:     stringArg(args, "repo"),
+	}
+}
+
+func forgeMergeMethodArg(args map[string]any) gatewayv1.ForgeMergeMethod {
+	switch stringArg(args, "method") {
+	case "merge":
+		return gatewayv1.ForgeMergeMethod_FORGE_MERGE_METHOD_MERGE
+	case "squash":
+		return gatewayv1.ForgeMergeMethod_FORGE_MERGE_METHOD_SQUASH
+	case "rebase":
+		return gatewayv1.ForgeMergeMethod_FORGE_MERGE_METHOD_REBASE
+	default:
+		return gatewayv1.ForgeMergeMethod_FORGE_MERGE_METHOD_UNSPECIFIED
+	}
+}
+
+func forgeCheckPolicyArg(args map[string]any) gatewayv1.ForgeCheckPolicy {
+	switch stringArg(args, "check_policy") {
+	case "require_passing":
+		return gatewayv1.ForgeCheckPolicy_FORGE_CHECK_POLICY_REQUIRE_PASSING
+	case "bypass":
+		return gatewayv1.ForgeCheckPolicy_FORGE_CHECK_POLICY_BYPASS
+	default:
+		return gatewayv1.ForgeCheckPolicy_FORGE_CHECK_POLICY_UNSPECIFIED
+	}
+}
+
+func protoResponse(message proto.Message) *toolboxv0.CallToolResponse {
+	body, err := protojson.Marshal(message)
+	if err != nil {
+		return respond.Error("github: encode response: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return respond.Error("github: decode response: %v", err)
+	}
+	return respond.Struct(payload)
 }
 
 func mustStruct(m map[string]any) *structpb.Struct {

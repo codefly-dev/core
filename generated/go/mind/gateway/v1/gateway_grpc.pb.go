@@ -38,6 +38,7 @@ const (
 	Gateway_Build_FullMethodName                      = "/mind.gateway.v1.Gateway/Build"
 	Gateway_Lint_FullMethodName                       = "/mind.gateway.v1.Gateway/Lint"
 	Gateway_Test_FullMethodName                       = "/mind.gateway.v1.Gateway/Test"
+	Gateway_Format_FullMethodName                     = "/mind.gateway.v1.Gateway/Format"
 	Gateway_RunCommand_FullMethodName                 = "/mind.gateway.v1.Gateway/RunCommand"
 	Gateway_ListAllCommands_FullMethodName            = "/mind.gateway.v1.Gateway/ListAllCommands"
 	Gateway_RunChecks_FullMethodName                  = "/mind.gateway.v1.Gateway/RunChecks"
@@ -45,6 +46,15 @@ const (
 	Gateway_GitDiff_FullMethodName                    = "/mind.gateway.v1.Gateway/GitDiff"
 	Gateway_GitLog_FullMethodName                     = "/mind.gateway.v1.Gateway/GitLog"
 	Gateway_GitCommit_FullMethodName                  = "/mind.gateway.v1.Gateway/GitCommit"
+	Gateway_GitBranch_FullMethodName                  = "/mind.gateway.v1.Gateway/GitBranch"
+	Gateway_GitCheckout_FullMethodName                = "/mind.gateway.v1.Gateway/GitCheckout"
+	Gateway_GitPush_FullMethodName                    = "/mind.gateway.v1.Gateway/GitPush"
+	Gateway_GitTag_FullMethodName                     = "/mind.gateway.v1.Gateway/GitTag"
+	Gateway_GitMerge_FullMethodName                   = "/mind.gateway.v1.Gateway/GitMerge"
+	Gateway_GitRevert_FullMethodName                  = "/mind.gateway.v1.Gateway/GitRevert"
+	Gateway_ForgePullRequestStatus_FullMethodName     = "/mind.gateway.v1.Gateway/ForgePullRequestStatus"
+	Gateway_ForgeMergePullRequest_FullMethodName      = "/mind.gateway.v1.Gateway/ForgeMergePullRequest"
+	Gateway_ForgeRequestReview_FullMethodName         = "/mind.gateway.v1.Gateway/ForgeRequestReview"
 	Gateway_ListDependencies_FullMethodName           = "/mind.gateway.v1.Gateway/ListDependencies"
 	Gateway_AddDependency_FullMethodName              = "/mind.gateway.v1.Gateway/AddDependency"
 	Gateway_RemoveDependency_FullMethodName           = "/mind.gateway.v1.Gateway/RemoveDependency"
@@ -104,6 +114,8 @@ type GatewayClient interface {
 	Lint(ctx context.Context, in *LintRequest, opts ...grpc.CallOption) (*LintResponse, error)
 	// Test runs the configured test command on the service.
 	Test(ctx context.Context, in *TestRequest, opts ...grpc.CallOption) (*TestResponse, error)
+	// Format applies the service plugin's canonical formatter/import organizer.
+	Format(ctx context.Context, in *FormatRequest, opts ...grpc.CallOption) (*FormatResponse, error)
 	// RunCommand executes an arbitrary command in the service context.
 	RunCommand(ctx context.Context, in *RunCommandRequest, opts ...grpc.CallOption) (*RunCommandResponse, error)
 	// ListAllCommands returns commands from all loaded plugins plus built-in ones.
@@ -118,6 +130,24 @@ type GatewayClient interface {
 	GitLog(ctx context.Context, in *GitLogRequest, opts ...grpc.CallOption) (*GitLogResponse, error)
 	// GitCommit commits staged changes.
 	GitCommit(ctx context.Context, in *GitCommitRequest, opts ...grpc.CallOption) (*GitCommitResponse, error)
+	// GitBranch creates a branch at an explicit start point.
+	GitBranch(ctx context.Context, in *GitBranchRequest, opts ...grpc.CallOption) (*GitBranchResponse, error)
+	// GitCheckout switches the worktree to an existing branch or revision.
+	GitCheckout(ctx context.Context, in *GitCheckoutRequest, opts ...grpc.CallOption) (*GitCheckoutResponse, error)
+	// GitPush publishes a local branch to a remote.
+	GitPush(ctx context.Context, in *GitPushRequest, opts ...grpc.CallOption) (*GitPushResponse, error)
+	// GitTag creates an annotated or signed tag.
+	GitTag(ctx context.Context, in *GitTagRequest, opts ...grpc.CallOption) (*GitTagResponse, error)
+	// GitMerge merges one revision into the checked-out branch.
+	GitMerge(ctx context.Context, in *GitMergeRequest, opts ...grpc.CallOption) (*GitMergeResponse, error)
+	// GitRevert creates a commit that reverts one revision.
+	GitRevert(ctx context.Context, in *GitRevertRequest, opts ...grpc.CallOption) (*GitRevertResponse, error)
+	// ForgePullRequestStatus returns one vendor-neutral PR/check/review snapshot.
+	ForgePullRequestStatus(ctx context.Context, in *ForgePullRequestStatusRequest, opts ...grpc.CallOption) (*ForgePullRequestStatusResponse, error)
+	// ForgeMergePullRequest merges a PR after enforcing its requested check policy.
+	ForgeMergePullRequest(ctx context.Context, in *ForgeMergePullRequestRequest, opts ...grpc.CallOption) (*ForgeMergePullRequestResponse, error)
+	// ForgeRequestReview requests reviewers on a PR.
+	ForgeRequestReview(ctx context.Context, in *ForgeRequestReviewRequest, opts ...grpc.CallOption) (*ForgeRequestReviewResponse, error)
 	// ListDependencies returns all dependencies with versions.
 	ListDependencies(ctx context.Context, in *ListDependenciesRequest, opts ...grpc.CallOption) (*ListDependenciesResponse, error)
 	// AddDependency adds a package via the language package manager.
@@ -336,6 +366,16 @@ func (c *gatewayClient) Test(ctx context.Context, in *TestRequest, opts ...grpc.
 	return out, nil
 }
 
+func (c *gatewayClient) Format(ctx context.Context, in *FormatRequest, opts ...grpc.CallOption) (*FormatResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FormatResponse)
+	err := c.cc.Invoke(ctx, Gateway_Format_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *gatewayClient) RunCommand(ctx context.Context, in *RunCommandRequest, opts ...grpc.CallOption) (*RunCommandResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RunCommandResponse)
@@ -400,6 +440,96 @@ func (c *gatewayClient) GitCommit(ctx context.Context, in *GitCommitRequest, opt
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GitCommitResponse)
 	err := c.cc.Invoke(ctx, Gateway_GitCommit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) GitBranch(ctx context.Context, in *GitBranchRequest, opts ...grpc.CallOption) (*GitBranchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GitBranchResponse)
+	err := c.cc.Invoke(ctx, Gateway_GitBranch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) GitCheckout(ctx context.Context, in *GitCheckoutRequest, opts ...grpc.CallOption) (*GitCheckoutResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GitCheckoutResponse)
+	err := c.cc.Invoke(ctx, Gateway_GitCheckout_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) GitPush(ctx context.Context, in *GitPushRequest, opts ...grpc.CallOption) (*GitPushResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GitPushResponse)
+	err := c.cc.Invoke(ctx, Gateway_GitPush_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) GitTag(ctx context.Context, in *GitTagRequest, opts ...grpc.CallOption) (*GitTagResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GitTagResponse)
+	err := c.cc.Invoke(ctx, Gateway_GitTag_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) GitMerge(ctx context.Context, in *GitMergeRequest, opts ...grpc.CallOption) (*GitMergeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GitMergeResponse)
+	err := c.cc.Invoke(ctx, Gateway_GitMerge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) GitRevert(ctx context.Context, in *GitRevertRequest, opts ...grpc.CallOption) (*GitRevertResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GitRevertResponse)
+	err := c.cc.Invoke(ctx, Gateway_GitRevert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) ForgePullRequestStatus(ctx context.Context, in *ForgePullRequestStatusRequest, opts ...grpc.CallOption) (*ForgePullRequestStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForgePullRequestStatusResponse)
+	err := c.cc.Invoke(ctx, Gateway_ForgePullRequestStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) ForgeMergePullRequest(ctx context.Context, in *ForgeMergePullRequestRequest, opts ...grpc.CallOption) (*ForgeMergePullRequestResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForgeMergePullRequestResponse)
+	err := c.cc.Invoke(ctx, Gateway_ForgeMergePullRequest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) ForgeRequestReview(ctx context.Context, in *ForgeRequestReviewRequest, opts ...grpc.CallOption) (*ForgeRequestReviewResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForgeRequestReviewResponse)
+	err := c.cc.Invoke(ctx, Gateway_ForgeRequestReview_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -547,6 +677,8 @@ type GatewayServer interface {
 	Lint(context.Context, *LintRequest) (*LintResponse, error)
 	// Test runs the configured test command on the service.
 	Test(context.Context, *TestRequest) (*TestResponse, error)
+	// Format applies the service plugin's canonical formatter/import organizer.
+	Format(context.Context, *FormatRequest) (*FormatResponse, error)
 	// RunCommand executes an arbitrary command in the service context.
 	RunCommand(context.Context, *RunCommandRequest) (*RunCommandResponse, error)
 	// ListAllCommands returns commands from all loaded plugins plus built-in ones.
@@ -561,6 +693,24 @@ type GatewayServer interface {
 	GitLog(context.Context, *GitLogRequest) (*GitLogResponse, error)
 	// GitCommit commits staged changes.
 	GitCommit(context.Context, *GitCommitRequest) (*GitCommitResponse, error)
+	// GitBranch creates a branch at an explicit start point.
+	GitBranch(context.Context, *GitBranchRequest) (*GitBranchResponse, error)
+	// GitCheckout switches the worktree to an existing branch or revision.
+	GitCheckout(context.Context, *GitCheckoutRequest) (*GitCheckoutResponse, error)
+	// GitPush publishes a local branch to a remote.
+	GitPush(context.Context, *GitPushRequest) (*GitPushResponse, error)
+	// GitTag creates an annotated or signed tag.
+	GitTag(context.Context, *GitTagRequest) (*GitTagResponse, error)
+	// GitMerge merges one revision into the checked-out branch.
+	GitMerge(context.Context, *GitMergeRequest) (*GitMergeResponse, error)
+	// GitRevert creates a commit that reverts one revision.
+	GitRevert(context.Context, *GitRevertRequest) (*GitRevertResponse, error)
+	// ForgePullRequestStatus returns one vendor-neutral PR/check/review snapshot.
+	ForgePullRequestStatus(context.Context, *ForgePullRequestStatusRequest) (*ForgePullRequestStatusResponse, error)
+	// ForgeMergePullRequest merges a PR after enforcing its requested check policy.
+	ForgeMergePullRequest(context.Context, *ForgeMergePullRequestRequest) (*ForgeMergePullRequestResponse, error)
+	// ForgeRequestReview requests reviewers on a PR.
+	ForgeRequestReview(context.Context, *ForgeRequestReviewRequest) (*ForgeRequestReviewResponse, error)
 	// ListDependencies returns all dependencies with versions.
 	ListDependencies(context.Context, *ListDependenciesRequest) (*ListDependenciesResponse, error)
 	// AddDependency adds a package via the language package manager.
@@ -644,6 +794,9 @@ func (UnimplementedGatewayServer) Lint(context.Context, *LintRequest) (*LintResp
 func (UnimplementedGatewayServer) Test(context.Context, *TestRequest) (*TestResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Test not implemented")
 }
+func (UnimplementedGatewayServer) Format(context.Context, *FormatRequest) (*FormatResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Format not implemented")
+}
 func (UnimplementedGatewayServer) RunCommand(context.Context, *RunCommandRequest) (*RunCommandResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RunCommand not implemented")
 }
@@ -664,6 +817,33 @@ func (UnimplementedGatewayServer) GitLog(context.Context, *GitLogRequest) (*GitL
 }
 func (UnimplementedGatewayServer) GitCommit(context.Context, *GitCommitRequest) (*GitCommitResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GitCommit not implemented")
+}
+func (UnimplementedGatewayServer) GitBranch(context.Context, *GitBranchRequest) (*GitBranchResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GitBranch not implemented")
+}
+func (UnimplementedGatewayServer) GitCheckout(context.Context, *GitCheckoutRequest) (*GitCheckoutResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GitCheckout not implemented")
+}
+func (UnimplementedGatewayServer) GitPush(context.Context, *GitPushRequest) (*GitPushResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GitPush not implemented")
+}
+func (UnimplementedGatewayServer) GitTag(context.Context, *GitTagRequest) (*GitTagResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GitTag not implemented")
+}
+func (UnimplementedGatewayServer) GitMerge(context.Context, *GitMergeRequest) (*GitMergeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GitMerge not implemented")
+}
+func (UnimplementedGatewayServer) GitRevert(context.Context, *GitRevertRequest) (*GitRevertResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GitRevert not implemented")
+}
+func (UnimplementedGatewayServer) ForgePullRequestStatus(context.Context, *ForgePullRequestStatusRequest) (*ForgePullRequestStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForgePullRequestStatus not implemented")
+}
+func (UnimplementedGatewayServer) ForgeMergePullRequest(context.Context, *ForgeMergePullRequestRequest) (*ForgeMergePullRequestResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForgeMergePullRequest not implemented")
+}
+func (UnimplementedGatewayServer) ForgeRequestReview(context.Context, *ForgeRequestReviewRequest) (*ForgeRequestReviewResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForgeRequestReview not implemented")
 }
 func (UnimplementedGatewayServer) ListDependencies(context.Context, *ListDependenciesRequest) (*ListDependenciesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListDependencies not implemented")
@@ -1030,6 +1210,24 @@ func _Gateway_Test_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Gateway_Format_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FormatRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).Format(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_Format_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).Format(ctx, req.(*FormatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Gateway_RunCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RunCommandRequest)
 	if err := dec(in); err != nil {
@@ -1152,6 +1350,168 @@ func _Gateway_GitCommit_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GatewayServer).GitCommit(ctx, req.(*GitCommitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_GitBranch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GitBranchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).GitBranch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_GitBranch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).GitBranch(ctx, req.(*GitBranchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_GitCheckout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GitCheckoutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).GitCheckout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_GitCheckout_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).GitCheckout(ctx, req.(*GitCheckoutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_GitPush_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GitPushRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).GitPush(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_GitPush_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).GitPush(ctx, req.(*GitPushRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_GitTag_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GitTagRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).GitTag(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_GitTag_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).GitTag(ctx, req.(*GitTagRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_GitMerge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GitMergeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).GitMerge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_GitMerge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).GitMerge(ctx, req.(*GitMergeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_GitRevert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GitRevertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).GitRevert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_GitRevert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).GitRevert(ctx, req.(*GitRevertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_ForgePullRequestStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForgePullRequestStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).ForgePullRequestStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_ForgePullRequestStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).ForgePullRequestStatus(ctx, req.(*ForgePullRequestStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_ForgeMergePullRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForgeMergePullRequestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).ForgeMergePullRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_ForgeMergePullRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).ForgeMergePullRequest(ctx, req.(*ForgeMergePullRequestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_ForgeRequestReview_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForgeRequestReviewRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).ForgeRequestReview(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_ForgeRequestReview_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).ForgeRequestReview(ctx, req.(*ForgeRequestReviewRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1383,6 +1743,10 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Gateway_Test_Handler,
 		},
 		{
+			MethodName: "Format",
+			Handler:    _Gateway_Format_Handler,
+		},
+		{
 			MethodName: "RunCommand",
 			Handler:    _Gateway_RunCommand_Handler,
 		},
@@ -1409,6 +1773,42 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GitCommit",
 			Handler:    _Gateway_GitCommit_Handler,
+		},
+		{
+			MethodName: "GitBranch",
+			Handler:    _Gateway_GitBranch_Handler,
+		},
+		{
+			MethodName: "GitCheckout",
+			Handler:    _Gateway_GitCheckout_Handler,
+		},
+		{
+			MethodName: "GitPush",
+			Handler:    _Gateway_GitPush_Handler,
+		},
+		{
+			MethodName: "GitTag",
+			Handler:    _Gateway_GitTag_Handler,
+		},
+		{
+			MethodName: "GitMerge",
+			Handler:    _Gateway_GitMerge_Handler,
+		},
+		{
+			MethodName: "GitRevert",
+			Handler:    _Gateway_GitRevert_Handler,
+		},
+		{
+			MethodName: "ForgePullRequestStatus",
+			Handler:    _Gateway_ForgePullRequestStatus_Handler,
+		},
+		{
+			MethodName: "ForgeMergePullRequest",
+			Handler:    _Gateway_ForgeMergePullRequest_Handler,
+		},
+		{
+			MethodName: "ForgeRequestReview",
+			Handler:    _Gateway_ForgeRequestReview_Handler,
 		},
 		{
 			MethodName: "ListDependencies",
