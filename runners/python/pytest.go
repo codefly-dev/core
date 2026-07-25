@@ -187,7 +187,17 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	junitFile := filepath.Join(junitDir, fmt.Sprintf("pytest-junit-%d.xml", time.Now().UnixNano()))
 	defer os.Remove(junitFile) // structured response replaces the file
 
-	pytestArgs := []string{"run", "pytest", "--tb=short", "--junitxml=" + junitFile}
+	// The Python runtime owns runner provisioning. An editable project need not
+	// declare pytest as a runtime dependency, and a clean Codefly environment
+	// must never rely on pytest being installed on the host.
+	pytestArgs := []string{"run", "--with", "pytest"}
+	if opt.Timeout != "" {
+		pytestArgs = append(pytestArgs, "--with", "pytest-timeout")
+	}
+	if opt.Coverage {
+		pytestArgs = append(pytestArgs, "--with", "pytest-cov")
+	}
+	pytestArgs = append(pytestArgs, "pytest", "--tb=short", "--junitxml="+junitFile)
 
 	// Default to verbose unless the caller explicitly set Verbose=false.
 	// Verbose feeds the OnEvent stream; the JUnit XML is parsed regardless.

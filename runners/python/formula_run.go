@@ -115,6 +115,7 @@ func SpecFromFormula(command []string, output string, env, provisioning map[stri
 		// force it on/off.
 		PersistentVenv: provisioning["no_build_isolation"] == "true" || provisioning["persistent_venv"] == "true",
 	}
+	spec.With = ensureRunnerPackages(spec.Command, spec.With)
 	if provisioning["persistent_venv"] == "false" {
 		spec.PersistentVenv = false
 	}
@@ -122,6 +123,43 @@ func SpecFromFormula(command []string, output string, env, provisioning map[stri
 		spec.Env = append(spec.Env, &resources.EnvironmentVariable{Key: k, Value: v})
 	}
 	return spec
+}
+
+// ensureRunnerPackages makes the runner executable part of the uv environment.
+// A project's editable package does not necessarily declare its test runner as
+// a runtime dependency, and clean CI hosts must not depend on an ambient pytest
+// installation. This is runner knowledge owned by the Python plugin: callers
+// still supply only the formula command and typed provisioning data.
+func ensureRunnerPackages(command, packages []string) []string {
+	if !commandUsesPytest(command) || containsRequirement(packages, "pytest") {
+		return packages
+	}
+	return append(packages, "pytest")
+}
+
+func commandUsesPytest(command []string) bool {
+	for _, arg := range tokenizeCommand(command) {
+		if arg == "pytest" {
+			return true
+		}
+	}
+	return false
+}
+
+func containsRequirement(requirements []string, name string) bool {
+	for _, requirement := range requirements {
+		normalized := strings.ToLower(strings.TrimSpace(requirement))
+		for i, r := range normalized {
+			if !(r == '-' || r == '_' || r == '.' || ('a' <= r && r <= 'z') || ('0' <= r && r <= '9')) {
+				normalized = normalized[:i]
+				break
+			}
+		}
+		if normalized == name {
+			return true
+		}
+	}
+	return false
 }
 
 // splitComma splits a provisioning list value. Commas are the canonical

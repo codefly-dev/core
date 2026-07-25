@@ -86,13 +86,39 @@ func TestSpecFromFormula_ProvisioningMapToUv(t *testing.T) {
 	)
 	got := strings.Join(BuildUvArgs(spec, "/tmp/j.xml"), " ")
 	want := "run --no-project --python 3.9 --with-editable . " +
-		"--with-requirements requirements/tests.txt --with tox<4 --with setuptools " +
+		"--with-requirements requirements/tests.txt --with tox<4 --with setuptools --with pytest " +
 		"pytest --junitxml=/tmp/j.xml tests/test_x.py::test_y"
 	if got != want {
 		t.Fatalf("\n got %q\nwant %q", got, want)
 	}
 	if len(spec.Env) != 1 || spec.Env[0].Key != "PYTHONDONTWRITEBYTECODE" {
 		t.Fatalf("env not carried: %+v", spec.Env)
+	}
+}
+
+func TestSpecFromFormula_ProvisionsPytestRunnerOnCleanHost(t *testing.T) {
+	spec := SpecFromFormula(
+		[]string{"python", "-m", "pytest"},
+		OutputJUnitXML,
+		nil,
+		map[string]string{"no_project": "true", "python": "3.14"},
+		nil,
+	)
+	got := strings.Join(BuildUvArgs(spec, "/tmp/j.xml"), " ")
+	want := "run --no-project --python 3.14 --with pytest python -m pytest --junitxml=/tmp/j.xml"
+	if got != want {
+		t.Fatalf("\n got %q\nwant %q", got, want)
+	}
+
+	pinned := SpecFromFormula(
+		[]string{"pytest"},
+		OutputJUnitXML,
+		nil,
+		map[string]string{"with": "pytest==8.4.2"},
+		nil,
+	)
+	if got := strings.Join(pinned.With, " "); got != "pytest==8.4.2" {
+		t.Fatalf("explicit runner constraint must not be duplicated, got %q", got)
 	}
 }
 
