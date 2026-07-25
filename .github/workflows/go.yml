@@ -14,6 +14,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build
@@ -132,7 +135,7 @@ jobs:
           config: ./.testcoverage.yaml
           ## when token is not specified (value '') this feature is turned off
           ## in this example badge is created and committed only for main branch
-          git-token: ${{ github.ref_name == 'main' && secrets.GH_PAT || '' }}
+          git-token: ${{ github.ref_name == 'main' && github.token || '' }}
           ## name of branch where badges are stored
           ## ideally this should be orphan branch (see below how to create this branch)
           git-branch: badges
