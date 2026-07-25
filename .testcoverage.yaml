@@ -2,9 +2,8 @@ profile: cover.out
 
 local-prefix: "github.com/codefly-dev/core"
 
-## in this example badge is created and committed only for main brach
-git-token: ${{ github.ref_name == 'main' && secrets.GITHUB_TOKEN || '' }}
-## name of branch where badges are stored
+## Authentication is supplied by the workflow only on main.
+## Name of branch where badges are stored.
 ## ideally this should be orphan branch (see below how to create this branch)
 git-branch: badges
 
