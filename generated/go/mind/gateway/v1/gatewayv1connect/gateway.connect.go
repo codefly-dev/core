@@ -5,13 +5,12 @@
 package gatewayv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -110,6 +109,9 @@ const (
 	// GatewayForgeRequestReviewProcedure is the fully-qualified name of the Gateway's
 	// ForgeRequestReview RPC.
 	GatewayForgeRequestReviewProcedure = "/mind.gateway.v1.Gateway/ForgeRequestReview"
+	// GatewayForgeNormalizeWebhookProcedure is the fully-qualified name of the Gateway's
+	// ForgeNormalizeWebhook RPC.
+	GatewayForgeNormalizeWebhookProcedure = "/mind.gateway.v1.Gateway/ForgeNormalizeWebhook"
 	// GatewayListDependenciesProcedure is the fully-qualified name of the Gateway's ListDependencies
 	// RPC.
 	GatewayListDependenciesProcedure = "/mind.gateway.v1.Gateway/ListDependencies"
@@ -209,6 +211,8 @@ type GatewayClient interface {
 	ForgeMergePullRequest(context.Context, *connect.Request[v1.ForgeMergePullRequestRequest]) (*connect.Response[v1.ForgeMergePullRequestResponse], error)
 	// ForgeRequestReview requests reviewers on a PR.
 	ForgeRequestReview(context.Context, *connect.Request[v1.ForgeRequestReviewRequest]) (*connect.Response[v1.ForgeRequestReviewResponse], error)
+	// ForgeNormalizeWebhook verifies and normalizes one provider webhook.
+	ForgeNormalizeWebhook(context.Context, *connect.Request[v1.ForgeNormalizeWebhookRequest]) (*connect.Response[v1.ForgeNormalizeWebhookResponse], error)
 	// ListDependencies returns all dependencies with versions.
 	ListDependencies(context.Context, *connect.Request[v1.ListDependenciesRequest]) (*connect.Response[v1.ListDependenciesResponse], error)
 	// AddDependency adds a package via the language package manager.
@@ -451,6 +455,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(gatewayMethods.ByName("ForgeRequestReview")),
 			connect.WithClientOptions(opts...),
 		),
+		forgeNormalizeWebhook: connect.NewClient[v1.ForgeNormalizeWebhookRequest, v1.ForgeNormalizeWebhookResponse](
+			httpClient,
+			baseURL+GatewayForgeNormalizeWebhookProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ForgeNormalizeWebhook")),
+			connect.WithClientOptions(opts...),
+		),
 		listDependencies: connect.NewClient[v1.ListDependenciesRequest, v1.ListDependenciesResponse](
 			httpClient,
 			baseURL+GatewayListDependenciesProcedure,
@@ -545,6 +555,7 @@ type gatewayClient struct {
 	forgePullRequestStatus     *connect.Client[v1.ForgePullRequestStatusRequest, v1.ForgePullRequestStatusResponse]
 	forgeMergePullRequest      *connect.Client[v1.ForgeMergePullRequestRequest, v1.ForgeMergePullRequestResponse]
 	forgeRequestReview         *connect.Client[v1.ForgeRequestReviewRequest, v1.ForgeRequestReviewResponse]
+	forgeNormalizeWebhook      *connect.Client[v1.ForgeNormalizeWebhookRequest, v1.ForgeNormalizeWebhookResponse]
 	listDependencies           *connect.Client[v1.ListDependenciesRequest, v1.ListDependenciesResponse]
 	addDependency              *connect.Client[v1.AddDependencyRequest, v1.AddDependencyResponse]
 	removeDependency           *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
@@ -731,6 +742,11 @@ func (c *gatewayClient) ForgeRequestReview(ctx context.Context, req *connect.Req
 	return c.forgeRequestReview.CallUnary(ctx, req)
 }
 
+// ForgeNormalizeWebhook calls mind.gateway.v1.Gateway.ForgeNormalizeWebhook.
+func (c *gatewayClient) ForgeNormalizeWebhook(ctx context.Context, req *connect.Request[v1.ForgeNormalizeWebhookRequest]) (*connect.Response[v1.ForgeNormalizeWebhookResponse], error) {
+	return c.forgeNormalizeWebhook.CallUnary(ctx, req)
+}
+
 // ListDependencies calls mind.gateway.v1.Gateway.ListDependencies.
 func (c *gatewayClient) ListDependencies(ctx context.Context, req *connect.Request[v1.ListDependenciesRequest]) (*connect.Response[v1.ListDependenciesResponse], error) {
 	return c.listDependencies.CallUnary(ctx, req)
@@ -853,6 +869,8 @@ type GatewayHandler interface {
 	ForgeMergePullRequest(context.Context, *connect.Request[v1.ForgeMergePullRequestRequest]) (*connect.Response[v1.ForgeMergePullRequestResponse], error)
 	// ForgeRequestReview requests reviewers on a PR.
 	ForgeRequestReview(context.Context, *connect.Request[v1.ForgeRequestReviewRequest]) (*connect.Response[v1.ForgeRequestReviewResponse], error)
+	// ForgeNormalizeWebhook verifies and normalizes one provider webhook.
+	ForgeNormalizeWebhook(context.Context, *connect.Request[v1.ForgeNormalizeWebhookRequest]) (*connect.Response[v1.ForgeNormalizeWebhookResponse], error)
 	// ListDependencies returns all dependencies with versions.
 	ListDependencies(context.Context, *connect.Request[v1.ListDependenciesRequest]) (*connect.Response[v1.ListDependenciesResponse], error)
 	// AddDependency adds a package via the language package manager.
@@ -1091,6 +1109,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(gatewayMethods.ByName("ForgeRequestReview")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayForgeNormalizeWebhookHandler := connect.NewUnaryHandler(
+		GatewayForgeNormalizeWebhookProcedure,
+		svc.ForgeNormalizeWebhook,
+		connect.WithSchema(gatewayMethods.ByName("ForgeNormalizeWebhook")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gatewayListDependenciesHandler := connect.NewUnaryHandler(
 		GatewayListDependenciesProcedure,
 		svc.ListDependencies,
@@ -1217,6 +1241,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayForgeMergePullRequestHandler.ServeHTTP(w, r)
 		case GatewayForgeRequestReviewProcedure:
 			gatewayForgeRequestReviewHandler.ServeHTTP(w, r)
+		case GatewayForgeNormalizeWebhookProcedure:
+			gatewayForgeNormalizeWebhookHandler.ServeHTTP(w, r)
 		case GatewayListDependenciesProcedure:
 			gatewayListDependenciesHandler.ServeHTTP(w, r)
 		case GatewayAddDependencyProcedure:
@@ -1382,6 +1408,10 @@ func (UnimplementedGatewayHandler) ForgeMergePullRequest(context.Context, *conne
 
 func (UnimplementedGatewayHandler) ForgeRequestReview(context.Context, *connect.Request[v1.ForgeRequestReviewRequest]) (*connect.Response[v1.ForgeRequestReviewResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ForgeRequestReview is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ForgeNormalizeWebhook(context.Context, *connect.Request[v1.ForgeNormalizeWebhookRequest]) (*connect.Response[v1.ForgeNormalizeWebhookResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ForgeNormalizeWebhook is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) ListDependencies(context.Context, *connect.Request[v1.ListDependenciesRequest]) (*connect.Response[v1.ListDependenciesResponse], error) {

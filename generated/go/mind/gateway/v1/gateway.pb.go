@@ -7,15 +7,14 @@
 package gatewayv1
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	v01 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -366,6 +365,59 @@ func (x ForgeCheckPolicy) Number() protoreflect.EnumNumber {
 // Deprecated: Use ForgeCheckPolicy.Descriptor instead.
 func (ForgeCheckPolicy) EnumDescriptor() ([]byte, []int) {
 	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{5}
+}
+
+// ForgeEventKind is the provider-neutral event family.
+type ForgeEventKind int32
+
+const (
+	ForgeEventKind_FORGE_EVENT_KIND_UNSPECIFIED  ForgeEventKind = 0
+	ForgeEventKind_FORGE_EVENT_KIND_PULL_REQUEST ForgeEventKind = 1
+	ForgeEventKind_FORGE_EVENT_KIND_CHECK        ForgeEventKind = 2
+	ForgeEventKind_FORGE_EVENT_KIND_REVIEW       ForgeEventKind = 3
+)
+
+// Enum value maps for ForgeEventKind.
+var (
+	ForgeEventKind_name = map[int32]string{
+		0: "FORGE_EVENT_KIND_UNSPECIFIED",
+		1: "FORGE_EVENT_KIND_PULL_REQUEST",
+		2: "FORGE_EVENT_KIND_CHECK",
+		3: "FORGE_EVENT_KIND_REVIEW",
+	}
+	ForgeEventKind_value = map[string]int32{
+		"FORGE_EVENT_KIND_UNSPECIFIED":  0,
+		"FORGE_EVENT_KIND_PULL_REQUEST": 1,
+		"FORGE_EVENT_KIND_CHECK":        2,
+		"FORGE_EVENT_KIND_REVIEW":       3,
+	}
+)
+
+func (x ForgeEventKind) Enum() *ForgeEventKind {
+	p := new(ForgeEventKind)
+	*p = x
+	return p
+}
+
+func (x ForgeEventKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ForgeEventKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_mind_gateway_v1_gateway_proto_enumTypes[6].Descriptor()
+}
+
+func (ForgeEventKind) Type() protoreflect.EnumType {
+	return &file_mind_gateway_v1_gateway_proto_enumTypes[6]
+}
+
+func (x ForgeEventKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ForgeEventKind.Descriptor instead.
+func (ForgeEventKind) EnumDescriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{6}
 }
 
 // ListServicesRequest carries optional filters for listing services.
@@ -6990,6 +7042,293 @@ func (x *ForgeRequestReviewResponse) GetAct() *ActReceipt {
 	return nil
 }
 
+// ForgeEvent is one provider-authoritative event normalized by the toolbox.
+type ForgeEvent struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	EventId             string                 `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	Kind                ForgeEventKind         `protobuf:"varint,2,opt,name=kind,proto3,enum=mind.gateway.v1.ForgeEventKind" json:"kind,omitempty"`
+	Ref                 string                 `protobuf:"bytes,3,opt,name=ref,proto3" json:"ref,omitempty"`
+	Repository          *ForgeRepository       `protobuf:"bytes,4,opt,name=repository,proto3" json:"repository,omitempty"`
+	Number              int64                  `protobuf:"varint,5,opt,name=number,proto3" json:"number,omitempty"`
+	Revision            string                 `protobuf:"bytes,6,opt,name=revision,proto3" json:"revision,omitempty"`
+	State               string                 `protobuf:"bytes,7,opt,name=state,proto3" json:"state,omitempty"`
+	CheckName           string                 `protobuf:"bytes,8,opt,name=check_name,json=checkName,proto3" json:"check_name,omitempty"`
+	Conclusion          string                 `protobuf:"bytes,9,opt,name=conclusion,proto3" json:"conclusion,omitempty"`
+	Author              string                 `protobuf:"bytes,10,opt,name=author,proto3" json:"author,omitempty"`
+	AuthoritativeUrl    string                 `protobuf:"bytes,11,opt,name=authoritative_url,json=authoritativeUrl,proto3" json:"authoritative_url,omitempty"`
+	AuthoritativeSource string                 `protobuf:"bytes,12,opt,name=authoritative_source,json=authoritativeSource,proto3" json:"authoritative_source,omitempty"`
+	ObservedAt          *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ForgeEvent) Reset() {
+	*x = ForgeEvent{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[92]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForgeEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForgeEvent) ProtoMessage() {}
+
+func (x *ForgeEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[92]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForgeEvent.ProtoReflect.Descriptor instead.
+func (*ForgeEvent) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{92}
+}
+
+func (x *ForgeEvent) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *ForgeEvent) GetKind() ForgeEventKind {
+	if x != nil {
+		return x.Kind
+	}
+	return ForgeEventKind_FORGE_EVENT_KIND_UNSPECIFIED
+}
+
+func (x *ForgeEvent) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+func (x *ForgeEvent) GetRepository() *ForgeRepository {
+	if x != nil {
+		return x.Repository
+	}
+	return nil
+}
+
+func (x *ForgeEvent) GetNumber() int64 {
+	if x != nil {
+		return x.Number
+	}
+	return 0
+}
+
+func (x *ForgeEvent) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
+func (x *ForgeEvent) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *ForgeEvent) GetCheckName() string {
+	if x != nil {
+		return x.CheckName
+	}
+	return ""
+}
+
+func (x *ForgeEvent) GetConclusion() string {
+	if x != nil {
+		return x.Conclusion
+	}
+	return ""
+}
+
+func (x *ForgeEvent) GetAuthor() string {
+	if x != nil {
+		return x.Author
+	}
+	return ""
+}
+
+func (x *ForgeEvent) GetAuthoritativeUrl() string {
+	if x != nil {
+		return x.AuthoritativeUrl
+	}
+	return ""
+}
+
+func (x *ForgeEvent) GetAuthoritativeSource() string {
+	if x != nil {
+		return x.AuthoritativeSource
+	}
+	return ""
+}
+
+func (x *ForgeEvent) GetObservedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ObservedAt
+	}
+	return nil
+}
+
+// ForgeNormalizeWebhookRequest carries the signed provider delivery to the
+// toolbox that owns provider schemas and signature rules.
+type ForgeNormalizeWebhookRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	Provider      string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	EventType     string                 `protobuf:"bytes,3,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	DeliveryId    string                 `protobuf:"bytes,4,opt,name=delivery_id,json=deliveryId,proto3" json:"delivery_id,omitempty"`
+	Payload       []byte                 `protobuf:"bytes,5,opt,name=payload,proto3" json:"payload,omitempty"`
+	Signature     string                 `protobuf:"bytes,6,opt,name=signature,proto3" json:"signature,omitempty"`
+	Secret        string                 `protobuf:"bytes,7,opt,name=secret,proto3" json:"secret,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForgeNormalizeWebhookRequest) Reset() {
+	*x = ForgeNormalizeWebhookRequest{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[93]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForgeNormalizeWebhookRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForgeNormalizeWebhookRequest) ProtoMessage() {}
+
+func (x *ForgeNormalizeWebhookRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[93]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForgeNormalizeWebhookRequest.ProtoReflect.Descriptor instead.
+func (*ForgeNormalizeWebhookRequest) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{93}
+}
+
+func (x *ForgeNormalizeWebhookRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *ForgeNormalizeWebhookRequest) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *ForgeNormalizeWebhookRequest) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *ForgeNormalizeWebhookRequest) GetDeliveryId() string {
+	if x != nil {
+		return x.DeliveryId
+	}
+	return ""
+}
+
+func (x *ForgeNormalizeWebhookRequest) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *ForgeNormalizeWebhookRequest) GetSignature() string {
+	if x != nil {
+		return x.Signature
+	}
+	return ""
+}
+
+func (x *ForgeNormalizeWebhookRequest) GetSecret() string {
+	if x != nil {
+		return x.Secret
+	}
+	return ""
+}
+
+type ForgeNormalizeWebhookResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Event         *ForgeEvent            `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForgeNormalizeWebhookResponse) Reset() {
+	*x = ForgeNormalizeWebhookResponse{}
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[94]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForgeNormalizeWebhookResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForgeNormalizeWebhookResponse) ProtoMessage() {}
+
+func (x *ForgeNormalizeWebhookResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[94]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForgeNormalizeWebhookResponse.ProtoReflect.Descriptor instead.
+func (*ForgeNormalizeWebhookResponse) Descriptor() ([]byte, []int) {
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{94}
+}
+
+func (x *ForgeNormalizeWebhookResponse) GetEvent() *ForgeEvent {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+func (x *ForgeNormalizeWebhookResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 // Dependency represents a package or module dependency.
 type Dependency struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -7005,7 +7344,7 @@ type Dependency struct {
 
 func (x *Dependency) Reset() {
 	*x = Dependency{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[92]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7017,7 +7356,7 @@ func (x *Dependency) String() string {
 func (*Dependency) ProtoMessage() {}
 
 func (x *Dependency) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[92]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7030,7 +7369,7 @@ func (x *Dependency) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Dependency.ProtoReflect.Descriptor instead.
 func (*Dependency) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{92}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *Dependency) GetName() string {
@@ -7065,7 +7404,7 @@ type ListDependenciesRequest struct {
 
 func (x *ListDependenciesRequest) Reset() {
 	*x = ListDependenciesRequest{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[93]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7077,7 +7416,7 @@ func (x *ListDependenciesRequest) String() string {
 func (*ListDependenciesRequest) ProtoMessage() {}
 
 func (x *ListDependenciesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[93]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7090,7 +7429,7 @@ func (x *ListDependenciesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDependenciesRequest.ProtoReflect.Descriptor instead.
 func (*ListDependenciesRequest) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{93}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *ListDependenciesRequest) GetService() string {
@@ -7113,7 +7452,7 @@ type ListDependenciesResponse struct {
 
 func (x *ListDependenciesResponse) Reset() {
 	*x = ListDependenciesResponse{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[94]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7125,7 +7464,7 @@ func (x *ListDependenciesResponse) String() string {
 func (*ListDependenciesResponse) ProtoMessage() {}
 
 func (x *ListDependenciesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[94]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7138,7 +7477,7 @@ func (x *ListDependenciesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDependenciesResponse.ProtoReflect.Descriptor instead.
 func (*ListDependenciesResponse) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{94}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *ListDependenciesResponse) GetDependencies() []*Dependency {
@@ -7170,7 +7509,7 @@ type AddDependencyRequest struct {
 
 func (x *AddDependencyRequest) Reset() {
 	*x = AddDependencyRequest{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[95]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7182,7 +7521,7 @@ func (x *AddDependencyRequest) String() string {
 func (*AddDependencyRequest) ProtoMessage() {}
 
 func (x *AddDependencyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[95]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7195,7 +7534,7 @@ func (x *AddDependencyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddDependencyRequest.ProtoReflect.Descriptor instead.
 func (*AddDependencyRequest) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{95}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *AddDependencyRequest) GetService() string {
@@ -7234,7 +7573,7 @@ type AddDependencyResponse struct {
 
 func (x *AddDependencyResponse) Reset() {
 	*x = AddDependencyResponse{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[96]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7246,7 +7585,7 @@ func (x *AddDependencyResponse) String() string {
 func (*AddDependencyResponse) ProtoMessage() {}
 
 func (x *AddDependencyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[96]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7259,7 +7598,7 @@ func (x *AddDependencyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddDependencyResponse.ProtoReflect.Descriptor instead.
 func (*AddDependencyResponse) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{96}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{99}
 }
 
 func (x *AddDependencyResponse) GetSuccess() bool {
@@ -7296,7 +7635,7 @@ type RemoveDependencyRequest struct {
 
 func (x *RemoveDependencyRequest) Reset() {
 	*x = RemoveDependencyRequest{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[97]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7308,7 +7647,7 @@ func (x *RemoveDependencyRequest) String() string {
 func (*RemoveDependencyRequest) ProtoMessage() {}
 
 func (x *RemoveDependencyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[97]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7321,7 +7660,7 @@ func (x *RemoveDependencyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveDependencyRequest.ProtoReflect.Descriptor instead.
 func (*RemoveDependencyRequest) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{97}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *RemoveDependencyRequest) GetService() string {
@@ -7351,7 +7690,7 @@ type RemoveDependencyResponse struct {
 
 func (x *RemoveDependencyResponse) Reset() {
 	*x = RemoveDependencyResponse{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[98]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7363,7 +7702,7 @@ func (x *RemoveDependencyResponse) String() string {
 func (*RemoveDependencyResponse) ProtoMessage() {}
 
 func (x *RemoveDependencyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[98]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7376,7 +7715,7 @@ func (x *RemoveDependencyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveDependencyResponse.ProtoReflect.Descriptor instead.
 func (*RemoveDependencyResponse) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{98}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *RemoveDependencyResponse) GetSuccess() bool {
@@ -7412,7 +7751,7 @@ type PackageInfo struct {
 
 func (x *PackageInfo) Reset() {
 	*x = PackageInfo{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[99]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7424,7 +7763,7 @@ func (x *PackageInfo) String() string {
 func (*PackageInfo) ProtoMessage() {}
 
 func (x *PackageInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[99]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7437,7 +7776,7 @@ func (x *PackageInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackageInfo.ProtoReflect.Descriptor instead.
 func (*PackageInfo) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{99}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *PackageInfo) GetName() string {
@@ -7486,7 +7825,7 @@ type GetProjectInfoRequest struct {
 
 func (x *GetProjectInfoRequest) Reset() {
 	*x = GetProjectInfoRequest{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[100]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7498,7 +7837,7 @@ func (x *GetProjectInfoRequest) String() string {
 func (*GetProjectInfoRequest) ProtoMessage() {}
 
 func (x *GetProjectInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[100]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7511,7 +7850,7 @@ func (x *GetProjectInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProjectInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetProjectInfoRequest) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{100}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *GetProjectInfoRequest) GetService() string {
@@ -7544,7 +7883,7 @@ type GetProjectInfoResponse struct {
 
 func (x *GetProjectInfoResponse) Reset() {
 	*x = GetProjectInfoResponse{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[101]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7556,7 +7895,7 @@ func (x *GetProjectInfoResponse) String() string {
 func (*GetProjectInfoResponse) ProtoMessage() {}
 
 func (x *GetProjectInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[101]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7569,7 +7908,7 @@ func (x *GetProjectInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProjectInfoResponse.ProtoReflect.Descriptor instead.
 func (*GetProjectInfoResponse) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{101}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *GetProjectInfoResponse) GetModule() string {
@@ -7644,7 +7983,7 @@ type AvailableCommand struct {
 
 func (x *AvailableCommand) Reset() {
 	*x = AvailableCommand{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[102]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7656,7 +7995,7 @@ func (x *AvailableCommand) String() string {
 func (*AvailableCommand) ProtoMessage() {}
 
 func (x *AvailableCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[102]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7669,7 +8008,7 @@ func (x *AvailableCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AvailableCommand.ProtoReflect.Descriptor instead.
 func (*AvailableCommand) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{102}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *AvailableCommand) GetName() string {
@@ -7730,7 +8069,7 @@ type ListAllCommandsRequest struct {
 
 func (x *ListAllCommandsRequest) Reset() {
 	*x = ListAllCommandsRequest{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[103]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7742,7 +8081,7 @@ func (x *ListAllCommandsRequest) String() string {
 func (*ListAllCommandsRequest) ProtoMessage() {}
 
 func (x *ListAllCommandsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[103]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7755,7 +8094,7 @@ func (x *ListAllCommandsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAllCommandsRequest.ProtoReflect.Descriptor instead.
 func (*ListAllCommandsRequest) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{103}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{106}
 }
 
 // ListAllCommandsResponse returns the gateway command catalog.
@@ -7769,7 +8108,7 @@ type ListAllCommandsResponse struct {
 
 func (x *ListAllCommandsResponse) Reset() {
 	*x = ListAllCommandsResponse{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[104]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7781,7 +8120,7 @@ func (x *ListAllCommandsResponse) String() string {
 func (*ListAllCommandsResponse) ProtoMessage() {}
 
 func (x *ListAllCommandsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[104]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7794,7 +8133,7 @@ func (x *ListAllCommandsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAllCommandsResponse.ProtoReflect.Descriptor instead.
 func (*ListAllCommandsResponse) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{104}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *ListAllCommandsResponse) GetCommands() []*AvailableCommand {
@@ -7823,7 +8162,7 @@ type OpenTerminalRequest struct {
 
 func (x *OpenTerminalRequest) Reset() {
 	*x = OpenTerminalRequest{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[105]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7835,7 +8174,7 @@ func (x *OpenTerminalRequest) String() string {
 func (*OpenTerminalRequest) ProtoMessage() {}
 
 func (x *OpenTerminalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[105]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7848,7 +8187,7 @@ func (x *OpenTerminalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenTerminalRequest.ProtoReflect.Descriptor instead.
 func (*OpenTerminalRequest) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{105}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *OpenTerminalRequest) GetShell() string {
@@ -7901,7 +8240,7 @@ type OpenTerminalResponse struct {
 
 func (x *OpenTerminalResponse) Reset() {
 	*x = OpenTerminalResponse{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[106]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7913,7 +8252,7 @@ func (x *OpenTerminalResponse) String() string {
 func (*OpenTerminalResponse) ProtoMessage() {}
 
 func (x *OpenTerminalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[106]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7926,7 +8265,7 @@ func (x *OpenTerminalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenTerminalResponse.ProtoReflect.Descriptor instead.
 func (*OpenTerminalResponse) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{106}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *OpenTerminalResponse) GetTerminalId() string {
@@ -7964,7 +8303,7 @@ type TerminalInput struct {
 
 func (x *TerminalInput) Reset() {
 	*x = TerminalInput{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[107]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7976,7 +8315,7 @@ func (x *TerminalInput) String() string {
 func (*TerminalInput) ProtoMessage() {}
 
 func (x *TerminalInput) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[107]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7989,7 +8328,7 @@ func (x *TerminalInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalInput.ProtoReflect.Descriptor instead.
 func (*TerminalInput) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{107}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *TerminalInput) GetTerminalId() string {
@@ -8024,7 +8363,7 @@ type TerminalOutput struct {
 
 func (x *TerminalOutput) Reset() {
 	*x = TerminalOutput{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[108]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8036,7 +8375,7 @@ func (x *TerminalOutput) String() string {
 func (*TerminalOutput) ProtoMessage() {}
 
 func (x *TerminalOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[108]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8049,7 +8388,7 @@ func (x *TerminalOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalOutput.ProtoReflect.Descriptor instead.
 func (*TerminalOutput) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{108}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *TerminalOutput) GetTerminalId() string {
@@ -8095,7 +8434,7 @@ type ResizeTerminalRequest struct {
 
 func (x *ResizeTerminalRequest) Reset() {
 	*x = ResizeTerminalRequest{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[109]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8107,7 +8446,7 @@ func (x *ResizeTerminalRequest) String() string {
 func (*ResizeTerminalRequest) ProtoMessage() {}
 
 func (x *ResizeTerminalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[109]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8120,7 +8459,7 @@ func (x *ResizeTerminalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResizeTerminalRequest.ProtoReflect.Descriptor instead.
 func (*ResizeTerminalRequest) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{109}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *ResizeTerminalRequest) GetTerminalId() string {
@@ -8153,7 +8492,7 @@ type ResizeTerminalResponse struct {
 
 func (x *ResizeTerminalResponse) Reset() {
 	*x = ResizeTerminalResponse{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[110]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8165,7 +8504,7 @@ func (x *ResizeTerminalResponse) String() string {
 func (*ResizeTerminalResponse) ProtoMessage() {}
 
 func (x *ResizeTerminalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[110]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8178,7 +8517,7 @@ func (x *ResizeTerminalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResizeTerminalResponse.ProtoReflect.Descriptor instead.
 func (*ResizeTerminalResponse) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{110}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{113}
 }
 
 // CloseTerminalRequest terminates and removes one terminal session.
@@ -8192,7 +8531,7 @@ type CloseTerminalRequest struct {
 
 func (x *CloseTerminalRequest) Reset() {
 	*x = CloseTerminalRequest{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[111]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8204,7 +8543,7 @@ func (x *CloseTerminalRequest) String() string {
 func (*CloseTerminalRequest) ProtoMessage() {}
 
 func (x *CloseTerminalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[111]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8217,7 +8556,7 @@ func (x *CloseTerminalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseTerminalRequest.ProtoReflect.Descriptor instead.
 func (*CloseTerminalRequest) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{111}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{114}
 }
 
 func (x *CloseTerminalRequest) GetTerminalId() string {
@@ -8236,7 +8575,7 @@ type CloseTerminalResponse struct {
 
 func (x *CloseTerminalResponse) Reset() {
 	*x = CloseTerminalResponse{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[112]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8248,7 +8587,7 @@ func (x *CloseTerminalResponse) String() string {
 func (*CloseTerminalResponse) ProtoMessage() {}
 
 func (x *CloseTerminalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[112]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8261,7 +8600,7 @@ func (x *CloseTerminalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseTerminalResponse.ProtoReflect.Descriptor instead.
 func (*CloseTerminalResponse) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{112}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{115}
 }
 
 // ListTerminalsRequest requests every terminal visible to this gateway session.
@@ -8273,7 +8612,7 @@ type ListTerminalsRequest struct {
 
 func (x *ListTerminalsRequest) Reset() {
 	*x = ListTerminalsRequest{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[113]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[116]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8285,7 +8624,7 @@ func (x *ListTerminalsRequest) String() string {
 func (*ListTerminalsRequest) ProtoMessage() {}
 
 func (x *ListTerminalsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[113]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[116]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8298,7 +8637,7 @@ func (x *ListTerminalsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTerminalsRequest.ProtoReflect.Descriptor instead.
 func (*ListTerminalsRequest) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{113}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{116}
 }
 
 // TerminalInfo describes one terminal session without exposing its PTY stream.
@@ -8318,7 +8657,7 @@ type TerminalInfo struct {
 
 func (x *TerminalInfo) Reset() {
 	*x = TerminalInfo{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[114]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[117]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8330,7 +8669,7 @@ func (x *TerminalInfo) String() string {
 func (*TerminalInfo) ProtoMessage() {}
 
 func (x *TerminalInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[114]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[117]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8343,7 +8682,7 @@ func (x *TerminalInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalInfo.ProtoReflect.Descriptor instead.
 func (*TerminalInfo) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{114}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{117}
 }
 
 func (x *TerminalInfo) GetTerminalId() string {
@@ -8385,7 +8724,7 @@ type ListTerminalsResponse struct {
 
 func (x *ListTerminalsResponse) Reset() {
 	*x = ListTerminalsResponse{}
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[115]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8397,7 +8736,7 @@ func (x *ListTerminalsResponse) String() string {
 func (*ListTerminalsResponse) ProtoMessage() {}
 
 func (x *ListTerminalsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[115]
+	mi := &file_mind_gateway_v1_gateway_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8410,7 +8749,7 @@ func (x *ListTerminalsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTerminalsResponse.ProtoReflect.Descriptor instead.
 func (*ListTerminalsResponse) Descriptor() ([]byte, []int) {
-	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{115}
+	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *ListTerminalsResponse) GetTerminals() []*TerminalInfo {
@@ -8913,7 +9252,42 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12\x1c\n" +
 	"\treviewers\x18\x03 \x03(\tR\treviewers\x12%\n" +
 	"\x0eteam_reviewers\x18\x04 \x03(\tR\rteamReviewers\x12-\n" +
-	"\x03act\x18\x05 \x01(\v2\x1b.mind.gateway.v1.ActReceiptR\x03act\"R\n" +
+	"\x03act\x18\x05 \x01(\v2\x1b.mind.gateway.v1.ActReceiptR\x03act\"\xee\x03\n" +
+	"\n" +
+	"ForgeEvent\x12\x19\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\x123\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x1f.mind.gateway.v1.ForgeEventKindR\x04kind\x12\x10\n" +
+	"\x03ref\x18\x03 \x01(\tR\x03ref\x12@\n" +
+	"\n" +
+	"repository\x18\x04 \x01(\v2 .mind.gateway.v1.ForgeRepositoryR\n" +
+	"repository\x12\x16\n" +
+	"\x06number\x18\x05 \x01(\x03R\x06number\x12\x1a\n" +
+	"\brevision\x18\x06 \x01(\tR\brevision\x12\x14\n" +
+	"\x05state\x18\a \x01(\tR\x05state\x12\x1d\n" +
+	"\n" +
+	"check_name\x18\b \x01(\tR\tcheckName\x12\x1e\n" +
+	"\n" +
+	"conclusion\x18\t \x01(\tR\n" +
+	"conclusion\x12\x16\n" +
+	"\x06author\x18\n" +
+	" \x01(\tR\x06author\x12+\n" +
+	"\x11authoritative_url\x18\v \x01(\tR\x10authoritativeUrl\x121\n" +
+	"\x14authoritative_source\x18\f \x01(\tR\x13authoritativeSource\x12;\n" +
+	"\vobserved_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"observedAt\"\xe4\x01\n" +
+	"\x1cForgeNormalizeWebhookRequest\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1a\n" +
+	"\bprovider\x18\x02 \x01(\tR\bprovider\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x03 \x01(\tR\teventType\x12\x1f\n" +
+	"\vdelivery_id\x18\x04 \x01(\tR\n" +
+	"deliveryId\x12\x18\n" +
+	"\apayload\x18\x05 \x01(\fR\apayload\x12\x1c\n" +
+	"\tsignature\x18\x06 \x01(\tR\tsignature\x12\x16\n" +
+	"\x06secret\x18\a \x01(\tR\x06secret\"h\n" +
+	"\x1dForgeNormalizeWebhookResponse\x121\n" +
+	"\x05event\x18\x01 \x01(\v2\x1b.mind.gateway.v1.ForgeEventR\x05event\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"R\n" +
 	"\n" +
 	"Dependency\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
@@ -9043,7 +9417,12 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x10ForgeCheckPolicy\x12\"\n" +
 	"\x1eFORGE_CHECK_POLICY_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"FORGE_CHECK_POLICY_REQUIRE_PASSING\x10\x01\x12\x1d\n" +
-	"\x19FORGE_CHECK_POLICY_BYPASS\x10\x022\xad\x1f\n" +
+	"\x19FORGE_CHECK_POLICY_BYPASS\x10\x02*\x8e\x01\n" +
+	"\x0eForgeEventKind\x12 \n" +
+	"\x1cFORGE_EVENT_KIND_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dFORGE_EVENT_KIND_PULL_REQUEST\x10\x01\x12\x1a\n" +
+	"\x16FORGE_EVENT_KIND_CHECK\x10\x02\x12\x1b\n" +
+	"\x17FORGE_EVENT_KIND_REVIEW\x10\x032\xa5 \n" +
 	"\aGateway\x12[\n" +
 	"\fListServices\x12$.mind.gateway.v1.ListServicesRequest\x1a%.mind.gateway.v1.ListServicesResponse\x12O\n" +
 	"\bReadFile\x12 .mind.gateway.v1.ReadFileRequest\x1a!.mind.gateway.v1.ReadFileResponse\x12R\n" +
@@ -9082,7 +9461,8 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\tGitRevert\x12!.mind.gateway.v1.GitRevertRequest\x1a\".mind.gateway.v1.GitRevertResponse\x12y\n" +
 	"\x16ForgePullRequestStatus\x12..mind.gateway.v1.ForgePullRequestStatusRequest\x1a/.mind.gateway.v1.ForgePullRequestStatusResponse\x12v\n" +
 	"\x15ForgeMergePullRequest\x12-.mind.gateway.v1.ForgeMergePullRequestRequest\x1a..mind.gateway.v1.ForgeMergePullRequestResponse\x12m\n" +
-	"\x12ForgeRequestReview\x12*.mind.gateway.v1.ForgeRequestReviewRequest\x1a+.mind.gateway.v1.ForgeRequestReviewResponse\x12g\n" +
+	"\x12ForgeRequestReview\x12*.mind.gateway.v1.ForgeRequestReviewRequest\x1a+.mind.gateway.v1.ForgeRequestReviewResponse\x12v\n" +
+	"\x15ForgeNormalizeWebhook\x12-.mind.gateway.v1.ForgeNormalizeWebhookRequest\x1a..mind.gateway.v1.ForgeNormalizeWebhookResponse\x12g\n" +
 	"\x10ListDependencies\x12(.mind.gateway.v1.ListDependenciesRequest\x1a).mind.gateway.v1.ListDependenciesResponse\x12^\n" +
 	"\rAddDependency\x12%.mind.gateway.v1.AddDependencyRequest\x1a&.mind.gateway.v1.AddDependencyResponse\x12g\n" +
 	"\x10RemoveDependency\x12(.mind.gateway.v1.RemoveDependencyRequest\x1a).mind.gateway.v1.RemoveDependencyResponse\x12a\n" +
@@ -9106,8 +9486,8 @@ func file_mind_gateway_v1_gateway_proto_rawDescGZIP() []byte {
 	return file_mind_gateway_v1_gateway_proto_rawDescData
 }
 
-var file_mind_gateway_v1_gateway_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_mind_gateway_v1_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 117)
+var file_mind_gateway_v1_gateway_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_mind_gateway_v1_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 120)
 var file_mind_gateway_v1_gateway_proto_goTypes = []any{
 	(WorkspaceChangeOperation)(0),              // 0: mind.gateway.v1.WorkspaceChangeOperation
 	(PreparedFileOperation)(0),                 // 1: mind.gateway.v1.PreparedFileOperation
@@ -9115,288 +9495,298 @@ var file_mind_gateway_v1_gateway_proto_goTypes = []any{
 	(GitPushMode)(0),                           // 3: mind.gateway.v1.GitPushMode
 	(ForgeMergeMethod)(0),                      // 4: mind.gateway.v1.ForgeMergeMethod
 	(ForgeCheckPolicy)(0),                      // 5: mind.gateway.v1.ForgeCheckPolicy
-	(*ListServicesRequest)(nil),                // 6: mind.gateway.v1.ListServicesRequest
-	(*ServiceInfo)(nil),                        // 7: mind.gateway.v1.ServiceInfo
-	(*ListServicesResponse)(nil),               // 8: mind.gateway.v1.ListServicesResponse
-	(*ReadFileRequest)(nil),                    // 9: mind.gateway.v1.ReadFileRequest
-	(*ReadFileResponse)(nil),                   // 10: mind.gateway.v1.ReadFileResponse
-	(*WriteFileRequest)(nil),                   // 11: mind.gateway.v1.WriteFileRequest
-	(*WriteFileResponse)(nil),                  // 12: mind.gateway.v1.WriteFileResponse
-	(*ListFilesRequest)(nil),                   // 13: mind.gateway.v1.ListFilesRequest
-	(*FileInfo)(nil),                           // 14: mind.gateway.v1.FileInfo
-	(*ListFilesResponse)(nil),                  // 15: mind.gateway.v1.ListFilesResponse
-	(*WorkspaceChangeCursor)(nil),              // 16: mind.gateway.v1.WorkspaceChangeCursor
-	(*SubscribeWorkspaceChangesRequest)(nil),   // 17: mind.gateway.v1.SubscribeWorkspaceChangesRequest
-	(*WorkspaceChange)(nil),                    // 18: mind.gateway.v1.WorkspaceChange
-	(*WorkspaceChangeEvent)(nil),               // 19: mind.gateway.v1.WorkspaceChangeEvent
-	(*DeleteFileRequest)(nil),                  // 20: mind.gateway.v1.DeleteFileRequest
-	(*DeleteFileResponse)(nil),                 // 21: mind.gateway.v1.DeleteFileResponse
-	(*MoveFileRequest)(nil),                    // 22: mind.gateway.v1.MoveFileRequest
-	(*MoveFileResponse)(nil),                   // 23: mind.gateway.v1.MoveFileResponse
-	(*CreateFileRequest)(nil),                  // 24: mind.gateway.v1.CreateFileRequest
-	(*CreateFileResponse)(nil),                 // 25: mind.gateway.v1.CreateFileResponse
-	(*FixRequest)(nil),                         // 26: mind.gateway.v1.FixRequest
-	(*FixResponse)(nil),                        // 27: mind.gateway.v1.FixResponse
-	(*ApplyEditRequest)(nil),                   // 28: mind.gateway.v1.ApplyEditRequest
-	(*ApplyEditResponse)(nil),                  // 29: mind.gateway.v1.ApplyEditResponse
-	(*BatchApplyEditsRequest)(nil),             // 30: mind.gateway.v1.BatchApplyEditsRequest
-	(*EditResult)(nil),                         // 31: mind.gateway.v1.EditResult
-	(*BatchApplyEditsResponse)(nil),            // 32: mind.gateway.v1.BatchApplyEditsResponse
-	(*ConfigureMutationAuthorityRequest)(nil),  // 33: mind.gateway.v1.ConfigureMutationAuthorityRequest
-	(*ConfigureMutationAuthorityResponse)(nil), // 34: mind.gateway.v1.ConfigureMutationAuthorityResponse
-	(*PreparedFileMutation)(nil),               // 35: mind.gateway.v1.PreparedFileMutation
-	(*PreparedMutation)(nil),                   // 36: mind.gateway.v1.PreparedMutation
-	(*PrepareApplyEditMutation)(nil),           // 37: mind.gateway.v1.PrepareApplyEditMutation
-	(*PrepareMutationRequest)(nil),             // 38: mind.gateway.v1.PrepareMutationRequest
-	(*PrepareMutationResponse)(nil),            // 39: mind.gateway.v1.PrepareMutationResponse
-	(*ApplyPreparedMutationRequest)(nil),       // 40: mind.gateway.v1.ApplyPreparedMutationRequest
-	(*AppliedFileMutation)(nil),                // 41: mind.gateway.v1.AppliedFileMutation
-	(*ApplyPreparedMutationResponse)(nil),      // 42: mind.gateway.v1.ApplyPreparedMutationResponse
-	(*SearchRequest)(nil),                      // 43: mind.gateway.v1.SearchRequest
-	(*SearchMatch)(nil),                        // 44: mind.gateway.v1.SearchMatch
-	(*SearchResponse)(nil),                     // 45: mind.gateway.v1.SearchResponse
-	(*BuildRequest)(nil),                       // 46: mind.gateway.v1.BuildRequest
-	(*BuildError)(nil),                         // 47: mind.gateway.v1.BuildError
-	(*BuildResponse)(nil),                      // 48: mind.gateway.v1.BuildResponse
-	(*LintRequest)(nil),                        // 49: mind.gateway.v1.LintRequest
-	(*LintResponse)(nil),                       // 50: mind.gateway.v1.LintResponse
-	(*TestRequest)(nil),                        // 51: mind.gateway.v1.TestRequest
-	(*TestResponse)(nil),                       // 52: mind.gateway.v1.TestResponse
-	(*FormatRequest)(nil),                      // 53: mind.gateway.v1.FormatRequest
-	(*FormatResponse)(nil),                     // 54: mind.gateway.v1.FormatResponse
-	(*UnstructuredUse)(nil),                    // 55: mind.gateway.v1.UnstructuredUse
-	(*RunCommandRequest)(nil),                  // 56: mind.gateway.v1.RunCommandRequest
-	(*RunCommandResponse)(nil),                 // 57: mind.gateway.v1.RunCommandResponse
-	(*RunChecksRequest)(nil),                   // 58: mind.gateway.v1.RunChecksRequest
-	(*Check)(nil),                              // 59: mind.gateway.v1.Check
-	(*PluginCheck)(nil),                        // 60: mind.gateway.v1.PluginCheck
-	(*CommandCheck)(nil),                       // 61: mind.gateway.v1.CommandCheck
-	(*HttpCheck)(nil),                          // 62: mind.gateway.v1.HttpCheck
-	(*CheckResult)(nil),                        // 63: mind.gateway.v1.CheckResult
-	(*RunChecksResponse)(nil),                  // 64: mind.gateway.v1.RunChecksResponse
-	(*GitStatusRequest)(nil),                   // 65: mind.gateway.v1.GitStatusRequest
-	(*GitFileStatus)(nil),                      // 66: mind.gateway.v1.GitFileStatus
-	(*GitStatusResponse)(nil),                  // 67: mind.gateway.v1.GitStatusResponse
-	(*GitDiffRequest)(nil),                     // 68: mind.gateway.v1.GitDiffRequest
-	(*GitDiffResponse)(nil),                    // 69: mind.gateway.v1.GitDiffResponse
-	(*GitLogRequest)(nil),                      // 70: mind.gateway.v1.GitLogRequest
-	(*GitCommitInfo)(nil),                      // 71: mind.gateway.v1.GitCommitInfo
-	(*GitLogResponse)(nil),                     // 72: mind.gateway.v1.GitLogResponse
-	(*GitCommitRequest)(nil),                   // 73: mind.gateway.v1.GitCommitRequest
-	(*GitCommitResponse)(nil),                  // 74: mind.gateway.v1.GitCommitResponse
-	(*ActReceipt)(nil),                         // 75: mind.gateway.v1.ActReceipt
-	(*GitBranchRequest)(nil),                   // 76: mind.gateway.v1.GitBranchRequest
-	(*GitBranchResponse)(nil),                  // 77: mind.gateway.v1.GitBranchResponse
-	(*GitCheckoutRequest)(nil),                 // 78: mind.gateway.v1.GitCheckoutRequest
-	(*GitCheckoutResponse)(nil),                // 79: mind.gateway.v1.GitCheckoutResponse
-	(*GitPushRequest)(nil),                     // 80: mind.gateway.v1.GitPushRequest
-	(*GitPushResponse)(nil),                    // 81: mind.gateway.v1.GitPushResponse
-	(*GitTagRequest)(nil),                      // 82: mind.gateway.v1.GitTagRequest
-	(*GitTagResponse)(nil),                     // 83: mind.gateway.v1.GitTagResponse
-	(*GitMergeRequest)(nil),                    // 84: mind.gateway.v1.GitMergeRequest
-	(*GitMergeResponse)(nil),                   // 85: mind.gateway.v1.GitMergeResponse
-	(*GitRevertRequest)(nil),                   // 86: mind.gateway.v1.GitRevertRequest
-	(*GitRevertResponse)(nil),                  // 87: mind.gateway.v1.GitRevertResponse
-	(*ForgeRepository)(nil),                    // 88: mind.gateway.v1.ForgeRepository
-	(*ForgeCheck)(nil),                         // 89: mind.gateway.v1.ForgeCheck
-	(*ForgeReview)(nil),                        // 90: mind.gateway.v1.ForgeReview
-	(*ForgePullRequestStatus)(nil),             // 91: mind.gateway.v1.ForgePullRequestStatus
-	(*ForgePullRequestStatusRequest)(nil),      // 92: mind.gateway.v1.ForgePullRequestStatusRequest
-	(*ForgePullRequestStatusResponse)(nil),     // 93: mind.gateway.v1.ForgePullRequestStatusResponse
-	(*ForgeMergePullRequestRequest)(nil),       // 94: mind.gateway.v1.ForgeMergePullRequestRequest
-	(*ForgeMergePullRequestResponse)(nil),      // 95: mind.gateway.v1.ForgeMergePullRequestResponse
-	(*ForgeRequestReviewRequest)(nil),          // 96: mind.gateway.v1.ForgeRequestReviewRequest
-	(*ForgeRequestReviewResponse)(nil),         // 97: mind.gateway.v1.ForgeRequestReviewResponse
-	(*Dependency)(nil),                         // 98: mind.gateway.v1.Dependency
-	(*ListDependenciesRequest)(nil),            // 99: mind.gateway.v1.ListDependenciesRequest
-	(*ListDependenciesResponse)(nil),           // 100: mind.gateway.v1.ListDependenciesResponse
-	(*AddDependencyRequest)(nil),               // 101: mind.gateway.v1.AddDependencyRequest
-	(*AddDependencyResponse)(nil),              // 102: mind.gateway.v1.AddDependencyResponse
-	(*RemoveDependencyRequest)(nil),            // 103: mind.gateway.v1.RemoveDependencyRequest
-	(*RemoveDependencyResponse)(nil),           // 104: mind.gateway.v1.RemoveDependencyResponse
-	(*PackageInfo)(nil),                        // 105: mind.gateway.v1.PackageInfo
-	(*GetProjectInfoRequest)(nil),              // 106: mind.gateway.v1.GetProjectInfoRequest
-	(*GetProjectInfoResponse)(nil),             // 107: mind.gateway.v1.GetProjectInfoResponse
-	(*AvailableCommand)(nil),                   // 108: mind.gateway.v1.AvailableCommand
-	(*ListAllCommandsRequest)(nil),             // 109: mind.gateway.v1.ListAllCommandsRequest
-	(*ListAllCommandsResponse)(nil),            // 110: mind.gateway.v1.ListAllCommandsResponse
-	(*OpenTerminalRequest)(nil),                // 111: mind.gateway.v1.OpenTerminalRequest
-	(*OpenTerminalResponse)(nil),               // 112: mind.gateway.v1.OpenTerminalResponse
-	(*TerminalInput)(nil),                      // 113: mind.gateway.v1.TerminalInput
-	(*TerminalOutput)(nil),                     // 114: mind.gateway.v1.TerminalOutput
-	(*ResizeTerminalRequest)(nil),              // 115: mind.gateway.v1.ResizeTerminalRequest
-	(*ResizeTerminalResponse)(nil),             // 116: mind.gateway.v1.ResizeTerminalResponse
-	(*CloseTerminalRequest)(nil),               // 117: mind.gateway.v1.CloseTerminalRequest
-	(*CloseTerminalResponse)(nil),              // 118: mind.gateway.v1.CloseTerminalResponse
-	(*ListTerminalsRequest)(nil),               // 119: mind.gateway.v1.ListTerminalsRequest
-	(*TerminalInfo)(nil),                       // 120: mind.gateway.v1.TerminalInfo
-	(*ListTerminalsResponse)(nil),              // 121: mind.gateway.v1.ListTerminalsResponse
-	nil,                                        // 122: mind.gateway.v1.GetProjectInfoResponse.FileHashesEntry
-	(*timestamppb.Timestamp)(nil),              // 123: google.protobuf.Timestamp
-	(v0.FixMode)(0),                            // 124: codefly.base.v0.FixMode
-	(*v01.TestRequest)(nil),                    // 125: codefly.services.runtime.v0.TestRequest
-	(*v01.TestResponse)(nil),                   // 126: codefly.services.runtime.v0.TestResponse
+	(ForgeEventKind)(0),                        // 6: mind.gateway.v1.ForgeEventKind
+	(*ListServicesRequest)(nil),                // 7: mind.gateway.v1.ListServicesRequest
+	(*ServiceInfo)(nil),                        // 8: mind.gateway.v1.ServiceInfo
+	(*ListServicesResponse)(nil),               // 9: mind.gateway.v1.ListServicesResponse
+	(*ReadFileRequest)(nil),                    // 10: mind.gateway.v1.ReadFileRequest
+	(*ReadFileResponse)(nil),                   // 11: mind.gateway.v1.ReadFileResponse
+	(*WriteFileRequest)(nil),                   // 12: mind.gateway.v1.WriteFileRequest
+	(*WriteFileResponse)(nil),                  // 13: mind.gateway.v1.WriteFileResponse
+	(*ListFilesRequest)(nil),                   // 14: mind.gateway.v1.ListFilesRequest
+	(*FileInfo)(nil),                           // 15: mind.gateway.v1.FileInfo
+	(*ListFilesResponse)(nil),                  // 16: mind.gateway.v1.ListFilesResponse
+	(*WorkspaceChangeCursor)(nil),              // 17: mind.gateway.v1.WorkspaceChangeCursor
+	(*SubscribeWorkspaceChangesRequest)(nil),   // 18: mind.gateway.v1.SubscribeWorkspaceChangesRequest
+	(*WorkspaceChange)(nil),                    // 19: mind.gateway.v1.WorkspaceChange
+	(*WorkspaceChangeEvent)(nil),               // 20: mind.gateway.v1.WorkspaceChangeEvent
+	(*DeleteFileRequest)(nil),                  // 21: mind.gateway.v1.DeleteFileRequest
+	(*DeleteFileResponse)(nil),                 // 22: mind.gateway.v1.DeleteFileResponse
+	(*MoveFileRequest)(nil),                    // 23: mind.gateway.v1.MoveFileRequest
+	(*MoveFileResponse)(nil),                   // 24: mind.gateway.v1.MoveFileResponse
+	(*CreateFileRequest)(nil),                  // 25: mind.gateway.v1.CreateFileRequest
+	(*CreateFileResponse)(nil),                 // 26: mind.gateway.v1.CreateFileResponse
+	(*FixRequest)(nil),                         // 27: mind.gateway.v1.FixRequest
+	(*FixResponse)(nil),                        // 28: mind.gateway.v1.FixResponse
+	(*ApplyEditRequest)(nil),                   // 29: mind.gateway.v1.ApplyEditRequest
+	(*ApplyEditResponse)(nil),                  // 30: mind.gateway.v1.ApplyEditResponse
+	(*BatchApplyEditsRequest)(nil),             // 31: mind.gateway.v1.BatchApplyEditsRequest
+	(*EditResult)(nil),                         // 32: mind.gateway.v1.EditResult
+	(*BatchApplyEditsResponse)(nil),            // 33: mind.gateway.v1.BatchApplyEditsResponse
+	(*ConfigureMutationAuthorityRequest)(nil),  // 34: mind.gateway.v1.ConfigureMutationAuthorityRequest
+	(*ConfigureMutationAuthorityResponse)(nil), // 35: mind.gateway.v1.ConfigureMutationAuthorityResponse
+	(*PreparedFileMutation)(nil),               // 36: mind.gateway.v1.PreparedFileMutation
+	(*PreparedMutation)(nil),                   // 37: mind.gateway.v1.PreparedMutation
+	(*PrepareApplyEditMutation)(nil),           // 38: mind.gateway.v1.PrepareApplyEditMutation
+	(*PrepareMutationRequest)(nil),             // 39: mind.gateway.v1.PrepareMutationRequest
+	(*PrepareMutationResponse)(nil),            // 40: mind.gateway.v1.PrepareMutationResponse
+	(*ApplyPreparedMutationRequest)(nil),       // 41: mind.gateway.v1.ApplyPreparedMutationRequest
+	(*AppliedFileMutation)(nil),                // 42: mind.gateway.v1.AppliedFileMutation
+	(*ApplyPreparedMutationResponse)(nil),      // 43: mind.gateway.v1.ApplyPreparedMutationResponse
+	(*SearchRequest)(nil),                      // 44: mind.gateway.v1.SearchRequest
+	(*SearchMatch)(nil),                        // 45: mind.gateway.v1.SearchMatch
+	(*SearchResponse)(nil),                     // 46: mind.gateway.v1.SearchResponse
+	(*BuildRequest)(nil),                       // 47: mind.gateway.v1.BuildRequest
+	(*BuildError)(nil),                         // 48: mind.gateway.v1.BuildError
+	(*BuildResponse)(nil),                      // 49: mind.gateway.v1.BuildResponse
+	(*LintRequest)(nil),                        // 50: mind.gateway.v1.LintRequest
+	(*LintResponse)(nil),                       // 51: mind.gateway.v1.LintResponse
+	(*TestRequest)(nil),                        // 52: mind.gateway.v1.TestRequest
+	(*TestResponse)(nil),                       // 53: mind.gateway.v1.TestResponse
+	(*FormatRequest)(nil),                      // 54: mind.gateway.v1.FormatRequest
+	(*FormatResponse)(nil),                     // 55: mind.gateway.v1.FormatResponse
+	(*UnstructuredUse)(nil),                    // 56: mind.gateway.v1.UnstructuredUse
+	(*RunCommandRequest)(nil),                  // 57: mind.gateway.v1.RunCommandRequest
+	(*RunCommandResponse)(nil),                 // 58: mind.gateway.v1.RunCommandResponse
+	(*RunChecksRequest)(nil),                   // 59: mind.gateway.v1.RunChecksRequest
+	(*Check)(nil),                              // 60: mind.gateway.v1.Check
+	(*PluginCheck)(nil),                        // 61: mind.gateway.v1.PluginCheck
+	(*CommandCheck)(nil),                       // 62: mind.gateway.v1.CommandCheck
+	(*HttpCheck)(nil),                          // 63: mind.gateway.v1.HttpCheck
+	(*CheckResult)(nil),                        // 64: mind.gateway.v1.CheckResult
+	(*RunChecksResponse)(nil),                  // 65: mind.gateway.v1.RunChecksResponse
+	(*GitStatusRequest)(nil),                   // 66: mind.gateway.v1.GitStatusRequest
+	(*GitFileStatus)(nil),                      // 67: mind.gateway.v1.GitFileStatus
+	(*GitStatusResponse)(nil),                  // 68: mind.gateway.v1.GitStatusResponse
+	(*GitDiffRequest)(nil),                     // 69: mind.gateway.v1.GitDiffRequest
+	(*GitDiffResponse)(nil),                    // 70: mind.gateway.v1.GitDiffResponse
+	(*GitLogRequest)(nil),                      // 71: mind.gateway.v1.GitLogRequest
+	(*GitCommitInfo)(nil),                      // 72: mind.gateway.v1.GitCommitInfo
+	(*GitLogResponse)(nil),                     // 73: mind.gateway.v1.GitLogResponse
+	(*GitCommitRequest)(nil),                   // 74: mind.gateway.v1.GitCommitRequest
+	(*GitCommitResponse)(nil),                  // 75: mind.gateway.v1.GitCommitResponse
+	(*ActReceipt)(nil),                         // 76: mind.gateway.v1.ActReceipt
+	(*GitBranchRequest)(nil),                   // 77: mind.gateway.v1.GitBranchRequest
+	(*GitBranchResponse)(nil),                  // 78: mind.gateway.v1.GitBranchResponse
+	(*GitCheckoutRequest)(nil),                 // 79: mind.gateway.v1.GitCheckoutRequest
+	(*GitCheckoutResponse)(nil),                // 80: mind.gateway.v1.GitCheckoutResponse
+	(*GitPushRequest)(nil),                     // 81: mind.gateway.v1.GitPushRequest
+	(*GitPushResponse)(nil),                    // 82: mind.gateway.v1.GitPushResponse
+	(*GitTagRequest)(nil),                      // 83: mind.gateway.v1.GitTagRequest
+	(*GitTagResponse)(nil),                     // 84: mind.gateway.v1.GitTagResponse
+	(*GitMergeRequest)(nil),                    // 85: mind.gateway.v1.GitMergeRequest
+	(*GitMergeResponse)(nil),                   // 86: mind.gateway.v1.GitMergeResponse
+	(*GitRevertRequest)(nil),                   // 87: mind.gateway.v1.GitRevertRequest
+	(*GitRevertResponse)(nil),                  // 88: mind.gateway.v1.GitRevertResponse
+	(*ForgeRepository)(nil),                    // 89: mind.gateway.v1.ForgeRepository
+	(*ForgeCheck)(nil),                         // 90: mind.gateway.v1.ForgeCheck
+	(*ForgeReview)(nil),                        // 91: mind.gateway.v1.ForgeReview
+	(*ForgePullRequestStatus)(nil),             // 92: mind.gateway.v1.ForgePullRequestStatus
+	(*ForgePullRequestStatusRequest)(nil),      // 93: mind.gateway.v1.ForgePullRequestStatusRequest
+	(*ForgePullRequestStatusResponse)(nil),     // 94: mind.gateway.v1.ForgePullRequestStatusResponse
+	(*ForgeMergePullRequestRequest)(nil),       // 95: mind.gateway.v1.ForgeMergePullRequestRequest
+	(*ForgeMergePullRequestResponse)(nil),      // 96: mind.gateway.v1.ForgeMergePullRequestResponse
+	(*ForgeRequestReviewRequest)(nil),          // 97: mind.gateway.v1.ForgeRequestReviewRequest
+	(*ForgeRequestReviewResponse)(nil),         // 98: mind.gateway.v1.ForgeRequestReviewResponse
+	(*ForgeEvent)(nil),                         // 99: mind.gateway.v1.ForgeEvent
+	(*ForgeNormalizeWebhookRequest)(nil),       // 100: mind.gateway.v1.ForgeNormalizeWebhookRequest
+	(*ForgeNormalizeWebhookResponse)(nil),      // 101: mind.gateway.v1.ForgeNormalizeWebhookResponse
+	(*Dependency)(nil),                         // 102: mind.gateway.v1.Dependency
+	(*ListDependenciesRequest)(nil),            // 103: mind.gateway.v1.ListDependenciesRequest
+	(*ListDependenciesResponse)(nil),           // 104: mind.gateway.v1.ListDependenciesResponse
+	(*AddDependencyRequest)(nil),               // 105: mind.gateway.v1.AddDependencyRequest
+	(*AddDependencyResponse)(nil),              // 106: mind.gateway.v1.AddDependencyResponse
+	(*RemoveDependencyRequest)(nil),            // 107: mind.gateway.v1.RemoveDependencyRequest
+	(*RemoveDependencyResponse)(nil),           // 108: mind.gateway.v1.RemoveDependencyResponse
+	(*PackageInfo)(nil),                        // 109: mind.gateway.v1.PackageInfo
+	(*GetProjectInfoRequest)(nil),              // 110: mind.gateway.v1.GetProjectInfoRequest
+	(*GetProjectInfoResponse)(nil),             // 111: mind.gateway.v1.GetProjectInfoResponse
+	(*AvailableCommand)(nil),                   // 112: mind.gateway.v1.AvailableCommand
+	(*ListAllCommandsRequest)(nil),             // 113: mind.gateway.v1.ListAllCommandsRequest
+	(*ListAllCommandsResponse)(nil),            // 114: mind.gateway.v1.ListAllCommandsResponse
+	(*OpenTerminalRequest)(nil),                // 115: mind.gateway.v1.OpenTerminalRequest
+	(*OpenTerminalResponse)(nil),               // 116: mind.gateway.v1.OpenTerminalResponse
+	(*TerminalInput)(nil),                      // 117: mind.gateway.v1.TerminalInput
+	(*TerminalOutput)(nil),                     // 118: mind.gateway.v1.TerminalOutput
+	(*ResizeTerminalRequest)(nil),              // 119: mind.gateway.v1.ResizeTerminalRequest
+	(*ResizeTerminalResponse)(nil),             // 120: mind.gateway.v1.ResizeTerminalResponse
+	(*CloseTerminalRequest)(nil),               // 121: mind.gateway.v1.CloseTerminalRequest
+	(*CloseTerminalResponse)(nil),              // 122: mind.gateway.v1.CloseTerminalResponse
+	(*ListTerminalsRequest)(nil),               // 123: mind.gateway.v1.ListTerminalsRequest
+	(*TerminalInfo)(nil),                       // 124: mind.gateway.v1.TerminalInfo
+	(*ListTerminalsResponse)(nil),              // 125: mind.gateway.v1.ListTerminalsResponse
+	nil,                                        // 126: mind.gateway.v1.GetProjectInfoResponse.FileHashesEntry
+	(*timestamppb.Timestamp)(nil),              // 127: google.protobuf.Timestamp
+	(v0.FixMode)(0),                            // 128: codefly.base.v0.FixMode
+	(*v01.TestRequest)(nil),                    // 129: codefly.services.runtime.v0.TestRequest
+	(*v01.TestResponse)(nil),                   // 130: codefly.services.runtime.v0.TestResponse
 }
 var file_mind_gateway_v1_gateway_proto_depIdxs = []int32{
-	7,   // 0: mind.gateway.v1.ListServicesResponse.services:type_name -> mind.gateway.v1.ServiceInfo
-	14,  // 1: mind.gateway.v1.ListFilesResponse.files:type_name -> mind.gateway.v1.FileInfo
-	16,  // 2: mind.gateway.v1.SubscribeWorkspaceChangesRequest.after:type_name -> mind.gateway.v1.WorkspaceChangeCursor
+	8,   // 0: mind.gateway.v1.ListServicesResponse.services:type_name -> mind.gateway.v1.ServiceInfo
+	15,  // 1: mind.gateway.v1.ListFilesResponse.files:type_name -> mind.gateway.v1.FileInfo
+	17,  // 2: mind.gateway.v1.SubscribeWorkspaceChangesRequest.after:type_name -> mind.gateway.v1.WorkspaceChangeCursor
 	0,   // 3: mind.gateway.v1.WorkspaceChange.operation:type_name -> mind.gateway.v1.WorkspaceChangeOperation
-	123, // 4: mind.gateway.v1.WorkspaceChangeEvent.observed_at:type_name -> google.protobuf.Timestamp
-	18,  // 5: mind.gateway.v1.WorkspaceChangeEvent.changes:type_name -> mind.gateway.v1.WorkspaceChange
-	124, // 6: mind.gateway.v1.FixRequest.mode:type_name -> codefly.base.v0.FixMode
-	124, // 7: mind.gateway.v1.ApplyEditRequest.fix_mode:type_name -> codefly.base.v0.FixMode
-	28,  // 8: mind.gateway.v1.BatchApplyEditsRequest.edits:type_name -> mind.gateway.v1.ApplyEditRequest
-	31,  // 9: mind.gateway.v1.BatchApplyEditsResponse.results:type_name -> mind.gateway.v1.EditResult
+	127, // 4: mind.gateway.v1.WorkspaceChangeEvent.observed_at:type_name -> google.protobuf.Timestamp
+	19,  // 5: mind.gateway.v1.WorkspaceChangeEvent.changes:type_name -> mind.gateway.v1.WorkspaceChange
+	128, // 6: mind.gateway.v1.FixRequest.mode:type_name -> codefly.base.v0.FixMode
+	128, // 7: mind.gateway.v1.ApplyEditRequest.fix_mode:type_name -> codefly.base.v0.FixMode
+	29,  // 8: mind.gateway.v1.BatchApplyEditsRequest.edits:type_name -> mind.gateway.v1.ApplyEditRequest
+	32,  // 9: mind.gateway.v1.BatchApplyEditsResponse.results:type_name -> mind.gateway.v1.EditResult
 	1,   // 10: mind.gateway.v1.PreparedFileMutation.operation:type_name -> mind.gateway.v1.PreparedFileOperation
-	35,  // 11: mind.gateway.v1.PreparedMutation.files:type_name -> mind.gateway.v1.PreparedFileMutation
-	123, // 12: mind.gateway.v1.PreparedMutation.prepared_at:type_name -> google.protobuf.Timestamp
-	123, // 13: mind.gateway.v1.PreparedMutation.expires_at:type_name -> google.protobuf.Timestamp
-	124, // 14: mind.gateway.v1.PrepareApplyEditMutation.fix_mode:type_name -> codefly.base.v0.FixMode
-	37,  // 15: mind.gateway.v1.PrepareMutationRequest.apply_edit:type_name -> mind.gateway.v1.PrepareApplyEditMutation
-	36,  // 16: mind.gateway.v1.PrepareMutationResponse.prepared:type_name -> mind.gateway.v1.PreparedMutation
+	36,  // 11: mind.gateway.v1.PreparedMutation.files:type_name -> mind.gateway.v1.PreparedFileMutation
+	127, // 12: mind.gateway.v1.PreparedMutation.prepared_at:type_name -> google.protobuf.Timestamp
+	127, // 13: mind.gateway.v1.PreparedMutation.expires_at:type_name -> google.protobuf.Timestamp
+	128, // 14: mind.gateway.v1.PrepareApplyEditMutation.fix_mode:type_name -> codefly.base.v0.FixMode
+	38,  // 15: mind.gateway.v1.PrepareMutationRequest.apply_edit:type_name -> mind.gateway.v1.PrepareApplyEditMutation
+	37,  // 16: mind.gateway.v1.PrepareMutationResponse.prepared:type_name -> mind.gateway.v1.PreparedMutation
 	1,   // 17: mind.gateway.v1.AppliedFileMutation.operation:type_name -> mind.gateway.v1.PreparedFileOperation
-	41,  // 18: mind.gateway.v1.ApplyPreparedMutationResponse.files:type_name -> mind.gateway.v1.AppliedFileMutation
-	44,  // 19: mind.gateway.v1.SearchResponse.matches:type_name -> mind.gateway.v1.SearchMatch
-	47,  // 20: mind.gateway.v1.BuildResponse.errors:type_name -> mind.gateway.v1.BuildError
-	47,  // 21: mind.gateway.v1.LintResponse.errors:type_name -> mind.gateway.v1.BuildError
-	125, // 22: mind.gateway.v1.TestRequest.runtime_request:type_name -> codefly.services.runtime.v0.TestRequest
-	126, // 23: mind.gateway.v1.TestResponse.runtime_response:type_name -> codefly.services.runtime.v0.TestResponse
-	47,  // 24: mind.gateway.v1.FormatResponse.errors:type_name -> mind.gateway.v1.BuildError
-	75,  // 25: mind.gateway.v1.FormatResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	42,  // 18: mind.gateway.v1.ApplyPreparedMutationResponse.files:type_name -> mind.gateway.v1.AppliedFileMutation
+	45,  // 19: mind.gateway.v1.SearchResponse.matches:type_name -> mind.gateway.v1.SearchMatch
+	48,  // 20: mind.gateway.v1.BuildResponse.errors:type_name -> mind.gateway.v1.BuildError
+	48,  // 21: mind.gateway.v1.LintResponse.errors:type_name -> mind.gateway.v1.BuildError
+	129, // 22: mind.gateway.v1.TestRequest.runtime_request:type_name -> codefly.services.runtime.v0.TestRequest
+	130, // 23: mind.gateway.v1.TestResponse.runtime_response:type_name -> codefly.services.runtime.v0.TestResponse
+	48,  // 24: mind.gateway.v1.FormatResponse.errors:type_name -> mind.gateway.v1.BuildError
+	76,  // 25: mind.gateway.v1.FormatResponse.act:type_name -> mind.gateway.v1.ActReceipt
 	2,   // 26: mind.gateway.v1.UnstructuredUse.command_class:type_name -> mind.gateway.v1.CommandClass
-	55,  // 27: mind.gateway.v1.RunCommandRequest.unstructured_use:type_name -> mind.gateway.v1.UnstructuredUse
-	59,  // 28: mind.gateway.v1.RunChecksRequest.checks:type_name -> mind.gateway.v1.Check
-	61,  // 29: mind.gateway.v1.Check.command:type_name -> mind.gateway.v1.CommandCheck
-	62,  // 30: mind.gateway.v1.Check.http:type_name -> mind.gateway.v1.HttpCheck
-	60,  // 31: mind.gateway.v1.Check.plugin_build:type_name -> mind.gateway.v1.PluginCheck
-	60,  // 32: mind.gateway.v1.Check.plugin_test:type_name -> mind.gateway.v1.PluginCheck
-	60,  // 33: mind.gateway.v1.Check.plugin_lint:type_name -> mind.gateway.v1.PluginCheck
-	63,  // 34: mind.gateway.v1.RunChecksResponse.results:type_name -> mind.gateway.v1.CheckResult
-	66,  // 35: mind.gateway.v1.GitStatusResponse.files:type_name -> mind.gateway.v1.GitFileStatus
-	71,  // 36: mind.gateway.v1.GitLogResponse.commits:type_name -> mind.gateway.v1.GitCommitInfo
-	123, // 37: mind.gateway.v1.ActReceipt.observed_at:type_name -> google.protobuf.Timestamp
-	75,  // 38: mind.gateway.v1.GitBranchResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	75,  // 39: mind.gateway.v1.GitCheckoutResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	56,  // 27: mind.gateway.v1.RunCommandRequest.unstructured_use:type_name -> mind.gateway.v1.UnstructuredUse
+	60,  // 28: mind.gateway.v1.RunChecksRequest.checks:type_name -> mind.gateway.v1.Check
+	62,  // 29: mind.gateway.v1.Check.command:type_name -> mind.gateway.v1.CommandCheck
+	63,  // 30: mind.gateway.v1.Check.http:type_name -> mind.gateway.v1.HttpCheck
+	61,  // 31: mind.gateway.v1.Check.plugin_build:type_name -> mind.gateway.v1.PluginCheck
+	61,  // 32: mind.gateway.v1.Check.plugin_test:type_name -> mind.gateway.v1.PluginCheck
+	61,  // 33: mind.gateway.v1.Check.plugin_lint:type_name -> mind.gateway.v1.PluginCheck
+	64,  // 34: mind.gateway.v1.RunChecksResponse.results:type_name -> mind.gateway.v1.CheckResult
+	67,  // 35: mind.gateway.v1.GitStatusResponse.files:type_name -> mind.gateway.v1.GitFileStatus
+	72,  // 36: mind.gateway.v1.GitLogResponse.commits:type_name -> mind.gateway.v1.GitCommitInfo
+	127, // 37: mind.gateway.v1.ActReceipt.observed_at:type_name -> google.protobuf.Timestamp
+	76,  // 38: mind.gateway.v1.GitBranchResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	76,  // 39: mind.gateway.v1.GitCheckoutResponse.act:type_name -> mind.gateway.v1.ActReceipt
 	3,   // 40: mind.gateway.v1.GitPushRequest.mode:type_name -> mind.gateway.v1.GitPushMode
-	75,  // 41: mind.gateway.v1.GitPushResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	75,  // 42: mind.gateway.v1.GitTagResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	75,  // 43: mind.gateway.v1.GitMergeResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	75,  // 44: mind.gateway.v1.GitRevertResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	123, // 45: mind.gateway.v1.ForgeReview.submitted_at:type_name -> google.protobuf.Timestamp
-	88,  // 46: mind.gateway.v1.ForgePullRequestStatus.repository:type_name -> mind.gateway.v1.ForgeRepository
-	89,  // 47: mind.gateway.v1.ForgePullRequestStatus.checks:type_name -> mind.gateway.v1.ForgeCheck
-	90,  // 48: mind.gateway.v1.ForgePullRequestStatus.reviews:type_name -> mind.gateway.v1.ForgeReview
-	123, // 49: mind.gateway.v1.ForgePullRequestStatus.observed_at:type_name -> google.protobuf.Timestamp
-	88,  // 50: mind.gateway.v1.ForgePullRequestStatusRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
-	91,  // 51: mind.gateway.v1.ForgePullRequestStatusResponse.status:type_name -> mind.gateway.v1.ForgePullRequestStatus
-	88,  // 52: mind.gateway.v1.ForgeMergePullRequestRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
+	76,  // 41: mind.gateway.v1.GitPushResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	76,  // 42: mind.gateway.v1.GitTagResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	76,  // 43: mind.gateway.v1.GitMergeResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	76,  // 44: mind.gateway.v1.GitRevertResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	127, // 45: mind.gateway.v1.ForgeReview.submitted_at:type_name -> google.protobuf.Timestamp
+	89,  // 46: mind.gateway.v1.ForgePullRequestStatus.repository:type_name -> mind.gateway.v1.ForgeRepository
+	90,  // 47: mind.gateway.v1.ForgePullRequestStatus.checks:type_name -> mind.gateway.v1.ForgeCheck
+	91,  // 48: mind.gateway.v1.ForgePullRequestStatus.reviews:type_name -> mind.gateway.v1.ForgeReview
+	127, // 49: mind.gateway.v1.ForgePullRequestStatus.observed_at:type_name -> google.protobuf.Timestamp
+	89,  // 50: mind.gateway.v1.ForgePullRequestStatusRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
+	92,  // 51: mind.gateway.v1.ForgePullRequestStatusResponse.status:type_name -> mind.gateway.v1.ForgePullRequestStatus
+	89,  // 52: mind.gateway.v1.ForgeMergePullRequestRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
 	4,   // 53: mind.gateway.v1.ForgeMergePullRequestRequest.method:type_name -> mind.gateway.v1.ForgeMergeMethod
 	5,   // 54: mind.gateway.v1.ForgeMergePullRequestRequest.check_policy:type_name -> mind.gateway.v1.ForgeCheckPolicy
-	91,  // 55: mind.gateway.v1.ForgeMergePullRequestResponse.status:type_name -> mind.gateway.v1.ForgePullRequestStatus
-	75,  // 56: mind.gateway.v1.ForgeMergePullRequestResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	88,  // 57: mind.gateway.v1.ForgeRequestReviewRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
-	75,  // 58: mind.gateway.v1.ForgeRequestReviewResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	98,  // 59: mind.gateway.v1.ListDependenciesResponse.dependencies:type_name -> mind.gateway.v1.Dependency
-	105, // 60: mind.gateway.v1.GetProjectInfoResponse.packages:type_name -> mind.gateway.v1.PackageInfo
-	98,  // 61: mind.gateway.v1.GetProjectInfoResponse.dependencies:type_name -> mind.gateway.v1.Dependency
-	122, // 62: mind.gateway.v1.GetProjectInfoResponse.file_hashes:type_name -> mind.gateway.v1.GetProjectInfoResponse.FileHashesEntry
-	108, // 63: mind.gateway.v1.ListAllCommandsResponse.commands:type_name -> mind.gateway.v1.AvailableCommand
-	55,  // 64: mind.gateway.v1.OpenTerminalRequest.unstructured_use:type_name -> mind.gateway.v1.UnstructuredUse
-	120, // 65: mind.gateway.v1.ListTerminalsResponse.terminals:type_name -> mind.gateway.v1.TerminalInfo
-	6,   // 66: mind.gateway.v1.Gateway.ListServices:input_type -> mind.gateway.v1.ListServicesRequest
-	9,   // 67: mind.gateway.v1.Gateway.ReadFile:input_type -> mind.gateway.v1.ReadFileRequest
-	11,  // 68: mind.gateway.v1.Gateway.WriteFile:input_type -> mind.gateway.v1.WriteFileRequest
-	13,  // 69: mind.gateway.v1.Gateway.ListFiles:input_type -> mind.gateway.v1.ListFilesRequest
-	17,  // 70: mind.gateway.v1.Gateway.SubscribeWorkspaceChanges:input_type -> mind.gateway.v1.SubscribeWorkspaceChangesRequest
-	20,  // 71: mind.gateway.v1.Gateway.DeleteFile:input_type -> mind.gateway.v1.DeleteFileRequest
-	22,  // 72: mind.gateway.v1.Gateway.MoveFile:input_type -> mind.gateway.v1.MoveFileRequest
-	24,  // 73: mind.gateway.v1.Gateway.CreateFile:input_type -> mind.gateway.v1.CreateFileRequest
-	26,  // 74: mind.gateway.v1.Gateway.Fix:input_type -> mind.gateway.v1.FixRequest
-	28,  // 75: mind.gateway.v1.Gateway.ApplyEdit:input_type -> mind.gateway.v1.ApplyEditRequest
-	30,  // 76: mind.gateway.v1.Gateway.BatchApplyEdits:input_type -> mind.gateway.v1.BatchApplyEditsRequest
-	33,  // 77: mind.gateway.v1.Gateway.ConfigureMutationAuthority:input_type -> mind.gateway.v1.ConfigureMutationAuthorityRequest
-	38,  // 78: mind.gateway.v1.Gateway.PrepareMutation:input_type -> mind.gateway.v1.PrepareMutationRequest
-	40,  // 79: mind.gateway.v1.Gateway.ApplyPreparedMutation:input_type -> mind.gateway.v1.ApplyPreparedMutationRequest
-	43,  // 80: mind.gateway.v1.Gateway.Search:input_type -> mind.gateway.v1.SearchRequest
-	46,  // 81: mind.gateway.v1.Gateway.Build:input_type -> mind.gateway.v1.BuildRequest
-	49,  // 82: mind.gateway.v1.Gateway.Lint:input_type -> mind.gateway.v1.LintRequest
-	51,  // 83: mind.gateway.v1.Gateway.Test:input_type -> mind.gateway.v1.TestRequest
-	53,  // 84: mind.gateway.v1.Gateway.Format:input_type -> mind.gateway.v1.FormatRequest
-	56,  // 85: mind.gateway.v1.Gateway.RunCommand:input_type -> mind.gateway.v1.RunCommandRequest
-	109, // 86: mind.gateway.v1.Gateway.ListAllCommands:input_type -> mind.gateway.v1.ListAllCommandsRequest
-	58,  // 87: mind.gateway.v1.Gateway.RunChecks:input_type -> mind.gateway.v1.RunChecksRequest
-	65,  // 88: mind.gateway.v1.Gateway.GitStatus:input_type -> mind.gateway.v1.GitStatusRequest
-	68,  // 89: mind.gateway.v1.Gateway.GitDiff:input_type -> mind.gateway.v1.GitDiffRequest
-	70,  // 90: mind.gateway.v1.Gateway.GitLog:input_type -> mind.gateway.v1.GitLogRequest
-	73,  // 91: mind.gateway.v1.Gateway.GitCommit:input_type -> mind.gateway.v1.GitCommitRequest
-	76,  // 92: mind.gateway.v1.Gateway.GitBranch:input_type -> mind.gateway.v1.GitBranchRequest
-	78,  // 93: mind.gateway.v1.Gateway.GitCheckout:input_type -> mind.gateway.v1.GitCheckoutRequest
-	80,  // 94: mind.gateway.v1.Gateway.GitPush:input_type -> mind.gateway.v1.GitPushRequest
-	82,  // 95: mind.gateway.v1.Gateway.GitTag:input_type -> mind.gateway.v1.GitTagRequest
-	84,  // 96: mind.gateway.v1.Gateway.GitMerge:input_type -> mind.gateway.v1.GitMergeRequest
-	86,  // 97: mind.gateway.v1.Gateway.GitRevert:input_type -> mind.gateway.v1.GitRevertRequest
-	92,  // 98: mind.gateway.v1.Gateway.ForgePullRequestStatus:input_type -> mind.gateway.v1.ForgePullRequestStatusRequest
-	94,  // 99: mind.gateway.v1.Gateway.ForgeMergePullRequest:input_type -> mind.gateway.v1.ForgeMergePullRequestRequest
-	96,  // 100: mind.gateway.v1.Gateway.ForgeRequestReview:input_type -> mind.gateway.v1.ForgeRequestReviewRequest
-	99,  // 101: mind.gateway.v1.Gateway.ListDependencies:input_type -> mind.gateway.v1.ListDependenciesRequest
-	101, // 102: mind.gateway.v1.Gateway.AddDependency:input_type -> mind.gateway.v1.AddDependencyRequest
-	103, // 103: mind.gateway.v1.Gateway.RemoveDependency:input_type -> mind.gateway.v1.RemoveDependencyRequest
-	106, // 104: mind.gateway.v1.Gateway.GetProjectInfo:input_type -> mind.gateway.v1.GetProjectInfoRequest
-	111, // 105: mind.gateway.v1.Gateway.OpenTerminal:input_type -> mind.gateway.v1.OpenTerminalRequest
-	113, // 106: mind.gateway.v1.Gateway.AttachTerminal:input_type -> mind.gateway.v1.TerminalInput
-	115, // 107: mind.gateway.v1.Gateway.ResizeTerminal:input_type -> mind.gateway.v1.ResizeTerminalRequest
-	117, // 108: mind.gateway.v1.Gateway.CloseTerminal:input_type -> mind.gateway.v1.CloseTerminalRequest
-	119, // 109: mind.gateway.v1.Gateway.ListTerminals:input_type -> mind.gateway.v1.ListTerminalsRequest
-	8,   // 110: mind.gateway.v1.Gateway.ListServices:output_type -> mind.gateway.v1.ListServicesResponse
-	10,  // 111: mind.gateway.v1.Gateway.ReadFile:output_type -> mind.gateway.v1.ReadFileResponse
-	12,  // 112: mind.gateway.v1.Gateway.WriteFile:output_type -> mind.gateway.v1.WriteFileResponse
-	15,  // 113: mind.gateway.v1.Gateway.ListFiles:output_type -> mind.gateway.v1.ListFilesResponse
-	19,  // 114: mind.gateway.v1.Gateway.SubscribeWorkspaceChanges:output_type -> mind.gateway.v1.WorkspaceChangeEvent
-	21,  // 115: mind.gateway.v1.Gateway.DeleteFile:output_type -> mind.gateway.v1.DeleteFileResponse
-	23,  // 116: mind.gateway.v1.Gateway.MoveFile:output_type -> mind.gateway.v1.MoveFileResponse
-	25,  // 117: mind.gateway.v1.Gateway.CreateFile:output_type -> mind.gateway.v1.CreateFileResponse
-	27,  // 118: mind.gateway.v1.Gateway.Fix:output_type -> mind.gateway.v1.FixResponse
-	29,  // 119: mind.gateway.v1.Gateway.ApplyEdit:output_type -> mind.gateway.v1.ApplyEditResponse
-	32,  // 120: mind.gateway.v1.Gateway.BatchApplyEdits:output_type -> mind.gateway.v1.BatchApplyEditsResponse
-	34,  // 121: mind.gateway.v1.Gateway.ConfigureMutationAuthority:output_type -> mind.gateway.v1.ConfigureMutationAuthorityResponse
-	39,  // 122: mind.gateway.v1.Gateway.PrepareMutation:output_type -> mind.gateway.v1.PrepareMutationResponse
-	42,  // 123: mind.gateway.v1.Gateway.ApplyPreparedMutation:output_type -> mind.gateway.v1.ApplyPreparedMutationResponse
-	45,  // 124: mind.gateway.v1.Gateway.Search:output_type -> mind.gateway.v1.SearchResponse
-	48,  // 125: mind.gateway.v1.Gateway.Build:output_type -> mind.gateway.v1.BuildResponse
-	50,  // 126: mind.gateway.v1.Gateway.Lint:output_type -> mind.gateway.v1.LintResponse
-	52,  // 127: mind.gateway.v1.Gateway.Test:output_type -> mind.gateway.v1.TestResponse
-	54,  // 128: mind.gateway.v1.Gateway.Format:output_type -> mind.gateway.v1.FormatResponse
-	57,  // 129: mind.gateway.v1.Gateway.RunCommand:output_type -> mind.gateway.v1.RunCommandResponse
-	110, // 130: mind.gateway.v1.Gateway.ListAllCommands:output_type -> mind.gateway.v1.ListAllCommandsResponse
-	64,  // 131: mind.gateway.v1.Gateway.RunChecks:output_type -> mind.gateway.v1.RunChecksResponse
-	67,  // 132: mind.gateway.v1.Gateway.GitStatus:output_type -> mind.gateway.v1.GitStatusResponse
-	69,  // 133: mind.gateway.v1.Gateway.GitDiff:output_type -> mind.gateway.v1.GitDiffResponse
-	72,  // 134: mind.gateway.v1.Gateway.GitLog:output_type -> mind.gateway.v1.GitLogResponse
-	74,  // 135: mind.gateway.v1.Gateway.GitCommit:output_type -> mind.gateway.v1.GitCommitResponse
-	77,  // 136: mind.gateway.v1.Gateway.GitBranch:output_type -> mind.gateway.v1.GitBranchResponse
-	79,  // 137: mind.gateway.v1.Gateway.GitCheckout:output_type -> mind.gateway.v1.GitCheckoutResponse
-	81,  // 138: mind.gateway.v1.Gateway.GitPush:output_type -> mind.gateway.v1.GitPushResponse
-	83,  // 139: mind.gateway.v1.Gateway.GitTag:output_type -> mind.gateway.v1.GitTagResponse
-	85,  // 140: mind.gateway.v1.Gateway.GitMerge:output_type -> mind.gateway.v1.GitMergeResponse
-	87,  // 141: mind.gateway.v1.Gateway.GitRevert:output_type -> mind.gateway.v1.GitRevertResponse
-	93,  // 142: mind.gateway.v1.Gateway.ForgePullRequestStatus:output_type -> mind.gateway.v1.ForgePullRequestStatusResponse
-	95,  // 143: mind.gateway.v1.Gateway.ForgeMergePullRequest:output_type -> mind.gateway.v1.ForgeMergePullRequestResponse
-	97,  // 144: mind.gateway.v1.Gateway.ForgeRequestReview:output_type -> mind.gateway.v1.ForgeRequestReviewResponse
-	100, // 145: mind.gateway.v1.Gateway.ListDependencies:output_type -> mind.gateway.v1.ListDependenciesResponse
-	102, // 146: mind.gateway.v1.Gateway.AddDependency:output_type -> mind.gateway.v1.AddDependencyResponse
-	104, // 147: mind.gateway.v1.Gateway.RemoveDependency:output_type -> mind.gateway.v1.RemoveDependencyResponse
-	107, // 148: mind.gateway.v1.Gateway.GetProjectInfo:output_type -> mind.gateway.v1.GetProjectInfoResponse
-	112, // 149: mind.gateway.v1.Gateway.OpenTerminal:output_type -> mind.gateway.v1.OpenTerminalResponse
-	114, // 150: mind.gateway.v1.Gateway.AttachTerminal:output_type -> mind.gateway.v1.TerminalOutput
-	116, // 151: mind.gateway.v1.Gateway.ResizeTerminal:output_type -> mind.gateway.v1.ResizeTerminalResponse
-	118, // 152: mind.gateway.v1.Gateway.CloseTerminal:output_type -> mind.gateway.v1.CloseTerminalResponse
-	121, // 153: mind.gateway.v1.Gateway.ListTerminals:output_type -> mind.gateway.v1.ListTerminalsResponse
-	110, // [110:154] is the sub-list for method output_type
-	66,  // [66:110] is the sub-list for method input_type
-	66,  // [66:66] is the sub-list for extension type_name
-	66,  // [66:66] is the sub-list for extension extendee
-	0,   // [0:66] is the sub-list for field type_name
+	92,  // 55: mind.gateway.v1.ForgeMergePullRequestResponse.status:type_name -> mind.gateway.v1.ForgePullRequestStatus
+	76,  // 56: mind.gateway.v1.ForgeMergePullRequestResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	89,  // 57: mind.gateway.v1.ForgeRequestReviewRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
+	76,  // 58: mind.gateway.v1.ForgeRequestReviewResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	6,   // 59: mind.gateway.v1.ForgeEvent.kind:type_name -> mind.gateway.v1.ForgeEventKind
+	89,  // 60: mind.gateway.v1.ForgeEvent.repository:type_name -> mind.gateway.v1.ForgeRepository
+	127, // 61: mind.gateway.v1.ForgeEvent.observed_at:type_name -> google.protobuf.Timestamp
+	99,  // 62: mind.gateway.v1.ForgeNormalizeWebhookResponse.event:type_name -> mind.gateway.v1.ForgeEvent
+	102, // 63: mind.gateway.v1.ListDependenciesResponse.dependencies:type_name -> mind.gateway.v1.Dependency
+	109, // 64: mind.gateway.v1.GetProjectInfoResponse.packages:type_name -> mind.gateway.v1.PackageInfo
+	102, // 65: mind.gateway.v1.GetProjectInfoResponse.dependencies:type_name -> mind.gateway.v1.Dependency
+	126, // 66: mind.gateway.v1.GetProjectInfoResponse.file_hashes:type_name -> mind.gateway.v1.GetProjectInfoResponse.FileHashesEntry
+	112, // 67: mind.gateway.v1.ListAllCommandsResponse.commands:type_name -> mind.gateway.v1.AvailableCommand
+	56,  // 68: mind.gateway.v1.OpenTerminalRequest.unstructured_use:type_name -> mind.gateway.v1.UnstructuredUse
+	124, // 69: mind.gateway.v1.ListTerminalsResponse.terminals:type_name -> mind.gateway.v1.TerminalInfo
+	7,   // 70: mind.gateway.v1.Gateway.ListServices:input_type -> mind.gateway.v1.ListServicesRequest
+	10,  // 71: mind.gateway.v1.Gateway.ReadFile:input_type -> mind.gateway.v1.ReadFileRequest
+	12,  // 72: mind.gateway.v1.Gateway.WriteFile:input_type -> mind.gateway.v1.WriteFileRequest
+	14,  // 73: mind.gateway.v1.Gateway.ListFiles:input_type -> mind.gateway.v1.ListFilesRequest
+	18,  // 74: mind.gateway.v1.Gateway.SubscribeWorkspaceChanges:input_type -> mind.gateway.v1.SubscribeWorkspaceChangesRequest
+	21,  // 75: mind.gateway.v1.Gateway.DeleteFile:input_type -> mind.gateway.v1.DeleteFileRequest
+	23,  // 76: mind.gateway.v1.Gateway.MoveFile:input_type -> mind.gateway.v1.MoveFileRequest
+	25,  // 77: mind.gateway.v1.Gateway.CreateFile:input_type -> mind.gateway.v1.CreateFileRequest
+	27,  // 78: mind.gateway.v1.Gateway.Fix:input_type -> mind.gateway.v1.FixRequest
+	29,  // 79: mind.gateway.v1.Gateway.ApplyEdit:input_type -> mind.gateway.v1.ApplyEditRequest
+	31,  // 80: mind.gateway.v1.Gateway.BatchApplyEdits:input_type -> mind.gateway.v1.BatchApplyEditsRequest
+	34,  // 81: mind.gateway.v1.Gateway.ConfigureMutationAuthority:input_type -> mind.gateway.v1.ConfigureMutationAuthorityRequest
+	39,  // 82: mind.gateway.v1.Gateway.PrepareMutation:input_type -> mind.gateway.v1.PrepareMutationRequest
+	41,  // 83: mind.gateway.v1.Gateway.ApplyPreparedMutation:input_type -> mind.gateway.v1.ApplyPreparedMutationRequest
+	44,  // 84: mind.gateway.v1.Gateway.Search:input_type -> mind.gateway.v1.SearchRequest
+	47,  // 85: mind.gateway.v1.Gateway.Build:input_type -> mind.gateway.v1.BuildRequest
+	50,  // 86: mind.gateway.v1.Gateway.Lint:input_type -> mind.gateway.v1.LintRequest
+	52,  // 87: mind.gateway.v1.Gateway.Test:input_type -> mind.gateway.v1.TestRequest
+	54,  // 88: mind.gateway.v1.Gateway.Format:input_type -> mind.gateway.v1.FormatRequest
+	57,  // 89: mind.gateway.v1.Gateway.RunCommand:input_type -> mind.gateway.v1.RunCommandRequest
+	113, // 90: mind.gateway.v1.Gateway.ListAllCommands:input_type -> mind.gateway.v1.ListAllCommandsRequest
+	59,  // 91: mind.gateway.v1.Gateway.RunChecks:input_type -> mind.gateway.v1.RunChecksRequest
+	66,  // 92: mind.gateway.v1.Gateway.GitStatus:input_type -> mind.gateway.v1.GitStatusRequest
+	69,  // 93: mind.gateway.v1.Gateway.GitDiff:input_type -> mind.gateway.v1.GitDiffRequest
+	71,  // 94: mind.gateway.v1.Gateway.GitLog:input_type -> mind.gateway.v1.GitLogRequest
+	74,  // 95: mind.gateway.v1.Gateway.GitCommit:input_type -> mind.gateway.v1.GitCommitRequest
+	77,  // 96: mind.gateway.v1.Gateway.GitBranch:input_type -> mind.gateway.v1.GitBranchRequest
+	79,  // 97: mind.gateway.v1.Gateway.GitCheckout:input_type -> mind.gateway.v1.GitCheckoutRequest
+	81,  // 98: mind.gateway.v1.Gateway.GitPush:input_type -> mind.gateway.v1.GitPushRequest
+	83,  // 99: mind.gateway.v1.Gateway.GitTag:input_type -> mind.gateway.v1.GitTagRequest
+	85,  // 100: mind.gateway.v1.Gateway.GitMerge:input_type -> mind.gateway.v1.GitMergeRequest
+	87,  // 101: mind.gateway.v1.Gateway.GitRevert:input_type -> mind.gateway.v1.GitRevertRequest
+	93,  // 102: mind.gateway.v1.Gateway.ForgePullRequestStatus:input_type -> mind.gateway.v1.ForgePullRequestStatusRequest
+	95,  // 103: mind.gateway.v1.Gateway.ForgeMergePullRequest:input_type -> mind.gateway.v1.ForgeMergePullRequestRequest
+	97,  // 104: mind.gateway.v1.Gateway.ForgeRequestReview:input_type -> mind.gateway.v1.ForgeRequestReviewRequest
+	100, // 105: mind.gateway.v1.Gateway.ForgeNormalizeWebhook:input_type -> mind.gateway.v1.ForgeNormalizeWebhookRequest
+	103, // 106: mind.gateway.v1.Gateway.ListDependencies:input_type -> mind.gateway.v1.ListDependenciesRequest
+	105, // 107: mind.gateway.v1.Gateway.AddDependency:input_type -> mind.gateway.v1.AddDependencyRequest
+	107, // 108: mind.gateway.v1.Gateway.RemoveDependency:input_type -> mind.gateway.v1.RemoveDependencyRequest
+	110, // 109: mind.gateway.v1.Gateway.GetProjectInfo:input_type -> mind.gateway.v1.GetProjectInfoRequest
+	115, // 110: mind.gateway.v1.Gateway.OpenTerminal:input_type -> mind.gateway.v1.OpenTerminalRequest
+	117, // 111: mind.gateway.v1.Gateway.AttachTerminal:input_type -> mind.gateway.v1.TerminalInput
+	119, // 112: mind.gateway.v1.Gateway.ResizeTerminal:input_type -> mind.gateway.v1.ResizeTerminalRequest
+	121, // 113: mind.gateway.v1.Gateway.CloseTerminal:input_type -> mind.gateway.v1.CloseTerminalRequest
+	123, // 114: mind.gateway.v1.Gateway.ListTerminals:input_type -> mind.gateway.v1.ListTerminalsRequest
+	9,   // 115: mind.gateway.v1.Gateway.ListServices:output_type -> mind.gateway.v1.ListServicesResponse
+	11,  // 116: mind.gateway.v1.Gateway.ReadFile:output_type -> mind.gateway.v1.ReadFileResponse
+	13,  // 117: mind.gateway.v1.Gateway.WriteFile:output_type -> mind.gateway.v1.WriteFileResponse
+	16,  // 118: mind.gateway.v1.Gateway.ListFiles:output_type -> mind.gateway.v1.ListFilesResponse
+	20,  // 119: mind.gateway.v1.Gateway.SubscribeWorkspaceChanges:output_type -> mind.gateway.v1.WorkspaceChangeEvent
+	22,  // 120: mind.gateway.v1.Gateway.DeleteFile:output_type -> mind.gateway.v1.DeleteFileResponse
+	24,  // 121: mind.gateway.v1.Gateway.MoveFile:output_type -> mind.gateway.v1.MoveFileResponse
+	26,  // 122: mind.gateway.v1.Gateway.CreateFile:output_type -> mind.gateway.v1.CreateFileResponse
+	28,  // 123: mind.gateway.v1.Gateway.Fix:output_type -> mind.gateway.v1.FixResponse
+	30,  // 124: mind.gateway.v1.Gateway.ApplyEdit:output_type -> mind.gateway.v1.ApplyEditResponse
+	33,  // 125: mind.gateway.v1.Gateway.BatchApplyEdits:output_type -> mind.gateway.v1.BatchApplyEditsResponse
+	35,  // 126: mind.gateway.v1.Gateway.ConfigureMutationAuthority:output_type -> mind.gateway.v1.ConfigureMutationAuthorityResponse
+	40,  // 127: mind.gateway.v1.Gateway.PrepareMutation:output_type -> mind.gateway.v1.PrepareMutationResponse
+	43,  // 128: mind.gateway.v1.Gateway.ApplyPreparedMutation:output_type -> mind.gateway.v1.ApplyPreparedMutationResponse
+	46,  // 129: mind.gateway.v1.Gateway.Search:output_type -> mind.gateway.v1.SearchResponse
+	49,  // 130: mind.gateway.v1.Gateway.Build:output_type -> mind.gateway.v1.BuildResponse
+	51,  // 131: mind.gateway.v1.Gateway.Lint:output_type -> mind.gateway.v1.LintResponse
+	53,  // 132: mind.gateway.v1.Gateway.Test:output_type -> mind.gateway.v1.TestResponse
+	55,  // 133: mind.gateway.v1.Gateway.Format:output_type -> mind.gateway.v1.FormatResponse
+	58,  // 134: mind.gateway.v1.Gateway.RunCommand:output_type -> mind.gateway.v1.RunCommandResponse
+	114, // 135: mind.gateway.v1.Gateway.ListAllCommands:output_type -> mind.gateway.v1.ListAllCommandsResponse
+	65,  // 136: mind.gateway.v1.Gateway.RunChecks:output_type -> mind.gateway.v1.RunChecksResponse
+	68,  // 137: mind.gateway.v1.Gateway.GitStatus:output_type -> mind.gateway.v1.GitStatusResponse
+	70,  // 138: mind.gateway.v1.Gateway.GitDiff:output_type -> mind.gateway.v1.GitDiffResponse
+	73,  // 139: mind.gateway.v1.Gateway.GitLog:output_type -> mind.gateway.v1.GitLogResponse
+	75,  // 140: mind.gateway.v1.Gateway.GitCommit:output_type -> mind.gateway.v1.GitCommitResponse
+	78,  // 141: mind.gateway.v1.Gateway.GitBranch:output_type -> mind.gateway.v1.GitBranchResponse
+	80,  // 142: mind.gateway.v1.Gateway.GitCheckout:output_type -> mind.gateway.v1.GitCheckoutResponse
+	82,  // 143: mind.gateway.v1.Gateway.GitPush:output_type -> mind.gateway.v1.GitPushResponse
+	84,  // 144: mind.gateway.v1.Gateway.GitTag:output_type -> mind.gateway.v1.GitTagResponse
+	86,  // 145: mind.gateway.v1.Gateway.GitMerge:output_type -> mind.gateway.v1.GitMergeResponse
+	88,  // 146: mind.gateway.v1.Gateway.GitRevert:output_type -> mind.gateway.v1.GitRevertResponse
+	94,  // 147: mind.gateway.v1.Gateway.ForgePullRequestStatus:output_type -> mind.gateway.v1.ForgePullRequestStatusResponse
+	96,  // 148: mind.gateway.v1.Gateway.ForgeMergePullRequest:output_type -> mind.gateway.v1.ForgeMergePullRequestResponse
+	98,  // 149: mind.gateway.v1.Gateway.ForgeRequestReview:output_type -> mind.gateway.v1.ForgeRequestReviewResponse
+	101, // 150: mind.gateway.v1.Gateway.ForgeNormalizeWebhook:output_type -> mind.gateway.v1.ForgeNormalizeWebhookResponse
+	104, // 151: mind.gateway.v1.Gateway.ListDependencies:output_type -> mind.gateway.v1.ListDependenciesResponse
+	106, // 152: mind.gateway.v1.Gateway.AddDependency:output_type -> mind.gateway.v1.AddDependencyResponse
+	108, // 153: mind.gateway.v1.Gateway.RemoveDependency:output_type -> mind.gateway.v1.RemoveDependencyResponse
+	111, // 154: mind.gateway.v1.Gateway.GetProjectInfo:output_type -> mind.gateway.v1.GetProjectInfoResponse
+	116, // 155: mind.gateway.v1.Gateway.OpenTerminal:output_type -> mind.gateway.v1.OpenTerminalResponse
+	118, // 156: mind.gateway.v1.Gateway.AttachTerminal:output_type -> mind.gateway.v1.TerminalOutput
+	120, // 157: mind.gateway.v1.Gateway.ResizeTerminal:output_type -> mind.gateway.v1.ResizeTerminalResponse
+	122, // 158: mind.gateway.v1.Gateway.CloseTerminal:output_type -> mind.gateway.v1.CloseTerminalResponse
+	125, // 159: mind.gateway.v1.Gateway.ListTerminals:output_type -> mind.gateway.v1.ListTerminalsResponse
+	115, // [115:160] is the sub-list for method output_type
+	70,  // [70:115] is the sub-list for method input_type
+	70,  // [70:70] is the sub-list for extension type_name
+	70,  // [70:70] is the sub-list for extension extendee
+	0,   // [0:70] is the sub-list for field type_name
 }
 
 func init() { file_mind_gateway_v1_gateway_proto_init() }
@@ -9419,8 +9809,8 @@ func file_mind_gateway_v1_gateway_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mind_gateway_v1_gateway_proto_rawDesc), len(file_mind_gateway_v1_gateway_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   117,
+			NumEnums:      7,
+			NumMessages:   120,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

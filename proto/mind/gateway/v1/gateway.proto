@@ -147,6 +147,9 @@ service Gateway {
   // ForgeRequestReview requests reviewers on a PR.
   rpc ForgeRequestReview(ForgeRequestReviewRequest) returns (ForgeRequestReviewResponse);
 
+  // ForgeNormalizeWebhook verifies and normalizes one provider webhook.
+  rpc ForgeNormalizeWebhook(ForgeNormalizeWebhookRequest) returns (ForgeNormalizeWebhookResponse);
+
   // ─── Dependency Management ──────────────────────────────────
 
   // ListDependencies returns all dependencies with versions.
@@ -1320,6 +1323,48 @@ message ForgeRequestReviewResponse {
   repeated string team_reviewers = 4;
   // act is the reconciliable provider outcome.
   ActReceipt act = 5;
+}
+
+// ForgeEventKind is the provider-neutral event family.
+enum ForgeEventKind {
+  FORGE_EVENT_KIND_UNSPECIFIED = 0;
+  FORGE_EVENT_KIND_PULL_REQUEST = 1;
+  FORGE_EVENT_KIND_CHECK = 2;
+  FORGE_EVENT_KIND_REVIEW = 3;
+}
+
+// ForgeEvent is one provider-authoritative event normalized by the toolbox.
+message ForgeEvent {
+  string event_id = 1;
+  ForgeEventKind kind = 2;
+  string ref = 3;
+  ForgeRepository repository = 4;
+  int64 number = 5;
+  string revision = 6;
+  string state = 7;
+  string check_name = 8;
+  string conclusion = 9;
+  string author = 10;
+  string authoritative_url = 11;
+  string authoritative_source = 12;
+  google.protobuf.Timestamp observed_at = 13;
+}
+
+// ForgeNormalizeWebhookRequest carries the signed provider delivery to the
+// toolbox that owns provider schemas and signature rules.
+message ForgeNormalizeWebhookRequest {
+  string service = 1;
+  string provider = 2;
+  string event_type = 3;
+  string delivery_id = 4;
+  bytes payload = 5;
+  string signature = 6;
+  string secret = 7;
+}
+
+message ForgeNormalizeWebhookResponse {
+  ForgeEvent event = 1;
+  string error = 2;
 }
 
 // ─── Dependency Management ───────────────────────────────────

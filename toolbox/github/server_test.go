@@ -2,7 +2,10 @@ package github
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +15,40 @@ import (
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	gatewayv1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 )
+
+func TestNormalizeWebhookVerifiesAndProducesReconciliableMerge(t *testing.T) {
+	payload := []byte(`{
+		"action":"closed",
+		"number":42,
+		"pull_request":{"number":42,"merged":true,"html_url":"https://github.test/o/r/pull/42","head":{"sha":"abc"}},
+		"repository":{"name":"r","owner":{"login":"o"}},
+		"sender":{"login":"octocat"}
+	}`)
+	secret := "webhook-secret"
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(payload)
+	signature := fmt.Sprintf("sha256=%x", mac.Sum(nil))
+	server := New("/tmp/x", "", "test")
+	event, err := server.NormalizeWebhook(&gatewayv1.ForgeNormalizeWebhookRequest{
+		Provider: "github", EventType: "pull_request", DeliveryId: "delivery-1",
+		Payload: payload, Signature: signature, Secret: secret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := event.GetEventId(), "forge:github:o/r:pull_request:42:merged"; got != want {
+		t.Fatalf("event id = %q, want %q", got, want)
+	}
+	if event.GetState() != "merged" || event.GetRef() != "forge:github:o/r:pull_request:42" {
+		t.Fatalf("event = %+v", event)
+	}
+	if _, err := server.NormalizeWebhook(&gatewayv1.ForgeNormalizeWebhookRequest{
+		Provider: "github", EventType: "pull_request", Payload: payload,
+		Signature: "sha256=invalid", Secret: secret,
+	}); err == nil {
+		t.Fatal("invalid signature was accepted")
+	}
+}
 
 func TestIdentity(t *testing.T) {
 	id, err := New("/tmp/x", "", "test").Identity(context.Background(), &toolboxv0.IdentityRequest{})
