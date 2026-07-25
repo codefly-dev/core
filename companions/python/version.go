@@ -39,8 +39,7 @@ func version(ctx context.Context) (string, error) {
 	return v.String(), nil
 }
 
-// CompanionImage returns the Docker image for the Python companion (which
-// carries debugpy for the DAP path).
+// CompanionImage returns the Docker image for the Python companion.
 func CompanionImage(ctx context.Context) (*resources.DockerImage, error) {
 	w := wool.Get(ctx).In("python.CompanionImage")
 	v, err := version(ctx)

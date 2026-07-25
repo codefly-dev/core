@@ -9,13 +9,16 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/Masterminds/semver"
 	"github.com/codefly-dev/core/companions"
 	"github.com/stretchr/testify/require"
 )
 
 // manifestVersion reads companions/<dir>/info.codefly.yaml directly from disk,
 // independent of the derivation code, so the test catches any tag that stops
-// tracking its manifest.
+// tracking its manifest. It applies the same semver normalization the
+// derivation does, so a non-canonical manifest version doesn't spuriously
+// fail the comparison.
 func manifestVersion(t *testing.T, dir string) string {
 	t.Helper()
 	_, filename, _, _ := runtime.Caller(0)
@@ -26,7 +29,9 @@ func manifestVersion(t *testing.T, dir string) string {
 		Version string `yaml:"version"`
 	}
 	require.NoError(t, yaml.Unmarshal(content, &info))
-	return info.Version
+	v, err := semver.NewVersion(info.Version)
+	require.NoError(t, err)
+	return v.String()
 }
 
 func TestEmbeddedDerivesEveryTagFromManifest(t *testing.T) {
