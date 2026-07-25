@@ -364,19 +364,21 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 		spec.venvPython = venvPython
 	}
 
+	// Formula evidence and interpreter caches are adapter artifacts, not source.
+	// Allocate one external directory for the full run regardless of output
+	// format so unittest-based formulas also cannot leave __pycache__ behind.
+	runtimeDir, err := os.MkdirTemp("", "codefly-python-formula-*")
+	if err != nil {
+		return nil, fmt.Errorf("create formula evidence directory: %w", err)
+	}
+	defer os.RemoveAll(runtimeDir)
+
 	var junitFile string
 	if spec.Output == OutputJUnitXML {
-		junitDir := filepath.Join(sourceDir, ".cache")
-		if err := os.MkdirAll(junitDir, 0o755); err != nil {
-			junitDir = os.TempDir()
-		}
-		junitFile = filepath.Join(junitDir, fmt.Sprintf("formula-junit-%d.xml", time.Now().UnixNano()))
-		// cmd.Dir may differ from the caller's cwd (spec.Cwd) — make the junit
-		// path absolute so pytest writes it where we read it.
-		if abs, err := filepath.Abs(junitFile); err == nil {
-			junitFile = abs
-		}
-		defer os.Remove(junitFile)
+		junitFile = filepath.Join(runtimeDir, fmt.Sprintf("formula-junit-%d.xml", time.Now().UnixNano()))
+		// JUnit output is emitted by pytest. Disable its checkout-local cache;
+		// the run remains fully described by the structured response.
+		spec.ExtraArgs = append(spec.ExtraArgs, "-p", "no:cacheprovider")
 	}
 
 	args := BuildUvArgs(spec, junitFile)
@@ -421,7 +423,10 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 		cmd.Stdout = &raw
 		cmd.Stderr = &raw
 	}
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(),
+		"PYTHONPYCACHEPREFIX="+filepath.Join(runtimeDir, "pycache"),
+		"COVERAGE_FILE="+filepath.Join(runtimeDir, "coverage"),
+	)
 	if probe {
 		// Force unbuffered child output so the materialization marker reaches the
 		// watcher immediately — python BLOCK-buffers stdout to a pipe, which
@@ -441,7 +446,7 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 
 	var run *StructuredTestRun
 	if spec.Output == OutputJUnitXML {
-		xmlBytes, _ := os.ReadFile(junitFile) //nolint:gosec // path under sourceDir
+		xmlBytes, _ := os.ReadFile(junitFile) //nolint:gosec // private temporary path
 		run = ParsePytestJUnit(string(xmlBytes), scrapeCoverageFromOutput(rawStr))
 	} else {
 		run = ParseUnittestText(rawStr)

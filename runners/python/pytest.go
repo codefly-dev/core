@@ -177,17 +177,29 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 		opt = opts[0]
 	}
 
-	// Allocate the JUnit output path under the project's .cache dir
-	// (gitignored by default). Falls back to system temp when the
-	// project tree isn't writable.
-	junitDir := filepath.Join(sourceDir, ".cache")
-	if err := os.MkdirAll(junitDir, 0o755); err != nil {
-		junitDir = os.TempDir()
+	// Runtime evidence is an adapter artifact, not project source. Keep the
+	// JUnit file outside the checkout so a read-only test run never dirties the
+	// workspace or depends on its write permissions.
+	junitDir, err := os.MkdirTemp("", "codefly-pytest-*")
+	if err != nil {
+		return nil, fmt.Errorf("create pytest evidence directory: %w", err)
 	}
+	defer os.RemoveAll(junitDir)
 	junitFile := filepath.Join(junitDir, fmt.Sprintf("pytest-junit-%d.xml", time.Now().UnixNano()))
-	defer os.Remove(junitFile) // structured response replaces the file
 
-	pytestArgs := []string{"run", "pytest", "--tb=short", "--junitxml=" + junitFile}
+	// --no-project prevents uv from creating/updating uv.lock or .venv in the
+	// user's checkout. Pytest and an optional editable project overlay are
+	// materialized in uv's external cache.
+	pytestArgs := []string{"run", "--no-project", "--with", "pytest"}
+	if info, statErr := os.Stat(filepath.Join(sourceDir, "pyproject.toml")); statErr == nil && !info.IsDir() {
+		pytestArgs = append(pytestArgs, "--with-editable", ".")
+	}
+	pytestArgs = append(pytestArgs,
+		"pytest",
+		"--tb=short",
+		"--junitxml="+junitFile,
+		"-p", "no:cacheprovider",
+	)
 
 	// Default to verbose unless the caller explicitly set Verbose=false.
 	// Verbose feeds the OnEvent stream; the JUnit XML is parsed regardless.
@@ -261,8 +273,12 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 		cmd.Stderr = &raw
 	}
 
-	// Inherit parent env, then overlay codefly env vars.
-	cmd.Env = os.Environ()
+	// Python bytecode, pytest cache, coverage data, and JUnit evidence are
+	// validation artifacts. Keep all of them outside the source checkout.
+	cmd.Env = append(os.Environ(),
+		"PYTHONPYCACHEPREFIX="+filepath.Join(junitDir, "pycache"),
+		"COVERAGE_FILE="+filepath.Join(junitDir, "coverage"),
+	)
 	for _, ev := range envVars {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", ev.Key, ev.Value))
 	}
@@ -273,7 +289,7 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	// Parse JUnit XML. If pytest didn't write one (collection error,
 	// pytest itself crashed), the structured run will be empty —
 	// runErr indicates something went wrong; the caller surfaces it.
-	xmlBytes, _ := os.ReadFile(junitFile) //nolint:gosec // path under sourceDir
+	xmlBytes, _ := os.ReadFile(junitFile) //nolint:gosec // private temporary path
 	coverage := scrapeCoverageFromOutput(rawStr)
 	run := ParsePytestJUnit(string(xmlBytes), coverage)
 	run.RawOutput = rawStr
@@ -364,11 +380,37 @@ func RunPythonLint(ctx context.Context, sourceDir string, targets ...string) (st
 	if len(targets) > 0 && targets[0] != "" {
 		target = targets[0]
 	}
-	cmd := exec.CommandContext(ctx, "uv", "run", "ruff", "check", "--", target)
+	// Ruff configuration is still discovered from sourceDir, but uv's project
+	// mode is disabled so a read-only lint never creates uv.lock or .venv in
+	// the checkout.
+	cmd := exec.CommandContext(ctx, "uv", "run", "--no-project", "--with", "ruff", "ruff", "check", "--", target)
 	cmd.Dir = sourceDir
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	err := cmd.Run()
+	return out.String(), err
+}
+
+// RunPythonBuild performs the Python compile gate without requiring a valid
+// package declaration. Source-only repositories and partially edited
+// pyproject.toml files still need syntax validation, so --no-project keeps the
+// check independent from dependency materialization.
+func RunPythonBuild(ctx context.Context, sourceDir, target string) (string, error) {
+	if target == "" {
+		target = "."
+	}
+	bytecodeDir, err := os.MkdirTemp("", "codefly-python-bytecode-*")
+	if err != nil {
+		return "", fmt.Errorf("create Python bytecode directory: %w", err)
+	}
+	defer os.RemoveAll(bytecodeDir)
+	cmd := exec.CommandContext(ctx, "uv", "run", "--no-project", "python", "-m", "compileall", "-q", "--", target)
+	cmd.Dir = sourceDir
+	cmd.Env = append(os.Environ(), "PYTHONPYCACHEPREFIX="+bytecodeDir)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err = cmd.Run()
 	return out.String(), err
 }

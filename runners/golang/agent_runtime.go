@@ -178,10 +178,16 @@ const defaultTestTimeout = "30m"
 // When env.LocalCacheDir(ctx) is non-empty, the full raw stdout from
 // `go test -json` is persisted to <cacheDir>/last-test.json after the
 // run regardless of pass/fail. This gives operators a debug surface
-// richer than the TestSummary we return to the caller: failing tests
+// richer than the TestExecution we return to the caller: failing tests
 // can be re-parsed by hand, exit-2 collection errors are recoverable,
 // and the exact set of events the agent saw is reproducible.
-func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation string, envVars []*resources.EnvironmentVariable, opts ...TestOptions) (*TestSummary, error) {
+type TestExecution struct {
+	*TestSummary
+	Structured *StructuredTestRun
+	RawOutput  string
+}
+
+func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation string, envVars []*resources.EnvironmentVariable, opts ...TestOptions) (*TestExecution, error) {
 	_ = env.Env().WithBinary("codefly")
 
 	args := []string{"test", "-json", "-p", fmt.Sprint(defaultTestPackageParallelism)}
@@ -262,6 +268,11 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	runErr := proc.Run(ctx)
 	rawOutput := capture.String()
 	summary := ParseTestJSON(rawOutput)
+	execution := &TestExecution{
+		TestSummary: summary,
+		Structured:  ParseTestJSONStructured(rawOutput),
+		RawOutput:   rawOutput,
+	}
 
 	// Persist the raw JSON stream for post-mortem. Best-effort —
 	// failure here should never mask a test result. Path is documented
@@ -275,9 +286,9 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	}
 
 	if runErr != nil {
-		return summary, runErr
+		return execution, runErr
 	}
-	return summary, nil
+	return execution, nil
 }
 
 func goTestWorkDir(sourceLocation string) string {
