@@ -100,6 +100,7 @@ func generateOpenAPIGo(ctx context.Context, unique string, image *resources.Dock
 	runner.WithMount(openapiDir, "/workspace/openapi")
 	runner.WithMount(root, "/workspace")
 	runner.WithWorkDir("/workspace")
+	runner.WithUser(hostUserSpec())
 	defer func() {
 		if shutErr := runner.Shutdown(ctx); shutErr != nil {
 			w.Warn("cannot shutdown runner", wool.ErrField(shutErr))
@@ -154,6 +155,7 @@ func generateOpenAPITypeScript(ctx context.Context, unique string, image *resour
 	runner.WithMount(openapiDir, "/workspace/openapi")
 	runner.WithMount(destinationDir, "/workspace/output")
 	runner.WithWorkDir("/workspace")
+	runner.WithUser(hostUserSpec())
 	runner.WithPause()
 
 	defer func() {

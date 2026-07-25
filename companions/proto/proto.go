@@ -61,6 +61,19 @@ func NewBuf(ctx context.Context, dir string) (*Buf, error) {
 	}, nil
 }
 
+// hostUserSpec returns the "UID:GID" a proto companion should run as, or ""
+// to keep the image's default user. On Linux the container otherwise runs as
+// root and writes the generated tree as root into the bind mount, leaving it
+// unreadable by a non-root host such as a CI runner. It is empty off Linux:
+// Docker Desktop on macOS already remaps bind-mount ownership to the host
+// user, and the non-Docker backends run as the host user to begin with.
+func hostUserSpec() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+}
+
 // WithGeneratedRoot declares the service root that owns generated outputs.
 // This is distinct from Dir for nested protocol layouts such as code/proto:
 // Buf runs from code/, while generated OpenAPI may still live at the service
@@ -117,14 +130,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 	if runner.Backend() == companion.BackendDocker {
 		runner.WithMount(g.Dir, "/workspace")
 		runner.WithWorkDir("/workspace/proto")
-		// On Linux, containers default to root, so buf writes the generated
-		// tree as root into the bind mount. A non-root host (e.g. a CI
-		// runner) then can't read it back. Run as the host user so the
-		// output is host-owned. Docker Desktop on macOS remaps bind-mount
-		// ownership to the host user already, so this is Linux-only.
-		if runtime.GOOS == "linux" {
-			runner.WithUser(fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()))
-		}
+		runner.WithUser(hostUserSpec())
 	} else {
 		runner.WithWorkDir(path.Join(g.Dir, "proto"))
 	}
