@@ -54,11 +54,16 @@ FROM codeflydev/codefly:0.0.3
 #   - Go-built plugins (buf, protoc-gen-*) ARE static (CGO_ENABLED=0
 #     by default for `go install`), so we COPY just those binaries
 #     without bringing the Go runtime.
+# HOME=/tmp so the companion works when run as an arbitrary non-root UID
+# (codefly runs it as the host user on Linux CI). buf and npm/npx write
+# their caches under $HOME; the default /root isn't writable by that user.
+ENV HOME=/tmp
+
 RUN apk add --no-cache nodejs npm protobuf go && \
     npm install -g \
         openapi-typescript@7.13.0 \
         swagger2openapi@7.0.8 \
-        @bufbuild/protoc-gen-es@2.11.0 && \
+        @bufbuild/protoc-gen-es@2.12.0 && \
     npm cache clean --force
 
 COPY --from=builder /go/bin/buf /usr/local/bin/

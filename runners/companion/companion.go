@@ -37,6 +37,12 @@ type CompanionRunner interface {
 	// WithWorkDir sets the working directory for all processes.
 	WithWorkDir(dir string)
 
+	// WithUser runs the companion as the given "UID[:GID]" user.
+	// Docker: sets the container user so bind-mounted output is owned by
+	// that user rather than root. Nix/Local: no-op (already runs as the
+	// host user).
+	WithUser(user string)
+
 	// WithPause keeps the environment alive after Init.
 	// Docker: runs `sleep infinity`. Nix/Local: no-op.
 	WithPause()
@@ -156,6 +162,10 @@ func (d *dockerCompanion) WithWorkDir(dir string) {
 	d.inner.WithWorkDir(dir)
 }
 
+func (d *dockerCompanion) WithUser(user string) {
+	d.inner.WithUser(user)
+}
+
 func (d *dockerCompanion) WithPause() {
 	d.inner.WithPause()
 }
@@ -202,6 +212,9 @@ func (l *localCompanion) WithPortMapping(_ context.Context, _, _ uint16) {}
 func (l *localCompanion) WithWorkDir(dir string) {
 	l.workDir = dir
 }
+
+// WithUser is a no-op for local runners -- already runs as the host user.
+func (l *localCompanion) WithUser(_ string) {}
 
 // WithPause is a no-op for local runners.
 func (l *localCompanion) WithPause() {}
@@ -255,6 +268,9 @@ func (n *nixCompanion) WithPortMapping(_ context.Context, _, _ uint16) {}
 func (n *nixCompanion) WithWorkDir(dir string) {
 	n.workDir = dir
 }
+
+// WithUser is a no-op for Nix runners -- already runs as the host user.
+func (n *nixCompanion) WithUser(_ string) {}
 
 // WithPause is a no-op for Nix runners.
 func (n *nixCompanion) WithPause() {}
