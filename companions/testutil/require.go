@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/codefly-dev/core/companions/golang"
+	golang "github.com/codefly-dev/core/companions/go"
 	"github.com/codefly-dev/core/companions/proto"
 	"github.com/codefly-dev/core/runners/dockerrun"
 )

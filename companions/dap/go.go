@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/codefly-dev/core/companions/golang"
+	golang "github.com/codefly-dev/core/companions/go"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/companion"

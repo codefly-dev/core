@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/codefly-dev/core/companions/python"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/companion"
@@ -12,9 +13,8 @@ import (
 
 func init() {
 	Register(languages.PYTHON, &LanguageConfig{
-		CompanionImage: func(_ context.Context) (*resources.DockerImage, error) {
-			// Use the Python companion image (which includes debugpy).
-			return &resources.DockerImage{Name: "codeflydev/python", Tag: "0.0.5"}, nil
+		CompanionImage: func(ctx context.Context) (*resources.DockerImage, error) {
+			return python.CompanionImage(ctx)
 		},
 		DAPBinary: "python",
 		DAPListenArgs: func(port int) []string {
