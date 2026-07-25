@@ -29,9 +29,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/codefly-dev/core/failures"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
-	"github.com/codefly-dev/core/failures"
 )
 
 // OutputGoTestJSON is the formula output format produced by `go test -json`.
