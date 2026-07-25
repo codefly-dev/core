@@ -38,6 +38,13 @@ COPY --from=codeflydev/codefly:0.0.3 /bin/codefly /bin/codefly
 # editing this version path AND info.codefly.yaml together.
 RUN curl -LsSf https://astral.sh/uv/0.5.29/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
+# debugpy is the DAP adapter this companion launches
+# (`python -m debugpy.adapter`, see companions/dap/python.go). Install it
+# into the system interpreter so it is importable by the container's default
+# `python` regardless of any project venv mounted at runtime. --break-system-packages
+# is required because the alpine base marks the system env as externally managed.
+RUN pip install --no-cache-dir --break-system-packages debugpy
+
 # uv venv convention used by python-fastapi (see DockerEnvPath in its
 # runtime). Plugins mount /venv so venvs survive container restarts.
 ENV UV_PROJECT_ENVIRONMENT=/venv
