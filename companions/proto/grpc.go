@@ -71,6 +71,7 @@ func GenerateGRPC(ctx context.Context, language languages.Language, destination 
 	runner.WithMount(destination, "/workspace/output")
 	runner.WithMount(tmpDir, "/workspace")
 	runner.WithWorkDir("/workspace")
+	runner.WithUser(hostUserSpec())
 	runner.WithPause()
 
 	defer func() {
