@@ -136,6 +136,10 @@ service Gateway {
   // GitRevert creates a commit that reverts one revision.
   rpc GitRevert(GitRevertRequest) returns (GitRevertResponse);
 
+  // Release bumps the code unit versions, commits them, creates a signed tag,
+  // and publishes the commit and tag as one semantic operation.
+  rpc Release(ReleaseRequest) returns (ReleaseResponse);
+
   // ─── Forge ───────────────────────────────────────────────────
 
   // ForgePullRequestStatus returns one vendor-neutral PR/check/review snapshot.
@@ -1159,6 +1163,63 @@ message GitRevertResponse {
   string revision = 4;
   // act is the authoritative typed outcome.
   ActReceipt act = 5;
+}
+
+// ReleaseBump selects the semantic version component to increment.
+enum ReleaseBump {
+  // RELEASE_BUMP_UNSPECIFIED is rejected.
+  RELEASE_BUMP_UNSPECIFIED = 0;
+  // RELEASE_BUMP_PATCH increments the patch component.
+  RELEASE_BUMP_PATCH = 1;
+  // RELEASE_BUMP_MINOR increments the minor component.
+  RELEASE_BUMP_MINOR = 2;
+  // RELEASE_BUMP_MAJOR increments the major component.
+  RELEASE_BUMP_MAJOR = 3;
+}
+
+// ReleaseUnit identifies one versioned code unit in the release.
+message ReleaseUnit {
+  // code_unit_id is the stable caller-visible unit identity.
+  string code_unit_id = 1;
+  // version_file is the repository-relative manifest containing its version.
+  string version_file = 2;
+}
+
+// ReleasedUnit reports one version mutation included in the release.
+message ReleasedUnit {
+  // code_unit_id is the stable caller-visible unit identity.
+  string code_unit_id = 1;
+  // version_file is the repository-relative manifest that was changed.
+  string version_file = 2;
+  // version is the released semantic version without the v prefix.
+  string version = 3;
+}
+
+// ReleaseRequest publishes one signed semantic release for one or more code
+// units in a repository.
+message ReleaseRequest {
+  // service identifies the repository Gateway.
+  string service = 1;
+  // bump selects the semantic version component to increment.
+  ReleaseBump bump = 2;
+  // units are versioned together in one commit and one signed tag.
+  repeated ReleaseUnit units = 3;
+}
+
+// ReleaseResponse reports the remote-confirmed release.
+message ReleaseResponse {
+  // success reports whether the release was published.
+  bool success = 1;
+  // error explains a failed release.
+  string error = 2;
+  // tag is the published semantic version tag.
+  string tag = 3;
+  // revision is the published release commit.
+  string revision = 4;
+  // act is the authoritative typed outcome.
+  ActReceipt act = 5;
+  // units are the version mutations included in the release.
+  repeated ReleasedUnit units = 6;
 }
 
 // ─── Forge ───────────────────────────────────────────────────

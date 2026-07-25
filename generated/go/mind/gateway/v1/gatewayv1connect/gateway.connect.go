@@ -5,12 +5,13 @@
 package gatewayv1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -100,6 +101,8 @@ const (
 	GatewayGitMergeProcedure = "/mind.gateway.v1.Gateway/GitMerge"
 	// GatewayGitRevertProcedure is the fully-qualified name of the Gateway's GitRevert RPC.
 	GatewayGitRevertProcedure = "/mind.gateway.v1.Gateway/GitRevert"
+	// GatewayReleaseProcedure is the fully-qualified name of the Gateway's Release RPC.
+	GatewayReleaseProcedure = "/mind.gateway.v1.Gateway/Release"
 	// GatewayForgePullRequestStatusProcedure is the fully-qualified name of the Gateway's
 	// ForgePullRequestStatus RPC.
 	GatewayForgePullRequestStatusProcedure = "/mind.gateway.v1.Gateway/ForgePullRequestStatus"
@@ -205,6 +208,9 @@ type GatewayClient interface {
 	GitMerge(context.Context, *connect.Request[v1.GitMergeRequest]) (*connect.Response[v1.GitMergeResponse], error)
 	// GitRevert creates a commit that reverts one revision.
 	GitRevert(context.Context, *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error)
+	// Release bumps the code unit versions, commits them, creates a signed tag,
+	// and publishes the commit and tag as one semantic operation.
+	Release(context.Context, *connect.Request[v1.ReleaseRequest]) (*connect.Response[v1.ReleaseResponse], error)
 	// ForgePullRequestStatus returns one vendor-neutral PR/check/review snapshot.
 	ForgePullRequestStatus(context.Context, *connect.Request[v1.ForgePullRequestStatusRequest]) (*connect.Response[v1.ForgePullRequestStatusResponse], error)
 	// ForgeMergePullRequest merges a PR after enforcing its requested check policy.
@@ -437,6 +443,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(gatewayMethods.ByName("GitRevert")),
 			connect.WithClientOptions(opts...),
 		),
+		release: connect.NewClient[v1.ReleaseRequest, v1.ReleaseResponse](
+			httpClient,
+			baseURL+GatewayReleaseProcedure,
+			connect.WithSchema(gatewayMethods.ByName("Release")),
+			connect.WithClientOptions(opts...),
+		),
 		forgePullRequestStatus: connect.NewClient[v1.ForgePullRequestStatusRequest, v1.ForgePullRequestStatusResponse](
 			httpClient,
 			baseURL+GatewayForgePullRequestStatusProcedure,
@@ -552,6 +564,7 @@ type gatewayClient struct {
 	gitTag                     *connect.Client[v1.GitTagRequest, v1.GitTagResponse]
 	gitMerge                   *connect.Client[v1.GitMergeRequest, v1.GitMergeResponse]
 	gitRevert                  *connect.Client[v1.GitRevertRequest, v1.GitRevertResponse]
+	release                    *connect.Client[v1.ReleaseRequest, v1.ReleaseResponse]
 	forgePullRequestStatus     *connect.Client[v1.ForgePullRequestStatusRequest, v1.ForgePullRequestStatusResponse]
 	forgeMergePullRequest      *connect.Client[v1.ForgeMergePullRequestRequest, v1.ForgeMergePullRequestResponse]
 	forgeRequestReview         *connect.Client[v1.ForgeRequestReviewRequest, v1.ForgeRequestReviewResponse]
@@ -727,6 +740,11 @@ func (c *gatewayClient) GitRevert(ctx context.Context, req *connect.Request[v1.G
 	return c.gitRevert.CallUnary(ctx, req)
 }
 
+// Release calls mind.gateway.v1.Gateway.Release.
+func (c *gatewayClient) Release(ctx context.Context, req *connect.Request[v1.ReleaseRequest]) (*connect.Response[v1.ReleaseResponse], error) {
+	return c.release.CallUnary(ctx, req)
+}
+
 // ForgePullRequestStatus calls mind.gateway.v1.Gateway.ForgePullRequestStatus.
 func (c *gatewayClient) ForgePullRequestStatus(ctx context.Context, req *connect.Request[v1.ForgePullRequestStatusRequest]) (*connect.Response[v1.ForgePullRequestStatusResponse], error) {
 	return c.forgePullRequestStatus.CallUnary(ctx, req)
@@ -863,6 +881,9 @@ type GatewayHandler interface {
 	GitMerge(context.Context, *connect.Request[v1.GitMergeRequest]) (*connect.Response[v1.GitMergeResponse], error)
 	// GitRevert creates a commit that reverts one revision.
 	GitRevert(context.Context, *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error)
+	// Release bumps the code unit versions, commits them, creates a signed tag,
+	// and publishes the commit and tag as one semantic operation.
+	Release(context.Context, *connect.Request[v1.ReleaseRequest]) (*connect.Response[v1.ReleaseResponse], error)
 	// ForgePullRequestStatus returns one vendor-neutral PR/check/review snapshot.
 	ForgePullRequestStatus(context.Context, *connect.Request[v1.ForgePullRequestStatusRequest]) (*connect.Response[v1.ForgePullRequestStatusResponse], error)
 	// ForgeMergePullRequest merges a PR after enforcing its requested check policy.
@@ -1091,6 +1112,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(gatewayMethods.ByName("GitRevert")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayReleaseHandler := connect.NewUnaryHandler(
+		GatewayReleaseProcedure,
+		svc.Release,
+		connect.WithSchema(gatewayMethods.ByName("Release")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gatewayForgePullRequestStatusHandler := connect.NewUnaryHandler(
 		GatewayForgePullRequestStatusProcedure,
 		svc.ForgePullRequestStatus,
@@ -1235,6 +1262,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayGitMergeHandler.ServeHTTP(w, r)
 		case GatewayGitRevertProcedure:
 			gatewayGitRevertHandler.ServeHTTP(w, r)
+		case GatewayReleaseProcedure:
+			gatewayReleaseHandler.ServeHTTP(w, r)
 		case GatewayForgePullRequestStatusProcedure:
 			gatewayForgePullRequestStatusHandler.ServeHTTP(w, r)
 		case GatewayForgeMergePullRequestProcedure:
@@ -1396,6 +1425,10 @@ func (UnimplementedGatewayHandler) GitMerge(context.Context, *connect.Request[v1
 
 func (UnimplementedGatewayHandler) GitRevert(context.Context, *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GitRevert is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) Release(context.Context, *connect.Request[v1.ReleaseRequest]) (*connect.Response[v1.ReleaseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.Release is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) ForgePullRequestStatus(context.Context, *connect.Request[v1.ForgePullRequestStatusRequest]) (*connect.Response[v1.ForgePullRequestStatusResponse], error) {
