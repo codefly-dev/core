@@ -65,6 +65,9 @@ func buildTestArgs(opt TestOptions) []string {
 	if opt.Coverage {
 		args = append(args, "-cover")
 	}
+	if opt.FailFast {
+		args = append(args, "-failfast")
+	}
 	pkg := "./..."
 	if opt.Target != "" {
 		if isPackagePath(opt.Target) {
@@ -128,6 +131,18 @@ func TestGoTestArgs_CoverageOptIn(t *testing.T) {
 				t.Errorf("args=%q: -race present=%v, want=%v", joined, got, tc.wantRace)
 			}
 		})
+	}
+}
+
+func TestGoTestArgs_FailFastOptIn(t *testing.T) {
+	defaultArgs := strings.Join(buildTestArgs(TestOptions{}), " ")
+	if strings.Contains(defaultArgs, " -failfast") {
+		t.Fatalf("fail-fast must remain opt-in: %q", defaultArgs)
+	}
+
+	failFastArgs := strings.Join(buildTestArgs(TestOptions{FailFast: true}), " ")
+	if !strings.Contains(failFastArgs, " -failfast") {
+		t.Fatalf("typed fail-fast was not mapped to go test: %q", failFastArgs)
 	}
 }
 

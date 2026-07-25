@@ -141,6 +141,11 @@ type TestOptions struct {
 	// roughly doubles test-binary compile time; opt in per TestRequest.
 	Coverage bool
 
+	// FailFast stops each native Go test binary after its first failure.
+	// CI enables it to surface decisive runtime failures (including
+	// fail-closed replay misses) without running the rest of a long suite.
+	FailFast bool
+
 	// Filters are name regex patterns (multiple combined with OR) passed
 	// to `go test -run`. Equivalent to `-run "(p1|p2|...)"`.
 	Filters []string
@@ -210,6 +215,9 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	args = append(args, "-timeout", timeout)
 	if opt.Coverage {
 		args = append(args, "-cover")
+	}
+	if opt.FailFast {
+		args = append(args, "-failfast")
 	}
 
 	// Determine package target. Target is now strictly directory scope —

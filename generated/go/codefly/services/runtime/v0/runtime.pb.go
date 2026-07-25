@@ -2222,7 +2222,13 @@ type TestRequest struct {
 	// reject a response that does not echo the expected identity. This makes an
 	// older peer that ignores the additive selection field fail closed instead
 	// of accidentally certifying a broad test run.
-	SelectionId   string `protobuf:"bytes,11,opt,name=selection_id,json=selectionId,proto3" json:"selection_id,omitempty"`
+	SelectionId string `protobuf:"bytes,11,opt,name=selection_id,json=selectionId,proto3" json:"selection_id,omitempty"`
+	// Stop the underlying test runner after its first failure. CI uses this to
+	// avoid spending the remainder of a long suite after a fail-closed external
+	// replay miss or any other decisive runtime failure. Agents map this to the
+	// native runner's fail-fast behavior; it is false for interactive/default
+	// test requests so callers can still collect the complete failure set.
+	FailFast      bool `protobuf:"varint,12,opt,name=fail_fast,json=failFast,proto3" json:"fail_fast,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2332,6 +2338,13 @@ func (x *TestRequest) GetSelectionId() string {
 		return x.SelectionId
 	}
 	return ""
+}
+
+func (x *TestRequest) GetFailFast() bool {
+	if x != nil {
+		return x.FailFast
+	}
+	return false
 }
 
 // TestFormula is a fully-described test invocation as DATA — and it is
@@ -4530,7 +4543,7 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\apackage\x18\x01 \x01(\tR\apackage\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x14\n" +
 	"\x05suite\x18\x03 \x01(\tR\x05suite\x12%\n" +
-	"\x0equalified_name\x18\x04 \x03(\tR\rqualifiedName\"\x89\x03\n" +
+	"\x0equalified_name\x18\x04 \x03(\tR\rqualifiedName\"\xa6\x03\n" +
 	"\vTestRequest\x12\x16\n" +
 	"\x06target\x18\x01 \x01(\tR\x06target\x12\x18\n" +
 	"\averbose\x18\x02 \x01(\bR\averbose\x12\x12\n" +
@@ -4544,7 +4557,8 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\aformula\x18\t \x01(\v2(.codefly.services.runtime.v0.TestFormulaR\aformula\x12H\n" +
 	"\tselection\x18\n" +
 	" \x01(\v2*.codefly.services.runtime.v0.TestSelectionR\tselection\x12!\n" +
-	"\fselection_id\x18\v \x01(\tR\vselectionId\"\xdd\x02\n" +
+	"\fselection_id\x18\v \x01(\tR\vselectionId\x12\x1b\n" +
+	"\tfail_fast\x18\f \x01(\bR\bfailFast\"\xdd\x02\n" +
 	"\vTestFormula\x12\x18\n" +
 	"\acommand\x18\x01 \x03(\tR\acommand\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12C\n" +

@@ -379,6 +379,13 @@ message TestRequest {
   // older peer that ignores the additive selection field fail closed instead
   // of accidentally certifying a broad test run.
   string selection_id = 11;
+
+  // Stop the underlying test runner after its first failure. CI uses this to
+  // avoid spending the remainder of a long suite after a fail-closed external
+  // replay miss or any other decisive runtime failure. Agents map this to the
+  // native runner's fail-fast behavior; it is false for interactive/default
+  // test requests so callers can still collect the complete failure set.
+  bool fail_fast = 12;
 }
 
 // TestFormula is a fully-described test invocation as DATA — and it is
