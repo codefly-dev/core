@@ -129,6 +129,26 @@ func TestRunFormula_FailingTestIsFailedNotBlocked(t *testing.T) {
 	}
 }
 
+func TestRunFormula_FailFastStopsAfterFirstFailure(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/failfast\n\ngo 1.21\n",
+		"failfast_test.go": `package failfast
+
+import "testing"
+
+func TestFirstFailure(t *testing.T) { t.Fatal("first") }
+func TestSecondFailure(t *testing.T) { t.Fatal("second") }
+`,
+	})
+	resp, err := RunFormula(formulaCtx(t), dir, nil, nil, true)
+	if err != nil {
+		t.Fatalf("RunFormula: %v", err)
+	}
+	if resp.GetCounts().GetFailed() != 1 || resp.GetCounts().GetTotal() != 1 {
+		t.Fatalf("fail-fast counts = %+v, want only the first failing test", resp.GetCounts())
+	}
+}
+
 func TestRunFormula_SelectorTargetsSingleTest(t *testing.T) {
 	dir := writeModule(t, map[string]string{
 		"go.mod":           "module example.com/stringsx\n\ngo 1.21\n",
