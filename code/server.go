@@ -785,12 +785,26 @@ func (s *DefaultCodeServer) untrackedWorkingTreeDiff(ctx context.Context, pathFi
 		if p == "" {
 			continue
 		}
+		if isGeneratedUntrackedPath(p) {
+			continue
+		}
 		if pathFilter != "" && p != pathFilter && !strings.HasPrefix(p, strings.TrimSuffix(pathFilter, "/")+"/") {
 			continue
 		}
 		blocks.WriteString(s.gitDiffNoIndexNewFile(ctx, p))
 	}
 	return blocks.String()
+}
+
+func isGeneratedUntrackedPath(path string) bool {
+	for _, component := range strings.Split(filepath.ToSlash(path), "/") {
+		switch component {
+		case "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+			"node_modules", "vendor", "target", "dist", "build", ".cache":
+			return true
+		}
+	}
+	return false
 }
 
 // gitDiffNoIndexNewFile shells `git diff --no-index -- /dev/null <path>`.

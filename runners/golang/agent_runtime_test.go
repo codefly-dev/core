@@ -273,6 +273,12 @@ func TestRunGoTestsStandaloneModuleIgnoresParentWorkspace(t *testing.T) {
 	if summary.Passed != 1 || summary.Failed != 0 {
 		t.Fatalf("summary = %+v, want one passing test", summary)
 	}
+	if summary.Structured == nil || len(summary.Structured.Suites) != 1 {
+		t.Fatalf("structured summary = %+v, want one package suite", summary.Structured)
+	}
+	if !strings.Contains(summary.RawOutput, `"Test":"TestGeneratedService"`) {
+		t.Fatalf("raw output does not contain the executed test event: %q", summary.RawOutput)
+	}
 }
 
 func TestCombineRunRegex(t *testing.T) {

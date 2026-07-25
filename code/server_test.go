@@ -39,6 +39,30 @@ func TestListFilesSkipsGeneratedDependencyTrees(t *testing.T) {
 	}
 }
 
+func TestGeneratedUntrackedPathClassification(t *testing.T) {
+	for _, path := range []string{
+		"__pycache__/module.pyc",
+		"pkg/.pytest_cache/state",
+		"web/node_modules/pkg/index.js",
+		"crate/target/debug/app",
+		"nested/build/output.bin",
+	} {
+		if !isGeneratedUntrackedPath(path) {
+			t.Errorf("isGeneratedUntrackedPath(%q) = false, want true", path)
+		}
+	}
+	for _, path := range []string{
+		"main.py",
+		"src/cache/client.go",
+		"build.go",
+		"distribution/readme.md",
+	} {
+		if isGeneratedUntrackedPath(path) {
+			t.Errorf("isGeneratedUntrackedPath(%q) = true, want false", path)
+		}
+	}
+}
+
 type serverTestCase struct {
 	name      string
 	setupFunc func(t *testing.T) (string, *DefaultCodeServer)

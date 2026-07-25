@@ -242,6 +242,9 @@ func TestRunFormulaStructured_CwdMovesRunDirectory(t *testing.T) {
 	if run.caseCount() != 1 {
 		t.Fatalf("expected 1 executed case, got %d\nraw: %s", run.caseCount(), run.RawOutput)
 	}
+	if _, err := os.Stat(filepath.Join(root, "tests", "__pycache__")); !os.IsNotExist(err) {
+		t.Fatalf("formula run generated source-tree bytecode cache: %v", err)
+	}
 
 	// Same formula WITHOUT cwd: test_sample is not importable from the repo
 	// root — unittest surfaces it as a loader-error case (or nothing at all).
