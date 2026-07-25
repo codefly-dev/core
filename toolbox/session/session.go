@@ -550,6 +550,16 @@ func (s *ToolboxSession) Call(ctx context.Context, input CallRequest) (*CallResu
 		RequestID: requestID, ObjectiveID: input.ObjectiveID, TaskID: input.TaskID,
 		TraceID: traceID, ReleaseID: s.scope.ReleaseID,
 	}
+	// A caller deadline or cancellation is authoritative over any racing tool
+	// response. The disposable process may observe ctx.Done() and answer with a
+	// tool error, and that response can win the race back to the client before
+	// the transport surfaces the deadline; the caller must still see the stable
+	// timeout/canceled category, never tool_error.
+	if callErr == nil {
+		if ctxErr := callCtx.Err(); ctxErr != nil {
+			callErr = ctxErr
+		}
+	}
 	if callErr != nil {
 		code := classifyTransport(callCtx, callErr)
 		retry := retryFor(approved.Idempotency, code)
