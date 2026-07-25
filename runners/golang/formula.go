@@ -29,9 +29,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/codefly-dev/core/failures"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
-	"github.com/codefly-dev/core/failures"
 )
 
 // OutputGoTestJSON is the formula output format produced by `go test -json`.
@@ -125,10 +125,14 @@ func ClassifyEnvError(raw string, runErr error) (reason, detail string) {
 // regexp-escaped and anchored into `-run`, so "TestFoo" never selects
 // "TestFooBar" and bracketed subtest names stay literal.
 //
+// When failFast is true, the typed CI setting is mapped to Go's native
+// `-failfast` flag. The optional argument preserves source compatibility for
+// callers that do not yet send the additive TestRequest field.
+//
 // The run always sets GOWORK=off: a formula run tests THIS module in
 // isolation, and a go.work in any parent directory (common when fixtures
 // live inside a bigger repo) must not leak into module resolution.
-func RunFormula(ctx context.Context, sourceDir string, command []string, selectors []string) (*runtimev0.TestResponse, error) {
+func RunFormula(ctx context.Context, sourceDir string, command []string, selectors []string, failFast ...bool) (*runtimev0.TestResponse, error) {
 	start := time.Now()
 	if len(command) == 0 {
 		derived, _, ok := DeriveFormula(sourceDir)
@@ -174,6 +178,9 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 	// run — inject the flag right after the subcommand.
 	if len(args) > 0 && args[0] == "test" && !slices.Contains(args, "-json") {
 		args = slices.Insert(args, 1, "-json")
+	}
+	if len(args) > 0 && args[0] == "test" && len(failFast) > 0 && failFast[0] && !slices.Contains(args, "-failfast") {
+		args = append(args, "-failfast")
 	}
 	args = append(args, pkgs...)
 

@@ -7,6 +7,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -141,6 +143,11 @@ type TestOptions struct {
 	// roughly doubles test-binary compile time; opt in per TestRequest.
 	Coverage bool
 
+	// FailFast stops each native Go test binary after its first failure.
+	// CI enables it to surface decisive runtime failures (including
+	// fail-closed replay misses) without running the rest of a long suite.
+	FailFast bool
+
 	// Filters are name regex patterns (multiple combined with OR) passed
 	// to `go test -run`. Equivalent to `-run "(p1|p2|...)"`.
 	Filters []string
@@ -211,6 +218,9 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	if opt.Coverage {
 		args = append(args, "-cover")
 	}
+	if opt.FailFast {
+		args = append(args, "-failfast")
+	}
 
 	// Determine package target. Target is now strictly directory scope —
 	// name patterns belong in Filters. The Target-as-name fallback stays
@@ -242,12 +252,40 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 		return nil, err
 	}
 
-	// Stream when a callback is provided; otherwise buffer only (the
-	// original behavior). Both paths use LineCapture.String() at the end
-	// to feed ParseTestJSON.
+	// Stream when a callback is provided or fail-fast needs to observe the
+	// first structured failure. Go's native -failfast stops tests inside an
+	// individual package binary, but `go test ./...` may already have other
+	// package binaries in flight. Stop the whole runner process tree on the
+	// first failing test event so CI does not keep burning through packages.
+	// Both paths use LineCapture.String() at the end to feed ParseTestJSON.
 	var capture *LineCapture
-	if opt.OnEvent != nil {
-		streaming := &StreamingTestWriter{OnEvent: opt.OnEvent}
+	if opt.OnEvent != nil || opt.FailFast {
+		onEvent := opt.OnEvent
+		if opt.FailFast {
+			var stopOnce sync.Once
+			onEvent = func(ev TestEvent) {
+				if opt.OnEvent != nil {
+					opt.OnEvent(ev)
+				}
+				if ev.Action != "fail" || ev.Test == "" {
+					return
+				}
+				stopOnce.Do(func() {
+					// The writer runs on a process-output goroutine. Stop
+					// asynchronously because native Stop waits for output
+					// forwarding to drain before it returns.
+					go func() {
+						stopCtx, stopCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+						defer stopCancel()
+						if err := proc.Stop(stopCtx); err != nil {
+							wool.Get(ctx).In("RunGoTests").
+								Debug("could not stop fail-fast test process (non-fatal)", wool.ErrField(err))
+						}
+					}()
+				})
+			}
+		}
+		streaming := &StreamingTestWriter{OnEvent: onEvent}
 		proc.WithOutput(streaming)
 		capture = &streaming.LineCapture
 	} else {

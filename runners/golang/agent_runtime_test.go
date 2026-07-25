@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
@@ -64,6 +65,9 @@ func buildTestArgs(opt TestOptions) []string {
 	args = append(args, "-timeout", timeout)
 	if opt.Coverage {
 		args = append(args, "-cover")
+	}
+	if opt.FailFast {
+		args = append(args, "-failfast")
 	}
 	pkg := "./..."
 	if opt.Target != "" {
@@ -128,6 +132,18 @@ func TestGoTestArgs_CoverageOptIn(t *testing.T) {
 				t.Errorf("args=%q: -race present=%v, want=%v", joined, got, tc.wantRace)
 			}
 		})
+	}
+}
+
+func TestGoTestArgs_FailFastOptIn(t *testing.T) {
+	defaultArgs := strings.Join(buildTestArgs(TestOptions{}), " ")
+	if strings.Contains(defaultArgs, " -failfast") {
+		t.Fatalf("fail-fast must remain opt-in: %q", defaultArgs)
+	}
+
+	failFastArgs := strings.Join(buildTestArgs(TestOptions{FailFast: true}), " ")
+	if !strings.Contains(failFastArgs, " -failfast") {
+		t.Fatalf("typed fail-fast was not mapped to go test: %q", failFastArgs)
 	}
 }
 
@@ -278,6 +294,63 @@ func TestRunGoTestsStandaloneModuleIgnoresParentWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(summary.RawOutput, `"Test":"TestGeneratedService"`) {
 		t.Fatalf("raw output does not contain the executed test event: %q", summary.RawOutput)
+	}
+}
+
+func TestRunGoTestsFailFastStopsWholeProcessTree(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	for _, dir := range []string{filepath.Join(root, "aaa"), filepath.Join(root, "zzz")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	marker := filepath.Join(root, "slow-test-completed")
+	files := map[string]string{
+		filepath.Join(root, "go.mod"): "module example.com/failfast\n\ngo 1.24.0\n",
+		filepath.Join(root, "aaa", "failure_test.go"): `package aaa
+
+import "testing"
+
+func TestImmediateFailure(t *testing.T) { t.Fatal("stop now") }
+`,
+		filepath.Join(root, "zzz", "slow_test.go"): fmt.Sprintf(`package zzz
+
+import (
+	"os"
+	"testing"
+	"time"
+)
+
+func TestSlowPackage(t *testing.T) {
+	time.Sleep(8 * time.Second)
+	if err := os.WriteFile(%q, []byte("too late"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+`, marker),
+	}
+	for name, contents := range files {
+		if err := os.WriteFile(name, []byte(contents), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	env, err := NewNativeGoRunner(ctx, root, ".")
+	if err != nil {
+		t.Fatalf("new native runner: %v", err)
+	}
+	env.WithWorkspace(false)
+	started := time.Now()
+	execution, _ := RunGoTests(ctx, env, root, nil, TestOptions{FailFast: true})
+	if execution == nil || execution.Failed == 0 {
+		t.Fatalf("execution = %+v, want the first failure preserved", execution)
+	}
+	if elapsed := time.Since(started); elapsed >= 6*time.Second {
+		t.Fatalf("fail-fast took %s; slow package was not stopped", elapsed)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("slow package completed after fail-fast: stat error=%v", err)
 	}
 }
 
