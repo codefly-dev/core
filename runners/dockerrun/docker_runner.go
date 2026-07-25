@@ -44,6 +44,10 @@ type DockerEnvironment struct {
 
 	cmd   []string
 	pause bool
+	// user, when set, runs the container (and its execs) as this UID[:GID].
+	// Used to make files a container writes to a bind mount owned by the
+	// invoking host user rather than root — see WithUser.
+	user string
 
 	// mu guards envs / portMappings / mounts which may be mutated via
 	// WithEnvironmentVariables / WithPortMapping / WithMount while another
@@ -334,6 +338,7 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	docker.mu.Unlock()
 	config := &container.Config{
 		Image: docker.image.FullName(),
+		User:  docker.user,
 		Env:   resources.EnvironmentVariableAsStrings(envCopy),
 		// Service containers are background processes, not interactive terminal
 		// sessions. A pseudo-TTY merges stdout/stderr, changes application
@@ -569,6 +574,14 @@ func (docker *DockerEnvironment) WithPublicPorts() *DockerEnvironment {
 
 func (docker *DockerEnvironment) WithPause() {
 	docker.pause = true
+}
+
+// WithUser runs the container as the given user, in Docker's "UID[:GID]"
+// form. Bind-mounted output is then owned by that user instead of root,
+// so a non-root host process can read (and clean up) what the container
+// wrote. Empty string keeps the image's default user.
+func (docker *DockerEnvironment) WithUser(user string) {
+	docker.user = user
 }
 
 func ContainerName(name string) string {
