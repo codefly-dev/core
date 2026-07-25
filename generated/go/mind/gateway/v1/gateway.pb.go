@@ -5145,7 +5145,9 @@ type GitCommitRequest struct {
 	// message is the commit message to use.
 	Message string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
 	// paths optionally restrict the commit to specific files.
-	Paths         []string `protobuf:"bytes,2,rep,name=paths,proto3" json:"paths,omitempty"` // optional: specific files to commit
+	Paths []string `protobuf:"bytes,2,rep,name=paths,proto3" json:"paths,omitempty"` // optional: specific files to commit
+	// all stages every workspace change before committing.
+	All           bool `protobuf:"varint,3,opt,name=all,proto3" json:"all,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5192,6 +5194,13 @@ func (x *GitCommitRequest) GetPaths() []string {
 		return x.Paths
 	}
 	return nil
+}
+
+func (x *GitCommitRequest) GetAll() bool {
+	if x != nil {
+		return x.All
+	}
+	return false
 }
 
 // GitCommitResponse reports the commit hash when the commit succeeds.
@@ -9428,10 +9437,11 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x04date\x18\x05 \x01(\tR\x04date\"`\n" +
 	"\x0eGitLogResponse\x128\n" +
 	"\acommits\x18\x01 \x03(\v2\x1e.mind.gateway.v1.GitCommitInfoR\acommits\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"B\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"T\n" +
 	"\x10GitCommitRequest\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x14\n" +
-	"\x05paths\x18\x02 \x03(\tR\x05paths\"W\n" +
+	"\x05paths\x18\x02 \x03(\tR\x05paths\x12\x10\n" +
+	"\x03all\x18\x03 \x01(\bR\x03all\"W\n" +
 	"\x11GitCommitResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x12\n" +
 	"\x04hash\x18\x02 \x01(\tR\x04hash\x12\x14\n" +

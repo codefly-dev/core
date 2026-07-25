@@ -970,6 +970,8 @@ message GitCommitRequest {
   string message = 1;
   // paths optionally restrict the commit to specific files.
   repeated string paths = 2; // optional: specific files to commit
+  // all stages every workspace change before committing.
+  bool all = 3;
 }
 
 // GitCommitResponse reports the commit hash when the commit succeeds.
