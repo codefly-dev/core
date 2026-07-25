@@ -3715,7 +3715,9 @@ type FormatResponse struct {
 	// errors contains structured formatter diagnostics.
 	Errors []*BuildError `protobuf:"bytes,3,rep,name=errors,proto3" json:"errors,omitempty"`
 	// output preserves plugin output for diagnosis.
-	Output        string `protobuf:"bytes,4,opt,name=output,proto3" json:"output,omitempty"`
+	Output string `protobuf:"bytes,4,opt,name=output,proto3" json:"output,omitempty"`
+	// act is the authoritative receipt for the applied formatting act.
+	Act           *ActReceipt `protobuf:"bytes,5,opt,name=act,proto3" json:"act,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3776,6 +3778,13 @@ func (x *FormatResponse) GetOutput() string {
 		return x.Output
 	}
 	return ""
+}
+
+func (x *FormatResponse) GetAct() *ActReceipt {
+	if x != nil {
+		return x.Act
+	}
+	return nil
 }
 
 // UnstructuredUse attributes one use of raw process or PTY execution. The
@@ -8659,12 +8668,13 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x10runtime_response\x18\t \x01(\v2).codefly.services.runtime.v0.TestResponseR\x0fruntimeResponse\"?\n" +
 	"\rFormatRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x14\n" +
-	"\x05paths\x18\x02 \x03(\tR\x05paths\"\x9c\x01\n" +
+	"\x05paths\x18\x02 \x03(\tR\x05paths\"\xcb\x01\n" +
 	"\x0eFormatResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rchanged_files\x18\x02 \x03(\tR\fchangedFiles\x123\n" +
 	"\x06errors\x18\x03 \x03(\v2\x1b.mind.gateway.v1.BuildErrorR\x06errors\x12\x16\n" +
-	"\x06output\x18\x04 \x01(\tR\x06output\"\xd2\x01\n" +
+	"\x06output\x18\x04 \x01(\tR\x06output\x12-\n" +
+	"\x03act\x18\x05 \x01(\v2\x1b.mind.gateway.v1.ActReceiptR\x03act\"\xd2\x01\n" +
 	"\x0fUnstructuredUse\x12\x16\n" +
 	"\x06intent\x18\x01 \x01(\tR\x06intent\x12B\n" +
 	"\rcommand_class\x18\x02 \x01(\x0e2\x1d.mind.gateway.v1.CommandClassR\fcommandClass\x12\x1e\n" +
@@ -9253,139 +9263,140 @@ var file_mind_gateway_v1_gateway_proto_depIdxs = []int32{
 	125, // 22: mind.gateway.v1.TestRequest.runtime_request:type_name -> codefly.services.runtime.v0.TestRequest
 	126, // 23: mind.gateway.v1.TestResponse.runtime_response:type_name -> codefly.services.runtime.v0.TestResponse
 	47,  // 24: mind.gateway.v1.FormatResponse.errors:type_name -> mind.gateway.v1.BuildError
-	2,   // 25: mind.gateway.v1.UnstructuredUse.command_class:type_name -> mind.gateway.v1.CommandClass
-	55,  // 26: mind.gateway.v1.RunCommandRequest.unstructured_use:type_name -> mind.gateway.v1.UnstructuredUse
-	59,  // 27: mind.gateway.v1.RunChecksRequest.checks:type_name -> mind.gateway.v1.Check
-	61,  // 28: mind.gateway.v1.Check.command:type_name -> mind.gateway.v1.CommandCheck
-	62,  // 29: mind.gateway.v1.Check.http:type_name -> mind.gateway.v1.HttpCheck
-	60,  // 30: mind.gateway.v1.Check.plugin_build:type_name -> mind.gateway.v1.PluginCheck
-	60,  // 31: mind.gateway.v1.Check.plugin_test:type_name -> mind.gateway.v1.PluginCheck
-	60,  // 32: mind.gateway.v1.Check.plugin_lint:type_name -> mind.gateway.v1.PluginCheck
-	63,  // 33: mind.gateway.v1.RunChecksResponse.results:type_name -> mind.gateway.v1.CheckResult
-	66,  // 34: mind.gateway.v1.GitStatusResponse.files:type_name -> mind.gateway.v1.GitFileStatus
-	71,  // 35: mind.gateway.v1.GitLogResponse.commits:type_name -> mind.gateway.v1.GitCommitInfo
-	123, // 36: mind.gateway.v1.ActReceipt.observed_at:type_name -> google.protobuf.Timestamp
-	75,  // 37: mind.gateway.v1.GitBranchResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	75,  // 38: mind.gateway.v1.GitCheckoutResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	3,   // 39: mind.gateway.v1.GitPushRequest.mode:type_name -> mind.gateway.v1.GitPushMode
-	75,  // 40: mind.gateway.v1.GitPushResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	75,  // 41: mind.gateway.v1.GitTagResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	75,  // 42: mind.gateway.v1.GitMergeResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	75,  // 43: mind.gateway.v1.GitRevertResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	123, // 44: mind.gateway.v1.ForgeReview.submitted_at:type_name -> google.protobuf.Timestamp
-	88,  // 45: mind.gateway.v1.ForgePullRequestStatus.repository:type_name -> mind.gateway.v1.ForgeRepository
-	89,  // 46: mind.gateway.v1.ForgePullRequestStatus.checks:type_name -> mind.gateway.v1.ForgeCheck
-	90,  // 47: mind.gateway.v1.ForgePullRequestStatus.reviews:type_name -> mind.gateway.v1.ForgeReview
-	123, // 48: mind.gateway.v1.ForgePullRequestStatus.observed_at:type_name -> google.protobuf.Timestamp
-	88,  // 49: mind.gateway.v1.ForgePullRequestStatusRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
-	91,  // 50: mind.gateway.v1.ForgePullRequestStatusResponse.status:type_name -> mind.gateway.v1.ForgePullRequestStatus
-	88,  // 51: mind.gateway.v1.ForgeMergePullRequestRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
-	4,   // 52: mind.gateway.v1.ForgeMergePullRequestRequest.method:type_name -> mind.gateway.v1.ForgeMergeMethod
-	5,   // 53: mind.gateway.v1.ForgeMergePullRequestRequest.check_policy:type_name -> mind.gateway.v1.ForgeCheckPolicy
-	91,  // 54: mind.gateway.v1.ForgeMergePullRequestResponse.status:type_name -> mind.gateway.v1.ForgePullRequestStatus
-	75,  // 55: mind.gateway.v1.ForgeMergePullRequestResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	88,  // 56: mind.gateway.v1.ForgeRequestReviewRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
-	75,  // 57: mind.gateway.v1.ForgeRequestReviewResponse.act:type_name -> mind.gateway.v1.ActReceipt
-	98,  // 58: mind.gateway.v1.ListDependenciesResponse.dependencies:type_name -> mind.gateway.v1.Dependency
-	105, // 59: mind.gateway.v1.GetProjectInfoResponse.packages:type_name -> mind.gateway.v1.PackageInfo
-	98,  // 60: mind.gateway.v1.GetProjectInfoResponse.dependencies:type_name -> mind.gateway.v1.Dependency
-	122, // 61: mind.gateway.v1.GetProjectInfoResponse.file_hashes:type_name -> mind.gateway.v1.GetProjectInfoResponse.FileHashesEntry
-	108, // 62: mind.gateway.v1.ListAllCommandsResponse.commands:type_name -> mind.gateway.v1.AvailableCommand
-	55,  // 63: mind.gateway.v1.OpenTerminalRequest.unstructured_use:type_name -> mind.gateway.v1.UnstructuredUse
-	120, // 64: mind.gateway.v1.ListTerminalsResponse.terminals:type_name -> mind.gateway.v1.TerminalInfo
-	6,   // 65: mind.gateway.v1.Gateway.ListServices:input_type -> mind.gateway.v1.ListServicesRequest
-	9,   // 66: mind.gateway.v1.Gateway.ReadFile:input_type -> mind.gateway.v1.ReadFileRequest
-	11,  // 67: mind.gateway.v1.Gateway.WriteFile:input_type -> mind.gateway.v1.WriteFileRequest
-	13,  // 68: mind.gateway.v1.Gateway.ListFiles:input_type -> mind.gateway.v1.ListFilesRequest
-	17,  // 69: mind.gateway.v1.Gateway.SubscribeWorkspaceChanges:input_type -> mind.gateway.v1.SubscribeWorkspaceChangesRequest
-	20,  // 70: mind.gateway.v1.Gateway.DeleteFile:input_type -> mind.gateway.v1.DeleteFileRequest
-	22,  // 71: mind.gateway.v1.Gateway.MoveFile:input_type -> mind.gateway.v1.MoveFileRequest
-	24,  // 72: mind.gateway.v1.Gateway.CreateFile:input_type -> mind.gateway.v1.CreateFileRequest
-	26,  // 73: mind.gateway.v1.Gateway.Fix:input_type -> mind.gateway.v1.FixRequest
-	28,  // 74: mind.gateway.v1.Gateway.ApplyEdit:input_type -> mind.gateway.v1.ApplyEditRequest
-	30,  // 75: mind.gateway.v1.Gateway.BatchApplyEdits:input_type -> mind.gateway.v1.BatchApplyEditsRequest
-	33,  // 76: mind.gateway.v1.Gateway.ConfigureMutationAuthority:input_type -> mind.gateway.v1.ConfigureMutationAuthorityRequest
-	38,  // 77: mind.gateway.v1.Gateway.PrepareMutation:input_type -> mind.gateway.v1.PrepareMutationRequest
-	40,  // 78: mind.gateway.v1.Gateway.ApplyPreparedMutation:input_type -> mind.gateway.v1.ApplyPreparedMutationRequest
-	43,  // 79: mind.gateway.v1.Gateway.Search:input_type -> mind.gateway.v1.SearchRequest
-	46,  // 80: mind.gateway.v1.Gateway.Build:input_type -> mind.gateway.v1.BuildRequest
-	49,  // 81: mind.gateway.v1.Gateway.Lint:input_type -> mind.gateway.v1.LintRequest
-	51,  // 82: mind.gateway.v1.Gateway.Test:input_type -> mind.gateway.v1.TestRequest
-	53,  // 83: mind.gateway.v1.Gateway.Format:input_type -> mind.gateway.v1.FormatRequest
-	56,  // 84: mind.gateway.v1.Gateway.RunCommand:input_type -> mind.gateway.v1.RunCommandRequest
-	109, // 85: mind.gateway.v1.Gateway.ListAllCommands:input_type -> mind.gateway.v1.ListAllCommandsRequest
-	58,  // 86: mind.gateway.v1.Gateway.RunChecks:input_type -> mind.gateway.v1.RunChecksRequest
-	65,  // 87: mind.gateway.v1.Gateway.GitStatus:input_type -> mind.gateway.v1.GitStatusRequest
-	68,  // 88: mind.gateway.v1.Gateway.GitDiff:input_type -> mind.gateway.v1.GitDiffRequest
-	70,  // 89: mind.gateway.v1.Gateway.GitLog:input_type -> mind.gateway.v1.GitLogRequest
-	73,  // 90: mind.gateway.v1.Gateway.GitCommit:input_type -> mind.gateway.v1.GitCommitRequest
-	76,  // 91: mind.gateway.v1.Gateway.GitBranch:input_type -> mind.gateway.v1.GitBranchRequest
-	78,  // 92: mind.gateway.v1.Gateway.GitCheckout:input_type -> mind.gateway.v1.GitCheckoutRequest
-	80,  // 93: mind.gateway.v1.Gateway.GitPush:input_type -> mind.gateway.v1.GitPushRequest
-	82,  // 94: mind.gateway.v1.Gateway.GitTag:input_type -> mind.gateway.v1.GitTagRequest
-	84,  // 95: mind.gateway.v1.Gateway.GitMerge:input_type -> mind.gateway.v1.GitMergeRequest
-	86,  // 96: mind.gateway.v1.Gateway.GitRevert:input_type -> mind.gateway.v1.GitRevertRequest
-	92,  // 97: mind.gateway.v1.Gateway.ForgePullRequestStatus:input_type -> mind.gateway.v1.ForgePullRequestStatusRequest
-	94,  // 98: mind.gateway.v1.Gateway.ForgeMergePullRequest:input_type -> mind.gateway.v1.ForgeMergePullRequestRequest
-	96,  // 99: mind.gateway.v1.Gateway.ForgeRequestReview:input_type -> mind.gateway.v1.ForgeRequestReviewRequest
-	99,  // 100: mind.gateway.v1.Gateway.ListDependencies:input_type -> mind.gateway.v1.ListDependenciesRequest
-	101, // 101: mind.gateway.v1.Gateway.AddDependency:input_type -> mind.gateway.v1.AddDependencyRequest
-	103, // 102: mind.gateway.v1.Gateway.RemoveDependency:input_type -> mind.gateway.v1.RemoveDependencyRequest
-	106, // 103: mind.gateway.v1.Gateway.GetProjectInfo:input_type -> mind.gateway.v1.GetProjectInfoRequest
-	111, // 104: mind.gateway.v1.Gateway.OpenTerminal:input_type -> mind.gateway.v1.OpenTerminalRequest
-	113, // 105: mind.gateway.v1.Gateway.AttachTerminal:input_type -> mind.gateway.v1.TerminalInput
-	115, // 106: mind.gateway.v1.Gateway.ResizeTerminal:input_type -> mind.gateway.v1.ResizeTerminalRequest
-	117, // 107: mind.gateway.v1.Gateway.CloseTerminal:input_type -> mind.gateway.v1.CloseTerminalRequest
-	119, // 108: mind.gateway.v1.Gateway.ListTerminals:input_type -> mind.gateway.v1.ListTerminalsRequest
-	8,   // 109: mind.gateway.v1.Gateway.ListServices:output_type -> mind.gateway.v1.ListServicesResponse
-	10,  // 110: mind.gateway.v1.Gateway.ReadFile:output_type -> mind.gateway.v1.ReadFileResponse
-	12,  // 111: mind.gateway.v1.Gateway.WriteFile:output_type -> mind.gateway.v1.WriteFileResponse
-	15,  // 112: mind.gateway.v1.Gateway.ListFiles:output_type -> mind.gateway.v1.ListFilesResponse
-	19,  // 113: mind.gateway.v1.Gateway.SubscribeWorkspaceChanges:output_type -> mind.gateway.v1.WorkspaceChangeEvent
-	21,  // 114: mind.gateway.v1.Gateway.DeleteFile:output_type -> mind.gateway.v1.DeleteFileResponse
-	23,  // 115: mind.gateway.v1.Gateway.MoveFile:output_type -> mind.gateway.v1.MoveFileResponse
-	25,  // 116: mind.gateway.v1.Gateway.CreateFile:output_type -> mind.gateway.v1.CreateFileResponse
-	27,  // 117: mind.gateway.v1.Gateway.Fix:output_type -> mind.gateway.v1.FixResponse
-	29,  // 118: mind.gateway.v1.Gateway.ApplyEdit:output_type -> mind.gateway.v1.ApplyEditResponse
-	32,  // 119: mind.gateway.v1.Gateway.BatchApplyEdits:output_type -> mind.gateway.v1.BatchApplyEditsResponse
-	34,  // 120: mind.gateway.v1.Gateway.ConfigureMutationAuthority:output_type -> mind.gateway.v1.ConfigureMutationAuthorityResponse
-	39,  // 121: mind.gateway.v1.Gateway.PrepareMutation:output_type -> mind.gateway.v1.PrepareMutationResponse
-	42,  // 122: mind.gateway.v1.Gateway.ApplyPreparedMutation:output_type -> mind.gateway.v1.ApplyPreparedMutationResponse
-	45,  // 123: mind.gateway.v1.Gateway.Search:output_type -> mind.gateway.v1.SearchResponse
-	48,  // 124: mind.gateway.v1.Gateway.Build:output_type -> mind.gateway.v1.BuildResponse
-	50,  // 125: mind.gateway.v1.Gateway.Lint:output_type -> mind.gateway.v1.LintResponse
-	52,  // 126: mind.gateway.v1.Gateway.Test:output_type -> mind.gateway.v1.TestResponse
-	54,  // 127: mind.gateway.v1.Gateway.Format:output_type -> mind.gateway.v1.FormatResponse
-	57,  // 128: mind.gateway.v1.Gateway.RunCommand:output_type -> mind.gateway.v1.RunCommandResponse
-	110, // 129: mind.gateway.v1.Gateway.ListAllCommands:output_type -> mind.gateway.v1.ListAllCommandsResponse
-	64,  // 130: mind.gateway.v1.Gateway.RunChecks:output_type -> mind.gateway.v1.RunChecksResponse
-	67,  // 131: mind.gateway.v1.Gateway.GitStatus:output_type -> mind.gateway.v1.GitStatusResponse
-	69,  // 132: mind.gateway.v1.Gateway.GitDiff:output_type -> mind.gateway.v1.GitDiffResponse
-	72,  // 133: mind.gateway.v1.Gateway.GitLog:output_type -> mind.gateway.v1.GitLogResponse
-	74,  // 134: mind.gateway.v1.Gateway.GitCommit:output_type -> mind.gateway.v1.GitCommitResponse
-	77,  // 135: mind.gateway.v1.Gateway.GitBranch:output_type -> mind.gateway.v1.GitBranchResponse
-	79,  // 136: mind.gateway.v1.Gateway.GitCheckout:output_type -> mind.gateway.v1.GitCheckoutResponse
-	81,  // 137: mind.gateway.v1.Gateway.GitPush:output_type -> mind.gateway.v1.GitPushResponse
-	83,  // 138: mind.gateway.v1.Gateway.GitTag:output_type -> mind.gateway.v1.GitTagResponse
-	85,  // 139: mind.gateway.v1.Gateway.GitMerge:output_type -> mind.gateway.v1.GitMergeResponse
-	87,  // 140: mind.gateway.v1.Gateway.GitRevert:output_type -> mind.gateway.v1.GitRevertResponse
-	93,  // 141: mind.gateway.v1.Gateway.ForgePullRequestStatus:output_type -> mind.gateway.v1.ForgePullRequestStatusResponse
-	95,  // 142: mind.gateway.v1.Gateway.ForgeMergePullRequest:output_type -> mind.gateway.v1.ForgeMergePullRequestResponse
-	97,  // 143: mind.gateway.v1.Gateway.ForgeRequestReview:output_type -> mind.gateway.v1.ForgeRequestReviewResponse
-	100, // 144: mind.gateway.v1.Gateway.ListDependencies:output_type -> mind.gateway.v1.ListDependenciesResponse
-	102, // 145: mind.gateway.v1.Gateway.AddDependency:output_type -> mind.gateway.v1.AddDependencyResponse
-	104, // 146: mind.gateway.v1.Gateway.RemoveDependency:output_type -> mind.gateway.v1.RemoveDependencyResponse
-	107, // 147: mind.gateway.v1.Gateway.GetProjectInfo:output_type -> mind.gateway.v1.GetProjectInfoResponse
-	112, // 148: mind.gateway.v1.Gateway.OpenTerminal:output_type -> mind.gateway.v1.OpenTerminalResponse
-	114, // 149: mind.gateway.v1.Gateway.AttachTerminal:output_type -> mind.gateway.v1.TerminalOutput
-	116, // 150: mind.gateway.v1.Gateway.ResizeTerminal:output_type -> mind.gateway.v1.ResizeTerminalResponse
-	118, // 151: mind.gateway.v1.Gateway.CloseTerminal:output_type -> mind.gateway.v1.CloseTerminalResponse
-	121, // 152: mind.gateway.v1.Gateway.ListTerminals:output_type -> mind.gateway.v1.ListTerminalsResponse
-	109, // [109:153] is the sub-list for method output_type
-	65,  // [65:109] is the sub-list for method input_type
-	65,  // [65:65] is the sub-list for extension type_name
-	65,  // [65:65] is the sub-list for extension extendee
-	0,   // [0:65] is the sub-list for field type_name
+	75,  // 25: mind.gateway.v1.FormatResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	2,   // 26: mind.gateway.v1.UnstructuredUse.command_class:type_name -> mind.gateway.v1.CommandClass
+	55,  // 27: mind.gateway.v1.RunCommandRequest.unstructured_use:type_name -> mind.gateway.v1.UnstructuredUse
+	59,  // 28: mind.gateway.v1.RunChecksRequest.checks:type_name -> mind.gateway.v1.Check
+	61,  // 29: mind.gateway.v1.Check.command:type_name -> mind.gateway.v1.CommandCheck
+	62,  // 30: mind.gateway.v1.Check.http:type_name -> mind.gateway.v1.HttpCheck
+	60,  // 31: mind.gateway.v1.Check.plugin_build:type_name -> mind.gateway.v1.PluginCheck
+	60,  // 32: mind.gateway.v1.Check.plugin_test:type_name -> mind.gateway.v1.PluginCheck
+	60,  // 33: mind.gateway.v1.Check.plugin_lint:type_name -> mind.gateway.v1.PluginCheck
+	63,  // 34: mind.gateway.v1.RunChecksResponse.results:type_name -> mind.gateway.v1.CheckResult
+	66,  // 35: mind.gateway.v1.GitStatusResponse.files:type_name -> mind.gateway.v1.GitFileStatus
+	71,  // 36: mind.gateway.v1.GitLogResponse.commits:type_name -> mind.gateway.v1.GitCommitInfo
+	123, // 37: mind.gateway.v1.ActReceipt.observed_at:type_name -> google.protobuf.Timestamp
+	75,  // 38: mind.gateway.v1.GitBranchResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	75,  // 39: mind.gateway.v1.GitCheckoutResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	3,   // 40: mind.gateway.v1.GitPushRequest.mode:type_name -> mind.gateway.v1.GitPushMode
+	75,  // 41: mind.gateway.v1.GitPushResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	75,  // 42: mind.gateway.v1.GitTagResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	75,  // 43: mind.gateway.v1.GitMergeResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	75,  // 44: mind.gateway.v1.GitRevertResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	123, // 45: mind.gateway.v1.ForgeReview.submitted_at:type_name -> google.protobuf.Timestamp
+	88,  // 46: mind.gateway.v1.ForgePullRequestStatus.repository:type_name -> mind.gateway.v1.ForgeRepository
+	89,  // 47: mind.gateway.v1.ForgePullRequestStatus.checks:type_name -> mind.gateway.v1.ForgeCheck
+	90,  // 48: mind.gateway.v1.ForgePullRequestStatus.reviews:type_name -> mind.gateway.v1.ForgeReview
+	123, // 49: mind.gateway.v1.ForgePullRequestStatus.observed_at:type_name -> google.protobuf.Timestamp
+	88,  // 50: mind.gateway.v1.ForgePullRequestStatusRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
+	91,  // 51: mind.gateway.v1.ForgePullRequestStatusResponse.status:type_name -> mind.gateway.v1.ForgePullRequestStatus
+	88,  // 52: mind.gateway.v1.ForgeMergePullRequestRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
+	4,   // 53: mind.gateway.v1.ForgeMergePullRequestRequest.method:type_name -> mind.gateway.v1.ForgeMergeMethod
+	5,   // 54: mind.gateway.v1.ForgeMergePullRequestRequest.check_policy:type_name -> mind.gateway.v1.ForgeCheckPolicy
+	91,  // 55: mind.gateway.v1.ForgeMergePullRequestResponse.status:type_name -> mind.gateway.v1.ForgePullRequestStatus
+	75,  // 56: mind.gateway.v1.ForgeMergePullRequestResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	88,  // 57: mind.gateway.v1.ForgeRequestReviewRequest.repository:type_name -> mind.gateway.v1.ForgeRepository
+	75,  // 58: mind.gateway.v1.ForgeRequestReviewResponse.act:type_name -> mind.gateway.v1.ActReceipt
+	98,  // 59: mind.gateway.v1.ListDependenciesResponse.dependencies:type_name -> mind.gateway.v1.Dependency
+	105, // 60: mind.gateway.v1.GetProjectInfoResponse.packages:type_name -> mind.gateway.v1.PackageInfo
+	98,  // 61: mind.gateway.v1.GetProjectInfoResponse.dependencies:type_name -> mind.gateway.v1.Dependency
+	122, // 62: mind.gateway.v1.GetProjectInfoResponse.file_hashes:type_name -> mind.gateway.v1.GetProjectInfoResponse.FileHashesEntry
+	108, // 63: mind.gateway.v1.ListAllCommandsResponse.commands:type_name -> mind.gateway.v1.AvailableCommand
+	55,  // 64: mind.gateway.v1.OpenTerminalRequest.unstructured_use:type_name -> mind.gateway.v1.UnstructuredUse
+	120, // 65: mind.gateway.v1.ListTerminalsResponse.terminals:type_name -> mind.gateway.v1.TerminalInfo
+	6,   // 66: mind.gateway.v1.Gateway.ListServices:input_type -> mind.gateway.v1.ListServicesRequest
+	9,   // 67: mind.gateway.v1.Gateway.ReadFile:input_type -> mind.gateway.v1.ReadFileRequest
+	11,  // 68: mind.gateway.v1.Gateway.WriteFile:input_type -> mind.gateway.v1.WriteFileRequest
+	13,  // 69: mind.gateway.v1.Gateway.ListFiles:input_type -> mind.gateway.v1.ListFilesRequest
+	17,  // 70: mind.gateway.v1.Gateway.SubscribeWorkspaceChanges:input_type -> mind.gateway.v1.SubscribeWorkspaceChangesRequest
+	20,  // 71: mind.gateway.v1.Gateway.DeleteFile:input_type -> mind.gateway.v1.DeleteFileRequest
+	22,  // 72: mind.gateway.v1.Gateway.MoveFile:input_type -> mind.gateway.v1.MoveFileRequest
+	24,  // 73: mind.gateway.v1.Gateway.CreateFile:input_type -> mind.gateway.v1.CreateFileRequest
+	26,  // 74: mind.gateway.v1.Gateway.Fix:input_type -> mind.gateway.v1.FixRequest
+	28,  // 75: mind.gateway.v1.Gateway.ApplyEdit:input_type -> mind.gateway.v1.ApplyEditRequest
+	30,  // 76: mind.gateway.v1.Gateway.BatchApplyEdits:input_type -> mind.gateway.v1.BatchApplyEditsRequest
+	33,  // 77: mind.gateway.v1.Gateway.ConfigureMutationAuthority:input_type -> mind.gateway.v1.ConfigureMutationAuthorityRequest
+	38,  // 78: mind.gateway.v1.Gateway.PrepareMutation:input_type -> mind.gateway.v1.PrepareMutationRequest
+	40,  // 79: mind.gateway.v1.Gateway.ApplyPreparedMutation:input_type -> mind.gateway.v1.ApplyPreparedMutationRequest
+	43,  // 80: mind.gateway.v1.Gateway.Search:input_type -> mind.gateway.v1.SearchRequest
+	46,  // 81: mind.gateway.v1.Gateway.Build:input_type -> mind.gateway.v1.BuildRequest
+	49,  // 82: mind.gateway.v1.Gateway.Lint:input_type -> mind.gateway.v1.LintRequest
+	51,  // 83: mind.gateway.v1.Gateway.Test:input_type -> mind.gateway.v1.TestRequest
+	53,  // 84: mind.gateway.v1.Gateway.Format:input_type -> mind.gateway.v1.FormatRequest
+	56,  // 85: mind.gateway.v1.Gateway.RunCommand:input_type -> mind.gateway.v1.RunCommandRequest
+	109, // 86: mind.gateway.v1.Gateway.ListAllCommands:input_type -> mind.gateway.v1.ListAllCommandsRequest
+	58,  // 87: mind.gateway.v1.Gateway.RunChecks:input_type -> mind.gateway.v1.RunChecksRequest
+	65,  // 88: mind.gateway.v1.Gateway.GitStatus:input_type -> mind.gateway.v1.GitStatusRequest
+	68,  // 89: mind.gateway.v1.Gateway.GitDiff:input_type -> mind.gateway.v1.GitDiffRequest
+	70,  // 90: mind.gateway.v1.Gateway.GitLog:input_type -> mind.gateway.v1.GitLogRequest
+	73,  // 91: mind.gateway.v1.Gateway.GitCommit:input_type -> mind.gateway.v1.GitCommitRequest
+	76,  // 92: mind.gateway.v1.Gateway.GitBranch:input_type -> mind.gateway.v1.GitBranchRequest
+	78,  // 93: mind.gateway.v1.Gateway.GitCheckout:input_type -> mind.gateway.v1.GitCheckoutRequest
+	80,  // 94: mind.gateway.v1.Gateway.GitPush:input_type -> mind.gateway.v1.GitPushRequest
+	82,  // 95: mind.gateway.v1.Gateway.GitTag:input_type -> mind.gateway.v1.GitTagRequest
+	84,  // 96: mind.gateway.v1.Gateway.GitMerge:input_type -> mind.gateway.v1.GitMergeRequest
+	86,  // 97: mind.gateway.v1.Gateway.GitRevert:input_type -> mind.gateway.v1.GitRevertRequest
+	92,  // 98: mind.gateway.v1.Gateway.ForgePullRequestStatus:input_type -> mind.gateway.v1.ForgePullRequestStatusRequest
+	94,  // 99: mind.gateway.v1.Gateway.ForgeMergePullRequest:input_type -> mind.gateway.v1.ForgeMergePullRequestRequest
+	96,  // 100: mind.gateway.v1.Gateway.ForgeRequestReview:input_type -> mind.gateway.v1.ForgeRequestReviewRequest
+	99,  // 101: mind.gateway.v1.Gateway.ListDependencies:input_type -> mind.gateway.v1.ListDependenciesRequest
+	101, // 102: mind.gateway.v1.Gateway.AddDependency:input_type -> mind.gateway.v1.AddDependencyRequest
+	103, // 103: mind.gateway.v1.Gateway.RemoveDependency:input_type -> mind.gateway.v1.RemoveDependencyRequest
+	106, // 104: mind.gateway.v1.Gateway.GetProjectInfo:input_type -> mind.gateway.v1.GetProjectInfoRequest
+	111, // 105: mind.gateway.v1.Gateway.OpenTerminal:input_type -> mind.gateway.v1.OpenTerminalRequest
+	113, // 106: mind.gateway.v1.Gateway.AttachTerminal:input_type -> mind.gateway.v1.TerminalInput
+	115, // 107: mind.gateway.v1.Gateway.ResizeTerminal:input_type -> mind.gateway.v1.ResizeTerminalRequest
+	117, // 108: mind.gateway.v1.Gateway.CloseTerminal:input_type -> mind.gateway.v1.CloseTerminalRequest
+	119, // 109: mind.gateway.v1.Gateway.ListTerminals:input_type -> mind.gateway.v1.ListTerminalsRequest
+	8,   // 110: mind.gateway.v1.Gateway.ListServices:output_type -> mind.gateway.v1.ListServicesResponse
+	10,  // 111: mind.gateway.v1.Gateway.ReadFile:output_type -> mind.gateway.v1.ReadFileResponse
+	12,  // 112: mind.gateway.v1.Gateway.WriteFile:output_type -> mind.gateway.v1.WriteFileResponse
+	15,  // 113: mind.gateway.v1.Gateway.ListFiles:output_type -> mind.gateway.v1.ListFilesResponse
+	19,  // 114: mind.gateway.v1.Gateway.SubscribeWorkspaceChanges:output_type -> mind.gateway.v1.WorkspaceChangeEvent
+	21,  // 115: mind.gateway.v1.Gateway.DeleteFile:output_type -> mind.gateway.v1.DeleteFileResponse
+	23,  // 116: mind.gateway.v1.Gateway.MoveFile:output_type -> mind.gateway.v1.MoveFileResponse
+	25,  // 117: mind.gateway.v1.Gateway.CreateFile:output_type -> mind.gateway.v1.CreateFileResponse
+	27,  // 118: mind.gateway.v1.Gateway.Fix:output_type -> mind.gateway.v1.FixResponse
+	29,  // 119: mind.gateway.v1.Gateway.ApplyEdit:output_type -> mind.gateway.v1.ApplyEditResponse
+	32,  // 120: mind.gateway.v1.Gateway.BatchApplyEdits:output_type -> mind.gateway.v1.BatchApplyEditsResponse
+	34,  // 121: mind.gateway.v1.Gateway.ConfigureMutationAuthority:output_type -> mind.gateway.v1.ConfigureMutationAuthorityResponse
+	39,  // 122: mind.gateway.v1.Gateway.PrepareMutation:output_type -> mind.gateway.v1.PrepareMutationResponse
+	42,  // 123: mind.gateway.v1.Gateway.ApplyPreparedMutation:output_type -> mind.gateway.v1.ApplyPreparedMutationResponse
+	45,  // 124: mind.gateway.v1.Gateway.Search:output_type -> mind.gateway.v1.SearchResponse
+	48,  // 125: mind.gateway.v1.Gateway.Build:output_type -> mind.gateway.v1.BuildResponse
+	50,  // 126: mind.gateway.v1.Gateway.Lint:output_type -> mind.gateway.v1.LintResponse
+	52,  // 127: mind.gateway.v1.Gateway.Test:output_type -> mind.gateway.v1.TestResponse
+	54,  // 128: mind.gateway.v1.Gateway.Format:output_type -> mind.gateway.v1.FormatResponse
+	57,  // 129: mind.gateway.v1.Gateway.RunCommand:output_type -> mind.gateway.v1.RunCommandResponse
+	110, // 130: mind.gateway.v1.Gateway.ListAllCommands:output_type -> mind.gateway.v1.ListAllCommandsResponse
+	64,  // 131: mind.gateway.v1.Gateway.RunChecks:output_type -> mind.gateway.v1.RunChecksResponse
+	67,  // 132: mind.gateway.v1.Gateway.GitStatus:output_type -> mind.gateway.v1.GitStatusResponse
+	69,  // 133: mind.gateway.v1.Gateway.GitDiff:output_type -> mind.gateway.v1.GitDiffResponse
+	72,  // 134: mind.gateway.v1.Gateway.GitLog:output_type -> mind.gateway.v1.GitLogResponse
+	74,  // 135: mind.gateway.v1.Gateway.GitCommit:output_type -> mind.gateway.v1.GitCommitResponse
+	77,  // 136: mind.gateway.v1.Gateway.GitBranch:output_type -> mind.gateway.v1.GitBranchResponse
+	79,  // 137: mind.gateway.v1.Gateway.GitCheckout:output_type -> mind.gateway.v1.GitCheckoutResponse
+	81,  // 138: mind.gateway.v1.Gateway.GitPush:output_type -> mind.gateway.v1.GitPushResponse
+	83,  // 139: mind.gateway.v1.Gateway.GitTag:output_type -> mind.gateway.v1.GitTagResponse
+	85,  // 140: mind.gateway.v1.Gateway.GitMerge:output_type -> mind.gateway.v1.GitMergeResponse
+	87,  // 141: mind.gateway.v1.Gateway.GitRevert:output_type -> mind.gateway.v1.GitRevertResponse
+	93,  // 142: mind.gateway.v1.Gateway.ForgePullRequestStatus:output_type -> mind.gateway.v1.ForgePullRequestStatusResponse
+	95,  // 143: mind.gateway.v1.Gateway.ForgeMergePullRequest:output_type -> mind.gateway.v1.ForgeMergePullRequestResponse
+	97,  // 144: mind.gateway.v1.Gateway.ForgeRequestReview:output_type -> mind.gateway.v1.ForgeRequestReviewResponse
+	100, // 145: mind.gateway.v1.Gateway.ListDependencies:output_type -> mind.gateway.v1.ListDependenciesResponse
+	102, // 146: mind.gateway.v1.Gateway.AddDependency:output_type -> mind.gateway.v1.AddDependencyResponse
+	104, // 147: mind.gateway.v1.Gateway.RemoveDependency:output_type -> mind.gateway.v1.RemoveDependencyResponse
+	107, // 148: mind.gateway.v1.Gateway.GetProjectInfo:output_type -> mind.gateway.v1.GetProjectInfoResponse
+	112, // 149: mind.gateway.v1.Gateway.OpenTerminal:output_type -> mind.gateway.v1.OpenTerminalResponse
+	114, // 150: mind.gateway.v1.Gateway.AttachTerminal:output_type -> mind.gateway.v1.TerminalOutput
+	116, // 151: mind.gateway.v1.Gateway.ResizeTerminal:output_type -> mind.gateway.v1.ResizeTerminalResponse
+	118, // 152: mind.gateway.v1.Gateway.CloseTerminal:output_type -> mind.gateway.v1.CloseTerminalResponse
+	121, // 153: mind.gateway.v1.Gateway.ListTerminals:output_type -> mind.gateway.v1.ListTerminalsResponse
+	110, // [110:154] is the sub-list for method output_type
+	66,  // [66:110] is the sub-list for method input_type
+	66,  // [66:66] is the sub-list for extension type_name
+	66,  // [66:66] is the sub-list for extension extendee
+	0,   // [0:66] is the sub-list for field type_name
 }
 
 func init() { file_mind_gateway_v1_gateway_proto_init() }

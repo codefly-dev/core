@@ -732,6 +732,8 @@ message FormatResponse {
   repeated BuildError errors = 3;
   // output preserves plugin output for diagnosis.
   string output = 4;
+  // act is the authoritative receipt for the applied formatting act.
+  ActReceipt act = 5;
 }
 
 // ─── Execution ───────────────────────────────────────────────
