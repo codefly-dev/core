@@ -30,9 +30,11 @@ type Buf struct {
 	// internal cache for hash
 	cache string
 
-	// generatedDirs are generator-owned output roots removed immediately
+	// generatedDirs are generator-owned output roots emptied immediately
 	// before buf generate. Cleaning prevents package or service renames from
-	// leaving stale generated Go packages in an otherwise green build.
+	// leaving stale generated Go packages in an otherwise green build. The
+	// roots themselves remain present because local protoc plugins require
+	// their configured output directories to exist.
 	generatedDirs []string
 
 	// generatedRoot is the service boundary that contains every generated
@@ -278,6 +280,9 @@ func (g *Buf) cleanGeneratedDirs() error {
 		}
 		if err := os.RemoveAll(output); err != nil {
 			return fmt.Errorf("remove generated directory %q: %w", output, err)
+		}
+		if err := os.MkdirAll(output, 0o755); err != nil {
+			return fmt.Errorf("recreate generated directory %q: %w", output, err)
 		}
 	}
 	return nil
