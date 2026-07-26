@@ -368,6 +368,10 @@ message AuditRequest {
   // fail_on_vuln makes the agent return state=ERROR if any finding has
   // severity HIGH or above. Default false (report-only).
   bool fail_on_vuln = 2;
+  // include_dev_dependencies includes development/test-only dependencies.
+  // The default false scopes release gates to shipped runtime dependencies;
+  // callers can opt into a broader supply-chain review.
+  bool include_dev_dependencies = 3;
 }
 
 // AuditFinding is one vulnerability or security finding produced by an audit tool.

@@ -4,10 +4,54 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
+
+func TestNodeAuditDependencyScopeIsExplicit(t *testing.T) {
+	bin := t.TempDir()
+	argsPath := filepath.Join(t.TempDir(), "args")
+	npmPath := filepath.Join(bin, "npm")
+	npmScript := `#!/bin/sh
+printf '%s\n' "$*" >> "$CODEFLY_TEST_NPM_ARGS"
+if [ "$1" = "audit" ]; then
+  printf '%s\n' '{"vulnerabilities":{}}'
+else
+  printf '%s\n' '{}'
+fi
+`
+	if err := os.WriteFile(npmPath, []byte(npmScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "package-lock.json"), []byte(`{"lockfileVersion":3}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("CODEFLY_TEST_NPM_ARGS", argsPath)
+
+	result, err := NodeWithOptions(context.Background(), source, NodeOptions{
+		IncludeOutdated:        true,
+		IncludeDevDependencies: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tool != "npm-audit-runtime+outdated" {
+		t.Fatalf("Tool = %q", result.Tool)
+	}
+	content, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "audit --json --omit=dev") ||
+		!strings.Contains(lines[1], "outdated --json --package-lock-only --depth=0 --omit=dev") {
+		t.Fatalf("npm arguments = %q", lines)
+	}
+}
 
 func TestGolangUsesManagedScannerWhenOnlyGoIsAvailable(t *testing.T) {
 	bin := t.TempDir()
