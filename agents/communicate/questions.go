@@ -71,3 +71,34 @@ func NewChoice(msg *agentv0.Message, options ...*agentv0.Message) *agentv0.Quest
 		},
 	}
 }
+
+// NewChoiceWithDefault declares the deterministic option selected by
+// non-interactive callers. defaultOption is the stable Message.Name, not its
+// display label.
+func NewChoiceWithDefault(msg *agentv0.Message, defaultOption string, options ...*agentv0.Message) *agentv0.Question {
+	return &agentv0.Question{
+		Message: msg,
+		Value: &agentv0.Question_Choice{
+			Choice: &agentv0.Choice{
+				Options:       options,
+				DefaultOption: defaultOption,
+			},
+		},
+	}
+}
+
+// NewSelectionWithDefault declares the deterministic set selected by
+// non-interactive callers. Each value is a stable Message.Name.
+func NewSelectionWithDefault(msg *agentv0.Message, defaultOptions []string, options ...*agentv0.Message) *agentv0.Question {
+	return &agentv0.Question{
+		Message: msg,
+		Value: &agentv0.Question_Selection{
+			Selection: &agentv0.Selection{
+				Options: options,
+				Default: &agentv0.SelectionDefault{
+					Options: append([]string(nil), defaultOptions...),
+				},
+			},
+		},
+	}
+}

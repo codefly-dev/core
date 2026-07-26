@@ -402,7 +402,10 @@ func (*InputAnswer_IntValue) isInputAnswer_Answer() {}
 type Choice struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// options are the choices shown to the user.
-	Options       []*Message `protobuf:"bytes,1,rep,name=options,proto3" json:"options,omitempty"`
+	Options []*Message `protobuf:"bytes,1,rep,name=options,proto3" json:"options,omitempty"`
+	// default_option is the stable option name selected by non-interactive
+	// callers. Empty means no default was declared.
+	DefaultOption string `protobuf:"bytes,2,opt,name=default_option,json=defaultOption,proto3" json:"default_option,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -442,6 +445,13 @@ func (x *Choice) GetOptions() []*Message {
 		return x.Options
 	}
 	return nil
+}
+
+func (x *Choice) GetDefaultOption() string {
+	if x != nil {
+		return x.DefaultOption
+	}
+	return ""
 }
 
 // ChoiceAnswer returns the selected option name.
@@ -490,18 +500,68 @@ func (x *ChoiceAnswer) GetOption() string {
 	return ""
 }
 
+// SelectionDefault distinguishes an explicitly empty default selection from
+// the absence of a declared default.
+type SelectionDefault struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// options are stable Message.name values.
+	Options       []string `protobuf:"bytes,1,rep,name=options,proto3" json:"options,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SelectionDefault) Reset() {
+	*x = SelectionDefault{}
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SelectionDefault) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SelectionDefault) ProtoMessage() {}
+
+func (x *SelectionDefault) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SelectionDefault.ProtoReflect.Descriptor instead.
+func (*SelectionDefault) Descriptor() ([]byte, []int) {
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SelectionDefault) GetOptions() []string {
+	if x != nil {
+		return x.Options
+	}
+	return nil
+}
+
 // Selection asks the user to select zero or more options.
 type Selection struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// options are the choices shown to the user.
-	Options       []*Message `protobuf:"bytes,1,rep,name=options,proto3" json:"options,omitempty"`
+	Options []*Message `protobuf:"bytes,1,rep,name=options,proto3" json:"options,omitempty"`
+	// default is the selection used by non-interactive callers. A present
+	// message with no options is an explicitly empty default.
+	Default       *SelectionDefault `protobuf:"bytes,2,opt,name=default,proto3" json:"default,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Selection) Reset() {
 	*x = Selection{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[8]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -513,7 +573,7 @@ func (x *Selection) String() string {
 func (*Selection) ProtoMessage() {}
 
 func (x *Selection) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[8]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -526,12 +586,19 @@ func (x *Selection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Selection.ProtoReflect.Descriptor instead.
 func (*Selection) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{8}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Selection) GetOptions() []*Message {
 	if x != nil {
 		return x.Options
+	}
+	return nil
+}
+
+func (x *Selection) GetDefault() *SelectionDefault {
+	if x != nil {
+		return x.Default
 	}
 	return nil
 }
@@ -547,7 +614,7 @@ type SelectionAnswer struct {
 
 func (x *SelectionAnswer) Reset() {
 	*x = SelectionAnswer{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[9]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -559,7 +626,7 @@ func (x *SelectionAnswer) String() string {
 func (*SelectionAnswer) ProtoMessage() {}
 
 func (x *SelectionAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[9]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -572,7 +639,7 @@ func (x *SelectionAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelectionAnswer.ProtoReflect.Descriptor instead.
 func (*SelectionAnswer) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{9}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SelectionAnswer) GetSelected() []string {
@@ -603,7 +670,7 @@ type Question struct {
 
 func (x *Question) Reset() {
 	*x = Question{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[10]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -615,7 +682,7 @@ func (x *Question) String() string {
 func (*Question) ProtoMessage() {}
 
 func (x *Question) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[10]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -628,7 +695,7 @@ func (x *Question) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Question.ProtoReflect.Descriptor instead.
 func (*Question) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{10}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Question) GetMessage() *Message {
@@ -747,7 +814,7 @@ type Answer struct {
 
 func (x *Answer) Reset() {
 	*x = Answer{}
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[11]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -759,7 +826,7 @@ func (x *Answer) String() string {
 func (*Answer) ProtoMessage() {}
 
 func (x *Answer) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[11]
+	mi := &file_codefly_services_agent_v0_communicate_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -772,7 +839,7 @@ func (x *Answer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Answer.ProtoReflect.Descriptor instead.
 func (*Answer) Descriptor() ([]byte, []int) {
-	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{11}
+	return file_codefly_services_agent_v0_communicate_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Answer) GetValue() isAnswer_Value {
@@ -876,13 +943,17 @@ const file_codefly_services_agent_v0_communicate_proto_rawDesc = "" +
 	"\vInputAnswer\x12#\n" +
 	"\fstring_value\x18\x01 \x01(\tH\x00R\vstringValue\x12\x1d\n" +
 	"\tint_value\x18\x02 \x01(\x05H\x00R\bintValueB\b\n" +
-	"\x06answer\"F\n" +
+	"\x06answer\"m\n" +
 	"\x06Choice\x12<\n" +
-	"\aoptions\x18\x01 \x03(\v2\".codefly.services.agent.v0.MessageR\aoptions\"&\n" +
+	"\aoptions\x18\x01 \x03(\v2\".codefly.services.agent.v0.MessageR\aoptions\x12%\n" +
+	"\x0edefault_option\x18\x02 \x01(\tR\rdefaultOption\"&\n" +
 	"\fChoiceAnswer\x12\x16\n" +
-	"\x06option\x18\x01 \x01(\tR\x06option\"I\n" +
+	"\x06option\x18\x01 \x01(\tR\x06option\",\n" +
+	"\x10SelectionDefault\x12\x18\n" +
+	"\aoptions\x18\x01 \x03(\tR\aoptions\"\x90\x01\n" +
 	"\tSelection\x12<\n" +
-	"\aoptions\x18\x01 \x03(\v2\".codefly.services.agent.v0.MessageR\aoptions\"-\n" +
+	"\aoptions\x18\x01 \x03(\v2\".codefly.services.agent.v0.MessageR\aoptions\x12E\n" +
+	"\adefault\x18\x02 \x01(\v2+.codefly.services.agent.v0.SelectionDefaultR\adefault\"-\n" +
 	"\x0fSelectionAnswer\x12\x1a\n" +
 	"\bselected\x18\x01 \x03(\tR\bselected\"\x8e\x03\n" +
 	"\bQuestion\x12<\n" +
@@ -913,41 +984,43 @@ func file_codefly_services_agent_v0_communicate_proto_rawDescGZIP() []byte {
 	return file_codefly_services_agent_v0_communicate_proto_rawDescData
 }
 
-var file_codefly_services_agent_v0_communicate_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_codefly_services_agent_v0_communicate_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_codefly_services_agent_v0_communicate_proto_goTypes = []any{
-	(*Message)(nil),         // 0: codefly.services.agent.v0.Message
-	(*Display)(nil),         // 1: codefly.services.agent.v0.Display
-	(*Confirm)(nil),         // 2: codefly.services.agent.v0.Confirm
-	(*ConfirmAnswer)(nil),   // 3: codefly.services.agent.v0.ConfirmAnswer
-	(*Input)(nil),           // 4: codefly.services.agent.v0.Input
-	(*InputAnswer)(nil),     // 5: codefly.services.agent.v0.InputAnswer
-	(*Choice)(nil),          // 6: codefly.services.agent.v0.Choice
-	(*ChoiceAnswer)(nil),    // 7: codefly.services.agent.v0.ChoiceAnswer
-	(*Selection)(nil),       // 8: codefly.services.agent.v0.Selection
-	(*SelectionAnswer)(nil), // 9: codefly.services.agent.v0.SelectionAnswer
-	(*Question)(nil),        // 10: codefly.services.agent.v0.Question
-	(*Answer)(nil),          // 11: codefly.services.agent.v0.Answer
-	nil,                     // 12: codefly.services.agent.v0.Display.DataEntry
+	(*Message)(nil),          // 0: codefly.services.agent.v0.Message
+	(*Display)(nil),          // 1: codefly.services.agent.v0.Display
+	(*Confirm)(nil),          // 2: codefly.services.agent.v0.Confirm
+	(*ConfirmAnswer)(nil),    // 3: codefly.services.agent.v0.ConfirmAnswer
+	(*Input)(nil),            // 4: codefly.services.agent.v0.Input
+	(*InputAnswer)(nil),      // 5: codefly.services.agent.v0.InputAnswer
+	(*Choice)(nil),           // 6: codefly.services.agent.v0.Choice
+	(*ChoiceAnswer)(nil),     // 7: codefly.services.agent.v0.ChoiceAnswer
+	(*SelectionDefault)(nil), // 8: codefly.services.agent.v0.SelectionDefault
+	(*Selection)(nil),        // 9: codefly.services.agent.v0.Selection
+	(*SelectionAnswer)(nil),  // 10: codefly.services.agent.v0.SelectionAnswer
+	(*Question)(nil),         // 11: codefly.services.agent.v0.Question
+	(*Answer)(nil),           // 12: codefly.services.agent.v0.Answer
+	nil,                      // 13: codefly.services.agent.v0.Display.DataEntry
 }
 var file_codefly_services_agent_v0_communicate_proto_depIdxs = []int32{
-	12, // 0: codefly.services.agent.v0.Display.data:type_name -> codefly.services.agent.v0.Display.DataEntry
+	13, // 0: codefly.services.agent.v0.Display.data:type_name -> codefly.services.agent.v0.Display.DataEntry
 	0,  // 1: codefly.services.agent.v0.Choice.options:type_name -> codefly.services.agent.v0.Message
 	0,  // 2: codefly.services.agent.v0.Selection.options:type_name -> codefly.services.agent.v0.Message
-	0,  // 3: codefly.services.agent.v0.Question.message:type_name -> codefly.services.agent.v0.Message
-	1,  // 4: codefly.services.agent.v0.Question.display:type_name -> codefly.services.agent.v0.Display
-	2,  // 5: codefly.services.agent.v0.Question.confirm:type_name -> codefly.services.agent.v0.Confirm
-	4,  // 6: codefly.services.agent.v0.Question.input:type_name -> codefly.services.agent.v0.Input
-	6,  // 7: codefly.services.agent.v0.Question.choice:type_name -> codefly.services.agent.v0.Choice
-	8,  // 8: codefly.services.agent.v0.Question.selection:type_name -> codefly.services.agent.v0.Selection
-	3,  // 9: codefly.services.agent.v0.Answer.confirm:type_name -> codefly.services.agent.v0.ConfirmAnswer
-	5,  // 10: codefly.services.agent.v0.Answer.input:type_name -> codefly.services.agent.v0.InputAnswer
-	7,  // 11: codefly.services.agent.v0.Answer.choice:type_name -> codefly.services.agent.v0.ChoiceAnswer
-	9,  // 12: codefly.services.agent.v0.Answer.selection:type_name -> codefly.services.agent.v0.SelectionAnswer
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	8,  // 3: codefly.services.agent.v0.Selection.default:type_name -> codefly.services.agent.v0.SelectionDefault
+	0,  // 4: codefly.services.agent.v0.Question.message:type_name -> codefly.services.agent.v0.Message
+	1,  // 5: codefly.services.agent.v0.Question.display:type_name -> codefly.services.agent.v0.Display
+	2,  // 6: codefly.services.agent.v0.Question.confirm:type_name -> codefly.services.agent.v0.Confirm
+	4,  // 7: codefly.services.agent.v0.Question.input:type_name -> codefly.services.agent.v0.Input
+	6,  // 8: codefly.services.agent.v0.Question.choice:type_name -> codefly.services.agent.v0.Choice
+	9,  // 9: codefly.services.agent.v0.Question.selection:type_name -> codefly.services.agent.v0.Selection
+	3,  // 10: codefly.services.agent.v0.Answer.confirm:type_name -> codefly.services.agent.v0.ConfirmAnswer
+	5,  // 11: codefly.services.agent.v0.Answer.input:type_name -> codefly.services.agent.v0.InputAnswer
+	7,  // 12: codefly.services.agent.v0.Answer.choice:type_name -> codefly.services.agent.v0.ChoiceAnswer
+	10, // 13: codefly.services.agent.v0.Answer.selection:type_name -> codefly.services.agent.v0.SelectionAnswer
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_agent_v0_communicate_proto_init() }
@@ -963,14 +1036,14 @@ func file_codefly_services_agent_v0_communicate_proto_init() {
 		(*InputAnswer_StringValue)(nil),
 		(*InputAnswer_IntValue)(nil),
 	}
-	file_codefly_services_agent_v0_communicate_proto_msgTypes[10].OneofWrappers = []any{
+	file_codefly_services_agent_v0_communicate_proto_msgTypes[11].OneofWrappers = []any{
 		(*Question_Display)(nil),
 		(*Question_Confirm)(nil),
 		(*Question_Input)(nil),
 		(*Question_Choice)(nil),
 		(*Question_Selection)(nil),
 	}
-	file_codefly_services_agent_v0_communicate_proto_msgTypes[11].OneofWrappers = []any{
+	file_codefly_services_agent_v0_communicate_proto_msgTypes[12].OneofWrappers = []any{
 		(*Answer_Confirm)(nil),
 		(*Answer_Input)(nil),
 		(*Answer_Choice)(nil),
@@ -982,7 +1055,7 @@ func file_codefly_services_agent_v0_communicate_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_agent_v0_communicate_proto_rawDesc), len(file_codefly_services_agent_v0_communicate_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

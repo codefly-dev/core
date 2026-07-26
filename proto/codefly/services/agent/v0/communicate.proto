@@ -63,6 +63,9 @@ message InputAnswer {
 message Choice {
   // options are the choices shown to the user.
   repeated Message options = 1;
+  // default_option is the stable option name selected by non-interactive
+  // callers. Empty means no default was declared.
+  string default_option = 2;
 }
 
 // ChoiceAnswer returns the selected option name.
@@ -72,10 +75,20 @@ message ChoiceAnswer {
 }
 
 
+// SelectionDefault distinguishes an explicitly empty default selection from
+// the absence of a declared default.
+message SelectionDefault {
+  // options are stable Message.name values.
+  repeated string options = 1;
+}
+
 // Selection asks the user to select zero or more options.
 message Selection {
   // options are the choices shown to the user.
   repeated Message options = 1;
+  // default is the selection used by non-interactive callers. A present
+  // message with no options is an explicitly empty default.
+  SelectionDefault default = 2;
 }
 
 // SelectionAnswer returns all selected option names.
