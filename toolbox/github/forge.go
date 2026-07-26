@@ -49,27 +49,26 @@ func (s *Server) PullRequestStatus(ctx context.Context, repository *gatewayv1.Fo
 		}
 	}
 
-	checkRuns, _, err := s.client.Checks.ListCheckRunsForRef(ctx, owner, repo, headSHA, &gh.ListCheckRunsOptions{
-		Filter:      gh.String("latest"),
-		ListOptions: gh.ListOptions{PerPage: 100},
-	})
+	checkRuns, err := s.listCheckRuns(ctx, owner, repo, headSHA)
 	if err != nil {
-		return nil, fmt.Errorf("list check runs: %w", err)
+		return nil, err
 	}
-	combinedStatus, _, err := s.client.Repositories.GetCombinedStatus(ctx, owner, repo, headSHA, &gh.ListOptions{PerPage: 100})
+	statuses, err := s.listCommitStatuses(ctx, owner, repo, headSHA)
 	if err != nil {
-		return nil, fmt.Errorf("get commit status: %w", err)
+		return nil, err
 	}
-	reviews, _, err := s.client.PullRequests.ListReviews(ctx, owner, repo, int(number), &gh.ListOptions{PerPage: 100})
+	reviews, err := s.listReviews(ctx, owner, repo, int(number))
 	if err != nil {
-		return nil, fmt.Errorf("list reviews: %w", err)
+		return nil, err
 	}
 
-	checks := make([]*gatewayv1.ForgeCheck, 0, len(checkRuns.CheckRuns)+len(combinedStatus.Statuses))
+	checks := make([]*gatewayv1.ForgeCheck, 0, len(checkRuns)+len(statuses))
 	observedContexts := map[string]bool{}
-	for _, check := range checkRuns.CheckRuns {
+	checkRunNames := map[string]bool{}
+	for _, check := range checkRuns {
 		name := check.GetName()
 		observedContexts[name] = true
+		checkRunNames[name] = true
 		checks = append(checks, &gatewayv1.ForgeCheck{
 			Id:         strconv.FormatInt(check.GetID(), 10),
 			Name:       name,
@@ -79,8 +78,14 @@ func (s *Server) PullRequestStatus(ctx context.Context, repository *gatewayv1.Fo
 			Url:        firstNonEmpty(check.GetHTMLURL(), check.GetDetailsURL()),
 		})
 	}
-	for _, status := range combinedStatus.Statuses {
+	for _, status := range statuses {
 		name := status.GetContext()
+		if checkRunNames[name] {
+			// The Checks API already reported this context; the legacy
+			// commit-status mirror would double-count it (and a pending mirror
+			// could mask a passing check run). Prefer the check run.
+			continue
+		}
 		observedContexts[name] = true
 		state, conclusion := commitStatusState(status.GetState())
 		checks = append(checks, &gatewayv1.ForgeCheck{
@@ -105,12 +110,17 @@ func (s *Server) PullRequestStatus(ctx context.Context, repository *gatewayv1.Fo
 	})
 
 	forgeReviews := make([]*gatewayv1.ForgeReview, 0, len(reviews))
-	approvedAuthors := map[string]bool{}
+	approvalStanding := map[string]string{}
 	for _, review := range reviews {
 		author := review.GetUser().GetLogin()
 		state := strings.ToLower(review.GetState())
-		if state == "approved" {
-			approvedAuthors[author] = true
+		// Only APPROVED, CHANGES_REQUESTED, and DISMISSED change an author's
+		// standing; COMMENTED and PENDING leave the prior verdict intact.
+		// Reviews arrive chronologically, so the last decisive one wins — a
+		// stale approval later withdrawn must not count.
+		switch state {
+		case "approved", "changes_requested", "dismissed":
+			approvalStanding[author] = state
 		}
 		forgeReview := &gatewayv1.ForgeReview{
 			Id:     strconv.FormatInt(review.GetID(), 10),
@@ -121,6 +131,12 @@ func (s *Server) PullRequestStatus(ctx context.Context, repository *gatewayv1.Fo
 			forgeReview.SubmittedAt = timestamppb.New(*review.SubmittedAt)
 		}
 		forgeReviews = append(forgeReviews, forgeReview)
+	}
+	approvals := 0
+	for _, standing := range approvalStanding {
+		if standing == "approved" {
+			approvals++
+		}
 	}
 
 	status := &gatewayv1.ForgePullRequestStatus{
@@ -135,8 +151,62 @@ func (s *Server) PullRequestStatus(ctx context.Context, repository *gatewayv1.Fo
 		Url:        pr.GetHTMLURL(),
 		ObservedAt: timestamppb.New(time.Now().UTC()),
 	}
-	status.BlockingReason = pullRequestBlockingReason(pr, checks, len(approvedAuthors), requiredApprovals)
+	status.BlockingReason = pullRequestBlockingReason(pr, checks, approvals, requiredApprovals)
 	return status, nil
+}
+
+// listCheckRuns returns every "latest" check run for a ref, following
+// pagination so large PRs cannot silently drop required checks.
+func (s *Server) listCheckRuns(ctx context.Context, owner, repo, ref string) ([]*gh.CheckRun, error) {
+	opts := &gh.ListCheckRunsOptions{Filter: gh.String("latest"), ListOptions: gh.ListOptions{PerPage: 100}}
+	var all []*gh.CheckRun
+	for {
+		page, resp, err := s.client.Checks.ListCheckRunsForRef(ctx, owner, repo, ref, opts)
+		if err != nil {
+			return nil, fmt.Errorf("list check runs: %w", err)
+		}
+		all = append(all, page.CheckRuns...)
+		if resp.NextPage == 0 {
+			return all, nil
+		}
+		opts.Page = resp.NextPage
+	}
+}
+
+// listCommitStatuses returns every commit-status context for a ref, following
+// pagination.
+func (s *Server) listCommitStatuses(ctx context.Context, owner, repo, ref string) ([]*gh.RepoStatus, error) {
+	opts := &gh.ListOptions{PerPage: 100}
+	var all []*gh.RepoStatus
+	for {
+		combined, resp, err := s.client.Repositories.GetCombinedStatus(ctx, owner, repo, ref, opts)
+		if err != nil {
+			return nil, fmt.Errorf("get commit status: %w", err)
+		}
+		all = append(all, combined.Statuses...)
+		if resp.NextPage == 0 {
+			return all, nil
+		}
+		opts.Page = resp.NextPage
+	}
+}
+
+// listReviews returns every review on a PR, following pagination so approval
+// counting sees each author's latest verdict.
+func (s *Server) listReviews(ctx context.Context, owner, repo string, number int) ([]*gh.PullRequestReview, error) {
+	opts := &gh.ListOptions{PerPage: 100}
+	var all []*gh.PullRequestReview
+	for {
+		page, resp, err := s.client.PullRequests.ListReviews(ctx, owner, repo, number, opts)
+		if err != nil {
+			return nil, fmt.Errorf("list reviews: %w", err)
+		}
+		all = append(all, page...)
+		if resp.NextPage == 0 {
+			return all, nil
+		}
+		opts.Page = resp.NextPage
+	}
 }
 
 // MergePullRequest enforces the requested check policy and returns the merge
@@ -281,6 +351,12 @@ func pullRequestBlockingReason(pr *gh.PullRequest, checks []*gatewayv1.ForgeChec
 	}
 	if strings.ToLower(pr.GetState()) != "open" {
 		return "pull request is not open"
+	}
+	if pr.Mergeable == nil {
+		// GitHub computes mergeability asynchronously and reports null until it
+		// finishes. Block (fail-closed) but say so precisely instead of
+		// claiming a conflict that may not exist.
+		return "pull request mergeability is still being computed by the provider; retry shortly"
 	}
 	if !pr.GetMergeable() {
 		if state := strings.TrimSpace(pr.GetMergeableState()); state != "" {

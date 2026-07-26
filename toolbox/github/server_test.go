@@ -204,6 +204,139 @@ func TestRequestReviewReturnsProviderAcceptedReviewers(t *testing.T) {
 	}
 }
 
+func TestNormalizeWebhookStatusPendingIsInProgress(t *testing.T) {
+	payload := []byte(`{
+		"id":55,"sha":"abc","state":"pending","context":"ci/test",
+		"target_url":"https://github.test/status",
+		"repository":{"name":"r","owner":{"login":"o"}}
+	}`)
+	secret := "webhook-secret"
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(payload)
+	signature := fmt.Sprintf("sha256=%x", mac.Sum(nil))
+	event, err := New("/tmp/x", "", "test").NormalizeWebhook(&gatewayv1.ForgeNormalizeWebhookRequest{
+		Provider: "github", EventType: "status", Payload: payload, Signature: signature, Secret: secret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.GetState() != "in_progress" || event.GetConclusion() != "" {
+		t.Fatalf("pending status normalized as state=%q conclusion=%q, want in_progress/empty", event.GetState(), event.GetConclusion())
+	}
+	if got, want := event.GetEventId(), "forge:github:o/r:status:55:pending"; got != want {
+		t.Fatalf("event id = %q, want %q", got, want)
+	}
+}
+
+func TestPullRequestStatusPrefersCheckRunOverStatusMirror(t *testing.T) {
+	s := githubServerForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/pulls/42":
+			writeJSON(t, w, map[string]any{
+				"number": 42, "state": "open", "mergeable": true, "mergeable_state": "clean",
+				"head": map[string]any{"sha": "abc123"}, "base": map[string]any{"ref": "main"},
+			})
+		case "/repos/o/r/branches/main/protection":
+			writeJSON(t, w, map[string]any{"required_status_checks": map[string]any{"contexts": []string{"ci"}}})
+		case "/repos/o/r/commits/abc123/check-runs":
+			writeJSON(t, w, map[string]any{"total_count": 1, "check_runs": []map[string]any{{
+				"id": 7, "name": "ci", "status": "completed", "conclusion": "success",
+			}}})
+		case "/repos/o/r/commits/abc123/status":
+			// Legacy mirror of the same context, still pending; must not win.
+			writeJSON(t, w, map[string]any{"state": "pending", "statuses": []map[string]any{{
+				"id": 100, "context": "ci", "state": "pending",
+			}}})
+		case "/repos/o/r/pulls/42/reviews":
+			writeJSON(t, w, []any{})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	status, err := s.PullRequestStatus(t.Context(), &gatewayv1.ForgeRepository{Owner: "o", Name: "r"}, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.GetChecks()) != 1 {
+		t.Fatalf("expected the duplicate context to collapse to one check, got %+v", status.GetChecks())
+	}
+	if got := status.GetChecks()[0]; got.GetName() != "ci" || got.GetState() != "completed" {
+		t.Fatalf("kept check = %+v, want the completed check run", got)
+	}
+	if status.GetBlockingReason() != "" {
+		t.Fatalf("passing check run should not be blocked by its pending mirror: %q", status.GetBlockingReason())
+	}
+}
+
+func TestPullRequestStatusBlocksWhileMergeabilityComputing(t *testing.T) {
+	s := githubServerForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/pulls/42":
+			// No "mergeable" key: GitHub is still computing it (null).
+			writeJSON(t, w, map[string]any{
+				"number": 42, "state": "open", "mergeable_state": "unknown",
+				"head": map[string]any{"sha": "abc123"}, "base": map[string]any{"ref": "main"},
+			})
+		case "/repos/o/r/branches/main/protection":
+			w.WriteHeader(http.StatusNotFound)
+			writeJSON(t, w, map[string]any{"message": "Not Found"})
+		case "/repos/o/r/commits/abc123/check-runs":
+			writeJSON(t, w, map[string]any{"total_count": 0, "check_runs": []any{}})
+		case "/repos/o/r/commits/abc123/status":
+			writeJSON(t, w, map[string]any{"state": "success", "statuses": []any{}})
+		case "/repos/o/r/pulls/42/reviews":
+			writeJSON(t, w, []any{})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	status, err := s.PullRequestStatus(t.Context(), &gatewayv1.ForgeRepository{Owner: "o", Name: "r"}, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := status.GetBlockingReason(), "pull request mergeability is still being computed by the provider; retry shortly"; got != want {
+		t.Fatalf("blocking reason = %q, want %q", got, want)
+	}
+}
+
+func TestPullRequestStatusPaginatesReviewsAndCountsLatestVerdict(t *testing.T) {
+	s := githubServerForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/pulls/42":
+			writeJSON(t, w, map[string]any{
+				"number": 42, "state": "open", "mergeable": true, "mergeable_state": "clean",
+				"head": map[string]any{"sha": "abc123"}, "base": map[string]any{"ref": "main"},
+			})
+		case "/repos/o/r/branches/main/protection":
+			writeJSON(t, w, map[string]any{"required_pull_request_reviews": map[string]any{"required_approving_review_count": 1}})
+		case "/repos/o/r/commits/abc123/check-runs":
+			writeJSON(t, w, map[string]any{"total_count": 0, "check_runs": []any{}})
+		case "/repos/o/r/commits/abc123/status":
+			writeJSON(t, w, map[string]any{"state": "success", "statuses": []any{}})
+		case "/repos/o/r/pulls/42/reviews":
+			if r.URL.Query().Get("page") == "2" {
+				// alice's later verdict withdraws the page-1 approval.
+				writeJSON(t, w, []map[string]any{{"id": 2, "state": "CHANGES_REQUESTED", "user": map[string]any{"login": "alice"}, "submitted_at": "2026-07-25T13:00:00Z"}})
+				return
+			}
+			w.Header().Set("Link", `<`+r.URL.Path+`?page=2>; rel="next"`)
+			writeJSON(t, w, []map[string]any{{"id": 1, "state": "APPROVED", "user": map[string]any{"login": "alice"}, "submitted_at": "2026-07-25T12:00:00Z"}})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	status, err := s.PullRequestStatus(t.Context(), &gatewayv1.ForgeRepository{Owner: "o", Name: "r"}, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.GetReviews()) != 2 {
+		t.Fatalf("expected both review pages fetched, got %d reviews", len(status.GetReviews()))
+	}
+	if got, want := status.GetBlockingReason(), "requires 1 approving review(s); has 0"; got != want {
+		t.Fatalf("blocking reason = %q, want %q (stale approval must not count)", got, want)
+	}
+}
+
 func TestPrViewRequiresNumber(t *testing.T) {
 	s := New("/tmp/x", "", "test")
 	// owner/repo provided so resolveRepo succeeds; number missing -> error.

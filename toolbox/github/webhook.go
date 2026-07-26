@@ -74,12 +74,16 @@ func (s *Server) NormalizeWebhook(req *gatewayv1.ForgeNormalizeWebhookRequest) (
 		if err != nil || value.GetSHA() == "" {
 			return nil, fmt.Errorf("normalize status webhook: invalid repository or revision")
 		}
-		state := value.GetState()
-		eventID := fmt.Sprintf("forge:github:%s/%s:status:%d:%s", owner, name, value.GetID(), state)
+		// A commit status can still be pending; map it the same way the status
+		// snapshot does so an unfinished status is not reported as completed.
+		// The raw provider state keys the event id to keep transitions distinct.
+		rawState := value.GetState()
+		state, conclusion := commitStatusState(rawState)
+		eventID := fmt.Sprintf("forge:github:%s/%s:status:%d:%s", owner, name, value.GetID(), rawState)
 		return &gatewayv1.ForgeEvent{
 			EventId: eventID, Kind: gatewayv1.ForgeEventKind_FORGE_EVENT_KIND_CHECK,
 			Ref: forgeRevisionRef(owner, name, value.GetSHA()), Repository: repository, Revision: value.GetSHA(),
-			State: "completed", CheckName: value.GetContext(), Conclusion: state,
+			State: state, CheckName: value.GetContext(), Conclusion: conclusion,
 			AuthoritativeUrl: value.GetTargetURL(), AuthoritativeSource: "github-webhook", ObservedAt: observedAt,
 		}, nil
 
