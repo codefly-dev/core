@@ -69,6 +69,14 @@ type Environment struct {
 	Description string `yaml:"description,omitempty"`
 	NamingScope string `yaml:"naming-scope,omitempty"`
 
+	// ConfigurationProfile selects the checked-in configuration directory
+	// independently from the environment identity sent to service agents.
+	// This is useful for a production execution profile running against local
+	// backing services: agents still receive environment.name=production while
+	// Codefly deliberately loads configurations/local. It is explicit and
+	// opt-in; the default remains the environment's own name.
+	ConfigurationProfile string `yaml:"configuration-profile,omitempty"`
+
 	// Deploy-target overrides (CLI-side; not serialized to proto).
 	// Empty values fall back to legacy defaults (local k3d, ~/.kube/config,
 	// the default namespace, the --org flag's hardcoded registry) so
@@ -84,6 +92,11 @@ type Environment struct {
 }
 
 func (env *Environment) Proto() (*basev0.Environment, error) {
+	if env.ConfigurationProfile != "" {
+		if err := validateResourcePathComponent("configuration profile", env.ConfigurationProfile); err != nil {
+			return nil, err
+		}
+	}
 	proto := &basev0.Environment{
 		Name:        env.Name,
 		Description: env.Description,
@@ -94,6 +107,17 @@ func (env *Environment) Proto() (*basev0.Environment, error) {
 		return nil, err
 	}
 	return proto, nil
+}
+
+func (env *Environment) ConfigurationProfileName() (string, error) {
+	name := strings.TrimSpace(env.ConfigurationProfile)
+	if name == "" {
+		name = env.Name
+	}
+	if err := validateResourcePathComponent("configuration profile", name); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 func (env *Environment) Local() bool {

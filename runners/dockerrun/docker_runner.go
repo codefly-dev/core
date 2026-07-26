@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -171,6 +174,11 @@ func (docker *DockerEnvironment) Init(ctx context.Context) error {
 func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.GetContainer")
 
+	containerConfig, hostConfig, err := docker.desiredContainerConfigs(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot prepare container configuration")
+	}
+
 	exists, err := docker.IsContainerPresent(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot check if container is present")
@@ -184,10 +192,28 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 	}()
 
 	if exists {
+		inspect, inspectErr := docker.client.ContainerInspect(ctx, docker.instance.ID)
+		if inspectErr != nil {
+			return w.Wrapf(inspectErr, "cannot inspect existing container")
+		}
+		actualFingerprint := ""
+		if inspect.Config != nil && inspect.Config.Labels != nil {
+			actualFingerprint = inspect.Config.Labels[LabelCodeflyConfig]
+		}
+		expectedFingerprint := containerConfig.Labels[LabelCodeflyConfig]
+		if actualFingerprint != expectedFingerprint {
+			w.Info("recreating container because runtime configuration changed",
+				wool.Field("container", docker.name))
+			if removeErr := docker.client.ContainerRemove(ctx, docker.instance.ID, container.RemoveOptions{Force: true}); removeErr != nil {
+				return w.Wrapf(removeErr, "cannot remove container with stale runtime configuration")
+			}
+			docker.instance = nil
+			return docker.createAndStartContainer(ctx, containerConfig, hostConfig)
+		}
 		return docker.ensureContainerRunning(ctx)
 	}
 
-	return docker.createAndStartContainer(ctx)
+	return docker.createAndStartContainer(ctx, containerConfig, hostConfig)
 }
 
 func (docker *DockerEnvironment) ensureContainerRunning(ctx context.Context) error {
@@ -291,11 +317,13 @@ func redactedContainerConfig(config *container.Config) *container.Config {
 	return &redacted
 }
 
-func (docker *DockerEnvironment) createAndStartContainer(ctx context.Context) error {
+func (docker *DockerEnvironment) createAndStartContainer(
+	ctx context.Context,
+	containerConfig *container.Config,
+	hostConfig *container.HostConfig,
+) error {
 	w := wool.Get(ctx).In("Docker.createAndStartContainer")
 
-	containerConfig := docker.createContainerConfig(ctx)
-	hostConfig := docker.createHostConfig(ctx)
 	logConfig := redactedContainerConfig(containerConfig)
 
 	w.Debug("create container config",
@@ -329,6 +357,96 @@ func (docker *DockerEnvironment) createAndStartContainer(ctx context.Context) er
 
 	docker.running = true
 	return nil
+}
+
+// desiredContainerConfigs constructs the complete Docker declaration and tags
+// it with a non-reversible fingerprint. Named containers may survive an agent
+// restart so they can be reused, but reusing one whose image, environment,
+// mounts, command, or ports changed is incorrect. The fingerprint lets
+// GetContainer distinguish a reusable container from stale runtime state
+// without storing secret environment values in Docker labels.
+func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*container.Config, *container.HostConfig, error) {
+	containerConfig := docker.createContainerConfig(ctx)
+	hostConfig := docker.createHostConfig(ctx)
+	fingerprint, err := containerConfigFingerprint(containerConfig, hostConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if containerConfig.Labels == nil {
+		containerConfig.Labels = make(map[string]string)
+	}
+	containerConfig.Labels[LabelCodeflyConfig] = fingerprint
+	return containerConfig, hostConfig, nil
+}
+
+type containerPortBindingFingerprint struct {
+	Port     string `json:"port"`
+	HostIP   string `json:"host_ip"`
+	HostPort string `json:"host_port"`
+}
+
+type containerRuntimeFingerprint struct {
+	Image        string                            `json:"image"`
+	User         string                            `json:"user"`
+	Environment  []string                          `json:"environment"`
+	Command      []string                          `json:"command"`
+	WorkingDir   string                            `json:"working_dir"`
+	TTY          bool                              `json:"tty"`
+	ExposedPorts []string                          `json:"exposed_ports"`
+	Mounts       []mount.Mount                     `json:"mounts"`
+	PortBindings []containerPortBindingFingerprint `json:"port_bindings"`
+	Ephemeral    bool                              `json:"ephemeral"`
+}
+
+func containerConfigFingerprint(containerConfig *container.Config, hostConfig *container.HostConfig) (string, error) {
+	if containerConfig == nil || hostConfig == nil {
+		return "", fmt.Errorf("container and host configurations are required")
+	}
+
+	exposedPorts := make([]string, 0, len(containerConfig.ExposedPorts))
+	for port := range containerConfig.ExposedPorts {
+		exposedPorts = append(exposedPorts, string(port))
+	}
+	sort.Strings(exposedPorts)
+
+	portBindings := make([]containerPortBindingFingerprint, 0, len(hostConfig.PortBindings))
+	for port, bindings := range hostConfig.PortBindings {
+		for _, binding := range bindings {
+			portBindings = append(portBindings, containerPortBindingFingerprint{
+				Port:     string(port),
+				HostIP:   binding.HostIP,
+				HostPort: binding.HostPort,
+			})
+		}
+	}
+	sort.Slice(portBindings, func(i, j int) bool {
+		if portBindings[i].Port != portBindings[j].Port {
+			return portBindings[i].Port < portBindings[j].Port
+		}
+		if portBindings[i].HostIP != portBindings[j].HostIP {
+			return portBindings[i].HostIP < portBindings[j].HostIP
+		}
+		return portBindings[i].HostPort < portBindings[j].HostPort
+	})
+
+	spec := containerRuntimeFingerprint{
+		Image:        containerConfig.Image,
+		User:         containerConfig.User,
+		Environment:  append([]string(nil), containerConfig.Env...),
+		Command:      append([]string(nil), containerConfig.Cmd...),
+		WorkingDir:   containerConfig.WorkingDir,
+		TTY:          containerConfig.Tty,
+		ExposedPorts: exposedPorts,
+		Mounts:       append([]mount.Mount(nil), hostConfig.Mounts...),
+		PortBindings: portBindings,
+		Ephemeral:    containerConfig.Labels[LabelCodeflyEphemeral] == "true",
+	}
+	encoded, err := json.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("encode container runtime fingerprint: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return fmt.Sprintf("%x", sum[:]), nil
 }
 
 func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *container.Config {
@@ -387,6 +505,7 @@ const (
 	LabelCodeflySession   = "codefly.session"   // PID of the spawning CLI
 	LabelCodeflyName      = "codefly.name"      // container's logical name
 	LabelCodeflyEphemeral = "codefly.ephemeral" // "true" for SDK/test (--cli-server) containers
+	LabelCodeflyConfig    = "codefly.config"    // hash of reusable runtime configuration
 	// EphemeralContainersEnvironment carries ephemeral lifecycle intent across
 	// the CLI → agent process boundary: the CLI owns orchestration, but service
 	// agents create the containers. The CLI plants this marker before spawning
@@ -550,6 +669,51 @@ func (docker *DockerEnvironment) WithMount(sourceDir string, targetDir string) {
 		Source: sourceDir,
 		Target: targetDir,
 	})
+}
+
+// WithPersistentCacheMount layers a Codefly-owned, persistent host directory
+// over a mutable path inside the container.
+//
+// Service source is normally bind-mounted so editors and hot reload keep
+// working. Some tools also write runtime state below that source tree (for
+// example Next.js writes .next/dev/lock). Two independently namespaced
+// Codefly runs must not share that mutable state even though they intentionally
+// share the same source checkout.
+//
+// The caller supplies only a stable logical key and the container target. Core
+// owns the host path and scopes it by the Docker environment name, which already
+// includes workspace, service, and Codefly naming scope. Caches survive normal
+// container teardown and may be reclaimed centrally in the future.
+func (docker *DockerEnvironment) WithPersistentCacheMount(ctx context.Context, key, targetDir string) (string, error) {
+	if err := validateCacheMountKey(key); err != nil {
+		return "", err
+	}
+	if targetDir == "" || !filepath.IsAbs(targetDir) {
+		return "", fmt.Errorf("cache mount target must be an absolute path: %q", targetDir)
+	}
+
+	cacheDir := filepath.Join(resources.CodeflyHomeDir(), "runtime-cache", docker.name, key)
+	if _, err := shared.CheckDirectoryOrCreate(ctx, cacheDir); err != nil {
+		return "", fmt.Errorf("create persistent runtime cache %q: %w", key, err)
+	}
+	docker.WithMount(cacheDir, targetDir)
+	return cacheDir, nil
+}
+
+func validateCacheMountKey(key string) error {
+	if key == "" || key == "." || key == ".." {
+		return fmt.Errorf("cache mount key must not be empty or relative traversal: %q", key)
+	}
+	for _, character := range key {
+		if (character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') ||
+			character == '-' || character == '_' || character == '.' {
+			continue
+		}
+		return fmt.Errorf("cache mount key contains unsupported character %q: %q", character, key)
+	}
+	return nil
 }
 
 // WithDockerSocket explicitly grants the container control of the host Docker
