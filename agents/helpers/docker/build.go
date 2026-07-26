@@ -32,6 +32,12 @@ type BuilderConfiguration struct {
 
 type Builder struct {
 	BuilderConfiguration
+	newClient func() (imageBuildClient, error)
+}
+
+type imageBuildClient interface {
+	ImageBuild(context.Context, io.Reader, types.ImageBuildOptions) (types.ImageBuildResponse, error)
+	Close() error
 }
 
 func IsValidDockerImageName(_ string) bool {
@@ -40,7 +46,12 @@ func IsValidDockerImageName(_ string) bool {
 }
 
 func NewBuilder(cfg BuilderConfiguration) (*Builder, error) {
-	return &Builder{BuilderConfiguration: cfg}, nil
+	return &Builder{
+		BuilderConfiguration: cfg,
+		newClient: func() (imageBuildClient, error) {
+			return dockerrun.NewClient()
+		},
+	}, nil
 }
 
 type BuilderOutput struct {
@@ -50,7 +61,7 @@ type BuilderOutput struct {
 
 func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	w := wool.Get(ctx).In("Builder.Build", wool.DirField(builder.Root))
-	cli, err := dockerrun.NewClient()
+	cli, err := builder.newClient()
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
@@ -62,7 +73,21 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	}
 	buildContext := buildContextBuffer.Bytes()
 
-	// Build the Docker image
+	for attempt := 1; attempt <= 2; attempt++ {
+		err = builder.build(ctx, cli, buildContext)
+		if err == nil {
+			return &BuilderOutput{Image: builder.Destination.FullName()}, nil
+		}
+		if attempt == 2 || !isRetryableDockerLayerExportError(err) {
+			return nil, err
+		}
+		w.Warn("Docker lost an intermediate layer while exporting the image; retrying the identical immutable build context once")
+	}
+	return nil, err
+}
+
+func (builder *Builder) build(ctx context.Context, cli imageBuildClient, buildContext []byte) error {
+	w := wool.Get(ctx).In("Builder.Build", wool.DirField(builder.Root))
 	imageBuildResponse, err := cli.ImageBuild(
 		ctx,
 		bytes.NewReader(buildContext),
@@ -73,7 +98,7 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 		},
 	)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot build image")
+		return w.Wrapf(err, "cannot build image")
 	}
 
 	defer func(Body io.ReadCloser) {
@@ -124,15 +149,31 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, w.Wrapf(err, "cannot read docker build output")
+		return w.Wrapf(err, "cannot read docker build output")
 	}
 	if buildErr != "" {
 		if detail := diagnostics.String(); detail != "" {
-			return nil, w.NewError("docker build failed: %s\nlast build output:\n%s", buildErr, detail)
+			return w.NewError("docker build failed: %s\nlast build output:\n%s", buildErr, detail)
 		}
-		return nil, w.NewError("docker build failed: %s", buildErr)
+		return w.NewError("docker build failed: %s", buildErr)
 	}
-	return &BuilderOutput{Image: builder.Destination.FullName()}, nil
+	return nil
+}
+
+// isRetryableDockerLayerExportError recognizes one narrow Docker daemon
+// storage failure. The classic builder can occasionally delete or lose an
+// intermediate layer before the final image export. Repeating the exact build
+// context reuses the surviving cache and repairs the export. Other Dockerfile,
+// network, disk, and application failures remain single-attempt and fail
+// closed.
+func isRetryableDockerLayerExportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "failed to export image") &&
+		strings.Contains(message, "failed to get layer") &&
+		strings.Contains(message, "layer does not exist")
 }
 
 type buildDiagnostics struct {
