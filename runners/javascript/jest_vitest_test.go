@@ -138,6 +138,42 @@ func TestVitest_AllPassing_NoCapturedOutput(t *testing.T) {
 	require.Greater(t, suite.Cases[0].Location.Line, int32(0))
 }
 
+func TestVitest_FractionalDurationsRemainMachineReadable(t *testing.T) {
+	const vitest3 = `{
+	  "numTotalTestSuites": 1,
+	  "numPassedTestSuites": 1,
+	  "numFailedTestSuites": 0,
+	  "numTotalTests": 1,
+	  "numPassedTests": 1,
+	  "numFailedTests": 0,
+	  "numPendingTests": 0,
+	  "testResults": [{
+	    "name": "/abs/path/scripts/workspaces.test.mjs",
+	    "status": "passed",
+	    "startTime": 1785090078335,
+	    "endTime": 1785090078336.4822,
+	    "assertionResults": [{
+	      "ancestorTitles": ["plugin workspace build order"],
+	      "title": "orders dependencies",
+	      "fullName": "plugin workspace build order orders dependencies",
+	      "status": "passed",
+	      "duration": 0.849083,
+	      "failureMessages": []
+	    }]
+	  }]
+	}`
+
+	run := javascript.ParseJestVitestJSON(vitest3, 0)
+	response := run.ToProtoResponse("vitest", "unit", 2*time.Millisecond)
+
+	require.EqualValues(t, 1, response.Counts.Total)
+	require.EqualValues(t, 1, response.Counts.Passed)
+	require.Len(t, response.Suites, 1)
+	require.Len(t, response.Suites[0].Cases, 1)
+	require.Greater(t, response.Suites[0].Duration.AsDuration(), time.Millisecond)
+	require.Greater(t, response.Suites[0].Cases[0].Duration.AsDuration(), time.Duration(0))
+}
+
 func TestVitest_FailedCase_CarriesFailureMessage(t *testing.T) {
 	run := javascript.ParseJestVitestJSON(realisticVitestMixed, 0)
 	resp := run.ToProtoResponse("vitest", "", time.Second)

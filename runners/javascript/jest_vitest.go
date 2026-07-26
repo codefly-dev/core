@@ -32,10 +32,13 @@ type jestVitestEnvelope struct {
 
 // jestVitestSuite is one source file's worth of tests.
 type jestVitestSuite struct {
-	Name             string                `json:"name"`      // absolute file path
-	Status           string                `json:"status"`    // "passed" | "failed"
-	StartTime        int64                 `json:"startTime"` // ms epoch
-	EndTime          int64                 `json:"endTime"`
+	Name   string `json:"name"`   // absolute file path
+	Status string `json:"status"` // "passed" | "failed"
+	// Vitest 3 reports sub-millisecond precision as JSON numbers (for example,
+	// 0.849083). Keep these as float64 so one fractional duration cannot make
+	// json.Unmarshal reject the complete otherwise-valid test envelope.
+	StartTime        float64               `json:"startTime"` // ms epoch
+	EndTime          float64               `json:"endTime"`
 	AssertionResults []jestVitestAssertion `json:"assertionResults"`
 	// FailureMessage is the file-level "couldn't even load" reason
 	// when status="failed" but no individual tests are present
@@ -50,7 +53,7 @@ type jestVitestAssertion struct {
 	Title           string              `json:"title"`          // the test() name
 	FullName        string              `json:"fullName"`       // "describe > test"
 	Status          string              `json:"status"`         // "passed" | "failed" | "skipped" | "pending" | "todo"
-	Duration        int64               `json:"duration"`       // ms (jest); vitest may emit float
+	Duration        float64             `json:"duration"`       // milliseconds; Vitest 3 may emit fractions
 	FailureMessages []string            `json:"failureMessages"`
 	Location        *jestVitestLocation `json:"location,omitempty"`
 }
@@ -84,11 +87,9 @@ func ParseJestVitestJSON(rawJSON string, coverage float32) *StructuredTestRun {
 
 	for _, suite := range env.TestResults {
 		ss := &StructuredSuite{
-			Name: suite.Name,
-			File: suite.Name,
-			Duration: time.Duration(
-				(suite.EndTime - suite.StartTime) * int64(time.Millisecond),
-			),
+			Name:     suite.Name,
+			File:     suite.Name,
+			Duration: millisecondsDuration(suite.EndTime - suite.StartTime),
 		}
 
 		// Suite-level "couldn't load" — vitest/jest set status=failed
@@ -122,7 +123,7 @@ func ParseJestVitestJSON(rawJSON string, coverage float32) *StructuredTestRun {
 				Name:     a.Title,
 				FullName: assertionFullName(a),
 				State:    mapJestVitestStatus(a.Status),
-				Duration: time.Duration(a.Duration) * time.Millisecond,
+				Duration: millisecondsDuration(a.Duration),
 				File:     suite.Name,
 			}
 			if a.Location != nil {
@@ -150,6 +151,10 @@ func ParseJestVitestJSON(rawJSON string, coverage float32) *StructuredTestRun {
 		r.Suites = append(r.Suites, ss)
 	}
 	return r
+}
+
+func millisecondsDuration(milliseconds float64) time.Duration {
+	return time.Duration(milliseconds * float64(time.Millisecond))
 }
 
 // mapJestVitestStatus normalizes the runner's status string to the
