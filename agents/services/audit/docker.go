@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	"github.com/gofrs/flock"
 )
 
 const (
@@ -29,19 +31,31 @@ func Docker(ctx context.Context, image string) (*Result, error) {
 		return nil, fmt.Errorf("trivy audit requires a container image reference")
 	}
 	name := "trivy"
-	args := []string{"image", "--quiet", "--format", "json", "--severity", "HIGH,CRITICAL", image}
+	userCache, err := os.UserCacheDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve Trivy cache: %w", err)
+	}
+	cache := filepath.Join(userCache, "codefly", "trivy")
+	if err := os.MkdirAll(cache, 0o700); err != nil {
+		return nil, fmt.Errorf("create Trivy cache: %w", err)
+	}
+	// Trivy's filesystem cache is single-writer. Codefly audits services in
+	// parallel and each service agent is a separate process, so an in-process
+	// mutex cannot protect the shared BoltDB cache. Use a cross-process lock
+	// around the scan for both native and containerized Trivy. This preserves
+	// one reusable vulnerability database without nondeterministic lock
+	// timeouts or multiplying the database per service.
+	cacheLock, err := lockTrivyCache(ctx, cache)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = cacheLock.Unlock() }()
+
+	args := []string{"--cache-dir", cache, "image", "--quiet", "--format", "json", "--severity", "HIGH,CRITICAL", image}
 	res.Tool = "trivy"
 	if !have(name) {
 		if !have("docker") {
 			return nil, fmt.Errorf("trivy audit unavailable: neither trivy nor docker is installed")
-		}
-		cache, err := os.UserCacheDir()
-		if err != nil {
-			return nil, fmt.Errorf("resolve Trivy cache: %w", err)
-		}
-		cache = filepath.Join(cache, "codefly", "trivy")
-		if err := os.MkdirAll(cache, 0o700); err != nil {
-			return nil, fmt.Errorf("create Trivy cache: %w", err)
 		}
 		name = "docker"
 		args = []string{"run", "--rm", "--network", "bridge", "-v", cache + ":/root/.cache/trivy", TrivyImage,
@@ -63,6 +77,21 @@ func Docker(ctx context.Context, image string) (*Result, error) {
 	}
 	res.Findings = parseTrivy(out)
 	return res, nil
+}
+
+func lockTrivyCache(ctx context.Context, cache string) (*flock.Flock, error) {
+	lock := flock.New(filepath.Join(cache, ".codefly.lock"))
+	locked, err := lock.TryLockContext(ctx, 250*time.Millisecond)
+	if err != nil {
+		return nil, fmt.Errorf("lock Trivy cache: %w", err)
+	}
+	if !locked {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("lock Trivy cache: %w", err)
+		}
+		return nil, fmt.Errorf("lock Trivy cache: lock was not acquired")
+	}
+	return lock, nil
 }
 
 // trivyOutput captures the subset of `trivy image --format json` we need.
