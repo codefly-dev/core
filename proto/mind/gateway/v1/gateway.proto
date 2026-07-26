@@ -1013,6 +1013,8 @@ message GitBranchRequest {
   string name = 2;
   // start_point is the revision used as the branch head; empty means HEAD.
   string start_point = 3;
+  // force moves an existing local branch to start_point.
+  bool force = 4;
 }
 
 // GitBranchResponse reports the created branch and resolved revision.
@@ -1035,6 +1037,8 @@ message GitCheckoutRequest {
   string service = 1;
   // ref is an existing branch or revision.
   string ref = 2;
+  // detach checks out the resolved commit instead of attaching HEAD to a branch.
+  bool detach = 3;
 }
 
 // GitCheckoutResponse reports the checked-out branch and revision.

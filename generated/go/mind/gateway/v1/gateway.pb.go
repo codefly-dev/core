@@ -5385,7 +5385,9 @@ type GitBranchRequest struct {
 	// name is the new branch name.
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// start_point is the revision used as the branch head; empty means HEAD.
-	StartPoint    string `protobuf:"bytes,3,opt,name=start_point,json=startPoint,proto3" json:"start_point,omitempty"`
+	StartPoint string `protobuf:"bytes,3,opt,name=start_point,json=startPoint,proto3" json:"start_point,omitempty"`
+	// force moves an existing local branch to start_point.
+	Force         bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5439,6 +5441,13 @@ func (x *GitBranchRequest) GetStartPoint() string {
 		return x.StartPoint
 	}
 	return ""
+}
+
+func (x *GitBranchRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
 }
 
 // GitBranchResponse reports the created branch and resolved revision.
@@ -5529,7 +5538,9 @@ type GitCheckoutRequest struct {
 	// service identifies the repository.
 	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
 	// ref is an existing branch or revision.
-	Ref           string `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	Ref string `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	// detach checks out the resolved commit instead of attaching HEAD to a branch.
+	Detach        bool `protobuf:"varint,3,opt,name=detach,proto3" json:"detach,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5576,6 +5587,13 @@ func (x *GitCheckoutRequest) GetRef() string {
 		return x.Ref
 	}
 	return ""
+}
+
+func (x *GitCheckoutRequest) GetDetach() bool {
+	if x != nil {
+		return x.Detach
+	}
+	return false
 }
 
 // GitCheckoutResponse reports the checked-out branch and revision.
@@ -9456,21 +9474,23 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x14authoritative_source\x18\x06 \x01(\tR\x13authoritativeSource\x12+\n" +
 	"\x11authoritative_url\x18\a \x01(\tR\x10authoritativeUrl\x12;\n" +
 	"\vobserved_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"observedAt\"a\n" +
+	"observedAt\"w\n" +
 	"\x10GitBranchRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
 	"\vstart_point\x18\x03 \x01(\tR\n" +
-	"startPoint\"\xa6\x01\n" +
+	"startPoint\x12\x14\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\"\xa6\x01\n" +
 	"\x11GitBranchResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12\x16\n" +
 	"\x06branch\x18\x03 \x01(\tR\x06branch\x12\x1a\n" +
 	"\brevision\x18\x04 \x01(\tR\brevision\x12-\n" +
-	"\x03act\x18\x05 \x01(\v2\x1b.mind.gateway.v1.ActReceiptR\x03act\"@\n" +
+	"\x03act\x18\x05 \x01(\v2\x1b.mind.gateway.v1.ActReceiptR\x03act\"X\n" +
 	"\x12GitCheckoutRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x10\n" +
-	"\x03ref\x18\x02 \x01(\tR\x03ref\"\xa8\x01\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x16\n" +
+	"\x06detach\x18\x03 \x01(\bR\x06detach\"\xa8\x01\n" +
 	"\x13GitCheckoutResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12\x16\n" +
