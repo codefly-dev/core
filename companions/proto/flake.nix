@@ -84,6 +84,37 @@
           meta.mainProgram = "protoc-gen-es";
         };
 
+        # The other two TypeScript generators — openapi-typescript and
+        # swagger2openapi — pinned by ./ts-generators (package.json +
+        # package-lock.json) and built with buildNpmPackage, the
+        # reproducible equivalent of the Dockerfile's `npm install -g`.
+        # Without this the flake would fall back to an unpinned runtime
+        # `npx`, so the Nix and Docker images could ship different
+        # versions. (protoc-gen-es is pinned separately, above.) Bump these
+        # via ts-generators/package.json, then refresh package-lock.json
+        # and npmDepsHash.
+        tsGenerators = pkgs.buildNpmPackage {
+          pname = "proto-ts-generators";
+          version = "0.0.0";
+          src = ./ts-generators;
+          npmDepsHash = "sha256-XHyQfAPuMgy02gYhvk8stN7AQd1ByCZF0quyZ563bDA=";
+          # Prebuilt CLI tools — nothing to compile.
+          dontNpmBuild = true;
+          # Expose the two generator CLIs on $out/bin so buf's
+          # `local: <plugin>` lookups find them on PATH, exactly like the
+          # Dockerfile's global install. buildNpmPackage's patchShebangs
+          # rewrites their `#!/usr/bin/env node` to an absolute nixpkgs
+          # nodejs store path, so they are self-contained — they do NOT run
+          # on the nodejs_22 added to protoTools below.
+          postInstall = ''
+            mkdir -p $out/bin
+            binDir=$out/lib/node_modules/proto-ts-generators/node_modules/.bin
+            for cli in openapi-typescript swagger2openapi; do
+              ln -s "$binDir/$cli" "$out/bin/$cli"
+            done
+          '';
+        };
+
         # Tools the proto companion exposes at runtime. Same set as
         # the Dockerfile installs — only the source-of-pinning differs
         # (apk → nixpkgs).
@@ -96,8 +127,11 @@
           # `go install`).
           protoc-gen-go
           protoc-gen-go-grpc
-          protoc-gen-grpc-gateway
-          protoc-gen-openapiv2
+          # grpc-gateway ships both protoc-gen-grpc-gateway and
+          # protoc-gen-openapiv2 binaries; there are no separate
+          # top-level attrs for them (referencing them directly is an
+          # `undefined variable` — it broke flake evaluation).
+          grpc-gateway
           protoc-gen-connect-go
           # Swagger client generator — needs `go` in PATH at runtime
           # to format its output, hence go below.
@@ -109,8 +143,13 @@
           # protoc-gen-es, version-pinned to the ecosystem runtime (built
           # above from source, not pkgs.protoc-gen-es).
           protoc-gen-es
-          # Node + npm for the npx-driven TypeScript generators
-          # (openapi-typescript, swagger2openapi).
+          # openapi-typescript, swagger2openapi — version-pinned via
+          # ./ts-generators (see tsGenerators above).
+          tsGenerators
+          # General-purpose node/npm/npx on PATH for ad-hoc use. The pinned
+          # generator CLIs do NOT depend on this — they carry their own
+          # node via patchShebangs (tsGenerators) or a from-source build
+          # (protoc-gen-es).
           nodejs_22
           # Shell + coreutils so `bash -c '...'` style invocations
           # from the codefly host work inside the container.
