@@ -2362,9 +2362,13 @@ type AuditRequest struct {
 	IncludeOutdated bool `protobuf:"varint,1,opt,name=include_outdated,json=includeOutdated,proto3" json:"include_outdated,omitempty"`
 	// fail_on_vuln makes the agent return state=ERROR if any finding has
 	// severity HIGH or above. Default false (report-only).
-	FailOnVuln    bool `protobuf:"varint,2,opt,name=fail_on_vuln,json=failOnVuln,proto3" json:"fail_on_vuln,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	FailOnVuln bool `protobuf:"varint,2,opt,name=fail_on_vuln,json=failOnVuln,proto3" json:"fail_on_vuln,omitempty"`
+	// include_dev_dependencies includes development/test-only dependencies.
+	// The default false scopes release gates to shipped runtime dependencies;
+	// callers can opt into a broader supply-chain review.
+	IncludeDevDependencies bool `protobuf:"varint,3,opt,name=include_dev_dependencies,json=includeDevDependencies,proto3" json:"include_dev_dependencies,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *AuditRequest) Reset() {
@@ -2407,6 +2411,13 @@ func (x *AuditRequest) GetIncludeOutdated() bool {
 func (x *AuditRequest) GetFailOnVuln() bool {
 	if x != nil {
 		return x.FailOnVuln
+	}
+	return false
+}
+
+func (x *AuditRequest) GetIncludeDevDependencies() bool {
+	if x != nil {
+		return x.IncludeDevDependencies
 	}
 	return false
 }
@@ -3944,11 +3955,12 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\rconfiguration\x18\x02 \x01(\v2\x1e.codefly.base.v0.ConfigurationR\rconfiguration\x12M\n" +
 	"\n" +
 	"deployment\x18\x03 \x01(\v2-.codefly.services.builder.v0.DeploymentOutputR\n" +
-	"deployment\"[\n" +
+	"deployment\"\x95\x01\n" +
 	"\fAuditRequest\x12)\n" +
 	"\x10include_outdated\x18\x01 \x01(\bR\x0fincludeOutdated\x12 \n" +
 	"\ffail_on_vuln\x18\x02 \x01(\bR\n" +
-	"failOnVuln\"\xc8\x02\n" +
+	"failOnVuln\x128\n" +
+	"\x18include_dev_dependencies\x18\x03 \x01(\bR\x16includeDevDependencies\"\xc8\x02\n" +
 	"\fAuditFinding\x12N\n" +
 	"\bseverity\x18\x01 \x01(\x0e22.codefly.services.builder.v0.AuditFinding.SeverityR\bseverity\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +

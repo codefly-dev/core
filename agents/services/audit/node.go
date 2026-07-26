@@ -12,13 +12,31 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
 
+// NodeOptions controls the dependency scope and update evidence returned by a
+// Node audit.
+type NodeOptions struct {
+	IncludeOutdated        bool
+	IncludeDevDependencies bool
+}
+
 // Node scans a Node package rooted at dir (must contain package.json
-// + lockfile). Vulnerabilities: `npm audit --json`. Outdated:
-// `npm outdated --json` (returns {} when nothing outdated).
+// + lockfile), preserving the original all-dependencies behavior for existing
+// callers.
+func Node(ctx context.Context, dir string, includeOutdated bool) (*Result, error) {
+	return NodeWithOptions(ctx, dir, NodeOptions{
+		IncludeOutdated:        includeOutdated,
+		IncludeDevDependencies: true,
+	})
+}
+
+// NodeWithOptions scans vulnerabilities with `npm audit --json` and optionally
+// reports `npm outdated --json`. Runtime-only mode passes `--omit=dev` to both
+// commands so release gates describe dependencies shipped with the service;
+// development dependencies remain available as an explicit broader audit.
 //
 // Both commands exit non-zero on findings, which is normal — we still
 // parse the JSON output. Missing npm is an incomplete audit and fails.
-func Node(ctx context.Context, dir string, includeOutdated bool) (*Result, error) {
+func NodeWithOptions(ctx context.Context, dir string, options NodeOptions) (*Result, error) {
 	res := &Result{Language: "TYPESCRIPT", Tool: "npm-audit"}
 	if !have("npm") {
 		return nil, fmt.Errorf("npm audit unavailable: npm is not installed")
@@ -30,7 +48,12 @@ func Node(ctx context.Context, dir string, includeOutdated bool) (*Result, error
 		return nil, fmt.Errorf("inspect package-lock.json: %w", err)
 	}
 
-	out, err := runCmd(ctx, dir, "npm", "audit", "--json")
+	auditArgs := []string{"audit", "--json"}
+	if !options.IncludeDevDependencies {
+		auditArgs = append(auditArgs, "--omit=dev")
+		res.Tool = "npm-audit-runtime"
+	}
+	out, err := runCmd(ctx, dir, "npm", auditArgs...)
 	if err != nil && len(out) == 0 {
 		// `npm audit` failed completely (e.g. missing tool/lockfile);
 		// nothing to parse — non-zero exit on findings still yields output.
@@ -42,16 +65,20 @@ func Node(ctx context.Context, dir string, includeOutdated bool) (*Result, error
 	}
 	res.Findings = findings
 
-	if includeOutdated {
+	if options.IncludeOutdated {
 		// package-lock-only makes "current" come from the release lock rather
 		// than an arbitrary node_modules tree on the operator's machine.
-		o, err := runCmd(ctx, dir, "npm", "outdated", "--json", "--package-lock-only", "--depth=0")
+		outdatedArgs := []string{"outdated", "--json", "--package-lock-only", "--depth=0"}
+		if !options.IncludeDevDependencies {
+			outdatedArgs = append(outdatedArgs, "--omit=dev")
+		}
+		o, err := runCmd(ctx, dir, "npm", outdatedArgs...)
 		if err != nil && len(o) == 0 {
 			// `npm outdated` failed completely; skip outdated portion.
 			return nil, fmt.Errorf("npm outdated failed: %w", err)
 		}
 		res.Outdated = parseNpmOutdated(o)
-		res.Tool = "npm-audit+outdated"
+		res.Tool += "+outdated"
 	}
 	return res, nil
 }
