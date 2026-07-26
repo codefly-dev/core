@@ -26,7 +26,8 @@ require (
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/go-openapi/loads v0.23.3
 	github.com/go-openapi/spec v0.22.4
-	github.com/google/go-github/v37 v37.0.0
+	github.com/gofrs/flock v0.13.0
+	github.com/google/go-github/v89 v89.0.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/hashicorp/go-multierror v1.1.1
@@ -103,7 +104,6 @@ require (
 	github.com/go-openapi/swag/typeutils v0.26.0 // indirect
 	github.com/go-openapi/swag/yamlutils v0.26.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/gofrs/flock v0.13.0 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/cel-go v0.28.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect

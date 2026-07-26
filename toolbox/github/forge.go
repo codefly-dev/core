@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	gh "github.com/google/go-github/v37/github"
+	gh "github.com/google/go-github/v89/github"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	gatewayv1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
@@ -40,8 +40,13 @@ func (s *Server) PullRequestStatus(ctx context.Context, repository *gatewayv1.Fo
 	}
 	if err == nil {
 		if protection.RequiredStatusChecks != nil {
-			for _, contextName := range protection.RequiredStatusChecks.Contexts {
+			for _, contextName := range protection.RequiredStatusChecks.GetContexts() {
 				requiredContexts[contextName] = true
+			}
+			for _, check := range protection.RequiredStatusChecks.GetChecks() {
+				if check != nil && check.GetContext() != "" {
+					requiredContexts[check.GetContext()] = true
+				}
 			}
 		}
 		if protection.RequiredPullRequestReviews != nil {
@@ -128,7 +133,7 @@ func (s *Server) PullRequestStatus(ctx context.Context, repository *gatewayv1.Fo
 			State:  state,
 		}
 		if review.SubmittedAt != nil {
-			forgeReview.SubmittedAt = timestamppb.New(*review.SubmittedAt)
+			forgeReview.SubmittedAt = timestamppb.New(review.SubmittedAt.Time)
 		}
 		forgeReviews = append(forgeReviews, forgeReview)
 	}

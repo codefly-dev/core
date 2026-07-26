@@ -12,7 +12,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	"github.com/google/go-github/v37/github"
+	"github.com/google/go-github/v89/github"
 )
 
 // newGitHubReleaseClient returns a go-github client authenticated with
@@ -25,10 +25,20 @@ func newGitHubReleaseClient() *github.Client {
 	if token == "" {
 		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
 	}
+	var options []github.ClientOptionsFunc
 	if token == "" {
-		return github.NewClient(nil)
+		client, err := github.NewClient()
+		if err != nil {
+			panic(fmt.Sprintf("configure GitHub release client: %v", err))
+		}
+		return client
 	}
-	return github.NewClient(&http.Client{Transport: githubTokenTransport{token: token}})
+	options = append(options, github.WithHTTPClient(&http.Client{Transport: githubTokenTransport{token: token}}))
+	client, err := github.NewClient(options...)
+	if err != nil {
+		panic(fmt.Sprintf("configure authenticated GitHub release client: %v", err))
+	}
+	return client
 }
 
 // githubTokenTransport adds a bearer token to each request without pulling in
