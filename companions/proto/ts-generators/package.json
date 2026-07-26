@@ -1,0 +1,10 @@
+{
+  "name": "proto-ts-generators",
+  "version": "0.0.0",
+  "description": "Pinned non-protobuf-es TypeScript generators bundled into the codefly proto companion image. protoc-gen-es is pinned separately (built from source in flake.nix, npm-installed in the Dockerfile) and guarded by companion_plugins_test.go; these two are kept in lockstep with the Dockerfile's npm install -g list by ts_generators_pin_test.go so the Nix and Docker images ship identical toolchains.",
+  "private": true,
+  "dependencies": {
+    "openapi-typescript": "7.13.0",
+    "swagger2openapi": "7.0.8"
+  }
+}
