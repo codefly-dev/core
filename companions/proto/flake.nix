@@ -41,6 +41,49 @@
       let
         pkgs = import nixpkgs { inherit system; };
 
+        # protoc-gen-es must match the @bufbuild/protobuf runtime version
+        # consumers pin (currently 2.11.0). nixpkgs ships a different
+        # version, so build it from the pinned protobuf-es source rather
+        # than taking pkgs.protoc-gen-es: a companion es that diverges from
+        # a repo's pinned runtime makes every committed *_pb.ts drift on
+        # sync-drift. Keep in lockstep with the Dockerfile pin and the
+        # runtime — see issue #83.
+        protocGenEsVersion = "2.11.0";
+        protoc-gen-es = pkgs.buildNpmPackage {
+          pname = "protoc-gen-es";
+          version = protocGenEsVersion;
+          src = pkgs.fetchFromGitHub {
+            owner = "bufbuild";
+            repo = "protobuf-es";
+            rev = "v${protocGenEsVersion}";
+            hash = "sha256-iOzqBzeABRFH0KExn2ZHy6h7iiki0Ze93VpooW0MtK4=";
+          };
+          npmDepsHash = "sha256-vCOlDuvcHju9T9uDve9/MgID5cELL+vNRG6PxfyaAvA=";
+          npmWorkspace = "packages/protoc-gen-es";
+          preBuild = ''
+            npm run --workspace=packages/protobuf build
+            npm run --workspace=packages/protoplugin build
+          '';
+          # buf's workspace layout leaves dangling node_modules symlinks
+          # into unbuilt sibling packages; deref the ones the plugin needs
+          # so the output has no broken links.
+          postInstall = ''
+            rm -rf $out/lib/node_modules/protobuf-es/node_modules/ts4.*
+            cp -rL node_modules/ts4.* $out/lib/node_modules/protobuf-es/node_modules/
+
+            rm -rf $out/lib/node_modules/protobuf-es/node_modules/ts5.*
+            cp -rL node_modules/ts5.* $out/lib/node_modules/protobuf-es/node_modules/
+
+            rm -rf $out/lib/node_modules/protobuf-es/node_modules/upstream-protobuf
+            cp -rL node_modules/upstream-protobuf $out/lib/node_modules/protobuf-es/node_modules/
+
+            rm -rf $out/lib/node_modules/protobuf-es/node_modules/@bufbuild
+            cp -rL node_modules/@bufbuild $out/lib/node_modules/protobuf-es/node_modules/
+          '';
+          dontStrip = true;
+          meta.mainProgram = "protoc-gen-es";
+        };
+
         # Tools the proto companion exposes at runtime. Same set as
         # the Dockerfile installs — only the source-of-pinning differs
         # (apk → nixpkgs).
@@ -63,8 +106,11 @@
           go
           # Python grpcio-tools — for grpc_python_plugin et al.
           (python3.withPackages (ps: with ps; [ grpcio-tools ]))
-          # Node + npm for TypeScript generators (openapi-typescript,
-          # swagger2openapi, protoc-gen-es).
+          # protoc-gen-es, version-pinned to the ecosystem runtime (built
+          # above from source, not pkgs.protoc-gen-es).
+          protoc-gen-es
+          # Node + npm for the npx-driven TypeScript generators
+          # (openapi-typescript, swagger2openapi).
           nodejs_22
           # Shell + coreutils so `bash -c '...'` style invocations
           # from the codefly host work inside the container.

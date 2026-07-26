@@ -63,7 +63,7 @@ RUN apk add --no-cache nodejs npm protobuf go && \
     npm install -g \
         openapi-typescript@7.13.0 \
         swagger2openapi@7.0.8 \
-        @bufbuild/protoc-gen-es@2.12.0 && \
+        @bufbuild/protoc-gen-es@2.11.0 && \
     npm cache clean --force
 
 COPY --from=builder /go/bin/buf /usr/local/bin/
