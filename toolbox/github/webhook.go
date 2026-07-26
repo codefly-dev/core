@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	gh "github.com/google/go-github/v37/github"
+	gh "github.com/google/go-github/v89/github"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	gatewayv1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"

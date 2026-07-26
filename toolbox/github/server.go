@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	gogit "github.com/go-git/go-git/v5"
-	gh "github.com/google/go-github/v37/github"
+	gh "github.com/google/go-github/v89/github"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -70,9 +70,13 @@ type Server struct {
 // origin remote names the default owner/repo.
 func New(workspace, token, version string) *Server {
 	httpClient := &http.Client{Transport: tokenTransport{token: token, base: http.DefaultTransport}}
+	client, err := gh.NewClient(gh.WithHTTPClient(httpClient))
+	if err != nil {
+		panic(fmt.Sprintf("github toolbox: configure client: %v", err))
+	}
 	s := &Server{
 		workspace: workspace,
-		client:    gh.NewClient(httpClient),
+		client:    client,
 	}
 	s.Base = registry.NewBase(registry.Descriptor{
 		Name:           "github",

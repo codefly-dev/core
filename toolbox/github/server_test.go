@@ -10,7 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	gh "github.com/google/go-github/v37/github"
+	gh "github.com/google/go-github/v89/github"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	gatewayv1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
@@ -104,7 +104,7 @@ func TestPullRequestStatusReturnsRequiredChecksAndReviews(t *testing.T) {
 			})
 		case "/repos/o/r/branches/main/protection":
 			writeJSON(t, w, map[string]any{
-				"required_status_checks":        map[string]any{"strict": true, "contexts": []string{"test"}},
+				"required_status_checks":        map[string]any{"strict": true, "checks": []map[string]any{{"context": "test", "app_id": 123}}},
 				"required_pull_request_reviews": map[string]any{"required_approving_review_count": 1},
 			})
 		case "/repos/o/r/commits/abc123/check-runs":
@@ -352,13 +352,14 @@ func githubServerForTest(t *testing.T, handler http.HandlerFunc) *Server {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	client := gh.NewClient(server.Client())
-	baseURL, err := client.BaseURL.Parse(server.URL + "/")
+	baseURL := server.URL + "/"
+	client, err := gh.NewClient(
+		gh.WithHTTPClient(server.Client()),
+		gh.WithURLs(&baseURL, &baseURL),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.BaseURL = baseURL
-	client.UploadURL = baseURL
 	s := New("/tmp/x", "", "test")
 	s.client = client
 	return s
