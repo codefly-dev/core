@@ -228,11 +228,20 @@ func (g *Buf) Generate(ctx context.Context) error {
 		}
 	}
 
-	err = g.dependencies.UpdateCache(ctx)
-	if err != nil {
+	if err = g.updateGenerationCache(ctx); err != nil {
 		return w.Wrapf(err, "cannot update cache")
 	}
 	return nil
+}
+
+// updateGenerationCache hashes inputs after generation. `buf dep update` may
+// rewrite buf.lock, so persisting the pre-generation hash would force one
+// unnecessary second generation and another round of BSR requests.
+func (g *Buf) updateGenerationCache(ctx context.Context) error {
+	if _, err := g.dependencies.Updated(ctx); err != nil {
+		return err
+	}
+	return g.dependencies.UpdateCache(ctx)
 }
 
 // moveGeneratedOpenAPI preserves the generated document when the generator's

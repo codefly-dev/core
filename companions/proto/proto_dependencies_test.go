@@ -76,6 +76,56 @@ func TestNewBufTracksEveryGenerationInput(t *testing.T) {
 	}
 }
 
+func TestBufGenerationCacheUsesPostGenerationInputs(t *testing.T) {
+	root := t.TempDir()
+	protoDir := filepath.Join(root, "proto")
+	cacheDir := filepath.Join(root, ".codefly", "cache")
+	if err := os.MkdirAll(protoDir, 0o755); err != nil {
+		t.Fatalf("mkdir proto directory: %v", err)
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(protoDir, "api.proto"), []byte("syntax = \"proto3\";"), 0o644); err != nil {
+		t.Fatalf("write proto: %v", err)
+	}
+	lock := filepath.Join(protoDir, "buf.lock")
+	if err := os.WriteFile(lock, []byte("deps: []\n"), 0o644); err != nil {
+		t.Fatalf("write initial lock: %v", err)
+	}
+
+	generator, err := NewBuf(context.Background(), root)
+	if err != nil {
+		t.Fatalf("NewBuf: %v", err)
+	}
+	generator.WithCache(cacheDir)
+	updated, err := generator.dependencies.Updated(context.Background())
+	if err != nil || !updated {
+		t.Fatalf("initial Updated = %t, %v; want true", updated, err)
+	}
+
+	// Mirrors buf dep update rewriting a generation input after Updated ran.
+	if err := os.WriteFile(lock, []byte("deps:\n  - commit: updated\n"), 0o644); err != nil {
+		t.Fatalf("rewrite lock: %v", err)
+	}
+	if err := generator.updateGenerationCache(context.Background()); err != nil {
+		t.Fatalf("updateGenerationCache: %v", err)
+	}
+
+	reloaded, err := NewBuf(context.Background(), root)
+	if err != nil {
+		t.Fatalf("NewBuf reload: %v", err)
+	}
+	reloaded.WithCache(cacheDir)
+	updated, err = reloaded.dependencies.Updated(context.Background())
+	if err != nil {
+		t.Fatalf("Updated reload: %v", err)
+	}
+	if updated {
+		t.Fatal("post-generation inputs did not match the persisted cache")
+	}
+}
+
 func TestBufCleanGeneratedDirsIsStrictlyScoped(t *testing.T) {
 	root := t.TempDir()
 	generated := filepath.Join(root, "code", "pkg", "gen")
