@@ -174,11 +174,9 @@ func (g *Buf) Generate(ctx context.Context) error {
 	openapi := path.Join(g.Dir, "openapi/api.swagger.json")
 	if ok, err := shared.FileExists(ctx, openapi); err == nil && ok {
 		destination := path.Join(g.Dir, standards.OpenAPIPath)
-		err = shared.CopyFile(ctx, openapi, destination)
-		if err != nil {
+		if err = moveGeneratedOpenAPI(ctx, openapi, destination); err != nil {
 			return w.Wrapf(err, "cannot copy file")
 		}
-		_ = os.Remove(openapi)
 	}
 
 	// Generate TypeScript types from OpenAPI spec if swagger files exist.
@@ -230,11 +228,35 @@ func (g *Buf) Generate(ctx context.Context) error {
 		}
 	}
 
-	err = g.dependencies.UpdateCache(ctx)
-	if err != nil {
+	if err = g.updateGenerationCache(ctx); err != nil {
 		return w.Wrapf(err, "cannot update cache")
 	}
 	return nil
+}
+
+// updateGenerationCache hashes inputs after generation. `buf dep update` may
+// rewrite buf.lock, so persisting the pre-generation hash would force one
+// unnecessary second generation and another round of BSR requests.
+func (g *Buf) updateGenerationCache(ctx context.Context) error {
+	if _, err := g.dependencies.Updated(ctx); err != nil {
+		return err
+	}
+	return g.dependencies.UpdateCache(ctx)
+}
+
+// moveGeneratedOpenAPI preserves the generated document when the generator's
+// output and Codefly's canonical OpenAPI path are the same file. The two paths
+// used to differ; after standards.OpenAPIPath converged on
+// openapi/api.swagger.json, blindly copying and then removing the source
+// deleted the canonical artifact after every successful generation.
+func moveGeneratedOpenAPI(ctx context.Context, source, destination string) error {
+	if filepath.Clean(source) == filepath.Clean(destination) {
+		return nil
+	}
+	if err := shared.CopyFile(ctx, source, destination); err != nil {
+		return err
+	}
+	return os.Remove(source)
 }
 
 func (g *Buf) cleanGeneratedDirs() error {
