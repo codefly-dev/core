@@ -30,9 +30,11 @@ type Buf struct {
 	// internal cache for hash
 	cache string
 
-	// generatedDirs are generator-owned output roots removed immediately
+	// generatedDirs are generator-owned output roots emptied immediately
 	// before buf generate. Cleaning prevents package or service renames from
-	// leaving stale generated Go packages in an otherwise green build.
+	// leaving stale generated Go packages in an otherwise green build. The
+	// roots themselves remain present because local protoc plugins require
+	// their configured output directories to exist.
 	generatedDirs []string
 
 	// generatedRoot is the service boundary that contains every generated
@@ -142,6 +144,14 @@ func (g *Buf) Generate(ctx context.Context) error {
 		}
 	}()
 
+	// Prepare output roots before a Docker companion bind-mounts the source
+	// tree. Removing and recreating directories after container initialization
+	// can leave Docker Desktop with stale directory inodes, causing local
+	// plugins to fail while opening otherwise valid nested output paths.
+	if err := g.cleanGeneratedDirs(); err != nil {
+		return w.Wrapf(err, "cannot clean stale generated output")
+	}
+
 	if err := runner.Init(ctx); err != nil {
 		return w.Wrapf(err, "cannot init runner")
 	}
@@ -154,10 +164,6 @@ func (g *Buf) Generate(ctx context.Context) error {
 	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot update buf")
-	}
-
-	if err := g.cleanGeneratedDirs(); err != nil {
-		return w.Wrapf(err, "cannot clean stale generated output")
 	}
 
 	proc, err = runner.NewProcess("buf", "generate")
@@ -278,6 +284,9 @@ func (g *Buf) cleanGeneratedDirs() error {
 		}
 		if err := os.RemoveAll(output); err != nil {
 			return fmt.Errorf("remove generated directory %q: %w", output, err)
+		}
+		if err := os.MkdirAll(output, 0o755); err != nil {
+			return fmt.Errorf("recreate generated directory %q: %w", output, err)
 		}
 	}
 	return nil

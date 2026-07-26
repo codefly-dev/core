@@ -144,8 +144,12 @@ func TestBufCleanGeneratedDirsIsStrictlyScoped(t *testing.T) {
 	if err := generator.cleanGeneratedDirs(); err != nil {
 		t.Fatalf("cleanGeneratedDirs: %v", err)
 	}
-	if _, err := os.Stat(generated); !os.IsNotExist(err) {
-		t.Fatalf("generated directory still exists or stat failed unexpectedly: %v", err)
+	entries, err := os.ReadDir(generated)
+	if err != nil {
+		t.Fatalf("generated directory was not recreated: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("generated directory was not emptied: %v", entries)
 	}
 
 	outside := t.TempDir()
@@ -180,8 +184,12 @@ func TestBufCleanGeneratedDirsSupportsNestedProtocolRoots(t *testing.T) {
 	if err := generator.cleanGeneratedDirs(); err != nil {
 		t.Fatalf("cleanGeneratedDirs: %v", err)
 	}
-	if _, err := os.Stat(generated); !os.IsNotExist(err) {
-		t.Fatalf("generated directory still exists or stat failed unexpectedly: %v", err)
+	entries, err := os.ReadDir(generated)
+	if err != nil {
+		t.Fatalf("generated directory was not recreated: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("generated directory was not emptied: %v", entries)
 	}
 
 	outside := t.TempDir()
