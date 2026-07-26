@@ -55,9 +55,14 @@ func NewConfigurationLocalReader(_ context.Context, workspace *resources.Workspa
 func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env *resources.Environment) error {
 	w := wool.Get(ctx).In("ConfigurationInformationLocalReader.Load")
 
+	configurationProfile, err := env.ConfigurationProfileName()
+	if err != nil {
+		return w.Wrapf(err, "cannot select configuration profile")
+	}
+
 	// Create a provider folder for local development
-	configurationDir := path.Join(local.workspace.Dir(), "configurations", env.Name)
-	_, err := shared.CheckDirectoryOrCreate(ctx, configurationDir)
+	configurationDir := path.Join(local.workspace.Dir(), "configurations", configurationProfile)
+	_, err = shared.CheckDirectoryOrCreate(ctx, configurationDir)
 	if err != nil {
 		return w.Wrapf(err, "cannot create configuration directory")
 	}
@@ -88,7 +93,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 		if err != nil {
 			return w.Wrapf(err, "cannot get service identity")
 		}
-		serviceConfDir := path.Join(svc.Dir(), "configurations", env.Name)
+		serviceConfDir := path.Join(svc.Dir(), "configurations", configurationProfile)
 		exists, err := shared.DirectoryExists(ctx, serviceConfDir)
 		if err != nil {
 			return w.Wrapf(err, "cannot check service configuration directory")
@@ -111,7 +116,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			}
 		}
 		// Load DNS
-		serviceDNSDir := path.Join(svc.Dir(), "dns", env.Name)
+		serviceDNSDir := path.Join(svc.Dir(), "dns", configurationProfile)
 		dnsFile := path.Join(serviceDNSDir, "dns.codefly.yaml")
 		exists, err = shared.FileExists(ctx, dnsFile)
 		if err != nil {

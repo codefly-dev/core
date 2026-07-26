@@ -60,6 +60,41 @@ func TestLocalLoaderModulesLayout(t *testing.T) {
 	testLocalLoader(t, "testdata/module")
 }
 
+func TestEnvironmentCanUseAnExplicitConfigurationProfile(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, resources.WorkspaceConfigurationName, "name: test-workspace\nlayout: flat\n")
+	writeConfigurationFile(t, root, "configurations/local/internal-auth.secret.env", "TOKEN=local-runtime-token\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	environment := &resources.Environment{
+		Name:                 "production",
+		ConfigurationProfile: "local",
+	}
+	require.NoError(t, loader.Load(ctx, environment))
+
+	confs := loader.Configurations()
+	require.Len(t, confs, 1)
+	token, err := resources.GetConfigurationValue(ctx, confs[0], "internal-auth", "TOKEN")
+	require.NoError(t, err)
+	require.Equal(t, "local-runtime-token", token)
+}
+
+func TestEnvironmentConfigurationProfileRejectsTraversal(t *testing.T) {
+	environment := &resources.Environment{
+		Name:                 "production",
+		ConfigurationProfile: "../local",
+	}
+
+	_, err := environment.ConfigurationProfileName()
+
+	require.ErrorContains(t, err, "single path component")
+}
+
 func testLocalLoader(t *testing.T, dir string) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
