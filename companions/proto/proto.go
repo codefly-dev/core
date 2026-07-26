@@ -144,6 +144,14 @@ func (g *Buf) Generate(ctx context.Context) error {
 		}
 	}()
 
+	// Prepare output roots before a Docker companion bind-mounts the source
+	// tree. Removing and recreating directories after container initialization
+	// can leave Docker Desktop with stale directory inodes, causing local
+	// plugins to fail while opening otherwise valid nested output paths.
+	if err := g.cleanGeneratedDirs(); err != nil {
+		return w.Wrapf(err, "cannot clean stale generated output")
+	}
+
 	if err := runner.Init(ctx); err != nil {
 		return w.Wrapf(err, "cannot init runner")
 	}
@@ -156,10 +164,6 @@ func (g *Buf) Generate(ctx context.Context) error {
 	err = proc.Run(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot update buf")
-	}
-
-	if err := g.cleanGeneratedDirs(); err != nil {
-		return w.Wrapf(err, "cannot clean stale generated output")
 	}
 
 	proc, err = runner.NewProcess("buf", "generate")
