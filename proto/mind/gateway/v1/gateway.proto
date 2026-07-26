@@ -1,11 +1,11 @@
 syntax = "proto3";
 package mind.gateway.v1;
 
-option go_package = "github.com/codefly-dev/core/generated/go/mind/gateway/v1;gatewayv1";
-
 import "codefly/base/v0/source.proto";
 import "codefly/services/runtime/v0/runtime.proto";
 import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/codefly-dev/core/generated/go/mind/gateway/v1;gatewayv1";
 
 // Gateway is the ONLY service Mind talks to.
 // Codefly CLI implements it. Everything else is behind this wall.
@@ -17,7 +17,6 @@ import "google/protobuf/timestamp.proto";
 // Gateway is the firewall API Mind uses to reach Codefly workspaces without talking directly to
 // agents, processes, or containers.
 service Gateway {
-
   // ─── Topology ───────────────────────────────────────────────
 
   // ListServices returns all services known to the gateway.
@@ -87,6 +86,9 @@ service Gateway {
   // Test runs the configured test command on the service.
   rpc Test(TestRequest) returns (TestResponse);
 
+  // Format applies the service plugin's canonical formatter/import organizer.
+  rpc Format(FormatRequest) returns (FormatResponse);
+
   // ─── Execution ──────────────────────────────────────────────
 
   // RunCommand executes an arbitrary command in the service context.
@@ -115,6 +117,42 @@ service Gateway {
 
   // GitCommit commits staged changes.
   rpc GitCommit(GitCommitRequest) returns (GitCommitResponse);
+
+  // GitBranch creates a branch at an explicit start point.
+  rpc GitBranch(GitBranchRequest) returns (GitBranchResponse);
+
+  // GitCheckout switches the worktree to an existing branch or revision.
+  rpc GitCheckout(GitCheckoutRequest) returns (GitCheckoutResponse);
+
+  // GitPush publishes a local branch to a remote.
+  rpc GitPush(GitPushRequest) returns (GitPushResponse);
+
+  // GitTag creates an annotated or signed tag.
+  rpc GitTag(GitTagRequest) returns (GitTagResponse);
+
+  // GitMerge merges one revision into the checked-out branch.
+  rpc GitMerge(GitMergeRequest) returns (GitMergeResponse);
+
+  // GitRevert creates a commit that reverts one revision.
+  rpc GitRevert(GitRevertRequest) returns (GitRevertResponse);
+
+  // Release bumps the code unit versions, commits them, creates a signed tag,
+  // and publishes the commit and tag as one semantic operation.
+  rpc Release(ReleaseRequest) returns (ReleaseResponse);
+
+  // ─── Forge ───────────────────────────────────────────────────
+
+  // ForgePullRequestStatus returns one vendor-neutral PR/check/review snapshot.
+  rpc ForgePullRequestStatus(ForgePullRequestStatusRequest) returns (ForgePullRequestStatusResponse);
+
+  // ForgeMergePullRequest merges a PR after enforcing its requested check policy.
+  rpc ForgeMergePullRequest(ForgeMergePullRequestRequest) returns (ForgeMergePullRequestResponse);
+
+  // ForgeRequestReview requests reviewers on a PR.
+  rpc ForgeRequestReview(ForgeRequestReviewRequest) returns (ForgeRequestReviewResponse);
+
+  // ForgeNormalizeWebhook verifies and normalizes one provider webhook.
+  rpc ForgeNormalizeWebhook(ForgeNormalizeWebhookRequest) returns (ForgeNormalizeWebhookResponse);
 
   // ─── Dependency Management ──────────────────────────────────
 
@@ -165,9 +203,9 @@ message ServiceInfo {
   // name is the Codefly service name.
   string name = 1;
   // language is the implementation language detected for the service.
-  string language = 2;       // "go", "rust", "node", etc.
+  string language = 2; // "go", "rust", "node", etc.
   // type distinguishes services, libraries, and other service-like resources.
-  string type = 3;           // "library" | "service"
+  string type = 3; // "library" | "service"
   // port is the primary local port exposed through the gateway when known.
   int32 port = 7;
 }
@@ -185,7 +223,7 @@ message ReadFileRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
   // path is a workspace- or service-relative filesystem path.
-  string path = 2;           // relative to service root
+  string path = 2; // relative to service root
 }
 
 // ReadFileResponse returns file content when the requested path exists.
@@ -201,7 +239,7 @@ message WriteFileRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
   // path is a workspace- or service-relative filesystem path.
-  string path = 2;           // relative to service root
+  string path = 2; // relative to service root
   // content is the complete file body to write.
   string content = 3;
 }
@@ -219,7 +257,7 @@ message ListFilesRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
   // path is a workspace- or service-relative filesystem path.
-  string path = 2;                // optional: subdirectory (empty = root)
+  string path = 2; // optional: subdirectory (empty = root)
   // extensions restrict file results to the listed suffixes.
   repeated string extensions = 3; // optional: filter by extension (e.g. ".go", ".py")
   // recursive includes nested directories when true.
@@ -229,7 +267,7 @@ message ListFilesRequest {
 // FileInfo describes a file or directory returned by ListFiles.
 message FileInfo {
   // path is a workspace- or service-relative filesystem path.
-  string path = 1;       // relative path within the service
+  string path = 1; // relative path within the service
   // size_bytes is the file size in bytes.
   int64 size_bytes = 2;
   // is_directory is true when the path is a directory.
@@ -291,7 +329,7 @@ message DeleteFileRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
   // path is a workspace- or service-relative filesystem path.
-  string path = 2;           // relative to service root
+  string path = 2; // relative to service root
 }
 
 // DeleteFileResponse reports whether the gateway removed the file.
@@ -351,7 +389,7 @@ message FixRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
   // path is a workspace- or service-relative filesystem path.
-  string path = 2;            // relative to service root
+  string path = 2; // relative to service root
   // mode selects safe fixes, no fixes, or explicitly aggressive fixes.
   codefly.base.v0.FixMode mode = 3;
   // dry_run returns the fixed content and evidence without writing the file.
@@ -363,9 +401,9 @@ message FixResponse {
   // success is true when the requested operation completed successfully.
   bool success = 1;
   // content is the fixed file content; it may be empty when no rewrite was needed.
-  string content = 2;         // the fixed file content (empty if unchanged)
+  string content = 2; // the fixed file content (empty if unchanged)
   // error explains why the operation failed; empty means success at this layer.
-  string error = 3;           // non-fatal: fixer not available, etc.
+  string error = 3; // non-fatal: fixer not available, etc.
   // actions are native formatter, fixer, or lifecycle actions performed by the agent.
   repeated string actions = 4; // what was done: "goimports", "gofmt", etc.
   // changed reports whether the returned content differs from the original file.
@@ -387,11 +425,11 @@ message ApplyEditRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
   // file is a workspace- or service-relative source file path.
-  string file = 2;          // relative to service root
+  string file = 2; // relative to service root
   // find is the text or pattern to locate before applying an edit.
-  string find = 3;          // text to find (smart matching at plugin level)
+  string find = 3; // text to find (smart matching at plugin level)
   // replace is the replacement text used by an edit operation.
-  string replace = 4;       // replacement text
+  string replace = 4; // replacement text
   // fix_mode controls language-aware rewriting after the edit. SAFE is the default.
   codefly.base.v0.FixMode fix_mode = 5;
   // dry_run returns the edited and fixed content without writing the file.
@@ -403,11 +441,11 @@ message ApplyEditResponse {
   // success is true when the requested operation completed successfully.
   bool success = 1;
   // content is the file content after the edit and optional fixers.
-  string content = 2;              // file content after edit + fix
+  string content = 2; // file content after edit + fix
   // error explains why the operation failed; empty means success at this layer.
-  string error = 3;                // why the edit failed
+  string error = 3; // why the edit failed
   // strategy names the edit or execution strategy that produced the result.
-  string strategy = 4;             // which matching strategy
+  string strategy = 4; // which matching strategy
   // fix_actions names formatters or import fixers that ran after the edit.
   repeated string fix_actions = 5; // fixers that ran
   // changed reports whether the returned content differs from the original file.
@@ -552,31 +590,31 @@ message SearchRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
   // pattern is the search expression or test filter requested by the caller.
-  string pattern = 2;              // regex or literal pattern
+  string pattern = 2; // regex or literal pattern
   // literal treats pattern as plain text instead of a regular expression.
-  bool literal = 3;                // if true, treat pattern as literal string
+  bool literal = 3; // if true, treat pattern as literal string
   // case_insensitive makes matching ignore letter case.
   bool case_insensitive = 4;
   // path is a workspace- or service-relative filesystem path.
-  string path = 5;                 // optional: restrict to subdirectory
+  string path = 5; // optional: restrict to subdirectory
   // extensions restrict file results to the listed suffixes.
-  repeated string extensions = 6;  // optional: filter by extension (e.g. ".go", ".py")
+  repeated string extensions = 6; // optional: filter by extension (e.g. ".go", ".py")
   // exclude contains glob patterns to skip during the search.
-  repeated string exclude = 7;     // optional: glob patterns to exclude
+  repeated string exclude = 7; // optional: glob patterns to exclude
   // max_results caps returned matches; zero uses the gateway default.
-  int32 max_results = 8;           // 0 = default (100)
+  int32 max_results = 8; // 0 = default (100)
   // context_lines is the number of neighboring lines returned around each match.
-  int32 context_lines = 9;         // lines of context around each match
+  int32 context_lines = 9; // lines of context around each match
 }
 
 // SearchMatch identifies one matching line and optional surrounding context.
 message SearchMatch {
   // file is a workspace- or service-relative source file path.
-  string file = 1;                 // relative path
+  string file = 1; // relative path
   // line is the 1-based source line number.
-  int32 line = 2;                  // 1-based line number
+  int32 line = 2; // 1-based line number
   // text is the matched source line.
-  string text = 3;                 // the matching line
+  string text = 3; // the matching line
   // context_before contains lines immediately before the match.
   repeated string context_before = 4;
   // context_after contains lines immediately after the match.
@@ -612,7 +650,7 @@ message BuildError {
   // message is the diagnostic text returned by the build or lint tool.
   string message = 4;
   // severity is the diagnostic or finding level reported by the producer.
-  string severity = 5;       // "error" | "warning"
+  string severity = 5; // "error" | "warning"
 }
 
 // BuildResponse returns build success, structured diagnostics, and raw output.
@@ -622,7 +660,7 @@ message BuildResponse {
   // errors are structured build diagnostics.
   repeated BuildError errors = 2;
   // output is raw command, build, lint, or test output retained for diagnosis.
-  string output = 3;         // raw build output
+  string output = 3; // raw build output
 }
 
 // ─── Lint ─────────────────────────────────────────────────────
@@ -640,7 +678,7 @@ message LintResponse {
   // errors are structured lint diagnostics.
   repeated BuildError errors = 2; // reuse BuildError for lint diagnostics
   // output is raw command, build, lint, or test output retained for diagnosis.
-  string output = 3;              // raw lint output
+  string output = 3; // raw lint output
 }
 
 // ─── Test ─────────────────────────────────────────────────────
@@ -661,7 +699,7 @@ message TestResponse {
   // success is true when the requested operation completed successfully.
   bool success = 1;
   // output is raw command, build, lint, or test output retained for diagnosis.
-  string output = 2;              // raw test output
+  string output = 2; // raw test output
   // tests_run is the total number of tests executed.
   int32 tests_run = 3;
   // tests_passed is the number of tests that passed.
@@ -680,20 +718,80 @@ message TestResponse {
   codefly.services.runtime.v0.TestResponse runtime_response = 9;
 }
 
+// ─── Format ──────────────────────────────────────────────────
+
+// FormatRequest asks the service plugin to apply its canonical formatter and
+// import organizer. Empty paths format the plugin-defined changed-file scope.
+message FormatRequest {
+  // service identifies the code unit whose plugin owns formatting.
+  string service = 1;
+  // paths limits formatting to these service-relative paths.
+  repeated string paths = 2;
+}
+
+// FormatResponse reports the authoritative file set changed by the plugin.
+message FormatResponse {
+  // success reports whether the plugin completed formatting.
+  bool success = 1;
+  // changed_files lists service-relative files modified by the plugin.
+  repeated string changed_files = 2;
+  // errors contains structured formatter diagnostics.
+  repeated BuildError errors = 3;
+  // output preserves plugin output for diagnosis.
+  string output = 4;
+  // act is the authoritative receipt for the applied formatting act.
+  ActReceipt act = 5;
+}
+
 // ─── Execution ───────────────────────────────────────────────
+
+// CommandClass classifies why an unstructured execution escape hatch was used.
+enum CommandClass {
+  // COMMAND_CLASS_UNSPECIFIED is rejected for an escape-hatch call.
+  COMMAND_CLASS_UNSPECIFIED = 0;
+  // COMMAND_CLASS_VCS covers version-control diagnosis unsupported by typed VCS verbs.
+  COMMAND_CLASS_VCS = 1;
+  // COMMAND_CLASS_BUILD covers build-system diagnosis unsupported by typed checks.
+  COMMAND_CLASS_BUILD = 2;
+  // COMMAND_CLASS_PACKAGE covers package-manager diagnosis.
+  COMMAND_CLASS_PACKAGE = 3;
+  // COMMAND_CLASS_NETWORK covers network diagnosis.
+  COMMAND_CLASS_NETWORK = 4;
+  // COMMAND_CLASS_FILESYSTEM covers one-off filesystem diagnosis.
+  COMMAND_CLASS_FILESYSTEM = 5;
+  // COMMAND_CLASS_DIAGNOSTIC covers other read-only diagnostic probes.
+  COMMAND_CLASS_DIAGNOSTIC = 6;
+  // COMMAND_CLASS_OTHER covers an attributed use outside the named classes.
+  COMMAND_CLASS_OTHER = 7;
+}
+
+// UnstructuredUse attributes one use of raw process or PTY execution. The
+// gateway rejects escape-hatch calls that omit any field.
+message UnstructuredUse {
+  // intent is the human-readable objective of the command.
+  string intent = 1;
+  // command_class groups uses into a missing-capability family.
+  CommandClass command_class = 2;
+  // why_no_tool states why the typed toolbox could not perform this work.
+  string why_no_tool = 3;
+  // code_unit_id attributes the use to one code unit.
+  string code_unit_id = 4;
+  // objective_id attributes the use to one Mind objective.
+  string objective_id = 5;
+}
 
 // RunCommandRequest asks the gateway to run a command in a service context.
 message RunCommandRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
   // command is the executable or shell command requested by the caller.
-  string command = 2;              // command to execute
+  string command = 2; // command to execute
   // args are structured or command-line arguments supplied to the tool or command.
-  repeated string args = 3;        // arguments
+  repeated string args = 3; // arguments
   // timeout_seconds caps command execution time; zero uses the default.
-  int32 timeout_seconds = 4;       // 0 = default (30s)
+  int32 timeout_seconds = 4; // 0 = default (30s)
   // working_dir is an optional service-relative directory for command execution.
-  string working_dir = 5;          // optional: relative subdirectory
+  string working_dir = 5; // optional: relative subdirectory
   // stdin is optional bytes written to the process's standard input.
   //
   // CONTRACT (single-shot stdin): the gateway writes the full payload
@@ -702,6 +800,8 @@ message RunCommandRequest {
   // protocols with a fixed upfront request list, e.g. feeding
   // `git cat-file --batch` a list of object names.
   bytes stdin = 6;
+  // unstructured_use is mandatory attribution for this escape hatch.
+  UnstructuredUse unstructured_use = 7;
 }
 
 // RunCommandResponse returns process exit status and captured streams.
@@ -744,8 +844,7 @@ message Check {
 }
 
 // PluginCheck delegates to the plugin's Build/Test/Lint RPC (no parameters needed).
-message PluginCheck {
-}
+message PluginCheck {}
 
 // CommandCheck validates a command's exit code and optional output text.
 message CommandCheck {
@@ -794,7 +893,7 @@ message RunChecksResponse {
 // GitStatusRequest asks for git status, optionally scoped to one service directory.
 message GitStatusRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
-  string service = 1;         // optional: filter to service directory
+  string service = 1; // optional: filter to service directory
 }
 
 // GitFileStatus reports the state and message for the git file lifecycle phase.
@@ -802,7 +901,7 @@ message GitFileStatus {
   // path is a workspace- or service-relative filesystem path.
   string path = 1;
   // status is the git, lifecycle, diagnostic, or operation state for this item.
-  string status = 2;          // "modified", "added", "deleted", "untracked", "renamed", "copied"
+  string status = 2; // "modified", "added", "deleted", "untracked", "renamed", "copied"
   // staged selects or reports the git index instead of the worktree.
   bool staged = 3;
 }
@@ -822,9 +921,9 @@ message GitDiffRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
   // path is a workspace- or service-relative filesystem path.
-  string path = 2;            // optional: restrict to a file
+  string path = 2; // optional: restrict to a file
   // staged selects or reports the git index instead of the worktree.
-  bool staged = 3;            // if true, show staged changes
+  bool staged = 3; // if true, show staged changes
 }
 
 // GitDiffResponse returns unified diff text.
@@ -840,7 +939,7 @@ message GitLogRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
   // count limits how many records should be returned.
-  int32 count = 2;            // number of commits (default 10)
+  int32 count = 2; // number of commits (default 10)
 }
 
 // GitCommitInfo summarizes one commit returned by GitLog.
@@ -870,7 +969,9 @@ message GitCommitRequest {
   // message is the commit message to use.
   string message = 1;
   // paths optionally restrict the commit to specific files.
-  repeated string paths = 2;  // optional: specific files to commit
+  repeated string paths = 2; // optional: specific files to commit
+  // all stages every workspace change before committing.
+  bool all = 3;
 }
 
 // GitCommitResponse reports the commit hash when the commit succeeds.
@@ -881,6 +982,456 @@ message GitCommitResponse {
   string hash = 2;
   // error explains why the operation failed; empty means success at this layer.
   string error = 3;
+}
+
+// ActReceipt is the authoritative, LLM-free outcome of one consequential act.
+// event_id is stable across an outbound call and its matching inbound event.
+message ActReceipt {
+  // event_id is the stable reconciliation identity.
+  string event_id = 1;
+  // kind is the provider-neutral semantic act kind.
+  string kind = 2;
+  // target identifies the branch, tag, revision, or forge resource acted on.
+  string target = 3;
+  // state is the authoritative resulting state.
+  string state = 4;
+  // revision is the authoritative resulting commit SHA when applicable.
+  string revision = 5;
+  // authoritative_source names the boundary that observed the result.
+  string authoritative_source = 6;
+  // authoritative_url links to the source record when one exists.
+  string authoritative_url = 7;
+  // observed_at records when the source confirmed the result.
+  google.protobuf.Timestamp observed_at = 8;
+}
+
+// GitBranchRequest creates one local branch without switching to it.
+message GitBranchRequest {
+  // service identifies the repository.
+  string service = 1;
+  // name is the new branch name.
+  string name = 2;
+  // start_point is the revision used as the branch head; empty means HEAD.
+  string start_point = 3;
+  // force moves an existing local branch to start_point.
+  bool force = 4;
+}
+
+// GitBranchResponse reports the created branch and resolved revision.
+message GitBranchResponse {
+  // success reports whether branch creation completed.
+  bool success = 1;
+  // error explains a failed creation.
+  string error = 2;
+  // branch is the canonical created branch name.
+  string branch = 3;
+  // revision is the resolved branch head.
+  string revision = 4;
+  // act is the authoritative typed outcome.
+  ActReceipt act = 5;
+}
+
+// GitCheckoutRequest switches the repository to ref.
+message GitCheckoutRequest {
+  // service identifies the repository.
+  string service = 1;
+  // ref is an existing branch or revision.
+  string ref = 2;
+  // detach checks out the resolved commit instead of attaching HEAD to a branch.
+  bool detach = 3;
+}
+
+// GitCheckoutResponse reports the checked-out branch and revision.
+message GitCheckoutResponse {
+  // success reports whether checkout completed.
+  bool success = 1;
+  // error explains a failed checkout.
+  string error = 2;
+  // branch is the checked-out branch or HEAD when detached.
+  string branch = 3;
+  // revision is the checked-out commit.
+  string revision = 4;
+  // act is the authoritative typed outcome.
+  ActReceipt act = 5;
+}
+
+// GitPushMode deliberately excludes unconstrained force-push.
+enum GitPushMode {
+  // GIT_PUSH_MODE_UNSPECIFIED is rejected.
+  GIT_PUSH_MODE_UNSPECIFIED = 0;
+  // GIT_PUSH_MODE_FAST_FORWARD_ONLY forbids any non-fast-forward update.
+  GIT_PUSH_MODE_FAST_FORWARD_ONLY = 1;
+  // GIT_PUSH_MODE_FORCE_WITH_LEASE permits only lease-protected replacement.
+  GIT_PUSH_MODE_FORCE_WITH_LEASE = 2;
+}
+
+// GitPushRequest publishes one local branch.
+message GitPushRequest {
+  // service identifies the repository.
+  string service = 1;
+  // remote is the configured destination; empty selects origin.
+  string remote = 2;
+  // branch is the local branch to publish; empty selects the current branch.
+  string branch = 3;
+  // set_upstream records remote tracking configuration.
+  bool set_upstream = 4;
+  // mode controls non-fast-forward safety.
+  GitPushMode mode = 5;
+}
+
+// GitPushResponse reports the remote ref confirmed by git.
+message GitPushResponse {
+  // success reports whether the remote accepted the update.
+  bool success = 1;
+  // error explains a rejected or failed push.
+  string error = 2;
+  // remote is the destination remote name.
+  string remote = 3;
+  // branch is the published branch.
+  string branch = 4;
+  // revision is the published commit.
+  string revision = 5;
+  // act is the authoritative typed outcome.
+  ActReceipt act = 6;
+}
+
+// GitTagRequest creates an annotated or signed tag.
+message GitTagRequest {
+  // service identifies the repository.
+  string service = 1;
+  // name is the tag name.
+  string name = 2;
+  // revision is the tagged revision; empty means HEAD.
+  string revision = 3;
+  // message is the annotation.
+  string message = 4;
+  // sign requests the configured signing identity.
+  bool sign = 5;
+}
+
+// GitTagResponse reports the created tag and target revision.
+message GitTagResponse {
+  // success reports whether tag creation completed.
+  bool success = 1;
+  // error explains a failed tag operation.
+  string error = 2;
+  // tag is the created tag name.
+  string tag = 3;
+  // revision is the tagged commit.
+  string revision = 4;
+  // act is the authoritative typed outcome.
+  ActReceipt act = 5;
+}
+
+// GitMergeRequest merges ref into the current branch.
+message GitMergeRequest {
+  // service identifies the repository.
+  string service = 1;
+  // ref is the revision to merge.
+  string ref = 2;
+  // message overrides the merge commit message.
+  string message = 3;
+  // no_fast_forward requires a merge commit.
+  bool no_fast_forward = 4;
+}
+
+// GitMergeResponse reports the resulting branch head.
+message GitMergeResponse {
+  // success reports whether the merge completed.
+  bool success = 1;
+  // error explains a failed merge.
+  string error = 2;
+  // branch is the branch receiving the merge.
+  string branch = 3;
+  // revision is the resulting head.
+  string revision = 4;
+  // act is the authoritative typed outcome.
+  ActReceipt act = 5;
+}
+
+// GitRevertRequest reverts one existing commit.
+message GitRevertRequest {
+  // service identifies the repository.
+  string service = 1;
+  // revision is the commit to revert.
+  string revision = 2;
+}
+
+// GitRevertResponse reports the new revert commit.
+message GitRevertResponse {
+  // success reports whether revert completed.
+  bool success = 1;
+  // error explains a failed revert.
+  string error = 2;
+  // reverted_revision is the commit that was reverted.
+  string reverted_revision = 3;
+  // revision is the new revert commit.
+  string revision = 4;
+  // act is the authoritative typed outcome.
+  ActReceipt act = 5;
+}
+
+// ReleaseBump selects the semantic version component to increment.
+enum ReleaseBump {
+  // RELEASE_BUMP_UNSPECIFIED is rejected.
+  RELEASE_BUMP_UNSPECIFIED = 0;
+  // RELEASE_BUMP_PATCH increments the patch component.
+  RELEASE_BUMP_PATCH = 1;
+  // RELEASE_BUMP_MINOR increments the minor component.
+  RELEASE_BUMP_MINOR = 2;
+  // RELEASE_BUMP_MAJOR increments the major component.
+  RELEASE_BUMP_MAJOR = 3;
+}
+
+// ReleaseUnit identifies one versioned code unit in the release.
+message ReleaseUnit {
+  // code_unit_id is the stable caller-visible unit identity.
+  string code_unit_id = 1;
+  // version_file is the repository-relative manifest containing its version.
+  string version_file = 2;
+}
+
+// ReleasedUnit reports one version mutation included in the release.
+message ReleasedUnit {
+  // code_unit_id is the stable caller-visible unit identity.
+  string code_unit_id = 1;
+  // version_file is the repository-relative manifest that was changed.
+  string version_file = 2;
+  // version is the released semantic version without the v prefix.
+  string version = 3;
+}
+
+// ReleaseRequest publishes one signed semantic release for one or more code
+// units in a repository.
+message ReleaseRequest {
+  // service identifies the repository Gateway.
+  string service = 1;
+  // bump selects the semantic version component to increment.
+  ReleaseBump bump = 2;
+  // units are versioned together in one commit and one signed tag.
+  repeated ReleaseUnit units = 3;
+}
+
+// ReleaseResponse reports the remote-confirmed release.
+message ReleaseResponse {
+  // success reports whether the release was published.
+  bool success = 1;
+  // error explains a failed release.
+  string error = 2;
+  // tag is the published semantic version tag.
+  string tag = 3;
+  // revision is the published release commit.
+  string revision = 4;
+  // act is the authoritative typed outcome.
+  ActReceipt act = 5;
+  // units are the version mutations included in the release.
+  repeated ReleasedUnit units = 6;
+}
+
+// ─── Forge ───────────────────────────────────────────────────
+
+// ForgeMergeMethod is the provider-neutral pull-request merge strategy.
+enum ForgeMergeMethod {
+  // FORGE_MERGE_METHOD_UNSPECIFIED is rejected.
+  FORGE_MERGE_METHOD_UNSPECIFIED = 0;
+  // FORGE_MERGE_METHOD_MERGE creates a merge commit.
+  FORGE_MERGE_METHOD_MERGE = 1;
+  // FORGE_MERGE_METHOD_SQUASH creates one squashed commit.
+  FORGE_MERGE_METHOD_SQUASH = 2;
+  // FORGE_MERGE_METHOD_REBASE rebases commits onto the base branch.
+  FORGE_MERGE_METHOD_REBASE = 3;
+}
+
+// ForgeCheckPolicy controls whether a merge may bypass failing checks.
+enum ForgeCheckPolicy {
+  // FORGE_CHECK_POLICY_UNSPECIFIED is rejected.
+  FORGE_CHECK_POLICY_UNSPECIFIED = 0;
+  // FORGE_CHECK_POLICY_REQUIRE_PASSING rejects a blocked merge.
+  FORGE_CHECK_POLICY_REQUIRE_PASSING = 1;
+  // FORGE_CHECK_POLICY_BYPASS delegates any allowed bypass to the provider.
+  FORGE_CHECK_POLICY_BYPASS = 2;
+}
+
+// ForgeRepository identifies a repository without leaking provider URL shapes.
+message ForgeRepository {
+  // provider is the toolbox provider name, such as github.
+  string provider = 1;
+  // owner is the provider namespace.
+  string owner = 2;
+  // name is the repository name.
+  string name = 3;
+}
+
+// ForgeCheck is one CI check or commit-status context.
+message ForgeCheck {
+  // id is the provider's stable check identity.
+  string id = 1;
+  // name is the check context displayed to users.
+  string name = 2;
+  // state is the provider-neutral queued, in_progress, or completed state.
+  string state = 3;
+  // conclusion is the terminal result when completed.
+  string conclusion = 4;
+  // required reports whether branch protection requires this check.
+  bool required = 5;
+  // url links to authoritative check details.
+  string url = 6;
+}
+
+// ForgeReview is one pull-request review.
+message ForgeReview {
+  // id is the provider's stable review identity.
+  string id = 1;
+  // author is the reviewer login.
+  string author = 2;
+  // state is the provider-neutral review verdict.
+  string state = 3;
+  // submitted_at is the provider-recorded submission time.
+  google.protobuf.Timestamp submitted_at = 4;
+}
+
+// ForgePullRequestStatus is one authoritative PR/check/review snapshot.
+message ForgePullRequestStatus {
+  // repository identifies the forge resource.
+  ForgeRepository repository = 1;
+  // number is the provider pull-request number.
+  int64 number = 2;
+  // state is the pull-request lifecycle state.
+  string state = 3;
+  // head_sha is the exact checked revision.
+  string head_sha = 4;
+  // base_branch is the merge destination.
+  string base_branch = 5;
+  // mergeable is the provider's current mergeability verdict.
+  bool mergeable = 6;
+  // checks are current CI and commit-status facts.
+  repeated ForgeCheck checks = 7;
+  // reviews are current review facts.
+  repeated ForgeReview reviews = 8;
+  // blocking_reason explains why the pull request cannot merge.
+  string blocking_reason = 9;
+  // url links to the authoritative pull request.
+  string url = 10;
+  // observed_at records when the provider snapshot was fetched.
+  google.protobuf.Timestamp observed_at = 11;
+}
+
+// ForgePullRequestStatusRequest selects one pull request.
+message ForgePullRequestStatusRequest {
+  // service identifies the workspace used for provider defaults.
+  string service = 1;
+  // repository identifies the forge resource.
+  ForgeRepository repository = 2;
+  // number is the pull-request number.
+  int64 number = 3;
+}
+
+// ForgePullRequestStatusResponse returns one typed provider snapshot.
+message ForgePullRequestStatusResponse {
+  // status is the authoritative snapshot.
+  ForgePullRequestStatus status = 1;
+  // error explains why the provider could not return a snapshot.
+  string error = 2;
+}
+
+// ForgeMergePullRequestRequest merges one pull request.
+message ForgeMergePullRequestRequest {
+  // service identifies the workspace used for provider defaults.
+  string service = 1;
+  // repository identifies the forge resource.
+  ForgeRepository repository = 2;
+  // number is the pull-request number.
+  int64 number = 3;
+  // method selects the provider-neutral merge strategy.
+  ForgeMergeMethod method = 4;
+  // check_policy controls required-check enforcement.
+  ForgeCheckPolicy check_policy = 5;
+  // commit_title optionally overrides the merge commit title.
+  string commit_title = 6;
+  // commit_message optionally overrides the merge commit body.
+  string commit_message = 7;
+}
+
+// ForgeMergePullRequestResponse reports the provider-confirmed merge.
+message ForgeMergePullRequestResponse {
+  // success reports whether the provider confirmed the merge.
+  bool success = 1;
+  // error explains a rejected or failed merge.
+  string error = 2;
+  // status is the authoritative post-operation snapshot.
+  ForgePullRequestStatus status = 3;
+  // act is the reconciliable provider outcome.
+  ActReceipt act = 4;
+}
+
+// ForgeRequestReviewRequest requests users or teams on one pull request.
+message ForgeRequestReviewRequest {
+  // service identifies the workspace used for provider defaults.
+  string service = 1;
+  // repository identifies the forge resource.
+  ForgeRepository repository = 2;
+  // number is the pull-request number.
+  int64 number = 3;
+  // reviewers are provider user logins.
+  repeated string reviewers = 4;
+  // team_reviewers are provider team slugs.
+  repeated string team_reviewers = 5;
+}
+
+// ForgeRequestReviewResponse reports provider-confirmed reviewer requests.
+message ForgeRequestReviewResponse {
+  // success reports whether the provider accepted the request.
+  bool success = 1;
+  // error explains a failed reviewer request.
+  string error = 2;
+  // reviewers are accepted user logins.
+  repeated string reviewers = 3;
+  // team_reviewers are accepted team slugs.
+  repeated string team_reviewers = 4;
+  // act is the reconciliable provider outcome.
+  ActReceipt act = 5;
+}
+
+// ForgeEventKind is the provider-neutral event family.
+enum ForgeEventKind {
+  FORGE_EVENT_KIND_UNSPECIFIED = 0;
+  FORGE_EVENT_KIND_PULL_REQUEST = 1;
+  FORGE_EVENT_KIND_CHECK = 2;
+  FORGE_EVENT_KIND_REVIEW = 3;
+}
+
+// ForgeEvent is one provider-authoritative event normalized by the toolbox.
+message ForgeEvent {
+  string event_id = 1;
+  ForgeEventKind kind = 2;
+  string ref = 3;
+  ForgeRepository repository = 4;
+  int64 number = 5;
+  string revision = 6;
+  string state = 7;
+  string check_name = 8;
+  string conclusion = 9;
+  string author = 10;
+  string authoritative_url = 11;
+  string authoritative_source = 12;
+  google.protobuf.Timestamp observed_at = 13;
+}
+
+// ForgeNormalizeWebhookRequest carries the signed provider delivery to the
+// toolbox that owns provider schemas and signature rules.
+message ForgeNormalizeWebhookRequest {
+  string service = 1;
+  string provider = 2;
+  string event_type = 3;
+  string delivery_id = 4;
+  bytes payload = 5;
+  string signature = 6;
+  string secret = 7;
+}
+
+message ForgeNormalizeWebhookResponse {
+  ForgeEvent event = 1;
+  string error = 2;
 }
 
 // ─── Dependency Management ───────────────────────────────────
@@ -950,15 +1501,15 @@ message RemoveDependencyResponse {
 // PackageInfo describes a single package/module within the project.
 message PackageInfo {
   // name is the language-level package or module name.
-  string name = 1;           // e.g. "github.com/codefly-dev/mind/pkg/run"
+  string name = 1; // e.g. "github.com/codefly-dev/mind/pkg/run"
   // relative_path is the package directory relative to the service root.
-  string relative_path = 2;  // e.g. "pkg/run"
+  string relative_path = 2; // e.g. "pkg/run"
   // files are source files that belong to this package.
   repeated string files = 3; // files in the package
   // imports are direct imports used by files in this package.
   repeated string imports = 4; // direct imports
   // doc is package-level documentation extracted from source comments.
-  string doc = 5;            // package doc comment
+  string doc = 5; // package doc comment
 }
 
 // GetProjectInfoRequest identifies the project info data to retrieve.
@@ -970,17 +1521,17 @@ message GetProjectInfoRequest {
 // GetProjectInfoResponse returns language metadata useful for ingestion and planning.
 message GetProjectInfoResponse {
   // module is the Codefly module name that groups services.
-  string module = 1;                    // e.g. "github.com/codefly-dev/mind"
+  string module = 1; // e.g. "github.com/codefly-dev/mind"
   // language is the implementation language detected for this service or project.
-  string language = 2;                  // e.g. "go"
+  string language = 2; // e.g. "go"
   // language_version is the detected compiler or runtime version.
-  string language_version = 3;          // e.g. "1.25"
+  string language_version = 3; // e.g. "1.25"
   // packages describes the package or module layout within the service.
-  repeated PackageInfo packages = 4;    // package structure
+  repeated PackageInfo packages = 4; // package structure
   // dependencies are packages discovered from manifests or lock files.
   repeated Dependency dependencies = 5; // reuse existing Dependency message
   // file_hashes maps source paths to content hashes for change detection.
-  map<string, string> file_hashes = 6;  // path -> SHA-256 for change detection
+  map<string, string> file_hashes = 6; // path -> SHA-256 for change detection
   // error explains why the operation failed; empty means success at this layer.
   string error = 7;
 }
@@ -990,19 +1541,19 @@ message GetProjectInfoResponse {
 // AvailableCommand describes a built-in or plugin command exposed through the gateway.
 message AvailableCommand {
   // name is the command name accepted by the gateway.
-  string name = 1;             // e.g. "reset_db"
+  string name = 1; // e.g. "reset_db"
   // description tells users and agents when this command is useful.
-  string description = 2;     // "Reset the database to a clean state"
+  string description = 2; // "Reset the database to a clean state"
   // usage is the command-line shape shown to users and agents.
-  string usage = 3;           // "! reset_db [--seed]"
+  string usage = 3; // "! reset_db [--seed]"
   // aliases are alternate command names accepted by the plugin.
   repeated string aliases = 4;
   // tags are labels used for filtering, grouping, or display.
   repeated string tags = 5;
   // plugin identifies the plugin that provides this command; empty means built-in.
-  string plugin = 6;          // which plugin provides this, empty for built-in
+  string plugin = 6; // which plugin provides this, empty for built-in
   // destructive is true when the operation can mutate or delete user state.
-  bool destructive = 7;       // if true, requires user confirmation
+  bool destructive = 7; // if true, requires user confirmation
 }
 
 // ListAllCommandsRequest carries optional filters for listing all commands.
@@ -1026,6 +1577,8 @@ message OpenTerminalRequest {
   uint32 rows = 3;
   // cols is the initial terminal width; 0 selects the server default.
   uint32 cols = 4;
+  // unstructured_use is mandatory attribution for this escape hatch.
+  UnstructuredUse unstructured_use = 5;
 }
 
 // OpenTerminalResponse identifies the spawned terminal.
