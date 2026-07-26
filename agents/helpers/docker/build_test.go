@@ -1,8 +1,15 @@
 package docker
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
+
+	"github.com/codefly-dev/core/resources"
+	"github.com/docker/docker/api/types"
 )
 
 func TestIsValidDockerImageName(t *testing.T) {
@@ -32,4 +39,111 @@ func TestBuildDiagnosticsPreservesCauseAndBoundsOutput(t *testing.T) {
 	if len(got) > 120 {
 		t.Fatalf("diagnostics length = %d, want at most 120", len(got))
 	}
+}
+
+func TestBuilderRetriesOnlyLostLayerExportOnce(t *testing.T) {
+	client := &scriptedImageBuildClient{
+		responses: []string{
+			`{"errorDetail":{"message":"failed to export image: failed to create image: failed to get layer sha256:abc: layer does not exist"}}` + "\n",
+			`{"stream":"Step 1/1 : FROM scratch\n"}` + "\n",
+		},
+	}
+	builder, err := NewBuilder(BuilderConfiguration{
+		Root:        t.TempDir(),
+		Dockerfile:  "Dockerfile",
+		Destination: resources.NewDockerImage("test/retry:v1"),
+		Output:      io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder.newClient = func() (imageBuildClient, error) { return client, nil }
+
+	output, err := builder.Build(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.calls != 2 {
+		t.Fatalf("image build calls = %d, want 2", client.calls)
+	}
+	if len(client.contexts) != 2 || !bytes.Equal(client.contexts[0], client.contexts[1]) {
+		t.Fatal("retry did not reuse the exact immutable build context")
+	}
+	if output.Image != "test/retry:v1" {
+		t.Fatalf("image = %q", output.Image)
+	}
+	if !client.closed {
+		t.Fatal("docker client was not closed")
+	}
+}
+
+func TestBuilderDoesNotRetryOrdinaryBuildFailure(t *testing.T) {
+	client := &scriptedImageBuildClient{
+		responses: []string{
+			`{"errorDetail":{"message":"Dockerfile parse error: unknown instruction"}}` + "\n",
+		},
+	}
+	builder, err := NewBuilder(BuilderConfiguration{
+		Root:        t.TempDir(),
+		Dockerfile:  "Dockerfile",
+		Destination: resources.NewDockerImage("test/no-retry:v1"),
+		Output:      io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder.newClient = func() (imageBuildClient, error) { return client, nil }
+
+	if _, err := builder.Build(context.Background()); err == nil {
+		t.Fatal("ordinary Dockerfile failure unexpectedly succeeded")
+	}
+	if client.calls != 1 {
+		t.Fatalf("image build calls = %d, want 1", client.calls)
+	}
+}
+
+func TestRetryableDockerLayerExportErrorIsNarrow(t *testing.T) {
+	retryable := errors.New("failed to export image: failed to create image: failed to get layer sha256:abc: layer does not exist")
+	if !isRetryableDockerLayerExportError(retryable) {
+		t.Fatal("lost-layer export was not classified as retryable")
+	}
+	for _, message := range []string{
+		"layer does not exist",
+		"failed to export image: disk quota exceeded",
+		"failed to get layer: unauthorized",
+	} {
+		if isRetryableDockerLayerExportError(errors.New(message)) {
+			t.Fatalf("ordinary failure %q was classified as retryable", message)
+		}
+	}
+}
+
+type scriptedImageBuildClient struct {
+	responses []string
+	contexts  [][]byte
+	calls     int
+	closed    bool
+}
+
+func (client *scriptedImageBuildClient) ImageBuild(
+	_ context.Context,
+	buildContext io.Reader,
+	_ types.ImageBuildOptions,
+) (types.ImageBuildResponse, error) {
+	payload, err := io.ReadAll(buildContext)
+	if err != nil {
+		return types.ImageBuildResponse{}, err
+	}
+	client.contexts = append(client.contexts, payload)
+	if client.calls >= len(client.responses) {
+		return types.ImageBuildResponse{}, errors.New("unexpected image build call")
+	}
+	response := client.responses[client.calls]
+	client.calls++
+	return types.ImageBuildResponse{Body: io.NopCloser(bytes.NewBufferString(response))}, nil
+}
+
+func (client *scriptedImageBuildClient) Close() error {
+	client.closed = true
+	return nil
 }
