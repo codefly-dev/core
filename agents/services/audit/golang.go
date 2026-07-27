@@ -51,15 +51,18 @@ func Golang(ctx context.Context, dir string, includeOutdated bool) (*Result, err
 // about the "finding" objects which contain CVE id + severity + the
 // affected module/version. The schema is documented at
 // https://pkg.go.dev/golang.org/x/vuln/internal/govulncheck.
+type govulncheckTrace struct {
+	Module   string `json:"module"`
+	Version  string `json:"version"`
+	Package  string `json:"package"`
+	Function string `json:"function"`
+}
+
 type govulncheckOutput struct {
 	Finding *struct {
-		OSV          string `json:"osv"`
-		FixedVersion string `json:"fixed_version"`
-		Trace        []struct {
-			Module  string `json:"module"`
-			Version string `json:"version"`
-			Package string `json:"package"`
-		} `json:"trace"`
+		OSV          string             `json:"osv"`
+		FixedVersion string             `json:"fixed_version"`
+		Trace        []govulncheckTrace `json:"trace"`
 	} `json:"finding,omitempty"`
 	OSV *struct {
 		ID      string   `json:"id"`
@@ -115,16 +118,28 @@ func runGovulncheckParseBytes(out []byte) ([]*builderv0.AuditFinding, error) {
 		if msg.OSV != nil {
 			summaries[msg.OSV.ID] = msg.OSV.Summary
 		}
-		if msg.Finding != nil && len(msg.Finding.Trace) > 0 {
-			t := msg.Finding.Trace[0]
-			key := msg.Finding.OSV + "\x00" + t.Module + "\x00" + t.Version
+		if msg.Finding != nil {
+			var reachable *govulncheckTrace
+			for index := range msg.Finding.Trace {
+				if msg.Finding.Trace[index].Function != "" {
+					reachable = &msg.Finding.Trace[index]
+					break
+				}
+			}
+			// govulncheck also emits module- and package-level inventory
+			// findings when the vulnerable symbol is not reachable. Those are
+			// useful scanner context, but they are not release-gating evidence.
+			if reachable == nil {
+				continue
+			}
+			key := msg.Finding.OSV + "\x00" + reachable.Module + "\x00" + reachable.Version
 			finding, exists := findingsByKey[key]
 			if !exists {
 				finding = &builderv0.AuditFinding{
 					Severity:       builderv0.AuditFinding_HIGH, // govulncheck only reports actually-reachable vulns
 					Id:             msg.Finding.OSV,
-					Package:        t.Module,
-					CurrentVersion: t.Version,
+					Package:        reachable.Module,
+					CurrentVersion: reachable.Version,
 					Url:            "https://pkg.go.dev/vuln/" + msg.Finding.OSV,
 				}
 				findingsByKey[key] = finding
