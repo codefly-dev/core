@@ -31,11 +31,10 @@ func Docker(ctx context.Context, image string) (*Result, error) {
 		return nil, fmt.Errorf("trivy audit requires a container image reference")
 	}
 	name := "trivy"
-	userCache, err := os.UserCacheDir()
+	cache, err := trivyCacheDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve Trivy cache: %w", err)
 	}
-	cache := filepath.Join(userCache, "codefly", "trivy")
 	if err := os.MkdirAll(cache, 0o700); err != nil {
 		return nil, fmt.Errorf("create Trivy cache: %w", err)
 	}
