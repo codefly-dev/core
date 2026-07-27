@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/codefly-dev/core/resources"
 )
 
 // TestWithDependencies_KillsProcessGroupOnCancellation verifies that when a
@@ -69,7 +71,11 @@ func TestWithDependencies_KillsProcessGroupOnCancellation(t *testing.T) {
 func TestWithDependencies_ReturnsWhenCLIExitsBeforeReady(t *testing.T) {
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "codefly")
-	if err := os.WriteFile(binPath, []byte("#!/bin/sh\nexit 23\n"), 0o755); err != nil {
+	argsPath := filepath.Join(dir, "args")
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$@\" > \"" + argsPath + "\"\n" +
+		"exit 23\n"
+	if err := os.WriteFile(binPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake binary: %v", err)
 	}
 	t.Setenv("CODEFLY_BINARY", binPath)
@@ -87,6 +93,13 @@ func TestWithDependencies_ReturnsWhenCLIExitsBeforeReady(t *testing.T) {
 	// configured 10-second readiness deadline.
 	if elapsed := time.Since(started); elapsed > 6*time.Second {
 		t.Fatalf("early CLI exit took %s to report", elapsed)
+	}
+	args, readErr := os.ReadFile(argsPath)
+	if readErr != nil {
+		t.Fatalf("read fake CLI arguments: %v", readErr)
+	}
+	if !slices.Contains(strings.Fields(string(args)), "--temporary-ports") {
+		t.Fatalf("SDK-owned dependency flow did not request temporary ports: %s", args)
 	}
 }
 
@@ -129,6 +142,97 @@ func TestWithFixtureSelectsDependencyStackFixture(t *testing.T) {
 	WithFixture("dev-admin")(option)
 	if option.Fixture != "dev-admin" {
 		t.Fatalf("fixture = %q, want dev-admin", option.Fixture)
+	}
+}
+
+func TestManagedDependencyEnvironmentRequiresRunnerAndEndpoint(t *testing.T) {
+	endpoint := resources.EndpointPrefix + "__SAAS_STARTER__STORE__TCP__TCP"
+	tests := []struct {
+		name        string
+		environment []string
+		want        bool
+	}{
+		{
+			name: "managed runtime with endpoint",
+			environment: []string{
+				resources.RunningPrefix + "=true",
+				resources.RuntimeContextPrefix + "=" + resources.RuntimeContextNative,
+				endpoint + "=localhost:5432",
+			},
+			want: true,
+		},
+		{
+			name: "standalone managed runtime",
+			environment: []string{
+				resources.RunningPrefix + "=true",
+				resources.RuntimeContextPrefix + "=" + resources.RuntimeContextNative,
+			},
+		},
+		{
+			name: "direct test with endpoint-shaped value",
+			environment: []string{
+				endpoint + "=localhost:5432",
+			},
+		},
+		{
+			name: "empty endpoint",
+			environment: []string{
+				resources.RunningPrefix + "=true",
+				endpoint + "=",
+			},
+		},
+		{
+			name: "false runner marker",
+			environment: []string{
+				resources.RunningPrefix + "=false",
+				endpoint + "=localhost:5432",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasManagedDependencyEnvironment(tt.environment); got != tt.want {
+				t.Fatalf("hasManagedDependencyEnvironment() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWithDependenciesReusesParentManagedRuntime(t *testing.T) {
+	dir := t.TempDir()
+	started := filepath.Join(dir, "nested-flow-started")
+	binPath := filepath.Join(dir, "codefly")
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\ntouch \""+started+"\"\nexit 23\n"), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+
+	t.Setenv("CODEFLY_BINARY", binPath)
+	t.Setenv(resources.RunningPrefix, "true")
+	t.Setenv(resources.RuntimeContextPrefix, resources.RuntimeContextNative)
+	t.Setenv(resources.EndpointPrefix+"__SAAS_STARTER__STORE__TCP__TCP", "localhost:5432")
+
+	deps, err := WithDependencies(context.Background())
+	if err != nil {
+		t.Fatalf("WithDependencies() error = %v", err)
+	}
+	if !deps.inherited {
+		t.Fatal("managed dependencies were not marked as inherited")
+	}
+	if err := deps.WaitForReady(context.Background(), &Option{Timeout: time.Second}); err != nil {
+		t.Fatalf("WaitForReady() error = %v", err)
+	}
+	if err := deps.SetEnvironment(context.Background()); err != nil {
+		t.Fatalf("SetEnvironment() error = %v", err)
+	}
+	if err := deps.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if err := deps.Destroy(context.Background()); err != nil {
+		t.Fatalf("Destroy() error = %v", err)
+	}
+	if _, err := os.Stat(started); !os.IsNotExist(err) {
+		t.Fatalf("nested Codefly flow was started; stat error = %v", err)
 	}
 }
 
