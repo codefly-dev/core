@@ -119,7 +119,7 @@ printf '%s\n' '{"dependencies":[]}'
 func TestParseGovulncheck_findings(t *testing.T) {
 	// Two-line stream: an OSV record followed by a finding referring to it.
 	out := `{"osv":{"id":"GO-2024-2887","summary":"Stack exhaustion in net/http","aliases":["CVE-2024-34155"]}}
-{"finding":{"osv":"GO-2024-2887","fixed_version":"v1.22.7","trace":[{"module":"std","version":"go1.22.5","package":"net/http"}]}}
+{"finding":{"osv":"GO-2024-2887","fixed_version":"v1.22.7","trace":[{"module":"std","version":"go1.22.5","package":"net/http","function":"net/http.(*http2serverConn).canonicalHeader"}]}}
 `
 	findings, err := runGovulncheckParse(out)
 	if err != nil {
@@ -138,8 +138,8 @@ func TestParseGovulncheck_findings(t *testing.T) {
 }
 
 func TestParseGovulncheckDeduplicatesReachableCallTraces(t *testing.T) {
-	out := `{"finding":{"osv":"GO-2026-4883","trace":[{"module":"github.com/docker/docker","version":"v28.5.2","package":"github.com/docker/docker/client"}]}}
-{"finding":{"osv":"GO-2026-4883","fixed_version":"v28.5.3","trace":[{"module":"github.com/docker/docker","version":"v28.5.2","package":"github.com/docker/docker/daemon"}]}}
+	out := `{"finding":{"osv":"GO-2026-4883","trace":[{"module":"github.com/docker/docker","version":"v28.5.2","package":"github.com/docker/docker/client","function":"github.com/docker/docker/client.(*Client).ContainerCreate"}]}}
+{"finding":{"osv":"GO-2026-4883","fixed_version":"v28.5.3","trace":[{"module":"github.com/docker/docker","version":"v28.5.2","package":"github.com/docker/docker/daemon","function":"github.com/docker/docker/daemon.(*Daemon).ContainerCreate"}]}}
 {"osv":{"id":"GO-2026-4883","summary":"Docker authorization bypass"}}
 `
 	findings, err := runGovulncheckParse(out)
@@ -152,6 +152,21 @@ func TestParseGovulncheckDeduplicatesReachableCallTraces(t *testing.T) {
 	finding := findings[0]
 	if finding.FixedVersion != "v28.5.3" || finding.Summary != "Docker authorization bypass" {
 		t.Fatalf("deduplicated finding lost metadata: %+v", finding)
+	}
+}
+
+func TestParseGovulncheckIgnoresInventoryOnlyFindings(t *testing.T) {
+	out := `{"osv":{"id":"GO-MODULE","summary":"module inventory only"}}
+{"finding":{"osv":"GO-MODULE","trace":[{"module":"golang.org/x/crypto","version":"v0.53.0"}]}}
+{"osv":{"id":"GO-PACKAGE","summary":"package inventory only"}}
+{"finding":{"osv":"GO-PACKAGE","trace":[{"module":"example.com/dependency","version":"v1.2.3","package":"example.com/dependency/unsafe"}]}}
+`
+	findings, err := runGovulncheckParse(out)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("inventory-only findings must not become reachable release evidence: %+v", findings)
 	}
 }
 
