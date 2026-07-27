@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strconv"
 	"sync"
-	"time"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
@@ -20,10 +18,9 @@ const Localhost = "localhost"
 // RuntimeManager tracks per-port allocation across the entire
 // service graph. The CLI fan-allocates ports for parallel services,
 // so concurrent GenerateNetworkMappings / GetFreePort calls share
-// allocatedPorts + lastRandomPort. mu serializes all mutations and
-// reads — Go panics on concurrent map writes, and an unsynced
-// counter increment loses values under contention (the temporal
-// agent had a duplicate-port bug from this exact class).
+// allocatedPorts. mu serializes all mutations and reads — Go panics
+// on concurrent map writes, and package test processes may ask for
+// multiple temporary endpoints concurrently.
 type RuntimeManager struct {
 	mu             sync.Mutex
 	allocatedPorts map[uint16]string
@@ -31,7 +28,6 @@ type RuntimeManager struct {
 
 	// For testing and ephemeral environments
 	withTemporaryPorts bool
-	lastRandomPort     uint16
 }
 
 func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
@@ -218,14 +214,13 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 	return out, nil
 }
 
-// WithTemporaryPorts will use random ports instead of "named" ports.
-// Uses a random starting point to avoid collisions between parallel tests.
+// WithTemporaryPorts asks the host kernel for ephemeral ports instead of using
+// deterministic "named" ports. This is intended for short-lived test flows
+// owned by independent processes.
 func (m *RuntimeManager) WithTemporaryPorts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.withTemporaryPorts = true
-	// Random start between 20000-40000 to avoid parallel test collisions.
-	m.lastRandomPort = 20000 + uint16(time.Now().UnixNano()%20000)
 }
 
 // randomPortOwner is the placeholder owner GetFreePort writes into
@@ -234,40 +229,48 @@ func (m *RuntimeManager) WithTemporaryPorts() {
 // cross-service conflict.
 const randomPortOwner = "random"
 
-// GetFreePort returns the next free port after lastRandomPort.
-// Serialized via m.mu — concurrent callers would otherwise race on
-// the lastRandomPort increment and the allocatedPorts read.
+// GetFreePort asks the kernel to bind an ephemeral IPv4 loopback port, records
+// it in this manager, then releases the probe listener so the service runtime
+// can bind it. Kernel allocation avoids the low-entropy, process-local starting
+// points that caused independent test CLIs to select the same sequential port.
+//
+// The listener remains open until after the in-process reservation is recorded,
+// so concurrent callers on this manager cannot receive the same port.
 func (m *RuntimeManager) GetFreePort() uint16 {
 	for {
-		m.mu.Lock()
-		m.lastRandomPort++
-		port := m.lastRandomPort
-		if _, alreadyAllocated := m.allocatedPorts[port]; alreadyAllocated {
-			m.mu.Unlock()
+		listener, port, err := listenTemporaryPort()
+		if err != nil {
 			continue
 		}
-		// Reserve the port atomically with the dedup check, BEFORE
-		// probing the OS. This closes a TOCTOU race: without the
-		// reservation, two concurrent callers could both pass the
-		// alreadyAllocated check and net.Listen probe for the same
-		// port and hand it out twice.
+
+		m.mu.Lock()
+		if _, alreadyAllocated := m.allocatedPorts[port]; alreadyAllocated {
+			m.mu.Unlock()
+			_ = listener.Close()
+			continue
+		}
 		m.allocatedPorts[port] = randomPortOwner
 		m.mu.Unlock()
-		// Try to establish a listener on the port. Outside the lock
-		// — net.Listen can block / take milliseconds, and other
-		// goroutines shouldn't wait on us for OS-level port probing.
-		ln, err := net.Listen("tcp", ":"+strconv.Itoa(int(port)))
-		if err != nil {
-			// Port isn't usable — release the reservation so it can
-			// be retried later, then move on to the next port.
+
+		if err := listener.Close(); err != nil {
 			m.mu.Lock()
 			delete(m.allocatedPorts, port)
 			m.mu.Unlock()
 			continue
 		}
-		ln.Close()
 		return port
 	}
+}
+
+func listenTemporaryPort() (*net.TCPListener, uint16, error) {
+	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{
+		IP:   net.IPv4(127, 0, 0, 1),
+		Port: 0,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return listener, uint16(listener.Addr().(*net.TCPAddr).Port), nil
 }
 
 func NewRuntimeManager(_ context.Context, dnsManager DNSManager) (*RuntimeManager, error) {
