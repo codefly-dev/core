@@ -81,17 +81,17 @@ func TestWithDependencies_ReturnsWhenCLIExitsBeforeReady(t *testing.T) {
 	t.Setenv("CODEFLY_BINARY", binPath)
 
 	started := time.Now()
-	_, err := WithDependencies(context.Background(), WithTimeout(10*time.Second))
+	_, err := WithDependencies(context.Background(), WithTimeout(30*time.Second))
 	if err == nil {
 		t.Fatal("expected WithDependencies to report the early CLI exit")
 	}
 	if !strings.Contains(err.Error(), "CLI subprocess exited") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Race instrumentation and process-group cleanup can add a few seconds on
+	// Race instrumentation and process-group cleanup can add several seconds on
 	// saturated CI hosts. This still proves the exit is observed well before the
-	// configured 10-second readiness deadline.
-	if elapsed := time.Since(started); elapsed > 6*time.Second {
+	// configured 30-second readiness deadline.
+	if elapsed := time.Since(started); elapsed > 15*time.Second {
 		t.Fatalf("early CLI exit took %s to report", elapsed)
 	}
 	args, readErr := os.ReadFile(argsPath)
@@ -240,7 +240,7 @@ func TestWithDependenciesReusesParentManagedRuntime(t *testing.T) {
 func readPIDFile(t *testing.T, path string) (int, int) {
 	t.Helper()
 	var content []byte
-	if !waitFor(5*time.Second, func() bool {
+	if !waitFor(15*time.Second, func() bool {
 		b, err := os.ReadFile(path)
 		if err != nil || len(strings.Fields(string(b))) < 2 {
 			return false

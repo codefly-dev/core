@@ -8,6 +8,13 @@ The SDK provides language-agnostic dependency management for development and tes
 
 Reads `service.codefly.yaml` from the current directory, resolves the full dependency graph, and starts everything via the `codefly` CLI binary.
 
+When the service is already running under Codefly and its dependency endpoints
+have been injected into the environment, `WithDependencies` reuses those live
+endpoints instead of nesting another CLI flow. The returned handle borrows the
+parent runtime: `Stop` and `Destroy` do not tear it down. Direct `go test` runs
+and standalone services without injected dependency endpoints still start and
+own their usual dependency flow.
+
 ```go
 import "github.com/codefly-dev/core/sdk"
 

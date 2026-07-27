@@ -106,6 +106,11 @@ func WithKeepRunning() OptionFunc {
 // Connection strings are injected as environment variables (the standard
 // codefly pattern). Use Connection() or os.Getenv() to retrieve them.
 //
+// When called from a service already running under Codefly with dependency
+// endpoints in its environment, WithDependencies reuses those endpoints
+// instead of starting a nested flow. The returned handle does not own the
+// parent flow, so Stop and Destroy leave it running.
+//
 // Usage:
 //
 //	deps, err := sdk.WithDependencies(ctx)

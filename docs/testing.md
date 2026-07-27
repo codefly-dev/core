@@ -10,6 +10,13 @@ Why: mocks drift from reality. A mock postgres does not enforce constraints, doe
 
 The SDK provides `WithDependencies()` which reads `service.codefly.yaml`, resolves the dependency graph, starts all required infrastructure via codefly agents, and injects connection strings as environment variables.
 
+Tests invoked by a managed Codefly service already receive live typed
+dependency endpoints. In that environment, `WithDependencies` reuses the
+injected endpoints rather than starting a nested flow. Its lifecycle handle is
+borrowed, so `Stop` and `Destroy` leave the parent runtime running. Direct
+`go test` runs keep the normal behavior of starting and owning a dependency
+flow.
+
 ```go
 func TestAPIServer(t *testing.T) {
     ctx := context.Background()
