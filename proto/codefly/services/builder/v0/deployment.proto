@@ -9,6 +9,16 @@ enum DeploymentKind {
   KUSTOMIZE = 0;
 }
 
+// KubernetesOutputProfile selects a versioned Kubernetes manifest contract.
+enum KubernetesOutputProfile {
+  // KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED does not authorize manifest rendering.
+  KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED = 0;
+  // KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 permits inline Secret data for a local apply.
+  KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 = 1;
+  // KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 produces secret-free, restricted manifests.
+  KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 = 2;
+}
+
 // Deployment selects the deployment target and input format.
 message Deployment {
   // kind selects one deployment implementation.
@@ -16,6 +26,16 @@ message Deployment {
     // kubernetes carries the KubernetesDeployment variant for Deployment.
     KubernetesDeployment kubernetes = 2;
   }
+}
+
+// KubernetesSecretKeyReference maps an environment variable to an externally managed Secret key.
+message KubernetesSecretKeyReference {
+  // name is the name of an existing or externally reconciled Secret.
+  string name = 1;
+  // key is the key within the referenced Secret.
+  string key = 2;
+  // optional permits the workload to start when the referenced key is absent.
+  bool optional = 3;
 }
 
 // KubernetesDeployment contains inputs for Kubernetes manifest generation.
@@ -26,6 +46,12 @@ message KubernetesDeployment {
   string destination = 2;
   // build_context is the Docker image build context used by the deployment.
   DockerBuildContext build_context = 3;
+  // profile selects the versioned security and promotion contract.
+  KubernetesOutputProfile profile = 4;
+  // secret_references contains identifiers only and never secret values.
+  map<string, KubernetesSecretKeyReference> secret_references = 5;
+  // validate_server_side requests a server-side dry-run against the active Kubernetes cluster.
+  bool validate_server_side = 6;
 }
 
 // DeploymentOutput selects the deployment artifact emitted by the builder.
@@ -37,6 +63,28 @@ message DeploymentOutput {
   }
 }
 
+// KubernetesManifestValidation reports conformance checks for a rendered tree.
+message KubernetesManifestValidation {
+  // Status describes one validation stage.
+  enum Status {
+    // STATUS_UNSPECIFIED means the validation stage has no result.
+    STATUS_UNSPECIFIED = 0;
+    // STATUS_PASSED means the validation stage completed successfully.
+    STATUS_PASSED = 1;
+    // STATUS_FAILED means the validation stage found a violation or could not complete.
+    STATUS_FAILED = 2;
+    // STATUS_NOT_RUN means the caller did not request the validation stage.
+    STATUS_NOT_RUN = 3;
+  }
+  // static_validation covers Kustomize rendering and the shared manifest policy.
+  Status static_validation = 1;
+  // server_side_validation covers Kubernetes schema and admission through dry-run apply.
+  Status server_side_validation = 2;
+  // promotable is true only for a GitOps profile that passed every required stage.
+  bool promotable = 3;
+  // violations contains stable, human-readable rejection reasons.
+  repeated string violations = 4;
+}
 
 // KubernetesDeploymentOutput describes generated Kubernetes deployment artifacts.
 message KubernetesDeploymentOutput {
@@ -47,4 +95,10 @@ message KubernetesDeploymentOutput {
   }
   // kind identifies the generated Kubernetes artifact format.
   Kind kind = 1;
+  // profile is the versioned output profile used to render the tree.
+  KubernetesOutputProfile profile = 2;
+  // contract_version identifies the validator contract applied to the tree.
+  string contract_version = 3;
+  // validation reports whether the tree is safe to promote.
+  KubernetesManifestValidation validation = 4;
 }

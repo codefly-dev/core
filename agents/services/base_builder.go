@@ -271,7 +271,9 @@ func (s *BuilderWrapper) DeployResponse() (*builderv0.DeploymentResponse, error)
 
 func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, error) {
 	return &builderv0.DeploymentResponse{
-		State: &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.deploy", err, err.Error())}}, nil
+		State:      &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.deploy", err, err.Error())},
+		Deployment: s.DeployOutput,
+	}, nil
 }
 
 // AuditResponse builds a successful AuditResponse. State is CLEAN if
@@ -435,6 +437,8 @@ type DeploymentBase struct {
 	Environment *resources.Environment
 	Image       *resources.DockerImage
 	Replicas    int
+	Profile     builderv0.KubernetesOutputProfile
+	GitOps      bool
 
 	// Specialization
 	Parameters any
@@ -489,9 +493,10 @@ type Parameters struct {
 }
 
 type DeploymentParameters struct {
-	ConfigMap  EnvironmentMap
-	SecretMap  EnvironmentMap
-	Parameters any
+	ConfigMap        EnvironmentMap
+	SecretMap        EnvironmentMap
+	SecretReferences map[string]*builderv0.KubernetesSecretKeyReference
+	Parameters       any
 }
 
 // DeploymentInputs declares which standard Codefly inputs a Kubernetes
@@ -537,6 +542,7 @@ type KustomizeDeploymentContext struct {
 	Builder              *BuilderWrapper
 	Request              *builderv0.DeploymentRequest
 	Kubernetes           *builderv0.KubernetesDeployment
+	Profile              builderv0.KubernetesOutputProfile
 	EnvironmentVariables *resources.EnvironmentVariableManager
 	Parameters           any
 	ConfigMap            []*resources.EnvironmentVariable
@@ -592,7 +598,19 @@ func (s *BuilderWrapper) KubernetesDeploymentRequest(_ context.Context, req *bui
 		if v.Kubernetes == nil {
 			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes deployment is missing"), "cannot deploy")
 		}
-		s.DeployOutput = KustomizeOutput()
+		switch v.Kubernetes.GetProfile() {
+		case builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1:
+		default:
+			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes output profile is required"), "cannot deploy")
+		}
+		if v.Kubernetes.GetNamespace() == "" {
+			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes namespace is required"), "cannot deploy")
+		}
+		if v.Kubernetes.GetDestination() == "" {
+			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes destination is required"), "cannot deploy")
+		}
+		s.DeployOutput = KustomizeOutput(v.Kubernetes.GetProfile())
 		return v.Kubernetes, nil
 	default:
 		return nil, s.Wool.Wrapf(fmt.Errorf("unsupported deployment kind: %T", v), "cannot deploy")
@@ -614,6 +632,12 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	kubernetes, err := s.KubernetesDeploymentRequest(ctx, req)
 	if err != nil {
 		return s.DeployError(err)
+	}
+	profile := kubernetes.GetProfile()
+	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+		if err = validateGitOpsDeploymentRequest(req, kubernetes.GetSecretReferences()); err != nil {
+			return s.DeployError(err)
+		}
 	}
 
 	s.LogDeployRequest(req, s.Wool.Debug)
@@ -649,6 +673,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		Builder:              s,
 		Request:              req,
 		Kubernetes:           kubernetes,
+		Profile:              profile,
 		EnvironmentVariables: manager,
 		Parameters:           deployment.Parameters,
 	}
@@ -663,32 +688,62 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		return s.DeployError(err)
 	}
 	configurations = append(configurations, deploymentContext.ConfigMap...)
+	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+		if len(manager.Secrets()) > 0 || len(deploymentContext.Secrets) > 0 {
+			return s.DeployError(fmt.Errorf("promotable GitOps rendering cannot receive secret values"))
+		}
+		for _, configuration := range configurations {
+			if credentialLikeEnvironmentKey(configuration.Key) {
+				return s.DeployError(fmt.Errorf("promotable GitOps rendering cannot receive credential-like value %q", configuration.Key))
+			}
+		}
+	}
 	configMap, err := EnvsAsConfigMapData(configurations...)
 	if err != nil {
 		return s.DeployError(err)
 	}
-	secrets := append(manager.Secrets(), deploymentContext.Secrets...)
-	secretMap, err := EnvsAsSecretData(secrets...)
-	if err != nil {
-		return s.DeployError(err)
+	var secretMap EnvironmentMap
+	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 {
+		secrets := append(manager.Secrets(), deploymentContext.Secrets...)
+		secretMap, err = EnvsAsSecretData(secrets...)
+		if err != nil {
+			return s.DeployError(err)
+		}
 	}
 
 	parameters := DeploymentParameters{
-		ConfigMap:  configMap,
-		SecretMap:  secretMap,
-		Parameters: deploymentContext.Parameters,
+		ConfigMap:        configMap,
+		SecretMap:        secretMap,
+		SecretReferences: kubernetes.GetSecretReferences(),
+		Parameters:       deploymentContext.Parameters,
 	}
 	if err = s.KustomizeDeploy(ctx, req.GetEnvironment(), kubernetes, deployment.Templates, parameters); err != nil {
 		return s.DeployError(err)
 	}
+	validation := ValidateKubernetesManifestTree(
+		ctx,
+		kubernetes.GetDestination(),
+		req.GetEnvironment().GetName(),
+		kubernetes.GetNamespace(),
+		profile,
+		kubernetes.GetValidateServerSide(),
+	)
+	s.DeployOutput.GetKubernetes().Validation = validation
+	if validation.GetStaticValidation() == builderv0.KubernetesManifestValidation_STATUS_FAILED ||
+		validation.GetServerSideValidation() == builderv0.KubernetesManifestValidation_STATUS_FAILED {
+		return s.DeployError(fmt.Errorf("generated Kubernetes manifests violate %s: %s",
+			KubernetesManifestContractVersion, strings.Join(validation.GetViolations(), "; ")))
+	}
 	return s.DeployResponse()
 }
 
-func KustomizeOutput() *builderv0.DeploymentOutput {
+func KustomizeOutput(profile builderv0.KubernetesOutputProfile) *builderv0.DeploymentOutput {
 	return &builderv0.DeploymentOutput{
 		Kind: &builderv0.DeploymentOutput_Kubernetes{
 			Kubernetes: &builderv0.KubernetesDeploymentOutput{
-				Kind: builderv0.KubernetesDeploymentOutput_KUSTOMIZE,
+				Kind:            builderv0.KubernetesDeploymentOutput_KUSTOMIZE,
+				Profile:         profile,
+				ContractVersion: KubernetesManifestContractVersion,
 			},
 		},
 	}
@@ -701,6 +756,8 @@ func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Enviro
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot create base")
 	}
+	b.Profile = req.GetProfile()
+	b.GitOps = req.GetProfile() == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1
 	err = s.Builder.GenerateGenericKustomize(ctx, fsys, req, b, params)
 	if err != nil {
 		return err
@@ -737,9 +794,10 @@ type DeploymentWrapper struct {
 	// Stable convenience aliases for plugin templates. These keep the golden
 	// path shallow ({{ .Name }}, {{ range .SecretMap }}) while Deployment keeps
 	// the complete plugin-specific parameter object available.
-	Name      string
-	ConfigMap EnvironmentMap
-	SecretMap EnvironmentMap
+	Name             string
+	ConfigMap        EnvironmentMap
+	SecretMap        EnvironmentMap
+	SecretReferences map[string]*builderv0.KubernetesSecretKeyReference
 }
 
 func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.FS, k *builderv0.KubernetesDeployment, base *DeploymentBase, params any) error {
@@ -751,10 +809,12 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 	case DeploymentParameters:
 		wrapper.ConfigMap = deployment.ConfigMap
 		wrapper.SecretMap = deployment.SecretMap
+		wrapper.SecretReferences = deployment.SecretReferences
 	case *DeploymentParameters:
 		if deployment != nil {
 			wrapper.ConfigMap = deployment.ConfigMap
 			wrapper.SecretMap = deployment.SecretMap
+			wrapper.SecretReferences = deployment.SecretReferences
 		}
 	}
 	// Delete
@@ -768,6 +828,27 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 	)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateGitOpsDeploymentRequest(
+	req *builderv0.DeploymentRequest,
+	references map[string]*builderv0.KubernetesSecretKeyReference,
+) error {
+	for _, configuration := range append([]*basev0.Configuration{req.GetConfiguration()}, req.GetDependenciesConfigurations()...) {
+		for _, information := range configuration.GetInfos() {
+			for _, value := range information.GetConfigurationValues() {
+				if value.GetValue() != "" && (value.GetSecret() || resources.IsSensitiveKey(value.GetKey())) {
+					return fmt.Errorf("promotable GitOps rendering cannot receive secret value %q", value.GetKey())
+				}
+			}
+		}
+	}
+	for environmentVariable, reference := range references {
+		if environmentVariable == "" || reference.GetName() == "" || reference.GetKey() == "" {
+			return fmt.Errorf("promotable GitOps secret references require environment variable, Secret name, and key")
+		}
 	}
 	return nil
 }

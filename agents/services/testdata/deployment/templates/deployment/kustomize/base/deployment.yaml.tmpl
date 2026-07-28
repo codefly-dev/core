@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Name }}
+  namespace: {{ .Namespace }}
+  annotations:
+    codefly.dev/test-parameter: {{ .Deployment.Parameters.Name | printf "%q" }}
+spec:
+  replicas: {{ .Replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: service
+          image: {{ .Image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          startupProbe:
+            exec:
+              command: ["true"]
+          readinessProbe:
+            exec:
+              command: ["true"]
+          livenessProbe:
+            exec:
+              command: ["true"]
+{{- if not .GitOps }}
+          envFrom:
+            - secretRef:
+                name: {{ .Name }}
+{{- else }}
+          env:
+{{- range $environmentVariable, $reference := .SecretReferences }}
+            - name: {{ $environmentVariable }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $reference.Name }}
+                  key: {{ $reference.Key }}
+                  optional: {{ $reference.Optional }}
+{{- end }}
+{{- end }}

@@ -184,10 +184,10 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 }
 
 func (s *Base) SetDefaultDockerImage(req *builderv0.DockerBuildContext) {
-	repo := req.DockerRepository
 	s.image = &resources.DockerImage{
-		Name: path.Join(repo, s.Identity.Module, s.Identity.Name),
-		Tag:  s.Version().Version,
+		Name:   path.Join(req.GetDockerRepository(), s.Identity.Module, s.Identity.Name),
+		Tag:    s.Version().Version,
+		Digest: req.GetImageDigest(),
 	}
 }
 
@@ -198,6 +198,9 @@ func (s *Base) SetDockerImage(image *resources.DockerImage) {
 func (s *Base) DockerImage(req *builderv0.DockerBuildContext) *resources.DockerImage {
 	if s.image == nil {
 		s.SetDefaultDockerImage(req)
+	}
+	if digest := req.GetImageDigest(); digest != "" {
+		s.image.Digest = digest
 	}
 	return s.image
 }

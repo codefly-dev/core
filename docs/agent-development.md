@@ -133,6 +133,17 @@ structured response.
 
 ## Deployment golden paths
 
+The deployment request must select one versioned Kubernetes output profile:
+
+- `KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1` may embed Kubernetes
+  `Secret` data for a tightly scoped local apply.
+- `KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` rejects secret-bearing
+  configuration input and exposes only identifier-only `secret_references` to
+  templates.
+
+An unspecified profile fails before rendering. The profile is selected by the
+CLI, so the standard plugin `Deploy` methods below do not hard-code it.
+
 ### Application
 
 The common application path is a single call:
@@ -188,8 +199,14 @@ func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) 
 ```
 
 The preparation context can also set `deployment.Parameters`, call
-`deployment.AddConfigMap(...)`, or call `deployment.AddSecrets(...)`. Raw secret
-values added this way are base64-encoded by core before rendering.
+`deployment.AddConfigMap(...)`, or call `deployment.AddSecrets(...)`.
+`AddSecrets` is valid only for the ephemeral profile; core rejects it for a
+GitOps render.
+
+Generic resource plugins own the portable self-hosted workload only.
+Provider-specific managed database, object-store, or secret-manager adapters
+belong in separate provider plugins and must not be selected from a generic
+service plugin.
 
 ### Gateway
 
@@ -233,19 +250,77 @@ Core exposes stable shallow fields for common templates:
 | `.Image` | full tag- or digest-pinned image reference |
 | `.Sha` | deployment change marker |
 | `.Replicas` | default replica count |
+| `.Profile` | selected versioned output profile |
+| `.GitOps` | true for the promotable GitOps v1 profile |
 | `.ConfigMap` | non-secret environment map |
-| `.SecretMap` | base64-encoded secret map |
+| `.SecretMap` | base64-encoded secret map; populated only for ephemeral local apply |
+| `.SecretReferences` | environment variable to Secret name/key references; contains no values |
 | `.Deployment.Parameters` | plugin-specific parameter object |
 
-Render maps explicitly; inserting a Go map directly is not valid Kubernetes
-YAML:
+Secret templates must render no Kubernetes object for GitOps. Conditional
+resource lists alone are insufficient because an unreferenced file is still
+part of the generated tree:
 
 ```gotemplate
+{{- if not .GitOps }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Name }}
+  namespace: {{ .Namespace }}
 data:
 {{- range $key, $value := .SecretMap }}
   {{ $key }}: "{{ $value }}"
 {{- end }}
+{{- end }}
 ```
+
+GitOps workloads consume externally reconciled or pre-existing Secrets through
+the identifier-only references:
+
+```gotemplate
+{{- if .GitOps }}
+env:
+{{- range $environmentVariable, $reference := .SecretReferences }}
+  - name: {{ $environmentVariable }}
+    valueFrom:
+      secretKeyRef:
+        name: {{ $reference.Name }}
+        key: {{ $reference.Key }}
+        optional: {{ $reference.Optional }}
+{{- end }}
+{{- end }}
+```
+
+The v1 contract permits `external-secrets.io/v1` `ExternalSecret` resources
+that reference a namespaced `SecretStore`. It rejects inline target templates,
+cluster stores, provider credentials, and all Kubernetes `Secret` objects in a
+GitOps tree.
+
+## Kubernetes manifest contract
+
+Every profile must produce a valid Kustomize overlay with no unresolved
+placeholders. Workloads must disable ServiceAccount token mounting, satisfy the
+restricted pod and container security contexts, drop all capabilities, avoid
+host access, set CPU and memory requests and limits, and provide startup,
+readiness, and liveness probes for long-running containers. Services must stay
+cluster-internal. Namespace, ServiceAccount, Role, and RoleBinding resources
+must carry `app.kubernetes.io/managed-by: codefly`; cluster-scoped resources are
+rejected.
+
+The GitOps profile additionally requires every image to use a full
+`@sha256:<64 hex characters>` digest. The CLI supplies an application image
+digest through `DockerBuildContext.image_digest`; stock-image plugins set
+`resources.DockerImage.Digest`.
+
+Core records `codefly.dev/kubernetes-manifest/v1`, the selected profile, static
+validation, server-side validation, violations, and the final `promotable`
+decision in `KubernetesDeploymentOutput`. When
+`KubernetesDeployment.validate_server_side` is true, core runs
+`kubectl apply --server-side --dry-run=server` so the active cluster performs
+schema, admission, and webhook checks. A GitOps tree is promotable only when
+both static and server-side validation pass; a CLI must reject every other
+result.
 
 ## Runtime
 
@@ -296,9 +371,12 @@ func TestDeploymentTemplates(t *testing.T) {
 }
 ```
 
-It renders representative config, secrets, image data, and plugin parameters;
-then checks for unexpanded expressions, malformed YAML, invalid Secret/ConfigMap
-data, and dangling Kustomize resources. It needs no cluster or external binary.
+It renders both v1 profiles with representative config, secret references,
+image data, and plugin parameters. It builds each overlay with the Kustomize
+library, applies the complete restricted policy, verifies that the GitOps tree
+does not contain the secret sentinel, and runs the shared positive and hostile
+contract suite. Optional server-side validation belongs in a cluster-backed
+integration test.
 
 Add focused assertions for conditional resources such as migration Jobs.
 
