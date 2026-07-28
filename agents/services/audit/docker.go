@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,11 +32,10 @@ func Docker(ctx context.Context, image string) (*Result, error) {
 		return nil, fmt.Errorf("trivy audit requires a container image reference")
 	}
 	name := "trivy"
-	userCache, err := os.UserCacheDir()
+	cache, err := trivyCacheDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve Trivy cache: %w", err)
 	}
-	cache := filepath.Join(userCache, "codefly", "trivy")
 	if err := os.MkdirAll(cache, 0o700); err != nil {
 		return nil, fmt.Errorf("create Trivy cache: %w", err)
 	}
@@ -73,7 +73,31 @@ func Docker(ctx context.Context, image string) (*Result, error) {
 	// command both errored AND produced no output to parse.
 	out, err := runCmd(ctx, "", name, args...)
 	if err != nil && len(out) == 0 {
-		return nil, fmt.Errorf("trivy audit failed: %w", err)
+		auditErr := fmt.Errorf("trivy audit failed: %w", err)
+		if !isCorruptTrivyDatabaseError(auditErr) {
+			return nil, auditErr
+		}
+		if resetErr := resetTrivyDatabasesLocked(ctx, cache); resetErr != nil {
+			return nil, fmt.Errorf("recover corrupt Trivy database: %w", errors.Join(
+				auditErr,
+				fmt.Errorf("reset Trivy databases: %w", resetErr),
+			))
+		}
+
+		out, err = runCmd(ctx, "", name, args...)
+		if err != nil && len(out) == 0 {
+			retryErr := fmt.Errorf("trivy audit failed after database reset: %w", err)
+			if !isCorruptTrivyDatabaseError(retryErr) {
+				return nil, retryErr
+			}
+			if resetErr := resetTrivyDatabasesLocked(ctx, cache); resetErr != nil {
+				return nil, errors.Join(
+					retryErr,
+					fmt.Errorf("reset Trivy databases after failed retry: %w", resetErr),
+				)
+			}
+			return nil, fmt.Errorf("Trivy database was reset again after a corrupt audit retry: %w", retryErr)
+		}
 	}
 	res.Findings = parseTrivy(out)
 	return res, nil
