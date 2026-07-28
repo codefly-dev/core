@@ -19,19 +19,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSetDefaultDockerImageUsesBuildDigest(t *testing.T) {
+func TestDockerImageBuildDigestIsRequestScoped(t *testing.T) {
 	base := &Base{
 		Identity: &resources.ServiceIdentity{Module: "module", Name: "service"},
 		Service:  &resources.Service{Version: "1.2.3"},
 	}
 	digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	build := &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"}
+	taggedBuild := &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"}
+	digestBuild := &builderv0.DockerBuildContext{DockerRepository: "registry.example.com", ImageDigest: digest}
 
-	base.SetDefaultDockerImage(build)
+	base.SetDefaultDockerImage(taggedBuild)
 
-	require.Equal(t, "registry.example.com/module/service:1.2.3", base.DockerImage(build).FullName())
-	build.ImageDigest = digest
-	require.Equal(t, "registry.example.com/module/service@"+digest, base.DockerImage(build).FullName())
+	pinned := base.DockerImage(digestBuild)
+	require.Equal(t, "registry.example.com/module/service@"+digest, pinned.FullName())
+	require.Equal(t, "registry.example.com/module/service:1.2.3", base.DockerImage(taggedBuild).FullName())
+	require.Equal(t, "registry.example.com/module/service@"+digest, pinned.FullName())
 }
 
 // countWatcherGoroutines counts the live goroutines belonging to a watcher:

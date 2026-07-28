@@ -220,6 +220,19 @@ spec:
         property: password
 `
 	assertContractResult(t, "positive", positive, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
+	currentRestricted := strings.Replace(
+		restrictedDeploymentManifest,
+		"        seccompProfile:\n          type: RuntimeDefault\n      containers:",
+		"        seccompProfile:\n          type: RuntimeDefault\n        sysctls:\n          - name: net.ipv4.tcp_keepalive_time\n            value: \"7200\"\n      containers:",
+		1,
+	)
+	currentRestricted = strings.Replace(
+		currentRestricted,
+		"readOnlyRootFilesystem: true",
+		"readOnlyRootFilesystem: true\n            seLinuxOptions:\n              type: container_engine_t",
+		1,
+	)
+	assertContractResult(t, "current restricted fields", currentRestricted, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
 
 	tests := []struct {
 		name     string
@@ -264,6 +277,111 @@ stringData:
 			name:     "host access",
 			manifest: strings.Replace(restrictedDeploymentManifest, "automountServiceAccountToken: false", "automountServiceAccountToken: false\n      hostNetwork: true", 1),
 			contains: "must not enable hostNetwork",
+		},
+		{
+			name: "replication controller pod policy",
+			manifest: `apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: example-service
+  namespace: codefly-test
+spec:
+  replicas: 1
+  selector:
+    app: example-service
+  template:
+    metadata:
+      labels:
+        app: example-service
+    spec:
+      containers:
+        - name: service
+          image: example/service:latest
+          securityContext:
+            privileged: true
+`,
+			contains: "must set automountServiceAccountToken: false",
+		},
+		{
+			name: "custom workload pod policy",
+			manifest: `apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: example-service
+  namespace: codefly-test
+spec:
+  template:
+    metadata:
+      labels:
+        app: example-service
+    spec:
+      containers:
+        - name: service
+          image: example/service:latest
+          securityContext:
+            privileged: true
+`,
+			contains: "must set automountServiceAccountToken: false",
+		},
+		{
+			name: "unconfined apparmor",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"readOnlyRootFilesystem: true",
+				"readOnlyRootFilesystem: true\n            appArmorProfile:\n              type: Unconfined",
+				1,
+			),
+			contains: "must not use an unconfined AppArmor profile",
+		},
+		{
+			name: "unconfined apparmor annotation",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"    metadata:\n      labels:",
+				"    metadata:\n      annotations:\n        container.apparmor.security.beta.kubernetes.io/service: unconfined\n      labels:",
+				1,
+			),
+			contains: "uses prohibited AppArmor annotation",
+		},
+		{
+			name: "prohibited selinux type",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"readOnlyRootFilesystem: true",
+				"readOnlyRootFilesystem: true\n            seLinuxOptions:\n              type: spc_t",
+				1,
+			),
+			contains: "uses prohibited SELinux type",
+		},
+		{
+			name: "unsafe sysctl",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"        seccompProfile:\n          type: RuntimeDefault\n      containers:",
+				"        seccompProfile:\n          type: RuntimeDefault\n        sysctls:\n          - name: net.ipv4.conf.all.accept_redirects\n            value: \"1\"\n      containers:",
+				1,
+			),
+			contains: "uses unsafe sysctl",
+		},
+		{
+			name: "prohibited volume type",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"      containers:",
+				"      volumes:\n        - name: shared\n          nfs:\n            server: 192.0.2.1\n            path: /exports\n      containers:",
+				1,
+			),
+			contains: "uses prohibited volume type",
+		},
+		{
+			name: "probe host access",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"          startupProbe:\n            exec:\n              command: [\"true\"]",
+				"          startupProbe:\n            httpGet:\n              host: 127.0.0.1\n              path: /\n              port: 8080",
+				1,
+			),
+			contains: "startupProbe must not set a host",
 		},
 		{
 			name: "unsafe service",
@@ -327,6 +445,7 @@ rules: []
 		assertContractResult(t, test.name, test.manifest, builderv0.KubernetesManifestValidation_STATUS_FAILED, test.contains)
 	}
 	assertInvalidKustomization(t)
+	assertExtensionlessPlaceholder(t)
 }
 
 func assertInvalidKustomization(t *testing.T) {
@@ -364,6 +483,58 @@ func assertInvalidKustomization(t *testing.T) {
 		}
 		if !strings.Contains(strings.Join(validation.GetViolations(), "\n"), "kustomize build") {
 			t.Fatalf("violations do not report Kustomize failure: %v", validation.GetViolations())
+		}
+	})
+}
+
+func assertExtensionlessPlaceholder(t *testing.T) {
+	t.Helper()
+	t.Run("contract/extensionless placeholder", func(t *testing.T) {
+		destination := t.TempDir()
+		base := filepath.Join(destination, "base")
+		overlay := filepath.Join(destination, "overlays", "test")
+		if err := os.MkdirAll(base, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(overlay, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		files := map[string]string{
+			filepath.Join(base, "kustomization.yaml"): `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - workload
+`,
+			filepath.Join(base, "workload"): strings.Replace(
+				restrictedDeploymentManifest,
+				"name: example-service",
+				"name: ${SERVICE_NAME}",
+				1,
+			),
+			filepath.Join(overlay, "kustomization.yaml"): `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+`,
+		}
+		for path, content := range files {
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		validation := services.ValidateKubernetesManifestTree(
+			context.Background(),
+			destination,
+			"test",
+			"codefly-test",
+			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+			false,
+		)
+		if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_FAILED {
+			t.Fatalf("status = %s, want failed; violations: %v", validation.GetStaticValidation(), validation.GetViolations())
+		}
+		if !strings.Contains(strings.Join(validation.GetViolations(), "\n"), "unresolved placeholder") {
+			t.Fatalf("violations do not report unresolved placeholder: %v", validation.GetViolations())
 		}
 	})
 }

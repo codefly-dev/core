@@ -68,6 +68,34 @@ func NewEnvironmentVariableManager() *EnvironmentVariableManager {
 	return &EnvironmentVariableManager{}
 }
 
+// DeploymentScope returns a manager with the service-level environment and
+// overrides but no inputs accumulated by earlier deployment requests.
+func (holder *EnvironmentVariableManager) DeploymentScope() *EnvironmentVariableManager {
+	return &EnvironmentVariableManager{
+		environment:    holder.environment,
+		workspace:      holder.workspace,
+		module:         holder.module,
+		service:        holder.service,
+		version:        holder.version,
+		runtimeContext: holder.runtimeContext,
+		fixture:        holder.fixture,
+		overrides:      cloneEnvironmentVariables(holder.overrides),
+		others:         cloneEnvironmentVariables(holder.others),
+	}
+}
+
+func cloneEnvironmentVariables(values []*EnvironmentVariable) []*EnvironmentVariable {
+	result := make([]*EnvironmentVariable, len(values))
+	for index, value := range values {
+		if value == nil {
+			continue
+		}
+		cloned := *value
+		result[index] = &cloned
+	}
+	return result
+}
+
 func (holder *EnvironmentVariableManager) SetEnvironment(environment *basev0.Environment) {
 	holder.environment = environment
 }

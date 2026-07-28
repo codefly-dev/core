@@ -319,8 +319,8 @@ decision in `KubernetesDeploymentOutput`. When
 `KubernetesDeployment.validate_server_side` is true, core runs
 `kubectl apply --server-side --dry-run=server` so the active cluster performs
 schema, admission, and webhook checks. A GitOps tree is promotable only when
-both static and server-side validation pass; a CLI must reject every other
-result.
+both static and server-side validation pass; core returns a deployment error
+for every other GitOps result, and callers must preserve that failure.
 
 ## Runtime
 

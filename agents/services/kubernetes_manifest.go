@@ -51,6 +51,38 @@ var ownershipRequiredKinds = map[string]struct{}{
 	"ServiceAccount": {},
 }
 
+var restrictedVolumeSources = map[string]struct{}{
+	"configMap":             {},
+	"csi":                   {},
+	"downwardAPI":           {},
+	"emptyDir":              {},
+	"ephemeral":             {},
+	"persistentVolumeClaim": {},
+	"projected":             {},
+	"secret":                {},
+}
+
+var restrictedSELinuxTypes = map[string]struct{}{
+	"":                   {},
+	"container_engine_t": {},
+	"container_t":        {},
+	"container_init_t":   {},
+	"container_kvm_t":    {},
+}
+
+var restrictedSysctls = map[string]struct{}{
+	"kernel.shm_rmid_forced":              {},
+	"net.ipv4.ip_local_port_range":        {},
+	"net.ipv4.ip_local_reserved_ports":    {},
+	"net.ipv4.ip_unprivileged_port_start": {},
+	"net.ipv4.ping_group_range":           {},
+	"net.ipv4.tcp_fin_timeout":            {},
+	"net.ipv4.tcp_keepalive_intvl":        {},
+	"net.ipv4.tcp_keepalive_probes":       {},
+	"net.ipv4.tcp_keepalive_time":         {},
+	"net.ipv4.tcp_syncookies":             {},
+}
+
 type kubernetesManifestObject struct {
 	apiVersion string
 	kind       string
@@ -117,7 +149,7 @@ func buildKustomizeManifest(
 		if walkErr != nil {
 			return walkErr
 		}
-		extension := filepath.Ext(path)
+		extension := strings.ToLower(filepath.Ext(path))
 		if entry.IsDir() || (extension != ".yaml" && extension != ".yml" && extension != ".json") {
 			return nil
 		}
@@ -181,6 +213,9 @@ func buildKustomizeManifest(
 	manifest, err := resources.AsYaml()
 	if err != nil {
 		return nil, []string{fmt.Sprintf("serialize kustomize output: %v", err)}
+	}
+	if unresolvedManifestValue.Match(manifest) {
+		return nil, []string{"kustomize output contains an unresolved placeholder"}
 	}
 	return manifest, nil
 }
@@ -272,6 +307,7 @@ func (object *kubernetesManifestObject) validate(namespace string, profile build
 	}
 	podSpec, longRunning, hasPodSpec := object.podSpec()
 	if hasPodSpec {
+		violations = append(violations, object.validatePodAnnotations()...)
 		violations = append(violations, object.validatePodSpec(podSpec, longRunning, profile)...)
 	}
 	return violations
@@ -390,7 +426,7 @@ func (object *kubernetesManifestObject) podSpec() (map[string]any, bool, bool) {
 	case "Pod":
 		spec, ok := mapValue(object.value, "spec")
 		return spec, true, ok
-	case "Deployment", "DaemonSet", "ReplicaSet", "StatefulSet":
+	case "Deployment", "DaemonSet", "ReplicaSet", "ReplicationController", "StatefulSet":
 		spec, ok := nestedMap(object.value, "spec", "template", "spec")
 		return spec, true, ok
 	case "Job":
@@ -400,8 +436,33 @@ func (object *kubernetesManifestObject) podSpec() (map[string]any, bool, bool) {
 		spec, ok := nestedMap(object.value, "spec", "jobTemplate", "spec", "template", "spec")
 		return spec, false, ok
 	default:
-		return nil, false, false
+		spec, ok := nestedMap(object.value, "spec", "template", "spec")
+		return spec, true, ok
 	}
+}
+
+func (object *kubernetesManifestObject) validatePodAnnotations() []string {
+	var metadata map[string]any
+	switch object.kind {
+	case "Pod":
+		metadata, _ = mapValue(object.value, "metadata")
+	case "CronJob":
+		metadata, _ = nestedMap(object.value, "spec", "jobTemplate", "spec", "template", "metadata")
+	default:
+		metadata, _ = nestedMap(object.value, "spec", "template", "metadata")
+	}
+	annotations, _ := mapValue(metadata, "annotations")
+	var violations []string
+	for key, rawValue := range annotations {
+		if !strings.HasPrefix(key, "container.apparmor.security.beta.kubernetes.io/") {
+			continue
+		}
+		value, _ := rawValue.(string)
+		if value != "runtime/default" && !strings.HasPrefix(value, "localhost/") {
+			violations = append(violations, fmt.Sprintf("%s uses prohibited AppArmor annotation %q", object.reference(), value))
+		}
+	}
+	return violations
 }
 
 func (object *kubernetesManifestObject) validatePodSpec(
@@ -426,6 +487,19 @@ func (object *kubernetesManifestObject) validatePodSpec(
 	if !hasRestrictedSeccomp(podSecurity) {
 		violations = append(violations, fmt.Sprintf("%s pod securityContext must use RuntimeDefault or Localhost seccomp", ref))
 	}
+	violations = append(violations, validateRestrictedSecurityContext(podSecurity, ref+" pod securityContext")...)
+	sysctls, _ := sliceValue(podSecurity, "sysctls")
+	for index, rawSysctl := range sysctls {
+		sysctl, ok := rawSysctl.(map[string]any)
+		if !ok {
+			violations = append(violations, fmt.Sprintf("%s pod securityContext.sysctls[%d] must be a mapping", ref, index))
+			continue
+		}
+		name := stringValue(sysctl, "name")
+		if _, allowed := restrictedSysctls[name]; !allowed {
+			violations = append(violations, fmt.Sprintf("%s pod securityContext uses unsafe sysctl %q", ref, name))
+		}
+	}
 	if longRunning && !positiveNumber(podSpec["terminationGracePeriodSeconds"]) {
 		violations = append(violations, fmt.Sprintf("%s must set a positive terminationGracePeriodSeconds", ref))
 	}
@@ -434,8 +508,13 @@ func (object *kubernetesManifestObject) validatePodSpec(
 	for index, rawVolume := range volumes {
 		volume, ok := rawVolume.(map[string]any)
 		if ok {
-			if _, hostPath := volume["hostPath"]; hostPath {
-				violations = append(violations, fmt.Sprintf("%s.spec.volumes[%d] uses hostPath", ref, index))
+			for source := range volume {
+				if source == "name" {
+					continue
+				}
+				if _, allowed := restrictedVolumeSources[source]; !allowed {
+					violations = append(violations, fmt.Sprintf("%s.spec.volumes[%d] uses prohibited volume type %q", ref, index, source))
+				}
 			}
 		}
 	}
@@ -486,42 +565,60 @@ func (object *kubernetesManifestObject) validateContainer(
 	} else if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 && !pinnedImage.MatchString(image) {
 		violations = append(violations, fmt.Sprintf("%s image %q is not pinned by sha256 digest", ref, image))
 	}
+	violations = append(violations, validateContainerSecurity(container, ref)...)
+	violations = append(violations, validateContainerResources(container, ref)...)
+	violations = append(violations, validateContainerPorts(container, ref)...)
+	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+		violations = append(violations, validateContainerSecretReferences(container, ref)...)
+	}
+	violations = append(violations, validateContainerHealth(container, ref, requireProbes)...)
+	return violations
+}
 
+func validateContainerSecurity(container map[string]any, ref string) []string {
+	var violations []string
 	security, ok := mapValue(container, "securityContext")
 	if !ok {
 		violations = append(violations, fmt.Sprintf("%s has no securityContext", ref))
-	} else {
-		if boolValue(security, "privileged") {
-			violations = append(violations, fmt.Sprintf("%s must not be privileged", ref))
-		}
-		if allow, exists := security["allowPrivilegeEscalation"].(bool); !exists || allow {
-			violations = append(violations, fmt.Sprintf("%s must set allowPrivilegeEscalation: false", ref))
-		}
-		if !boolValue(security, "runAsNonRoot") {
-			violations = append(violations, fmt.Sprintf("%s must set runAsNonRoot: true", ref))
-		}
-		if !boolValue(security, "readOnlyRootFilesystem") {
-			violations = append(violations, fmt.Sprintf("%s must set readOnlyRootFilesystem: true", ref))
-		}
-		if !hasRestrictedSeccomp(security) {
-			violations = append(violations, fmt.Sprintf("%s must use RuntimeDefault or Localhost seccomp", ref))
-		}
-		capabilities, _ := mapValue(security, "capabilities")
-		drop, _ := sliceValue(capabilities, "drop")
-		if !containsString(drop, "ALL") {
-			violations = append(violations, fmt.Sprintf("%s must drop ALL capabilities", ref))
-		}
-		add, _ := sliceValue(capabilities, "add")
-		for _, capability := range add {
-			if capability != "NET_BIND_SERVICE" {
-				violations = append(violations, fmt.Sprintf("%s adds prohibited capability %q", ref, capability))
-			}
-		}
-		if stringValue(security, "procMount") == "Unmasked" {
-			violations = append(violations, fmt.Sprintf("%s uses an unmasked procMount", ref))
+		return violations
+	}
+	if boolValue(security, "privileged") {
+		violations = append(violations, fmt.Sprintf("%s must not be privileged", ref))
+	}
+	if allow, exists := security["allowPrivilegeEscalation"].(bool); !exists || allow {
+		violations = append(violations, fmt.Sprintf("%s must set allowPrivilegeEscalation: false", ref))
+	}
+	if !boolValue(security, "runAsNonRoot") {
+		violations = append(violations, fmt.Sprintf("%s must set runAsNonRoot: true", ref))
+	}
+	if !boolValue(security, "readOnlyRootFilesystem") {
+		violations = append(violations, fmt.Sprintf("%s must set readOnlyRootFilesystem: true", ref))
+	}
+	if !hasRestrictedSeccomp(security) {
+		violations = append(violations, fmt.Sprintf("%s must use RuntimeDefault or Localhost seccomp", ref))
+	}
+	violations = append(violations, validateRestrictedSecurityContext(security, ref)...)
+	capabilities, _ := mapValue(security, "capabilities")
+	drop, _ := sliceValue(capabilities, "drop")
+	if !containsString(drop, "ALL") {
+		violations = append(violations, fmt.Sprintf("%s must drop ALL capabilities", ref))
+	}
+	add, _ := sliceValue(capabilities, "add")
+	for _, capability := range add {
+		if capability != "NET_BIND_SERVICE" {
+			violations = append(violations, fmt.Sprintf("%s adds prohibited capability %q", ref, capability))
 		}
 	}
+	if stringValue(security, "procMount") == "Unmasked" {
+		violations = append(violations, fmt.Sprintf("%s uses an unmasked procMount", ref))
+	} else if procMount := stringValue(security, "procMount"); procMount != "" && procMount != "Default" {
+		violations = append(violations, fmt.Sprintf("%s uses prohibited procMount %q", ref, procMount))
+	}
+	return violations
+}
 
+func validateContainerResources(container map[string]any, ref string) []string {
+	var violations []string
 	resources, ok := mapValue(container, "resources")
 	if !ok {
 		violations = append(violations, fmt.Sprintf("%s has no resource requests or limits", ref))
@@ -533,7 +630,11 @@ func (object *kubernetesManifestObject) validateContainer(
 			}
 		}
 	}
+	return violations
+}
 
+func validateContainerPorts(container map[string]any, ref string) []string {
+	var violations []string
 	ports, _ := sliceValue(container, "ports")
 	for portIndex, rawPort := range ports {
 		port, ok := rawPort.(map[string]any)
@@ -546,43 +647,61 @@ func (object *kubernetesManifestObject) validateContainer(
 			}
 		}
 	}
+	return violations
+}
 
-	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
-		envs, _ := sliceValue(container, "env")
-		for envIndex, rawEnv := range envs {
-			env, ok := rawEnv.(map[string]any)
-			if !ok {
-				continue
-			}
-			if valueFrom, ok := mapValue(env, "valueFrom"); ok {
-				if secretKeyRef, ok := mapValue(valueFrom, "secretKeyRef"); ok {
-					if stringValue(secretKeyRef, "name") == "" || stringValue(secretKeyRef, "key") == "" {
-						violations = append(violations, fmt.Sprintf("%s.env[%d] has an incomplete secretKeyRef", ref, envIndex))
-					}
-				}
-			}
-			if resourcesKeyIsSensitive(stringValue(env, "name")) {
-				if value, literal := env["value"]; literal && value != "" {
-					violations = append(violations, fmt.Sprintf("%s.env[%d] contains a literal credential-like value", ref, envIndex))
+func validateContainerSecretReferences(container map[string]any, ref string) []string {
+	var violations []string
+	envs, _ := sliceValue(container, "env")
+	for envIndex, rawEnv := range envs {
+		env, ok := rawEnv.(map[string]any)
+		if !ok {
+			continue
+		}
+		if valueFrom, ok := mapValue(env, "valueFrom"); ok {
+			if secretKeyRef, ok := mapValue(valueFrom, "secretKeyRef"); ok {
+				if stringValue(secretKeyRef, "name") == "" || stringValue(secretKeyRef, "key") == "" {
+					violations = append(violations, fmt.Sprintf("%s.env[%d] has an incomplete secretKeyRef", ref, envIndex))
 				}
 			}
 		}
-		envFrom, _ := sliceValue(container, "envFrom")
-		for envFromIndex, rawSource := range envFrom {
-			source, ok := rawSource.(map[string]any)
-			if !ok {
-				continue
-			}
-			if secretRef, ok := mapValue(source, "secretRef"); ok && stringValue(secretRef, "name") == "" {
-				violations = append(violations, fmt.Sprintf("%s.envFrom[%d] has an incomplete secretRef", ref, envFromIndex))
+		if resourcesKeyIsSensitive(stringValue(env, "name")) {
+			if value, literal := env["value"]; literal && value != "" {
+				violations = append(violations, fmt.Sprintf("%s.env[%d] contains a literal credential-like value", ref, envIndex))
 			}
 		}
 	}
+	envFrom, _ := sliceValue(container, "envFrom")
+	for envFromIndex, rawSource := range envFrom {
+		source, ok := rawSource.(map[string]any)
+		if !ok {
+			continue
+		}
+		if secretRef, ok := mapValue(source, "secretRef"); ok && stringValue(secretRef, "name") == "" {
+			violations = append(violations, fmt.Sprintf("%s.envFrom[%d] has an incomplete secretRef", ref, envFromIndex))
+		}
+	}
+	return violations
+}
 
+func validateContainerHealth(container map[string]any, ref string, requireProbes bool) []string {
+	var violations []string
 	if requireProbes {
 		for _, probe := range []string{"startupProbe", "readinessProbe", "livenessProbe"} {
 			if !validProbe(container[probe]) {
 				violations = append(violations, fmt.Sprintf("%s must define a valid %s", ref, probe))
+			}
+		}
+	}
+	for _, probe := range []string{"startupProbe", "readinessProbe", "livenessProbe"} {
+		if actionUsesHost(container[probe]) {
+			violations = append(violations, fmt.Sprintf("%s.%s must not set a host", ref, probe))
+		}
+	}
+	if lifecycle, ok := mapValue(container, "lifecycle"); ok {
+		for _, hook := range []string{"postStart", "preStop"} {
+			if actionUsesHost(lifecycle[hook]) {
+				violations = append(violations, fmt.Sprintf("%s.lifecycle.%s must not set a host", ref, hook))
 			}
 		}
 	}
@@ -610,6 +729,48 @@ func hasRestrictedSeccomp(security map[string]any) bool {
 	}
 	profile := stringValue(seccomp, "type")
 	return profile == "RuntimeDefault" || profile == "Localhost"
+}
+
+func validateRestrictedSecurityContext(security map[string]any, ref string) []string {
+	var violations []string
+	if appArmor, ok := mapValue(security, "appArmorProfile"); ok {
+		switch stringValue(appArmor, "type") {
+		case "", "RuntimeDefault", "Localhost":
+		case "Unconfined":
+			violations = append(violations, fmt.Sprintf("%s must not use an unconfined AppArmor profile", ref))
+		default:
+			violations = append(violations, fmt.Sprintf("%s uses a prohibited AppArmor profile", ref))
+		}
+	}
+	if seLinux, ok := mapValue(security, "seLinuxOptions"); ok {
+		if user := stringValue(seLinux, "user"); user != "" {
+			violations = append(violations, fmt.Sprintf("%s may not set SELinux user %q", ref, user))
+		}
+		if role := stringValue(seLinux, "role"); role != "" {
+			violations = append(violations, fmt.Sprintf("%s may not set SELinux role %q", ref, role))
+		}
+		seLinuxType := stringValue(seLinux, "type")
+		if _, allowed := restrictedSELinuxTypes[seLinuxType]; !allowed {
+			violations = append(violations, fmt.Sprintf("%s uses prohibited SELinux type %q", ref, seLinuxType))
+		}
+	}
+	if windows, ok := mapValue(security, "windowsOptions"); ok && boolValue(windows, "hostProcess") {
+		violations = append(violations, fmt.Sprintf("%s must not enable Windows HostProcess", ref))
+	}
+	return violations
+}
+
+func actionUsesHost(value any) bool {
+	action, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, kind := range []string{"httpGet", "tcpSocket"} {
+		if handler, ok := mapValue(action, kind); ok && stringValue(handler, "host") != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func validProbe(value any) bool {

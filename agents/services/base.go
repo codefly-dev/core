@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/codefly-dev/core/builders"
@@ -68,7 +69,6 @@ type Base struct {
 	EnvironmentVariables *resources.EnvironmentVariableManager
 
 	// Configuration
-	Configuration           *basev0.Configuration
 	WorkspaceConfigurations []*basev0.Configuration
 
 	// Wrappers
@@ -90,7 +90,9 @@ type Base struct {
 	commands *CommandRegistry
 
 	// Docker Image for simple deployment convenience
-	image *resources.DockerImage
+	image          *resources.DockerImage
+	imageIsDefault bool
+	imageMu        sync.Mutex
 }
 
 func NewServiceBase(ctx context.Context, agent *resources.Agent) *Base {
@@ -184,25 +186,45 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 }
 
 func (s *Base) SetDefaultDockerImage(req *builderv0.DockerBuildContext) {
+	s.imageMu.Lock()
+	defer s.imageMu.Unlock()
 	s.image = &resources.DockerImage{
-		Name:   path.Join(req.GetDockerRepository(), s.Identity.Module, s.Identity.Name),
-		Tag:    s.Version().Version,
-		Digest: req.GetImageDigest(),
+		Name: path.Join(req.GetDockerRepository(), s.Identity.Module, s.Identity.Name),
+		Tag:  s.Version().Version,
 	}
+	s.imageIsDefault = true
 }
 
 func (s *Base) SetDockerImage(image *resources.DockerImage) {
-	s.image = image
+	s.imageMu.Lock()
+	defer s.imageMu.Unlock()
+	s.image = cloneDockerImage(image)
+	s.imageIsDefault = false
 }
 
 func (s *Base) DockerImage(req *builderv0.DockerBuildContext) *resources.DockerImage {
+	s.imageMu.Lock()
+	defer s.imageMu.Unlock()
 	if s.image == nil {
-		s.SetDefaultDockerImage(req)
+		s.image = &resources.DockerImage{
+			Name: path.Join(req.GetDockerRepository(), s.Identity.Module, s.Identity.Name),
+			Tag:  s.Version().Version,
+		}
+		s.imageIsDefault = true
 	}
-	if digest := req.GetImageDigest(); digest != "" {
-		s.image.Digest = digest
+	image := cloneDockerImage(s.image)
+	if digest := req.GetImageDigest(); digest != "" && s.imageIsDefault {
+		image.Digest = digest
 	}
-	return s.image
+	return image
+}
+
+func cloneDockerImage(image *resources.DockerImage) *resources.DockerImage {
+	if image == nil {
+		return nil
+	}
+	cloned := *image
+	return &cloned
 }
 
 type WatchConfiguration struct {

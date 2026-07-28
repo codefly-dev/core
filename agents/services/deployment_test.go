@@ -177,7 +177,67 @@ func TestDeployKustomizeRejectsSecretBytesForGitOps(t *testing.T) {
 	require.Contains(t, response.GetState().GetMessage(), "cannot receive secret values")
 }
 
-func TestDeployKustomizeProducesSecretFreeGitOpsTree(t *testing.T) {
+func TestDeployKustomizeRejectsSecretConfigurationDataForGitOps(t *testing.T) {
+	ctx := context.Background()
+	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
+	require.NoError(t, err)
+	manager := resources.NewEnvironmentVariableManager()
+	identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
+	base := &Base{
+		Wool:                 wool.Get(ctx),
+		Identity:             identity,
+		Information:          &Information{Service: resources.ToServiceWithCase(identity)},
+		EnvironmentVariables: manager,
+		loaded:               true,
+	}
+	base.SetDockerImage(&resources.DockerImage{
+		Name:   "example/service",
+		Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	})
+	builder := &BuilderWrapper{Base: base}
+	base.Builder = builder
+	destination := t.TempDir()
+	prepareCalled := false
+
+	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
+		Environment: &basev0.Environment{Name: "test"},
+		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
+			Kubernetes: &builderv0.KubernetesDeployment{
+				Namespace:   "codefly",
+				Destination: destination,
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+			},
+		}},
+		Configuration: &basev0.Configuration{
+			Origin: "module/service",
+			Infos: []*basev0.ConfigurationInformation{{
+				Name: "credentials",
+				Data: &basev0.ConfigurationData{
+					Kind:    "yaml",
+					Content: []byte("password: must-not-render"),
+					Secret:  true,
+				},
+			}},
+		},
+	}, KustomizeDeployment{
+		EnvironmentVariables: manager,
+		Templates:            templates,
+		Parameters:           struct{ Name string }{Name: "gitops"},
+		Prepare: func(context.Context, *KustomizeDeploymentContext) error {
+			prepareCalled = true
+			return nil
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+	require.Contains(t, response.GetState().GetMessage(), "cannot receive secret data")
+	require.False(t, prepareCalled)
+	entries, err := os.ReadDir(destination)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
+func TestDeployKustomizeRendersSecretFreeGitOpsTreeAndRejectsWithoutServerValidation(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
@@ -221,7 +281,8 @@ func TestDeployKustomizeProducesSecretFreeGitOpsTree(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState())
+	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+	require.Contains(t, response.GetState().GetMessage(), "requires successful server-side validation")
 	output := response.GetDeployment().GetKubernetes()
 	require.Equal(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1, output.GetProfile())
 	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_PASSED, output.GetValidation().GetStaticValidation())
@@ -238,6 +299,171 @@ func TestDeployKustomizeProducesSecretFreeGitOpsTree(t *testing.T) {
 	configMapManifest, err := os.ReadFile(filepath.Join(destination, "base", "config-map.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(configMapManifest), `CODEFLY__SERVICE_CONFIGURATION__MODULE__SERVICE__CONNECTION__URL: "redis://service"`)
+}
+
+func TestDeployKustomizeDoesNotRetainSecretsBetweenRequests(t *testing.T) {
+	ctx := context.Background()
+	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
+	require.NoError(t, err)
+	manager := resources.NewEnvironmentVariableManager()
+	manager.SetIdentity(&basev0.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
+	identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
+	base := &Base{
+		Wool:                 wool.Get(ctx),
+		Identity:             identity,
+		Information:          &Information{Service: resources.ToServiceWithCase(identity)},
+		EnvironmentVariables: manager,
+		loaded:               true,
+	}
+	base.SetDockerImage(&resources.DockerImage{
+		Name:   "example/service",
+		Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	})
+	builder := &BuilderWrapper{Base: base}
+	base.Builder = builder
+
+	ephemeralResponse, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
+		Environment: &basev0.Environment{Name: "test"},
+		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
+			Kubernetes: &builderv0.KubernetesDeployment{
+				Namespace:   "codefly",
+				Destination: t.TempDir(),
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+			},
+		}},
+		Configuration: configuration("module/service", "application", "TOKEN", "ephemeral-only", true),
+	}, KustomizeDeployment{
+		EnvironmentVariables: manager,
+		Templates:            templates,
+		Inputs:               DeploymentInputs{OwnConfiguration: true},
+		Parameters:           struct{ Name string }{Name: "ephemeral"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, ephemeralResponse.GetState().GetState())
+
+	gitOpsDestination := t.TempDir()
+	gitOpsResponse, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
+		Environment: &basev0.Environment{Name: "test"},
+		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
+			Kubernetes: &builderv0.KubernetesDeployment{
+				Namespace:   "codefly",
+				Destination: gitOpsDestination,
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+				SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{
+					"TOKEN": {Name: "service-secrets", Key: "token"},
+				},
+			},
+		}},
+	}, KustomizeDeployment{
+		EnvironmentVariables: manager,
+		Templates:            templates,
+		Parameters:           struct{ Name string }{Name: "gitops"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_ERROR, gitOpsResponse.GetState().GetState())
+	require.Contains(t, gitOpsResponse.GetState().GetMessage(), "requires successful server-side validation")
+	require.NotContains(t, gitOpsResponse.GetState().GetMessage(), "cannot receive secret values")
+	secretManifest, err := os.ReadFile(filepath.Join(gitOpsDestination, "base", "secret.yaml"))
+	require.NoError(t, err)
+	require.Empty(t, strings.TrimSpace(string(secretManifest)))
+}
+
+func TestDeployKustomizeKeepsConcurrentOutputsRequestScoped(t *testing.T) {
+	ctx := context.Background()
+	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
+	require.NoError(t, err)
+	manager := resources.NewEnvironmentVariableManager()
+	identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
+	base := &Base{
+		Wool:                 wool.Get(ctx),
+		Identity:             identity,
+		Information:          &Information{Service: resources.ToServiceWithCase(identity)},
+		EnvironmentVariables: manager,
+		loaded:               true,
+	}
+	base.SetDockerImage(resources.NewDockerImage("example/service:1.2.3"))
+	builder := &BuilderWrapper{Base: base}
+	base.Builder = builder
+
+	type deploymentResult struct {
+		response *builderv0.DeploymentResponse
+		err      error
+	}
+	ephemeralEntered := make(chan struct{})
+	releaseEphemeral := make(chan struct{})
+	gitOpsEntered := make(chan struct{})
+	releaseGitOps := make(chan struct{})
+	ephemeralResult := make(chan deploymentResult, 1)
+	gitOpsResult := make(chan deploymentResult, 1)
+	ephemeralDestination := t.TempDir()
+	gitOpsDestination := t.TempDir()
+
+	go func() {
+		response, deployErr := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
+			Environment: &basev0.Environment{Name: "test"},
+			Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
+				Kubernetes: &builderv0.KubernetesDeployment{
+					Namespace:   "codefly",
+					Destination: ephemeralDestination,
+					Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+				},
+			}},
+		}, KustomizeDeployment{
+			EnvironmentVariables: manager,
+			Templates:            templates,
+			Parameters:           struct{ Name string }{Name: "ephemeral"},
+			Prepare: func(context.Context, *KustomizeDeploymentContext) error {
+				close(ephemeralEntered)
+				<-releaseEphemeral
+				return nil
+			},
+		})
+		ephemeralResult <- deploymentResult{response: response, err: deployErr}
+	}()
+	<-ephemeralEntered
+
+	go func() {
+		response, deployErr := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
+			Environment: &basev0.Environment{Name: "test"},
+			Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
+				Kubernetes: &builderv0.KubernetesDeployment{
+					Namespace:   "codefly",
+					Destination: gitOpsDestination,
+					Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+					BuildContext: &builderv0.DockerBuildContext{
+						ImageDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					},
+				},
+			}},
+		}, KustomizeDeployment{
+			EnvironmentVariables: manager,
+			Templates:            templates,
+			Parameters:           struct{ Name string }{Name: "gitops"},
+			Prepare: func(context.Context, *KustomizeDeploymentContext) error {
+				close(gitOpsEntered)
+				<-releaseGitOps
+				return nil
+			},
+		})
+		gitOpsResult <- deploymentResult{response: response, err: deployErr}
+	}()
+	<-gitOpsEntered
+
+	close(releaseEphemeral)
+	ephemeral := <-ephemeralResult
+	close(releaseGitOps)
+	gitOps := <-gitOpsResult
+
+	require.NoError(t, ephemeral.err)
+	require.Equal(t,
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+		ephemeral.response.GetDeployment().GetKubernetes().GetProfile(),
+	)
+	require.NoError(t, gitOps.err)
+	require.Equal(t,
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+		gitOps.response.GetDeployment().GetKubernetes().GetProfile(),
+	)
 }
 
 func TestDeployKustomizeRequiresExplicitOutputProfile(t *testing.T) {
@@ -310,6 +536,48 @@ func TestDeployKustomizeRejectsMissingDependencies(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
 	require.Contains(t, response.GetState().GetMessage(), "environment variable manager")
+}
+
+func TestDeployKustomizeDoesNotReuseOutputOnEarlyError(t *testing.T) {
+	ctx := context.Background()
+	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
+	require.NoError(t, err)
+	manager := resources.NewEnvironmentVariableManager()
+	identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
+	base := &Base{
+		Wool:                 wool.Get(ctx),
+		Identity:             identity,
+		Information:          &Information{Service: resources.ToServiceWithCase(identity)},
+		EnvironmentVariables: manager,
+		loaded:               true,
+	}
+	base.SetDockerImage(resources.NewDockerImage("example/service:1.2.3"))
+	builder := &BuilderWrapper{Base: base}
+	base.Builder = builder
+
+	success, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
+		Environment: &basev0.Environment{Name: "test"},
+		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
+			Kubernetes: &builderv0.KubernetesDeployment{
+				Namespace:   "codefly",
+				Destination: t.TempDir(),
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+			},
+		}},
+	}, KustomizeDeployment{
+		EnvironmentVariables: manager,
+		Templates:            templates,
+		Parameters:           struct{ Name string }{Name: "ephemeral"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, success.GetState().GetState())
+	require.NotNil(t, success.GetDeployment())
+
+	failure, err := builder.DeployKustomize(ctx, nil, KustomizeDeployment{EnvironmentVariables: manager})
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_ERROR, failure.GetState().GetState())
+	require.Contains(t, failure.GetState().GetMessage(), "requires templates")
+	require.Nil(t, failure.GetDeployment())
 }
 
 func TestApplicationDeploymentInputs(t *testing.T) {
