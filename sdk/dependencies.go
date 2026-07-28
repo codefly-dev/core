@@ -35,6 +35,7 @@ type Dependencies struct {
 	runtimeContext *basev0.RuntimeContext
 	keepRunning    bool
 	attached       bool
+	inherited      bool
 }
 
 type Option struct {
@@ -118,6 +119,14 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	for _, o := range opts {
 		o(opt)
 	}
+	if hasManagedDependencyEnvironment(os.Environ()) {
+		wool.Get(ctx).In("sdk.WithDependencies").
+			Debug("reusing dependencies injected by the managed Codefly runtime")
+		return &Dependencies{
+			runtimeContext: resources.RuntimeContextFromEnv(),
+			inherited:      true,
+		}, nil
+	}
 	args := []string{"run", "service"}
 	if opt.Debug {
 		args = append(args, "-d")
@@ -151,10 +160,15 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		}
 	}
 
+	// Test-owned dependency stacks run in independent package processes, so
+	// their in-memory RuntimeManagers cannot coordinate deterministic named
+	// port allocations. Ask the CLI to use OS-probed ephemeral ports for these
+	// short-lived flows. Normal CLI stable/dev flows retain named ports.
+	//
 	// --headless prevents the CLI from trying to open /dev/tty for
 	// interactive context selection. Always needed when running as a
 	// subprocess (go test, CI, MCP, pipes).
-	args = append(args, "--exclude-root", "--cli-server", "--headless")
+	args = append(args, "--temporary-ports", "--exclude-root", "--cli-server", "--headless")
 	cmd := exec.CommandContext(ctx, codeflyBinary(), args...)
 	// ARCHITECTURE: the SDK owns the control channel for the child it starts.
 	// Pass the exact selected port to the CLI instead of asking two separately
@@ -234,6 +248,34 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	}
 	success = true
 	return l, nil
+}
+
+// hasManagedDependencyEnvironment recognizes the environment installed by a
+// parent Codefly service runner. Tests executed through a service agent already
+// have live dependency endpoints; starting another nested flow would duplicate
+// containers and contend for the parent's assigned ports.
+//
+// CODEFLY__RUNNING alone is intentionally insufficient because --stand-alone
+// services may not have dependencies. Reuse is allowed only when the runtime
+// also injected at least one non-empty typed endpoint. Direct `go test` remains
+// unchanged: SetEnvironment does not synthesize the parent-runner marker.
+func hasManagedDependencyEnvironment(environment []string) bool {
+	running := false
+	hasEndpoint := false
+	endpointPrefix := resources.EndpointPrefix + "__"
+	for _, entry := range environment {
+		name, value, found := strings.Cut(entry, "=")
+		if !found {
+			continue
+		}
+		switch {
+		case name == resources.RunningPrefix:
+			running = strings.EqualFold(strings.TrimSpace(value), "true")
+		case strings.HasPrefix(name, endpointPrefix) && strings.TrimSpace(value) != "":
+			hasEndpoint = true
+		}
+	}
+	return running && hasEndpoint
 }
 
 func cliServerAddress(ctx context.Context, namingScope string) string {
@@ -340,6 +382,9 @@ func Connection(service, name string) string {
 }
 
 func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
+	if l.inherited {
+		return nil
+	}
 	readyCtx, cancel := context.WithTimeout(ctx, opt.Timeout)
 	defer cancel()
 
@@ -406,6 +451,9 @@ func Inject(env *resources.EnvironmentVariable) {
 }
 
 func (l *Dependencies) SetEnvironment(ctx context.Context) error {
+	if l.inherited {
+		return nil
+	}
 	w := wool.Get(ctx).In("sdk.SetEnvironment")
 	svc, err := Service()
 	if err != nil {
@@ -497,6 +545,10 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 // tree down.
 func (l *Dependencies) Stop(ctx context.Context) error {
 	w := wool.Get(ctx).In("sdk.Stop")
+	if l.inherited {
+		w.Debug("leaving dependencies owned by the parent Codefly runtime running")
+		return nil
+	}
 	if l.keepRunning {
 		if l.conn != nil {
 			_ = l.conn.Close()
@@ -529,6 +581,10 @@ func (l *Dependencies) Stop(ctx context.Context) error {
 // stopping processes) before killing the subprocess group.
 func (l *Dependencies) Destroy(ctx context.Context) error {
 	w := wool.Get(ctx).In("sdk.Destroy")
+	if l.inherited {
+		w.Debug("leaving dependencies owned by the parent Codefly runtime running")
+		return nil
+	}
 	if l.keepRunning {
 		if l.conn != nil {
 			_ = l.conn.Close()
