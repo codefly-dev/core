@@ -37,7 +37,7 @@ func TestResetTrivyDatabasesRemovesDatabasesAndPreservesOtherCacheState(t *testi
 	writeTrivyCacheFile(t, cache, "fanal/fanal.db")
 	writeTrivyCacheFile(t, cache, ".codefly.lock")
 
-	require.NoError(t, ResetTrivyDatabases(context.Background()))
+	require.NoError(t, resetTrivyDatabases(context.Background()))
 	require.NoDirExists(t, filepath.Join(cache, "db"))
 	require.NoDirExists(t, filepath.Join(cache, "java-db"))
 	require.FileExists(t, filepath.Join(cache, "fanal", "fanal.db"))
@@ -72,7 +72,7 @@ cache="${mount%:/root/.cache/trivy}"
 `)
 	t.Setenv("CODEFLY_TEST_DOCKER_ARGS", argsFile)
 
-	require.NoError(t, ResetTrivyDatabases(context.Background()))
+	require.NoError(t, resetTrivyDatabases(context.Background()))
 	require.NoDirExists(t, filepath.Join(cache, "db"))
 	require.NoDirExists(t, filepath.Join(cache, "java-db"))
 	args, err := os.ReadFile(argsFile)
@@ -91,7 +91,7 @@ func TestResetTrivyDatabasesReportsJavaAndContainerCleanupFailures(t *testing.T)
 	makeDirectoryReadOnly(t, filepath.Dir(javaDB))
 	installFakeDocker(t, "#!/bin/sh\necho cleanup denied >&2\nexit 23\n")
 
-	err := ResetTrivyDatabases(context.Background())
+	err := resetTrivyDatabases(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "remove Trivy Java database")
 	require.Contains(t, err.Error(), "cleanup denied")
@@ -107,7 +107,7 @@ func TestResetTrivyDatabasesWaitsForScanLock(t *testing.T) {
 
 	result := make(chan error, 1)
 	go func() {
-		result <- ResetTrivyDatabases(context.Background())
+		result <- resetTrivyDatabases(context.Background())
 	}()
 	select {
 	case err := <-result:
@@ -134,7 +134,7 @@ func TestResetTrivyDatabasesHonorsCallerCancellationWhileWaiting(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	err = ResetTrivyDatabases(ctx)
+	err = resetTrivyDatabases(ctx)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.DirExists(t, filepath.Join(cache, "db"))
 }
@@ -165,7 +165,7 @@ printf '%s\n' '{"Results":[]}'
 	require.Equal(t, "trivy", result.Tool)
 	require.FileExists(t, filepath.Join(cache, "db", "trivy.db"))
 
-	require.NoError(t, ResetTrivyDatabases(context.Background()))
+	require.NoError(t, resetTrivyDatabases(context.Background()))
 	require.NoDirExists(t, filepath.Join(cache, "db"))
 }
 
@@ -213,7 +213,7 @@ func TestResetTrivyDatabasesRejectsSuccessfulNoopContainerCleanup(t *testing.T) 
 	makeDirectoryReadOnly(t, filepath.Dir(db))
 	installFakeDocker(t, "#!/bin/sh\nexit 0\n")
 
-	err := ResetTrivyDatabases(context.Background())
+	err := resetTrivyDatabases(context.Background())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, os.ErrExist) || strings.Contains(err.Error(), "still exists"), err)
 }

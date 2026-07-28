@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 )
 
-// ResetTrivyDatabases removes Trivy's vulnerability and Java databases under
+// resetTrivyDatabases removes Trivy's vulnerability and Java databases under
 // the same cross-process lock used by Docker. It preserves the scan cache and
 // lock file. When containerized Trivy created root-owned bind-mount contents,
 // cleanup falls back to the pinned Trivy image so the files are removed with
 // the same privileges that created them.
-func ResetTrivyDatabases(ctx context.Context) (returnErr error) {
+func resetTrivyDatabases(ctx context.Context) (returnErr error) {
 	cache, err := trivyCacheDir()
 	if err != nil {
 		return fmt.Errorf("resolve Trivy cache: %w", err)
