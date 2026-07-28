@@ -31,6 +31,13 @@ func resetTrivyDatabases(ctx context.Context) (returnErr error) {
 		}
 	}()
 
+	return resetTrivyDatabasesLocked(ctx, cache)
+}
+
+// resetTrivyDatabasesLocked performs the reset for a caller that already owns
+// the Trivy cache lock. Docker uses it to keep a failed scan, reset, and retry
+// in one cross-process critical section.
+func resetTrivyDatabasesLocked(ctx context.Context, cache string) error {
 	removeErr := removeTrivyDatabaseDirectories(cache)
 	if removeErr == nil {
 		return verifyTrivyDatabasesRemoved(cache)

@@ -10,9 +10,7 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
 
-// BuilderAuditFunc is the Builder.Audit contract used by
-// AuditWithTrivyDatabaseRecovery.
-type BuilderAuditFunc func(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error)
+type builderAuditFunc func(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error)
 
 var sharedTrivyAuditRecovery = newTrivyAuditRecoveryCoordinator()
 
@@ -21,8 +19,12 @@ var sharedTrivyAuditRecovery = newTrivyAuditRecoveryCoordinator()
 // retries once. Parallel callers share one recovery epoch: every audit already
 // using the failed database finishes before one reset occurs, and new audits
 // wait for that reset instead of deleting a database another caller repaired.
-func AuditWithTrivyDatabaseRecovery(ctx context.Context, request *builderv0.AuditRequest, audit BuilderAuditFunc) (*builderv0.AuditResponse, error) {
-	return sharedTrivyAuditRecovery.audit(ctx, request, audit, resetTrivyDatabases)
+func AuditWithTrivyDatabaseRecovery(
+	ctx context.Context,
+	request *builderv0.AuditRequest,
+	audit func(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error),
+) (*builderv0.AuditResponse, error) {
+	return sharedTrivyAuditRecovery.audit(ctx, request, builderAuditFunc(audit), resetTrivyDatabases)
 }
 
 type trivyAuditRecoveryCoordinator struct {
@@ -52,7 +54,7 @@ func newTrivyAuditEpoch() *trivyAuditEpoch {
 func (c *trivyAuditRecoveryCoordinator) audit(
 	ctx context.Context,
 	request *builderv0.AuditRequest,
-	audit BuilderAuditFunc,
+	audit builderAuditFunc,
 	reset func(context.Context) error,
 ) (*builderv0.AuditResponse, error) {
 	response, auditErr, epoch := c.run(ctx, request, audit)
@@ -86,7 +88,7 @@ func (c *trivyAuditRecoveryCoordinator) audit(
 func (c *trivyAuditRecoveryCoordinator) run(
 	ctx context.Context,
 	request *builderv0.AuditRequest,
-	audit BuilderAuditFunc,
+	audit builderAuditFunc,
 ) (*builderv0.AuditResponse, error, *trivyAuditEpoch) {
 	epoch, err := c.begin(ctx)
 	if err != nil {

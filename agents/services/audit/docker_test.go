@@ -169,6 +169,78 @@ printf '%s\n' '{"Results":[]}'
 	require.NoDirExists(t, filepath.Join(cache, "db"))
 }
 
+func TestDockerRecoversDatabaseBeforeAnotherScanCanUseIt(t *testing.T) {
+	cache := testTrivyCacheDir(t)
+	bin := t.TempDir()
+	stateFile := filepath.Join(t.TempDir(), "trivy-calls")
+	trivy := filepath.Join(bin, "trivy")
+	script := `#!/bin/sh
+cache=
+previous=
+for argument in "$@"; do
+	if [ "$previous" = "--cache-dir" ]; then
+		cache="$argument"
+		break
+	fi
+	previous="$argument"
+done
+calls=0
+if [ -f "$CODEFLY_TEST_TRIVY_CALLS" ]; then
+	read -r calls < "$CODEFLY_TEST_TRIVY_CALLS"
+fi
+calls=$((calls + 1))
+printf '%s\n' "$calls" > "$CODEFLY_TEST_TRIVY_CALLS"
+case "$calls" in
+1)
+	/bin/mkdir -p "$cache/db"
+	printf '%s\n' torn > "$cache/db/trivy.db"
+	printf '%s\n' 'fatal error: fault' >&2
+	printf '%s\n' 'go.etcd.io/bbolt/internal/common.(*Page).FastCheck' >&2
+	printf '%s\n' 'github.com/aquasecurity/trivy-db/pkg/db.Config.forEach' >&2
+	exit 2
+	;;
+2)
+	if [ -e "$cache/db/trivy.db" ]; then
+		printf '%s\n' 'second scan observed the torn database' >&2
+		exit 9
+	fi
+	/bin/mkdir -p "$cache/db"
+	printf '%s\n' clean > "$cache/db/trivy.db"
+	;;
+*)
+	if [ "$(/bin/cat "$cache/db/trivy.db")" != clean ]; then
+		printf '%s\n' 'later scan did not observe the repaired database' >&2
+		exit 10
+	fi
+	;;
+esac
+printf '%s\n' '{"Results":[]}'
+`
+	require.NoError(t, os.WriteFile(trivy, []byte(script), 0o755))
+	t.Setenv("PATH", bin)
+	t.Setenv("CODEFLY_TEST_TRIVY_CALLS", stateFile)
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, err := Docker(context.Background(), "postgres:16")
+			results <- err
+		}()
+	}
+	close(start)
+
+	require.NoError(t, <-results)
+	require.NoError(t, <-results)
+	calls, err := os.ReadFile(stateFile)
+	require.NoError(t, err)
+	require.Equal(t, "3\n", string(calls), "one failed scan, one retry, and one waiting scan must run")
+	database, err := os.ReadFile(filepath.Join(cache, "db", "trivy.db"))
+	require.NoError(t, err)
+	require.Equal(t, "clean\n", string(database))
+}
+
 func testTrivyCacheDir(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
