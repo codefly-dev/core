@@ -1,0 +1,84 @@
+[
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.18.0-83f4c19a-nightly/goreleaser_Darwin_all.tar.gz",
+        "id": 490501144,
+        "name": "goreleaser_Darwin_all.tar.gz",
+        "size": 53602426
+      },
+      {
+        "browser_download_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.18.0-83f4c19a-nightly/goreleaser_Darwin_arm64.tar.gz",
+        "id": 490501143,
+        "name": "goreleaser_Darwin_arm64.tar.gz",
+        "size": 25488679
+      },
+      {
+        "browser_download_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.18.0-83f4c19a-nightly/goreleaser_Darwin_x86_64.tar.gz",
+        "id": 490501123,
+        "name": "goreleaser_Darwin_x86_64.tar.gz",
+        "size": 28127765
+      },
+      {
+        "browser_download_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.18.0-83f4c19a-nightly/goreleaser_Linux_arm64.tar.gz",
+        "id": 490501124,
+        "name": "goreleaser_Linux_arm64.tar.gz",
+        "size": 24105022
+      },
+      {
+        "browser_download_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.18.0-83f4c19a-nightly/goreleaser_Linux_x86_64.tar.gz",
+        "id": 490501177,
+        "name": "goreleaser_Linux_x86_64.tar.gz",
+        "size": 26695225
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/goreleaser/goreleaser/releases/tag/v2.18.0-83f4c19a-nightly",
+    "id": 360063936,
+    "name": "v2.18.0-83f4c19a-nightly",
+    "prerelease": true,
+    "published_at": "2026-07-26T16:29:44Z",
+    "tag_name": "v2.18.0-83f4c19a-nightly"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Darwin_all.tar.gz",
+        "id": 490565848,
+        "name": "goreleaser_Darwin_all.tar.gz",
+        "size": 53602726
+      },
+      {
+        "browser_download_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Darwin_arm64.tar.gz",
+        "id": 490565827,
+        "name": "goreleaser_Darwin_arm64.tar.gz",
+        "size": 25489146
+      },
+      {
+        "browser_download_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Darwin_x86_64.tar.gz",
+        "id": 490565828,
+        "name": "goreleaser_Darwin_x86_64.tar.gz",
+        "size": 28127486
+      },
+      {
+        "browser_download_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Linux_arm64.tar.gz",
+        "id": 490565875,
+        "name": "goreleaser_Linux_arm64.tar.gz",
+        "size": 24106809
+      },
+      {
+        "browser_download_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Linux_x86_64.tar.gz",
+        "id": 490565870,
+        "name": "goreleaser_Linux_x86_64.tar.gz",
+        "size": 26695055
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/goreleaser/goreleaser/releases/tag/v2.17.1",
+    "id": 360083337,
+    "name": "v2.17.1",
+    "prerelease": false,
+    "published_at": "2026-07-26T18:04:20Z",
+    "tag_name": "v2.17.1"
+  }
+]
