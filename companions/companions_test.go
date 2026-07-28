@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -60,4 +61,27 @@ func TestEmbeddedDerivesEveryTagFromManifest(t *testing.T) {
 	}
 
 	require.Len(t, got, len(dirByName), "every companion image must be enumerated")
+}
+
+func TestNodeCompanionPreservesTargetArchitecture(t *testing.T) {
+	_, filename, _, _ := runtime.Caller(0)
+	root := filepath.Dir(filename)
+
+	codeflyDockerfile, err := os.ReadFile(filepath.Join(root, "codefly", "Dockerfile"))
+	require.NoError(t, err)
+	require.Contains(t, string(codeflyDockerfile), "ARG TARGETARCH")
+	require.Contains(t, string(codeflyDockerfile), "bin/linux/${TARGETARCH}/codefly")
+
+	nodeDockerfile, err := os.ReadFile(filepath.Join(root, "node", "Dockerfile"))
+	require.NoError(t, err)
+	codeflyVersion := strings.TrimSpace(string(mustReadFile(t, filepath.Join(root, "codefly", "info.codefly.yaml"))))
+	require.Equal(t, "version: 0.0.4", codeflyVersion)
+	require.Contains(t, string(nodeDockerfile), "codeflydev/codefly:0.0.4")
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return content
 }
