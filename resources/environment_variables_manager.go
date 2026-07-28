@@ -94,6 +94,9 @@ func (holder *EnvironmentVariableManager) getBase() ([]*EnvironmentVariable, err
 
 	if holder.environment != nil {
 		envs = append(envs, EnvironmentAsEnvironmentVariable(holder.environment))
+		if holder.environment.NamingScope != "" {
+			envs = append(envs, NamingScopeAsEnvironmentVariable(holder.environment))
+		}
 	}
 
 	if holder.workspace != "" {
@@ -416,6 +419,12 @@ const EnvironmentPrefix = "CODEFLY__ENVIRONMENT"
 
 func EnvironmentAsEnvironmentVariable(env *basev0.Environment) *EnvironmentVariable {
 	return Env(EnvironmentPrefix, env.Name)
+}
+
+const NamingScopePrefix = "CODEFLY__NAMING_SCOPE"
+
+func NamingScopeAsEnvironmentVariable(env *basev0.Environment) *EnvironmentVariable {
+	return Env(NamingScopePrefix, env.NamingScope)
 }
 
 func IsLocal(environment *basev0.Environment) bool {
