@@ -27,8 +27,11 @@ RUN apk update && \
         tzdata \
     && rm -rf /var/cache/apk/*
 
-# codefly CLI itself. Built separately via cli/scripts/build/linux.sh
-# and placed under core/bin/linux/codefly before the companion build.
-COPY bin/linux/codefly /bin/codefly
+# BuildKit supplies TARGETARCH for each platform in a multi-platform build.
+# The companion publisher cross-compiles the matching static binary before
+# invoking Docker, so an ARM64 image can never accidentally contain an AMD64
+# Codefly executable.
+ARG TARGETARCH
+COPY bin/linux/${TARGETARCH}/codefly /bin/codefly
 
 WORKDIR /workspace

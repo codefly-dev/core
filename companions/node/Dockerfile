@@ -21,7 +21,8 @@ RUN apk update && \
         tzdata \
     && rm -rf /var/cache/apk/*
 
-# Pull the codefly CLI from the base image.
-COPY --from=codeflydev/codefly:0.0.3 /bin/codefly /bin/codefly
+# Pull the Codefly CLI from the multi-platform base image. BuildKit resolves
+# the base manifest for the Node image's target architecture.
+COPY --from=codeflydev/codefly:0.0.4 /bin/codefly /bin/codefly
 
 WORKDIR /workspace
