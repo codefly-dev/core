@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -39,22 +40,78 @@ func TestInstallerStagesAndAtomicallyAppliesVerifiedExecutable(t *testing.T) {
 	scenario := newInstallScenario(t, platformAssetName(), executable)
 	defer scenario.close()
 
-	staged, err := scenario.installer.StageAndVerify(context.Background(), scenario.release, scenario.destination)
+	staged, err := scenario.installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
 	require.NoError(t, err)
 	stagedInfo, err := os.Stat(staged.Path())
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), stagedInfo.Mode().Perm())
 
-	require.NoError(t, staged.Apply(context.Background()))
+	result, err := staged.Apply(context.Background())
+	require.NoError(t, err)
+	require.True(t, result.Applied)
 	installed, err := os.ReadFile(scenario.destination.Path)
 	require.NoError(t, err)
 	require.Equal(t, executable, installed)
 	installedInfo, err := os.Stat(scenario.destination.Path)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o751), installedInfo.Mode().Perm())
-	require.ErrorIs(t, staged.Apply(context.Background()), ErrStagedUpdateUsed)
+	_, err = staged.Apply(context.Background())
+	require.ErrorIs(t, err, ErrStagedUpdateUsed)
 	require.NoFileExists(t, filepath.Join(filepath.Dir(scenario.destination.Path), "."+filepath.Base(scenario.destination.Path)+".old"))
 	requireNoStagingFiles(t, scenario.destination.StagingDirectory)
+}
+
+func TestInstallerRequiresTypedReleasePolicy(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*Status)
+	}{
+		{
+			name: "downgrade without authorization",
+			configure: func(status *Status) {
+				status.Current = mustVersion(t, "2.0.0")
+				status.Latest = mustVersion(t, "1.1.0")
+				status.Release.Version = status.Latest
+				status.Available = true
+			},
+		},
+		{
+			name: "prerelease on stable channel",
+			configure: func(status *Status) {
+				status.Latest = mustVersion(t, "1.1.0-beta.1")
+				status.Release.Version = status.Latest
+				status.Release.Prerelease = true
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			scenario := newInstallScenario(t, platformAssetName(), []byte("published artifact"))
+			defer scenario.close()
+			test.configure(&scenario.status)
+
+			_, err := scenario.installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
+			require.ErrorIs(t, err, ErrUpdateNotAvailable)
+			require.Zero(t, scenario.requestCount.Load())
+		})
+	}
+}
+
+func TestInstallerAcceptsExplicitDowngrade(t *testing.T) {
+	executablePath, err := os.Executable()
+	require.NoError(t, err)
+	executable, err := os.ReadFile(executablePath)
+	require.NoError(t, err)
+	scenario := newInstallScenario(t, platformAssetName(), executable)
+	defer scenario.close()
+	scenario.status.Current = mustVersion(t, "2.0.0")
+	scenario.status.Latest = mustVersion(t, "1.1.0")
+	scenario.status.Release.Version = scenario.status.Latest
+	scenario.status.Downgrade = DowngradeAllow
+
+	staged, err := scenario.installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
+	require.NoError(t, err)
+	require.NoError(t, staged.Discard())
 }
 
 func TestInstallerFailsClosedBeforeDestinationMutation(t *testing.T) {
@@ -67,9 +124,9 @@ func TestInstallerFailsClosedBeforeDestinationMutation(t *testing.T) {
 		{
 			name: "corrupt artifact",
 			configure: func(scenario *installScenario) {
-				corrupt := append([]byte(nil), scenario.responses[scenario.release.Asset.Name]...)
+				corrupt := append([]byte(nil), scenario.responses[scenario.status.Release.Asset.Name]...)
 				corrupt[0] ^= 0xff
-				scenario.responses[scenario.release.Asset.Name] = corrupt
+				scenario.responses[scenario.status.Release.Asset.Name] = corrupt
 			},
 			expected:    ErrChecksum,
 			installKind: InstallKindDirect,
@@ -90,7 +147,7 @@ func TestInstallerFailsClosedBeforeDestinationMutation(t *testing.T) {
 		{
 			name: "unsigned metadata",
 			configure: func(scenario *installScenario) {
-				scenario.release.Assets = scenario.release.Assets[:2]
+				scenario.status.Release.Assets = scenario.status.Release.Assets[:2]
 			},
 			expected:    ErrAssetNotFound,
 			installKind: InstallKindDirect,
@@ -98,7 +155,7 @@ func TestInstallerFailsClosedBeforeDestinationMutation(t *testing.T) {
 		{
 			name: "wrong platform",
 			configure: func(scenario *installScenario) {
-				scenario.release.Asset.Platform.Arch = "wrong"
+				scenario.status.Release.Asset.Platform.Arch = "wrong"
 			},
 			expected:    ErrUnsupportedPlatform,
 			installKind: InstallKindDirect,
@@ -135,7 +192,7 @@ func TestInstallerFailsClosedBeforeDestinationMutation(t *testing.T) {
 			beforeInfo, err := os.Stat(scenario.destination.Path)
 			require.NoError(t, err)
 
-			_, err = scenario.installer.StageAndVerify(context.Background(), scenario.release, scenario.destination)
+			_, err = scenario.installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
 			require.ErrorIs(t, err, test.expected)
 			after, readErr := os.ReadFile(scenario.destination.Path)
 			require.NoError(t, readErr)
@@ -174,7 +231,7 @@ func TestInstallerRejectsPathTraversalAndCorruptArchives(t *testing.T) {
 			before, err := os.ReadFile(scenario.destination.Path)
 			require.NoError(t, err)
 
-			_, err = scenario.installer.StageAndVerify(context.Background(), scenario.release, scenario.destination)
+			_, err = scenario.installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
 			require.Error(t, err)
 			if test.expected != nil {
 				require.ErrorIs(t, err, test.expected)
@@ -196,7 +253,7 @@ func TestInstallerBoundsDownloadsBeforeMutation(t *testing.T) {
 	before, err := os.ReadFile(scenario.destination.Path)
 	require.NoError(t, err)
 
-	_, err = installer.StageAndVerify(context.Background(), scenario.release, scenario.destination)
+	_, err = installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
 	require.ErrorIs(t, err, ErrDownloadLimit)
 	after, readErr := os.ReadFile(scenario.destination.Path)
 	require.NoError(t, readErr)
@@ -212,7 +269,7 @@ func TestCancelledDownloadLeavesNoPartialArtifact(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
 	go func() {
-		_, err := scenario.installer.StageAndVerify(ctx, scenario.release, scenario.destination)
+		_, err := scenario.installer.StageAndVerify(ctx, scenario.status, scenario.destination)
 		result <- err
 	}()
 	select {
@@ -238,7 +295,7 @@ func TestInstallerDoesNotExposeCredentialsOrSignedRedirects(t *testing.T) {
 
 	installer, err := scenario.newInstaller(InstallerOptions{Token: "bearer-token-secret"})
 	require.NoError(t, err)
-	_, err = installer.StageAndVerify(context.Background(), scenario.release, scenario.destination)
+	_, err = installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "bearer-token-secret")
 	require.NotContains(t, err.Error(), "signed-url-secret")
@@ -253,11 +310,11 @@ func TestStagedUpdateRefusesChangedDestination(t *testing.T) {
 	scenario := newInstallScenario(t, platformAssetName(), executable)
 	defer scenario.close()
 
-	staged, err := scenario.installer.StageAndVerify(context.Background(), scenario.release, scenario.destination)
+	staged, err := scenario.installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(scenario.destination.Path, []byte("changed by owner"), 0o751))
 
-	err = staged.Apply(context.Background())
+	_, err = staged.Apply(context.Background())
 	require.ErrorIs(t, err, ErrInvalidDestination)
 	current, readErr := os.ReadFile(scenario.destination.Path)
 	require.NoError(t, readErr)
@@ -265,19 +322,123 @@ func TestStagedUpdateRefusesChangedDestination(t *testing.T) {
 	require.NoError(t, staged.Discard())
 }
 
+func TestInstallerRejectsDestinationChangedDuringStaging(t *testing.T) {
+	executablePath, err := os.Executable()
+	require.NoError(t, err)
+	executable, err := os.ReadFile(executablePath)
+	require.NoError(t, err)
+	scenario := newInstallScenario(t, platformAssetName(), executable)
+	defer scenario.close()
+	scenario.blockArtifact = true
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := scenario.installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
+		result <- err
+	}()
+	select {
+	case <-scenario.artifactStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("artifact download did not start")
+	}
+	require.NoError(t, os.WriteFile(scenario.destination.Path, []byte("changed during staging"), 0o751))
+	close(scenario.artifactContinue)
+
+	require.ErrorIs(t, <-result, ErrInvalidDestination)
+	requireNoStagingFiles(t, scenario.destination.StagingDirectory)
+}
+
+func TestStagedUpdateDoesNotUseDeterministicSibling(t *testing.T) {
+	executablePath, err := os.Executable()
+	require.NoError(t, err)
+	executable, err := os.ReadFile(executablePath)
+	require.NoError(t, err)
+	scenario := newInstallScenario(t, platformAssetName(), executable)
+	defer scenario.close()
+	staged, err := scenario.installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
+	require.NoError(t, err)
+
+	sentinel := filepath.Join(filepath.Dir(scenario.destination.Path), "sentinel")
+	require.NoError(t, os.WriteFile(sentinel, []byte("do not touch"), 0o600))
+	deterministic := filepath.Join(filepath.Dir(scenario.destination.Path), "."+filepath.Base(scenario.destination.Path)+".new")
+	require.NoError(t, os.Symlink(sentinel, deterministic))
+
+	result, err := staged.Apply(context.Background())
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	contents, err := os.ReadFile(sentinel)
+	require.NoError(t, err)
+	require.Equal(t, []byte("do not touch"), contents)
+}
+
+func TestStagedUpdatePreservesPermissionsUnderUmask(t *testing.T) {
+	executablePath, err := os.Executable()
+	require.NoError(t, err)
+	executable, err := os.ReadFile(executablePath)
+	require.NoError(t, err)
+	scenario := newInstallScenario(t, platformAssetName(), executable)
+	defer scenario.close()
+	require.NoError(t, os.Chmod(scenario.destination.Path, 0o775))
+	staged, err := scenario.installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
+	require.NoError(t, err)
+
+	previousUmask := syscall.Umask(0o077)
+	defer syscall.Umask(previousUmask)
+	result, err := staged.Apply(context.Background())
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	info, err := os.Stat(scenario.destination.Path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o775), info.Mode().Perm())
+}
+
+func TestStagedUpdateReportsCommittedReplacementWhenCleanupFails(t *testing.T) {
+	executablePath, err := os.Executable()
+	require.NoError(t, err)
+	executable, err := os.ReadFile(executablePath)
+	require.NoError(t, err)
+	scenario := newInstallScenario(t, platformAssetName(), executable)
+	defer scenario.close()
+	staged, err := scenario.installer.StageAndVerify(context.Background(), scenario.status, scenario.destination)
+	require.NoError(t, err)
+	removePath := staged.removePath
+	staged.removePath = func(path string) error {
+		if filepath.Base(path) == "previous" {
+			return os.ErrPermission
+		}
+		return removePath(path)
+	}
+
+	result, err := staged.Apply(context.Background())
+	require.ErrorIs(t, err, ErrApplyCleanup)
+	require.ErrorIs(t, err, os.ErrPermission)
+	require.True(t, result.Applied)
+	require.NotEmpty(t, result.PreviousPath)
+	require.NotEmpty(t, result.CleanupPath)
+	installed, readErr := os.ReadFile(scenario.destination.Path)
+	require.NoError(t, readErr)
+	require.Equal(t, executable, installed)
+	previous, readErr := os.ReadFile(result.PreviousPath)
+	require.NoError(t, readErr)
+	require.Equal(t, []byte("current executable"), previous)
+	require.NoError(t, os.RemoveAll(result.CleanupPath))
+}
+
 type installScenario struct {
 	t                 *testing.T
 	server            *httptest.Server
 	responses         map[string][]byte
-	release           Release
+	status            Status
 	destination       Destination
 	installer         Installer
 	certificate       []byte
 	mutex             sync.Mutex
 	requestCount      atomic.Int64
 	interruptArtifact bool
+	blockArtifact     bool
 	artifactStarted   chan struct{}
 	artifactStartOnce sync.Once
+	artifactContinue  chan struct{}
 	redirectAsset     string
 	redirectLocation  string
 }
@@ -292,10 +453,11 @@ func newInstallScenario(t *testing.T, assetName string, artifact []byte) *instal
 	require.NoError(t, err)
 
 	scenario := &installScenario{
-		t:               t,
-		responses:       map[string][]byte{assetName: artifact, "checksums.txt": checksums, "checksums.txt.sig": signature},
-		certificate:     certificate,
-		artifactStarted: make(chan struct{}),
+		t:                t,
+		responses:        map[string][]byte{assetName: artifact, "checksums.txt": checksums, "checksums.txt.sig": signature},
+		certificate:      certificate,
+		artifactStarted:  make(chan struct{}),
+		artifactContinue: make(chan struct{}),
 	}
 	scenario.server = httptest.NewTLSServer(http.HandlerFunc(scenario.serve))
 
@@ -304,13 +466,21 @@ func newInstallScenario(t *testing.T, assetName string, artifact []byte) *instal
 		{ID: 2, Name: "checksums.txt", DownloadURL: scenario.server.URL + "/checksums.txt", Size: int64(len(checksums))},
 		{ID: 3, Name: "checksums.txt.sig", DownloadURL: scenario.server.URL + "/checksums.txt.sig", Size: int64(len(signature))},
 	}
-	scenario.release = Release{
-		ID:      1,
-		Version: mustVersion(t, "1.1.0"),
-		Asset:   assets[0],
-		Assets:  assets,
+	scenario.status = Status{
+		Current:     mustVersion(t, "1.0.0"),
+		Latest:      mustVersion(t, "1.1.0"),
+		Available:   true,
+		Channel:     ChannelStable,
+		Downgrade:   DowngradeDisallow,
+		InstallKind: InstallKindDirect,
+		Release: Release{
+			ID:      1,
+			Version: mustVersion(t, "1.1.0"),
+			Asset:   assets[0],
+			Assets:  assets,
+		},
 	}
-	scenario.release.Asset.Platform = CurrentPlatform()
+	scenario.status.Release.Asset.Platform = CurrentPlatform()
 
 	directory := t.TempDir()
 	target := filepath.Join(directory, "tool")
@@ -332,7 +502,8 @@ func (s *installScenario) serve(response http.ResponseWriter, request *http.Requ
 	body, found := s.responses[name]
 	redirectAsset := s.redirectAsset
 	redirectLocation := s.redirectLocation
-	interrupt := s.interruptArtifact && name == s.release.Asset.Name
+	interrupt := s.interruptArtifact && name == s.status.Release.Asset.Name
+	block := s.blockArtifact && name == s.status.Release.Asset.Name
 	s.mutex.Unlock()
 	if !found {
 		http.NotFound(response, request)
@@ -344,6 +515,14 @@ func (s *installScenario) serve(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	response.Header().Set("Content-Length", big.NewInt(int64(len(body))).String())
+	if block {
+		s.artifactStartOnce.Do(func() { close(s.artifactStarted) })
+		select {
+		case <-s.artifactContinue:
+		case <-request.Context().Done():
+			return
+		}
+	}
 	if interrupt {
 		response.WriteHeader(http.StatusOK)
 		_, _ = response.Write(body[:1024])
@@ -361,11 +540,11 @@ func (s *installScenario) setResponse(name string, data []byte) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	s.responses[name] = data
-	for index := range s.release.Assets {
-		if s.release.Assets[index].Name == name {
-			s.release.Assets[index].Size = int64(len(data))
-			if s.release.Asset.Name == name {
-				s.release.Asset.Size = int64(len(data))
+	for index := range s.status.Release.Assets {
+		if s.status.Release.Assets[index].Name == name {
+			s.status.Release.Assets[index].Size = int64(len(data))
+			if s.status.Release.Asset.Name == name {
+				s.status.Release.Asset.Size = int64(len(data))
 			}
 		}
 	}
@@ -433,6 +612,18 @@ func tarGzip(t *testing.T, name string, data []byte) []byte {
 func TestArchiveExpandedSizeIsBounded(t *testing.T) {
 	archive := tarGzip(t, "tool", bytes.Repeat([]byte("x"), 4096))
 	err := validateArchive(context.Background(), archive, "tool_linux_amd64.tar.gz", 1024)
+	require.ErrorIs(t, err, ErrDownloadLimit)
+}
+
+func TestCompressedExecutableExpandedSizeIsBounded(t *testing.T) {
+	var archive bytes.Buffer
+	writer := gzip.NewWriter(&archive)
+	writer.Name = "tool"
+	_, err := writer.Write(bytes.Repeat([]byte("x"), 4096))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	err = validateArchive(context.Background(), archive.Bytes(), "tool_linux_amd64.gz", 1024)
 	require.ErrorIs(t, err, ErrDownloadLimit)
 }
 

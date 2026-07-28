@@ -7,21 +7,25 @@ one explicitly owned direct binary.
 ## Architecture
 
 Discovery starts with a `Request` containing the current semantic version,
-stable or beta channel, target platform, caller-detected install kind, and an
-explicit downgrade policy. `GitHubChecker.Check`:
+stable or beta channel, target platform, GoReleaser artifact name,
+caller-detected install kind, and an explicit downgrade policy.
+`GitHubChecker.Check`:
 
 1. loads provider-neutral releases and HTTP validators through the caller's
    `Store`;
 2. sends `If-None-Match` and `If-Modified-Since` when available;
-3. maps the GitHub response into `Release` and `Asset` values;
-4. delegates semantic ordering and GoReleaser OS/architecture matching to
-   `go-selfupdate`, including the documented Darwin `all` fallback; and
+3. follows the complete bounded GitHub release collection and maps it into
+   `Release` and `Asset` values using authenticated release-asset API URLs;
+4. orders compatible releases semantically, then delegates GoReleaser
+   OS/architecture matching within each release to `go-selfupdate`, including
+   the documented Darwin `all` fallback; and
 5. returns a `Status` without reading or changing an installed executable.
 
 A `304 Not Modified` result is recomputed against the request's current
-version. A rate-limited GitHub `403` or `429` returns the last successful
-status with `Status.Stale` set and a typed `RateLimitError`, so callers retain
-useful state without mistaking it for a fresh success.
+version. Primary and secondary GitHub `403` or `429` rate limits return the last
+successful status with `Status.Stale` set and a typed `RateLimitError`, so
+callers retain useful state without mistaking it for a fresh success. Fresh
+metadata is committed to the caller's store only after selection succeeds.
 
 The cache contract stores release metadata, `ETag`, and `Last-Modified`.
 Persistence location, format, locking, retention, and privacy policy belong to
@@ -33,27 +37,32 @@ the caller.
 
 - a pinned ECDSA publisher certificate;
 - the exact signed checksum-manifest filename;
-- an exact allowlist of HTTPS download and redirect hosts; and
+- an exact allowlist of HTTPS asset-API and redirect hosts; and
 - optional artifact, metadata, expanded-archive, and executable size bounds.
 
-`StageAndVerify` accepts only `InstallKindDirect`. It rejects Homebrew, Tauri,
-application-bundle, managed, and unknown ownership before issuing a download.
-The operation verifies the pinned signature over the checksum manifest before
-downloading the artifact, then verifies the artifact entry from that manifest.
-It rejects unsafe archive paths and non-regular entries, bounds both archive
-expansion and the selected executable, and checks ELF or Mach-O architecture
-before returning a mode-`0600` `StagedUpdate`.
+`StageAndVerify` accepts the typed `Status` returned by discovery and only
+permits an available `InstallKindDirect` release. It revalidates stable/beta and
+explicit downgrade policy, rejecting Homebrew, Tauri, application-bundle,
+managed, and unknown ownership before issuing a download. The operation
+verifies the pinned signature over the checksum manifest before downloading the
+artifact, then verifies the artifact entry from that manifest. It rejects
+unsafe archive paths and non-regular entries, bounds both archive expansion and
+the selected executable, and checks ELF or Mach-O architecture before returning
+a mode-`0600` `StagedUpdate`.
 
-`StagedUpdate.Apply` rechecks that both the destination and staged bytes are
-unchanged. It delegates replacement to `go-selfupdate/update.Apply`, which
-writes a sibling replacement, renames the prior executable aside, installs the
-replacement atomically, and restores the prior executable when the final rename
-fails. The destination's existing permission bits are preserved.
+`StagedUpdate.Apply` rechecks that both the destination identity and staged
+bytes are unchanged. It writes an exact-mode replacement inside a unique
+private transaction directory, captures and verifies the prior executable,
+installs with a no-replace hard link, and restores the prior executable when
+installation fails. `ApplyResult` distinguishes a committed replacement from a
+failed transaction and identifies any prior executable or transaction directory
+that still needs cleanup.
 
 A checksum beside an artifact is not treated as publisher authentication. The
 checksum manifest must first verify against the pinned publisher certificate.
-HTTP errors omit request URLs, so bearer tokens and signed query parameters are
-not included in returned errors.
+HTTP errors omit request URLs, and the discovery adapter redacts URLs before
+calling upstream selection, so bearer tokens and signed query parameters are
+not included in returned errors or upstream logs.
 
 ## Caller authority
 
@@ -78,9 +87,13 @@ Production integration is tracked in the owning repositories by
 ## Upstream dependency decision
 
 The package wraps `github.com/creativeprojects/go-selfupdate` v1.6.0 rather
-than reproducing its selection, extraction, validation, and rollback mechanics.
-The root upstream package includes GitHub, Gitea, and GitLab providers, so its
-impact was measured before acceptance.
+than reproducing its GoReleaser naming, extraction, and signature/checksum
+validation mechanics. Core retains semantic ordering and the filesystem
+transaction because those contracts require product identity, cross-process
+isolation, exact permissions, and typed post-commit results that the upstream
+high-level update path does not expose. The root upstream package includes
+GitHub, Gitea, and GitLab providers, so its impact was measured before
+acceptance.
 
 On 2026-07-28, using Go 1.26.5 on Darwin/arm64, two minimal commands were built
 with `-trimpath -ldflags='-s -w'`. The baseline command contained an empty
@@ -112,8 +125,8 @@ upstream risk remain visible rather than being represented as fixed.
 immutable GitHub release IDs `360083337` (`v2.17.1`) and `360063936`
 (`v2.18.0-83f4c19a-nightly`) from `goreleaser/goreleaser`, captured through the
 GitHub API on 2026-07-28. Tests replay the real tags, release flags, asset IDs,
-names, sizes, and immutable browser-download URLs through the production HTTP
-decoder. The recording covers current/latest comparison, stable prerelease
-exclusion, all four required Darwin/Linux architectures, x86_64 aliases, and
-the upstream-documented universal-mac fallback without making CI depend on a
-mutable network.
+names, sizes, authenticated asset API URLs, and immutable browser-download URLs
+through the production HTTP decoder. The recording covers current/latest
+comparison, stable prerelease exclusion, all four required Darwin/Linux
+architectures, x86_64 aliases, and the upstream-documented universal-mac
+fallback without making CI depend on a mutable network.

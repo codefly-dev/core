@@ -21,7 +21,6 @@ import (
 	"sync"
 
 	selfupdate "github.com/creativeprojects/go-selfupdate"
-	selfupdateapply "github.com/creativeprojects/go-selfupdate/update"
 )
 
 const (
@@ -161,13 +160,14 @@ func positiveLimit(configured, fallback int64, label string) (int64, error) {
 
 // StageAndVerify authenticates release metadata, validates the artifact
 // checksum, constrains extraction, and stages a non-executable replacement.
-func (i *directInstaller) StageAndVerify(ctx context.Context, release Release, destination Destination) (*StagedUpdate, error) {
+func (i *directInstaller) StageAndVerify(ctx context.Context, status Status, destination Destination) (*StagedUpdate, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if destination.InstallKind != InstallKindDirect {
-		return nil, ErrInstallNotOwned
+	if err := validateInstallStatus(status, destination); err != nil {
+		return nil, err
 	}
+	release := status.Release
 	if release.Asset.Platform != CurrentPlatform() {
 		return nil, ErrUnsupportedPlatform
 	}
@@ -178,6 +178,10 @@ func (i *directInstaller) StageAndVerify(ctx context.Context, release Release, d
 	}
 	if targetInfo.Size() > i.maxExecutableBytes {
 		return nil, fmt.Errorf("%w: existing executable", ErrDownloadLimit)
+	}
+	currentDigest, err := digestFile(ctx, destination.Path)
+	if err != nil {
+		return nil, fmt.Errorf("hash current executable: %w", err)
 	}
 
 	selected, found := publishedAsset(release.Assets, release.Asset)
@@ -210,14 +214,15 @@ func (i *directInstaller) StageAndVerify(ctx context.Context, release Release, d
 		return nil, fmt.Errorf("create artifact staging file: %w", err)
 	}
 	artifactPath := artifactFile.Name()
-	defer os.Remove(artifactPath)
+	defer func() { _ = os.Remove(artifactPath) }()
 	if err := i.downloadFile(ctx, selected, i.maxArtifactBytes, artifactFile); err != nil {
-		artifactFile.Close()
+		_ = artifactFile.Close()
 		return nil, fmt.Errorf("download release artifact: %w", err)
 	}
 	if err := artifactFile.Close(); err != nil {
 		return nil, fmt.Errorf("close artifact staging file: %w", err)
 	}
+	// #nosec G304 -- artifactPath was returned by CreateTemp in the validated staging directory.
 	artifactData, err := os.ReadFile(artifactPath)
 	if err != nil {
 		return nil, fmt.Errorf("read artifact staging file: %w", err)
@@ -247,9 +252,9 @@ func (i *directInstaller) StageAndVerify(ctx context.Context, release Release, d
 	stagedPath := stagedFile.Name()
 	keepStaged := false
 	defer func() {
-		stagedFile.Close()
+		_ = stagedFile.Close()
 		if !keepStaged {
-			os.Remove(stagedPath)
+			_ = os.Remove(stagedPath)
 		}
 	}()
 
@@ -274,9 +279,8 @@ func (i *directInstaller) StageAndVerify(ctx context.Context, release Release, d
 		return nil, fmt.Errorf("constrain staged executable permissions: %w", err)
 	}
 
-	currentDigest, err := digestFile(ctx, destination.Path)
-	if err != nil {
-		return nil, fmt.Errorf("hash current executable: %w", err)
+	if err := validateDestinationUnchanged(ctx, destination.Path, targetInfo, currentDigest); err != nil {
+		return nil, err
 	}
 	keepStaged = true
 	return &StagedUpdate{
@@ -285,7 +289,52 @@ func (i *directInstaller) StageAndVerify(ctx context.Context, release Release, d
 		mode:              targetInfo.Mode().Perm(),
 		stagedDigest:      hash.Sum(nil),
 		destinationDigest: currentDigest,
+		destinationInfo:   targetInfo,
+		removePath:        os.Remove,
 	}, nil
+}
+
+func validateInstallStatus(status Status, destination Destination) error {
+	if status.InstallKind != InstallKindDirect || destination.InstallKind != InstallKindDirect {
+		return ErrInstallNotOwned
+	}
+	if status.Current.value == "" || status.Latest.value == "" || status.Release.Version.value == "" {
+		return ErrUpdateNotAvailable
+	}
+	if status.Latest.Compare(status.Release.Version) != 0 {
+		return ErrUpdateNotAvailable
+	}
+	if status.Channel != ChannelStable && status.Channel != ChannelBeta {
+		return ErrUpdateNotAvailable
+	}
+	if status.Downgrade != DowngradeDisallow && status.Downgrade != DowngradeAllow {
+		return ErrUpdateNotAvailable
+	}
+	if status.Channel == ChannelStable && (status.Release.Prerelease || status.Release.Version.prerelease()) {
+		return ErrUpdateNotAvailable
+	}
+	comparison := status.Release.Version.Compare(status.Current)
+	available := comparison > 0 || (comparison < 0 && status.Downgrade == DowngradeAllow)
+	if !available || status.Available != available {
+		return ErrUpdateNotAvailable
+	}
+	return nil
+}
+
+func validateDestinationUnchanged(ctx context.Context, path string, original os.FileInfo, digest []byte) error {
+	current, err := os.Lstat(path)
+	if err != nil ||
+		!current.Mode().IsRegular() ||
+		current.Mode().Perm() != original.Mode().Perm() ||
+		current.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 ||
+		!os.SameFile(original, current) {
+		return ErrInvalidDestination
+	}
+	currentDigest, err := digestFile(ctx, path)
+	if err != nil || !bytes.Equal(currentDigest, digest) {
+		return ErrInvalidDestination
+	}
+	return nil
 }
 
 func validateDestination(destination Destination) (os.FileInfo, error) {
@@ -397,7 +446,7 @@ func (i *directInstaller) download(ctx context.Context, asset Asset, limit int64
 	if err != nil {
 		return fmt.Errorf("request release asset: %w", sanitizeURLError(err))
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("release asset request returned HTTP %d", response.StatusCode)
 	}
@@ -438,7 +487,7 @@ func validateExecutablePlatform(path string, platform Platform) error {
 		if err != nil {
 			return fmt.Errorf("%w: executable is not ELF", ErrUnsupportedPlatform)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		expected := map[string]elf.Machine{
 			"amd64": elf.EM_X86_64,
 			"arm64": elf.EM_AARCH64,
@@ -457,7 +506,7 @@ func validateExecutablePlatform(path string, platform Platform) error {
 			return ErrUnsupportedPlatform
 		}
 		if fat, err := macho.OpenFat(path); err == nil {
-			defer fat.Close()
+			defer func() { _ = fat.Close() }()
 			for _, architecture := range fat.Arches {
 				if architecture.Cpu == expected {
 					return nil
@@ -469,7 +518,7 @@ func validateExecutablePlatform(path string, platform Platform) error {
 		if err != nil {
 			return fmt.Errorf("%w: executable is not Mach-O", ErrUnsupportedPlatform)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		if file.Cpu != expected {
 			return ErrUnsupportedPlatform
 		}
@@ -481,11 +530,12 @@ func validateExecutablePlatform(path string, platform Platform) error {
 }
 
 func digestFile(ctx context.Context, path string) ([]byte, error) {
+	// #nosec G304 -- callers pass an explicitly authorized destination or a private transaction path.
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	if _, err := io.Copy(hash, &contextReader{ctx: ctx, reader: file}); err != nil {
 		return nil, err
@@ -501,11 +551,10 @@ type StagedUpdate struct {
 	mode              os.FileMode
 	stagedDigest      []byte
 	destinationDigest []byte
+	destinationInfo   os.FileInfo
+	removePath        func(string) error
 	used              bool
 }
-
-// Serializing avoids collisions in go-selfupdate's deterministic sibling names.
-var applyMutex sync.Mutex
 
 // Path returns the non-executable staged file path.
 func (s *StagedUpdate) Path() string {
@@ -517,18 +566,15 @@ func (s *StagedUpdate) Destination() string {
 	return s.destination
 }
 
-// Apply atomically replaces the authorized direct binary. Upstream rollback
-// restores the prior bytes if the final replacement rename fails.
-func (s *StagedUpdate) Apply(ctx context.Context) error {
+// Apply atomically replaces the authorized direct binary.
+func (s *StagedUpdate) Apply(ctx context.Context) (ApplyResult, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	applyMutex.Lock()
-	defer applyMutex.Unlock()
 	if s.used {
-		return ErrStagedUpdateUsed
+		return ApplyResult{}, ErrStagedUpdateUsed
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return ApplyResult{}, err
 	}
 
 	info, err := os.Lstat(s.destination)
@@ -536,56 +582,142 @@ func (s *StagedUpdate) Apply(ctx context.Context) error {
 		!info.Mode().IsRegular() ||
 		info.Mode().Perm() != s.mode ||
 		info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
-		return ErrInvalidDestination
+		return ApplyResult{}, ErrInvalidDestination
 	}
 	currentDigest, err := digestFile(ctx, s.destination)
 	if err != nil || !bytes.Equal(currentDigest, s.destinationDigest) {
-		return ErrInvalidDestination
+		return ApplyResult{}, ErrInvalidDestination
 	}
 
 	staged, err := os.Open(s.path)
 	if err != nil {
-		return fmt.Errorf("open staged executable: %w", err)
+		return ApplyResult{}, fmt.Errorf("open staged executable: %w", err)
 	}
-	defer staged.Close()
-	newPath := filepath.Join(filepath.Dir(s.destination), "."+filepath.Base(s.destination)+".new")
-	if _, err := os.Lstat(newPath); err == nil || !errors.Is(err, os.ErrNotExist) {
-		return ErrInvalidDestination
-	}
+	defer func() { _ = staged.Close() }()
 
-	backup, err := os.CreateTemp(filepath.Dir(s.destination), ".releaseupdate-backup-*")
+	transactionPath, err := os.MkdirTemp(filepath.Dir(s.destination), ".releaseupdate-transaction-*")
 	if err != nil {
-		return fmt.Errorf("reserve rollback path: %w", err)
+		return ApplyResult{}, fmt.Errorf("create replacement transaction: %w", err)
 	}
-	backupPath := backup.Name()
-	if err := backup.Close(); err != nil {
-		os.Remove(backupPath)
-		return fmt.Errorf("close rollback path: %w", err)
+	replacementPath := filepath.Join(transactionPath, "replacement")
+	cleanupTransaction := true
+	defer func() {
+		if cleanupTransaction {
+			_ = s.remove(replacementPath)
+			_ = s.remove(transactionPath)
+		}
+	}()
+
+	// #nosec G304 -- replacementPath is inside the private directory created immediately above.
+	replacement, err := os.OpenFile(replacementPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("create replacement file: %w", err)
 	}
-	if err := os.Remove(backupPath); err != nil {
-		return fmt.Errorf("prepare rollback path: %w", err)
+	hash := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(replacement, hash), &contextReader{ctx: ctx, reader: staged}); err != nil {
+		_ = replacement.Close()
+		return ApplyResult{}, fmt.Errorf("copy staged replacement: %w", err)
+	}
+	if !bytes.Equal(hash.Sum(nil), s.stagedDigest) {
+		_ = replacement.Close()
+		return ApplyResult{}, ErrChecksum
+	}
+	if err := replacement.Chmod(s.mode); err != nil {
+		_ = replacement.Close()
+		return ApplyResult{}, fmt.Errorf("preserve replacement permissions: %w", err)
+	}
+	if err := replacement.Sync(); err != nil {
+		_ = replacement.Close()
+		return ApplyResult{}, fmt.Errorf("sync replacement file: %w", err)
+	}
+	if err := replacement.Close(); err != nil {
+		return ApplyResult{}, fmt.Errorf("close replacement file: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return ApplyResult{}, err
+	}
+	if err := validateDestinationState(ctx, s.destination, s.mode, s.destinationDigest, s.destinationInfo); err != nil {
+		return ApplyResult{}, err
 	}
 
 	s.used = true
-	defer os.Remove(s.path)
-	defer os.Remove(newPath)
+	defer func() { _ = s.remove(s.path) }()
 
-	err = selfupdateapply.Apply(&contextReader{ctx: ctx, reader: staged}, selfupdateapply.Options{
-		TargetPath:  s.destination,
-		TargetMode:  s.mode,
-		Checksum:    s.stagedDigest,
-		OldSavePath: backupPath,
-	})
-	if err != nil {
-		if rollbackErr := selfupdateapply.RollbackError(err); rollbackErr != nil {
-			return fmt.Errorf("replace direct binary; restore failed and prior executable remains at %q: %w", backupPath, rollbackErr)
-		}
-		return fmt.Errorf("replace direct binary: %w", err)
+	previousPath := filepath.Join(transactionPath, "previous")
+	if err := os.Rename(s.destination, previousPath); err != nil {
+		return ApplyResult{}, fmt.Errorf("capture prior executable: %w", err)
 	}
-	if err := os.Remove(backupPath); err != nil {
-		return fmt.Errorf("replacement succeeded but rollback copy cleanup failed: %w", err)
+	if err := validateDestinationState(context.Background(), previousPath, s.mode, s.destinationDigest, s.destinationInfo); err != nil {
+		if restoreErr := restorePrevious(previousPath, s.destination); restoreErr != nil {
+			cleanupTransaction = false
+			return ApplyResult{PreviousPath: previousPath, CleanupPath: transactionPath},
+				fmt.Errorf("%w; restore failed: %w", ErrInvalidDestination, restoreErr)
+		}
+		return ApplyResult{}, ErrInvalidDestination
+	}
+
+	if err := os.Link(replacementPath, s.destination); err != nil {
+		if restoreErr := restorePrevious(previousPath, s.destination); restoreErr != nil {
+			cleanupTransaction = false
+			return ApplyResult{PreviousPath: previousPath, CleanupPath: transactionPath},
+				fmt.Errorf("install replacement: %w; restore failed: %w", err, restoreErr)
+		}
+		return ApplyResult{}, fmt.Errorf("install replacement: %w", err)
+	}
+
+	result := ApplyResult{Applied: true}
+	if err := s.remove(replacementPath); err != nil {
+		cleanupTransaction = false
+		result.PreviousPath = previousPath
+		result.CleanupPath = transactionPath
+		return result, fmt.Errorf("%w: remove replacement link: %w", ErrApplyCleanup, err)
+	}
+	if err := s.remove(previousPath); err != nil {
+		cleanupTransaction = false
+		result.PreviousPath = previousPath
+		result.CleanupPath = transactionPath
+		return result, fmt.Errorf("%w: remove prior executable: %w", ErrApplyCleanup, err)
+	}
+	if err := s.remove(transactionPath); err != nil {
+		cleanupTransaction = false
+		result.CleanupPath = transactionPath
+		return result, fmt.Errorf("%w: remove transaction directory: %w", ErrApplyCleanup, err)
+	}
+	cleanupTransaction = false
+	return result, nil
+}
+
+func validateDestinationState(ctx context.Context, path string, mode os.FileMode, digest []byte, original os.FileInfo) error {
+	info, err := os.Lstat(path)
+	if err != nil ||
+		!info.Mode().IsRegular() ||
+		info.Mode().Perm() != mode ||
+		info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 ||
+		(original != nil && !os.SameFile(original, info)) {
+		return ErrInvalidDestination
+	}
+	currentDigest, err := digestFile(ctx, path)
+	if err != nil || !bytes.Equal(currentDigest, digest) {
+		return ErrInvalidDestination
 	}
 	return nil
+}
+
+func restorePrevious(previousPath, destination string) error {
+	if err := os.Link(previousPath, destination); err != nil {
+		return err
+	}
+	if err := os.Remove(previousPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *StagedUpdate) remove(path string) error {
+	if s.removePath != nil {
+		return s.removePath(path)
+	}
+	return os.Remove(path)
 }
 
 // Discard removes a staged update without touching the destination.
@@ -596,7 +728,7 @@ func (s *StagedUpdate) Discard() error {
 		return ErrStagedUpdateUsed
 	}
 	s.used = true
-	return os.Remove(s.path)
+	return s.remove(s.path)
 }
 
 type contextReader struct {

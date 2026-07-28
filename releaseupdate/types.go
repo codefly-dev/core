@@ -17,6 +17,7 @@ var (
 	ErrAssetNotFound       = errors.New("release asset not found")
 	ErrCacheMiss           = errors.New("conditional response has no cached releases")
 	ErrRateLimited         = errors.New("release source rate limited")
+	ErrInvalidRelease      = errors.New("invalid release metadata")
 	ErrUnsupportedChannel  = errors.New("unsupported release channel")
 	ErrUnsupportedPlatform = errors.New("unsupported release platform")
 	ErrInstallNotOwned     = errors.New("installation is not directly owned")
@@ -25,6 +26,8 @@ var (
 	ErrUnsafeArchive       = errors.New("archive contains an unsafe path")
 	ErrAuthenticity        = errors.New("publisher authenticity verification failed")
 	ErrChecksum            = errors.New("artifact checksum verification failed")
+	ErrUpdateNotAvailable  = errors.New("release is not an authorized update")
+	ErrApplyCleanup        = errors.New("replacement committed with cleanup remaining")
 	ErrStagedUpdateUsed    = errors.New("staged update has already been used")
 )
 
@@ -165,12 +168,13 @@ type Release struct {
 
 // Request describes one read-only discovery operation.
 type Request struct {
-	Repository  Repository
-	Current     Version
-	Channel     Channel
-	Platform    Platform
-	InstallKind InstallKind
-	Downgrade   DowngradePolicy
+	Repository   Repository
+	Current      Version
+	Channel      Channel
+	Platform     Platform
+	ArtifactName string
+	InstallKind  InstallKind
+	Downgrade    DowngradePolicy
 }
 
 // Status is a caller-renderable discovery result.
@@ -179,6 +183,7 @@ type Status struct {
 	Latest      Version
 	Available   bool
 	Channel     Channel
+	Downgrade   DowngradePolicy
 	Release     Release
 	InstallKind InstallKind
 	CheckedAt   time.Time
@@ -210,9 +215,10 @@ type Checker interface {
 	Check(context.Context, Request) (Status, error)
 }
 
-// Installer prepares a verified direct-binary update.
+// Installer prepares an authorized, verified direct-binary update from a
+// discovery Status.
 type Installer interface {
-	StageAndVerify(context.Context, Release, Destination) (*StagedUpdate, error)
+	StageAndVerify(context.Context, Status, Destination) (*StagedUpdate, error)
 }
 
 // Destination grants mutation authority for one explicitly named installation.
@@ -226,6 +232,14 @@ type Destination struct {
 // a fresh request.
 type RateLimitError struct {
 	RetryAt time.Time
+}
+
+// ApplyResult reports whether an apply operation committed the replacement and
+// where the prior executable remains when cleanup or rollback needs attention.
+type ApplyResult struct {
+	Applied      bool
+	PreviousPath string
+	CleanupPath  string
 }
 
 func (e *RateLimitError) Error() string {

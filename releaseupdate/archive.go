@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/bzip2"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -28,7 +29,7 @@ func validateArchive(ctx context.Context, data []byte, name string, maxExpandedB
 		if err != nil {
 			return fmt.Errorf("open gzip archive: %w", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		if reader.Name != "" && !safeArchivePath(reader.Name) {
 			return fmt.Errorf("%w: gzip header", ErrUnsafeArchive)
 		}
@@ -48,10 +49,11 @@ func validateArchive(ctx context.Context, data []byte, name string, maxExpandedB
 		if err != nil {
 			return fmt.Errorf("open gzip artifact: %w", err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		if reader.Name != "" && !safeArchivePath(reader.Name) {
 			return fmt.Errorf("%w: gzip header", ErrUnsafeArchive)
 		}
+		return validateExpandedStream(ctx, reader, maxExpandedBytes, "gzip artifact")
 	case strings.HasSuffix(name, ".xz"):
 		dictionaryCap := maxExpandedBytes
 		if dictionaryCap > int64(^uint(0)>>1) {
@@ -61,18 +63,28 @@ func validateArchive(ctx context.Context, data []byte, name string, maxExpandedB
 		if err != nil {
 			return fmt.Errorf("open xz artifact: %w", err)
 		}
-		written, err := io.Copy(io.Discard, io.LimitReader(&contextReader{ctx: ctx, reader: reader}, maxExpandedBytes+1))
-		if err != nil {
-			return fmt.Errorf("read xz artifact: %w", err)
-		}
-		if written > maxExpandedBytes {
-			return ErrDownloadLimit
-		}
+		return validateExpandedStream(ctx, reader, maxExpandedBytes, "xz artifact")
+	case strings.HasSuffix(name, ".bz2"):
+		return validateExpandedStream(ctx, bzip2.NewReader(bytes.NewReader(data)), maxExpandedBytes, "bzip2 artifact")
+	}
+	return nil
+}
+
+func validateExpandedStream(ctx context.Context, reader io.Reader, maxExpandedBytes int64, label string) error {
+	written, err := io.Copy(io.Discard, io.LimitReader(&contextReader{ctx: ctx, reader: reader}, maxExpandedBytes+1))
+	if err != nil {
+		return fmt.Errorf("read %s: %w", label, err)
+	}
+	if written > maxExpandedBytes {
+		return ErrDownloadLimit
 	}
 	return nil
 }
 
 func validateZip(ctx context.Context, data []byte, maxExpandedBytes int64) error {
+	if maxExpandedBytes < 1 {
+		return ErrDownloadLimit
+	}
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return fmt.Errorf("open zip archive: %w", err)
@@ -116,10 +128,11 @@ func validateTar(ctx context.Context, source io.Reader, maxExpandedBytes int64) 
 			return fmt.Errorf("%w: tar entry", ErrUnsafeArchive)
 		}
 		switch header.Typeflag {
-		case tar.TypeReg, tar.TypeRegA, tar.TypeDir:
+		case tar.TypeReg, tar.TypeDir:
 		default:
 			return errors.New("tar archive contains a non-regular entry")
 		}
+		// #nosec G110 -- counted is capped at maxExpandedBytes+1 before tar decoding.
 		if _, err := io.Copy(io.Discard, reader); err != nil {
 			if counted.count > maxExpandedBytes {
 				return ErrDownloadLimit
