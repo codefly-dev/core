@@ -36,6 +36,9 @@ func (m *RemoteManager) Stop() {
 }
 
 func (m *RemoteManager) GetNamespace(_ context.Context, env *resources.Environment, workspace *resources.Workspace, service *resources.ServiceIdentity) (string, error) {
+	if env.Namespace != "" {
+		return env.Namespace, nil
+	}
 	if workspace.Layout == resources.LayoutKindFlat {
 		return fmt.Sprintf("%s-%s", workspace.Name, env.Name), nil
 	}
