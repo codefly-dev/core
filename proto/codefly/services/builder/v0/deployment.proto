@@ -10,13 +10,24 @@ enum DeploymentKind {
 }
 
 // KubernetesOutputProfile selects a versioned Kubernetes manifest contract.
+// A profile describes only the security properties of the rendered manifests.
+// It never names how the manifests are later transported, reconciled, or
+// promoted: that is the concern of a separate deployment component.
 enum KubernetesOutputProfile {
   // KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED does not authorize manifest rendering.
   KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED = 0;
   // KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 permits inline Secret data for a local apply.
   KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 = 1;
-  // KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 produces secret-free, restricted manifests.
-  KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 = 2;
+  // KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 is superseded by
+  // KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1. It names a delivery
+  // mechanism in a plugin-facing contract and is retained only so existing
+  // callers keep rendering the identical restricted bundle during migration.
+  KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 = 2 [deprecated = true];
+  // KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1 produces secret-free,
+  // digest-pinned, policy-restricted manifests that carry no dependency on any
+  // delivery mechanism. It is the transport-neutral successor to
+  // KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1.
+  KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1 = 3;
 }
 
 // Deployment selects the deployment target and input format.
@@ -84,12 +95,17 @@ message KubernetesManifestValidation {
   Status static_validation = 1;
   // server_side_validation covers Kubernetes schema and admission through dry-run apply.
   Status server_side_validation = 2;
-  // promotable is true only for a GitOps profile that passed every required stage.
-  bool promotable = 3;
+  // promotable is superseded by restricted. It names a delivery decision in a
+  // plugin-facing contract and is retained only for existing consumers during
+  // migration; it always carries the same value as restricted.
+  bool promotable = 3 [deprecated = true];
   // violations contains stable, human-readable rejection reasons.
   repeated string violations = 4;
   // validated_context is the exact kubeconfig context used for server-side validation.
   string validated_context = 5;
+  // restricted is true only for a restricted/portable profile that passed every
+  // required stage. It reports a security property, never a delivery decision.
+  bool restricted = 6;
 }
 
 // KubernetesDeploymentOutput describes generated Kubernetes deployment artifacts.
@@ -105,6 +121,43 @@ message KubernetesDeploymentOutput {
   KubernetesOutputProfile profile = 2;
   // contract_version identifies the validator contract applied to the tree.
   string contract_version = 3;
-  // validation reports whether the tree is safe to promote.
+  // validation reports whether the tree satisfies the manifest contract.
   KubernetesManifestValidation validation = 4;
+  // bundle is the transport-neutral manifest-bundle description a deployment
+  // component consumes to apply, publish, or reconcile the rendered tree.
+  KubernetesManifestBundle bundle = 5;
+}
+
+// KubernetesManifestFile records one owned file in a manifest bundle inventory.
+message KubernetesManifestFile {
+  // path is the destination-relative POSIX path of an owned file.
+  string path = 1;
+  // digest is the content digest of the file, formatted as "sha256:<hex>".
+  string digest = 2;
+}
+
+// KubernetesManifestBundle is a mechanism-neutral description of a rendered
+// Kubernetes manifest tree. A plugin emits it as a deterministic function of
+// its inputs; it never references Git, a reconciler, a cluster, or credentials.
+// A separate deployment component consumes it to choose local apply,
+// repository publication, review, and reconciliation.
+message KubernetesManifestBundle {
+  // format identifies the manifest artifact format.
+  KubernetesDeploymentOutput.Kind format = 1;
+  // profile is the versioned output profile used to render the tree.
+  KubernetesOutputProfile profile = 2;
+  // contract_version identifies the validator contract applied to the tree.
+  string contract_version = 3;
+  // entry_points are the destination-relative directories a consumer applies,
+  // in the order they are applied.
+  repeated string entry_points = 4;
+  // files is the canonical, sorted inventory of owned files with content digests.
+  repeated KubernetesManifestFile files = 5;
+  // digest is the aggregate content digest over the canonical file inventory,
+  // formatted as "sha256:<hex>". Identical inputs yield an identical digest.
+  string digest = 6;
+  // validation reports conformance evidence for the rendered tree.
+  KubernetesManifestValidation validation = 7;
+  // secret_references identifies externally managed Secrets, never secret values.
+  map<string, KubernetesSecretKeyReference> secret_references = 8;
 }

@@ -3,10 +3,13 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -21,6 +24,86 @@ import (
 
 // KubernetesManifestContractVersion identifies the policy recorded in deployment output.
 const KubernetesManifestContractVersion = "codefly.dev/kubernetes-manifest/v1"
+
+// IsRestrictedOutputProfile reports whether a profile selects the secret-free,
+// digest-pinned, policy-restricted contract. It accepts the transport-neutral
+// RESTRICTED_PORTABLE_V1 profile and its deprecated PROMOTABLE_GITOPS_V1
+// predecessor, which render the identical restricted bundle during migration.
+func IsRestrictedOutputProfile(profile builderv0.KubernetesOutputProfile) bool {
+	switch profile {
+	case builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1:
+		return true
+	default:
+		return false
+	}
+}
+
+// BuildKubernetesManifestBundle inventories the rendered tree at destination and
+// returns a mechanism-neutral manifest-bundle description: the applied entry
+// point, the canonical sorted file inventory with per-file sha256 digests, and
+// an aggregate digest that is a deterministic function of that inventory.
+func BuildKubernetesManifestBundle(
+	destination string,
+	environment string,
+	profile builderv0.KubernetesOutputProfile,
+	validation *builderv0.KubernetesManifestValidation,
+	secretReferences map[string]*builderv0.KubernetesSecretKeyReference,
+) (*builderv0.KubernetesManifestBundle, error) {
+	files, err := inventoryManifestFiles(destination)
+	if err != nil {
+		return nil, fmt.Errorf("inventory rendered tree: %w", err)
+	}
+	return &builderv0.KubernetesManifestBundle{
+		Format:           builderv0.KubernetesDeploymentOutput_KUSTOMIZE,
+		Profile:          profile,
+		ContractVersion:  KubernetesManifestContractVersion,
+		EntryPoints:      []string{path.Join("overlays", environment)},
+		Files:            files,
+		Digest:           aggregateManifestDigest(files),
+		Validation:       validation,
+		SecretReferences: secretReferences,
+	}, nil
+}
+
+func inventoryManifestFiles(destination string) ([]*builderv0.KubernetesManifestFile, error) {
+	var files []*builderv0.KubernetesManifestFile
+	err := filepath.WalkDir(destination, func(entryPath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		content, readErr := os.ReadFile(entryPath)
+		if readErr != nil {
+			return readErr
+		}
+		relative, relErr := filepath.Rel(destination, entryPath)
+		if relErr != nil {
+			return relErr
+		}
+		sum := sha256.Sum256(content)
+		files = append(files, &builderv0.KubernetesManifestFile{
+			Path:   filepath.ToSlash(relative),
+			Digest: "sha256:" + hex.EncodeToString(sum[:]),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].GetPath() < files[j].GetPath() })
+	return files, nil
+}
+
+func aggregateManifestDigest(files []*builderv0.KubernetesManifestFile) string {
+	hasher := sha256.New()
+	for _, file := range files {
+		fmt.Fprintf(hasher, "%s\x00%s\n", file.GetPath(), file.GetDigest())
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
+}
 
 var unresolvedManifestValue = regexp.MustCompile(`\{\{|\}\}|\$\{[^}]+\}|(?i)\b(?:CHANGE_ME|REPLACE_ME)\b`)
 var pinnedImage = regexp.MustCompile(`@sha256:[a-fA-F0-9]{64}$`)
@@ -107,10 +190,8 @@ func ValidateKubernetesManifestTree(
 		StaticValidation:     builderv0.KubernetesManifestValidation_STATUS_PASSED,
 		ServerSideValidation: builderv0.KubernetesManifestValidation_STATUS_NOT_RUN,
 	}
-	switch profile {
-	case builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1:
-	default:
+	if profile != builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 &&
+		!IsRestrictedOutputProfile(profile) {
 		result.StaticValidation = builderv0.KubernetesManifestValidation_STATUS_FAILED
 		result.Violations = []string{"unsupported Kubernetes output profile"}
 		return result
@@ -142,10 +223,11 @@ func ValidateKubernetesManifestTree(
 		result.ValidatedContext = validationContext
 	}
 
-	result.Promotable = profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 &&
+	result.Restricted = IsRestrictedOutputProfile(profile) &&
 		result.StaticValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED &&
 		(!validateServerSide ||
 			result.ServerSideValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED)
+	result.Promotable = result.Restricted
 	return result
 }
 
@@ -174,7 +256,7 @@ func buildKustomizeManifest(
 			}
 			violations = append(violations, fmt.Sprintf("%s contains an unresolved placeholder", relative))
 		}
-		if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+		if IsRestrictedOutputProfile(profile) {
 			decoder := yaml.NewDecoder(bytes.NewReader(content))
 			for {
 				var value map[string]any
@@ -306,7 +388,7 @@ func (object *kubernetesManifestObject) validate(namespace string, profile build
 	if strings.Contains(strings.ToLower(object.kind), "secret") {
 		violations = append(violations, object.validateSecretContract(profile)...)
 	}
-	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 && object.kind == "ConfigMap" {
+	if IsRestrictedOutputProfile(profile) && object.kind == "ConfigMap" {
 		violations = append(violations, object.validateConfigMap()...)
 	}
 	if object.apiVersion == "rbac.authorization.k8s.io/v1" {
@@ -335,7 +417,7 @@ func (object *kubernetesManifestObject) isCodeflyOwned() bool {
 }
 
 func (object *kubernetesManifestObject) validateSecretContract(profile builderv0.KubernetesOutputProfile) []string {
-	if profile != builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+	if !IsRestrictedOutputProfile(profile) {
 		return nil
 	}
 	ref := object.reference()
@@ -572,13 +654,13 @@ func (object *kubernetesManifestObject) validateContainer(
 	image := stringValue(container, "image")
 	if image == "" {
 		violations = append(violations, fmt.Sprintf("%s has no image", ref))
-	} else if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 && !pinnedImage.MatchString(image) {
+	} else if IsRestrictedOutputProfile(profile) && !pinnedImage.MatchString(image) {
 		violations = append(violations, fmt.Sprintf("%s image %q is not pinned by sha256 digest", ref, image))
 	}
 	violations = append(violations, validateContainerSecurity(container, ref)...)
 	violations = append(violations, validateContainerResources(container, ref)...)
 	violations = append(violations, validateContainerPorts(container, ref)...)
-	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+	if IsRestrictedOutputProfile(profile) {
 		violations = append(violations, validateContainerSecretReferences(container, ref)...)
 	}
 	violations = append(violations, validateContainerHealth(container, ref, requireProbes)...)

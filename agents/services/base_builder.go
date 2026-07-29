@@ -444,7 +444,11 @@ type DeploymentBase struct {
 	Image       *resources.DockerImage
 	Replicas    int
 	Profile     builderv0.KubernetesOutputProfile
-	GitOps      bool
+	// Restricted is true when the selected profile forbids inline Secret values
+	// and requires digest-pinned, policy-restricted manifests. It is a security
+	// property of the output, not a statement about how the manifests are
+	// transported, reconciled, or promoted.
+	Restricted bool
 
 	// Specialization
 	Parameters any
@@ -606,7 +610,8 @@ func (s *BuilderWrapper) KubernetesDeploymentRequest(_ context.Context, req *bui
 		}
 		switch v.Kubernetes.GetProfile() {
 		case builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
-			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1:
+			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1:
 		default:
 			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes output profile is required"), "cannot deploy")
 		}
@@ -643,8 +648,8 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	fail := func(err error) (*builderv0.DeploymentResponse, error) {
 		return s.deployError(err, output)
 	}
-	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
-		if err = validateGitOpsDeploymentRequest(req, kubernetes.GetSecretReferences()); err != nil {
+	if IsRestrictedOutputProfile(profile) {
+		if err = validateRestrictedDeploymentRequest(req, kubernetes.GetSecretReferences()); err != nil {
 			return fail(err)
 		}
 	}
@@ -696,13 +701,13 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		return fail(err)
 	}
 	configurations = append(configurations, deploymentContext.ConfigMap...)
-	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+	if IsRestrictedOutputProfile(profile) {
 		if len(manager.Secrets()) > 0 || len(deploymentContext.Secrets) > 0 {
-			return fail(fmt.Errorf("promotable GitOps rendering cannot receive secret values"))
+			return fail(fmt.Errorf("restricted rendering cannot receive secret values"))
 		}
 		for _, configuration := range configurations {
 			if credentialLikeEnvironmentKey(configuration.Key) {
-				return fail(fmt.Errorf("promotable GitOps rendering cannot receive credential-like value %q", configuration.Key))
+				return fail(fmt.Errorf("restricted rendering cannot receive credential-like value %q", configuration.Key))
 			}
 		}
 	}
@@ -744,10 +749,23 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		return fail(fmt.Errorf("generated Kubernetes manifests violate %s: %s",
 			KubernetesManifestContractVersion, strings.Join(validation.GetViolations(), "; ")))
 	}
-	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 &&
-		!validation.GetPromotable() {
-		return fail(fmt.Errorf("promotable GitOps rendering requires successful validation"))
+	if IsRestrictedOutputProfile(profile) && !validation.GetRestricted() {
+		return fail(fmt.Errorf("restricted rendering requires successful validation"))
 	}
+	// The bundle describes a deliverable manifest tree, so it is emitted only
+	// once validation has passed. A failed deployment carries validation
+	// evidence but no bundle a consumer could mistake for applyable output.
+	bundle, bundleErr := BuildKubernetesManifestBundle(
+		kubernetes.GetDestination(),
+		req.GetEnvironment().GetName(),
+		profile,
+		validation,
+		kubernetes.GetSecretReferences(),
+	)
+	if bundleErr != nil {
+		return fail(bundleErr)
+	}
+	output.GetKubernetes().Bundle = bundle
 	return s.DeployResponse(deploymentContext.exportedConfiguration, output)
 }
 
@@ -771,7 +789,7 @@ func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Enviro
 		return s.Wool.Wrapf(err, "cannot create base")
 	}
 	b.Profile = req.GetProfile()
-	b.GitOps = req.GetProfile() == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1
+	b.Restricted = IsRestrictedOutputProfile(req.GetProfile())
 	err = s.Builder.GenerateGenericKustomize(ctx, fsys, req, b, params)
 	if err != nil {
 		return err
@@ -846,25 +864,25 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 	return nil
 }
 
-func validateGitOpsDeploymentRequest(
+func validateRestrictedDeploymentRequest(
 	req *builderv0.DeploymentRequest,
 	references map[string]*builderv0.KubernetesSecretKeyReference,
 ) error {
 	for _, configuration := range append([]*basev0.Configuration{req.GetConfiguration()}, req.GetDependenciesConfigurations()...) {
 		for _, information := range configuration.GetInfos() {
 			if data := information.GetData(); data.GetSecret() && len(data.GetContent()) > 0 {
-				return fmt.Errorf("promotable GitOps rendering cannot receive secret data %q", information.GetName())
+				return fmt.Errorf("restricted rendering cannot receive secret data %q", information.GetName())
 			}
 			for _, value := range information.GetConfigurationValues() {
 				if value.GetValue() != "" && (value.GetSecret() || resources.IsSensitiveKey(value.GetKey())) {
-					return fmt.Errorf("promotable GitOps rendering cannot receive secret value %q", value.GetKey())
+					return fmt.Errorf("restricted rendering cannot receive secret value %q", value.GetKey())
 				}
 			}
 		}
 	}
 	for environmentVariable, reference := range references {
 		if environmentVariable == "" || reference.GetName() == "" || reference.GetKey() == "" {
-			return fmt.Errorf("promotable GitOps secret references require environment variable, Secret name, and key")
+			return fmt.Errorf("restricted rendering secret references require environment variable, Secret name, and key")
 		}
 	}
 	return nil

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -112,7 +113,7 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 	require.Contains(t, string(deploymentManifest), `codefly.dev/test-parameter: "prepared"`)
 }
 
-func TestDeployKustomizeRejectsSecretBytesForGitOps(t *testing.T) {
+func TestDeployKustomizeRejectsSecretBytesForRestricted(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
@@ -139,7 +140,7 @@ func TestDeployKustomizeRejectsSecretBytesForGitOps(t *testing.T) {
 			Kubernetes: &builderv0.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			},
 		}},
 		Configuration: configuration("module/service", "application", "TOKEN", "must-not-render", true),
@@ -161,7 +162,7 @@ func TestDeployKustomizeRejectsSecretBytesForGitOps(t *testing.T) {
 			Kubernetes: &builderv0.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: t.TempDir(),
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			},
 		}},
 	}, KustomizeDeployment{
@@ -177,7 +178,7 @@ func TestDeployKustomizeRejectsSecretBytesForGitOps(t *testing.T) {
 	require.Contains(t, response.GetState().GetMessage(), "cannot receive secret values")
 }
 
-func TestDeployKustomizeRejectsSecretConfigurationDataForGitOps(t *testing.T) {
+func TestDeployKustomizeRejectsSecretConfigurationDataForRestricted(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
@@ -205,7 +206,7 @@ func TestDeployKustomizeRejectsSecretConfigurationDataForGitOps(t *testing.T) {
 			Kubernetes: &builderv0.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			},
 		}},
 		Configuration: &basev0.Configuration{
@@ -237,7 +238,7 @@ func TestDeployKustomizeRejectsSecretConfigurationDataForGitOps(t *testing.T) {
 	require.Empty(t, entries)
 }
 
-func TestDeployKustomizeRendersPromotableSecretFreeGitOpsTreeWithoutClusterAccess(t *testing.T) {
+func TestDeployKustomizeRendersRestrictedSecretFreeTreeWithoutClusterAccess(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
@@ -264,7 +265,7 @@ func TestDeployKustomizeRendersPromotableSecretFreeGitOpsTreeWithoutClusterAcces
 			Kubernetes: &builderv0.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 				SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{
 					"DATABASE_PASSWORD": {Name: "service-secrets", Key: "database-password"},
 				},
@@ -283,10 +284,12 @@ func TestDeployKustomizeRendersPromotableSecretFreeGitOpsTreeWithoutClusterAcces
 	require.NoError(t, err)
 	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState())
 	output := response.GetDeployment().GetKubernetes()
-	require.Equal(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1, output.GetProfile())
+	require.Equal(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, output.GetProfile())
 	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_PASSED, output.GetValidation().GetStaticValidation())
 	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_NOT_RUN, output.GetValidation().GetServerSideValidation())
-	require.True(t, output.GetValidation().GetPromotable())
+	require.True(t, output.GetValidation().GetRestricted())
+	require.Equal(t, output.GetValidation().GetRestricted(), output.GetValidation().GetPromotable(), //nolint:staticcheck // deprecated field must mirror restricted for the migration window
+		"deprecated promotable field must mirror restricted for the neutral profile")
 	secretManifest, err := os.ReadFile(filepath.Join(destination, "base", "secret.yaml"))
 	require.NoError(t, err)
 	require.Empty(t, strings.TrimSpace(string(secretManifest)))
@@ -367,7 +370,7 @@ func TestDeployKustomizeDoesNotRetainSecretsBetweenRequests(t *testing.T) {
 			Kubernetes: &builderv0.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: gitOpsDestination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 				SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{
 					"TOKEN": {Name: "service-secrets", Key: "token"},
 				},
@@ -447,7 +450,7 @@ func TestDeployKustomizeKeepsConcurrentOutputsRequestScoped(t *testing.T) {
 				Kubernetes: &builderv0.KubernetesDeployment{
 					Namespace:   "codefly",
 					Destination: gitOpsDestination,
-					Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+					Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 					BuildContext: &builderv0.DockerBuildContext{
 						ImageDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 					},
@@ -479,7 +482,7 @@ func TestDeployKustomizeKeepsConcurrentOutputsRequestScoped(t *testing.T) {
 	)
 	require.NoError(t, gitOps.err)
 	require.Equal(t,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 		gitOps.response.GetDeployment().GetKubernetes().GetProfile(),
 	)
 }
@@ -535,7 +538,7 @@ func TestDeployKustomizeReturnsValidationEvidenceOnFailure(t *testing.T) {
 			Kubernetes: &builderv0.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: t.TempDir(),
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			},
 		}},
 	}, KustomizeDeployment{EnvironmentVariables: manager, Templates: templates})
@@ -543,9 +546,11 @@ func TestDeployKustomizeReturnsValidationEvidenceOnFailure(t *testing.T) {
 	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
 	output := response.GetDeployment().GetKubernetes()
 	require.Equal(t, KubernetesManifestContractVersion, output.GetContractVersion())
-	require.Equal(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1, output.GetProfile())
+	require.Equal(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, output.GetProfile())
 	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_FAILED, output.GetValidation().GetStaticValidation())
 	require.Contains(t, strings.Join(output.GetValidation().GetViolations(), "\n"), "emits a Secret resource")
+	require.Contains(t, response.GetState().GetMessage(), "emits a Secret resource")
+	require.Nil(t, output.GetBundle(), "a failed deployment must not emit a deliverable manifest bundle")
 }
 
 func TestDeployKustomizeRejectsMissingDependencies(t *testing.T) {
@@ -604,6 +609,96 @@ func TestApplicationDeploymentInputs(t *testing.T) {
 	require.True(t, inputs.DependencyEndpoints)
 	require.True(t, inputs.OwnConfiguration)
 	require.True(t, inputs.DependencyConfigurations)
+}
+
+func restrictedDeployBuilder(ctx context.Context, t *testing.T) (*BuilderWrapper, *resources.EnvironmentVariableManager) {
+	t.Helper()
+	manager := resources.NewEnvironmentVariableManager()
+	identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
+	base := &Base{
+		Wool:                 wool.Get(ctx),
+		Identity:             identity,
+		Information:          &Information{Service: resources.ToServiceWithCase(identity)},
+		EnvironmentVariables: manager,
+		loaded:               true,
+	}
+	base.SetDockerImage(&resources.DockerImage{
+		Name:   "example/service",
+		Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	})
+	builder := &BuilderWrapper{Base: base}
+	base.Builder = builder
+	return builder, manager
+}
+
+func renderRestricted(ctx context.Context, t *testing.T, profile builderv0.KubernetesOutputProfile) *builderv0.KubernetesDeploymentOutput {
+	t.Helper()
+	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
+	require.NoError(t, err)
+	builder, manager := restrictedDeployBuilder(ctx, t)
+	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
+		Environment: &basev0.Environment{Name: "test"},
+		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
+			Kubernetes: &builderv0.KubernetesDeployment{
+				Namespace:   "codefly",
+				Destination: t.TempDir(),
+				Profile:     profile,
+				SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{
+					"DATABASE_PASSWORD": {Name: "service-secrets", Key: "database-password"},
+				},
+			},
+		}},
+	}, KustomizeDeployment{
+		EnvironmentVariables: manager,
+		Templates:            templates,
+		Parameters:           struct{ Name string }{Name: "restricted"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState())
+	return response.GetDeployment().GetKubernetes()
+}
+
+func TestDeployKustomizeEmitsDeterministicManifestBundle(t *testing.T) {
+	ctx := context.Background()
+	output := renderRestricted(ctx, t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
+	bundle := output.GetBundle()
+	require.NotNil(t, bundle)
+	require.Equal(t, builderv0.KubernetesDeploymentOutput_KUSTOMIZE, bundle.GetFormat())
+	require.Equal(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, bundle.GetProfile())
+	require.Equal(t, KubernetesManifestContractVersion, bundle.GetContractVersion())
+	require.Equal(t, []string{"overlays/test"}, bundle.GetEntryPoints())
+	require.NotEmpty(t, bundle.GetFiles())
+	require.True(t, bundle.GetValidation().GetRestricted())
+	require.Contains(t, bundle.GetSecretReferences(), "DATABASE_PASSWORD")
+
+	paths := make([]string, 0, len(bundle.GetFiles()))
+	for _, file := range bundle.GetFiles() {
+		require.True(t, strings.HasPrefix(file.GetDigest(), "sha256:"), "file %s digest %q", file.GetPath(), file.GetDigest())
+		require.NotContains(t, file.GetPath(), `\`, "file inventory must use POSIX paths")
+		paths = append(paths, file.GetPath())
+	}
+	require.True(t, sort.StringsAreSorted(paths), "file inventory must be sorted: %v", paths)
+	require.Contains(t, paths, "base/deployment.yaml")
+	require.True(t, strings.HasPrefix(bundle.GetDigest(), "sha256:"))
+
+	// The same inputs rendered into a different destination yield an identical
+	// bundle digest: the bundle is a deterministic function of the inputs, not
+	// of the caller-supplied destination path.
+	again := renderRestricted(ctx, t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
+	require.Equal(t, bundle.GetDigest(), again.GetBundle().GetDigest())
+}
+
+func TestDeployKustomizeAcceptsDeprecatedPromotableGitOpsProfile(t *testing.T) {
+	ctx := context.Background()
+	//nolint:staticcheck // deprecated profile retained for the migration window
+	deprecated := renderRestricted(ctx, t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1)
+	require.True(t, deprecated.GetValidation().GetRestricted())
+	require.True(t, deprecated.GetValidation().GetPromotable(), "deprecated promotable flag mirrors restricted for existing clients")
+
+	// The deprecated profile renders the identical restricted bundle as its
+	// neutral successor: a supported migration path, not a reinterpretation.
+	neutral := renderRestricted(ctx, t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
+	require.Equal(t, neutral.GetBundle().GetDigest(), deprecated.GetBundle().GetDigest())
 }
 
 func configuration(origin, name, key, value string, secret bool) *basev0.Configuration {

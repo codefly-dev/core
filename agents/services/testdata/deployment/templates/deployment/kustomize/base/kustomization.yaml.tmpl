@@ -3,6 +3,6 @@ kind: Kustomization
 resources:
   - config-map.yaml
   - deployment.yaml
-{{- if not .GitOps }}
+{{- if not .Restricted }}
   - secret.yaml
 {{- end }}
