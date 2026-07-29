@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -817,6 +818,14 @@ func validateKubernetesManifestServerSide(
 	if err != nil {
 		return fmt.Errorf("server-side validation requires kubectl: %w", err)
 	}
+	validationToken := make([]byte, 8)
+	if _, err := rand.Read(validationToken); err != nil {
+		return fmt.Errorf("create server-side validation identity: %w", err)
+	}
+	validationManifest, err := isolateServerSideValidationResources(manifest, hex.EncodeToString(validationToken))
+	if err != nil {
+		return fmt.Errorf("prepare server-side validation manifest: %w", err)
+	}
 	command := exec.CommandContext(
 		ctx,
 		kubectl,
@@ -829,12 +838,49 @@ func validateKubernetesManifestServerSide(
 		"--namespace", namespace,
 		"-f", "-",
 	)
-	command.Stdin = bytes.NewReader(manifest)
+	command.Stdin = bytes.NewReader(validationManifest)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("server-side schema/admission validation failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func isolateServerSideValidationResources(manifest []byte, token string) ([]byte, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(manifest))
+	var output bytes.Buffer
+	encoder := yaml.NewEncoder(&output)
+	defer encoder.Close()
+
+	for {
+		var value map[string]any
+		err := decoder.Decode(&value)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(value) == 0 {
+			continue
+		}
+		metadata, _ := mapValue(value, "metadata")
+		name, _ := metadata["name"].(string)
+		metadata["name"] = isolatedValidationResourceName(name, token)
+		if err := encoder.Encode(value); err != nil {
+			return nil, err
+		}
+	}
+	return output.Bytes(), nil
+}
+
+func isolatedValidationResourceName(name, token string) string {
+	suffix := "-codefly-validation-" + token
+	prefixLength := 63 - len(suffix)
+	if len(name) > prefixLength {
+		name = strings.TrimRight(name[:prefixLength], "-.")
+	}
+	return name + suffix
 }
 
 func hasRestrictedSeccomp(security map[string]any) bool {

@@ -323,6 +323,44 @@ func TestServerSideValidationRequiresExplicitClusterTarget(t *testing.T) {
 	require.EqualError(t, err, "server-side validation requires an explicit Kubernetes context")
 }
 
+func TestServerSideValidationUsesIsolatedResourceNames(t *testing.T) {
+	manifest := []byte(`apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: store
+  namespace: platform
+spec:
+  serviceName: store
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed
+  namespace: platform
+spec:
+  template:
+    spec:
+      containers:
+        - name: seed
+          env:
+            - name: TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: store
+                  key: token
+`)
+
+	isolated, err := isolateServerSideValidationResources(manifest, "12345678")
+	require.NoError(t, err)
+	require.Contains(t, string(isolated), "name: store-codefly-validation-12345678")
+	require.Contains(t, string(isolated), "name: seed-codefly-validation-12345678")
+	require.Contains(t, string(isolated), "serviceName: store")
+	require.Regexp(t, `secretKeyRef:\n\s+key: token\n\s+name: store`, string(isolated))
+
+	longName := strings.Repeat("a", 63)
+	require.Len(t, isolatedValidationResourceName(longName, "12345678"), 63)
+}
+
 func TestDeployKustomizeDoesNotRetainSecretsBetweenRequests(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
