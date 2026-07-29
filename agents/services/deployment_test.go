@@ -42,7 +42,7 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 
 	destination := t.TempDir()
 	req := &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
+		Environment: &basev0.Environment{Name: "test", Fixture: "dev-admin"},
 		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
 			Kubernetes: &builderv0.KubernetesDeployment{
 				Namespace:   "codefly",
@@ -87,6 +87,8 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 	manifest := string(configMapManifest)
 	for _, expected := range []string{
 		`CODEFLY__RUNNING: "true"`,
+		`CODEFLY__ENVIRONMENT: "test"`,
+		`CODEFLY__FIXTURE: "dev-admin"`,
 		`CODEFLY__SERVICE_CONFIGURATION__MODULE__SERVICE__APPLICATION__PLAIN: "value"`,
 		`CODEFLY__SERVICE_CONFIGURATION__MODULE__SERVICE__CONNECTION__URL: "redis://service"`,
 		`EXTRA: "config"`,

@@ -20,6 +20,8 @@ message Environment {
     string description = 2;
     // naming_scope distinguishes otherwise similar test or ephemeral environments.
     string naming_scope = 3;
+    // fixture selects an explicit development data and authentication profile.
+    string fixture = 4;
 }
 
 // ManagedEnvironment is the platform-managed representation of an environment.
