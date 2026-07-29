@@ -101,6 +101,7 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 		dns, dnsErr := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
 		if dnsErr == nil && dns != nil {
 			nm.Instances = []*basev0.NetworkInstance{
+				PublicInstance(DNS(service, endpoint, dns)),
 				ContainerInstance(DNS(service, endpoint, dns)),
 			}
 			out = append(out, nm)

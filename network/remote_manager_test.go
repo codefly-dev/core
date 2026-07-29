@@ -83,15 +83,20 @@ func TestRemoteManagerUsesDeclaredInternalDNSForContainerAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mappings) != 1 || len(mappings[0].Instances) != 1 {
-		t.Fatalf("mappings = %#v, want one mapping with one instance", mappings)
+	if len(mappings) != 1 || len(mappings[0].Instances) != 2 {
+		t.Fatalf("mappings = %#v, want one mapping with public and container instances", mappings)
 	}
-	instance := mappings[0].Instances[0]
-	if instance.GetAccess().GetKind() != resources.NetworkAccessContainer {
-		t.Fatalf("access = %q, want %q", instance.GetAccess().GetKind(), resources.NetworkAccessContainer)
-	}
-	if instance.GetHostname() != "store.platform.svc.cluster.local" || instance.GetPort() != 5432 {
-		t.Fatalf("instance = %s:%d, want store.platform.svc.cluster.local:5432", instance.GetHostname(), instance.GetPort())
+	for _, access := range []*basev0.NetworkAccess{
+		resources.NewPublicNetworkAccess(),
+		resources.NewContainerNetworkAccess(),
+	} {
+		instance := resources.FilterNetworkInstance(context.Background(), mappings[0].Instances, access)
+		if instance == nil {
+			t.Fatalf("missing %q access instance", access.GetKind())
+		}
+		if instance.GetHostname() != "store.platform.svc.cluster.local" || instance.GetPort() != 5432 {
+			t.Fatalf("%s instance = %s:%d, want store.platform.svc.cluster.local:5432", access.GetKind(), instance.GetHostname(), instance.GetPort())
+		}
 	}
 }
 
