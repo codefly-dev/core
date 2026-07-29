@@ -656,6 +656,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 
 	s.LogDeployRequest(req, s.Wool.Debug)
 	manager := deployment.EnvironmentVariables.DeploymentScope()
+	manager.SetEnvironment(req.GetEnvironment())
 	manager.SetRunning()
 
 	if deployment.Inputs.OwnEndpoints {

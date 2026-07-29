@@ -112,6 +112,7 @@ type Environment struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
 	NamingScope string `yaml:"naming-scope,omitempty"`
+	Fixture     string `yaml:"fixture,omitempty"`
 
 	// ConfigurationProfile selects the checked-in configuration directory
 	// independently from the environment identity sent to service agents.
@@ -149,6 +150,7 @@ func (env *Environment) Proto() (*basev0.Environment, error) {
 		Name:        env.Name,
 		Description: env.Description,
 		NamingScope: env.NamingScope,
+		Fixture:     env.Fixture,
 	}
 	err := Validate(proto)
 	if err != nil {
@@ -177,6 +179,7 @@ func EnvironmentFromProto(env *basev0.Environment) *Environment {
 		Name:        env.Name,
 		Description: env.Description,
 		NamingScope: env.NamingScope,
+		Fixture:     env.Fixture,
 	}
 }
 

@@ -114,8 +114,12 @@ func (holder *EnvironmentVariableManager) getBase() ([]*EnvironmentVariable, err
 		envs = append(envs, Env(RunningPrefix, true))
 	}
 
-	if holder.fixture != "" {
-		envs = append(envs, FixtureAsEnvironmentVariable(holder.fixture))
+	fixture := holder.fixture
+	if fixture == "" && holder.environment != nil {
+		fixture = holder.environment.GetFixture()
+	}
+	if fixture != "" {
+		envs = append(envs, FixtureAsEnvironmentVariable(fixture))
 	}
 
 	envs = append(envs, holder.overrides...)
