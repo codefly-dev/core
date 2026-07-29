@@ -331,12 +331,14 @@ Core records `codefly.dev/kubernetes-manifest/v1`, the selected profile, static
 validation, server-side validation, violations, and the final `restricted`
 decision in `KubernetesDeploymentOutput`. When
 `KubernetesDeployment.validate_server_side` is true, core runs
-`kubectl apply --server-side --dry-run=server` so the active cluster performs
-schema, admission, and webhook checks. That server-side dry-run is an optional,
-explicitly targeted pre-flight — the restricted bundle itself renders without a
-cluster. A restricted tree is `restricted` only when both static and requested
-server-side validation pass; core returns a deployment error for every other
-restricted result, and callers must preserve that failure.
+`kubectl apply --server-side --dry-run=server` with isolated resource names so
+the active cluster performs schema, admission, and webhook checks without
+depending on same-named resources already reconciled by another field manager.
+That server-side dry-run is an optional, explicitly targeted pre-flight — the
+restricted bundle itself renders without a cluster. A restricted tree is
+`restricted` only when both static and requested server-side validation pass;
+core returns a deployment error for every other restricted result, and callers
+must preserve that failure.
 
 ### Manifest bundle
 
