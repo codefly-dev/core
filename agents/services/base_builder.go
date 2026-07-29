@@ -746,7 +746,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	}
 	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 &&
 		!validation.GetPromotable() {
-		return fail(fmt.Errorf("promotable GitOps rendering requires successful server-side validation"))
+		return fail(fmt.Errorf("promotable GitOps rendering requires successful validation"))
 	}
 	return s.DeployResponse(deploymentContext.exportedConfiguration, output)
 }
