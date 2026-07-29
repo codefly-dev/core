@@ -63,6 +63,50 @@ type EnvironmentSecretProvider struct {
 	Account string `yaml:"account,omitempty"`
 }
 
+// EnvironmentGitops identifies the reviewed repository snapshot reconciled for
+// one environment.
+type EnvironmentGitops struct {
+	RepoURL      string `yaml:"repo-url"`
+	FetchRepoURL string `yaml:"fetch-repo-url,omitempty"`
+	Path         string `yaml:"path"`
+	Branch       string `yaml:"branch"`
+	Revision     string `yaml:"revision"`
+	Checkout     string `yaml:"checkout,omitempty"`
+	Inventory    string `yaml:"inventory"`
+}
+
+// EnvironmentIngressRoute binds one public service endpoint to exact hosts.
+type EnvironmentIngressRoute struct {
+	Name     string   `yaml:"name"`
+	Service  string   `yaml:"service"`
+	Endpoint string   `yaml:"endpoint"`
+	Hosts    []string `yaml:"hosts"`
+}
+
+// EnvironmentSecretStoreReference selects the External Secrets store that
+// resolves a managed-service handoff.
+type EnvironmentSecretStoreReference struct {
+	Name string `yaml:"name"`
+	Kind string `yaml:"kind"`
+}
+
+// EnvironmentManagedSecretReference maps a remote managed secret into a
+// namespaced Kubernetes Secret.
+type EnvironmentManagedSecretReference struct {
+	Name        string                          `yaml:"name"`
+	RemoteKey   string                          `yaml:"remote-key"`
+	SecretStore EnvironmentSecretStoreReference `yaml:"secret-store"`
+}
+
+// EnvironmentManagedService describes an environment-owned replacement for a
+// service that is otherwise part of the module graph.
+type EnvironmentManagedService struct {
+	Kind             string                              `yaml:"kind"`
+	ExternalName     string                              `yaml:"external-name"`
+	EgressCIDRs      []string                            `yaml:"egress-cidrs,omitempty"`
+	SecretReferences []EnvironmentManagedSecretReference `yaml:"secret-references,omitempty"`
+}
+
 // Environment is a configuration for an environment
 type Environment struct {
 	Name        string `yaml:"name"`
@@ -84,6 +128,10 @@ type Environment struct {
 	Cluster   *EnvironmentCluster  `yaml:"cluster,omitempty"`
 	Registry  *EnvironmentRegistry `yaml:"registry,omitempty"`
 	Namespace string               `yaml:"namespace,omitempty"`
+	Gitops    *EnvironmentGitops   `yaml:"gitops,omitempty"`
+
+	Ingress         []EnvironmentIngressRoute            `yaml:"ingress,omitempty"`
+	ManagedServices map[string]EnvironmentManagedService `yaml:"managed-services,omitempty"`
 
 	// Secrets lists the secret backends for this environment. Reference-only
 	// manifests fail when their backend is absent. Legacy plaintext *.secret.*
