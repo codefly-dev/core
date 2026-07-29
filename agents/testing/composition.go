@@ -93,8 +93,11 @@ func MissingField(field string) string {
 	return fmt.Sprintf("%s not populated (intentional for agents without this setting)", field)
 }
 
-// AssertKustomizeTemplates runs both v1 output profiles and the shared hostile
-// contract suite against a plugin's embedded deployment templates.
+// AssertKustomizeTemplates runs every supported output profile and the shared
+// hostile contract suite against a plugin's embedded deployment templates. The
+// restricted contract is exercised through the transport-neutral
+// RESTRICTED_PORTABLE_V1 profile and, for the migration window, through its
+// deprecated PROMOTABLE_GITOPS_V1 predecessor, which must render identically.
 //
 // The returned directory can be used for plugin-specific assertions:
 //
@@ -113,7 +116,13 @@ func AssertKustomizeTemplates(t *testing.T, templates fs.FS, parameters any) str
 		t,
 		templates,
 		parameters,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+	)
+	assertKustomizeProfile(
+		t,
+		templates,
+		parameters,
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1, //nolint:staticcheck // migration compatibility
 	)
 	return ephemeral
 }
@@ -137,7 +146,7 @@ func assertKustomizeProfile(
 		Identity:    identity,
 		Information: &services.Information{Service: resources.ToServiceWithCase(identity), Module: resources.ToModuleWithCase(identity)},
 	}
-	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+	if services.IsRestrictedOutputProfile(profile) {
 		base.SetDockerImage(&resources.DockerImage{
 			Name:   "example/service",
 			Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -173,7 +182,7 @@ func assertKustomizeProfile(
 	if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_PASSED {
 		t.Fatalf("%s static conformance failed:\n%s", profile, strings.Join(validation.GetViolations(), "\n"))
 	}
-	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+	if services.IsRestrictedOutputProfile(profile) {
 		err := filepath.WalkDir(destination, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
@@ -475,7 +484,7 @@ func assertInvalidKustomization(t *testing.T) {
 			destination,
 			"test",
 			"codefly-test",
-			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			false,
 			"",
 			"",
@@ -529,7 +538,7 @@ resources:
 			destination,
 			"test",
 			"codefly-test",
-			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			false,
 			"",
 			"",
@@ -584,7 +593,7 @@ resources:
 			destination,
 			"test",
 			"codefly-test",
-			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			false,
 			"",
 			"",

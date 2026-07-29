@@ -133,16 +133,27 @@ structured response.
 
 ## Deployment golden paths
 
-The deployment request must select one versioned Kubernetes output profile:
+The deployment request must select one versioned Kubernetes output profile. A
+profile describes only the security properties of the rendered manifests; it
+never names how they are later transported, reconciled, or promoted.
 
 - `KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1` may embed Kubernetes
   `Secret` data for a tightly scoped local apply.
-- `KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` rejects secret-bearing
+- `KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1` produces secret-free,
+  digest-pinned, policy-restricted manifests. It rejects secret-bearing
   configuration input and exposes only identifier-only `secret_references` to
   templates.
+- `KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` is **deprecated**. It named a
+  delivery mechanism in a plugin-facing contract; it is retained only so
+  existing callers keep rendering the identical restricted bundle during the
+  migration window. See [Migration and compatibility](#migration-and-compatibility).
 
 An unspecified profile fails before rendering. The profile is selected by the
 CLI, so the standard plugin `Deploy` methods below do not hard-code it.
+
+A plugin renders this bundle deterministically from its inputs alone. It needs
+no Git, GitHub, Argo CD, Flux, network access, kubeconfig, or cluster
+credentials to produce a restricted bundle.
 
 ### Application
 
@@ -201,7 +212,7 @@ func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) 
 The preparation context can also set `deployment.Parameters`, call
 `deployment.AddConfigMap(...)`, or call `deployment.AddSecrets(...)`.
 `AddSecrets` is valid only for the ephemeral profile; core rejects it for a
-GitOps render.
+restricted render.
 
 Generic resource plugins own the portable self-hosted workload only.
 Provider-specific managed database, object-store, or secret-manager adapters
@@ -251,18 +262,21 @@ Core exposes stable shallow fields for common templates:
 | `.Sha` | deployment change marker |
 | `.Replicas` | default replica count |
 | `.Profile` | selected versioned output profile |
-| `.GitOps` | true for the promotable GitOps v1 profile |
+| `.Restricted` | true when the profile forbids inline `Secret` values and requires digest-pinned, policy-restricted manifests |
 | `.ConfigMap` | non-secret environment map |
 | `.SecretMap` | base64-encoded secret map; populated only for ephemeral local apply |
 | `.SecretReferences` | environment variable to Secret name/key references; contains no values |
 | `.Deployment.Parameters` | plugin-specific parameter object |
 
-Secret templates must render no Kubernetes object for GitOps. Conditional
-resource lists alone are insufficient because an unreferenced file is still
-part of the generated tree:
+`.Restricted` is a security property, not a statement about transport. Branch on
+it — never on a delivery mechanism.
+
+Secret templates must render no Kubernetes object under a restricted profile.
+Conditional resource lists alone are insufficient because an unreferenced file
+is still part of the generated tree:
 
 ```gotemplate
-{{- if not .GitOps }}
+{{- if not .Restricted }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -275,11 +289,11 @@ data:
 {{- end }}
 ```
 
-GitOps workloads consume externally reconciled or pre-existing Secrets through
+Restricted workloads consume externally managed or pre-existing Secrets through
 the identifier-only references:
 
 ```gotemplate
-{{- if .GitOps }}
+{{- if .Restricted }}
 env:
 {{- range $environmentVariable, $reference := .SecretReferences }}
   - name: {{ $environmentVariable }}
@@ -295,7 +309,7 @@ env:
 The v1 contract permits `external-secrets.io/v1` `ExternalSecret` resources
 that reference a namespaced `SecretStore`. It rejects inline target templates,
 cluster stores, provider credentials, and all Kubernetes `Secret` objects in a
-GitOps tree.
+restricted tree.
 
 ## Kubernetes manifest contract
 
@@ -308,19 +322,60 @@ cluster-internal. Namespace, ServiceAccount, Role, and RoleBinding resources
 must carry `app.kubernetes.io/managed-by: codefly`; cluster-scoped resources are
 rejected.
 
-The GitOps profile additionally requires every image to use a full
+The restricted profile additionally requires every image to use a full
 `@sha256:<64 hex characters>` digest. The CLI supplies an application image
 digest through `DockerBuildContext.image_digest`; stock-image plugins set
 `resources.DockerImage.Digest`.
 
 Core records `codefly.dev/kubernetes-manifest/v1`, the selected profile, static
-validation, server-side validation, violations, and the final `promotable`
+validation, server-side validation, violations, and the final `restricted`
 decision in `KubernetesDeploymentOutput`. When
 `KubernetesDeployment.validate_server_side` is true, core runs
 `kubectl apply --server-side --dry-run=server` so the active cluster performs
-schema, admission, and webhook checks. A GitOps tree is promotable only when
-both static and server-side validation pass; core returns a deployment error
-for every other GitOps result, and callers must preserve that failure.
+schema, admission, and webhook checks. That server-side dry-run is an optional,
+explicitly targeted pre-flight — the restricted bundle itself renders without a
+cluster. A restricted tree is `restricted` only when both static and requested
+server-side validation pass; core returns a deployment error for every other
+restricted result, and callers must preserve that failure.
+
+### Manifest bundle
+
+Core also emits a mechanism-neutral `KubernetesManifestBundle` on
+`KubernetesDeploymentOutput.bundle`. It is a deterministic description of the
+rendered tree that a separate deployment component consumes to choose local
+apply, repository publication, review, and reconciliation:
+
+- `format` and `profile` — the artifact format and the security profile applied.
+- `contract_version` — the validator contract recorded above.
+- `entry_points` — destination-relative directories to apply, in order (the
+  environment overlay).
+- `files` — the canonical, sorted inventory of owned files, each with a
+  `sha256:<hex>` content digest.
+- `digest` — an aggregate `sha256:<hex>` over that inventory. Identical inputs
+  yield an identical digest regardless of the caller-supplied destination path.
+- `validation` — the conformance evidence above.
+- `secret_references` — externally managed Secret identifiers, never values.
+
+The bundle contains no Git, repository, reconciler, cluster, or credential
+type. CLI and server consumers read the same contract.
+
+## Migration and compatibility
+
+Issue #110 made this contract transport-neutral. During the compatibility
+window:
+
+- Prefer `KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1`. The deprecated
+  `KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` (enum value `2`) still renders
+  the **identical** restricted bundle — a supported migration path, not a
+  silent reinterpretation. New enum values are added, never repurposed.
+- Replace the removed `.GitOps` template field with `.Restricted`. Both selected
+  the same behavior; only the name changed.
+- `KubernetesManifestValidation.restricted` supersedes the deprecated
+  `promotable` field. Core keeps both populated with the same value; migrate
+  reads to `restricted`.
+- Deprecated identifiers are retained only for this window. Core's contract test
+  enforces that every non-deprecated message, field, and enum value stays free
+  of delivery-system terminology, so no new surface may reintroduce it.
 
 ## Runtime
 
@@ -371,12 +426,13 @@ func TestDeploymentTemplates(t *testing.T) {
 }
 ```
 
-It renders both v1 profiles with representative config, secret references,
-image data, and plugin parameters. It builds each overlay with the Kustomize
-library, applies the complete restricted policy, verifies that the GitOps tree
-does not contain the secret sentinel, and runs the shared positive and hostile
-contract suite. Optional server-side validation belongs in a cluster-backed
-integration test.
+It renders every supported profile — ephemeral, restricted/portable, and the
+deprecated GitOps profile for migration coverage — with representative config,
+secret references, image data, and plugin parameters. It builds each overlay
+with the Kustomize library, applies the complete restricted policy, verifies
+that a restricted tree does not contain the secret sentinel, and runs the shared
+positive and hostile contract suite. Optional server-side validation belongs in
+a cluster-backed integration test.
 
 Add focused assertions for conditional resources such as migration Jobs.
 
