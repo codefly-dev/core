@@ -369,10 +369,14 @@ type KubernetesDeployment struct {
 	Profile KubernetesOutputProfile `protobuf:"varint,4,opt,name=profile,proto3,enum=codefly.services.builder.v0.KubernetesOutputProfile" json:"profile,omitempty"`
 	// secret_references contains identifiers only and never secret values.
 	SecretReferences map[string]*KubernetesSecretKeyReference `protobuf:"bytes,5,rep,name=secret_references,json=secretReferences,proto3" json:"secret_references,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// validate_server_side requests a server-side dry-run against the active Kubernetes cluster.
+	// validate_server_side requests a server-side dry-run against the explicit validation target.
 	ValidateServerSide bool `protobuf:"varint,6,opt,name=validate_server_side,json=validateServerSide,proto3" json:"validate_server_side,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// validation_kubeconfig selects the kubeconfig used for server-side validation.
+	ValidationKubeconfig string `protobuf:"bytes,7,opt,name=validation_kubeconfig,json=validationKubeconfig,proto3" json:"validation_kubeconfig,omitempty"`
+	// validation_context selects the exact kubeconfig context used for server-side validation.
+	ValidationContext string `protobuf:"bytes,8,opt,name=validation_context,json=validationContext,proto3" json:"validation_context,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *KubernetesDeployment) Reset() {
@@ -445,6 +449,20 @@ func (x *KubernetesDeployment) GetValidateServerSide() bool {
 		return x.ValidateServerSide
 	}
 	return false
+}
+
+func (x *KubernetesDeployment) GetValidationKubeconfig() string {
+	if x != nil {
+		return x.ValidationKubeconfig
+	}
+	return ""
+}
+
+func (x *KubernetesDeployment) GetValidationContext() string {
+	if x != nil {
+		return x.ValidationContext
+	}
+	return ""
 }
 
 // DeploymentOutput selects the deployment artifact emitted by the builder.
@@ -527,9 +545,11 @@ type KubernetesManifestValidation struct {
 	// promotable is true only for a GitOps profile that passed every required stage.
 	Promotable bool `protobuf:"varint,3,opt,name=promotable,proto3" json:"promotable,omitempty"`
 	// violations contains stable, human-readable rejection reasons.
-	Violations    []string `protobuf:"bytes,4,rep,name=violations,proto3" json:"violations,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Violations []string `protobuf:"bytes,4,rep,name=violations,proto3" json:"violations,omitempty"`
+	// validated_context is the exact kubeconfig context used for server-side validation.
+	ValidatedContext string `protobuf:"bytes,5,opt,name=validated_context,json=validatedContext,proto3" json:"validated_context,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *KubernetesManifestValidation) Reset() {
@@ -588,6 +608,13 @@ func (x *KubernetesManifestValidation) GetViolations() []string {
 		return x.Violations
 	}
 	return nil
+}
+
+func (x *KubernetesManifestValidation) GetValidatedContext() string {
+	if x != nil {
+		return x.ValidatedContext
+	}
+	return ""
 }
 
 // KubernetesDeploymentOutput describes generated Kubernetes deployment artifacts.
@@ -677,14 +704,16 @@ const file_codefly_services_builder_v0_deployment_proto_rawDesc = "" +
 	"\x1cKubernetesSecretKeyReference\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x1a\n" +
-	"\boptional\x18\x03 \x01(\bR\boptional\"\xa4\x04\n" +
+	"\boptional\x18\x03 \x01(\bR\boptional\"\x88\x05\n" +
 	"\x14KubernetesDeployment\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12 \n" +
 	"\vdestination\x18\x02 \x01(\tR\vdestination\x12T\n" +
 	"\rbuild_context\x18\x03 \x01(\v2/.codefly.services.builder.v0.DockerBuildContextR\fbuildContext\x12N\n" +
 	"\aprofile\x18\x04 \x01(\x0e24.codefly.services.builder.v0.KubernetesOutputProfileR\aprofile\x12t\n" +
 	"\x11secret_references\x18\x05 \x03(\v2G.codefly.services.builder.v0.KubernetesDeployment.SecretReferencesEntryR\x10secretReferences\x120\n" +
-	"\x14validate_server_side\x18\x06 \x01(\bR\x12validateServerSide\x1a~\n" +
+	"\x14validate_server_side\x18\x06 \x01(\bR\x12validateServerSide\x123\n" +
+	"\x15validation_kubeconfig\x18\a \x01(\tR\x14validationKubeconfig\x12-\n" +
+	"\x12validation_context\x18\b \x01(\tR\x11validationContext\x1a~\n" +
 	"\x15SecretReferencesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12O\n" +
 	"\x05value\x18\x02 \x01(\v29.codefly.services.builder.v0.KubernetesSecretKeyReferenceR\x05value:\x028\x01\"u\n" +
@@ -692,7 +721,7 @@ const file_codefly_services_builder_v0_deployment_proto_rawDesc = "" +
 	"\n" +
 	"kubernetes\x18\x02 \x01(\v27.codefly.services.builder.v0.KubernetesDeploymentOutputH\x00R\n" +
 	"kubernetesB\x06\n" +
-	"\x04kind\"\xa1\x03\n" +
+	"\x04kind\"\xce\x03\n" +
 	"\x1cKubernetesManifestValidation\x12m\n" +
 	"\x11static_validation\x18\x01 \x01(\x0e2@.codefly.services.builder.v0.KubernetesManifestValidation.StatusR\x10staticValidation\x12v\n" +
 	"\x16server_side_validation\x18\x02 \x01(\x0e2@.codefly.services.builder.v0.KubernetesManifestValidation.StatusR\x14serverSideValidation\x12\x1e\n" +
@@ -701,7 +730,8 @@ const file_codefly_services_builder_v0_deployment_proto_rawDesc = "" +
 	"promotable\x12\x1e\n" +
 	"\n" +
 	"violations\x18\x04 \x03(\tR\n" +
-	"violations\"Z\n" +
+	"violations\x12+\n" +
+	"\x11validated_context\x18\x05 \x01(\tR\x10validatedContext\"Z\n" +
 	"\x06Status\x12\x16\n" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSTATUS_PASSED\x10\x01\x12\x11\n" +

@@ -169,7 +169,7 @@ func assertKustomizeProfile(
 		t.Fatalf("render %s kustomize templates: %v", profile, err)
 	}
 
-	validation := services.ValidateKubernetesManifestTree(ctx, destination, "test", "codefly-test", profile, false)
+	validation := services.ValidateKubernetesManifestTree(ctx, destination, "test", "codefly-test", profile, false, "", "")
 	if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_PASSED {
 		t.Fatalf("%s static conformance failed:\n%s", profile, strings.Join(validation.GetViolations(), "\n"))
 	}
@@ -477,6 +477,8 @@ func assertInvalidKustomization(t *testing.T) {
 			"codefly-test",
 			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
 			false,
+			"",
+			"",
 		)
 		if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_FAILED {
 			t.Fatalf("status = %s, want failed", validation.GetStaticValidation())
@@ -529,6 +531,8 @@ resources:
 			"codefly-test",
 			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
 			false,
+			"",
+			"",
 		)
 		if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_FAILED {
 			t.Fatalf("status = %s, want failed; violations: %v", validation.GetStaticValidation(), validation.GetViolations())
@@ -582,6 +586,8 @@ resources:
 			"codefly-test",
 			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
 			false,
+			"",
+			"",
 		)
 		if validation.GetStaticValidation() != expected {
 			t.Fatalf("status = %s, want %s; violations: %v", validation.GetStaticValidation(), expected, validation.GetViolations())

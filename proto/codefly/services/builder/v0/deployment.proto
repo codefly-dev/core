@@ -50,8 +50,12 @@ message KubernetesDeployment {
   KubernetesOutputProfile profile = 4;
   // secret_references contains identifiers only and never secret values.
   map<string, KubernetesSecretKeyReference> secret_references = 5;
-  // validate_server_side requests a server-side dry-run against the active Kubernetes cluster.
+  // validate_server_side requests a server-side dry-run against the explicit validation target.
   bool validate_server_side = 6;
+  // validation_kubeconfig selects the kubeconfig used for server-side validation.
+  string validation_kubeconfig = 7;
+  // validation_context selects the exact kubeconfig context used for server-side validation.
+  string validation_context = 8;
 }
 
 // DeploymentOutput selects the deployment artifact emitted by the builder.
@@ -84,6 +88,8 @@ message KubernetesManifestValidation {
   bool promotable = 3;
   // violations contains stable, human-readable rejection reasons.
   repeated string violations = 4;
+  // validated_context is the exact kubeconfig context used for server-side validation.
+  string validated_context = 5;
 }
 
 // KubernetesDeploymentOutput describes generated Kubernetes deployment artifacts.

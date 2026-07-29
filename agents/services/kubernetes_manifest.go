@@ -100,6 +100,8 @@ func ValidateKubernetesManifestTree(
 	namespace string,
 	profile builderv0.KubernetesOutputProfile,
 	validateServerSide bool,
+	validationKubeconfig string,
+	validationContext string,
 ) *builderv0.KubernetesManifestValidation {
 	result := &builderv0.KubernetesManifestValidation{
 		StaticValidation:     builderv0.KubernetesManifestValidation_STATUS_PASSED,
@@ -125,12 +127,19 @@ func ValidateKubernetesManifestTree(
 	}
 
 	if validateServerSide {
-		if err := validateKubernetesManifestServerSide(ctx, manifest, namespace); err != nil {
+		if err := validateKubernetesManifestServerSide(
+			ctx,
+			manifest,
+			namespace,
+			validationKubeconfig,
+			validationContext,
+		); err != nil {
 			result.ServerSideValidation = builderv0.KubernetesManifestValidation_STATUS_FAILED
 			result.Violations = []string{err.Error()}
 			return result
 		}
 		result.ServerSideValidation = builderv0.KubernetesManifestValidation_STATUS_PASSED
+		result.ValidatedContext = validationContext
 	}
 
 	result.Promotable = profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 &&
@@ -708,12 +717,35 @@ func validateContainerHealth(container map[string]any, ref string, requireProbes
 	return violations
 }
 
-func validateKubernetesManifestServerSide(ctx context.Context, manifest []byte, namespace string) error {
+func validateKubernetesManifestServerSide(
+	ctx context.Context,
+	manifest []byte,
+	namespace,
+	kubeconfig,
+	kubeContext string,
+) error {
+	if kubeconfig == "" {
+		return fmt.Errorf("server-side validation requires an explicit kubeconfig")
+	}
+	if kubeContext == "" {
+		return fmt.Errorf("server-side validation requires an explicit Kubernetes context")
+	}
 	kubectl, err := exec.LookPath("kubectl")
 	if err != nil {
 		return fmt.Errorf("server-side validation requires kubectl: %w", err)
 	}
-	command := exec.CommandContext(ctx, kubectl, "apply", "--server-side", "--dry-run=server", "--validate=strict", "--namespace", namespace, "-f", "-")
+	command := exec.CommandContext(
+		ctx,
+		kubectl,
+		"--kubeconfig", kubeconfig,
+		"--context", kubeContext,
+		"apply",
+		"--server-side",
+		"--dry-run=server",
+		"--validate=strict",
+		"--namespace", namespace,
+		"-f", "-",
+	)
 	command.Stdin = bytes.NewReader(manifest)
 	output, err := command.CombinedOutput()
 	if err != nil {
