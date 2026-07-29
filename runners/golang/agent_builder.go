@@ -4,6 +4,8 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"io"
+	"path/filepath"
 	"strings"
 
 	dockerhelpers "github.com/codefly-dev/core/agents/helpers/docker"
@@ -25,6 +27,8 @@ type DockerTemplating struct {
 	SourceDir     string // e.g. "code/cmd/server" — the Go main package location
 	ModuleRoot    string // e.g. "code" — where go.mod lives
 	BuildTarget   string // e.g. "./cmd/server" — package to build (relative to ModuleRoot)
+	ContextRoot   string // optional exact Docker context root; defaults to the service directory
+	Workspace     bool   // template hint for workspace-aware source copying
 }
 
 // DockerEnv is a key-value pair for Docker environment variables.
@@ -69,13 +73,11 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 		return builder.BuildError(err)
 	}
 
-	b, err := dockerhelpers.NewBuilder(dockerhelpers.BuilderConfiguration{
-		Root:        location,
-		Dockerfile:  "builder/Dockerfile",
-		Ignorefile:  "builder/dockerignore",
-		Destination: image,
-		Output:      w,
-	})
+	configuration, err := goDockerBuilderConfiguration(location, image, w, docker)
+	if err != nil {
+		return builder.BuildError(err)
+	}
+	b, err := dockerhelpers.NewBuilder(configuration)
 	if err != nil {
 		return builder.BuildError(err)
 	}
@@ -85,6 +87,41 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 	}
 	builder.WithDockerImages(image)
 	return builder.BuildResponse()
+}
+
+func goDockerBuilderConfiguration(
+	location string,
+	image *resources.DockerImage,
+	output io.Writer,
+	docker DockerTemplating,
+) (dockerhelpers.BuilderConfiguration, error) {
+	contextRoot := docker.ContextRoot
+	if contextRoot == "" {
+		contextRoot = location
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(contextRoot)
+	if err != nil {
+		return dockerhelpers.BuilderConfiguration{}, fmt.Errorf("resolve Docker context root: %w", err)
+	}
+	resolvedLocation, err := filepath.EvalSymlinks(location)
+	if err != nil {
+		return dockerhelpers.BuilderConfiguration{}, fmt.Errorf("resolve service directory: %w", err)
+	}
+	relative, err := filepath.Rel(resolvedRoot, resolvedLocation)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return dockerhelpers.BuilderConfiguration{}, fmt.Errorf(
+			"service directory %q is outside Docker context root %q",
+			resolvedLocation,
+			resolvedRoot,
+		)
+	}
+	return dockerhelpers.BuilderConfiguration{
+		Root:        resolvedRoot,
+		Dockerfile:  filepath.ToSlash(filepath.Join(relative, "builder", "Dockerfile")),
+		Ignorefile:  filepath.ToSlash(filepath.Join(relative, "builder", "dockerignore")),
+		Destination: image,
+		Output:      output,
+	}, nil
 }
 
 // DeployGoKubernetes deploys a Go service to Kubernetes.
