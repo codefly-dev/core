@@ -735,6 +735,8 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		kubernetes.GetNamespace(),
 		profile,
 		kubernetes.GetValidateServerSide(),
+		kubernetes.GetValidationKubeconfig(),
+		kubernetes.GetValidationContext(),
 	)
 	output.GetKubernetes().Validation = validation
 	if validation.GetStaticValidation() == builderv0.KubernetesManifestValidation_STATUS_FAILED ||

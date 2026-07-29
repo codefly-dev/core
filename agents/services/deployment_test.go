@@ -301,6 +301,26 @@ func TestDeployKustomizeRendersSecretFreeGitOpsTreeAndRejectsWithoutServerValida
 	require.Contains(t, string(configMapManifest), `CODEFLY__SERVICE_CONFIGURATION__MODULE__SERVICE__CONNECTION__URL: "redis://service"`)
 }
 
+func TestServerSideValidationRequiresExplicitClusterTarget(t *testing.T) {
+	err := validateKubernetesManifestServerSide(
+		context.Background(),
+		nil,
+		"codefly",
+		"",
+		"k3d-codefly",
+	)
+	require.EqualError(t, err, "server-side validation requires an explicit kubeconfig")
+
+	err = validateKubernetesManifestServerSide(
+		context.Background(),
+		nil,
+		"codefly",
+		"/tmp/kubeconfig",
+		"",
+	)
+	require.EqualError(t, err, "server-side validation requires an explicit Kubernetes context")
+}
+
 func TestDeployKustomizeDoesNotRetainSecretsBetweenRequests(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
