@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from codefly.services.builder.v0 import docker_pb2 as codefly_dot_services_dot_builder_dot_v0_dot_docker__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n,codefly/services/builder/v0/deployment.proto\x12\x1b\x63odefly.services.builder.v0\x1a(codefly/services/builder/v0/docker.proto\"i\n\nDeployment\x12S\n\nkubernetes\x18\x02 \x01(\x0b\x32\x31.codefly.services.builder.v0.KubernetesDeploymentH\x00R\nkubernetesB\x06\n\x04kind\"\xac\x01\n\x14KubernetesDeployment\x12\x1c\n\tnamespace\x18\x01 \x01(\tR\tnamespace\x12 \n\x0b\x64\x65stination\x18\x02 \x01(\tR\x0b\x64\x65stination\x12T\n\rbuild_context\x18\x03 \x01(\x0b\x32/.codefly.services.builder.v0.DockerBuildContextR\x0c\x62uildContext\"u\n\x10\x44\x65ploymentOutput\x12Y\n\nkubernetes\x18\x02 \x01(\x0b\x32\x37.codefly.services.builder.v0.KubernetesDeploymentOutputH\x00R\nkubernetesB\x06\n\x04kind\"\x85\x01\n\x1aKubernetesDeploymentOutput\x12P\n\x04kind\x18\x01 \x01(\x0e\x32<.codefly.services.builder.v0.KubernetesDeploymentOutput.KindR\x04kind\"\x15\n\x04Kind\x12\r\n\tKUSTOMIZE\x10\x00*\x1f\n\x0e\x44\x65ploymentKind\x12\r\n\tKUSTOMIZE\x10\x00\x42\x88\x02\n\x1f\x63om.codefly.services.builder.v0B\x0f\x44\x65ploymentProtoP\x01ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\xa2\x02\x04\x43SBV\xaa\x02\x1b\x43odefly.Services.Builder.V0\xca\x02\x1b\x43odefly\\Services\\Builder\\V0\xe2\x02\'Codefly\\Services\\Builder\\V0\\GPBMetadata\xea\x02\x1e\x43odefly::Services::Builder::V0b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n,codefly/services/builder/v0/deployment.proto\x12\x1b\x63odefly.services.builder.v0\x1a(codefly/services/builder/v0/docker.proto\"i\n\nDeployment\x12S\n\nkubernetes\x18\x02 \x01(\x0b\x32\x31.codefly.services.builder.v0.KubernetesDeploymentH\x00R\nkubernetesB\x06\n\x04kind\"`\n\x1cKubernetesSecretKeyReference\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n\x03key\x18\x02 \x01(\tR\x03key\x12\x1a\n\x08optional\x18\x03 \x01(\x08R\x08optional\"\xa4\x04\n\x14KubernetesDeployment\x12\x1c\n\tnamespace\x18\x01 \x01(\tR\tnamespace\x12 \n\x0b\x64\x65stination\x18\x02 \x01(\tR\x0b\x64\x65stination\x12T\n\rbuild_context\x18\x03 \x01(\x0b\x32/.codefly.services.builder.v0.DockerBuildContextR\x0c\x62uildContext\x12N\n\x07profile\x18\x04 \x01(\x0e\x32\x34.codefly.services.builder.v0.KubernetesOutputProfileR\x07profile\x12t\n\x11secret_references\x18\x05 \x03(\x0b\x32G.codefly.services.builder.v0.KubernetesDeployment.SecretReferencesEntryR\x10secretReferences\x12\x30\n\x14validate_server_side\x18\x06 \x01(\x08R\x12validateServerSide\x1a~\n\x15SecretReferencesEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12O\n\x05value\x18\x02 \x01(\x0b\x32\x39.codefly.services.builder.v0.KubernetesSecretKeyReferenceR\x05value:\x02\x38\x01\"u\n\x10\x44\x65ploymentOutput\x12Y\n\nkubernetes\x18\x02 \x01(\x0b\x32\x37.codefly.services.builder.v0.KubernetesDeploymentOutputH\x00R\nkubernetesB\x06\n\x04kind\"\xa1\x03\n\x1cKubernetesManifestValidation\x12m\n\x11static_validation\x18\x01 \x01(\x0e\x32@.codefly.services.builder.v0.KubernetesManifestValidation.StatusR\x10staticValidation\x12v\n\x16server_side_validation\x18\x02 \x01(\x0e\x32@.codefly.services.builder.v0.KubernetesManifestValidation.StatusR\x14serverSideValidation\x12\x1e\n\npromotable\x18\x03 \x01(\x08R\npromotable\x12\x1e\n\nviolations\x18\x04 \x03(\tR\nviolations\"Z\n\x06Status\x12\x16\n\x12STATUS_UNSPECIFIED\x10\x00\x12\x11\n\rSTATUS_PASSED\x10\x01\x12\x11\n\rSTATUS_FAILED\x10\x02\x12\x12\n\x0eSTATUS_NOT_RUN\x10\x03\"\xdb\x02\n\x1aKubernetesDeploymentOutput\x12P\n\x04kind\x18\x01 \x01(\x0e\x32<.codefly.services.builder.v0.KubernetesDeploymentOutput.KindR\x04kind\x12N\n\x07profile\x18\x02 \x01(\x0e\x32\x34.codefly.services.builder.v0.KubernetesOutputProfileR\x07profile\x12)\n\x10\x63ontract_version\x18\x03 \x01(\tR\x0f\x63ontractVersion\x12Y\n\nvalidation\x18\x04 \x01(\x0b\x32\x39.codefly.services.builder.v0.KubernetesManifestValidationR\nvalidation\"\x15\n\x04Kind\x12\r\n\tKUSTOMIZE\x10\x00*\x1f\n\x0e\x44\x65ploymentKind\x12\r\n\tKUSTOMIZE\x10\x00*\xb0\x01\n\x17KubernetesOutputProfile\x12)\n%KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED\x10\x00\x12\x36\n2KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1\x10\x01\x12\x32\n.KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1\x10\x02\x42\x88\x02\n\x1f\x63om.codefly.services.builder.v0B\x0f\x44\x65ploymentProtoP\x01ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\xa2\x02\x04\x43SBV\xaa\x02\x1b\x43odefly.Services.Builder.V0\xca\x02\x1b\x43odefly\\Services\\Builder\\V0\xe2\x02\'Codefly\\Services\\Builder\\V0\\GPBMetadata\xea\x02\x1e\x43odefly::Services::Builder::V0b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,16 +33,28 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'codefly.services.builder.v0
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\037com.codefly.services.builder.v0B\017DeploymentProtoP\001ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\242\002\004CSBV\252\002\033Codefly.Services.Builder.V0\312\002\033Codefly\\Services\\Builder\\V0\342\002\'Codefly\\Services\\Builder\\V0\\GPBMetadata\352\002\036Codefly::Services::Builder::V0'
-  _globals['_DEPLOYMENTKIND']._serialized_start=656
-  _globals['_DEPLOYMENTKIND']._serialized_end=687
+  _globals['_KUBERNETESDEPLOYMENT_SECRETREFERENCESENTRY']._loaded_options = None
+  _globals['_KUBERNETESDEPLOYMENT_SECRETREFERENCESENTRY']._serialized_options = b'8\001'
+  _globals['_DEPLOYMENTKIND']._serialized_start=1764
+  _globals['_DEPLOYMENTKIND']._serialized_end=1795
+  _globals['_KUBERNETESOUTPUTPROFILE']._serialized_start=1798
+  _globals['_KUBERNETESOUTPUTPROFILE']._serialized_end=1974
   _globals['_DEPLOYMENT']._serialized_start=119
   _globals['_DEPLOYMENT']._serialized_end=224
-  _globals['_KUBERNETESDEPLOYMENT']._serialized_start=227
-  _globals['_KUBERNETESDEPLOYMENT']._serialized_end=399
-  _globals['_DEPLOYMENTOUTPUT']._serialized_start=401
-  _globals['_DEPLOYMENTOUTPUT']._serialized_end=518
-  _globals['_KUBERNETESDEPLOYMENTOUTPUT']._serialized_start=521
-  _globals['_KUBERNETESDEPLOYMENTOUTPUT']._serialized_end=654
-  _globals['_KUBERNETESDEPLOYMENTOUTPUT_KIND']._serialized_start=633
-  _globals['_KUBERNETESDEPLOYMENTOUTPUT_KIND']._serialized_end=654
+  _globals['_KUBERNETESSECRETKEYREFERENCE']._serialized_start=226
+  _globals['_KUBERNETESSECRETKEYREFERENCE']._serialized_end=322
+  _globals['_KUBERNETESDEPLOYMENT']._serialized_start=325
+  _globals['_KUBERNETESDEPLOYMENT']._serialized_end=873
+  _globals['_KUBERNETESDEPLOYMENT_SECRETREFERENCESENTRY']._serialized_start=747
+  _globals['_KUBERNETESDEPLOYMENT_SECRETREFERENCESENTRY']._serialized_end=873
+  _globals['_DEPLOYMENTOUTPUT']._serialized_start=875
+  _globals['_DEPLOYMENTOUTPUT']._serialized_end=992
+  _globals['_KUBERNETESMANIFESTVALIDATION']._serialized_start=995
+  _globals['_KUBERNETESMANIFESTVALIDATION']._serialized_end=1412
+  _globals['_KUBERNETESMANIFESTVALIDATION_STATUS']._serialized_start=1322
+  _globals['_KUBERNETESMANIFESTVALIDATION_STATUS']._serialized_end=1412
+  _globals['_KUBERNETESDEPLOYMENTOUTPUT']._serialized_start=1415
+  _globals['_KUBERNETESDEPLOYMENTOUTPUT']._serialized_end=1762
+  _globals['_KUBERNETESDEPLOYMENTOUTPUT_KIND']._serialized_start=1741
+  _globals['_KUBERNETESDEPLOYMENTOUTPUT_KIND']._serialized_end=1762
 # @@protoc_insertion_point(module_scope)

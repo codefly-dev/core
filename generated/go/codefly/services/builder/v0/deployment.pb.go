@@ -67,6 +67,116 @@ func (DeploymentKind) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{0}
 }
 
+// KubernetesOutputProfile selects a versioned Kubernetes manifest contract.
+type KubernetesOutputProfile int32
+
+const (
+	// KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED does not authorize manifest rendering.
+	KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED KubernetesOutputProfile = 0
+	// KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 permits inline Secret data for a local apply.
+	KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 KubernetesOutputProfile = 1
+	// KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 produces secret-free, restricted manifests.
+	KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 KubernetesOutputProfile = 2
+)
+
+// Enum value maps for KubernetesOutputProfile.
+var (
+	KubernetesOutputProfile_name = map[int32]string{
+		0: "KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED",
+		1: "KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1",
+		2: "KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1",
+	}
+	KubernetesOutputProfile_value = map[string]int32{
+		"KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED":              0,
+		"KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1": 1,
+		"KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1":     2,
+	}
+)
+
+func (x KubernetesOutputProfile) Enum() *KubernetesOutputProfile {
+	p := new(KubernetesOutputProfile)
+	*p = x
+	return p
+}
+
+func (x KubernetesOutputProfile) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (KubernetesOutputProfile) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_services_builder_v0_deployment_proto_enumTypes[1].Descriptor()
+}
+
+func (KubernetesOutputProfile) Type() protoreflect.EnumType {
+	return &file_codefly_services_builder_v0_deployment_proto_enumTypes[1]
+}
+
+func (x KubernetesOutputProfile) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use KubernetesOutputProfile.Descriptor instead.
+func (KubernetesOutputProfile) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{1}
+}
+
+// Status describes one validation stage.
+type KubernetesManifestValidation_Status int32
+
+const (
+	// STATUS_UNSPECIFIED means the validation stage has no result.
+	KubernetesManifestValidation_STATUS_UNSPECIFIED KubernetesManifestValidation_Status = 0
+	// STATUS_PASSED means the validation stage completed successfully.
+	KubernetesManifestValidation_STATUS_PASSED KubernetesManifestValidation_Status = 1
+	// STATUS_FAILED means the validation stage found a violation or could not complete.
+	KubernetesManifestValidation_STATUS_FAILED KubernetesManifestValidation_Status = 2
+	// STATUS_NOT_RUN means the caller did not request the validation stage.
+	KubernetesManifestValidation_STATUS_NOT_RUN KubernetesManifestValidation_Status = 3
+)
+
+// Enum value maps for KubernetesManifestValidation_Status.
+var (
+	KubernetesManifestValidation_Status_name = map[int32]string{
+		0: "STATUS_UNSPECIFIED",
+		1: "STATUS_PASSED",
+		2: "STATUS_FAILED",
+		3: "STATUS_NOT_RUN",
+	}
+	KubernetesManifestValidation_Status_value = map[string]int32{
+		"STATUS_UNSPECIFIED": 0,
+		"STATUS_PASSED":      1,
+		"STATUS_FAILED":      2,
+		"STATUS_NOT_RUN":     3,
+	}
+)
+
+func (x KubernetesManifestValidation_Status) Enum() *KubernetesManifestValidation_Status {
+	p := new(KubernetesManifestValidation_Status)
+	*p = x
+	return p
+}
+
+func (x KubernetesManifestValidation_Status) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (KubernetesManifestValidation_Status) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_services_builder_v0_deployment_proto_enumTypes[2].Descriptor()
+}
+
+func (KubernetesManifestValidation_Status) Type() protoreflect.EnumType {
+	return &file_codefly_services_builder_v0_deployment_proto_enumTypes[2]
+}
+
+func (x KubernetesManifestValidation_Status) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use KubernetesManifestValidation_Status.Descriptor instead.
+func (KubernetesManifestValidation_Status) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{4, 0}
+}
+
 // Kind enumerates Kubernetes deployment artifact formats.
 type KubernetesDeploymentOutput_Kind int32
 
@@ -96,11 +206,11 @@ func (x KubernetesDeploymentOutput_Kind) String() string {
 }
 
 func (KubernetesDeploymentOutput_Kind) Descriptor() protoreflect.EnumDescriptor {
-	return file_codefly_services_builder_v0_deployment_proto_enumTypes[1].Descriptor()
+	return file_codefly_services_builder_v0_deployment_proto_enumTypes[3].Descriptor()
 }
 
 func (KubernetesDeploymentOutput_Kind) Type() protoreflect.EnumType {
-	return &file_codefly_services_builder_v0_deployment_proto_enumTypes[1]
+	return &file_codefly_services_builder_v0_deployment_proto_enumTypes[3]
 }
 
 func (x KubernetesDeploymentOutput_Kind) Number() protoreflect.EnumNumber {
@@ -109,7 +219,7 @@ func (x KubernetesDeploymentOutput_Kind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use KubernetesDeploymentOutput_Kind.Descriptor instead.
 func (KubernetesDeploymentOutput_Kind) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{3, 0}
+	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{5, 0}
 }
 
 // Deployment selects the deployment target and input format.
@@ -182,6 +292,70 @@ type Deployment_Kubernetes struct {
 
 func (*Deployment_Kubernetes) isDeployment_Kind() {}
 
+// KubernetesSecretKeyReference maps an environment variable to an externally managed Secret key.
+type KubernetesSecretKeyReference struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the name of an existing or externally reconciled Secret.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// key is the key within the referenced Secret.
+	Key string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	// optional permits the workload to start when the referenced key is absent.
+	Optional      bool `protobuf:"varint,3,opt,name=optional,proto3" json:"optional,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KubernetesSecretKeyReference) Reset() {
+	*x = KubernetesSecretKeyReference{}
+	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KubernetesSecretKeyReference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KubernetesSecretKeyReference) ProtoMessage() {}
+
+func (x *KubernetesSecretKeyReference) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KubernetesSecretKeyReference.ProtoReflect.Descriptor instead.
+func (*KubernetesSecretKeyReference) Descriptor() ([]byte, []int) {
+	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *KubernetesSecretKeyReference) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *KubernetesSecretKeyReference) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *KubernetesSecretKeyReference) GetOptional() bool {
+	if x != nil {
+		return x.Optional
+	}
+	return false
+}
+
 // KubernetesDeployment contains inputs for Kubernetes manifest generation.
 type KubernetesDeployment struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -190,14 +364,20 @@ type KubernetesDeployment struct {
 	// destination is the deployment destination path or environment.
 	Destination string `protobuf:"bytes,2,opt,name=destination,proto3" json:"destination,omitempty"`
 	// build_context is the Docker image build context used by the deployment.
-	BuildContext  *DockerBuildContext `protobuf:"bytes,3,opt,name=build_context,json=buildContext,proto3" json:"build_context,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	BuildContext *DockerBuildContext `protobuf:"bytes,3,opt,name=build_context,json=buildContext,proto3" json:"build_context,omitempty"`
+	// profile selects the versioned security and promotion contract.
+	Profile KubernetesOutputProfile `protobuf:"varint,4,opt,name=profile,proto3,enum=codefly.services.builder.v0.KubernetesOutputProfile" json:"profile,omitempty"`
+	// secret_references contains identifiers only and never secret values.
+	SecretReferences map[string]*KubernetesSecretKeyReference `protobuf:"bytes,5,rep,name=secret_references,json=secretReferences,proto3" json:"secret_references,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// validate_server_side requests a server-side dry-run against the active Kubernetes cluster.
+	ValidateServerSide bool `protobuf:"varint,6,opt,name=validate_server_side,json=validateServerSide,proto3" json:"validate_server_side,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *KubernetesDeployment) Reset() {
 	*x = KubernetesDeployment{}
-	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[1]
+	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -209,7 +389,7 @@ func (x *KubernetesDeployment) String() string {
 func (*KubernetesDeployment) ProtoMessage() {}
 
 func (x *KubernetesDeployment) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[1]
+	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -222,7 +402,7 @@ func (x *KubernetesDeployment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KubernetesDeployment.ProtoReflect.Descriptor instead.
 func (*KubernetesDeployment) Descriptor() ([]byte, []int) {
-	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{1}
+	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *KubernetesDeployment) GetNamespace() string {
@@ -246,6 +426,27 @@ func (x *KubernetesDeployment) GetBuildContext() *DockerBuildContext {
 	return nil
 }
 
+func (x *KubernetesDeployment) GetProfile() KubernetesOutputProfile {
+	if x != nil {
+		return x.Profile
+	}
+	return KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED
+}
+
+func (x *KubernetesDeployment) GetSecretReferences() map[string]*KubernetesSecretKeyReference {
+	if x != nil {
+		return x.SecretReferences
+	}
+	return nil
+}
+
+func (x *KubernetesDeployment) GetValidateServerSide() bool {
+	if x != nil {
+		return x.ValidateServerSide
+	}
+	return false
+}
+
 // DeploymentOutput selects the deployment artifact emitted by the builder.
 type DeploymentOutput struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -261,7 +462,7 @@ type DeploymentOutput struct {
 
 func (x *DeploymentOutput) Reset() {
 	*x = DeploymentOutput{}
-	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[2]
+	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -273,7 +474,7 @@ func (x *DeploymentOutput) String() string {
 func (*DeploymentOutput) ProtoMessage() {}
 
 func (x *DeploymentOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[2]
+	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -286,7 +487,7 @@ func (x *DeploymentOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeploymentOutput.ProtoReflect.Descriptor instead.
 func (*DeploymentOutput) Descriptor() ([]byte, []int) {
-	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{2}
+	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *DeploymentOutput) GetKind() isDeploymentOutput_Kind {
@@ -316,18 +517,97 @@ type DeploymentOutput_Kubernetes struct {
 
 func (*DeploymentOutput_Kubernetes) isDeploymentOutput_Kind() {}
 
+// KubernetesManifestValidation reports conformance checks for a rendered tree.
+type KubernetesManifestValidation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// static_validation covers Kustomize rendering and the shared manifest policy.
+	StaticValidation KubernetesManifestValidation_Status `protobuf:"varint,1,opt,name=static_validation,json=staticValidation,proto3,enum=codefly.services.builder.v0.KubernetesManifestValidation_Status" json:"static_validation,omitempty"`
+	// server_side_validation covers Kubernetes schema and admission through dry-run apply.
+	ServerSideValidation KubernetesManifestValidation_Status `protobuf:"varint,2,opt,name=server_side_validation,json=serverSideValidation,proto3,enum=codefly.services.builder.v0.KubernetesManifestValidation_Status" json:"server_side_validation,omitempty"`
+	// promotable is true only for a GitOps profile that passed every required stage.
+	Promotable bool `protobuf:"varint,3,opt,name=promotable,proto3" json:"promotable,omitempty"`
+	// violations contains stable, human-readable rejection reasons.
+	Violations    []string `protobuf:"bytes,4,rep,name=violations,proto3" json:"violations,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KubernetesManifestValidation) Reset() {
+	*x = KubernetesManifestValidation{}
+	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KubernetesManifestValidation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KubernetesManifestValidation) ProtoMessage() {}
+
+func (x *KubernetesManifestValidation) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KubernetesManifestValidation.ProtoReflect.Descriptor instead.
+func (*KubernetesManifestValidation) Descriptor() ([]byte, []int) {
+	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *KubernetesManifestValidation) GetStaticValidation() KubernetesManifestValidation_Status {
+	if x != nil {
+		return x.StaticValidation
+	}
+	return KubernetesManifestValidation_STATUS_UNSPECIFIED
+}
+
+func (x *KubernetesManifestValidation) GetServerSideValidation() KubernetesManifestValidation_Status {
+	if x != nil {
+		return x.ServerSideValidation
+	}
+	return KubernetesManifestValidation_STATUS_UNSPECIFIED
+}
+
+func (x *KubernetesManifestValidation) GetPromotable() bool {
+	if x != nil {
+		return x.Promotable
+	}
+	return false
+}
+
+func (x *KubernetesManifestValidation) GetViolations() []string {
+	if x != nil {
+		return x.Violations
+	}
+	return nil
+}
+
 // KubernetesDeploymentOutput describes generated Kubernetes deployment artifacts.
 type KubernetesDeploymentOutput struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// kind identifies the generated Kubernetes artifact format.
-	Kind          KubernetesDeploymentOutput_Kind `protobuf:"varint,1,opt,name=kind,proto3,enum=codefly.services.builder.v0.KubernetesDeploymentOutput_Kind" json:"kind,omitempty"`
+	Kind KubernetesDeploymentOutput_Kind `protobuf:"varint,1,opt,name=kind,proto3,enum=codefly.services.builder.v0.KubernetesDeploymentOutput_Kind" json:"kind,omitempty"`
+	// profile is the versioned output profile used to render the tree.
+	Profile KubernetesOutputProfile `protobuf:"varint,2,opt,name=profile,proto3,enum=codefly.services.builder.v0.KubernetesOutputProfile" json:"profile,omitempty"`
+	// contract_version identifies the validator contract applied to the tree.
+	ContractVersion string `protobuf:"bytes,3,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
+	// validation reports whether the tree is safe to promote.
+	Validation    *KubernetesManifestValidation `protobuf:"bytes,4,opt,name=validation,proto3" json:"validation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *KubernetesDeploymentOutput) Reset() {
 	*x = KubernetesDeploymentOutput{}
-	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[3]
+	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -339,7 +619,7 @@ func (x *KubernetesDeploymentOutput) String() string {
 func (*KubernetesDeploymentOutput) ProtoMessage() {}
 
 func (x *KubernetesDeploymentOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[3]
+	mi := &file_codefly_services_builder_v0_deployment_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -352,7 +632,7 @@ func (x *KubernetesDeploymentOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KubernetesDeploymentOutput.ProtoReflect.Descriptor instead.
 func (*KubernetesDeploymentOutput) Descriptor() ([]byte, []int) {
-	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{3}
+	return file_codefly_services_builder_v0_deployment_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *KubernetesDeploymentOutput) GetKind() KubernetesDeploymentOutput_Kind {
@@ -360,6 +640,27 @@ func (x *KubernetesDeploymentOutput) GetKind() KubernetesDeploymentOutput_Kind {
 		return x.Kind
 	}
 	return KubernetesDeploymentOutput_KUSTOMIZE
+}
+
+func (x *KubernetesDeploymentOutput) GetProfile() KubernetesOutputProfile {
+	if x != nil {
+		return x.Profile
+	}
+	return KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED
+}
+
+func (x *KubernetesDeploymentOutput) GetContractVersion() string {
+	if x != nil {
+		return x.ContractVersion
+	}
+	return ""
+}
+
+func (x *KubernetesDeploymentOutput) GetValidation() *KubernetesManifestValidation {
+	if x != nil {
+		return x.Validation
+	}
+	return nil
 }
 
 var File_codefly_services_builder_v0_deployment_proto protoreflect.FileDescriptor
@@ -372,22 +673,55 @@ const file_codefly_services_builder_v0_deployment_proto_rawDesc = "" +
 	"\n" +
 	"kubernetes\x18\x02 \x01(\v21.codefly.services.builder.v0.KubernetesDeploymentH\x00R\n" +
 	"kubernetesB\x06\n" +
-	"\x04kind\"\xac\x01\n" +
+	"\x04kind\"`\n" +
+	"\x1cKubernetesSecretKeyReference\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12\x1a\n" +
+	"\boptional\x18\x03 \x01(\bR\boptional\"\xa4\x04\n" +
 	"\x14KubernetesDeployment\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12 \n" +
 	"\vdestination\x18\x02 \x01(\tR\vdestination\x12T\n" +
-	"\rbuild_context\x18\x03 \x01(\v2/.codefly.services.builder.v0.DockerBuildContextR\fbuildContext\"u\n" +
+	"\rbuild_context\x18\x03 \x01(\v2/.codefly.services.builder.v0.DockerBuildContextR\fbuildContext\x12N\n" +
+	"\aprofile\x18\x04 \x01(\x0e24.codefly.services.builder.v0.KubernetesOutputProfileR\aprofile\x12t\n" +
+	"\x11secret_references\x18\x05 \x03(\v2G.codefly.services.builder.v0.KubernetesDeployment.SecretReferencesEntryR\x10secretReferences\x120\n" +
+	"\x14validate_server_side\x18\x06 \x01(\bR\x12validateServerSide\x1a~\n" +
+	"\x15SecretReferencesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12O\n" +
+	"\x05value\x18\x02 \x01(\v29.codefly.services.builder.v0.KubernetesSecretKeyReferenceR\x05value:\x028\x01\"u\n" +
 	"\x10DeploymentOutput\x12Y\n" +
 	"\n" +
 	"kubernetes\x18\x02 \x01(\v27.codefly.services.builder.v0.KubernetesDeploymentOutputH\x00R\n" +
 	"kubernetesB\x06\n" +
-	"\x04kind\"\x85\x01\n" +
+	"\x04kind\"\xa1\x03\n" +
+	"\x1cKubernetesManifestValidation\x12m\n" +
+	"\x11static_validation\x18\x01 \x01(\x0e2@.codefly.services.builder.v0.KubernetesManifestValidation.StatusR\x10staticValidation\x12v\n" +
+	"\x16server_side_validation\x18\x02 \x01(\x0e2@.codefly.services.builder.v0.KubernetesManifestValidation.StatusR\x14serverSideValidation\x12\x1e\n" +
+	"\n" +
+	"promotable\x18\x03 \x01(\bR\n" +
+	"promotable\x12\x1e\n" +
+	"\n" +
+	"violations\x18\x04 \x03(\tR\n" +
+	"violations\"Z\n" +
+	"\x06Status\x12\x16\n" +
+	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rSTATUS_PASSED\x10\x01\x12\x11\n" +
+	"\rSTATUS_FAILED\x10\x02\x12\x12\n" +
+	"\x0eSTATUS_NOT_RUN\x10\x03\"\xdb\x02\n" +
 	"\x1aKubernetesDeploymentOutput\x12P\n" +
-	"\x04kind\x18\x01 \x01(\x0e2<.codefly.services.builder.v0.KubernetesDeploymentOutput.KindR\x04kind\"\x15\n" +
+	"\x04kind\x18\x01 \x01(\x0e2<.codefly.services.builder.v0.KubernetesDeploymentOutput.KindR\x04kind\x12N\n" +
+	"\aprofile\x18\x02 \x01(\x0e24.codefly.services.builder.v0.KubernetesOutputProfileR\aprofile\x12)\n" +
+	"\x10contract_version\x18\x03 \x01(\tR\x0fcontractVersion\x12Y\n" +
+	"\n" +
+	"validation\x18\x04 \x01(\v29.codefly.services.builder.v0.KubernetesManifestValidationR\n" +
+	"validation\"\x15\n" +
 	"\x04Kind\x12\r\n" +
 	"\tKUSTOMIZE\x10\x00*\x1f\n" +
 	"\x0eDeploymentKind\x12\r\n" +
-	"\tKUSTOMIZE\x10\x00B\x88\x02\n" +
+	"\tKUSTOMIZE\x10\x00*\xb0\x01\n" +
+	"\x17KubernetesOutputProfile\x12)\n" +
+	"%KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED\x10\x00\x126\n" +
+	"2KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1\x10\x01\x122\n" +
+	".KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1\x10\x02B\x88\x02\n" +
 	"\x1fcom.codefly.services.builder.v0B\x0fDeploymentProtoP\x01ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\xa2\x02\x04CSBV\xaa\x02\x1bCodefly.Services.Builder.V0\xca\x02\x1bCodefly\\Services\\Builder\\V0\xe2\x02'Codefly\\Services\\Builder\\V0\\GPBMetadata\xea\x02\x1eCodefly::Services::Builder::V0b\x06proto3"
 
 var (
@@ -402,27 +736,39 @@ func file_codefly_services_builder_v0_deployment_proto_rawDescGZIP() []byte {
 	return file_codefly_services_builder_v0_deployment_proto_rawDescData
 }
 
-var file_codefly_services_builder_v0_deployment_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_codefly_services_builder_v0_deployment_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_codefly_services_builder_v0_deployment_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_codefly_services_builder_v0_deployment_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_codefly_services_builder_v0_deployment_proto_goTypes = []any{
-	(DeploymentKind)(0),                  // 0: codefly.services.builder.v0.DeploymentKind
-	(KubernetesDeploymentOutput_Kind)(0), // 1: codefly.services.builder.v0.KubernetesDeploymentOutput.Kind
-	(*Deployment)(nil),                   // 2: codefly.services.builder.v0.Deployment
-	(*KubernetesDeployment)(nil),         // 3: codefly.services.builder.v0.KubernetesDeployment
-	(*DeploymentOutput)(nil),             // 4: codefly.services.builder.v0.DeploymentOutput
-	(*KubernetesDeploymentOutput)(nil),   // 5: codefly.services.builder.v0.KubernetesDeploymentOutput
-	(*DockerBuildContext)(nil),           // 6: codefly.services.builder.v0.DockerBuildContext
+	(DeploymentKind)(0),                      // 0: codefly.services.builder.v0.DeploymentKind
+	(KubernetesOutputProfile)(0),             // 1: codefly.services.builder.v0.KubernetesOutputProfile
+	(KubernetesManifestValidation_Status)(0), // 2: codefly.services.builder.v0.KubernetesManifestValidation.Status
+	(KubernetesDeploymentOutput_Kind)(0),     // 3: codefly.services.builder.v0.KubernetesDeploymentOutput.Kind
+	(*Deployment)(nil),                       // 4: codefly.services.builder.v0.Deployment
+	(*KubernetesSecretKeyReference)(nil),     // 5: codefly.services.builder.v0.KubernetesSecretKeyReference
+	(*KubernetesDeployment)(nil),             // 6: codefly.services.builder.v0.KubernetesDeployment
+	(*DeploymentOutput)(nil),                 // 7: codefly.services.builder.v0.DeploymentOutput
+	(*KubernetesManifestValidation)(nil),     // 8: codefly.services.builder.v0.KubernetesManifestValidation
+	(*KubernetesDeploymentOutput)(nil),       // 9: codefly.services.builder.v0.KubernetesDeploymentOutput
+	nil,                                      // 10: codefly.services.builder.v0.KubernetesDeployment.SecretReferencesEntry
+	(*DockerBuildContext)(nil),               // 11: codefly.services.builder.v0.DockerBuildContext
 }
 var file_codefly_services_builder_v0_deployment_proto_depIdxs = []int32{
-	3, // 0: codefly.services.builder.v0.Deployment.kubernetes:type_name -> codefly.services.builder.v0.KubernetesDeployment
-	6, // 1: codefly.services.builder.v0.KubernetesDeployment.build_context:type_name -> codefly.services.builder.v0.DockerBuildContext
-	5, // 2: codefly.services.builder.v0.DeploymentOutput.kubernetes:type_name -> codefly.services.builder.v0.KubernetesDeploymentOutput
-	1, // 3: codefly.services.builder.v0.KubernetesDeploymentOutput.kind:type_name -> codefly.services.builder.v0.KubernetesDeploymentOutput.Kind
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	6,  // 0: codefly.services.builder.v0.Deployment.kubernetes:type_name -> codefly.services.builder.v0.KubernetesDeployment
+	11, // 1: codefly.services.builder.v0.KubernetesDeployment.build_context:type_name -> codefly.services.builder.v0.DockerBuildContext
+	1,  // 2: codefly.services.builder.v0.KubernetesDeployment.profile:type_name -> codefly.services.builder.v0.KubernetesOutputProfile
+	10, // 3: codefly.services.builder.v0.KubernetesDeployment.secret_references:type_name -> codefly.services.builder.v0.KubernetesDeployment.SecretReferencesEntry
+	9,  // 4: codefly.services.builder.v0.DeploymentOutput.kubernetes:type_name -> codefly.services.builder.v0.KubernetesDeploymentOutput
+	2,  // 5: codefly.services.builder.v0.KubernetesManifestValidation.static_validation:type_name -> codefly.services.builder.v0.KubernetesManifestValidation.Status
+	2,  // 6: codefly.services.builder.v0.KubernetesManifestValidation.server_side_validation:type_name -> codefly.services.builder.v0.KubernetesManifestValidation.Status
+	3,  // 7: codefly.services.builder.v0.KubernetesDeploymentOutput.kind:type_name -> codefly.services.builder.v0.KubernetesDeploymentOutput.Kind
+	1,  // 8: codefly.services.builder.v0.KubernetesDeploymentOutput.profile:type_name -> codefly.services.builder.v0.KubernetesOutputProfile
+	8,  // 9: codefly.services.builder.v0.KubernetesDeploymentOutput.validation:type_name -> codefly.services.builder.v0.KubernetesManifestValidation
+	5,  // 10: codefly.services.builder.v0.KubernetesDeployment.SecretReferencesEntry.value:type_name -> codefly.services.builder.v0.KubernetesSecretKeyReference
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_builder_v0_deployment_proto_init() }
@@ -434,7 +780,7 @@ func file_codefly_services_builder_v0_deployment_proto_init() {
 	file_codefly_services_builder_v0_deployment_proto_msgTypes[0].OneofWrappers = []any{
 		(*Deployment_Kubernetes)(nil),
 	}
-	file_codefly_services_builder_v0_deployment_proto_msgTypes[2].OneofWrappers = []any{
+	file_codefly_services_builder_v0_deployment_proto_msgTypes[3].OneofWrappers = []any{
 		(*DeploymentOutput_Kubernetes)(nil),
 	}
 	type x struct{}
@@ -442,8 +788,8 @@ func file_codefly_services_builder_v0_deployment_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_builder_v0_deployment_proto_rawDesc), len(file_codefly_services_builder_v0_deployment_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   4,
+			NumEnums:      4,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

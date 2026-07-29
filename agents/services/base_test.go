@@ -12,10 +12,29 @@ import (
 
 	"github.com/codefly-dev/core/agents/helpers/code"
 	"github.com/codefly-dev/core/builders"
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDockerImageBuildDigestIsRequestScoped(t *testing.T) {
+	base := &Base{
+		Identity: &resources.ServiceIdentity{Module: "module", Name: "service"},
+		Service:  &resources.Service{Version: "1.2.3"},
+	}
+	digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	taggedBuild := &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"}
+	digestBuild := &builderv0.DockerBuildContext{DockerRepository: "registry.example.com", ImageDigest: digest}
+
+	base.SetDefaultDockerImage(taggedBuild)
+
+	pinned := base.DockerImage(digestBuild)
+	require.Equal(t, "registry.example.com/module/service@"+digest, pinned.FullName())
+	require.Equal(t, "registry.example.com/module/service:1.2.3", base.DockerImage(taggedBuild).FullName())
+	require.Equal(t, "registry.example.com/module/service@"+digest, pinned.FullName())
+}
 
 // countWatcherGoroutines counts the live goroutines belonging to a watcher:
 // the fsnotify Watcher.Start loop and the SetupWatcher debounce closure. It

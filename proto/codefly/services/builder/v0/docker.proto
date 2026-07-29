@@ -6,6 +6,8 @@ package codefly.services.builder.v0;
 message DockerBuildContext {
   // docker_repository is the image repository used for Docker builds.
   string docker_repository = 1;
+  // image_digest is the immutable sha256 manifest digest used for promotable output.
+  string image_digest = 2;
 }
 
 // DockerBuildResult captures Docker image references produced by a build.

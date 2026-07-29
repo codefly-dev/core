@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -53,16 +54,67 @@ name: widget
 
 func TestAssertKustomizeTemplates_RendersAndValidates(t *testing.T) {
 	templates := fstest.MapFS{
-		"templates/deployment/kustomize/base/kustomization.yaml.tmpl":                 {Data: []byte("resources:\n  - namespace.yaml\n")},
-		"templates/deployment/kustomize/base/namespace.yaml.tmpl":                     {Data: []byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {{ .Namespace }}\n")},
-		"templates/deployment/kustomize/overlays/environment/kustomization.yaml.tmpl": {Data: []byte("resources:\n  - ../../base\n")},
+		"templates/deployment/kustomize/base/kustomization.yaml.tmpl": {
+			Data: []byte("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - deployment.yaml\n"),
+		},
+		"templates/deployment/kustomize/base/deployment.yaml.tmpl": {Data: []byte(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Name }}
+  namespace: {{ .Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: service
+          image: {{ .Image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          startupProbe:
+            exec:
+              command: ["true"]
+          readinessProbe:
+            exec:
+              command: ["true"]
+          livenessProbe:
+            exec:
+              command: ["true"]
+`)},
+		"templates/deployment/kustomize/overlays/environment/kustomization.yaml.tmpl": {
+			Data: []byte("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ../../base\n"),
+		},
 	}
 	dir := agents_testing.AssertKustomizeTemplates(t, templates, nil)
-	content, err := os.ReadFile(filepath.Join(dir, "base", "namespace.yaml"))
+	content, err := os.ReadFile(filepath.Join(dir, "base", "deployment.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(content) != "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: codefly-test\n" {
-		t.Fatalf("unexpected rendered namespace:\n%s", content)
+	if !strings.Contains(string(content), "name: example-service") {
+		t.Fatalf("unexpected rendered deployment:\n%s", content)
 	}
 }

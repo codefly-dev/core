@@ -27,8 +27,10 @@ type DockerBuildContext struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// docker_repository is the image repository used for Docker builds.
 	DockerRepository string `protobuf:"bytes,1,opt,name=docker_repository,json=dockerRepository,proto3" json:"docker_repository,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// image_digest is the immutable sha256 manifest digest used for promotable output.
+	ImageDigest   string `protobuf:"bytes,2,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DockerBuildContext) Reset() {
@@ -64,6 +66,13 @@ func (*DockerBuildContext) Descriptor() ([]byte, []int) {
 func (x *DockerBuildContext) GetDockerRepository() string {
 	if x != nil {
 		return x.DockerRepository
+	}
+	return ""
+}
+
+func (x *DockerBuildContext) GetImageDigest() string {
+	if x != nil {
+		return x.ImageDigest
 	}
 	return ""
 }
@@ -118,9 +127,10 @@ var File_codefly_services_builder_v0_docker_proto protoreflect.FileDescriptor
 
 const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\n" +
-	"(codefly/services/builder/v0/docker.proto\x12\x1bcodefly.services.builder.v0\"A\n" +
+	"(codefly/services/builder/v0/docker.proto\x12\x1bcodefly.services.builder.v0\"d\n" +
 	"\x12DockerBuildContext\x12+\n" +
-	"\x11docker_repository\x18\x01 \x01(\tR\x10dockerRepository\"+\n" +
+	"\x11docker_repository\x18\x01 \x01(\tR\x10dockerRepository\x12!\n" +
+	"\fimage_digest\x18\x02 \x01(\tR\vimageDigest\"+\n" +
 	"\x11DockerBuildResult\x12\x16\n" +
 	"\x06images\x18\x01 \x03(\tR\x06imagesB\x84\x02\n" +
 	"\x1fcom.codefly.services.builder.v0B\vDockerProtoP\x01ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\xa2\x02\x04CSBV\xaa\x02\x1bCodefly.Services.Builder.V0\xca\x02\x1bCodefly\\Services\\Builder\\V0\xe2\x02'Codefly\\Services\\Builder\\V0\\GPBMetadata\xea\x02\x1eCodefly::Services::Builder::V0b\x06proto3"

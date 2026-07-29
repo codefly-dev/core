@@ -13,7 +13,6 @@ package testing
 import (
 	"context"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -94,18 +93,37 @@ func MissingField(field string) string {
 	return fmt.Sprintf("%s not populated (intentional for agents without this setting)", field)
 }
 
-// AssertKustomizeTemplates renders a plugin's embedded deployment templates
-// with representative config, secret, image, and plugin parameters. It then
-// validates every emitted YAML document and every local resource referenced by
-// a kustomization. This catches stale template-context fields, unexpanded Go
-// template expressions, malformed YAML, and dangling resource paths without a
-// Kubernetes cluster or external binary.
+// AssertKustomizeTemplates runs both v1 output profiles and the shared hostile
+// contract suite against a plugin's embedded deployment templates.
 //
 // The returned directory can be used for plugin-specific assertions:
 //
 //	dir := agenttesting.AssertKustomizeTemplates(t, deploymentFS, Parameters{})
 //	manifest, _ := os.ReadFile(filepath.Join(dir, "base", "deployment.yaml"))
 func AssertKustomizeTemplates(t *testing.T, templates fs.FS, parameters any) string {
+	t.Helper()
+	AssertKubernetesManifestContract(t)
+	ephemeral := assertKustomizeProfile(
+		t,
+		templates,
+		parameters,
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+	)
+	assertKustomizeProfile(
+		t,
+		templates,
+		parameters,
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+	)
+	return ephemeral
+}
+
+func assertKustomizeProfile(
+	t *testing.T,
+	templates fs.FS,
+	parameters any,
+	profile builderv0.KubernetesOutputProfile,
+) string {
 	t.Helper()
 	ctx := context.Background()
 	identity := &resources.ServiceIdentity{
@@ -119,73 +137,515 @@ func AssertKustomizeTemplates(t *testing.T, templates fs.FS, parameters any) str
 		Identity:    identity,
 		Information: &services.Information{Service: resources.ToServiceWithCase(identity), Module: resources.ToModuleWithCase(identity)},
 	}
-	base.SetDockerImage(resources.NewDockerImage("example/service:1.2.3"))
+	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+		base.SetDockerImage(&resources.DockerImage{
+			Name:   "example/service",
+			Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		})
+	} else {
+		base.SetDockerImage(resources.NewDockerImage("example/service:1.2.3"))
+	}
 	builder := &services.BuilderWrapper{Base: base}
 	base.Builder = builder
 
 	destination := t.TempDir()
-	deployment := &builderv0.KubernetesDeployment{Namespace: "codefly-test", Destination: destination}
+	deployment := &builderv0.KubernetesDeployment{
+		Namespace:   "codefly-test",
+		Destination: destination,
+		Profile:     profile,
+		SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{
+			"CODEFLY_TEST_SECRET": {Name: "example-service-secrets", Key: "test-secret"},
+		},
+	}
 	params := services.DeploymentParameters{
-		ConfigMap:  services.EnvironmentMap{"CODEFLY_TEST_VALUE": "value"},
-		SecretMap:  services.EnvironmentMap{"CODEFLY_TEST_SECRET": "c2VjcmV0"},
-		Parameters: parameters,
+		ConfigMap:        services.EnvironmentMap{"CODEFLY_TEST_VALUE": "value"},
+		SecretReferences: deployment.GetSecretReferences(),
+		Parameters:       parameters,
+	}
+	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 {
+		params.SecretMap = services.EnvironmentMap{"CODEFLY_TEST_SECRET": "c2VjcmV0"}
 	}
 	if err := builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, deployment, templates, params); err != nil {
-		t.Fatalf("render kustomize templates: %v", err)
+		t.Fatalf("render %s kustomize templates: %v", profile, err)
 	}
 
-	err := filepath.WalkDir(destination, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || (filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml") {
-			return nil
-		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if strings.Contains(string(content), "{{") || strings.Contains(string(content), "}}") {
-			return fmt.Errorf("%s contains an unexpanded template expression", path)
-		}
-		decoder := yaml.NewDecoder(strings.NewReader(string(content)))
-		for {
-			var document map[string]any
-			if err = decoder.Decode(&document); err == io.EOF {
-				break
+	validation := services.ValidateKubernetesManifestTree(ctx, destination, "test", "codefly-test", profile, false)
+	if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_PASSED {
+		t.Fatalf("%s static conformance failed:\n%s", profile, strings.Join(validation.GetViolations(), "\n"))
+	}
+	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 {
+		err := filepath.WalkDir(destination, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
 			}
+			if entry.IsDir() {
+				return nil
+			}
+			content, err := os.ReadFile(path)
 			if err != nil {
-				return fmt.Errorf("decode %s: %w", path, err)
+				return err
 			}
-			kind, _ := document["kind"].(string)
-			if kind == "Secret" || kind == "ConfigMap" {
-				if data, exists := document["data"]; exists {
-					if _, ok := data.(map[string]any); !ok {
-						return fmt.Errorf("%s %s.data must be a mapping, got %T", path, kind, data)
-					}
-				}
+			if strings.Contains(string(content), "c2VjcmV0") {
+				return fmt.Errorf("%s contains the hostile secret sentinel", path)
 			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-		if filepath.Base(path) == "kustomization.yaml" {
-			var kustomization struct {
-				Resources []string `yaml:"resources"`
-			}
-			if err = yaml.Unmarshal(content, &kustomization); err != nil {
-				return fmt.Errorf("decode resources in %s: %w", path, err)
-			}
-			for _, resource := range kustomization.Resources {
-				if strings.Contains(resource, "://") {
-					continue
-				}
-				if _, err = os.Stat(filepath.Clean(filepath.Join(filepath.Dir(path), resource))); err != nil {
-					return fmt.Errorf("resource %q from %s: %w", resource, path, err)
-				}
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 	return destination
 }
+
+// AssertKubernetesManifestContract exercises the common rejection cases every
+// official plugin must retain when it adopts AssertKustomizeTemplates.
+func AssertKubernetesManifestContract(t *testing.T) {
+	t.Helper()
+	positive := restrictedDeploymentManifest
+	positive += `
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: example-service-secrets
+  namespace: codefly-test
+spec:
+  secretStoreRef:
+    name: application-secrets
+    kind: SecretStore
+  data:
+    - secretKey: password
+      remoteRef:
+        key: applications/example-service
+        property: password
+`
+	assertContractResult(t, "positive", positive, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
+	currentRestricted := strings.Replace(
+		restrictedDeploymentManifest,
+		"        seccompProfile:\n          type: RuntimeDefault\n      containers:",
+		"        seccompProfile:\n          type: RuntimeDefault\n        sysctls:\n          - name: net.ipv4.tcp_keepalive_time\n            value: \"7200\"\n      containers:",
+		1,
+	)
+	currentRestricted = strings.Replace(
+		currentRestricted,
+		"readOnlyRootFilesystem: true",
+		"readOnlyRootFilesystem: true\n            seLinuxOptions:\n              type: container_engine_t",
+		1,
+	)
+	assertContractResult(t, "current restricted fields", currentRestricted, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
+
+	tests := []struct {
+		name     string
+		manifest string
+		contains string
+	}{
+		{
+			name:     "floating image",
+			manifest: strings.Replace(restrictedDeploymentManifest, restrictedImage, "example/service:latest", 1),
+			contains: "not pinned by sha256 digest",
+		},
+		{
+			name: "inline Secret data",
+			manifest: restrictedDeploymentManifest + `
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: inline-secret
+  namespace: codefly-test
+stringData:
+  password: hostile
+`,
+			contains: "emits a Secret resource",
+		},
+		{
+			name:     "service account token",
+			manifest: strings.Replace(restrictedDeploymentManifest, "automountServiceAccountToken: false", "automountServiceAccountToken: true", 1),
+			contains: "automountServiceAccountToken: false",
+		},
+		{
+			name:     "privilege escalation",
+			manifest: strings.Replace(restrictedDeploymentManifest, "allowPrivilegeEscalation: false", "allowPrivilegeEscalation: true", 1),
+			contains: "allowPrivilegeEscalation: false",
+		},
+		{
+			name:     "capabilities",
+			manifest: strings.Replace(restrictedDeploymentManifest, "drop:\n                - ALL", "drop: []", 1),
+			contains: "drop ALL capabilities",
+		},
+		{
+			name:     "host access",
+			manifest: strings.Replace(restrictedDeploymentManifest, "automountServiceAccountToken: false", "automountServiceAccountToken: false\n      hostNetwork: true", 1),
+			contains: "must not enable hostNetwork",
+		},
+		{
+			name: "replication controller pod policy",
+			manifest: `apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: example-service
+  namespace: codefly-test
+spec:
+  replicas: 1
+  selector:
+    app: example-service
+  template:
+    metadata:
+      labels:
+        app: example-service
+    spec:
+      containers:
+        - name: service
+          image: example/service:latest
+          securityContext:
+            privileged: true
+`,
+			contains: "must set automountServiceAccountToken: false",
+		},
+		{
+			name: "custom workload pod policy",
+			manifest: `apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: example-service
+  namespace: codefly-test
+spec:
+  template:
+    metadata:
+      labels:
+        app: example-service
+    spec:
+      containers:
+        - name: service
+          image: example/service:latest
+          securityContext:
+            privileged: true
+`,
+			contains: "must set automountServiceAccountToken: false",
+		},
+		{
+			name: "unconfined apparmor",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"readOnlyRootFilesystem: true",
+				"readOnlyRootFilesystem: true\n            appArmorProfile:\n              type: Unconfined",
+				1,
+			),
+			contains: "must not use an unconfined AppArmor profile",
+		},
+		{
+			name: "unconfined apparmor annotation",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"    metadata:\n      labels:",
+				"    metadata:\n      annotations:\n        container.apparmor.security.beta.kubernetes.io/service: unconfined\n      labels:",
+				1,
+			),
+			contains: "uses prohibited AppArmor annotation",
+		},
+		{
+			name: "prohibited selinux type",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"readOnlyRootFilesystem: true",
+				"readOnlyRootFilesystem: true\n            seLinuxOptions:\n              type: spc_t",
+				1,
+			),
+			contains: "uses prohibited SELinux type",
+		},
+		{
+			name: "unsafe sysctl",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"        seccompProfile:\n          type: RuntimeDefault\n      containers:",
+				"        seccompProfile:\n          type: RuntimeDefault\n        sysctls:\n          - name: net.ipv4.conf.all.accept_redirects\n            value: \"1\"\n      containers:",
+				1,
+			),
+			contains: "uses unsafe sysctl",
+		},
+		{
+			name: "prohibited volume type",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"      containers:",
+				"      volumes:\n        - name: shared\n          nfs:\n            server: 192.0.2.1\n            path: /exports\n      containers:",
+				1,
+			),
+			contains: "uses prohibited volume type",
+		},
+		{
+			name: "probe host access",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"          startupProbe:\n            exec:\n              command: [\"true\"]",
+				"          startupProbe:\n            httpGet:\n              host: 127.0.0.1\n              path: /\n              port: 8080",
+				1,
+			),
+			contains: "startupProbe must not set a host",
+		},
+		{
+			name: "unsafe service",
+			manifest: restrictedDeploymentManifest + `
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: example-service
+  namespace: codefly-test
+spec:
+  type: NodePort
+  selector:
+    app: example-service
+  ports:
+    - port: 8080
+      nodePort: 30080
+`,
+			contains: "unsafe service type",
+		},
+		{
+			name: "unowned namespace",
+			manifest: restrictedDeploymentManifest + `
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: codefly-test
+`,
+			contains: "app.kubernetes.io/managed-by",
+		},
+		{
+			name: "cluster RBAC",
+			manifest: restrictedDeploymentManifest + `
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hostile
+rules: []
+`,
+			contains: "prohibited cluster-scoped resource",
+		},
+		{
+			name:     "unresolved placeholder",
+			manifest: strings.Replace(restrictedDeploymentManifest, "name: example-service", "name: ${SERVICE_NAME}", 1),
+			contains: "unresolved placeholder",
+		},
+		{
+			name:     "missing resource bounds",
+			manifest: strings.Replace(restrictedDeploymentManifest, restrictedResources, "", 1),
+			contains: "has no resource requests or limits",
+		},
+		{
+			name:     "missing liveness",
+			manifest: strings.Replace(restrictedDeploymentManifest, restrictedLivenessProbe, "", 1),
+			contains: "valid livenessProbe",
+		},
+	}
+	for _, test := range tests {
+		assertContractResult(t, test.name, test.manifest, builderv0.KubernetesManifestValidation_STATUS_FAILED, test.contains)
+	}
+	assertInvalidKustomization(t)
+	assertExtensionlessPlaceholder(t)
+}
+
+func assertInvalidKustomization(t *testing.T) {
+	t.Helper()
+	t.Run("contract/invalid kustomization", func(t *testing.T) {
+		destination := t.TempDir()
+		base := filepath.Join(destination, "base")
+		overlay := filepath.Join(destination, "overlays", "test")
+		if err := os.MkdirAll(base, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(overlay, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(base, "kustomization.yaml"), []byte(
+			"apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - missing.yaml\n",
+		), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(overlay, "kustomization.yaml"), []byte(
+			"apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ../../base\n",
+		), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		validation := services.ValidateKubernetesManifestTree(
+			context.Background(),
+			destination,
+			"test",
+			"codefly-test",
+			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+			false,
+		)
+		if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_FAILED {
+			t.Fatalf("status = %s, want failed", validation.GetStaticValidation())
+		}
+		if !strings.Contains(strings.Join(validation.GetViolations(), "\n"), "kustomize build") {
+			t.Fatalf("violations do not report Kustomize failure: %v", validation.GetViolations())
+		}
+	})
+}
+
+func assertExtensionlessPlaceholder(t *testing.T) {
+	t.Helper()
+	t.Run("contract/extensionless placeholder", func(t *testing.T) {
+		destination := t.TempDir()
+		base := filepath.Join(destination, "base")
+		overlay := filepath.Join(destination, "overlays", "test")
+		if err := os.MkdirAll(base, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(overlay, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		files := map[string]string{
+			filepath.Join(base, "kustomization.yaml"): `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - workload
+`,
+			filepath.Join(base, "workload"): strings.Replace(
+				restrictedDeploymentManifest,
+				"name: example-service",
+				"name: ${SERVICE_NAME}",
+				1,
+			),
+			filepath.Join(overlay, "kustomization.yaml"): `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+`,
+		}
+		for path, content := range files {
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		validation := services.ValidateKubernetesManifestTree(
+			context.Background(),
+			destination,
+			"test",
+			"codefly-test",
+			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+			false,
+		)
+		if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_FAILED {
+			t.Fatalf("status = %s, want failed; violations: %v", validation.GetStaticValidation(), validation.GetViolations())
+		}
+		if !strings.Contains(strings.Join(validation.GetViolations(), "\n"), "unresolved placeholder") {
+			t.Fatalf("violations do not report unresolved placeholder: %v", validation.GetViolations())
+		}
+	})
+}
+
+func assertContractResult(
+	t *testing.T,
+	name string,
+	manifest string,
+	expected builderv0.KubernetesManifestValidation_Status,
+	contains string,
+) {
+	t.Helper()
+	t.Run("contract/"+name, func(t *testing.T) {
+		destination := t.TempDir()
+		base := filepath.Join(destination, "base")
+		overlay := filepath.Join(destination, "overlays", "test")
+		if err := os.MkdirAll(base, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(overlay, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		files := map[string]string{
+			filepath.Join(base, "kustomization.yaml"): `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - resources.yaml
+`,
+			filepath.Join(base, "resources.yaml"): manifest,
+			filepath.Join(overlay, "kustomization.yaml"): `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+`,
+		}
+		for path, content := range files {
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		validation := services.ValidateKubernetesManifestTree(
+			context.Background(),
+			destination,
+			"test",
+			"codefly-test",
+			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
+			false,
+		)
+		if validation.GetStaticValidation() != expected {
+			t.Fatalf("status = %s, want %s; violations: %v", validation.GetStaticValidation(), expected, validation.GetViolations())
+		}
+		if contains != "" && !strings.Contains(strings.Join(validation.GetViolations(), "\n"), contains) {
+			t.Fatalf("violations do not contain %q: %v", contains, validation.GetViolations())
+		}
+	})
+}
+
+const restrictedImage = "example/service@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+const restrictedResources = `          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+`
+
+const restrictedLivenessProbe = `          livenessProbe:
+            exec:
+              command: ["true"]
+`
+
+const restrictedDeploymentManifest = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-service
+  namespace: codefly-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: example-service
+  template:
+    metadata:
+      labels:
+        app: example-service
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: service
+          image: ` + restrictedImage + `
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+` + restrictedResources + `          startupProbe:
+            exec:
+              command: ["true"]
+          readinessProbe:
+            exec:
+              command: ["true"]
+` + restrictedLivenessProbe + `
+`
