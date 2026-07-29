@@ -237,7 +237,7 @@ func TestDeployKustomizeRejectsSecretConfigurationDataForGitOps(t *testing.T) {
 	require.Empty(t, entries)
 }
 
-func TestDeployKustomizeRendersSecretFreeGitOpsTreeAndRejectsWithoutServerValidation(t *testing.T) {
+func TestDeployKustomizeRendersPromotableSecretFreeGitOpsTreeWithoutClusterAccess(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
@@ -281,13 +281,12 @@ func TestDeployKustomizeRendersSecretFreeGitOpsTreeAndRejectsWithoutServerValida
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
-	require.Contains(t, response.GetState().GetMessage(), "requires successful server-side validation")
+	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState())
 	output := response.GetDeployment().GetKubernetes()
 	require.Equal(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1, output.GetProfile())
 	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_PASSED, output.GetValidation().GetStaticValidation())
 	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_NOT_RUN, output.GetValidation().GetServerSideValidation())
-	require.False(t, output.GetValidation().GetPromotable())
+	require.True(t, output.GetValidation().GetPromotable())
 	secretManifest, err := os.ReadFile(filepath.Join(destination, "base", "secret.yaml"))
 	require.NoError(t, err)
 	require.Empty(t, strings.TrimSpace(string(secretManifest)))
@@ -380,8 +379,7 @@ func TestDeployKustomizeDoesNotRetainSecretsBetweenRequests(t *testing.T) {
 		Parameters:           struct{ Name string }{Name: "gitops"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, gitOpsResponse.GetState().GetState())
-	require.Contains(t, gitOpsResponse.GetState().GetMessage(), "requires successful server-side validation")
+	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, gitOpsResponse.GetState().GetState())
 	require.NotContains(t, gitOpsResponse.GetState().GetMessage(), "cannot receive secret values")
 	secretManifest, err := os.ReadFile(filepath.Join(gitOpsDestination, "base", "secret.yaml"))
 	require.NoError(t, err)

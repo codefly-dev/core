@@ -144,7 +144,8 @@ func ValidateKubernetesManifestTree(
 
 	result.Promotable = profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 &&
 		result.StaticValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED &&
-		result.ServerSideValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED
+		(!validateServerSide ||
+			result.ServerSideValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED)
 	return result
 }
 
