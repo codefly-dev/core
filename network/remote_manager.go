@@ -95,60 +95,16 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 			continue
 		}
 
-		// Internal endpoints. Lookup order:
-		//
-		//   1. Declared DNS (a dns/<env>/dns.codefly.yaml entry — the
-		//      historical override path used to point services at
-		//      host.docker.internal during `codefly run`).
-		//
-		//   2. Cluster-internal DNS synthesized from the service's
-		//      Kubernetes Service name + namespace. This is what
-		//      "modern deploy" wants by default — an in-cluster app
-		//      should reach `<svc>.<ns>.svc.cluster.local` regardless
-		//      of any user-authored YAML.
-		//
-		//   3. Localhost fallback for `local*` environments without a
-		//      declared DNS — preserves the legacy `codefly run`
-		//      behavior on dev machines.
+		// Internal endpoints use a declared environment DNS contract when
+		// present. Otherwise Kubernetes service discovery is synthesized.
 		port := standards.Port(endpoint.Api)
 		dns, dnsErr := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
-		if dnsErr != nil && !env.Local() {
-			// Cluster envs: synthesize cluster-internal DNS so deploys
-			// don't depend on a user-authored dns.codefly.yaml file.
-			// Resolves issue #56 — saas-starter deploys hit "no DNS
-			// found" because their dns/ dirs are tuned for run, not
-			// for in-cluster k8s.
-			namespace, nsErr := m.GetNamespace(ctx, env, workspace, service)
-			if nsErr != nil {
-				return nil, nsErr
-			}
-			dns = &basev0.DNS{
-				Name:     service.Unique(),
-				Module:   service.Module,
-				Service:  service.Name,
-				Endpoint: endpoint.Name,
-				Host:     fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, namespace),
-				Port:     uint32(port),
-				Secured:  false,
-			}
-		} else if dnsErr != nil {
-			// local-env fallback: bind to localhost on the canonical
-			// port for the API kind.
-			dns = &basev0.DNS{
-				Name:     service.Unique(),
-				Module:   service.Module,
-				Service:  service.Name,
-				Endpoint: endpoint.Name,
-				Host:     "localhost",
-				Port:     uint32(port),
-				Secured:  false,
-			}
-		}
-		if dns != nil {
+		if dnsErr == nil && dns != nil {
 			nm.Instances = []*basev0.NetworkInstance{
-				PublicInstance(DNS(service, endpoint, dns)),
+				ContainerInstance(DNS(service, endpoint, dns)),
 			}
-			w.Debug("will expose public endpoint to load balancer", wool.Field("dns", dns))
+			out = append(out, nm)
+			continue
 		}
 
 		namespace, err := m.GetNamespace(ctx, env, workspace, service)
