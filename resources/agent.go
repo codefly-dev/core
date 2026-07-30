@@ -319,11 +319,18 @@ func (p *Agent) String() string {
 	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Name, p.Version)
 }
 
-func LoadAgent(ctx context.Context, action *basev0.Agent) (*Agent, error) {
+func LoadAgent(ctx context.Context, action *basev0.Agent, expectedKind AgentKind) (*Agent, error) {
 	w := wool.Get(ctx).In("LoadAgent")
 	agent, err := AgentFromProto(action)
 	if err != nil {
 		return nil, w.Wrapf(err, "invalid agent")
+	}
+	expected, err := AgentKindRegistrationFor(expectedKind)
+	if err != nil {
+		return nil, w.Wrapf(err, "invalid expected agent kind")
+	}
+	if agent.Kind != expected.Resource {
+		return nil, w.NewError("agent kind %s cannot be used as %s", agent.Kind, expected.Resource)
 	}
 	return agent, nil
 }

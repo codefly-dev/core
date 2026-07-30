@@ -161,10 +161,6 @@ func VerifyExecutable(binaryPath string, expected *resources.Agent) (*Verified, 
 	manifestPath := binaryPath + InstalledManifestSuffix
 	descriptorBytes, err := os.ReadFile(descriptorPath)
 	if err != nil {
-		layoutRoot := filepath.Dir(filepath.Dir(binaryPath))
-		if filepath.Base(filepath.Dir(binaryPath)) == "bin" {
-			return VerifyLayout(layoutRoot, expected)
-		}
 		return nil, fmt.Errorf("read installed provider artifact descriptor: %w", err)
 	}
 	descriptor, err := ParseDescriptor(descriptorBytes)

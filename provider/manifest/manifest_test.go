@@ -45,9 +45,30 @@ func TestManifestRequestDescriptorBindsPathAndOwnershipFields(t *testing.T) {
 	_, err := manifest.Load([]byte(unboundPath))
 	require.ErrorContains(t, err, "bind every path placeholder")
 
+	unsupportedPath := strings.Replace(validManifest, "{account_id}", "{AccountID}", 1)
+	_, err = manifest.Load([]byte(unsupportedPath))
+	require.ErrorContains(t, err, "unsupported placeholder")
+
 	unboundOwnership := strings.Replace(validManifest, "ownership_body_fields: [name]", "ownership_body_fields: [owner]", 1)
 	_, err = manifest.Load([]byte(unboundOwnership))
 	require.ErrorContains(t, err, "undeclared body field")
+}
+
+func TestManifestRequestDescriptorBindsPermissionCeiling(t *testing.T) {
+	unknown := strings.Replace(validManifest, "permissions: [account-observe]", "permissions: [missing]", 1)
+	_, err := manifest.Load([]byte(unknown))
+	require.ErrorContains(t, err, "unknown permission")
+
+	wrongResource := strings.Replace(validManifest, "resource_type: account\n      reason: Observe", "resource_type: other\n      reason: Observe", 1)
+	_, err = manifest.Load([]byte(wrongResource))
+	require.ErrorContains(t, err, "unknown resource_type")
+
+	uncoveredPurpose := strings.Replace(validManifest,
+		"risk: high\n      credential_purpose: management",
+		"risk: high\n      credential_purpose: runtime", 1)
+	uncoveredPurpose = strings.Replace(uncoveredPurpose, "permissions: [account-observe]", "permissions: [account-create]", 1)
+	_, err = manifest.Load([]byte(uncoveredPurpose))
+	require.ErrorContains(t, err, "undeclared credential purpose")
 }
 
 func TestRuntimeCatalogMustBeManifestSubsetAndDescriptorBound(t *testing.T) {
@@ -130,15 +151,16 @@ agent:
 default_deletion_policy: retain
 permissions:
   required:
-    - action: account.manage
+    - id: account-create
+      action: account.manage
       resource: "provider:fixture/${workspace}/${environment}/${binding}/account"
       resource_type: account
       reason: Reconcile the declared account.
       risk: high
       credential_purpose: management
-      production_mutation: true
   optional:
-    - action: account.observe
+    - id: account-observe
+      action: account.observe
       resource: "provider:fixture/${workspace}/${environment}/${binding}/account"
       resource_type: account
       reason: Observe the declared account.
@@ -152,6 +174,7 @@ resource_types:
     supports_delete: true
 requests:
   - id: account.observe
+    permissions: [account-observe]
     resource_type: account
     action: observe
     origin_rule: api
@@ -166,6 +189,7 @@ requests:
     response_schema: account
     credential_purposes: [management]
   - id: account.create
+    permissions: [account-create]
     resource_type: account
     action: create
     origin_rule: api

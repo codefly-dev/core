@@ -461,6 +461,9 @@ func resolveNixAgentBinary(outPath string, agent *resources.Agent) (string, erro
 	if _, err := os.Stat(candidate); err == nil {
 		return candidate, nil
 	}
+	if registration.Resolution.Nix == resources.AgentResolutionVerifiedArtifact {
+		return "", fmt.Errorf("verified nix output %s is missing expected executable %s", outPath, candidate)
+	}
 	// Fall back to the first executable under bin/.
 	entries, err := os.ReadDir(filepath.Join(outPath, "bin"))
 	if err != nil {

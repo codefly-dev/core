@@ -8,6 +8,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
 	"github.com/codefly-dev/core/provider/canonical"
+	"github.com/codefly-dev/core/provider/configuration"
 	providerstate "github.com/codefly-dev/core/provider/state"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,9 +27,6 @@ func NewBase(information *providerv0.GetProviderInformationResponse) (*Base, err
 	if information.GetArtifact().GetArtifactDigest() == "" || information.GetArtifact().GetManifestDigest() == "" ||
 		information.GetCatalog().GetDigest() == "" {
 		return nil, fmt.Errorf("provider information digests are required")
-	}
-	if information.GetArtifact().GetCatalogDigest() != information.GetCatalog().GetDigest() {
-		return nil, fmt.Errorf("provider information catalog digest mismatch")
 	}
 	return &Base{information: proto.Clone(information).(*providerv0.GetProviderInformationResponse)}, nil
 }
@@ -69,6 +67,10 @@ func Observation(material *providerv0.MaterialObservation, volatile *providerv0.
 
 func Plan(plan *providerv0.OrderedPlan) (*providerv0.OrderedPlan, error) {
 	return canonical.BindOrderedPlanDigest(plan)
+}
+
+func PlannedRequest(request *providerv0.PlannedRequest) (*providerv0.PlannedRequest, error) {
+	return canonical.BindPlannedRequestDigest(request)
 }
 
 func NewCreateAction(id string, position uint32, resourceType, prospectiveRemoteID string) (*providerv0.PlanAction, error) {
@@ -127,9 +129,19 @@ func DecodeFilteredResponse(response *providerv0.ExecuteRequestResponse) (map[st
 	if response == nil {
 		return nil, fmt.Errorf("broker response is required")
 	}
-	if response.GetDelivery() == providerv0.DeliveryState_DELIVERY_STATE_UNSPECIFIED ||
-		response.GetCertainty() == providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_UNSPECIFIED {
-		return nil, fmt.Errorf("broker response delivery and certainty are required")
+	switch response.GetDelivery() {
+	case providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT,
+		providerv0.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
+		providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED:
+	default:
+		return nil, fmt.Errorf("broker response delivery is unknown")
+	}
+	switch response.GetCertainty() {
+	case providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+		providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_PARTIAL,
+		providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN:
+	default:
+		return nil, fmt.Errorf("broker response certainty is unknown")
 	}
 	fields := make(map[string]*providerv0.PublicValue, len(response.GetForwarded()))
 	for i, field := range response.GetForwarded() {
@@ -154,10 +166,22 @@ func HandleCaptureResult(result *providerv0.CaptureResult) (*providerv0.OpaqueRe
 	if !result.GetCaptured() {
 		return nil, fmt.Errorf("capture %q is not durable", result.GetCaptureId())
 	}
-	if result.GetSinkReference() == nil || result.GetSinkReference().GetReference() == "" {
+	reference := result.GetSinkReference()
+	if reference == nil {
 		return nil, fmt.Errorf("capture %q has no opaque sink reference", result.GetCaptureId())
 	}
-	return proto.Clone(result.GetSinkReference()).(*providerv0.OpaqueReference), nil
+	if err := configuration.ValidateOpaqueReference(reference.GetReference()); err != nil {
+		return nil, fmt.Errorf("capture %q: %w", result.GetCaptureId(), err)
+	}
+	switch reference.GetPurpose() {
+	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
+		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+	default:
+		return nil, fmt.Errorf("capture %q has unknown credential purpose", result.GetCaptureId())
+	}
+	return proto.Clone(reference).(*providerv0.OpaqueReference), nil
 }
 
 func ValidateUpgrade(response *providerv0.UpgradeStateResponse, fromVersion, toVersion uint32) error {
@@ -165,8 +189,11 @@ func ValidateUpgrade(response *providerv0.UpgradeStateResponse, fromVersion, toV
 		return fmt.Errorf("state upgrade response is incomplete")
 	}
 	if toVersion != fromVersion+1 || response.GetRecord().GetFromVersion() != fromVersion ||
-		response.GetRecord().GetToVersion() != toVersion || response.GetState().GetStateSchemaVersion() != toVersion {
+		response.GetRecord().GetToVersion() != toVersion || response.GetState().GetSchemaVersion() != toVersion {
 		return fmt.Errorf("state upgrade must advance exactly one requested version")
+	}
+	if err := providerstate.ValidateVersioned(response.GetState(), toVersion); err != nil {
+		return fmt.Errorf("state upgrade result: %w", err)
 	}
 	return providerstate.ValidateUpgradeRecord(response.GetRecord())
 }

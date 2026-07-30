@@ -14,7 +14,10 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-var decimalPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$`)
+var (
+	decimalPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$`)
+	digestPattern  = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+)
 
 func Bytes(message proto.Message) ([]byte, error) {
 	if message == nil || !message.ProtoReflect().IsValid() {
@@ -136,6 +139,33 @@ func ValidatePlanAction(action *providerv0.PlanAction) error {
 	default:
 		return fmt.Errorf("unknown plan action ownership %d", action.GetOwnership())
 	}
+	for index, request := range action.GetRequests() {
+		computed, err := PlannedRequestDigest(request)
+		if err != nil {
+			return fmt.Errorf("planned request %d: %w", index, err)
+		}
+		if request.GetRequestDigest() != computed {
+			return fmt.Errorf("planned request %d digest mismatch", index)
+		}
+	}
+	if action.GetType() == providerv0.ActionType_ACTION_TYPE_PROJECT_OUTPUT {
+		if len(action.GetRequests()) != 0 {
+			return fmt.Errorf("project output action cannot contain broker requests")
+		}
+		output := action.GetOutput()
+		if output == nil || output.GetContract() == "" || output.GetTargetGeneration() == 0 {
+			return fmt.Errorf("project output action requires an exact output proposal")
+		}
+		computed, err := OutputProposalDigest(output)
+		if err != nil {
+			return err
+		}
+		if output.GetDigest() != computed {
+			return fmt.Errorf("project output proposal digest mismatch")
+		}
+	} else if action.GetOutput() != nil {
+		return fmt.Errorf("only project output actions may contain an output proposal")
+	}
 	return nil
 }
 
@@ -166,6 +196,127 @@ func OutputProposalDigest(proposal *providerv0.OutputProposal) (string, error) {
 	clone := proto.Clone(proposal).(*providerv0.OutputProposal)
 	clone.Digest = ""
 	return Digest(clone)
+}
+
+func PlannedRequestDigest(request *providerv0.PlannedRequest) (string, error) {
+	if request == nil {
+		return "", fmt.Errorf("planned request is required")
+	}
+	if request.GetRequestDescriptorId() == "" ||
+		!digestPattern.MatchString(request.GetRequestDescriptorDigest()) ||
+		!digestPattern.MatchString(request.GetAdmittedOriginDigest()) ||
+		!digestPattern.MatchString(request.GetResponsePolicyDigest()) {
+		return "", fmt.Errorf("planned request descriptor, origin, and response policy are required")
+	}
+	switch request.GetMethod() {
+	case providerv0.HTTPMethod_HTTP_METHOD_GET, providerv0.HTTPMethod_HTTP_METHOD_HEAD:
+	case providerv0.HTTPMethod_HTTP_METHOD_POST, providerv0.HTTPMethod_HTTP_METHOD_PUT,
+		providerv0.HTTPMethod_HTTP_METHOD_PATCH, providerv0.HTTPMethod_HTTP_METHOD_DELETE:
+		if request.GetIdempotencyKey() == "" {
+			return "", fmt.Errorf("mutating planned request requires an idempotency key")
+		}
+	default:
+		return "", fmt.Errorf("unknown planned request method %d", request.GetMethod())
+	}
+	seenPurposes := make(map[providerv0.CredentialPurpose]struct{}, len(request.GetCredentialPurposes()))
+	for _, purpose := range request.GetCredentialPurposes() {
+		switch purpose {
+		case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
+			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+		default:
+			return "", fmt.Errorf("unknown planned request credential purpose %d", purpose)
+		}
+		if _, duplicate := seenPurposes[purpose]; duplicate {
+			return "", fmt.Errorf("planned request credential purpose %s is duplicated", purpose)
+		}
+		seenPurposes[purpose] = struct{}{}
+	}
+	clone := proto.Clone(request).(*providerv0.PlannedRequest)
+	clone.RequestDigest = ""
+	return Digest(clone)
+}
+
+func BindPlannedRequestDigest(request *providerv0.PlannedRequest) (*providerv0.PlannedRequest, error) {
+	if request == nil {
+		return nil, fmt.Errorf("planned request is required")
+	}
+	clone := proto.Clone(request).(*providerv0.PlannedRequest)
+	computed, err := PlannedRequestDigest(clone)
+	if err != nil {
+		return nil, err
+	}
+	if clone.GetRequestDigest() != "" && clone.GetRequestDigest() != computed {
+		return nil, fmt.Errorf("planned request digest mismatch")
+	}
+	clone.RequestDigest = computed
+	return clone, nil
+}
+
+func ValidateExecuteRequest(action *providerv0.PlanAction, request *providerv0.ExecuteRequestRequest) error {
+	if err := ValidatePlanAction(action); err != nil {
+		return err
+	}
+	if request == nil || request.GetContext() == nil || request.GetRequest() == nil || request.GetOrigin() == nil {
+		return fmt.Errorf("execute request context, planned request, and origin are required")
+	}
+	operation := request.GetContext().GetOperation()
+	if operation == nil || operation.GetActionId() != action.GetActionId() {
+		return fmt.Errorf("execute request action identity does not match admitted action")
+	}
+	plannedDigest, err := PlannedRequestDigest(request.GetRequest())
+	if err != nil {
+		return err
+	}
+	if request.GetRequest().GetRequestDigest() != plannedDigest {
+		return fmt.Errorf("execute request digest mismatch")
+	}
+	admitted := false
+	for _, candidate := range action.GetRequests() {
+		if candidate.GetRequestDigest() == plannedDigest {
+			admitted = true
+			break
+		}
+	}
+	if !admitted {
+		return fmt.Errorf("execute request is not present in admitted action")
+	}
+	originDigest, err := AdmittedOriginDigest(request.GetOrigin())
+	if err != nil {
+		return err
+	}
+	if originDigest != request.GetRequest().GetAdmittedOriginDigest() ||
+		request.GetOrigin().GetAdmissionDigest() != originDigest {
+		return fmt.Errorf("execute request origin does not match admitted origin")
+	}
+	contextHandles := make(map[string]providerv0.CredentialPurpose, len(request.GetContext().GetCredentials()))
+	for _, handle := range request.GetContext().GetCredentials() {
+		if handle.GetHandle() == "" {
+			return fmt.Errorf("provider context contains an empty credential handle")
+		}
+		contextHandles[handle.GetHandle()] = handle.GetPurpose()
+	}
+	requestPurposes := make(map[providerv0.CredentialPurpose]struct{}, len(request.GetCredentialHandles()))
+	for _, handle := range request.GetCredentialHandles() {
+		purpose, exists := contextHandles[handle.GetHandle()]
+		if !exists || purpose != handle.GetPurpose() {
+			return fmt.Errorf("execute request credential handle is not present in provider context")
+		}
+		if _, duplicate := requestPurposes[purpose]; duplicate {
+			return fmt.Errorf("execute request credential purpose %s is duplicated", purpose)
+		}
+		requestPurposes[purpose] = struct{}{}
+	}
+	if len(requestPurposes) != len(request.GetRequest().GetCredentialPurposes()) {
+		return fmt.Errorf("execute request credential purposes do not match admitted request")
+	}
+	for _, purpose := range request.GetRequest().GetCredentialPurposes() {
+		if _, exists := requestPurposes[purpose]; !exists {
+			return fmt.Errorf("execute request credential purposes do not match admitted request")
+		}
+	}
+	return nil
 }
 
 func StateGenerationDigest(generation *providerv0.StateGeneration) (string, error) {
@@ -255,6 +406,23 @@ func validatePublicValues(message protoreflect.Message) error {
 			if !message.Get(kind).Bool() {
 				return fmt.Errorf("null_value must be true")
 			}
+		}
+	}
+	if message.Descriptor().FullName() == "codefly.services.provider.v0.OpaqueReference" {
+		reference := message.Interface().(*providerv0.OpaqueReference)
+		if err := configuration.ValidateOpaqueReference(reference.GetReference()); err != nil {
+			return err
+		}
+		switch reference.GetPurpose() {
+		case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
+			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+		default:
+			return fmt.Errorf("opaque reference has unknown credential purpose")
+		}
+		if reference.GetSafeFingerprint() != "" && !digestPattern.MatchString(reference.GetSafeFingerprint()) {
+			return fmt.Errorf("opaque reference safe fingerprint is not canonical")
 		}
 	}
 	var found error

@@ -1,6 +1,7 @@
 package sdk_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -34,6 +35,10 @@ func TestTypedActionsAndOutputProposal(t *testing.T) {
 	repeated, err := sdk.BindOutputProposal(bound)
 	require.NoError(t, err)
 	require.Equal(t, bound.Digest, repeated.Digest)
+
+	proposal.Values["STRIPE_SECRET_KEY"].GetOpaqueReference().Reference = "sk_live_1234567890abcdef"
+	_, err = sdk.BindOutputProposal(proposal)
+	require.ErrorContains(t, err, "opaque reference")
 }
 
 func TestFilteredResponseAndCaptureHelpersExposeOnlySafeValuesOrReferences(t *testing.T) {
@@ -60,28 +65,81 @@ func TestFilteredResponseAndCaptureHelpersExposeOnlySafeValuesOrReferences(t *te
 	capture.Captured = false
 	_, err = sdk.HandleCaptureResult(capture)
 	require.ErrorContains(t, err, "not durable")
+
+	capture.Captured = true
+	capture.SinkReference.Reference = "sk_live_1234567890abcdef"
+	_, err = sdk.HandleCaptureResult(capture)
+	require.ErrorContains(t, err, "opaque reference")
+
+	capture.SinkReference.Reference = "capture://sink/1"
+	capture.SinkReference.Purpose = providerv0.CredentialPurpose(99)
+	_, err = sdk.HandleCaptureResult(capture)
+	require.ErrorContains(t, err, "unknown credential purpose")
 }
 
-func TestProviderBaseRejectsCatalogOrArtifactMismatch(t *testing.T) {
+func TestFilteredResponseRejectsUnknownDeliveryAndCertaintyEnums(t *testing.T) {
+	response := &providerv0.ExecuteRequestResponse{
+		Delivery:  providerv0.DeliveryState(99),
+		Certainty: providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+	}
+	_, err := sdk.DecodeFilteredResponse(response)
+	require.ErrorContains(t, err, "delivery is unknown")
+
+	response.Delivery = providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT
+	response.Certainty = providerv0.OutcomeCertainty(99)
+	_, err = sdk.DecodeFilteredResponse(response)
+	require.ErrorContains(t, err, "certainty is unknown")
+}
+
+func TestProviderInformationBootstrapsCatalogFromVerifiedArtifactIdentity(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("1", 64)
-	_, err := sdk.NewBase(&providerv0.GetProviderInformationResponse{
+	information := &providerv0.GetProviderInformationResponse{
 		Artifact: &providerv0.AgentArtifactIdentity{
-			ArtifactDigest: digest, ManifestDigest: digest, CatalogDigest: digest,
+			Publisher: "codefly.dev", Name: "fixture", Version: "1.2.3",
+			ArtifactDigest: digest, ManifestDigest: digest,
 		},
 		Catalog: &providerv0.RuntimeCatalog{Digest: "sha256:" + strings.Repeat("2", 64)},
+	}
+	base, err := sdk.NewBase(information)
+	require.NoError(t, err)
+	response, err := base.GetProviderInformation(context.Background(), &providerv0.GetProviderInformationRequest{
+		Artifact: information.Artifact,
 	})
-	require.ErrorContains(t, err, "catalog digest mismatch")
+	require.NoError(t, err)
+	require.Equal(t, information.Catalog.Digest, response.Catalog.Digest)
+
+	mismatch := &providerv0.AgentArtifactIdentity{
+		Publisher: "codefly.dev", Name: "fixture", Version: "1.2.4",
+		ArtifactDigest: digest, ManifestDigest: digest,
+	}
+	_, err = base.GetProviderInformation(context.Background(), &providerv0.GetProviderInformationRequest{Artifact: mismatch})
+	require.ErrorContains(t, err, "artifact identity mismatch")
 }
 
 func TestValidateUpgradeRequiresOneExactOfflineStep(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("1", 64)
+	upgraded := &providerv0.ProviderStateV1{
+		StateSchemaVersion: 1, Generation: 1,
+		Binding:    &providerv0.BindingAddress{WorkspaceId: "workspace", EnvironmentId: "environment", BindingId: "binding"},
+		ProviderId: "codefly.dev/fixture", ProviderVersion: "1.2.3",
+		ManifestSchemaVersion: "codefly.provider-manifest/v0", ManifestDigest: digest, ArtifactDigest: digest,
+		Ownership: providerv0.Ownership_OWNERSHIP_OBSERVED,
+	}
 	response := &providerv0.UpgradeStateResponse{
-		State: &providerv0.ProviderStateV1{StateSchemaVersion: 2},
+		State: &providerv0.ProviderState{
+			SchemaVersion: 1,
+			Schema:        &providerv0.ProviderState_V1{V1: upgraded},
+		},
 		Record: &providerv0.UpgradeRecord{
-			FromVersion: 1, ToVersion: 2, AgentVersion: "2.0.0",
+			FromVersion: 0, ToVersion: 1, AgentVersion: "2.0.0",
 			ArtifactDigest: digest, PriorDigest: digest, ResultDigest: digest, UpgradedAt: timestamppb.Now(),
 		},
 	}
-	require.NoError(t, sdk.ValidateUpgrade(response, 1, 2))
-	require.ErrorContains(t, sdk.ValidateUpgrade(response, 1, 3), "exactly one")
+	require.NoError(t, sdk.ValidateUpgrade(response, 0, 1))
+	require.ErrorContains(t, sdk.ValidateUpgrade(response, 0, 2), "exactly one")
+
+	response.State.SchemaVersion = 2
+	response.Record.FromVersion = 1
+	response.Record.ToVersion = 2
+	require.ErrorContains(t, sdk.ValidateUpgrade(response, 1, 2), "does not match v1 payload")
 }

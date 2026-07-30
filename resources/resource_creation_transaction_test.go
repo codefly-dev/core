@@ -144,6 +144,33 @@ func TestNewApplicationRollsBackDirectoryAndReferenceWhenModuleSaveFails(t *test
 	}
 }
 
+func TestResourceCreationRejectsWrongAgentKind(t *testing.T) {
+	ctx := context.Background()
+	mod := &Module{Kind: ModuleKind, Name: "module", dir: t.TempDir()}
+
+	_, err := mod.NewService(ctx, &actionsv0.AddService{
+		Name:  "service",
+		Agent: testResourceAgent(basev0.Agent_PROVIDER),
+	})
+	if err == nil {
+		t.Fatal("provider agent was accepted as a service agent")
+	}
+	if _, statErr := os.Stat(filepath.Join(mod.dir, "services", "service")); !os.IsNotExist(statErr) {
+		t.Fatalf("service directory was created before rejecting provider agent: %v", statErr)
+	}
+
+	_, err = mod.NewApplication(ctx, &actionsv0.AddApplication{
+		Name:  "application",
+		Agent: testResourceAgent(basev0.Agent_SERVICE),
+	})
+	if err == nil {
+		t.Fatal("service agent was accepted as an application agent")
+	}
+	if _, statErr := os.Stat(filepath.Join(mod.dir, "applications", "application")); !os.IsNotExist(statErr) {
+		t.Fatalf("application directory was created before rejecting service agent: %v", statErr)
+	}
+}
+
 func TestNewResourcesDoNotClobberUnreferencedDirectories(t *testing.T) {
 	ctx := context.Background()
 	for name, test := range map[string]struct {

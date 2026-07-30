@@ -62,13 +62,13 @@ type PermissionDeclarations struct {
 }
 
 type Permission struct {
-	Action             string `yaml:"action" json:"action"`
-	Resource           string `yaml:"resource" json:"resource"`
-	ResourceType       string `yaml:"resource_type" json:"resource_type"`
-	Reason             string `yaml:"reason" json:"reason"`
-	Risk               string `yaml:"risk" json:"risk"`
-	CredentialPurpose  string `yaml:"credential_purpose,omitempty" json:"credential_purpose,omitempty"`
-	ProductionMutation bool   `yaml:"production_mutation,omitempty" json:"production_mutation,omitempty"`
+	ID                string `yaml:"id" json:"id"`
+	Action            string `yaml:"action" json:"action"`
+	Resource          string `yaml:"resource" json:"resource"`
+	ResourceType      string `yaml:"resource_type" json:"resource_type"`
+	Reason            string `yaml:"reason" json:"reason"`
+	Risk              string `yaml:"risk" json:"risk"`
+	CredentialPurpose string `yaml:"credential_purpose,omitempty" json:"credential_purpose,omitempty"`
 }
 
 type ResourceType struct {
@@ -81,6 +81,7 @@ type ResourceType struct {
 
 type RequestDescriptor struct {
 	ID                  string   `yaml:"id" json:"id"`
+	Permissions         []string `yaml:"permissions" json:"permissions"`
 	ResourceType        string   `yaml:"resource_type" json:"resource_type"`
 	Action              string   `yaml:"action" json:"action"`
 	OriginRule          string   `yaml:"origin_rule" json:"origin_rule"`
@@ -282,6 +283,11 @@ func (m *Manifest) Validate() error {
 		purposes[purpose.ID] = purpose
 	}
 
+	permissions, err := validatePermissions(m.Permissions, resourceTypes, purposes)
+	if err != nil {
+		return err
+	}
+
 	responseSchemas := make(map[string]ResponseSchema, len(m.ResponseSchemas))
 	for i, schema := range m.ResponseSchemas {
 		if !idPattern.MatchString(schema.ID) || len(schema.Fields) == 0 {
@@ -317,14 +323,20 @@ func (m *Manifest) Validate() error {
 	}
 
 	requests := make(map[string]RequestDescriptor, len(m.Requests))
+	mutationPermissions := make(map[string]struct{})
 	for i, descriptor := range m.Requests {
-		if err := validateRequestDescriptor(i, descriptor, resourceTypes, originRules, purposes, responseSchemas); err != nil {
+		if err := validateRequestDescriptor(i, descriptor, resourceTypes, originRules, purposes, responseSchemas, permissions); err != nil {
 			return err
 		}
 		if _, duplicate := requests[descriptor.ID]; duplicate {
 			return fmt.Errorf("requests[%d].id %q is duplicated", i, descriptor.ID)
 		}
 		requests[descriptor.ID] = descriptor
+		if !descriptor.ReadOnly {
+			for _, permissionID := range descriptor.Permissions {
+				mutationPermissions[permissionID] = struct{}{}
+			}
+		}
 	}
 
 	projectionContracts := make(map[string]struct{}, len(m.Projections))
@@ -344,17 +356,18 @@ func (m *Manifest) Validate() error {
 	if !slices.Equal(m.State.SchemaVersions, m.StateSchemaVersions) {
 		return fmt.Errorf("state.schema_versions must match state_schema_versions")
 	}
-	if err := validatePermissions(m.Agent.Name, m.Permissions, resourceTypes, purposes); err != nil {
+	if err := validateProductionMutationPermissions(m.Agent.Name, permissions, mutationPermissions); err != nil {
 		return err
 	}
 	return nil
 }
 
-func validatePermissions(provider string, declarations PermissionDeclarations, resourceTypes map[string]ResourceType, purposes map[string]CredentialPurpose) error {
+func validatePermissions(declarations PermissionDeclarations, resourceTypes map[string]ResourceType, purposes map[string]CredentialPurpose) (map[string]Permission, error) {
 	if len(declarations.Required) == 0 {
-		return fmt.Errorf("permissions.required must not be empty")
+		return nil, fmt.Errorf("permissions.required must not be empty")
 	}
-	seen := make(map[string]struct{}, len(declarations.Required)+len(declarations.Optional))
+	permissions := make(map[string]Permission, len(declarations.Required)+len(declarations.Optional))
+	seenCeilings := make(map[string]struct{}, len(declarations.Required)+len(declarations.Optional))
 	for _, group := range []struct {
 		name        string
 		permissions []Permission
@@ -363,40 +376,49 @@ func validatePermissions(provider string, declarations PermissionDeclarations, r
 		{name: "optional", permissions: declarations.Optional},
 	} {
 		for i, permission := range group.permissions {
-			if !idPattern.MatchString(permission.Action) || strings.TrimSpace(permission.Reason) == "" {
-				return fmt.Errorf("permissions.%s[%d] requires a valid action and reason", group.name, i)
+			if !idPattern.MatchString(permission.ID) || !idPattern.MatchString(permission.Action) || strings.TrimSpace(permission.Reason) == "" {
+				return nil, fmt.Errorf("permissions.%s[%d] requires a valid id, action, and reason", group.name, i)
+			}
+			if _, duplicate := permissions[permission.ID]; duplicate {
+				return nil, fmt.Errorf("permissions.%s[%d].id %q is duplicated", group.name, i, permission.ID)
 			}
 			if _, ok := resourceTypes[permission.ResourceType]; !ok {
-				return fmt.Errorf("permissions.%s[%d] references unknown resource_type %q", group.name, i, permission.ResourceType)
+				return nil, fmt.Errorf("permissions.%s[%d] references unknown resource_type %q", group.name, i, permission.ResourceType)
 			}
 			switch permission.Risk {
 			case policy.RiskLevelLow, policy.RiskLevelMedium, policy.RiskLevelHigh, policy.RiskLevelCritical:
 			default:
-				return fmt.Errorf("permissions.%s[%d].risk is invalid", group.name, i)
+				return nil, fmt.Errorf("permissions.%s[%d].risk is invalid", group.name, i)
 			}
 			if permission.CredentialPurpose != "" {
 				if _, ok := purposes[permission.CredentialPurpose]; !ok {
-					return fmt.Errorf("permissions.%s[%d] references unknown credential purpose %q", group.name, i, permission.CredentialPurpose)
+					return nil, fmt.Errorf("permissions.%s[%d] references unknown credential purpose %q", group.name, i, permission.CredentialPurpose)
 				}
 			}
-			key := permission.Action + "\x00" + permission.Resource
-			if _, duplicate := seen[key]; duplicate {
-				return fmt.Errorf("permissions.%s[%d] duplicates action/resource", group.name, i)
+			key := permission.Action + "\x00" + permission.Resource + "\x00" + permission.CredentialPurpose
+			if _, duplicate := seenCeilings[key]; duplicate {
+				return nil, fmt.Errorf("permissions.%s[%d] duplicates action/resource/credential purpose", group.name, i)
 			}
-			seen[key] = struct{}{}
-			if permission.ProductionMutation {
-				if permission.Resource == "*" || permission.Resource == "provider:"+provider+"/*" {
-					return fmt.Errorf("permissions.%s[%d] production mutation cannot use broad resource %q", group.name, i, permission.Resource)
-				}
-				for _, binding := range []string{"${workspace}", "${environment}", "${binding}"} {
-					if !strings.Contains(permission.Resource, binding) {
-						return fmt.Errorf("permissions.%s[%d] production mutation resource must bind %s", group.name, i, binding)
-					}
-				}
-				if !strings.Contains(permission.Resource, permission.ResourceType) && !strings.Contains(permission.Resource, "${resource_type}") {
-					return fmt.Errorf("permissions.%s[%d] production mutation resource must bind resource type", group.name, i)
-				}
+			seenCeilings[key] = struct{}{}
+			permissions[permission.ID] = permission
+		}
+	}
+	return permissions, nil
+}
+
+func validateProductionMutationPermissions(provider string, permissions map[string]Permission, mutations map[string]struct{}) error {
+	for permissionID := range mutations {
+		permission := permissions[permissionID]
+		if permission.Resource == "*" || permission.Resource == "provider:"+provider+"/*" {
+			return fmt.Errorf("production mutation permission %q cannot use broad resource %q", permissionID, permission.Resource)
+		}
+		for _, binding := range []string{"${workspace}", "${environment}", "${binding}"} {
+			if !strings.Contains(permission.Resource, binding) {
+				return fmt.Errorf("production mutation permission %q resource must bind %s", permissionID, binding)
 			}
+		}
+		if !strings.Contains(permission.Resource, permission.ResourceType) && !strings.Contains(permission.Resource, "${resource_type}") {
+			return fmt.Errorf("production mutation permission %q resource must bind resource type", permissionID)
 		}
 	}
 	return nil
@@ -463,7 +485,7 @@ func validateOriginRule(index int, rule OriginRule) error {
 	return nil
 }
 
-func validateRequestDescriptor(index int, descriptor RequestDescriptor, resourcesByID map[string]ResourceType, origins map[string]OriginRule, purposes map[string]CredentialPurpose, responses map[string]ResponseSchema) error {
+func validateRequestDescriptor(index int, descriptor RequestDescriptor, resourcesByID map[string]ResourceType, origins map[string]OriginRule, purposes map[string]CredentialPurpose, responses map[string]ResponseSchema, permissions map[string]Permission) error {
 	if !idPattern.MatchString(descriptor.ID) || !idPattern.MatchString(descriptor.Operation) {
 		return fmt.Errorf("requests[%d] requires valid id and operation", index)
 	}
@@ -493,6 +515,9 @@ func validateRequestDescriptor(index int, descriptor RequestDescriptor, resource
 	for _, match := range bound {
 		parameters = append(parameters, match[1])
 	}
+	if unresolved := pathParameter.ReplaceAllString(descriptor.PathTemplate, ""); strings.ContainsAny(unresolved, "{}") {
+		return fmt.Errorf("requests[%d].path_template contains an unsupported placeholder", index)
+	}
 	sort.Strings(parameters)
 	remoteIDs := append([]string(nil), descriptor.RemoteIDParameters...)
 	sort.Strings(remoteIDs)
@@ -500,6 +525,7 @@ func validateRequestDescriptor(index int, descriptor RequestDescriptor, resource
 		return fmt.Errorf("requests[%d].remote_id_parameters must bind every path placeholder exactly", index)
 	}
 	for fieldName, fields := range map[string][]string{
+		"permissions":           descriptor.Permissions,
 		"remote_id_parameters":  descriptor.RemoteIDParameters,
 		"allowed_query_fields":  descriptor.AllowedQueryFields,
 		"allowed_body_fields":   descriptor.AllowedBodyFields,
@@ -518,6 +544,37 @@ func validateRequestDescriptor(index int, descriptor RequestDescriptor, resource
 	for _, purpose := range descriptor.CredentialPurposes {
 		if _, ok := purposes[purpose]; !ok {
 			return fmt.Errorf("requests[%d] references unknown credential purpose %q", index, purpose)
+		}
+	}
+	coveredPurposes := make(map[string]struct{}, len(descriptor.Permissions))
+	for _, permissionID := range descriptor.Permissions {
+		permission, ok := permissions[permissionID]
+		if !ok {
+			return fmt.Errorf("requests[%d] references unknown permission %q", index, permissionID)
+		}
+		if permission.ResourceType != descriptor.ResourceType {
+			return fmt.Errorf("requests[%d] permission %q has a different resource_type", index, permissionID)
+		}
+		if permission.CredentialPurpose == "" {
+			if len(descriptor.CredentialPurposes) != 0 {
+				return fmt.Errorf("requests[%d] permission %q does not bind a credential purpose", index, permissionID)
+			}
+		} else if !slices.Contains(descriptor.CredentialPurposes, permission.CredentialPurpose) {
+			return fmt.Errorf("requests[%d] permission %q binds an undeclared credential purpose", index, permissionID)
+		}
+		coveredPurposes[permission.CredentialPurpose] = struct{}{}
+	}
+	if len(descriptor.Permissions) == 0 {
+		return fmt.Errorf("requests[%d] must bind at least one permission", index)
+	}
+	if len(descriptor.CredentialPurposes) == 0 {
+		if _, covered := coveredPurposes[""]; !covered {
+			return fmt.Errorf("requests[%d] permission does not cover its credential-free request", index)
+		}
+	}
+	for _, purpose := range descriptor.CredentialPurposes {
+		if _, covered := coveredPurposes[purpose]; !covered {
+			return fmt.Errorf("requests[%d] permissions do not cover credential purpose %q", index, purpose)
 		}
 	}
 	if descriptor.RequestByteBudget == 0 || descriptor.ResponseByteBudget == 0 {
@@ -734,6 +791,7 @@ func RequestDescriptorDigest(descriptor RequestDescriptor) (string, error) {
 }
 
 func normalizeRequestDescriptor(descriptor *RequestDescriptor) {
+	descriptor.Permissions = sortedStrings(descriptor.Permissions)
 	descriptor.RemoteIDParameters = sortedStrings(descriptor.RemoteIDParameters)
 	descriptor.AllowedQueryFields = sortedStrings(descriptor.AllowedQueryFields)
 	descriptor.AllowedBodyFields = sortedStrings(descriptor.AllowedBodyFields)
@@ -808,11 +866,7 @@ func sortedUint32(values []uint32) []uint32 {
 
 func sortedPermissions(values []Permission) []Permission {
 	out := append([]Permission(nil), values...)
-	sort.Slice(out, func(i, j int) bool {
-		left := out[i].Action + "\x00" + out[i].Resource
-		right := out[j].Action + "\x00" + out[j].Resource
-		return left < right
-	})
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 

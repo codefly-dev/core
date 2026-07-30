@@ -281,8 +281,6 @@ message AgentArtifactIdentity {
   string artifact_digest = 4;
   // manifest_digest is the packaged provider manifest digest.
   string manifest_digest = 5;
-  // catalog_digest is the admitted runtime catalog digest.
-  string catalog_digest = 6;
 }
 
 // BindingAddress is the environment-scoped provider binding identity.
@@ -466,7 +464,7 @@ message ValidateRequest {
   // context contains identity and normalized non-secret input.
   OfflineProviderContext context = 1;
   // previous_state is safe provider state when validation needs schema context.
-  ProviderStateV1 previous_state = 2;
+  ProviderState previous_state = 2;
 }
 
 // ValidateResponse reports normalized diagnostics.
@@ -538,7 +536,7 @@ message ObserveRequest {
   // context carries admitted read-only handles and budget.
   ProviderContext context = 1;
   // state is the current safe provider state.
-  ProviderStateV1 state = 2;
+  ProviderState state = 2;
   // cursor continues an explicitly incomplete observation.
   string cursor = 3;
 }
@@ -625,18 +623,14 @@ message PlanAction {
   string prospective_remote_id = 6;
   // ownership is the resulting ownership.
   Ownership ownership = 7;
-  // request_descriptor_id is the exact manifest request descriptor.
-  string request_descriptor_id = 8;
-  // request_descriptor_digest binds the descriptor definition.
-  string request_descriptor_digest = 9;
-  // admitted_origin_digest binds the concrete endpoint.
-  string admitted_origin_digest = 10;
+  // requests are the exact broker requests admitted for this action.
+  repeated PlannedRequest requests = 8;
+  // output is the exact host-executed projection for PROJECT_OUTPUT.
+  OutputProposal output = 9;
   // preconditions are exact material action preconditions.
-  repeated ActionPrecondition preconditions = 11;
-  // idempotency_key is stable across coordinator retries.
-  string idempotency_key = 12;
+  repeated ActionPrecondition preconditions = 10;
   // summary is a safe human-readable action summary.
-  string summary = 13;
+  string summary = 11;
 }
 
 // OrderedPlan is the canonical exact action sequence.
@@ -680,7 +674,7 @@ message PlanRequest {
   // policy_input is the host policy and approval input.
   PolicyApprovalInput policy_input = 6;
   // state is the current safe provider state.
-  ProviderStateV1 state = 7;
+  ProviderState state = 7;
 }
 
 // PlanResponse returns one exact ordered plan.
@@ -746,7 +740,7 @@ message ApplyActionRequest {
   // prior_checkpoint carries durable recovery state.
   ActionCheckpoint prior_checkpoint = 4;
   // state is the current safe provider state.
-  ProviderStateV1 state = 5;
+  ProviderState state = 5;
 }
 
 // ApplyActionResponse returns the exact action receipt and next state.
@@ -754,7 +748,7 @@ message ApplyActionResponse {
   // receipt is the durable action result.
   ActionReceipt receipt = 1;
   // next_state is safe provider state after this action.
-  ProviderStateV1 next_state = 2;
+  ProviderState next_state = 2;
 }
 
 // DoctorRequest asks for admitted read-only provider diagnostics.
@@ -762,7 +756,7 @@ message DoctorRequest {
   // context carries admitted read-only handles and budget.
   ProviderContext context = 1;
   // state is the current safe provider state.
-  ProviderStateV1 state = 2;
+  ProviderState state = 2;
 }
 
 // DoctorResponse returns bounded diagnostics only.
@@ -791,32 +785,46 @@ enum HTTPMethod {
   HTTP_METHOD_DELETE = 6;
 }
 
+// PlannedRequest is the immutable request material admitted in an ordered plan.
+message PlannedRequest {
+  // request_descriptor_id selects one packaged descriptor.
+  string request_descriptor_id = 1;
+  // request_descriptor_digest binds the exact descriptor.
+  string request_descriptor_digest = 2;
+  // method must match the descriptor.
+  HTTPMethod method = 3;
+  // admitted_origin_digest binds the exact host-attested origin.
+  string admitted_origin_digest = 4;
+  // path_parameters bind every concrete path placeholder.
+  map<string, PublicValue> path_parameters = 5;
+  // query contains only descriptor-allowed fields.
+  map<string, PublicValue> query = 6;
+  // body contains only descriptor-allowed structured fields.
+  map<string, PublicValue> body = 7;
+  // credential_purposes bind the purposes of the handles supplied at execution.
+  repeated CredentialPurpose credential_purposes = 8;
+  // response_policy_digest binds filtering and capture policy.
+  string response_policy_digest = 9;
+  // idempotency_key is stable across coordinator retries.
+  string idempotency_key = 10;
+  // request_digest is computed over every field above with this field cleared.
+  string request_digest = 11;
+}
+
 // ExecuteRequestRequest is one structured manifest-declared broker request.
 message ExecuteRequestRequest {
   // context binds the request to the operation and admitted origin.
   ProviderContext context = 1;
   // request_id is the provider-generated callback identity.
   string request_id = 2;
-  // request_descriptor_id selects one packaged descriptor.
-  string request_descriptor_id = 3;
-  // request_descriptor_digest binds the exact descriptor.
-  string request_descriptor_digest = 4;
-  // method must match the descriptor.
-  HTTPMethod method = 5;
+  // request is byte-for-byte material from the admitted plan.
+  PlannedRequest request = 3;
   // origin is the host-admitted concrete origin.
-  AdmittedOrigin origin = 6;
-  // path_parameters bind declared remote-ID placeholders.
-  map<string, PublicValue> path_parameters = 7;
-  // query contains only descriptor-allowed fields.
-  map<string, PublicValue> query = 8;
-  // body contains only descriptor-allowed structured fields.
-  map<string, PublicValue> body = 9;
+  AdmittedOrigin origin = 4;
   // credential_handles select host-admitted credential purposes.
-  repeated CredentialHandle credential_handles = 10;
-  // idempotency_key is stable across coordinator retries.
-  string idempotency_key = 11;
+  repeated CredentialHandle credential_handles = 5;
   // requested_at is the provider request timestamp.
-  google.protobuf.Timestamp requested_at = 12;
+  google.protobuf.Timestamp requested_at = 6;
 }
 
 // FilteredField is one response field safe to forward.
@@ -1010,6 +1018,17 @@ message ProviderStateV1 {
   repeated UpgradeRecord upgrade_history = 24;
 }
 
+// ProviderState is the version-discriminated durable state envelope.
+message ProviderState {
+  // schema_version selects the exact state schema and fails closed when unsupported.
+  uint32 schema_version = 1;
+  // schema contains only the payload for schema_version.
+  oneof schema {
+    // v1 is provider-neutral state schema version one.
+    ProviderStateV1 v1 = 2;
+  }
+}
+
 // UpgradeStateRequest asks for exactly one offline schema upgrade step.
 message UpgradeStateRequest {
   // context contains identity and non-secret input only.
@@ -1019,13 +1038,13 @@ message UpgradeStateRequest {
   // to_version must equal from_version plus one.
   uint32 to_version = 3;
   // state is the safe current state.
-  ProviderStateV1 state = 4;
+  ProviderState state = 4;
 }
 
 // UpgradeStateResponse returns the next safe schema step.
 message UpgradeStateResponse {
   // state is the upgraded safe state.
-  ProviderStateV1 state = 1;
+  ProviderState state = 1;
   // record is the exact upgrade history entry.
   UpgradeRecord record = 2;
   // diagnostics are bounded neutral diagnostics.

@@ -150,7 +150,7 @@ func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService)
 			return nil, w.NewError("service already exists")
 		}
 	}
-	agent, err := LoadAgent(ctx, action.Agent)
+	agent, err := LoadAgent(ctx, action.Agent, ServiceAgent)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load agent")
 	}

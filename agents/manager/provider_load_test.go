@@ -130,7 +130,8 @@ agent:
 default_deletion_policy: retain
 permissions:
   required:
-    - action: account.observe
+    - id: account-observe
+      action: account.observe
       resource: account
       resource_type: account
       reason: Observe the bound account.
@@ -141,6 +142,7 @@ resource_types:
     actions: [observe]
 requests:
   - id: account.observe
+    permissions: [account-observe]
     resource_type: account
     action: observe
     origin_rule: api

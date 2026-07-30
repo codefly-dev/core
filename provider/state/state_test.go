@@ -18,23 +18,22 @@ func TestStateV1EncodeDecodeAndProspectiveIdentityRecovery(t *testing.T) {
 		IdempotencyKey:      "binding-a/create/account",
 		ProspectiveRemoteId: "prospective-account-123",
 	}
-	encoded, err := state.Encode(original)
+	encoded, err := state.Encode(state.WrapV1(original))
 	require.NoError(t, err)
 	decoded, err := state.Decode(encoded, 1)
 	require.NoError(t, err)
-	require.True(t, proto.Equal(original, decoded))
-	require.Equal(t, "prospective-account-123", decoded.GetCheckpoint().GetProspectiveRemoteId())
+	require.True(t, proto.Equal(original, decoded.GetV1()))
+	require.Equal(t, "prospective-account-123", decoded.GetV1().GetCheckpoint().GetProspectiveRemoteId())
 }
 
 func TestStateV1FailsClosedOnNewerOrUnknownState(t *testing.T) {
-	newer := validState("binding-a")
-	newer.StateSchemaVersion = 2
+	newer := &providerv0.ProviderState{SchemaVersion: 2}
 	encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(newer)
 	require.NoError(t, err)
 	_, err = state.Decode(encoded, 1)
 	require.ErrorContains(t, err, "newer than supported")
 
-	validEncoded, err := state.Encode(validState("binding-a"))
+	validEncoded, err := state.Encode(state.WrapV1(validState("binding-a")))
 	require.NoError(t, err)
 	withUnknown := append(validEncoded, 0xa0, 0x06, 0x01)
 	_, err = state.Decode(withUnknown, 1)
@@ -42,12 +41,12 @@ func TestStateV1FailsClosedOnNewerOrUnknownState(t *testing.T) {
 
 	unknownOwnership := validState("binding-a")
 	unknownOwnership.Ownership = providerv0.Ownership(99)
-	_, err = state.Encode(unknownOwnership)
+	_, err = state.Encode(state.WrapV1(unknownOwnership))
 	require.ErrorContains(t, err, "ownership")
 
 	unknownPurpose := validState("binding-a")
 	unknownPurpose.SecretReferences[0].Purpose = providerv0.CredentialPurpose(99)
-	_, err = state.Encode(unknownPurpose)
+	_, err = state.Encode(state.WrapV1(unknownPurpose))
 	require.ErrorContains(t, err, "unknown purpose")
 }
 
@@ -62,7 +61,26 @@ func TestWorkspaceOwnershipIndexRejectsDuplicateRemoteOwnership(t *testing.T) {
 	require.NoError(t, err)
 	owner, ok := index.Owner("workspace", first.RemoteIdentity)
 	require.True(t, ok)
-	require.Equal(t, "environment/binding-a", owner)
+	require.Equal(t, "environment", owner.EnvironmentId)
+	require.Equal(t, "binding-a", owner.BindingId)
+}
+
+func TestWorkspaceOwnershipIndexUsesUnambiguousComponentKeys(t *testing.T) {
+	first := validState("c")
+	first.Binding.EnvironmentId = "a/b"
+	second := validState("b/c")
+	second.Binding.EnvironmentId = "a"
+	_, err := state.NewOwnershipIndex(first, second)
+	require.ErrorContains(t, err, "already owned")
+
+	first = validState("binding-a")
+	first.RemoteIdentity.Provider = "provider"
+	first.RemoteIdentity.AccountId = "account\x00region"
+	second = validState("binding-b")
+	second.RemoteIdentity.Provider = "provider\x00account"
+	second.RemoteIdentity.AccountId = "region"
+	_, err = state.NewOwnershipIndex(first, second)
+	require.NoError(t, err)
 }
 
 func TestStateSchemaCannotRepresentRawSecretsOrBodies(t *testing.T) {
@@ -80,8 +98,32 @@ func TestStateSchemaCannotRepresentRawSecretsOrBodies(t *testing.T) {
 	providerState.SafeObservedFields = map[string]*providerv0.PublicValue{
 		"api_token": {Kind: &providerv0.PublicValue_StringValue{StringValue: "sk_live_1234567890abcdef"}},
 	}
-	_, err := state.Encode(providerState)
+	_, err := state.Encode(state.WrapV1(providerState))
 	require.ErrorContains(t, err, "secret-shaped")
+
+	providerState = validState("binding-a")
+	providerState.SecretReferences[0].Reference = "sk_live_1234567890abcdef"
+	_, err = state.Encode(state.WrapV1(providerState))
+	require.ErrorContains(t, err, "opaque reference")
+
+	providerState = validState("binding-a")
+	providerState.SecretReferences[0].SafeFingerprint = "raw-fingerprint"
+	_, err = state.Encode(state.WrapV1(providerState))
+	require.ErrorContains(t, err, "canonical sha256")
+}
+
+func TestStateReceiptRejectsUnknownDeliveryState(t *testing.T) {
+	providerState := validState("binding-a")
+	providerState.Receipt = &providerv0.ActionReceipt{
+		ArtifactDigest: providerState.ArtifactDigest,
+		Delivery:       providerv0.DeliveryState(99),
+		Certainty:      providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+		Action: &providerv0.PlanAction{
+			ActionId: "noop", Type: providerv0.ActionType_ACTION_TYPE_NO_OP, ResourceType: "account",
+		},
+	}
+	_, err := state.Encode(state.WrapV1(providerState))
+	require.ErrorContains(t, err, "receipt delivery is unknown")
 }
 
 func validState(bindingID string) *providerv0.ProviderStateV1 {

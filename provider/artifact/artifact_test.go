@@ -58,6 +58,16 @@ func TestProviderArtifactRejectsTamperAbsentManifestAndIdentityMismatch(t *testi
 	})
 }
 
+func TestVerifyExecutableDoesNotSubstituteAnotherLayoutBinary(t *testing.T) {
+	root := writeLayout(t, []byte("verified"), artifactManifest)
+	binaryPath := filepath.Join(root, "bin", "provider-fixture")
+	require.NoError(t, os.MkdirAll(filepath.Dir(binaryPath), 0o755))
+	require.NoError(t, os.WriteFile(binaryPath, []byte("unverified"), 0o755))
+
+	_, err := artifact.VerifyExecutable(binaryPath, providerAgent("1.2.3"))
+	require.ErrorContains(t, err, "read installed provider artifact descriptor")
+}
+
 func TestProviderArtifactRejectsDowngradeAndNewerState(t *testing.T) {
 	currentRoot := writeLayout(t, []byte("current"), artifactManifest)
 	nextRoot := writeLayout(t, []byte("next"), strings.Replace(artifactManifest, "version: 1.2.3", "version: 1.2.2", 1))
@@ -100,7 +110,8 @@ agent:
 default_deletion_policy: retain
 permissions:
   required:
-    - action: account.observe
+    - id: account-observe
+      action: account.observe
       resource: account
       resource_type: account
       reason: Observe the bound account.
@@ -111,6 +122,7 @@ resource_types:
     actions: [observe]
 requests:
   - id: account.observe
+    permissions: [account-observe]
     resource_type: account
     action: observe
     origin_rule: api

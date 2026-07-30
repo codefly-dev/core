@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
@@ -151,6 +152,21 @@ func TestResolveNixAgentBinary_BinDir_FallbackToFirst(t *testing.T) {
 	}
 	if got != bin {
 		t.Errorf("fallback: got %q, want %q", got, bin)
+	}
+}
+
+func TestResolveNixAgentBinary_VerifiedArtifactRequiresExpectedName(t *testing.T) {
+	out := t.TempDir()
+	binDir := filepath.Join(out, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteExec(t, filepath.Join(binDir, "different-provider"))
+
+	agent := &resources.Agent{Kind: resources.ProviderAgent, Publisher: "codefly.dev", Name: "fixture", Version: "1.2.3"}
+	_, err := resolveNixAgentBinary(out, agent)
+	if err == nil || !strings.Contains(err.Error(), "missing expected executable") {
+		t.Fatalf("expected missing executable error, got %v", err)
 	}
 }
 

@@ -754,7 +754,7 @@ func (mod *Module) NewApplication(ctx context.Context, action *actionsv0.AddAppl
 			return nil, w.NewError("application already exists")
 		}
 	}
-	agent, err := LoadAgent(ctx, action.Agent)
+	agent, err := LoadAgent(ctx, action.Agent, ApplicationAgent)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load agent")
 	}

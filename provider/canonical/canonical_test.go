@@ -64,9 +64,20 @@ func TestOrderedPlanDigestBindsEveryMaterialInputAndOrder(t *testing.T) {
 	require.Equal(t, bound.PlanDigest, repeated.PlanDigest)
 
 	mutations := map[string]func(*providerv0.OrderedPlan){
-		"artifact":          func(plan *providerv0.OrderedPlan) { plan.ArtifactDigest = digest("2") },
-		"origin":            func(plan *providerv0.OrderedPlan) { plan.Actions[0].AdmittedOriginDigest = digest("3") },
+		"artifact":   func(plan *providerv0.OrderedPlan) { plan.ArtifactDigest = digest("2") },
+		"descriptor": func(plan *providerv0.OrderedPlan) { plan.Actions[0].Requests[0].RequestDescriptorDigest = digest("3") },
+		"origin":     func(plan *providerv0.OrderedPlan) { plan.Actions[0].Requests[0].AdmittedOriginDigest = digest("3") },
+		"path": func(plan *providerv0.OrderedPlan) {
+			plan.Actions[0].Requests[0].PathParameters["account_id"] = stringValue("other")
+		},
+		"query": func(plan *providerv0.OrderedPlan) { plan.Actions[0].Requests[0].Query["expand"] = stringValue("other") },
+		"body":  func(plan *providerv0.OrderedPlan) { plan.Actions[0].Requests[0].Body["name"] = stringValue("other") },
+		"credential purpose": func(plan *providerv0.OrderedPlan) {
+			plan.Actions[0].Requests[0].CredentialPurposes[0] = providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME
+		},
+		"response policy":   func(plan *providerv0.OrderedPlan) { plan.Actions[0].Requests[0].ResponsePolicyDigest = digest("3") },
 		"output generation": func(plan *providerv0.OrderedPlan) { plan.OutputTargetDigest = digest("4") },
+		"output proposal":   func(plan *providerv0.OrderedPlan) { plan.Actions[1].Output.TargetGeneration++ },
 		"policy":            func(plan *providerv0.OrderedPlan) { plan.PolicyInputDigest = digest("5") },
 		"action order": func(plan *providerv0.OrderedPlan) {
 			plan.Actions[0], plan.Actions[1] = plan.Actions[1], plan.Actions[0]
@@ -78,6 +89,18 @@ func TestOrderedPlanDigestBindsEveryMaterialInputAndOrder(t *testing.T) {
 			changed := proto.Clone(bound).(*providerv0.OrderedPlan)
 			changed.PlanDigest = ""
 			mutate(changed)
+			for _, action := range changed.Actions {
+				for index, request := range action.Requests {
+					request.RequestDigest = ""
+					action.Requests[index], err = canonical.BindPlannedRequestDigest(request)
+					require.NoError(t, err)
+				}
+				if action.Output != nil {
+					action.Output.Digest = ""
+					action.Output.Digest, err = canonical.OutputProposalDigest(action.Output)
+					require.NoError(t, err)
+				}
+			}
 			changedDigest, err := canonical.OrderedPlanDigest(changed)
 			require.NoError(t, err)
 			require.NotEqual(t, bound.PlanDigest, changedDigest)
@@ -110,6 +133,42 @@ func TestCanonicalRejectsUnknownFieldsAndAmbiguousValues(t *testing.T) {
 	require.ErrorContains(t, err, "unknown plan action")
 }
 
+func TestExecuteRequestMustMatchExactAdmittedPlanRequest(t *testing.T) {
+	plan := orderedPlan()
+	action := plan.Actions[0]
+	origin := &providerv0.AdmittedOrigin{
+		OriginRuleId: "api", Scheme: "https", Host: "api.example.com", Port: 443,
+		PrivateNetworkClass: providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PUBLIC,
+	}
+	var err error
+	origin.AdmissionDigest, err = canonical.AdmittedOriginDigest(origin)
+	require.NoError(t, err)
+	action.Requests[0].AdmittedOriginDigest = origin.AdmissionDigest
+	action.Requests[0].RequestDigest = ""
+	action.Requests[0], err = canonical.BindPlannedRequestDigest(action.Requests[0])
+	require.NoError(t, err)
+	handle := &providerv0.CredentialHandle{
+		Handle: "host-handle", Purpose: providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+	}
+	execute := &providerv0.ExecuteRequestRequest{
+		Context: &providerv0.ProviderContext{
+			Operation:   &providerv0.OperationIdentity{ActionId: action.ActionId},
+			Credentials: []*providerv0.CredentialHandle{handle},
+		},
+		Request:           proto.Clone(action.Requests[0]).(*providerv0.PlannedRequest),
+		Origin:            origin,
+		CredentialHandles: []*providerv0.CredentialHandle{handle},
+	}
+	require.NoError(t, canonical.ValidateExecuteRequest(action, execute))
+
+	execute.Request.Body["name"] = stringValue("different")
+	require.ErrorContains(t, canonical.ValidateExecuteRequest(action, execute), "digest mismatch")
+	execute.Request.RequestDigest = ""
+	execute.Request, err = canonical.BindPlannedRequestDigest(execute.Request)
+	require.NoError(t, err)
+	require.ErrorContains(t, canonical.ValidateExecuteRequest(action, execute), "not present in admitted action")
+}
+
 func materialObservation() *providerv0.MaterialObservation {
 	return &providerv0.MaterialObservation{
 		AccountIdentity: "account",
@@ -129,13 +188,38 @@ func materialObservation() *providerv0.MaterialObservation {
 }
 
 func orderedPlan() *providerv0.OrderedPlan {
+	request, err := canonical.BindPlannedRequestDigest(&providerv0.PlannedRequest{
+		RequestDescriptorId:     "account.update",
+		RequestDescriptorDigest: digest("1"),
+		Method:                  providerv0.HTTPMethod_HTTP_METHOD_PATCH,
+		AdmittedOriginDigest:    digest("1"),
+		PathParameters:          map[string]*providerv0.PublicValue{"account_id": stringValue("account")},
+		Query:                   map[string]*providerv0.PublicValue{"expand": stringValue("status")},
+		Body:                    map[string]*providerv0.PublicValue{"name": stringValue("updated")},
+		CredentialPurposes:      []providerv0.CredentialPurpose{providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
+		ResponsePolicyDigest:    digest("1"),
+		IdempotencyKey:          "idempotency-1",
+	})
+	if err != nil {
+		panic(err)
+	}
+	output := &providerv0.OutputProposal{
+		Contract: "codefly.dev/configuration/billing@1", TargetGeneration: 2,
+		Values: map[string]*providerv0.OutputValue{
+			"PUBLIC_ID": {Kind: &providerv0.OutputValue_PublicValue{PublicValue: stringValue("remote")}},
+		},
+	}
+	output.Digest, err = canonical.OutputProposalDigest(output)
+	if err != nil {
+		panic(err)
+	}
 	return &providerv0.OrderedPlan{
 		PlanId: "plan", ArtifactDigest: digest("1"), ManifestDigest: digest("1"), CatalogDigest: digest("1"),
 		DesiredDigest: digest("1"), ObservationDigest: digest("1"), OutputTargetDigest: digest("1"),
 		StateGenerationDigest: digest("1"), PolicyInputDigest: digest("1"),
 		Actions: []*providerv0.PlanAction{
-			{ActionId: "first", Position: 0, Type: providerv0.ActionType_ACTION_TYPE_UPDATE, ResourceType: "account", AdmittedOriginDigest: digest("1")},
-			{ActionId: "second", Position: 1, Type: providerv0.ActionType_ACTION_TYPE_PROJECT_OUTPUT, ResourceType: "project-output"},
+			{ActionId: "first", Position: 0, Type: providerv0.ActionType_ACTION_TYPE_UPDATE, ResourceType: "account", Requests: []*providerv0.PlannedRequest{request}},
+			{ActionId: "second", Position: 1, Type: providerv0.ActionType_ACTION_TYPE_PROJECT_OUTPUT, ResourceType: "project-output", Output: output},
 		},
 	}
 }

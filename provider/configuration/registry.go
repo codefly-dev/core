@@ -2,6 +2,7 @@ package configuration
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -213,8 +214,11 @@ func validateValue(name string, declaration Key, value Value) error {
 	if value.CredentialPurpose != declaration.CredentialPurpose {
 		return fmt.Errorf("%s credential purpose %q does not match schema purpose %q", name, value.CredentialPurpose, declaration.CredentialPurpose)
 	}
-	if value.BrowserExposure != declaration.BrowserExposure {
-		return fmt.Errorf("%s browser exposure %q exceeds or contradicts schema %q", name, value.BrowserExposure, declaration.BrowserExposure)
+	if !validBrowserExposure(value.BrowserExposure) {
+		return fmt.Errorf("%s has unknown browser exposure %q", name, value.BrowserExposure)
+	}
+	if browserExposureRank(value.BrowserExposure) > browserExposureRank(declaration.BrowserExposure) {
+		return fmt.Errorf("%s browser exposure %q exceeds schema ceiling %q", name, value.BrowserExposure, declaration.BrowserExposure)
 	}
 	if value.Consumer != declaration.Consumer {
 		return fmt.Errorf("%s consumer %q does not match schema consumer %q", name, value.Consumer, declaration.Consumer)
@@ -257,8 +261,8 @@ func validateValue(name string, declaration Key, value Value) error {
 		if value.OpaqueReference == "" || value.String != "" {
 			return fmt.Errorf("%s must contain only an opaque reference", name)
 		}
-		if !validOpaqueReference(value.OpaqueReference) {
-			return fmt.Errorf("%s opaque reference is not host-namespaced", name)
+		if err := ValidateOpaqueReference(value.OpaqueReference); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
 		}
 	case ValueBoolean, ValueInteger:
 		if value.String != "" || value.OpaqueReference != "" {
@@ -326,10 +330,47 @@ func classificationRank(classification Classification) int {
 	}
 }
 
-func validOpaqueReference(reference string) bool {
-	return strings.HasPrefix(reference, "secret://") ||
-		strings.HasPrefix(reference, "capture://") ||
-		strings.HasPrefix(reference, "opaque://")
+func validBrowserExposure(exposure BrowserExposure) bool {
+	return exposure == BrowserDenied || exposure == BrowserAllowed
+}
+
+func browserExposureRank(exposure BrowserExposure) int {
+	if exposure == BrowserAllowed {
+		return 1
+	}
+	return 0
+}
+
+var opaqueReferenceComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$`)
+
+func ValidateOpaqueReference(reference string) error {
+	if len(reference) == 0 || len(reference) > 512 || strings.ContainsAny(reference, " \t\r\n%") {
+		return fmt.Errorf("opaque reference is not a canonical host reference")
+	}
+	parsed, err := url.Parse(reference)
+	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" {
+		return fmt.Errorf("opaque reference is not a canonical host reference")
+	}
+	switch parsed.Scheme {
+	case "secret", "capture", "opaque":
+	default:
+		return fmt.Errorf("opaque reference uses an unknown host namespace")
+	}
+	if parsed.Host == "" || parsed.Hostname() != parsed.Host || !opaqueReferenceComponent.MatchString(parsed.Host) || LooksSecret(parsed.Host) {
+		return fmt.Errorf("opaque reference host identifier is invalid")
+	}
+	for _, component := range strings.Split(strings.TrimPrefix(parsed.Path, "/"), "/") {
+		if component == "" {
+			if parsed.Path == "" {
+				continue
+			}
+			return fmt.Errorf("opaque reference path identifier is invalid")
+		}
+		if !opaqueReferenceComponent.MatchString(component) || LooksSecret(component) {
+			return fmt.Errorf("opaque reference path identifier is invalid")
+		}
+	}
+	return nil
 }
 
 func cloneContract(contract Contract) Contract {

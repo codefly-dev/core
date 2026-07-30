@@ -102,7 +102,7 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 	require.ErrorContains(t, err, "unknown agent kind")
 	_, err = resources.LoadAgent(context.Background(), &basev0.Agent{
 		Kind: basev0.Agent_UNKNOWN, Publisher: "codefly.dev", Name: "unknown",
-	})
+	}, resources.ServiceAgent)
 	require.ErrorContains(t, err, "unknown agent kind")
 	_, err = resources.AgentKindRegistrationFor("codefly:unknown")
 	require.ErrorContains(t, err, "unknown agent kind")

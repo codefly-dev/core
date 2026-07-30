@@ -75,6 +75,17 @@ func TestContractsRejectUnsafePurposeClassificationConsumerAndBrowserMixing(t *t
 		values["STRIPE_SECRET_KEY"] = value
 		require.ErrorContains(t, registry.Validate(configuration.BillingContract, values), "artifact provenance")
 	})
+	t.Run("raw literal in opaque reference", func(t *testing.T) {
+		values := validBillingValues()
+		value := values["STRIPE_SECRET_KEY"]
+		value.OpaqueReference = "sk_live_1234567890abcdef"
+		values["STRIPE_SECRET_KEY"] = value
+		require.ErrorContains(t, registry.Validate(configuration.BillingContract, values), "opaque reference")
+
+		value.OpaqueReference = "secret://sk_live_1234567890abcdef"
+		values["STRIPE_SECRET_KEY"] = value
+		require.ErrorContains(t, registry.Validate(configuration.BillingContract, values), "identifier is invalid")
+	})
 }
 
 func TestBuildOnlyErrorTrackingCredentialUsesDistinctContract(t *testing.T) {
@@ -86,6 +97,14 @@ func TestBuildOnlyErrorTrackingCredentialUsesDistinctContract(t *testing.T) {
 	}
 	require.NoError(t, registry.Validate(configuration.ErrorTrackingBuildContract, build))
 	require.Error(t, registry.Validate(configuration.ErrorTrackingContract, build))
+}
+
+func TestBrowserExposureMayTightenBelowSchemaCeiling(t *testing.T) {
+	registry := configuration.NewRegistry()
+	value := publicValue("https://public@example.invalid/1", configuration.PurposeRuntime, configuration.ConsumerBrowser, configuration.BrowserDenied)
+	require.NoError(t, registry.Validate(configuration.ErrorTrackingContract, map[string]configuration.Value{
+		"SENTRY_DSN": value,
+	}))
 }
 
 func validBillingValues() map[string]configuration.Value {
