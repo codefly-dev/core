@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
 	"github.com/codefly-dev/core/provider/canonical"
@@ -16,6 +17,7 @@ import (
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 type OwnershipIndex struct {
+	mu     sync.RWMutex
 	owners map[string]ownershipRecord
 }
 
@@ -107,6 +109,21 @@ func Validate(providerState *providerv0.ProviderStateV1, maxSupportedVersion uin
 	if !digestPattern.MatchString(providerState.GetManifestDigest()) || !digestPattern.MatchString(providerState.GetArtifactDigest()) {
 		return fmt.Errorf("provider state manifest and artifact digests must be canonical sha256 values")
 	}
+	// The remaining digest-typed fields bind the last observation/plan/output
+	// and are absent until one exists, so they are optional but, when present,
+	// must be canonical sha256 values like every other digest in the state.
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"material_observation_digest", providerState.GetMaterialObservationDigest()},
+		{"plan_digest", providerState.GetPlanDigest()},
+		{"output_digest", providerState.GetOutputDigest()},
+	} {
+		if field.value != "" && !digestPattern.MatchString(field.value) {
+			return fmt.Errorf("provider state %s must be a canonical sha256 value", field.name)
+		}
+	}
 	switch providerState.GetOwnership() {
 	case providerv0.Ownership_OWNERSHIP_OBSERVED, providerv0.Ownership_OWNERSHIP_OWNED,
 		providerv0.Ownership_OWNERSHIP_ADOPTED, providerv0.Ownership_OWNERSHIP_UNMANAGED:
@@ -167,12 +184,15 @@ func Validate(providerState *providerv0.ProviderStateV1, maxSupportedVersion uin
 			return fmt.Errorf("provider state secret_references[%d]: %w", i, err)
 		}
 	}
-	for name, values := range map[string]map[string]*providerv0.PublicValue{
-		"safe_observed_fields":  providerState.GetSafeObservedFields(),
-		"provider_owned_fields": providerState.GetProviderOwnedFields(),
-		"recovery_data":         providerState.GetRecoveryData(),
+	for _, group := range []struct {
+		name   string
+		values map[string]*providerv0.PublicValue
+	}{
+		{"safe_observed_fields", providerState.GetSafeObservedFields()},
+		{"provider_owned_fields", providerState.GetProviderOwnedFields()},
+		{"recovery_data", providerState.GetRecoveryData()},
 	} {
-		if err := validateSafeValues(name, values); err != nil {
+		if err := validateSafeValues(group.name, group.values); err != nil {
 			return err
 		}
 	}
@@ -251,7 +271,7 @@ func ValidateUpgradeRecord(record *providerv0.UpgradeRecord) error {
 	if record == nil {
 		return fmt.Errorf("upgrade record is required")
 	}
-	if record.GetToVersion() != record.GetFromVersion()+1 {
+	if uint64(record.GetToVersion()) != uint64(record.GetFromVersion())+1 {
 		return fmt.Errorf("state upgrades must advance exactly one version")
 	}
 	if record.GetAgentVersion() == "" || !digestPattern.MatchString(record.GetArtifactDigest()) ||
@@ -285,6 +305,8 @@ func (i *OwnershipIndex) Add(providerState *providerv0.ProviderStateV1) error {
 		providerState.GetOwnership() != providerv0.Ownership_OWNERSHIP_ADOPTED {
 		return nil
 	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	if i.owners == nil {
 		i.owners = make(map[string]ownershipRecord)
 	}
@@ -302,6 +324,8 @@ func (i *OwnershipIndex) Owner(workspaceID string, identity *providerv0.RemoteId
 	if i == nil {
 		return nil, false
 	}
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 	owner, ok := i.owners[remoteOwnershipKey(workspaceID, identity)]
 	if !ok {
 		return nil, false

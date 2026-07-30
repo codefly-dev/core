@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
@@ -54,10 +55,9 @@ func BindingDesiredStateDigest(desired *providerv0.BindingDesiredState) (string,
 		return "", fmt.Errorf("binding desired state is required")
 	}
 	clone := proto.Clone(desired).(*providerv0.BindingDesiredState)
-	sort.Slice(clone.CredentialReferences, func(i, j int) bool {
-		left, right := clone.CredentialReferences[i], clone.CredentialReferences[j]
-		return fmt.Sprintf("%d\x00%s", left.GetPurpose(), left.GetReference()) < fmt.Sprintf("%d\x00%s", right.GetPurpose(), right.GetReference())
-	})
+	if err := sortByCanonicalBytes(clone.CredentialReferences); err != nil {
+		return "", err
+	}
 	return Digest(clone)
 }
 
@@ -72,9 +72,9 @@ func MaterialObservationDigest(observation *providerv0.MaterialObservation) (str
 		return "", fmt.Errorf("incomplete material observation requires next_cursor")
 	}
 	clone := proto.Clone(observation).(*providerv0.MaterialObservation)
-	sort.Slice(clone.Resources, func(i, j int) bool {
-		return remoteIdentityKey(clone.Resources[i].GetIdentity()) < remoteIdentityKey(clone.Resources[j].GetIdentity())
-	})
+	if err := sortByCanonicalBytes(clone.Resources); err != nil {
+		return "", err
+	}
 	return Digest(clone)
 }
 
@@ -235,6 +235,10 @@ func PlannedRequestDigest(request *providerv0.PlannedRequest) (string, error) {
 	}
 	clone := proto.Clone(request).(*providerv0.PlannedRequest)
 	clone.RequestDigest = ""
+	// Credential purposes are a set (duplicates are rejected above and
+	// ValidateExecuteRequest compares them unordered), so the digest must not
+	// depend on the order in which they were listed.
+	slices.Sort(clone.CredentialPurposes)
 	return Digest(clone)
 }
 
@@ -458,11 +462,33 @@ func validatePublicValues(message protoreflect.Message) error {
 	return found
 }
 
-func remoteIdentityKey(identity *providerv0.RemoteIdentity) string {
-	if identity == nil {
-		return ""
+// sortByCanonicalBytes orders a repeated message field by each element's
+// deterministic wire encoding. This is a total order over the full content of
+// every element, so a digest computed over the sorted slice is independent of
+// the order in which elements were supplied — including when two elements share
+// a partial identity but differ elsewhere, which a partial sort key left
+// permutation-dependent.
+func sortByCanonicalBytes[T proto.Message](items []T) error {
+	if len(items) < 2 {
+		return nil
 	}
-	return identity.GetProvider() + "\x00" + identity.GetAccountId() + "\x00" + identity.GetResourceType() + "\x00" + identity.GetRemoteId()
+	type keyed struct {
+		key  string
+		item T
+	}
+	entries := make([]keyed, len(items))
+	for i, item := range items {
+		data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(item)
+		if err != nil {
+			return err
+		}
+		entries[i] = keyed{key: string(data), item: item}
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
+	for i := range entries {
+		items[i] = entries[i].item
+	}
+	return nil
 }
 
 func digest(data []byte) string {

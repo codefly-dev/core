@@ -105,8 +105,21 @@ func NewNoOpAction(id string, position uint32, resourceType string) (*providerv0
 	return newAction(id, position, providerv0.ActionType_ACTION_TYPE_NO_OP, resourceType, "")
 }
 
-func NewProjectOutputAction(id string, position uint32) (*providerv0.PlanAction, error) {
-	return newAction(id, position, providerv0.ActionType_ACTION_TYPE_PROJECT_OUTPUT, "project-output", "")
+// NewProjectOutputAction returns a validation-ready PROJECT_OUTPUT action.
+// A project-output action must carry a bound output proposal (canonical
+// validation rejects one without it), so the proposal is a required argument
+// and is digest-bound here rather than left for the caller to attach.
+func NewProjectOutputAction(id string, position uint32, proposal *providerv0.OutputProposal) (*providerv0.PlanAction, error) {
+	bound, err := BindOutputProposal(proposal)
+	if err != nil {
+		return nil, err
+	}
+	action, err := newAction(id, position, providerv0.ActionType_ACTION_TYPE_PROJECT_OUTPUT, "project-output", "")
+	if err != nil {
+		return nil, err
+	}
+	action.Output = bound
+	return action, nil
 }
 
 func BindOutputProposal(proposal *providerv0.OutputProposal) (*providerv0.OutputProposal, error) {
@@ -188,7 +201,7 @@ func ValidateUpgrade(response *providerv0.UpgradeStateResponse, fromVersion, toV
 	if response == nil || response.GetState() == nil || response.GetRecord() == nil {
 		return fmt.Errorf("state upgrade response is incomplete")
 	}
-	if toVersion != fromVersion+1 || response.GetRecord().GetFromVersion() != fromVersion ||
+	if uint64(toVersion) != uint64(fromVersion)+1 || response.GetRecord().GetFromVersion() != fromVersion ||
 		response.GetRecord().GetToVersion() != toVersion || response.GetState().GetSchemaVersion() != toVersion {
 		return fmt.Errorf("state upgrade must advance exactly one requested version")
 	}

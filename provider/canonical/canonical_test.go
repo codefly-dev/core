@@ -30,6 +30,72 @@ func TestCanonicalMapAndResourceOrderingIsByteIdentical(t *testing.T) {
 	require.Equal(t, firstDigest, secondDigest)
 }
 
+func TestMaterialDigestIsOrderIndependentWhenResourcesShareIdentity(t *testing.T) {
+	// Two distinct observations that share a remote identity but differ in
+	// content: a partial identity sort key left their relative order — and thus
+	// the digest — dependent on retrieval order.
+	identity := &providerv0.RemoteIdentity{Provider: "fixture", AccountId: "account", ResourceType: "account", RemoteId: "shared"}
+	first := &providerv0.MaterialObservation{
+		AccountIdentity: "account", Mode: providerv0.HostMode_HOST_MODE_PRODUCTION, Complete: true,
+		Resources: []*providerv0.MaterialResourceObservation{
+			{Identity: proto.Clone(identity).(*providerv0.RemoteIdentity), Ownership: providerv0.Ownership_OWNERSHIP_OWNED, Revision: "1"},
+			{Identity: proto.Clone(identity).(*providerv0.RemoteIdentity), Ownership: providerv0.Ownership_OWNERSHIP_OWNED, Revision: "2"},
+		},
+	}
+	second := proto.Clone(first).(*providerv0.MaterialObservation)
+	second.Resources[0], second.Resources[1] = second.Resources[1], second.Resources[0]
+
+	firstDigest, err := canonical.MaterialObservationDigest(first)
+	require.NoError(t, err)
+	secondDigest, err := canonical.MaterialObservationDigest(second)
+	require.NoError(t, err)
+	require.Equal(t, firstDigest, secondDigest)
+}
+
+func TestBindingDesiredDigestIsOrderIndependentWhenReferencesTieOnPurposeAndReference(t *testing.T) {
+	// Credential references that tie on (purpose, reference) but differ in
+	// safe_fingerprint used to sort permutation-dependently.
+	reference := func(fingerprint string) *providerv0.OpaqueReference {
+		return &providerv0.OpaqueReference{
+			Reference: "secret://runtime", Purpose: providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+			SafeFingerprint: digest(fingerprint),
+		}
+	}
+	first := &providerv0.BindingDesiredState{
+		CredentialReferences: []*providerv0.OpaqueReference{reference("1"), reference("2")},
+	}
+	second := &providerv0.BindingDesiredState{
+		CredentialReferences: []*providerv0.OpaqueReference{reference("2"), reference("1")},
+	}
+	firstDigest, err := canonical.BindingDesiredStateDigest(first)
+	require.NoError(t, err)
+	secondDigest, err := canonical.BindingDesiredStateDigest(second)
+	require.NoError(t, err)
+	require.Equal(t, firstDigest, secondDigest)
+}
+
+func TestPlannedRequestDigestIsCredentialPurposeOrderIndependent(t *testing.T) {
+	base := &providerv0.PlannedRequest{
+		RequestDescriptorId:     "account.read",
+		RequestDescriptorDigest: digest("1"),
+		Method:                  providerv0.HTTPMethod_HTTP_METHOD_GET,
+		AdmittedOriginDigest:    digest("1"),
+		ResponsePolicyDigest:    digest("1"),
+		CredentialPurposes: []providerv0.CredentialPurpose{
+			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		},
+	}
+	reordered := proto.Clone(base).(*providerv0.PlannedRequest)
+	reordered.CredentialPurposes[0], reordered.CredentialPurposes[1] = reordered.CredentialPurposes[1], reordered.CredentialPurposes[0]
+
+	baseDigest, err := canonical.PlannedRequestDigest(base)
+	require.NoError(t, err)
+	reorderedDigest, err := canonical.PlannedRequestDigest(reordered)
+	require.NoError(t, err)
+	require.Equal(t, baseDigest, reorderedDigest)
+}
+
 func TestVolatileObservationMetadataDoesNotChangeMaterialDigest(t *testing.T) {
 	material := materialObservation()
 	first := &providerv0.ObserveResponse{

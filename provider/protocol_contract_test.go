@@ -56,7 +56,7 @@ func TestProviderProtocolRetainsUnknownFieldsForWireCompatibility(t *testing.T) 
 }
 
 func TestProviderRPCMethodPolicyIsMachineEnforceable(t *testing.T) {
-	providerExpected := map[string]providerv0.ProviderMethodPolicy{
+	providerExpected := map[string]*providerv0.ProviderMethodPolicy{
 		"GetProviderInformation": {Network: providerv0.MethodNetworkMode_METHOD_NETWORK_MODE_OFFLINE, Effect: providerv0.MethodEffect_METHOD_EFFECT_NONE},
 		"Validate":               {Network: providerv0.MethodNetworkMode_METHOD_NETWORK_MODE_OFFLINE, Effect: providerv0.MethodEffect_METHOD_EFFECT_NONE},
 		"Observe":                {Network: providerv0.MethodNetworkMode_METHOD_NETWORK_MODE_READ_ONLY, Effect: providerv0.MethodEffect_METHOD_EFFECT_READ_ONLY},
@@ -65,7 +65,7 @@ func TestProviderRPCMethodPolicyIsMachineEnforceable(t *testing.T) {
 		"Doctor":                 {Network: providerv0.MethodNetworkMode_METHOD_NETWORK_MODE_READ_ONLY, Effect: providerv0.MethodEffect_METHOD_EFFECT_READ_ONLY},
 		"UpgradeState":           {Network: providerv0.MethodNetworkMode_METHOD_NETWORK_MODE_OFFLINE, Effect: providerv0.MethodEffect_METHOD_EFFECT_NONE},
 	}
-	hostExpected := map[string]providerv0.ProviderMethodPolicy{
+	hostExpected := map[string]*providerv0.ProviderMethodPolicy{
 		"ExecuteRequest":   {Network: providerv0.MethodNetworkMode_METHOD_NETWORK_MODE_ADMITTED, Effect: providerv0.MethodEffect_METHOD_EFFECT_ONE_PLAN_ACTION},
 		"RecordCheckpoint": {Network: providerv0.MethodNetworkMode_METHOD_NETWORK_MODE_HOST_LOCAL, Effect: providerv0.MethodEffect_METHOD_EFFECT_HOST_BOOKKEEPING},
 		"ResolveCapture":   {Network: providerv0.MethodNetworkMode_METHOD_NETWORK_MODE_HOST_LOCAL, Effect: providerv0.MethodEffect_METHOD_EFFECT_NONE},
@@ -75,7 +75,7 @@ func TestProviderRPCMethodPolicyIsMachineEnforceable(t *testing.T) {
 	assertMethodPolicies(t, "ProviderHost", hostExpected)
 }
 
-func assertMethodPolicies(t *testing.T, serviceName protoreflect.Name, expected map[string]providerv0.ProviderMethodPolicy) {
+func assertMethodPolicies(t *testing.T, serviceName protoreflect.Name, expected map[string]*providerv0.ProviderMethodPolicy) {
 	t.Helper()
 	service := providerv0.File_codefly_services_provider_v0_provider_proto.Services().ByName(serviceName)
 	require.NotNil(t, service)
@@ -86,7 +86,8 @@ func assertMethodPolicies(t *testing.T, serviceName protoreflect.Name, expected 
 		require.True(t, proto.HasExtension(options, providerv0.E_ProviderMethodPolicy))
 		policy := proto.GetExtension(options, providerv0.E_ProviderMethodPolicy).(*providerv0.ProviderMethodPolicy)
 		want := expected[string(method.Name())]
-		require.True(t, proto.Equal(&want, policy), method.Name())
+		require.NotNil(t, want, method.Name())
+		require.True(t, proto.Equal(want, policy), method.Name())
 	}
 }
 

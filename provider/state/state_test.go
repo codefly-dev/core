@@ -1,7 +1,9 @@
 package state_test
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
@@ -9,6 +11,23 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestOwnershipIndexIsSafeForConcurrentAddAndOwner(t *testing.T) {
+	index, err := state.NewOwnershipIndex()
+	require.NoError(t, err)
+	var wg sync.WaitGroup
+	for n := range 16 {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			providerState := validState(fmt.Sprintf("binding-%d", n))
+			providerState.Binding.WorkspaceId = fmt.Sprintf("workspace-%d", n)
+			require.NoError(t, index.Add(providerState))
+			index.Owner(fmt.Sprintf("workspace-%d", n), providerState.RemoteIdentity)
+		}(n)
+	}
+	wg.Wait()
+}
 
 func TestStateV1EncodeDecodeAndProspectiveIdentityRecovery(t *testing.T) {
 	original := validState("binding-a")
@@ -124,6 +143,36 @@ func TestStateReceiptRejectsUnknownDeliveryState(t *testing.T) {
 	}
 	_, err := state.Encode(state.WrapV1(providerState))
 	require.ErrorContains(t, err, "receipt delivery is unknown")
+}
+
+func TestStateRejectsMalformedObservationPlanAndOutputDigests(t *testing.T) {
+	// Absent is allowed: these fields are unset until a first observation/plan/output.
+	_, err := state.Encode(state.WrapV1(validState("binding-a")))
+	require.NoError(t, err)
+
+	valid := "sha256:" + strings.Repeat("1", 64)
+	for _, mutate := range []struct {
+		name  string
+		apply func(*providerv0.ProviderStateV1)
+	}{
+		{"material_observation_digest", func(s *providerv0.ProviderStateV1) { s.MaterialObservationDigest = "not-a-digest" }},
+		{"plan_digest", func(s *providerv0.ProviderStateV1) { s.PlanDigest = "sha256:short" }},
+		{"output_digest", func(s *providerv0.ProviderStateV1) { s.OutputDigest = "md5:" + strings.Repeat("1", 64) }},
+	} {
+		t.Run(mutate.name, func(t *testing.T) {
+			providerState := validState("binding-a")
+			mutate.apply(providerState)
+			_, err := state.Encode(state.WrapV1(providerState))
+			require.ErrorContains(t, err, mutate.name+" must be a canonical sha256 value")
+
+			providerState = validState("binding-a")
+			providerState.MaterialObservationDigest = valid
+			providerState.PlanDigest = valid
+			providerState.OutputDigest = valid
+			_, err = state.Encode(state.WrapV1(providerState))
+			require.NoError(t, err)
+		})
+	}
 }
 
 func validState(bindingID string) *providerv0.ProviderStateV1 {

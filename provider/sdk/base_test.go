@@ -6,10 +6,36 @@ import (
 	"testing"
 
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	"github.com/codefly-dev/core/provider/canonical"
 	"github.com/codefly-dev/core/provider/sdk"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestProjectOutputActionIsValidationReady(t *testing.T) {
+	proposal := &providerv0.OutputProposal{
+		Contract: "codefly.dev/configuration/billing@1", TargetGeneration: 2,
+		Values: map[string]*providerv0.OutputValue{
+			"PUBLIC_ID": {Kind: &providerv0.OutputValue_PublicValue{
+				PublicValue: &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: "remote"}},
+			}},
+		},
+	}
+	action, err := sdk.NewProjectOutputAction("emit", 0, proposal)
+	require.NoError(t, err)
+	require.NotNil(t, action.GetOutput())
+
+	// The action must be accepted by canonical plan validation as-is, without
+	// the caller reaching in to attach a bound output proposal.
+	plan := &providerv0.OrderedPlan{PlanId: "plan", Actions: []*providerv0.PlanAction{action}}
+	_, err = canonical.BindOrderedPlanDigest(plan)
+	require.NoError(t, err)
+
+	// A missing proposal fails fast at construction rather than surfacing later
+	// as a plan-digest validation error.
+	_, err = sdk.NewProjectOutputAction("emit", 0, nil)
+	require.ErrorContains(t, err, "output proposal")
+}
 
 func TestTypedActionsAndOutputProposal(t *testing.T) {
 	_, err := sdk.NewCreateAction("create", 0, "account", "")

@@ -363,6 +363,17 @@ func (p *Agent) Identifier() string {
 	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Name, p.Version)
 }
 
+// AgentIdentifierFromProto renders the publisher/name:version identifier of an
+// agent proto for display. It does not validate the agent kind: display paths
+// (e.g. rendering the equivalent CLI command) must not panic or fail on a
+// malformed or unregistered kind.
+func AgentIdentifierFromProto(agent *basev0.Agent) string {
+	if agent == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s:%s", agent.GetPublisher(), agent.GetName(), agent.GetVersion())
+}
+
 func (p *Agent) Key(kind AgentKind, unique string) string {
 	return fmt.Sprintf("%s::%s::%s", kind, p.Identifier(), unique)
 }
