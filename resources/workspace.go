@@ -44,6 +44,8 @@ type Workspace struct {
 
 	Layout string `yaml:"layout"`
 
+	RunProfiles map[string]RunProfile `yaml:"run-profiles,omitempty"`
+
 	// Modules in the Workspace (used for non-flat layouts)
 	Modules []*ModuleReference `yaml:"modules,omitempty"`
 
@@ -381,7 +383,10 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot create layout")
 	}
-	return err
+	if err := workspace.validateRunProfiles(ctx); err != nil {
+		return w.Wrapf(err, "invalid run profiles")
+	}
+	return nil
 }
 
 func optionalPathValue(path *string) string {
@@ -479,6 +484,9 @@ func (workspace *Workspace) preSave(ctx context.Context) (*Workspace, error) {
 	}
 	if err := workspace.validatePaths(); err != nil {
 		return nil, w.Wrapf(err, "invalid workspace path data")
+	}
+	if err := workspace.validateRunProfiles(ctx); err != nil {
+		return nil, w.Wrapf(err, "invalid run profiles")
 	}
 	serialized := workspace.Clone()
 	if workspace.Layout == LayoutKindFlat {

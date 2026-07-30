@@ -43,6 +43,7 @@ type Option struct {
 	Timeout              time.Duration
 	NamingScope          string
 	Fixture              string
+	RunProfile           string
 	Silents              []string
 	ExcludedDependencies []string
 	KeepRunning          bool
@@ -74,6 +75,14 @@ func WithNamingScope(scope string) OptionFunc {
 func WithFixture(fixture string) OptionFunc {
 	return func(o *Option) {
 		o.Fixture = fixture
+	}
+}
+
+// WithRunProfile forwards a workspace profile name to Codefly, which owns
+// profile validation and resolution for the dependency flow.
+func WithRunProfile(profile string) OptionFunc {
+	return func(o *Option) {
+		o.RunProfile = profile
 	}
 }
 
@@ -127,22 +136,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 			inherited:      true,
 		}, nil
 	}
-	args := []string{"run", "service"}
-	if opt.Debug {
-		args = append(args, "-d")
-	}
-	if opt.NamingScope != "" {
-		args = append(args, "--naming-scope", opt.NamingScope)
-	}
-	if opt.Fixture != "" {
-		args = append(args, "--fixture", opt.Fixture)
-	}
-	if len(opt.Silents) > 0 {
-		args = append(args, "--silent", strings.Join(opt.Silents, ","))
-	}
-	if len(opt.ExcludedDependencies) > 0 {
-		args = append(args, "--exclude-dependency", strings.Join(opt.ExcludedDependencies, ","))
-	}
+	args := dependencyCommandArguments(opt)
 
 	addr := cliServerAddress(ctx, opt.NamingScope)
 	if opt.KeepRunning {
@@ -160,15 +154,6 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		}
 	}
 
-	// Test-owned dependency stacks run in independent package processes, so
-	// their in-memory RuntimeManagers cannot coordinate deterministic named
-	// port allocations. Ask the CLI to use OS-probed ephemeral ports for these
-	// short-lived flows. Normal CLI stable/dev flows retain named ports.
-	//
-	// --headless prevents the CLI from trying to open /dev/tty for
-	// interactive context selection. Always needed when running as a
-	// subprocess (go test, CI, MCP, pipes).
-	args = append(args, "--temporary-ports", "--exclude-root", "--cli-server", "--headless")
 	cmd := exec.CommandContext(ctx, codeflyBinary(), args...)
 	// ARCHITECTURE: the SDK owns the control channel for the child it starts.
 	// Pass the exact selected port to the CLI instead of asking two separately
@@ -248,6 +233,39 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	}
 	success = true
 	return l, nil
+}
+
+func dependencyCommandArguments(opt *Option) []string {
+	args := []string{"run", "service"}
+	if opt.Debug {
+		args = append(args, "-d")
+	}
+	if opt.NamingScope != "" {
+		args = append(args, "--naming-scope", opt.NamingScope)
+	}
+	if opt.Fixture != "" {
+		args = append(args, "--fixture", opt.Fixture)
+	}
+	if opt.RunProfile != "" {
+		args = append(args, "--profile", opt.RunProfile)
+	}
+	if len(opt.Silents) > 0 {
+		args = append(args, "--silent", strings.Join(opt.Silents, ","))
+	}
+	if len(opt.ExcludedDependencies) > 0 {
+		args = append(args, "--exclude-dependency", strings.Join(opt.ExcludedDependencies, ","))
+	}
+
+	// Test-owned dependency stacks run in independent package processes, so
+	// their in-memory RuntimeManagers cannot coordinate deterministic named
+	// port allocations. Ask the CLI to use OS-probed ephemeral ports for these
+	// short-lived flows. Normal CLI stable/dev flows retain named ports.
+	//
+	// --headless prevents the CLI from trying to open /dev/tty for
+	// interactive context selection. Always needed when running as a
+	// subprocess (go test, CI, MCP, pipes).
+	args = append(args, "--temporary-ports", "--exclude-root", "--cli-server", "--headless")
+	return args
 }
 
 // hasManagedDependencyEnvironment recognizes the environment installed by a
