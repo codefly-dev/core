@@ -145,6 +145,54 @@ func TestWithFixtureSelectsDependencyStackFixture(t *testing.T) {
 	}
 }
 
+func TestRunProfilesPassThroughToCodefly(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "../resources/testdata/workspaces/run-profiles")
+	if err != nil {
+		t.Fatalf("load run-profile fixture: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		resolved resources.RunProfile
+	}{
+		{
+			name: "local",
+			resolved: resources.RunProfile{
+				ExcludeDependencies:            []string{"users/accounts"},
+				ExcludeWorkspaceConfigurations: []string{"internal-auth"},
+			},
+		},
+		{name: "saas", resolved: resources.RunProfile{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved, err := workspace.ResolveRunProfile(ctx, tt.name, resources.RunProfile{})
+			if err != nil {
+				t.Fatalf("resolve %s profile: %v", tt.name, err)
+			}
+			if !reflect.DeepEqual(resolved, tt.resolved) {
+				t.Fatalf("resolved %s profile = %#v, want %#v", tt.name, resolved, tt.resolved)
+			}
+
+			option := &Option{}
+			WithRunProfile(tt.name)(option)
+			WithExcludedDependencies("storage/postgres")(option)
+			args := dependencyCommandArguments(option)
+
+			profileFlag := slices.Index(args, "--profile")
+			if profileFlag == -1 || profileFlag+1 >= len(args) || args[profileFlag+1] != tt.name {
+				t.Fatalf("profile arguments = %v, want --profile %s", args, tt.name)
+			}
+			excludeFlag := slices.Index(args, "--exclude-dependency")
+			if excludeFlag == -1 || excludeFlag+1 >= len(args) || args[excludeFlag+1] != "storage/postgres" {
+				t.Fatalf("explicit exclusion arguments = %v", args)
+			}
+		})
+	}
+}
+
 func TestManagedDependencyEnvironmentRequiresRunnerAndEndpoint(t *testing.T) {
 	endpoint := resources.EndpointPrefix + "__SAAS_STARTER__STORE__TCP__TCP"
 	tests := []struct {

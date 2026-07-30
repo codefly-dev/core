@@ -1,0 +1,4 @@
+kind: module
+name: users
+services:
+  - name: accounts

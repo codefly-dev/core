@@ -1,0 +1,4 @@
+kind: module
+name: storage
+services:
+  - name: postgres

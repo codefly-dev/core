@@ -1,0 +1,13 @@
+name: run-profile-workspace
+layout: modules
+run-profiles:
+  local:
+    exclude-dependencies:
+      - users/accounts
+    exclude-workspace-configurations:
+      - internal-auth
+  saas: {}
+modules:
+  - name: mind
+  - name: storage
+  - name: users
