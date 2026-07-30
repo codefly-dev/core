@@ -1,0 +1,1052 @@
+syntax = "proto3";
+
+package codefly.services.provider.v0;
+
+import "buf/validate/validate.proto";
+import "codefly/base/v0/failure.proto";
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// MethodNetworkMode declares the only host interaction an RPC may use.
+enum MethodNetworkMode {
+  // METHOD_NETWORK_MODE_UNSPECIFIED is never admitted.
+  METHOD_NETWORK_MODE_UNSPECIFIED = 0;
+  // METHOD_NETWORK_MODE_OFFLINE forbids all provider-to-host callbacks.
+  METHOD_NETWORK_MODE_OFFLINE = 1;
+  // METHOD_NETWORK_MODE_READ_ONLY permits only admitted read callbacks.
+  METHOD_NETWORK_MODE_READ_ONLY = 2;
+  // METHOD_NETWORK_MODE_ADMITTED permits the exact admitted plan action.
+  METHOD_NETWORK_MODE_ADMITTED = 3;
+  // METHOD_NETWORK_MODE_HOST_LOCAL permits host bookkeeping callbacks only.
+  METHOD_NETWORK_MODE_HOST_LOCAL = 4;
+}
+
+// MethodEffect declares the maximum state effect of one RPC.
+enum MethodEffect {
+  // METHOD_EFFECT_UNSPECIFIED is never admitted.
+  METHOD_EFFECT_UNSPECIFIED = 0;
+  // METHOD_EFFECT_NONE does not inspect or mutate remote state.
+  METHOD_EFFECT_NONE = 1;
+  // METHOD_EFFECT_READ_ONLY may observe remote state but cannot mutate it.
+  METHOD_EFFECT_READ_ONLY = 2;
+  // METHOD_EFFECT_ONE_PLAN_ACTION applies exactly one host-selected action.
+  METHOD_EFFECT_ONE_PLAN_ACTION = 3;
+  // METHOD_EFFECT_HOST_BOOKKEEPING mutates only host-owned bookkeeping.
+  METHOD_EFFECT_HOST_BOOKKEEPING = 4;
+}
+
+// ProviderMethodPolicy is descriptor metadata enforced by the host broker.
+message ProviderMethodPolicy {
+  // network is the maximum callback class available to the method.
+  MethodNetworkMode network = 1;
+  // effect is the maximum effect available to the method.
+  MethodEffect effect = 2;
+}
+
+extend google.protobuf.MethodOptions {
+  // provider_method_policy binds enforceable network and effect policy to an RPC.
+  ProviderMethodPolicy provider_method_policy = 51001;
+}
+
+// Provider is the host-to-provider reconciliation protocol.
+service Provider {
+  // GetProviderInformation returns immutable advertisement and catalog identity.
+  rpc GetProviderInformation(GetProviderInformationRequest) returns (GetProviderInformationResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_OFFLINE
+      effect: METHOD_EFFECT_NONE
+    };
+  }
+  // Validate checks normalized desired input without broker access.
+  rpc Validate(ValidateRequest) returns (ValidateResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_OFFLINE
+      effect: METHOD_EFFECT_NONE
+    };
+  }
+  // Observe reads admitted remote state.
+  rpc Observe(ObserveRequest) returns (ObserveResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_READ_ONLY
+      effect: METHOD_EFFECT_READ_ONLY
+    };
+  }
+  // Plan produces an exact ordered plan without broker access.
+  rpc Plan(PlanRequest) returns (PlanResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_OFFLINE
+      effect: METHOD_EFFECT_NONE
+    };
+  }
+  // ApplyAction applies exactly one action selected from the bound plan.
+  rpc ApplyAction(ApplyActionRequest) returns (ApplyActionResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_ADMITTED
+      effect: METHOD_EFFECT_ONE_PLAN_ACTION
+    };
+  }
+  // Doctor performs admitted read-only diagnostics.
+  rpc Doctor(DoctorRequest) returns (DoctorResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_READ_ONLY
+      effect: METHOD_EFFECT_READ_ONLY
+    };
+  }
+  // UpgradeState performs one offline state-schema upgrade step.
+  rpc UpgradeState(UpgradeStateRequest) returns (UpgradeStateResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_OFFLINE
+      effect: METHOD_EFFECT_NONE
+    };
+  }
+}
+
+// ProviderHost is the provider-to-host callback protocol.
+service ProviderHost {
+  // ExecuteRequest executes one manifest-declared and host-admitted request.
+  rpc ExecuteRequest(ExecuteRequestRequest) returns (ExecuteRequestResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_ADMITTED
+      effect: METHOD_EFFECT_ONE_PLAN_ACTION
+    };
+  }
+  // RecordCheckpoint durably records pre-send or recovery state.
+  rpc RecordCheckpoint(RecordCheckpointRequest) returns (RecordCheckpointResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_HOST_LOCAL
+      effect: METHOD_EFFECT_HOST_BOOKKEEPING
+    };
+  }
+  // ResolveCapture returns an opaque reference for a durable capture.
+  rpc ResolveCapture(ResolveCaptureRequest) returns (ResolveCaptureResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_HOST_LOCAL
+      effect: METHOD_EFFECT_NONE
+    };
+  }
+  // ProposeOutput asks the host to execute one PROJECT_OUTPUT action.
+  rpc ProposeOutput(ProposeOutputRequest) returns (ProposeOutputResponse) {
+    option (provider_method_policy) = {
+      network: METHOD_NETWORK_MODE_HOST_LOCAL
+      effect: METHOD_EFFECT_HOST_BOOKKEEPING
+    };
+  }
+}
+
+// Ownership classifies the provider's relationship to a remote object.
+enum Ownership {
+  // OWNERSHIP_UNSPECIFIED is never persisted or planned.
+  OWNERSHIP_UNSPECIFIED = 0;
+  // OWNERSHIP_OBSERVED is read without management authority.
+  OWNERSHIP_OBSERVED = 1;
+  // OWNERSHIP_OWNED was created and is managed by this binding.
+  OWNERSHIP_OWNED = 2;
+  // OWNERSHIP_ADOPTED was imported and is managed by this binding.
+  OWNERSHIP_ADOPTED = 3;
+  // OWNERSHIP_UNMANAGED is explicitly outside provider management.
+  OWNERSHIP_UNMANAGED = 4;
+}
+
+// ActionType is the closed provider-neutral lifecycle action vocabulary.
+enum ActionType {
+  // ACTION_TYPE_UNSPECIFIED is never admitted.
+  ACTION_TYPE_UNSPECIFIED = 0;
+  // ACTION_TYPE_CREATE creates a remote object.
+  ACTION_TYPE_CREATE = 1;
+  // ACTION_TYPE_UPDATE mutates an existing remote object in place.
+  ACTION_TYPE_UPDATE = 2;
+  // ACTION_TYPE_REPLACE replaces a remote object.
+  ACTION_TYPE_REPLACE = 3;
+  // ACTION_TYPE_DELETE deletes a remote object.
+  ACTION_TYPE_DELETE = 4;
+  // ACTION_TYPE_IMPORT adopts an existing remote object.
+  ACTION_TYPE_IMPORT = 5;
+  // ACTION_TYPE_MANUAL requires an operator action outside Codefly.
+  ACTION_TYPE_MANUAL = 6;
+  // ACTION_TYPE_BLOCKED cannot proceed until a declared condition changes.
+  ACTION_TYPE_BLOCKED = 7;
+  // ACTION_TYPE_NO_OP records that no material remote change is needed.
+  ACTION_TYPE_NO_OP = 8;
+  // ACTION_TYPE_PROJECT_OUTPUT asks the host to project configuration output.
+  ACTION_TYPE_PROJECT_OUTPUT = 9;
+}
+
+// DeliveryState records whether an admitted remote request crossed the boundary.
+enum DeliveryState {
+  // DELIVERY_STATE_UNSPECIFIED is never persisted.
+  DELIVERY_STATE_UNSPECIFIED = 0;
+  // DELIVERY_STATE_NOT_SENT means no request bytes were sent.
+  DELIVERY_STATE_NOT_SENT = 1;
+  // DELIVERY_STATE_SENT_OUTCOME_UNKNOWN means delivery occurred without a known response.
+  DELIVERY_STATE_SENT_OUTCOME_UNKNOWN = 2;
+  // DELIVERY_STATE_RESPONSE_RECEIVED means the host received a response.
+  DELIVERY_STATE_RESPONSE_RECEIVED = 3;
+}
+
+// OutcomeCertainty classifies action completion.
+enum OutcomeCertainty {
+  // OUTCOME_CERTAINTY_UNSPECIFIED means no outcome was supplied.
+  OUTCOME_CERTAINTY_UNSPECIFIED = 0;
+  // OUTCOME_CERTAINTY_COMPLETE means the material result is known.
+  OUTCOME_CERTAINTY_COMPLETE = 1;
+  // OUTCOME_CERTAINTY_PARTIAL means only part of the action completed.
+  OUTCOME_CERTAINTY_PARTIAL = 2;
+  // OUTCOME_CERTAINTY_UNCERTAIN means remote completion is unknown.
+  OUTCOME_CERTAINTY_UNCERTAIN = 3;
+}
+
+// HostMode is a host-attested environment mode.
+enum HostMode {
+  // HOST_MODE_UNSPECIFIED is never admitted.
+  HOST_MODE_UNSPECIFIED = 0;
+  // HOST_MODE_DEVELOPMENT is a non-production environment.
+  HOST_MODE_DEVELOPMENT = 1;
+  // HOST_MODE_STAGING is a pre-production environment.
+  HOST_MODE_STAGING = 2;
+  // HOST_MODE_PRODUCTION is a production environment.
+  HOST_MODE_PRODUCTION = 3;
+}
+
+// CredentialPurpose is the closed purpose vocabulary for opaque handles.
+enum CredentialPurpose {
+  // CREDENTIAL_PURPOSE_UNSPECIFIED is never admitted.
+  CREDENTIAL_PURPOSE_UNSPECIFIED = 0;
+  // CREDENTIAL_PURPOSE_MANAGEMENT authorizes provider management operations.
+  CREDENTIAL_PURPOSE_MANAGEMENT = 1;
+  // CREDENTIAL_PURPOSE_RUNTIME is consumed by an application at runtime.
+  CREDENTIAL_PURPOSE_RUNTIME = 2;
+  // CREDENTIAL_PURPOSE_BUILD is consumed only while building an application.
+  CREDENTIAL_PURPOSE_BUILD = 3;
+  // CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION verifies inbound webhook signatures.
+  CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION = 4;
+}
+
+// PrivateNetworkClass classifies an admitted concrete origin.
+enum PrivateNetworkClass {
+  // PRIVATE_NETWORK_CLASS_UNSPECIFIED is never admitted.
+  PRIVATE_NETWORK_CLASS_UNSPECIFIED = 0;
+  // PRIVATE_NETWORK_CLASS_PUBLIC is publicly routed.
+  PRIVATE_NETWORK_CLASS_PUBLIC = 1;
+  // PRIVATE_NETWORK_CLASS_LOOPBACK resolves to a loopback address.
+  PRIVATE_NETWORK_CLASS_LOOPBACK = 2;
+  // PRIVATE_NETWORK_CLASS_LINK_LOCAL resolves to link-local space.
+  PRIVATE_NETWORK_CLASS_LINK_LOCAL = 3;
+  // PRIVATE_NETWORK_CLASS_PRIVATE resolves to private address space.
+  PRIVATE_NETWORK_CLASS_PRIVATE = 4;
+}
+
+// PublicValue is a normalized non-secret value.
+message PublicValue {
+  // kind carries one deterministic structured value.
+  oneof kind {
+    // string_value is a public or safely classified string.
+    string string_value = 1;
+    // bool_value is a boolean.
+    bool bool_value = 2;
+    // integer_value is a signed integer.
+    sint64 integer_value = 3;
+    // decimal_value is a canonical base-ten decimal string.
+    string decimal_value = 4;
+    // list_value is an ordered list.
+    PublicList list_value = 5;
+    // object_value is a keyed object.
+    PublicObject object_value = 6;
+    // null_value represents an explicit null.
+    bool null_value = 7;
+  }
+}
+
+// PublicList is an ordered list of non-secret values.
+message PublicList {
+  // values retain semantic order.
+  repeated PublicValue values = 1;
+}
+
+// PublicObject is a keyed collection of non-secret values.
+message PublicObject {
+  // fields are keyed by normalized schema property name.
+  map<string, PublicValue> fields = 1;
+}
+
+// AgentArtifactIdentity binds one concrete provider binary to its package.
+message AgentArtifactIdentity {
+  // publisher is the agent publisher namespace.
+  string publisher = 1;
+  // name is the provider agent name.
+  string name = 2;
+  // version is the concrete agent version.
+  string version = 3;
+  // artifact_digest is the verified package digest.
+  string artifact_digest = 4;
+  // manifest_digest is the packaged provider manifest digest.
+  string manifest_digest = 5;
+}
+
+// BindingAddress is the environment-scoped provider binding identity.
+message BindingAddress {
+  // workspace_id is the stable workspace identity.
+  string workspace_id = 1;
+  // environment_id is the stable environment identity.
+  string environment_id = 2;
+  // binding_id is the stable binding identity.
+  string binding_id = 3;
+}
+
+// OperationIdentity binds retries, actions, approvals, and checkpoints.
+message OperationIdentity {
+  // operation_id is stable across coordinator retries.
+  string operation_id = 1;
+  // attempt_id identifies the host-owned attempt.
+  string attempt_id = 2;
+  // action_id identifies one exact plan action.
+  string action_id = 3;
+  // plan_id identifies the exact ordered plan.
+  string plan_id = 4;
+  // approval_id identifies host admission when required.
+  string approval_id = 5;
+  // checkpoint_id identifies the latest durable checkpoint.
+  string checkpoint_id = 6;
+}
+
+// RequestBudget bounds callback count and byte volume.
+message RequestBudget {
+  // request_count is the remaining callback count.
+  uint32 request_count = 1;
+  // request_bytes is the maximum encoded outbound request size.
+  uint64 request_bytes = 2;
+  // response_bytes is the maximum filtered response size.
+  uint64 response_bytes = 3;
+  // deadline is the absolute host-enforced deadline.
+  google.protobuf.Timestamp deadline = 4;
+}
+
+// CredentialHandle is an opaque host-minted credential reference.
+message CredentialHandle {
+  // handle is meaningful only to the host broker.
+  string handle = 1;
+  // purpose is the host-admitted credential purpose.
+  CredentialPurpose purpose = 2;
+}
+
+// SemanticEndpointReference identifies a manifest-declared endpoint without choosing an origin.
+message SemanticEndpointReference {
+  // endpoint_id is the provider-defined semantic endpoint.
+  string endpoint_id = 1;
+  // origin_rule_id is the manifest origin rule.
+  string origin_rule_id = 2;
+}
+
+// AdmittedOrigin is the concrete host-attested request origin.
+message AdmittedOrigin {
+  // origin_rule_id binds this origin to the manifest ceiling.
+  string origin_rule_id = 1;
+  // scheme is the admitted lowercase scheme.
+  string scheme = 2;
+  // host is the admitted canonical host.
+  string host = 3;
+  // port is the admitted concrete port.
+  uint32 port = 4;
+  // private_network_class is attested after host resolution.
+  PrivateNetworkClass private_network_class = 5;
+  // admission_digest binds the rule, endpoint, and concrete origin.
+  string admission_digest = 6;
+}
+
+// OfflineProviderContext carries identity and non-secret input only.
+message OfflineProviderContext {
+  // binding is the environment-scoped binding address.
+  BindingAddress binding = 1;
+  // artifact is the concrete verified agent package.
+  AgentArtifactIdentity artifact = 2;
+  // input is normalized non-secret desired input.
+  map<string, PublicValue> input = 3;
+  // mode is host-attested and cannot be selected by provider code.
+  HostMode mode = 4;
+  // account_identity is a safe host-known account identity when available.
+  string account_identity = 5;
+}
+
+// ProviderContext adds online handles and admitted endpoint data.
+message ProviderContext {
+  // offline is the identity and normalized non-secret input.
+  OfflineProviderContext offline = 1;
+  // credentials are opaque host-minted handles only.
+  repeated CredentialHandle credentials = 2;
+  // endpoints are semantic endpoint references.
+  repeated SemanticEndpointReference endpoints = 3;
+  // admitted_origins are concrete host-attested origins.
+  repeated AdmittedOrigin admitted_origins = 4;
+  // operation binds this invocation to host-owned identities.
+  OperationIdentity operation = 5;
+  // budget is the host-enforced callback and deadline budget.
+  RequestBudget budget = 6;
+}
+
+// RuntimeCatalog is the binary-advertised subset of its packaged manifest.
+message RuntimeCatalog {
+  // protocol_version is the implemented provider protocol version.
+  string protocol_version = 1;
+  // manifest_schema_version is the implemented manifest schema version.
+  string manifest_schema_version = 2;
+  // state_schema_versions are accepted state versions.
+  repeated uint32 state_schema_versions = 3;
+  // requests are executable manifest request descriptors and digests.
+  repeated RuntimeCatalogRequest requests = 4;
+  // resource_types are executable manifest resource types and actions.
+  repeated RuntimeCatalogResource resource_types = 5;
+  // projection_contracts are executable generic configuration contracts.
+  repeated string projection_contracts = 6;
+  // diagnostic_codes are executable codes under the manifest namespace.
+  repeated string diagnostic_codes = 7;
+  // digest changes whenever the catalog changes.
+  string digest = 8;
+}
+
+// RuntimeCatalogRequest binds one executable request descriptor.
+message RuntimeCatalogRequest {
+  // id is the packaged request descriptor identity.
+  string id = 1;
+  // digest is the packaged request descriptor digest.
+  string digest = 2;
+}
+
+// RuntimeCatalogResource binds one executable resource action subset.
+message RuntimeCatalogResource {
+  // id is the packaged resource type identity.
+  string id = 1;
+  // actions are lifecycle actions implemented for this resource type.
+  repeated string actions = 2;
+}
+
+// ProviderReadiness separates production observation and mutation gates.
+message ProviderReadiness {
+  // production_observe declares production read readiness.
+  bool production_observe = 1;
+  // production_mutation declares production mutation readiness.
+  bool production_mutation = 2;
+}
+
+// ProviderCapabilities advertises provider-neutral lifecycle support.
+message ProviderCapabilities {
+  // supports_import declares import support.
+  bool supports_import = 1;
+  // supports_replace declares replacement support.
+  bool supports_replace = 2;
+  // supports_delete declares deletion support.
+  bool supports_delete = 3;
+  // supports_state_upgrade declares stepwise state upgrade support.
+  bool supports_state_upgrade = 4;
+}
+
+// GetProviderInformationRequest identifies the verified binary asking to advertise.
+message GetProviderInformationRequest {
+  // artifact is the verified agent package identity.
+  AgentArtifactIdentity artifact = 1;
+}
+
+// GetProviderInformationResponse returns immutable provider advertisement.
+message GetProviderInformationResponse {
+  // artifact must exactly match the request identity.
+  AgentArtifactIdentity artifact = 1;
+  // catalog is the runtime subset of the packaged manifest.
+  RuntimeCatalog catalog = 2;
+  // capabilities are provider-neutral supported operations.
+  ProviderCapabilities capabilities = 3;
+  // readiness separates production observation and mutation.
+  ProviderReadiness readiness = 4;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 5 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// ValidateRequest contains only offline-capable desired input.
+message ValidateRequest {
+  // context contains identity and normalized non-secret input.
+  OfflineProviderContext context = 1;
+  // previous_state is safe provider state when validation needs schema context.
+  ProviderState previous_state = 2;
+}
+
+// ValidateResponse reports normalized diagnostics.
+message ValidateResponse {
+  // valid reports whether desired input is acceptable.
+  bool valid = 1;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 2 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// RemoteIdentity is the exact stable identity of one remote object.
+message RemoteIdentity {
+  // provider is the provider identity.
+  string provider = 1;
+  // account_id is the safe remote account identity.
+  string account_id = 2;
+  // resource_type is the manifest resource type.
+  string resource_type = 3;
+  // remote_id is the exact provider-native stable identifier.
+  string remote_id = 4;
+}
+
+// MaterialResourceObservation contains digest-bearing remote facts.
+message MaterialResourceObservation {
+  // identity is the exact remote identity.
+  RemoteIdentity identity = 1;
+  // ownership is the provider relationship to this object.
+  Ownership ownership = 2;
+  // revision is a material remote revision or ETag.
+  string revision = 3;
+  // provider_owned_fields are safe fields managed by this provider.
+  map<string, PublicValue> provider_owned_fields = 4;
+  // secret_reference_status records only reference or presence state.
+  map<string, string> secret_reference_status = 5;
+  // action_preconditions are stable preconditions for planning.
+  map<string, PublicValue> action_preconditions = 6;
+}
+
+// MaterialObservation is the canonical digest-bearing observation.
+message MaterialObservation {
+  // account_identity is the exact safe account identity.
+  string account_identity = 1;
+  // mode is host-attested.
+  HostMode mode = 2;
+  // complete is explicit even for single-page observations.
+  bool complete = 3;
+  // next_cursor is present only when the observation is incomplete.
+  string next_cursor = 4;
+  // resources are canonicalized independently of retrieval order.
+  repeated MaterialResourceObservation resources = 5;
+}
+
+// VolatileObservation contains non-material refresh metadata.
+message VolatileObservation {
+  // request_ids are remote diagnostic request identifiers.
+  repeated string request_ids = 1;
+  // rate_limit_remaining is remote diagnostic capacity.
+  uint64 rate_limit_remaining = 2;
+  // retry_after is remote throttling advice owned by the coordinator.
+  google.protobuf.Duration retry_after = 3;
+  // retrieved_at is the non-material retrieval timestamp.
+  google.protobuf.Timestamp retrieved_at = 4;
+  // diagnostics are excluded from material digest ordering.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 5 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// ObserveRequest asks for one admitted read-only observation page.
+message ObserveRequest {
+  // context carries admitted read-only handles and budget.
+  ProviderContext context = 1;
+  // state is the current safe provider state.
+  ProviderState state = 2;
+  // cursor continues an explicitly incomplete observation.
+  string cursor = 3;
+}
+
+// ObserveResponse separates material state from volatile metadata.
+message ObserveResponse {
+  // material is the digest-bearing observation.
+  MaterialObservation material = 1;
+  // volatile is excluded from material identity.
+  VolatileObservation volatile = 2;
+}
+
+// BindingDesiredState is canonical environment-scoped desired state.
+message BindingDesiredState {
+  // binding is the exact binding address.
+  BindingAddress binding = 1;
+  // deletion_policy defaults to retain at the manifest boundary.
+  string deletion_policy = 2;
+  // input is normalized non-secret desired input.
+  map<string, PublicValue> input = 3;
+  // credential_references bind purpose to inactive opaque references.
+  repeated OpaqueReference credential_references = 4;
+}
+
+// OutputTarget binds an output contract to its target generation.
+message OutputTarget {
+  // contract is the generic configuration contract identity.
+  string contract = 1;
+  // target_generation is the desired host output generation.
+  uint64 target_generation = 2;
+  // current_generation is the currently durable output generation.
+  uint64 current_generation = 3;
+  // current_digest is the currently durable output digest.
+  string current_digest = 4;
+}
+
+// StateGeneration binds state schema and generation identity.
+message StateGeneration {
+  // schema_version is the state schema version.
+  uint32 schema_version = 1;
+  // generation is the monotonic state generation.
+  uint64 generation = 2;
+  // state_digest is the prior durable state digest.
+  string state_digest = 3;
+}
+
+// PolicyApprovalInput is the material host policy and approval input.
+message PolicyApprovalInput {
+  // principal_id is the host-selected principal.
+  string principal_id = 1;
+  // permission is the admitted action permission.
+  string permission = 2;
+  // concrete_resource is the expanded concrete resource.
+  string concrete_resource = 3;
+  // credential_purpose is the admitted credential purpose.
+  CredentialPurpose credential_purpose = 4;
+  // response_policy_digest binds filtering and capture policy.
+  string response_policy_digest = 5;
+  // approval_id is the host-issued approval identity.
+  string approval_id = 6;
+}
+
+// ActionPrecondition is one exact action precondition.
+message ActionPrecondition {
+  // name is the stable precondition name.
+  string name = 1;
+  // expected is the canonical expected value.
+  PublicValue expected = 2;
+}
+
+// PlanAction is one exact ordered host-applied action.
+message PlanAction {
+  // action_id is unique within the plan.
+  string action_id = 1;
+  // position is the zero-based exact plan position.
+  uint32 position = 2;
+  // type is the closed lifecycle action.
+  ActionType type = 3;
+  // resource_type is the manifest resource type.
+  string resource_type = 4;
+  // remote_identity is known for existing objects.
+  RemoteIdentity remote_identity = 5;
+  // prospective_remote_id survives create lost-response recovery.
+  string prospective_remote_id = 6;
+  // ownership is the resulting ownership.
+  Ownership ownership = 7;
+  // requests are the exact broker requests admitted for this action.
+  repeated PlannedRequest requests = 8;
+  // output is the exact host-executed projection for PROJECT_OUTPUT.
+  OutputProposal output = 9;
+  // preconditions are exact material action preconditions.
+  repeated ActionPrecondition preconditions = 10;
+  // summary is a safe human-readable action summary.
+  string summary = 11;
+}
+
+// OrderedPlan is the canonical exact action sequence.
+message OrderedPlan {
+  // plan_id is the host-visible plan identity.
+  string plan_id = 1;
+  // artifact_digest binds the concrete provider package.
+  string artifact_digest = 2;
+  // manifest_digest binds the packaged ceiling.
+  string manifest_digest = 3;
+  // catalog_digest binds the runtime subset.
+  string catalog_digest = 4;
+  // desired_digest binds normalized desired state.
+  string desired_digest = 5;
+  // observation_digest binds material observation only.
+  string observation_digest = 6;
+  // output_target_digest binds output generation.
+  string output_target_digest = 7;
+  // state_generation_digest binds prior durable state.
+  string state_generation_digest = 8;
+  // policy_input_digest binds host policy and approval.
+  string policy_input_digest = 9;
+  // actions retain exact execution order.
+  repeated PlanAction actions = 10;
+  // plan_digest is computed with this field cleared.
+  string plan_digest = 11;
+}
+
+// PlanRequest contains only offline planning inputs.
+message PlanRequest {
+  // context contains identity and normalized non-secret input.
+  OfflineProviderContext context = 1;
+  // desired is canonical binding desired state.
+  BindingDesiredState desired = 2;
+  // observation is material observation only.
+  MaterialObservation observation = 3;
+  // output_target is the host output generation target.
+  OutputTarget output_target = 4;
+  // state_generation binds prior state.
+  StateGeneration state_generation = 5;
+  // policy_input is the host policy and approval input.
+  PolicyApprovalInput policy_input = 6;
+  // state is the current safe provider state.
+  ProviderState state = 7;
+}
+
+// PlanResponse returns one exact ordered plan.
+message PlanResponse {
+  // plan is the exact canonical action sequence.
+  OrderedPlan plan = 1;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 2 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// ActionCheckpoint is durable action recovery state.
+message ActionCheckpoint {
+  // checkpoint_id is the durable checkpoint identity.
+  string checkpoint_id = 1;
+  // operation is the host-owned operation identity.
+  OperationIdentity operation = 2;
+  // delivery is the pre-send delivery state.
+  DeliveryState delivery = 3;
+  // idempotency_key is stable across retries.
+  string idempotency_key = 4;
+  // prospective_remote_id survives uncertain create outcomes.
+  string prospective_remote_id = 5;
+  // recorded_at is the durable checkpoint time.
+  google.protobuf.Timestamp recorded_at = 6;
+  // recovery_fields are safe provider-neutral recovery facts.
+  map<string, PublicValue> recovery_fields = 7;
+}
+
+// ActionReceipt is the durable result of one exact action.
+message ActionReceipt {
+  // receipt_id is the host-generated receipt identity.
+  string receipt_id = 1;
+  // operation is the host-owned operation identity.
+  OperationIdentity operation = 2;
+  // action is the exact action that was attempted.
+  PlanAction action = 3;
+  // delivery records the request delivery boundary.
+  DeliveryState delivery = 4;
+  // certainty records complete, partial, or uncertain outcome.
+  OutcomeCertainty certainty = 5;
+  // started_at is the host-attested action start.
+  google.protobuf.Timestamp started_at = 6;
+  // completed_at is the host-attested action completion when known.
+  google.protobuf.Timestamp completed_at = 7;
+  // artifact_digest binds the executing provider package.
+  string artifact_digest = 8;
+  // safe_result contains only filtered safe result fields.
+  map<string, PublicValue> safe_result = 9;
+  // capture_references are opaque durable sink references.
+  repeated OpaqueReference capture_references = 10;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 11 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// ApplyActionRequest selects one exact action from one exact plan.
+message ApplyActionRequest {
+  // context carries admitted handles, identities, and budget.
+  ProviderContext context = 1;
+  // plan is the exact bound plan.
+  OrderedPlan plan = 2;
+  // action is the single host-selected action.
+  PlanAction action = 3;
+  // prior_checkpoint carries durable recovery state.
+  ActionCheckpoint prior_checkpoint = 4;
+  // state is the current safe provider state.
+  ProviderState state = 5;
+}
+
+// ApplyActionResponse returns the exact action receipt and next state.
+message ApplyActionResponse {
+  // receipt is the durable action result.
+  ActionReceipt receipt = 1;
+  // next_state is safe provider state after this action.
+  ProviderState next_state = 2;
+}
+
+// DoctorRequest asks for admitted read-only provider diagnostics.
+message DoctorRequest {
+  // context carries admitted read-only handles and budget.
+  ProviderContext context = 1;
+  // state is the current safe provider state.
+  ProviderState state = 2;
+}
+
+// DoctorResponse returns bounded diagnostics only.
+message DoctorResponse {
+  // healthy reports whether provider prerequisites are ready.
+  bool healthy = 1;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 2 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// HTTPMethod is the closed broker HTTP method vocabulary.
+enum HTTPMethod {
+  // HTTP_METHOD_UNSPECIFIED is never admitted.
+  HTTP_METHOD_UNSPECIFIED = 0;
+  // HTTP_METHOD_GET is a GET request.
+  HTTP_METHOD_GET = 1;
+  // HTTP_METHOD_HEAD is a HEAD request.
+  HTTP_METHOD_HEAD = 2;
+  // HTTP_METHOD_POST is a POST request.
+  HTTP_METHOD_POST = 3;
+  // HTTP_METHOD_PUT is a PUT request.
+  HTTP_METHOD_PUT = 4;
+  // HTTP_METHOD_PATCH is a PATCH request.
+  HTTP_METHOD_PATCH = 5;
+  // HTTP_METHOD_DELETE is a DELETE request.
+  HTTP_METHOD_DELETE = 6;
+}
+
+// PlannedRequest is the immutable request material admitted in an ordered plan.
+message PlannedRequest {
+  // request_descriptor_id selects one packaged descriptor.
+  string request_descriptor_id = 1;
+  // request_descriptor_digest binds the exact descriptor.
+  string request_descriptor_digest = 2;
+  // method must match the descriptor.
+  HTTPMethod method = 3;
+  // admitted_origin_digest binds the exact host-attested origin.
+  string admitted_origin_digest = 4;
+  // path_parameters bind every concrete path placeholder.
+  map<string, PublicValue> path_parameters = 5;
+  // query contains only descriptor-allowed fields.
+  map<string, PublicValue> query = 6;
+  // body contains only descriptor-allowed structured fields.
+  map<string, PublicValue> body = 7;
+  // credential_purposes bind the purposes of the handles supplied at execution.
+  repeated CredentialPurpose credential_purposes = 8;
+  // response_policy_digest binds filtering and capture policy.
+  string response_policy_digest = 9;
+  // idempotency_key is stable across coordinator retries.
+  string idempotency_key = 10;
+  // request_digest is computed over every field above with this field cleared.
+  string request_digest = 11;
+}
+
+// ExecuteRequestRequest is one structured manifest-declared broker request.
+message ExecuteRequestRequest {
+  // context binds the request to the operation and admitted origin.
+  ProviderContext context = 1;
+  // request_id is the provider-generated callback identity.
+  string request_id = 2;
+  // request is byte-for-byte material from the admitted plan.
+  PlannedRequest request = 3;
+  // origin is the host-admitted concrete origin.
+  AdmittedOrigin origin = 4;
+  // credential_handles select host-admitted credential purposes.
+  repeated CredentialHandle credential_handles = 5;
+  // requested_at is the provider request timestamp.
+  google.protobuf.Timestamp requested_at = 6;
+}
+
+// FilteredField is one response field safe to forward.
+message FilteredField {
+  // selector is the manifest response selector.
+  string selector = 1;
+  // value is the filtered safe value.
+  PublicValue value = 2;
+}
+
+// CaptureResult is a durable-at-Put one-time capture result.
+message CaptureResult {
+  // capture_id is the host capture identity.
+  string capture_id = 1;
+  // selector is the manifest capture selector.
+  string selector = 2;
+  // sink_reference is opaque and never reveals captured bytes.
+  OpaqueReference sink_reference = 3;
+  // captured reports whether Put became durable.
+  bool captured = 4;
+}
+
+// ExecuteRequestResponse contains no unfiltered response body.
+message ExecuteRequestResponse {
+  // request_id matches the callback identity.
+  string request_id = 1;
+  // delivery records whether request bytes crossed the boundary.
+  DeliveryState delivery = 2;
+  // status_code is the remote HTTP response code when received.
+  uint32 status_code = 3;
+  // forwarded contains only FORWARD_SAFE filtered fields.
+  repeated FilteredField forwarded = 4;
+  // suppressed_presence reports presence without forwarding a value.
+  repeated string suppressed_presence = 5;
+  // captures are durable sink results.
+  repeated CaptureResult captures = 6;
+  // certainty records complete, partial, or uncertain outcome.
+  OutcomeCertainty certainty = 7;
+  // response_received_at is host-attested when a response arrived.
+  google.protobuf.Timestamp response_received_at = 8;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 9 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// RecordCheckpointRequest asks the host to durably Put a checkpoint.
+message RecordCheckpointRequest {
+  // checkpoint is the exact durable recovery state.
+  ActionCheckpoint checkpoint = 1;
+}
+
+// RecordCheckpointResponse confirms durable-at-Put semantics.
+message RecordCheckpointResponse {
+  // durable confirms the checkpoint is committed.
+  bool durable = 1;
+  // state_generation is the committed host generation.
+  uint64 state_generation = 2;
+}
+
+// ResolveCaptureRequest identifies one prior durable capture.
+message ResolveCaptureRequest {
+  // operation binds the capture to one action.
+  OperationIdentity operation = 1;
+  // capture_id is the prior capture identity.
+  string capture_id = 2;
+}
+
+// ResolveCaptureResponse returns only the opaque sink reference.
+message ResolveCaptureResponse {
+  // reference is the opaque durable sink reference.
+  OpaqueReference reference = 1;
+}
+
+// OpaqueReference is a host-owned reference that cannot expose underlying bytes.
+message OpaqueReference {
+  // reference is meaningful only to the host subsystem that issued it.
+  string reference = 1;
+  // purpose is the declared reference purpose.
+  CredentialPurpose purpose = 2;
+  // safe_fingerprint is non-reversible and safe for drift comparison.
+  string safe_fingerprint = 3;
+}
+
+// OutputValue is either public data or an opaque reference.
+message OutputValue {
+  // kind is the only output representation available to providers.
+  oneof kind {
+    // public_value is a schema-admitted public value.
+    PublicValue public_value = 1;
+    // opaque_reference is a host-owned reference.
+    OpaqueReference opaque_reference = 2;
+  }
+}
+
+// OutputProposal is a generic configuration projection proposal.
+message OutputProposal {
+  // contract is the exact versioned generic configuration contract.
+  string contract = 1;
+  // target_generation is the host-selected target generation.
+  uint64 target_generation = 2;
+  // values are declared contract keys only.
+  map<string, OutputValue> values = 3;
+  // digest binds the contract, generation, and values.
+  string digest = 4;
+}
+
+// ProposeOutputRequest asks the host to execute PROJECT_OUTPUT.
+message ProposeOutputRequest {
+  // operation binds the proposal to one exact plan action.
+  OperationIdentity operation = 1;
+  // proposal is the schema-bound generic output.
+  OutputProposal proposal = 2;
+}
+
+// ProposeOutputResponse returns the durable output generation.
+message ProposeOutputResponse {
+  // durable reports whether the projection committed.
+  bool durable = 1;
+  // generation is the committed output generation.
+  uint64 generation = 2;
+  // digest is the committed output digest.
+  string digest = 3;
+}
+
+// UpgradeRecord records one completed state upgrade step.
+message UpgradeRecord {
+  // from_version is the prior schema version.
+  uint32 from_version = 1;
+  // to_version is exactly from_version plus one.
+  uint32 to_version = 2;
+  // agent_version is the concrete upgrading agent.
+  string agent_version = 3;
+  // artifact_digest binds the upgrading package.
+  string artifact_digest = 4;
+  // upgraded_at is the host-attested upgrade time.
+  google.protobuf.Timestamp upgraded_at = 5;
+  // prior_digest binds the prior state.
+  string prior_digest = 6;
+  // result_digest binds the upgraded state.
+  string result_digest = 7;
+}
+
+// ProviderStateV1 is the provider-neutral durable state schema.
+message ProviderStateV1 {
+  // state_schema_version is exactly one for this message.
+  uint32 state_schema_version = 1;
+  // generation is the monotonic state generation.
+  uint64 generation = 2;
+  // binding is the exact environment-scoped binding address.
+  BindingAddress binding = 3;
+  // provider_id is the stable provider identity.
+  string provider_id = 4;
+  // provider_version is the concrete agent version.
+  string provider_version = 5;
+  // manifest_schema_version is the packaged manifest schema version.
+  string manifest_schema_version = 6;
+  // manifest_digest binds the packaged ceiling.
+  string manifest_digest = 7;
+  // artifact_digest binds the executing package.
+  string artifact_digest = 8;
+  // remote_identity is the exact owned or observed remote object.
+  RemoteIdentity remote_identity = 9;
+  // ownership is the binding ownership.
+  Ownership ownership = 10;
+  // ownership_stamp is a host-verifiable ownership stamp.
+  string ownership_stamp = 11;
+  // safe_observed_fields are safe persisted remote facts.
+  map<string, PublicValue> safe_observed_fields = 12;
+  // provider_owned_fields are safe fields managed by this provider.
+  map<string, PublicValue> provider_owned_fields = 13;
+  // material_observation_digest binds the last material observation.
+  string material_observation_digest = 14;
+  // plan_digest binds the last exact ordered plan.
+  string plan_digest = 15;
+  // secret_references contain only opaque references and fingerprints.
+  repeated OpaqueReference secret_references = 16;
+  // output_contract is the versioned generic output contract.
+  string output_contract = 17;
+  // output_generation is the durable output generation.
+  uint64 output_generation = 18;
+  // output_digest is the durable output digest.
+  string output_digest = 19;
+  // operation is the latest host-owned operation identity.
+  OperationIdentity operation = 20;
+  // checkpoint is the latest durable pre-send or recovery checkpoint.
+  ActionCheckpoint checkpoint = 21;
+  // receipt is the latest durable action receipt.
+  ActionReceipt receipt = 22;
+  // recovery_data contains safe partial or uncertain recovery facts.
+  map<string, PublicValue> recovery_data = 23;
+  // upgrade_history records exact stepwise upgrades.
+  repeated UpgradeRecord upgrade_history = 24;
+}
+
+// ProviderState is the version-discriminated durable state envelope.
+message ProviderState {
+  // schema_version selects the exact state schema and fails closed when unsupported.
+  uint32 schema_version = 1;
+  // schema contains only the payload for schema_version.
+  oneof schema {
+    // v1 is provider-neutral state schema version one.
+    ProviderStateV1 v1 = 2;
+  }
+}
+
+// UpgradeStateRequest asks for exactly one offline schema upgrade step.
+message UpgradeStateRequest {
+  // context contains identity and non-secret input only.
+  OfflineProviderContext context = 1;
+  // from_version is the current state schema version.
+  uint32 from_version = 2;
+  // to_version must equal from_version plus one.
+  uint32 to_version = 3;
+  // state is the safe current state.
+  ProviderState state = 4;
+}
+
+// UpgradeStateResponse returns the next safe schema step.
+message UpgradeStateResponse {
+  // state is the upgraded safe state.
+  ProviderState state = 1;
+  // record is the exact upgrade history entry.
+  UpgradeRecord record = 2;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 3 [(buf.validate.field).repeated.max_items = 100];
+}

@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -166,5 +167,39 @@ func TestAgentSourceLocal(t *testing.T) {
 	_ = os.Unsetenv(AgentSourceEnv)
 	if AgentSourceLocal() {
 		t.Error("AgentSourceLocal() should be false when env is unset")
+	}
+}
+
+func TestFindLocalLatestUsesToolboxAndProviderRegistryRoutes(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	for _, kind := range []resources.AgentKind{resources.ToolboxAgent, resources.ProviderAgent} {
+		agent := &resources.Agent{Kind: kind, Publisher: "codefly.dev", Name: "fixture", Version: "latest"}
+		registration, err := resources.AgentKindRegistrationFor(kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := filepath.Join(resources.AgentBase(context.Background()), "agents", registration.InstallSubdirectory, agent.Publisher)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		touchFile(t, filepath.Join(dir, "fixture__1.2.3"))
+		if err := FindLocalLatest(context.Background(), agent); err != nil {
+			t.Fatal(err)
+		}
+		if agent.Version != "1.2.3" {
+			t.Fatalf("%s resolved version %q", kind, agent.Version)
+		}
+	}
+}
+
+func TestProviderGitHubResolutionFailsBeforeNetwork(t *testing.T) {
+	agent := &resources.Agent{
+		Kind: resources.ProviderAgent, Publisher: "codefly.dev", Name: "fixture", Version: "1.2.3",
+	}
+	if err := Download(context.Background(), agent); err == nil {
+		t.Fatal("provider GitHub auto-download must be disabled")
+	}
+	if _, err := PinToLatestRelease(context.Background(), agent); err == nil {
+		t.Fatal("provider GitHub release resolution must be disabled")
 	}
 }

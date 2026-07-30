@@ -16,8 +16,7 @@ type AddApplicationAction struct {
 }
 
 func (action *AddApplicationAction) Command() string {
-	agent := resources.AgentFromProto(action.Agent)
-	return fmt.Sprintf("codefly add application %s --agent=%s", action.Name, agent.Identifier())
+	return fmt.Sprintf("codefly add application %s --agent=%s", action.Name, resources.AgentIdentifierFromProto(action.Agent))
 }
 
 type AddApplication = actionsv0.AddApplication

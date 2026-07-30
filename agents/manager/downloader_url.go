@@ -11,16 +11,20 @@ import (
 // Keeping platform selection in one implementation avoids unsupported build-tag
 // gaps (notably linux/arm64) and keeps version lookup and asset download pointed
 // at the same publisher repository.
-func DownloadURL(agent *resources.Agent) string {
-	source := toGithubSource(agent)
+func DownloadURL(agent *resources.Agent) (string, error) {
+	source, err := toGithubSource(agent)
+	if err != nil {
+		return "", err
+	}
+	registration, err := resources.AgentKindRegistrationFor(agent.Kind)
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf(
-		"https://github.com/%s/%s/releases/download/v%s/service-%s_%s_%s_%s.tar.gz",
+		"https://github.com/%s/%s/releases/download/v%s/%s",
 		source.Owner,
 		source.Repo,
 		agent.Version,
-		agent.Name,
-		agent.Version,
-		runtime.GOOS,
-		runtime.GOARCH,
-	)
+		registration.GitHubAsset(agent.Name, agent.Version, runtime.GOOS, runtime.GOARCH),
+	), nil
 }

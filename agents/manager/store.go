@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/codefly-dev/core/provider/artifact"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 )
@@ -37,8 +38,8 @@ type AgentStore interface {
 //
 // Registry layout:
 //
-//	{registry}/agents/{publisher}/{name}:{version}
-//	  └── single layer: service-{name} (the binary, for current OS/arch)
+//	{registry}/agents/{publisher}/{kind}-{name}:{version}
+//	  └── single layer: {kind}-{name} (the binary, for current OS/arch)
 //
 // Push example:
 //
@@ -82,8 +83,12 @@ func NewOCIStoreFromEnv(logger *slog.Logger) *OCIStore {
 	return NewOCIStore(registry, scheme, logger)
 }
 
-func (s *OCIStore) repoPath(agent *resources.Agent) string {
-	return fmt.Sprintf("agents/%s/%s", agent.Publisher, agent.Name)
+func (s *OCIStore) repoPath(agent *resources.Agent) (string, error) {
+	registration, err := resources.AgentKindRegistrationFor(agent.Kind)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("agents/%s/%s", agent.Publisher, registration.GitHubRepository(agent.Name)), nil
 }
 
 func (s *OCIStore) tag(agent *resources.Agent) string {
@@ -95,7 +100,10 @@ func (s *OCIStore) tag(agent *resources.Agent) string {
 
 // Available checks if the agent manifest exists in the registry.
 func (s *OCIStore) Available(ctx context.Context, agent *resources.Agent) (bool, error) {
-	repo := s.repoPath(agent)
+	repo, err := s.repoPath(agent)
+	if err != nil {
+		return false, err
+	}
 	tag := s.tag(agent)
 	url := fmt.Sprintf("%s://%s/v2/%s/manifests/%s", s.scheme, s.registry, repo, tag)
 
@@ -130,7 +138,10 @@ func (s *OCIStore) Pull(ctx context.Context, agent *resources.Agent) (string, er
 	s.logger.Info("pulling agent from registry", "agent", agent.Identifier(), "registry", s.registry)
 
 	// Step 1: Fetch the manifest to get the blob digest.
-	repo := s.repoPath(agent)
+	repo, err := s.repoPath(agent)
+	if err != nil {
+		return "", err
+	}
 	tag := s.tag(agent)
 	manifestURL := fmt.Sprintf("%s://%s/v2/%s/manifests/%s", s.scheme, s.registry, repo, tag)
 
@@ -330,7 +341,7 @@ func PlatformSuffix() string {
 // `packages.${system}.agents-{kind}-{name}-{version}`. The build output
 // must be either:
 //   - a file that is the agent binary, or
-//   - a directory containing `bin/service-{name}` (the nixpkgs convention
+//   - a directory containing `bin/{kind}-{name}` (the nixpkgs convention
 //     for a package built from a Go module).
 //
 // Configure via env:
@@ -363,24 +374,29 @@ func NewNixStoreFromEnv(logger *slog.Logger) *NixStore {
 	return &NixStore{flakeRef: ref, logger: logger}
 }
 
-func (s *NixStore) attrFor(agent *resources.Agent) string {
-	// Nix attribute names can't contain `:` or `/`. Kind is e.g.
-	// "codefly:service" — drop the prefix, use just "service".
-	kind := string(agent.Kind)
-	if i := strings.LastIndex(kind, ":"); i >= 0 {
-		kind = kind[i+1:]
+func (s *NixStore) attrFor(agent *resources.Agent) (string, error) {
+	registration, err := resources.AgentKindRegistrationFor(agent.Kind)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("agents-%s-%s-%s", kind, agent.Name, agent.Version)
+	return fmt.Sprintf("agents-%s-%s-%s", registration.ExecutablePrefix, agent.Name, agent.Version), nil
 }
 
-func (s *NixStore) fullRef(agent *resources.Agent) string {
-	return fmt.Sprintf("%s#%s", s.flakeRef, s.attrFor(agent))
+func (s *NixStore) fullRef(agent *resources.Agent) (string, error) {
+	attr, err := s.attrFor(agent)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s#%s", s.flakeRef, attr), nil
 }
 
 // Available asks nix to evaluate the attribute without building it.
 // Cheap compared to Pull: just flake eval, no derivation realization.
 func (s *NixStore) Available(ctx context.Context, agent *resources.Agent) (bool, error) {
-	ref := s.fullRef(agent)
+	ref, err := s.fullRef(agent)
+	if err != nil {
+		return false, err
+	}
 	// #nosec G204 -- flakeRef/attr are built from env + validated Agent fields.
 	cmd := exec.CommandContext(ctx,
 		"nix", "--extra-experimental-features", "nix-command flakes",
@@ -395,7 +411,10 @@ func (s *NixStore) Available(ctx context.Context, agent *resources.Agent) (bool,
 // Nix handles its own content-addressed cache under /nix/store, so repeat
 // Pulls for the same ref are no-ops once the derivation is realized.
 func (s *NixStore) Pull(ctx context.Context, agent *resources.Agent) (string, error) {
-	ref := s.fullRef(agent)
+	ref, err := s.fullRef(agent)
+	if err != nil {
+		return "", err
+	}
 	if s.logger != nil {
 		s.logger.Info("realizing agent via nix", "agent", agent.Identifier(), "ref", ref)
 	}
@@ -425,7 +444,7 @@ func (s *NixStore) Pull(ctx context.Context, agent *resources.Agent) (string, er
 // resolveNixAgentBinary inspects a /nix/store output path and returns the
 // path to the executable agent binary. Two conventions are accepted:
 //   - outPath is itself a file (a single static binary).
-//   - outPath is a directory containing bin/service-{name} (nixpkgs Go
+//   - outPath is a directory containing bin/{kind}-{name} (nixpkgs Go
 //     package convention).
 func resolveNixAgentBinary(outPath string, agent *resources.Agent) (string, error) {
 	info, err := os.Stat(outPath)
@@ -435,9 +454,28 @@ func resolveNixAgentBinary(outPath string, agent *resources.Agent) (string, erro
 	if !info.IsDir() {
 		return outPath, nil
 	}
-	candidate := filepath.Join(outPath, "bin", "service-"+agent.Name)
+	registration, err := resources.AgentKindRegistrationFor(agent.Kind)
+	if err != nil {
+		return "", err
+	}
+	if registration.Resolution.Nix == resources.AgentResolutionVerifiedArtifact {
+		descriptorPath := filepath.Join(outPath, artifact.DescriptorFileName)
+		if _, err := os.Stat(descriptorPath); err == nil {
+			verified, err := artifact.VerifyLayout(outPath, agent)
+			if err != nil {
+				return "", err
+			}
+			return verified.BinaryPath, nil
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("stat provider artifact descriptor %s: %w", descriptorPath, err)
+		}
+	}
+	candidate := filepath.Join(outPath, "bin", registration.ExecutableName(agent.Name))
 	if _, err := os.Stat(candidate); err == nil {
 		return candidate, nil
+	}
+	if registration.Resolution.Nix == resources.AgentResolutionVerifiedArtifact {
+		return "", fmt.Errorf("verified nix output %s is missing expected executable %s", outPath, candidate)
 	}
 	// Fall back to the first executable under bin/.
 	entries, err := os.ReadDir(filepath.Join(outPath, "bin"))

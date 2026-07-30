@@ -14,9 +14,6 @@ import (
 
 const JobConfigurationName = "job.codefly.yaml"
 
-// JobAgent is the agent kind for jobs
-const JobAgent = AgentKind("codefly:job")
-
 // SplitUnique splits a unique identifier (module/name) into module and name parts
 func SplitUnique(unique string) (module, name string) {
 	parts := strings.Split(unique, "/")

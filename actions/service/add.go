@@ -16,8 +16,7 @@ type AddServiceAction struct {
 }
 
 func (action *AddServiceAction) Command() string {
-	agent := resources.AgentFromProto(action.Agent)
-	return fmt.Sprintf("codefly add service %s --agent=%s", action.Name, agent.Identifier())
+	return fmt.Sprintf("codefly add service %s --agent=%s", action.Name, resources.AgentIdentifierFromProto(action.Agent))
 }
 
 type AddService = actionsv0.AddService

@@ -25,12 +25,6 @@ import (
 
 const ServiceConfigurationName = "service.codefly.yaml"
 
-const ServiceAgent = AgentKind("codefly:service")
-
-func init() {
-	RegisterAgent(ServiceAgent, basev0.Agent_SERVICE)
-}
-
 const RuntimeServiceAgent = "codefly:service:runtime"
 const BuilderServiceAgent = "codefly:service:builder"
 const CodeServiceAgent = "codefly:service:code"
@@ -156,7 +150,7 @@ func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService)
 			return nil, w.NewError("service already exists")
 		}
 	}
-	agent, err := LoadAgent(ctx, action.Agent)
+	agent, err := LoadAgent(ctx, action.Agent, ServiceAgent)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load agent")
 	}

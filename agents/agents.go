@@ -18,6 +18,7 @@ import (
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
@@ -75,6 +76,7 @@ type PluginRegistration struct {
 	Code              codev0.CodeServer                   // Deprecated: use Tooling/Toolbox for language-specific operations.
 	Tooling           toolingv0.ToolingServer             // Transitional: collapses into Toolbox via lang.* convention.
 	Toolbox           toolboxv0.ToolboxServer             // The unified callable contract (MCP-shape).
+	Provider          providerv0.ProviderServer           // Provider-neutral external binding reconciliation.
 	ExecutionExporter executionv1.ExecutionExporterServer // Product-neutral receipt exporter plugin.
 
 	// PDP gates Toolbox tool calls when non-nil. Wires the
@@ -456,6 +458,9 @@ func Serve(reg PluginRegistration) {
 	}
 	if reg.Tooling != nil {
 		toolingv0.RegisterToolingServer(s, reg.Tooling)
+	}
+	if reg.Provider != nil {
+		providerv0.RegisterProviderServer(s, reg.Provider)
 	}
 	if reg.Toolbox != nil {
 		// Wrap with policyguard.Guard when a PDP is configured. The

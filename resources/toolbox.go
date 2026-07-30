@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/wool"
 	"gopkg.in/yaml.v3"
@@ -17,13 +16,6 @@ import (
 // plugin's directory must contain. Mirrors service.codefly.yaml /
 // module.codefly.yaml / agent.codefly.yaml.
 const ToolboxConfigurationName = "toolbox.codefly.yaml"
-
-// ToolboxAgent is the AgentKind tag for toolbox plugins.
-const ToolboxAgent = AgentKind("codefly:toolbox")
-
-func init() {
-	RegisterAgent(ToolboxAgent, basev0.Agent_TOOLBOX)
-}
 
 // Toolbox is a narrow, capability-focused plugin.
 //
