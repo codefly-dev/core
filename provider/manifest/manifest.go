@@ -546,6 +546,19 @@ func validateRequestDescriptor(index int, descriptor RequestDescriptor, resource
 			return fmt.Errorf("requests[%d] references unknown credential purpose %q", index, purpose)
 		}
 	}
+	if err := validateRequestPermissions(index, descriptor, permissions); err != nil {
+		return err
+	}
+	if descriptor.RequestByteBudget == 0 || descriptor.ResponseByteBudget == 0 {
+		return fmt.Errorf("requests[%d] requires non-zero request and response budgets", index)
+	}
+	return nil
+}
+
+func validateRequestPermissions(index int, descriptor RequestDescriptor, permissions map[string]Permission) error {
+	if len(descriptor.Permissions) == 0 {
+		return fmt.Errorf("requests[%d] must bind at least one permission", index)
+	}
 	coveredPurposes := make(map[string]struct{}, len(descriptor.Permissions))
 	for _, permissionID := range descriptor.Permissions {
 		permission, ok := permissions[permissionID]
@@ -564,9 +577,6 @@ func validateRequestDescriptor(index int, descriptor RequestDescriptor, resource
 		}
 		coveredPurposes[permission.CredentialPurpose] = struct{}{}
 	}
-	if len(descriptor.Permissions) == 0 {
-		return fmt.Errorf("requests[%d] must bind at least one permission", index)
-	}
 	if len(descriptor.CredentialPurposes) == 0 {
 		if _, covered := coveredPurposes[""]; !covered {
 			return fmt.Errorf("requests[%d] permission does not cover its credential-free request", index)
@@ -576,9 +586,6 @@ func validateRequestDescriptor(index int, descriptor RequestDescriptor, resource
 		if _, covered := coveredPurposes[purpose]; !covered {
 			return fmt.Errorf("requests[%d] permissions do not cover credential purpose %q", index, purpose)
 		}
-	}
-	if descriptor.RequestByteBudget == 0 || descriptor.ResponseByteBudget == 0 {
-		return fmt.Errorf("requests[%d] requires non-zero request and response budgets", index)
 	}
 	return nil
 }

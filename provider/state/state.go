@@ -316,13 +316,6 @@ func remoteOwnershipKey(workspace string, identity *providerv0.RemoteIdentity) s
 	return tupleKey(workspace, identity.GetProvider(), identity.GetAccountId(), identity.GetResourceType(), identity.GetRemoteId())
 }
 
-func remoteIdentityKey(identity *providerv0.RemoteIdentity) string {
-	if identity == nil {
-		return ""
-	}
-	return tupleKey(identity.GetProvider(), identity.GetAccountId(), identity.GetResourceType(), identity.GetRemoteId())
-}
-
 func bindingKey(binding *providerv0.BindingAddress) string {
 	if binding == nil {
 		return ""
