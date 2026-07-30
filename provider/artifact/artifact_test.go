@@ -60,12 +60,16 @@ func TestProviderArtifactRejectsTamperAbsentManifestAndIdentityMismatch(t *testi
 
 func TestVerifyExecutableDoesNotSubstituteAnotherLayoutBinary(t *testing.T) {
 	root := writeLayout(t, []byte("verified"), artifactManifest)
+	verified, err := artifact.VerifyExecutable(filepath.Join(root, "provider-fixture"), providerAgent("1.2.3"))
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, "provider-fixture"), verified.BinaryPath)
+
 	binaryPath := filepath.Join(root, "bin", "provider-fixture")
 	require.NoError(t, os.MkdirAll(filepath.Dir(binaryPath), 0o755))
 	require.NoError(t, os.WriteFile(binaryPath, []byte("unverified"), 0o755))
 
-	_, err := artifact.VerifyExecutable(binaryPath, providerAgent("1.2.3"))
-	require.ErrorContains(t, err, "read installed provider artifact descriptor")
+	_, err = artifact.VerifyExecutable(binaryPath, providerAgent("1.2.3"))
+	require.ErrorContains(t, err, "descriptor binds")
 }
 
 func TestProviderArtifactRejectsDowngradeAndNewerState(t *testing.T) {

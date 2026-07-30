@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/codefly-dev/core/provider/artifact"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 )
@@ -456,6 +457,18 @@ func resolveNixAgentBinary(outPath string, agent *resources.Agent) (string, erro
 	registration, err := resources.AgentKindRegistrationFor(agent.Kind)
 	if err != nil {
 		return "", err
+	}
+	if registration.Resolution.Nix == resources.AgentResolutionVerifiedArtifact {
+		descriptorPath := filepath.Join(outPath, artifact.DescriptorFileName)
+		if _, err := os.Stat(descriptorPath); err == nil {
+			verified, err := artifact.VerifyLayout(outPath, agent)
+			if err != nil {
+				return "", err
+			}
+			return verified.BinaryPath, nil
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("stat provider artifact descriptor %s: %w", descriptorPath, err)
+		}
 	}
 	candidate := filepath.Join(outPath, "bin", registration.ExecutableName(agent.Name))
 	if _, err := os.Stat(candidate); err == nil {

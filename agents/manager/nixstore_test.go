@@ -170,6 +170,18 @@ func TestResolveNixAgentBinary_VerifiedArtifactRequiresExpectedName(t *testing.T
 	}
 }
 
+func TestResolveNixAgentBinary_VerifiedArtifactUsesDescriptorBoundBinary(t *testing.T) {
+	out := buildProviderFixture(t)
+	got, err := resolveNixAgentBinary(out, providerFixtureAgent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(out, "provider-fixture")
+	if got != want {
+		t.Fatalf("got %q, want descriptor-bound binary %q", got, want)
+	}
+}
+
 // TestResolveNixAgentBinary_EmptyBinDir returns a helpful error rather
 // than a confusing downstream "exec format error" from the loader.
 func TestResolveNixAgentBinary_EmptyBinDir(t *testing.T) {

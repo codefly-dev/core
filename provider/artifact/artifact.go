@@ -161,6 +161,31 @@ func VerifyExecutable(binaryPath string, expected *resources.Agent) (*Verified, 
 	manifestPath := binaryPath + InstalledManifestSuffix
 	descriptorBytes, err := os.ReadFile(descriptorPath)
 	if err != nil {
+		roots := []string{filepath.Dir(binaryPath)}
+		if filepath.Base(filepath.Dir(binaryPath)) == "bin" {
+			roots = append(roots, filepath.Dir(filepath.Dir(binaryPath)))
+		}
+		for _, root := range roots {
+			if _, statErr := os.Stat(filepath.Join(root, DescriptorFileName)); statErr != nil {
+				continue
+			}
+			verified, verifyErr := VerifyLayout(root, expected)
+			if verifyErr != nil {
+				return nil, verifyErr
+			}
+			executable, pathErr := filepath.Abs(binaryPath)
+			if pathErr != nil {
+				return nil, pathErr
+			}
+			bound, pathErr := filepath.Abs(verified.BinaryPath)
+			if pathErr != nil {
+				return nil, pathErr
+			}
+			if filepath.Clean(executable) != filepath.Clean(bound) {
+				return nil, fmt.Errorf("provider artifact descriptor binds %s, not executable %s", verified.BinaryPath, binaryPath)
+			}
+			return verified, nil
+		}
 		return nil, fmt.Errorf("read installed provider artifact descriptor: %w", err)
 	}
 	descriptor, err := ParseDescriptor(descriptorBytes)
