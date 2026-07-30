@@ -316,12 +316,24 @@ func TestSessionDescribeAuditFailureCannotBeBypassedThroughCache(t *testing.T) {
 }
 
 func TestSessionTimeoutAndCancellationAreStableCategories(t *testing.T) {
+	// The call timeout is bounded on BOTH sides, and a value too small is just
+	// as wrong as one too large. It must exceed the cost of dispatching the RPC
+	// to the fixture subprocess — otherwise the deadline can expire before
+	// dispatch and the failure surfaces as a transport/tool error rather than
+	// the timeout category under test — while staying well under waitDuration,
+	// so the timeout is what ends the call. 20ms failed the lower bound on a
+	// loaded runner and made this test flaky.
+	const (
+		waitDuration = 2 * time.Second
+		callTimeout  = 200 * time.Millisecond
+	)
+
 	audit := &auditRecorder{}
 	opened := openFixture(t, policy.AllowAllPDP{}, audit)
-	arguments, err := structpb.NewStruct(map[string]any{"duration_ms": 500})
+	arguments, err := structpb.NewStruct(map[string]any{"duration_ms": waitDuration.Milliseconds()})
 	require.NoError(t, err)
 	_, err = opened.Call(context.Background(), session.CallRequest{
-		Name: conformance.WaitTool, Arguments: arguments, Timeout: 20 * time.Millisecond,
+		Name: conformance.WaitTool, Arguments: arguments, Timeout: callTimeout,
 	})
 	var callErr *session.CallError
 	require.ErrorAs(t, err, &callErr)
