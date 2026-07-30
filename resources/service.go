@@ -25,12 +25,6 @@ import (
 
 const ServiceConfigurationName = "service.codefly.yaml"
 
-const ServiceAgent = AgentKind("codefly:service")
-
-func init() {
-	RegisterAgent(ServiceAgent, basev0.Agent_SERVICE)
-}
-
 const RuntimeServiceAgent = "codefly:service:runtime"
 const BuilderServiceAgent = "codefly:service:builder"
 const CodeServiceAgent = "codefly:service:code"

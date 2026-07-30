@@ -75,16 +75,15 @@ func FindLocalLatest(ctx context.Context, agent *resources.Agent) error {
 	w := wool.Get(ctx).In("agents.FindLocalLatest", wool.Field("agent", agent.Identifier()))
 
 	base := resources.AgentBase(ctx)
-	var subdir string
-	if agent.IsService() {
-		subdir = "services"
-	} else if agent.IsApplication() {
-		subdir = "applications"
-	} else {
-		subdir = "modules"
+	registration, err := resources.AgentKindRegistrationFor(agent.Kind)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	if !registration.Operations.Version || registration.Resolution.Local == resources.AgentResolutionDisabled {
+		return w.NewError("agent kind %s does not support local version resolution", agent.Kind)
 	}
 
-	dir := filepath.Join(base, "agents", subdir, agent.Publisher)
+	dir := filepath.Join(base, "agents", registration.InstallSubdirectory, agent.Publisher)
 
 	if err := findLocalLatestInDir(dir, agent); err != nil {
 		return w.Wrapf(err, "finding local latest")
@@ -185,7 +184,17 @@ func PinToLatestRelease(ctx context.Context, agent *resources.Agent) (string, er
 		return "local", FindLocalLatest(ctx, agent)
 	}
 	client := newGitHubReleaseClient()
-	source := toGithubSource(agent)
+	registration, err := resources.AgentKindRegistrationFor(agent.Kind)
+	if err != nil {
+		return "", w.Wrap(err)
+	}
+	if registration.Resolution.GitHub != resources.AgentResolutionGitHubRelease {
+		return "", w.NewError("agent kind %s does not support GitHub release resolution", agent.Kind)
+	}
+	source, err := toGithubSource(agent)
+	if err != nil {
+		return "", w.Wrap(err)
+	}
 	release, _, err := client.Repositories.GetLatestRelease(ctx, source.Owner, source.Repo)
 	if err != nil {
 		w.Debug("GitHub release lookup failed, trying local", wool.Field("error", err.Error()))

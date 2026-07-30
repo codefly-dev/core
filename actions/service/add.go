@@ -6,6 +6,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/shared"
 
 	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
 	"github.com/codefly-dev/core/wool"
@@ -16,7 +17,7 @@ type AddServiceAction struct {
 }
 
 func (action *AddServiceAction) Command() string {
-	agent := resources.AgentFromProto(action.Agent)
+	agent := shared.Must(resources.AgentFromProto(action.Agent))
 	return fmt.Sprintf("codefly add service %s --agent=%s", action.Name, agent.Identifier())
 }
 

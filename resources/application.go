@@ -14,13 +14,6 @@ import (
 
 const ApplicationConfigurationName = "application.codefly.yaml"
 
-// ApplicationAgent is the agent kind for applications
-const ApplicationAgent = AgentKind("codefly:application")
-
-func init() {
-	RegisterAgent(ApplicationAgent, basev0.Agent_APPLICATION)
-}
-
 // ApplicationDependency represents a dependency on another application
 type ApplicationDependency struct {
 	Name   string `yaml:"name"`
@@ -178,12 +171,11 @@ func (app *Application) Proto(_ context.Context) (*basev0.Application, error) {
 
 	// Convert agent
 	if app.Agent != nil {
-		proto.Agent = &basev0.Agent{
-			Kind:      basev0.Agent_APPLICATION,
-			Name:      app.Agent.Name,
-			Publisher: app.Agent.Publisher,
-			Version:   app.Agent.Version,
+		agent, err := app.Agent.Proto()
+		if err != nil {
+			return nil, err
 		}
+		proto.Agent = agent
 	}
 
 	// Convert service dependencies

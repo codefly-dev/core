@@ -24,6 +24,9 @@ message Agent {
     // toolbox carries its own permission boundary (sandbox + canonical_for
     // declarations in the manifest).
     TOOLBOX = 5;
+    // PROVIDER agents reconcile environment-scoped external provider bindings.
+    // They are typed leaf plugins and never own a service workload lifecycle.
+    PROVIDER = 6;
   }
   // kind identifies which resource family this agent can manage.
   Kind kind = 1;

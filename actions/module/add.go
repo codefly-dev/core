@@ -47,7 +47,10 @@ func (action *AddModuleAction) Run(ctx context.Context, space *actions.Space) (a
 
 	// If a module agent was specified, store it in the module configuration
 	if action.Agent != nil {
-		agent := resources.AgentFromProto(action.Agent)
+		agent, agentErr := resources.AgentFromProto(action.Agent)
+		if agentErr != nil {
+			return nil, w.Wrapf(agentErr, "cannot load module agent")
+		}
 		module.Agent = agent
 		err = module.Save(ctx)
 		if err != nil {

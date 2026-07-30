@@ -60,16 +60,18 @@ func TestNixStore_AttrFor(t *testing.T) {
 			agent: &resources.Agent{Kind: "codefly:module", Name: "user-management", Version: "1.2.3"},
 			want:  "agents-module-user-management-1.2.3",
 		},
-		{
-			// Kind without prefix should pass through.
-			agent: &resources.Agent{Kind: "service", Name: "bare", Version: "0.1.0"},
-			want:  "agents-service-bare-0.1.0",
-		},
 	}
 	for _, tc := range cases {
-		if got := s.attrFor(tc.agent); got != tc.want {
+		got, err := s.attrFor(tc.agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
 			t.Errorf("attrFor(%+v) = %q, want %q", tc.agent, got, tc.want)
 		}
+	}
+	if _, err := s.attrFor(&resources.Agent{Kind: "service", Name: "bare", Version: "0.1.0"}); err == nil {
+		t.Fatal("unregistered kind must fail closed")
 	}
 }
 
@@ -79,7 +81,11 @@ func TestNixStore_FullRef(t *testing.T) {
 	s := NewNixStore("github:codefly-dev/codefly/v0.5", nil)
 	agent := &resources.Agent{Kind: "codefly:service", Name: "go-grpc", Version: "0.0.147"}
 	want := "github:codefly-dev/codefly/v0.5#agents-service-go-grpc-0.0.147"
-	if got := s.fullRef(agent); got != want {
+	got, err := s.fullRef(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
 		t.Errorf("fullRef = %q, want %q", got, want)
 	}
 }

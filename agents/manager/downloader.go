@@ -24,11 +24,15 @@ type GithubSource struct {
 	Repo  string
 }
 
-func toGithubSource(p *resources.Agent) GithubSource {
+func toGithubSource(p *resources.Agent) (GithubSource, error) {
+	registration, err := resources.AgentKindRegistrationFor(p.Kind)
+	if err != nil {
+		return GithubSource{}, err
+	}
 	return GithubSource{
 		Owner: strings.ReplaceAll(p.Publisher, ".", "-"),
-		Repo:  fmt.Sprintf("service-%s", p.Name),
-	}
+		Repo:  registration.GitHubRepository(p.Name),
+	}, nil
 }
 
 func ValidURL(s string) bool {
@@ -58,7 +62,17 @@ func Downloaded(ctx context.Context, p *resources.Agent) (bool, error) {
 
 func Download(ctx context.Context, p *resources.Agent) error {
 	w := wool.Get(ctx).In("agents.Download", wool.Field("agent", p.Identifier()))
-	releaseURL := DownloadURL(p)
+	registration, err := resources.AgentKindRegistrationFor(p.Kind)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	if !registration.AutoDownload {
+		return w.NewError("GitHub auto-download is disabled for agent kind %s", p.Kind)
+	}
+	releaseURL, err := DownloadURL(p)
+	if err != nil {
+		return w.Wrap(err)
+	}
 	if !ValidURL(releaseURL) {
 		return w.NewError("invalid download URL: %s", releaseURL)
 	}
@@ -76,7 +90,7 @@ func Download(ctx context.Context, p *resources.Agent) error {
 		return w.NewError("unexpected status code %d when downloading agent", resp.StatusCode)
 	}
 
-	tmp, err := os.CreateTemp("", "service-*.tar.gz")
+	tmp, err := os.CreateTemp("", "agent-*.tar.gz")
 	if err != nil {
 		return w.Wrapf(err, "cannot create temp file")
 	}
@@ -104,7 +118,7 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	}
 	bar.Finish()
 
-	tmpDir, err := os.MkdirTemp("", "service-*")
+	tmpDir, err := os.MkdirTemp("", "agent-*")
 	if err != nil {
 		return w.Wrapf(err, "cannot create temp directory")
 	}
@@ -117,7 +131,7 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot compute agent path")
 	}
-	binary := path.Join(dest, fmt.Sprintf("service-%s", p.Name))
+	binary := path.Join(dest, registration.ExecutableName(p.Name))
 	exists, err := shared.FileExists(ctx, binary)
 	if err != nil {
 		return w.Wrapf(err, "cannot check if file exists")

@@ -21,13 +21,6 @@ const (
 	ModuleConfigurationName = "module.codefly.yaml"
 )
 
-// ModuleAgent is the agent kind for module templates
-const ModuleAgent = AgentKind("codefly:module")
-
-func init() {
-	RegisterAgent(ModuleAgent, basev0.Agent_MODULE)
-}
-
 // InterfaceEndpoint declares a single endpoint that the module exposes to other modules.
 type InterfaceEndpoint struct {
 	Service    string `yaml:"service"`
@@ -96,7 +89,11 @@ func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
 
 	// Convert agent
 	if mod.Agent != nil {
-		proto.Agent = mod.Agent.Proto()
+		agent, err := mod.Agent.Proto()
+		if err != nil {
+			return nil, err
+		}
+		proto.Agent = agent
 	}
 
 	if err := Validate(proto); err != nil {
@@ -618,11 +615,6 @@ func (mod *Module) ValidateInterface(ctx context.Context) error {
 // HasInterface returns true if the module has a declared interface
 func (mod *Module) HasInterface() bool {
 	return mod.Interface != nil && len(mod.Interface.Endpoints) > 0
-}
-
-// IsModule returns true if this agent is a module agent
-func (p *Agent) IsModule() bool {
-	return p.Kind == ModuleAgent
 }
 
 func (mod *Module) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {

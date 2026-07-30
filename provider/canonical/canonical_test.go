@@ -1,0 +1,149 @@
+package canonical_test
+
+import (
+	"strings"
+	"testing"
+
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	"github.com/codefly-dev/core/provider/canonical"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestCanonicalMapAndResourceOrderingIsByteIdentical(t *testing.T) {
+	first := materialObservation()
+	second := proto.Clone(first).(*providerv0.MaterialObservation)
+	second.Resources[0], second.Resources[1] = second.Resources[1], second.Resources[0]
+	second.Resources[0].ProviderOwnedFields = map[string]*providerv0.PublicValue{
+		"z": stringValue("last"),
+		"a": stringValue("first"),
+	}
+	first.Resources[1].ProviderOwnedFields = map[string]*providerv0.PublicValue{
+		"a": stringValue("first"),
+		"z": stringValue("last"),
+	}
+	firstDigest, err := canonical.MaterialObservationDigest(first)
+	require.NoError(t, err)
+	secondDigest, err := canonical.MaterialObservationDigest(second)
+	require.NoError(t, err)
+	require.Equal(t, firstDigest, secondDigest)
+}
+
+func TestVolatileObservationMetadataDoesNotChangeMaterialDigest(t *testing.T) {
+	material := materialObservation()
+	first := &providerv0.ObserveResponse{
+		Material: material,
+		Volatile: &providerv0.VolatileObservation{
+			RequestIds: []string{"request-b", "request-a"}, RateLimitRemaining: 10,
+			Diagnostics: []*basev0.FailureDiagnostic{{Code: "z"}, {Code: "a"}},
+		},
+	}
+	second := proto.Clone(first).(*providerv0.ObserveResponse)
+	second.Volatile.RequestIds = []string{"request-c"}
+	second.Volatile.RateLimitRemaining = 1
+	second.Volatile.Diagnostics[0], second.Volatile.Diagnostics[1] = second.Volatile.Diagnostics[1], second.Volatile.Diagnostics[0]
+	firstDigest, err := canonical.ObserveResponseMaterialDigest(first)
+	require.NoError(t, err)
+	secondDigest, err := canonical.ObserveResponseMaterialDigest(second)
+	require.NoError(t, err)
+	require.Equal(t, firstDigest, secondDigest)
+
+	second.Material.Resources[0].Revision = "changed"
+	secondDigest, err = canonical.ObserveResponseMaterialDigest(second)
+	require.NoError(t, err)
+	require.NotEqual(t, firstDigest, secondDigest)
+}
+
+func TestOrderedPlanDigestBindsEveryMaterialInputAndOrder(t *testing.T) {
+	plan := orderedPlan()
+	bound, err := canonical.BindOrderedPlanDigest(plan)
+	require.NoError(t, err)
+	repeated, err := canonical.BindOrderedPlanDigest(bound)
+	require.NoError(t, err)
+	require.Equal(t, bound.PlanDigest, repeated.PlanDigest)
+
+	mutations := map[string]func(*providerv0.OrderedPlan){
+		"artifact":          func(plan *providerv0.OrderedPlan) { plan.ArtifactDigest = digest("2") },
+		"origin":            func(plan *providerv0.OrderedPlan) { plan.Actions[0].AdmittedOriginDigest = digest("3") },
+		"output generation": func(plan *providerv0.OrderedPlan) { plan.OutputTargetDigest = digest("4") },
+		"policy":            func(plan *providerv0.OrderedPlan) { plan.PolicyInputDigest = digest("5") },
+		"action order": func(plan *providerv0.OrderedPlan) {
+			plan.Actions[0], plan.Actions[1] = plan.Actions[1], plan.Actions[0]
+			plan.Actions[0].Position, plan.Actions[1].Position = 0, 1
+		},
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			changed := proto.Clone(bound).(*providerv0.OrderedPlan)
+			changed.PlanDigest = ""
+			mutate(changed)
+			changedDigest, err := canonical.OrderedPlanDigest(changed)
+			require.NoError(t, err)
+			require.NotEqual(t, bound.PlanDigest, changedDigest)
+		})
+	}
+}
+
+func TestCanonicalRejectsUnknownFieldsAndAmbiguousValues(t *testing.T) {
+	value := stringValue("safe")
+	encoded, err := proto.Marshal(value)
+	require.NoError(t, err)
+	encoded = append(encoded, 0xa0, 0x06, 0x01)
+	var unknown providerv0.PublicValue
+	require.NoError(t, proto.Unmarshal(encoded, &unknown))
+	_, err = canonical.Digest(&unknown)
+	require.ErrorContains(t, err, "unknown fields")
+
+	for _, decimal := range []string{"01", "1.0", "-0", "1e3", "NaN"} {
+		_, err := canonical.Digest(&providerv0.PublicValue{
+			Kind: &providerv0.PublicValue_DecimalValue{DecimalValue: decimal},
+		})
+		require.ErrorContains(t, err, "not canonical")
+	}
+	_, err = canonical.Digest(stringValue("sk_live_1234567890abcdef"))
+	require.ErrorContains(t, err, "secret-shaped")
+
+	plan := orderedPlan()
+	plan.Actions[0].Type = providerv0.ActionType(99)
+	_, err = canonical.OrderedPlanDigest(plan)
+	require.ErrorContains(t, err, "unknown plan action")
+}
+
+func materialObservation() *providerv0.MaterialObservation {
+	return &providerv0.MaterialObservation{
+		AccountIdentity: "account",
+		Mode:            providerv0.HostMode_HOST_MODE_PRODUCTION,
+		Complete:        true,
+		Resources: []*providerv0.MaterialResourceObservation{
+			{
+				Identity:  &providerv0.RemoteIdentity{Provider: "fixture", AccountId: "account", ResourceType: "account", RemoteId: "b"},
+				Ownership: providerv0.Ownership_OWNERSHIP_OWNED, Revision: "1",
+			},
+			{
+				Identity:  &providerv0.RemoteIdentity{Provider: "fixture", AccountId: "account", ResourceType: "account", RemoteId: "a"},
+				Ownership: providerv0.Ownership_OWNERSHIP_OWNED, Revision: "1",
+			},
+		},
+	}
+}
+
+func orderedPlan() *providerv0.OrderedPlan {
+	return &providerv0.OrderedPlan{
+		PlanId: "plan", ArtifactDigest: digest("1"), ManifestDigest: digest("1"), CatalogDigest: digest("1"),
+		DesiredDigest: digest("1"), ObservationDigest: digest("1"), OutputTargetDigest: digest("1"),
+		StateGenerationDigest: digest("1"), PolicyInputDigest: digest("1"),
+		Actions: []*providerv0.PlanAction{
+			{ActionId: "first", Position: 0, Type: providerv0.ActionType_ACTION_TYPE_UPDATE, ResourceType: "account", AdmittedOriginDigest: digest("1")},
+			{ActionId: "second", Position: 1, Type: providerv0.ActionType_ACTION_TYPE_PROJECT_OUTPUT, ResourceType: "project-output"},
+		},
+	}
+}
+
+func stringValue(value string) *providerv0.PublicValue {
+	return &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: value}}
+}
+
+func digest(character string) string {
+	return "sha256:" + strings.Repeat(character, 64)
+}

@@ -72,7 +72,10 @@ func LoadService(ctx context.Context, workspace *resources.Workspace, module *re
 		return nil, w.Wrapf(err, "failed to init service: %s", service.Name)
 	}
 
-	out.Agent = service.Agent.Proto()
+	out.Agent, err = service.Agent.Proto()
+	if err != nil {
+		return nil, w.Wrapf(err, "failed to encode service agent")
+	}
 	w.Debug("loaded", wool.Field("endpoints", resources.MakeManyEndpointSummary(init.Endpoints)))
 	out.Endpoints = init.Endpoints
 

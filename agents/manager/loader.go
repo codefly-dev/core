@@ -23,6 +23,7 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/policy"
+	providerartifact "github.com/codefly-dev/core/provider/artifact"
 	"github.com/codefly-dev/core/resources"
 	runnersbase "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/runners/sandbox"
@@ -640,6 +641,13 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	if p == nil {
 		return nil, fmt.Errorf("%w: nil receiver passed to Load", ErrAgentNil)
 	}
+	registration, err := resources.AgentKindRegistrationFor(p.Kind)
+	if err != nil {
+		return nil, err
+	}
+	if !registration.Operations.Load {
+		return nil, fmt.Errorf("%w: agent kind %s does not support load", ErrAgentAdmission, p.Kind)
+	}
 	// Tidy UDS sockets left behind by previously-crashed CLIs (once per process).
 	sweepStaleAgentSocketsOnce()
 	w := wool.Get(ctx).In("manager.Load", wool.Field("agent", p.Identifier()))
@@ -677,17 +685,19 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		pulled := false
 		// Try Nix store first (AGENT_NIX_FLAKE env var). Content-addressed,
 		// cross-platform, no manual version tag management.
-		if store := NewNixStoreFromEnv(slog.Default()); store != nil {
-			if pullPath, pullErr := store.Pull(ctx, p); pullErr == nil {
-				bin = pullPath
-				pulled = true
-				w.Debug("agent realized via nix flake", wool.Path(bin))
-			} else {
-				w.Debug("nix pull failed, trying OCI", wool.Field("error", pullErr.Error()))
+		if registration.Resolution.Nix != resources.AgentResolutionDisabled {
+			if store := NewNixStoreFromEnv(slog.Default()); store != nil {
+				if pullPath, pullErr := store.Pull(ctx, p); pullErr == nil {
+					bin = pullPath
+					pulled = true
+					w.Debug("agent realized via nix flake", wool.Path(bin))
+				} else {
+					w.Debug("nix pull failed, trying OCI", wool.Field("error", pullErr.Error()))
+				}
 			}
 		}
 		// Then OCI store (AGENT_REGISTRY env var).
-		if !pulled {
+		if !pulled && registration.Resolution.OCI != resources.AgentResolutionDisabled {
 			if store := NewOCIStoreFromEnv(slog.Default()); store != nil {
 				if pullPath, pullErr := store.Pull(ctx, p); pullErr == nil {
 					bin = pullPath
@@ -699,10 +709,21 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 			}
 		}
 		if !pulled {
+			if !registration.AutoDownload || registration.Resolution.GitHub == resources.AgentResolutionDisabled {
+				return nil, w.Wrapf(ErrAgentBinaryNotFound, "no verified remote resolution is enabled for agent kind %s", p.Kind)
+			}
 			if err := Download(ctx, p); err != nil {
 				return nil, w.Wrapf(fmt.Errorf("%w: %v", ErrAgentBinaryNotFound, err),
 					"cannot download agent (tried Nix + OCI + GitHub)")
 			}
+		}
+	}
+
+	var verifiedProvider *providerartifact.Verified
+	if registration.Resolution.Local == resources.AgentResolutionVerifiedArtifact {
+		verifiedProvider, err = providerartifact.VerifyExecutable(bin, p)
+		if err != nil {
+			return nil, fmt.Errorf("%w: provider artifact verification failed: %v", ErrAgentAdmission, err)
 		}
 	}
 
@@ -720,6 +741,12 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// the negative pid and reap the whole agent subtree atomically.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = os.Environ()
+	if verifiedProvider != nil {
+		cmd.Env = append(cmd.Env,
+			"CODEFLY_PROVIDER_ARTIFACT_DIGEST="+verifiedProvider.Descriptor.ArtifactDigest,
+			"CODEFLY_PROVIDER_MANIFEST_DIGEST="+verifiedProvider.Descriptor.ManifestDigest,
+		)
+	}
 	if cfg.workDir != "" {
 		cmd.Dir = cfg.workDir
 		cmd.Env = append(cmd.Env, "CODEFLY_AGENT_WORKDIR="+cfg.workDir)
