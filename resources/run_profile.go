@@ -20,10 +20,10 @@ type runProfileInventory struct {
 
 func (workspace *Workspace) ResolveRunProfile(ctx context.Context, name string, explicit RunProfile) (RunProfile, error) {
 	selected := RunProfile{}
-	if name != "" {
-		if strings.TrimSpace(name) == "" {
-			return RunProfile{}, fmt.Errorf("run profile name cannot be empty")
-		}
+	// A blank selection (empty or whitespace-only) means "no named profile"; it
+	// still composes with any explicit exclusions the caller passes. Normalizing
+	// once here also lets a name with surrounding whitespace match its profile.
+	if name = strings.TrimSpace(name); name != "" {
 		var ok bool
 		selected, ok = workspace.RunProfiles[name]
 		if !ok {

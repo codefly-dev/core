@@ -127,6 +127,26 @@ func TestResolveRunProfileRejectsUnknownSelections(t *testing.T) {
 	require.ErrorContains(t, err, "unknown workspace configuration")
 }
 
+func TestResolveRunProfileNormalizesSelectionName(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/run-profiles")
+	require.NoError(t, err)
+
+	// A blank selection (whitespace-only, like an empty name) is treated as "no
+	// named profile" rather than an error, matching the empty-string path.
+	blank, err := workspace.ResolveRunProfile(ctx, "   ", resources.RunProfile{})
+	require.NoError(t, err)
+	require.Equal(t, resources.RunProfile{}, blank)
+
+	// A real name with surrounding whitespace still resolves to its profile.
+	trimmed, err := workspace.ResolveRunProfile(ctx, "  local  ", resources.RunProfile{})
+	require.NoError(t, err)
+	require.Equal(t, resources.RunProfile{
+		ExcludeDependencies:            []string{"users/accounts"},
+		ExcludeWorkspaceConfigurations: []string{"internal-auth"},
+	}, trimmed)
+}
+
 func assertRunComposition(
 	t *testing.T,
 	ctx context.Context,
