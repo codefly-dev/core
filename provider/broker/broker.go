@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"sync"
 	"time"
 
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
@@ -64,8 +65,12 @@ type Config struct {
 	Now func() time.Time
 }
 
-// Session is the per-action broker context.
+// Session is the per-action broker context. A session serializes its requests:
+// budget, capture-gate, and delivery are inherently sequential, so Execute holds
+// a session lock for the duration of each call.
 type Session struct {
+	mu sync.Mutex
+
 	action    *providerv0.PlanAction
 	binding   *providerv0.BindingAddress
 	readOnly  bool
@@ -164,6 +169,9 @@ func responsePolicyLimits(budget *providerv0.RequestBudget) responsepolicy.Limit
 // on any admission or filtering failure, a non-nil error the coordinator treats
 // as a hard stop. Original response bytes are never forwarded.
 func (s *Session) Execute(ctx context.Context, request *providerv0.ExecuteRequestRequest) (*providerv0.ExecuteRequestResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := canonical.ValidateExecuteRequest(s.action, request); err != nil {
 		return nil, fmt.Errorf("admit request: %w", err)
 	}
@@ -178,20 +186,27 @@ func (s *Session) Execute(ctx context.Context, request *providerv0.ExecuteReques
 	if err := s.checkBudget(); err != nil {
 		return nil, err
 	}
-	origin, pinned, err := s.admitOrigin(ctx, descriptor, request.GetOrigin())
+	origin, ceiling, err := s.admitOrigin(descriptor, request.GetOrigin())
 	if err != nil {
 		return nil, err
+	}
+	// SSRF, DNS-rebinding, and private-address checks must complete before any
+	// credential is resolved. Replay is enforcement-identical but performs no
+	// network I/O, so it resolves and pins nothing.
+	replay := s.replaying()
+	var pinned urlguard.Resolution
+	if !replay {
+		if pinned, err = s.resolveAndPin(ctx, origin, ceiling, request.GetOrigin()); err != nil {
+			return nil, err
+		}
 	}
 	remoteID, err := plannedRemoteID(s.action)
 	if err != nil {
 		return nil, err
 	}
-	httpRequest, size, err := s.buildRequest(ctx, descriptor, planned, origin, remoteID)
+	httpRequest, bodySize, err := s.buildRequest(ctx, descriptor, planned, origin, remoteID)
 	if err != nil {
 		return nil, err
-	}
-	if s.budget.GetRequestBytes() != 0 && size > int64(s.budget.GetRequestBytes()) {
-		return nil, fmt.Errorf("request exceeds byte budget")
 	}
 	checkpointID, err := s.requireCheckpoint(ctx, request.GetContext().GetOperation(), planned)
 	if err != nil {
@@ -200,9 +215,14 @@ func (s *Session) Execute(ctx context.Context, request *providerv0.ExecuteReques
 	if err := s.injectCredentials(httpRequest, request, origin); err != nil {
 		return nil, err
 	}
+	// The whole outbound message — request line, host-owned headers including the
+	// resolved credential, and body — is bounded by the request byte budget.
+	if limit := s.budget.GetRequestBytes(); limit != 0 && outboundSize(httpRequest, bodySize) > int64(limit) {
+		return nil, fmt.Errorf("request exceeds byte budget")
+	}
 
-	// The budget use is consumed once the request is fully admitted and about to
-	// be sent.
+	// The callback is consumed once the request is fully admitted and about to be
+	// delivered.
 	s.remaining--
 
 	delivery, response, err := s.deliver(ctx, descriptor, planned, request.GetOrigin(), origin, pinned, httpRequest)
@@ -217,6 +237,11 @@ func (s *Session) Execute(ctx context.Context, request *providerv0.ExecuteReques
 	response.RequestId = request.GetRequestId()
 	response.Delivery = delivery
 	return response, nil
+}
+
+// replaying reports whether this session serves responses from a cassette.
+func (s *Session) replaying() bool {
+	return s.cassette != nil && s.cassette.Mode() == cassette.ModeReplay
 }
 
 // deliver performs the request either live or through a cassette. Replay never
@@ -280,27 +305,39 @@ func (s *Session) checkBudget() error {
 // admitOrigin re-admits the host-attested origin against the descriptor's
 // ceiling, resolves and pins a single peer IP, and confirms the attested
 // network class matches the resolved one.
-func (s *Session) admitOrigin(ctx context.Context, descriptor manifest.RequestDescriptor, attested *providerv0.AdmittedOrigin) (urlguard.Origin, urlguard.Resolution, error) {
+// admitOrigin performs the structural, network-free admission: it binds the
+// attested origin to the descriptor's rule and confirms it stays within the
+// manifest ceiling. It never resolves DNS, so it runs identically for live and
+// replay.
+func (s *Session) admitOrigin(descriptor manifest.RequestDescriptor, attested *providerv0.AdmittedOrigin) (urlguard.Origin, urlguard.Ceiling, error) {
 	if attested.GetOriginRuleId() != descriptor.OriginRule {
-		return urlguard.Origin{}, urlguard.Resolution{}, fmt.Errorf("origin rule does not match descriptor")
+		return urlguard.Origin{}, urlguard.Ceiling{}, fmt.Errorf("origin rule does not match descriptor")
 	}
 	rule, ok := s.originRules[descriptor.OriginRule]
 	if !ok {
-		return urlguard.Origin{}, urlguard.Resolution{}, fmt.Errorf("origin rule %q is not packaged", descriptor.OriginRule)
+		return urlguard.Origin{}, urlguard.Ceiling{}, fmt.Errorf("origin rule %q is not packaged", descriptor.OriginRule)
 	}
 	origin := urlguard.Origin{Scheme: attested.GetScheme(), Host: attested.GetHost(), Port: attested.GetPort()}
 	ceiling := ceilingFor(rule)
 	if err := ceiling.AdmitOrigin(origin); err != nil {
-		return urlguard.Origin{}, urlguard.Resolution{}, err
+		return urlguard.Origin{}, urlguard.Ceiling{}, err
 	}
+	return origin, ceiling, nil
+}
+
+// resolveAndPin performs the single DNS resolution in the request path, pins one
+// admitted peer IP, and confirms the resolved network class matches the
+// host-attested class. It runs only for live delivery — never during replay —
+// and always before any credential is resolved.
+func (s *Session) resolveAndPin(ctx context.Context, origin urlguard.Origin, ceiling urlguard.Ceiling, attested *providerv0.AdmittedOrigin) (urlguard.Resolution, error) {
 	pinned, err := urlguard.Resolve(ctx, s.resolver, origin, ceiling.AllowedClasses)
 	if err != nil {
-		return urlguard.Origin{}, urlguard.Resolution{}, err
+		return urlguard.Resolution{}, err
 	}
 	if classEnum(pinned.Class) != attested.GetPrivateNetworkClass() {
-		return urlguard.Origin{}, urlguard.Resolution{}, fmt.Errorf("resolved network class does not match attested origin")
+		return urlguard.Resolution{}, fmt.Errorf("resolved network class does not match attested origin")
 	}
-	return origin, pinned, nil
+	return pinned, nil
 }
 
 // requireCheckpoint enforces that a durable pre-send checkpoint exists before
@@ -347,6 +384,13 @@ func (s *Session) injectCredentials(httpRequest *http.Request, request *provider
 // whether request bytes crossed the boundary so a lost response is reported as
 // SENT_OUTCOME_UNKNOWN rather than NOT_SENT.
 func (s *Session) roundTrip(ctx context.Context, client *http.Client, descriptor manifest.RequestDescriptor, httpRequest *http.Request) (providerv0.DeliveryState, *providerv0.ExecuteRequestResponse, error) {
+	// The absolute budget deadline bounds the whole round trip, not just the
+	// pre-send admission checks.
+	if deadline := s.budget.GetDeadline(); deadline != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline.AsTime())
+		defer cancel()
+	}
 	var wrote bool
 	trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wrote = true }}
 	traced := httpRequest.WithContext(httptrace.WithClientTrace(ctx, trace))

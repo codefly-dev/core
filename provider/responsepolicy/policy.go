@@ -79,6 +79,19 @@ type Result struct {
 	SafeJSON   []byte
 }
 
+// RequiresBody reports whether any field must be present. A successful response
+// with no body but a policy that requires a field is drift and must fail closed
+// rather than silently report success — a vendor cannot skip a required capture
+// by returning an empty body.
+func (p Policy) RequiresBody() bool {
+	for _, field := range p.Fields {
+		if field.Required {
+			return true
+		}
+	}
+	return false
+}
+
 // Filter decodes, bounds, and filters a response body against the policy. It
 // returns an error — and no partial result — whenever any declared behavior
 // cannot be honored, so the caller can fail closed without ever forwarding

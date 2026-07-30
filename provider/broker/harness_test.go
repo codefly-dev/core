@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"net/http"
 	"testing"
@@ -19,10 +20,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// brokerManifest is a Stripe-like provider manifest whose origin rule admits a
-// loopback test server. It declares a read-only observe request and a mutating
-// create request that returns a capturable secret.
-const brokerManifest = `
+// originConfig parameterizes the manifest origin rule and matching admitted
+// origin so tests can target a loopback server or an unresolvable host.
+type originConfig struct {
+	scheme string
+	host   string
+	port   uint32
+	class  string
+}
+
+func loopbackConfig() originConfig {
+	return originConfig{scheme: "http", host: "localhost", port: 8080, class: "loopback"}
+}
+
+func (o originConfig) urlguardOrigin() urlguard.Origin {
+	return urlguard.Origin{Scheme: o.scheme, Host: o.host, Port: o.port}
+}
+
+func (o originConfig) networkClass() providerv0.PrivateNetworkClass {
+	switch o.class {
+	case "loopback":
+		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LOOPBACK
+	case "link-local":
+		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LINK_LOCAL
+	case "private":
+		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PRIVATE
+	default:
+		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PUBLIC
+	}
+}
+
+// brokerManifestFmt is a Stripe-like provider manifest whose origin rule is
+// templated. It declares a read-only observe request and a mutating create
+// request that returns a capturable secret.
+const brokerManifestFmt = `
 schema_version: codefly.provider-manifest/v0
 protocol_version: codefly.provider/v0
 state_schema_versions: [1]
@@ -48,6 +79,13 @@ permissions:
       resource_type: account
       reason: Observe the declared account.
       risk: low
+      credential_purpose: management
+    - id: account-delete
+      action: account.delete
+      resource: "provider:fixture/${workspace}/${environment}/${binding}/account"
+      resource_type: account
+      reason: Delete the declared account.
+      risk: critical
       credential_purpose: management
 resource_types:
   - id: account
@@ -87,14 +125,28 @@ requests:
     read_only: false
     response_schema: account
     credential_purposes: [management]
+  - id: account.delete
+    permissions: [account-delete]
+    resource_type: account
+    action: delete
+    origin_rule: api
+    operation: delete
+    method: DELETE
+    path_template: /v1/accounts/{account_id}
+    remote_id_parameters: [account_id]
+    request_byte_budget: 4096
+    response_byte_budget: 65536
+    read_only: false
+    response_schema: deleted
+    credential_purposes: [management]
 origin_rules:
   - id: api
-    defaults: [http://localhost:8080]
-    schemes: [http]
-    host_patterns: [localhost]
-    ports: [8080]
+    defaults: [%s://%s:%d]
+    schemes: [%s]
+    host_patterns: [%s]
+    ports: [%d]
     binding_override: within-rule
-    private_network_classes: [loopback]
+    private_network_classes: [%s]
 credential_purposes:
   - id: management
     minimum_scope: Manage only the bound account.
@@ -112,6 +164,10 @@ response_schemas:
         purpose: runtime
       - selector: {version: v1, path: "$.metadata.internal"}
         disposition: SUPPRESS_REPORT_PRESENCE
+  - id: deleted
+    fields:
+      - selector: {version: v1, path: "$.deleted"}
+        disposition: FORWARD_SAFE
 sandbox:
   network: deny
 state:
@@ -123,28 +179,33 @@ state:
 diagnostic_namespace: provider.fixture.
 `
 
+func brokerManifestYAML(o originConfig) string {
+	return fmt.Sprintf(brokerManifestFmt, o.scheme, o.host, o.port, o.scheme, o.host, o.port, o.class)
+}
+
 const (
 	remoteID     = "acct_123"
 	poisonSecret = "sk_live_1234567890abcdef"
 )
 
-func loopbackOrigin() urlguard.Origin {
-	return urlguard.Origin{Scheme: "http", Host: "localhost", Port: 8080}
-}
-
-func admittedOrigin(t *testing.T) *providerv0.AdmittedOrigin {
+func admittedOriginFor(t *testing.T, o originConfig) *providerv0.AdmittedOrigin {
 	t.Helper()
 	origin := &providerv0.AdmittedOrigin{
 		OriginRuleId:        "api",
-		Scheme:              "http",
-		Host:                "localhost",
-		Port:                8080,
-		PrivateNetworkClass: providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LOOPBACK,
+		Scheme:              o.scheme,
+		Host:                o.host,
+		Port:                o.port,
+		PrivateNetworkClass: o.networkClass(),
 	}
 	digest, err := canonical.AdmittedOriginDigest(origin)
 	require.NoError(t, err)
 	origin.AdmissionDigest = digest
 	return origin
+}
+
+func admittedOrigin(t *testing.T) *providerv0.AdmittedOrigin {
+	t.Helper()
+	return admittedOriginFor(t, loopbackConfig())
 }
 
 func fakeDigest(seed string) string {
@@ -217,6 +278,38 @@ func createAction(t *testing.T, requests ...*providerv0.PlannedRequest) *provide
 	return action
 }
 
+func boundDeleteRequest(t *testing.T, m *manifest.Manifest, origin *providerv0.AdmittedOrigin) *providerv0.PlannedRequest {
+	t.Helper()
+	request := &providerv0.PlannedRequest{
+		RequestDescriptorId:     "account.delete",
+		RequestDescriptorDigest: descriptorDigest(t, m, "account.delete"),
+		Method:                  providerv0.HTTPMethod_HTTP_METHOD_DELETE,
+		AdmittedOriginDigest:    origin.GetAdmissionDigest(),
+		PathParameters:          map[string]*providerv0.PublicValue{"account_id": pubString(remoteID)},
+		CredentialPurposes:      []providerv0.CredentialPurpose{providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
+		ResponsePolicyDigest:    fakeDigest("deleted-response-policy"),
+		IdempotencyKey:          "idem-del",
+	}
+	bound, err := canonical.BindPlannedRequestDigest(request)
+	require.NoError(t, err)
+	return bound
+}
+
+func deleteAction(t *testing.T, requests ...*providerv0.PlannedRequest) *providerv0.PlanAction {
+	t.Helper()
+	action := &providerv0.PlanAction{
+		ActionId:       "a1",
+		Position:       0,
+		Type:           providerv0.ActionType_ACTION_TYPE_DELETE,
+		ResourceType:   "account",
+		RemoteIdentity: &providerv0.RemoteIdentity{Provider: "fixture", ResourceType: "account", RemoteId: remoteID},
+		Ownership:      providerv0.Ownership_OWNERSHIP_OWNED,
+		Requests:       requests,
+	}
+	require.NoError(t, canonical.ValidatePlanAction(action))
+	return action
+}
+
 func binding() *providerv0.BindingAddress {
 	return &providerv0.BindingAddress{WorkspaceId: "ws", EnvironmentId: "env", BindingId: "bind"}
 }
@@ -267,28 +360,35 @@ func dialClientFor(addr string) func(urlguard.Origin, urlguard.Resolution) *http
 // harness wires a broker session with a mint credential handle and a durable
 // checkpoint for the create request.
 type harness struct {
+	origin      originConfig
 	manifest    *manifest.Manifest
 	action      *providerv0.PlanAction
 	vault       *credentials.Vault
 	sink        *recordingSink
-	origin      *providerv0.AdmittedOrigin
+	admitted    *providerv0.AdmittedOrigin
 	create      *providerv0.PlannedRequest
 	checkpoints *fakeCheckpointer
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	m, err := manifest.Load([]byte(brokerManifest))
+	return newHarnessOn(t, loopbackConfig())
+}
+
+func newHarnessOn(t *testing.T, origin originConfig) *harness {
+	t.Helper()
+	m, err := manifest.Load([]byte(brokerManifestYAML(origin)))
 	require.NoError(t, err)
-	origin := admittedOrigin(t)
-	create := boundCreateRequest(t, m, origin)
+	admitted := admittedOriginFor(t, origin)
+	create := boundCreateRequest(t, m, admitted)
 	action := createAction(t, create)
 	return &harness{
+		origin:      origin,
 		manifest:    m,
 		action:      action,
 		vault:       credentials.NewVault(),
 		sink:        &recordingSink{},
-		origin:      origin,
+		admitted:    admitted,
 		create:      create,
 		checkpoints: &fakeCheckpointer{checkpoint: checkpoint("cp1", "idem-1")},
 	}
@@ -305,7 +405,7 @@ func (h *harness) mintHandle(t *testing.T, planned *providerv0.PlannedRequest, m
 		ActionID:       "a1",
 		RequestDigest:  planned.GetRequestDigest(),
 		Purpose:        providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
-		Origin:         loopbackOrigin(),
+		Origin:         h.origin.urlguardOrigin(),
 		Method:         method,
 		Injection:      credentials.Injection{Kind: credentials.InjectBearer},
 		MaxUses:        1,
@@ -325,7 +425,7 @@ func (h *harness) executeRequest(handle *providerv0.CredentialHandle, planned *p
 		},
 		RequestId:         "req-1",
 		Request:           planned,
-		Origin:            h.origin,
+		Origin:            h.admitted,
 		CredentialHandles: []*providerv0.CredentialHandle{handle},
 	}
 }

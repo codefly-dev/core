@@ -94,7 +94,7 @@ func TestExecute_WrongResourceIDInPathRejected(t *testing.T) {
 	action := createAction(t, observe)
 
 	h := newHarness(t)
-	h.manifest, h.action, h.origin = m, action, origin
+	h.manifest, h.action, h.admitted = m, action, origin
 	server := accountServer(t, nil)
 	cfg := h.config(false)
 	cfg.ClientFor = dialClientFor(serverAddr(t, server))
@@ -228,7 +228,7 @@ func TestExecute_CredentialCannotBeReusedOnAnotherRequest(t *testing.T) {
 	// Mint a handle for the create request, then try to spend it on a different
 	// (observe) request: the request digest no longer matches the handle.
 	m := mustLoad(t)
-	observe := boundObserveRequest(t, m, h.origin, remoteID)
+	observe := boundObserveRequest(t, m, h.admitted, remoteID)
 	h.action = createAction(t, h.create, observe)
 	cfg = h.config(false)
 	cfg.ClientFor = dialClientFor(serverAddr(t, server))
@@ -246,7 +246,7 @@ func TestExecute_CredentialCannotBeReusedOnAnotherRequest(t *testing.T) {
 
 func mustLoad(t *testing.T) *manifest.Manifest {
 	t.Helper()
-	m, err := manifest.Load([]byte(brokerManifest))
+	m, err := manifest.Load([]byte(brokerManifestYAML(loopbackConfig())))
 	require.NoError(t, err)
 	return m
 }

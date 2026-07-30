@@ -106,19 +106,27 @@ func bindQuery(descriptor manifest.RequestDescriptor, planned *providerv0.Planne
 }
 
 func bindBody(descriptor manifest.RequestDescriptor, planned *providerv0.PlannedRequest, remoteID string) ([]byte, int, error) {
-	if len(planned.GetBody()) == 0 {
+	body := planned.GetBody()
+	// Every declared ownership field must be present and bound to the planned
+	// remote id. Checking only the fields the provider chose to include would let
+	// it omit an ownership field to escape identity binding entirely.
+	for _, field := range descriptor.OwnershipBodyFields {
+		value, ok := body[field]
+		if !ok {
+			return nil, 0, fmt.Errorf("ownership body field %q is missing", field)
+		}
+		scalar, err := scalarString(value)
+		if err != nil || scalar != remoteID {
+			return nil, 0, fmt.Errorf("ownership body field %q is not the planned remote id", field)
+		}
+	}
+	if len(body) == 0 {
 		return nil, 0, nil
 	}
-	object := make(map[string]any, len(planned.GetBody()))
-	for key, value := range planned.GetBody() {
+	object := make(map[string]any, len(body))
+	for key, value := range body {
 		if !slices.Contains(descriptor.AllowedBodyFields, key) {
 			return nil, 0, fmt.Errorf("body field %q is not allowed", key)
-		}
-		if slices.Contains(descriptor.OwnershipBodyFields, key) {
-			scalar, err := scalarString(value)
-			if err != nil || scalar != remoteID {
-				return nil, 0, fmt.Errorf("ownership body field %q is not the planned remote id", key)
-			}
 		}
 		converted, err := nativeValue(value)
 		if err != nil {
@@ -159,4 +167,19 @@ func isMutating(method providerv0.HTTPMethod) bool {
 	default:
 		return true
 	}
+}
+
+// outboundSize estimates the full encoded request size — request line, Host,
+// every host-owned header including the resolved credential, and the body — so
+// the request budget bounds the whole outbound message rather than only its
+// JSON body.
+func outboundSize(request *http.Request, bodySize int64) int64 {
+	size := int64(len(request.Method) + len(" ") + len(request.URL.RequestURI()) + len(" HTTP/1.1\r\n"))
+	size += int64(len("Host: ") + len(request.Host) + len("\r\n"))
+	for name, values := range request.Header {
+		for _, value := range values {
+			size += int64(len(name) + len(": ") + len(value) + len("\r\n"))
+		}
+	}
+	return size + bodySize
 }

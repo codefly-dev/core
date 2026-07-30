@@ -21,6 +21,7 @@ import (
 
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
 	"github.com/codefly-dev/core/provider/configuration"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -211,20 +212,23 @@ func marshalResponse(response *providerv0.ExecuteRequestResponse) (json.RawMessa
 	// re-record is byte-identical.
 	clone.RequestId = ""
 	clone.ResponseReceivedAt = nil
-	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(clone)
+	encoded, err := protojson.Marshal(clone)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(data)
+	// protojson deliberately varies whitespace and map-entry order; normalize
+	// through a generic decode/re-encode (which sorts object keys) so the stored
+	// form is both deterministic and human-reviewable in cassette diffs.
+	var generic any
+	if err := json.Unmarshal(encoded, &generic); err != nil {
+		return nil, err
+	}
+	return json.Marshal(generic)
 }
 
 func unmarshalResponse(raw json.RawMessage) (*providerv0.ExecuteRequestResponse, error) {
-	var data []byte
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return nil, err
-	}
 	response := &providerv0.ExecuteRequestResponse{}
-	if err := proto.Unmarshal(data, response); err != nil {
+	if err := protojson.Unmarshal(raw, response); err != nil {
 		return nil, err
 	}
 	return response, nil

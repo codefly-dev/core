@@ -60,6 +60,17 @@ func mutateIdempotency(t *testing.T, policy string) cassette.Key {
 	return cassette.NewKey(planned, admittedOrigin())
 }
 
+func TestRecording_IsHumanReviewable(t *testing.T) {
+	// The stored cassette must be a readable diff, not an opaque blob: the
+	// selector and safe value appear as plain text.
+	recorder := cassette.New(cassette.ModeRecord, "1.2.3")
+	require.NoError(t, recorder.Record(cassette.NewKey(plannedRequest("sha256:"+repeat64('a')), admittedOrigin()), 200, nil, safeResponse()))
+	data, err := recorder.Marshal()
+	require.NoError(t, err)
+	require.Contains(t, string(data), "$.id")
+	require.Contains(t, string(data), "acct_1")
+}
+
 func TestRecording_IsDeterministic(t *testing.T) {
 	policy := "sha256:" + repeat64('b')
 	key := cassette.NewKey(plannedRequest(policy), admittedOrigin())
