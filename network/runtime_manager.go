@@ -61,9 +61,10 @@ func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 // actually serves: collisions abort startup (so a running service never
 // deviates from the hash) and temporary ports are test-only.
 //
-// It does NOT apply to external-visibility endpoints, whose address comes from
-// a DNS record resolved at runtime rather than the port hash — callers must
-// special-case resources.VisibilityExternal.
+// It does NOT apply to external endpoints, whose address comes from a DNS
+// record resolved at runtime rather than the port hash — callers must
+// special-case them with resources.IsExternalEndpoint (external is a location,
+// expressible either as location: external or the deprecated visibility).
 func NativeFor(ctx context.Context, workspace, module, service, namingScope string, endpoint *basev0.Endpoint) *basev0.NetworkInstance {
 	name := endpoint.Name
 	if namingScope != "" {

@@ -55,26 +55,17 @@ type Endpoint struct {
 }
 
 func (endpoint *Endpoint) postLoad(ctx context.Context) {
-	// "external" was a visibility that actually described a location. Split it
-	// onto the Location axis and keep the old permissive reachability.
-	if endpoint.Visibility == VisibilityExternal {
-		if endpoint.Location == "" {
-			endpoint.Location = LocationExternal
-		}
-		endpoint.Visibility = VisibilityInternal
-		if len(endpoint.AllowModules) == 0 {
-			endpoint.AllowModules = []string{AllowAllModules}
-		}
-	}
-	// "module" meant "reachable from every other module" — the widest
-	// intra-workspace setting. Alias it to internal with a wildcard allow-list.
-	if endpoint.Visibility == VisibilityModule {
+	// "module" and "external" are deprecated visibility values. They are
+	// interpreted by External() and AllowsModule() rather than rewritten here,
+	// so the authored file round-trips unchanged; warn so workspaces migrate to
+	// the new axes ("internal" + "allow-modules", and "location: external").
+	switch endpoint.Visibility {
+	case VisibilityModule:
 		wool.Get(ctx).Warn("endpoint visibility 'module' is deprecated; use 'internal' with an explicit 'allow-modules' list",
 			wool.NameField(endpoint.Name))
-		endpoint.Visibility = VisibilityInternal
-		if len(endpoint.AllowModules) == 0 {
-			endpoint.AllowModules = []string{AllowAllModules}
-		}
+	case VisibilityExternal:
+		wool.Get(ctx).Warn("endpoint visibility 'external' is deprecated; use 'location: external' alongside a real visibility",
+			wool.NameField(endpoint.Name))
 	}
 	if endpoint.Visibility == "" {
 		endpoint.Visibility = VisibilityPrivate
@@ -92,13 +83,14 @@ func (endpoint *Endpoint) External() bool {
 // AllowsModule reports whether a service in the given module may reach this
 // endpoint. Access is always granted within the owning module; across modules
 // it follows the visibility: public is open, internal consults AllowModules
-// (with "*" as a wildcard), and everything else is denied.
+// (with "*" as a wildcard), the deprecated "module" and "external" values mean
+// every module, and everything else is denied.
 func (endpoint *Endpoint) AllowsModule(module string) bool {
 	if module == endpoint.Module {
 		return true
 	}
 	switch endpoint.Visibility {
-	case VisibilityPublic:
+	case VisibilityPublic, VisibilityModule, VisibilityExternal:
 		return true
 	case VisibilityInternal:
 		for _, allowed := range endpoint.AllowModules {

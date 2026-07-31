@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -31,7 +30,17 @@ func (d *ServiceDependencies) VerifyVisibility(ctx context.Context) error {
 			if !ok {
 				continue
 			}
-			for _, ep := range requestedEndpoints(dep, target) {
+			names := make([]string, 0, len(dep.Endpoints))
+			for _, ref := range dep.Endpoints {
+				names = append(names, ref.Name)
+			}
+			consumed, err := target.ConsumedEndpoints(names)
+			if err != nil {
+				violations = append(violations, fmt.Sprintf(
+					"%s depends on %s: %s", identity.Unique(), dep.Unique(), err))
+				continue
+			}
+			for _, ep := range consumed {
 				if !ep.AllowsModule(identity.Module) {
 					violations = append(violations, fmt.Sprintf(
 						"%s depends on %s/%s (visibility %q) but module %q is not permitted",
@@ -45,24 +54,4 @@ func (d *ServiceDependencies) VerifyVisibility(ctx context.Context) error {
 	}
 	sort.Strings(violations)
 	return w.NewError("visibility violations:\n  %s", strings.Join(violations, "\n  "))
-}
-
-// requestedEndpoints returns the target endpoints a dependency consumes: the
-// explicitly listed ones, or all of the target's endpoints when the dependency
-// lists none (it then receives everything the target exposes).
-func requestedEndpoints(dep *resources.ServiceDependency, target *resources.Service) []*resources.Endpoint {
-	if len(dep.Endpoints) == 0 {
-		return target.Endpoints
-	}
-	byName := make(map[string]*resources.Endpoint, len(target.Endpoints))
-	for _, ep := range target.Endpoints {
-		byName[ep.Name] = ep
-	}
-	var out []*resources.Endpoint
-	for _, ref := range dep.Endpoints {
-		if ep, ok := byName[ref.Name]; ok {
-			out = append(out, ep)
-		}
-	}
-	return out
 }

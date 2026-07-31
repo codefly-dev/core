@@ -69,7 +69,7 @@ endpoints:
 	return dir
 }
 
-func addDependency(t *testing.T, dir, module, name string) error {
+func addDependency(t *testing.T, dir, module, name string, endpoints ...string) error {
 	t.Helper()
 	ctx := context.Background()
 	ws, err := resources.LoadWorkspaceFromDir(ctx, dir)
@@ -79,7 +79,7 @@ func addDependency(t *testing.T, dir, module, name string) error {
 		Module:           module,
 		DependencyName:   "secrets",
 		DependencyModule: "vault",
-		Endpoints:        []string{"http"},
+		Endpoints:        endpoints,
 	})
 	require.NoError(t, err)
 	_, err = action.Run(ctx, &actions.Space{Workspace: ws})
@@ -90,9 +90,19 @@ func TestAddDependencyEnforcesVisibility(t *testing.T) {
 	dir := visibilityWorkspace(t)
 
 	// The allow-listed module may depend on the internal endpoint.
-	require.NoError(t, addDependency(t, dir, "platform", "gateway"))
+	require.NoError(t, addDependency(t, dir, "platform", "gateway", "http"))
 
 	// A module outside the allow-list is refused.
+	err := addDependency(t, dir, "web", "portal", "http")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not permit module \"web\"")
+}
+
+// TestAddDependencyEnforcesVisibilityAllEndpoints covers the unnamed-dependency
+// case: consuming every endpoint must still be checked, not skipped.
+func TestAddDependencyEnforcesVisibilityAllEndpoints(t *testing.T) {
+	dir := visibilityWorkspace(t)
+
 	err := addDependency(t, dir, "web", "portal")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "does not permit module \"web\"")

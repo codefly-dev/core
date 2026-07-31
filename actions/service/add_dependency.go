@@ -68,7 +68,13 @@ func (action *AddServiceDependencyAction) Run(ctx context.Context, space *action
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get endpoints %s for service %s", action.Endpoints, action.DependencyName)
 	}
-	for _, endpoint := range dependencyEndpoints {
+	// Enforce visibility over the endpoints the consumer will actually receive:
+	// an unnamed dependency consumes every endpoint, not none.
+	consumed, err := serviceDependency.ConsumedEndpoints(action.Endpoints)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot resolve endpoints for service %s", action.DependencyName)
+	}
+	for _, endpoint := range consumed {
 		if !endpoint.AllowsModule(action.Module) {
 			return nil, w.NewError("endpoint %s/%s (visibility %q) does not permit module %q",
 				action.DependencyName, endpoint.Name, endpoint.Visibility, action.Module)

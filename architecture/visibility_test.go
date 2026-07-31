@@ -33,3 +33,18 @@ func TestVerifyVisibilityDenied(t *testing.T) {
 	require.Contains(t, err.Error(), "web/portal")
 	require.Contains(t, err.Error(), "vault/secrets")
 }
+
+func TestVerifyVisibilityUnknownEndpoint(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/visibility-unknown")
+	require.NoError(t, err)
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace)
+	require.NoError(t, err)
+
+	// The consumer is allow-listed, but it references an endpoint that does not
+	// exist on the target: verify must surface it, not silently ignore it.
+	err = dep.VerifyVisibility(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nope")
+}

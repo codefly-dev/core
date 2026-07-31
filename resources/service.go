@@ -524,6 +524,17 @@ func (s *Service) HasEndpoints(_ context.Context, endpoints []string) ([]string,
 	return nil, nil
 }
 
+// ConsumedEndpoints returns the endpoints a dependency consumes from this
+// service: the named subset, or every endpoint when names is empty (an
+// unnamed dependency receives them all). It errors if a name matches no
+// endpoint, so a stale reference is surfaced rather than silently dropped.
+func (s *Service) ConsumedEndpoints(names []string) ([]*Endpoint, error) {
+	if len(names) == 0 {
+		return s.Endpoints, nil
+	}
+	return s.EndpointsFromNames(names)
+}
+
 // EndpointsFromNames return matching endpoints
 func (s *Service) EndpointsFromNames(endpoints []string) ([]*Endpoint, error) {
 	known := map[string]*Endpoint{}
