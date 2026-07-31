@@ -316,22 +316,35 @@ func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) err
 		}
 		for _, svc := range services {
 			for _, dep := range svc.ServiceDependencies {
-				if dep.Module == "" || dep.Module == mod.Name {
+				producerModule := dep.Module
+				if producerModule == "" {
+					producerModule = mod.Name
+				}
+				if producerModule == mod.Name {
 					continue
 				}
-				producerMod, ok := byName[dep.Module]
+				// Whether the producer module and service exist is the
+				// dependency resolver's concern; this pass judges visibility
+				// only, so an unresolvable producer is skipped rather than
+				// reported here. Real load failures (e.g. malformed config)
+				// still propagate.
+				producerMod, ok := byName[producerModule]
 				if !ok {
-					return w.NewError("service %s/%s depends on unknown module %q", mod.Name, svc.Name, dep.Module)
+					continue
 				}
 				producer, err := producerMod.LoadServiceFromName(ctx, dep.Name)
 				if err != nil {
-					return w.Wrapf(err, "service %s/%s depends on unknown service %q in module %q", mod.Name, svc.Name, dep.Name, dep.Module)
+					var notFound *shared.ErrorResourceNotFound
+					if errors.As(err, &notFound) {
+						continue
+					}
+					return w.Wrap(err)
 				}
 				for _, ep := range producer.Endpoints {
 					if !dependencyConsumesEndpoint(dep, ep.Name) {
 						continue
 					}
-					if err := ValidateEndpointVisibility(mod.Name, dep.Module, dep.Name, ep.Name, ep.Visibility); err != nil {
+					if err := ValidateEndpointVisibility(mod.Name, producerModule, dep.Name, ep.Name, ep.Visibility); err != nil {
 						return w.Wrap(err)
 					}
 				}

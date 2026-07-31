@@ -1,0 +1,4 @@
+kind: module
+name: saas
+services:
+    - name: accounts

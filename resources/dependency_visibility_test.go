@@ -43,6 +43,16 @@ func TestValidateServiceDependenciesAllowed(t *testing.T) {
 	require.NoError(t, workspace.ValidateServiceDependencies(ctx))
 }
 
+func TestValidateServiceDependenciesUnresolvedProducer(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/unresolved-dependency-visibility")
+	require.NoError(t, err)
+	// Dependencies on a module absent from the workspace and on a service
+	// absent from a known module are the resolver's concern, not this pass's:
+	// with nothing to judge, visibility validation must not error.
+	require.NoError(t, workspace.ValidateServiceDependencies(ctx))
+}
+
 func TestValidateServiceDependenciesDenied(t *testing.T) {
 	ctx := context.Background()
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/denied-dependency-visibility")
