@@ -68,6 +68,12 @@ func (action *AddServiceDependencyAction) Run(ctx context.Context, space *action
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get endpoints %s for service %s", action.Endpoints, action.DependencyName)
 	}
+	for _, endpoint := range dependencyEndpoints {
+		if !endpoint.AllowsModule(action.Module) {
+			return nil, w.NewError("endpoint %s/%s (visibility %q) does not permit module %q",
+				action.DependencyName, endpoint.Name, endpoint.Visibility, action.Module)
+		}
+	}
 	depIdentity, err := serviceDependency.Identity()
 	if err != nil {
 		return nil, w.Wrapf(err, "cannote get identity")

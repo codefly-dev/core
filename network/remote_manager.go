@@ -80,7 +80,7 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 		// declared DNS — there's no sane fallback because the public
 		// hostname is environment-specific (a wildcard cert,
 		// CNAME, etc.). Hard-fail when missing.
-		if endpoint.Visibility == resources.VisibilityExternal {
+		if resources.IsExternalEndpoint(endpoint) {
 			dns, err := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
 			if err != nil {
 				return nil, err

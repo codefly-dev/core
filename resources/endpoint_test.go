@@ -67,3 +67,60 @@ func TestEnvironmentVariables(t *testing.T) {
 	require.Equal(t, fmt.Sprintf("CODEFLY__ENDPOINT__MOD__ORGANIZATION__REST__REST=%s", instance.Address), env.String())
 
 }
+
+func endpointByName(endpoints []*resources.Endpoint, name string) *resources.Endpoint {
+	for _, ep := range endpoints {
+		if ep.Name == name {
+			return ep
+		}
+	}
+	return nil
+}
+
+func TestEndpointVisibilityNormalization(t *testing.T) {
+	ctx := context.Background()
+	service, err := resources.LoadServiceFromDir(ctx, "testdata/endpoints/visibility")
+	require.NoError(t, err)
+
+	// "module" aliases to internal with a wildcard allow-list.
+	grpc := endpointByName(service.Endpoints, "grpc")
+	require.Equal(t, resources.VisibilityInternal, grpc.Visibility)
+	require.Equal(t, []string{resources.AllowAllModules}, grpc.AllowModules)
+
+	// "external" moves onto the location axis, keeping permissive reachability.
+	rest := endpointByName(service.Endpoints, "rest")
+	require.Equal(t, resources.VisibilityInternal, rest.Visibility)
+	require.Equal(t, resources.LocationExternal, rest.Location)
+	require.True(t, rest.External())
+	require.Equal(t, []string{resources.AllowAllModules}, rest.AllowModules)
+
+	// Explicit internal keeps its allow-list untouched.
+	http := endpointByName(service.Endpoints, "http")
+	require.Equal(t, resources.VisibilityInternal, http.Visibility)
+	require.Equal(t, []string{"platform"}, http.AllowModules)
+
+	// Unset stays private.
+	tcp := endpointByName(service.Endpoints, "tcp")
+	require.Equal(t, resources.VisibilityPrivate, tcp.Visibility)
+	require.False(t, tcp.External())
+}
+
+func TestEndpointAllowsModule(t *testing.T) {
+	private := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityPrivate}
+	require.True(t, private.AllowsModule("vault"))
+	require.False(t, private.AllowsModule("platform"))
+
+	public := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityPublic}
+	require.True(t, public.AllowsModule("platform"))
+
+	internal := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityInternal, AllowModules: []string{"platform"}}
+	require.True(t, internal.AllowsModule("vault"))
+	require.True(t, internal.AllowsModule("platform"))
+	require.False(t, internal.AllowsModule("web"))
+
+	wildcard := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
+	require.True(t, wildcard.AllowsModule("web"))
+
+	empty := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityInternal}
+	require.False(t, empty.AllowsModule("platform"))
+}

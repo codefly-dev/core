@@ -111,12 +111,21 @@ type Endpoint struct {
 	Module string `protobuf:"bytes,3,opt,name=module,proto3" json:"module,omitempty"`
 	// description explains what this endpoint is used for.
 	Description string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	// visibility controls whether this endpoint is private, module-visible, public, or external.
+	// visibility controls who may reach this endpoint: private (same module),
+	// internal (allow-listed modules), or public (outside the workspace). The
+	// "module" and "external" values are deprecated aliases kept for migration.
 	Visibility string `protobuf:"bytes,5,opt,name=visibility,proto3" json:"visibility,omitempty"`
 	// api describes the protocol exposed by the endpoint.
 	Api string `protobuf:"bytes,6,opt,name=api,proto3" json:"api,omitempty"`
 	// api_details contains protocol-specific endpoint metadata.
-	ApiDetails    *API `protobuf:"bytes,7,opt,name=api_details,json=apiDetails,proto3" json:"api_details,omitempty"`
+	ApiDetails *API `protobuf:"bytes,7,opt,name=api_details,json=apiDetails,proto3" json:"api_details,omitempty"`
+	// location describes where the endpoint physically lives, independently of who
+	// may reach it. "external" marks a managed resource outside the system,
+	// resolved by DNS rather than an allocated port.
+	Location string `protobuf:"bytes,8,opt,name=location,proto3" json:"location,omitempty"`
+	// allow_modules is the explicit allow-list of modules permitted to reach an
+	// internal endpoint. The single entry "*" permits every module.
+	AllowModules  []string `protobuf:"bytes,9,rep,name=allow_modules,json=allowModules,proto3" json:"allow_modules,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -196,6 +205,20 @@ func (x *Endpoint) GetApi() string {
 func (x *Endpoint) GetApiDetails() *API {
 	if x != nil {
 		return x.ApiDetails
+	}
+	return nil
+}
+
+func (x *Endpoint) GetLocation() string {
+	if x != nil {
+		return x.Location
+	}
+	return ""
+}
+
+func (x *Endpoint) GetAllowModules() []string {
+	if x != nil {
+		return x.AllowModules
 	}
 	return nil
 }
@@ -747,18 +770,20 @@ var File_codefly_base_v0_endpoint_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"\n" +
-	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\x83\x03\n" +
+	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xce\x03\n" +
 	"\bEndpoint\x12)\n" +
 	"\x04name\x18\x01 \x01(\tB\x15\xbaH\x12r\x10\x10\x03\x18\x142\b^[a-z]+$h\x01R\x04name\x128\n" +
 	"\aservice\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\aservice\x126\n" +
 	"\x06module\x18\x03 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\x06module\x12 \n" +
-	"\vdescription\x18\x04 \x01(\tR\vdescription\x12H\n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\x12R\n" +
 	"\n" +
-	"visibility\x18\x05 \x01(\tB(\xbaH%r#R\bexternalR\x06publicR\x06moduleR\aprivateR\n" +
+	"visibility\x18\x05 \x01(\tB2\xbaH/r-R\bexternalR\x06publicR\x06moduleR\aprivateR\binternalR\n" +
 	"visibility\x127\n" +
 	"\x03api\x18\x06 \x01(\tB%\xbaH\"r R\x04httpR\x04grpcR\x03tcpR\x04restR\aconnectR\x03api\x125\n" +
 	"\vapi_details\x18\a \x01(\v2\x14.codefly.base.v0.APIR\n" +
-	"apiDetails\"\xcb\x01\n" +
+	"apiDetails\x12\x1a\n" +
+	"\blocation\x18\b \x01(\tR\blocation\x12#\n" +
+	"\rallow_modules\x18\t \x03(\tR\fallowModules\"\xcb\x01\n" +
 	"\x03API\x12+\n" +
 	"\x03tcp\x18\x01 \x01(\v2\x17.codefly.base.v0.TcpAPIH\x00R\x03tcp\x12.\n" +
 	"\x04http\x18\x02 \x01(\v2\x18.codefly.base.v0.HttpAPIH\x00R\x04http\x12.\n" +

@@ -458,7 +458,8 @@ func (s *Service) postLoad(ctx context.Context) error {
 	}
 	for _, endpoint := range s.Endpoints {
 		endpoint.Service = s.Name
-		endpoint.postLoad()
+		endpoint.Module = s.module
+		endpoint.postLoad(ctx)
 	}
 	return nil
 }

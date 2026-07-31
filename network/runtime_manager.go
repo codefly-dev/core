@@ -154,7 +154,7 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 			Endpoint: endpoint,
 		}
 		// External endpoints
-		if endpoint.Visibility == resources.VisibilityExternal {
+		if resources.IsExternalEndpoint(endpoint) {
 			var dns *basev0.DNS
 			var err error
 			if m.dnsManager == nil {

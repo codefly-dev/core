@@ -16,15 +16,29 @@ import (
 type Visibility = string
 
 const (
-	// VisibilityExternal represents an endpoint that exists outside the system
+	// VisibilityExternal is a deprecated visibility value. External is a
+	// location, not a permission: use Location = LocationExternal alongside a
+	// real visibility. Kept so raw protos and legacy YAML keep loading.
 	VisibilityExternal Visibility = "external"
-	// VisibilityPublic represents a deployed endpoint that is accessible from outside the system
+	// VisibilityPublic represents an endpoint accessible from outside the workspace.
 	VisibilityPublic Visibility = "public"
-	// VisibilityModule represents an endpoint from other modules inside the system
+	// VisibilityModule is a deprecated alias for VisibilityInternal with every
+	// module allow-listed. Kept so legacy YAML keeps loading.
 	VisibilityModule Visibility = "module"
+	// VisibilityInternal represents an endpoint reachable from an explicit
+	// allow-list of other modules (see Endpoint.AllowModules).
+	VisibilityInternal Visibility = "internal"
 	// VisibilityPrivate represents an endpoint that is only accessible within the module
 	VisibilityPrivate Visibility = "private"
 )
+
+// LocationExternal marks an endpoint that lives outside the system (a managed
+// resource resolved by DNS rather than an allocated port).
+const LocationExternal = "external"
+
+// AllowAllModules is the wildcard allow-list entry that grants every module
+// access to an internal endpoint.
+const AllowAllModules = "*"
 
 // Endpoint is the fundamental entity that standardize communication between services.
 type Endpoint struct {
@@ -34,15 +48,71 @@ type Endpoint struct {
 	Description string `yaml:"description,omitempty"`
 	Visibility  string `yaml:"visibility,omitempty"`
 	API         string `yaml:"api,omitempty"`
+	// Location describes where the endpoint lives, independently of visibility.
+	Location string `yaml:"location,omitempty"`
+	// AllowModules lists the modules permitted to reach an internal endpoint.
+	AllowModules []string `yaml:"allow-modules,omitempty"`
 }
 
-func (endpoint *Endpoint) postLoad() {
+func (endpoint *Endpoint) postLoad(ctx context.Context) {
+	// "external" was a visibility that actually described a location. Split it
+	// onto the Location axis and keep the old permissive reachability.
+	if endpoint.Visibility == VisibilityExternal {
+		if endpoint.Location == "" {
+			endpoint.Location = LocationExternal
+		}
+		endpoint.Visibility = VisibilityInternal
+		if len(endpoint.AllowModules) == 0 {
+			endpoint.AllowModules = []string{AllowAllModules}
+		}
+	}
+	// "module" meant "reachable from every other module" — the widest
+	// intra-workspace setting. Alias it to internal with a wildcard allow-list.
+	if endpoint.Visibility == VisibilityModule {
+		wool.Get(ctx).Warn("endpoint visibility 'module' is deprecated; use 'internal' with an explicit 'allow-modules' list",
+			wool.NameField(endpoint.Name))
+		endpoint.Visibility = VisibilityInternal
+		if len(endpoint.AllowModules) == 0 {
+			endpoint.AllowModules = []string{AllowAllModules}
+		}
+	}
 	if endpoint.Visibility == "" {
 		endpoint.Visibility = VisibilityPrivate
 	}
 	if endpoint.API == "" && slices.Contains(standards.APIS(), endpoint.Name) {
 		endpoint.API = endpoint.Name
 	}
+}
+
+// External reports whether the endpoint lives outside the system.
+func (endpoint *Endpoint) External() bool {
+	return endpoint.Location == LocationExternal || endpoint.Visibility == VisibilityExternal
+}
+
+// AllowsModule reports whether a service in the given module may reach this
+// endpoint. Access is always granted within the owning module; across modules
+// it follows the visibility: public is open, internal consults AllowModules
+// (with "*" as a wildcard), and everything else is denied.
+func (endpoint *Endpoint) AllowsModule(module string) bool {
+	if module == endpoint.Module {
+		return true
+	}
+	switch endpoint.Visibility {
+	case VisibilityPublic:
+		return true
+	case VisibilityInternal:
+		for _, allowed := range endpoint.AllowModules {
+			if allowed == AllowAllModules || allowed == module {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// IsExternalEndpoint reports whether a proto endpoint lives outside the system.
+func IsExternalEndpoint(e *basev0.Endpoint) bool {
+	return e.Location == LocationExternal || e.Visibility == VisibilityExternal
 }
 
 func (endpoint *Endpoint) preSave() {
@@ -147,12 +217,14 @@ func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
 		return nil, fmt.Errorf("unsupported api: %s", endpoint.API)
 	}
 	e := &basev0.Endpoint{
-		Name:        endpoint.Name,
-		Module:      endpoint.Module,
-		Service:     endpoint.Service,
-		Api:         endpoint.API,
-		Visibility:  endpoint.Visibility,
-		Description: endpoint.Description,
+		Name:         endpoint.Name,
+		Module:       endpoint.Module,
+		Service:      endpoint.Service,
+		Api:          endpoint.API,
+		Visibility:   endpoint.Visibility,
+		Description:  endpoint.Description,
+		Location:     endpoint.Location,
+		AllowModules: endpoint.AllowModules,
 	}
 	// Validate
 	if err := Validate(e); err != nil {
@@ -172,12 +244,14 @@ func (endpoint *Endpoint) Information() *EndpointInformation {
 
 func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
 	return &Endpoint{
-		Name:        e.Name,
-		Module:      e.Module,
-		Service:     e.Service,
-		Visibility:  e.Visibility,
-		Description: e.Description,
-		API:         e.Api,
+		Name:         e.Name,
+		Module:       e.Module,
+		Service:      e.Service,
+		Visibility:   e.Visibility,
+		Description:  e.Description,
+		API:          e.Api,
+		Location:     e.Location,
+		AllowModules: e.AllowModules,
 	}
 }
 
@@ -191,11 +265,13 @@ func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
 
 func Light(e *basev0.Endpoint) *basev0.Endpoint {
 	return &basev0.Endpoint{
-		Name:        e.Name,
-		Visibility:  e.Visibility,
-		Description: e.Description,
-		Api:         e.Api,
-		ApiDetails:  LightAPI(e.ApiDetails),
+		Name:         e.Name,
+		Visibility:   e.Visibility,
+		Description:  e.Description,
+		Api:          e.Api,
+		ApiDetails:   LightAPI(e.ApiDetails),
+		Location:     e.Location,
+		AllowModules: e.AllowModules,
 	}
 }
 
@@ -303,6 +379,8 @@ func endpointHash(_ context.Context, endpoint *basev0.Endpoint) (string, error) 
 	var buf bytes.Buffer
 	buf.WriteString(endpoint.Name)
 	buf.WriteString(endpoint.Visibility)
+	buf.WriteString(endpoint.Location)
+	buf.WriteString(strings.Join(endpoint.AllowModules, ","))
 	buf.WriteString(endpoint.Api)
 	buf.WriteString(endpoint.ApiDetails.String())
 	// if rest := EndpointRestAPI(endpoint); rest != nil {
