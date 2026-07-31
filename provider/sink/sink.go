@@ -19,7 +19,8 @@
 package sink
 
 import (
-	"bytes"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -112,13 +113,16 @@ type AuditEvent struct {
 // Memory is the in-process reference implementation of Sink. It enforces every
 // contract property so host and backend adapters can be tested against it.
 type Memory struct {
-	mu           sync.Mutex
-	reservations map[string]*reservation
-	secrets      map[string]*secret
-	versions     map[string]uint64
-	events       []AuditEvent
-	seq          uint64
+	mu             sync.Mutex
+	fingerprintKey []byte
+	reservations   map[string]*reservation
+	secrets        map[string]*secret
+	versions       map[string]uint64
+	events         []AuditEvent
+	seq            uint64
 }
+
+var _ Sink = (*Memory)(nil)
 
 type reservation struct {
 	address Address
@@ -136,13 +140,18 @@ type secret struct {
 	revoked     bool
 }
 
-// NewMemory returns an empty reference sink.
-func NewMemory() *Memory {
-	return &Memory{
-		reservations: make(map[string]*reservation),
-		secrets:      make(map[string]*secret),
-		versions:     make(map[string]uint64),
+// NewMemory returns an empty reference sink with a fresh fingerprint key.
+func NewMemory() (*Memory, error) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generate sink fingerprint key: %w", err)
 	}
+	return &Memory{
+		fingerprintKey: key,
+		reservations:   make(map[string]*reservation),
+		secrets:        make(map[string]*secret),
+		versions:       make(map[string]uint64),
+	}, nil
 }
 
 func (m *Memory) Prepare(addr Address, oneTime bool) (Reservation, error) {
@@ -174,10 +183,15 @@ func (m *Memory) PutDurable(target string, value []byte) (*providerv0.OpaqueRefe
 		return nil, fmt.Errorf("no reservation for capture target")
 	}
 	addrHash := res.address.hash()
-	fingerprint := fingerprint(value)
+	fingerprint := m.fingerprint(value)
+	// A duplicate capture of the latest value is identified by its fingerprint,
+	// which survives one-time consumption and revocation (both zero the stored
+	// bytes). Matching there returns the existing reference rather than forking a
+	// new version, so a retried delivery of an already-consumed or revoked secret
+	// is a deterministic no-op instead of resurrecting live material.
 	if current := m.versions[addrHash]; current > 0 {
 		latest := m.secrets[reference(addrHash, current)]
-		if latest != nil && !latest.revoked && bytes.Equal(latest.value, value) {
+		if latest != nil && latest.fingerprint == fingerprint {
 			res.filled = true
 			m.record(OpPutDurable, res.address, latest.reference(addrHash), current, fingerprint)
 			return latest.opaque(addrHash), nil
@@ -345,9 +359,14 @@ func reference(addrHash string, version uint64) string {
 	return "secret://" + addrHash + "/v" + strconv.FormatUint(version, 10)
 }
 
-func fingerprint(value []byte) string {
-	sum := sha256.Sum256(value)
-	return "sha256:" + hex.EncodeToString(sum[:])
+// fingerprint is a keyed, non-reversible digest of a secret value. Keying it
+// with the sink's instance secret keeps it non-reversible even for low-entropy
+// values, while remaining stable within the sink so it is safe for drift
+// comparison and duplicate-capture detection.
+func (m *Memory) fingerprint(value []byte) string {
+	mac := hmac.New(sha256.New, m.fingerprintKey)
+	mac.Write(value)
+	return "sha256:" + hex.EncodeToString(mac.Sum(nil))
 }
 
 func tupleKey(parts ...string) string {

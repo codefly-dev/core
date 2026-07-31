@@ -2,6 +2,8 @@ package sink_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"testing"
@@ -12,6 +14,13 @@ import (
 	"github.com/codefly-dev/core/provider/sink"
 	"github.com/stretchr/testify/require"
 )
+
+func newMemory(t *testing.T) *sink.Memory {
+	t.Helper()
+	s, err := sink.NewMemory()
+	require.NoError(t, err)
+	return s
+}
 
 func runtimeAddress(name string) sink.Address {
 	return sink.Address{
@@ -25,7 +34,7 @@ func runtimeAddress(name string) sink.Address {
 }
 
 func TestPrepareReturnsDeterministicOpaqueTarget(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	first, err := s.Prepare(runtimeAddress("secret-key"), false)
 	require.NoError(t, err)
 	require.NoError(t, configuration.ValidateOpaqueReference(first.Target()))
@@ -40,7 +49,7 @@ func TestPrepareReturnsDeterministicOpaqueTarget(t *testing.T) {
 }
 
 func TestPutDurableCapturesAndHostRecovers(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	reservation, err := s.Prepare(runtimeAddress("secret-key"), false)
 	require.NoError(t, err)
 
@@ -58,7 +67,7 @@ func TestPutDurableCapturesAndHostRecovers(t *testing.T) {
 }
 
 func TestPutDurableIsIdempotentUnderRetry(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	reservation, err := s.Prepare(runtimeAddress("secret-key"), false)
 	require.NoError(t, err)
 
@@ -71,7 +80,7 @@ func TestPutDurableIsIdempotentUnderRetry(t *testing.T) {
 }
 
 func TestPutDurableRotatesToNewVersionAndKeepsPrior(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	reservation, err := s.Prepare(runtimeAddress("secret-key"), false)
 	require.NoError(t, err)
 
@@ -93,8 +102,74 @@ func TestPutDurableRotatesToNewVersionAndKeepsPrior(t *testing.T) {
 	require.True(t, bytes.Equal(rotated, currentValue))
 }
 
+func TestDuplicateCaptureAfterRevokeDoesNotResurrect(t *testing.T) {
+	s := newMemory(t)
+	reservation, err := s.Prepare(runtimeAddress("secret-key"), false)
+	require.NoError(t, err)
+
+	value := []byte("sk_live_revokeme")
+	ref, err := s.PutDurable(reservation.Target(), value)
+	require.NoError(t, err)
+	require.NoError(t, s.Revoke(ref))
+
+	// A retried delivery of the same capture after revocation must be a no-op
+	// that returns the existing revoked reference, not a fresh live version.
+	duplicate, err := s.PutDurable(reservation.Target(), value)
+	require.NoError(t, err)
+	require.Equal(t, ref.GetReference(), duplicate.GetReference(), "duplicate capture must not fork a new version")
+	_, err = s.Lookup(duplicate)
+	require.Error(t, err, "the secret must stay revoked, not be resurrected")
+}
+
+func TestDuplicateCaptureAfterOneTimeConsumeDoesNotResurrect(t *testing.T) {
+	s := newMemory(t)
+	reservation, err := s.Prepare(runtimeAddress("webhook-secret"), true)
+	require.NoError(t, err)
+
+	value := []byte("whsec_onetime")
+	ref, err := s.PutDurable(reservation.Target(), value)
+	require.NoError(t, err)
+	_, err = s.Lookup(ref)
+	require.NoError(t, err)
+
+	// Redelivering the same one-time capture after it was consumed must not mint
+	// a second recoverable copy.
+	duplicate, err := s.PutDurable(reservation.Target(), value)
+	require.NoError(t, err)
+	require.Equal(t, ref.GetReference(), duplicate.GetReference())
+	_, err = s.Lookup(duplicate)
+	require.Error(t, err, "a consumed one-time secret must stay consumed")
+}
+
+func TestFingerprintIsKeyedNotRawHash(t *testing.T) {
+	value := []byte("1234") // low-entropy value: a raw hash would be brute-forceable
+	rawSum := sha256.Sum256(value)
+	rawFingerprint := "sha256:" + hex.EncodeToString(rawSum[:])
+
+	first := newMemory(t)
+	reservation, err := first.Prepare(runtimeAddress("secret-key"), false)
+	require.NoError(t, err)
+	firstRef, err := first.PutDurable(reservation.Target(), value)
+	require.NoError(t, err)
+	require.Regexp(t, `^sha256:[0-9a-f]{64}$`, firstRef.GetSafeFingerprint())
+	require.NotEqual(t, rawFingerprint, firstRef.GetSafeFingerprint(), "fingerprint must be keyed, not a raw digest of the value")
+
+	// Stable within one sink so duplicate capture and drift comparison work.
+	stable, err := first.PutDurable(reservation.Target(), value)
+	require.NoError(t, err)
+	require.Equal(t, firstRef.GetSafeFingerprint(), stable.GetSafeFingerprint())
+
+	// Keyed per instance, so the same value fingerprints differently elsewhere.
+	second := newMemory(t)
+	otherReservation, err := second.Prepare(runtimeAddress("secret-key"), false)
+	require.NoError(t, err)
+	secondRef, err := second.PutDurable(otherReservation.Target(), value)
+	require.NoError(t, err)
+	require.NotEqual(t, firstRef.GetSafeFingerprint(), secondRef.GetSafeFingerprint())
+}
+
 func TestAbortUnusedRemovesOnlyUnfilledReservation(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	reservation, err := s.Prepare(runtimeAddress("secret-key"), false)
 	require.NoError(t, err)
 
@@ -107,7 +182,7 @@ func TestAbortUnusedRemovesOnlyUnfilledReservation(t *testing.T) {
 }
 
 func TestAbortUnusedNeverRollsBackADurableSecret(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	reservation, err := s.Prepare(runtimeAddress("secret-key"), false)
 	require.NoError(t, err)
 
@@ -123,7 +198,7 @@ func TestAbortUnusedNeverRollsBackADurableSecret(t *testing.T) {
 }
 
 func TestPutDurableRequiresReservationAndValue(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	_, err := s.PutDurable("capture://unknown", []byte("value"))
 	require.Error(t, err)
 
@@ -134,7 +209,7 @@ func TestPutDurableRequiresReservationAndValue(t *testing.T) {
 }
 
 func TestOneTimeSecretIsConsumedOnFirstLookup(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	reservation, err := s.Prepare(runtimeAddress("webhook-secret"), true)
 	require.NoError(t, err)
 	require.True(t, reservation.OneTime())
@@ -151,7 +226,7 @@ func TestOneTimeSecretIsConsumedOnFirstLookup(t *testing.T) {
 }
 
 func TestRevokeMakesSecretUnrecoverable(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	reservation, err := s.Prepare(runtimeAddress("secret-key"), false)
 	require.NoError(t, err)
 	ref, err := s.PutDurable(reservation.Target(), []byte("sk_live_revokeme"))
@@ -164,7 +239,7 @@ func TestRevokeMakesSecretUnrecoverable(t *testing.T) {
 }
 
 func TestLookupRejectsPurposeMismatch(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	reservation, err := s.Prepare(runtimeAddress("secret-key"), false)
 	require.NoError(t, err)
 	ref, err := s.PutDurable(reservation.Target(), []byte("sk_live_scoped"))
@@ -176,7 +251,7 @@ func TestLookupRejectsPurposeMismatch(t *testing.T) {
 }
 
 func TestAuditLogsOperationsWithoutValues(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	reservation, err := s.Prepare(runtimeAddress("secret-key"), false)
 	require.NoError(t, err)
 	value := []byte("sk_live_neverlogged")
@@ -189,16 +264,16 @@ func TestAuditLogsOperationsWithoutValues(t *testing.T) {
 	events := s.Audit()
 	require.Equal(t, []sink.AuditOp{sink.OpPrepare, sink.OpPutDurable, sink.OpLookup, sink.OpRevoke},
 		[]sink.AuditOp{events[0].Op, events[1].Op, events[2].Op, events[3].Op})
-	for _, event := range events {
+	for i, event := range events {
+		require.Equal(t, uint64(i+1), event.Seq, "audit sequence numbers must increase by one")
 		require.Equal(t, "billing-stripe", event.Binding)
 		require.NotContains(t, event.Reference, string(value))
 		require.NotContains(t, event.Fingerprint, string(value))
-		require.Equal(t, uint64(len(events)), events[len(events)-1].Seq)
 	}
 }
 
 func TestAddressValidation(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	for name, addr := range map[string]sink.Address{
 		"missing consumer":    {Environment: "prod", Binding: "b", Provider: "p", Purpose: providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME, Name: "n"},
 		"missing purpose":     {Consumer: "c", Environment: "prod", Binding: "b", Provider: "p", Name: "n"},
@@ -216,7 +291,7 @@ func runtimeSecretShaped() sink.Address {
 }
 
 func TestSinkReferenceFlowsThroughCaptureResult(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	reservation, err := s.Prepare(runtimeAddress("secret-key"), false)
 	require.NoError(t, err)
 	ref, err := s.PutDurable(reservation.Target(), []byte("sk_live_capture"))
@@ -234,7 +309,7 @@ func TestSinkReferenceFlowsThroughCaptureResult(t *testing.T) {
 }
 
 func TestConcurrentBindingsAreIsolatedAndSafe(t *testing.T) {
-	s := sink.NewMemory()
+	s := newMemory(t)
 	var wg sync.WaitGroup
 	for n := range 16 {
 		wg.Add(1)
