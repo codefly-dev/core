@@ -1,0 +1,24 @@
+kind: service
+name: vault
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+endpoints:
+  - name: grpc
+    api: grpc
+    visibility: module
+  - name: rest
+    api: rest
+    visibility: external
+  - name: http
+    api: http
+    visibility: internal
+    allow-modules: [platform]
+  - name: tcp
+    api: tcp
+    visibility: private
+  - name: conn
+    api: connect
+    visibility: public

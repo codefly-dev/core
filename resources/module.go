@@ -577,14 +577,16 @@ func (mod *Module) ValidateInterface(ctx context.Context) error {
 	}
 
 	for _, ie := range mod.Interface.Endpoints {
-		// Default visibility to "module" if not set
+		// Default visibility to "module" if not set (deprecated alias for
+		// "internal"; kept as the default so a migrating workspace's external
+		// topology check keeps seeing MODULE).
 		if ie.Visibility == "" {
 			ie.Visibility = VisibilityModule
 		}
-		// Only "module" and "public" are valid for interface endpoints
-		if ie.Visibility != VisibilityModule && ie.Visibility != VisibilityPublic {
-			return w.NewError("interface endpoint %s/%s has invalid visibility %q (must be %q or %q)",
-				ie.Service, ie.Endpoint, ie.Visibility, VisibilityModule, VisibilityPublic)
+		// Only cross-module visibilities are valid for interface endpoints.
+		if ie.Visibility != VisibilityInternal && ie.Visibility != VisibilityModule && ie.Visibility != VisibilityPublic {
+			return w.NewError("interface endpoint %s/%s has invalid visibility %q (must be %q, %q, or %q)",
+				ie.Service, ie.Endpoint, ie.Visibility, VisibilityInternal, VisibilityModule, VisibilityPublic)
 		}
 
 		// Check service exists

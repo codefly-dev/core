@@ -194,12 +194,45 @@ The full flow from service declaration to usable connection:
 
 ### Endpoint Visibility
 
+Visibility answers *who may reach this endpoint*. It is one axis; **location**
+(below) is a separate one.
+
 | Visibility | Who can access | Network instances generated |
 |---|---|---|
 | `private` | Same module only | Native + Container |
-| `module` | Cross-module within workspace | Native + Container |
-| `public` | External access | Native + Container + Public |
-| `external` | Endpoint exists outside the system | DNS-resolved instances |
+| `internal` | The modules listed in `allow-modules` (`*` = all) | Native + Container |
+| `public` | Outside the workspace | Native + Container + Public |
+
+`internal` carries an explicit allow-list, so least privilege is expressible:
+
+```yaml
+endpoints:
+  - name: http
+    api: http
+    visibility: internal
+    allow-modules: [platform]   # only the platform module may reach this
+```
+
+A dependency onto an endpoint whose visibility does not permit the consuming
+service's module is a hard error at `verify` time
+(`architecture.ServiceDependencies.VerifyVisibility`) — the declaration and any
+NetworkPolicy generated from the same topology cannot drift.
+
+**Deprecated aliases** (still load, with a warning): `visibility: module` maps
+to `internal` with `allow-modules: ["*"]`; `visibility: external` maps to
+`location: external` (see below) with the same permissive allow-list.
+
+### Location
+
+Location answers *where the endpoint lives*, independently of who may reach it:
+
+| Location | Meaning | Network instances generated |
+|---|---|---|
+| (unset) | In-system, port-allocated | Native + Container (+ Public if public) |
+| `external` | Managed resource outside the system | DNS-resolved instances |
+
+Because the two axes are independent, a managed database can be both
+`location: external` and `visibility: internal` with an allow-list.
 
 ### External Endpoints
 

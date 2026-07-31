@@ -24,12 +24,21 @@ message Endpoint {
   string module = 3  [(buf.validate.field).string.hostname = true,  (buf.validate.field).string.pattern = "^[a-z0-9-]+$", (buf.validate.field).string.not_contains = "--", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 25];
   // description explains what this endpoint is used for.
   string description = 4;
-  // visibility controls whether this endpoint is private, module-visible, public, or external.
-  string visibility = 5 [(buf.validate.field).string.in = "external", (buf.validate.field).string.in = "public", (buf.validate.field).string.in = "module",(buf.validate.field).string.in = "private"];
+  // visibility controls who may reach this endpoint: private (same module),
+  // internal (allow-listed modules), or public (outside the workspace). The
+  // "module" and "external" values are deprecated aliases kept for migration.
+  string visibility = 5 [(buf.validate.field).string.in = "external", (buf.validate.field).string.in = "public", (buf.validate.field).string.in = "module",(buf.validate.field).string.in = "private", (buf.validate.field).string.in = "internal"];
   // api describes the protocol exposed by the endpoint.
   string api = 6 [(buf.validate.field).string.in = "http", (buf.validate.field).string.in = "grpc", (buf.validate.field).string.in = "tcp", (buf.validate.field).string.in = "rest", (buf.validate.field).string.in = "connect"];
   // api_details contains protocol-specific endpoint metadata.
   API api_details = 7;
+  // location describes where the endpoint physically lives, independently of who
+  // may reach it. "external" marks a managed resource outside the system,
+  // resolved by DNS rather than an allocated port.
+  string location = 8;
+  // allow_modules is the explicit allow-list of modules permitted to reach an
+  // internal endpoint. The single entry "*" permits every module.
+  repeated string allow_modules = 9;
 }
 
 // API selects protocol-specific endpoint details.

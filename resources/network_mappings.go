@@ -210,7 +210,7 @@ func SplitPublicNetworkMappings(ctx context.Context, mappings []*basev0.NetworkM
 	var public []*basev0.NetworkMapping
 	var nonPublic []*basev0.NetworkMapping
 	for _, mapping := range mappings {
-		if mapping.Endpoint.Visibility == VisibilityPublic || mapping.Endpoint.Visibility == VisibilityExternal {
+		if mapping.Endpoint.Visibility == VisibilityPublic || IsExternalEndpoint(mapping.Endpoint) {
 			public = append(public, mapping)
 		} else {
 			nonPublic = append(nonPublic, mapping)
