@@ -294,6 +294,67 @@ func (workspace *Workspace) LoadModules(ctx context.Context) ([]*Module, error) 
 	return modules, nil
 }
 
+// ValidateServiceDependencies checks that no service depends on a private
+// endpoint exported by a different module. It is the static, workspace-wide
+// counterpart to Module.ValidateInterface: the interface guards the producing
+// side, this guards the consuming side. The runtime performs the same check
+// authoritatively in sdk.SetEnvironment via ValidateEndpointVisibility.
+func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) error {
+	w := wool.Get(ctx).In("Workspace::ValidateServiceDependencies", wool.NameField(workspace.Name))
+	modules, err := workspace.LoadModules(ctx)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	byName := make(map[string]*Module, len(modules))
+	for _, mod := range modules {
+		byName[mod.Name] = mod
+	}
+	for _, mod := range modules {
+		services, err := mod.LoadServices(ctx)
+		if err != nil {
+			return w.Wrap(err)
+		}
+		for _, svc := range services {
+			for _, dep := range svc.ServiceDependencies {
+				if dep.Module == "" || dep.Module == mod.Name {
+					continue
+				}
+				producerMod, ok := byName[dep.Module]
+				if !ok {
+					return w.NewError("service %s/%s depends on unknown module %q", mod.Name, svc.Name, dep.Module)
+				}
+				producer, err := producerMod.LoadServiceFromName(ctx, dep.Name)
+				if err != nil {
+					return w.Wrapf(err, "service %s/%s depends on unknown service %q in module %q", mod.Name, svc.Name, dep.Name, dep.Module)
+				}
+				for _, ep := range producer.Endpoints {
+					if !dependencyConsumesEndpoint(dep, ep.Name) {
+						continue
+					}
+					if err := ValidateEndpointVisibility(mod.Name, dep.Module, dep.Name, ep.Name, ep.Visibility); err != nil {
+						return w.Wrap(err)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// dependencyConsumesEndpoint reports whether a dependency pulls in the named
+// producer endpoint. A dependency that lists no endpoints consumes them all.
+func dependencyConsumesEndpoint(dep *ServiceDependency, name string) bool {
+	if len(dep.Endpoints) == 0 {
+		return true
+	}
+	for _, ref := range dep.Endpoints {
+		if ref.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // ModulesNames returns the names of the modules in the
 func (workspace *Workspace) ModulesNames() []string {
 	var names []string

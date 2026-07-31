@@ -503,6 +503,10 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 			return w.Wrapf(err, "failed to get dependencies network mappings")
 		}
 		for _, np := range resp.NetworkMappings {
+			ep := np.Endpoint
+			if err := resources.ValidateEndpointVisibility(mod.Name, ep.Module, ep.Service, ep.Name, ep.Visibility); err != nil {
+				return w.Wrap(err)
+			}
 			inst := resources.FilterNetworkInstance(ctx, np.Instances, networkAccess)
 			if inst == nil {
 				return w.NewError("no network instance found")

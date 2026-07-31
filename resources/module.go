@@ -617,6 +617,26 @@ func (mod *Module) HasInterface() bool {
 	return mod.Interface != nil && len(mod.Interface.Endpoints) > 0
 }
 
+// ValidateEndpointVisibility reports whether a service in consumerModule may
+// depend on the endpoint producerService/endpoint, exported by producerModule
+// with the given visibility. A private endpoint (empty visibility defaults to
+// private, matching Endpoint.postLoad) is reachable only within its own module:
+// a cross-module dependency on one resolves locally but is refused by the
+// default-deny-all NetworkPolicies generated at deploy time, so it must be
+// rejected at declaration time rather than surfacing as a connection timeout in
+// the cluster. This is the consuming-side counterpart to ValidateInterface,
+// which guards the producing side.
+func ValidateEndpointVisibility(consumerModule, producerModule, producerService, endpoint string, visibility Visibility) error {
+	if consumerModule == producerModule {
+		return nil
+	}
+	if visibility == VisibilityPrivate || visibility == "" {
+		return fmt.Errorf("endpoint %s/%s is private to module %q; module %q may not depend on it",
+			producerService, endpoint, producerModule, consumerModule)
+	}
+	return nil
+}
+
 func (mod *Module) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {
 	w := wool.Get(ctx).In("Module::DeleteServiceDependencies", wool.ThisField(mod), wool.Field("service", ref))
 	for _, serviceRef := range mod.ServiceReferences {

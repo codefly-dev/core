@@ -1,0 +1,13 @@
+kind: service
+name: billing
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+service-dependencies:
+  - name: accounts
+    module: saas
+    endpoints:
+      - name: connect
