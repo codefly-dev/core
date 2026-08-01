@@ -1,0 +1,6 @@
+kind: module
+name: saas
+services:
+    - name: accounts
+    - name: gateway
+    - name: billing
