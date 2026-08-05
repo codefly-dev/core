@@ -47,6 +47,7 @@ type Option struct {
 	Silents                 []string
 	ExcludedDependencies    []string
 	WorkspaceConfigurations []resources.WorkspaceConfigurationOverride
+	ServiceConfigurations   []resources.ServiceConfigurationOverride
 	KeepRunning             bool
 }
 
@@ -122,6 +123,29 @@ func withWorkspaceConfigurationValue(name, key, value string, secret bool) Optio
 	}
 }
 
+// WithServiceConfiguration supplies one non-secret value owned by a concrete
+// module/service for this dependency invocation without changing the
+// developer's persisted Codefly configuration profile.
+func WithServiceConfiguration(service, name, key, value string) OptionFunc {
+	return withServiceConfigurationValue(service, name, key, value, false)
+}
+
+// WithServiceSecret supplies one secret value owned by a concrete
+// module/service for this dependency invocation. The value is carried only in
+// the spawned CLI environment and is not included in command arguments or
+// logs.
+func WithServiceSecret(service, name, key, value string) OptionFunc {
+	return withServiceConfigurationValue(service, name, key, value, true)
+}
+
+func withServiceConfigurationValue(service, name, key, value string, secret bool) OptionFunc {
+	return func(o *Option) {
+		o.ServiceConfigurations = append(o.ServiceConfigurations, resources.ServiceConfigurationOverride{
+			Service: service, Name: name, Key: key, Value: value, Secret: secret,
+		})
+	}
+}
+
 // WithKeepRunning keeps the spawned Codefly dependency stack alive when
 // Dependencies.Stop or Dependencies.Destroy is called. A later WithDependencies
 // call using the same naming scope first tries to attach to that warm CLI
@@ -156,8 +180,8 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		return nil, err
 	}
 	if hasManagedDependencyEnvironment(os.Environ()) {
-		if len(opt.WorkspaceConfigurations) > 0 {
-			return nil, fmt.Errorf("invocation-scoped workspace configurations cannot replace values in dependencies owned by the parent Codefly runtime")
+		if hasInvocationConfigurationOverrides(opt) {
+			return nil, fmt.Errorf("invocation-scoped configurations cannot replace values in dependencies owned by the parent Codefly runtime")
 		}
 		wool.Get(ctx).In("sdk.WithDependencies").
 			Debug("reusing dependencies injected by the managed Codefly runtime")
@@ -191,6 +215,10 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// headless test communication stable while core and the CLI roll forward
 	// independently.
 	processEnvironment, err := withWorkspaceConfigurationOverrides(os.Environ(), opt.WorkspaceConfigurations)
+	if err != nil {
+		return nil, err
+	}
+	processEnvironment, err = withServiceConfigurationOverrides(processEnvironment, opt.ServiceConfigurations)
 	if err != nil {
 		return nil, err
 	}
@@ -270,10 +298,14 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 }
 
 func validateDependencyOptions(opt *Option) error {
-	if opt.KeepRunning && len(opt.WorkspaceConfigurations) > 0 {
-		return fmt.Errorf("invocation-scoped workspace configurations cannot be combined with a reusable dependency stack")
+	if opt.KeepRunning && hasInvocationConfigurationOverrides(opt) {
+		return fmt.Errorf("invocation-scoped configurations cannot be combined with a reusable dependency stack")
 	}
 	return nil
+}
+
+func hasInvocationConfigurationOverrides(opt *Option) bool {
+	return len(opt.WorkspaceConfigurations) > 0 || len(opt.ServiceConfigurations) > 0
 }
 
 func dependencyCommandArguments(opt *Option) []string {
@@ -388,6 +420,29 @@ func withWorkspaceConfigurationOverrides(
 		return nil, fmt.Errorf("prepare invocation-scoped workspace configurations: %w", err)
 	}
 	key := resources.WorkspaceConfigurationOverridesEnvironment
+	prefix := key + "="
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return append(result, prefix+encoded), nil
+}
+
+func withServiceConfigurationOverrides(
+	environment []string,
+	overrides []resources.ServiceConfigurationOverride,
+) ([]string, error) {
+	if len(overrides) == 0 {
+		return environment, nil
+	}
+	encoded, err := resources.EncodeServiceConfigurationOverrides(overrides)
+	if err != nil {
+		return nil, fmt.Errorf("prepare invocation-scoped service configurations: %w", err)
+	}
+	key := resources.ServiceConfigurationOverridesEnvironment
 	prefix := key + "="
 	result := make([]string, 0, len(environment)+1)
 	for _, entry := range environment {
