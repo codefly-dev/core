@@ -10,4 +10,6 @@ endpoints:
   - name: public-api
     visibility: public
   - name: internal
-    visibility: module
+    visibility: internal
+    allow-modules:
+      - platform

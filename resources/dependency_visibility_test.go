@@ -14,21 +14,27 @@ func TestValidateEndpointVisibility(t *testing.T) {
 		consumer   string
 		producer   string
 		visibility resources.Visibility
+		allowed    []string
 		deny       bool
+		errorText  string
 	}{
-		{name: "private cross-module denied", consumer: "platform", producer: "saas", visibility: resources.VisibilityPrivate, deny: true},
-		{name: "empty visibility cross-module denied", consumer: "platform", producer: "saas", visibility: "", deny: true},
+		{name: "private cross-module denied", consumer: "platform", producer: "saas", visibility: resources.VisibilityPrivate, deny: true, errorText: "private to module"},
+		{name: "empty visibility cross-module denied", consumer: "platform", producer: "saas", visibility: "", deny: true, errorText: "private to module"},
 		{name: "private same-module allowed", consumer: "saas", producer: "saas", visibility: resources.VisibilityPrivate},
+		{name: "internal listed module allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityInternal, allowed: []string{"platform"}},
+		{name: "internal wildcard allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityInternal, allowed: []string{resources.AllowAllModules}},
+		{name: "internal unlisted module denied", consumer: "web", producer: "saas", visibility: resources.VisibilityInternal, allowed: []string{"platform"}, deny: true, errorText: "does not permit module"},
+		{name: "internal empty allow-list denied", consumer: "platform", producer: "saas", visibility: resources.VisibilityInternal, deny: true, errorText: "does not permit module"},
 		{name: "module cross-module allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityModule},
 		{name: "public cross-module allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityPublic},
 		{name: "external cross-module allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityExternal},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := resources.ValidateEndpointVisibility(tc.consumer, tc.producer, "accounts", "connect", tc.visibility)
+			err := resources.ValidateEndpointVisibility(tc.consumer, tc.producer, "accounts", "connect", tc.visibility, tc.allowed)
 			if tc.deny {
 				require.Error(t, err)
-				require.Contains(t, err.Error(), "private to module")
+				require.Contains(t, err.Error(), tc.errorText)
 			} else {
 				require.NoError(t, err)
 			}
