@@ -3,10 +3,13 @@ package golang
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,47 +47,6 @@ func TestCreateRunnerRejectsNilAndEscapingInputs(t *testing.T) {
 	}
 }
 
-// buildTestArgs replicates the arg construction inside RunGoTests so we
-// can assert on the resulting `go test` invocation without needing a live
-// runner environment.
-//
-// If this function ever drifts from the real RunGoTests logic, the unit
-// tests here will start passing against stale args — keep them aligned.
-func buildTestArgs(opt TestOptions) []string {
-	args := []string{"test", "-json", "-p", fmt.Sprint(defaultTestPackageParallelism)}
-	if opt.Verbose {
-		args = append(args, "-v")
-	}
-	if opt.Race {
-		args = append(args, "-race")
-	}
-	timeout := opt.Timeout
-	if timeout == "" {
-		timeout = defaultTestTimeout
-	}
-	args = append(args, "-timeout", timeout)
-	if opt.Coverage {
-		args = append(args, "-cover")
-	}
-	if opt.FailFast {
-		args = append(args, "-failfast")
-	}
-	pkg := "./..."
-	if opt.Target != "" {
-		if isPackagePath(opt.Target) {
-			pkg = opt.Target
-		} else if len(opt.Filters) == 0 {
-			args = append(args, "-run", opt.Target)
-		}
-	}
-	if pat := combineRunRegex(opt.Filters); pat != "" {
-		args = append(args, "-run", pat)
-	}
-	args = append(args, pkg)
-	args = append(args, opt.ExtraArgs...)
-	return args
-}
-
 func TestGoTestArgs_BoundsPackageParallelism(t *testing.T) {
 	args := buildTestArgs(TestOptions{})
 	if joined := strings.Join(args, " "); !strings.Contains(joined, " -p 4 ") {
@@ -94,6 +56,13 @@ func TestGoTestArgs_BoundsPackageParallelism(t *testing.T) {
 	args = buildTestArgs(TestOptions{ExtraArgs: []string{"-p=1"}})
 	if got := args[len(args)-1]; got != "-p=1" {
 		t.Fatalf("explicit package parallelism override = %q, want -p=1", got)
+	}
+}
+
+func TestGoTestArgs_DisablesSuccessfulResultCaching(t *testing.T) {
+	args := strings.Join(buildTestArgs(TestOptions{}), " ")
+	if !strings.Contains(args, " -count=1 ") {
+		t.Fatalf("each Test RPC must execute exactly once: %q", args)
 	}
 }
 
@@ -294,6 +263,60 @@ func TestRunGoTestsStandaloneModuleIgnoresParentWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(summary.RawOutput, `"Test":"TestGeneratedService"`) {
 		t.Fatalf("raw output does not contain the executed test event: %q", summary.RawOutput)
+	}
+}
+
+func TestRunGoTestsExecutesEveryInvocation(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	t.Cleanup(server.Close)
+
+	root := t.TempDir()
+	files := map[string]string{
+		filepath.Join(root, "go.mod"): "module example.com/cacheproof\n\ngo 1.24.0\n",
+		filepath.Join(root, "cacheproof_test.go"): fmt.Sprintf(`package cacheproof
+
+import (
+	"net/http"
+	"testing"
+)
+
+func TestInvocationReachesCounter(t *testing.T) {
+	response, err := http.Get(%q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+`, server.URL),
+	}
+	for name, contents := range files {
+		if err := os.WriteFile(name, []byte(contents), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	ctx := context.Background()
+	env, err := NewNativeGoRunner(ctx, root, ".")
+	if err != nil {
+		t.Fatalf("new native runner: %v", err)
+	}
+	env.WithWorkspace(false)
+	for attempt := 1; attempt <= 2; attempt++ {
+		execution, err := RunGoTests(ctx, env, root, nil)
+		if err != nil {
+			t.Fatalf("RunGoTests attempt %d: %v (execution: %+v)", attempt, err, execution)
+		}
+		if execution.Passed != 1 || execution.Failed != 0 {
+			t.Fatalf("attempt %d execution = %+v, want one passing test", attempt, execution)
+		}
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("test binary invocation count = %d, want 2; a successful Test RPC result was reused from Go's cache", got)
 	}
 }
 

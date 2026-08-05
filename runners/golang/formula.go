@@ -3,7 +3,7 @@ package golang
 // formula.go — the MODULE-LOCAL Go test formula runner: the golang twin of
 // runners/python.RunFormulaStructured. It exists so a language-blind brain
 // (Mind) can ship a runtimev0.TestFormula (or nothing at all) and have THIS
-// plugin own "how to test a Go module": derive `go test -json ./...` from
+// plugin own "how to test a Go module": derive `go test -json -count=1 ./...` from
 // go.mod, execute it in the module directory, parse the structured event
 // stream, and — critically — CLASSIFY environment breakage (go.mod parse
 // errors, toolchain missing, module resolution) distinctly from test
@@ -57,20 +57,30 @@ const (
 )
 
 // DeriveFormula derives the module-local test formula for a Go module:
-// `go test -json ./...` when sourceDir contains a go.mod. Mirrors
+// `go test -json -count=1 ./...` when sourceDir contains a go.mod. Mirrors
 // python.DeriveFormula's contract (ok=false when this plugin does not own
 // the project).
 func DeriveFormula(sourceDir string) (cmd []string, output string, ok bool) {
 	if _, err := os.Stat(filepath.Join(sourceDir, "go.mod")); err != nil {
 		return nil, "", false
 	}
-	return []string{"go", "test", "-json", "./..."}, OutputGoTestJSON, true
+	return []string{"go", "test", "-json", "-count=1", "./..."}, OutputGoTestJSON, true
 }
 
 // IsGoFormula reports whether a supplied formula command belongs to this
 // runner (a `go` invocation).
 func IsGoFormula(command []string) bool {
 	return len(command) > 0 && filepath.Base(command[0]) == "go"
+}
+
+func hasGoTestFlag(args []string, name string) bool {
+	flag := "-" + name
+	for _, arg := range args {
+		if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // ClassifyEnvError decides whether a failed run was blocked by the
@@ -178,6 +188,12 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 	// run — inject the flag right after the subcommand.
 	if len(args) > 0 && args[0] == "test" && !slices.Contains(args, "-json") {
 		args = slices.Insert(args, 1, "-json")
+	}
+	// A formula is an execution request, not permission to reuse proof from a
+	// prior invocation. Preserve an explicit caller count while making the
+	// default execute exactly once.
+	if len(args) > 0 && args[0] == "test" && !hasGoTestFlag(args, "count") {
+		args = slices.Insert(args, 1, "-count=1")
 	}
 	if len(args) > 0 && args[0] == "test" && len(failFast) > 0 && failFast[0] && !slices.Contains(args, "-failfast") {
 		args = append(args, "-failfast")

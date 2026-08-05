@@ -2,9 +2,13 @@ package golang
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -82,7 +86,7 @@ func TestDeriveFormula(t *testing.T) {
 	if !ok || output != OutputGoTestJSON {
 		t.Fatalf("DeriveFormula = %v/%q/%v", cmd, output, ok)
 	}
-	if strings.Join(cmd, " ") != "go test -json ./..." {
+	if strings.Join(cmd, " ") != "go test -json -count=1 ./..." {
 		t.Fatalf("derived cmd = %v", cmd)
 	}
 	if _, _, ok := DeriveFormula(t.TempDir()); ok {
@@ -105,6 +109,47 @@ func TestRunFormula_HealthySuitePasses(t *testing.T) {
 	}
 	if resp.GetCounts().GetPassed() != 2 || resp.GetCounts().GetFailed() != 0 {
 		t.Fatalf("counts = %+v", resp.GetCounts())
+	}
+}
+
+func TestRunFormulaExecutesEveryInvocation(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	t.Cleanup(server.Close)
+
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/cacheproof\n\ngo 1.21\n",
+		"cacheproof_test.go": fmt.Sprintf(`package cacheproof
+
+import (
+	"net/http"
+	"testing"
+)
+
+func TestInvocationReachesCounter(t *testing.T) {
+	response, err := http.Get(%q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+`, server.URL),
+	})
+	for attempt := 1; attempt <= 2; attempt++ {
+		resp, err := RunFormula(formulaCtx(t), dir, nil, nil)
+		if err != nil {
+			t.Fatalf("RunFormula attempt %d: %v", attempt, err)
+		}
+		if resp.GetResult().GetState() != runtimev0.TestRunResult_PASSED || resp.GetCounts().GetPassed() != 1 {
+			t.Fatalf("attempt %d state = %s counts=%+v (%s)", attempt, resp.GetResult().GetState(), resp.GetCounts(), resp.GetResult().GetMessage())
+		}
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("formula invocation count = %d, want 2; a successful Test RPC result was reused from Go's cache", got)
 	}
 }
 
