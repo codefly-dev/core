@@ -4772,9 +4772,13 @@ type GitStatusResponse struct {
 	// branch is the current git branch name.
 	Branch string `protobuf:"bytes,2,opt,name=branch,proto3" json:"branch,omitempty"`
 	// error explains why the operation failed; empty means success at this layer.
-	Error         string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Error string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	// repository_root is the canonical absolute root of the Git worktree that
+	// contains the Gateway's working directory. Callers use it to preserve a
+	// nested invocation directory while binding repository-wide capabilities.
+	RepositoryRoot string `protobuf:"bytes,4,opt,name=repository_root,json=repositoryRoot,proto3" json:"repository_root,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GitStatusResponse) Reset() {
@@ -4824,6 +4828,13 @@ func (x *GitStatusResponse) GetBranch() string {
 func (x *GitStatusResponse) GetError() string {
 	if x != nil {
 		return x.Error
+	}
+	return ""
+}
+
+func (x *GitStatusResponse) GetRepositoryRoot() string {
+	if x != nil {
+		return x.RepositoryRoot
 	}
 	return ""
 }
@@ -9431,11 +9442,12 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\rGitFileStatus\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
-	"\x06staged\x18\x03 \x01(\bR\x06staged\"w\n" +
+	"\x06staged\x18\x03 \x01(\bR\x06staged\"\xa0\x01\n" +
 	"\x11GitStatusResponse\x124\n" +
 	"\x05files\x18\x01 \x03(\v2\x1e.mind.gateway.v1.GitFileStatusR\x05files\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"V\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\x12'\n" +
+	"\x0frepository_root\x18\x04 \x01(\tR\x0erepositoryRoot\"V\n" +
 	"\x0eGitDiffRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x16\n" +

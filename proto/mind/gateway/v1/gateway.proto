@@ -914,6 +914,10 @@ message GitStatusResponse {
   string branch = 2;
   // error explains why the operation failed; empty means success at this layer.
   string error = 3;
+  // repository_root is the canonical absolute root of the Git worktree that
+  // contains the Gateway's working directory. Callers use it to preserve a
+  // nested invocation directory while binding repository-wide capabilities.
+  string repository_root = 4;
 }
 
 // GitDiffRequest asks for a git diff, optionally scoped to a path or index.
