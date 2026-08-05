@@ -194,16 +194,11 @@ type TestExecution struct {
 	RawOutput  string
 }
 
-func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation string, envVars []*resources.EnvironmentVariable, opts ...TestOptions) (*TestExecution, error) {
-	_ = env.Env().WithBinary("codefly")
-
-	args := []string{"test", "-json", "-p", fmt.Sprint(defaultTestPackageParallelism)}
-
-	var opt TestOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
-
+// buildTestArgs renders the complete plugin-owned Go test invocation. Every
+// Test RPC executes its test binary: successful Go result-cache entries are
+// build acceleration inputs, never proof that this invocation ran.
+func buildTestArgs(opt TestOptions) []string {
+	args := []string{"test", "-json", "-count=1", "-p", fmt.Sprint(defaultTestPackageParallelism)}
 	if opt.Verbose {
 		args = append(args, "-v")
 	}
@@ -246,6 +241,17 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	// ExtraArgs — verbatim passthrough for flags codefly does not model
 	// (e.g. -count=3, -shuffle=on, -tags=integration).
 	args = append(args, opt.ExtraArgs...)
+	return args
+}
+
+func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation string, envVars []*resources.EnvironmentVariable, opts ...TestOptions) (*TestExecution, error) {
+	_ = env.Env().WithBinary("codefly")
+
+	var opt TestOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	args := buildTestArgs(opt)
 
 	proc, err := env.Env().NewProcess("go", args...)
 	if err != nil {
