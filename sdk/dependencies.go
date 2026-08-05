@@ -623,7 +623,7 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 		}
 		for _, np := range resp.NetworkMappings {
 			ep := np.Endpoint
-			if err := resources.ValidateEndpointVisibility(mod.Name, ep.Module, ep.Service, ep.Name, ep.Visibility); err != nil {
+			if err := resources.ValidateEndpointVisibility(mod.Name, ep.Module, ep.Service, ep.Name, ep.Visibility, ep.AllowModules); err != nil {
 				return w.Wrap(err)
 			}
 			inst := resources.FilterNetworkInstance(ctx, np.Instances, networkAccess)

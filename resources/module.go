@@ -620,23 +620,27 @@ func (mod *Module) HasInterface() bool {
 }
 
 // ValidateEndpointVisibility reports whether a service in consumerModule may
-// depend on the endpoint producerService/endpoint, exported by producerModule
-// with the given visibility. A private endpoint (empty visibility defaults to
-// private, matching Endpoint.postLoad) is reachable only within its own module:
-// a cross-module dependency on one resolves locally but is refused by the
-// default-deny-all NetworkPolicies generated at deploy time, so it must be
-// rejected at declaration time rather than surfacing as a connection timeout in
-// the cluster. This is the consuming-side counterpart to ValidateInterface,
+// depend on the named producer endpoint. Private endpoints remain inside their
+// owning module; internal endpoints require an explicit matching allow-list;
+// public endpoints and the deprecated broad module/external aliases permit the
+// dependency. This is the consuming-side counterpart to ValidateInterface,
 // which guards the producing side.
-func ValidateEndpointVisibility(consumerModule, producerModule, producerService, endpoint string, visibility Visibility) error {
+func ValidateEndpointVisibility(consumerModule, producerModule, producerService, endpoint string, visibility Visibility, allowModules []string) error {
 	if consumerModule == producerModule {
 		return nil
+	}
+	producer := &Endpoint{Module: producerModule, Visibility: visibility, AllowModules: allowModules}
+	if producer.AllowsModule(consumerModule) {
+		return nil
+	}
+	if visibility == VisibilityInternal {
+		return fmt.Errorf("endpoint %s/%s does not permit module %q", producerService, endpoint, consumerModule)
 	}
 	if visibility == VisibilityPrivate || visibility == "" {
 		return fmt.Errorf("endpoint %s/%s is private to module %q; module %q may not depend on it",
 			producerService, endpoint, producerModule, consumerModule)
 	}
-	return nil
+	return fmt.Errorf("endpoint %s/%s has unsupported visibility %q for module %q", producerService, endpoint, visibility, consumerModule)
 }
 
 func (mod *Module) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {

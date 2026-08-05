@@ -344,7 +344,7 @@ func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) err
 					if !dependencyConsumesEndpoint(dep, ep.Name) {
 						continue
 					}
-					if err := ValidateEndpointVisibility(mod.Name, producerModule, dep.Name, ep.Name, ep.Visibility); err != nil {
+					if err := ValidateEndpointVisibility(mod.Name, producerModule, dep.Name, ep.Name, ep.Visibility, ep.AllowModules); err != nil {
 						return w.Wrap(err)
 					}
 				}
