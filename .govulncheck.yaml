@@ -24,8 +24,10 @@ suppressions:
       the client subpackage (Container{Start,Stop,Inspect,...}). Verified
       via govulncheck traces: none reach plugins/authorization code —
       they are all package-init chains in the shared module graph.
-      Upstream fix: pending Moby release (no CVE-fixed version yet).
-    reviewed: 2026-06-16
+      Re-reviewed against github.com/docker/docker v28.5.2 and the
+      2026-08-05 Go vulnerability database: traces remain package-init or
+      client-only paths and no fixed upstream version is published.
+    reviewed: 2026-08-05
 
   - id: GO-2026-4883
     module: github.com/docker/docker
@@ -33,5 +35,7 @@ suppressions:
       Moby plugin privilege off-by-one. Daemon-side plugin installation
       validation; we never install Docker plugins via the API. Verified
       unreachable — no trace path reaches pkg/authorization/ code.
-      Upstream fix: pending Moby release.
-    reviewed: 2026-06-16
+      Re-reviewed against github.com/docker/docker v28.5.2 and the
+      2026-08-05 Go vulnerability database: no trace reaches plugin install
+      or daemon-side privilege validation, and no fixed version is published.
+    reviewed: 2026-08-05
