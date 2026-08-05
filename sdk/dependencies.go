@@ -39,14 +39,15 @@ type Dependencies struct {
 }
 
 type Option struct {
-	Debug                bool
-	Timeout              time.Duration
-	NamingScope          string
-	Fixture              string
-	RunProfile           string
-	Silents              []string
-	ExcludedDependencies []string
-	KeepRunning          bool
+	Debug                   bool
+	Timeout                 time.Duration
+	NamingScope             string
+	Fixture                 string
+	RunProfile              string
+	Silents                 []string
+	ExcludedDependencies    []string
+	WorkspaceConfigurations []resources.WorkspaceConfigurationOverride
+	KeepRunning             bool
 }
 
 type OptionFunc func(*Option)
@@ -98,6 +99,29 @@ func WithExcludedDependencies(uniques ...string) OptionFunc {
 	}
 }
 
+// WithWorkspaceConfiguration supplies one non-secret workspace value for this
+// dependency invocation without changing the developer's persisted Codefly
+// configuration profile.
+func WithWorkspaceConfiguration(name, key, value string) OptionFunc {
+	return withWorkspaceConfigurationValue(name, key, value, false)
+}
+
+// WithWorkspaceSecret supplies one secret workspace value for this dependency
+// invocation without changing the developer's persisted Codefly configuration
+// profile. The value is carried only in the spawned CLI environment and is not
+// included in command arguments or logs.
+func WithWorkspaceSecret(name, key, value string) OptionFunc {
+	return withWorkspaceConfigurationValue(name, key, value, true)
+}
+
+func withWorkspaceConfigurationValue(name, key, value string, secret bool) OptionFunc {
+	return func(o *Option) {
+		o.WorkspaceConfigurations = append(o.WorkspaceConfigurations, resources.WorkspaceConfigurationOverride{
+			Name: name, Key: key, Value: value, Secret: secret,
+		})
+	}
+}
+
 // WithKeepRunning keeps the spawned Codefly dependency stack alive when
 // Dependencies.Stop or Dependencies.Destroy is called. A later WithDependencies
 // call using the same naming scope first tries to attach to that warm CLI
@@ -128,7 +152,13 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	for _, o := range opts {
 		o(opt)
 	}
+	if err := validateDependencyOptions(opt); err != nil {
+		return nil, err
+	}
 	if hasManagedDependencyEnvironment(os.Environ()) {
+		if len(opt.WorkspaceConfigurations) > 0 {
+			return nil, fmt.Errorf("invocation-scoped workspace configurations cannot replace values in dependencies owned by the parent Codefly runtime")
+		}
 		wool.Get(ctx).In("sdk.WithDependencies").
 			Debug("reusing dependencies injected by the managed Codefly runtime")
 		return &Dependencies{
@@ -160,7 +190,11 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// versioned binaries to reproduce the same hash algorithm. This keeps
 	// headless test communication stable while core and the CLI roll forward
 	// independently.
-	cmd.Env = withCLIServerPort(os.Environ(), addr)
+	processEnvironment, err := withWorkspaceConfigurationOverrides(os.Environ(), opt.WorkspaceConfigurations)
+	if err != nil {
+		return nil, err
+	}
+	cmd.Env = withCLIServerPort(processEnvironment, addr)
 	wool.Get(ctx).In("sdk.WithDependencies").Debug("starting CLI subprocess", wool.Field("cmd", cmd.String()))
 
 	proc, err := startManaged(ctx, cmd)
@@ -233,6 +267,13 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	}
 	success = true
 	return l, nil
+}
+
+func validateDependencyOptions(opt *Option) error {
+	if opt.KeepRunning && len(opt.WorkspaceConfigurations) > 0 {
+		return fmt.Errorf("invocation-scoped workspace configurations cannot be combined with a reusable dependency stack")
+	}
+	return nil
 }
 
 func dependencyCommandArguments(opt *Option) []string {
@@ -333,6 +374,29 @@ func withCLIServerPort(environment []string, address string) []string {
 		result = append(result, entry)
 	}
 	return append(result, prefix+port)
+}
+
+func withWorkspaceConfigurationOverrides(
+	environment []string,
+	overrides []resources.WorkspaceConfigurationOverride,
+) ([]string, error) {
+	if len(overrides) == 0 {
+		return environment, nil
+	}
+	encoded, err := resources.EncodeWorkspaceConfigurationOverrides(overrides)
+	if err != nil {
+		return nil, fmt.Errorf("prepare invocation-scoped workspace configurations: %w", err)
+	}
+	key := resources.WorkspaceConfigurationOverridesEnvironment
+	prefix := key + "="
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return append(result, prefix+encoded), nil
 }
 
 func codeflyBinary() string {
