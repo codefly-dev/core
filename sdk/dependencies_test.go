@@ -202,6 +202,60 @@ func TestWorkspaceConfigurationOptionsRejectReusableOrParentOwnedStacks(t *testi
 	}
 }
 
+func TestServiceConfigurationOptionsUseOnePrivateChildCarrier(t *testing.T) {
+	option := &Option{}
+	WithServiceConfiguration("users/store", "postgres", "POSTGRES_USER", "mind")(option)
+	WithServiceSecret("users/store", "postgres", "POSTGRES_PASSWORD", "test-password")(option)
+
+	got, err := withServiceConfigurationOverrides([]string{
+		"PATH=/usr/bin",
+		resources.ServiceConfigurationOverridesEnvironment + "=stale",
+	}, option.ServiceConfigurations)
+	if err != nil {
+		t.Fatalf("withServiceConfigurationOverrides: %v", err)
+	}
+	var carriers []string
+	for _, entry := range got {
+		if strings.HasPrefix(entry, resources.ServiceConfigurationOverridesEnvironment+"=") {
+			carriers = append(carriers, entry)
+		}
+	}
+	if len(carriers) != 1 {
+		t.Fatalf("service configuration carriers = %v, want exactly one", carriers)
+	}
+	encoded := strings.TrimPrefix(carriers[0], resources.ServiceConfigurationOverridesEnvironment+"=")
+	overrides, err := resources.DecodeServiceConfigurationOverrides(encoded)
+	if err != nil {
+		t.Fatalf("decode child carrier: %v", err)
+	}
+	want := []resources.ServiceConfigurationOverride{
+		{Service: "users/store", Name: "postgres", Key: "POSTGRES_PASSWORD", Value: "test-password", Secret: true},
+		{Service: "users/store", Name: "postgres", Key: "POSTGRES_USER", Value: "mind"},
+	}
+	if !reflect.DeepEqual(overrides, want) {
+		t.Fatalf("child overrides = %#v, want %#v", overrides, want)
+	}
+	if !slices.Contains(got, "PATH=/usr/bin") {
+		t.Fatalf("unrelated child environment was not preserved: %v", got)
+	}
+}
+
+func TestServiceConfigurationOptionsRejectReusableOrParentOwnedStacks(t *testing.T) {
+	option := &Option{}
+	WithKeepRunning()(option)
+	WithServiceSecret("users/store", "postgres", "POSTGRES_PASSWORD", "test-password")(option)
+	if err := validateDependencyOptions(option); err == nil || !strings.Contains(err.Error(), "reusable dependency stack") {
+		t.Fatalf("reusable-stack error = %v", err)
+	}
+
+	t.Setenv(resources.RunningPrefix, "true")
+	t.Setenv(resources.EndpointPrefix+"__INFRA__POSTGRES__TCP__TCP", "127.0.0.1:5432")
+	_, err := WithDependencies(t.Context(), WithServiceSecret("users/store", "postgres", "POSTGRES_PASSWORD", "test-password"))
+	if err == nil || !strings.Contains(err.Error(), "parent Codefly runtime") {
+		t.Fatalf("parent-owned-stack error = %v", err)
+	}
+}
+
 func TestWithFixtureSelectsDependencyStackFixture(t *testing.T) {
 	option := &Option{}
 	WithFixture("dev-admin")(option)

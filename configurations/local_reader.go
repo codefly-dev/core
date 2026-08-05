@@ -92,11 +92,13 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	}
 
 	serviceConfs := make(map[string]*basev0.Configuration)
+	serviceOrigins := make([]string, 0, len(services))
 	for _, svc := range services {
 		identity, err := svc.Identity()
 		if err != nil {
 			return w.Wrapf(err, "cannot get service identity")
 		}
+		serviceOrigins = append(serviceOrigins, identity.Unique())
 		serviceConfDir := path.Join(svc.Dir(), "configurations", configurationProfile)
 		exists, err := shared.DirectoryExists(ctx, serviceConfDir)
 		if err != nil {
@@ -139,6 +141,14 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			}
 		}
 	}
+	serviceConfs, err = applyServiceConfigurationOverrides(
+		serviceConfs,
+		serviceOrigins,
+		os.Getenv(resources.ServiceConfigurationOverridesEnvironment),
+	)
+	if err != nil {
+		return w.Wrapf(err, "cannot load invocation-scoped service configurations")
+	}
 	serviceNames := make([]string, 0, len(serviceConfs))
 	for name := range serviceConfs {
 		serviceNames = append(serviceNames, name)
@@ -165,32 +175,77 @@ func applyWorkspaceConfigurationOverrides(
 		return nil, err
 	}
 	for _, override := range overrides {
-		var info *basev0.ConfigurationInformation
-		for _, candidate := range infos {
-			if resources.Match(candidate.Name, override.Name) {
-				info = candidate
-				break
-			}
-		}
-		if info == nil {
-			info = &basev0.ConfigurationInformation{Name: override.Name}
-			infos = append(infos, info)
-		}
-		var value *basev0.ConfigurationValue
-		for _, candidate := range info.ConfigurationValues {
-			if resources.Match(candidate.Key, override.Key) {
-				value = candidate
-				break
-			}
-		}
-		if value == nil {
-			value = &basev0.ConfigurationValue{Key: override.Key}
-			info.ConfigurationValues = append(info.ConfigurationValues, value)
-		}
-		value.Value = override.Value
-		value.Secret = override.Secret
+		infos = applyConfigurationValueOverride(infos, override.Name, override.Key, override.Value, override.Secret)
 	}
 	return infos, nil
+}
+
+// applyServiceConfigurationOverrides merges SDK-owned invocation values over
+// persisted service configuration after validating every target against the
+// loaded workspace. This is deliberately earlier than Manager validation and
+// agent startup, so ephemeral and persisted values follow one typed path.
+func applyServiceConfigurationOverrides(
+	confs map[string]*basev0.Configuration,
+	serviceOrigins []string,
+	encoded string,
+) (map[string]*basev0.Configuration, error) {
+	overrides, err := resources.DecodeServiceConfigurationOverrides(encoded)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]string, len(serviceOrigins))
+	for _, origin := range serviceOrigins {
+		coordinate := resources.UniqueToKey(origin)
+		if existing, duplicate := known[coordinate]; duplicate && existing != origin {
+			return nil, fmt.Errorf("service configuration override target is ambiguous between %s and %s", existing, origin)
+		}
+		known[coordinate] = origin
+	}
+	for _, override := range overrides {
+		origin, ok := known[resources.UniqueToKey(override.Service)]
+		if !ok {
+			return nil, fmt.Errorf("service configuration override targets unknown service %s", override.Service)
+		}
+		conf := confs[origin]
+		if conf == nil {
+			conf = &basev0.Configuration{Origin: origin}
+			confs[origin] = conf
+		}
+		conf.Infos = applyConfigurationValueOverride(conf.Infos, override.Name, override.Key, override.Value, override.Secret)
+	}
+	return confs, nil
+}
+
+func applyConfigurationValueOverride(
+	infos []*basev0.ConfigurationInformation,
+	name, key, value string,
+	secret bool,
+) []*basev0.ConfigurationInformation {
+	var info *basev0.ConfigurationInformation
+	for _, candidate := range infos {
+		if resources.Match(candidate.Name, name) {
+			info = candidate
+			break
+		}
+	}
+	if info == nil {
+		info = &basev0.ConfigurationInformation{Name: name}
+		infos = append(infos, info)
+	}
+	var configurationValue *basev0.ConfigurationValue
+	for _, candidate := range info.ConfigurationValues {
+		if resources.Match(candidate.Key, key) {
+			configurationValue = candidate
+			break
+		}
+	}
+	if configurationValue == nil {
+		configurationValue = &basev0.ConfigurationValue{Key: key}
+		info.ConfigurationValues = append(info.ConfigurationValues, configurationValue)
+	}
+	configurationValue.Value = value
+	configurationValue.Secret = secret
+	return infos
 }
 
 func loadDNS(_ context.Context, file string) ([]*basev0.DNS, error) {

@@ -740,7 +740,12 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// every user binary. Own pgid also lets Close() send SIGTERM to
 	// the negative pid and reap the whole agent subtree atomically.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = os.Environ()
+	// SECURITY BOUNDARY: the CLI has already converted invocation-scoped
+	// configuration carriers into typed, service-scoped configurations. Never
+	// let an agent inherit the aggregate carriers, which can contain credentials
+	// owned by unrelated services. Each agent receives only its selected values
+	// through the normal configuration RPC/runtime environment path.
+	cmd.Env = resources.WithoutInvocationConfigurationOverrides(os.Environ())
 	if verifiedProvider != nil {
 		cmd.Env = append(cmd.Env,
 			"CODEFLY_PROVIDER_ARTIFACT_DIGEST="+verifiedProvider.Descriptor.ArtifactDigest,

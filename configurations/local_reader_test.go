@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
@@ -126,6 +127,80 @@ func TestLocalLoaderAppliesInvocationScopedWorkspaceConfigurations(t *testing.T)
 	publicURL, err := resources.GetConfigurationValue(ctx, added, "new-configuration", "PUBLIC_URL")
 	require.NoError(t, err)
 	require.Equal(t, "https://example.invalid", publicURL)
+}
+
+func TestLocalLoaderAppliesInvocationScopedServiceConfigurations(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, resources.WorkspaceConfigurationName, "name: test-workspace\nlayout: flat\nservices:\n  - name: store\n")
+	writeConfigurationFile(t, root, "services/store/service.codefly.yaml", `kind: service
+name: store
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: postgres
+  version: 0.0.1
+  publisher: codefly.dev
+`)
+	writeConfigurationFile(t, root, "services/store/configurations/local/postgres.secret.env", "POSTGRES_USER=persisted-user\nPRESERVED=persisted-value\n")
+
+	encoded, err := resources.EncodeServiceConfigurationOverrides([]resources.ServiceConfigurationOverride{
+		{Service: "test-workspace/store", Name: "postgres", Key: "POSTGRES_USER", Value: "invocation-user", Secret: true},
+		{Service: "test_workspace/store", Name: "postgres", Key: "POSTGRES_PASSWORD", Value: "invocation-password", Secret: true},
+	})
+	require.NoError(t, err)
+	t.Setenv(resources.ServiceConfigurationOverridesEnvironment, encoded)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	var conf *basev0.Configuration
+	for _, candidate := range loader.Configurations() {
+		if candidate.Origin == "test-workspace/store" {
+			conf = candidate
+			break
+		}
+	}
+	require.NotNil(t, conf)
+	user, err := resources.GetConfigurationValue(ctx, conf, "postgres", "POSTGRES_USER")
+	require.NoError(t, err)
+	require.Equal(t, "invocation-user", user)
+	password, err := resources.GetConfigurationValue(ctx, conf, "postgres", "POSTGRES_PASSWORD")
+	require.NoError(t, err)
+	require.Equal(t, "invocation-password", password)
+	preserved, err := resources.GetConfigurationValue(ctx, conf, "postgres", "PRESERVED")
+	require.NoError(t, err)
+	require.Equal(t, "persisted-value", preserved)
+	require.ElementsMatch(t,
+		[]string{
+			"CODEFLY__SERVICE_SECRET_CONFIGURATION__TEST_WORKSPACE__STORE__POSTGRES__POSTGRES_USER=invocation-user",
+			"CODEFLY__SERVICE_SECRET_CONFIGURATION__TEST_WORKSPACE__STORE__POSTGRES__PRESERVED=persisted-value",
+			"CODEFLY__SERVICE_SECRET_CONFIGURATION__TEST_WORKSPACE__STORE__POSTGRES__POSTGRES_PASSWORD=invocation-password",
+		},
+		resources.EnvironmentVariableAsStrings(resources.ConfigurationAsEnvironmentVariables(conf, true)),
+	)
+}
+
+func TestLocalLoaderRejectsInvocationConfigurationForUnknownService(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, resources.WorkspaceConfigurationName, "name: test-workspace\nlayout: flat\n")
+
+	encoded, err := resources.EncodeServiceConfigurationOverrides([]resources.ServiceConfigurationOverride{
+		{Service: "test-workspace/missing", Name: "postgres", Key: "POSTGRES_PASSWORD", Value: "invocation-password", Secret: true},
+	})
+	require.NoError(t, err)
+	t.Setenv(resources.ServiceConfigurationOverridesEnvironment, encoded)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	err = loader.Load(ctx, resources.LocalEnvironment())
+	require.ErrorContains(t, err, "targets unknown service test-workspace/missing")
 }
 
 func TestEnvironmentConfigurationProfileRejectsTraversal(t *testing.T) {
