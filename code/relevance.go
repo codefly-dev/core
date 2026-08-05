@@ -111,10 +111,14 @@ func (r *RelevanceScorer) searchSignal(ctx context.Context, terms []string) map[
 	pattern := strings.Join(terms, "|")
 	var result *SearchResult
 	var err error
+	// Natural-language query terms are normalized to lowercase above. Source
+	// identifiers retain language casing, so the operational search signal must
+	// be case-insensitive or camel-cased symbols contribute no relevance.
+	searchOptions := SearchOpts{Pattern: pattern, CaseInsensitive: true, MaxResults: 500}
 	if _, ok := r.vfs.(LocalVFS); ok {
-		result, err = Search(ctx, r.rootDir, SearchOpts{Pattern: pattern, MaxResults: 500})
+		result, err = Search(ctx, r.rootDir, searchOptions)
 	} else {
-		result, err = SearchVFS(ctx, r.vfs, r.rootDir, SearchOpts{Pattern: pattern, MaxResults: 500})
+		result, err = SearchVFS(ctx, r.vfs, r.rootDir, searchOptions)
 	}
 	if err != nil {
 		return hits

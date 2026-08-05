@@ -71,6 +71,10 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	if err != nil {
 		return w.Wrapf(err, "cannot load configurations")
 	}
+	workspaceInfos, err = applyWorkspaceConfigurationOverrides(workspaceInfos, os.Getenv(resources.WorkspaceConfigurationOverridesEnvironment))
+	if err != nil {
+		return w.Wrapf(err, "cannot load invocation-scoped workspace configurations")
+	}
 
 	var confs []*basev0.Configuration
 
@@ -145,6 +149,48 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	}
 	local.configurations = confs
 	return nil
+}
+
+// applyWorkspaceConfigurationOverrides merges the SDK's invocation-scoped
+// values over persisted workspace configuration. The merge happens at the
+// Codefly configuration boundary, before dependency validation and runtime
+// injection, so services receive the same typed Configuration objects in
+// persisted and ephemeral runs.
+func applyWorkspaceConfigurationOverrides(
+	infos []*basev0.ConfigurationInformation,
+	encoded string,
+) ([]*basev0.ConfigurationInformation, error) {
+	overrides, err := resources.DecodeWorkspaceConfigurationOverrides(encoded)
+	if err != nil {
+		return nil, err
+	}
+	for _, override := range overrides {
+		var info *basev0.ConfigurationInformation
+		for _, candidate := range infos {
+			if resources.Match(candidate.Name, override.Name) {
+				info = candidate
+				break
+			}
+		}
+		if info == nil {
+			info = &basev0.ConfigurationInformation{Name: override.Name}
+			infos = append(infos, info)
+		}
+		var value *basev0.ConfigurationValue
+		for _, candidate := range info.ConfigurationValues {
+			if resources.Match(candidate.Key, override.Key) {
+				value = candidate
+				break
+			}
+		}
+		if value == nil {
+			value = &basev0.ConfigurationValue{Key: override.Key}
+			info.ConfigurationValues = append(info.ConfigurationValues, value)
+		}
+		value.Value = override.Value
+		value.Secret = override.Secret
+	}
+	return infos, nil
 }
 
 func loadDNS(_ context.Context, file string) ([]*basev0.DNS, error) {

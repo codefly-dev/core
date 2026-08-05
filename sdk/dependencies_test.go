@@ -137,6 +137,71 @@ func TestWithCLIServerPortLeavesEnvironmentForInvalidAddress(t *testing.T) {
 	}
 }
 
+func TestWorkspaceConfigurationOptionsUseOnePrivateChildCarrier(t *testing.T) {
+	option := &Option{}
+	WithWorkspaceConfiguration("routing", "REGION", "local")(option)
+	WithWorkspaceSecret("execution-scheduler-auth", "TOKEN", "test-token")(option)
+
+	got, err := withWorkspaceConfigurationOverrides([]string{
+		"PATH=/usr/bin",
+		resources.WorkspaceConfigurationOverridesEnvironment + "=stale",
+	}, option.WorkspaceConfigurations)
+	if err != nil {
+		t.Fatalf("withWorkspaceConfigurationOverrides: %v", err)
+	}
+	var carriers []string
+	for _, entry := range got {
+		if strings.HasPrefix(entry, resources.WorkspaceConfigurationOverridesEnvironment+"=") {
+			carriers = append(carriers, entry)
+		}
+	}
+	if len(carriers) != 1 {
+		t.Fatalf("workspace configuration carriers = %v, want exactly one", carriers)
+	}
+	encoded := strings.TrimPrefix(carriers[0], resources.WorkspaceConfigurationOverridesEnvironment+"=")
+	overrides, err := resources.DecodeWorkspaceConfigurationOverrides(encoded)
+	if err != nil {
+		t.Fatalf("decode child carrier: %v", err)
+	}
+	want := []resources.WorkspaceConfigurationOverride{
+		{Name: "execution-scheduler-auth", Key: "TOKEN", Value: "test-token", Secret: true},
+		{Name: "routing", Key: "REGION", Value: "local"},
+	}
+	if !reflect.DeepEqual(overrides, want) {
+		t.Fatalf("child overrides = %#v, want %#v", overrides, want)
+	}
+	if !slices.Contains(got, "PATH=/usr/bin") {
+		t.Fatalf("unrelated child environment was not preserved: %v", got)
+	}
+}
+
+func TestWorkspaceConfigurationOptionsRejectDuplicateCoordinates(t *testing.T) {
+	option := &Option{}
+	WithWorkspaceSecret("execution-scheduler-auth", "TOKEN", "first")(option)
+	WithWorkspaceSecret("execution_scheduler_auth", "token", "second")(option)
+
+	_, err := withWorkspaceConfigurationOverrides(nil, option.WorkspaceConfigurations)
+	if err == nil || !strings.Contains(err.Error(), "duplicate workspace configuration override") {
+		t.Fatalf("duplicate error = %v", err)
+	}
+}
+
+func TestWorkspaceConfigurationOptionsRejectReusableOrParentOwnedStacks(t *testing.T) {
+	option := &Option{}
+	WithKeepRunning()(option)
+	WithWorkspaceSecret("execution-scheduler-auth", "TOKEN", "test-token")(option)
+	if err := validateDependencyOptions(option); err == nil || !strings.Contains(err.Error(), "reusable dependency stack") {
+		t.Fatalf("reusable-stack error = %v", err)
+	}
+
+	t.Setenv(resources.RunningPrefix, "true")
+	t.Setenv(resources.EndpointPrefix+"__INFRA__POSTGRES__TCP__TCP", "127.0.0.1:5432")
+	_, err := WithDependencies(t.Context(), WithWorkspaceSecret("execution-scheduler-auth", "TOKEN", "test-token"))
+	if err == nil || !strings.Contains(err.Error(), "parent Codefly runtime") {
+		t.Fatalf("parent-owned-stack error = %v", err)
+	}
+}
+
 func TestWithFixtureSelectsDependencyStackFixture(t *testing.T) {
 	option := &Option{}
 	WithFixture("dev-admin")(option)

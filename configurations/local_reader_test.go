@@ -84,6 +84,50 @@ func TestEnvironmentCanUseAnExplicitConfigurationProfile(t *testing.T) {
 	require.Equal(t, "local-runtime-token", token)
 }
 
+func TestLocalLoaderAppliesInvocationScopedWorkspaceConfigurations(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, resources.WorkspaceConfigurationName, "name: test-workspace\nlayout: flat\n")
+	writeConfigurationFile(t, root, "configurations/local/execution-scheduler-auth.secret.env", "TOKEN=persisted-token\nPRESERVED=persisted-value\n")
+
+	encoded, err := resources.EncodeWorkspaceConfigurationOverrides([]resources.WorkspaceConfigurationOverride{
+		{Name: "execution-scheduler-auth", Key: "TOKEN", Value: "invocation-token", Secret: true},
+		{Name: "new-configuration", Key: "PUBLIC_URL", Value: "https://example.invalid"},
+	})
+	require.NoError(t, err)
+	t.Setenv(resources.WorkspaceConfigurationOverridesEnvironment, encoded)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	confs := loader.Configurations()
+	require.Len(t, confs, 2)
+	auth, err := resources.FindWorkspaceConfiguration(ctx, confs, "execution-scheduler-auth")
+	require.NoError(t, err)
+	token, err := resources.GetConfigurationValue(ctx, auth, "execution-scheduler-auth", "TOKEN")
+	require.NoError(t, err)
+	require.Equal(t, "invocation-token", token)
+	preserved, err := resources.GetConfigurationValue(ctx, auth, "execution-scheduler-auth", "PRESERVED")
+	require.NoError(t, err)
+	require.Equal(t, "persisted-value", preserved)
+	require.ElementsMatch(t,
+		[]string{
+			"CODEFLY__WORKSPACE_SECRET_CONFIGURATION__EXECUTION_SCHEDULER_AUTH__TOKEN=invocation-token",
+			"CODEFLY__WORKSPACE_SECRET_CONFIGURATION__EXECUTION_SCHEDULER_AUTH__PRESERVED=persisted-value",
+		},
+		resources.EnvironmentVariableAsStrings(resources.ConfigurationAsEnvironmentVariables(auth, true)),
+	)
+
+	added, err := resources.FindWorkspaceConfiguration(ctx, confs, "new-configuration")
+	require.NoError(t, err)
+	publicURL, err := resources.GetConfigurationValue(ctx, added, "new-configuration", "PUBLIC_URL")
+	require.NoError(t, err)
+	require.Equal(t, "https://example.invalid", publicURL)
+}
+
 func TestEnvironmentConfigurationProfileRejectsTraversal(t *testing.T) {
 	environment := &resources.Environment{
 		Name:                 "production",
