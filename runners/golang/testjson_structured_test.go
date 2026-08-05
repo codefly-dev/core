@@ -4,8 +4,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	"github.com/codefly-dev/core/runners/golang"
@@ -194,6 +196,26 @@ func TestStructured_OutputCappedAtMaxBytes(t *testing.T) {
 		"truncation must surface when it fires — silent truncation is the bug we're avoiding")
 	require.EqualValues(t, 1, resp.Truncation.TruncatedCases)
 	require.EqualValues(t, golang.MaxCapturedOutputBytesPerCase, resp.Truncation.MaxPerCaseBytes)
+}
+
+func TestStructured_OutputCapPreservesUTF8ForProtobuf(t *testing.T) {
+	// Put a multibyte rune across the exact byte cap. Raw byte slicing would
+	// retain only the first byte of the rune, causing gRPC marshaling to reject
+	// the entire TestResponse with "string field contains invalid UTF-8".
+	huge := strings.Repeat("x", golang.MaxCapturedOutputBytesPerCase-1) + "é" + "tail"
+	raw := jsonEvents(
+		`{"Action":"run","Package":"pkg","Test":"TestUTF8"}`,
+		`{"Action":"output","Package":"pkg","Test":"TestUTF8","Output":`+jsonString(huge)+`}`,
+		`{"Action":"fail","Package":"pkg","Test":"TestUTF8","Elapsed":0.01}`,
+		`{"Action":"fail","Package":"pkg","Elapsed":0.02}`,
+	)
+	resp := golang.ParseTestJSONStructured(raw).ToProtoResponse("go-test", "", time.Second)
+
+	captured := resp.Suites[0].Cases[0].CapturedOutput
+	require.True(t, utf8.ValidString(captured), "captured protobuf string must remain valid UTF-8")
+	require.Contains(t, captured, "[output truncated]")
+	_, err := proto.Marshal(resp)
+	require.NoError(t, err, "the runtime response must remain transportable")
 }
 
 func TestStructured_CoverageScrapedFromOutput(t *testing.T) {

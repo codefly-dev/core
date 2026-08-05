@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -253,7 +254,15 @@ func appendCapped(dst *strings.Builder, truncated *bool, s string) {
 		dst.WriteString(s)
 		return
 	}
-	dst.WriteString(s[:remaining])
+	// Protobuf string fields must contain valid UTF-8. A byte cap can land in
+	// the middle of a multibyte rune, so retreat to the nearest valid boundary
+	// before appending the truncation marker. JSON decoding already guarantees
+	// s is valid UTF-8; at most utf8.UTFMax-1 bytes need to be removed here.
+	prefixBytes := remaining
+	for prefixBytes > 0 && !utf8.ValidString(s[:prefixBytes]) {
+		prefixBytes--
+	}
+	dst.WriteString(s[:prefixBytes])
 	dst.WriteString("\n[output truncated]\n")
 	*truncated = true
 }
