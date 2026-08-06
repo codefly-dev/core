@@ -93,6 +93,7 @@ func TestDeriveRequirementFiles_SkipsMinVersionMatrix(t *testing.T) {
 // its test stack.
 func TestInferPythonFromCommitDate(t *testing.T) {
 	cases := []struct{ commit, want string }{
+		{"2019-02-01T00:00:00Z", "3.8"},  // uv-managed floor; 3.7 is no longer downloadable
 		{"2022-04-01T00:00:00Z", "3.10"}, // flask-5014 era — 3.11 GA'd Oct 2022
 		{"2023-06-01T00:00:00Z", "3.11"},
 		{"2024-01-01T00:00:00Z", "3.12"},

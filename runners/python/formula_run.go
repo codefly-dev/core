@@ -169,7 +169,13 @@ func BuildUvArgs(spec TestFormulaSpec, junitFile string) []string {
 		args = append(args, "--no-project")
 	}
 	if spec.Python != "" {
-		args = append(args, "--python", spec.Python)
+		// A declared interpreter is a reproducibility contract, not a hint to
+		// inspect arbitrary executables from the operator's PATH. Requiring a
+		// uv-managed interpreter prevents stale shims (mise/pyenv/asdf) from
+		// aborting resolution before uv can select or download the requested
+		// version. Persistent venvs take the branch above and remain valid local
+		// interpreter paths.
+		args = append(args, "--python", spec.Python, "--managed-python")
 	}
 	if spec.Editable {
 		// The editable target is the PROJECT ROOT, not the run directory:

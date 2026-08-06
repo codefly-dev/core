@@ -604,6 +604,13 @@ func derivePythonVersion(dir string) string {
 // download it.
 const defaultManagedPython = "3.11"
 
+// oldestManagedPython is the floor available from uv's managed standalone
+// interpreter catalog. Commit-date inference cannot select an older runtime:
+// doing so produces an impossible --python contract instead of a runnable
+// historical approximation. Explicit project pins remain authoritative and
+// fail visibly when the requested interpreter is unavailable.
+const oldestManagedPython = "3.8"
+
 // pythonReleases maps each CPython minor to its GA (final) release date, NEWEST
 // FIRST. The python agent owns this (interpreter knowledge is its domain) and
 // uses it to avoid running a project on a Python that did not exist when the
@@ -619,7 +626,6 @@ var pythonReleases = []struct {
 	{"3.10", releaseDate(2021, 10, 4)},
 	{"3.9", releaseDate(2020, 10, 5)},
 	{"3.8", releaseDate(2019, 10, 14)},
-	{"3.7", releaseDate(2018, 6, 27)},
 }
 
 func releaseDate(y, m, d int) time.Time {
@@ -644,7 +650,7 @@ func inferPythonFromCommitDate(dir string) string {
 			return r.version
 		}
 	}
-	return ""
+	return oldestManagedPython
 }
 
 // pinFromRequiresPython turns a requires-python constraint into an interpreter

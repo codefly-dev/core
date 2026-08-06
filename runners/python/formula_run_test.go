@@ -58,7 +58,7 @@ func TestBuildUvArgs_ProvisioningIsData(t *testing.T) {
 		Selectors:    []string{"tests/test_x.py::test_y"},
 		Output:       OutputJUnitXML,
 	}, "/tmp/j.xml"), " ")
-	want := "run --no-project --python 3.9 --with-editable . " +
+	want := "run --no-project --python 3.9 --managed-python --with-editable . " +
 		"--with-requirements requirements/tests.txt --with tox<4 --with setuptools " +
 		"pytest --junitxml=/tmp/j.xml tests/test_x.py::test_y"
 	if got != want {
@@ -85,7 +85,7 @@ func TestSpecFromFormula_ProvisioningMapToUv(t *testing.T) {
 		[]string{"tests/test_x.py::test_y"},
 	)
 	got := strings.Join(BuildUvArgs(spec, "/tmp/j.xml"), " ")
-	want := "run --no-project --python 3.9 --with-editable . " +
+	want := "run --no-project --python 3.9 --managed-python --with-editable . " +
 		"--with-requirements requirements/tests.txt --with tox<4 --with setuptools " +
 		"pytest --junitxml=/tmp/j.xml tests/test_x.py::test_y"
 	if got != want {
