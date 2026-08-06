@@ -95,13 +95,16 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 // venvDependencyInstallArgs builds the first `uv pip install` argv that
 // materializes requirements, build dependencies, and the pip release available
 // at ExcludeNewer. Historical pip is the standards-compliant compatibility
-// implementation for editable backends that predate PEP 660.
+// implementation for editable backends that predate PEP 660. setuptools is
+// materialized alongside it because historical pip's setup.py-develop path
+// imports setuptools from the target venv; build isolation's private copy is
+// not visible to that interpreter.
 func venvDependencyInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 	args := []string{"pip", "install", "--python", pyPath}
 	if spec.ExcludeNewer != "" {
 		args = append(args, "--exclude-newer", spec.ExcludeNewer)
 	}
-	args = append(args, "pip")
+	args = append(args, "pip", "setuptools")
 	for _, r := range spec.Requirements {
 		if r != "" {
 			args = append(args, "-r", r)

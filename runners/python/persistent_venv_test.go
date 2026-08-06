@@ -13,12 +13,12 @@ func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.
 	spec := TestFormulaSpec{
 		NoBuildIsolation: true,
 		ExcludeNewer:     "2022-07-27T14:44:33Z",
-		With:             []string{"setuptools", "numpy>=1.19", "cython"},
+		With:             []string{"numpy>=1.19", "cython"},
 		Requirements:     []string{"build-requirements.txt"},
 		EditableTarget:   "/w",
 	}
 	dependencies := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", spec), " ")
-	wantDependencies := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z pip -r build-requirements.txt setuptools numpy>=1.19 cython"
+	wantDependencies := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z pip setuptools -r build-requirements.txt numpy>=1.19 cython"
 	if dependencies != wantDependencies {
 		t.Fatalf("dependency install:\n got %q\nwant %q", dependencies, wantDependencies)
 	}
@@ -35,9 +35,9 @@ func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.
 	}
 }
 
-func TestVenvDependencyInstallArgsAlwaysMaterializesHistoricalPip(t *testing.T) {
+func TestVenvDependencyInstallArgsAlwaysMaterializesHistoricalPackaging(t *testing.T) {
 	got := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", TestFormulaSpec{}), " ")
-	if got != "pip install --python /w/.mind-venv/bin/python pip" {
+	if got != "pip install --python /w/.mind-venv/bin/python pip setuptools" {
 		t.Fatalf("minimal dependency install args = %q", got)
 	}
 }
