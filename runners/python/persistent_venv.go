@@ -84,6 +84,9 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 // project declared none and no preliminary invocation is needed.
 func venvDependencyInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 	args := []string{"pip", "install", "--python", pyPath}
+	if spec.ExcludeNewer != "" {
+		args = append(args, "--exclude-newer", spec.ExcludeNewer)
+	}
 	count := 0
 	for _, r := range spec.Requirements {
 		if r != "" {
@@ -108,6 +111,9 @@ func venvDependencyInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 // editable build can safely import its declared backend requirements.
 func venvEditableInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 	args := []string{"pip", "install", "--python", pyPath}
+	if spec.ExcludeNewer != "" {
+		args = append(args, "--exclude-newer", spec.ExcludeNewer)
+	}
 	if spec.NoBuildIsolation {
 		args = append(args, "--no-build-isolation")
 	}
@@ -122,7 +128,7 @@ func venvEditableInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 // venvProvisionHash fingerprints the inputs that affect the built venv so a
 // changed python pin / dep set forces a rebuild but an unchanged one reuses.
 func venvProvisionHash(spec TestFormulaSpec) string {
-	parts := []string{"py=" + spec.Python, "editable=" + spec.EditableTarget}
+	parts := []string{"py=" + spec.Python, "exclude-newer=" + spec.ExcludeNewer, "editable=" + spec.EditableTarget}
 	if spec.NoBuildIsolation {
 		parts = append(parts, "nobuildiso")
 	}

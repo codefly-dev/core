@@ -44,6 +44,7 @@ type TestFormulaSpec struct {
 	// instead of a hardcoded brain-side command.
 	NoProject    bool
 	Python       string   // uv run --python <v>
+	ExcludeNewer string   // uv resolver --exclude-newer <RFC3339 timestamp>
 	Editable     bool     // uv run --with-editable .
 	Requirements []string // uv run --with-requirements <file>
 	With         []string // uv run --with <spec>
@@ -94,7 +95,8 @@ const (
 // SpecFromFormula translates a LANGUAGE-AGNOSTIC formula (generic command +
 // output + env + an opaque provisioning map) into the python/uv TestFormulaSpec.
 // This is the ONLY place python/uv knowledge interprets the provisioning bag:
-// the keys python / editable / with / requirements / no_project become uv flags.
+// the keys python / exclude_newer / editable / with / requirements / no_project
+// become uv flags.
 // Callers (Mind, the agent handler) stay framework- and toolchain-blind.
 func SpecFromFormula(command []string, output string, env, provisioning map[string]string, selectors []string) TestFormulaSpec {
 	spec := TestFormulaSpec{
@@ -103,6 +105,7 @@ func SpecFromFormula(command []string, output string, env, provisioning map[stri
 		Selectors:        append([]string{}, selectors...),
 		NoProject:        provisioning["no_project"] == "true",
 		Python:           provisioning["python"],
+		ExcludeNewer:     strings.TrimSpace(provisioning["exclude_newer"]),
 		Editable:         provisioning["editable"] == "true",
 		Requirements:     splitComma(provisioning["requirements"]),
 		With:             splitComma(provisioning["with"]),
@@ -176,6 +179,9 @@ func BuildUvArgs(spec TestFormulaSpec, junitFile string) []string {
 		// version. Persistent venvs take the branch above and remain valid local
 		// interpreter paths.
 		args = append(args, "--python", spec.Python, "--managed-python")
+	}
+	if spec.ExcludeNewer != "" {
+		args = append(args, "--exclude-newer", spec.ExcludeNewer)
 	}
 	if spec.Editable {
 		// The editable target is the PROJECT ROOT, not the run directory:

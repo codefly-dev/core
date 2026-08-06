@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // selectorsToken marks where specific tests get injected in a derived command.
@@ -395,29 +397,46 @@ func extractFromMakefile(d declaration) (string, bool) {
 var reMakeTestTarget = regexp.MustCompile(`^(test|tests|check|pytest)[\w-]*:`)
 
 func extractFromCI(d declaration) (string, bool) {
-	lines := strings.Split(d.text, "\n")
-	recentName := ""
-	for i := range lines {
-		trimmed := strings.TrimSpace(lines[i])
-		if v, ok := yamlValue(trimmed, "name"); ok {
-			recentName = strings.ToLower(v)
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(d.text), &document); err != nil {
+		return "", false
+	}
+	return ciTestStepCommand(&document)
+}
+
+// ciTestStepCommand requires `name` and `run` to be sibling keys on the same
+// YAML mapping. Actions can expose an unrelated nested `with.run` input; the
+// old line scanner associated that input with the outer "Run tests" name and
+// executed Astropy's environment setup as if it were the test command.
+func ciTestStepCommand(node *yaml.Node) (string, bool) {
+	if node == nil {
+		return "", false
+	}
+	if node.Kind == yaml.MappingNode {
+		name, run := "", ""
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key, value := node.Content[index], node.Content[index+1]
+			if key.Kind != yaml.ScalarNode || value.Kind != yaml.ScalarNode {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(key.Value)) {
+			case "name":
+				name = value.Value
+			case "run":
+				run = value.Value
+			}
 		}
-		if v, ok := yamlValue(trimmed, "run"); ok {
-			if strings.Contains(recentName, "test") {
-				cmd := v
-				if cmd == "|" || cmd == ">" || cmd == "" {
-					cmd = nextBlockLine(lines, i)
-				}
-				// GitHub Actions evaluates workflow expressions with matrix/job
-				// context that does not exist in a local runtime. Skip them and
-				// continue to a concrete CI step or lower-priority declaration.
-				if strings.Contains(cmd, "${{") {
-					continue
-				}
-				if cmd = firstCommandLine(cmd); cmd != "" {
-					return cmd, true
+		if strings.Contains(strings.ToLower(name), "test") && run != "" && !strings.Contains(run, "${{") {
+			for _, line := range strings.Split(run, "\n") {
+				if command := firstCommandLine(strings.TrimSpace(line)); command != "" {
+					return command, true
 				}
 			}
+		}
+	}
+	for _, child := range node.Content {
+		if command, ok := ciTestStepCommand(child); ok {
+			return command, true
 		}
 	}
 	return "", false
@@ -492,23 +511,6 @@ func iniKey(line string) (key, val string, ok bool) {
 	return "", "", false
 }
 
-func yamlValue(line, key string) (string, bool) {
-	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
-	if rest, ok := strings.CutPrefix(line, key+":"); ok {
-		return strings.TrimSpace(rest), true
-	}
-	return "", false
-}
-
-func nextBlockLine(lines []string, from int) string {
-	for j := from + 1; j < len(lines); j++ {
-		if t := strings.TrimSpace(lines[j]); t != "" {
-			return t
-		}
-	}
-	return ""
-}
-
 // ── provisioning derivation (NEW; uv/python knowledge belongs here) ──
 
 // deriveProvisioning reads the project's packaging metadata and produces the uv
@@ -528,6 +530,14 @@ func deriveProvisioning(dir string) map[string]string {
 	}
 	if v := derivePythonVersion(dir); v != "" {
 		prov["python"] = v
+	}
+	// Resolve dependencies from the package universe that existed when this
+	// source revision was committed. Historical projects routinely leave build
+	// tools loosely constrained; selecting today's newest setuptools broke a
+	// 2022 Astropy checkout after setuptools removed an API its build used.
+	// uv owns the resolver and exposes this exact temporal constraint.
+	if committedAt, ok := repositoryCommitTime(dir); ok {
+		prov["exclude_newer"] = committedAt.UTC().Format(time.RFC3339)
 	}
 	if reqs := deriveRequirementFiles(dir); len(reqs) > 0 {
 		prov["requirements"] = strings.Join(reqs, ",")
@@ -673,12 +683,8 @@ func releaseDate(y, m, d int) time.Time {
 // git repo / git unavailable). This is the "don't go forward in time" rule: a
 // repo committed in 2022 should run on a 2022-or-earlier interpreter, not 3.13.
 func inferPythonFromCommitDate(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "log", "-1", "--format=%cI", "HEAD").Output()
-	if err != nil {
-		return ""
-	}
-	t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(out)))
-	if err != nil {
+	t, ok := repositoryCommitTime(dir)
+	if !ok {
 		return ""
 	}
 	for _, r := range pythonReleases { // newest first
@@ -687,6 +693,18 @@ func inferPythonFromCommitDate(dir string) string {
 		}
 	}
 	return oldestManagedPython
+}
+
+func repositoryCommitTime(dir string) (time.Time, bool) {
+	out, err := exec.Command("git", "-C", dir, "log", "-1", "--format=%cI", "HEAD").Output()
+	if err != nil {
+		return time.Time{}, false
+	}
+	committedAt, err := time.Parse(time.RFC3339, strings.TrimSpace(string(out)))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return committedAt, true
 }
 
 // pinFromRequiresPython turns a requires-python constraint into an interpreter

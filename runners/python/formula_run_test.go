@@ -51,6 +51,7 @@ func TestBuildUvArgs_ProvisioningIsData(t *testing.T) {
 	got := strings.Join(BuildUvArgs(TestFormulaSpec{
 		NoProject:    true,
 		Python:       "3.9",
+		ExcludeNewer: "2022-07-27T14:44:33Z",
 		Editable:     true,
 		Requirements: []string{"requirements/tests.txt"},
 		With:         []string{"tox<4", "setuptools"},
@@ -58,7 +59,7 @@ func TestBuildUvArgs_ProvisioningIsData(t *testing.T) {
 		Selectors:    []string{"tests/test_x.py::test_y"},
 		Output:       OutputJUnitXML,
 	}, "/tmp/j.xml"), " ")
-	want := "run --no-project --python 3.9 --managed-python --with-editable . " +
+	want := "run --no-project --python 3.9 --managed-python --exclude-newer 2022-07-27T14:44:33Z --with-editable . " +
 		"--with-requirements requirements/tests.txt --with tox<4 --with setuptools " +
 		"pytest --junitxml=/tmp/j.xml tests/test_x.py::test_y"
 	if got != want {

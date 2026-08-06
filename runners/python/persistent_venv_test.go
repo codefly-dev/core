@@ -12,17 +12,18 @@ import (
 func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.T) {
 	spec := TestFormulaSpec{
 		NoBuildIsolation: true,
+		ExcludeNewer:     "2022-07-27T14:44:33Z",
 		With:             []string{"setuptools", "numpy>=1.19", "cython"},
 		Requirements:     []string{"build-requirements.txt"},
 		EditableTarget:   "/w",
 	}
 	dependencies := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", spec), " ")
-	wantDependencies := "pip install --python /w/.mind-venv/bin/python -r build-requirements.txt setuptools numpy>=1.19 cython"
+	wantDependencies := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z -r build-requirements.txt setuptools numpy>=1.19 cython"
 	if dependencies != wantDependencies {
 		t.Fatalf("dependency install:\n got %q\nwant %q", dependencies, wantDependencies)
 	}
 	editable := strings.Join(venvEditableInstallArgs("/w/.mind-venv/bin/python", spec), " ")
-	wantEditable := "pip install --python /w/.mind-venv/bin/python --no-build-isolation -e /w"
+	wantEditable := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z --no-build-isolation -e /w"
 	if editable != wantEditable {
 		t.Fatalf("editable install:\n got %q\nwant %q", editable, wantEditable)
 	}

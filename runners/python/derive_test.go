@@ -111,6 +111,22 @@ func TestInferPythonFromCommitDate(t *testing.T) {
 	}
 }
 
+func TestDeriveProvisioningConstrainsHistoricalResolutionToCommitTime(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "pyproject.toml", `[build-system]
+requires = ["setuptools", "wheel", "extension-helpers"]
+build-backend = "setuptools.build_meta"
+`)
+	gitCommitAt(t, dir, "2022-07-27T14:44:33Z")
+	provisioning := deriveProvisioning(dir)
+	if provisioning["exclude_newer"] != "2022-07-27T14:44:33Z" {
+		t.Fatalf("exclude_newer = %q, want source commit timestamp", provisioning["exclude_newer"])
+	}
+	if provisioning["with"] != "setuptools,wheel,extension-helpers" || provisioning["no_build_isolation"] != "true" {
+		t.Fatalf("build provisioning = %+v", provisioning)
+	}
+}
+
 func gitCommitAt(t *testing.T, dir, iso string) {
 	t.Helper()
 	run := func(env []string, args ...string) {
@@ -200,8 +216,22 @@ func TestDeriveFormula_CIWorkflowWins(t *testing.T) {
 // choose the command that accepts tox's selector passthrough.
 func TestDeriveFormula_AstropyMatrixFallsBackToSelectorBearingToxCommand(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, ".github/workflows/ci.yml",
-		"steps:\n  - name: Run tests\n    run: tox ${{ matrix.toxargs }} -e ${{ matrix.toxenv }} -- ${{ matrix.toxposargs }}\n")
+	writeFile(t, dir, ".github/workflows/ci.yml", `jobs:
+  matrix:
+    steps:
+      - name: Run tests
+        run: tox ${{ matrix.toxargs }} -e ${{ matrix.toxenv }} -- ${{ matrix.toxposargs }}
+  architectures:
+    steps:
+      - name: Run tests
+        uses: uraimo/run-on-arch-action@v3
+        with:
+          run: |
+            python3 -m venv --system-site-packages tests
+            source tests/bin/activate
+            pip install -e .[test]
+            pytest
+`)
 	writeFile(t, dir, "tox.ini", `[testenv]
 commands =
     devdeps: pip install -U numpy
