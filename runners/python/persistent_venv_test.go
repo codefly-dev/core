@@ -5,19 +5,38 @@ import (
 	"testing"
 )
 
-// The persistent-venv install argv puts deps + requirements BEFORE the editable
-// project (so the no-isolation build sees numpy/cython), targets the venv's
-// python, and installs the project editable. Pure arg construction — no uv exec.
-func TestVenvInstallArgs(t *testing.T) {
-	got := strings.Join(venvInstallArgs("/w/.mind-venv/bin/python", TestFormulaSpec{
+// The persistent venv materializes requirements/build dependencies in a
+// separate uv invocation before the no-isolation editable build. Putting both
+// in one argv allowed uv to prepare project metadata before setuptools/cython
+// had actually reached the venv.
+func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.T) {
+	spec := TestFormulaSpec{
 		NoBuildIsolation: true,
-		With:             []string{"numpy>=1.19", "cython"},
+		With:             []string{"setuptools", "numpy>=1.19", "cython"},
 		Requirements:     []string{"build-requirements.txt"},
 		EditableTarget:   "/w",
-	}), " ")
-	want := "pip install --python /w/.mind-venv/bin/python --no-build-isolation -r build-requirements.txt numpy>=1.19 cython -e /w"
-	if got != want {
-		t.Fatalf("\n got %q\nwant %q", got, want)
+	}
+	dependencies := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", spec), " ")
+	wantDependencies := "pip install --python /w/.mind-venv/bin/python -r build-requirements.txt setuptools numpy>=1.19 cython"
+	if dependencies != wantDependencies {
+		t.Fatalf("dependency install:\n got %q\nwant %q", dependencies, wantDependencies)
+	}
+	editable := strings.Join(venvEditableInstallArgs("/w/.mind-venv/bin/python", spec), " ")
+	wantEditable := "pip install --python /w/.mind-venv/bin/python --no-build-isolation -e /w"
+	if editable != wantEditable {
+		t.Fatalf("editable install:\n got %q\nwant %q", editable, wantEditable)
+	}
+	if strings.Contains(dependencies, "--no-build-isolation") || strings.Contains(dependencies, " -e ") {
+		t.Fatalf("dependency install must complete before editable build: %q", dependencies)
+	}
+	if strings.Contains(editable, "setuptools") || strings.Contains(editable, "build-requirements") {
+		t.Fatalf("editable invocation must not combine peer dependencies: %q", editable)
+	}
+}
+
+func TestVenvDependencyInstallArgsSkipsEmptyProvisioning(t *testing.T) {
+	if got := venvDependencyInstallArgs("/w/.mind-venv/bin/python", TestFormulaSpec{}); got != nil {
+		t.Fatalf("empty dependency install args = %v, want nil", got)
 	}
 }
 

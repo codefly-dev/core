@@ -53,10 +53,22 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 		return "", fmt.Errorf("uv venv failed: %v\n%s", err, out)
 	}
 
-	// 2) uv pip install --python <py> [--no-build-isolation] [-r req...] [deps...] -e <project>
-	//    Deps and requirements install FIRST so the editable build (no isolation)
-	//    sees numpy/cython already present.
-	installArgs := venvInstallArgs(pyPath, spec)
+	// 2) Install declared requirements and build dependencies into the venv.
+	//    This MUST be a separate uv invocation from the editable install below.
+	//    A single `uv pip install setuptools ... -e . --no-build-isolation` may
+	//    prepare the editable metadata before installing its peer requirements,
+	//    so the backend still fails to import setuptools/cython/numpy even though
+	//    they are present in the argv. Astropy exposed this exact ordering bug.
+	if dependencyArgs := venvDependencyInstallArgs(pyPath, spec); len(dependencyArgs) > 0 {
+		if out, err := runUv(ctx, sourceDir, dependencyArgs); err != nil {
+			return "", fmt.Errorf("uv pip install requirements and build dependencies failed: %v\n%s", err, out)
+		}
+	}
+
+	// 3) Build/install the editable project after its declared build environment
+	//    is materialized. --no-build-isolation is now safe because the backend
+	//    can import every package derived from [build-system].requires.
+	installArgs := venvEditableInstallArgs(pyPath, spec)
 	if out, err := runUv(ctx, sourceDir, installArgs); err != nil {
 		return "", fmt.Errorf("uv pip install (editable project + deps) failed: %v\n%s", err, out)
 	}
@@ -67,22 +79,37 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 	return pyPath, nil
 }
 
-// venvInstallArgs builds the `uv pip install` argv that populates the venv.
-// Pure/deterministic so it is unit-tested without executing uv.
-func venvInstallArgs(pyPath string, spec TestFormulaSpec) []string {
+// venvDependencyInstallArgs builds the first `uv pip install` argv that
+// materializes requirements and build dependencies. An empty result means the
+// project declared none and no preliminary invocation is needed.
+func venvDependencyInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 	args := []string{"pip", "install", "--python", pyPath}
-	if spec.NoBuildIsolation {
-		args = append(args, "--no-build-isolation")
-	}
+	count := 0
 	for _, r := range spec.Requirements {
 		if r != "" {
 			args = append(args, "-r", r)
+			count++
 		}
 	}
 	for _, w := range spec.With {
 		if w != "" {
 			args = append(args, w)
+			count++
 		}
+	}
+	if count == 0 {
+		return nil
+	}
+	return args
+}
+
+// venvEditableInstallArgs builds the second `uv pip install` argv. The
+// dependency step above has already populated the venv, so a no-isolation
+// editable build can safely import its declared backend requirements.
+func venvEditableInstallArgs(pyPath string, spec TestFormulaSpec) []string {
+	args := []string{"pip", "install", "--python", pyPath}
+	if spec.NoBuildIsolation {
+		args = append(args, "--no-build-isolation")
 	}
 	target := spec.EditableTarget
 	if target == "" {
