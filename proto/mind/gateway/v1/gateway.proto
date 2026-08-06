@@ -689,6 +689,18 @@ message LintResponse {
 
 // ─── Test ─────────────────────────────────────────────────────
 
+// CodeUnitTarget identifies one ingestion-declared source boundary. The
+// gateway uses the path to bind the exact checkout root and lets Codefly
+// detect the owning runtime plugin there. Language and native command details
+// are deliberately absent: callers name code units, not implementations.
+message CodeUnitTarget {
+  // id is the stable code-unit identity carried by the caller's task.
+  string id = 1;
+  // path is the canonical repository-relative code-unit root. Empty and "."
+  // both identify the repository root.
+  string path = 2;
+}
+
 // TestRequest asks the gateway to run the service tests.
 message TestRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
@@ -698,6 +710,11 @@ message TestRequest {
   // acknowledgement identity must survive this boundary; the gateway must
   // never broaden a scoped request into a whole-service test run.
   codefly.services.runtime.v0.TestRequest runtime_request = 2;
+  // code_units is the authoritative set of source boundaries covered by the
+  // operation. A single unit binds one exact plugin root. Multiple units make
+  // the gateway route each boundary independently and aggregate typed results.
+  // Empty preserves the legacy service/root target.
+  repeated CodeUnitTarget code_units = 3;
 }
 
 // TestResponse returns service test counts and raw runner output.
