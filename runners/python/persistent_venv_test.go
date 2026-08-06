@@ -18,7 +18,7 @@ func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.
 		EditableTarget:   "/w",
 	}
 	dependencies := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", spec), " ")
-	wantDependencies := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z -r build-requirements.txt setuptools numpy>=1.19 cython"
+	wantDependencies := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z pip -r build-requirements.txt setuptools numpy>=1.19 cython"
 	if dependencies != wantDependencies {
 		t.Fatalf("dependency install:\n got %q\nwant %q", dependencies, wantDependencies)
 	}
@@ -35,9 +35,35 @@ func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.
 	}
 }
 
-func TestVenvDependencyInstallArgsSkipsEmptyProvisioning(t *testing.T) {
-	if got := venvDependencyInstallArgs("/w/.mind-venv/bin/python", TestFormulaSpec{}); got != nil {
-		t.Fatalf("empty dependency install args = %v, want nil", got)
+func TestVenvDependencyInstallArgsAlwaysMaterializesHistoricalPip(t *testing.T) {
+	got := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", TestFormulaSpec{}), " ")
+	if got != "pip install --python /w/.mind-venv/bin/python pip" {
+		t.Fatalf("minimal dependency install args = %q", got)
+	}
+}
+
+func TestHistoricalEditableFallbackIsCapabilityBound(t *testing.T) {
+	observed := "AttributeError: module 'setuptools.build_meta' has no attribute 'build_editable'"
+	if !editableHookUnavailable(observed) {
+		t.Fatal("observed pre-PEP-660 setuptools failure must select historical pip")
+	}
+	for _, unrelated := range []string{
+		"build_editable failed: compiler unavailable",
+		"ModuleNotFoundError: setuptools",
+		"ordinary build failure",
+	} {
+		if editableHookUnavailable(unrelated) {
+			t.Fatalf("unrelated build failure selected fallback: %q", unrelated)
+		}
+	}
+
+	args := strings.Join(venvHistoricalEditableInstallArgs(TestFormulaSpec{
+		NoBuildIsolation: true,
+		EditableTarget:   "/w",
+	}), " ")
+	want := "-m pip install --no-build-isolation -e /w"
+	if args != want {
+		t.Fatalf("historical editable args = %q, want %q", args, want)
 	}
 }
 

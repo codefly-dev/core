@@ -70,7 +70,20 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 	//    can import every package derived from [build-system].requires.
 	installArgs := venvEditableInstallArgs(pyPath, spec)
 	if out, err := runUv(ctx, sourceDir, installArgs); err != nil {
-		return "", fmt.Errorf("uv pip install (editable project + deps) failed: %v\n%s", err, out)
+		if !editableHookUnavailable(out) {
+			return "", fmt.Errorf("uv pip install (editable project) failed: %v\n%s", err, out)
+		}
+
+		// PEP 660 was standardized before every historical build backend
+		// implemented build_editable. The pip version available at the source
+		// commit date is already installed in this venv and owns the standard
+		// compatibility path for those backends (setup.py develop for old
+		// setuptools). Reuse that real packaging implementation instead of
+		// reproducing it in Codefly or allowing a post-commit setuptools release.
+		fallbackArgs := venvHistoricalEditableInstallArgs(spec)
+		if fallbackOut, fallbackErr := runExecutable(ctx, sourceDir, pyPath, fallbackArgs); fallbackErr != nil {
+			return "", fmt.Errorf("editable project install failed with PEP 660 and historical pip fallback: uv: %v\n%s\npip: %v\n%s", err, out, fallbackErr, fallbackOut)
+		}
 	}
 
 	if err := os.WriteFile(marker, []byte(want), 0o644); err != nil {
@@ -80,28 +93,24 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 }
 
 // venvDependencyInstallArgs builds the first `uv pip install` argv that
-// materializes requirements and build dependencies. An empty result means the
-// project declared none and no preliminary invocation is needed.
+// materializes requirements, build dependencies, and the pip release available
+// at ExcludeNewer. Historical pip is the standards-compliant compatibility
+// implementation for editable backends that predate PEP 660.
 func venvDependencyInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 	args := []string{"pip", "install", "--python", pyPath}
 	if spec.ExcludeNewer != "" {
 		args = append(args, "--exclude-newer", spec.ExcludeNewer)
 	}
-	count := 0
+	args = append(args, "pip")
 	for _, r := range spec.Requirements {
 		if r != "" {
 			args = append(args, "-r", r)
-			count++
 		}
 	}
 	for _, w := range spec.With {
 		if w != "" {
 			args = append(args, w)
-			count++
 		}
-	}
-	if count == 0 {
-		return nil
 	}
 	return args
 }
@@ -123,6 +132,37 @@ func venvEditableInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 	}
 	args = append(args, "-e", target)
 	return args
+}
+
+// editableHookUnavailable recognizes the backend capability failure defined by
+// PEP 660. Other build failures are project failures and must remain visible;
+// only absence of the standardized hook selects historical pip's compatibility
+// implementation.
+func editableHookUnavailable(output string) bool {
+	low := strings.ToLower(output)
+	if !strings.Contains(low, "build_editable") {
+		return false
+	}
+	return strings.Contains(low, "has no attribute") ||
+		strings.Contains(low, "does not support") ||
+		strings.Contains(low, "not supported")
+}
+
+// venvHistoricalEditableInstallArgs builds argv for `<venv-python> -m pip`.
+// Declared requirements and backend dependencies were materialized by uv
+// first. Historical pip then owns the complete editable-install contract,
+// including the project's runtime dependencies, just as it did at that date.
+func venvHistoricalEditableInstallArgs(spec TestFormulaSpec) []string {
+	args := []string{"-m", "pip", "install"}
+	if spec.NoBuildIsolation {
+		args = append(args, "--no-build-isolation")
+	}
+	args = append(args, "-e")
+	target := spec.EditableTarget
+	if target == "" {
+		target = "."
+	}
+	return append(args, target)
 }
 
 // venvProvisionHash fingerprints the inputs that affect the built venv so a
@@ -151,7 +191,11 @@ func venvInterpreter(venvDir string) string {
 }
 
 func runUv(ctx context.Context, dir string, args []string) (string, error) {
-	cmd := exec.CommandContext(ctx, "uv", args...)
+	return runExecutable(ctx, dir, "uv", args)
+}
+
+func runExecutable(ctx context.Context, dir, executable string, args []string) (string, error) {
+	cmd := exec.CommandContext(ctx, executable, args...)
 	cmd.Dir = dir
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
