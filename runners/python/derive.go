@@ -428,7 +428,7 @@ func ciTestStepCommand(node *yaml.Node) (string, bool) {
 		}
 		if strings.Contains(strings.ToLower(name), "test") && run != "" && !strings.Contains(run, "${{") {
 			for _, line := range strings.Split(run, "\n") {
-				if command := firstCommandLine(strings.TrimSpace(line)); command != "" {
+				if command := firstCommandLine(strings.TrimSpace(line)); command != "" && portableCICommand(command) {
 					return command, true
 				}
 			}
@@ -440,6 +440,23 @@ func ciTestStepCommand(node *yaml.Node) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// portableCICommand rejects runner-image absolute executables. A workflow can
+// legitimately name the exact interpreter baked into its CI container (for
+// example /opt/python/cp38-cp38/bin/python), but that path is not part of the
+// project contract and cannot exist in an arbitrary Codefly workspace. Let a
+// project-local declaration such as tox.ini supply the portable command.
+func portableCICommand(command string) bool {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return false
+	}
+	executable := fields[0]
+	if strings.HasPrefix(executable, "/") || strings.HasPrefix(executable, `\\`) {
+		return false
+	}
+	return len(executable) < 3 || executable[1] != ':' || (executable[2] != '\\' && executable[2] != '/')
 }
 
 func extractFromReadme(d declaration) (string, bool) {

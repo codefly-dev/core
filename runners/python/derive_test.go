@@ -216,7 +216,7 @@ func TestDeriveFormula_CIWorkflowWins(t *testing.T) {
 // choose the command that accepts tox's selector passthrough.
 func TestDeriveFormula_AstropyMatrixFallsBackToSelectorBearingToxCommand(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, ".github/workflows/ci.yml", `jobs:
+	writeFile(t, dir, ".github/workflows/ci_cron_weekly.yml", `jobs:
   matrix:
     steps:
       - name: Run tests
@@ -231,6 +231,12 @@ func TestDeriveFormula_AstropyMatrixFallsBackToSelectorBearingToxCommand(t *test
             source tests/bin/activate
             pip install -e .[test]
             pytest
+`)
+	writeFile(t, dir, ".github/workflows/ci_workflows.yml", `jobs:
+  tests:
+    steps:
+      - name: Run tests
+        run: /opt/python/cp38-cp38/bin/python -m tox -e py38-numpy120-test -- -n=4 --durations=50
 `)
 	writeFile(t, dir, "tox.ini", `[testenv]
 commands =
