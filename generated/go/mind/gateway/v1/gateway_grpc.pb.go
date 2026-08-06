@@ -20,53 +20,55 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Gateway_ListServices_FullMethodName               = "/mind.gateway.v1.Gateway/ListServices"
-	Gateway_ReadFile_FullMethodName                   = "/mind.gateway.v1.Gateway/ReadFile"
-	Gateway_WriteFile_FullMethodName                  = "/mind.gateway.v1.Gateway/WriteFile"
-	Gateway_ListFiles_FullMethodName                  = "/mind.gateway.v1.Gateway/ListFiles"
-	Gateway_SubscribeWorkspaceChanges_FullMethodName  = "/mind.gateway.v1.Gateway/SubscribeWorkspaceChanges"
-	Gateway_DeleteFile_FullMethodName                 = "/mind.gateway.v1.Gateway/DeleteFile"
-	Gateway_MoveFile_FullMethodName                   = "/mind.gateway.v1.Gateway/MoveFile"
-	Gateway_CreateFile_FullMethodName                 = "/mind.gateway.v1.Gateway/CreateFile"
-	Gateway_Fix_FullMethodName                        = "/mind.gateway.v1.Gateway/Fix"
-	Gateway_ApplyEdit_FullMethodName                  = "/mind.gateway.v1.Gateway/ApplyEdit"
-	Gateway_BatchApplyEdits_FullMethodName            = "/mind.gateway.v1.Gateway/BatchApplyEdits"
-	Gateway_ConfigureMutationAuthority_FullMethodName = "/mind.gateway.v1.Gateway/ConfigureMutationAuthority"
-	Gateway_PrepareMutation_FullMethodName            = "/mind.gateway.v1.Gateway/PrepareMutation"
-	Gateway_ApplyPreparedMutation_FullMethodName      = "/mind.gateway.v1.Gateway/ApplyPreparedMutation"
-	Gateway_Search_FullMethodName                     = "/mind.gateway.v1.Gateway/Search"
-	Gateway_Build_FullMethodName                      = "/mind.gateway.v1.Gateway/Build"
-	Gateway_Lint_FullMethodName                       = "/mind.gateway.v1.Gateway/Lint"
-	Gateway_Test_FullMethodName                       = "/mind.gateway.v1.Gateway/Test"
-	Gateway_ConfigureService_FullMethodName           = "/mind.gateway.v1.Gateway/ConfigureService"
-	Gateway_Format_FullMethodName                     = "/mind.gateway.v1.Gateway/Format"
-	Gateway_RunCommand_FullMethodName                 = "/mind.gateway.v1.Gateway/RunCommand"
-	Gateway_ListAllCommands_FullMethodName            = "/mind.gateway.v1.Gateway/ListAllCommands"
-	Gateway_RunChecks_FullMethodName                  = "/mind.gateway.v1.Gateway/RunChecks"
-	Gateway_GitStatus_FullMethodName                  = "/mind.gateway.v1.Gateway/GitStatus"
-	Gateway_GitDiff_FullMethodName                    = "/mind.gateway.v1.Gateway/GitDiff"
-	Gateway_GitLog_FullMethodName                     = "/mind.gateway.v1.Gateway/GitLog"
-	Gateway_GitCommit_FullMethodName                  = "/mind.gateway.v1.Gateway/GitCommit"
-	Gateway_GitBranch_FullMethodName                  = "/mind.gateway.v1.Gateway/GitBranch"
-	Gateway_GitCheckout_FullMethodName                = "/mind.gateway.v1.Gateway/GitCheckout"
-	Gateway_GitPush_FullMethodName                    = "/mind.gateway.v1.Gateway/GitPush"
-	Gateway_GitTag_FullMethodName                     = "/mind.gateway.v1.Gateway/GitTag"
-	Gateway_GitMerge_FullMethodName                   = "/mind.gateway.v1.Gateway/GitMerge"
-	Gateway_GitRevert_FullMethodName                  = "/mind.gateway.v1.Gateway/GitRevert"
-	Gateway_Release_FullMethodName                    = "/mind.gateway.v1.Gateway/Release"
-	Gateway_ForgePullRequestStatus_FullMethodName     = "/mind.gateway.v1.Gateway/ForgePullRequestStatus"
-	Gateway_ForgeMergePullRequest_FullMethodName      = "/mind.gateway.v1.Gateway/ForgeMergePullRequest"
-	Gateway_ForgeRequestReview_FullMethodName         = "/mind.gateway.v1.Gateway/ForgeRequestReview"
-	Gateway_ForgeNormalizeWebhook_FullMethodName      = "/mind.gateway.v1.Gateway/ForgeNormalizeWebhook"
-	Gateway_ListDependencies_FullMethodName           = "/mind.gateway.v1.Gateway/ListDependencies"
-	Gateway_AddDependency_FullMethodName              = "/mind.gateway.v1.Gateway/AddDependency"
-	Gateway_RemoveDependency_FullMethodName           = "/mind.gateway.v1.Gateway/RemoveDependency"
-	Gateway_GetProjectInfo_FullMethodName             = "/mind.gateway.v1.Gateway/GetProjectInfo"
-	Gateway_OpenTerminal_FullMethodName               = "/mind.gateway.v1.Gateway/OpenTerminal"
-	Gateway_AttachTerminal_FullMethodName             = "/mind.gateway.v1.Gateway/AttachTerminal"
-	Gateway_ResizeTerminal_FullMethodName             = "/mind.gateway.v1.Gateway/ResizeTerminal"
-	Gateway_CloseTerminal_FullMethodName              = "/mind.gateway.v1.Gateway/CloseTerminal"
-	Gateway_ListTerminals_FullMethodName              = "/mind.gateway.v1.Gateway/ListTerminals"
+	Gateway_ListServices_FullMethodName                  = "/mind.gateway.v1.Gateway/ListServices"
+	Gateway_ReadFile_FullMethodName                      = "/mind.gateway.v1.Gateway/ReadFile"
+	Gateway_WriteFile_FullMethodName                     = "/mind.gateway.v1.Gateway/WriteFile"
+	Gateway_ListFiles_FullMethodName                     = "/mind.gateway.v1.Gateway/ListFiles"
+	Gateway_SubscribeWorkspaceChanges_FullMethodName     = "/mind.gateway.v1.Gateway/SubscribeWorkspaceChanges"
+	Gateway_DeleteFile_FullMethodName                    = "/mind.gateway.v1.Gateway/DeleteFile"
+	Gateway_MoveFile_FullMethodName                      = "/mind.gateway.v1.Gateway/MoveFile"
+	Gateway_CreateFile_FullMethodName                    = "/mind.gateway.v1.Gateway/CreateFile"
+	Gateway_Fix_FullMethodName                           = "/mind.gateway.v1.Gateway/Fix"
+	Gateway_ApplyEdit_FullMethodName                     = "/mind.gateway.v1.Gateway/ApplyEdit"
+	Gateway_BatchApplyEdits_FullMethodName               = "/mind.gateway.v1.Gateway/BatchApplyEdits"
+	Gateway_ConfigureMutationAuthority_FullMethodName    = "/mind.gateway.v1.Gateway/ConfigureMutationAuthority"
+	Gateway_PrepareMutation_FullMethodName               = "/mind.gateway.v1.Gateway/PrepareMutation"
+	Gateway_ApplyPreparedMutation_FullMethodName         = "/mind.gateway.v1.Gateway/ApplyPreparedMutation"
+	Gateway_Search_FullMethodName                        = "/mind.gateway.v1.Gateway/Search"
+	Gateway_Build_FullMethodName                         = "/mind.gateway.v1.Gateway/Build"
+	Gateway_Lint_FullMethodName                          = "/mind.gateway.v1.Gateway/Lint"
+	Gateway_Test_FullMethodName                          = "/mind.gateway.v1.Gateway/Test"
+	Gateway_ConfigureService_FullMethodName              = "/mind.gateway.v1.Gateway/ConfigureService"
+	Gateway_Format_FullMethodName                        = "/mind.gateway.v1.Gateway/Format"
+	Gateway_RunCommand_FullMethodName                    = "/mind.gateway.v1.Gateway/RunCommand"
+	Gateway_ListAllCommands_FullMethodName               = "/mind.gateway.v1.Gateway/ListAllCommands"
+	Gateway_RunChecks_FullMethodName                     = "/mind.gateway.v1.Gateway/RunChecks"
+	Gateway_GitStatus_FullMethodName                     = "/mind.gateway.v1.Gateway/GitStatus"
+	Gateway_GitDiff_FullMethodName                       = "/mind.gateway.v1.Gateway/GitDiff"
+	Gateway_GitLog_FullMethodName                        = "/mind.gateway.v1.Gateway/GitLog"
+	Gateway_GitCommit_FullMethodName                     = "/mind.gateway.v1.Gateway/GitCommit"
+	Gateway_GitBranch_FullMethodName                     = "/mind.gateway.v1.Gateway/GitBranch"
+	Gateway_GitCheckout_FullMethodName                   = "/mind.gateway.v1.Gateway/GitCheckout"
+	Gateway_GitPush_FullMethodName                       = "/mind.gateway.v1.Gateway/GitPush"
+	Gateway_GitTag_FullMethodName                        = "/mind.gateway.v1.Gateway/GitTag"
+	Gateway_GitMerge_FullMethodName                      = "/mind.gateway.v1.Gateway/GitMerge"
+	Gateway_GitRevert_FullMethodName                     = "/mind.gateway.v1.Gateway/GitRevert"
+	Gateway_MaterializeRepositorySnapshot_FullMethodName = "/mind.gateway.v1.Gateway/MaterializeRepositorySnapshot"
+	Gateway_ReleaseRepositorySnapshot_FullMethodName     = "/mind.gateway.v1.Gateway/ReleaseRepositorySnapshot"
+	Gateway_Release_FullMethodName                       = "/mind.gateway.v1.Gateway/Release"
+	Gateway_ForgePullRequestStatus_FullMethodName        = "/mind.gateway.v1.Gateway/ForgePullRequestStatus"
+	Gateway_ForgeMergePullRequest_FullMethodName         = "/mind.gateway.v1.Gateway/ForgeMergePullRequest"
+	Gateway_ForgeRequestReview_FullMethodName            = "/mind.gateway.v1.Gateway/ForgeRequestReview"
+	Gateway_ForgeNormalizeWebhook_FullMethodName         = "/mind.gateway.v1.Gateway/ForgeNormalizeWebhook"
+	Gateway_ListDependencies_FullMethodName              = "/mind.gateway.v1.Gateway/ListDependencies"
+	Gateway_AddDependency_FullMethodName                 = "/mind.gateway.v1.Gateway/AddDependency"
+	Gateway_RemoveDependency_FullMethodName              = "/mind.gateway.v1.Gateway/RemoveDependency"
+	Gateway_GetProjectInfo_FullMethodName                = "/mind.gateway.v1.Gateway/GetProjectInfo"
+	Gateway_OpenTerminal_FullMethodName                  = "/mind.gateway.v1.Gateway/OpenTerminal"
+	Gateway_AttachTerminal_FullMethodName                = "/mind.gateway.v1.Gateway/AttachTerminal"
+	Gateway_ResizeTerminal_FullMethodName                = "/mind.gateway.v1.Gateway/ResizeTerminal"
+	Gateway_CloseTerminal_FullMethodName                 = "/mind.gateway.v1.Gateway/CloseTerminal"
+	Gateway_ListTerminals_FullMethodName                 = "/mind.gateway.v1.Gateway/ListTerminals"
 )
 
 // GatewayClient is the client API for Gateway service.
@@ -149,6 +151,13 @@ type GatewayClient interface {
 	GitMerge(ctx context.Context, in *GitMergeRequest, opts ...grpc.CallOption) (*GitMergeResponse, error)
 	// GitRevert creates a commit that reverts one revision.
 	GitRevert(ctx context.Context, in *GitRevertRequest, opts ...grpc.CallOption) (*GitRevertResponse, error)
+	// MaterializeRepositorySnapshot resolves one remote revision into a
+	// detached, immutable worktree owned by the caller's service-state cache.
+	// Codefly owns every Git command and credential/configuration boundary.
+	MaterializeRepositorySnapshot(ctx context.Context, in *MaterializeRepositorySnapshotRequest, opts ...grpc.CallOption) (*MaterializeRepositorySnapshotResponse, error)
+	// ReleaseRepositorySnapshot removes a detached worktree previously leased
+	// by MaterializeRepositorySnapshot and prunes its repository metadata.
+	ReleaseRepositorySnapshot(ctx context.Context, in *ReleaseRepositorySnapshotRequest, opts ...grpc.CallOption) (*ReleaseRepositorySnapshotResponse, error)
 	// Release bumps the code unit versions, commits them, creates a signed tag,
 	// and publishes the commit and tag as one semantic operation.
 	Release(ctx context.Context, in *ReleaseRequest, opts ...grpc.CallOption) (*ReleaseResponse, error)
@@ -528,6 +537,26 @@ func (c *gatewayClient) GitRevert(ctx context.Context, in *GitRevertRequest, opt
 	return out, nil
 }
 
+func (c *gatewayClient) MaterializeRepositorySnapshot(ctx context.Context, in *MaterializeRepositorySnapshotRequest, opts ...grpc.CallOption) (*MaterializeRepositorySnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MaterializeRepositorySnapshotResponse)
+	err := c.cc.Invoke(ctx, Gateway_MaterializeRepositorySnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) ReleaseRepositorySnapshot(ctx context.Context, in *ReleaseRepositorySnapshotRequest, opts ...grpc.CallOption) (*ReleaseRepositorySnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseRepositorySnapshotResponse)
+	err := c.cc.Invoke(ctx, Gateway_ReleaseRepositorySnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *gatewayClient) Release(ctx context.Context, in *ReleaseRequest, opts ...grpc.CallOption) (*ReleaseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ReleaseResponse)
@@ -751,6 +780,13 @@ type GatewayServer interface {
 	GitMerge(context.Context, *GitMergeRequest) (*GitMergeResponse, error)
 	// GitRevert creates a commit that reverts one revision.
 	GitRevert(context.Context, *GitRevertRequest) (*GitRevertResponse, error)
+	// MaterializeRepositorySnapshot resolves one remote revision into a
+	// detached, immutable worktree owned by the caller's service-state cache.
+	// Codefly owns every Git command and credential/configuration boundary.
+	MaterializeRepositorySnapshot(context.Context, *MaterializeRepositorySnapshotRequest) (*MaterializeRepositorySnapshotResponse, error)
+	// ReleaseRepositorySnapshot removes a detached worktree previously leased
+	// by MaterializeRepositorySnapshot and prunes its repository metadata.
+	ReleaseRepositorySnapshot(context.Context, *ReleaseRepositorySnapshotRequest) (*ReleaseRepositorySnapshotResponse, error)
 	// Release bumps the code unit versions, commits them, creates a signed tag,
 	// and publishes the commit and tag as one semantic operation.
 	Release(context.Context, *ReleaseRequest) (*ReleaseResponse, error)
@@ -889,6 +925,12 @@ func (UnimplementedGatewayServer) GitMerge(context.Context, *GitMergeRequest) (*
 }
 func (UnimplementedGatewayServer) GitRevert(context.Context, *GitRevertRequest) (*GitRevertResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GitRevert not implemented")
+}
+func (UnimplementedGatewayServer) MaterializeRepositorySnapshot(context.Context, *MaterializeRepositorySnapshotRequest) (*MaterializeRepositorySnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MaterializeRepositorySnapshot not implemented")
+}
+func (UnimplementedGatewayServer) ReleaseRepositorySnapshot(context.Context, *ReleaseRepositorySnapshotRequest) (*ReleaseRepositorySnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseRepositorySnapshot not implemented")
 }
 func (UnimplementedGatewayServer) Release(context.Context, *ReleaseRequest) (*ReleaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Release not implemented")
@@ -1540,6 +1582,42 @@ func _Gateway_GitRevert_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Gateway_MaterializeRepositorySnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MaterializeRepositorySnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).MaterializeRepositorySnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_MaterializeRepositorySnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).MaterializeRepositorySnapshot(ctx, req.(*MaterializeRepositorySnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_ReleaseRepositorySnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseRepositorySnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).ReleaseRepositorySnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_ReleaseRepositorySnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).ReleaseRepositorySnapshot(ctx, req.(*ReleaseRepositorySnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Gateway_Release_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ReleaseRequest)
 	if err := dec(in); err != nil {
@@ -1915,6 +1993,14 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GitRevert",
 			Handler:    _Gateway_GitRevert_Handler,
+		},
+		{
+			MethodName: "MaterializeRepositorySnapshot",
+			Handler:    _Gateway_MaterializeRepositorySnapshot_Handler,
+		},
+		{
+			MethodName: "ReleaseRepositorySnapshot",
+			Handler:    _Gateway_ReleaseRepositorySnapshot_Handler,
 		},
 		{
 			MethodName: "Release",
