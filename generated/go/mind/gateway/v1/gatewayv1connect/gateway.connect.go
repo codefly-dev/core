@@ -107,6 +107,9 @@ const (
 	// GatewayMaterializeRepositorySnapshotProcedure is the fully-qualified name of the Gateway's
 	// MaterializeRepositorySnapshot RPC.
 	GatewayMaterializeRepositorySnapshotProcedure = "/mind.gateway.v1.Gateway/MaterializeRepositorySnapshot"
+	// GatewayPrepareRepositoryCheckoutProcedure is the fully-qualified name of the Gateway's
+	// PrepareRepositoryCheckout RPC.
+	GatewayPrepareRepositoryCheckoutProcedure = "/mind.gateway.v1.Gateway/PrepareRepositoryCheckout"
 	// GatewayReleaseRepositorySnapshotProcedure is the fully-qualified name of the Gateway's
 	// ReleaseRepositorySnapshot RPC.
 	GatewayReleaseRepositorySnapshotProcedure = "/mind.gateway.v1.Gateway/ReleaseRepositorySnapshot"
@@ -225,6 +228,9 @@ type GatewayClient interface {
 	// detached, immutable worktree owned by the caller's service-state cache.
 	// Codefly owns every Git command and credential/configuration boundary.
 	MaterializeRepositorySnapshot(context.Context, *connect.Request[v1.MaterializeRepositorySnapshotRequest]) (*connect.Response[v1.MaterializeRepositorySnapshotResponse], error)
+	// PrepareRepositoryCheckout resolves one remote revision into a clean,
+	// mutable checkout backed by a caller-owned repository cache directory.
+	PrepareRepositoryCheckout(context.Context, *connect.Request[v1.PrepareRepositoryCheckoutRequest]) (*connect.Response[v1.PrepareRepositoryCheckoutResponse], error)
 	// ReleaseRepositorySnapshot removes a detached worktree previously leased
 	// by MaterializeRepositorySnapshot and prunes its repository metadata.
 	ReleaseRepositorySnapshot(context.Context, *connect.Request[v1.ReleaseRepositorySnapshotRequest]) (*connect.Response[v1.ReleaseRepositorySnapshotResponse], error)
@@ -475,6 +481,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(gatewayMethods.ByName("MaterializeRepositorySnapshot")),
 			connect.WithClientOptions(opts...),
 		),
+		prepareRepositoryCheckout: connect.NewClient[v1.PrepareRepositoryCheckoutRequest, v1.PrepareRepositoryCheckoutResponse](
+			httpClient,
+			baseURL+GatewayPrepareRepositoryCheckoutProcedure,
+			connect.WithSchema(gatewayMethods.ByName("PrepareRepositoryCheckout")),
+			connect.WithClientOptions(opts...),
+		),
 		releaseRepositorySnapshot: connect.NewClient[v1.ReleaseRepositorySnapshotRequest, v1.ReleaseRepositorySnapshotResponse](
 			httpClient,
 			baseURL+GatewayReleaseRepositorySnapshotProcedure,
@@ -604,6 +616,7 @@ type gatewayClient struct {
 	gitMerge                      *connect.Client[v1.GitMergeRequest, v1.GitMergeResponse]
 	gitRevert                     *connect.Client[v1.GitRevertRequest, v1.GitRevertResponse]
 	materializeRepositorySnapshot *connect.Client[v1.MaterializeRepositorySnapshotRequest, v1.MaterializeRepositorySnapshotResponse]
+	prepareRepositoryCheckout     *connect.Client[v1.PrepareRepositoryCheckoutRequest, v1.PrepareRepositoryCheckoutResponse]
 	releaseRepositorySnapshot     *connect.Client[v1.ReleaseRepositorySnapshotRequest, v1.ReleaseRepositorySnapshotResponse]
 	release                       *connect.Client[v1.ReleaseRequest, v1.ReleaseResponse]
 	forgePullRequestStatus        *connect.Client[v1.ForgePullRequestStatusRequest, v1.ForgePullRequestStatusResponse]
@@ -791,6 +804,11 @@ func (c *gatewayClient) MaterializeRepositorySnapshot(ctx context.Context, req *
 	return c.materializeRepositorySnapshot.CallUnary(ctx, req)
 }
 
+// PrepareRepositoryCheckout calls mind.gateway.v1.Gateway.PrepareRepositoryCheckout.
+func (c *gatewayClient) PrepareRepositoryCheckout(ctx context.Context, req *connect.Request[v1.PrepareRepositoryCheckoutRequest]) (*connect.Response[v1.PrepareRepositoryCheckoutResponse], error) {
+	return c.prepareRepositoryCheckout.CallUnary(ctx, req)
+}
+
 // ReleaseRepositorySnapshot calls mind.gateway.v1.Gateway.ReleaseRepositorySnapshot.
 func (c *gatewayClient) ReleaseRepositorySnapshot(ctx context.Context, req *connect.Request[v1.ReleaseRepositorySnapshotRequest]) (*connect.Response[v1.ReleaseRepositorySnapshotResponse], error) {
 	return c.releaseRepositorySnapshot.CallUnary(ctx, req)
@@ -945,6 +963,9 @@ type GatewayHandler interface {
 	// detached, immutable worktree owned by the caller's service-state cache.
 	// Codefly owns every Git command and credential/configuration boundary.
 	MaterializeRepositorySnapshot(context.Context, *connect.Request[v1.MaterializeRepositorySnapshotRequest]) (*connect.Response[v1.MaterializeRepositorySnapshotResponse], error)
+	// PrepareRepositoryCheckout resolves one remote revision into a clean,
+	// mutable checkout backed by a caller-owned repository cache directory.
+	PrepareRepositoryCheckout(context.Context, *connect.Request[v1.PrepareRepositoryCheckoutRequest]) (*connect.Response[v1.PrepareRepositoryCheckoutResponse], error)
 	// ReleaseRepositorySnapshot removes a detached worktree previously leased
 	// by MaterializeRepositorySnapshot and prunes its repository metadata.
 	ReleaseRepositorySnapshot(context.Context, *connect.Request[v1.ReleaseRepositorySnapshotRequest]) (*connect.Response[v1.ReleaseRepositorySnapshotResponse], error)
@@ -1191,6 +1212,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(gatewayMethods.ByName("MaterializeRepositorySnapshot")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayPrepareRepositoryCheckoutHandler := connect.NewUnaryHandler(
+		GatewayPrepareRepositoryCheckoutProcedure,
+		svc.PrepareRepositoryCheckout,
+		connect.WithSchema(gatewayMethods.ByName("PrepareRepositoryCheckout")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gatewayReleaseRepositorySnapshotHandler := connect.NewUnaryHandler(
 		GatewayReleaseRepositorySnapshotProcedure,
 		svc.ReleaseRepositorySnapshot,
@@ -1351,6 +1378,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayGitRevertHandler.ServeHTTP(w, r)
 		case GatewayMaterializeRepositorySnapshotProcedure:
 			gatewayMaterializeRepositorySnapshotHandler.ServeHTTP(w, r)
+		case GatewayPrepareRepositoryCheckoutProcedure:
+			gatewayPrepareRepositoryCheckoutHandler.ServeHTTP(w, r)
 		case GatewayReleaseRepositorySnapshotProcedure:
 			gatewayReleaseRepositorySnapshotHandler.ServeHTTP(w, r)
 		case GatewayReleaseProcedure:
@@ -1524,6 +1553,10 @@ func (UnimplementedGatewayHandler) GitRevert(context.Context, *connect.Request[v
 
 func (UnimplementedGatewayHandler) MaterializeRepositorySnapshot(context.Context, *connect.Request[v1.MaterializeRepositorySnapshotRequest]) (*connect.Response[v1.MaterializeRepositorySnapshotResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.MaterializeRepositorySnapshot is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) PrepareRepositoryCheckout(context.Context, *connect.Request[v1.PrepareRepositoryCheckoutRequest]) (*connect.Response[v1.PrepareRepositoryCheckoutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.PrepareRepositoryCheckout is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) ReleaseRepositorySnapshot(context.Context, *connect.Request[v1.ReleaseRepositorySnapshotRequest]) (*connect.Response[v1.ReleaseRepositorySnapshotResponse], error) {

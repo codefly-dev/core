@@ -147,6 +147,10 @@ service Gateway {
   // Codefly owns every Git command and credential/configuration boundary.
   rpc MaterializeRepositorySnapshot(MaterializeRepositorySnapshotRequest) returns (MaterializeRepositorySnapshotResponse);
 
+  // PrepareRepositoryCheckout resolves one remote revision into a clean,
+  // mutable checkout backed by a caller-owned repository cache directory.
+  rpc PrepareRepositoryCheckout(PrepareRepositoryCheckoutRequest) returns (PrepareRepositoryCheckoutResponse);
+
   // ReleaseRepositorySnapshot removes a detached worktree previously leased
   // by MaterializeRepositorySnapshot and prunes its repository metadata.
   rpc ReleaseRepositorySnapshot(ReleaseRepositorySnapshotRequest) returns (ReleaseRepositorySnapshotResponse);
@@ -1267,6 +1271,33 @@ message MaterializeRepositorySnapshotResponse {
   string revision = 3;
   // snapshot_directory echoes the validated Gateway-relative lease path.
   string snapshot_directory = 4;
+}
+
+// PrepareRepositoryCheckoutRequest asks Codefly to ensure a repository cache,
+// resolve one immutable revision, then force the cache worktree to that commit.
+message PrepareRepositoryCheckoutRequest {
+  // repository_url is the exact remote declared by the caller.
+  string repository_url = 1;
+  // cache_directory is the mutable checkout, relative to the Gateway root.
+  string cache_directory = 2;
+  // revision is the advertised remote ref or full commit to resolve.
+  string revision = 3;
+  // fetch_identity makes the temporary ref unique across callers.
+  string fetch_identity = 4;
+  // remote_access selects the only allowed credential/configuration source.
+  RepositoryRemoteAccess remote_access = 5;
+}
+
+// PrepareRepositoryCheckoutResponse returns the exact clean checkout state.
+message PrepareRepositoryCheckoutResponse {
+  // success reports whether the mutable checkout is ready.
+  bool success = 1;
+  // error explains a failed preparation.
+  string error = 2;
+  // revision is the resolved full commit SHA now checked out.
+  string revision = 3;
+  // default_branch is the remote's advertised default branch when available.
+  string default_branch = 4;
 }
 
 // ReleaseRepositorySnapshotRequest identifies a previously materialized

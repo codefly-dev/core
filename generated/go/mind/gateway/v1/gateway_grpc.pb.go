@@ -54,6 +54,7 @@ const (
 	Gateway_GitMerge_FullMethodName                      = "/mind.gateway.v1.Gateway/GitMerge"
 	Gateway_GitRevert_FullMethodName                     = "/mind.gateway.v1.Gateway/GitRevert"
 	Gateway_MaterializeRepositorySnapshot_FullMethodName = "/mind.gateway.v1.Gateway/MaterializeRepositorySnapshot"
+	Gateway_PrepareRepositoryCheckout_FullMethodName     = "/mind.gateway.v1.Gateway/PrepareRepositoryCheckout"
 	Gateway_ReleaseRepositorySnapshot_FullMethodName     = "/mind.gateway.v1.Gateway/ReleaseRepositorySnapshot"
 	Gateway_Release_FullMethodName                       = "/mind.gateway.v1.Gateway/Release"
 	Gateway_ForgePullRequestStatus_FullMethodName        = "/mind.gateway.v1.Gateway/ForgePullRequestStatus"
@@ -155,6 +156,9 @@ type GatewayClient interface {
 	// detached, immutable worktree owned by the caller's service-state cache.
 	// Codefly owns every Git command and credential/configuration boundary.
 	MaterializeRepositorySnapshot(ctx context.Context, in *MaterializeRepositorySnapshotRequest, opts ...grpc.CallOption) (*MaterializeRepositorySnapshotResponse, error)
+	// PrepareRepositoryCheckout resolves one remote revision into a clean,
+	// mutable checkout backed by a caller-owned repository cache directory.
+	PrepareRepositoryCheckout(ctx context.Context, in *PrepareRepositoryCheckoutRequest, opts ...grpc.CallOption) (*PrepareRepositoryCheckoutResponse, error)
 	// ReleaseRepositorySnapshot removes a detached worktree previously leased
 	// by MaterializeRepositorySnapshot and prunes its repository metadata.
 	ReleaseRepositorySnapshot(ctx context.Context, in *ReleaseRepositorySnapshotRequest, opts ...grpc.CallOption) (*ReleaseRepositorySnapshotResponse, error)
@@ -547,6 +551,16 @@ func (c *gatewayClient) MaterializeRepositorySnapshot(ctx context.Context, in *M
 	return out, nil
 }
 
+func (c *gatewayClient) PrepareRepositoryCheckout(ctx context.Context, in *PrepareRepositoryCheckoutRequest, opts ...grpc.CallOption) (*PrepareRepositoryCheckoutResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PrepareRepositoryCheckoutResponse)
+	err := c.cc.Invoke(ctx, Gateway_PrepareRepositoryCheckout_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *gatewayClient) ReleaseRepositorySnapshot(ctx context.Context, in *ReleaseRepositorySnapshotRequest, opts ...grpc.CallOption) (*ReleaseRepositorySnapshotResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ReleaseRepositorySnapshotResponse)
@@ -784,6 +798,9 @@ type GatewayServer interface {
 	// detached, immutable worktree owned by the caller's service-state cache.
 	// Codefly owns every Git command and credential/configuration boundary.
 	MaterializeRepositorySnapshot(context.Context, *MaterializeRepositorySnapshotRequest) (*MaterializeRepositorySnapshotResponse, error)
+	// PrepareRepositoryCheckout resolves one remote revision into a clean,
+	// mutable checkout backed by a caller-owned repository cache directory.
+	PrepareRepositoryCheckout(context.Context, *PrepareRepositoryCheckoutRequest) (*PrepareRepositoryCheckoutResponse, error)
 	// ReleaseRepositorySnapshot removes a detached worktree previously leased
 	// by MaterializeRepositorySnapshot and prunes its repository metadata.
 	ReleaseRepositorySnapshot(context.Context, *ReleaseRepositorySnapshotRequest) (*ReleaseRepositorySnapshotResponse, error)
@@ -928,6 +945,9 @@ func (UnimplementedGatewayServer) GitRevert(context.Context, *GitRevertRequest) 
 }
 func (UnimplementedGatewayServer) MaterializeRepositorySnapshot(context.Context, *MaterializeRepositorySnapshotRequest) (*MaterializeRepositorySnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MaterializeRepositorySnapshot not implemented")
+}
+func (UnimplementedGatewayServer) PrepareRepositoryCheckout(context.Context, *PrepareRepositoryCheckoutRequest) (*PrepareRepositoryCheckoutResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PrepareRepositoryCheckout not implemented")
 }
 func (UnimplementedGatewayServer) ReleaseRepositorySnapshot(context.Context, *ReleaseRepositorySnapshotRequest) (*ReleaseRepositorySnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseRepositorySnapshot not implemented")
@@ -1600,6 +1620,24 @@ func _Gateway_MaterializeRepositorySnapshot_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Gateway_PrepareRepositoryCheckout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrepareRepositoryCheckoutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).PrepareRepositoryCheckout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_PrepareRepositoryCheckout_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).PrepareRepositoryCheckout(ctx, req.(*PrepareRepositoryCheckoutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Gateway_ReleaseRepositorySnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ReleaseRepositorySnapshotRequest)
 	if err := dec(in); err != nil {
@@ -1997,6 +2035,10 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MaterializeRepositorySnapshot",
 			Handler:    _Gateway_MaterializeRepositorySnapshot_Handler,
+		},
+		{
+			MethodName: "PrepareRepositoryCheckout",
+			Handler:    _Gateway_PrepareRepositoryCheckout_Handler,
 		},
 		{
 			MethodName: "ReleaseRepositorySnapshot",
