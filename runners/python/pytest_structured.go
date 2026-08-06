@@ -133,14 +133,16 @@ const EnvMaterializedMessagePrefix = "environment-materialized: "
 // deliberately excluded: they false-match build output ("Failed to build
 // numpy"), which would launder a genuine build failure into a healthy env.
 var environmentExecutionMarkers = []string{
-	"creating test database",   // django/unittest runner DB setUp
-	"destroying test database", // django teardown
-	"test session starts",      // pytest banner
-	"collected ",               // pytest collection ("collected 42 items")
-	"rootdir:",                 // pytest header
-	"ran ",                     // unittest summary ("Ran 12 tests")
-	"platform ",                // pytest env line ("platform darwin -- Python…")
-	"tests in ",                // unittest timing ("... tests in 3.2s")
+	"creating test database",             // django/unittest runner DB setUp
+	"using existing test database",       // django --keepdb reuses its primary DB
+	"using existing clone test database", // django --keepdb reuses a parallel clone
+	"destroying test database",           // django teardown
+	"test session starts",                // pytest banner
+	"collected ",                         // pytest collection ("collected 42 items")
+	"rootdir:",                           // pytest header
+	"ran ",                               // unittest summary ("Ran 12 tests")
+	"platform ",                          // pytest env line ("platform darwin -- Python…")
+	"tests in ",                          // unittest timing ("... tests in 3.2s")
 }
 
 // EnvironmentMaterialized reports whether raw output proves the test runner

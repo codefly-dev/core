@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -481,5 +482,42 @@ func TestRunFormulaStructured_ProbeEarlyStopsOnMaterialization(t *testing.T) {
 	}
 	if dur > 15*time.Second {
 		t.Fatalf("probe took %s — early-stop did not cancel on materialization", dur.Round(time.Second))
+	}
+}
+
+// Django's production formula always carries --keepdb. On a warm workspace it
+// therefore announces "Using existing test database" rather than "Creating
+// test database". Both messages prove the runner launched; missing the warm
+// form made a health probe execute Django's entire 12k-test suite and report
+// unrelated baseline failures to the agent.
+func TestRunFormulaStructured_ProbeEarlyStopsWhenDjangoReusesDatabase(t *testing.T) {
+	requireUv(t)
+	for _, test := range []struct {
+		name   string
+		marker string
+	}{
+		{name: "primary", marker: "Using existing test database for alias 'default'..."},
+		{name: "parallel clone", marker: "Using existing clone test database for alias 'default'..."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			start := time.Now()
+			run, err := RunFormulaStructured(ctx, t.TempDir(), TestFormulaSpec{
+				Command:   []string{"python", "-c", "print(" + strconv.Quote(test.marker) + "); import time; time.sleep(60)"},
+				Output:    OutputUnittestText,
+				NoProject: true,
+			})
+			dur := time.Since(start)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !run.Materialized {
+				t.Fatalf("warm django probe that launched the runner must be Materialized, got %+v", run)
+			}
+			if dur > 15*time.Second {
+				t.Fatalf("warm django probe took %s — early-stop did not recognize the reused database", dur.Round(time.Second))
+			}
+		})
 	}
 }
