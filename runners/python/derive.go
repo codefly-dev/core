@@ -478,21 +478,74 @@ func portableCICommand(command string) bool {
 	if len(executable) >= 3 && executable[1] == ':' && (executable[2] == '\\' || executable[2] == '/') {
 		return false
 	}
-	// Step labels are optional and weak evidence: maintenance workflows often
-	// use labels such as "test updated generated data", while valid test steps
-	// may omit a label entirely. The command itself must carry test intent before
-	// it can outrank tox/Makefile.
-	for _, field := range fields {
-		token := strings.ToLower(strings.Trim(field, `"'`))
-		token = strings.ReplaceAll(token, `\\`, "/")
-		if slash := strings.LastIndex(token, "/"); slash >= 0 {
-			token = token[slash+1:]
+	// Step labels are optional and weak evidence. Test intent must occupy an
+	// executable/module/target position, not merely occur in an argument: for
+	// example `python -m pip install tox` provisions a runner but executes zero
+	// tests and must fall through to tox.ini.
+	return ciCommandRunsTests(fields)
+}
+
+func ciCommandRunsTests(fields []string) bool {
+	for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "=") {
+		fields = fields[1:]
+	}
+	if len(fields) == 0 {
+		return false
+	}
+	executable := commandToken(fields[0])
+	if testIntentToken(executable) {
+		return true
+	}
+	switch {
+	case strings.HasPrefix(executable, "python"), strings.HasPrefix(executable, "pypy"):
+		for index := 1; index < len(fields); index++ {
+			if fields[index] == "-m" && index+1 < len(fields) {
+				return testIntentToken(commandToken(fields[index+1]))
+			}
+			if !strings.HasPrefix(fields[index], "-") {
+				return testIntentToken(commandToken(fields[index]))
+			}
 		}
-		if strings.Contains(token, "test") || strings.Contains(token, "check") || token == "tox" || token == "nox" {
-			return true
+	case executable == "make", executable == "gmake", executable == "just",
+		executable == "npm", executable == "yarn", executable == "pnpm",
+		executable == "bun", executable == "go", executable == "cargo":
+		for _, field := range fields[1:] {
+			if !strings.HasPrefix(field, "-") {
+				return testIntentToken(commandToken(field))
+			}
+		}
+	case executable == "uv", executable == "poetry", executable == "pipenv", executable == "hatch":
+		for index := 1; index < len(fields); index++ {
+			if commandToken(fields[index]) == "run" {
+				return ciCommandRunsTests(fields[index+1:])
+			}
+		}
+	case executable == "coverage":
+		for index := 1; index < len(fields); index++ {
+			if commandToken(fields[index]) != "run" {
+				continue
+			}
+			tail := fields[index+1:]
+			if len(tail) >= 2 && tail[0] == "-m" {
+				return testIntentToken(commandToken(tail[1]))
+			}
+			return ciCommandRunsTests(tail)
 		}
 	}
 	return false
+}
+
+func commandToken(field string) string {
+	token := strings.ToLower(strings.Trim(field, `"'`))
+	token = strings.ReplaceAll(token, `\\`, "/")
+	if slash := strings.LastIndex(token, "/"); slash >= 0 {
+		token = token[slash+1:]
+	}
+	return token
+}
+
+func testIntentToken(token string) bool {
+	return strings.Contains(token, "test") || strings.Contains(token, "check") || token == "tox" || token == "nox"
 }
 
 func extractFromReadme(d declaration) (string, bool) {

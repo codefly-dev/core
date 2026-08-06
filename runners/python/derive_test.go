@@ -233,6 +233,12 @@ func TestDeriveFormula_UnnamedCITestStepUsesCommandIntent(t *testing.T) {
 // choose the command that accepts tox's selector passthrough.
 func TestDeriveFormula_AstropyMatrixFallsBackToSelectorBearingToxCommand(t *testing.T) {
 	dir := t.TempDir()
+	writeFile(t, dir, ".github/workflows/ci_cron_daily.yml", `jobs:
+  test:
+    steps:
+      - name: Install test dependencies
+        run: python -m pip install --upgrade tox
+`)
 	writeFile(t, dir, ".github/workflows/ci_cron_weekly.yml", `jobs:
   matrix:
     steps:
@@ -279,6 +285,27 @@ commands =
 	}
 	if output != OutputJUnitXML {
 		t.Fatalf("output = %q, want %q", output, OutputJUnitXML)
+	}
+}
+
+func TestPortableCICommandRequiresTestIntentInExecutionPosition(t *testing.T) {
+	tests := map[string]bool{
+		"pytest -q":                           true,
+		"python -m pytest -q":                 true,
+		"python tests/runtests.py":            true,
+		"tox -e py":                           true,
+		"make test":                           true,
+		"uv run pytest -q":                    true,
+		"coverage run -m pytest":              true,
+		"python -m pip install --upgrade tox": false,
+		"pip install pytest":                  false,
+		"python -m venv tests":                false,
+		"echo pytest":                         false,
+	}
+	for command, want := range tests {
+		if got := portableCICommand(command); got != want {
+			t.Errorf("portableCICommand(%q) = %v, want %v", command, got, want)
+		}
 	}
 }
 
