@@ -2,6 +2,7 @@ syntax = "proto3";
 package mind.gateway.v1;
 
 import "codefly/base/v0/source.proto";
+import "codefly/services/builder/v0/builder.proto";
 import "codefly/services/runtime/v0/runtime.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -85,6 +86,11 @@ service Gateway {
 
   // Test runs the configured test command on the service.
   rpc Test(TestRequest) returns (TestResponse);
+
+  // ConfigureService applies plugin-owned, schema-validated configuration.
+  // Mind supplies typed values; the owning Codefly agent decides how and
+  // where they are persisted.
+  rpc ConfigureService(ConfigureServiceRequest) returns (ConfigureServiceResponse);
 
   // Format applies the service plugin's canonical formatter/import organizer.
   rpc Format(FormatRequest) returns (FormatResponse);
@@ -716,6 +722,20 @@ message TestResponse {
   // it to verify structured-selection acknowledgement and consume the full
   // suite tree. The flat fields above remain a presentation-compatible view.
   codefly.services.runtime.v0.TestResponse runtime_response = 9;
+}
+
+// ConfigureServiceRequest asks the owning service plugin to persist typed
+// configuration changes. Paths are limited to the schema advertised by that
+// plugin (for example test.env.CFLAGS or test.provisioning.python).
+message ConfigureServiceRequest {
+  string service = 1;
+  repeated codefly.services.builder.v0.ConfigChange changes = 2;
+}
+
+// ConfigureServiceResponse preserves the builder plugin's authoritative
+// status and effective configuration projection.
+message ConfigureServiceResponse {
+  codefly.services.builder.v0.ConfigureResponse response = 1;
 }
 
 // ─── Format ──────────────────────────────────────────────────

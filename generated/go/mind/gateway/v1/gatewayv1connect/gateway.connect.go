@@ -73,6 +73,9 @@ const (
 	GatewayLintProcedure = "/mind.gateway.v1.Gateway/Lint"
 	// GatewayTestProcedure is the fully-qualified name of the Gateway's Test RPC.
 	GatewayTestProcedure = "/mind.gateway.v1.Gateway/Test"
+	// GatewayConfigureServiceProcedure is the fully-qualified name of the Gateway's ConfigureService
+	// RPC.
+	GatewayConfigureServiceProcedure = "/mind.gateway.v1.Gateway/ConfigureService"
 	// GatewayFormatProcedure is the fully-qualified name of the Gateway's Format RPC.
 	GatewayFormatProcedure = "/mind.gateway.v1.Gateway/Format"
 	// GatewayRunCommandProcedure is the fully-qualified name of the Gateway's RunCommand RPC.
@@ -180,6 +183,10 @@ type GatewayClient interface {
 	Lint(context.Context, *connect.Request[v1.LintRequest]) (*connect.Response[v1.LintResponse], error)
 	// Test runs the configured test command on the service.
 	Test(context.Context, *connect.Request[v1.TestRequest]) (*connect.Response[v1.TestResponse], error)
+	// ConfigureService applies plugin-owned, schema-validated configuration.
+	// Mind supplies typed values; the owning Codefly agent decides how and
+	// where they are persisted.
+	ConfigureService(context.Context, *connect.Request[v1.ConfigureServiceRequest]) (*connect.Response[v1.ConfigureServiceResponse], error)
 	// Format applies the service plugin's canonical formatter/import organizer.
 	Format(context.Context, *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error)
 	// RunCommand executes an arbitrary command in the service context.
@@ -357,6 +364,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			httpClient,
 			baseURL+GatewayTestProcedure,
 			connect.WithSchema(gatewayMethods.ByName("Test")),
+			connect.WithClientOptions(opts...),
+		),
+		configureService: connect.NewClient[v1.ConfigureServiceRequest, v1.ConfigureServiceResponse](
+			httpClient,
+			baseURL+GatewayConfigureServiceProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ConfigureService")),
 			connect.WithClientOptions(opts...),
 		),
 		format: connect.NewClient[v1.FormatRequest, v1.FormatResponse](
@@ -550,6 +563,7 @@ type gatewayClient struct {
 	build                      *connect.Client[v1.BuildRequest, v1.BuildResponse]
 	lint                       *connect.Client[v1.LintRequest, v1.LintResponse]
 	test                       *connect.Client[v1.TestRequest, v1.TestResponse]
+	configureService           *connect.Client[v1.ConfigureServiceRequest, v1.ConfigureServiceResponse]
 	format                     *connect.Client[v1.FormatRequest, v1.FormatResponse]
 	runCommand                 *connect.Client[v1.RunCommandRequest, v1.RunCommandResponse]
 	listAllCommands            *connect.Client[v1.ListAllCommandsRequest, v1.ListAllCommandsResponse]
@@ -668,6 +682,11 @@ func (c *gatewayClient) Lint(ctx context.Context, req *connect.Request[v1.LintRe
 // Test calls mind.gateway.v1.Gateway.Test.
 func (c *gatewayClient) Test(ctx context.Context, req *connect.Request[v1.TestRequest]) (*connect.Response[v1.TestResponse], error) {
 	return c.test.CallUnary(ctx, req)
+}
+
+// ConfigureService calls mind.gateway.v1.Gateway.ConfigureService.
+func (c *gatewayClient) ConfigureService(ctx context.Context, req *connect.Request[v1.ConfigureServiceRequest]) (*connect.Response[v1.ConfigureServiceResponse], error) {
+	return c.configureService.CallUnary(ctx, req)
 }
 
 // Format calls mind.gateway.v1.Gateway.Format.
@@ -853,6 +872,10 @@ type GatewayHandler interface {
 	Lint(context.Context, *connect.Request[v1.LintRequest]) (*connect.Response[v1.LintResponse], error)
 	// Test runs the configured test command on the service.
 	Test(context.Context, *connect.Request[v1.TestRequest]) (*connect.Response[v1.TestResponse], error)
+	// ConfigureService applies plugin-owned, schema-validated configuration.
+	// Mind supplies typed values; the owning Codefly agent decides how and
+	// where they are persisted.
+	ConfigureService(context.Context, *connect.Request[v1.ConfigureServiceRequest]) (*connect.Response[v1.ConfigureServiceResponse], error)
 	// Format applies the service plugin's canonical formatter/import organizer.
 	Format(context.Context, *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error)
 	// RunCommand executes an arbitrary command in the service context.
@@ -1026,6 +1049,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		GatewayTestProcedure,
 		svc.Test,
 		connect.WithSchema(gatewayMethods.ByName("Test")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayConfigureServiceHandler := connect.NewUnaryHandler(
+		GatewayConfigureServiceProcedure,
+		svc.ConfigureService,
+		connect.WithSchema(gatewayMethods.ByName("ConfigureService")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gatewayFormatHandler := connect.NewUnaryHandler(
@@ -1234,6 +1263,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayLintHandler.ServeHTTP(w, r)
 		case GatewayTestProcedure:
 			gatewayTestHandler.ServeHTTP(w, r)
+		case GatewayConfigureServiceProcedure:
+			gatewayConfigureServiceHandler.ServeHTTP(w, r)
 		case GatewayFormatProcedure:
 			gatewayFormatHandler.ServeHTTP(w, r)
 		case GatewayRunCommandProcedure:
@@ -1369,6 +1400,10 @@ func (UnimplementedGatewayHandler) Lint(context.Context, *connect.Request[v1.Lin
 
 func (UnimplementedGatewayHandler) Test(context.Context, *connect.Request[v1.TestRequest]) (*connect.Response[v1.TestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.Test is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ConfigureService(context.Context, *connect.Request[v1.ConfigureServiceRequest]) (*connect.Response[v1.ConfigureServiceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ConfigureService is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) Format(context.Context, *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error) {
