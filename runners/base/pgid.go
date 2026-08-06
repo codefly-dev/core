@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -219,15 +220,21 @@ func IsProcessAlive(pid int) bool {
 // etc). The pgid file is removed either way. Best-effort: a single failed
 // reap does not short-circuit the sweep.
 //
-// Call this once at the top of `codefly run service`, before any new
-// children are spawned. Idempotent and safe when no files exist.
+// Call this from every process-owning composition root before new children are
+// spawned. The CLI run/daemon paths and the shared WorkspaceHost do this, so
+// embedded Gateway users recover just like a standalone `codefly run`.
 //
 // Convergence: when a parent agent and its NativeProc grandchild both have
 // files, directory order can cause the grandchild to be visited while its
 // parent is still live (so we skip it), then the parent gets reaped a few
 // iterations later. We loop up to maxSweepPasses so a single call resolves
 // the whole orphan tree without relying on a subsequent `codefly run`.
+var reapStaleProcessGroupsMu sync.Mutex
+
 func ReapStaleProcessGroups(ctx context.Context) error {
+	reapStaleProcessGroupsMu.Lock()
+	defer reapStaleProcessGroupsMu.Unlock()
+
 	const maxSweepPasses = 4
 	w := wool.Get(ctx).In("base.ReapStaleProcessGroups")
 	dir, err := pgidStateDir()
