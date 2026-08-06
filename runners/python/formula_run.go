@@ -426,6 +426,15 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 			materializedEarly = diagnosticMaterialized
 		}
 	}
+	// Historical setuptools backends predate PEP 660 and cannot satisfy uv
+	// run's --with-editable contract. This is an unambiguous capability gap,
+	// not a project defect or a dependency guess. Re-enter once through the
+	// existing persistent-venv path, whose real historical-pip fallback owns
+	// setup.py develop semantics for precisely these backends.
+	if runErr != nil && spec.Editable && !spec.PersistentVenv && editableHookUnavailable(rawStr) {
+		spec.PersistentVenv = true
+		return RunFormulaStructured(ctx, sourceDir, spec)
+	}
 
 	var run *StructuredTestRun
 	if spec.Output == OutputJUnitXML {
