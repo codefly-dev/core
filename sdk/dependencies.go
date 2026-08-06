@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -48,6 +49,7 @@ type Option struct {
 	ExcludedDependencies    []string
 	WorkspaceConfigurations []resources.WorkspaceConfigurationOverride
 	ServiceConfigurations   []resources.ServiceConfigurationOverride
+	DependencyHome          string
 	KeepRunning             bool
 }
 
@@ -97,6 +99,20 @@ func WithSilence(uniques ...string) OptionFunc {
 func WithExcludedDependencies(uniques ...string) OptionFunc {
 	return func(o *Option) {
 		o.ExcludedDependencies = append(o.ExcludedDependencies, uniques...)
+	}
+}
+
+// WithDependencyHome selects HOME only for the spawned Codefly dependency
+// process and the infrastructure agents it owns. The caller keeps its own
+// HOME, PATH, and developer toolchain environment unchanged. This is useful
+// when a native dependency stores runtime state through os.UserCacheDir and
+// concurrent dependency stacks need separate cache roots.
+//
+// The directory must be absolute. Codefly creates no directory implicitly;
+// callers own its lifecycle and permissions.
+func WithDependencyHome(home string) OptionFunc {
+	return func(o *Option) {
+		o.DependencyHome = home
 	}
 }
 
@@ -222,6 +238,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err != nil {
 		return nil, err
 	}
+	processEnvironment = withDependencyHome(processEnvironment, opt.DependencyHome)
 	cmd.Env = withCLIServerPort(processEnvironment, addr)
 	wool.Get(ctx).In("sdk.WithDependencies").Debug("starting CLI subprocess", wool.Field("cmd", cmd.String()))
 
@@ -300,6 +317,9 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 func validateDependencyOptions(opt *Option) error {
 	if opt.KeepRunning && hasInvocationConfigurationOverrides(opt) {
 		return fmt.Errorf("invocation-scoped configurations cannot be combined with a reusable dependency stack")
+	}
+	if opt.DependencyHome != "" && !filepath.IsAbs(opt.DependencyHome) {
+		return fmt.Errorf("dependency home must be absolute: %s", opt.DependencyHome)
 	}
 	return nil
 }
@@ -406,6 +426,21 @@ func withCLIServerPort(environment []string, address string) []string {
 		result = append(result, entry)
 	}
 	return append(result, prefix+port)
+}
+
+func withDependencyHome(environment []string, home string) []string {
+	if home == "" {
+		return environment
+	}
+	const prefix = "HOME="
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return append(result, prefix+home)
 }
 
 func withWorkspaceConfigurationOverrides(

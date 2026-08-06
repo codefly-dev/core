@@ -137,6 +137,36 @@ func TestWithCLIServerPortLeavesEnvironmentForInvalidAddress(t *testing.T) {
 	}
 }
 
+func TestWithDependencyHomeChangesOnlySpawnedDependencyEnvironment(t *testing.T) {
+	t.Setenv("HOME", "/real-home")
+	environment := []string{
+		"PATH=/real-home/.local/share/mise/shims:/usr/bin",
+		"HOME=/real-home",
+		"CODEFLY_HOME=/real-home/.codefly",
+	}
+
+	got := withDependencyHome(environment, "/tmp/dependency-home")
+	want := []string{
+		"PATH=/real-home/.local/share/mise/shims:/usr/bin",
+		"CODEFLY_HOME=/real-home/.codefly",
+		"HOME=/tmp/dependency-home",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dependency environment = %v, want %v", got, want)
+	}
+	if gotHome := os.Getenv("HOME"); gotHome != "/real-home" {
+		t.Fatalf("caller HOME = %q, want /real-home", gotHome)
+	}
+}
+
+func TestWithDependencyHomeRequiresAbsolutePath(t *testing.T) {
+	option := &Option{}
+	WithDependencyHome("relative/home")(option)
+	if err := validateDependencyOptions(option); err == nil || !strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("validateDependencyOptions() error = %v, want absolute-path rejection", err)
+	}
+}
+
 func TestWorkspaceConfigurationOptionsUseOnePrivateChildCarrier(t *testing.T) {
 	option := &Option{}
 	WithWorkspaceConfiguration("routing", "REGION", "local")(option)
