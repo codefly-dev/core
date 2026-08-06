@@ -456,7 +456,23 @@ func portableCICommand(command string) bool {
 	if strings.HasPrefix(executable, "/") || strings.HasPrefix(executable, `\\`) {
 		return false
 	}
-	return len(executable) < 3 || executable[1] != ':' || (executable[2] != '\\' && executable[2] != '/')
+	if len(executable) >= 3 && executable[1] == ':' && (executable[2] == '\\' || executable[2] == '/') {
+		return false
+	}
+	// A step label containing "test" is weak evidence: maintenance workflows
+	// often use labels such as "test updated generated data". Require the
+	// command itself to carry test intent before it can outrank tox/Makefile.
+	for _, field := range fields {
+		token := strings.ToLower(strings.Trim(field, `"'`))
+		token = strings.ReplaceAll(token, `\\`, "/")
+		if slash := strings.LastIndex(token, "/"); slash >= 0 {
+			token = token[slash+1:]
+		}
+		if strings.Contains(token, "test") || strings.Contains(token, "check") || token == "tox" || token == "nox" {
+			return true
+		}
+	}
+	return false
 }
 
 func extractFromReadme(d declaration) (string, bool) {

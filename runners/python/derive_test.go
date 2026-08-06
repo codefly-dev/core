@@ -238,6 +238,12 @@ func TestDeriveFormula_AstropyMatrixFallsBackToSelectorBearingToxCommand(t *test
       - name: Run tests
         run: /opt/python/cp38-cp38/bin/python -m tox -e py38-numpy120-test -- -n=4 --durations=50
 `)
+	writeFile(t, dir, ".github/workflows/update_iers.yml", `jobs:
+  update:
+    steps:
+      - name: Test updated built-in IERS data
+        run: ./update_builtin_iers.sh
+`)
 	writeFile(t, dir, "tox.ini", `[testenv]
 commands =
     devdeps: pip install -U numpy
