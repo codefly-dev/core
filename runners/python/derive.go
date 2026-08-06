@@ -304,6 +304,23 @@ func outputFormatFromCommand(cmd string) string {
 func extractFromTox(d declaration) (string, bool) {
 	lines := strings.Split(d.text, "\n")
 	inTestEnv, collecting := false, false
+	var fallback string
+	consider := func(value string) (string, bool) {
+		cmd := firstCommandLine(stripToxFactor(value))
+		if cmd == "" {
+			return "", false
+		}
+		// The passthrough token identifies the command that owns test
+		// selection. Setup/diagnostic commands such as `pip freeze` commonly
+		// precede it and must not become a successful zero-test formula.
+		if reToxPosargs.MatchString(cmd) {
+			return cmd, true
+		}
+		if fallback == "" {
+			fallback = cmd
+		}
+		return "", false
+	}
 	for _, raw := range lines {
 		line := strings.TrimRight(raw, "\r")
 		trimmed := strings.TrimSpace(line)
@@ -317,7 +334,7 @@ func extractFromTox(d declaration) (string, bool) {
 		}
 		if collecting {
 			if line != trimmed && trimmed != "" {
-				if cmd := firstCommandLine(trimmed); cmd != "" {
+				if cmd, selected := consider(trimmed); selected {
 					return cmd, true
 				}
 			} else if trimmed == "" {
@@ -328,14 +345,27 @@ func extractFromTox(d declaration) (string, bool) {
 		}
 		if k, v, ok := iniKey(trimmed); ok && k == "commands" {
 			if v != "" {
-				if cmd := firstCommandLine(v); cmd != "" {
+				if cmd, selected := consider(v); selected {
 					return cmd, true
 				}
 			}
 			collecting = true
 		}
 	}
-	return "", false
+	return fallback, fallback != ""
+}
+
+var reToxFactor = regexp.MustCompile(`^[A-Za-z0-9_!,{}.-]+$`)
+
+// stripToxFactor removes tox's leading environment-factor condition from a
+// command. Requiring one factor-grammar token keeps ordinary command colons
+// intact while making the selected command runnable outside tox orchestration.
+func stripToxFactor(command string) string {
+	prefix, rest, found := strings.Cut(strings.TrimSpace(command), ":")
+	if found && reToxFactor.MatchString(prefix) && strings.TrimSpace(rest) != "" {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(command)
 }
 
 func extractFromMakefile(d declaration) (string, bool) {
@@ -377,6 +407,12 @@ func extractFromCI(d declaration) (string, bool) {
 				cmd := v
 				if cmd == "|" || cmd == ">" || cmd == "" {
 					cmd = nextBlockLine(lines, i)
+				}
+				// GitHub Actions evaluates workflow expressions with matrix/job
+				// context that does not exist in a local runtime. Skip them and
+				// continue to a concrete CI step or lower-priority declaration.
+				if strings.Contains(cmd, "${{") {
+					continue
 				}
 				if cmd = firstCommandLine(cmd); cmd != "" {
 					return cmd, true

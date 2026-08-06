@@ -194,6 +194,35 @@ func TestDeriveFormula_CIWorkflowWins(t *testing.T) {
 	}
 }
 
+// Astropy's workflow delegates its tox environment to a GitHub matrix, while
+// tox.ini puts setup/diagnostic commands before the factor-qualified test
+// command. Local derivation must reject the unavailable matrix expression and
+// choose the command that accepts tox's selector passthrough.
+func TestDeriveFormula_AstropyMatrixFallsBackToSelectorBearingToxCommand(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".github/workflows/ci.yml",
+		"steps:\n  - name: Run tests\n    run: tox ${{ matrix.toxargs }} -e ${{ matrix.toxenv }} -- ${{ matrix.toxposargs }}\n")
+	writeFile(t, dir, "tox.ini", `[testenv]
+commands =
+    devdeps: pip install -U numpy
+    pip freeze
+    !cov-!double: pytest --pyargs astropy {toxinidir}/docs {env:MPLFLAGS} {posargs}
+    cov: coverage xml
+`)
+
+	command, output, _, _, ok := DeriveFormula(dir)
+	if !ok {
+		t.Fatal("expected concrete tox formula")
+	}
+	want := []string{"pytest", "--pyargs", "astropy", "docs"}
+	if strings.Join(command, " ") != strings.Join(want, " ") {
+		t.Fatalf("command = %v, want %v", command, want)
+	}
+	if output != OutputJUnitXML {
+		t.Fatalf("output = %q, want %q", output, OutputJUnitXML)
+	}
+}
+
 func TestDeriveFormula_NothingDeclared(t *testing.T) {
 	if _, _, _, _, ok := DeriveFormula(t.TempDir()); ok {
 		t.Fatal("a project declaring nothing runnable must return ok=false")
