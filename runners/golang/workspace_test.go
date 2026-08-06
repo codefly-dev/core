@@ -144,3 +144,42 @@ func TestRunFormulaRootOwnedWorkspaceHonorsPackageSelector(t *testing.T) {
 		t.Fatalf("selector did not narrow the workspace formula: cases=%v", caseNames)
 	}
 }
+
+func TestSourceOwnedWorkspaceDoesNotExecuteSiblingDependencyModules(t *testing.T) {
+	parent := t.TempDir()
+	source := filepath.Join(parent, "agent")
+	sibling := filepath.Join(parent, "core")
+	for _, dir := range []string{source, sibling} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("create %s: %v", dir, err)
+		}
+	}
+	files := map[string]string{
+		filepath.Join(source, "go.work"): "go 1.24.0\n\nuse (\n\t.\n\t../core\n)\n",
+		filepath.Join(source, "go.mod"):  "module example.com/agent\n\ngo 1.24.0\n",
+		filepath.Join(sibling, "go.mod"): "module example.com/core\n\ngo 1.24.0\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	workspace, owned, err := loadSourceGoWorkspace(source)
+	if err != nil {
+		t.Fatalf("load source workspace: %v", err)
+	}
+	if !owned {
+		t.Fatal("source-owned go.work was not recognized")
+	}
+	wantSource, err := canonicalExistingDir(source)
+	if err != nil {
+		t.Fatalf("canonical source: %v", err)
+	}
+	if len(workspace.moduleDirs) != 1 || workspace.moduleDirs[0] != wantSource {
+		t.Fatalf("executable module dirs = %v, want only attached source %s", workspace.moduleDirs, wantSource)
+	}
+	if got := strings.Join(workspace.packageTargets, " "); got != "./..." {
+		t.Fatalf("package targets = %q, want only attached source packages", got)
+	}
+}

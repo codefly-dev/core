@@ -21,9 +21,10 @@ type sourceGoWorkspace struct {
 }
 
 // loadSourceGoWorkspace parses a go.work owned by sourceDir and resolves its
-// use directives into bounded module directories and package patterns. The
-// source boundary is intentional: a runtime attached to one project must not
-// silently execute packages reached through an escaping use path.
+// use directives into bounded module directories and package patterns. A
+// go.work may explicitly name sibling dependency modules (Codefly's local
+// agent-development workflow does this), but default runtime operations only
+// execute modules inside the attached source root.
 func loadSourceGoWorkspace(sourceDir string) (*sourceGoWorkspace, bool, error) {
 	workPath := filepath.Join(sourceDir, "go.work")
 	data, err := os.ReadFile(workPath)
@@ -61,7 +62,10 @@ func loadSourceGoWorkspace(sourceDir string) (*sourceGoWorkspace, bool, error) {
 			return nil, true, fmt.Errorf("relativize go.work use %q: %w", use.Path, err)
 		}
 		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return nil, true, fmt.Errorf("go.work use %q escapes attached source root %s", use.Path, root)
+			// The Go tool may resolve imports from an explicitly declared
+			// sibling module, but the attached project's unscoped test/build/
+			// lint request must not execute that sibling's packages.
+			continue
 		}
 		if _, duplicate := seen[moduleDir]; duplicate {
 			continue
@@ -79,7 +83,7 @@ func loadSourceGoWorkspace(sourceDir string) (*sourceGoWorkspace, bool, error) {
 		result.packageTargets = append(result.packageTargets, target)
 	}
 	if len(result.moduleDirs) == 0 {
-		return nil, true, fmt.Errorf("go.work at %s declares no usable modules", workPath)
+		return nil, true, fmt.Errorf("go.work at %s declares no modules inside the attached source root", workPath)
 	}
 	return result, true, nil
 }
