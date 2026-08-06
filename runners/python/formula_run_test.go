@@ -109,6 +109,50 @@ func TestBuildUvArgs_EmptyDefaults(t *testing.T) {
 	}
 }
 
+func TestVerboseUVArgsKeepsDiagnosticFlagOutsideProjectCommand(t *testing.T) {
+	got := strings.Join(verboseUVArgs([]string{"run", "--no-project", "python", "runtests.py"}), " ")
+	if got != "run --verbose --no-project python runtests.py" {
+		t.Fatalf("verbose uv args = %q", got)
+	}
+}
+
+// A real uv build-backend failure observed during the Django headless session
+// returned only "The build backend returned an error" on the normal path. The
+// unhappy path must retain the backend exception that tells a remediator what
+// to repair, while the normal successful path remains non-verbose.
+func TestRunFormulaStructuredRecoversOpaqueBuildBackendDiagnostic(t *testing.T) {
+	requireUv(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte(`[build-system]
+requires = []
+build-backend = "broken_backend"
+backend-path = ["."]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "broken_backend.py"), []byte(`def get_requires_for_build_editable(config_settings=None):
+    raise RuntimeError("CODEFLY_VERBOSE_BACKEND_DIAGNOSTIC")
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run, err := RunFormulaStructured(context.Background(), root, TestFormulaSpec{
+		Command:   []string{"python", "-c", "pass"},
+		Output:    OutputUnittestText,
+		NoProject: true,
+		Editable:  true,
+	})
+	if err != nil {
+		t.Fatalf("structured failure must remain an operation result: %v", err)
+	}
+	if run.EnvError == nil || run.EnvError.Reason != "build-failed" {
+		t.Fatalf("environment classification = %+v", run.EnvError)
+	}
+	if !strings.Contains(run.RawOutput, "CODEFLY_VERBOSE_BACKEND_DIAGNOSTIC") {
+		t.Fatalf("verbose retry dropped backend exception:\n%s", run.RawOutput)
+	}
+}
+
 // cwd is provisioning DATA (where to run), not a uv flag: SpecFromFormula must
 // carry it into the spec, and BuildUvArgs must NOT render it.
 func TestSpecFromFormula_CwdIsDataNotAUvFlag(t *testing.T) {
