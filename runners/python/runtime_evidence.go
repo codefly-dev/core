@@ -68,6 +68,14 @@ func RuntimeEvidenceForFormula(sourceDir string, cmd []string, output string, en
 	}
 	if len(cmd) > 0 {
 		spec := SpecFromFormula(cmd, output, env, prov, nil)
+		// RunFormulaStructured resolves editable installs to the absolute source
+		// root before spawning uv. Render the same semantic target without leaking
+		// a machine-specific temporary workspace path into logs/cassettes. A bare
+		// "." is actively misleading when cwd=tests because it appears to target
+		// the run directory rather than the code-unit root.
+		if spec.Editable {
+			spec.EditableTarget = "<code-unit-root>"
+		}
 		b.WriteString("  uv_args: uv " + strings.Join(BuildUvArgs(spec, ""), " ") + "\n")
 	}
 	sources := detectRuntimeSources(sourceDir)
