@@ -210,6 +210,23 @@ func TestDeriveFormula_CIWorkflowWins(t *testing.T) {
 	}
 }
 
+func TestDeriveFormula_UnnamedCITestStepUsesCommandIntent(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".github/workflows/test.yml",
+		"jobs:\n  test:\n    steps:\n      - run: pytest -v\n")
+
+	cmd, output, _, _, ok := DeriveFormula(dir)
+	if !ok {
+		t.Fatal("an unnamed step with an explicit test command was rejected")
+	}
+	if got := strings.Join(cmd, " "); got != "pytest -v" {
+		t.Fatalf("command = %q, want %q", got, "pytest -v")
+	}
+	if output != OutputJUnitXML {
+		t.Fatalf("output = %q, want %q", output, OutputJUnitXML)
+	}
+}
+
 // Astropy's workflow delegates its tox environment to a GitHub matrix, while
 // tox.ini puts setup/diagnostic commands before the factor-qualified test
 // command. Local derivation must reject the unavailable matrix expression and

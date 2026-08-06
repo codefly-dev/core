@@ -404,29 +404,31 @@ func extractFromCI(d declaration) (string, bool) {
 	return ciTestStepCommand(&document)
 }
 
-// ciTestStepCommand requires `name` and `run` to be sibling keys on the same
-// YAML mapping. Actions can expose an unrelated nested `with.run` input; the
-// old line scanner associated that input with the outer "Run tests" name and
-// executed Astropy's environment setup as if it were the test command.
+// ciTestStepCommand reads `run` only from mappings that are direct children of
+// a workflow `steps` sequence. Step names are optional. Action inputs can expose
+// an unrelated nested `with.run`; keeping traversal aware of the `steps`
+// boundary prevents that input from becoming the project's test command.
 func ciTestStepCommand(node *yaml.Node) (string, bool) {
+	return ciTestStepCommandAt(node, false)
+}
+
+func ciTestStepCommandAt(node *yaml.Node, workflowStep bool) (string, bool) {
 	if node == nil {
 		return "", false
 	}
-	if node.Kind == yaml.MappingNode {
-		name, run := "", ""
+	if workflowStep && node.Kind == yaml.MappingNode {
+		run := ""
 		for index := 0; index+1 < len(node.Content); index += 2 {
 			key, value := node.Content[index], node.Content[index+1]
 			if key.Kind != yaml.ScalarNode || value.Kind != yaml.ScalarNode {
 				continue
 			}
 			switch strings.ToLower(strings.TrimSpace(key.Value)) {
-			case "name":
-				name = value.Value
 			case "run":
 				run = value.Value
 			}
 		}
-		if strings.Contains(strings.ToLower(name), "test") && run != "" && !strings.Contains(run, "${{") {
+		if run != "" && !strings.Contains(run, "${{") {
 			for _, line := range strings.Split(run, "\n") {
 				if command := firstCommandLine(strings.TrimSpace(line)); command != "" && portableCICommand(command) {
 					return command, true
@@ -434,8 +436,25 @@ func ciTestStepCommand(node *yaml.Node) (string, bool) {
 			}
 		}
 	}
+	if node.Kind == yaml.MappingNode {
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key, value := node.Content[index], node.Content[index+1]
+			if key.Kind == yaml.ScalarNode && strings.EqualFold(strings.TrimSpace(key.Value), "steps") && value.Kind == yaml.SequenceNode {
+				for _, step := range value.Content {
+					if command, ok := ciTestStepCommandAt(step, true); ok {
+						return command, true
+					}
+				}
+				continue
+			}
+			if command, ok := ciTestStepCommandAt(value, false); ok {
+				return command, true
+			}
+		}
+		return "", false
+	}
 	for _, child := range node.Content {
-		if command, ok := ciTestStepCommand(child); ok {
+		if command, ok := ciTestStepCommandAt(child, false); ok {
 			return command, true
 		}
 	}
@@ -459,9 +478,10 @@ func portableCICommand(command string) bool {
 	if len(executable) >= 3 && executable[1] == ':' && (executable[2] == '\\' || executable[2] == '/') {
 		return false
 	}
-	// A step label containing "test" is weak evidence: maintenance workflows
-	// often use labels such as "test updated generated data". Require the
-	// command itself to carry test intent before it can outrank tox/Makefile.
+	// Step labels are optional and weak evidence: maintenance workflows often
+	// use labels such as "test updated generated data", while valid test steps
+	// may omit a label entirely. The command itself must carry test intent before
+	// it can outrank tox/Makefile.
 	for _, field := range fields {
 		token := strings.ToLower(strings.Trim(field, `"'`))
 		token = strings.ReplaceAll(token, `\\`, "/")
