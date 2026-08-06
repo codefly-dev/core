@@ -47,6 +47,7 @@ type GoRunnerEnvironment struct {
 	// go.work from an unrelated parent workspace inherited from the host.
 	withGoWorkspace   bool
 	ownsGoWorkspace   bool
+	goWorkspaceFile   string
 	workspaceModules  []string
 	workspacePackages []string
 
@@ -142,6 +143,7 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 		local:             local,
 		withGoModules:     withGoModules,
 		ownsGoWorkspace:   ownsWorkspace,
+		goWorkspaceFile:   workspaceFile(workspace),
 		workspaceModules:  workspaceModuleDirs(workspace),
 		workspacePackages: workspacePackageTargets(workspace),
 		localCacheDir:     path.Join(sourceDir, "cache"),
@@ -188,6 +190,7 @@ func NewNixGoRunner(ctx context.Context, dir string, relativeSource string) (*Go
 		nix:               nixEnv,
 		withGoModules:     withGoModules,
 		ownsGoWorkspace:   ownsWorkspace,
+		goWorkspaceFile:   workspaceFile(workspace),
 		workspaceModules:  workspaceModuleDirs(workspace),
 		workspacePackages: workspacePackageTargets(workspace),
 		localCacheDir:     path.Join(sourceDir, "cache"),
@@ -231,6 +234,7 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 		companion:         companion,
 		withGoModules:     withGoModules,
 		ownsGoWorkspace:   ownsWorkspace,
+		goWorkspaceFile:   workspaceFile(workspace),
 		workspaceModules:  workspaceModuleDirs(workspace),
 		workspacePackages: workspacePackageTargets(workspace),
 		localCacheDir:     path.Join(sourceDir, "cache"),
@@ -244,6 +248,13 @@ func workspaceModuleDirs(workspace *sourceGoWorkspace) []string {
 		return nil
 	}
 	return append([]string(nil), workspace.moduleDirs...)
+}
+
+func workspaceFile(workspace *sourceGoWorkspace) string {
+	if workspace == nil {
+		return ""
+	}
+	return workspace.workFile
 }
 
 func workspacePackageTargets(workspace *sourceGoWorkspace) []string {
@@ -303,6 +314,13 @@ func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
 	} else {
 		w.Trace("running with go modules")
 		r.Env().WithEnvironmentVariables(ctx, resources.Env("GO111MODULE", "on"))
+	}
+	if r.ownsGoWorkspace {
+		// Pin the project-owned workspace explicitly. The agent process may
+		// itself run under a developer GOWORK, and source checkouts are often
+		// reached through an ephemeral symlink where implicit discovery is not
+		// reliable. Project configuration must win over both conditions.
+		r.Env().WithEnvironmentVariables(ctx, resources.Env("GOWORK", r.goWorkspaceFile))
 	}
 	if r.companion != nil {
 		r.companion.WithMount(r.LocalCacheDir(ctx), "/build")

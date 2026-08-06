@@ -15,6 +15,7 @@ import (
 )
 
 type sourceGoWorkspace struct {
+	workFile       string
 	root           string
 	moduleDirs     []string
 	packageTargets []string
@@ -43,7 +44,7 @@ func loadSourceGoWorkspace(sourceDir string) (*sourceGoWorkspace, bool, error) {
 	if err != nil {
 		return nil, true, fmt.Errorf("resolve Go workspace root %s: %w", sourceDir, err)
 	}
-	result := &sourceGoWorkspace{root: root}
+	result := &sourceGoWorkspace{workFile: filepath.Join(root, "go.work"), root: root}
 	seen := make(map[string]struct{}, len(work.Use))
 	for _, use := range work.Use {
 		if use == nil || strings.TrimSpace(use.Path) == "" {

@@ -79,6 +79,9 @@ func TestGraderCrossesWorkspaceModules(t *testing.T) {
 func TestRunGoTestsRootOwnedWorkspaceExecutesEveryModule(t *testing.T) {
 	ctx := context.Background()
 	root := writeRealGoWorkspace(t)
+	// A developer running Codefly under another module workspace must not
+	// override the workspace owned by the attached project.
+	t.Setenv("GOWORK", "off")
 	env, err := NewNativeGoRunner(ctx, root, ".")
 	if err != nil {
 		t.Fatalf("new native runner: %v", err)
@@ -117,6 +120,7 @@ func TestRunGoTestsRootOwnedWorkspaceExecutesEveryModule(t *testing.T) {
 
 func TestRunFormulaRootOwnedWorkspaceHonorsPackageSelector(t *testing.T) {
 	root := writeRealGoWorkspace(t)
+	t.Setenv("GOWORK", "off")
 	cmd, _, ok := DeriveFormula(root)
 	if !ok {
 		t.Fatal("DeriveFormula did not claim a valid source-root go.work")

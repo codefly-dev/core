@@ -220,7 +220,9 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 	cmd := exec.CommandContext(ctx, command[0], args...)
 	cmd.Dir = sourceDir
 	cmd.Env = os.Environ()
-	if !ownsWorkspace {
+	if ownsWorkspace {
+		cmd.Env = append(cmd.Env, "GOWORK="+workspace.workFile)
+	} else {
 		cmd.Env = append(cmd.Env, "GOWORK=off")
 	}
 	// `go test` runs each compiled test binary as its own child; killing
