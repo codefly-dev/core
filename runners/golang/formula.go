@@ -1,10 +1,10 @@
 package golang
 
-// formula.go — the MODULE-LOCAL Go test formula runner: the golang twin of
+// formula.go — the PROJECT-LOCAL Go test formula runner: the golang twin of
 // runners/python.RunFormulaStructured. It exists so a language-blind brain
 // (Mind) can ship a runtimev0.TestFormula (or nothing at all) and have THIS
-// plugin own "how to test a Go module": derive `go test -json -count=1 ./...` from
-// go.mod, execute it in the module directory, parse the structured event
+// plugin own "how to test a Go project": derive package scopes from go.mod or
+// a source-root go.work, execute them in the project directory, parse the structured event
 // stream, and — critically — CLASSIFY environment breakage (go.mod parse
 // errors, toolchain missing, module resolution) distinctly from test
 // failures, using the same explicit `env-blocked (<reason>): <detail>`
@@ -56,11 +56,21 @@ const (
 	EnvErrorNoTestsMatchedSelectors = "no-tests-matched-selectors"
 )
 
-// DeriveFormula derives the module-local test formula for a Go module:
-// `go test -json -count=1 ./...` when sourceDir contains a go.mod. Mirrors
-// python.DeriveFormula's contract (ok=false when this plugin does not own
-// the project).
+// DeriveFormula derives the project-local test formula from either a go.mod or
+// a source-root go.work. Workspace package patterns are explicit because the
+// Go tool rejects a bare ./... issued from a directory that is not itself a
+// module. Mirrors python.DeriveFormula's contract (ok=false when this plugin
+// does not own the project or its workspace declaration is invalid).
 func DeriveFormula(sourceDir string) (cmd []string, output string, ok bool) {
+	workspace, ownsWorkspace, err := loadSourceGoWorkspace(sourceDir)
+	if err != nil {
+		return nil, "", false
+	}
+	if ownsWorkspace {
+		cmd = []string{"go", "test", "-json", "-count=1"}
+		cmd = append(cmd, workspace.packageTargets...)
+		return cmd, OutputGoTestJSON, true
+	}
 	if _, err := os.Stat(filepath.Join(sourceDir, "go.mod")); err != nil {
 		return nil, "", false
 	}
@@ -139,24 +149,31 @@ func ClassifyEnvError(raw string, runErr error) (reason, detail string) {
 // `-failfast` flag. The optional argument preserves source compatibility for
 // callers that do not yet send the additive TestRequest field.
 //
-// The run always sets GOWORK=off: a formula run tests THIS module in
-// isolation, and a go.work in any parent directory (common when fixtures
-// live inside a bigger repo) must not leak into module resolution.
+// The run disables ambient parent workspaces for a standalone module. A
+// go.work owned by sourceDir is project configuration and remains enabled.
 func RunFormula(ctx context.Context, sourceDir string, command []string, selectors []string, failFast ...bool) (*runtimev0.TestResponse, error) {
 	start := time.Now()
+	workspace, ownsWorkspace, workspaceErr := loadSourceGoWorkspace(sourceDir)
+	if workspaceErr != nil {
+		msg := fmt.Sprintf("env-blocked (%s): %s", EnvErrorModuleBroken, workspaceErr)
+		return erroredResponse(msg, workspaceErr.Error()), nil
+	}
 	if len(command) == 0 {
-		derived, _, ok := DeriveFormula(sourceDir)
-		if !ok {
+		if ownsWorkspace {
+			command = []string{"go", "test", "-json", "-count=1"}
+			command = append(command, workspace.packageTargets...)
+		} else if _, err := os.Stat(filepath.Join(sourceDir, "go.mod")); err == nil {
+			command = []string{"go", "test", "-json", "-count=1", "./..."}
+		} else {
 			return nil, fmt.Errorf("go formula: %s has no go.mod — not a Go module", sourceDir)
 		}
-		command = derived
 	}
 
 	args, cmdPkgs := append([]string(nil), command[1:]...), []string(nil)
-	// Peel the trailing package pattern off the command so selectors can
-	// re-scope it; default back to ./... when absent.
-	if n := len(args); n > 0 && isPackagePath(args[n-1]) {
-		cmdPkgs = []string{args[n-1]}
+	// Peel all trailing package patterns off the command so selectors can
+	// re-scope a multi-module workspace, not merely its last module.
+	for n := len(args); n > 0 && isPackagePath(args[n-1]); n = len(args) {
+		cmdPkgs = append([]string{args[n-1]}, cmdPkgs...)
 		args = args[:n-1]
 	}
 	var runSelectors, selPkgs []string
@@ -202,7 +219,10 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 
 	cmd := exec.CommandContext(ctx, command[0], args...)
 	cmd.Dir = sourceDir
-	cmd.Env = append(os.Environ(), "GOWORK=off")
+	cmd.Env = os.Environ()
+	if !ownsWorkspace {
+		cmd.Env = append(cmd.Env, "GOWORK=off")
+	}
 	// `go test` runs each compiled test binary as its own child; killing
 	// just the `go` tool on ctx cancellation orphans them mid-test. Kill
 	// the whole process group — SIGTERM first, SIGKILL after a grace —

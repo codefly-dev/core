@@ -153,7 +153,7 @@ type TestOptions struct {
 	Filters []string
 
 	// ExtraArgs are appended verbatim to the `go test` command line after
-	// our flags and the package — power-user passthrough.
+	// our flags and package scopes — power-user passthrough.
 	ExtraArgs []string
 
 	// OnEvent, when non-nil, is invoked for every `go test -json` event as
@@ -198,6 +198,10 @@ type TestExecution struct {
 // Test RPC executes its test binary: successful Go result-cache entries are
 // build acceleration inputs, never proof that this invocation ran.
 func buildTestArgs(opt TestOptions) []string {
+	return buildTestArgsWithPackages(opt, nil)
+}
+
+func buildTestArgsWithPackages(opt TestOptions, defaultPackages []string) []string {
 	args := []string{"test", "-json", "-count=1", "-p", fmt.Sprint(defaultTestPackageParallelism)}
 	if opt.Verbose {
 		args = append(args, "-v")
@@ -220,10 +224,13 @@ func buildTestArgs(opt TestOptions) []string {
 	// Determine package target. Target is now strictly directory scope —
 	// name patterns belong in Filters. The Target-as-name fallback stays
 	// for back-compat with older callers that haven't migrated.
-	pkg := "./..."
+	packages := append([]string(nil), defaultPackages...)
+	if len(packages) == 0 {
+		packages = []string{"./..."}
+	}
 	if opt.Target != "" {
 		if isPackagePath(opt.Target) {
-			pkg = opt.Target
+			packages = []string{opt.Target}
 		} else if len(opt.Filters) == 0 {
 			// Back-compat: Target acts as a name pattern when Filters
 			// is empty. New code should use Filters instead.
@@ -236,7 +243,7 @@ func buildTestArgs(opt TestOptions) []string {
 		args = append(args, "-run", pat)
 	}
 
-	args = append(args, pkg)
+	args = append(args, packages...)
 
 	// ExtraArgs — verbatim passthrough for flags codefly does not model
 	// (e.g. -count=3, -shuffle=on, -tags=integration).
@@ -251,7 +258,7 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
-	args := buildTestArgs(opt)
+	args := buildTestArgsWithPackages(opt, env.defaultPackageTargets())
 
 	proc, err := env.Env().NewProcess("go", args...)
 	if err != nil {
@@ -341,12 +348,22 @@ func goTestWorkDir(sourceLocation string) string {
 		if _, err := os.Stat(filepath.Join(cur, "go.mod")); err == nil {
 			return cur
 		}
+		if _, err := os.Stat(filepath.Join(cur, "go.work")); err == nil {
+			return cur
+		}
 		parent := filepath.Dir(cur)
 		if parent == cur {
 			return sourceLocation
 		}
 		cur = parent
 	}
+}
+
+func (r *GoRunnerEnvironment) defaultPackageTargets() []string {
+	if r.ownsGoWorkspace && len(r.workspacePackages) > 0 {
+		return append([]string(nil), r.workspacePackages...)
+	}
+	return []string{"./..."}
 }
 
 // writeLastTestOutput dumps the raw `go test -json` stream to
@@ -371,12 +388,13 @@ type BuildOptions struct {
 
 // RunGoBuild runs `go build` with an optional target and returns combined output.
 func RunGoBuild(ctx context.Context, env *GoRunnerEnvironment, sourceLocation string, envVars []*resources.EnvironmentVariable, opts ...BuildOptions) (string, error) {
-	target := "./..."
+	targets := env.defaultPackageTargets()
 	if len(opts) > 0 && opts[0].Target != "" {
-		target = opts[0].Target
+		targets = []string{opts[0].Target}
 	}
 
-	proc, err := env.Env().NewProcess("go", "build", target)
+	args := append([]string{"build"}, targets...)
+	proc, err := env.Env().NewProcess("go", args...)
 	if err != nil {
 		return "", err
 	}
@@ -401,12 +419,13 @@ type LintOptions struct {
 
 // RunGoLint runs `go vet` with an optional target and returns combined output.
 func RunGoLint(ctx context.Context, env *GoRunnerEnvironment, sourceLocation string, envVars []*resources.EnvironmentVariable, opts ...LintOptions) (string, error) {
-	target := "./..."
+	targets := env.defaultPackageTargets()
 	if len(opts) > 0 && opts[0].Target != "" {
-		target = opts[0].Target
+		targets = []string{opts[0].Target}
 	}
 
-	proc, err := env.Env().NewProcess("go", "vet", target)
+	args := append([]string{"vet"}, targets...)
+	proc, err := env.Env().NewProcess("go", args...)
 	if err != nil {
 		return "", err
 	}
@@ -425,6 +444,9 @@ func RunGoLint(ctx context.Context, env *GoRunnerEnvironment, sourceLocation str
 
 // isPackagePath returns true if s looks like a Go package path rather than a test name/pattern.
 func isPackagePath(s string) bool {
+	if strings.HasPrefix(s, "-") {
+		return false
+	}
 	if strings.HasPrefix(s, "./") || strings.HasPrefix(s, "../") {
 		return true
 	}
