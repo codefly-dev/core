@@ -2,6 +2,7 @@ syntax = "proto3";
 package mind.gateway.v1;
 
 import "codefly/base/v0/source.proto";
+import "codefly/services/builder/v0/builder.proto";
 import "codefly/services/runtime/v0/runtime.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -86,6 +87,11 @@ service Gateway {
   // Test runs the configured test command on the service.
   rpc Test(TestRequest) returns (TestResponse);
 
+  // ConfigureService applies plugin-owned, schema-validated configuration.
+  // Mind supplies typed values; the owning Codefly agent decides how and
+  // where they are persisted.
+  rpc ConfigureService(ConfigureServiceRequest) returns (ConfigureServiceResponse);
+
   // Format applies the service plugin's canonical formatter/import organizer.
   rpc Format(FormatRequest) returns (FormatResponse);
 
@@ -135,6 +141,19 @@ service Gateway {
 
   // GitRevert creates a commit that reverts one revision.
   rpc GitRevert(GitRevertRequest) returns (GitRevertResponse);
+
+  // MaterializeRepositorySnapshot resolves one remote revision into a
+  // detached, immutable worktree owned by the caller's service-state cache.
+  // Codefly owns every Git command and credential/configuration boundary.
+  rpc MaterializeRepositorySnapshot(MaterializeRepositorySnapshotRequest) returns (MaterializeRepositorySnapshotResponse);
+
+  // PrepareRepositoryCheckout resolves one remote revision into a clean,
+  // mutable checkout backed by a caller-owned repository cache directory.
+  rpc PrepareRepositoryCheckout(PrepareRepositoryCheckoutRequest) returns (PrepareRepositoryCheckoutResponse);
+
+  // ReleaseRepositorySnapshot removes a detached worktree previously leased
+  // by MaterializeRepositorySnapshot and prunes its repository metadata.
+  rpc ReleaseRepositorySnapshot(ReleaseRepositorySnapshotRequest) returns (ReleaseRepositorySnapshotResponse);
 
   // Release bumps the code unit versions, commits them, creates a signed tag,
   // and publishes the commit and tag as one semantic operation.
@@ -683,6 +702,18 @@ message LintResponse {
 
 // ─── Test ─────────────────────────────────────────────────────
 
+// CodeUnitTarget identifies one ingestion-declared source boundary. The
+// gateway uses the path to bind the exact checkout root and lets Codefly
+// detect the owning runtime plugin there. Language and native command details
+// are deliberately absent: callers name code units, not implementations.
+message CodeUnitTarget {
+  // id is the stable code-unit identity carried by the caller's task.
+  string id = 1;
+  // path is the canonical repository-relative code-unit root. Empty and "."
+  // both identify the repository root.
+  string path = 2;
+}
+
 // TestRequest asks the gateway to run the service tests.
 message TestRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
@@ -692,6 +723,11 @@ message TestRequest {
   // acknowledgement identity must survive this boundary; the gateway must
   // never broaden a scoped request into a whole-service test run.
   codefly.services.runtime.v0.TestRequest runtime_request = 2;
+  // code_units is the authoritative set of source boundaries covered by the
+  // operation. A single unit binds one exact plugin root. Multiple units make
+  // the gateway route each boundary independently and aggregate typed results.
+  // Empty preserves the legacy service/root target.
+  repeated CodeUnitTarget code_units = 3;
 }
 
 // TestResponse returns service test counts and raw runner output.
@@ -716,6 +752,20 @@ message TestResponse {
   // it to verify structured-selection acknowledgement and consume the full
   // suite tree. The flat fields above remain a presentation-compatible view.
   codefly.services.runtime.v0.TestResponse runtime_response = 9;
+}
+
+// ConfigureServiceRequest asks the owning service plugin to persist typed
+// configuration changes. Paths are limited to the schema advertised by that
+// plugin (for example test.env.CFLAGS or test.provisioning.python).
+message ConfigureServiceRequest {
+  string service = 1;
+  repeated codefly.services.builder.v0.ConfigChange changes = 2;
+}
+
+// ConfigureServiceResponse preserves the builder plugin's authoritative
+// status and effective configuration projection.
+message ConfigureServiceResponse {
+  codefly.services.builder.v0.ConfigureResponse response = 1;
 }
 
 // ─── Format ──────────────────────────────────────────────────
@@ -914,6 +964,10 @@ message GitStatusResponse {
   string branch = 2;
   // error explains why the operation failed; empty means success at this layer.
   string error = 3;
+  // repository_root is the canonical absolute root of the Git worktree that
+  // contains the Gateway's working directory. Callers use it to preserve a
+  // nested invocation directory while binding repository-wide capabilities.
+  string repository_root = 4;
 }
 
 // GitDiffRequest asks for a git diff, optionally scoped to a path or index.
@@ -1169,6 +1223,98 @@ message GitRevertResponse {
   string revision = 4;
   // act is the authoritative typed outcome.
   ActReceipt act = 5;
+}
+
+// RepositoryRemoteAccess makes remote credential/configuration authority
+// explicit. Public qualification sources must never inherit developer Git
+// rewrites, credential helpers, SSH agents, or interactive prompts.
+enum RepositoryRemoteAccess {
+  // REPOSITORY_REMOTE_ACCESS_UNSPECIFIED is rejected.
+  REPOSITORY_REMOTE_ACCESS_UNSPECIFIED = 0;
+  // REPOSITORY_REMOTE_ACCESS_PUBLIC_HTTPS accepts only credential-free HTTPS
+  // URLs and executes with isolated Git configuration.
+  REPOSITORY_REMOTE_ACCESS_PUBLIC_HTTPS = 1;
+  // REPOSITORY_REMOTE_ACCESS_CONFIGURED explicitly authorizes Codefly's
+  // configured runtime Git/SSH environment for a private remote.
+  REPOSITORY_REMOTE_ACCESS_CONFIGURED = 2;
+  // REPOSITORY_REMOTE_ACCESS_LOCAL_FILE explicitly authorizes a file://
+  // remote, primarily for deterministic local infrastructure qualification.
+  REPOSITORY_REMOTE_ACCESS_LOCAL_FILE = 3;
+}
+
+// MaterializeRepositorySnapshotRequest asks Codefly to ensure a repository
+// cache, resolve one immutable revision, and create one detached worktree.
+// All directory fields are relative to the Gateway root.
+message MaterializeRepositorySnapshotRequest {
+  // repository_url is the exact remote declared by the caller.
+  string repository_url = 1;
+  // cache_directory stores the shared clone/object cache.
+  string cache_directory = 2;
+  // revision is the advertised remote ref or full commit to resolve.
+  string revision = 3;
+  // fetch_identity makes the temporary ref unique across callers.
+  string fetch_identity = 4;
+  // snapshot_directory is the detached worktree lease destination.
+  string snapshot_directory = 5;
+  // remote_access selects the only allowed credential/configuration source.
+  RepositoryRemoteAccess remote_access = 6;
+}
+
+// MaterializeRepositorySnapshotResponse returns the immutable commit leased
+// into snapshot_directory.
+message MaterializeRepositorySnapshotResponse {
+  // success reports whether the repository and detached worktree are ready.
+  bool success = 1;
+  // error explains a failed materialization.
+  string error = 2;
+  // revision is the resolved full commit SHA.
+  string revision = 3;
+  // snapshot_directory echoes the validated Gateway-relative lease path.
+  string snapshot_directory = 4;
+}
+
+// PrepareRepositoryCheckoutRequest asks Codefly to ensure a repository cache,
+// resolve one immutable revision, then force the cache worktree to that commit.
+message PrepareRepositoryCheckoutRequest {
+  // repository_url is the exact remote declared by the caller.
+  string repository_url = 1;
+  // cache_directory is the mutable checkout, relative to the Gateway root.
+  string cache_directory = 2;
+  // revision is the advertised remote ref or full commit to resolve.
+  string revision = 3;
+  // fetch_identity makes the temporary ref unique across callers.
+  string fetch_identity = 4;
+  // remote_access selects the only allowed credential/configuration source.
+  RepositoryRemoteAccess remote_access = 5;
+}
+
+// PrepareRepositoryCheckoutResponse returns the exact clean checkout state.
+message PrepareRepositoryCheckoutResponse {
+  // success reports whether the mutable checkout is ready.
+  bool success = 1;
+  // error explains a failed preparation.
+  string error = 2;
+  // revision is the resolved full commit SHA now checked out.
+  string revision = 3;
+  // default_branch is the remote's advertised default branch when available.
+  string default_branch = 4;
+}
+
+// ReleaseRepositorySnapshotRequest identifies a previously materialized
+// detached worktree. Both paths are relative to the Gateway root.
+message ReleaseRepositorySnapshotRequest {
+  // cache_directory identifies the repository that owns the worktree.
+  string cache_directory = 1;
+  // snapshot_directory identifies the worktree lease to release.
+  string snapshot_directory = 2;
+}
+
+// ReleaseRepositorySnapshotResponse reports cleanup of the worktree lease.
+message ReleaseRepositorySnapshotResponse {
+  // success reports whether removal and metadata pruning completed.
+  bool success = 1;
+  // error explains a failed release.
+  string error = 2;
 }
 
 // ReleaseBump selects the semantic version component to increment.

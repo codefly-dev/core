@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,7 @@ func TestBuildUvArgs_ProvisioningIsData(t *testing.T) {
 	got := strings.Join(BuildUvArgs(TestFormulaSpec{
 		NoProject:    true,
 		Python:       "3.9",
+		ExcludeNewer: "2022-07-27T14:44:33Z",
 		Editable:     true,
 		Requirements: []string{"requirements/tests.txt"},
 		With:         []string{"tox<4", "setuptools"},
@@ -58,7 +60,7 @@ func TestBuildUvArgs_ProvisioningIsData(t *testing.T) {
 		Selectors:    []string{"tests/test_x.py::test_y"},
 		Output:       OutputJUnitXML,
 	}, "/tmp/j.xml"), " ")
-	want := "run --no-project --python 3.9 --with-editable . " +
+	want := "run --no-project --python 3.9 --managed-python --exclude-newer 2022-07-27T14:44:33Z --with-editable . " +
 		"--with-requirements requirements/tests.txt --with tox<4 --with setuptools " +
 		"pytest --junitxml=/tmp/j.xml tests/test_x.py::test_y"
 	if got != want {
@@ -85,7 +87,7 @@ func TestSpecFromFormula_ProvisioningMapToUv(t *testing.T) {
 		[]string{"tests/test_x.py::test_y"},
 	)
 	got := strings.Join(BuildUvArgs(spec, "/tmp/j.xml"), " ")
-	want := "run --no-project --python 3.9 --with-editable . " +
+	want := "run --no-project --python 3.9 --managed-python --with-editable . " +
 		"--with-requirements requirements/tests.txt --with tox<4 --with setuptools " +
 		"pytest --junitxml=/tmp/j.xml tests/test_x.py::test_y"
 	if got != want {
@@ -105,6 +107,50 @@ func TestBuildUvArgs_EmptyDefaults(t *testing.T) {
 	}, ""), " ")
 	if got != "run pytest" {
 		t.Fatalf("got %q, want %q", got, "run pytest")
+	}
+}
+
+func TestVerboseUVArgsKeepsDiagnosticFlagOutsideProjectCommand(t *testing.T) {
+	got := strings.Join(verboseUVArgs([]string{"run", "--no-project", "python", "runtests.py"}), " ")
+	if got != "run --verbose --no-project python runtests.py" {
+		t.Fatalf("verbose uv args = %q", got)
+	}
+}
+
+// A real uv build-backend failure observed during the Django headless session
+// returned only "The build backend returned an error" on the normal path. The
+// unhappy path must retain the backend exception that tells a remediator what
+// to repair, while the normal successful path remains non-verbose.
+func TestRunFormulaStructuredRecoversOpaqueBuildBackendDiagnostic(t *testing.T) {
+	requireUv(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte(`[build-system]
+requires = []
+build-backend = "broken_backend"
+backend-path = ["."]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "broken_backend.py"), []byte(`def get_requires_for_build_editable(config_settings=None):
+    raise RuntimeError("CODEFLY_VERBOSE_BACKEND_DIAGNOSTIC")
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run, err := RunFormulaStructured(context.Background(), root, TestFormulaSpec{
+		Command:   []string{"python", "-c", "pass"},
+		Output:    OutputUnittestText,
+		NoProject: true,
+		Editable:  true,
+	})
+	if err != nil {
+		t.Fatalf("structured failure must remain an operation result: %v", err)
+	}
+	if run.EnvError == nil || run.EnvError.Reason != "build-failed" {
+		t.Fatalf("environment classification = %+v", run.EnvError)
+	}
+	if !strings.Contains(run.RawOutput, "CODEFLY_VERBOSE_BACKEND_DIAGNOSTIC") {
+		t.Fatalf("verbose retry dropped backend exception:\n%s", run.RawOutput)
 	}
 }
 
@@ -436,5 +482,42 @@ func TestRunFormulaStructured_ProbeEarlyStopsOnMaterialization(t *testing.T) {
 	}
 	if dur > 15*time.Second {
 		t.Fatalf("probe took %s — early-stop did not cancel on materialization", dur.Round(time.Second))
+	}
+}
+
+// Django's production formula always carries --keepdb. On a warm workspace it
+// therefore announces "Using existing test database" rather than "Creating
+// test database". Both messages prove the runner launched; missing the warm
+// form made a health probe execute Django's entire 12k-test suite and report
+// unrelated baseline failures to the agent.
+func TestRunFormulaStructured_ProbeEarlyStopsWhenDjangoReusesDatabase(t *testing.T) {
+	requireUv(t)
+	for _, test := range []struct {
+		name   string
+		marker string
+	}{
+		{name: "primary", marker: "Using existing test database for alias 'default'..."},
+		{name: "parallel clone", marker: "Using existing clone test database for alias 'default'..."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			start := time.Now()
+			run, err := RunFormulaStructured(ctx, t.TempDir(), TestFormulaSpec{
+				Command:   []string{"python", "-c", "print(" + strconv.Quote(test.marker) + "); import time; time.sleep(60)"},
+				Output:    OutputUnittestText,
+				NoProject: true,
+			})
+			dur := time.Since(start)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !run.Materialized {
+				t.Fatalf("warm django probe that launched the runner must be Materialized, got %+v", run)
+			}
+			if dur > 15*time.Second {
+				t.Fatalf("warm django probe took %s — early-stop did not recognize the reused database", dur.Round(time.Second))
+			}
+		})
 	}
 }

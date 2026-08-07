@@ -21,6 +21,7 @@ func TestRuntimeEvidenceReportsDetectedEnvironment(t *testing.T) {
 		"test_command: python -m pytest",
 		"test_output: junit-xml",
 		"uv_args: uv run",
+		"settable_environment_path: test.env.<NAME>",
 		"test command declaration: tox.ini",
 		"python project/environment declaration: pyproject.toml",
 		"python dependency declaration: requirements/dev.txt",
@@ -45,5 +46,22 @@ func TestRuntimeEvidenceOnlyReportsExistingSources(t *testing.T) {
 	}
 	if strings.Contains(evidence, "requirements.txt") {
 		t.Fatalf("runtime evidence should not list absent conventional files:\n%s", evidence)
+	}
+}
+
+func TestRuntimeEvidenceNamesEditableCodeUnitRootAcrossChangedCwd(t *testing.T) {
+	evidence := RuntimeEvidenceForFormula(
+		t.TempDir(),
+		[]string{"python", "runtests.py"},
+		OutputUnittestText,
+		nil,
+		map[string]string{"cwd": "tests", "editable": "true"},
+		true,
+	)
+	if !strings.Contains(evidence, "--with-editable <code-unit-root>") {
+		t.Fatalf("runtime evidence must name the semantic editable target:\n%s", evidence)
+	}
+	if strings.Contains(evidence, "--with-editable .") {
+		t.Fatalf("runtime evidence must not imply cwd-relative editable install:\n%s", evidence)
 	}
 }

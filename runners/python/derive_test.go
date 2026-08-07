@@ -93,6 +93,7 @@ func TestDeriveRequirementFiles_SkipsMinVersionMatrix(t *testing.T) {
 // its test stack.
 func TestInferPythonFromCommitDate(t *testing.T) {
 	cases := []struct{ commit, want string }{
+		{"2019-02-01T00:00:00Z", "3.8"},  // uv-managed floor; 3.7 is no longer downloadable
 		{"2022-04-01T00:00:00Z", "3.10"}, // flask-5014 era — 3.11 GA'd Oct 2022
 		{"2023-06-01T00:00:00Z", "3.11"},
 		{"2024-01-01T00:00:00Z", "3.12"},
@@ -107,6 +108,22 @@ func TestInferPythonFromCommitDate(t *testing.T) {
 	}
 	if v := inferPythonFromCommitDate(t.TempDir()); v != "" {
 		t.Errorf("non-git dir: inferred %q, want empty (caller falls back to default)", v)
+	}
+}
+
+func TestDeriveProvisioningConstrainsHistoricalResolutionToCommitTime(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "pyproject.toml", `[build-system]
+requires = ["setuptools", "wheel", "extension-helpers"]
+build-backend = "setuptools.build_meta"
+`)
+	gitCommitAt(t, dir, "2022-07-27T14:44:33Z")
+	provisioning := deriveProvisioning(dir)
+	if provisioning["exclude_newer"] != "2022-07-27T14:44:33Z" {
+		t.Fatalf("exclude_newer = %q, want source commit timestamp", provisioning["exclude_newer"])
+	}
+	if provisioning["with"] != "setuptools,wheel,extension-helpers" || provisioning["no_build_isolation"] != "true" {
+		t.Fatalf("build provisioning = %+v", provisioning)
 	}
 }
 
@@ -190,6 +207,105 @@ func TestDeriveFormula_CIWorkflowWins(t *testing.T) {
 	cmd, _, _, _, ok := DeriveFormula(dir)
 	if !ok || cmd[0] != "pytest" {
 		t.Fatalf("CI command should win, got %v ok=%v", cmd, ok)
+	}
+}
+
+func TestDeriveFormula_UnnamedCITestStepUsesCommandIntent(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".github/workflows/test.yml",
+		"jobs:\n  test:\n    steps:\n      - run: pytest -v\n")
+
+	cmd, output, _, _, ok := DeriveFormula(dir)
+	if !ok {
+		t.Fatal("an unnamed step with an explicit test command was rejected")
+	}
+	if got := strings.Join(cmd, " "); got != "pytest -v" {
+		t.Fatalf("command = %q, want %q", got, "pytest -v")
+	}
+	if output != OutputJUnitXML {
+		t.Fatalf("output = %q, want %q", output, OutputJUnitXML)
+	}
+}
+
+// Astropy's workflow delegates its tox environment to a GitHub matrix, while
+// tox.ini puts setup/diagnostic commands before the factor-qualified test
+// command. Local derivation must reject the unavailable matrix expression and
+// choose the command that accepts tox's selector passthrough.
+func TestDeriveFormula_AstropyMatrixFallsBackToSelectorBearingToxCommand(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".github/workflows/ci_cron_daily.yml", `jobs:
+  test:
+    steps:
+      - name: Install test dependencies
+        run: python -m pip install --upgrade tox
+`)
+	writeFile(t, dir, ".github/workflows/ci_cron_weekly.yml", `jobs:
+  matrix:
+    steps:
+      - name: Run tests
+        run: tox ${{ matrix.toxargs }} -e ${{ matrix.toxenv }} -- ${{ matrix.toxposargs }}
+  architectures:
+    steps:
+      - name: Run tests
+        uses: uraimo/run-on-arch-action@v3
+        with:
+          run: |
+            python3 -m venv --system-site-packages tests
+            source tests/bin/activate
+            pip install -e .[test]
+            pytest
+`)
+	writeFile(t, dir, ".github/workflows/ci_workflows.yml", `jobs:
+  tests:
+    steps:
+      - name: Run tests
+        run: /opt/python/cp38-cp38/bin/python -m tox -e py38-numpy120-test -- -n=4 --durations=50
+`)
+	writeFile(t, dir, ".github/workflows/update_iers.yml", `jobs:
+  update:
+    steps:
+      - name: Test updated built-in IERS data
+        run: ./update_builtin_iers.sh
+`)
+	writeFile(t, dir, "tox.ini", `[testenv]
+commands =
+    devdeps: pip install -U numpy
+    pip freeze
+    !cov-!double: pytest --pyargs astropy {toxinidir}/docs {env:MPLFLAGS} {posargs}
+    cov: coverage xml
+`)
+
+	command, output, _, _, ok := DeriveFormula(dir)
+	if !ok {
+		t.Fatal("expected concrete tox formula")
+	}
+	want := []string{"pytest", "--pyargs", "astropy", "docs"}
+	if strings.Join(command, " ") != strings.Join(want, " ") {
+		t.Fatalf("command = %v, want %v", command, want)
+	}
+	if output != OutputJUnitXML {
+		t.Fatalf("output = %q, want %q", output, OutputJUnitXML)
+	}
+}
+
+func TestPortableCICommandRequiresTestIntentInExecutionPosition(t *testing.T) {
+	tests := map[string]bool{
+		"pytest -q":                           true,
+		"python -m pytest -q":                 true,
+		"python tests/runtests.py":            true,
+		"tox -e py":                           true,
+		"make test":                           true,
+		"uv run pytest -q":                    true,
+		"coverage run -m pytest":              true,
+		"python -m pip install --upgrade tox": false,
+		"pip install pytest":                  false,
+		"python -m venv tests":                false,
+		"echo pytest":                         false,
+	}
+	for command, want := range tests {
+		if got := portableCICommand(command); got != want {
+			t.Errorf("portableCICommand(%q) = %v, want %v", command, got, want)
+		}
 	}
 }
 

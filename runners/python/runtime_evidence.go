@@ -68,6 +68,14 @@ func RuntimeEvidenceForFormula(sourceDir string, cmd []string, output string, en
 	}
 	if len(cmd) > 0 {
 		spec := SpecFromFormula(cmd, output, env, prov, nil)
+		// RunFormulaStructured resolves editable installs to the absolute source
+		// root before spawning uv. Render the same semantic target without leaking
+		// a machine-specific temporary workspace path into logs/cassettes. A bare
+		// "." is actively misleading when cwd=tests because it appears to target
+		// the run directory rather than the code-unit root.
+		if spec.Editable {
+			spec.EditableTarget = "<code-unit-root>"
+		}
 		b.WriteString("  uv_args: uv " + strings.Join(BuildUvArgs(spec, ""), " ") + "\n")
 	}
 	sources := detectRuntimeSources(sourceDir)
@@ -78,9 +86,9 @@ func RuntimeEvidenceForFormula(sourceDir string, cmd []string, output string, en
 		}
 	}
 	// The healer reads this evidence to repair blocked environments; name the
-	// levers it can set (via configure test.provisioning.<key>) so it doesn't
-	// have to guess the plugin's vocabulary.
-	b.WriteString("  settable_provisioning_keys: python, editable, no_project, requirements, with, no_build_isolation, cwd\n")
+	// levers it can set so it does not have to guess the plugin's vocabulary.
+	b.WriteString("  settable_provisioning_keys: python, exclude_newer, editable, no_project, requirements, with, no_build_isolation, cwd\n")
+	b.WriteString("  settable_environment_path: test.env.<NAME> (for example test.env.CFLAGS)\n")
 	return strings.TrimRight(b.String(), "\n")
 }
 

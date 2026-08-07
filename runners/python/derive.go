@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // selectorsToken marks where specific tests get injected in a derived command.
@@ -304,6 +306,23 @@ func outputFormatFromCommand(cmd string) string {
 func extractFromTox(d declaration) (string, bool) {
 	lines := strings.Split(d.text, "\n")
 	inTestEnv, collecting := false, false
+	var fallback string
+	consider := func(value string) (string, bool) {
+		cmd := firstCommandLine(stripToxFactor(value))
+		if cmd == "" {
+			return "", false
+		}
+		// The passthrough token identifies the command that owns test
+		// selection. Setup/diagnostic commands such as `pip freeze` commonly
+		// precede it and must not become a successful zero-test formula.
+		if reToxPosargs.MatchString(cmd) {
+			return cmd, true
+		}
+		if fallback == "" {
+			fallback = cmd
+		}
+		return "", false
+	}
 	for _, raw := range lines {
 		line := strings.TrimRight(raw, "\r")
 		trimmed := strings.TrimSpace(line)
@@ -317,7 +336,7 @@ func extractFromTox(d declaration) (string, bool) {
 		}
 		if collecting {
 			if line != trimmed && trimmed != "" {
-				if cmd := firstCommandLine(trimmed); cmd != "" {
+				if cmd, selected := consider(trimmed); selected {
 					return cmd, true
 				}
 			} else if trimmed == "" {
@@ -328,14 +347,27 @@ func extractFromTox(d declaration) (string, bool) {
 		}
 		if k, v, ok := iniKey(trimmed); ok && k == "commands" {
 			if v != "" {
-				if cmd := firstCommandLine(v); cmd != "" {
+				if cmd, selected := consider(v); selected {
 					return cmd, true
 				}
 			}
 			collecting = true
 		}
 	}
-	return "", false
+	return fallback, fallback != ""
+}
+
+var reToxFactor = regexp.MustCompile(`^[A-Za-z0-9_!,{}.-]+$`)
+
+// stripToxFactor removes tox's leading environment-factor condition from a
+// command. Requiring one factor-grammar token keeps ordinary command colons
+// intact while making the selected command runnable outside tox orchestration.
+func stripToxFactor(command string) string {
+	prefix, rest, found := strings.Cut(strings.TrimSpace(command), ":")
+	if found && reToxFactor.MatchString(prefix) && strings.TrimSpace(rest) != "" {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(command)
 }
 
 func extractFromMakefile(d declaration) (string, bool) {
@@ -365,26 +397,155 @@ func extractFromMakefile(d declaration) (string, bool) {
 var reMakeTestTarget = regexp.MustCompile(`^(test|tests|check|pytest)[\w-]*:`)
 
 func extractFromCI(d declaration) (string, bool) {
-	lines := strings.Split(d.text, "\n")
-	recentName := ""
-	for i := range lines {
-		trimmed := strings.TrimSpace(lines[i])
-		if v, ok := yamlValue(trimmed, "name"); ok {
-			recentName = strings.ToLower(v)
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(d.text), &document); err != nil {
+		return "", false
+	}
+	return ciTestStepCommand(&document)
+}
+
+// ciTestStepCommand reads `run` only from mappings that are direct children of
+// a workflow `steps` sequence. Step names are optional. Action inputs can expose
+// an unrelated nested `with.run`; keeping traversal aware of the `steps`
+// boundary prevents that input from becoming the project's test command.
+func ciTestStepCommand(node *yaml.Node) (string, bool) {
+	return ciTestStepCommandAt(node, false)
+}
+
+func ciTestStepCommandAt(node *yaml.Node, workflowStep bool) (string, bool) {
+	if node == nil {
+		return "", false
+	}
+	if workflowStep && node.Kind == yaml.MappingNode {
+		run := ""
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key, value := node.Content[index], node.Content[index+1]
+			if key.Kind != yaml.ScalarNode || value.Kind != yaml.ScalarNode {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(key.Value)) {
+			case "run":
+				run = value.Value
+			}
 		}
-		if v, ok := yamlValue(trimmed, "run"); ok {
-			if strings.Contains(recentName, "test") {
-				cmd := v
-				if cmd == "|" || cmd == ">" || cmd == "" {
-					cmd = nextBlockLine(lines, i)
-				}
-				if cmd = firstCommandLine(cmd); cmd != "" {
-					return cmd, true
+		if run != "" && !strings.Contains(run, "${{") {
+			for _, line := range strings.Split(run, "\n") {
+				if command := firstCommandLine(strings.TrimSpace(line)); command != "" && portableCICommand(command) {
+					return command, true
 				}
 			}
 		}
 	}
+	if node.Kind == yaml.MappingNode {
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key, value := node.Content[index], node.Content[index+1]
+			if key.Kind == yaml.ScalarNode && strings.EqualFold(strings.TrimSpace(key.Value), "steps") && value.Kind == yaml.SequenceNode {
+				for _, step := range value.Content {
+					if command, ok := ciTestStepCommandAt(step, true); ok {
+						return command, true
+					}
+				}
+				continue
+			}
+			if command, ok := ciTestStepCommandAt(value, false); ok {
+				return command, true
+			}
+		}
+		return "", false
+	}
+	for _, child := range node.Content {
+		if command, ok := ciTestStepCommandAt(child, false); ok {
+			return command, true
+		}
+	}
 	return "", false
+}
+
+// portableCICommand rejects runner-image absolute executables. A workflow can
+// legitimately name the exact interpreter baked into its CI container (for
+// example /opt/python/cp38-cp38/bin/python), but that path is not part of the
+// project contract and cannot exist in an arbitrary Codefly workspace. Let a
+// project-local declaration such as tox.ini supply the portable command.
+func portableCICommand(command string) bool {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return false
+	}
+	executable := fields[0]
+	if strings.HasPrefix(executable, "/") || strings.HasPrefix(executable, `\\`) {
+		return false
+	}
+	if len(executable) >= 3 && executable[1] == ':' && (executable[2] == '\\' || executable[2] == '/') {
+		return false
+	}
+	// Step labels are optional and weak evidence. Test intent must occupy an
+	// executable/module/target position, not merely occur in an argument: for
+	// example `python -m pip install tox` provisions a runner but executes zero
+	// tests and must fall through to tox.ini.
+	return ciCommandRunsTests(fields)
+}
+
+func ciCommandRunsTests(fields []string) bool {
+	for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "=") {
+		fields = fields[1:]
+	}
+	if len(fields) == 0 {
+		return false
+	}
+	executable := commandToken(fields[0])
+	if testIntentToken(executable) {
+		return true
+	}
+	switch {
+	case strings.HasPrefix(executable, "python"), strings.HasPrefix(executable, "pypy"):
+		for index := 1; index < len(fields); index++ {
+			if fields[index] == "-m" && index+1 < len(fields) {
+				return testIntentToken(commandToken(fields[index+1]))
+			}
+			if !strings.HasPrefix(fields[index], "-") {
+				return testIntentToken(commandToken(fields[index]))
+			}
+		}
+	case executable == "make", executable == "gmake", executable == "just",
+		executable == "npm", executable == "yarn", executable == "pnpm",
+		executable == "bun", executable == "go", executable == "cargo":
+		for _, field := range fields[1:] {
+			if !strings.HasPrefix(field, "-") {
+				return testIntentToken(commandToken(field))
+			}
+		}
+	case executable == "uv", executable == "poetry", executable == "pipenv", executable == "hatch":
+		for index := 1; index < len(fields); index++ {
+			if commandToken(fields[index]) == "run" {
+				return ciCommandRunsTests(fields[index+1:])
+			}
+		}
+	case executable == "coverage":
+		for index := 1; index < len(fields); index++ {
+			if commandToken(fields[index]) != "run" {
+				continue
+			}
+			tail := fields[index+1:]
+			if len(tail) >= 2 && tail[0] == "-m" {
+				return testIntentToken(commandToken(tail[1]))
+			}
+			return ciCommandRunsTests(tail)
+		}
+	}
+	return false
+}
+
+func commandToken(field string) string {
+	token := strings.ToLower(strings.Trim(field, `"'`))
+	token = strings.ReplaceAll(token, `\\`, "/")
+	if slash := strings.LastIndex(token, "/"); slash >= 0 {
+		token = token[slash+1:]
+	}
+	return token
+}
+
+func testIntentToken(token string) bool {
+	return strings.Contains(token, "test") || strings.Contains(token, "check") || token == "tox" || token == "nox"
 }
 
 func extractFromReadme(d declaration) (string, bool) {
@@ -456,23 +617,6 @@ func iniKey(line string) (key, val string, ok bool) {
 	return "", "", false
 }
 
-func yamlValue(line, key string) (string, bool) {
-	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
-	if rest, ok := strings.CutPrefix(line, key+":"); ok {
-		return strings.TrimSpace(rest), true
-	}
-	return "", false
-}
-
-func nextBlockLine(lines []string, from int) string {
-	for j := from + 1; j < len(lines); j++ {
-		if t := strings.TrimSpace(lines[j]); t != "" {
-			return t
-		}
-	}
-	return ""
-}
-
 // ── provisioning derivation (NEW; uv/python knowledge belongs here) ──
 
 // deriveProvisioning reads the project's packaging metadata and produces the uv
@@ -492,6 +636,14 @@ func deriveProvisioning(dir string) map[string]string {
 	}
 	if v := derivePythonVersion(dir); v != "" {
 		prov["python"] = v
+	}
+	// Resolve dependencies from the package universe that existed when this
+	// source revision was committed. Historical projects routinely leave build
+	// tools loosely constrained; selecting today's newest setuptools broke a
+	// 2022 Astropy checkout after setuptools removed an API its build used.
+	// uv owns the resolver and exposes this exact temporal constraint.
+	if committedAt, ok := repositoryCommitTime(dir); ok {
+		prov["exclude_newer"] = committedAt.UTC().Format(time.RFC3339)
 	}
 	if reqs := deriveRequirementFiles(dir); len(reqs) > 0 {
 		prov["requirements"] = strings.Join(reqs, ",")
@@ -604,6 +756,13 @@ func derivePythonVersion(dir string) string {
 // download it.
 const defaultManagedPython = "3.11"
 
+// oldestManagedPython is the floor available from uv's managed standalone
+// interpreter catalog. Commit-date inference cannot select an older runtime:
+// doing so produces an impossible --python contract instead of a runnable
+// historical approximation. Explicit project pins remain authoritative and
+// fail visibly when the requested interpreter is unavailable.
+const oldestManagedPython = "3.8"
+
 // pythonReleases maps each CPython minor to its GA (final) release date, NEWEST
 // FIRST. The python agent owns this (interpreter knowledge is its domain) and
 // uses it to avoid running a project on a Python that did not exist when the
@@ -619,7 +778,6 @@ var pythonReleases = []struct {
 	{"3.10", releaseDate(2021, 10, 4)},
 	{"3.9", releaseDate(2020, 10, 5)},
 	{"3.8", releaseDate(2019, 10, 14)},
-	{"3.7", releaseDate(2018, 6, 27)},
 }
 
 func releaseDate(y, m, d int) time.Time {
@@ -631,12 +789,8 @@ func releaseDate(y, m, d int) time.Time {
 // git repo / git unavailable). This is the "don't go forward in time" rule: a
 // repo committed in 2022 should run on a 2022-or-earlier interpreter, not 3.13.
 func inferPythonFromCommitDate(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "log", "-1", "--format=%cI", "HEAD").Output()
-	if err != nil {
-		return ""
-	}
-	t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(out)))
-	if err != nil {
+	t, ok := repositoryCommitTime(dir)
+	if !ok {
 		return ""
 	}
 	for _, r := range pythonReleases { // newest first
@@ -644,7 +798,19 @@ func inferPythonFromCommitDate(dir string) string {
 			return r.version
 		}
 	}
-	return ""
+	return oldestManagedPython
+}
+
+func repositoryCommitTime(dir string) (time.Time, bool) {
+	out, err := exec.Command("git", "-C", dir, "log", "-1", "--format=%cI", "HEAD").Output()
+	if err != nil {
+		return time.Time{}, false
+	}
+	committedAt, err := time.Parse(time.RFC3339, strings.TrimSpace(string(out)))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return committedAt, true
 }
 
 // pinFromRequiresPython turns a requires-python constraint into an interpreter

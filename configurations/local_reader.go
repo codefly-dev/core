@@ -193,6 +193,12 @@ func applyServiceConfigurationOverrides(
 	if err != nil {
 		return nil, err
 	}
+	// With nothing to apply there is nothing to resolve: building (and
+	// ambiguity-checking) the origin index when the feature is unused would
+	// let an unrelated coordinate collision fail an otherwise valid load.
+	if len(overrides) == 0 {
+		return confs, nil
+	}
 	known := make(map[string]string, len(serviceOrigins))
 	for _, origin := range serviceOrigins {
 		coordinate := resources.UniqueToKey(origin)

@@ -335,18 +335,26 @@ func (s *Service) WithDir(dir string) {
 
 // LoadServiceFromDir loads a service from a directory
 func LoadServiceFromDir(ctx context.Context, dir string) (*Service, error) {
+	return loadServiceFromDir(ctx, dir, "")
+}
+
+// loadServiceFromDir loads a service and runs postLoad EXACTLY ONCE with the
+// module already set. Callers that know the owning module (module-based loads)
+// pass it here rather than loading module-less and re-running postLoad, which
+// would repeat every postLoad side effect — including the deprecated-visibility
+// warnings — for the same service.
+func loadServiceFromDir(ctx context.Context, dir, module string) (*Service, error) {
 	w := wool.Get(ctx).In("LoadServiceFromDir", wool.DirField(dir))
 	service, err := LoadFromDir[Service](ctx, dir)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
 	service.dir = dir
-	err = service.postLoad(ctx)
-	if err != nil {
+	service.module = module
+	if err = service.postLoad(ctx); err != nil {
 		return nil, w.Wrap(err)
 	}
-	_, err = service.Proto(ctx)
-	if err != nil {
+	if _, err = service.Proto(ctx); err != nil {
 		return nil, w.Wrap(err)
 	}
 	return service, nil
@@ -723,6 +731,21 @@ type ServiceDependency struct {
 
 func (s *ServiceDependency) String() string {
 	return fmt.Sprintf("ServiceDependency<%s/%s>", s.Module, s.Name)
+}
+
+// ConsumesEndpoint reports whether this dependency pulls in the named producer
+// endpoint. A dependency that lists no endpoints consumes them all, so an
+// unnamed dependency matches every endpoint name.
+func (s *ServiceDependency) ConsumesEndpoint(name string) bool {
+	if len(s.Endpoints) == 0 {
+		return true
+	}
+	for _, ref := range s.Endpoints {
+		if ref.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ServiceDependency) UpdateEndpoints(ctx context.Context, endpoints []*Endpoint) error {

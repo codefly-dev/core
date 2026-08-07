@@ -44,6 +44,7 @@ type TestFormulaSpec struct {
 	// instead of a hardcoded brain-side command.
 	NoProject    bool
 	Python       string   // uv run --python <v>
+	ExcludeNewer string   // uv resolver --exclude-newer <RFC3339 timestamp>
 	Editable     bool     // uv run --with-editable .
 	Requirements []string // uv run --with-requirements <file>
 	With         []string // uv run --with <spec>
@@ -94,7 +95,8 @@ const (
 // SpecFromFormula translates a LANGUAGE-AGNOSTIC formula (generic command +
 // output + env + an opaque provisioning map) into the python/uv TestFormulaSpec.
 // This is the ONLY place python/uv knowledge interprets the provisioning bag:
-// the keys python / editable / with / requirements / no_project become uv flags.
+// the keys python / exclude_newer / editable / with / requirements / no_project
+// become uv flags.
 // Callers (Mind, the agent handler) stay framework- and toolchain-blind.
 func SpecFromFormula(command []string, output string, env, provisioning map[string]string, selectors []string) TestFormulaSpec {
 	spec := TestFormulaSpec{
@@ -103,6 +105,7 @@ func SpecFromFormula(command []string, output string, env, provisioning map[stri
 		Selectors:        append([]string{}, selectors...),
 		NoProject:        provisioning["no_project"] == "true",
 		Python:           provisioning["python"],
+		ExcludeNewer:     strings.TrimSpace(provisioning["exclude_newer"]),
 		Editable:         provisioning["editable"] == "true",
 		Requirements:     splitComma(provisioning["requirements"]),
 		With:             splitComma(provisioning["with"]),
@@ -169,7 +172,16 @@ func BuildUvArgs(spec TestFormulaSpec, junitFile string) []string {
 		args = append(args, "--no-project")
 	}
 	if spec.Python != "" {
-		args = append(args, "--python", spec.Python)
+		// A declared interpreter is a reproducibility contract, not a hint to
+		// inspect arbitrary executables from the operator's PATH. Requiring a
+		// uv-managed interpreter prevents stale shims (mise/pyenv/asdf) from
+		// aborting resolution before uv can select or download the requested
+		// version. Persistent venvs take the branch above and remain valid local
+		// interpreter paths.
+		args = append(args, "--python", spec.Python, "--managed-python")
+	}
+	if spec.ExcludeNewer != "" {
+		args = append(args, "--exclude-newer", spec.ExcludeNewer)
 	}
 	if spec.Editable {
 		// The editable target is the PROJECT ROOT, not the run directory:
@@ -383,6 +395,14 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 
 	args := BuildUvArgs(spec, junitFile)
 
+	commandEnv := append(os.Environ(),
+		"PYTHONPYCACHEPREFIX="+filepath.Join(runtimeDir, "pycache"),
+		"COVERAGE_FILE="+filepath.Join(runtimeDir, "coverage"),
+	)
+	for _, ev := range spec.Env {
+		commandEnv = append(commandEnv, fmt.Sprintf("%s=%s", ev.Key, ev.Value))
+	}
+
 	// PROBE MODE: a health/pre-warm probe runs the default command with NO
 	// selectors purely to prove the environment MATERIALIZES (uv resolves, the
 	// project imports, the runner launches). Stream the output and cancel the
@@ -391,57 +411,29 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 	// (agent test.run, grader) always carry selectors, so they run to
 	// completion and never early-stop.
 	probe := len(spec.Selectors) == 0
-	runCtx := ctx
-	var probeCancel context.CancelFunc
-	if probe {
-		runCtx, probeCancel = context.WithCancel(ctx)
-		defer probeCancel()
-	}
-	cmd := exec.CommandContext(runCtx, "uv", args...)
-	cmd.Dir = runDir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
+	rawStr, runErr, materializedEarly := executeFormulaUV(ctx, runDir, args, commandEnv, probe)
+	// uv deliberately hides backend stderr on its normal path and can return
+	// only "The build backend returned an error". That classification is not
+	// enough for an environment remediator to choose a dependency/compiler
+	// repair. Keep the healthy path terse, but on this unambiguous unhappy path
+	// repeat the exact typed formula once with uv verbosity enabled. The retry
+	// uses the same probe early-stop, budget, cwd, and environment contract.
+	if runErr != nil && ctx.Err() == nil && opaqueBuildBackendFailure(rawStr) {
+		diagnosticRaw, diagnosticErr, diagnosticMaterialized := executeFormulaUV(ctx, runDir, verboseUVArgs(args), commandEnv, probe)
+		if strings.TrimSpace(diagnosticRaw) != "" || diagnosticErr == nil {
+			rawStr = diagnosticRaw
+			runErr = diagnosticErr
+			materializedEarly = diagnosticMaterialized
 		}
-		pgid := cmd.Process.Pid
-		_ = syscall.Kill(-pgid, syscall.SIGTERM)
-		time.AfterFunc(5*time.Second, func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
-		return nil
 	}
-
-	var raw bytes.Buffer
-	var materializedEarly bool
-	if probe {
-		w := &materializeWatcher{buf: &raw, onMaterialize: func() {
-			materializedEarly = true
-			probeCancel()
-		}}
-		cmd.Stdout = w
-		cmd.Stderr = w
-	} else {
-		cmd.Stdout = &raw
-		cmd.Stderr = &raw
-	}
-	cmd.Env = append(os.Environ(),
-		"PYTHONPYCACHEPREFIX="+filepath.Join(runtimeDir, "pycache"),
-		"COVERAGE_FILE="+filepath.Join(runtimeDir, "coverage"),
-	)
-	if probe {
-		// Force unbuffered child output so the materialization marker reaches the
-		// watcher immediately — python BLOCK-buffers stdout to a pipe, which
-		// would hide "Creating test database" until flush and defeat early-stop.
-		cmd.Env = append(cmd.Env, "PYTHONUNBUFFERED=1")
-	}
-	for _, ev := range spec.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", ev.Key, ev.Value))
-	}
-
-	runErr := cmd.Run()
-	rawStr := raw.String()
-	// Early-stop cancellation IS a healthy materialization, not a real failure.
-	if materializedEarly {
-		runErr = nil
+	// Historical setuptools backends predate PEP 660 and cannot satisfy uv
+	// run's --with-editable contract. This is an unambiguous capability gap,
+	// not a project defect or a dependency guess. Re-enter once through the
+	// existing persistent-venv path, whose real historical-pip fallback owns
+	// setup.py develop semantics for precisely these backends.
+	if runErr != nil && spec.Editable && !spec.PersistentVenv && editableHookUnavailable(rawStr) {
+		spec.PersistentVenv = true
+		return RunFormulaStructured(ctx, sourceDir, spec)
 	}
 
 	var run *StructuredTestRun
@@ -516,6 +508,76 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 		}
 	}
 	return run, nil
+}
+
+// executeFormulaUV owns one uv process execution, including process-group
+// cancellation and the probe's early materialization stop. Diagnostic retries
+// call this same path so unhappy-path observability cannot drift from normal
+// runtime semantics.
+func executeFormulaUV(ctx context.Context, runDir string, args, commandEnv []string, probe bool) (string, error, bool) {
+	runCtx := ctx
+	var probeCancel context.CancelFunc
+	if probe {
+		runCtx, probeCancel = context.WithCancel(ctx)
+		defer probeCancel()
+	}
+	cmd := exec.CommandContext(runCtx, "uv", args...)
+	cmd.Dir = runDir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		pgid := cmd.Process.Pid
+		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+		time.AfterFunc(5*time.Second, func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+		return nil
+	}
+	cmd.Env = commandEnv
+	if probe {
+		// Force unbuffered child output so the materialization marker reaches the
+		// watcher immediately — python BLOCK-buffers stdout to a pipe, which
+		// would hide "Creating test database" until flush and defeat early-stop.
+		cmd.Env = append(cmd.Env, "PYTHONUNBUFFERED=1")
+	}
+
+	var raw bytes.Buffer
+	var materializedEarly bool
+	if probe {
+		w := &materializeWatcher{buf: &raw, onMaterialize: func() {
+			materializedEarly = true
+			probeCancel()
+		}}
+		cmd.Stdout = w
+		cmd.Stderr = w
+	} else {
+		cmd.Stdout = &raw
+		cmd.Stderr = &raw
+	}
+	runErr := cmd.Run()
+	// Early-stop cancellation IS a healthy materialization, not a real failure.
+	if materializedEarly {
+		runErr = nil
+	}
+	return raw.String(), runErr, materializedEarly
+}
+
+// opaqueBuildBackendFailure recognizes uv's generic wrapper, which proves a
+// verbose diagnostic retry is useful without guessing about the project.
+func opaqueBuildBackendFailure(raw string) bool {
+	return strings.Contains(strings.ToLower(raw), "build backend returned an error")
+}
+
+// verboseUVArgs inserts a uv global option before the inner project command.
+// The Python plugin owns this argv knowledge; callers continue to provide only
+// the typed formula and provisioning data.
+func verboseUVArgs(args []string) []string {
+	if len(args) == 0 {
+		return []string{"run", "--verbose"}
+	}
+	verbose := make([]string, 0, len(args)+1)
+	verbose = append(verbose, args[0], "--verbose")
+	return append(verbose, args[1:]...)
 }
 
 // exitSuffix renders the process exit for a zero-case diagnostic: "exit 0" is

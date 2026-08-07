@@ -5,19 +5,65 @@ import (
 	"testing"
 )
 
-// The persistent-venv install argv puts deps + requirements BEFORE the editable
-// project (so the no-isolation build sees numpy/cython), targets the venv's
-// python, and installs the project editable. Pure arg construction — no uv exec.
-func TestVenvInstallArgs(t *testing.T) {
-	got := strings.Join(venvInstallArgs("/w/.mind-venv/bin/python", TestFormulaSpec{
+// The persistent venv materializes requirements/build dependencies in a
+// separate uv invocation before the no-isolation editable build. Putting both
+// in one argv allowed uv to prepare project metadata before setuptools/cython
+// had actually reached the venv.
+func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.T) {
+	spec := TestFormulaSpec{
 		NoBuildIsolation: true,
+		ExcludeNewer:     "2022-07-27T14:44:33Z",
 		With:             []string{"numpy>=1.19", "cython"},
 		Requirements:     []string{"build-requirements.txt"},
 		EditableTarget:   "/w",
+	}
+	dependencies := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", spec), " ")
+	wantDependencies := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z pip setuptools -r build-requirements.txt numpy>=1.19 cython"
+	if dependencies != wantDependencies {
+		t.Fatalf("dependency install:\n got %q\nwant %q", dependencies, wantDependencies)
+	}
+	editable := strings.Join(venvEditableInstallArgs("/w/.mind-venv/bin/python", spec), " ")
+	wantEditable := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z --no-build-isolation -e /w"
+	if editable != wantEditable {
+		t.Fatalf("editable install:\n got %q\nwant %q", editable, wantEditable)
+	}
+	if strings.Contains(dependencies, "--no-build-isolation") || strings.Contains(dependencies, " -e ") {
+		t.Fatalf("dependency install must complete before editable build: %q", dependencies)
+	}
+	if strings.Contains(editable, "setuptools") || strings.Contains(editable, "build-requirements") {
+		t.Fatalf("editable invocation must not combine peer dependencies: %q", editable)
+	}
+}
+
+func TestVenvDependencyInstallArgsAlwaysMaterializesHistoricalPackaging(t *testing.T) {
+	got := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", TestFormulaSpec{}), " ")
+	if got != "pip install --python /w/.mind-venv/bin/python pip setuptools" {
+		t.Fatalf("minimal dependency install args = %q", got)
+	}
+}
+
+func TestHistoricalEditableFallbackIsCapabilityBound(t *testing.T) {
+	observed := "AttributeError: module 'setuptools.build_meta' has no attribute 'build_editable'"
+	if !editableHookUnavailable(observed) {
+		t.Fatal("observed pre-PEP-660 setuptools failure must select historical pip")
+	}
+	for _, unrelated := range []string{
+		"build_editable failed: compiler unavailable",
+		"ModuleNotFoundError: setuptools",
+		"ordinary build failure",
+	} {
+		if editableHookUnavailable(unrelated) {
+			t.Fatalf("unrelated build failure selected fallback: %q", unrelated)
+		}
+	}
+
+	args := strings.Join(venvHistoricalEditableInstallArgs(TestFormulaSpec{
+		NoBuildIsolation: true,
+		EditableTarget:   "/w",
 	}), " ")
-	want := "pip install --python /w/.mind-venv/bin/python --no-build-isolation -r build-requirements.txt numpy>=1.19 cython -e /w"
-	if got != want {
-		t.Fatalf("\n got %q\nwant %q", got, want)
+	want := "-m pip install --no-build-isolation -e /w"
+	if args != want {
+		t.Fatalf("historical editable args = %q, want %q", args, want)
 	}
 }
 

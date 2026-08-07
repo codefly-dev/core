@@ -43,8 +43,13 @@ type GoRunnerEnvironment struct {
 	// CGO or not
 	withCGO bool
 
-	// Workspace or not
-	withGoWorkspace bool
+	// Workspace configuration distinguishes an attached source root's own
+	// go.work from an unrelated parent workspace inherited from the host.
+	withGoWorkspace   bool
+	ownsGoWorkspace   bool
+	goWorkspaceFile   string
+	workspaceModules  []string
+	workspacePackages []string
 
 	withGoModules bool
 	goModCache    string
@@ -102,11 +107,23 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 	sourceDir := path.Join(dir, relativeSource)
 
 	goModDir, withGoModules := findGoModuleDir(ctx, dir, sourceDir)
+	workspace, ownsWorkspace, err := loadSourceGoWorkspace(sourceDir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load source-owned Go workspace")
+	}
+	if ownsWorkspace {
+		goModDir = workspace.root
+		withGoModules = true
+	}
 
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
 	} else {
-		w.Trace("found go.mod", wool.DirField(goModDir))
+		if ownsWorkspace {
+			w.Trace("found source-owned go.work", wool.DirField(goModDir), wool.Field("modules", len(workspace.moduleDirs)))
+		} else {
+			w.Trace("found go.mod", wool.DirField(goModDir))
+		}
 		if v, ok := os.LookupEnv("GOMODCACHE"); ok {
 			local.WithEnvironmentVariables(ctx, resources.Env("GOMODCACHE", v))
 		} else {
@@ -122,12 +139,16 @@ func NewNativeGoRunner(ctx context.Context, dir string, relativeSource string) (
 	}
 
 	return &GoRunnerEnvironment{
-		dir:           dir,
-		local:         local,
-		withGoModules: withGoModules,
-		localCacheDir: path.Join(sourceDir, "cache"),
-		sourceDir:     sourceDir,
-		moduleDir:     goModDir,
+		dir:               dir,
+		local:             local,
+		withGoModules:     withGoModules,
+		ownsGoWorkspace:   ownsWorkspace,
+		goWorkspaceFile:   workspaceFile(workspace),
+		workspaceModules:  workspaceModuleDirs(workspace),
+		workspacePackages: workspacePackageTargets(workspace),
+		localCacheDir:     path.Join(sourceDir, "cache"),
+		sourceDir:         sourceDir,
+		moduleDir:         goModDir,
 	}, nil
 }
 
@@ -144,6 +165,14 @@ func NewNixGoRunner(ctx context.Context, dir string, relativeSource string) (*Go
 
 	sourceDir := path.Join(dir, relativeSource)
 	goModDir, withGoModules := findGoModuleDir(ctx, dir, sourceDir)
+	workspace, ownsWorkspace, err := loadSourceGoWorkspace(sourceDir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load source-owned Go workspace")
+	}
+	if ownsWorkspace {
+		goModDir = workspace.root
+		withGoModules = true
+	}
 
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
@@ -157,12 +186,16 @@ func NewNixGoRunner(ctx context.Context, dir string, relativeSource string) (*Go
 	}
 
 	return &GoRunnerEnvironment{
-		dir:           dir,
-		nix:           nixEnv,
-		withGoModules: withGoModules,
-		localCacheDir: path.Join(sourceDir, "cache"),
-		sourceDir:     sourceDir,
-		moduleDir:     goModDir,
+		dir:               dir,
+		nix:               nixEnv,
+		withGoModules:     withGoModules,
+		ownsGoWorkspace:   ownsWorkspace,
+		goWorkspaceFile:   workspaceFile(workspace),
+		workspaceModules:  workspaceModuleDirs(workspace),
+		workspacePackages: workspacePackageTargets(workspace),
+		localCacheDir:     path.Join(sourceDir, "cache"),
+		sourceDir:         sourceDir,
+		moduleDir:         goModDir,
 	}, nil
 }
 
@@ -184,18 +217,51 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 
 	sourceDir := path.Join(dir, relativeSource)
 	goModDir, withGoModules := findGoModuleDir(ctx, dir, sourceDir)
+	workspace, ownsWorkspace, err := loadSourceGoWorkspace(sourceDir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load source-owned Go workspace")
+	}
+	if ownsWorkspace {
+		goModDir = workspace.root
+		withGoModules = true
+	}
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
 	}
 
 	return &GoRunnerEnvironment{
-		dir:           dir,
-		companion:     companion,
-		withGoModules: withGoModules,
-		localCacheDir: path.Join(sourceDir, "cache"),
-		sourceDir:     sourceDir,
-		moduleDir:     goModDir,
+		dir:               dir,
+		companion:         companion,
+		withGoModules:     withGoModules,
+		ownsGoWorkspace:   ownsWorkspace,
+		goWorkspaceFile:   workspaceFile(workspace),
+		workspaceModules:  workspaceModuleDirs(workspace),
+		workspacePackages: workspacePackageTargets(workspace),
+		localCacheDir:     path.Join(sourceDir, "cache"),
+		sourceDir:         sourceDir,
+		moduleDir:         goModDir,
 	}, nil
+}
+
+func workspaceModuleDirs(workspace *sourceGoWorkspace) []string {
+	if workspace == nil {
+		return nil
+	}
+	return append([]string(nil), workspace.moduleDirs...)
+}
+
+func workspaceFile(workspace *sourceGoWorkspace) string {
+	if workspace == nil {
+		return ""
+	}
+	return workspace.workFile
+}
+
+func workspacePackageTargets(workspace *sourceGoWorkspace) []string {
+	if workspace == nil {
+		return nil
+	}
+	return append([]string(nil), workspace.packageTargets...)
 }
 
 func findGoModuleDir(ctx context.Context, workspaceDir, sourceDir string) (string, bool) {
@@ -248,6 +314,13 @@ func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
 	} else {
 		w.Trace("running with go modules")
 		r.Env().WithEnvironmentVariables(ctx, resources.Env("GO111MODULE", "on"))
+	}
+	if r.ownsGoWorkspace {
+		// Pin the project-owned workspace explicitly. The agent process may
+		// itself run under a developer GOWORK, and source checkouts are often
+		// reached through an ephemeral symlink where implicit discovery is not
+		// reliable. Project configuration must win over both conditions.
+		r.Env().WithEnvironmentVariables(ctx, resources.Env("GOWORK", r.goWorkspaceFile))
 	}
 	if r.companion != nil {
 		r.companion.WithMount(r.LocalCacheDir(ctx), "/build")
@@ -307,7 +380,9 @@ func (r *GoRunnerEnvironment) WithCGO(b bool) {
 }
 
 func (r *GoRunnerEnvironment) WithWorkspace(b bool) {
-	r.withGoWorkspace = b
+	// A go.work at the attached source root is part of the project contract.
+	// The setting controls inheritance from ambient parent workspaces only.
+	r.withGoWorkspace = b || r.ownsGoWorkspace
 }
 
 func (r *GoRunnerEnvironment) Init(ctx context.Context) error {
@@ -336,7 +411,16 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	if moduleDir == "" {
 		moduleDir = r.sourceDir
 	}
-	req := builders.NewDependencies("gomod", builders.NewDependency("go.mod", "go.sum").Localize(moduleDir))
+	components := []*builders.Dependency{builders.NewDependency("go.mod", "go.sum").Localize(moduleDir)}
+	moduleDirs := []string{moduleDir}
+	if r.ownsGoWorkspace {
+		components = []*builders.Dependency{builders.NewDependency("go.work", "go.work.sum").Localize(r.sourceDir)}
+		moduleDirs = append([]string(nil), r.workspaceModules...)
+		for _, dir := range moduleDirs {
+			components = append(components, builders.NewDependency("go.mod", "go.sum").Localize(dir))
+		}
+	}
+	req := builders.NewDependencies("gomod", components...)
 	req.WithCache(r.LocalCacheDir(ctx))
 
 	updated, err := req.Updated(ctx)
@@ -348,25 +432,23 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 		w.Trace("go modules have been cached")
 		return nil
 	}
-	proc, err := r.Env().NewProcess("go", "mod", "download")
-	if err != nil {
-		return w.Wrapf(err, "cannot go mod download process")
-	}
-
-	if r.out != nil {
-		proc.WithOutput(r.out)
-	}
-	proc.WithDir(moduleDir)
-	// Keep dependency resolution consistent with BuildBinary. Without this,
-	// an unrelated parent go.work can capture the service module and make
-	// `go mod download` fetch every module in the surrounding monorepo.
-	if !r.withGoWorkspace {
-		proc.WithEnvironmentVariables(ctx, resources.Env("GOWORK", "off"))
-	}
-
-	err = proc.Run(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot run go mod download")
+	for _, dir := range moduleDirs {
+		proc, err := r.Env().NewProcess("go", "mod", "download")
+		if err != nil {
+			return w.Wrapf(err, "cannot create go mod download process for %s", dir)
+		}
+		if r.out != nil {
+			proc.WithOutput(r.out)
+		}
+		proc.WithDir(dir)
+		// Ambient parent workspaces are disabled; a workspace owned by the
+		// attached source root remains authoritative for all module work.
+		if !r.withGoWorkspace {
+			proc.WithEnvironmentVariables(ctx, resources.Env("GOWORK", "off"))
+		}
+		if err := proc.Run(ctx); err != nil {
+			return w.Wrapf(err, "cannot run go mod download in %s", dir)
+		}
 	}
 
 	if err = req.UpdateCache(ctx); err != nil {

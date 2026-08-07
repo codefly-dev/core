@@ -73,6 +73,9 @@ const (
 	GatewayLintProcedure = "/mind.gateway.v1.Gateway/Lint"
 	// GatewayTestProcedure is the fully-qualified name of the Gateway's Test RPC.
 	GatewayTestProcedure = "/mind.gateway.v1.Gateway/Test"
+	// GatewayConfigureServiceProcedure is the fully-qualified name of the Gateway's ConfigureService
+	// RPC.
+	GatewayConfigureServiceProcedure = "/mind.gateway.v1.Gateway/ConfigureService"
 	// GatewayFormatProcedure is the fully-qualified name of the Gateway's Format RPC.
 	GatewayFormatProcedure = "/mind.gateway.v1.Gateway/Format"
 	// GatewayRunCommandProcedure is the fully-qualified name of the Gateway's RunCommand RPC.
@@ -101,6 +104,15 @@ const (
 	GatewayGitMergeProcedure = "/mind.gateway.v1.Gateway/GitMerge"
 	// GatewayGitRevertProcedure is the fully-qualified name of the Gateway's GitRevert RPC.
 	GatewayGitRevertProcedure = "/mind.gateway.v1.Gateway/GitRevert"
+	// GatewayMaterializeRepositorySnapshotProcedure is the fully-qualified name of the Gateway's
+	// MaterializeRepositorySnapshot RPC.
+	GatewayMaterializeRepositorySnapshotProcedure = "/mind.gateway.v1.Gateway/MaterializeRepositorySnapshot"
+	// GatewayPrepareRepositoryCheckoutProcedure is the fully-qualified name of the Gateway's
+	// PrepareRepositoryCheckout RPC.
+	GatewayPrepareRepositoryCheckoutProcedure = "/mind.gateway.v1.Gateway/PrepareRepositoryCheckout"
+	// GatewayReleaseRepositorySnapshotProcedure is the fully-qualified name of the Gateway's
+	// ReleaseRepositorySnapshot RPC.
+	GatewayReleaseRepositorySnapshotProcedure = "/mind.gateway.v1.Gateway/ReleaseRepositorySnapshot"
 	// GatewayReleaseProcedure is the fully-qualified name of the Gateway's Release RPC.
 	GatewayReleaseProcedure = "/mind.gateway.v1.Gateway/Release"
 	// GatewayForgePullRequestStatusProcedure is the fully-qualified name of the Gateway's
@@ -180,6 +192,10 @@ type GatewayClient interface {
 	Lint(context.Context, *connect.Request[v1.LintRequest]) (*connect.Response[v1.LintResponse], error)
 	// Test runs the configured test command on the service.
 	Test(context.Context, *connect.Request[v1.TestRequest]) (*connect.Response[v1.TestResponse], error)
+	// ConfigureService applies plugin-owned, schema-validated configuration.
+	// Mind supplies typed values; the owning Codefly agent decides how and
+	// where they are persisted.
+	ConfigureService(context.Context, *connect.Request[v1.ConfigureServiceRequest]) (*connect.Response[v1.ConfigureServiceResponse], error)
 	// Format applies the service plugin's canonical formatter/import organizer.
 	Format(context.Context, *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error)
 	// RunCommand executes an arbitrary command in the service context.
@@ -208,6 +224,16 @@ type GatewayClient interface {
 	GitMerge(context.Context, *connect.Request[v1.GitMergeRequest]) (*connect.Response[v1.GitMergeResponse], error)
 	// GitRevert creates a commit that reverts one revision.
 	GitRevert(context.Context, *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error)
+	// MaterializeRepositorySnapshot resolves one remote revision into a
+	// detached, immutable worktree owned by the caller's service-state cache.
+	// Codefly owns every Git command and credential/configuration boundary.
+	MaterializeRepositorySnapshot(context.Context, *connect.Request[v1.MaterializeRepositorySnapshotRequest]) (*connect.Response[v1.MaterializeRepositorySnapshotResponse], error)
+	// PrepareRepositoryCheckout resolves one remote revision into a clean,
+	// mutable checkout backed by a caller-owned repository cache directory.
+	PrepareRepositoryCheckout(context.Context, *connect.Request[v1.PrepareRepositoryCheckoutRequest]) (*connect.Response[v1.PrepareRepositoryCheckoutResponse], error)
+	// ReleaseRepositorySnapshot removes a detached worktree previously leased
+	// by MaterializeRepositorySnapshot and prunes its repository metadata.
+	ReleaseRepositorySnapshot(context.Context, *connect.Request[v1.ReleaseRepositorySnapshotRequest]) (*connect.Response[v1.ReleaseRepositorySnapshotResponse], error)
 	// Release bumps the code unit versions, commits them, creates a signed tag,
 	// and publishes the commit and tag as one semantic operation.
 	Release(context.Context, *connect.Request[v1.ReleaseRequest]) (*connect.Response[v1.ReleaseResponse], error)
@@ -359,6 +385,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(gatewayMethods.ByName("Test")),
 			connect.WithClientOptions(opts...),
 		),
+		configureService: connect.NewClient[v1.ConfigureServiceRequest, v1.ConfigureServiceResponse](
+			httpClient,
+			baseURL+GatewayConfigureServiceProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ConfigureService")),
+			connect.WithClientOptions(opts...),
+		),
 		format: connect.NewClient[v1.FormatRequest, v1.FormatResponse](
 			httpClient,
 			baseURL+GatewayFormatProcedure,
@@ -441,6 +473,24 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			httpClient,
 			baseURL+GatewayGitRevertProcedure,
 			connect.WithSchema(gatewayMethods.ByName("GitRevert")),
+			connect.WithClientOptions(opts...),
+		),
+		materializeRepositorySnapshot: connect.NewClient[v1.MaterializeRepositorySnapshotRequest, v1.MaterializeRepositorySnapshotResponse](
+			httpClient,
+			baseURL+GatewayMaterializeRepositorySnapshotProcedure,
+			connect.WithSchema(gatewayMethods.ByName("MaterializeRepositorySnapshot")),
+			connect.WithClientOptions(opts...),
+		),
+		prepareRepositoryCheckout: connect.NewClient[v1.PrepareRepositoryCheckoutRequest, v1.PrepareRepositoryCheckoutResponse](
+			httpClient,
+			baseURL+GatewayPrepareRepositoryCheckoutProcedure,
+			connect.WithSchema(gatewayMethods.ByName("PrepareRepositoryCheckout")),
+			connect.WithClientOptions(opts...),
+		),
+		releaseRepositorySnapshot: connect.NewClient[v1.ReleaseRepositorySnapshotRequest, v1.ReleaseRepositorySnapshotResponse](
+			httpClient,
+			baseURL+GatewayReleaseRepositorySnapshotProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ReleaseRepositorySnapshot")),
 			connect.WithClientOptions(opts...),
 		),
 		release: connect.NewClient[v1.ReleaseRequest, v1.ReleaseResponse](
@@ -532,52 +582,56 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 
 // gatewayClient implements GatewayClient.
 type gatewayClient struct {
-	listServices               *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
-	readFile                   *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
-	writeFile                  *connect.Client[v1.WriteFileRequest, v1.WriteFileResponse]
-	listFiles                  *connect.Client[v1.ListFilesRequest, v1.ListFilesResponse]
-	subscribeWorkspaceChanges  *connect.Client[v1.SubscribeWorkspaceChangesRequest, v1.WorkspaceChangeEvent]
-	deleteFile                 *connect.Client[v1.DeleteFileRequest, v1.DeleteFileResponse]
-	moveFile                   *connect.Client[v1.MoveFileRequest, v1.MoveFileResponse]
-	createFile                 *connect.Client[v1.CreateFileRequest, v1.CreateFileResponse]
-	fix                        *connect.Client[v1.FixRequest, v1.FixResponse]
-	applyEdit                  *connect.Client[v1.ApplyEditRequest, v1.ApplyEditResponse]
-	batchApplyEdits            *connect.Client[v1.BatchApplyEditsRequest, v1.BatchApplyEditsResponse]
-	configureMutationAuthority *connect.Client[v1.ConfigureMutationAuthorityRequest, v1.ConfigureMutationAuthorityResponse]
-	prepareMutation            *connect.Client[v1.PrepareMutationRequest, v1.PrepareMutationResponse]
-	applyPreparedMutation      *connect.Client[v1.ApplyPreparedMutationRequest, v1.ApplyPreparedMutationResponse]
-	search                     *connect.Client[v1.SearchRequest, v1.SearchResponse]
-	build                      *connect.Client[v1.BuildRequest, v1.BuildResponse]
-	lint                       *connect.Client[v1.LintRequest, v1.LintResponse]
-	test                       *connect.Client[v1.TestRequest, v1.TestResponse]
-	format                     *connect.Client[v1.FormatRequest, v1.FormatResponse]
-	runCommand                 *connect.Client[v1.RunCommandRequest, v1.RunCommandResponse]
-	listAllCommands            *connect.Client[v1.ListAllCommandsRequest, v1.ListAllCommandsResponse]
-	runChecks                  *connect.Client[v1.RunChecksRequest, v1.RunChecksResponse]
-	gitStatus                  *connect.Client[v1.GitStatusRequest, v1.GitStatusResponse]
-	gitDiff                    *connect.Client[v1.GitDiffRequest, v1.GitDiffResponse]
-	gitLog                     *connect.Client[v1.GitLogRequest, v1.GitLogResponse]
-	gitCommit                  *connect.Client[v1.GitCommitRequest, v1.GitCommitResponse]
-	gitBranch                  *connect.Client[v1.GitBranchRequest, v1.GitBranchResponse]
-	gitCheckout                *connect.Client[v1.GitCheckoutRequest, v1.GitCheckoutResponse]
-	gitPush                    *connect.Client[v1.GitPushRequest, v1.GitPushResponse]
-	gitTag                     *connect.Client[v1.GitTagRequest, v1.GitTagResponse]
-	gitMerge                   *connect.Client[v1.GitMergeRequest, v1.GitMergeResponse]
-	gitRevert                  *connect.Client[v1.GitRevertRequest, v1.GitRevertResponse]
-	release                    *connect.Client[v1.ReleaseRequest, v1.ReleaseResponse]
-	forgePullRequestStatus     *connect.Client[v1.ForgePullRequestStatusRequest, v1.ForgePullRequestStatusResponse]
-	forgeMergePullRequest      *connect.Client[v1.ForgeMergePullRequestRequest, v1.ForgeMergePullRequestResponse]
-	forgeRequestReview         *connect.Client[v1.ForgeRequestReviewRequest, v1.ForgeRequestReviewResponse]
-	forgeNormalizeWebhook      *connect.Client[v1.ForgeNormalizeWebhookRequest, v1.ForgeNormalizeWebhookResponse]
-	listDependencies           *connect.Client[v1.ListDependenciesRequest, v1.ListDependenciesResponse]
-	addDependency              *connect.Client[v1.AddDependencyRequest, v1.AddDependencyResponse]
-	removeDependency           *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
-	getProjectInfo             *connect.Client[v1.GetProjectInfoRequest, v1.GetProjectInfoResponse]
-	openTerminal               *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
-	attachTerminal             *connect.Client[v1.TerminalInput, v1.TerminalOutput]
-	resizeTerminal             *connect.Client[v1.ResizeTerminalRequest, v1.ResizeTerminalResponse]
-	closeTerminal              *connect.Client[v1.CloseTerminalRequest, v1.CloseTerminalResponse]
-	listTerminals              *connect.Client[v1.ListTerminalsRequest, v1.ListTerminalsResponse]
+	listServices                  *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
+	readFile                      *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
+	writeFile                     *connect.Client[v1.WriteFileRequest, v1.WriteFileResponse]
+	listFiles                     *connect.Client[v1.ListFilesRequest, v1.ListFilesResponse]
+	subscribeWorkspaceChanges     *connect.Client[v1.SubscribeWorkspaceChangesRequest, v1.WorkspaceChangeEvent]
+	deleteFile                    *connect.Client[v1.DeleteFileRequest, v1.DeleteFileResponse]
+	moveFile                      *connect.Client[v1.MoveFileRequest, v1.MoveFileResponse]
+	createFile                    *connect.Client[v1.CreateFileRequest, v1.CreateFileResponse]
+	fix                           *connect.Client[v1.FixRequest, v1.FixResponse]
+	applyEdit                     *connect.Client[v1.ApplyEditRequest, v1.ApplyEditResponse]
+	batchApplyEdits               *connect.Client[v1.BatchApplyEditsRequest, v1.BatchApplyEditsResponse]
+	configureMutationAuthority    *connect.Client[v1.ConfigureMutationAuthorityRequest, v1.ConfigureMutationAuthorityResponse]
+	prepareMutation               *connect.Client[v1.PrepareMutationRequest, v1.PrepareMutationResponse]
+	applyPreparedMutation         *connect.Client[v1.ApplyPreparedMutationRequest, v1.ApplyPreparedMutationResponse]
+	search                        *connect.Client[v1.SearchRequest, v1.SearchResponse]
+	build                         *connect.Client[v1.BuildRequest, v1.BuildResponse]
+	lint                          *connect.Client[v1.LintRequest, v1.LintResponse]
+	test                          *connect.Client[v1.TestRequest, v1.TestResponse]
+	configureService              *connect.Client[v1.ConfigureServiceRequest, v1.ConfigureServiceResponse]
+	format                        *connect.Client[v1.FormatRequest, v1.FormatResponse]
+	runCommand                    *connect.Client[v1.RunCommandRequest, v1.RunCommandResponse]
+	listAllCommands               *connect.Client[v1.ListAllCommandsRequest, v1.ListAllCommandsResponse]
+	runChecks                     *connect.Client[v1.RunChecksRequest, v1.RunChecksResponse]
+	gitStatus                     *connect.Client[v1.GitStatusRequest, v1.GitStatusResponse]
+	gitDiff                       *connect.Client[v1.GitDiffRequest, v1.GitDiffResponse]
+	gitLog                        *connect.Client[v1.GitLogRequest, v1.GitLogResponse]
+	gitCommit                     *connect.Client[v1.GitCommitRequest, v1.GitCommitResponse]
+	gitBranch                     *connect.Client[v1.GitBranchRequest, v1.GitBranchResponse]
+	gitCheckout                   *connect.Client[v1.GitCheckoutRequest, v1.GitCheckoutResponse]
+	gitPush                       *connect.Client[v1.GitPushRequest, v1.GitPushResponse]
+	gitTag                        *connect.Client[v1.GitTagRequest, v1.GitTagResponse]
+	gitMerge                      *connect.Client[v1.GitMergeRequest, v1.GitMergeResponse]
+	gitRevert                     *connect.Client[v1.GitRevertRequest, v1.GitRevertResponse]
+	materializeRepositorySnapshot *connect.Client[v1.MaterializeRepositorySnapshotRequest, v1.MaterializeRepositorySnapshotResponse]
+	prepareRepositoryCheckout     *connect.Client[v1.PrepareRepositoryCheckoutRequest, v1.PrepareRepositoryCheckoutResponse]
+	releaseRepositorySnapshot     *connect.Client[v1.ReleaseRepositorySnapshotRequest, v1.ReleaseRepositorySnapshotResponse]
+	release                       *connect.Client[v1.ReleaseRequest, v1.ReleaseResponse]
+	forgePullRequestStatus        *connect.Client[v1.ForgePullRequestStatusRequest, v1.ForgePullRequestStatusResponse]
+	forgeMergePullRequest         *connect.Client[v1.ForgeMergePullRequestRequest, v1.ForgeMergePullRequestResponse]
+	forgeRequestReview            *connect.Client[v1.ForgeRequestReviewRequest, v1.ForgeRequestReviewResponse]
+	forgeNormalizeWebhook         *connect.Client[v1.ForgeNormalizeWebhookRequest, v1.ForgeNormalizeWebhookResponse]
+	listDependencies              *connect.Client[v1.ListDependenciesRequest, v1.ListDependenciesResponse]
+	addDependency                 *connect.Client[v1.AddDependencyRequest, v1.AddDependencyResponse]
+	removeDependency              *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
+	getProjectInfo                *connect.Client[v1.GetProjectInfoRequest, v1.GetProjectInfoResponse]
+	openTerminal                  *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
+	attachTerminal                *connect.Client[v1.TerminalInput, v1.TerminalOutput]
+	resizeTerminal                *connect.Client[v1.ResizeTerminalRequest, v1.ResizeTerminalResponse]
+	closeTerminal                 *connect.Client[v1.CloseTerminalRequest, v1.CloseTerminalResponse]
+	listTerminals                 *connect.Client[v1.ListTerminalsRequest, v1.ListTerminalsResponse]
 }
 
 // ListServices calls mind.gateway.v1.Gateway.ListServices.
@@ -670,6 +724,11 @@ func (c *gatewayClient) Test(ctx context.Context, req *connect.Request[v1.TestRe
 	return c.test.CallUnary(ctx, req)
 }
 
+// ConfigureService calls mind.gateway.v1.Gateway.ConfigureService.
+func (c *gatewayClient) ConfigureService(ctx context.Context, req *connect.Request[v1.ConfigureServiceRequest]) (*connect.Response[v1.ConfigureServiceResponse], error) {
+	return c.configureService.CallUnary(ctx, req)
+}
+
 // Format calls mind.gateway.v1.Gateway.Format.
 func (c *gatewayClient) Format(ctx context.Context, req *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error) {
 	return c.format.CallUnary(ctx, req)
@@ -738,6 +797,21 @@ func (c *gatewayClient) GitMerge(ctx context.Context, req *connect.Request[v1.Gi
 // GitRevert calls mind.gateway.v1.Gateway.GitRevert.
 func (c *gatewayClient) GitRevert(ctx context.Context, req *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error) {
 	return c.gitRevert.CallUnary(ctx, req)
+}
+
+// MaterializeRepositorySnapshot calls mind.gateway.v1.Gateway.MaterializeRepositorySnapshot.
+func (c *gatewayClient) MaterializeRepositorySnapshot(ctx context.Context, req *connect.Request[v1.MaterializeRepositorySnapshotRequest]) (*connect.Response[v1.MaterializeRepositorySnapshotResponse], error) {
+	return c.materializeRepositorySnapshot.CallUnary(ctx, req)
+}
+
+// PrepareRepositoryCheckout calls mind.gateway.v1.Gateway.PrepareRepositoryCheckout.
+func (c *gatewayClient) PrepareRepositoryCheckout(ctx context.Context, req *connect.Request[v1.PrepareRepositoryCheckoutRequest]) (*connect.Response[v1.PrepareRepositoryCheckoutResponse], error) {
+	return c.prepareRepositoryCheckout.CallUnary(ctx, req)
+}
+
+// ReleaseRepositorySnapshot calls mind.gateway.v1.Gateway.ReleaseRepositorySnapshot.
+func (c *gatewayClient) ReleaseRepositorySnapshot(ctx context.Context, req *connect.Request[v1.ReleaseRepositorySnapshotRequest]) (*connect.Response[v1.ReleaseRepositorySnapshotResponse], error) {
+	return c.releaseRepositorySnapshot.CallUnary(ctx, req)
 }
 
 // Release calls mind.gateway.v1.Gateway.Release.
@@ -853,6 +927,10 @@ type GatewayHandler interface {
 	Lint(context.Context, *connect.Request[v1.LintRequest]) (*connect.Response[v1.LintResponse], error)
 	// Test runs the configured test command on the service.
 	Test(context.Context, *connect.Request[v1.TestRequest]) (*connect.Response[v1.TestResponse], error)
+	// ConfigureService applies plugin-owned, schema-validated configuration.
+	// Mind supplies typed values; the owning Codefly agent decides how and
+	// where they are persisted.
+	ConfigureService(context.Context, *connect.Request[v1.ConfigureServiceRequest]) (*connect.Response[v1.ConfigureServiceResponse], error)
 	// Format applies the service plugin's canonical formatter/import organizer.
 	Format(context.Context, *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error)
 	// RunCommand executes an arbitrary command in the service context.
@@ -881,6 +959,16 @@ type GatewayHandler interface {
 	GitMerge(context.Context, *connect.Request[v1.GitMergeRequest]) (*connect.Response[v1.GitMergeResponse], error)
 	// GitRevert creates a commit that reverts one revision.
 	GitRevert(context.Context, *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error)
+	// MaterializeRepositorySnapshot resolves one remote revision into a
+	// detached, immutable worktree owned by the caller's service-state cache.
+	// Codefly owns every Git command and credential/configuration boundary.
+	MaterializeRepositorySnapshot(context.Context, *connect.Request[v1.MaterializeRepositorySnapshotRequest]) (*connect.Response[v1.MaterializeRepositorySnapshotResponse], error)
+	// PrepareRepositoryCheckout resolves one remote revision into a clean,
+	// mutable checkout backed by a caller-owned repository cache directory.
+	PrepareRepositoryCheckout(context.Context, *connect.Request[v1.PrepareRepositoryCheckoutRequest]) (*connect.Response[v1.PrepareRepositoryCheckoutResponse], error)
+	// ReleaseRepositorySnapshot removes a detached worktree previously leased
+	// by MaterializeRepositorySnapshot and prunes its repository metadata.
+	ReleaseRepositorySnapshot(context.Context, *connect.Request[v1.ReleaseRepositorySnapshotRequest]) (*connect.Response[v1.ReleaseRepositorySnapshotResponse], error)
 	// Release bumps the code unit versions, commits them, creates a signed tag,
 	// and publishes the commit and tag as one semantic operation.
 	Release(context.Context, *connect.Request[v1.ReleaseRequest]) (*connect.Response[v1.ReleaseResponse], error)
@@ -1028,6 +1116,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(gatewayMethods.ByName("Test")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayConfigureServiceHandler := connect.NewUnaryHandler(
+		GatewayConfigureServiceProcedure,
+		svc.ConfigureService,
+		connect.WithSchema(gatewayMethods.ByName("ConfigureService")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gatewayFormatHandler := connect.NewUnaryHandler(
 		GatewayFormatProcedure,
 		svc.Format,
@@ -1110,6 +1204,24 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		GatewayGitRevertProcedure,
 		svc.GitRevert,
 		connect.WithSchema(gatewayMethods.ByName("GitRevert")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayMaterializeRepositorySnapshotHandler := connect.NewUnaryHandler(
+		GatewayMaterializeRepositorySnapshotProcedure,
+		svc.MaterializeRepositorySnapshot,
+		connect.WithSchema(gatewayMethods.ByName("MaterializeRepositorySnapshot")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayPrepareRepositoryCheckoutHandler := connect.NewUnaryHandler(
+		GatewayPrepareRepositoryCheckoutProcedure,
+		svc.PrepareRepositoryCheckout,
+		connect.WithSchema(gatewayMethods.ByName("PrepareRepositoryCheckout")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayReleaseRepositorySnapshotHandler := connect.NewUnaryHandler(
+		GatewayReleaseRepositorySnapshotProcedure,
+		svc.ReleaseRepositorySnapshot,
+		connect.WithSchema(gatewayMethods.ByName("ReleaseRepositorySnapshot")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gatewayReleaseHandler := connect.NewUnaryHandler(
@@ -1234,6 +1346,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayLintHandler.ServeHTTP(w, r)
 		case GatewayTestProcedure:
 			gatewayTestHandler.ServeHTTP(w, r)
+		case GatewayConfigureServiceProcedure:
+			gatewayConfigureServiceHandler.ServeHTTP(w, r)
 		case GatewayFormatProcedure:
 			gatewayFormatHandler.ServeHTTP(w, r)
 		case GatewayRunCommandProcedure:
@@ -1262,6 +1376,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayGitMergeHandler.ServeHTTP(w, r)
 		case GatewayGitRevertProcedure:
 			gatewayGitRevertHandler.ServeHTTP(w, r)
+		case GatewayMaterializeRepositorySnapshotProcedure:
+			gatewayMaterializeRepositorySnapshotHandler.ServeHTTP(w, r)
+		case GatewayPrepareRepositoryCheckoutProcedure:
+			gatewayPrepareRepositoryCheckoutHandler.ServeHTTP(w, r)
+		case GatewayReleaseRepositorySnapshotProcedure:
+			gatewayReleaseRepositorySnapshotHandler.ServeHTTP(w, r)
 		case GatewayReleaseProcedure:
 			gatewayReleaseHandler.ServeHTTP(w, r)
 		case GatewayForgePullRequestStatusProcedure:
@@ -1371,6 +1491,10 @@ func (UnimplementedGatewayHandler) Test(context.Context, *connect.Request[v1.Tes
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.Test is not implemented"))
 }
 
+func (UnimplementedGatewayHandler) ConfigureService(context.Context, *connect.Request[v1.ConfigureServiceRequest]) (*connect.Response[v1.ConfigureServiceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ConfigureService is not implemented"))
+}
+
 func (UnimplementedGatewayHandler) Format(context.Context, *connect.Request[v1.FormatRequest]) (*connect.Response[v1.FormatResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.Format is not implemented"))
 }
@@ -1425,6 +1549,18 @@ func (UnimplementedGatewayHandler) GitMerge(context.Context, *connect.Request[v1
 
 func (UnimplementedGatewayHandler) GitRevert(context.Context, *connect.Request[v1.GitRevertRequest]) (*connect.Response[v1.GitRevertResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GitRevert is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) MaterializeRepositorySnapshot(context.Context, *connect.Request[v1.MaterializeRepositorySnapshotRequest]) (*connect.Response[v1.MaterializeRepositorySnapshotResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.MaterializeRepositorySnapshot is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) PrepareRepositoryCheckout(context.Context, *connect.Request[v1.PrepareRepositoryCheckoutRequest]) (*connect.Response[v1.PrepareRepositoryCheckoutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.PrepareRepositoryCheckout is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ReleaseRepositorySnapshot(context.Context, *connect.Request[v1.ReleaseRepositorySnapshotRequest]) (*connect.Response[v1.ReleaseRepositorySnapshotResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ReleaseRepositorySnapshot is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) Release(context.Context, *connect.Request[v1.ReleaseRequest]) (*connect.Response[v1.ReleaseResponse], error) {
