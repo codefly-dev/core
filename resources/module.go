@@ -444,12 +444,8 @@ func (mod *Module) LoadServiceFromReference(ctx context.Context, ref *ServiceRef
 	}
 	w := wool.Get(ctx).In("configurations.LoadServiceFromReference", wool.Field("service", ref))
 	dir := mod.ServicePath(ctx, ref)
-	service, err := LoadServiceFromDir(ctx, dir)
+	service, err := loadServiceFromDir(ctx, dir, mod.Name)
 	if err != nil {
-		return nil, w.Wrap(err)
-	}
-	service.module = mod.Name
-	if err = service.postLoad(ctx); err != nil {
 		return nil, w.Wrap(err)
 	}
 	return service, nil

@@ -328,6 +328,45 @@ func hasInvocationConfigurationOverrides(opt *Option) bool {
 	return len(opt.WorkspaceConfigurations) > 0 || len(opt.ServiceConfigurations) > 0
 }
 
+// validateConsumedMappingVisibility fails closed when the consuming module is
+// not permitted to reach an endpoint it actually depends on. It scopes to the
+// declared dependencies so an unrelated sibling endpoint surfaced by the graph
+// never produces a false rejection, and it refuses a mapping with no endpoint
+// rather than dereferencing a nil.
+func validateConsumedMappingVisibility(consumerModule string, deps []*resources.ServiceDependency, mappings []*basev0.NetworkMapping) error {
+	for _, mapping := range mappings {
+		ep := mapping.GetEndpoint()
+		if ep == nil {
+			return fmt.Errorf("dependency network mapping is missing its endpoint")
+		}
+		if !dependenciesConsumeMapping(deps, ep) {
+			continue
+		}
+		if err := resources.ValidateEndpointVisibility(consumerModule, ep.Module, ep.Service, ep.Name, ep.Visibility, ep.AllowModules); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dependenciesConsumeMapping reports whether any declared dependency consumes
+// the given producer endpoint. A dependency matches by producer service (and
+// module when both are known) and then by endpoint name.
+func dependenciesConsumeMapping(deps []*resources.ServiceDependency, ep *basev0.Endpoint) bool {
+	for _, dep := range deps {
+		if dep.Name != ep.Service {
+			continue
+		}
+		if dep.Module != "" && ep.Module != "" && dep.Module != ep.Module {
+			continue
+		}
+		if dep.ConsumesEndpoint(ep.Name) {
+			return true
+		}
+	}
+	return false
+}
+
 func dependencyCommandArguments(opt *Option) []string {
 	args := []string{"run", "service"}
 	if opt.Debug {
@@ -656,11 +695,16 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 		if err != nil {
 			return w.Wrapf(err, "failed to get dependencies network mappings")
 		}
+		// Enforce visibility only over the endpoints this service actually
+		// consumes. The dependency graph may surface sibling endpoints of a
+		// producer (e.g. an internal admin endpoint next to the public one),
+		// and rejecting a run because of an endpoint the consumer never
+		// references would be a false positive — the static workspace pass
+		// (Workspace.ValidateServiceDependencies) scopes the same way.
+		if err := validateConsumedMappingVisibility(mod.Name, svc.ServiceDependencies, resp.NetworkMappings); err != nil {
+			return w.Wrap(err)
+		}
 		for _, np := range resp.NetworkMappings {
-			ep := np.Endpoint
-			if err := resources.ValidateEndpointVisibility(mod.Name, ep.Module, ep.Service, ep.Name, ep.Visibility, ep.AllowModules); err != nil {
-				return w.Wrap(err)
-			}
 			inst := resources.FilterNetworkInstance(ctx, np.Instances, networkAccess)
 			if inst == nil {
 				return w.NewError("no network instance found")

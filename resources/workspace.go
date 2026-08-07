@@ -341,7 +341,7 @@ func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) err
 					return w.Wrap(err)
 				}
 				for _, ep := range producer.Endpoints {
-					if !dependencyConsumesEndpoint(dep, ep.Name) {
+					if !dep.ConsumesEndpoint(ep.Name) {
 						continue
 					}
 					if err := ValidateEndpointVisibility(mod.Name, producerModule, dep.Name, ep.Name, ep.Visibility, ep.AllowModules); err != nil {
@@ -352,20 +352,6 @@ func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) err
 		}
 	}
 	return nil
-}
-
-// dependencyConsumesEndpoint reports whether a dependency pulls in the named
-// producer endpoint. A dependency that lists no endpoints consumes them all.
-func dependencyConsumesEndpoint(dep *ServiceDependency, name string) bool {
-	if len(dep.Endpoints) == 0 {
-		return true
-	}
-	for _, ref := range dep.Endpoints {
-		if ref.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 // ModulesNames returns the names of the modules in the
