@@ -105,6 +105,10 @@ func ClassifyEnvError(raw string, runErr error) (reason, detail string) {
 			return EnvErrorToolchainMissing, execErr.Error()
 		}
 	}
+	classificationText := raw
+	if runErr != nil {
+		classificationText = strings.TrimSpace(strings.Join([]string{classificationText, runErr.Error()}, "\n"))
+	}
 	for _, marker := range []string{
 		"errors parsing go.mod",
 		"unknown directive:",
@@ -116,8 +120,8 @@ func ClassifyEnvError(raw string, runErr error) (reason, detail string) {
 		"cannot load module",
 		"unsupported toolchain",
 	} {
-		if idx := strings.Index(raw, marker); idx >= 0 {
-			rest := raw[idx:]
+		if idx := strings.Index(classificationText, marker); idx >= 0 {
+			rest := classificationText[idx:]
 			line := rest
 			if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
 				line = rest[:nl]

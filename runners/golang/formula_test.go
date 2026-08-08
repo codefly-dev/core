@@ -2,6 +2,7 @@ package golang
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -233,6 +234,13 @@ func TestRunFormula_BrokenGoModIsEnvBlocked(t *testing.T) {
 	}
 	if resp.GetCounts().GetTotal() != 0 {
 		t.Fatalf("counts = %+v, want zero cases", resp.GetCounts())
+	}
+}
+
+func TestClassifyEnvErrorReadsPreExecutionError(t *testing.T) {
+	reason, detail := ClassifyEnvError("", errors.New("prepare Go dependencies: go: errors parsing go.mod:\ngo.mod:1: unknown directive: modle"))
+	if reason != EnvErrorModuleBroken || !strings.Contains(detail, "unknown directive") {
+		t.Fatalf("ClassifyEnvError = %q/%q, want module-broken with parser detail", reason, detail)
 	}
 }
 
