@@ -484,10 +484,13 @@ func portableCICommand(command string) bool {
 	// executable/module/target position, not merely occur in an argument: for
 	// example `python -m pip install tox` provisions a runner but executes zero
 	// tests and must fall through to tox.ini.
-	return ciCommandRunsTests(fields)
+	return commandRunsTests(fields)
 }
 
-func ciCommandRunsTests(fields []string) bool {
+// commandRunsTests recognizes test execution only in command-bearing positions.
+// This deliberately rejects setup commands whose arguments merely mention test
+// dependencies, such as `pip install .[test]`.
+func commandRunsTests(fields []string) bool {
 	for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "=") {
 		fields = fields[1:]
 	}
@@ -519,7 +522,7 @@ func ciCommandRunsTests(fields []string) bool {
 	case executable == "uv", executable == "poetry", executable == "pipenv", executable == "hatch":
 		for index := 1; index < len(fields); index++ {
 			if commandToken(fields[index]) == "run" {
-				return ciCommandRunsTests(fields[index+1:])
+				return commandRunsTests(fields[index+1:])
 			}
 		}
 	case executable == "coverage":
@@ -531,7 +534,7 @@ func ciCommandRunsTests(fields []string) bool {
 			if len(tail) >= 2 && tail[0] == "-m" {
 				return testIntentToken(commandToken(tail[1]))
 			}
-			return ciCommandRunsTests(tail)
+			return commandRunsTests(tail)
 		}
 	}
 	return false
@@ -557,6 +560,11 @@ func extractFromReadme(d declaration) (string, bool) {
 		line := strings.TrimRight(raw, "\r")
 		trimmed := strings.TrimSpace(line)
 		low := strings.ToLower(trimmed)
+		cand := strings.TrimSpace(strings.TrimPrefix(trimmed, "$"))
+		if near && cand != "" && !strings.HasPrefix(cand, "```") &&
+			looksLikeCommand(cand) && commandRunsTests(strings.Fields(cand)) {
+			return cand, true
+		}
 		if strings.Contains(low, "test") &&
 			(strings.HasPrefix(trimmed, "#") || strings.HasSuffix(trimmed, ":") ||
 				strings.Contains(low, "run the test") || isHeadingLike(trimmed)) {
@@ -565,13 +573,6 @@ func extractFromReadme(d declaration) (string, bool) {
 		}
 		if !near {
 			continue
-		}
-		cand := strings.TrimSpace(strings.TrimPrefix(trimmed, "$"))
-		if cand == "" || strings.HasPrefix(cand, "```") {
-			continue
-		}
-		if looksLikeCommand(cand) {
-			return cand, true
 		}
 	}
 	return "", false
