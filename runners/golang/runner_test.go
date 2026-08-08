@@ -140,6 +140,21 @@ func TestGoModuleHandlingCacheAdvancesOnlyOnDownloadSuccess(t *testing.T) {
 	})
 }
 
+func TestGoModuleHandlingPreservesParserDiagnostics(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("modle example.com/broken\n\ngo 1.21\n"), 0o644))
+	env, err := golang.NewNativeGoRunner(ctx, root, ".")
+	require.NoError(t, err)
+	env.WithLocalCacheDir(t.TempDir())
+	t.Cleanup(func() { require.NoError(t, env.Shutdown(context.Background())) })
+
+	err = env.GoModuleHandling(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "errors parsing go.mod")
+	require.Contains(t, err.Error(), "unknown directive: modle")
+}
+
 func TestGoRunnerInitDoesNotResolveOrMutateProjectDependencies(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("GOPROXY", "off")

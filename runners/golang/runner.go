@@ -1,6 +1,7 @@
 package golang
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
@@ -436,9 +438,12 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 		if err != nil {
 			return w.Wrapf(err, "cannot create go mod download process for %s", dir)
 		}
+		var output bytes.Buffer
+		writer := io.Writer(&output)
 		if r.out != nil {
-			proc.WithOutput(r.out)
+			writer = io.MultiWriter(r.out, &output)
 		}
+		proc.WithOutput(writer)
 		proc.WithDir(dir)
 		// Ambient parent workspaces are disabled; a workspace owned by the
 		// attached source root remains authoritative for all module work.
@@ -446,6 +451,9 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 			proc.WithEnvironmentVariables(ctx, resources.Env("GOWORK", "off"))
 		}
 		if err := proc.Run(ctx); err != nil {
+			if detail := strings.TrimSpace(output.String()); detail != "" {
+				return w.Wrapf(err, "cannot run go mod download in %s: %s", dir, detail)
+			}
 			return w.Wrapf(err, "cannot run go mod download in %s", dir)
 		}
 	}

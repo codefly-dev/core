@@ -226,8 +226,9 @@ func (s *RuntimeWrapper) TestResponseWithResults(run, passed, failed, skipped in
 func (s *RuntimeWrapper) TestError(err error) (*runtimev0.TestResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.test", err, err.Error())}
-	return &runtimev0.TestResponse{Status: s.TestStatus}, nil
+	message := err.Error()
+	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: message, Failure: operationFailure("runtime.test", err, message)}
+	return typedTestErrorResponse(s.TestStatus, message), nil
 }
 
 func (s *RuntimeWrapper) TestErrorf(err error, msg string, args ...any) (*runtimev0.TestResponse, error) {
@@ -235,7 +236,18 @@ func (s *RuntimeWrapper) TestErrorf(err error, msg string, args ...any) (*runtim
 	defer s.Unlock()
 	message := ErrorMessage(err, msg, args...)
 	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: message, Failure: operationFailure("runtime.test", err, message)}
-	return &runtimev0.TestResponse{Status: s.TestStatus}, nil
+	return typedTestErrorResponse(s.TestStatus, message), nil
+}
+
+// typedTestErrorResponse makes pre-execution failures terminal and explicit.
+// A status-only response decodes as TestRunResult_UNKNOWN and loses the
+// distinction between a failed test and an environment that never ran tests.
+func typedTestErrorResponse(status *runtimev0.TestStatus, message string) *runtimev0.TestResponse {
+	return &runtimev0.TestResponse{
+		Status: status,
+		Result: &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: message},
+		Counts: &runtimev0.TestCounts{},
+	}
 }
 
 // ── Build ─────────────────────────────────────────────────

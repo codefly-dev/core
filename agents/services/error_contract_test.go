@@ -22,6 +22,22 @@ func TestRuntimeErrorHelperReturnsStructuredResponseWithoutTransportError(t *tes
 	}
 }
 
+func TestRuntimeTestErrorIsTypedTerminalResponse(t *testing.T) {
+	wrapper := &RuntimeWrapper{}
+	response, err := wrapper.TestError(errors.New("module preparation failed"))
+	if err != nil {
+		t.Fatalf("TestError returned transport error: %v", err)
+	}
+	if response.GetStatus().GetState() != runtimev0.TestStatus_ERROR ||
+		response.GetResult().GetState() != runtimev0.TestRunResult_ERRORED ||
+		response.GetResult().GetMessage() != "module preparation failed" || response.GetCounts() == nil {
+		t.Fatalf("TestError response = %+v, want ERROR/ERRORED with explicit zero counts", response)
+	}
+	if response.GetStatus().GetFailure().GetOperation() != "runtime.test" {
+		t.Fatalf("TestError failure = %+v", response.GetStatus().GetFailure())
+	}
+}
+
 func TestRuntimeLintErrorPreservesFailureOutput(t *testing.T) {
 	wrapper := &RuntimeWrapper{}
 	response, err := wrapper.LintErrorf(errors.New("main.go:4:2: undefined: value"), "lint failed")
