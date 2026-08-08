@@ -15,13 +15,12 @@ import (
 	"github.com/codefly-dev/core/resources"
 )
 
-// formula_run is the GENERIC python test executor. There is no pytest path and
-// no django path here — there is ONE path that runs a test FORMULA. The formula
-// is DATA: the inner command (captured from the project's declarations), the
-// per-instance provisioning (uv flags — python pin, editable install, extra
-// deps), and the output format. The plugin (which is allowed to know uv) renders
-// that data into a `uv run …` invocation and parses the output by format. It
-// hardcodes no command, no framework, no provisioning — those all arrive as data.
+// formula_run is the generic Python test-formula executor. The formula is DATA:
+// the inner command (captured from the project's declarations), the per-instance
+// provisioning (uv flags — Python pin, editable install, extra dependencies),
+// and the output contract. The plugin owns the runner adapters selected by that
+// contract: JUnit XML is the pytest adapter; unittest text is the Python
+// unittest adapter. That runner knowledge stays here and never leaks into Mind.
 
 // TestFormulaSpec is everything needed to run one test formula. Every field is
 // DATA supplied by the caller (Mind's captured formula + the per-instance
@@ -120,6 +119,15 @@ func SpecFromFormula(command []string, output string, env, provisioning map[stri
 		// force it on/off.
 		PersistentVenv: provisioning["no_build_isolation"] == "true" || provisioning["persistent_venv"] == "true",
 	}
+	// ARCHITECTURE: OutputJUnitXML selects the pytest adapter below (JUnit flag,
+	// parser, and cache isolation). In an isolated uv environment the adapter
+	// must also materialize its own runner. Otherwise a perfectly valid formula
+	// derived from `pytest` fails before executing a case when the project does
+	// not declare pytest as a runtime dependency. An explicit pytest constraint
+	// in `with` remains authoritative and is never duplicated.
+	if spec.Output == OutputJUnitXML && !containsRequirement(spec.With, "pytest") {
+		spec.With = append(spec.With, "pytest")
+	}
 	if provisioning["persistent_venv"] == "false" {
 		spec.PersistentVenv = false
 	}
@@ -133,6 +141,46 @@ func SpecFromFormula(command []string, output string, env, provisioning map[stri
 		spec.Env = append(spec.Env, &resources.EnvironmentVariable{Key: k, Value: v})
 	}
 	return spec
+}
+
+// containsRequirement reports whether specs already contain the named Python
+// distribution, accepting ordinary PEP 508 suffixes such as version bounds,
+// extras, and direct references. Distribution-name punctuation is normalized
+// per the Python packaging convention so `pytest`, `PyTest>=8`, and equivalent
+// spellings all identify the same runner dependency.
+func containsRequirement(specs []string, name string) bool {
+	want := normalizeDistributionName(name)
+	for _, spec := range specs {
+		candidate := strings.TrimSpace(spec)
+		for i, r := range candidate {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.') {
+				candidate = candidate[:i]
+				break
+			}
+		}
+		if normalizeDistributionName(candidate) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeDistributionName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	var normalized strings.Builder
+	separator := false
+	for _, r := range name {
+		if r == '-' || r == '_' || r == '.' {
+			separator = true
+			continue
+		}
+		if separator && normalized.Len() > 0 {
+			normalized.WriteByte('-')
+		}
+		separator = false
+		normalized.WriteRune(r)
+	}
+	return normalized.String()
 }
 
 // splitComma splits a provisioning list value. Commas are the canonical
