@@ -187,29 +187,31 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	defer os.RemoveAll(junitDir)
 	junitFile := filepath.Join(junitDir, fmt.Sprintf("pytest-junit-%d.xml", time.Now().UnixNano()))
 
-	// --no-project prevents uv from creating/updating uv.lock or .venv in the
-	// user's checkout. Pytest and an optional editable project overlay are
-	// materialized in uv's external cache.
-	pytestArgs := []string{"run", "--no-project", "--with", "pytest"}
-	if info, statErr := os.Stat(filepath.Join(sourceDir, "pyproject.toml")); statErr == nil && !info.IsDir() {
-		pytestArgs = append(pytestArgs, "--with-editable", ".")
-	}
-	pytestArgs = append(pytestArgs,
-		"pytest",
-		"--tb=short",
-		"--junitxml="+junitFile,
-		"-p", "no:cacheprovider",
+	// ARCHITECTURE: The default pytest adapter is still a real formula. Build it
+	// through the same project-derived provisioning contract as an explicitly
+	// declared formula so the two production paths cannot drift. In particular,
+	// --no-project isolates the checkout but does NOT mean "ignore the project's
+	// requirements": requirement files, editable packaging, interpreter pins,
+	// groups, and extras remain project-owned input to uv.
+	spec := SpecFromFormula(
+		[]string{"pytest"},
+		OutputJUnitXML,
+		nil,
+		DeriveProvisioning(sourceDir),
+		nil,
 	)
+	spec.Env = append(spec.Env, envVars...)
+	spec.ExtraArgs = append(spec.ExtraArgs, "--tb=short", "-p", "no:cacheprovider")
 
 	// Default to verbose unless the caller explicitly set Verbose=false.
 	// Verbose feeds the OnEvent stream; the JUnit XML is parsed regardless.
 	if !opt.VerboseSet || opt.Verbose {
-		pytestArgs = append(pytestArgs, "-v")
+		spec.ExtraArgs = append(spec.ExtraArgs, "-v")
 	}
 
 	// Filters → -k "p1 or p2 or ..."  (pytest's expression syntax).
 	if expr := combinePytestK(opt.Filters); expr != "" {
-		pytestArgs = append(pytestArgs, "-k", expr)
+		spec.ExtraArgs = append(spec.ExtraArgs, "-k", expr)
 	}
 
 	// Timeout — pytest-timeout reads --timeout=<seconds>. Convert Go
@@ -217,24 +219,44 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	// can supply already-formatted values.
 	if opt.Timeout != "" {
 		if d, err := time.ParseDuration(opt.Timeout); err == nil {
-			pytestArgs = append(pytestArgs, fmt.Sprintf("--timeout=%d", int(d.Seconds())))
+			spec.ExtraArgs = append(spec.ExtraArgs, fmt.Sprintf("--timeout=%d", int(d.Seconds())))
 		} else {
-			pytestArgs = append(pytestArgs, "--timeout="+opt.Timeout)
+			spec.ExtraArgs = append(spec.ExtraArgs, "--timeout="+opt.Timeout)
 		}
 	}
 
 	// Coverage — pytest-cov, scoped to the source tree so we report
 	// numbers for the user's code rather than the test files themselves.
 	if opt.Coverage {
-		pytestArgs = append(pytestArgs, "--cov=.", "--cov-report=term")
+		spec.ExtraArgs = append(spec.ExtraArgs, "--cov=.", "--cov-report=term")
 	}
 
 	// Power-user passthrough.
-	pytestArgs = append(pytestArgs, opt.ExtraArgs...)
+	spec.ExtraArgs = append(spec.ExtraArgs, opt.ExtraArgs...)
 
 	// Target last — pytest treats positional args as collection paths.
 	if opt.Target != "" {
-		pytestArgs = append(pytestArgs, opt.Target)
+		spec.Selectors = append(spec.Selectors, opt.Target)
+	}
+
+	// Keep the adapter environment outside the checkout. Requirement files and
+	// editable packages work with --no-project. Dependency groups and extras
+	// require pyproject discovery, so those runs use uv's isolated project mode:
+	// it resolves the declared sets without creating uv.lock or .venv beside the
+	// user's source. Persistent formula environments remain an explicit formula
+	// concern and are never introduced by this read-only default adapter.
+	if spec.Editable && spec.EditableTarget == "" {
+		if abs, absErr := filepath.Abs(sourceDir); absErr == nil {
+			spec.EditableTarget = abs
+		}
+	}
+	projectIsolated := len(spec.DependencyGroups) > 0 || len(spec.Extras) > 0
+	if projectIsolated {
+		spec.NoProject = false
+	}
+	pytestArgs := BuildUvArgs(spec, junitFile)
+	if projectIsolated {
+		pytestArgs = append([]string{"run", "--isolated"}, pytestArgs[1:]...)
 	}
 
 	cmd := exec.CommandContext(ctx, "uv", pytestArgs...)
@@ -279,7 +301,7 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 		"PYTHONPYCACHEPREFIX="+filepath.Join(junitDir, "pycache"),
 		"COVERAGE_FILE="+filepath.Join(junitDir, "coverage"),
 	)
-	for _, ev := range envVars {
+	for _, ev := range spec.Env {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", ev.Key, ev.Value))
 	}
 
@@ -293,6 +315,26 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	coverage := scrapeCoverageFromOutput(rawStr)
 	run := ParsePytestJUnit(string(xmlBytes), coverage)
 	run.RawOutput = rawStr
+	// Match formula execution's typed unhappy-path contract. A collection or
+	// provisioning failure that produces zero cases is an environment error,
+	// not an opaque process exit for the caller to flatten. Likewise, an empty
+	// successful invocation is never a passing test run.
+	if run.caseCount() == 0 {
+		if runErr != nil {
+			run.EnvError = ClassifyEnvError(rawStr, runErr)
+		} else if opt.Target != "" {
+			run.EnvError = &RunEnvError{
+				Reason: EnvErrorNoTestsMatchedSelectors,
+				Detail: fmt.Sprintf("target %q matched zero tests — the selector does not name any collectible test", opt.Target),
+			}
+		} else {
+			run.EnvError = &RunEnvError{
+				Reason: EnvErrorNoTestsExecuted,
+				Detail: "the default pytest adapter executed zero tests — fix the project test declarations or collection environment",
+			}
+		}
+		runErr = nil
+	}
 
 	if opt.CacheDir != "" {
 		if err := writeLastTestOutput(opt.CacheDir, rawStr); err != nil {
