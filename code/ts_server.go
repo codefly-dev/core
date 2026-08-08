@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
@@ -51,7 +52,7 @@ func (s *TypeScriptCodeServer) GetProjectInfo(ctx context.Context, _ *codev0.Get
 
 // --- Handlers ---
 
-func (s *TypeScriptCodeServer) handleGetProjectInfo(_ context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (s *TypeScriptCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	srcDir := s.SourceDir
 	resp := &codev0.GetProjectInfoResponse{Language: "typescript"}
 
@@ -62,6 +63,11 @@ func (s *TypeScriptCodeServer) handleGetProjectInfo(_ context.Context, _ *codev0
 
 	resp.Packages = s.discoverTSPackages(srcDir)
 	resp.FileHashes = s.computeTSFileHashes(srcDir)
+	var err error
+	resp.SourceFiles, err = inspectSourceImports(ctx, s.FS, srcDir, "typescript")
+	if err != nil {
+		return codeFailure(wrapProjectInfoTS(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
+	}
 
 	return wrapProjectInfoTS(resp), nil
 }

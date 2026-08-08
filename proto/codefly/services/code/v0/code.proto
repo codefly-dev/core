@@ -328,6 +328,17 @@ message PackageInfo {
   string doc = 5;            // package doc comment
 }
 
+// SourceFileInfo carries language-owned import evidence for one source file.
+// Paths are relative to the Code service root. Consumers can calculate
+// repository-wide conventions without selecting file extensions or parsing
+// project source themselves.
+message SourceFileInfo {
+  // path is the canonical source path relative to the service root.
+  string path = 1;
+  // imports are the direct language-level imports declared by this file.
+  repeated string imports = 2;
+}
+
 // GetProjectInfo returns rich, language-specific project metadata.
 message GetProjectInfoRequest {}
 
@@ -347,6 +358,10 @@ message GetProjectInfoResponse {
   repeated Dependency dependencies = 5; // reuse existing Dependency message
   // file_hashes maps source paths to content hashes for change detection.
   map<string, string> file_hashes = 6;  // path -> SHA-256 for change detection
+  // source_files preserves per-file import evidence produced by the owning
+  // language inspector. An empty list is authoritative only when the
+  // enclosing CodeResponse carries no failure.
+  repeated SourceFileInfo source_files = 8;
 }
 
 // --- DiscoverCodeUnits ---
