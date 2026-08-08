@@ -253,6 +253,11 @@ func buildTestArgsWithPackages(opt TestOptions, defaultPackages []string) []stri
 
 func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation string, envVars []*resources.EnvironmentVariable, opts ...TestOptions) (*TestExecution, error) {
 	_ = env.Env().WithBinary("codefly")
+	if env.withGoModules {
+		if err := env.GoModuleHandling(ctx); err != nil {
+			return nil, fmt.Errorf("prepare Go dependencies: %w", err)
+		}
+	}
 
 	var opt TestOptions
 	if len(opts) > 0 {
@@ -388,6 +393,11 @@ type BuildOptions struct {
 
 // RunGoBuild runs `go build` with an optional target and returns combined output.
 func RunGoBuild(ctx context.Context, env *GoRunnerEnvironment, sourceLocation string, envVars []*resources.EnvironmentVariable, opts ...BuildOptions) (string, error) {
+	if env.withGoModules {
+		if err := env.GoModuleHandling(ctx); err != nil {
+			return "", fmt.Errorf("prepare Go dependencies: %w", err)
+		}
+	}
 	targets := env.defaultPackageTargets()
 	if len(opts) > 0 && opts[0].Target != "" {
 		targets = []string{opts[0].Target}
@@ -419,6 +429,11 @@ type LintOptions struct {
 
 // RunGoLint runs `go vet` with an optional target and returns combined output.
 func RunGoLint(ctx context.Context, env *GoRunnerEnvironment, sourceLocation string, envVars []*resources.EnvironmentVariable, opts ...LintOptions) (string, error) {
+	if env.withGoModules {
+		if err := env.GoModuleHandling(ctx); err != nil {
+			return "", fmt.Errorf("prepare Go dependencies: %w", err)
+		}
+	}
 	targets := env.defaultPackageTargets()
 	if len(opts) > 0 && opts[0].Target != "" {
 		targets = []string{opts[0].Target}
