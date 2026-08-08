@@ -48,6 +48,11 @@ type TestFormulaSpec struct {
 	Editable     bool     // uv run --with-editable .
 	Requirements []string // uv run --with-requirements <file>
 	With         []string // uv run --with <spec>
+	// DependencyGroups and Extras name project-declared test/development
+	// dependency sets. The plugin passes these names to uv; their contents stay
+	// opaque and are never reimplemented or inferred here.
+	DependencyGroups []string // uv --group <name>
+	Extras           []string // uv --extra <name>
 	// NoBuildIsolation maps to `uv run --no-build-isolation`: source builds
 	// (editable installs of C-extension projects) see the run environment's
 	// packages instead of an isolated build env — pair it with With entries
@@ -106,6 +111,8 @@ func SpecFromFormula(command []string, output string, env, provisioning map[stri
 		Editable:         provisioning["editable"] == "true",
 		Requirements:     splitComma(provisioning["requirements"]),
 		With:             splitComma(provisioning["with"]),
+		DependencyGroups: splitComma(provisioning["dependency_groups"]),
+		Extras:           splitComma(provisioning["extras"]),
 		NoBuildIsolation: provisioning["no_build_isolation"] == "true",
 		Cwd:              strings.TrimSpace(provisioning["cwd"]),
 		// Build the editable project ONCE for PEP 517 projects and explicit
@@ -115,6 +122,12 @@ func SpecFromFormula(command []string, output string, env, provisioning map[stri
 	}
 	if provisioning["persistent_venv"] == "false" {
 		spec.PersistentVenv = false
+	}
+	// uv's project group/extra semantics must be materialized into the actual
+	// environment before the command runs under --no-project. Keep one durable
+	// environment rather than resolving test tooling on every invocation.
+	if len(spec.DependencyGroups) > 0 || len(spec.Extras) > 0 {
+		spec.PersistentVenv = true
 	}
 	for k, v := range env {
 		spec.Env = append(spec.Env, &resources.EnvironmentVariable{Key: k, Value: v})
@@ -200,6 +213,16 @@ func BuildUvArgs(spec TestFormulaSpec, junitFile string) []string {
 	for _, w := range spec.With {
 		if w != "" {
 			args = append(args, "--with", w)
+		}
+	}
+	for _, group := range spec.DependencyGroups {
+		if group != "" {
+			args = append(args, "--group", group)
+		}
+	}
+	for _, extra := range spec.Extras {
+		if extra != "" {
+			args = append(args, "--extra", extra)
 		}
 	}
 	args = append(args, spec.Command...)

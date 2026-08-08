@@ -50,18 +50,21 @@ func TestBuildUvArgs_ProvisioningIsData(t *testing.T) {
 	// requirement files, extra deps) flows as DATA into uv flags — this is what
 	// the brain used to hardcode. The builder injects exactly what it's given.
 	got := strings.Join(BuildUvArgs(TestFormulaSpec{
-		NoProject:    true,
-		Python:       "3.9",
-		ExcludeNewer: "2022-07-27T14:44:33Z",
-		Editable:     true,
-		Requirements: []string{"requirements/tests.txt"},
-		With:         []string{"tox<4", "setuptools"},
-		Command:      []string{"pytest"},
-		Selectors:    []string{"tests/test_x.py::test_y"},
-		Output:       OutputJUnitXML,
+		NoProject:        true,
+		Python:           "3.9",
+		ExcludeNewer:     "2022-07-27T14:44:33Z",
+		Editable:         true,
+		Requirements:     []string{"requirements/tests.txt"},
+		With:             []string{"tox<4", "setuptools"},
+		DependencyGroups: []string{"dev"},
+		Extras:           []string{"test"},
+		Command:          []string{"pytest"},
+		Selectors:        []string{"tests/test_x.py::test_y"},
+		Output:           OutputJUnitXML,
 	}, "/tmp/j.xml"), " ")
 	want := "run --no-project --python 3.9 --managed-python --exclude-newer 2022-07-27T14:44:33Z --with-editable . " +
 		"--with-requirements requirements/tests.txt --with tox<4 --with setuptools " +
+		"--group dev --extra test " +
 		"pytest --junitxml=/tmp/j.xml tests/test_x.py::test_y"
 	if got != want {
 		t.Fatalf("\n got %q\nwant %q", got, want)
@@ -78,23 +81,29 @@ func TestSpecFromFormula_ProvisioningMapToUv(t *testing.T) {
 		OutputJUnitXML,
 		map[string]string{"PYTHONDONTWRITEBYTECODE": "1"},
 		map[string]string{
-			"no_project":   "true",
-			"python":       "3.9",
-			"editable":     "true",
-			"with":         "tox<4, setuptools",
-			"requirements": "requirements/tests.txt",
+			"no_project":        "true",
+			"python":            "3.9",
+			"editable":          "true",
+			"with":              "tox<4, setuptools",
+			"requirements":      "requirements/tests.txt",
+			"dependency_groups": "dev",
+			"extras":            "test",
 		},
 		[]string{"tests/test_x.py::test_y"},
 	)
 	got := strings.Join(BuildUvArgs(spec, "/tmp/j.xml"), " ")
 	want := "run --no-project --python 3.9 --managed-python --with-editable . " +
 		"--with-requirements requirements/tests.txt --with tox<4 --with setuptools " +
+		"--group dev --extra test " +
 		"pytest --junitxml=/tmp/j.xml tests/test_x.py::test_y"
 	if got != want {
 		t.Fatalf("\n got %q\nwant %q", got, want)
 	}
 	if len(spec.Env) != 1 || spec.Env[0].Key != "PYTHONDONTWRITEBYTECODE" {
 		t.Fatalf("env not carried: %+v", spec.Env)
+	}
+	if !spec.PersistentVenv {
+		t.Fatal("declared groups/extras must select one materialized environment")
 	}
 }
 

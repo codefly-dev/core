@@ -15,15 +15,17 @@ func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.
 		ExcludeNewer:     "2022-07-27T14:44:33Z",
 		With:             []string{"numpy>=1.19", "cython"},
 		Requirements:     []string{"build-requirements.txt"},
+		DependencyGroups: []string{"dev"},
+		Extras:           []string{"test", "testing"},
 		EditableTarget:   "/w",
 	}
 	dependencies := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", spec), " ")
-	wantDependencies := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z pip setuptools -r build-requirements.txt numpy>=1.19 cython"
+	wantDependencies := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z pip setuptools -r build-requirements.txt numpy>=1.19 cython --group dev"
 	if dependencies != wantDependencies {
 		t.Fatalf("dependency install:\n got %q\nwant %q", dependencies, wantDependencies)
 	}
 	editable := strings.Join(venvEditableInstallArgs("/w/.mind-venv/bin/python", spec), " ")
-	wantEditable := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z --no-build-isolation -e /w"
+	wantEditable := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z --no-build-isolation --extra test --extra testing -e /w"
 	if editable != wantEditable {
 		t.Fatalf("editable install:\n got %q\nwant %q", editable, wantEditable)
 	}
@@ -60,8 +62,9 @@ func TestHistoricalEditableFallbackIsCapabilityBound(t *testing.T) {
 	args := strings.Join(venvHistoricalEditableInstallArgs(TestFormulaSpec{
 		NoBuildIsolation: true,
 		EditableTarget:   "/w",
+		Extras:           []string{"test", "testing"},
 	}), " ")
-	want := "-m pip install --no-build-isolation -e /w"
+	want := "-m pip install --no-build-isolation -e /w[test,testing]"
 	if args != want {
 		t.Fatalf("historical editable args = %q, want %q", args, want)
 	}
@@ -76,6 +79,12 @@ func TestVenvProvisionHashStableAndSensitive(t *testing.T) {
 	}
 	if venvProvisionHash(base) == venvProvisionHash(TestFormulaSpec{Python: "3.10", EditableTarget: "/w", With: []string{"numpy", "cython"}}) {
 		t.Fatal("a changed python pin must change the hash")
+	}
+	if venvProvisionHash(base) == venvProvisionHash(TestFormulaSpec{Python: "3.9", EditableTarget: "/w", With: []string{"numpy", "cython"}, DependencyGroups: []string{"dev"}}) {
+		t.Fatal("a changed dependency-group set must change the hash")
+	}
+	if venvProvisionHash(base) == venvProvisionHash(TestFormulaSpec{Python: "3.9", EditableTarget: "/w", With: []string{"numpy", "cython"}, Extras: []string{"test"}}) {
+		t.Fatal("a changed optional-extra set must change the hash")
 	}
 }
 
