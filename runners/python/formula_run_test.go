@@ -94,7 +94,7 @@ func TestSpecFromFormula_ProvisioningMapToUv(t *testing.T) {
 	got := strings.Join(BuildUvArgs(spec, "/tmp/j.xml"), " ")
 	want := "run --no-project --python 3.9 --managed-python --with-editable . " +
 		"--with-requirements requirements/tests.txt --with tox<4 --with setuptools " +
-		"--group dev --extra test " +
+		"--with pytest --group dev --extra test " +
 		"pytest --junitxml=/tmp/j.xml tests/test_x.py::test_y"
 	if got != want {
 		t.Fatalf("\n got %q\nwant %q", got, want)
@@ -104,6 +104,54 @@ func TestSpecFromFormula_ProvisioningMapToUv(t *testing.T) {
 	}
 	if !spec.PersistentVenv {
 		t.Fatal("declared groups/extras must select one materialized environment")
+	}
+}
+
+// The production CLI/Mind path derives a pytest formula from project
+// declarations, then runs it inside uv --no-project. The runner is part of the
+// adapter contract, so it must be provisioned even when the project itself has
+// no test dependency group. This executes a real uv + pytest run; no mock or
+// host-global pytest is involved.
+func TestSpecFromFormulaMaterializesJUnitRunner(t *testing.T) {
+	requireUv(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "test_sample.py"), []byte("def test_truth():\n    assert True\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := SpecFromFormula(
+		[]string{"pytest", "-v"},
+		OutputJUnitXML,
+		nil,
+		map[string]string{"no_project": "true"},
+		[]string{"test_sample.py::test_truth"},
+	)
+	if !containsRequirement(spec.With, "pytest") {
+		t.Fatalf("JUnit adapter dependencies = %v, want pytest", spec.With)
+	}
+	run, err := RunFormulaStructured(context.Background(), root, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.EnvError != nil {
+		t.Fatalf("JUnit adapter did not materialize: %+v\n%s", run.EnvError, run.RawOutput)
+	}
+	response := run.ToProtoResponse("formula", "", 0)
+	if response.GetResult().GetState() != runtimev0.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
+		t.Fatalf("result = %+v, counts = %+v\n%s", response.GetResult(), response.GetCounts(), run.RawOutput)
+	}
+}
+
+func TestSpecFromFormulaKeepsExplicitJUnitRunnerConstraint(t *testing.T) {
+	spec := SpecFromFormula(
+		[]string{"pytest"},
+		OutputJUnitXML,
+		nil,
+		map[string]string{"no_project": "true", "with": "Py_Test_Helper,PyTest<9"},
+		nil,
+	)
+	if got := strings.Join(spec.With, ","); got != "Py_Test_Helper,PyTest<9" {
+		t.Fatalf("explicit runner constraint was not authoritative: %q", got)
 	}
 }
 
