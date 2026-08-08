@@ -122,8 +122,11 @@ build-backend = "setuptools.build_meta"
 	if provisioning["exclude_newer"] != "2022-07-27T14:44:33Z" {
 		t.Fatalf("exclude_newer = %q, want source commit timestamp", provisioning["exclude_newer"])
 	}
-	if provisioning["with"] != "setuptools,wheel,extension-helpers" || provisioning["no_build_isolation"] != "true" {
-		t.Fatalf("build provisioning = %+v", provisioning)
+	if provisioning["persistent_venv"] != "true" {
+		t.Fatalf("persistent_venv = %q, want true", provisioning["persistent_venv"])
+	}
+	if provisioning["with"] != "" || provisioning["no_build_isolation"] != "" {
+		t.Fatalf("PEP 517 derivation bypassed build isolation: %+v", provisioning)
 	}
 }
 
@@ -315,36 +318,37 @@ func TestDeriveFormula_NothingDeclared(t *testing.T) {
 	}
 }
 
-// TestDeriveBuildSystemRequires locks the source-build provisioning rule:
-// pyproject [build-system].requires carrying non-default build deps (numpy,
-// cython, …) flows into --with specs + --no-build-isolation; a default
-// setuptools/wheel-only list derives nothing.
-func TestDeriveBuildSystemRequires(t *testing.T) {
-	dir := t.TempDir()
-	py := `[build-system]
-requires = ["setuptools>=40", "wheel", "numpy>=1.14", "Cython>=0.28"]
-build-backend = "setuptools.build_meta"
-`
-	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(py), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	prov := deriveProvisioning(dir)
-	if prov["no_build_isolation"] != "true" {
-		t.Fatalf("no_build_isolation = %q, want true", prov["no_build_isolation"])
-	}
-	want := "setuptools>=40,wheel,numpy>=1.14,Cython>=0.28"
-	if prov["with"] != want {
-		t.Fatalf("with = %q, want %q", prov["with"], want)
+// TestDerivePEP517BuildIsolation locks the standards-owned provisioning rule:
+// backend names and requirements never become guessed runtime packages or a
+// no-isolation flag. uv resolves static and dynamic build requirements inside
+// build isolation; Codefly only caches the resulting editable environment.
+func TestDerivePEP517BuildIsolation(t *testing.T) {
+	for name, py := range map[string]string{
+		"dynamic editable requirement backend": "[build-system]\nrequires = [\"hatchling\"]\nbuild-backend = \"hatchling.build\"\n",
+		"compiled extension backend":           "[build-system]\nrequires = [\"setuptools>=40\", \"wheel\", \"numpy>=1.14\", \"Cython>=0.28\"]\nbuild-backend = \"setuptools.build_meta\"\n",
+		"default setuptools backend":           "[build-system]\nrequires = [\"setuptools\", \"wheel\"]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(py), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			prov := deriveProvisioning(dir)
+			if prov["persistent_venv"] != "true" {
+				t.Fatalf("persistent_venv = %q, want true", prov["persistent_venv"])
+			}
+			if prov["with"] != "" || prov["no_build_isolation"] != "" {
+				t.Fatalf("PEP 517 derivation bypassed build isolation: %+v", prov)
+			}
+		})
 	}
 
-	defaultsOnly := t.TempDir()
-	py2 := "[build-system]\nrequires = [\"setuptools\", \"wheel\"]\n"
-	if err := os.WriteFile(filepath.Join(defaultsOnly, "pyproject.toml"), []byte(py2), 0o644); err != nil {
+	projectOnly := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectOnly, "pyproject.toml"), []byte("[project]\nname = \"demo\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	prov2 := deriveProvisioning(defaultsOnly)
-	if prov2["with"] != "" || prov2["no_build_isolation"] != "" {
-		t.Fatalf("defaults-only build-system must derive nothing, got with=%q nbi=%q", prov2["with"], prov2["no_build_isolation"])
+	if prov := deriveProvisioning(projectOnly); prov["persistent_venv"] != "" {
+		t.Fatalf("project metadata without a build backend must not force a persistent venv: %+v", prov)
 	}
 }
 

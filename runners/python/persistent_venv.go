@@ -2,9 +2,9 @@ package python
 
 // ARCHITECTURE: persistent per-workspace venv. The default test path runs
 // `uv run --with-editable .`, which RE-RESOLVES and REBUILDS the editable
-// project on every invocation — fine for pure Python (django), ruinous for a
-// C-extension project (numpy/scipy/cython), where each test run recompiles for
-// minutes and the task times out even though the agent's patch is correct.
+// project on every invocation. A persistent venv avoids repeating both normal
+// PEP 517 builds and expensive compiled builds while preserving uv's standard
+// isolated-backend behavior unless recovery explicitly disables it.
 //
 // ensurePersistentVenv builds the editable project + its declared deps ONCE
 // into <sourceDir>/.mind-venv, keyed by a hash of the provisioning so a changed
