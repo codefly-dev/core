@@ -72,13 +72,10 @@ type TestFormulaSpec struct {
 
 	// PersistentVenv opts into building the editable project + its deps ONCE
 	// into a persistent per-workspace venv, then running tests against that venv
-	// WITHOUT `--with-editable` — so a C-extension project (numpy/scipy/cython)
-	// is compiled a single time instead of on every `uv run` (the reason
-	// scikit-class repos, where the agent already produces the gold patch, died
-	// env-blocked or timed out). Python edits are still reflected (editable
-	// install); only C sources would need a rebuild, which SWE-bench fixes rarely
-	// touch. OFF by default: pure-python projects (django) keep the simple
-	// `uv run --with-editable` path untouched. Ignored unless Editable is set.
+	// WITHOUT `--with-editable`. It caches both standards-isolated PEP 517 builds
+	// and explicit no-isolation recovery configurations. Python edits are still
+	// reflected through the editable install; only compiled-source edits require
+	// a rebuild. Ignored unless Editable is set.
 	PersistentVenv bool
 	// venvPython, when non-empty, is the interpreter of an already-provisioned
 	// persistent venv; BuildUvArgs then runs against it and skips the
@@ -111,10 +108,8 @@ func SpecFromFormula(command []string, output string, env, provisioning map[stri
 		With:             splitComma(provisioning["with"]),
 		NoBuildIsolation: provisioning["no_build_isolation"] == "true",
 		Cwd:              strings.TrimSpace(provisioning["cwd"]),
-		// Build the editable project ONCE into a persistent venv for
-		// C-extension projects (the no_build_isolation case: numpy/scipy/cython
-		// build deps present). Pure-Python projects (django) keep the simple
-		// per-run `uv run --with-editable` path. An explicit provisioning key can
+		// Build the editable project ONCE for PEP 517 projects and explicit
+		// no-isolation recovery configurations. An explicit provisioning key can
 		// force it on/off.
 		PersistentVenv: provisioning["no_build_isolation"] == "true" || provisioning["persistent_venv"] == "true",
 	}
@@ -155,8 +150,7 @@ func splitComma(s string) []string {
 func BuildUvArgs(spec TestFormulaSpec, junitFile string) []string {
 	// Persistent-venv path: the project + deps are ALREADY installed in the
 	// venv, so run against it with NO --with-editable / --with / --with-
-	// requirements (which would re-resolve and rebuild). This is what makes a
-	// C-extension project compile once instead of every run.
+	// requirements (which would re-resolve and rebuild).
 	if spec.venvPython != "" {
 		args := []string{"run", "--python", spec.venvPython, "--no-project"}
 		args = append(args, spec.Command...)
@@ -362,8 +356,8 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 
 	// Persistent venv: build the editable project + deps ONCE, then run against
 	// the venv (no per-run rebuild). Failure to provision is an ENV error the
-	// healer can act on. Only the opt-in C-extension path takes this branch; the
-	// default `uv run --with-editable` path below is untouched.
+	// healer can act on. PEP 517 derivation and explicit recovery configuration
+	// may select this path; simpler projects use `uv run --with-editable` below.
 	if spec.PersistentVenv && spec.Editable {
 		venvPython, venvErr := ensurePersistentVenv(ctx, sourceDir, spec)
 		if venvErr != nil {

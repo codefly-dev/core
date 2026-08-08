@@ -648,14 +648,15 @@ func deriveProvisioning(dir string) map[string]string {
 	if reqs := deriveRequirementFiles(dir); len(reqs) > 0 {
 		prov["requirements"] = strings.Join(reqs, ",")
 	}
-	// Source builds of C-extension projects: pyproject [build-system].requires
-	// names the packages the BUILD needs (numpy, cython, setuptools plugins…).
-	// Editable installs run that build, so carry the declared build deps as
-	// --with specs and disable build isolation so the build sees them. Pure
-	// project data — no package names are hardcoded here.
-	if buildReqs := deriveBuildSystemRequires(dir); len(buildReqs) > 0 {
-		prov["with"] = strings.Join(buildReqs, ",")
-		prov["no_build_isolation"] = "true"
+	// A PEP 517 build backend owns both its static [build-system].requires and
+	// the dynamic requirements returned by hooks such as
+	// get_requires_for_build_editable. Keep build isolation enabled so uv can
+	// honor that complete standard contract. Persist the resulting editable
+	// environment so expensive builds still happen once per workspace. Explicit
+	// recovery configuration may opt out of isolation later; derivation must not
+	// guess that every non-setuptools backend is a C-extension project.
+	if declaresPEP517BuildSystem(dir) {
+		prov["persistent_venv"] = "true"
 	}
 	// NOTE: pyproject [project.optional-dependencies] test/dev extras (`.[test]`)
 	// are a known gap — SpecFromFormula has no `--extra` flag yet. When a project
@@ -678,46 +679,19 @@ func hasInstallablePackaging(dir string) bool {
 	return false
 }
 
-// deriveBuildSystemRequires parses pyproject [build-system] requires entries.
-// Only non-default build deps matter: setuptools/wheel are what uv's default
-// isolated build already provides, so a requires list of just those returns
-// nil (no reason to disable isolation).
-func deriveBuildSystemRequires(dir string) []string {
+// declaresPEP517BuildSystem reports whether pyproject.toml selects a standard
+// build backend. We only need the section identity: uv remains the TOML and
+// packaging implementation and resolves the section's static and dynamic
+// requirements itself.
+func declaresPEP517BuildSystem(dir string) bool {
 	py := readFileString(filepath.Join(dir, "pyproject.toml"))
-	if py == "" {
-		return nil
-	}
-	m := reBuildRequires.FindStringSubmatch(py)
-	if len(m) != 2 {
-		return nil
-	}
-	var reqs []string
-	nonDefault := false
-	for _, entry := range reBuildRequireEntry.FindAllStringSubmatch(m[1], -1) {
-		spec := strings.TrimSpace(entry[1])
-		if spec == "" {
-			continue
+	for _, line := range strings.Split(py, "\n") {
+		if strings.TrimSpace(line) == "[build-system]" {
+			return true
 		}
-		name := strings.ToLower(spec)
-		for i, r := range name {
-			if !(r == '-' || r == '_' || r == '.' || ('a' <= r && r <= 'z') || ('0' <= r && r <= '9')) {
-				name = name[:i]
-				break
-			}
-		}
-		if name != "setuptools" && name != "wheel" {
-			nonDefault = true
-		}
-		reqs = append(reqs, spec)
 	}
-	if !nonDefault {
-		return nil
-	}
-	return reqs
+	return false
 }
-
-var reBuildRequires = regexp.MustCompile(`(?s)\[build-system\][^\[]*?requires\s*=\s*\[(.*?)\]`)
-var reBuildRequireEntry = regexp.MustCompile(`["']([^"']+)["']`)
 
 var rePyRequires = regexp.MustCompile(`requires-python\s*=\s*["']([^"']+)["']`)
 var rePyVerNum = regexp.MustCompile(`3\.\d+`)
