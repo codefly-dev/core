@@ -214,6 +214,14 @@ message RemoveDependencyResponse {
 
 // ── Project Metadata ────────────────────────────────────
 
+// SourceFileInfo carries language-owned import evidence for one source file.
+message SourceFileInfo {
+  // path is canonical and relative to the service root.
+  string path = 1;
+  // imports are the direct language-level imports declared by this file.
+  repeated string imports = 2;
+}
+
 // GetProjectInfoRequest identifies the project info data to retrieve.
 message GetProjectInfoRequest {}
 
@@ -235,6 +243,9 @@ message GetProjectInfoResponse {
   map<string, string> file_hashes = 6;
   // failure is the sole structured cause when project inspection fails.
   codefly.base.v0.Failure failure = 8;
+  // source_files preserves per-file import evidence produced by the owning
+  // language inspector.
+  repeated SourceFileInfo source_files = 9;
 }
 
 // ── Dev Validation (require toolchain) ──────────────────

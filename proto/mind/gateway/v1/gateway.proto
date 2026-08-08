@@ -2,6 +2,7 @@ syntax = "proto3";
 package mind.gateway.v1;
 
 import "codefly/base/v0/source.proto";
+import "codefly/base/v0/failure.proto";
 import "codefly/services/builder/v0/builder.proto";
 import "codefly/services/runtime/v0/runtime.proto";
 import "google/protobuf/timestamp.proto";
@@ -1662,10 +1663,21 @@ message PackageInfo {
   string doc = 5; // package doc comment
 }
 
+// SourceFileInfo carries language-owned import evidence for one source file.
+message SourceFileInfo {
+  // path is canonical and repository-relative at the Gateway boundary.
+  string path = 1;
+  // imports are the direct language-level imports declared by this file.
+  repeated string imports = 2;
+}
+
 // GetProjectInfoRequest identifies the project info data to retrieve.
 message GetProjectInfoRequest {
   // service is the Codefly service name, optionally scoped by module in callers.
   string service = 1;
+  // code_unit selects one exact repository-relative source boundary. When
+  // present, Codefly binds the agent rooted at that unit before inspection.
+  CodeUnitTarget code_unit = 2;
 }
 
 // GetProjectInfoResponse returns language metadata useful for ingestion and planning.
@@ -1682,8 +1694,16 @@ message GetProjectInfoResponse {
   repeated Dependency dependencies = 5; // reuse existing Dependency message
   // file_hashes maps source paths to content hashes for change detection.
   map<string, string> file_hashes = 6; // path -> SHA-256 for change detection
-  // error explains why the operation failed; empty means success at this layer.
-  string error = 7;
+  reserved 7;
+  reserved "error";
+  // failure is the sole structured cause when project inspection is partial
+  // or unsupported. Successfully returned evidence remains available.
+  codefly.base.v0.Failure failure = 8;
+  // source_files are repository-relative per-file imports from the owning
+  // Codefly agent.
+  repeated SourceFileInfo source_files = 9;
+  // code_unit echoes the exact inspected boundary when one was requested.
+  CodeUnitTarget code_unit = 10;
 }
 
 // DiscoverCodeUnitsRequest identifies the service whose rooted source tree is

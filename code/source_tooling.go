@@ -77,9 +77,26 @@ func (t *SourceTooling) GetProjectInfo(ctx context.Context, _ *toolingv0.GetProj
 	if info == nil {
 		return &toolingv0.GetProjectInfoResponse{Failure: failures.Ensure(response.GetFailure(), basev0.FailureCode_FAILURE_CODE_INTERNAL, "tooling.get-project-info", "code service returned no project-info result")}, nil
 	}
+	packages := make([]*toolingv0.PackageInfo, 0, len(info.GetPackages()))
+	for _, pkg := range info.GetPackages() {
+		packages = append(packages, &toolingv0.PackageInfo{
+			Name: pkg.GetName(), RelativePath: pkg.GetRelativePath(), Files: append([]string(nil), pkg.GetFiles()...),
+			Imports: append([]string(nil), pkg.GetImports()...), Doc: pkg.GetDoc(),
+		})
+	}
+	dependencies := make([]*toolingv0.Dependency, 0, len(info.GetDependencies()))
+	for _, dependency := range info.GetDependencies() {
+		dependencies = append(dependencies, &toolingv0.Dependency{
+			Name: dependency.GetName(), Version: dependency.GetVersion(), Direct: dependency.GetDirect(),
+		})
+	}
+	sourceFiles := make([]*toolingv0.SourceFileInfo, 0, len(info.GetSourceFiles()))
+	for _, file := range info.GetSourceFiles() {
+		sourceFiles = append(sourceFiles, &toolingv0.SourceFileInfo{Path: file.GetPath(), Imports: append([]string(nil), file.GetImports()...)})
+	}
 	return &toolingv0.GetProjectInfoResponse{
 		Module: info.GetModule(), Language: info.GetLanguage(),
-		LanguageVersion: info.GetLanguageVersion(), FileHashes: info.GetFileHashes(),
-		Failure: failures.Clone(response.GetFailure()),
+		LanguageVersion: info.GetLanguageVersion(), Packages: packages, Dependencies: dependencies,
+		FileHashes: info.GetFileHashes(), SourceFiles: sourceFiles, Failure: failures.Clone(response.GetFailure()),
 	}, nil
 }

@@ -255,11 +255,27 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 	case *codev0.CodeRequest_Fix:
 		return s.fixDefault(ctx, op.Fix)
 
-	// --- Dependency management (stubs -- plugins override) ---
+	// --- Dependency management (declarative read fallback; mutations require plugins) ---
 
 	case *codev0.CodeRequest_ListDependencies:
-		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{ListDependencies: &codev0.ListDependenciesResponse{}}},
-			basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.list-dependencies", "dependency listing not available: no language plugin override"), nil
+		project, err := s.getProjectInfo(ctx, &codev0.GetProjectInfoRequest{})
+		if err != nil {
+			return nil, err
+		}
+		dependencies := []*codev0.Dependency(nil)
+		if info := project.GetGetProjectInfo(); info != nil {
+			dependencies = info.GetDependencies()
+		}
+		failure := failures.Clone(project.GetFailure())
+		if failure != nil {
+			failure.Operation = "code.list-dependencies"
+		}
+		return &codev0.CodeResponse{
+			Failure: failure,
+			Result: &codev0.CodeResponse_ListDependencies{ListDependencies: &codev0.ListDependenciesResponse{
+				Dependencies: dependencies,
+			}},
+		}, nil
 	case *codev0.CodeRequest_AddDependency:
 		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_AddDependency{AddDependency: &codev0.AddDependencyResponse{Success: false}}},
 			basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.add-dependency", "add dependency not available: no language plugin override"), nil
@@ -609,9 +625,9 @@ func sourceDigest(content []byte) string {
 // Files larger than this are skipped to avoid unbounded memory usage.
 const maxHashFileSize = 10 * 1024 * 1024 // 10MB
 
-func (s *DefaultCodeServer) getProjectInfo(_ context.Context, _ *codev0.GetProjectInfoRequest) (*codev0.CodeResponse, error) {
-	info := &codev0.GetProjectInfoResponse{FileHashes: ComputeFileHashes(s.FS, s.SourceDir, nil)}
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetProjectInfo{GetProjectInfo: info}}, nil
+func (s *DefaultCodeServer) getProjectInfo(ctx context.Context, _ *codev0.GetProjectInfoRequest) (*codev0.CodeResponse, error) {
+	info, failure := s.inspectDeclarativeProject(ctx)
+	return &codev0.CodeResponse{Failure: failure, Result: &codev0.CodeResponse_GetProjectInfo{GetProjectInfo: info}}, nil
 }
 
 // ComputeFileHashes walks a directory and hashes source files.

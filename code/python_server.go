@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
@@ -38,7 +39,7 @@ func (s *PythonCodeServer) registerPythonOverrides() {
 
 // --- Handlers ---
 
-func (s *PythonCodeServer) handleGetProjectInfo(_ context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (s *PythonCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	srcDir := s.SourceDir
 	resp := &codev0.GetProjectInfoResponse{Language: "python"}
 
@@ -77,6 +78,10 @@ func (s *PythonCodeServer) handleGetProjectInfo(_ context.Context, _ *codev0.Cod
 		}
 		seen[d.Name] = true
 		resp.Dependencies = append(resp.Dependencies, d)
+	}
+	resp.SourceFiles, err = inspectSourceImports(ctx, s.FS, srcDir, "python")
+	if err != nil {
+		return codeFailure(wrapProjectInfoPython(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
 	}
 
 	return wrapProjectInfoPython(resp), nil
