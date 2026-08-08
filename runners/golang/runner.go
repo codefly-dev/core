@@ -397,11 +397,10 @@ func (r *GoRunnerEnvironment) Init(ctx context.Context) error {
 		return w.Wrapf(err, "cannot init environment")
 	}
 
-	if r.withGoModules {
-		if err := r.GoModuleHandling(ctx); err != nil {
-			return w.Wrapf(err, "cannot handle go modules")
-		}
-	}
+	// ARCHITECTURE: lifecycle initialization is shared by read-only Code and
+	// Tooling RPCs. Resolving modules here can create go.sum in the attached
+	// user checkout during inspection. Execution entry points prepare their
+	// dependencies lazily immediately before build, test, or lint instead.
 	return nil
 }
 
@@ -477,6 +476,11 @@ func (r *GoRunnerEnvironment) BuildTargetPath(ctx context.Context, hash string) 
 
 func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	w := wool.Get(ctx).In("buildBinary")
+	if r.withGoModules {
+		if err := r.GoModuleHandling(ctx); err != nil {
+			return w.Wrapf(err, "cannot handle go modules")
+		}
+	}
 
 	// Setup the requirements
 	hashDir := r.sourceDir

@@ -140,6 +140,23 @@ func TestGoModuleHandlingCacheAdvancesOnlyOnDownloadSuccess(t *testing.T) {
 	})
 }
 
+func TestGoRunnerInitDoesNotResolveOrMutateProjectDependencies(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("GOPROXY", "off")
+	root := t.TempDir()
+	goMod := "module example.com/read-only-init\n\ngo 1.21\n\nrequire example.com/does-not-exist v0.0.1\n"
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644))
+	env, err := golang.NewNativeGoRunner(ctx, root, ".")
+	require.NoError(t, err)
+	env.WithLocalCacheDir(t.TempDir())
+	t.Cleanup(func() { require.NoError(t, env.Shutdown(context.Background())) })
+
+	require.NoError(t, env.Init(ctx), "environment initialization must not resolve project dependencies")
+	_, statErr := os.Stat(filepath.Join(root, "go.sum"))
+	require.True(t, os.IsNotExist(statErr), "environment initialization created go.sum: %v", statErr)
+}
+
 func TestNativeRunWithMod(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
