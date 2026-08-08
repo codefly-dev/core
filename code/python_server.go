@@ -9,15 +9,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	piprequirements "github.com/scagogogo/python-requirements-parser/pkg/parser"
 )
 
 // PythonCodeServer extends DefaultCodeServer with Python-specific operations:
-// GetProjectInfo (pyproject.toml + uv) and ListDependencies (uv pip list).
+// GetProjectInfo (declared project metadata) and ListDependencies (uv pip list).
 type PythonCodeServer struct {
 	*DefaultCodeServer
 }
@@ -44,15 +46,16 @@ func (s *PythonCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.C
 	resp := &codev0.GetProjectInfoResponse{Language: "python"}
 
 	var manifestDeps []*codev0.Dependency
-	// Parse pyproject.toml for module name, Python version, AND
-	// declared dependencies. Manifest-declared deps land first;
-	// uv pip list output (if available) merges in next and adds
-	// transitive deps + resolved versions.
+	// Parse pyproject.toml for module name, Python version, and declared
+	// dependencies. Project inspection is intentionally declarative: the
+	// separate ListDependencies capability owns installed-environment state.
 	data, err := s.FS.ReadFile(filepath.Join(srcDir, "pyproject.toml"))
 	if err == nil {
 		resp.Module, resp.LanguageVersion = parsePyprojectTOML(string(data))
 		manifestDeps = parsePyprojectDependencies(string(data))
 	}
+	requirementDeps, requirementErr := s.declaredRequirementDependencies()
+	manifestDeps = mergePythonDependencies(manifestDeps, requirementDeps)
 
 	// Discover packages (directories with __init__.py)
 	resp.Packages = s.discoverPackages(srcDir)
@@ -60,24 +63,9 @@ func (s *PythonCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.C
 	// File hashes
 	resp.FileHashes = s.computeFileHashes(srcDir)
 
-	// Merge: manifest deps (declared, source of truth for direct
-	// deps) + uv pip list (resolved, includes transitives). Dedup
-	// by name; manifest wins on conflicts because it carries the
-	// caller's declared version constraint.
-	seen := map[string]bool{}
-	for _, d := range manifestDeps {
-		if d == nil || d.Name == "" || seen[d.Name] {
-			continue
-		}
-		seen[d.Name] = true
-		resp.Dependencies = append(resp.Dependencies, d)
-	}
-	for _, d := range s.listUVDependencies(srcDir) {
-		if d == nil || d.Name == "" || seen[d.Name] {
-			continue
-		}
-		seen[d.Name] = true
-		resp.Dependencies = append(resp.Dependencies, d)
+	resp.Dependencies = manifestDeps
+	if requirementErr != nil {
+		return codeFailure(wrapProjectInfoPython(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", requirementErr.Error()), nil
 	}
 	resp.SourceFiles, err = inspectSourceImports(ctx, s.FS, srcDir, "python")
 	if err != nil {
@@ -85,6 +73,169 @@ func (s *PythonCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.C
 	}
 
 	return wrapProjectInfoPython(resp), nil
+}
+
+var pythonDistributionName = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$`)
+
+// declaredRequirementDependencies returns direct dependency evidence from the
+// best root requirements declaration. Author-maintained .in input wins over a
+// compiled .txt file; referenced requirement files are then followed through
+// the Code server VFS so overlays and remote agent filesystems behave exactly
+// like local workspaces.
+func (s *PythonCodeServer) declaredRequirementDependencies() ([]*codev0.Dependency, error) {
+	entries, err := s.FS.ReadDir(s.SourceDir)
+	if err != nil {
+		return nil, fmt.Errorf("list Python dependency declarations: %w", err)
+	}
+	type candidate struct {
+		name string
+		rank int
+	}
+	var candidates []candidate
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.ToLower(entry.Name())
+		rank := -1
+		switch {
+		case name == "requirements.in":
+			rank = 0
+		case strings.HasPrefix(name, "requirements") && strings.HasSuffix(name, ".in"):
+			rank = 1
+		case name == "requirements.txt":
+			rank = 2
+		case strings.HasPrefix(name, "requirements") && strings.HasSuffix(name, ".txt"):
+			rank = 3
+		}
+		if rank >= 0 {
+			candidates = append(candidates, candidate{name: entry.Name(), rank: rank})
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].rank != candidates[j].rank {
+			return candidates[i].rank < candidates[j].rank
+		}
+		return candidates[i].name < candidates[j].name
+	})
+	return s.parseRequirementFile(candidates[0].name, make(map[string]bool))
+}
+
+func (s *PythonCodeServer) parseRequirementFile(relative string, active map[string]bool) ([]*codev0.Dependency, error) {
+	relative = filepath.Clean(filepath.FromSlash(strings.TrimSpace(relative)))
+	if relative == "." || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("requirements include %q escapes the project root", relative)
+	}
+	if active[relative] {
+		return nil, fmt.Errorf("requirements include cycle at %q", filepath.ToSlash(relative))
+	}
+	active[relative] = true
+	defer delete(active, relative)
+
+	data, err := s.FS.ReadFile(filepath.Join(s.SourceDir, relative))
+	if err != nil {
+		return nil, fmt.Errorf("read requirements declaration %q: %w", filepath.ToSlash(relative), err)
+	}
+	parsed, err := piprequirements.NewWithOptions(false, false).Parse(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("parse requirements declaration %q: %w", filepath.ToSlash(relative), err)
+	}
+	var dependencies []*codev0.Dependency
+	for _, requirement := range parsed {
+		if requirement == nil || requirement.IsEmpty || requirement.IsComment || requirement.IsConstraint || len(requirement.GlobalOptions) > 0 {
+			continue
+		}
+		if requirement.IsFileRef {
+			referenced := filepath.Join(filepath.Dir(relative), filepath.FromSlash(requirement.FileRef))
+			included, includeErr := s.parseRequirementFile(referenced, active)
+			dependencies = mergePythonDependencies(dependencies, included)
+			if includeErr != nil {
+				return dependencies, includeErr
+			}
+			continue
+		}
+		name := strings.TrimSpace(requirement.Name)
+		if name == "" {
+			if directName, directReference, ok := namedPythonDirectReference(requirement.OriginalLine); ok {
+				if !pythonDistributionName.MatchString(directName) {
+					return dependencies, fmt.Errorf("requirements declaration %q contains invalid distribution name %q", filepath.ToSlash(relative), directName)
+				}
+				dependencies = mergePythonDependencies(dependencies, []*codev0.Dependency{{Name: directName, Version: directReference, Direct: true}})
+				continue
+			}
+			// Unnamed local paths and URLs are valid pip declarations but do not
+			// carry a stable distribution identity for dependency evidence.
+			if requirement.IsLocalPath || requirement.IsURL || requirement.IsVCS || requirement.IsEditable {
+				continue
+			}
+			return dependencies, fmt.Errorf("requirements declaration %q contains an unrecognized entry %q", filepath.ToSlash(relative), requirement.OriginalLine)
+		}
+		if !pythonDistributionName.MatchString(name) {
+			return dependencies, fmt.Errorf("requirements declaration %q contains invalid distribution name %q", filepath.ToSlash(relative), name)
+		}
+		version := strings.TrimSpace(requirement.Version)
+		switch {
+		case version != "":
+		case requirement.IsVCS:
+			version = requirement.VCSType + "+" + requirement.URL
+		case requirement.IsURL:
+			version = requirement.URL
+		default:
+			if _, reference, ok := strings.Cut(requirement.OriginalLine, " @ "); ok {
+				version = strings.TrimSpace(strings.SplitN(reference, ";", 2)[0])
+			}
+		}
+		dependencies = mergePythonDependencies(dependencies, []*codev0.Dependency{{Name: name, Version: version, Direct: true}})
+	}
+	return dependencies, nil
+}
+
+func namedPythonDirectReference(line string) (string, string, bool) {
+	line = strings.TrimSpace(strings.SplitN(line, ";", 2)[0])
+	name, reference, ok := strings.Cut(line, " @ ")
+	name = strings.TrimSpace(name)
+	reference = strings.TrimSpace(reference)
+	return name, reference, ok && name != "" && reference != ""
+}
+
+func mergePythonDependencies(groups ...[]*codev0.Dependency) []*codev0.Dependency {
+	seen := make(map[string]bool)
+	var merged []*codev0.Dependency
+	for _, dependencies := range groups {
+		for _, dependency := range dependencies {
+			if dependency == nil || strings.TrimSpace(dependency.GetName()) == "" {
+				continue
+			}
+			key := normalizePythonDistributionName(dependency.GetName())
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			merged = append(merged, dependency)
+		}
+	}
+	return merged
+}
+
+func normalizePythonDistributionName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	var normalized strings.Builder
+	separator := false
+	for _, char := range name {
+		if char == '-' || char == '_' || char == '.' {
+			separator = true
+			continue
+		}
+		if separator && normalized.Len() > 0 {
+			normalized.WriteByte('-')
+		}
+		separator = false
+		normalized.WriteRune(char)
+	}
+	return normalized.String()
 }
 
 func (s *PythonCodeServer) handleListDependencies(_ context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
