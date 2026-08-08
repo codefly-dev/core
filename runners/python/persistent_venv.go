@@ -115,6 +115,11 @@ func venvDependencyInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 			args = append(args, w)
 		}
 	}
+	for _, group := range spec.DependencyGroups {
+		if group != "" {
+			args = append(args, "--group", group)
+		}
+	}
 	return args
 }
 
@@ -128,6 +133,11 @@ func venvEditableInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 	}
 	if spec.NoBuildIsolation {
 		args = append(args, "--no-build-isolation")
+	}
+	for _, extra := range spec.Extras {
+		if extra != "" {
+			args = append(args, "--extra", extra)
+		}
 	}
 	target := spec.EditableTarget
 	if target == "" {
@@ -165,7 +175,23 @@ func venvHistoricalEditableInstallArgs(spec TestFormulaSpec) []string {
 	if target == "" {
 		target = "."
 	}
-	return append(args, target)
+	return append(args, editableTargetWithExtras(target, spec.Extras))
+}
+
+// editableTargetWithExtras preserves optional dependencies when the historical
+// pip compatibility path owns the editable install. uv accepts typed --extra
+// flags; pip expresses the same standard contract on the editable requirement.
+func editableTargetWithExtras(target string, extras []string) string {
+	clean := make([]string, 0, len(extras))
+	for _, extra := range extras {
+		if extra = strings.TrimSpace(extra); extra != "" {
+			clean = append(clean, extra)
+		}
+	}
+	if len(clean) == 0 {
+		return target
+	}
+	return target + "[" + strings.Join(clean, ",") + "]"
 }
 
 // venvProvisionHash fingerprints the inputs that affect the built venv so a
@@ -177,10 +203,16 @@ func venvProvisionHash(spec TestFormulaSpec) string {
 	}
 	reqs := append([]string{}, spec.Requirements...)
 	withs := append([]string{}, spec.With...)
+	groups := append([]string{}, spec.DependencyGroups...)
+	extras := append([]string{}, spec.Extras...)
 	sort.Strings(reqs)
 	sort.Strings(withs)
+	sort.Strings(groups)
+	sort.Strings(extras)
 	parts = append(parts, "req="+strings.Join(reqs, ","))
 	parts = append(parts, "with="+strings.Join(withs, ","))
+	parts = append(parts, "groups="+strings.Join(groups, ","))
+	parts = append(parts, "extras="+strings.Join(extras, ","))
 	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return hex.EncodeToString(sum[:])
 }

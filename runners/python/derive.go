@@ -14,9 +14,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -658,11 +660,74 @@ func deriveProvisioning(dir string) map[string]string {
 	if declaresPEP517BuildSystem(dir) {
 		prov["persistent_venv"] = "true"
 	}
-	// NOTE: pyproject [project.optional-dependencies] test/dev extras (`.[test]`)
-	// are a known gap — SpecFromFormula has no `--extra` flag yet. When a project
-	// needs them, the tooling inner loop heals provisioning until the env runs;
-	// add `extras` support to SpecFromFormula to derive them up front.
+	// Test tooling is often deliberately absent from the installable package's
+	// runtime dependencies. Preserve that distinction and ask uv to materialize
+	// the project's declared test/dev dependency groups and optional extras. The
+	// names come from TOML structure; uv remains the dependency implementation.
+	groups, extras := deriveTestDependencySets(dir)
+	if len(groups) > 0 {
+		prov["dependency_groups"] = strings.Join(groups, ",")
+		prov["persistent_venv"] = "true"
+	}
+	if len(extras) > 0 {
+		prov["extras"] = strings.Join(extras, ",")
+		prov["persistent_venv"] = "true"
+	}
 	return prov
+}
+
+// pyprojectDependencySets is the small standards-owned slice of pyproject.toml
+// needed for test-environment provisioning. Dependency values intentionally
+// remain opaque: Codefly chooses declared group/extra NAMES and uv resolves
+// their PEP 508/735 contents, including nested group includes.
+type pyprojectDependencySets struct {
+	DependencyGroups map[string]any `toml:"dependency-groups"`
+	Project          struct {
+		OptionalDependencies map[string]any `toml:"optional-dependencies"`
+	} `toml:"project"`
+}
+
+// deriveTestDependencySets returns declared dependency sets whose names carry
+// test/development intent. This is naming-policy, not package inference: no
+// dependency or framework name is inspected or invented.
+func deriveTestDependencySets(dir string) (groups, extras []string) {
+	payload, err := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+	if err != nil {
+		return nil, nil
+	}
+	var project pyprojectDependencySets
+	if err := toml.Unmarshal(payload, &project); err != nil {
+		return nil, nil
+	}
+	for name := range project.DependencyGroups {
+		if testDependencySetName(name) {
+			groups = append(groups, name)
+		}
+	}
+	for name := range project.Project.OptionalDependencies {
+		if testDependencySetName(name) {
+			extras = append(extras, name)
+		}
+	}
+	sort.Strings(groups)
+	sort.Strings(extras)
+	return groups, extras
+}
+
+// testDependencySetName recognizes conventional intent tokens without fuzzy
+// substring matching (for example, "device" is not a dev group). Separators
+// allow names such as test-dependencies and docs_and_tests.
+func testDependencySetName(name string) bool {
+	tokens := strings.FieldsFunc(strings.ToLower(strings.TrimSpace(name)), func(r rune) bool {
+		return r == '-' || r == '_' || r == '.' || r == '/' || r == ' '
+	})
+	for _, token := range tokens {
+		switch token {
+		case "dev", "development", "test", "tests", "testing":
+			return true
+		}
+	}
+	return false
 }
 
 // hasInstallablePackaging reports whether the project declares packaging

@@ -352,6 +352,41 @@ func TestDerivePEP517BuildIsolation(t *testing.T) {
 	}
 }
 
+// TestDeriveProvisioningIncludesDeclaredTestDependencySets proves the runtime
+// follows pyproject structure, not individual package names. Production and
+// test dependencies remain distinct; uv receives only the declared set names.
+func TestDeriveProvisioningIncludesDeclaredTestDependencySets(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "pyproject.toml", `[project]
+name = "demo"
+
+[project.optional-dependencies]
+testing = ["optional-tool"]
+cli = ["unrelated-tool"]
+
+[dependency-groups]
+dev = ["developer-tool"]
+test-dependencies = [{include-group = "dev"}]
+docs = ["documentation-tool"]
+device = ["substring-must-not-match"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+`)
+
+	prov := deriveProvisioning(dir)
+	if got, want := prov["dependency_groups"], "dev,test-dependencies"; got != want {
+		t.Fatalf("dependency_groups = %q, want %q", got, want)
+	}
+	if got, want := prov["extras"], "testing"; got != want {
+		t.Fatalf("extras = %q, want %q", got, want)
+	}
+	if prov["persistent_venv"] != "true" {
+		t.Fatalf("declared test dependencies must use one materialized environment: %+v", prov)
+	}
+}
+
 // django's runtests.py recreates test DBs on every run (minutes each);
 // --keepdb is auto-injected so the agent's repeated reproduce→edit→verify
 // runs and the grader reuse the DB. No-op for pytest; idempotent.
