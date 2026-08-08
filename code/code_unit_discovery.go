@@ -46,7 +46,7 @@ type codeUnitAccumulator struct {
 // precedence for a genuinely co-located polyglot boundary.
 var codeUnitDeclarations = []codeUnitDeclaration{
 	{language: "go", runtimeAgent: "go", priority: 10, match: exactManifest("go.mod")},
-	{language: "python", runtimeAgent: "python", priority: 20, match: exactManifest("pyproject.toml", "uv.lock", "setup.py", "setup.cfg", "requirements.txt")},
+	{language: "python", runtimeAgent: "python", priority: 20, match: exactManifest("pyproject.toml", "uv.lock", "setup.py", "setup.cfg", "requirements.in", "requirements.txt")},
 	{language: "typescript", runtimeAgent: "nextjs", priority: 30, match: exactManifest("package.json")},
 	{language: "rust", runtimeAgent: "rust", priority: 40, match: exactManifest("Cargo.toml")},
 	{language: "swift", runtimeAgent: "swift", priority: 50, match: exactManifest("Package.swift")},

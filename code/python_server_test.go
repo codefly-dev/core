@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
@@ -28,6 +29,83 @@ func newPythonProject(t *testing.T, files map[string]string) *PythonCodeServer {
 		}
 	}
 	return NewPythonCodeServer(dir, nil)
+}
+
+func TestPythonProjectInfoReadsPreferredInputRequirements(t *testing.T) {
+	server := newPythonProject(t, map[string]string{
+		"requirements.in": `requests[security]>=2.0; python_version >= '3.10' \
+  --hash=sha256:abcdef1234567890
+-r requirements/base.txt
+-e git+https://example.test/internal.git#egg=internal_lib
+remote-wheel @ https://example.test/remote.whl; python_version >= '3.11'
+`,
+		"requirements.txt":      "transitive-package==99.0\n",
+		"requirements/base.txt": "pydantic==2.9.0\nRequests==9.9.9\n",
+		"app.py":                "import requests\n",
+	})
+	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.GetFailure() != nil {
+		t.Fatalf("project info failure = %+v", response.GetFailure())
+	}
+	var got []string
+	for _, dependency := range response.GetGetProjectInfo().GetDependencies() {
+		got = append(got, dependency.GetName()+"@"+dependency.GetVersion())
+		if !dependency.GetDirect() {
+			t.Fatalf("declared dependency is not direct: %+v", dependency)
+		}
+	}
+	want := []string{
+		"requests@>=2.0",
+		"pydantic@==2.9.0",
+		"internal_lib@git+https://example.test/internal.git",
+		"remote-wheel@https://example.test/remote.whl",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("declared dependencies = %#v, want %#v", got, want)
+	}
+}
+
+func TestPythonProjectInfoReadsRequirementsTxtOnlyProject(t *testing.T) {
+	server := newPythonProject(t, map[string]string{
+		"requirements.txt": "flask==3.1.2\n",
+		"app.py":           "import flask\n",
+	})
+	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := response.GetGetProjectInfo().GetDependencies()
+	if response.GetFailure() != nil || len(dependencies) != 1 || dependencies[0].GetName() != "flask" || dependencies[0].GetVersion() != "==3.1.2" {
+		t.Fatalf("requirements.txt project info = %+v failure=%+v", response.GetGetProjectInfo(), response.GetFailure())
+	}
+}
+
+func TestPythonProjectInfoReturnsTypedPartialFailureForMissingRequirementInclude(t *testing.T) {
+	server := newPythonProject(t, map[string]string{
+		"requirements.in": "requests==2.32.5\n-r requirements/missing.txt\n",
+		"app.py":          "import requests\n",
+	})
+	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := response.GetGetProjectInfo()
+	if info == nil || len(info.GetDependencies()) != 1 || info.GetDependencies()[0].GetName() != "requests" {
+		t.Fatalf("partial project evidence = %+v", info)
+	}
+	if response.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED ||
+		!strings.Contains(response.GetFailure().GetMessage(), "requirements/missing.txt") {
+		t.Fatalf("typed requirement failure = %+v", response.GetFailure())
+	}
 }
 
 // packagesByPath indexes a GetProjectInfo package list by RelativePath.
