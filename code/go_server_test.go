@@ -2,10 +2,43 @@ package code
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
+
+func TestGoCodeServerProjectInfoUsesDeclaredDependenciesWithoutDownload(t *testing.T) {
+	dir := t.TempDir()
+	goMod := "module example.test/project\n\ngo 1.25\n\nrequire (\n\tgithub.com/google/uuid v1.6.0\n\tgolang.org/x/text v0.39.0 // indirect\n)\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nimport \"github.com/google/uuid\"\n\nvar id = uuid.New()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := NewGoCodeServer(dir, nil).Execute(context.Background(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := response.GetGetProjectInfo()
+	if project == nil || response.GetFailure() != nil {
+		t.Fatalf("project=%+v failure=%+v", project, response.GetFailure())
+	}
+	if project.GetModule() != "example.test/project" || project.GetLanguageVersion() != "1.25" {
+		t.Fatalf("identity=%+v", project)
+	}
+	if len(project.GetDependencies()) != 2 || project.GetDependencies()[0].GetName() != "github.com/google/uuid" || !project.GetDependencies()[0].GetDirect() || project.GetDependencies()[1].GetDirect() {
+		t.Fatalf("declared dependencies=%+v", project.GetDependencies())
+	}
+	if len(project.GetSourceFiles()) != 1 || len(project.GetSourceFiles()[0].GetImports()) != 1 || project.GetSourceFiles()[0].GetImports()[0] != "github.com/google/uuid" {
+		t.Fatalf("source evidence=%+v", project.GetSourceFiles())
+	}
+}
 
 func TestGoCodeServer_GetProjectInfo_RealRepos(t *testing.T) {
 	for _, repo := range representativeOperationalRepos() {

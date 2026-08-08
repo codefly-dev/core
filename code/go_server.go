@@ -8,10 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	"golang.org/x/mod/modfile"
 )
 
 // GoCodeServer extends DefaultCodeServer with Go-specific project metadata
@@ -55,22 +55,24 @@ func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeR
 	if err != nil {
 		return codeFailure(wrapProjectInfo(resp), basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.get-project-info", fmt.Sprintf("read go.mod: %v", err)), nil
 	}
-	for _, line := range strings.Split(string(modData), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			resp.Module = strings.TrimPrefix(line, "module ")
-		}
-		if strings.HasPrefix(line, "go ") {
-			resp.LanguageVersion = strings.TrimPrefix(line, "go ")
-		}
+	module, err := modfile.Parse("go.mod", modData, nil)
+	if err != nil {
+		return codeFailure(wrapProjectInfo(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", fmt.Sprintf("parse go.mod: %v", err)), nil
+	}
+	if module.Module != nil {
+		resp.Module = module.Module.Mod.Path
+	}
+	if module.Go != nil {
+		resp.LanguageVersion = module.Go.Version
+	}
+	for _, requirement := range module.Require {
+		resp.Dependencies = append(resp.Dependencies, &codev0.Dependency{
+			Name: requirement.Mod.Path, Version: requirement.Mod.Version, Direct: !requirement.Indirect,
+		})
 	}
 
 	if pkgs := goListPackages(ctx, srcDir); pkgs != nil {
 		resp.Packages = pkgs
-	}
-
-	if deps, err := goListDependencies(ctx, srcDir); err == nil {
-		resp.Dependencies = deps
 	}
 
 	resp.FileHashes = computeFileHashes(s.FS, srcDir)
