@@ -213,6 +213,33 @@ func TestDeriveFormula_CIWorkflowWins(t *testing.T) {
 	}
 }
 
+func TestDeriveFormula_ReadmeRequiresTestExecutionIntent(t *testing.T) {
+	t.Run("setup before runner", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, dir, "README.rst", "Testing\n=======\n\n.. code-block:: text\n\n    $ pip install -e '.[test]'\n    $ coverage run -m pytest\n")
+
+		cmd, output, _, _, ok := DeriveFormula(dir)
+		if !ok {
+			t.Fatal("README declares a runnable test command")
+		}
+		if got := strings.Join(cmd, " "); got != "coverage run -m pytest" {
+			t.Fatalf("command = %q, want test runner %q", got, "coverage run -m pytest")
+		}
+		if output != OutputJUnitXML {
+			t.Fatalf("output = %q, want %q", output, OutputJUnitXML)
+		}
+	})
+
+	t.Run("setup only", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, dir, "README.rst", "Testing\n=======\n\n    python -m pip install '.[test]'\n")
+
+		if cmd, _, _, _, ok := DeriveFormula(dir); ok {
+			t.Fatalf("setup-only README produced test formula %q", strings.Join(cmd, " "))
+		}
+	})
+}
+
 func TestDeriveFormula_UnnamedCITestStepUsesCommandIntent(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, ".github/workflows/test.yml",
