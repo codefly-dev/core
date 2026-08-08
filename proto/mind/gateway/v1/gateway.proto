@@ -189,6 +189,10 @@ service Gateway {
   // GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
   rpc GetProjectInfo(GetProjectInfoRequest) returns (GetProjectInfoResponse);
 
+  // DiscoverCodeUnits returns Codefly-owned structural source boundaries,
+  // including unsupported ecosystems that bind to the generic agent.
+  rpc DiscoverCodeUnits(DiscoverCodeUnitsRequest) returns (DiscoverCodeUnitsResponse);
+
   // ─── Terminal ───────────────────────────────────────────────
   // The gateway runs INSIDE the execution box, so the PTY lives here — the one
   // place with the worktree + shell. Mind proxies these to give users an
@@ -1680,6 +1684,29 @@ message GetProjectInfoResponse {
   map<string, string> file_hashes = 6; // path -> SHA-256 for change detection
   // error explains why the operation failed; empty means success at this layer.
   string error = 7;
+}
+
+// DiscoverCodeUnitsRequest identifies the service whose rooted source tree is
+// inspected. Empty service selects the gateway's attached source behavior.
+message DiscoverCodeUnitsRequest {
+  string service = 1;
+}
+
+// CodeUnitInfo is the gateway projection of the Code service's structural
+// discovery result.
+message CodeUnitInfo {
+  string path = 1;
+  string name = 2;
+  string primary_language = 3;
+  repeated string languages = 4;
+  repeated string manifest_paths = 5;
+  string runtime_agent = 6;
+}
+
+// DiscoverCodeUnitsResponse preserves every discovered source boundary.
+message DiscoverCodeUnitsResponse {
+  repeated CodeUnitInfo code_units = 1;
+  string error = 2;
 }
 
 // ─── Plugin Commands ────────────────────────────────────────

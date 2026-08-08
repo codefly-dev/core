@@ -65,6 +65,7 @@ const (
 	Gateway_AddDependency_FullMethodName                 = "/mind.gateway.v1.Gateway/AddDependency"
 	Gateway_RemoveDependency_FullMethodName              = "/mind.gateway.v1.Gateway/RemoveDependency"
 	Gateway_GetProjectInfo_FullMethodName                = "/mind.gateway.v1.Gateway/GetProjectInfo"
+	Gateway_DiscoverCodeUnits_FullMethodName             = "/mind.gateway.v1.Gateway/DiscoverCodeUnits"
 	Gateway_OpenTerminal_FullMethodName                  = "/mind.gateway.v1.Gateway/OpenTerminal"
 	Gateway_AttachTerminal_FullMethodName                = "/mind.gateway.v1.Gateway/AttachTerminal"
 	Gateway_ResizeTerminal_FullMethodName                = "/mind.gateway.v1.Gateway/ResizeTerminal"
@@ -181,6 +182,9 @@ type GatewayClient interface {
 	RemoveDependency(ctx context.Context, in *RemoveDependencyRequest, opts ...grpc.CallOption) (*RemoveDependencyResponse, error)
 	// GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
 	GetProjectInfo(ctx context.Context, in *GetProjectInfoRequest, opts ...grpc.CallOption) (*GetProjectInfoResponse, error)
+	// DiscoverCodeUnits returns Codefly-owned structural source boundaries,
+	// including unsupported ecosystems that bind to the generic agent.
+	DiscoverCodeUnits(ctx context.Context, in *DiscoverCodeUnitsRequest, opts ...grpc.CallOption) (*DiscoverCodeUnitsResponse, error)
 	// OpenTerminal spawns a PTY-backed shell in the gateway's working directory.
 	OpenTerminal(ctx context.Context, in *OpenTerminalRequest, opts ...grpc.CallOption) (*OpenTerminalResponse, error)
 	// AttachTerminal is a bidirectional stream: client input bytes in,
@@ -661,6 +665,16 @@ func (c *gatewayClient) GetProjectInfo(ctx context.Context, in *GetProjectInfoRe
 	return out, nil
 }
 
+func (c *gatewayClient) DiscoverCodeUnits(ctx context.Context, in *DiscoverCodeUnitsRequest, opts ...grpc.CallOption) (*DiscoverCodeUnitsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DiscoverCodeUnitsResponse)
+	err := c.cc.Invoke(ctx, Gateway_DiscoverCodeUnits_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *gatewayClient) OpenTerminal(ctx context.Context, in *OpenTerminalRequest, opts ...grpc.CallOption) (*OpenTerminalResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OpenTerminalResponse)
@@ -823,6 +837,9 @@ type GatewayServer interface {
 	RemoveDependency(context.Context, *RemoveDependencyRequest) (*RemoveDependencyResponse, error)
 	// GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
 	GetProjectInfo(context.Context, *GetProjectInfoRequest) (*GetProjectInfoResponse, error)
+	// DiscoverCodeUnits returns Codefly-owned structural source boundaries,
+	// including unsupported ecosystems that bind to the generic agent.
+	DiscoverCodeUnits(context.Context, *DiscoverCodeUnitsRequest) (*DiscoverCodeUnitsResponse, error)
 	// OpenTerminal spawns a PTY-backed shell in the gateway's working directory.
 	OpenTerminal(context.Context, *OpenTerminalRequest) (*OpenTerminalResponse, error)
 	// AttachTerminal is a bidirectional stream: client input bytes in,
@@ -978,6 +995,9 @@ func (UnimplementedGatewayServer) RemoveDependency(context.Context, *RemoveDepen
 }
 func (UnimplementedGatewayServer) GetProjectInfo(context.Context, *GetProjectInfoRequest) (*GetProjectInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetProjectInfo not implemented")
+}
+func (UnimplementedGatewayServer) DiscoverCodeUnits(context.Context, *DiscoverCodeUnitsRequest) (*DiscoverCodeUnitsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DiscoverCodeUnits not implemented")
 }
 func (UnimplementedGatewayServer) OpenTerminal(context.Context, *OpenTerminalRequest) (*OpenTerminalResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OpenTerminal not implemented")
@@ -1818,6 +1838,24 @@ func _Gateway_GetProjectInfo_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Gateway_DiscoverCodeUnits_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DiscoverCodeUnitsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).DiscoverCodeUnits(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_DiscoverCodeUnits_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).DiscoverCodeUnits(ctx, req.(*DiscoverCodeUnitsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Gateway_OpenTerminal_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(OpenTerminalRequest)
 	if err := dec(in); err != nil {
@@ -2079,6 +2117,10 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetProjectInfo",
 			Handler:    _Gateway_GetProjectInfo_Handler,
+		},
+		{
+			MethodName: "DiscoverCodeUnits",
+			Handler:    _Gateway_DiscoverCodeUnits_Handler,
 		},
 		{
 			MethodName: "OpenTerminal",

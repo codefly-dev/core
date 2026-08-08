@@ -137,6 +137,9 @@ const (
 	GatewayRemoveDependencyProcedure = "/mind.gateway.v1.Gateway/RemoveDependency"
 	// GatewayGetProjectInfoProcedure is the fully-qualified name of the Gateway's GetProjectInfo RPC.
 	GatewayGetProjectInfoProcedure = "/mind.gateway.v1.Gateway/GetProjectInfo"
+	// GatewayDiscoverCodeUnitsProcedure is the fully-qualified name of the Gateway's DiscoverCodeUnits
+	// RPC.
+	GatewayDiscoverCodeUnitsProcedure = "/mind.gateway.v1.Gateway/DiscoverCodeUnits"
 	// GatewayOpenTerminalProcedure is the fully-qualified name of the Gateway's OpenTerminal RPC.
 	GatewayOpenTerminalProcedure = "/mind.gateway.v1.Gateway/OpenTerminal"
 	// GatewayAttachTerminalProcedure is the fully-qualified name of the Gateway's AttachTerminal RPC.
@@ -253,6 +256,9 @@ type GatewayClient interface {
 	RemoveDependency(context.Context, *connect.Request[v1.RemoveDependencyRequest]) (*connect.Response[v1.RemoveDependencyResponse], error)
 	// GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
 	GetProjectInfo(context.Context, *connect.Request[v1.GetProjectInfoRequest]) (*connect.Response[v1.GetProjectInfoResponse], error)
+	// DiscoverCodeUnits returns Codefly-owned structural source boundaries,
+	// including unsupported ecosystems that bind to the generic agent.
+	DiscoverCodeUnits(context.Context, *connect.Request[v1.DiscoverCodeUnitsRequest]) (*connect.Response[v1.DiscoverCodeUnitsResponse], error)
 	// OpenTerminal spawns a PTY-backed shell in the gateway's working directory.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
 	// AttachTerminal is a bidirectional stream: client input bytes in,
@@ -547,6 +553,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(gatewayMethods.ByName("GetProjectInfo")),
 			connect.WithClientOptions(opts...),
 		),
+		discoverCodeUnits: connect.NewClient[v1.DiscoverCodeUnitsRequest, v1.DiscoverCodeUnitsResponse](
+			httpClient,
+			baseURL+GatewayDiscoverCodeUnitsProcedure,
+			connect.WithSchema(gatewayMethods.ByName("DiscoverCodeUnits")),
+			connect.WithClientOptions(opts...),
+		),
 		openTerminal: connect.NewClient[v1.OpenTerminalRequest, v1.OpenTerminalResponse](
 			httpClient,
 			baseURL+GatewayOpenTerminalProcedure,
@@ -627,6 +639,7 @@ type gatewayClient struct {
 	addDependency                 *connect.Client[v1.AddDependencyRequest, v1.AddDependencyResponse]
 	removeDependency              *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
 	getProjectInfo                *connect.Client[v1.GetProjectInfoRequest, v1.GetProjectInfoResponse]
+	discoverCodeUnits             *connect.Client[v1.DiscoverCodeUnitsRequest, v1.DiscoverCodeUnitsResponse]
 	openTerminal                  *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
 	attachTerminal                *connect.Client[v1.TerminalInput, v1.TerminalOutput]
 	resizeTerminal                *connect.Client[v1.ResizeTerminalRequest, v1.ResizeTerminalResponse]
@@ -859,6 +872,11 @@ func (c *gatewayClient) GetProjectInfo(ctx context.Context, req *connect.Request
 	return c.getProjectInfo.CallUnary(ctx, req)
 }
 
+// DiscoverCodeUnits calls mind.gateway.v1.Gateway.DiscoverCodeUnits.
+func (c *gatewayClient) DiscoverCodeUnits(ctx context.Context, req *connect.Request[v1.DiscoverCodeUnitsRequest]) (*connect.Response[v1.DiscoverCodeUnitsResponse], error) {
+	return c.discoverCodeUnits.CallUnary(ctx, req)
+}
+
 // OpenTerminal calls mind.gateway.v1.Gateway.OpenTerminal.
 func (c *gatewayClient) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error) {
 	return c.openTerminal.CallUnary(ctx, req)
@@ -988,6 +1006,9 @@ type GatewayHandler interface {
 	RemoveDependency(context.Context, *connect.Request[v1.RemoveDependencyRequest]) (*connect.Response[v1.RemoveDependencyResponse], error)
 	// GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
 	GetProjectInfo(context.Context, *connect.Request[v1.GetProjectInfoRequest]) (*connect.Response[v1.GetProjectInfoResponse], error)
+	// DiscoverCodeUnits returns Codefly-owned structural source boundaries,
+	// including unsupported ecosystems that bind to the generic agent.
+	DiscoverCodeUnits(context.Context, *connect.Request[v1.DiscoverCodeUnitsRequest]) (*connect.Response[v1.DiscoverCodeUnitsResponse], error)
 	// OpenTerminal spawns a PTY-backed shell in the gateway's working directory.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
 	// AttachTerminal is a bidirectional stream: client input bytes in,
@@ -1278,6 +1299,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(gatewayMethods.ByName("GetProjectInfo")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayDiscoverCodeUnitsHandler := connect.NewUnaryHandler(
+		GatewayDiscoverCodeUnitsProcedure,
+		svc.DiscoverCodeUnits,
+		connect.WithSchema(gatewayMethods.ByName("DiscoverCodeUnits")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gatewayOpenTerminalHandler := connect.NewUnaryHandler(
 		GatewayOpenTerminalProcedure,
 		svc.OpenTerminal,
@@ -1400,6 +1427,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayRemoveDependencyHandler.ServeHTTP(w, r)
 		case GatewayGetProjectInfoProcedure:
 			gatewayGetProjectInfoHandler.ServeHTTP(w, r)
+		case GatewayDiscoverCodeUnitsProcedure:
+			gatewayDiscoverCodeUnitsHandler.ServeHTTP(w, r)
 		case GatewayOpenTerminalProcedure:
 			gatewayOpenTerminalHandler.ServeHTTP(w, r)
 		case GatewayAttachTerminalProcedure:
@@ -1597,6 +1626,10 @@ func (UnimplementedGatewayHandler) RemoveDependency(context.Context, *connect.Re
 
 func (UnimplementedGatewayHandler) GetProjectInfo(context.Context, *connect.Request[v1.GetProjectInfoRequest]) (*connect.Response[v1.GetProjectInfoResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GetProjectInfo is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) DiscoverCodeUnits(context.Context, *connect.Request[v1.DiscoverCodeUnitsRequest]) (*connect.Response[v1.DiscoverCodeUnitsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.DiscoverCodeUnits is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error) {

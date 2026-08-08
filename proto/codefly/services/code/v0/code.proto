@@ -349,6 +349,38 @@ message GetProjectInfoResponse {
   map<string, string> file_hashes = 6;  // path -> SHA-256 for change detection
 }
 
+// --- DiscoverCodeUnits ---
+
+// DiscoverCodeUnitsRequest asks the language-neutral Code boundary to identify
+// independently routable source roots. Detection is structural only: it never
+// executes a build tool or claims semantic support.
+message DiscoverCodeUnitsRequest {}
+
+// CodeUnitInfo describes one source boundary and the evidence that established
+// it. Unsupported ecosystems remain present and bind to the generic runtime.
+message CodeUnitInfo {
+  // path is relative to the Code service root; "." identifies the root itself.
+  string path = 1;
+  // name is a stable human-readable name derived from the boundary directory.
+  string name = 2;
+  // primary_language is the deterministic primary ecosystem for legacy
+  // consumers that can carry only one language.
+  string primary_language = 3;
+  // languages preserves every ecosystem declared at this exact boundary.
+  repeated string languages = 4;
+  // manifest_paths are root-relative declaration files supporting the result.
+  repeated string manifest_paths = 5;
+  // runtime_agent is the unversioned Codefly service-agent family. Unknown or
+  // mixed ecosystems bind to "generic"; the host owns immutable version pins.
+  string runtime_agent = 6;
+}
+
+// DiscoverCodeUnitsResponse returns a deterministic, complete structural
+// inventory. A markerless source tree is represented by one generic root unit.
+message DiscoverCodeUnitsResponse {
+  repeated CodeUnitInfo code_units = 1;
+}
+
 // --- Git Operations ---
 
 // GitLogRequest returns recent commit history.
@@ -555,6 +587,9 @@ message CodeRequest {
     RemoveDependencyRequest remove_dependency = 18;
     // get_project_info asks the plugin for language-specific project metadata.
     GetProjectInfoRequest get_project_info = 19;
+    // discover_code_units asks the language-neutral Code boundary for rooted
+    // source units and their manifest evidence.
+    DiscoverCodeUnitsRequest discover_code_units = 20;
 
     // File and git operations — handled by the Code agent's default server
     // (pkg/code/DefaultCodeServer in codefly core) backed by the workspace's
@@ -606,6 +641,8 @@ message CodeResponse {
     RemoveDependencyResponse remove_dependency = 18;
     // get_project_info returns package, dependency, and file-hash metadata.
     GetProjectInfoResponse get_project_info = 19;
+    // discover_code_units returns structural source boundaries.
+    DiscoverCodeUnitsResponse discover_code_units = 20;
 
     // File and git operation responses.
     ReadFileResponse read_file = 26;
