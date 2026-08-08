@@ -187,6 +187,19 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	defer os.RemoveAll(junitDir)
 	junitFile := filepath.Join(junitDir, fmt.Sprintf("pytest-junit-%d.xml", time.Now().UnixNano()))
 
+	// ARCHITECTURE: Packaging backends are allowed to materialize metadata next
+	// to their input even when uv's environment and cache live elsewhere.
+	// Setuptools, for example, creates *.egg-info while resolving both editable
+	// projects and local requirements. Execute the observational default test
+	// capability against a plugin-owned source snapshot so build backends and
+	// tests can never dirty the user's checkout. This copy belongs to the
+	// Codefly runtime (the hands), not Mind; it is removed with the evidence
+	// directory after the run.
+	runtimeSourceDir := filepath.Join(junitDir, "source")
+	if err := os.CopyFS(runtimeSourceDir, os.DirFS(sourceDir)); err != nil {
+		return nil, fmt.Errorf("snapshot Python source for read-only test execution: %w", err)
+	}
+
 	// ARCHITECTURE: The default pytest adapter is still a real formula. Build it
 	// through the same project-derived provisioning contract as an explicitly
 	// declared formula so the two production paths cannot drift. In particular,
@@ -197,7 +210,7 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 		[]string{"pytest"},
 		OutputJUnitXML,
 		nil,
-		DeriveProvisioning(sourceDir),
+		DeriveProvisioning(runtimeSourceDir),
 		nil,
 	)
 	spec.Env = append(spec.Env, envVars...)
@@ -246,7 +259,7 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	// user's source. Persistent formula environments remain an explicit formula
 	// concern and are never introduced by this read-only default adapter.
 	if spec.Editable && spec.EditableTarget == "" {
-		if abs, absErr := filepath.Abs(sourceDir); absErr == nil {
+		if abs, absErr := filepath.Abs(runtimeSourceDir); absErr == nil {
 			spec.EditableTarget = abs
 		}
 	}
@@ -260,7 +273,7 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	}
 
 	cmd := exec.CommandContext(ctx, "uv", pytestArgs...)
-	cmd.Dir = sourceDir
+	cmd.Dir = runtimeSourceDir
 
 	// Run pytest in its own process group so a cancelled/timed-out run kills
 	// the WHOLE tree (uv → pytest → xdist workers), not just the direct child.

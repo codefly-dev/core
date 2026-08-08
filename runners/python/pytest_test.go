@@ -63,11 +63,7 @@ def test_dependency_was_materialized_from_project_declaration():
 	if summary.Run != 1 || summary.Passed != 1 || summary.Failed != 0 {
 		t.Fatalf("summary = %+v, want one passed test\n%s", summary, run.RawOutput)
 	}
-	for _, generated := range []string{"uv.lock", ".venv", ".pytest_cache", "__pycache__"} {
-		if _, err := os.Stat(filepath.Join(root, generated)); !os.IsNotExist(err) {
-			t.Fatalf("production runner generated %s in source checkout", generated)
-		}
-	}
+	assertDefaultRunnerLeftSourceClean(t, root)
 }
 
 // TestRunPythonTestsStructuredMaterializesDeclaredDependencyGroups proves the
@@ -110,10 +106,30 @@ def test_dependency_group_was_materialized():
 	if summary.Run != 1 || summary.Passed != 1 || summary.Failed != 0 {
 		t.Fatalf("summary = %+v, want one passed test\n%s", summary, run.RawOutput)
 	}
+	assertDefaultRunnerLeftSourceClean(t, root)
+}
+
+// assertDefaultRunnerLeftSourceClean proves the default validation capability
+// is observational: package materialization and test evidence belong in the
+// runner's ephemeral state, never in the user's checkout.
+func assertDefaultRunnerLeftSourceClean(t *testing.T, root string) {
+	t.Helper()
 	for _, generated := range []string{"uv.lock", ".venv", ".pytest_cache", "__pycache__"} {
 		if _, err := os.Stat(filepath.Join(root, generated)); !os.IsNotExist(err) {
-			t.Fatalf("isolated project runner generated %s in source checkout", generated)
+			t.Fatalf("production runner generated %s in source checkout", generated)
 		}
+	}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() && strings.HasSuffix(entry.Name(), ".egg-info") {
+			t.Fatalf("production runner generated package metadata in source checkout: %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("inspect source checkout after test run: %v", err)
 	}
 }
 
