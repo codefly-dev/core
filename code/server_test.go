@@ -165,6 +165,7 @@ func TestOperationName(t *testing.T) {
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_Fix{}}, "fix"},
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_ApplyEdit{}}, "apply_edit"},
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_GetProjectInfo{}}, "get_project_info"},
+		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_DiscoverCodeUnits{}}, "discover_code_units"},
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_ListDependencies{}}, "list_dependencies"},
 		{&codev0.CodeRequest{}, ""},
 	}
