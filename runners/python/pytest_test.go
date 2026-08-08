@@ -1,12 +1,121 @@
 package python
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
+
+// TestRunPythonTestsStructuredMaterializesDeclaredRequirements is the real
+// default-adapter proof: the test imports a separately packaged dependency
+// that exists only through requirements.txt. The runner must ask uv to build
+// that declared environment; ambient Python and a pytest-only overlay cannot
+// make this pass.
+func TestRunPythonTestsStructuredMaterializesDeclaredRequirements(t *testing.T) {
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Fatalf("uv is required for the production Python runner: %v", err)
+	}
+	root := t.TempDir()
+	dependencyDir := filepath.Join(root, "supportdep")
+	if err := os.MkdirAll(dependencyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("supportdep/pyproject.toml", `[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codefly-declared-probe-dependency"
+version = "0.0.1"
+
+[tool.setuptools]
+py-modules = ["declared_probe_dependency"]
+`)
+	write("supportdep/declared_probe_dependency.py", "VALUE = 'from-declared-requirements'\n")
+	write("requirements.txt", "./supportdep\n")
+	write("test_declared_dependency.py", `import declared_probe_dependency
+
+def test_dependency_was_materialized_from_project_declaration():
+    assert declared_probe_dependency.VALUE == "from-declared-requirements"
+`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	run, err := RunPythonTestsStructured(ctx, root, nil, TestOptions{VerboseSet: true})
+	if err != nil {
+		t.Fatalf("RunPythonTestsStructured: %v\n%s", err, run.RawOutput)
+	}
+	if run.EnvError != nil {
+		t.Fatalf("default adapter environment error: %s\n%s", run.EnvError.Detail, run.RawOutput)
+	}
+	summary := run.LegacyTestSummary()
+	if summary.Run != 1 || summary.Passed != 1 || summary.Failed != 0 {
+		t.Fatalf("summary = %+v, want one passed test\n%s", summary, run.RawOutput)
+	}
+	for _, generated := range []string{"uv.lock", ".venv", ".pytest_cache", "__pycache__"} {
+		if _, err := os.Stat(filepath.Join(root, generated)); !os.IsNotExist(err) {
+			t.Fatalf("production runner generated %s in source checkout", generated)
+		}
+	}
+}
+
+// TestRunPythonTestsStructuredMaterializesDeclaredDependencyGroups proves the
+// pyproject-backed default path uses uv's isolated project mode. The declared
+// group must be available, while uv.lock and .venv remain absent from source.
+func TestRunPythonTestsStructuredMaterializesDeclaredDependencyGroups(t *testing.T) {
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Fatalf("uv is required for the production Python runner: %v", err)
+	}
+	root := t.TempDir()
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("pyproject.toml", `[project]
+name = "codefly-declared-group-probe"
+version = "0.0.1"
+
+[dependency-groups]
+test = ["boltons==24.0.0"]
+`)
+	write("test_declared_group.py", `import boltons
+
+def test_dependency_group_was_materialized():
+    assert boltons is not None
+`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	run, err := RunPythonTestsStructured(ctx, root, nil, TestOptions{VerboseSet: true})
+	if err != nil {
+		t.Fatalf("RunPythonTestsStructured: %v\n%s", err, run.RawOutput)
+	}
+	if run.EnvError != nil {
+		t.Fatalf("default adapter environment error: %s\n%s", run.EnvError.Detail, run.RawOutput)
+	}
+	summary := run.LegacyTestSummary()
+	if summary.Run != 1 || summary.Passed != 1 || summary.Failed != 0 {
+		t.Fatalf("summary = %+v, want one passed test\n%s", summary, run.RawOutput)
+	}
+	for _, generated := range []string{"uv.lock", ".venv", ".pytest_cache", "__pycache__"} {
+		if _, err := os.Stat(filepath.Join(root, generated)); !os.IsNotExist(err) {
+			t.Fatalf("isolated project runner generated %s in source checkout", generated)
+		}
+	}
+}
 
 // TestScanPytestEvents_EmitsPerLine feeds realistic pytest verbose
 // output through scanPytestEvents and asserts the callback fires once
