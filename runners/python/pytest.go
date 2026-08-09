@@ -360,16 +360,15 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	return run, runErr
 }
 
-// snapshotSkipDirs names directories that must never enter the read-only test
-// snapshot: version control, virtualenvs, tool caches, and foreign-ecosystem
-// trees. They are regenerable and often huge, and — worse — copying a stale
-// .venv or lockfile would let old resolution state leak into a run the issue
-// requires uv to materialize fresh. Prior *.egg-info directories are skipped by
-// suffix for the same reason.
+// snapshotSkipDirs names directories that never belong in the read-only test
+// snapshot: virtualenvs, tool caches, and foreign-ecosystem trees. They are
+// regenerable and often large, and the fresh uv run rebuilds its own
+// environment rather than reading them. Version-control directories are
+// deliberately NOT listed: build backends that derive a dynamic version
+// (setuptools_scm and friends) read .git during the build, so dropping it would
+// fail the very run we are isolating. Prior *.egg-info directories ARE skipped
+// (by suffix) so stale build metadata cannot shadow what the run regenerates.
 var snapshotSkipDirs = map[string]bool{
-	".git":          true,
-	".hg":           true,
-	".svn":          true,
 	".venv":         true,
 	"venv":          true,
 	".tox":          true,
@@ -382,19 +381,25 @@ var snapshotSkipDirs = map[string]bool{
 }
 
 // snapshotSourceTree copies the Python source at src into dst for a read-only
-// test run. It exists instead of os.CopyFS for two reasons the default adapter
-// must survive on real checkouts: it skips the regenerable VCS/venv/cache and
-// prior build-metadata directories above (so stale state cannot leak in and a
-// full checkout is not duplicated per run), and it skips irregular files
-// (sockets, FIFOs, devices) instead of aborting the whole copy — a single stray
-// socket in a checkout must not break test validation. Regular files preserve
-// their mode; symlinks are recreated verbatim.
+// test run. It exists instead of os.CopyFS for three reasons the default
+// adapter must survive on real checkouts: it resolves a symlinked source root
+// (WalkDir alone would yield the root as a lone symlink entry and copy nothing,
+// where os.DirFS/os.CopyFS follow it); it skips the regenerable venv/cache and
+// prior build-metadata directories in snapshotSkipDirs so stale state cannot
+// leak in and a full checkout is not duplicated per run; and it skips irregular
+// files (sockets, FIFOs, devices) instead of aborting the whole copy — a single
+// stray socket in a checkout must not break test validation. Regular files
+// preserve their mode; symlinks inside the tree are recreated verbatim.
 func snapshotSourceTree(src, dst string) error {
-	return filepath.WalkDir(src, func(p string, entry fs.DirEntry, err error) error {
+	root, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return err
+	}
+	return filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(src, p)
+		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			return err
 		}
