@@ -10,7 +10,51 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 )
+
+// TestRunPythonTestsStructuredClassifiesInvalidTargetAsSelectionError is the
+// real default-runner regression for a model-supplied unittest-style selector.
+// Pytest exits non-zero without writing JUnit for this input. That is a caller
+// selection miss, not an unavailable environment, and its typed diagnostic
+// must remain stable across the runner's fresh temporary directories.
+func TestRunPythonTestsStructuredClassifiesInvalidTargetAsSelectionError(t *testing.T) {
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Fatalf("uv is required for the production Python runner: %v", err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "test_calc.py"), []byte(`
+class CalculatorTests:
+    def test_subtract(self):
+        assert 2 - 1 == 1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	const target = "CalculatorTests.test_subtract"
+	run, err := RunPythonTestsStructured(ctx, root, nil, TestOptions{Target: target, VerboseSet: true})
+	if err != nil {
+		t.Fatalf("RunPythonTestsStructured: %v\n%s", err, run.RawOutput)
+	}
+	if run.EnvError == nil || run.EnvError.Reason != EnvErrorNoTestsMatchedSelectors {
+		t.Fatalf("invalid target classification = %+v, want %q\n%s", run.EnvError, EnvErrorNoTestsMatchedSelectors, run.RawOutput)
+	}
+	for _, volatile := range []string{"codefly-pytest-", "pytest-junit-", root} {
+		if strings.Contains(run.EnvError.Detail, volatile) {
+			t.Fatalf("stable selection diagnostic contains transient path %q: %s", volatile, run.EnvError.Detail)
+		}
+	}
+	response := run.ToProtoResponse("pytest", "", 0)
+	if message := response.GetResult().GetMessage(); !strings.HasPrefix(message, "test-selection-error (") || strings.Contains(message, "env-blocked") {
+		t.Fatalf("typed runtime result = %q, want selection error", message)
+	}
+	if response.GetResult().GetState() != runtimev0.TestRunResult_ERRORED || response.GetCounts().GetTotal() != 0 {
+		t.Fatalf("typed runtime result = %+v counts=%+v, want zero-case error", response.GetResult(), response.GetCounts())
+	}
+}
 
 // TestRunPythonTestsStructuredMaterializesDeclaredRequirements is the real
 // default-adapter proof: the test imports a separately packaged dependency

@@ -340,12 +340,18 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	// not an opaque process exit for the caller to flatten. Likewise, an empty
 	// successful invocation is never a passing test run.
 	if run.caseCount() == 0 {
-		if runErr != nil {
-			run.EnvError = ClassifyEnvError(rawStr, runErr)
-		} else if opt.Target != "" {
+		hasSelection := opt.Target != "" || len(opt.Filters) > 0
+		if hasSelection && defaultPytestSelectionMiss(rawStr, runErr) {
 			run.EnvError = &RunEnvError{
 				Reason: EnvErrorNoTestsMatchedSelectors,
-				Detail: fmt.Sprintf("target %q matched zero tests — the selector does not name any collectible test", opt.Target),
+				Detail: defaultPytestSelectionDescription(opt) + " matched zero tests — the selection does not name any collectible test",
+			}
+		} else if runErr != nil {
+			run.EnvError = ClassifyEnvError(rawStr, runErr)
+		} else if hasSelection {
+			run.EnvError = &RunEnvError{
+				Reason: EnvErrorNoTestsMatchedSelectors,
+				Detail: defaultPytestSelectionDescription(opt) + " matched zero tests — the selection does not name any collectible test",
 			}
 		} else {
 			run.EnvError = &RunEnvError{
@@ -364,6 +370,37 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	}
 
 	return run, runErr
+}
+
+// defaultPytestSelectionMiss recognizes pytest's own zero-match signals before
+// generic environment classification. Pytest returns a non-zero process exit
+// both when a selector names no test and when collection cannot start; the
+// typed result must keep those states distinct so callers repair the selector
+// instead of trying to heal a healthy runtime.
+func defaultPytestSelectionMiss(raw string, runErr error) bool {
+	lower := strings.ToLower(raw)
+	for _, marker := range []string{
+		"file or directory not found:",
+		"error: not found:",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	type exitCoder interface{ ExitCode() int }
+	exitErr, ok := runErr.(exitCoder)
+	return ok && exitErr.ExitCode() == 5 // pytest: no tests were collected
+}
+
+func defaultPytestSelectionDescription(opt TestOptions) string {
+	parts := make([]string, 0, 2)
+	if opt.Target != "" {
+		parts = append(parts, fmt.Sprintf("target %q", opt.Target))
+	}
+	if len(opt.Filters) > 0 {
+		parts = append(parts, fmt.Sprintf("filters %q", opt.Filters))
+	}
+	return strings.Join(parts, " with ")
 }
 
 // snapshotSkipDirs names directories that never belong in the read-only test
