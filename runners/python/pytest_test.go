@@ -66,6 +66,37 @@ def test_dependency_was_materialized_from_project_declaration():
 	assertDefaultRunnerLeftSourceClean(t, root)
 }
 
+// TestRunPythonTestsStructuredMaterializesTimeoutAdapter proves the typed
+// per-case timeout does not become a project dependency. The production
+// adapter owns pytest-timeout and must add it to the isolated uv environment
+// even when the project itself declares no such plugin.
+func TestRunPythonTestsStructuredMaterializesTimeoutAdapter(t *testing.T) {
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Fatalf("uv is required for the production Python runner: %v", err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "test_timeout_adapter.py"), []byte(`def test_timeout_adapter_is_available():
+    assert True
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	run, err := RunPythonTestsStructured(ctx, root, nil, TestOptions{VerboseSet: true, Timeout: "30s"})
+	if err != nil {
+		t.Fatalf("RunPythonTestsStructured: %v\n%s", err, run.RawOutput)
+	}
+	if run.EnvError != nil {
+		t.Fatalf("timeout adapter environment error: %s\n%s", run.EnvError.Detail, run.RawOutput)
+	}
+	summary := run.LegacyTestSummary()
+	if summary.Run != 1 || summary.Passed != 1 || summary.Failed != 0 {
+		t.Fatalf("summary = %+v, want one passed test\n%s", summary, run.RawOutput)
+	}
+	assertDefaultRunnerLeftSourceClean(t, root)
+}
+
 // TestRunPythonTestsStructuredMaterializesDeclaredDependencyGroups proves the
 // pyproject-backed default path uses uv's isolated project mode. The declared
 // group must be available, while uv.lock and .venv remain absent from source.
