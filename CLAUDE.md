@@ -113,7 +113,7 @@ Every agent implements four interfaces via gRPC:
 1. **Agent** — `Load()` identity and settings
 2. **Builder** — `Load() → Init() → Create() → Update() → Sync() → Build() → Deploy()`
 3. **Runtime** — `Load() → Init() → Start() → Stop() → Destroy()` + `Information()`, `Test()`
-4. **Code** — file/edit/shell/project/dependency operations. Semantic code intelligence belongs in Mind, not the Codefly plugin proto.
+4. **Code + Tooling** — Code owns file/edit/shell/project/dependency operations; Tooling owns typed semantic inspection. Project bytes and language parsers stay inside Codefly agents. Orchestration brains such as Mind consume typed facts through the Gateway and never read or parse project source directly.
 
 ### Network Mapping Flow
 1. Agent declares endpoints in `service.codefly.yaml`

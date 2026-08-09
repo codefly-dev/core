@@ -41,21 +41,21 @@ func NewToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *Too
 // language plugins that format and edit source but do not own dependency or
 // validation behavior yet.
 func NewSourceToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
-	return newToolboxFromTooling(name, version, t, selectToolSpecs(ToolFix, ToolApplyEdit, ToolGetProjectInfo))
+	return newToolboxFromTooling(name, version, t, selectToolSpecs(ToolFix, ToolApplyEdit, ToolGetProjectInfo, ToolGetSemanticIndex))
 }
 
 // NewValidationToolboxFromTooling exposes source authoring plus build, test,
 // and lint for language plugins that do not implement dependency mutation.
 func NewValidationToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
 	return newToolboxFromTooling(name, version, t, selectToolSpecs(
-		ToolFix, ToolApplyEdit, ToolGetProjectInfo, ToolBuild, ToolTest, ToolLint,
+		ToolFix, ToolApplyEdit, ToolGetProjectInfo, ToolGetSemanticIndex, ToolBuild, ToolTest, ToolLint,
 	))
 }
 
 // NewEditToolboxFromTooling is the language-neutral subset for a plugin that
 // supports structured editing and metadata but has no language-aware fixer.
 func NewEditToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
-	return newToolboxFromTooling(name, version, t, selectToolSpecs(ToolApplyEdit, ToolGetProjectInfo))
+	return newToolboxFromTooling(name, version, t, selectToolSpecs(ToolApplyEdit, ToolGetProjectInfo, ToolGetSemanticIndex))
 }
 
 func newToolboxFromTooling(name, version string, t toolingv0.ToolingServer, specs []toolSpec) *ToolboxFromTooling {
@@ -130,6 +130,11 @@ var toolSpecs = []toolSpec{
 		name:        ToolGetProjectInfo,
 		description: "Get project metadata (module, language, packages, dependencies, file hashes).",
 		tags:        []string{"metadata"},
+	},
+	{
+		name:        ToolGetSemanticIndex,
+		description: "Project source into body-free semantic files, symbols, calls, references, hashes, and typed coverage.",
+		tags:        []string{"metadata", "semantic", "analysis"},
 	},
 	{
 		name:        ToolBuild,
@@ -234,6 +239,8 @@ func (b *ToolboxFromTooling) CallTool(ctx context.Context, req *toolboxv0.CallTo
 		return bridgeCall[toolingv0.RemoveDependencyRequest, toolingv0.RemoveDependencyResponse](ctx, req, b.inner.RemoveDependency)
 	case ToolGetProjectInfo:
 		return bridgeCall[toolingv0.GetProjectInfoRequest, toolingv0.GetProjectInfoResponse](ctx, req, b.inner.GetProjectInfo)
+	case ToolGetSemanticIndex:
+		return bridgeCall[toolingv0.GetSemanticIndexRequest, toolingv0.GetSemanticIndexResponse](ctx, req, b.inner.GetSemanticIndex)
 	case ToolBuild:
 		return bridgeCall[toolingv0.BuildRequest, toolingv0.BuildResponse](ctx, req, b.inner.Build)
 	case ToolTest:
@@ -404,6 +411,9 @@ func (t *toolingFromToolbox) RemoveDependency(ctx context.Context, in *toolingv0
 }
 func (t *toolingFromToolbox) GetProjectInfo(ctx context.Context, in *toolingv0.GetProjectInfoRequest, _ ...grpc.CallOption) (*toolingv0.GetProjectInfoResponse, error) {
 	return callBridge(ctx, t.c, ToolGetProjectInfo, in, &toolingv0.GetProjectInfoResponse{})
+}
+func (t *toolingFromToolbox) GetSemanticIndex(ctx context.Context, in *toolingv0.GetSemanticIndexRequest, _ ...grpc.CallOption) (*toolingv0.GetSemanticIndexResponse, error) {
+	return callBridge(ctx, t.c, ToolGetSemanticIndex, in, &toolingv0.GetSemanticIndexResponse{})
 }
 func (t *toolingFromToolbox) Build(ctx context.Context, in *toolingv0.BuildRequest, _ ...grpc.CallOption) (*toolingv0.BuildResponse, error) {
 	return callBridge(ctx, t.c, ToolBuild, in, &toolingv0.BuildResponse{})

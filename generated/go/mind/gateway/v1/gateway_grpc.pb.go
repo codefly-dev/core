@@ -65,6 +65,7 @@ const (
 	Gateway_AddDependency_FullMethodName                 = "/mind.gateway.v1.Gateway/AddDependency"
 	Gateway_RemoveDependency_FullMethodName              = "/mind.gateway.v1.Gateway/RemoveDependency"
 	Gateway_GetProjectInfo_FullMethodName                = "/mind.gateway.v1.Gateway/GetProjectInfo"
+	Gateway_GetSemanticIndex_FullMethodName              = "/mind.gateway.v1.Gateway/GetSemanticIndex"
 	Gateway_DiscoverCodeUnits_FullMethodName             = "/mind.gateway.v1.Gateway/DiscoverCodeUnits"
 	Gateway_OpenTerminal_FullMethodName                  = "/mind.gateway.v1.Gateway/OpenTerminal"
 	Gateway_AttachTerminal_FullMethodName                = "/mind.gateway.v1.Gateway/AttachTerminal"
@@ -182,6 +183,9 @@ type GatewayClient interface {
 	RemoveDependency(ctx context.Context, in *RemoveDependencyRequest, opts ...grpc.CallOption) (*RemoveDependencyResponse, error)
 	// GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
 	GetProjectInfo(ctx context.Context, in *GetProjectInfoRequest, opts ...grpc.CallOption) (*GetProjectInfoResponse, error)
+	// GetSemanticIndex returns body-free semantic facts produced inside the
+	// production agent rooted at one exact code unit.
+	GetSemanticIndex(ctx context.Context, in *GetSemanticIndexRequest, opts ...grpc.CallOption) (*GetSemanticIndexResponse, error)
 	// DiscoverCodeUnits returns Codefly-owned structural source boundaries,
 	// including unsupported ecosystems that bind to the generic agent.
 	DiscoverCodeUnits(ctx context.Context, in *DiscoverCodeUnitsRequest, opts ...grpc.CallOption) (*DiscoverCodeUnitsResponse, error)
@@ -665,6 +669,16 @@ func (c *gatewayClient) GetProjectInfo(ctx context.Context, in *GetProjectInfoRe
 	return out, nil
 }
 
+func (c *gatewayClient) GetSemanticIndex(ctx context.Context, in *GetSemanticIndexRequest, opts ...grpc.CallOption) (*GetSemanticIndexResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSemanticIndexResponse)
+	err := c.cc.Invoke(ctx, Gateway_GetSemanticIndex_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *gatewayClient) DiscoverCodeUnits(ctx context.Context, in *DiscoverCodeUnitsRequest, opts ...grpc.CallOption) (*DiscoverCodeUnitsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DiscoverCodeUnitsResponse)
@@ -837,6 +851,9 @@ type GatewayServer interface {
 	RemoveDependency(context.Context, *RemoveDependencyRequest) (*RemoveDependencyResponse, error)
 	// GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
 	GetProjectInfo(context.Context, *GetProjectInfoRequest) (*GetProjectInfoResponse, error)
+	// GetSemanticIndex returns body-free semantic facts produced inside the
+	// production agent rooted at one exact code unit.
+	GetSemanticIndex(context.Context, *GetSemanticIndexRequest) (*GetSemanticIndexResponse, error)
 	// DiscoverCodeUnits returns Codefly-owned structural source boundaries,
 	// including unsupported ecosystems that bind to the generic agent.
 	DiscoverCodeUnits(context.Context, *DiscoverCodeUnitsRequest) (*DiscoverCodeUnitsResponse, error)
@@ -995,6 +1012,9 @@ func (UnimplementedGatewayServer) RemoveDependency(context.Context, *RemoveDepen
 }
 func (UnimplementedGatewayServer) GetProjectInfo(context.Context, *GetProjectInfoRequest) (*GetProjectInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetProjectInfo not implemented")
+}
+func (UnimplementedGatewayServer) GetSemanticIndex(context.Context, *GetSemanticIndexRequest) (*GetSemanticIndexResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSemanticIndex not implemented")
 }
 func (UnimplementedGatewayServer) DiscoverCodeUnits(context.Context, *DiscoverCodeUnitsRequest) (*DiscoverCodeUnitsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DiscoverCodeUnits not implemented")
@@ -1838,6 +1858,24 @@ func _Gateway_GetProjectInfo_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Gateway_GetSemanticIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSemanticIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).GetSemanticIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_GetSemanticIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).GetSemanticIndex(ctx, req.(*GetSemanticIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Gateway_DiscoverCodeUnits_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DiscoverCodeUnitsRequest)
 	if err := dec(in); err != nil {
@@ -2117,6 +2155,10 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetProjectInfo",
 			Handler:    _Gateway_GetProjectInfo_Handler,
+		},
+		{
+			MethodName: "GetSemanticIndex",
+			Handler:    _Gateway_GetSemanticIndex_Handler,
 		},
 		{
 			MethodName: "DiscoverCodeUnits",

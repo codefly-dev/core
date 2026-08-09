@@ -2,6 +2,7 @@ syntax = "proto3";
 package codefly.services.tooling.v0;
 
 import "codefly/base/v0/failure.proto";
+import "codefly/base/v0/semantic.proto";
 import "codefly/base/v0/source.proto";
 
 /*
@@ -9,18 +10,18 @@ Tooling service: command-oriented language tooling backed by a codefly agent.
 
 Separation of concerns:
   - Gateway/core owns file, git, shell, and web access through the VFS/tool boundary.
-  - Mind owns semantic code intelligence such as symbols, references, hover, and call graphs.
-  - Agent owns formatting, dependency management, project metadata, build, test, and lint.
+  - Agent owns semantic inspection, formatting, dependency management, project metadata,
+    build, test, and lint. Project bytes never cross into an orchestration brain.
+  - Mind consumes typed facts and decides how to reconcile, query, or act on them.
 
 The agent should use the workspace surface provided by Codefly rather than inventing
 its own filesystem contract.
 
 Each language agent (go-grpc, python-fastapi, nextjs) implements this service.
 
-File/git operations are NOT in this service — they are in Mind's native tool system.
-This is intentional: the Tooling agent does not need filesystem access for most operations.
-For operations that need the workspace (build, test), the agent reads via VFS or the
-workspace is committed to disk first.
+File/git operations are NOT in this service; they are exposed by the Code service and
+Gateway. Tooling implementations inspect the workspace internally through the Codefly
+VFS or delegate to Code. Mind never reads project files directly.
 */
 
 // ── Types ──────────────────────────────────────────────
@@ -248,6 +249,17 @@ message GetProjectInfoResponse {
   repeated SourceFileInfo source_files = 9;
 }
 
+// GetSemanticIndexRequest asks the language tooling attached to this service
+// for one complete, body-free semantic projection.
+message GetSemanticIndexRequest {}
+
+// GetSemanticIndexResponse returns typed facts even when some files degrade;
+// failure is reserved for capability or infrastructure failure.
+message GetSemanticIndexResponse {
+  codefly.base.v0.SemanticIndex index = 1;
+  codefly.base.v0.Failure failure = 2;
+}
+
 // ── Dev Validation (require toolchain) ──────────────────
 
 // BuildRequest asks the agent to run the native build command.
@@ -319,7 +331,8 @@ message LintResponse {
 // Every language agent (go-grpc, python-fastapi, etc.) implements this service.
 //
 // NOTE: File operations (read, write, list, search) and git operations are
-// NOT part of this service. Mind handles those directly via its VFS.
+// part of Code/Gateway, not this service. Mind reaches those typed capabilities
+// through the Gateway and never owns a project VFS.
 service Tooling {
   // Code modification
   rpc Fix(FixRequest) returns (FixResponse);
@@ -335,6 +348,8 @@ service Tooling {
 
   // Analysis
   rpc GetProjectInfo(GetProjectInfoRequest) returns (GetProjectInfoResponse);
+  // GetSemanticIndex keeps project parsing and project bytes inside Codefly.
+  rpc GetSemanticIndex(GetSemanticIndexRequest) returns (GetSemanticIndexResponse);
 
   // Dev validation
   rpc Build(BuildRequest) returns (BuildResponse);

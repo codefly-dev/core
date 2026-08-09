@@ -26,6 +26,7 @@ const (
 	Tooling_AddDependency_FullMethodName    = "/codefly.services.tooling.v0.Tooling/AddDependency"
 	Tooling_RemoveDependency_FullMethodName = "/codefly.services.tooling.v0.Tooling/RemoveDependency"
 	Tooling_GetProjectInfo_FullMethodName   = "/codefly.services.tooling.v0.Tooling/GetProjectInfo"
+	Tooling_GetSemanticIndex_FullMethodName = "/codefly.services.tooling.v0.Tooling/GetSemanticIndex"
 	Tooling_Build_FullMethodName            = "/codefly.services.tooling.v0.Tooling/Build"
 	Tooling_Test_FullMethodName             = "/codefly.services.tooling.v0.Tooling/Test"
 	Tooling_Lint_FullMethodName             = "/codefly.services.tooling.v0.Tooling/Lint"
@@ -39,7 +40,8 @@ const (
 // Every language agent (go-grpc, python-fastapi, etc.) implements this service.
 //
 // NOTE: File operations (read, write, list, search) and git operations are
-// NOT part of this service. Mind handles those directly via its VFS.
+// part of Code/Gateway, not this service. Mind reaches those typed capabilities
+// through the Gateway and never owns a project VFS.
 type ToolingClient interface {
 	// Code modification
 	Fix(ctx context.Context, in *FixRequest, opts ...grpc.CallOption) (*FixResponse, error)
@@ -53,6 +55,8 @@ type ToolingClient interface {
 	RemoveDependency(ctx context.Context, in *RemoveDependencyRequest, opts ...grpc.CallOption) (*RemoveDependencyResponse, error)
 	// Analysis
 	GetProjectInfo(ctx context.Context, in *GetProjectInfoRequest, opts ...grpc.CallOption) (*GetProjectInfoResponse, error)
+	// GetSemanticIndex keeps project parsing and project bytes inside Codefly.
+	GetSemanticIndex(ctx context.Context, in *GetSemanticIndexRequest, opts ...grpc.CallOption) (*GetSemanticIndexResponse, error)
 	// Dev validation
 	Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error)
 	// Test runs native tests and returns structured counts.
@@ -129,6 +133,16 @@ func (c *toolingClient) GetProjectInfo(ctx context.Context, in *GetProjectInfoRe
 	return out, nil
 }
 
+func (c *toolingClient) GetSemanticIndex(ctx context.Context, in *GetSemanticIndexRequest, opts ...grpc.CallOption) (*GetSemanticIndexResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSemanticIndexResponse)
+	err := c.cc.Invoke(ctx, Tooling_GetSemanticIndex_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *toolingClient) Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BuildResponse)
@@ -167,7 +181,8 @@ func (c *toolingClient) Lint(ctx context.Context, in *LintRequest, opts ...grpc.
 // Every language agent (go-grpc, python-fastapi, etc.) implements this service.
 //
 // NOTE: File operations (read, write, list, search) and git operations are
-// NOT part of this service. Mind handles those directly via its VFS.
+// part of Code/Gateway, not this service. Mind reaches those typed capabilities
+// through the Gateway and never owns a project VFS.
 type ToolingServer interface {
 	// Code modification
 	Fix(context.Context, *FixRequest) (*FixResponse, error)
@@ -181,6 +196,8 @@ type ToolingServer interface {
 	RemoveDependency(context.Context, *RemoveDependencyRequest) (*RemoveDependencyResponse, error)
 	// Analysis
 	GetProjectInfo(context.Context, *GetProjectInfoRequest) (*GetProjectInfoResponse, error)
+	// GetSemanticIndex keeps project parsing and project bytes inside Codefly.
+	GetSemanticIndex(context.Context, *GetSemanticIndexRequest) (*GetSemanticIndexResponse, error)
 	// Dev validation
 	Build(context.Context, *BuildRequest) (*BuildResponse, error)
 	// Test runs native tests and returns structured counts.
@@ -214,6 +231,9 @@ func (UnimplementedToolingServer) RemoveDependency(context.Context, *RemoveDepen
 }
 func (UnimplementedToolingServer) GetProjectInfo(context.Context, *GetProjectInfoRequest) (*GetProjectInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetProjectInfo not implemented")
+}
+func (UnimplementedToolingServer) GetSemanticIndex(context.Context, *GetSemanticIndexRequest) (*GetSemanticIndexResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSemanticIndex not implemented")
 }
 func (UnimplementedToolingServer) Build(context.Context, *BuildRequest) (*BuildResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Build not implemented")
@@ -353,6 +373,24 @@ func _Tooling_GetProjectInfo_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Tooling_GetSemanticIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSemanticIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ToolingServer).GetSemanticIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Tooling_GetSemanticIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ToolingServer).GetSemanticIndex(ctx, req.(*GetSemanticIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Tooling_Build_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(BuildRequest)
 	if err := dec(in); err != nil {
@@ -437,6 +475,10 @@ var Tooling_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetProjectInfo",
 			Handler:    _Tooling_GetProjectInfo_Handler,
+		},
+		{
+			MethodName: "GetSemanticIndex",
+			Handler:    _Tooling_GetSemanticIndex_Handler,
 		},
 		{
 			MethodName: "Build",

@@ -48,6 +48,9 @@ const (
 	ToolingRemoveDependencyProcedure = "/codefly.services.tooling.v0.Tooling/RemoveDependency"
 	// ToolingGetProjectInfoProcedure is the fully-qualified name of the Tooling's GetProjectInfo RPC.
 	ToolingGetProjectInfoProcedure = "/codefly.services.tooling.v0.Tooling/GetProjectInfo"
+	// ToolingGetSemanticIndexProcedure is the fully-qualified name of the Tooling's GetSemanticIndex
+	// RPC.
+	ToolingGetSemanticIndexProcedure = "/codefly.services.tooling.v0.Tooling/GetSemanticIndex"
 	// ToolingBuildProcedure is the fully-qualified name of the Tooling's Build RPC.
 	ToolingBuildProcedure = "/codefly.services.tooling.v0.Tooling/Build"
 	// ToolingTestProcedure is the fully-qualified name of the Tooling's Test RPC.
@@ -70,6 +73,8 @@ type ToolingClient interface {
 	RemoveDependency(context.Context, *connect.Request[v0.RemoveDependencyRequest]) (*connect.Response[v0.RemoveDependencyResponse], error)
 	// Analysis
 	GetProjectInfo(context.Context, *connect.Request[v0.GetProjectInfoRequest]) (*connect.Response[v0.GetProjectInfoResponse], error)
+	// GetSemanticIndex keeps project parsing and project bytes inside Codefly.
+	GetSemanticIndex(context.Context, *connect.Request[v0.GetSemanticIndexRequest]) (*connect.Response[v0.GetSemanticIndexResponse], error)
 	// Dev validation
 	Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error)
 	// Test runs native tests and returns structured counts.
@@ -125,6 +130,12 @@ func NewToolingClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(toolingMethods.ByName("GetProjectInfo")),
 			connect.WithClientOptions(opts...),
 		),
+		getSemanticIndex: connect.NewClient[v0.GetSemanticIndexRequest, v0.GetSemanticIndexResponse](
+			httpClient,
+			baseURL+ToolingGetSemanticIndexProcedure,
+			connect.WithSchema(toolingMethods.ByName("GetSemanticIndex")),
+			connect.WithClientOptions(opts...),
+		),
 		build: connect.NewClient[v0.BuildRequest, v0.BuildResponse](
 			httpClient,
 			baseURL+ToolingBuildProcedure,
@@ -154,6 +165,7 @@ type toolingClient struct {
 	addDependency    *connect.Client[v0.AddDependencyRequest, v0.AddDependencyResponse]
 	removeDependency *connect.Client[v0.RemoveDependencyRequest, v0.RemoveDependencyResponse]
 	getProjectInfo   *connect.Client[v0.GetProjectInfoRequest, v0.GetProjectInfoResponse]
+	getSemanticIndex *connect.Client[v0.GetSemanticIndexRequest, v0.GetSemanticIndexResponse]
 	build            *connect.Client[v0.BuildRequest, v0.BuildResponse]
 	test             *connect.Client[v0.TestRequest, v0.TestResponse]
 	lint             *connect.Client[v0.LintRequest, v0.LintResponse]
@@ -189,6 +201,11 @@ func (c *toolingClient) GetProjectInfo(ctx context.Context, req *connect.Request
 	return c.getProjectInfo.CallUnary(ctx, req)
 }
 
+// GetSemanticIndex calls codefly.services.tooling.v0.Tooling.GetSemanticIndex.
+func (c *toolingClient) GetSemanticIndex(ctx context.Context, req *connect.Request[v0.GetSemanticIndexRequest]) (*connect.Response[v0.GetSemanticIndexResponse], error) {
+	return c.getSemanticIndex.CallUnary(ctx, req)
+}
+
 // Build calls codefly.services.tooling.v0.Tooling.Build.
 func (c *toolingClient) Build(ctx context.Context, req *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error) {
 	return c.build.CallUnary(ctx, req)
@@ -218,6 +235,8 @@ type ToolingHandler interface {
 	RemoveDependency(context.Context, *connect.Request[v0.RemoveDependencyRequest]) (*connect.Response[v0.RemoveDependencyResponse], error)
 	// Analysis
 	GetProjectInfo(context.Context, *connect.Request[v0.GetProjectInfoRequest]) (*connect.Response[v0.GetProjectInfoResponse], error)
+	// GetSemanticIndex keeps project parsing and project bytes inside Codefly.
+	GetSemanticIndex(context.Context, *connect.Request[v0.GetSemanticIndexRequest]) (*connect.Response[v0.GetSemanticIndexResponse], error)
 	// Dev validation
 	Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error)
 	// Test runs native tests and returns structured counts.
@@ -269,6 +288,12 @@ func NewToolingHandler(svc ToolingHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(toolingMethods.ByName("GetProjectInfo")),
 		connect.WithHandlerOptions(opts...),
 	)
+	toolingGetSemanticIndexHandler := connect.NewUnaryHandler(
+		ToolingGetSemanticIndexProcedure,
+		svc.GetSemanticIndex,
+		connect.WithSchema(toolingMethods.ByName("GetSemanticIndex")),
+		connect.WithHandlerOptions(opts...),
+	)
 	toolingBuildHandler := connect.NewUnaryHandler(
 		ToolingBuildProcedure,
 		svc.Build,
@@ -301,6 +326,8 @@ func NewToolingHandler(svc ToolingHandler, opts ...connect.HandlerOption) (strin
 			toolingRemoveDependencyHandler.ServeHTTP(w, r)
 		case ToolingGetProjectInfoProcedure:
 			toolingGetProjectInfoHandler.ServeHTTP(w, r)
+		case ToolingGetSemanticIndexProcedure:
+			toolingGetSemanticIndexHandler.ServeHTTP(w, r)
 		case ToolingBuildProcedure:
 			toolingBuildHandler.ServeHTTP(w, r)
 		case ToolingTestProcedure:
@@ -338,6 +365,10 @@ func (UnimplementedToolingHandler) RemoveDependency(context.Context, *connect.Re
 
 func (UnimplementedToolingHandler) GetProjectInfo(context.Context, *connect.Request[v0.GetProjectInfoRequest]) (*connect.Response[v0.GetProjectInfoResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.GetProjectInfo is not implemented"))
+}
+
+func (UnimplementedToolingHandler) GetSemanticIndex(context.Context, *connect.Request[v0.GetSemanticIndexRequest]) (*connect.Response[v0.GetSemanticIndexResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.GetSemanticIndex is not implemented"))
 }
 
 func (UnimplementedToolingHandler) Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error) {
