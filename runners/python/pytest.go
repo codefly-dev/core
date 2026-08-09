@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -197,7 +198,7 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	// Codefly runtime (the hands), not Mind; it is removed with the evidence
 	// directory after the run.
 	runtimeSourceDir := filepath.Join(junitDir, "source")
-	if err := os.CopyFS(runtimeSourceDir, os.DirFS(sourceDir)); err != nil {
+	if err := snapshotSourceTree(sourceDir, runtimeSourceDir); err != nil {
 		return nil, fmt.Errorf("snapshot Python source for read-only test execution: %w", err)
 	}
 
@@ -363,6 +364,93 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	}
 
 	return run, runErr
+}
+
+// snapshotSkipDirs names directories that never belong in the read-only test
+// snapshot: virtualenvs, tool caches, and foreign-ecosystem trees. They are
+// regenerable and often large, and the fresh uv run rebuilds its own
+// environment rather than reading them. Version-control directories are
+// deliberately NOT listed: build backends that derive a dynamic version
+// (setuptools_scm and friends) read .git during the build, so dropping it would
+// fail the very run we are isolating. Prior *.egg-info directories ARE skipped
+// (by suffix) so stale build metadata cannot shadow what the run regenerates.
+var snapshotSkipDirs = map[string]bool{
+	".venv":         true,
+	"venv":          true,
+	".tox":          true,
+	".nox":          true,
+	"__pycache__":   true,
+	".pytest_cache": true,
+	".mypy_cache":   true,
+	".ruff_cache":   true,
+	"node_modules":  true,
+}
+
+// snapshotSourceTree copies the Python source at src into dst for a read-only
+// test run. It exists instead of os.CopyFS for three reasons the default
+// adapter must survive on real checkouts: it resolves a symlinked source root
+// (WalkDir alone would yield the root as a lone symlink entry and copy nothing,
+// where os.DirFS/os.CopyFS follow it); it skips the regenerable venv/cache and
+// prior build-metadata directories in snapshotSkipDirs so stale state cannot
+// leak in and a full checkout is not duplicated per run; and it skips irregular
+// files (sockets, FIFOs, devices) instead of aborting the whole copy — a single
+// stray socket in a checkout must not break test validation. Regular files
+// preserve their mode; symlinks inside the tree are recreated verbatim.
+func snapshotSourceTree(src, dst string) error {
+	root, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return err
+	}
+	return filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if entry.IsDir() {
+			name := entry.Name()
+			if rel != "." && (snapshotSkipDirs[name] || strings.HasSuffix(name, ".egg-info")) {
+				return filepath.SkipDir
+			}
+			return os.MkdirAll(target, 0o755)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			linkDest, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(linkDest, target)
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		return copyRegularFile(p, target, entry)
+	})
+}
+
+// copyRegularFile copies a single regular file, preserving its permission bits.
+func copyRegularFile(src, dst string, entry fs.DirEntry) error {
+	info, err := entry.Info()
+	if err != nil {
+		return err
+	}
+	in, err := os.Open(src) //nolint:gosec // snapshotting a plugin-owned source tree
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // scrapeCoverageFromOutput extracts the total coverage percentage from

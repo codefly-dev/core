@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -161,6 +162,203 @@ func assertDefaultRunnerLeftSourceClean(t *testing.T, root string) {
 	})
 	if err != nil {
 		t.Fatalf("inspect source checkout after test run: %v", err)
+	}
+}
+
+// TestRunPythonTestsStructuredToleratesIrregularFilesInCheckout proves the
+// read-only snapshot survives a checkout that contains an irregular file (a
+// stray unix socket / FIFO — common under a live-dev tree). os.CopyFS aborts
+// the whole copy on such a file; the default adapter must run the tests anyway
+// and still leave the source clean.
+func TestRunPythonTestsStructuredToleratesIrregularFilesInCheckout(t *testing.T) {
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Fatalf("uv is required for the production Python runner: %v", err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "test_ok.py"),
+		[]byte("def test_ok():\n    assert True\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(root, "runtime.sock"), 0o644); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	run, err := RunPythonTestsStructured(ctx, root, nil, TestOptions{VerboseSet: true})
+	if err != nil {
+		t.Fatalf("RunPythonTestsStructured: %v\n%s", err, run.RawOutput)
+	}
+	if run.EnvError != nil {
+		t.Fatalf("default adapter environment error: %s\n%s", run.EnvError.Detail, run.RawOutput)
+	}
+	if summary := run.LegacyTestSummary(); summary.Run != 1 || summary.Passed != 1 {
+		t.Fatalf("summary = %+v, want one passed test\n%s", summary, run.RawOutput)
+	}
+	assertDefaultRunnerLeftSourceClean(t, root)
+}
+
+// TestRunPythonTestsStructuredBuildsGitVersionedProject proves the read-only
+// snapshot preserves .git so a build backend that derives its version from git
+// (setuptools_scm) can build the project. Excluding .git failed the build with
+// "unable to detect version ... not a git repository", env-erroring a run that
+// should pass — while the checkout must still stay clean.
+func TestRunPythonTestsStructuredBuildsGitVersionedProject(t *testing.T) {
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Fatalf("uv is required for the production Python runner: %v", err)
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Fatalf("git is required for this test: %v", err)
+	}
+	root := t.TempDir()
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("pyproject.toml", `[build-system]
+requires = ["setuptools>=68", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codefly-git-versioned-probe"
+dynamic = ["version"]
+
+[tool.setuptools_scm]
+
+[tool.setuptools]
+py-modules = ["git_versioned_probe"]
+`)
+	write("git_versioned_probe.py", "VALUE = 'from-git-versioned-build'\n")
+	write("test_git_versioned.py", `import git_versioned_probe
+
+def test_project_built_from_git_version():
+    assert git_versioned_probe.VALUE == "from-git-versioned-build"
+`)
+
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "test@codefly.dev"},
+		{"config", "user.name", "codefly test"},
+		{"add", "-A"},
+		{"commit", "-m", "init"},
+		{"tag", "-m", "release", "v1.2.3"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	run, err := RunPythonTestsStructured(ctx, root, nil, TestOptions{VerboseSet: true})
+	if err != nil {
+		t.Fatalf("RunPythonTestsStructured: %v\n%s", err, run.RawOutput)
+	}
+	if run.EnvError != nil {
+		t.Fatalf("default adapter environment error: %s\n%s", run.EnvError.Detail, run.RawOutput)
+	}
+	if summary := run.LegacyTestSummary(); summary.Run != 1 || summary.Passed != 1 {
+		t.Fatalf("summary = %+v, want one passed test\n%s", summary, run.RawOutput)
+	}
+	assertDefaultRunnerLeftSourceClean(t, root)
+}
+
+// TestSnapshotSourceTree exercises the snapshot copy directly: source files
+// (including .git, which build backends may read) are reproduced and symlinks
+// preserved, while regenerable virtualenv/cache directories, prior build
+// metadata, and irregular files never enter the snapshot.
+func TestSnapshotSourceTree(t *testing.T) {
+	src := t.TempDir()
+	write := func(p, c string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(src, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(src, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("pkg/module.py", "VALUE = 1\n")
+	write("requirements.txt", "./dep\n")
+	write("uv.lock", "version = 1\n")
+	// .git must be preserved: build backends like setuptools_scm read it at
+	// build time to derive a dynamic version. Excluding it would fail the run.
+	write(".git/config", "[core]\n")
+	write(".venv/bin/python", "#!/bin/sh\n")
+	write("pkg.egg-info/PKG-INFO", "Metadata-Version: 2.1\n")
+	write("__pycache__/module.cpython-312.pyc", "bytecode\n")
+	if err := os.Symlink("module.py", filepath.Join(src, "pkg", "link.py")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(src, "runtime.sock"), 0o644); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+
+	dst := filepath.Join(t.TempDir(), "snapshot")
+	if err := snapshotSourceTree(src, dst); err != nil {
+		t.Fatalf("snapshotSourceTree: %v", err)
+	}
+
+	present := func(p string) bool {
+		_, err := os.Lstat(filepath.Join(dst, p))
+		return err == nil
+	}
+	for _, p := range []string{"pkg/module.py", "requirements.txt", "uv.lock", ".git/config"} {
+		if !present(p) {
+			t.Errorf("snapshot missing source file %s", p)
+		}
+	}
+	info, err := os.Lstat(filepath.Join(dst, "pkg", "link.py"))
+	if err != nil {
+		t.Errorf("snapshot missing symlink pkg/link.py: %v", err)
+	} else if info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("snapshot did not preserve pkg/link.py as a symlink")
+	}
+	for _, p := range []string{".venv", "pkg.egg-info", "__pycache__", "runtime.sock"} {
+		if present(p) {
+			t.Errorf("snapshot copied excluded entry %s", p)
+		}
+	}
+}
+
+// TestSnapshotSourceTreeFollowsSymlinkedRoot proves the snapshot resolves a
+// symlinked source root — a real deployment shape (see the symlinked-source-root
+// handling in resource loading). filepath.WalkDir does not follow the root
+// symlink; without resolution the snapshot would be a lone dangling symlink and
+// the whole test run would execute in a non-existent directory.
+func TestSnapshotSourceTreeFollowsSymlinkedRoot(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.MkdirAll(filepath.Join(real, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "pkg", "module.py"), []byte("VALUE = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(t.TempDir(), "snapshot")
+	if err := snapshotSourceTree(link, dst); err != nil {
+		t.Fatalf("snapshotSourceTree through symlinked root: %v", err)
+	}
+
+	info, err := os.Stat(dst)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("snapshot root is not a real directory (info=%v err=%v)", info, err)
+	}
+	got, err := os.ReadFile(filepath.Join(dst, "pkg", "module.py"))
+	if err != nil {
+		t.Fatalf("snapshot did not copy contents through symlinked root: %v", err)
+	}
+	if string(got) != "VALUE = 1\n" {
+		t.Errorf("copied content = %q, want %q", got, "VALUE = 1\n")
 	}
 }
 
