@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package codefly.base.v0;
+
+// SemanticIndexState states how completely an agent inspected its attached
+// source root. Consumers must never infer completeness from a non-empty list.
+enum SemanticIndexState {
+  SEMANTIC_INDEX_STATE_UNSPECIFIED = 0;
+  SEMANTIC_INDEX_STATE_COMPLETE = 1;
+  SEMANTIC_INDEX_STATE_DEGRADED = 2;
+  SEMANTIC_INDEX_STATE_NOT_ATTEMPTED = 3;
+}
+
+// SemanticSymbolKind is a language-neutral declaration category.
+enum SemanticSymbolKind {
+  SEMANTIC_SYMBOL_KIND_UNSPECIFIED = 0;
+  SEMANTIC_SYMBOL_KIND_FUNCTION = 1;
+  SEMANTIC_SYMBOL_KIND_METHOD = 2;
+  SEMANTIC_SYMBOL_KIND_CLASS = 3;
+  SEMANTIC_SYMBOL_KIND_STRUCT = 4;
+  SEMANTIC_SYMBOL_KIND_INTERFACE = 5;
+  SEMANTIC_SYMBOL_KIND_ENUM = 6;
+  SEMANTIC_SYMBOL_KIND_FIELD = 7;
+  SEMANTIC_SYMBOL_KIND_VARIABLE = 8;
+  SEMANTIC_SYMBOL_KIND_CONSTANT = 9;
+  SEMANTIC_SYMBOL_KIND_TYPE_ALIAS = 10;
+  SEMANTIC_SYMBOL_KIND_MODULE = 11;
+}
+
+// SemanticLocation identifies a declaration or use without exposing source
+// bytes. Lines and columns are one-based and inclusive.
+message SemanticLocation {
+  string path = 1;
+  int32 start_line = 2;
+  int32 start_column = 3;
+  int32 end_line = 4;
+  int32 end_column = 5;
+}
+
+// SemanticUse is unresolved analyzer evidence attached to one declaration.
+// Resolution across files and code units remains a brain concern.
+message SemanticUse {
+  string name = 1;
+  SemanticLocation location = 2;
+}
+
+// SemanticFile is the typed projection of one source file. It intentionally
+// contains no source body.
+message SemanticFile {
+  string path = 1;
+  string content_sha256 = 2;
+  int64 byte_size = 3;
+  repeated string imports = 4;
+  string language = 5;
+}
+
+// SemanticSymbol is a declaration projected by the owning Codefly analyzer.
+// Signature is bounded declaration evidence; implementation bodies never
+// cross the agent boundary and are represented only by body_sha256.
+message SemanticSymbol {
+  string name = 1;
+  string qualified_name = 2;
+  SemanticSymbolKind kind = 3;
+  SemanticLocation location = 4;
+  string package = 5;
+  string parent_qualified_name = 6;
+  string signature = 7;
+  string signature_sha256 = 8;
+  string body_sha256 = 9;
+  repeated SemanticUse calls = 10;
+  repeated SemanticUse references = 11;
+}
+
+// SemanticIssue preserves per-file analyzer failures without converting a
+// partially useful index into an untyped transport error.
+message SemanticIssue {
+  string code = 1;
+  string message = 2;
+  string path = 3;
+}
+
+// SemanticIndex is one deterministic, body-free projection of an attached
+// source root. Analyzer provenance is part of the contract and cache key.
+message SemanticIndex {
+  SemanticIndexState state = 1;
+  string analyzer = 2;
+  string analyzer_version = 3;
+  repeated string languages = 4;
+  repeated SemanticFile files = 5;
+  repeated SemanticSymbol symbols = 6;
+  repeated SemanticIssue issues = 7;
+}

@@ -100,3 +100,18 @@ func (t *SourceTooling) GetProjectInfo(ctx context.Context, _ *toolingv0.GetProj
 		FileHashes: info.GetFileHashes(), SourceFiles: sourceFiles, Failure: failures.Clone(response.GetFailure()),
 	}, nil
 }
+
+// GetSemanticIndex delegates project inspection to Code and converts only the
+// transport envelope. The shared semantic messages are not copied, parsed, or
+// interpreted by the Tooling adapter.
+func (t *SourceTooling) GetSemanticIndex(ctx context.Context, _ *toolingv0.GetSemanticIndexRequest) (*toolingv0.GetSemanticIndexResponse, error) {
+	response, err := t.code.Execute(ctx, &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	if err != nil {
+		return nil, fmt.Errorf("tooling get semantic index: %w", err)
+	}
+	index := response.GetGetSemanticIndex()
+	if index == nil {
+		return &toolingv0.GetSemanticIndexResponse{Failure: failures.Ensure(response.GetFailure(), basev0.FailureCode_FAILURE_CODE_INTERNAL, "tooling.get-semantic-index", "code service returned no semantic index")}, nil
+	}
+	return &toolingv0.GetSemanticIndexResponse{Index: index, Failure: failures.Clone(response.GetFailure())}, nil
+}

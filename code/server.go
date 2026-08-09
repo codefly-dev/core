@@ -252,6 +252,8 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 		return s.getProjectInfo(ctx, op.GetProjectInfo)
 	case *codev0.CodeRequest_DiscoverCodeUnits:
 		return s.discoverCodeUnits(ctx, op.DiscoverCodeUnits)
+	case *codev0.CodeRequest_GetSemanticIndex:
+		return s.getSemanticIndex(ctx, op.GetSemanticIndex)
 	case *codev0.CodeRequest_Fix:
 		return s.fixDefault(ctx, op.Fix)
 
@@ -1011,6 +1013,8 @@ func OperationName(req *codev0.CodeRequest) string {
 		return "get_project_info"
 	case *codev0.CodeRequest_DiscoverCodeUnits:
 		return "discover_code_units"
+	case *codev0.CodeRequest_GetSemanticIndex:
+		return "get_semantic_index"
 	case *codev0.CodeRequest_Fix:
 		return "fix"
 	// Dependency stubs

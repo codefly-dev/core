@@ -3,6 +3,7 @@ package mind.gateway.v1;
 
 import "codefly/base/v0/source.proto";
 import "codefly/base/v0/failure.proto";
+import "codefly/base/v0/semantic.proto";
 import "codefly/services/builder/v0/builder.proto";
 import "codefly/services/runtime/v0/runtime.proto";
 import "google/protobuf/timestamp.proto";
@@ -189,6 +190,10 @@ service Gateway {
 
   // GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
   rpc GetProjectInfo(GetProjectInfoRequest) returns (GetProjectInfoResponse);
+
+  // GetSemanticIndex returns body-free semantic facts produced inside the
+  // production agent rooted at one exact code unit.
+  rpc GetSemanticIndex(GetSemanticIndexRequest) returns (GetSemanticIndexResponse);
 
   // DiscoverCodeUnits returns Codefly-owned structural source boundaries,
   // including unsupported ecosystems that bind to the generic agent.
@@ -1704,6 +1709,20 @@ message GetProjectInfoResponse {
   repeated SourceFileInfo source_files = 9;
   // code_unit echoes the exact inspected boundary when one was requested.
   CodeUnitTarget code_unit = 10;
+}
+
+// GetSemanticIndexRequest identifies one production-agent source boundary.
+message GetSemanticIndexRequest {
+  string service = 1;
+  CodeUnitTarget code_unit = 2;
+}
+
+// GetSemanticIndexResponse preserves typed analyzer coverage and the exact
+// inspected boundary. Paths in index are repository-relative.
+message GetSemanticIndexResponse {
+  codefly.base.v0.SemanticIndex index = 1;
+  codefly.base.v0.Failure failure = 2;
+  CodeUnitTarget code_unit = 3;
 }
 
 // DiscoverCodeUnitsRequest identifies the service whose rooted source tree is
