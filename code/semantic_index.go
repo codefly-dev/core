@@ -30,7 +30,7 @@ import (
 	tstsx "github.com/smacker/go-tree-sitter/typescript/tsx"
 )
 
-const semanticAnalyzerVersion = "codefly.semantic-index/v2"
+const semanticAnalyzerVersion = "codefly.semantic-index/v3"
 
 type semanticLanguage struct {
 	name       string

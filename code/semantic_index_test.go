@@ -165,6 +165,9 @@ func TestSemanticIndexTraversesLocalDirectorySymlinkRoot(t *testing.T) {
 	if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || len(index.GetFiles()) != 1 || index.GetFiles()[0].GetPath() != "app.py" {
 		t.Fatalf("semantic index = %#v, want one root-relative Python file", index)
 	}
+	if index.GetAnalyzerVersion() != "codefly.semantic-index/v3" {
+		t.Fatalf("analyzer version = %q, want the symlink-root contract generation", index.GetAnalyzerVersion())
+	}
 
 	customRoot := filepath.Join(logicalRoot, "opaque")
 	custom := NewDefaultCodeServer(customRoot, WithVFS(NewMemoryVFS()))
