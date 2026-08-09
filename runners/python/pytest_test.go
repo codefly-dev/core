@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -130,6 +131,93 @@ func assertDefaultRunnerLeftSourceClean(t *testing.T, root string) {
 	})
 	if err != nil {
 		t.Fatalf("inspect source checkout after test run: %v", err)
+	}
+}
+
+// TestRunPythonTestsStructuredToleratesIrregularFilesInCheckout proves the
+// read-only snapshot survives a checkout that contains an irregular file (a
+// stray unix socket / FIFO — common under a live-dev tree). os.CopyFS aborts
+// the whole copy on such a file; the default adapter must run the tests anyway
+// and still leave the source clean.
+func TestRunPythonTestsStructuredToleratesIrregularFilesInCheckout(t *testing.T) {
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Fatalf("uv is required for the production Python runner: %v", err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "test_ok.py"),
+		[]byte("def test_ok():\n    assert True\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(root, "runtime.sock"), 0o644); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	run, err := RunPythonTestsStructured(ctx, root, nil, TestOptions{VerboseSet: true})
+	if err != nil {
+		t.Fatalf("RunPythonTestsStructured: %v\n%s", err, run.RawOutput)
+	}
+	if run.EnvError != nil {
+		t.Fatalf("default adapter environment error: %s\n%s", run.EnvError.Detail, run.RawOutput)
+	}
+	if summary := run.LegacyTestSummary(); summary.Run != 1 || summary.Passed != 1 {
+		t.Fatalf("summary = %+v, want one passed test\n%s", summary, run.RawOutput)
+	}
+	assertDefaultRunnerLeftSourceClean(t, root)
+}
+
+// TestSnapshotSourceTree exercises the snapshot copy directly: source files are
+// reproduced, symlinks are preserved, but regenerable/VCS directories, prior
+// build metadata, and irregular files never enter the snapshot.
+func TestSnapshotSourceTree(t *testing.T) {
+	src := t.TempDir()
+	write := func(p, c string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(src, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(src, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("pkg/module.py", "VALUE = 1\n")
+	write("requirements.txt", "./dep\n")
+	write(".git/config", "[core]\n")
+	write(".venv/bin/python", "#!/bin/sh\n")
+	write("pkg.egg-info/PKG-INFO", "Metadata-Version: 2.1\n")
+	write("__pycache__/module.cpython-312.pyc", "bytecode\n")
+	if err := os.Symlink("module.py", filepath.Join(src, "pkg", "link.py")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(src, "runtime.sock"), 0o644); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+
+	dst := filepath.Join(t.TempDir(), "snapshot")
+	if err := snapshotSourceTree(src, dst); err != nil {
+		t.Fatalf("snapshotSourceTree: %v", err)
+	}
+
+	present := func(p string) bool {
+		_, err := os.Lstat(filepath.Join(dst, p))
+		return err == nil
+	}
+	for _, p := range []string{"pkg/module.py", "requirements.txt"} {
+		if !present(p) {
+			t.Errorf("snapshot missing source file %s", p)
+		}
+	}
+	info, err := os.Lstat(filepath.Join(dst, "pkg", "link.py"))
+	if err != nil {
+		t.Errorf("snapshot missing symlink pkg/link.py: %v", err)
+	} else if info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("snapshot did not preserve pkg/link.py as a symlink")
+	}
+	for _, p := range []string{".git", ".venv", "pkg.egg-info", "__pycache__", "runtime.sock"} {
+		if present(p) {
+			t.Errorf("snapshot copied excluded entry %s", p)
+		}
 	}
 }
 
