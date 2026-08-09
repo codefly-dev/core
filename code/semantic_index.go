@@ -30,7 +30,7 @@ import (
 	tstsx "github.com/smacker/go-tree-sitter/typescript/tsx"
 )
 
-const semanticAnalyzerVersion = "codefly.semantic-index/v1"
+const semanticAnalyzerVersion = "codefly.semantic-index/v2"
 
 type semanticLanguage struct {
 	name       string
@@ -195,16 +195,17 @@ func projectSemanticFile(ctx context.Context, definition semanticLanguage, path 
 	}
 	packageName := semanticPackage(definition.name, path, root, body)
 	var symbols []*basev0.SemanticSymbol
-	projectSemanticDeclarations(definition.name, path, packageName, "", root, body, &symbols)
+	projectSemanticDeclarations(definition.name, path, packageName, "", false, root, body, &symbols)
 	return file, symbols, nil
 }
 
-func projectSemanticDeclarations(language, path, packageName, parent string, node *sitter.Node, body []byte, out *[]*basev0.SemanticSymbol) {
+func projectSemanticDeclarations(language, path, packageName, parent string, inCallable bool, node *sitter.Node, body []byte, out *[]*basev0.SemanticSymbol) {
 	if node == nil || node.IsNull() {
 		return
 	}
-	declarations := semanticDeclarations(language, node, body)
+	declarations := semanticDeclarations(language, node, body, inCallable)
 	nextParent := parent
+	nextInCallable := inCallable
 	for _, declaration := range declarations {
 		name := strings.TrimSpace(declaration.name)
 		if name == "" {
@@ -238,17 +239,20 @@ func projectSemanticDeclarations(language, path, packageName, parent string, nod
 			symbol.References = semanticUses(language, path, node, body, false)
 		}
 		*out = append(*out, symbol)
-		if semanticContainer(declaration.kind) {
+		if semanticContainer(declaration.kind) || semanticCallable(declaration.kind) {
 			nextParent = qualified
+		}
+		if semanticCallable(declaration.kind) {
+			nextInCallable = true
 		}
 	}
 	for index := 0; index < int(node.NamedChildCount()); index++ {
 		child := node.NamedChild(index)
 		if len(declarations) > 0 && isNestedSemanticBody(node, child) {
-			projectSemanticDeclarations(language, path, packageName, nextParent, child, body, out)
+			projectSemanticDeclarations(language, path, packageName, nextParent, nextInCallable, child, body, out)
 			continue
 		}
-		projectSemanticDeclarations(language, path, packageName, parent, child, body, out)
+		projectSemanticDeclarations(language, path, packageName, parent, inCallable, child, body, out)
 	}
 }
 
@@ -257,12 +261,12 @@ type semanticDeclaration struct {
 	kind basev0.SemanticSymbolKind
 }
 
-func semanticDeclarations(language string, node *sitter.Node, body []byte) []semanticDeclaration {
+func semanticDeclarations(language string, node *sitter.Node, body []byte, inCallable bool) []semanticDeclaration {
 	kind, ok := semanticDeclarationKind(language, node.Type())
 	if !ok {
 		return nil
 	}
-	if (node.Type() == "lexical_declaration" || node.Type() == "variable_declaration" || node.Type() == "field_declaration" || node.Type() == "property_declaration" || node.Type() == "const_declaration" || node.Type() == "assignment") && insideCallable(node) {
+	if semanticDataDeclaration(kind) && inCallable {
 		return nil
 	}
 	if language == "go" && node.Type() == "type_spec" {
@@ -450,16 +454,6 @@ func semanticContainer(kind basev0.SemanticSymbolKind) bool {
 func isNestedSemanticBody(parent, child *sitter.Node) bool {
 	body := semanticBodyNode(parent)
 	return body != nil && !body.IsNull() && body.StartByte() == child.StartByte() && body.EndByte() == child.EndByte()
-}
-
-func insideCallable(node *sitter.Node) bool {
-	for parent := node.Parent(); parent != nil && !parent.IsNull(); parent = parent.Parent() {
-		switch parent.Type() {
-		case "function_declaration", "function_definition", "method_declaration", "method_definition", "constructor_declaration":
-			return true
-		}
-	}
-	return false
 }
 
 func insideSemanticContainer(node *sitter.Node) bool {
