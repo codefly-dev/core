@@ -139,6 +139,44 @@ func TestSemanticIndexReportsDegradedAndNotAttemptedCoverage(t *testing.T) {
 	})
 }
 
+func TestSemanticIndexExcludesLocalDataAndQualifiesNestedCallables(t *testing.T) {
+	root := t.TempDir()
+	body := `package main
+func first() {
+	var output string
+	func() { _ = output }()
+}
+func second() {
+	var output string
+	_ = output
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	python := "def outer():\n    local = 1\n    def inner():\n        return local\n    return inner()\n"
+	if err := os.WriteFile(filepath.Join(root, "nested.py"), []byte(python), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := response.GetGetSemanticIndex()
+	if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE {
+		t.Fatalf("index = %#v", index)
+	}
+	if hasSemanticQualifiedName(index, "main.output") || hasSemanticQualifiedName(index, "nested.local") {
+		t.Fatalf("local variable crossed declaration boundary: %v", semanticQualifiedNames(index))
+	}
+	if !hasSemanticQualifiedName(index, "main.first") || !hasSemanticQualifiedName(index, "main.second") {
+		t.Fatalf("top-level callables missing: %v", semanticQualifiedNames(index))
+	}
+	if !hasSemanticQualifiedName(index, "nested.outer.inner") {
+		t.Fatalf("nested callable has no enclosing identity: %v", semanticQualifiedNames(index))
+	}
+}
+
 func TestSourceToolingDelegatesSemanticIndex(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
