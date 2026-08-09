@@ -139,6 +139,40 @@ func TestSemanticIndexReportsDegradedAndNotAttemptedCoverage(t *testing.T) {
 	})
 }
 
+func TestSemanticIndexTraversesLocalDirectorySymlinkRoot(t *testing.T) {
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "app.py"), []byte("def run():\n    return 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logicalRoot := filepath.Join(t.TempDir(), "code")
+	if err := os.Symlink(project, logicalRoot); err != nil {
+		t.Fatal(err)
+	}
+	physicalRoot, err := filepath.EvalSymlinks(logicalRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := NewDefaultCodeServer(logicalRoot)
+	if server.SourceDir != physicalRoot {
+		t.Fatalf("source root = %q, want physical root %q", server.SourceDir, physicalRoot)
+	}
+	response, err := server.Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := response.GetGetSemanticIndex()
+	if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || len(index.GetFiles()) != 1 || index.GetFiles()[0].GetPath() != "app.py" {
+		t.Fatalf("semantic index = %#v, want one root-relative Python file", index)
+	}
+
+	customRoot := filepath.Join(logicalRoot, "opaque")
+	custom := NewDefaultCodeServer(customRoot, WithVFS(NewMemoryVFS()))
+	if custom.SourceDir != customRoot {
+		t.Fatalf("custom VFS root = %q, want opaque identity %q", custom.SourceDir, customRoot)
+	}
+}
+
 func TestSemanticIndexExcludesLocalDataAndQualifiesNestedCallables(t *testing.T) {
 	root := t.TempDir()
 	body := `package main

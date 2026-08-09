@@ -120,6 +120,18 @@ func NewDefaultCodeServer(sourceDir string, opts ...ServerOption) *DefaultCodeSe
 			o(s)
 		}
 	}
+	// ARCHITECTURE: arbitrary-source Codefly services expose the project as a
+	// directory symlink inside an ephemeral service. filepath.WalkDir does not
+	// traverse a directory symlink used as its root, so retaining that logical
+	// path makes every scan look like an empty project. Canonicalize only the
+	// production LocalVFS boundary; custom VFS roots are opaque identities and
+	// must never be interpreted through the host filesystem.
+	switch s.FS.(type) {
+	case LocalVFS, *LocalVFS:
+		if resolved, err := filepath.EvalSymlinks(s.SourceDir); err == nil {
+			s.SourceDir = resolved
+		}
+	}
 	// Apply CachedVFS after all options (needs final SourceDir)
 	if s.wantCachedFS {
 		if cached, err := NewCachedVFS(s.FS, s.SourceDir); err == nil {
