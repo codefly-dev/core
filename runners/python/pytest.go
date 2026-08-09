@@ -131,9 +131,10 @@ type TestOptions struct {
 	// VerboseSet distinguishes "use default" from "explicitly false".
 	VerboseSet bool
 
-	// Timeout maps to pytest's --timeout=<sec>. Empty leaves the
-	// default. Accepts Go duration syntax ("30s", "2m") which we coerce
-	// into seconds for pytest.
+	// Timeout maps to pytest-timeout's --timeout=<sec>. Empty leaves the
+	// default. The adapter materializes that plugin in its isolated environment;
+	// projects never need to declare a Codefly implementation dependency.
+	// Accepts Go duration syntax ("30s", "2m") which we coerce into seconds.
 	Timeout string
 
 	// Coverage enables coverage instrumentation via pytest-cov when the
@@ -228,9 +229,14 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	}
 
 	// Timeout — pytest-timeout reads --timeout=<seconds>. Convert Go
-	// durations to seconds; pass through anything else verbatim so users
-	// can supply already-formatted values.
+	// durations to seconds; pass through anything else verbatim so users can
+	// supply already-formatted values. This is adapter-owned runner knowledge:
+	// materialize the real plugin in uv's isolated environment instead of
+	// requiring every project to carry it or retrying without the typed bound.
 	if opt.Timeout != "" {
+		if !containsRequirement(spec.With, "pytest-timeout") {
+			spec.With = append(spec.With, "pytest-timeout")
+		}
 		if d, err := time.ParseDuration(opt.Timeout); err == nil {
 			spec.ExtraArgs = append(spec.ExtraArgs, fmt.Sprintf("--timeout=%d", int(d.Seconds())))
 		} else {
