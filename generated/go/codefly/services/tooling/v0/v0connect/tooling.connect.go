@@ -51,6 +51,9 @@ const (
 	// ToolingGetSemanticIndexProcedure is the fully-qualified name of the Tooling's GetSemanticIndex
 	// RPC.
 	ToolingGetSemanticIndexProcedure = "/codefly.services.tooling.v0.Tooling/GetSemanticIndex"
+	// ToolingGetInstructionIndexProcedure is the fully-qualified name of the Tooling's
+	// GetInstructionIndex RPC.
+	ToolingGetInstructionIndexProcedure = "/codefly.services.tooling.v0.Tooling/GetInstructionIndex"
 	// ToolingBuildProcedure is the fully-qualified name of the Tooling's Build RPC.
 	ToolingBuildProcedure = "/codefly.services.tooling.v0.Tooling/Build"
 	// ToolingTestProcedure is the fully-qualified name of the Tooling's Test RPC.
@@ -75,6 +78,9 @@ type ToolingClient interface {
 	GetProjectInfo(context.Context, *connect.Request[v0.GetProjectInfoRequest]) (*connect.Response[v0.GetProjectInfoResponse], error)
 	// GetSemanticIndex keeps project parsing and project bytes inside Codefly.
 	GetSemanticIndex(context.Context, *connect.Request[v0.GetSemanticIndexRequest]) (*connect.Response[v0.GetSemanticIndexResponse], error)
+	// GetInstructionIndex keeps instruction discovery, Markdown parsing, and
+	// project document bytes inside Codefly.
+	GetInstructionIndex(context.Context, *connect.Request[v0.GetInstructionIndexRequest]) (*connect.Response[v0.GetInstructionIndexResponse], error)
 	// Dev validation
 	Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error)
 	// Test runs native tests and returns structured counts.
@@ -136,6 +142,12 @@ func NewToolingClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(toolingMethods.ByName("GetSemanticIndex")),
 			connect.WithClientOptions(opts...),
 		),
+		getInstructionIndex: connect.NewClient[v0.GetInstructionIndexRequest, v0.GetInstructionIndexResponse](
+			httpClient,
+			baseURL+ToolingGetInstructionIndexProcedure,
+			connect.WithSchema(toolingMethods.ByName("GetInstructionIndex")),
+			connect.WithClientOptions(opts...),
+		),
 		build: connect.NewClient[v0.BuildRequest, v0.BuildResponse](
 			httpClient,
 			baseURL+ToolingBuildProcedure,
@@ -159,16 +171,17 @@ func NewToolingClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 
 // toolingClient implements ToolingClient.
 type toolingClient struct {
-	fix              *connect.Client[v0.FixRequest, v0.FixResponse]
-	applyEdit        *connect.Client[v0.ApplyEditRequest, v0.ApplyEditResponse]
-	listDependencies *connect.Client[v0.ListDependenciesRequest, v0.ListDependenciesResponse]
-	addDependency    *connect.Client[v0.AddDependencyRequest, v0.AddDependencyResponse]
-	removeDependency *connect.Client[v0.RemoveDependencyRequest, v0.RemoveDependencyResponse]
-	getProjectInfo   *connect.Client[v0.GetProjectInfoRequest, v0.GetProjectInfoResponse]
-	getSemanticIndex *connect.Client[v0.GetSemanticIndexRequest, v0.GetSemanticIndexResponse]
-	build            *connect.Client[v0.BuildRequest, v0.BuildResponse]
-	test             *connect.Client[v0.TestRequest, v0.TestResponse]
-	lint             *connect.Client[v0.LintRequest, v0.LintResponse]
+	fix                 *connect.Client[v0.FixRequest, v0.FixResponse]
+	applyEdit           *connect.Client[v0.ApplyEditRequest, v0.ApplyEditResponse]
+	listDependencies    *connect.Client[v0.ListDependenciesRequest, v0.ListDependenciesResponse]
+	addDependency       *connect.Client[v0.AddDependencyRequest, v0.AddDependencyResponse]
+	removeDependency    *connect.Client[v0.RemoveDependencyRequest, v0.RemoveDependencyResponse]
+	getProjectInfo      *connect.Client[v0.GetProjectInfoRequest, v0.GetProjectInfoResponse]
+	getSemanticIndex    *connect.Client[v0.GetSemanticIndexRequest, v0.GetSemanticIndexResponse]
+	getInstructionIndex *connect.Client[v0.GetInstructionIndexRequest, v0.GetInstructionIndexResponse]
+	build               *connect.Client[v0.BuildRequest, v0.BuildResponse]
+	test                *connect.Client[v0.TestRequest, v0.TestResponse]
+	lint                *connect.Client[v0.LintRequest, v0.LintResponse]
 }
 
 // Fix calls codefly.services.tooling.v0.Tooling.Fix.
@@ -206,6 +219,11 @@ func (c *toolingClient) GetSemanticIndex(ctx context.Context, req *connect.Reque
 	return c.getSemanticIndex.CallUnary(ctx, req)
 }
 
+// GetInstructionIndex calls codefly.services.tooling.v0.Tooling.GetInstructionIndex.
+func (c *toolingClient) GetInstructionIndex(ctx context.Context, req *connect.Request[v0.GetInstructionIndexRequest]) (*connect.Response[v0.GetInstructionIndexResponse], error) {
+	return c.getInstructionIndex.CallUnary(ctx, req)
+}
+
 // Build calls codefly.services.tooling.v0.Tooling.Build.
 func (c *toolingClient) Build(ctx context.Context, req *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error) {
 	return c.build.CallUnary(ctx, req)
@@ -237,6 +255,9 @@ type ToolingHandler interface {
 	GetProjectInfo(context.Context, *connect.Request[v0.GetProjectInfoRequest]) (*connect.Response[v0.GetProjectInfoResponse], error)
 	// GetSemanticIndex keeps project parsing and project bytes inside Codefly.
 	GetSemanticIndex(context.Context, *connect.Request[v0.GetSemanticIndexRequest]) (*connect.Response[v0.GetSemanticIndexResponse], error)
+	// GetInstructionIndex keeps instruction discovery, Markdown parsing, and
+	// project document bytes inside Codefly.
+	GetInstructionIndex(context.Context, *connect.Request[v0.GetInstructionIndexRequest]) (*connect.Response[v0.GetInstructionIndexResponse], error)
 	// Dev validation
 	Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error)
 	// Test runs native tests and returns structured counts.
@@ -294,6 +315,12 @@ func NewToolingHandler(svc ToolingHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(toolingMethods.ByName("GetSemanticIndex")),
 		connect.WithHandlerOptions(opts...),
 	)
+	toolingGetInstructionIndexHandler := connect.NewUnaryHandler(
+		ToolingGetInstructionIndexProcedure,
+		svc.GetInstructionIndex,
+		connect.WithSchema(toolingMethods.ByName("GetInstructionIndex")),
+		connect.WithHandlerOptions(opts...),
+	)
 	toolingBuildHandler := connect.NewUnaryHandler(
 		ToolingBuildProcedure,
 		svc.Build,
@@ -328,6 +355,8 @@ func NewToolingHandler(svc ToolingHandler, opts ...connect.HandlerOption) (strin
 			toolingGetProjectInfoHandler.ServeHTTP(w, r)
 		case ToolingGetSemanticIndexProcedure:
 			toolingGetSemanticIndexHandler.ServeHTTP(w, r)
+		case ToolingGetInstructionIndexProcedure:
+			toolingGetInstructionIndexHandler.ServeHTTP(w, r)
 		case ToolingBuildProcedure:
 			toolingBuildHandler.ServeHTTP(w, r)
 		case ToolingTestProcedure:
@@ -369,6 +398,10 @@ func (UnimplementedToolingHandler) GetProjectInfo(context.Context, *connect.Requ
 
 func (UnimplementedToolingHandler) GetSemanticIndex(context.Context, *connect.Request[v0.GetSemanticIndexRequest]) (*connect.Response[v0.GetSemanticIndexResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.GetSemanticIndex is not implemented"))
+}
+
+func (UnimplementedToolingHandler) GetInstructionIndex(context.Context, *connect.Request[v0.GetInstructionIndexRequest]) (*connect.Response[v0.GetInstructionIndexResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.tooling.v0.Tooling.GetInstructionIndex is not implemented"))
 }
 
 func (UnimplementedToolingHandler) Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error) {

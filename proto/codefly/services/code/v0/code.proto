@@ -2,6 +2,7 @@ syntax = "proto3";
 package codefly.services.code.v0;
 
 import "codefly/base/v0/failure.proto";
+import "codefly/base/v0/instruction.proto";
 import "codefly/base/v0/semantic.proto";
 import "codefly/base/v0/source.proto";
 
@@ -413,6 +414,10 @@ message GetProjectInfoResponse {
 // the agent boundary.
 message GetSemanticIndexRequest {}
 
+// GetInstructionIndexRequest asks the attached Codefly source boundary to
+// discover and interpret recognized repository instruction documents.
+message GetInstructionIndexRequest {}
+
 // GetSourceManifestRequest asks the Code boundary for body-free artifact
 // identities. Empty revision observes the live worktree; a non-empty revision
 // resolves one immutable Git tree.
@@ -670,6 +675,9 @@ message CodeRequest {
     // get_source_manifest inventories project artifacts and computes their
     // identities without sending project bytes to the caller.
     GetSourceManifestRequest get_source_manifest = 22;
+    // get_instruction_index returns typed project guidance without exposing
+    // complete instruction documents to the caller.
+    GetInstructionIndexRequest get_instruction_index = 23;
 
     // File and git operations — handled by the Code agent's default server
     // (pkg/code/DefaultCodeServer in codefly core) backed by the workspace's
@@ -729,6 +737,9 @@ message CodeResponse {
     codefly.base.v0.SemanticIndex get_semantic_index = 21;
     // get_source_manifest returns body-free project artifact identities.
     codefly.base.v0.SourceManifest get_source_manifest = 22;
+    // get_instruction_index returns typed instruction knowledge and source
+    // identities produced inside Codefly.
+    codefly.base.v0.InstructionIndex get_instruction_index = 23;
 
     // File and git operation responses.
     ReadFileResponse read_file = 26;

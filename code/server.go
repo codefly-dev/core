@@ -268,6 +268,8 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 		return s.discoverCodeUnits(ctx, op.DiscoverCodeUnits)
 	case *codev0.CodeRequest_GetSemanticIndex:
 		return s.getSemanticIndex(ctx, op.GetSemanticIndex)
+	case *codev0.CodeRequest_GetInstructionIndex:
+		return s.getInstructionIndex(ctx, op.GetInstructionIndex)
 	case *codev0.CodeRequest_GetSourceManifest:
 		return s.getSourceManifest(ctx, op.GetSourceManifest)
 	case *codev0.CodeRequest_Fix:
@@ -1038,6 +1040,8 @@ func OperationName(req *codev0.CodeRequest) string {
 		return "discover_code_units"
 	case *codev0.CodeRequest_GetSemanticIndex:
 		return "get_semantic_index"
+	case *codev0.CodeRequest_GetInstructionIndex:
+		return "get_instruction_index"
 	case *codev0.CodeRequest_GetSourceManifest:
 		return "get_source_manifest"
 	case *codev0.CodeRequest_Fix:

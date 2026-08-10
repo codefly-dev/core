@@ -2,6 +2,7 @@ syntax = "proto3";
 package codefly.services.tooling.v0;
 
 import "codefly/base/v0/failure.proto";
+import "codefly/base/v0/instruction.proto";
 import "codefly/base/v0/semantic.proto";
 import "codefly/base/v0/source.proto";
 
@@ -268,6 +269,17 @@ message GetSemanticIndexResponse {
   codefly.base.v0.Failure failure = 2;
 }
 
+// GetInstructionIndexRequest asks the attached source tooling to project
+// recognized instruction documents into typed guidance.
+message GetInstructionIndexRequest {}
+
+// GetInstructionIndexResponse retains useful sibling records when one source
+// document degrades. failure is reserved for capability/infrastructure loss.
+message GetInstructionIndexResponse {
+  codefly.base.v0.InstructionIndex index = 1;
+  codefly.base.v0.Failure failure = 2;
+}
+
 // ── Dev Validation (require toolchain) ──────────────────
 
 // BuildRequest asks the agent to run the native build command.
@@ -358,6 +370,9 @@ service Tooling {
   rpc GetProjectInfo(GetProjectInfoRequest) returns (GetProjectInfoResponse);
   // GetSemanticIndex keeps project parsing and project bytes inside Codefly.
   rpc GetSemanticIndex(GetSemanticIndexRequest) returns (GetSemanticIndexResponse);
+  // GetInstructionIndex keeps instruction discovery, Markdown parsing, and
+  // project document bytes inside Codefly.
+  rpc GetInstructionIndex(GetInstructionIndexRequest) returns (GetInstructionIndexResponse);
 
   // Dev validation
   rpc Build(BuildRequest) returns (BuildResponse);
