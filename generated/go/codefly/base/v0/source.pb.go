@@ -266,6 +266,7 @@ const (
 	SourceLanguage_SOURCE_LANGUAGE_XML        SourceLanguage = 12
 	SourceLanguage_SOURCE_LANGUAGE_MARKDOWN   SourceLanguage = 13
 	SourceLanguage_SOURCE_LANGUAGE_SHELL      SourceLanguage = 14
+	SourceLanguage_SOURCE_LANGUAGE_CSHARP     SourceLanguage = 15
 )
 
 // Enum value maps for SourceLanguage.
@@ -286,6 +287,7 @@ var (
 		12: "SOURCE_LANGUAGE_XML",
 		13: "SOURCE_LANGUAGE_MARKDOWN",
 		14: "SOURCE_LANGUAGE_SHELL",
+		15: "SOURCE_LANGUAGE_CSHARP",
 	}
 	SourceLanguage_value = map[string]int32{
 		"SOURCE_LANGUAGE_UNKNOWN":    0,
@@ -303,6 +305,7 @@ var (
 		"SOURCE_LANGUAGE_XML":        12,
 		"SOURCE_LANGUAGE_MARKDOWN":   13,
 		"SOURCE_LANGUAGE_SHELL":      14,
+		"SOURCE_LANGUAGE_CSHARP":     15,
 	}
 )
 
@@ -802,7 +805,7 @@ const file_codefly_base_v0_source_proto_rawDesc = "" +
 	"+SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA256\x10\x05*x\n" +
 	"\x1aSourceManifestIdentityMode\x12(\n" +
 	"$SOURCE_MANIFEST_IDENTITY_MODE_NATIVE\x10\x00\x120\n" +
-	",SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256\x10\x01*\xaa\x03\n" +
+	",SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256\x10\x01*\xc6\x03\n" +
 	"\x0eSourceLanguage\x12\x1b\n" +
 	"\x17SOURCE_LANGUAGE_UNKNOWN\x10\x00\x12\x16\n" +
 	"\x12SOURCE_LANGUAGE_GO\x10\x01\x12\x1a\n" +
@@ -819,7 +822,8 @@ const file_codefly_base_v0_source_proto_rawDesc = "" +
 	"\x14SOURCE_LANGUAGE_TOML\x10\v\x12\x17\n" +
 	"\x13SOURCE_LANGUAGE_XML\x10\f\x12\x1c\n" +
 	"\x18SOURCE_LANGUAGE_MARKDOWN\x10\r\x12\x19\n" +
-	"\x15SOURCE_LANGUAGE_SHELL\x10\x0e*\xb4\x01\n" +
+	"\x15SOURCE_LANGUAGE_SHELL\x10\x0e\x12\x1a\n" +
+	"\x16SOURCE_LANGUAGE_CSHARP\x10\x0f*\xb4\x01\n" +
 	"\x11SourceContentKind\x12\x1f\n" +
 	"\x1bSOURCE_CONTENT_KIND_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18SOURCE_CONTENT_KIND_TEXT\x10\x01\x12\x1e\n" +

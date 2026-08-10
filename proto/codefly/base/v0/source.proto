@@ -66,6 +66,7 @@ enum SourceLanguage {
   SOURCE_LANGUAGE_XML = 12;
   SOURCE_LANGUAGE_MARKDOWN = 13;
   SOURCE_LANGUAGE_SHELL = 14;
+  SOURCE_LANGUAGE_CSHARP = 15;
 }
 
 // SourceContentKind distinguishes project text from opaque artifacts without

@@ -18,6 +18,7 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 	writeSourceManifestFile(t, root, "README.md", "hello\n", 0o644)
 	writeSourceManifestFile(t, root, "bin/run", "#!/bin/sh\n", 0o755)
 	writeSourceManifestFile(t, root, ".env.example", "SAFE=true\n", 0o644)
+	writeSourceManifestFile(t, root, "Cart.cs", "namespace Shop;\n", 0o644)
 	writeSourceManifestFile(t, root, "node_modules/ignored.js", "ignored\n", 0o644)
 	if err := os.Symlink("README.md", filepath.Join(root, "readme-link")); err != nil {
 		t.Fatalf("create real symlink: %v", err)
@@ -37,8 +38,8 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 		t.Fatalf("worktree revision = %q, want empty", manifest.GetRevision())
 	}
 	entries := sourceManifestEntriesByPath(manifest)
-	if len(entries) != 4 {
-		t.Fatalf("worktree entries = %v, want four source artifacts", sourceManifestEntryPaths(manifest))
+	if len(entries) != 5 {
+		t.Fatalf("worktree entries = %v, want five source artifacts", sourceManifestEntryPaths(manifest))
 	}
 	assertSourceManifestEntry(t, entries["README.md"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "hello\n")
 	assertSourceManifestEntry(t, entries["bin/run"], 0o100755, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "#!/bin/sh\n")
@@ -49,6 +50,9 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 	}
 	if got := entries["readme-link"].GetAttributes(); got.GetContentKind() != basev0.SourceContentKind_SOURCE_CONTENT_KIND_SYMLINK {
 		t.Fatalf("symlink attributes = %+v", got)
+	}
+	if got := entries["Cart.cs"].GetAttributes(); got.GetLanguage() != basev0.SourceLanguage_SOURCE_LANGUAGE_CSHARP || got.GetSourceRole() != basev0.SourceRole_SOURCE_ROLE_PRODUCTION {
+		t.Fatalf("C# attributes = %+v", got)
 	}
 }
 
