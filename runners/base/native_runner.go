@@ -348,7 +348,7 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		err = proc.startCommand(cmd)
+		err = proc.startCommand(ctx, cmd)
 		if err != nil {
 			return err
 		}
@@ -379,7 +379,7 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		err = proc.startCommand(cmd)
+		err = proc.startCommand(ctx, cmd)
 		if err != nil {
 			return err
 		}
@@ -410,20 +410,11 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		}()
 	}
 
-	// Persist the pgid so a future `codefly run` can reap this group if the
-	// current CLI dies ungracefully (SIGKILL, parent terminal force-closed).
-	// Best-effort: a failed write just means this particular proc won't be
-	// covered by the startup sweep — the graceful-path tree-kill in Stop
-	// still works.
-	if perr := writePgidFile(cmd.Process.Pid, cmd.Dir, proc.cmd); perr != nil {
-		w.Warn("could not persist pgid file", wool.Field("err", perr))
-	}
-
 	w.Trace("done")
 	return nil
 }
 
-func (proc *NativeProc) startCommand(cmd *exec.Cmd) error {
+func (proc *NativeProc) startCommand(ctx context.Context, cmd *exec.Cmd) error {
 	proc.lifecycleMu.Lock()
 	defer proc.lifecycleMu.Unlock()
 	if proc.stopRequested {
@@ -436,6 +427,14 @@ func (proc *NativeProc) startCommand(cmd *exec.Cmd) error {
 		return err
 	}
 	proc.exec = cmd
+	// Persist ownership before any Wait goroutine can observe a fast natural
+	// exit. Natural exit removes this record in publishExit; Stop owns the
+	// explicit-termination path. Writing after starting the Wait goroutine
+	// races a fast command and can recreate an already-cleaned stale record.
+	if perr := writePgidFile(cmd.Process.Pid, cmd.Dir, proc.cmd); perr != nil {
+		wool.Get(ctx).In("NativeProc.startCommand").
+			Warn("could not persist pgid file", wool.Field("err", perr))
+	}
 	return nil
 }
 
@@ -444,6 +443,12 @@ func (proc *NativeProc) startCommand(cmd *exec.Cmd) error {
 func (proc *NativeProc) publishExit(err error) {
 	proc.waitOnce.Do(func() {
 		proc.exitErr = err
+		proc.lifecycleMu.Lock()
+		cmd := proc.exec
+		proc.lifecycleMu.Unlock()
+		if cmd != nil && cmd.Process != nil {
+			_ = removePgidFileAfterExit(cmd.Process.Pid)
+		}
 		close(proc.exitCh)
 	})
 }
