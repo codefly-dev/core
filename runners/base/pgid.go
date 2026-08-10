@@ -143,6 +143,17 @@ func removePgidFile(pgid int) error {
 	return nil
 }
 
+// removePgidFileAfterExit forgets a naturally completed process group only
+// after the kernel confirms the entire group is empty. If a leader exits while
+// descendants remain, the record deliberately survives so the orphan sweep
+// can still reap that process tree after its owner exits.
+func removePgidFileAfterExit(pgid int) error {
+	if pgid <= 1 || isProcessGroupAlive(pgid) {
+		return nil
+	}
+	return removePgidFile(pgid)
+}
+
 // isProcessGroupAlive probes whether any process still belongs to pgid.
 // kill(-pgid, 0) returns ESRCH when the group is empty, EPERM if we lack
 // permission (still indicates presence), nil if alive.

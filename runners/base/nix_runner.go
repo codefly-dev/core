@@ -495,6 +495,12 @@ func (nix *NixEnvironment) runtimeSnapshot() (map[string]string, []*resources.En
 func (proc *NixProc) publishExit(err error) {
 	proc.waitOnce.Do(func() {
 		proc.exitErr = err
+		proc.lifecycleMu.Lock()
+		cmd := proc.exec
+		proc.lifecycleMu.Unlock()
+		if cmd != nil && cmd.Process != nil {
+			_ = removePgidFileAfterExit(cmd.Process.Pid)
+		}
 		close(proc.exitCh)
 	})
 }
@@ -773,7 +779,7 @@ func (proc *NixProc) start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err = proc.startCommand(cmd); err != nil {
+		if err = proc.startCommand(ctx, cmd); err != nil {
 			return w.Wrapf(err, "cannot start nix process")
 		}
 		proc.forwarderWG.Add(1)
@@ -805,7 +811,7 @@ func (proc *NixProc) start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err = proc.startCommand(cmd); err != nil {
+		if err = proc.startCommand(ctx, cmd); err != nil {
 			return w.Wrapf(err, "cannot start nix process")
 		}
 		proc.forwarderWG.Add(2)
@@ -837,18 +843,11 @@ func (proc *NixProc) start(ctx context.Context) error {
 		}()
 	}
 
-	// Persist pgid so the orphan-reaping sweep covers nix spawns too.
-	// Previously only NativeProc participated; a CLI SIGKILL mid-nix-run
-	// would leave test workers orphaned at PID 1.
-	if perr := writePgidFile(cmd.Process.Pid, cmd.Dir, proc.cmd); perr != nil {
-		w.Warn("could not persist pgid file", wool.Field("err", perr))
-	}
-
 	w.Trace("nix process started")
 	return nil
 }
 
-func (proc *NixProc) startCommand(cmd *exec.Cmd) error {
+func (proc *NixProc) startCommand(ctx context.Context, cmd *exec.Cmd) error {
 	proc.lifecycleMu.Lock()
 	defer proc.lifecycleMu.Unlock()
 	if proc.stopRequested {
@@ -861,6 +860,13 @@ func (proc *NixProc) startCommand(cmd *exec.Cmd) error {
 		return err
 	}
 	proc.exec = cmd
+	// Track ownership before any Wait goroutine can win a fast-exit race.
+	// publishExit removes naturally completed groups; Stop removes groups it
+	// terminates explicitly.
+	if perr := writePgidFile(cmd.Process.Pid, cmd.Dir, proc.cmd); perr != nil {
+		wool.Get(ctx).In("NixProc.startCommand").
+			Warn("could not persist pgid file", wool.Field("err", perr))
+	}
 	return nil
 }
 
