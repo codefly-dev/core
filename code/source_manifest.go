@@ -237,7 +237,14 @@ func (s *DefaultCodeServer) revisionSourceManifest(ctx context.Context, revision
 		return nil, err
 	}
 	resolved = strings.TrimSpace(resolved)
-	output, err := s.runGit(ctx, "ls-tree", "-rlz", "--full-tree", resolved)
+	// ARCHITECTURE: DefaultCodeServer is a SourceDir-rooted capability. Git
+	// normally reports tree paths relative to the current directory, which is
+	// exactly the same namespace used by the worktree manifest and every file
+	// operation. --full-tree would silently widen a server rooted at a nested
+	// code unit to the enclosing repository and make immutable/worktree
+	// manifests incomparable. The explicit pathspec also prevents Git from
+	// returning siblings outside this capability boundary.
+	output, err := s.runGit(ctx, "ls-tree", "-rlz", resolved, "--", ".")
 	if err != nil {
 		return nil, err
 	}

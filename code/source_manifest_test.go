@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -124,6 +125,44 @@ func TestGetSourceManifestRevisionPreservesGitEntryKinds(t *testing.T) {
 	if got := contentEntries["modules/dependency"].GetIdentity().GetAlgorithm(); got != basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1 {
 		t.Fatalf("content-mode gitlink algorithm = %s", got)
 	}
+}
+
+func TestGetSourceManifestRevisionRespectsNestedServerRoot(t *testing.T) {
+	repository := t.TempDir()
+	writeSourceManifestFile(t, repository, "outside.txt", "outside\n", 0o644)
+	writeSourceManifestFile(t, repository, "units/wordcount/main.go", "package wordcount\n", 0o644)
+	writeSourceManifestFile(t, repository, "units/wordcount/tests/main_test.go", "package tests\n", 0o644)
+	gitSourceManifest(t, repository, "init", "-b", "main")
+	gitSourceManifest(t, repository, "config", "commit.gpgsign", "false")
+	gitSourceManifest(t, repository, "add", ".")
+	gitSourceManifest(t, repository, "commit", "-m", "nested unit")
+
+	server := NewDefaultCodeServer(filepath.Join(repository, "units", "wordcount"))
+	worktreeResponse, err := server.Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	})
+	if err != nil || worktreeResponse.GetFailure() != nil {
+		t.Fatalf("nested worktree manifest: response=%+v err=%v", worktreeResponse, err)
+	}
+	revisionResponse, err := server.Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{
+			Revision:     "HEAD",
+			IdentityMode: basev0.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256,
+		}},
+	})
+	if err != nil || revisionResponse.GetFailure() != nil {
+		t.Fatalf("nested revision manifest: response=%+v err=%v", revisionResponse, err)
+	}
+	want := []string{"main.go", "tests/main_test.go"}
+	if got := sourceManifestEntryPaths(worktreeResponse.GetGetSourceManifest()); !slices.Equal(got, want) {
+		t.Fatalf("nested worktree paths = %v, want %v", got, want)
+	}
+	if got := sourceManifestEntryPaths(revisionResponse.GetGetSourceManifest()); !slices.Equal(got, want) {
+		t.Fatalf("nested revision paths = %v, want %v", got, want)
+	}
+	entries := sourceManifestEntriesByPath(revisionResponse.GetGetSourceManifest())
+	assertSourceManifestEntry(t, entries["main.go"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "package wordcount\n")
+	assertSourceManifestEntry(t, entries["tests/main_test.go"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "package tests\n")
 }
 
 func TestGetSourceManifestWorktreeTreatsInitializedSubmoduleAsOneGitlink(t *testing.T) {
