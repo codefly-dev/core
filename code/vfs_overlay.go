@@ -165,6 +165,44 @@ func (o *OverlayVFS) Stat(path string) (os.FileInfo, error) {
 	return o.base.Stat(path)
 }
 
+// Lstat preserves overlay writes as regular files and delegates untouched
+// entries to a symlink-aware base when one is available.
+func (o *OverlayVFS) Lstat(path string) (os.FileInfo, error) {
+	o.mu.RLock()
+	p := filepath.Clean(path)
+	if o.deletes[p] {
+		o.mu.RUnlock()
+		return nil, &os.PathError{Op: "lstat", Path: path, Err: os.ErrNotExist}
+	}
+	if data, ok := o.writes[p]; ok {
+		o.mu.RUnlock()
+		return &memFileInfo{name: filepath.Base(p), size: int64(len(data)), mode: 0o644}, nil
+	}
+	o.mu.RUnlock()
+	if source, ok := o.base.(interface {
+		Lstat(string) (os.FileInfo, error)
+	}); ok {
+		return source.Lstat(path)
+	}
+	return o.base.Stat(path)
+}
+
+// Readlink delegates untouched symlinks; overlay writes are regular files.
+func (o *OverlayVFS) Readlink(path string) (string, error) {
+	o.mu.RLock()
+	p := filepath.Clean(path)
+	_, written := o.writes[p]
+	deleted := o.deletes[p]
+	o.mu.RUnlock()
+	if written || deleted {
+		return "", &os.PathError{Op: "readlink", Path: path, Err: os.ErrInvalid}
+	}
+	if source, ok := o.base.(interface{ Readlink(string) (string, error) }); ok {
+		return source.Readlink(path)
+	}
+	return "", &os.PathError{Op: "readlink", Path: path, Err: os.ErrInvalid}
+}
+
 func (o *OverlayVFS) MkdirAll(path string, perm os.FileMode) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()

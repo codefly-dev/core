@@ -140,6 +140,9 @@ const (
 	// GatewayGetSemanticIndexProcedure is the fully-qualified name of the Gateway's GetSemanticIndex
 	// RPC.
 	GatewayGetSemanticIndexProcedure = "/mind.gateway.v1.Gateway/GetSemanticIndex"
+	// GatewayGetSourceManifestProcedure is the fully-qualified name of the Gateway's GetSourceManifest
+	// RPC.
+	GatewayGetSourceManifestProcedure = "/mind.gateway.v1.Gateway/GetSourceManifest"
 	// GatewayDiscoverCodeUnitsProcedure is the fully-qualified name of the Gateway's DiscoverCodeUnits
 	// RPC.
 	GatewayDiscoverCodeUnitsProcedure = "/mind.gateway.v1.Gateway/DiscoverCodeUnits"
@@ -262,6 +265,9 @@ type GatewayClient interface {
 	// GetSemanticIndex returns body-free semantic facts produced inside the
 	// production agent rooted at one exact code unit.
 	GetSemanticIndex(context.Context, *connect.Request[v1.GetSemanticIndexRequest]) (*connect.Response[v1.GetSemanticIndexResponse], error)
+	// GetSourceManifest returns body-free project artifact identities produced
+	// inside Codefly for either the live worktree or one immutable Git revision.
+	GetSourceManifest(context.Context, *connect.Request[v1.GetSourceManifestRequest]) (*connect.Response[v1.GetSourceManifestResponse], error)
 	// DiscoverCodeUnits returns Codefly-owned structural source boundaries,
 	// including unsupported ecosystems that bind to the generic agent.
 	DiscoverCodeUnits(context.Context, *connect.Request[v1.DiscoverCodeUnitsRequest]) (*connect.Response[v1.DiscoverCodeUnitsResponse], error)
@@ -565,6 +571,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(gatewayMethods.ByName("GetSemanticIndex")),
 			connect.WithClientOptions(opts...),
 		),
+		getSourceManifest: connect.NewClient[v1.GetSourceManifestRequest, v1.GetSourceManifestResponse](
+			httpClient,
+			baseURL+GatewayGetSourceManifestProcedure,
+			connect.WithSchema(gatewayMethods.ByName("GetSourceManifest")),
+			connect.WithClientOptions(opts...),
+		),
 		discoverCodeUnits: connect.NewClient[v1.DiscoverCodeUnitsRequest, v1.DiscoverCodeUnitsResponse](
 			httpClient,
 			baseURL+GatewayDiscoverCodeUnitsProcedure,
@@ -652,6 +664,7 @@ type gatewayClient struct {
 	removeDependency              *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
 	getProjectInfo                *connect.Client[v1.GetProjectInfoRequest, v1.GetProjectInfoResponse]
 	getSemanticIndex              *connect.Client[v1.GetSemanticIndexRequest, v1.GetSemanticIndexResponse]
+	getSourceManifest             *connect.Client[v1.GetSourceManifestRequest, v1.GetSourceManifestResponse]
 	discoverCodeUnits             *connect.Client[v1.DiscoverCodeUnitsRequest, v1.DiscoverCodeUnitsResponse]
 	openTerminal                  *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
 	attachTerminal                *connect.Client[v1.TerminalInput, v1.TerminalOutput]
@@ -890,6 +903,11 @@ func (c *gatewayClient) GetSemanticIndex(ctx context.Context, req *connect.Reque
 	return c.getSemanticIndex.CallUnary(ctx, req)
 }
 
+// GetSourceManifest calls mind.gateway.v1.Gateway.GetSourceManifest.
+func (c *gatewayClient) GetSourceManifest(ctx context.Context, req *connect.Request[v1.GetSourceManifestRequest]) (*connect.Response[v1.GetSourceManifestResponse], error) {
+	return c.getSourceManifest.CallUnary(ctx, req)
+}
+
 // DiscoverCodeUnits calls mind.gateway.v1.Gateway.DiscoverCodeUnits.
 func (c *gatewayClient) DiscoverCodeUnits(ctx context.Context, req *connect.Request[v1.DiscoverCodeUnitsRequest]) (*connect.Response[v1.DiscoverCodeUnitsResponse], error) {
 	return c.discoverCodeUnits.CallUnary(ctx, req)
@@ -1027,6 +1045,9 @@ type GatewayHandler interface {
 	// GetSemanticIndex returns body-free semantic facts produced inside the
 	// production agent rooted at one exact code unit.
 	GetSemanticIndex(context.Context, *connect.Request[v1.GetSemanticIndexRequest]) (*connect.Response[v1.GetSemanticIndexResponse], error)
+	// GetSourceManifest returns body-free project artifact identities produced
+	// inside Codefly for either the live worktree or one immutable Git revision.
+	GetSourceManifest(context.Context, *connect.Request[v1.GetSourceManifestRequest]) (*connect.Response[v1.GetSourceManifestResponse], error)
 	// DiscoverCodeUnits returns Codefly-owned structural source boundaries,
 	// including unsupported ecosystems that bind to the generic agent.
 	DiscoverCodeUnits(context.Context, *connect.Request[v1.DiscoverCodeUnitsRequest]) (*connect.Response[v1.DiscoverCodeUnitsResponse], error)
@@ -1326,6 +1347,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(gatewayMethods.ByName("GetSemanticIndex")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayGetSourceManifestHandler := connect.NewUnaryHandler(
+		GatewayGetSourceManifestProcedure,
+		svc.GetSourceManifest,
+		connect.WithSchema(gatewayMethods.ByName("GetSourceManifest")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gatewayDiscoverCodeUnitsHandler := connect.NewUnaryHandler(
 		GatewayDiscoverCodeUnitsProcedure,
 		svc.DiscoverCodeUnits,
@@ -1456,6 +1483,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayGetProjectInfoHandler.ServeHTTP(w, r)
 		case GatewayGetSemanticIndexProcedure:
 			gatewayGetSemanticIndexHandler.ServeHTTP(w, r)
+		case GatewayGetSourceManifestProcedure:
+			gatewayGetSourceManifestHandler.ServeHTTP(w, r)
 		case GatewayDiscoverCodeUnitsProcedure:
 			gatewayDiscoverCodeUnitsHandler.ServeHTTP(w, r)
 		case GatewayOpenTerminalProcedure:
@@ -1659,6 +1688,10 @@ func (UnimplementedGatewayHandler) GetProjectInfo(context.Context, *connect.Requ
 
 func (UnimplementedGatewayHandler) GetSemanticIndex(context.Context, *connect.Request[v1.GetSemanticIndexRequest]) (*connect.Response[v1.GetSemanticIndexResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GetSemanticIndex is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) GetSourceManifest(context.Context, *connect.Request[v1.GetSourceManifestRequest]) (*connect.Response[v1.GetSourceManifestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GetSourceManifest is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) DiscoverCodeUnits(context.Context, *connect.Request[v1.DiscoverCodeUnitsRequest]) (*connect.Response[v1.DiscoverCodeUnitsResponse], error) {

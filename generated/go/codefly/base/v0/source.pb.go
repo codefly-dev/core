@@ -79,15 +79,765 @@ func (FixMode) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{0}
 }
 
+// SourceEntryKind classifies one project artifact without exposing its bytes.
+// The values match Git's three leaf-entry categories so worktree and immutable
+// revision manifests share one contract.
+type SourceEntryKind int32
+
+const (
+	SourceEntryKind_SOURCE_ENTRY_KIND_UNSPECIFIED SourceEntryKind = 0
+	SourceEntryKind_SOURCE_ENTRY_KIND_FILE        SourceEntryKind = 1
+	SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK     SourceEntryKind = 2
+	SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK     SourceEntryKind = 3
+)
+
+// Enum value maps for SourceEntryKind.
+var (
+	SourceEntryKind_name = map[int32]string{
+		0: "SOURCE_ENTRY_KIND_UNSPECIFIED",
+		1: "SOURCE_ENTRY_KIND_FILE",
+		2: "SOURCE_ENTRY_KIND_SYMLINK",
+		3: "SOURCE_ENTRY_KIND_GITLINK",
+	}
+	SourceEntryKind_value = map[string]int32{
+		"SOURCE_ENTRY_KIND_UNSPECIFIED": 0,
+		"SOURCE_ENTRY_KIND_FILE":        1,
+		"SOURCE_ENTRY_KIND_SYMLINK":     2,
+		"SOURCE_ENTRY_KIND_GITLINK":     3,
+	}
+)
+
+func (x SourceEntryKind) Enum() *SourceEntryKind {
+	p := new(SourceEntryKind)
+	*p = x
+	return p
+}
+
+func (x SourceEntryKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SourceEntryKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_base_v0_source_proto_enumTypes[1].Descriptor()
+}
+
+func (SourceEntryKind) Type() protoreflect.EnumType {
+	return &file_codefly_base_v0_source_proto_enumTypes[1]
+}
+
+func (x SourceEntryKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SourceEntryKind.Descriptor instead.
+func (SourceEntryKind) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{1}
+}
+
+// SourceIdentityAlgorithm tells consumers exactly which byte or Git-object
+// identity a source entry carries. Consumers compare identities; they never
+// reconstruct them from project bytes outside the Codefly boundary.
+type SourceIdentityAlgorithm int32
+
+const (
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED       SourceIdentityAlgorithm = 0
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256            SourceIdentityAlgorithm = 1
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1     SourceIdentityAlgorithm = 2
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA256   SourceIdentityAlgorithm = 3
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1   SourceIdentityAlgorithm = 4
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA256 SourceIdentityAlgorithm = 5
+)
+
+// Enum value maps for SourceIdentityAlgorithm.
+var (
+	SourceIdentityAlgorithm_name = map[int32]string{
+		0: "SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED",
+		1: "SOURCE_IDENTITY_ALGORITHM_SHA256",
+		2: "SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1",
+		3: "SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA256",
+		4: "SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1",
+		5: "SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA256",
+	}
+	SourceIdentityAlgorithm_value = map[string]int32{
+		"SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED":       0,
+		"SOURCE_IDENTITY_ALGORITHM_SHA256":            1,
+		"SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1":     2,
+		"SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA256":   3,
+		"SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1":   4,
+		"SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA256": 5,
+	}
+)
+
+func (x SourceIdentityAlgorithm) Enum() *SourceIdentityAlgorithm {
+	p := new(SourceIdentityAlgorithm)
+	*p = x
+	return p
+}
+
+func (x SourceIdentityAlgorithm) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SourceIdentityAlgorithm) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_base_v0_source_proto_enumTypes[2].Descriptor()
+}
+
+func (SourceIdentityAlgorithm) Type() protoreflect.EnumType {
+	return &file_codefly_base_v0_source_proto_enumTypes[2]
+}
+
+func (x SourceIdentityAlgorithm) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SourceIdentityAlgorithm.Descriptor instead.
+func (SourceIdentityAlgorithm) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{2}
+}
+
+// SourceManifestIdentityMode controls whether immutable Git entries preserve
+// their native object identity or are normalized to a content digest. Live
+// worktree files already carry content SHA-256 in either mode. Gitlinks remain
+// Git object identities because they name another commit, not a file body.
+type SourceManifestIdentityMode int32
+
+const (
+	SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_NATIVE         SourceManifestIdentityMode = 0
+	SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256 SourceManifestIdentityMode = 1
+)
+
+// Enum value maps for SourceManifestIdentityMode.
+var (
+	SourceManifestIdentityMode_name = map[int32]string{
+		0: "SOURCE_MANIFEST_IDENTITY_MODE_NATIVE",
+		1: "SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256",
+	}
+	SourceManifestIdentityMode_value = map[string]int32{
+		"SOURCE_MANIFEST_IDENTITY_MODE_NATIVE":         0,
+		"SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256": 1,
+	}
+)
+
+func (x SourceManifestIdentityMode) Enum() *SourceManifestIdentityMode {
+	p := new(SourceManifestIdentityMode)
+	*p = x
+	return p
+}
+
+func (x SourceManifestIdentityMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SourceManifestIdentityMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_base_v0_source_proto_enumTypes[3].Descriptor()
+}
+
+func (SourceManifestIdentityMode) Type() protoreflect.EnumType {
+	return &file_codefly_base_v0_source_proto_enumTypes[3]
+}
+
+func (x SourceManifestIdentityMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SourceManifestIdentityMode.Descriptor instead.
+func (SourceManifestIdentityMode) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{3}
+}
+
+// SourceLanguage is Codefly's language-neutral classification for a source
+// artifact. UNKNOWN is durable evidence that no registered path convention
+// matched; consumers must not infer a language from the path themselves.
+type SourceLanguage int32
+
+const (
+	SourceLanguage_SOURCE_LANGUAGE_UNKNOWN    SourceLanguage = 0
+	SourceLanguage_SOURCE_LANGUAGE_GO         SourceLanguage = 1
+	SourceLanguage_SOURCE_LANGUAGE_PYTHON     SourceLanguage = 2
+	SourceLanguage_SOURCE_LANGUAGE_TYPESCRIPT SourceLanguage = 3
+	SourceLanguage_SOURCE_LANGUAGE_JAVASCRIPT SourceLanguage = 4
+	SourceLanguage_SOURCE_LANGUAGE_RUST       SourceLanguage = 5
+	SourceLanguage_SOURCE_LANGUAGE_JAVA       SourceLanguage = 6
+	SourceLanguage_SOURCE_LANGUAGE_KOTLIN     SourceLanguage = 7
+	SourceLanguage_SOURCE_LANGUAGE_SQL        SourceLanguage = 8
+	SourceLanguage_SOURCE_LANGUAGE_JSON       SourceLanguage = 9
+	SourceLanguage_SOURCE_LANGUAGE_YAML       SourceLanguage = 10
+	SourceLanguage_SOURCE_LANGUAGE_TOML       SourceLanguage = 11
+	SourceLanguage_SOURCE_LANGUAGE_XML        SourceLanguage = 12
+	SourceLanguage_SOURCE_LANGUAGE_MARKDOWN   SourceLanguage = 13
+	SourceLanguage_SOURCE_LANGUAGE_SHELL      SourceLanguage = 14
+)
+
+// Enum value maps for SourceLanguage.
+var (
+	SourceLanguage_name = map[int32]string{
+		0:  "SOURCE_LANGUAGE_UNKNOWN",
+		1:  "SOURCE_LANGUAGE_GO",
+		2:  "SOURCE_LANGUAGE_PYTHON",
+		3:  "SOURCE_LANGUAGE_TYPESCRIPT",
+		4:  "SOURCE_LANGUAGE_JAVASCRIPT",
+		5:  "SOURCE_LANGUAGE_RUST",
+		6:  "SOURCE_LANGUAGE_JAVA",
+		7:  "SOURCE_LANGUAGE_KOTLIN",
+		8:  "SOURCE_LANGUAGE_SQL",
+		9:  "SOURCE_LANGUAGE_JSON",
+		10: "SOURCE_LANGUAGE_YAML",
+		11: "SOURCE_LANGUAGE_TOML",
+		12: "SOURCE_LANGUAGE_XML",
+		13: "SOURCE_LANGUAGE_MARKDOWN",
+		14: "SOURCE_LANGUAGE_SHELL",
+	}
+	SourceLanguage_value = map[string]int32{
+		"SOURCE_LANGUAGE_UNKNOWN":    0,
+		"SOURCE_LANGUAGE_GO":         1,
+		"SOURCE_LANGUAGE_PYTHON":     2,
+		"SOURCE_LANGUAGE_TYPESCRIPT": 3,
+		"SOURCE_LANGUAGE_JAVASCRIPT": 4,
+		"SOURCE_LANGUAGE_RUST":       5,
+		"SOURCE_LANGUAGE_JAVA":       6,
+		"SOURCE_LANGUAGE_KOTLIN":     7,
+		"SOURCE_LANGUAGE_SQL":        8,
+		"SOURCE_LANGUAGE_JSON":       9,
+		"SOURCE_LANGUAGE_YAML":       10,
+		"SOURCE_LANGUAGE_TOML":       11,
+		"SOURCE_LANGUAGE_XML":        12,
+		"SOURCE_LANGUAGE_MARKDOWN":   13,
+		"SOURCE_LANGUAGE_SHELL":      14,
+	}
+)
+
+func (x SourceLanguage) Enum() *SourceLanguage {
+	p := new(SourceLanguage)
+	*p = x
+	return p
+}
+
+func (x SourceLanguage) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SourceLanguage) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_base_v0_source_proto_enumTypes[4].Descriptor()
+}
+
+func (SourceLanguage) Type() protoreflect.EnumType {
+	return &file_codefly_base_v0_source_proto_enumTypes[4]
+}
+
+func (x SourceLanguage) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SourceLanguage.Descriptor instead.
+func (SourceLanguage) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{4}
+}
+
+// SourceContentKind distinguishes project text from opaque artifacts without
+// requiring a caller to inspect project bytes.
+type SourceContentKind int32
+
+const (
+	SourceContentKind_SOURCE_CONTENT_KIND_UNKNOWN SourceContentKind = 0
+	SourceContentKind_SOURCE_CONTENT_KIND_TEXT    SourceContentKind = 1
+	SourceContentKind_SOURCE_CONTENT_KIND_BINARY  SourceContentKind = 2
+	SourceContentKind_SOURCE_CONTENT_KIND_SYMLINK SourceContentKind = 3
+	SourceContentKind_SOURCE_CONTENT_KIND_GITLINK SourceContentKind = 4
+)
+
+// Enum value maps for SourceContentKind.
+var (
+	SourceContentKind_name = map[int32]string{
+		0: "SOURCE_CONTENT_KIND_UNKNOWN",
+		1: "SOURCE_CONTENT_KIND_TEXT",
+		2: "SOURCE_CONTENT_KIND_BINARY",
+		3: "SOURCE_CONTENT_KIND_SYMLINK",
+		4: "SOURCE_CONTENT_KIND_GITLINK",
+	}
+	SourceContentKind_value = map[string]int32{
+		"SOURCE_CONTENT_KIND_UNKNOWN": 0,
+		"SOURCE_CONTENT_KIND_TEXT":    1,
+		"SOURCE_CONTENT_KIND_BINARY":  2,
+		"SOURCE_CONTENT_KIND_SYMLINK": 3,
+		"SOURCE_CONTENT_KIND_GITLINK": 4,
+	}
+)
+
+func (x SourceContentKind) Enum() *SourceContentKind {
+	p := new(SourceContentKind)
+	*p = x
+	return p
+}
+
+func (x SourceContentKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SourceContentKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_base_v0_source_proto_enumTypes[5].Descriptor()
+}
+
+func (SourceContentKind) Type() protoreflect.EnumType {
+	return &file_codefly_base_v0_source_proto_enumTypes[5]
+}
+
+func (x SourceContentKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SourceContentKind.Descriptor instead.
+func (SourceContentKind) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{5}
+}
+
+// SourceRole captures deterministic repository conventions used by review,
+// impact, and navigation consumers. It is evidence, not an execution policy.
+type SourceRole int32
+
+const (
+	SourceRole_SOURCE_ROLE_UNKNOWN    SourceRole = 0
+	SourceRole_SOURCE_ROLE_PRODUCTION SourceRole = 1
+	SourceRole_SOURCE_ROLE_TEST       SourceRole = 2
+	SourceRole_SOURCE_ROLE_GENERATED  SourceRole = 3
+	SourceRole_SOURCE_ROLE_VENDOR     SourceRole = 4
+	SourceRole_SOURCE_ROLE_CONFIG     SourceRole = 5
+	SourceRole_SOURCE_ROLE_DOCS       SourceRole = 6
+	SourceRole_SOURCE_ROLE_MIGRATION  SourceRole = 7
+	SourceRole_SOURCE_ROLE_FIXTURE    SourceRole = 8
+	SourceRole_SOURCE_ROLE_BUILD      SourceRole = 9
+)
+
+// Enum value maps for SourceRole.
+var (
+	SourceRole_name = map[int32]string{
+		0: "SOURCE_ROLE_UNKNOWN",
+		1: "SOURCE_ROLE_PRODUCTION",
+		2: "SOURCE_ROLE_TEST",
+		3: "SOURCE_ROLE_GENERATED",
+		4: "SOURCE_ROLE_VENDOR",
+		5: "SOURCE_ROLE_CONFIG",
+		6: "SOURCE_ROLE_DOCS",
+		7: "SOURCE_ROLE_MIGRATION",
+		8: "SOURCE_ROLE_FIXTURE",
+		9: "SOURCE_ROLE_BUILD",
+	}
+	SourceRole_value = map[string]int32{
+		"SOURCE_ROLE_UNKNOWN":    0,
+		"SOURCE_ROLE_PRODUCTION": 1,
+		"SOURCE_ROLE_TEST":       2,
+		"SOURCE_ROLE_GENERATED":  3,
+		"SOURCE_ROLE_VENDOR":     4,
+		"SOURCE_ROLE_CONFIG":     5,
+		"SOURCE_ROLE_DOCS":       6,
+		"SOURCE_ROLE_MIGRATION":  7,
+		"SOURCE_ROLE_FIXTURE":    8,
+		"SOURCE_ROLE_BUILD":      9,
+	}
+)
+
+func (x SourceRole) Enum() *SourceRole {
+	p := new(SourceRole)
+	*p = x
+	return p
+}
+
+func (x SourceRole) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SourceRole) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_base_v0_source_proto_enumTypes[6].Descriptor()
+}
+
+func (SourceRole) Type() protoreflect.EnumType {
+	return &file_codefly_base_v0_source_proto_enumTypes[6]
+}
+
+func (x SourceRole) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SourceRole.Descriptor instead.
+func (SourceRole) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{6}
+}
+
+// SourceIdentity is one complete, typed identity for a source entry.
+type SourceIdentity struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Algorithm     SourceIdentityAlgorithm `protobuf:"varint,1,opt,name=algorithm,proto3,enum=codefly.base.v0.SourceIdentityAlgorithm" json:"algorithm,omitempty"`
+	Digest        string                  `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
+	SizeBytes     int64                   `protobuf:"varint,3,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SourceIdentity) Reset() {
+	*x = SourceIdentity{}
+	mi := &file_codefly_base_v0_source_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceIdentity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceIdentity) ProtoMessage() {}
+
+func (x *SourceIdentity) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_source_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceIdentity.ProtoReflect.Descriptor instead.
+func (*SourceIdentity) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *SourceIdentity) GetAlgorithm() SourceIdentityAlgorithm {
+	if x != nil {
+		return x.Algorithm
+	}
+	return SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED
+}
+
+func (x *SourceIdentity) GetDigest() string {
+	if x != nil {
+		return x.Digest
+	}
+	return ""
+}
+
+func (x *SourceIdentity) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+// SourceFileAttributes are versioned classifications produced inside the
+// Codefly boundary. Consumers persist these facts and must not repeat
+// extension selection or byte sniffing outside Codefly.
+type SourceFileAttributes struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion     uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	Language          SourceLanguage         `protobuf:"varint,2,opt,name=language,proto3,enum=codefly.base.v0.SourceLanguage" json:"language,omitempty"`
+	ContentKind       SourceContentKind      `protobuf:"varint,3,opt,name=content_kind,json=contentKind,proto3,enum=codefly.base.v0.SourceContentKind" json:"content_kind,omitempty"`
+	SourceRole        SourceRole             `protobuf:"varint,4,opt,name=source_role,json=sourceRole,proto3,enum=codefly.base.v0.SourceRole" json:"source_role,omitempty"`
+	ClassifierVersion string                 `protobuf:"bytes,5,opt,name=classifier_version,json=classifierVersion,proto3" json:"classifier_version,omitempty"`
+	Confidence        float32                `protobuf:"fixed32,6,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	Reason            string                 `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SourceFileAttributes) Reset() {
+	*x = SourceFileAttributes{}
+	mi := &file_codefly_base_v0_source_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceFileAttributes) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceFileAttributes) ProtoMessage() {}
+
+func (x *SourceFileAttributes) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_source_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceFileAttributes.ProtoReflect.Descriptor instead.
+func (*SourceFileAttributes) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SourceFileAttributes) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *SourceFileAttributes) GetLanguage() SourceLanguage {
+	if x != nil {
+		return x.Language
+	}
+	return SourceLanguage_SOURCE_LANGUAGE_UNKNOWN
+}
+
+func (x *SourceFileAttributes) GetContentKind() SourceContentKind {
+	if x != nil {
+		return x.ContentKind
+	}
+	return SourceContentKind_SOURCE_CONTENT_KIND_UNKNOWN
+}
+
+func (x *SourceFileAttributes) GetSourceRole() SourceRole {
+	if x != nil {
+		return x.SourceRole
+	}
+	return SourceRole_SOURCE_ROLE_UNKNOWN
+}
+
+func (x *SourceFileAttributes) GetClassifierVersion() string {
+	if x != nil {
+		return x.ClassifierVersion
+	}
+	return ""
+}
+
+func (x *SourceFileAttributes) GetConfidence() float32 {
+	if x != nil {
+		return x.Confidence
+	}
+	return 0
+}
+
+func (x *SourceFileAttributes) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// SourceManifestEntry is body-free metadata for one repository-relative
+// project artifact. mode uses canonical Git tree modes (100644, 100755,
+// 120000, or 160000) represented as an integer.
+type SourceManifestEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Mode          uint32                 `protobuf:"varint,2,opt,name=mode,proto3" json:"mode,omitempty"`
+	Kind          SourceEntryKind        `protobuf:"varint,3,opt,name=kind,proto3,enum=codefly.base.v0.SourceEntryKind" json:"kind,omitempty"`
+	Identity      *SourceIdentity        `protobuf:"bytes,4,opt,name=identity,proto3" json:"identity,omitempty"`
+	Attributes    *SourceFileAttributes  `protobuf:"bytes,5,opt,name=attributes,proto3" json:"attributes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SourceManifestEntry) Reset() {
+	*x = SourceManifestEntry{}
+	mi := &file_codefly_base_v0_source_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceManifestEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceManifestEntry) ProtoMessage() {}
+
+func (x *SourceManifestEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_source_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceManifestEntry.ProtoReflect.Descriptor instead.
+func (*SourceManifestEntry) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SourceManifestEntry) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *SourceManifestEntry) GetMode() uint32 {
+	if x != nil {
+		return x.Mode
+	}
+	return 0
+}
+
+func (x *SourceManifestEntry) GetKind() SourceEntryKind {
+	if x != nil {
+		return x.Kind
+	}
+	return SourceEntryKind_SOURCE_ENTRY_KIND_UNSPECIFIED
+}
+
+func (x *SourceManifestEntry) GetIdentity() *SourceIdentity {
+	if x != nil {
+		return x.Identity
+	}
+	return nil
+}
+
+func (x *SourceManifestEntry) GetAttributes() *SourceFileAttributes {
+	if x != nil {
+		return x.Attributes
+	}
+	return nil
+}
+
+// SourceManifest is the authoritative project artifact inventory produced
+// inside Codefly. revision is the resolved immutable commit for a revision
+// request and empty for a live worktree observation.
+type SourceManifest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Revision      string                 `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	Entries       []*SourceManifestEntry `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SourceManifest) Reset() {
+	*x = SourceManifest{}
+	mi := &file_codefly_base_v0_source_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceManifest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceManifest) ProtoMessage() {}
+
+func (x *SourceManifest) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_source_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceManifest.ProtoReflect.Descriptor instead.
+func (*SourceManifest) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_source_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SourceManifest) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
+func (x *SourceManifest) GetEntries() []*SourceManifestEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
 var File_codefly_base_v0_source_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_source_proto_rawDesc = "" +
 	"\n" +
-	"\x1ccodefly/base/v0/source.proto\x12\x0fcodefly.base.v0*H\n" +
+	"\x1ccodefly/base/v0/source.proto\x12\x0fcodefly.base.v0\"\x8f\x01\n" +
+	"\x0eSourceIdentity\x12F\n" +
+	"\talgorithm\x18\x01 \x01(\x0e2(.codefly.base.v0.SourceIdentityAlgorithmR\talgorithm\x12\x16\n" +
+	"\x06digest\x18\x02 \x01(\tR\x06digest\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x03 \x01(\x03R\tsizeBytes\"\xe6\x02\n" +
+	"\x14SourceFileAttributes\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12;\n" +
+	"\blanguage\x18\x02 \x01(\x0e2\x1f.codefly.base.v0.SourceLanguageR\blanguage\x12E\n" +
+	"\fcontent_kind\x18\x03 \x01(\x0e2\".codefly.base.v0.SourceContentKindR\vcontentKind\x12<\n" +
+	"\vsource_role\x18\x04 \x01(\x0e2\x1b.codefly.base.v0.SourceRoleR\n" +
+	"sourceRole\x12-\n" +
+	"\x12classifier_version\x18\x05 \x01(\tR\x11classifierVersion\x12\x1e\n" +
+	"\n" +
+	"confidence\x18\x06 \x01(\x02R\n" +
+	"confidence\x12\x16\n" +
+	"\x06reason\x18\a \x01(\tR\x06reason\"\xf7\x01\n" +
+	"\x13SourceManifestEntry\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
+	"\x04mode\x18\x02 \x01(\rR\x04mode\x124\n" +
+	"\x04kind\x18\x03 \x01(\x0e2 .codefly.base.v0.SourceEntryKindR\x04kind\x12;\n" +
+	"\bidentity\x18\x04 \x01(\v2\x1f.codefly.base.v0.SourceIdentityR\bidentity\x12E\n" +
+	"\n" +
+	"attributes\x18\x05 \x01(\v2%.codefly.base.v0.SourceFileAttributesR\n" +
+	"attributes\"l\n" +
+	"\x0eSourceManifest\x12\x1a\n" +
+	"\brevision\x18\x01 \x01(\tR\brevision\x12>\n" +
+	"\aentries\x18\x02 \x03(\v2$.codefly.base.v0.SourceManifestEntryR\aentries*H\n" +
 	"\aFixMode\x12\x11\n" +
 	"\rFIX_MODE_SAFE\x10\x00\x12\x11\n" +
 	"\rFIX_MODE_NONE\x10\x01\x12\x17\n" +
-	"\x13FIX_MODE_AGGRESSIVE\x10\x02B\xba\x01\n" +
+	"\x13FIX_MODE_AGGRESSIVE\x10\x02*\x8e\x01\n" +
+	"\x0fSourceEntryKind\x12!\n" +
+	"\x1dSOURCE_ENTRY_KIND_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16SOURCE_ENTRY_KIND_FILE\x10\x01\x12\x1d\n" +
+	"\x19SOURCE_ENTRY_KIND_SYMLINK\x10\x02\x12\x1d\n" +
+	"\x19SOURCE_ENTRY_KIND_GITLINK\x10\x03*\xa6\x02\n" +
+	"\x17SourceIdentityAlgorithm\x12)\n" +
+	"%SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED\x10\x00\x12$\n" +
+	" SOURCE_IDENTITY_ALGORITHM_SHA256\x10\x01\x12+\n" +
+	"'SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1\x10\x02\x12-\n" +
+	")SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA256\x10\x03\x12-\n" +
+	")SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1\x10\x04\x12/\n" +
+	"+SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA256\x10\x05*x\n" +
+	"\x1aSourceManifestIdentityMode\x12(\n" +
+	"$SOURCE_MANIFEST_IDENTITY_MODE_NATIVE\x10\x00\x120\n" +
+	",SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256\x10\x01*\xaa\x03\n" +
+	"\x0eSourceLanguage\x12\x1b\n" +
+	"\x17SOURCE_LANGUAGE_UNKNOWN\x10\x00\x12\x16\n" +
+	"\x12SOURCE_LANGUAGE_GO\x10\x01\x12\x1a\n" +
+	"\x16SOURCE_LANGUAGE_PYTHON\x10\x02\x12\x1e\n" +
+	"\x1aSOURCE_LANGUAGE_TYPESCRIPT\x10\x03\x12\x1e\n" +
+	"\x1aSOURCE_LANGUAGE_JAVASCRIPT\x10\x04\x12\x18\n" +
+	"\x14SOURCE_LANGUAGE_RUST\x10\x05\x12\x18\n" +
+	"\x14SOURCE_LANGUAGE_JAVA\x10\x06\x12\x1a\n" +
+	"\x16SOURCE_LANGUAGE_KOTLIN\x10\a\x12\x17\n" +
+	"\x13SOURCE_LANGUAGE_SQL\x10\b\x12\x18\n" +
+	"\x14SOURCE_LANGUAGE_JSON\x10\t\x12\x18\n" +
+	"\x14SOURCE_LANGUAGE_YAML\x10\n" +
+	"\x12\x18\n" +
+	"\x14SOURCE_LANGUAGE_TOML\x10\v\x12\x17\n" +
+	"\x13SOURCE_LANGUAGE_XML\x10\f\x12\x1c\n" +
+	"\x18SOURCE_LANGUAGE_MARKDOWN\x10\r\x12\x19\n" +
+	"\x15SOURCE_LANGUAGE_SHELL\x10\x0e*\xb4\x01\n" +
+	"\x11SourceContentKind\x12\x1f\n" +
+	"\x1bSOURCE_CONTENT_KIND_UNKNOWN\x10\x00\x12\x1c\n" +
+	"\x18SOURCE_CONTENT_KIND_TEXT\x10\x01\x12\x1e\n" +
+	"\x1aSOURCE_CONTENT_KIND_BINARY\x10\x02\x12\x1f\n" +
+	"\x1bSOURCE_CONTENT_KIND_SYMLINK\x10\x03\x12\x1f\n" +
+	"\x1bSOURCE_CONTENT_KIND_GITLINK\x10\x04*\x83\x02\n" +
+	"\n" +
+	"SourceRole\x12\x17\n" +
+	"\x13SOURCE_ROLE_UNKNOWN\x10\x00\x12\x1a\n" +
+	"\x16SOURCE_ROLE_PRODUCTION\x10\x01\x12\x14\n" +
+	"\x10SOURCE_ROLE_TEST\x10\x02\x12\x19\n" +
+	"\x15SOURCE_ROLE_GENERATED\x10\x03\x12\x16\n" +
+	"\x12SOURCE_ROLE_VENDOR\x10\x04\x12\x16\n" +
+	"\x12SOURCE_ROLE_CONFIG\x10\x05\x12\x14\n" +
+	"\x10SOURCE_ROLE_DOCS\x10\x06\x12\x19\n" +
+	"\x15SOURCE_ROLE_MIGRATION\x10\a\x12\x17\n" +
+	"\x13SOURCE_ROLE_FIXTURE\x10\b\x12\x15\n" +
+	"\x11SOURCE_ROLE_BUILD\x10\tB\xba\x01\n" +
 	"\x13com.codefly.base.v0B\vSourceProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 
 var (
@@ -102,16 +852,35 @@ func file_codefly_base_v0_source_proto_rawDescGZIP() []byte {
 	return file_codefly_base_v0_source_proto_rawDescData
 }
 
-var file_codefly_base_v0_source_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_codefly_base_v0_source_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_codefly_base_v0_source_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_codefly_base_v0_source_proto_goTypes = []any{
-	(FixMode)(0), // 0: codefly.base.v0.FixMode
+	(FixMode)(0),                    // 0: codefly.base.v0.FixMode
+	(SourceEntryKind)(0),            // 1: codefly.base.v0.SourceEntryKind
+	(SourceIdentityAlgorithm)(0),    // 2: codefly.base.v0.SourceIdentityAlgorithm
+	(SourceManifestIdentityMode)(0), // 3: codefly.base.v0.SourceManifestIdentityMode
+	(SourceLanguage)(0),             // 4: codefly.base.v0.SourceLanguage
+	(SourceContentKind)(0),          // 5: codefly.base.v0.SourceContentKind
+	(SourceRole)(0),                 // 6: codefly.base.v0.SourceRole
+	(*SourceIdentity)(nil),          // 7: codefly.base.v0.SourceIdentity
+	(*SourceFileAttributes)(nil),    // 8: codefly.base.v0.SourceFileAttributes
+	(*SourceManifestEntry)(nil),     // 9: codefly.base.v0.SourceManifestEntry
+	(*SourceManifest)(nil),          // 10: codefly.base.v0.SourceManifest
 }
 var file_codefly_base_v0_source_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2, // 0: codefly.base.v0.SourceIdentity.algorithm:type_name -> codefly.base.v0.SourceIdentityAlgorithm
+	4, // 1: codefly.base.v0.SourceFileAttributes.language:type_name -> codefly.base.v0.SourceLanguage
+	5, // 2: codefly.base.v0.SourceFileAttributes.content_kind:type_name -> codefly.base.v0.SourceContentKind
+	6, // 3: codefly.base.v0.SourceFileAttributes.source_role:type_name -> codefly.base.v0.SourceRole
+	1, // 4: codefly.base.v0.SourceManifestEntry.kind:type_name -> codefly.base.v0.SourceEntryKind
+	7, // 5: codefly.base.v0.SourceManifestEntry.identity:type_name -> codefly.base.v0.SourceIdentity
+	8, // 6: codefly.base.v0.SourceManifestEntry.attributes:type_name -> codefly.base.v0.SourceFileAttributes
+	9, // 7: codefly.base.v0.SourceManifest.entries:type_name -> codefly.base.v0.SourceManifestEntry
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_source_proto_init() }
@@ -124,14 +893,15 @@ func file_codefly_base_v0_source_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_base_v0_source_proto_rawDesc), len(file_codefly_base_v0_source_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   0,
+			NumEnums:      7,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_codefly_base_v0_source_proto_goTypes,
 		DependencyIndexes: file_codefly_base_v0_source_proto_depIdxs,
 		EnumInfos:         file_codefly_base_v0_source_proto_enumTypes,
+		MessageInfos:      file_codefly_base_v0_source_proto_msgTypes,
 	}.Build()
 	File_codefly_base_v0_source_proto = out.File
 	file_codefly_base_v0_source_proto_goTypes = nil

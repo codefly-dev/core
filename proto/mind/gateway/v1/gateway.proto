@@ -195,6 +195,10 @@ service Gateway {
   // production agent rooted at one exact code unit.
   rpc GetSemanticIndex(GetSemanticIndexRequest) returns (GetSemanticIndexResponse);
 
+  // GetSourceManifest returns body-free project artifact identities produced
+  // inside Codefly for either the live worktree or one immutable Git revision.
+  rpc GetSourceManifest(GetSourceManifestRequest) returns (GetSourceManifestResponse);
+
   // DiscoverCodeUnits returns Codefly-owned structural source boundaries,
   // including unsupported ecosystems that bind to the generic agent.
   rpc DiscoverCodeUnits(DiscoverCodeUnitsRequest) returns (DiscoverCodeUnitsResponse);
@@ -1723,6 +1727,22 @@ message GetSemanticIndexResponse {
   codefly.base.v0.SemanticIndex index = 1;
   codefly.base.v0.Failure failure = 2;
   CodeUnitTarget code_unit = 3;
+}
+
+// GetSourceManifestRequest selects the source tree to inventory. Empty
+// revision observes the live worktree; a non-empty revision resolves an
+// immutable Git tree before returning any entries.
+message GetSourceManifestRequest {
+  string service = 1;
+  string revision = 2;
+  codefly.base.v0.SourceManifestIdentityMode identity_mode = 3;
+}
+
+// GetSourceManifestResponse keeps project bytes behind Codefly while exposing
+// exact artifact identities and a typed failure boundary to Mind.
+message GetSourceManifestResponse {
+  codefly.base.v0.SourceManifest manifest = 1;
+  codefly.base.v0.Failure failure = 2;
 }
 
 // DiscoverCodeUnitsRequest identifies the service whose rooted source tree is
