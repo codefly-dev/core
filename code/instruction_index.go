@@ -215,9 +215,9 @@ func instructionHeadings(document markdownast.Node, source []byte) []instruction
 func classifyInstructionKnowledge(lineage []string) basev0.InstructionKnowledgeKind {
 	value := strings.ToLower(strings.Join(lineage, " "))
 	switch {
-	case containsInstructionTerm(value, "anti-pattern", "antipattern", "avoid", "never", "don't", "do not"):
+	case containsInstructionTerm(value, "anti-pattern", "antipattern", "avoid", "don't", "do not", "what not to do"):
 		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ANTI_PATTERN
-	case containsInstructionTerm(value, "requirement", "required", "non-negotiable", "absolute", "must"):
+	case containsInstructionTerm(value, "requirement", "required", "non-negotiable", "absolute", "must", "never"):
 		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT
 	case containsInstructionTerm(value, "decision", "adr", "rationale"):
 		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_DECISION
