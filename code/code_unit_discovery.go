@@ -31,6 +31,16 @@ type discoveredDeclaration struct {
 	codeUnitDeclaration
 }
 
+type nodeSourceEvidence struct {
+	directory string
+	language  string
+}
+
+type nodeLanguageEvidence struct {
+	javascript bool
+	typescript bool
+}
+
 type codeUnitAccumulator struct {
 	path            string
 	primaryLanguage string
@@ -100,6 +110,7 @@ func (s *DefaultCodeServer) discoverCodeUnits(ctx context.Context, _ *codev0.Dis
 // leaking host filesystem access into callers such as Mind.
 func (s *DefaultCodeServer) scanCodeUnitDeclarations(ctx context.Context) ([]discoveredDeclaration, error) {
 	var declarations []discoveredDeclaration
+	var nodeSources []nodeSourceEvidence
 	err := s.FS.WalkDir(s.SourceDir, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -131,9 +142,93 @@ func (s *DefaultCodeServer) scanCodeUnitDeclarations(ctx context.Context) ([]dis
 			})
 			break
 		}
+		if language := nodeSourceLanguage(entry.Name()); language != "" {
+			directory := filepath.ToSlash(filepath.Dir(filepath.ToSlash(relative)))
+			if directory == "" {
+				directory = "."
+			}
+			nodeSources = append(nodeSources, nodeSourceEvidence{directory: directory, language: language})
+		}
 		return nil
 	})
-	return declarations, err
+	if err != nil {
+		return nil, err
+	}
+	resolveNodeDeclarationLanguages(declarations, nodeSources)
+	return declarations, nil
+}
+
+// resolveNodeDeclarationLanguages keeps package.json as the structural unit
+// marker while deriving the unit's actual source language from the same
+// filesystem walk. Source evidence belongs to the nearest package boundary,
+// so a nested JavaScript package does not misclassify its TypeScript parent.
+// TypeScript wins for genuinely mixed units; a manifest with no source
+// evidence preserves the registry's TypeScript fallback.
+func resolveNodeDeclarationLanguages(declarations []discoveredDeclaration, sources []nodeSourceEvidence) {
+	evidence := make(map[int]nodeLanguageEvidence)
+	for _, source := range sources {
+		owner := -1
+		ownerDepth := -1
+		for i := range declarations {
+			declaration := declarations[i]
+			if !isNodePackageDeclaration(declaration) || !isRelativeWithin(declaration.directory, source.directory) {
+				continue
+			}
+			depth := relativePathDepth(declaration.directory)
+			if depth > ownerDepth {
+				owner = i
+				ownerDepth = depth
+			}
+		}
+		if owner < 0 {
+			continue
+		}
+		observed := evidence[owner]
+		switch source.language {
+		case "typescript":
+			observed.typescript = true
+		case "javascript":
+			observed.javascript = true
+		}
+		evidence[owner] = observed
+	}
+	for i, observed := range evidence {
+		switch {
+		case observed.typescript:
+			declarations[i].language = "typescript"
+		case observed.javascript:
+			declarations[i].language = "javascript"
+		}
+	}
+}
+
+func isNodePackageDeclaration(declaration discoveredDeclaration) bool {
+	return strings.EqualFold(filepath.Base(filepath.FromSlash(declaration.manifest)), "package.json")
+}
+
+func nodeSourceLanguage(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".ts", ".tsx", ".mts", ".cts":
+		return "typescript"
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return "javascript"
+	default:
+		return ""
+	}
+}
+
+func relativePathDepth(path string) int {
+	if path == "." {
+		return 0
+	}
+	return strings.Count(path, "/") + 1
+}
+
+func isRelativeWithin(parent, child string) bool {
+	if parent == "." {
+		return true
+	}
+	return child == parent || strings.HasPrefix(child, parent+"/")
 }
 
 func skipCodeUnitDiscoveryDir(name string) bool {

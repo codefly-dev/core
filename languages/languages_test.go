@@ -10,6 +10,8 @@ func TestFromString(t *testing.T) {
 		"python":     PYTHON,
 		"typescript": TYPESCRIPT,
 		"ts":         TYPESCRIPT, // alias
+		"javascript": JAVASCRIPT,
+		"js":         JAVASCRIPT, // alias
 		"rust":       RUST,
 		"":           NotSupported,
 		"GO":         NotSupported, // case-sensitive — explicit

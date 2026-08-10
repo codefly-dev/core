@@ -22,6 +22,15 @@ func TestDefaultCodeServerDiscoversSupportedAndGenericCodeUnits(t *testing.T) {
 		"src/cart/tests/cart.tests.csproj",
 		"src/mixed/go.mod",
 		"src/mixed/package.json",
+		"src/javascript/package.json",
+		"src/javascript/server.js",
+		"src/typescript/package.json",
+		"src/typescript/browser.js",
+		"src/typescript/server.ts",
+		"src/nested/package.json",
+		"src/nested/app.ts",
+		"src/nested/worker/package.json",
+		"src/nested/worker/index.mjs",
 		"vendor/ignored/go.mod",
 		".cache/ignored/pyproject.toml",
 	}
@@ -42,20 +51,24 @@ func TestDefaultCodeServerDiscoversSupportedAndGenericCodeUnits(t *testing.T) {
 		t.Fatalf("discover code units: %v", err)
 	}
 	units := response.GetDiscoverCodeUnits().GetCodeUnits()
-	if len(units) != 6 {
-		t.Fatalf("code units = %d (%+v), want 6 complete boundaries", len(units), units)
+	if len(units) != 10 {
+		t.Fatalf("code units = %d (%+v), want 10 complete boundaries", len(units), units)
 	}
 	want := map[string]struct {
 		language, agent string
 		languages       []string
 		manifests       []string
 	}{
-		"src/ads":        {language: "jvm", agent: "generic", languages: []string{"jvm"}, manifests: []string{"src/ads/build.gradle"}},
-		"src/api":        {language: "go", agent: "go", languages: []string{"go"}, manifests: []string{"src/api/go.mod"}},
-		"src/cart":       {language: "dotnet", agent: "generic", languages: []string{"dotnet"}, manifests: []string{"src/cart/cart.sln", "src/cart/src/cart.csproj", "src/cart/tests/cart.tests.csproj"}},
-		"src/mixed":      {language: "go", agent: "generic", languages: []string{"go", "typescript"}, manifests: []string{"src/mixed/go.mod", "src/mixed/package.json"}},
-		"src/input-only": {language: "python", agent: "python", languages: []string{"python"}, manifests: []string{"src/input-only/requirements.in"}},
-		"src/worker":     {language: "python", agent: "python", languages: []string{"python"}, manifests: []string{"src/worker/pyproject.toml", "src/worker/requirements.txt"}},
+		"src/ads":           {language: "jvm", agent: "generic", languages: []string{"jvm"}, manifests: []string{"src/ads/build.gradle"}},
+		"src/api":           {language: "go", agent: "go", languages: []string{"go"}, manifests: []string{"src/api/go.mod"}},
+		"src/cart":          {language: "dotnet", agent: "generic", languages: []string{"dotnet"}, manifests: []string{"src/cart/cart.sln", "src/cart/src/cart.csproj", "src/cart/tests/cart.tests.csproj"}},
+		"src/mixed":         {language: "go", agent: "generic", languages: []string{"go", "typescript"}, manifests: []string{"src/mixed/go.mod", "src/mixed/package.json"}},
+		"src/javascript":    {language: "javascript", agent: "nextjs", languages: []string{"javascript"}, manifests: []string{"src/javascript/package.json"}},
+		"src/typescript":    {language: "typescript", agent: "nextjs", languages: []string{"typescript"}, manifests: []string{"src/typescript/package.json"}},
+		"src/nested":        {language: "typescript", agent: "nextjs", languages: []string{"typescript"}, manifests: []string{"src/nested/package.json"}},
+		"src/nested/worker": {language: "javascript", agent: "nextjs", languages: []string{"javascript"}, manifests: []string{"src/nested/worker/package.json"}},
+		"src/input-only":    {language: "python", agent: "python", languages: []string{"python"}, manifests: []string{"src/input-only/requirements.in"}},
+		"src/worker":        {language: "python", agent: "python", languages: []string{"python"}, manifests: []string{"src/worker/pyproject.toml", "src/worker/requirements.txt"}},
 	}
 	for _, unit := range units {
 		expected, ok := want[unit.GetPath()]
