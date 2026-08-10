@@ -45,6 +45,19 @@ func (LocalVFS) Stat(path string) (os.FileInfo, error) {
 	return os.Stat(path)
 }
 
+// Lstat returns metadata for the directory entry itself so body-free source
+// manifests can distinguish symlinks without following them outside the
+// project boundary. It is intentionally an optional VFS capability: existing
+// virtual filesystems remain valid and fall back to DirEntry metadata.
+func (LocalVFS) Lstat(path string) (os.FileInfo, error) {
+	return os.Lstat(path)
+}
+
+// Readlink returns the link target bytes used by Git to identify a symlink.
+func (LocalVFS) Readlink(path string) (string, error) {
+	return os.Readlink(path)
+}
+
 func (LocalVFS) MkdirAll(path string, perm os.FileMode) error {
 	return os.MkdirAll(path, perm)
 }

@@ -34,6 +34,7 @@ type cachedEntry struct {
 	size    int64
 	modTime time.Time
 	isDir   bool
+	mode    os.FileMode
 }
 
 // skipDirs are directories never entered during the initial walk or watches.
@@ -87,6 +88,7 @@ func (c *CachedVFS) populate() error {
 			size:    info.Size(),
 			modTime: info.ModTime(),
 			isDir:   d.IsDir(),
+			mode:    info.Mode(),
 		}
 		return nil
 	})
@@ -189,6 +191,7 @@ func (c *CachedVFS) processBatch(events []fsnotify.Event) {
 				size:    info.Size(),
 				modTime: info.ModTime(),
 				isDir:   false,
+				mode:    info.Mode(),
 			}
 			c.mu.Lock()
 			c.entries[abs] = entry
@@ -221,7 +224,7 @@ func (c *CachedVFS) scanSubtree(root string) (map[string]*cachedEntry, []string)
 			return nil
 		}
 		abs := filepath.Clean(path)
-		entries[abs] = &cachedEntry{name: d.Name(), size: info.Size(), modTime: info.ModTime(), isDir: d.IsDir()}
+		entries[abs] = &cachedEntry{name: d.Name(), size: info.Size(), modTime: info.ModTime(), isDir: d.IsDir(), mode: info.Mode()}
 		if d.IsDir() {
 			watchDirs = append(watchDirs, abs)
 		}
@@ -324,6 +327,7 @@ func (c *CachedVFS) WriteFile(path string, data []byte, perm os.FileMode) error 
 		size:    int64(len(data)),
 		modTime: time.Now(),
 		isDir:   false,
+		mode:    perm,
 	}
 	c.mu.Unlock()
 	if c.contentCache != nil {
@@ -422,7 +426,7 @@ func (c *CachedVFS) Stat(path string) (os.FileInfo, error) {
 	entry, ok := c.entries[abs]
 	c.mu.RUnlock()
 	if ok {
-		return &memFileInfo{name: entry.name, size: entry.size, dir: entry.isDir, modTime: entry.modTime}, nil
+		return &memFileInfo{name: entry.name, size: entry.size, dir: entry.isDir, modTime: entry.modTime, mode: entry.mode}, nil
 	}
 	// Cache miss — stat from disk and cache
 	info, err := c.base.Stat(path)
@@ -435,6 +439,7 @@ func (c *CachedVFS) Stat(path string) (os.FileInfo, error) {
 		size:    info.Size(),
 		modTime: info.ModTime(),
 		isDir:   info.IsDir(),
+		mode:    info.Mode(),
 	}
 	c.mu.Unlock()
 	return info, nil
@@ -456,6 +461,7 @@ func (c *CachedVFS) MkdirAll(path string, perm os.FileMode) error {
 			name:    filepath.Base(d),
 			isDir:   true,
 			modTime: time.Now(),
+			mode:    os.ModeDir | perm,
 		}
 		added = append(added, d)
 	}
@@ -554,11 +560,26 @@ type cachedDirEntry struct {
 func (d *cachedDirEntry) Name() string { return d.entry.name }
 func (d *cachedDirEntry) IsDir() bool  { return d.entry.isDir }
 func (d *cachedDirEntry) Type() fs.FileMode {
-	if d.entry.isDir {
-		return fs.ModeDir
-	}
-	return 0
+	return d.entry.mode.Type()
 }
 func (d *cachedDirEntry) Info() (fs.FileInfo, error) {
-	return &memFileInfo{name: d.entry.name, size: d.entry.size, dir: d.entry.isDir, modTime: d.entry.modTime}, nil
+	return &memFileInfo{name: d.entry.name, size: d.entry.size, dir: d.entry.isDir, modTime: d.entry.modTime, mode: d.entry.mode}, nil
+}
+
+// Lstat delegates entry-aware metadata to the underlying VFS when available.
+func (c *CachedVFS) Lstat(path string) (os.FileInfo, error) {
+	if source, ok := c.base.(interface {
+		Lstat(string) (os.FileInfo, error)
+	}); ok {
+		return source.Lstat(path)
+	}
+	return c.base.Stat(path)
+}
+
+// Readlink delegates symlink target reads without populating the content cache.
+func (c *CachedVFS) Readlink(path string) (string, error) {
+	if source, ok := c.base.(interface{ Readlink(string) (string, error) }); ok {
+		return source.Readlink(path)
+	}
+	return "", &os.PathError{Op: "readlink", Path: path, Err: os.ErrInvalid}
 }

@@ -15,3 +15,119 @@ enum FixMode {
   // fixes. Callers must opt into this mode explicitly.
   FIX_MODE_AGGRESSIVE = 2;
 }
+
+// SourceEntryKind classifies one project artifact without exposing its bytes.
+// The values match Git's three leaf-entry categories so worktree and immutable
+// revision manifests share one contract.
+enum SourceEntryKind {
+  SOURCE_ENTRY_KIND_UNSPECIFIED = 0;
+  SOURCE_ENTRY_KIND_FILE = 1;
+  SOURCE_ENTRY_KIND_SYMLINK = 2;
+  SOURCE_ENTRY_KIND_GITLINK = 3;
+}
+
+// SourceIdentityAlgorithm tells consumers exactly which byte or Git-object
+// identity a source entry carries. Consumers compare identities; they never
+// reconstruct them from project bytes outside the Codefly boundary.
+enum SourceIdentityAlgorithm {
+  SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED = 0;
+  SOURCE_IDENTITY_ALGORITHM_SHA256 = 1;
+  SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1 = 2;
+  SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA256 = 3;
+  SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1 = 4;
+  SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA256 = 5;
+}
+
+// SourceManifestIdentityMode controls whether immutable Git entries preserve
+// their native object identity or are normalized to a content digest. Live
+// worktree files already carry content SHA-256 in either mode. Gitlinks remain
+// Git object identities because they name another commit, not a file body.
+enum SourceManifestIdentityMode {
+  SOURCE_MANIFEST_IDENTITY_MODE_NATIVE = 0;
+  SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256 = 1;
+}
+
+// SourceLanguage is Codefly's language-neutral classification for a source
+// artifact. UNKNOWN is durable evidence that no registered path convention
+// matched; consumers must not infer a language from the path themselves.
+enum SourceLanguage {
+  SOURCE_LANGUAGE_UNKNOWN = 0;
+  SOURCE_LANGUAGE_GO = 1;
+  SOURCE_LANGUAGE_PYTHON = 2;
+  SOURCE_LANGUAGE_TYPESCRIPT = 3;
+  SOURCE_LANGUAGE_JAVASCRIPT = 4;
+  SOURCE_LANGUAGE_RUST = 5;
+  SOURCE_LANGUAGE_JAVA = 6;
+  SOURCE_LANGUAGE_KOTLIN = 7;
+  SOURCE_LANGUAGE_SQL = 8;
+  SOURCE_LANGUAGE_JSON = 9;
+  SOURCE_LANGUAGE_YAML = 10;
+  SOURCE_LANGUAGE_TOML = 11;
+  SOURCE_LANGUAGE_XML = 12;
+  SOURCE_LANGUAGE_MARKDOWN = 13;
+  SOURCE_LANGUAGE_SHELL = 14;
+}
+
+// SourceContentKind distinguishes project text from opaque artifacts without
+// requiring a caller to inspect project bytes.
+enum SourceContentKind {
+  SOURCE_CONTENT_KIND_UNKNOWN = 0;
+  SOURCE_CONTENT_KIND_TEXT = 1;
+  SOURCE_CONTENT_KIND_BINARY = 2;
+  SOURCE_CONTENT_KIND_SYMLINK = 3;
+  SOURCE_CONTENT_KIND_GITLINK = 4;
+}
+
+// SourceRole captures deterministic repository conventions used by review,
+// impact, and navigation consumers. It is evidence, not an execution policy.
+enum SourceRole {
+  SOURCE_ROLE_UNKNOWN = 0;
+  SOURCE_ROLE_PRODUCTION = 1;
+  SOURCE_ROLE_TEST = 2;
+  SOURCE_ROLE_GENERATED = 3;
+  SOURCE_ROLE_VENDOR = 4;
+  SOURCE_ROLE_CONFIG = 5;
+  SOURCE_ROLE_DOCS = 6;
+  SOURCE_ROLE_MIGRATION = 7;
+  SOURCE_ROLE_FIXTURE = 8;
+  SOURCE_ROLE_BUILD = 9;
+}
+
+// SourceIdentity is one complete, typed identity for a source entry.
+message SourceIdentity {
+  SourceIdentityAlgorithm algorithm = 1;
+  string digest = 2;
+  int64 size_bytes = 3;
+}
+
+// SourceFileAttributes are versioned classifications produced inside the
+// Codefly boundary. Consumers persist these facts and must not repeat
+// extension selection or byte sniffing outside Codefly.
+message SourceFileAttributes {
+  uint32 schema_version = 1;
+  SourceLanguage language = 2;
+  SourceContentKind content_kind = 3;
+  SourceRole source_role = 4;
+  string classifier_version = 5;
+  float confidence = 6;
+  string reason = 7;
+}
+
+// SourceManifestEntry is body-free metadata for one repository-relative
+// project artifact. mode uses canonical Git tree modes (100644, 100755,
+// 120000, or 160000) represented as an integer.
+message SourceManifestEntry {
+  string path = 1;
+  uint32 mode = 2;
+  SourceEntryKind kind = 3;
+  SourceIdentity identity = 4;
+  SourceFileAttributes attributes = 5;
+}
+
+// SourceManifest is the authoritative project artifact inventory produced
+// inside Codefly. revision is the resolved immutable commit for a revision
+// request and empty for a live worktree observation.
+message SourceManifest {
+  string revision = 1;
+  repeated SourceManifestEntry entries = 2;
+}

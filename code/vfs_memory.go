@@ -103,6 +103,14 @@ func (m *MemoryVFS) Stat(path string) (os.FileInfo, error) {
 	return nil, &os.PathError{Op: "stat", Path: path, Err: os.ErrNotExist}
 }
 
+// Lstat is identical to Stat because MemoryVFS has no symlink entry type.
+func (m *MemoryVFS) Lstat(path string) (os.FileInfo, error) { return m.Stat(path) }
+
+// Readlink reports the unsupported entry kind explicitly.
+func (m *MemoryVFS) Readlink(path string) (string, error) {
+	return "", &os.PathError{Op: "readlink", Path: path, Err: os.ErrInvalid}
+}
+
 func (m *MemoryVFS) MkdirAll(path string, _ os.FileMode) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -263,14 +271,23 @@ type memFileInfo struct {
 	size    int64
 	dir     bool
 	modTime time.Time
+	mode    os.FileMode
 }
 
-func (fi *memFileInfo) Name() string      { return fi.name }
-func (fi *memFileInfo) Size() int64       { return fi.size }
-func (fi *memFileInfo) Mode() os.FileMode { if fi.dir { return os.ModeDir | 0o755 }; return 0o644 }
+func (fi *memFileInfo) Name() string { return fi.name }
+func (fi *memFileInfo) Size() int64  { return fi.size }
+func (fi *memFileInfo) Mode() os.FileMode {
+	if fi.mode != 0 {
+		return fi.mode
+	}
+	if fi.dir {
+		return os.ModeDir | 0o755
+	}
+	return 0o644
+}
 func (fi *memFileInfo) ModTime() time.Time { return fi.modTime }
-func (fi *memFileInfo) IsDir() bool       { return fi.dir }
-func (fi *memFileInfo) Sys() interface{}  { return nil }
+func (fi *memFileInfo) IsDir() bool        { return fi.dir }
+func (fi *memFileInfo) Sys() interface{}   { return nil }
 
 type memDirEntry struct {
 	name string
@@ -278,9 +295,14 @@ type memDirEntry struct {
 	dir  bool
 }
 
-func (e *memDirEntry) Name() string               { return e.name }
-func (e *memDirEntry) IsDir() bool                { return e.dir }
-func (e *memDirEntry) Type() fs.FileMode          { if e.dir { return fs.ModeDir }; return 0 }
+func (e *memDirEntry) Name() string { return e.name }
+func (e *memDirEntry) IsDir() bool  { return e.dir }
+func (e *memDirEntry) Type() fs.FileMode {
+	if e.dir {
+		return fs.ModeDir
+	}
+	return 0
+}
 func (e *memDirEntry) Info() (fs.FileInfo, error) {
 	return &memFileInfo{name: e.name, size: e.size, dir: e.dir}, nil
 }
