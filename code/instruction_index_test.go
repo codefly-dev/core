@@ -16,7 +16,7 @@ func TestSourceToolingInstructionIndexProjectsNestedTypedGuidance(t *testing.T) 
 	writeInstructionFixture(t, root, "AGENTS.md", `# Working Agreement
 Use the production capability path.
 
-## Absolute Rules
+## Absolute Rules — Never Violate
 Every project operation stays behind Codefly.
 
 ### Testing
@@ -71,7 +71,7 @@ This dependency guidance must not be projected.
 	}
 
 	records := instructionRecordsByTitle(index)
-	assertInstructionRecord(t, records["Absolute Rules"], basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT, ".", "AGENTS.md")
+	assertInstructionRecord(t, records["Absolute Rules — Never Violate"], basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT, ".", "AGENTS.md")
 	assertInstructionRecord(t, records["Testing"], basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT, ".", "AGENTS.md")
 	assertInstructionRecord(t, records["Avoid These Patterns"], basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ANTI_PATTERN, ".", "AGENTS.md")
 	assertInstructionRecord(t, records["API Guidance"], basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE, "services/api", "services/api/AGENTS.md")
