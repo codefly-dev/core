@@ -18,6 +18,7 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 	writeSourceManifestFile(t, root, "README.md", "hello\n", 0o644)
 	writeSourceManifestFile(t, root, "bin/run", "#!/bin/sh\n", 0o755)
 	writeSourceManifestFile(t, root, ".env.example", "SAFE=true\n", 0o644)
+	writeSourceManifestFile(t, root, "Cart.cs", "namespace Shop;\n", 0o644)
 	writeSourceManifestFile(t, root, "node_modules/ignored.js", "ignored\n", 0o644)
 	if err := os.Symlink("README.md", filepath.Join(root, "readme-link")); err != nil {
 		t.Fatalf("create real symlink: %v", err)
@@ -37,8 +38,8 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 		t.Fatalf("worktree revision = %q, want empty", manifest.GetRevision())
 	}
 	entries := sourceManifestEntriesByPath(manifest)
-	if len(entries) != 4 {
-		t.Fatalf("worktree entries = %v, want four source artifacts", sourceManifestEntryPaths(manifest))
+	if len(entries) != 5 {
+		t.Fatalf("worktree entries = %v, want five source artifacts", sourceManifestEntryPaths(manifest))
 	}
 	assertSourceManifestEntry(t, entries["README.md"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "hello\n")
 	assertSourceManifestEntry(t, entries["bin/run"], 0o100755, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "#!/bin/sh\n")
@@ -49,6 +50,9 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 	}
 	if got := entries["readme-link"].GetAttributes(); got.GetContentKind() != basev0.SourceContentKind_SOURCE_CONTENT_KIND_SYMLINK {
 		t.Fatalf("symlink attributes = %+v", got)
+	}
+	if got := entries["Cart.cs"].GetAttributes(); got.GetLanguage() != basev0.SourceLanguage_SOURCE_LANGUAGE_CSHARP || got.GetSourceRole() != basev0.SourceRole_SOURCE_ROLE_PRODUCTION {
+		t.Fatalf("C# attributes = %+v", got)
 	}
 }
 
@@ -119,6 +123,54 @@ func TestGetSourceManifestRevisionPreservesGitEntryKinds(t *testing.T) {
 	assertSourceManifestEntry(t, contentEntries["readme-link"], 0o120000, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "README.md")
 	if got := contentEntries["modules/dependency"].GetIdentity().GetAlgorithm(); got != basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1 {
 		t.Fatalf("content-mode gitlink algorithm = %s", got)
+	}
+}
+
+func TestGetSourceManifestWorktreeTreatsInitializedSubmoduleAsOneGitlink(t *testing.T) {
+	dependency := t.TempDir()
+	gitSourceManifest(t, dependency, "init", "-b", "main")
+	gitSourceManifest(t, dependency, "config", "commit.gpgsign", "false")
+	writeSourceManifestFile(t, dependency, "dependency.go", "package dependency\n", 0o644)
+	gitSourceManifest(t, dependency, "add", "dependency.go")
+	gitSourceManifest(t, dependency, "commit", "-m", "dependency")
+	wantCommit := gitSourceManifest(t, dependency, "rev-parse", "HEAD")
+
+	root := t.TempDir()
+	gitSourceManifest(t, root, "init", "-b", "main")
+	gitSourceManifest(t, root, "config", "commit.gpgsign", "false")
+	writeSourceManifestFile(t, root, "main.go", "package main\n", 0o644)
+	gitSourceManifest(t, root, "add", "main.go")
+	gitSourceManifest(t, root, "commit", "-m", "root")
+	gitSourceManifest(t, root, "-c", "protocol.file.allow=always", "submodule", "add", dependency, "modules/dependency")
+	gitSourceManifest(t, root, "commit", "-am", "submodule")
+
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	})
+	if err != nil {
+		t.Fatalf("GetSourceManifest worktree gitlink: %v", err)
+	}
+	if response.GetFailure() != nil {
+		t.Fatalf("GetSourceManifest worktree gitlink failure: %+v", response.GetFailure())
+	}
+	entries := sourceManifestEntriesByPath(response.GetGetSourceManifest())
+	if len(entries) != 3 || entries["modules/dependency/dependency.go"] != nil {
+		t.Fatalf("worktree entries = %v, want parent files plus one gitlink", sourceManifestEntryPaths(response.GetGetSourceManifest()))
+	}
+	gitlink := entries["modules/dependency"]
+	if gitlink.GetKind() != basev0.SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK || gitlink.GetMode() != 0o160000 || gitlink.GetIdentity().GetDigest() != wantCommit || gitlink.GetIdentity().GetSizeBytes() != -1 {
+		t.Fatalf("worktree gitlink = %+v", gitlink)
+	}
+
+	writeSourceManifestFile(t, root, "modules/dependency/untracked.go", "package dependency\n", 0o644)
+	dirtyResponse, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	})
+	if err != nil {
+		t.Fatalf("GetSourceManifest dirty gitlink transport: %v", err)
+	}
+	if dirtyResponse.GetFailure() == nil || !strings.Contains(dirtyResponse.GetFailure().GetMessage(), "dirty gitlink modules/dependency") {
+		t.Fatalf("dirty gitlink failure = %+v", dirtyResponse.GetFailure())
 	}
 }
 

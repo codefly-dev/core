@@ -62,23 +62,44 @@ func (s *DefaultCodeServer) getSourceManifest(ctx context.Context, req *codev0.G
 }
 
 func (s *DefaultCodeServer) worktreeSourceManifest(ctx context.Context) (*basev0.SourceManifest, error) {
-	entries := make([]*basev0.SourceManifestEntry, 0, 256)
-	err := s.FS.WalkDir(s.SourceDir, func(path string, entry fs.DirEntry, walkErr error) error {
+	gitlinks, err := s.worktreeGitlinks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]*basev0.SourceManifestEntry, 0, 256+len(gitlinks))
+	for _, entry := range gitlinks {
+		entries = append(entries, entry)
+	}
+	err = s.FS.WalkDir(s.SourceDir, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		relative, err := filepath.Rel(s.SourceDir, path)
+		if err != nil {
+			return fmt.Errorf("relative path %s: %w", path, err)
+		}
+		relative = filepath.ToSlash(relative)
+		if _, tracked := gitlinks[relative]; tracked {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			// A regular file replacing a staged gitlink is observable worktree
+			// state, so discard the pre-seeded index entry and hash the file.
+			for index := range entries {
+				if entries[index].GetPath() == relative {
+					entries = append(entries[:index], entries[index+1:]...)
+					break
+				}
+			}
+		}
 		if entry.IsDir() {
 			if path != s.SourceDir && (strings.HasPrefix(entry.Name(), ".") || isGeneratedSourceDirectory(entry.Name())) {
 				return fs.SkipDir
 			}
 			return nil
-		}
-		relative, err := filepath.Rel(s.SourceDir, path)
-		if err != nil {
-			return fmt.Errorf("relative path %s: %w", path, err)
 		}
 		info, err := sourceEntryInfo(s.FS, path, entry)
 		if err != nil {
@@ -97,12 +118,12 @@ func (s *DefaultCodeServer) worktreeSourceManifest(ctx context.Context) (*basev0
 		}
 		digest := sha256.Sum256(body)
 		entries = append(entries, &basev0.SourceManifestEntry{
-			Path: filepath.ToSlash(relative), Mode: mode, Kind: kind,
+			Path: relative, Mode: mode, Kind: kind,
 			Identity: &basev0.SourceIdentity{
 				Algorithm: basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256,
 				Digest:    hex.EncodeToString(digest[:]), SizeBytes: int64(len(body)),
 			},
-			Attributes: classifySourceAttributes(filepath.ToSlash(relative), kind, body, true),
+			Attributes: classifySourceAttributes(relative, kind, body, true),
 		})
 		return nil
 	})
@@ -111,6 +132,68 @@ func (s *DefaultCodeServer) worktreeSourceManifest(ctx context.Context) (*basev0
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].GetPath() < entries[j].GetPath() })
 	return &basev0.SourceManifest{Entries: entries}, nil
+}
+
+// worktreeGitlinks asks Git for tracked submodule entries before walking the
+// filesystem. An initialized submodule is a directory on disk, but it is one
+// project leaf whose identity is a commit; descending into it would leak a
+// second repository into the parent manifest and make revision/worktree
+// comparison structurally inconsistent.
+func (s *DefaultCodeServer) worktreeGitlinks(ctx context.Context) (map[string]*basev0.SourceManifestEntry, error) {
+	inside, err := s.runGit(ctx, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return map[string]*basev0.SourceManifestEntry{}, nil
+	}
+	output, err := s.runGit(ctx, "ls-files", "--stage", "-z", "--", ".")
+	if err != nil {
+		return nil, fmt.Errorf("source manifest gitlinks: %w", err)
+	}
+	result := map[string]*basev0.SourceManifestEntry{}
+	for _, record := range strings.Split(output, "\x00") {
+		if record == "" {
+			continue
+		}
+		header, name, found := strings.Cut(record, "\t")
+		fields := strings.Fields(header)
+		if !found || len(fields) != 3 {
+			return nil, fmt.Errorf("source manifest: invalid Git index record %q", record)
+		}
+		if fields[0] != "160000" {
+			continue
+		}
+		if fields[2] != "0" {
+			return nil, fmt.Errorf("source manifest: unmerged gitlink %q at stage %s", name, fields[2])
+		}
+		name = filepath.ToSlash(name)
+		if name == "" || name == "." || strings.HasPrefix(name, "../") || strings.Contains(name, "\\") {
+			return nil, fmt.Errorf("source manifest: invalid gitlink path %q", name)
+		}
+		digest := fields[1]
+		if info, statErr := s.FS.Stat(filepath.Join(s.SourceDir, filepath.FromSlash(name))); statErr == nil && info.IsDir() {
+			resolved, resolveErr := s.runGit(ctx, "-C", name, "rev-parse", "--verify", "HEAD^{commit}")
+			if resolveErr != nil {
+				return nil, fmt.Errorf("source manifest: resolve gitlink %s: %w", name, resolveErr)
+			}
+			dirty, statusErr := s.runGit(ctx, "-C", name, "status", "--porcelain=v1", "--untracked-files=normal")
+			if statusErr != nil {
+				return nil, fmt.Errorf("source manifest: inspect gitlink %s: %w", name, statusErr)
+			}
+			if strings.TrimSpace(dirty) != "" {
+				return nil, fmt.Errorf("source manifest: dirty gitlink %s has no exact commit identity", name)
+			}
+			digest = strings.TrimSpace(resolved)
+		}
+		kind, algorithm, identityErr := revisionEntryIdentity("160000", "commit", digest)
+		if identityErr != nil {
+			return nil, fmt.Errorf("source manifest: gitlink %s: %w", name, identityErr)
+		}
+		result[name] = &basev0.SourceManifestEntry{
+			Path: name, Mode: 0o160000, Kind: kind,
+			Identity:   &basev0.SourceIdentity{Algorithm: algorithm, Digest: digest, SizeBytes: -1},
+			Attributes: classifySourceAttributes(name, kind, nil, false),
+		}
+	}
+	return result, nil
 }
 
 func sourceEntryInfo(vfs VFS, path string, entry fs.DirEntry) (os.FileInfo, error) {

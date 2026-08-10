@@ -46,6 +46,8 @@ func sourceLanguageForPath(name string) (basev0.SourceLanguage, string) {
 		return basev0.SourceLanguage_SOURCE_LANGUAGE_JAVA, "extension .java"
 	case ".kt", ".kts":
 		return basev0.SourceLanguage_SOURCE_LANGUAGE_KOTLIN, "Kotlin extension"
+	case ".cs":
+		return basev0.SourceLanguage_SOURCE_LANGUAGE_CSHARP, "C# extension"
 	case ".sql":
 		return basev0.SourceLanguage_SOURCE_LANGUAGE_SQL, "extension .sql"
 	case ".json", ".jsonc":
