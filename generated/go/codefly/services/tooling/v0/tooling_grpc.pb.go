@@ -20,16 +20,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Tooling_Fix_FullMethodName              = "/codefly.services.tooling.v0.Tooling/Fix"
-	Tooling_ApplyEdit_FullMethodName        = "/codefly.services.tooling.v0.Tooling/ApplyEdit"
-	Tooling_ListDependencies_FullMethodName = "/codefly.services.tooling.v0.Tooling/ListDependencies"
-	Tooling_AddDependency_FullMethodName    = "/codefly.services.tooling.v0.Tooling/AddDependency"
-	Tooling_RemoveDependency_FullMethodName = "/codefly.services.tooling.v0.Tooling/RemoveDependency"
-	Tooling_GetProjectInfo_FullMethodName   = "/codefly.services.tooling.v0.Tooling/GetProjectInfo"
-	Tooling_GetSemanticIndex_FullMethodName = "/codefly.services.tooling.v0.Tooling/GetSemanticIndex"
-	Tooling_Build_FullMethodName            = "/codefly.services.tooling.v0.Tooling/Build"
-	Tooling_Test_FullMethodName             = "/codefly.services.tooling.v0.Tooling/Test"
-	Tooling_Lint_FullMethodName             = "/codefly.services.tooling.v0.Tooling/Lint"
+	Tooling_Fix_FullMethodName                 = "/codefly.services.tooling.v0.Tooling/Fix"
+	Tooling_ApplyEdit_FullMethodName           = "/codefly.services.tooling.v0.Tooling/ApplyEdit"
+	Tooling_ListDependencies_FullMethodName    = "/codefly.services.tooling.v0.Tooling/ListDependencies"
+	Tooling_AddDependency_FullMethodName       = "/codefly.services.tooling.v0.Tooling/AddDependency"
+	Tooling_RemoveDependency_FullMethodName    = "/codefly.services.tooling.v0.Tooling/RemoveDependency"
+	Tooling_GetProjectInfo_FullMethodName      = "/codefly.services.tooling.v0.Tooling/GetProjectInfo"
+	Tooling_GetSemanticIndex_FullMethodName    = "/codefly.services.tooling.v0.Tooling/GetSemanticIndex"
+	Tooling_GetInstructionIndex_FullMethodName = "/codefly.services.tooling.v0.Tooling/GetInstructionIndex"
+	Tooling_Build_FullMethodName               = "/codefly.services.tooling.v0.Tooling/Build"
+	Tooling_Test_FullMethodName                = "/codefly.services.tooling.v0.Tooling/Test"
+	Tooling_Lint_FullMethodName                = "/codefly.services.tooling.v0.Tooling/Lint"
 )
 
 // ToolingClient is the client API for Tooling service.
@@ -57,6 +58,9 @@ type ToolingClient interface {
 	GetProjectInfo(ctx context.Context, in *GetProjectInfoRequest, opts ...grpc.CallOption) (*GetProjectInfoResponse, error)
 	// GetSemanticIndex keeps project parsing and project bytes inside Codefly.
 	GetSemanticIndex(ctx context.Context, in *GetSemanticIndexRequest, opts ...grpc.CallOption) (*GetSemanticIndexResponse, error)
+	// GetInstructionIndex keeps instruction discovery, Markdown parsing, and
+	// project document bytes inside Codefly.
+	GetInstructionIndex(ctx context.Context, in *GetInstructionIndexRequest, opts ...grpc.CallOption) (*GetInstructionIndexResponse, error)
 	// Dev validation
 	Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error)
 	// Test runs native tests and returns structured counts.
@@ -143,6 +147,16 @@ func (c *toolingClient) GetSemanticIndex(ctx context.Context, in *GetSemanticInd
 	return out, nil
 }
 
+func (c *toolingClient) GetInstructionIndex(ctx context.Context, in *GetInstructionIndexRequest, opts ...grpc.CallOption) (*GetInstructionIndexResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetInstructionIndexResponse)
+	err := c.cc.Invoke(ctx, Tooling_GetInstructionIndex_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *toolingClient) Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BuildResponse)
@@ -198,6 +212,9 @@ type ToolingServer interface {
 	GetProjectInfo(context.Context, *GetProjectInfoRequest) (*GetProjectInfoResponse, error)
 	// GetSemanticIndex keeps project parsing and project bytes inside Codefly.
 	GetSemanticIndex(context.Context, *GetSemanticIndexRequest) (*GetSemanticIndexResponse, error)
+	// GetInstructionIndex keeps instruction discovery, Markdown parsing, and
+	// project document bytes inside Codefly.
+	GetInstructionIndex(context.Context, *GetInstructionIndexRequest) (*GetInstructionIndexResponse, error)
 	// Dev validation
 	Build(context.Context, *BuildRequest) (*BuildResponse, error)
 	// Test runs native tests and returns structured counts.
@@ -234,6 +251,9 @@ func (UnimplementedToolingServer) GetProjectInfo(context.Context, *GetProjectInf
 }
 func (UnimplementedToolingServer) GetSemanticIndex(context.Context, *GetSemanticIndexRequest) (*GetSemanticIndexResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSemanticIndex not implemented")
+}
+func (UnimplementedToolingServer) GetInstructionIndex(context.Context, *GetInstructionIndexRequest) (*GetInstructionIndexResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetInstructionIndex not implemented")
 }
 func (UnimplementedToolingServer) Build(context.Context, *BuildRequest) (*BuildResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Build not implemented")
@@ -391,6 +411,24 @@ func _Tooling_GetSemanticIndex_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Tooling_GetInstructionIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetInstructionIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ToolingServer).GetInstructionIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Tooling_GetInstructionIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ToolingServer).GetInstructionIndex(ctx, req.(*GetInstructionIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Tooling_Build_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(BuildRequest)
 	if err := dec(in); err != nil {
@@ -479,6 +517,10 @@ var Tooling_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSemanticIndex",
 			Handler:    _Tooling_GetSemanticIndex_Handler,
+		},
+		{
+			MethodName: "GetInstructionIndex",
+			Handler:    _Tooling_GetInstructionIndex_Handler,
 		},
 		{
 			MethodName: "Build",

@@ -2286,6 +2286,44 @@ func (*GetSemanticIndexRequest) Descriptor() ([]byte, []int) {
 	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{33}
 }
 
+// GetInstructionIndexRequest asks the attached Codefly source boundary to
+// discover and interpret recognized repository instruction documents.
+type GetInstructionIndexRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetInstructionIndexRequest) Reset() {
+	*x = GetInstructionIndexRequest{}
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetInstructionIndexRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetInstructionIndexRequest) ProtoMessage() {}
+
+func (x *GetInstructionIndexRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetInstructionIndexRequest.ProtoReflect.Descriptor instead.
+func (*GetInstructionIndexRequest) Descriptor() ([]byte, []int) {
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{34}
+}
+
 // GetSourceManifestRequest asks the Code boundary for body-free artifact
 // identities. Empty revision observes the live worktree; a non-empty revision
 // resolves one immutable Git tree.
@@ -2299,7 +2337,7 @@ type GetSourceManifestRequest struct {
 
 func (x *GetSourceManifestRequest) Reset() {
 	*x = GetSourceManifestRequest{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[34]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2311,7 +2349,7 @@ func (x *GetSourceManifestRequest) String() string {
 func (*GetSourceManifestRequest) ProtoMessage() {}
 
 func (x *GetSourceManifestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[34]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2324,7 +2362,7 @@ func (x *GetSourceManifestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSourceManifestRequest.ProtoReflect.Descriptor instead.
 func (*GetSourceManifestRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{34}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *GetSourceManifestRequest) GetRevision() string {
@@ -2352,7 +2390,7 @@ type DiscoverCodeUnitsRequest struct {
 
 func (x *DiscoverCodeUnitsRequest) Reset() {
 	*x = DiscoverCodeUnitsRequest{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[35]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2364,7 +2402,7 @@ func (x *DiscoverCodeUnitsRequest) String() string {
 func (*DiscoverCodeUnitsRequest) ProtoMessage() {}
 
 func (x *DiscoverCodeUnitsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[35]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2377,7 +2415,7 @@ func (x *DiscoverCodeUnitsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscoverCodeUnitsRequest.ProtoReflect.Descriptor instead.
 func (*DiscoverCodeUnitsRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{35}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{36}
 }
 
 // CodeUnitInfo describes one source boundary and the evidence that established
@@ -2404,7 +2442,7 @@ type CodeUnitInfo struct {
 
 func (x *CodeUnitInfo) Reset() {
 	*x = CodeUnitInfo{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[36]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2416,7 +2454,7 @@ func (x *CodeUnitInfo) String() string {
 func (*CodeUnitInfo) ProtoMessage() {}
 
 func (x *CodeUnitInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[36]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2429,7 +2467,7 @@ func (x *CodeUnitInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CodeUnitInfo.ProtoReflect.Descriptor instead.
 func (*CodeUnitInfo) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{36}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *CodeUnitInfo) GetPath() string {
@@ -2485,7 +2523,7 @@ type DiscoverCodeUnitsResponse struct {
 
 func (x *DiscoverCodeUnitsResponse) Reset() {
 	*x = DiscoverCodeUnitsResponse{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[37]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2497,7 +2535,7 @@ func (x *DiscoverCodeUnitsResponse) String() string {
 func (*DiscoverCodeUnitsResponse) ProtoMessage() {}
 
 func (x *DiscoverCodeUnitsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[37]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2510,7 +2548,7 @@ func (x *DiscoverCodeUnitsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscoverCodeUnitsResponse.ProtoReflect.Descriptor instead.
 func (*DiscoverCodeUnitsResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{37}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *DiscoverCodeUnitsResponse) GetCodeUnits() []*CodeUnitInfo {
@@ -2537,7 +2575,7 @@ type GitLogRequest struct {
 
 func (x *GitLogRequest) Reset() {
 	*x = GitLogRequest{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[38]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2549,7 +2587,7 @@ func (x *GitLogRequest) String() string {
 func (*GitLogRequest) ProtoMessage() {}
 
 func (x *GitLogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[38]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2562,7 +2600,7 @@ func (x *GitLogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitLogRequest.ProtoReflect.Descriptor instead.
 func (*GitLogRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{38}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *GitLogRequest) GetMaxCount() int32 {
@@ -2614,7 +2652,7 @@ type GitCommit struct {
 
 func (x *GitCommit) Reset() {
 	*x = GitCommit{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[39]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2626,7 +2664,7 @@ func (x *GitCommit) String() string {
 func (*GitCommit) ProtoMessage() {}
 
 func (x *GitCommit) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[39]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2639,7 +2677,7 @@ func (x *GitCommit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitCommit.ProtoReflect.Descriptor instead.
 func (*GitCommit) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{39}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *GitCommit) GetHash() string {
@@ -2695,7 +2733,7 @@ type GitLogResponse struct {
 
 func (x *GitLogResponse) Reset() {
 	*x = GitLogResponse{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[40]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2707,7 +2745,7 @@ func (x *GitLogResponse) String() string {
 func (*GitLogResponse) ProtoMessage() {}
 
 func (x *GitLogResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[40]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2720,7 +2758,7 @@ func (x *GitLogResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitLogResponse.ProtoReflect.Descriptor instead.
 func (*GitLogResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{40}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *GitLogResponse) GetCommits() []*GitCommit {
@@ -2749,7 +2787,7 @@ type GitDiffRequest struct {
 
 func (x *GitDiffRequest) Reset() {
 	*x = GitDiffRequest{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[41]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2761,7 +2799,7 @@ func (x *GitDiffRequest) String() string {
 func (*GitDiffRequest) ProtoMessage() {}
 
 func (x *GitDiffRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[41]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2774,7 +2812,7 @@ func (x *GitDiffRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitDiffRequest.ProtoReflect.Descriptor instead.
 func (*GitDiffRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{41}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *GitDiffRequest) GetBaseRef() string {
@@ -2829,7 +2867,7 @@ type GitDiffFile struct {
 
 func (x *GitDiffFile) Reset() {
 	*x = GitDiffFile{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[42]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2841,7 +2879,7 @@ func (x *GitDiffFile) String() string {
 func (*GitDiffFile) ProtoMessage() {}
 
 func (x *GitDiffFile) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[42]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2854,7 +2892,7 @@ func (x *GitDiffFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitDiffFile.ProtoReflect.Descriptor instead.
 func (*GitDiffFile) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{42}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *GitDiffFile) GetPath() string {
@@ -2898,7 +2936,7 @@ type GitDiffResponse struct {
 
 func (x *GitDiffResponse) Reset() {
 	*x = GitDiffResponse{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[43]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2910,7 +2948,7 @@ func (x *GitDiffResponse) String() string {
 func (*GitDiffResponse) ProtoMessage() {}
 
 func (x *GitDiffResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[43]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2923,7 +2961,7 @@ func (x *GitDiffResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitDiffResponse.ProtoReflect.Descriptor instead.
 func (*GitDiffResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{43}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *GitDiffResponse) GetDiff() string {
@@ -2953,7 +2991,7 @@ type GitShowRequest struct {
 
 func (x *GitShowRequest) Reset() {
 	*x = GitShowRequest{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[44]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2965,7 +3003,7 @@ func (x *GitShowRequest) String() string {
 func (*GitShowRequest) ProtoMessage() {}
 
 func (x *GitShowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[44]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2978,7 +3016,7 @@ func (x *GitShowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitShowRequest.ProtoReflect.Descriptor instead.
 func (*GitShowRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{44}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *GitShowRequest) GetRef() string {
@@ -3008,7 +3046,7 @@ type GitShowResponse struct {
 
 func (x *GitShowResponse) Reset() {
 	*x = GitShowResponse{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[45]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3020,7 +3058,7 @@ func (x *GitShowResponse) String() string {
 func (*GitShowResponse) ProtoMessage() {}
 
 func (x *GitShowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[45]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3033,7 +3071,7 @@ func (x *GitShowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitShowResponse.ProtoReflect.Descriptor instead.
 func (*GitShowResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{45}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *GitShowResponse) GetContent() string {
@@ -3065,7 +3103,7 @@ type GitBlameRequest struct {
 
 func (x *GitBlameRequest) Reset() {
 	*x = GitBlameRequest{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[46]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3077,7 +3115,7 @@ func (x *GitBlameRequest) String() string {
 func (*GitBlameRequest) ProtoMessage() {}
 
 func (x *GitBlameRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[46]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3090,7 +3128,7 @@ func (x *GitBlameRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitBlameRequest.ProtoReflect.Descriptor instead.
 func (*GitBlameRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{46}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *GitBlameRequest) GetPath() string {
@@ -3133,7 +3171,7 @@ type GitBlameLine struct {
 
 func (x *GitBlameLine) Reset() {
 	*x = GitBlameLine{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[47]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3145,7 +3183,7 @@ func (x *GitBlameLine) String() string {
 func (*GitBlameLine) ProtoMessage() {}
 
 func (x *GitBlameLine) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[47]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3158,7 +3196,7 @@ func (x *GitBlameLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitBlameLine.ProtoReflect.Descriptor instead.
 func (*GitBlameLine) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{47}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *GitBlameLine) GetHash() string {
@@ -3207,7 +3245,7 @@ type GitBlameResponse struct {
 
 func (x *GitBlameResponse) Reset() {
 	*x = GitBlameResponse{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[48]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3219,7 +3257,7 @@ func (x *GitBlameResponse) String() string {
 func (*GitBlameResponse) ProtoMessage() {}
 
 func (x *GitBlameResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[48]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3232,7 +3270,7 @@ func (x *GitBlameResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitBlameResponse.ProtoReflect.Descriptor instead.
 func (*GitBlameResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{48}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *GitBlameResponse) GetLines() []*GitBlameLine {
@@ -3275,7 +3313,7 @@ type ShellExecRequest struct {
 
 func (x *ShellExecRequest) Reset() {
 	*x = ShellExecRequest{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[49]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3287,7 +3325,7 @@ func (x *ShellExecRequest) String() string {
 func (*ShellExecRequest) ProtoMessage() {}
 
 func (x *ShellExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[49]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3300,7 +3338,7 @@ func (x *ShellExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellExecRequest.ProtoReflect.Descriptor instead.
 func (*ShellExecRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{49}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *ShellExecRequest) GetCommand() string {
@@ -3362,7 +3400,7 @@ type ShellExecResponse struct {
 
 func (x *ShellExecResponse) Reset() {
 	*x = ShellExecResponse{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[50]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3374,7 +3412,7 @@ func (x *ShellExecResponse) String() string {
 func (*ShellExecResponse) ProtoMessage() {}
 
 func (x *ShellExecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[50]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3387,7 +3425,7 @@ func (x *ShellExecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellExecResponse.ProtoReflect.Descriptor instead.
 func (*ShellExecResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{50}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ShellExecResponse) GetExitCode() int32 {
@@ -3439,6 +3477,7 @@ type CodeRequest struct {
 	//	*CodeRequest_DiscoverCodeUnits
 	//	*CodeRequest_GetSemanticIndex
 	//	*CodeRequest_GetSourceManifest
+	//	*CodeRequest_GetInstructionIndex
 	//	*CodeRequest_ReadFile
 	//	*CodeRequest_WriteFile
 	//	*CodeRequest_CreateFile
@@ -3458,7 +3497,7 @@ type CodeRequest struct {
 
 func (x *CodeRequest) Reset() {
 	*x = CodeRequest{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[51]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3470,7 +3509,7 @@ func (x *CodeRequest) String() string {
 func (*CodeRequest) ProtoMessage() {}
 
 func (x *CodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[51]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3483,7 +3522,7 @@ func (x *CodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CodeRequest.ProtoReflect.Descriptor instead.
 func (*CodeRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{51}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *CodeRequest) GetOperation() isCodeRequest_Operation {
@@ -3578,6 +3617,15 @@ func (x *CodeRequest) GetGetSourceManifest() *GetSourceManifestRequest {
 	if x != nil {
 		if x, ok := x.Operation.(*CodeRequest_GetSourceManifest); ok {
 			return x.GetSourceManifest
+		}
+	}
+	return nil
+}
+
+func (x *CodeRequest) GetGetInstructionIndex() *GetInstructionIndexRequest {
+	if x != nil {
+		if x, ok := x.Operation.(*CodeRequest_GetInstructionIndex); ok {
+			return x.GetInstructionIndex
 		}
 	}
 	return nil
@@ -3748,6 +3796,12 @@ type CodeRequest_GetSourceManifest struct {
 	GetSourceManifest *GetSourceManifestRequest `protobuf:"bytes,22,opt,name=get_source_manifest,json=getSourceManifest,proto3,oneof"`
 }
 
+type CodeRequest_GetInstructionIndex struct {
+	// get_instruction_index returns typed project guidance without exposing
+	// complete instruction documents to the caller.
+	GetInstructionIndex *GetInstructionIndexRequest `protobuf:"bytes,23,opt,name=get_instruction_index,json=getInstructionIndex,proto3,oneof"`
+}
+
 type CodeRequest_ReadFile struct {
 	// File and git operations — handled by the Code agent's default server
 	// (pkg/code/DefaultCodeServer in codefly core) backed by the workspace's
@@ -3832,6 +3886,8 @@ func (*CodeRequest_GetSemanticIndex) isCodeRequest_Operation() {}
 
 func (*CodeRequest_GetSourceManifest) isCodeRequest_Operation() {}
 
+func (*CodeRequest_GetInstructionIndex) isCodeRequest_Operation() {}
+
 func (*CodeRequest_ReadFile) isCodeRequest_Operation() {}
 
 func (*CodeRequest_WriteFile) isCodeRequest_Operation() {}
@@ -3875,6 +3931,7 @@ type CodeResponse struct {
 	//	*CodeResponse_DiscoverCodeUnits
 	//	*CodeResponse_GetSemanticIndex
 	//	*CodeResponse_GetSourceManifest
+	//	*CodeResponse_GetInstructionIndex
 	//	*CodeResponse_ReadFile
 	//	*CodeResponse_WriteFile
 	//	*CodeResponse_CreateFile
@@ -3894,7 +3951,7 @@ type CodeResponse struct {
 
 func (x *CodeResponse) Reset() {
 	*x = CodeResponse{}
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[52]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3906,7 +3963,7 @@ func (x *CodeResponse) String() string {
 func (*CodeResponse) ProtoMessage() {}
 
 func (x *CodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_code_v0_code_proto_msgTypes[52]
+	mi := &file_codefly_services_code_v0_code_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3919,7 +3976,7 @@ func (x *CodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CodeResponse.ProtoReflect.Descriptor instead.
 func (*CodeResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{52}
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *CodeResponse) GetFailure() *v0.Failure {
@@ -4021,6 +4078,15 @@ func (x *CodeResponse) GetGetSourceManifest() *v0.SourceManifest {
 	if x != nil {
 		if x, ok := x.Result.(*CodeResponse_GetSourceManifest); ok {
 			return x.GetSourceManifest
+		}
+	}
+	return nil
+}
+
+func (x *CodeResponse) GetGetInstructionIndex() *v0.InstructionIndex {
+	if x != nil {
+		if x, ok := x.Result.(*CodeResponse_GetInstructionIndex); ok {
+			return x.GetInstructionIndex
 		}
 	}
 	return nil
@@ -4188,6 +4254,12 @@ type CodeResponse_GetSourceManifest struct {
 	GetSourceManifest *v0.SourceManifest `protobuf:"bytes,22,opt,name=get_source_manifest,json=getSourceManifest,proto3,oneof"`
 }
 
+type CodeResponse_GetInstructionIndex struct {
+	// get_instruction_index returns typed instruction knowledge and source
+	// identities produced inside Codefly.
+	GetInstructionIndex *v0.InstructionIndex `protobuf:"bytes,23,opt,name=get_instruction_index,json=getInstructionIndex,proto3,oneof"`
+}
+
 type CodeResponse_ReadFile struct {
 	// File and git operation responses.
 	ReadFile *ReadFileResponse `protobuf:"bytes,26,opt,name=read_file,json=readFile,proto3,oneof"`
@@ -4268,6 +4340,8 @@ func (*CodeResponse_GetSemanticIndex) isCodeResponse_Result() {}
 
 func (*CodeResponse_GetSourceManifest) isCodeResponse_Result() {}
 
+func (*CodeResponse_GetInstructionIndex) isCodeResponse_Result() {}
+
 func (*CodeResponse_ReadFile) isCodeResponse_Result() {}
 
 func (*CodeResponse_WriteFile) isCodeResponse_Result() {}
@@ -4296,7 +4370,7 @@ var File_codefly_services_code_v0_code_proto protoreflect.FileDescriptor
 
 const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\n" +
-	"#codefly/services/code/v0/code.proto\x12\x18codefly.services.code.v0\x1a\x1dcodefly/base/v0/failure.proto\x1a\x1ecodefly/base/v0/semantic.proto\x1a\x1ccodefly/base/v0/source.proto\"%\n" +
+	"#codefly/services/code/v0/code.proto\x12\x18codefly.services.code.v0\x1a\x1dcodefly/base/v0/failure.proto\x1a!codefly/base/v0/instruction.proto\x1a\x1ecodefly/base/v0/semantic.proto\x1a\x1ccodefly/base/v0/source.proto\"%\n" +
 	"\x0fReadFileRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\"D\n" +
 	"\x10ReadFileResponse\x12\x18\n" +
@@ -4460,7 +4534,8 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\x0fFileHashesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\a\x10\bR\x05error\"\x19\n" +
-	"\x17GetSemanticIndexRequest\"\x88\x01\n" +
+	"\x17GetSemanticIndexRequest\"\x1c\n" +
+	"\x1aGetInstructionIndexRequest\"\x88\x01\n" +
 	"\x18GetSourceManifestRequest\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\tR\brevision\x12P\n" +
 	"\ridentity_mode\x18\x02 \x01(\x0e2+.codefly.base.v0.SourceManifestIdentityModeR\fidentityMode\"\x1a\n" +
@@ -4534,7 +4609,7 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x16\n" +
 	"\x06stdout\x18\x02 \x01(\tR\x06stdout\x12\x16\n" +
 	"\x06stderr\x18\x03 \x01(\tR\x06stderr\x12\x1b\n" +
-	"\ttimed_out\x18\x04 \x01(\bR\btimedOutJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x05errorR\afailure\"\xa7\x0e\n" +
+	"\ttimed_out\x18\x04 \x01(\bR\btimedOutJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x05errorR\afailure\"\x93\x0f\n" +
 	"\vCodeRequest\x128\n" +
 	"\x03fix\x18\r \x01(\v2$.codefly.services.code.v0.FixRequestH\x00R\x03fix\x12K\n" +
 	"\n" +
@@ -4546,7 +4621,8 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\x10get_project_info\x18\x13 \x01(\v2/.codefly.services.code.v0.GetProjectInfoRequestH\x00R\x0egetProjectInfo\x12d\n" +
 	"\x13discover_code_units\x18\x14 \x01(\v22.codefly.services.code.v0.DiscoverCodeUnitsRequestH\x00R\x11discoverCodeUnits\x12a\n" +
 	"\x12get_semantic_index\x18\x15 \x01(\v21.codefly.services.code.v0.GetSemanticIndexRequestH\x00R\x10getSemanticIndex\x12d\n" +
-	"\x13get_source_manifest\x18\x16 \x01(\v22.codefly.services.code.v0.GetSourceManifestRequestH\x00R\x11getSourceManifest\x12H\n" +
+	"\x13get_source_manifest\x18\x16 \x01(\v22.codefly.services.code.v0.GetSourceManifestRequestH\x00R\x11getSourceManifest\x12j\n" +
+	"\x15get_instruction_index\x18\x17 \x01(\v24.codefly.services.code.v0.GetInstructionIndexRequestH\x00R\x13getInstructionIndex\x12H\n" +
 	"\tread_file\x18\x1a \x01(\v2).codefly.services.code.v0.ReadFileRequestH\x00R\breadFile\x12K\n" +
 	"\n" +
 	"write_file\x18\x1b \x01(\v2*.codefly.services.code.v0.WriteFileRequestH\x00R\twriteFile\x12N\n" +
@@ -4564,7 +4640,7 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\bgit_diff\x18$ \x01(\v2(.codefly.services.code.v0.GitDiffRequestH\x00R\agitDiff\x12K\n" +
 	"\n" +
 	"shell_exec\x18% \x01(\v2*.codefly.services.code.v0.ShellExecRequestH\x00R\tshellExecB\v\n" +
-	"\toperation\"\xc7\x0e\n" +
+	"\toperation\"\xa0\x0f\n" +
 	"\fCodeResponse\x122\n" +
 	"\afailure\x18\x01 \x01(\v2\x18.codefly.base.v0.FailureR\afailure\x129\n" +
 	"\x03fix\x18\r \x01(\v2%.codefly.services.code.v0.FixResponseH\x00R\x03fix\x12L\n" +
@@ -4577,7 +4653,8 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\x10get_project_info\x18\x13 \x01(\v20.codefly.services.code.v0.GetProjectInfoResponseH\x00R\x0egetProjectInfo\x12e\n" +
 	"\x13discover_code_units\x18\x14 \x01(\v23.codefly.services.code.v0.DiscoverCodeUnitsResponseH\x00R\x11discoverCodeUnits\x12N\n" +
 	"\x12get_semantic_index\x18\x15 \x01(\v2\x1e.codefly.base.v0.SemanticIndexH\x00R\x10getSemanticIndex\x12Q\n" +
-	"\x13get_source_manifest\x18\x16 \x01(\v2\x1f.codefly.base.v0.SourceManifestH\x00R\x11getSourceManifest\x12I\n" +
+	"\x13get_source_manifest\x18\x16 \x01(\v2\x1f.codefly.base.v0.SourceManifestH\x00R\x11getSourceManifest\x12W\n" +
+	"\x15get_instruction_index\x18\x17 \x01(\v2!.codefly.base.v0.InstructionIndexH\x00R\x13getInstructionIndex\x12I\n" +
 	"\tread_file\x18\x1a \x01(\v2*.codefly.services.code.v0.ReadFileResponseH\x00R\breadFile\x12L\n" +
 	"\n" +
 	"write_file\x18\x1b \x01(\v2+.codefly.services.code.v0.WriteFileResponseH\x00R\twriteFile\x12O\n" +
@@ -4612,7 +4689,7 @@ func file_codefly_services_code_v0_code_proto_rawDescGZIP() []byte {
 	return file_codefly_services_code_v0_code_proto_rawDescData
 }
 
-var file_codefly_services_code_v0_code_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_codefly_services_code_v0_code_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_codefly_services_code_v0_code_proto_goTypes = []any{
 	(*ReadFileRequest)(nil),            // 0: codefly.services.code.v0.ReadFileRequest
 	(*ReadFileResponse)(nil),           // 1: codefly.services.code.v0.ReadFileResponse
@@ -4648,50 +4725,52 @@ var file_codefly_services_code_v0_code_proto_goTypes = []any{
 	(*GetProjectInfoRequest)(nil),      // 31: codefly.services.code.v0.GetProjectInfoRequest
 	(*GetProjectInfoResponse)(nil),     // 32: codefly.services.code.v0.GetProjectInfoResponse
 	(*GetSemanticIndexRequest)(nil),    // 33: codefly.services.code.v0.GetSemanticIndexRequest
-	(*GetSourceManifestRequest)(nil),   // 34: codefly.services.code.v0.GetSourceManifestRequest
-	(*DiscoverCodeUnitsRequest)(nil),   // 35: codefly.services.code.v0.DiscoverCodeUnitsRequest
-	(*CodeUnitInfo)(nil),               // 36: codefly.services.code.v0.CodeUnitInfo
-	(*DiscoverCodeUnitsResponse)(nil),  // 37: codefly.services.code.v0.DiscoverCodeUnitsResponse
-	(*GitLogRequest)(nil),              // 38: codefly.services.code.v0.GitLogRequest
-	(*GitCommit)(nil),                  // 39: codefly.services.code.v0.GitCommit
-	(*GitLogResponse)(nil),             // 40: codefly.services.code.v0.GitLogResponse
-	(*GitDiffRequest)(nil),             // 41: codefly.services.code.v0.GitDiffRequest
-	(*GitDiffFile)(nil),                // 42: codefly.services.code.v0.GitDiffFile
-	(*GitDiffResponse)(nil),            // 43: codefly.services.code.v0.GitDiffResponse
-	(*GitShowRequest)(nil),             // 44: codefly.services.code.v0.GitShowRequest
-	(*GitShowResponse)(nil),            // 45: codefly.services.code.v0.GitShowResponse
-	(*GitBlameRequest)(nil),            // 46: codefly.services.code.v0.GitBlameRequest
-	(*GitBlameLine)(nil),               // 47: codefly.services.code.v0.GitBlameLine
-	(*GitBlameResponse)(nil),           // 48: codefly.services.code.v0.GitBlameResponse
-	(*ShellExecRequest)(nil),           // 49: codefly.services.code.v0.ShellExecRequest
-	(*ShellExecResponse)(nil),          // 50: codefly.services.code.v0.ShellExecResponse
-	(*CodeRequest)(nil),                // 51: codefly.services.code.v0.CodeRequest
-	(*CodeResponse)(nil),               // 52: codefly.services.code.v0.CodeResponse
-	nil,                                // 53: codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
-	(v0.FixMode)(0),                    // 54: codefly.base.v0.FixMode
-	(v0.SymbolPatchFailureReason)(0),   // 55: codefly.base.v0.SymbolPatchFailureReason
-	(v0.SourceManifestIdentityMode)(0), // 56: codefly.base.v0.SourceManifestIdentityMode
-	(*v0.Failure)(nil),                 // 57: codefly.base.v0.Failure
-	(*v0.SemanticIndex)(nil),           // 58: codefly.base.v0.SemanticIndex
-	(*v0.SourceManifest)(nil),          // 59: codefly.base.v0.SourceManifest
+	(*GetInstructionIndexRequest)(nil), // 34: codefly.services.code.v0.GetInstructionIndexRequest
+	(*GetSourceManifestRequest)(nil),   // 35: codefly.services.code.v0.GetSourceManifestRequest
+	(*DiscoverCodeUnitsRequest)(nil),   // 36: codefly.services.code.v0.DiscoverCodeUnitsRequest
+	(*CodeUnitInfo)(nil),               // 37: codefly.services.code.v0.CodeUnitInfo
+	(*DiscoverCodeUnitsResponse)(nil),  // 38: codefly.services.code.v0.DiscoverCodeUnitsResponse
+	(*GitLogRequest)(nil),              // 39: codefly.services.code.v0.GitLogRequest
+	(*GitCommit)(nil),                  // 40: codefly.services.code.v0.GitCommit
+	(*GitLogResponse)(nil),             // 41: codefly.services.code.v0.GitLogResponse
+	(*GitDiffRequest)(nil),             // 42: codefly.services.code.v0.GitDiffRequest
+	(*GitDiffFile)(nil),                // 43: codefly.services.code.v0.GitDiffFile
+	(*GitDiffResponse)(nil),            // 44: codefly.services.code.v0.GitDiffResponse
+	(*GitShowRequest)(nil),             // 45: codefly.services.code.v0.GitShowRequest
+	(*GitShowResponse)(nil),            // 46: codefly.services.code.v0.GitShowResponse
+	(*GitBlameRequest)(nil),            // 47: codefly.services.code.v0.GitBlameRequest
+	(*GitBlameLine)(nil),               // 48: codefly.services.code.v0.GitBlameLine
+	(*GitBlameResponse)(nil),           // 49: codefly.services.code.v0.GitBlameResponse
+	(*ShellExecRequest)(nil),           // 50: codefly.services.code.v0.ShellExecRequest
+	(*ShellExecResponse)(nil),          // 51: codefly.services.code.v0.ShellExecResponse
+	(*CodeRequest)(nil),                // 52: codefly.services.code.v0.CodeRequest
+	(*CodeResponse)(nil),               // 53: codefly.services.code.v0.CodeResponse
+	nil,                                // 54: codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
+	(v0.FixMode)(0),                    // 55: codefly.base.v0.FixMode
+	(v0.SymbolPatchFailureReason)(0),   // 56: codefly.base.v0.SymbolPatchFailureReason
+	(v0.SourceManifestIdentityMode)(0), // 57: codefly.base.v0.SourceManifestIdentityMode
+	(*v0.Failure)(nil),                 // 58: codefly.base.v0.Failure
+	(*v0.SemanticIndex)(nil),           // 59: codefly.base.v0.SemanticIndex
+	(*v0.SourceManifest)(nil),          // 60: codefly.base.v0.SourceManifest
+	(*v0.InstructionIndex)(nil),        // 61: codefly.base.v0.InstructionIndex
 }
 var file_codefly_services_code_v0_code_proto_depIdxs = []int32{
 	5,  // 0: codefly.services.code.v0.ListFilesResponse.files:type_name -> codefly.services.code.v0.FileInfo
-	54, // 1: codefly.services.code.v0.FixRequest.mode:type_name -> codefly.base.v0.FixMode
-	54, // 2: codefly.services.code.v0.ApplyEditRequest.fix_mode:type_name -> codefly.base.v0.FixMode
-	54, // 3: codefly.services.code.v0.ApplySymbolPatchRequest.fix_mode:type_name -> codefly.base.v0.FixMode
-	55, // 4: codefly.services.code.v0.ApplySymbolPatchResponse.failure_reason:type_name -> codefly.base.v0.SymbolPatchFailureReason
+	55, // 1: codefly.services.code.v0.FixRequest.mode:type_name -> codefly.base.v0.FixMode
+	55, // 2: codefly.services.code.v0.ApplyEditRequest.fix_mode:type_name -> codefly.base.v0.FixMode
+	55, // 3: codefly.services.code.v0.ApplySymbolPatchRequest.fix_mode:type_name -> codefly.base.v0.FixMode
+	56, // 4: codefly.services.code.v0.ApplySymbolPatchResponse.failure_reason:type_name -> codefly.base.v0.SymbolPatchFailureReason
 	14, // 5: codefly.services.code.v0.SearchResponse.matches:type_name -> codefly.services.code.v0.SearchMatch
 	22, // 6: codefly.services.code.v0.ListDependenciesResponse.dependencies:type_name -> codefly.services.code.v0.Dependency
 	29, // 7: codefly.services.code.v0.GetProjectInfoResponse.packages:type_name -> codefly.services.code.v0.PackageInfo
 	22, // 8: codefly.services.code.v0.GetProjectInfoResponse.dependencies:type_name -> codefly.services.code.v0.Dependency
-	53, // 9: codefly.services.code.v0.GetProjectInfoResponse.file_hashes:type_name -> codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
+	54, // 9: codefly.services.code.v0.GetProjectInfoResponse.file_hashes:type_name -> codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
 	30, // 10: codefly.services.code.v0.GetProjectInfoResponse.source_files:type_name -> codefly.services.code.v0.SourceFileInfo
-	56, // 11: codefly.services.code.v0.GetSourceManifestRequest.identity_mode:type_name -> codefly.base.v0.SourceManifestIdentityMode
-	36, // 12: codefly.services.code.v0.DiscoverCodeUnitsResponse.code_units:type_name -> codefly.services.code.v0.CodeUnitInfo
-	39, // 13: codefly.services.code.v0.GitLogResponse.commits:type_name -> codefly.services.code.v0.GitCommit
-	42, // 14: codefly.services.code.v0.GitDiffResponse.files:type_name -> codefly.services.code.v0.GitDiffFile
-	47, // 15: codefly.services.code.v0.GitBlameResponse.lines:type_name -> codefly.services.code.v0.GitBlameLine
+	57, // 11: codefly.services.code.v0.GetSourceManifestRequest.identity_mode:type_name -> codefly.base.v0.SourceManifestIdentityMode
+	37, // 12: codefly.services.code.v0.DiscoverCodeUnitsResponse.code_units:type_name -> codefly.services.code.v0.CodeUnitInfo
+	40, // 13: codefly.services.code.v0.GitLogResponse.commits:type_name -> codefly.services.code.v0.GitCommit
+	43, // 14: codefly.services.code.v0.GitDiffResponse.files:type_name -> codefly.services.code.v0.GitDiffFile
+	48, // 15: codefly.services.code.v0.GitBlameResponse.lines:type_name -> codefly.services.code.v0.GitBlameLine
 	7,  // 16: codefly.services.code.v0.CodeRequest.fix:type_name -> codefly.services.code.v0.FixRequest
 	9,  // 17: codefly.services.code.v0.CodeRequest.apply_edit:type_name -> codefly.services.code.v0.ApplyEditRequest
 	11, // 18: codefly.services.code.v0.CodeRequest.apply_symbol_patch:type_name -> codefly.services.code.v0.ApplySymbolPatchRequest
@@ -4699,51 +4778,53 @@ var file_codefly_services_code_v0_code_proto_depIdxs = []int32{
 	25, // 20: codefly.services.code.v0.CodeRequest.add_dependency:type_name -> codefly.services.code.v0.AddDependencyRequest
 	27, // 21: codefly.services.code.v0.CodeRequest.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyRequest
 	31, // 22: codefly.services.code.v0.CodeRequest.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoRequest
-	35, // 23: codefly.services.code.v0.CodeRequest.discover_code_units:type_name -> codefly.services.code.v0.DiscoverCodeUnitsRequest
+	36, // 23: codefly.services.code.v0.CodeRequest.discover_code_units:type_name -> codefly.services.code.v0.DiscoverCodeUnitsRequest
 	33, // 24: codefly.services.code.v0.CodeRequest.get_semantic_index:type_name -> codefly.services.code.v0.GetSemanticIndexRequest
-	34, // 25: codefly.services.code.v0.CodeRequest.get_source_manifest:type_name -> codefly.services.code.v0.GetSourceManifestRequest
-	0,  // 26: codefly.services.code.v0.CodeRequest.read_file:type_name -> codefly.services.code.v0.ReadFileRequest
-	2,  // 27: codefly.services.code.v0.CodeRequest.write_file:type_name -> codefly.services.code.v0.WriteFileRequest
-	20, // 28: codefly.services.code.v0.CodeRequest.create_file:type_name -> codefly.services.code.v0.CreateFileRequest
-	16, // 29: codefly.services.code.v0.CodeRequest.delete_file:type_name -> codefly.services.code.v0.DeleteFileRequest
-	18, // 30: codefly.services.code.v0.CodeRequest.move_file:type_name -> codefly.services.code.v0.MoveFileRequest
-	4,  // 31: codefly.services.code.v0.CodeRequest.list_files:type_name -> codefly.services.code.v0.ListFilesRequest
-	13, // 32: codefly.services.code.v0.CodeRequest.search:type_name -> codefly.services.code.v0.SearchRequest
-	38, // 33: codefly.services.code.v0.CodeRequest.git_log:type_name -> codefly.services.code.v0.GitLogRequest
-	44, // 34: codefly.services.code.v0.CodeRequest.git_show:type_name -> codefly.services.code.v0.GitShowRequest
-	46, // 35: codefly.services.code.v0.CodeRequest.git_blame:type_name -> codefly.services.code.v0.GitBlameRequest
-	41, // 36: codefly.services.code.v0.CodeRequest.git_diff:type_name -> codefly.services.code.v0.GitDiffRequest
-	49, // 37: codefly.services.code.v0.CodeRequest.shell_exec:type_name -> codefly.services.code.v0.ShellExecRequest
-	57, // 38: codefly.services.code.v0.CodeResponse.failure:type_name -> codefly.base.v0.Failure
-	8,  // 39: codefly.services.code.v0.CodeResponse.fix:type_name -> codefly.services.code.v0.FixResponse
-	10, // 40: codefly.services.code.v0.CodeResponse.apply_edit:type_name -> codefly.services.code.v0.ApplyEditResponse
-	12, // 41: codefly.services.code.v0.CodeResponse.apply_symbol_patch:type_name -> codefly.services.code.v0.ApplySymbolPatchResponse
-	24, // 42: codefly.services.code.v0.CodeResponse.list_dependencies:type_name -> codefly.services.code.v0.ListDependenciesResponse
-	26, // 43: codefly.services.code.v0.CodeResponse.add_dependency:type_name -> codefly.services.code.v0.AddDependencyResponse
-	28, // 44: codefly.services.code.v0.CodeResponse.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyResponse
-	32, // 45: codefly.services.code.v0.CodeResponse.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoResponse
-	37, // 46: codefly.services.code.v0.CodeResponse.discover_code_units:type_name -> codefly.services.code.v0.DiscoverCodeUnitsResponse
-	58, // 47: codefly.services.code.v0.CodeResponse.get_semantic_index:type_name -> codefly.base.v0.SemanticIndex
-	59, // 48: codefly.services.code.v0.CodeResponse.get_source_manifest:type_name -> codefly.base.v0.SourceManifest
-	1,  // 49: codefly.services.code.v0.CodeResponse.read_file:type_name -> codefly.services.code.v0.ReadFileResponse
-	3,  // 50: codefly.services.code.v0.CodeResponse.write_file:type_name -> codefly.services.code.v0.WriteFileResponse
-	21, // 51: codefly.services.code.v0.CodeResponse.create_file:type_name -> codefly.services.code.v0.CreateFileResponse
-	17, // 52: codefly.services.code.v0.CodeResponse.delete_file:type_name -> codefly.services.code.v0.DeleteFileResponse
-	19, // 53: codefly.services.code.v0.CodeResponse.move_file:type_name -> codefly.services.code.v0.MoveFileResponse
-	6,  // 54: codefly.services.code.v0.CodeResponse.list_files:type_name -> codefly.services.code.v0.ListFilesResponse
-	15, // 55: codefly.services.code.v0.CodeResponse.search:type_name -> codefly.services.code.v0.SearchResponse
-	40, // 56: codefly.services.code.v0.CodeResponse.git_log:type_name -> codefly.services.code.v0.GitLogResponse
-	45, // 57: codefly.services.code.v0.CodeResponse.git_show:type_name -> codefly.services.code.v0.GitShowResponse
-	48, // 58: codefly.services.code.v0.CodeResponse.git_blame:type_name -> codefly.services.code.v0.GitBlameResponse
-	43, // 59: codefly.services.code.v0.CodeResponse.git_diff:type_name -> codefly.services.code.v0.GitDiffResponse
-	50, // 60: codefly.services.code.v0.CodeResponse.shell_exec:type_name -> codefly.services.code.v0.ShellExecResponse
-	51, // 61: codefly.services.code.v0.Code.Execute:input_type -> codefly.services.code.v0.CodeRequest
-	52, // 62: codefly.services.code.v0.Code.Execute:output_type -> codefly.services.code.v0.CodeResponse
-	62, // [62:63] is the sub-list for method output_type
-	61, // [61:62] is the sub-list for method input_type
-	61, // [61:61] is the sub-list for extension type_name
-	61, // [61:61] is the sub-list for extension extendee
-	0,  // [0:61] is the sub-list for field type_name
+	35, // 25: codefly.services.code.v0.CodeRequest.get_source_manifest:type_name -> codefly.services.code.v0.GetSourceManifestRequest
+	34, // 26: codefly.services.code.v0.CodeRequest.get_instruction_index:type_name -> codefly.services.code.v0.GetInstructionIndexRequest
+	0,  // 27: codefly.services.code.v0.CodeRequest.read_file:type_name -> codefly.services.code.v0.ReadFileRequest
+	2,  // 28: codefly.services.code.v0.CodeRequest.write_file:type_name -> codefly.services.code.v0.WriteFileRequest
+	20, // 29: codefly.services.code.v0.CodeRequest.create_file:type_name -> codefly.services.code.v0.CreateFileRequest
+	16, // 30: codefly.services.code.v0.CodeRequest.delete_file:type_name -> codefly.services.code.v0.DeleteFileRequest
+	18, // 31: codefly.services.code.v0.CodeRequest.move_file:type_name -> codefly.services.code.v0.MoveFileRequest
+	4,  // 32: codefly.services.code.v0.CodeRequest.list_files:type_name -> codefly.services.code.v0.ListFilesRequest
+	13, // 33: codefly.services.code.v0.CodeRequest.search:type_name -> codefly.services.code.v0.SearchRequest
+	39, // 34: codefly.services.code.v0.CodeRequest.git_log:type_name -> codefly.services.code.v0.GitLogRequest
+	45, // 35: codefly.services.code.v0.CodeRequest.git_show:type_name -> codefly.services.code.v0.GitShowRequest
+	47, // 36: codefly.services.code.v0.CodeRequest.git_blame:type_name -> codefly.services.code.v0.GitBlameRequest
+	42, // 37: codefly.services.code.v0.CodeRequest.git_diff:type_name -> codefly.services.code.v0.GitDiffRequest
+	50, // 38: codefly.services.code.v0.CodeRequest.shell_exec:type_name -> codefly.services.code.v0.ShellExecRequest
+	58, // 39: codefly.services.code.v0.CodeResponse.failure:type_name -> codefly.base.v0.Failure
+	8,  // 40: codefly.services.code.v0.CodeResponse.fix:type_name -> codefly.services.code.v0.FixResponse
+	10, // 41: codefly.services.code.v0.CodeResponse.apply_edit:type_name -> codefly.services.code.v0.ApplyEditResponse
+	12, // 42: codefly.services.code.v0.CodeResponse.apply_symbol_patch:type_name -> codefly.services.code.v0.ApplySymbolPatchResponse
+	24, // 43: codefly.services.code.v0.CodeResponse.list_dependencies:type_name -> codefly.services.code.v0.ListDependenciesResponse
+	26, // 44: codefly.services.code.v0.CodeResponse.add_dependency:type_name -> codefly.services.code.v0.AddDependencyResponse
+	28, // 45: codefly.services.code.v0.CodeResponse.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyResponse
+	32, // 46: codefly.services.code.v0.CodeResponse.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoResponse
+	38, // 47: codefly.services.code.v0.CodeResponse.discover_code_units:type_name -> codefly.services.code.v0.DiscoverCodeUnitsResponse
+	59, // 48: codefly.services.code.v0.CodeResponse.get_semantic_index:type_name -> codefly.base.v0.SemanticIndex
+	60, // 49: codefly.services.code.v0.CodeResponse.get_source_manifest:type_name -> codefly.base.v0.SourceManifest
+	61, // 50: codefly.services.code.v0.CodeResponse.get_instruction_index:type_name -> codefly.base.v0.InstructionIndex
+	1,  // 51: codefly.services.code.v0.CodeResponse.read_file:type_name -> codefly.services.code.v0.ReadFileResponse
+	3,  // 52: codefly.services.code.v0.CodeResponse.write_file:type_name -> codefly.services.code.v0.WriteFileResponse
+	21, // 53: codefly.services.code.v0.CodeResponse.create_file:type_name -> codefly.services.code.v0.CreateFileResponse
+	17, // 54: codefly.services.code.v0.CodeResponse.delete_file:type_name -> codefly.services.code.v0.DeleteFileResponse
+	19, // 55: codefly.services.code.v0.CodeResponse.move_file:type_name -> codefly.services.code.v0.MoveFileResponse
+	6,  // 56: codefly.services.code.v0.CodeResponse.list_files:type_name -> codefly.services.code.v0.ListFilesResponse
+	15, // 57: codefly.services.code.v0.CodeResponse.search:type_name -> codefly.services.code.v0.SearchResponse
+	41, // 58: codefly.services.code.v0.CodeResponse.git_log:type_name -> codefly.services.code.v0.GitLogResponse
+	46, // 59: codefly.services.code.v0.CodeResponse.git_show:type_name -> codefly.services.code.v0.GitShowResponse
+	49, // 60: codefly.services.code.v0.CodeResponse.git_blame:type_name -> codefly.services.code.v0.GitBlameResponse
+	44, // 61: codefly.services.code.v0.CodeResponse.git_diff:type_name -> codefly.services.code.v0.GitDiffResponse
+	51, // 62: codefly.services.code.v0.CodeResponse.shell_exec:type_name -> codefly.services.code.v0.ShellExecResponse
+	52, // 63: codefly.services.code.v0.Code.Execute:input_type -> codefly.services.code.v0.CodeRequest
+	53, // 64: codefly.services.code.v0.Code.Execute:output_type -> codefly.services.code.v0.CodeResponse
+	64, // [64:65] is the sub-list for method output_type
+	63, // [63:64] is the sub-list for method input_type
+	63, // [63:63] is the sub-list for extension type_name
+	63, // [63:63] is the sub-list for extension extendee
+	0,  // [0:63] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_code_v0_code_proto_init() }
@@ -4751,7 +4832,7 @@ func file_codefly_services_code_v0_code_proto_init() {
 	if File_codefly_services_code_v0_code_proto != nil {
 		return
 	}
-	file_codefly_services_code_v0_code_proto_msgTypes[51].OneofWrappers = []any{
+	file_codefly_services_code_v0_code_proto_msgTypes[52].OneofWrappers = []any{
 		(*CodeRequest_Fix)(nil),
 		(*CodeRequest_ApplyEdit)(nil),
 		(*CodeRequest_ApplySymbolPatch)(nil),
@@ -4762,6 +4843,7 @@ func file_codefly_services_code_v0_code_proto_init() {
 		(*CodeRequest_DiscoverCodeUnits)(nil),
 		(*CodeRequest_GetSemanticIndex)(nil),
 		(*CodeRequest_GetSourceManifest)(nil),
+		(*CodeRequest_GetInstructionIndex)(nil),
 		(*CodeRequest_ReadFile)(nil),
 		(*CodeRequest_WriteFile)(nil),
 		(*CodeRequest_CreateFile)(nil),
@@ -4775,7 +4857,7 @@ func file_codefly_services_code_v0_code_proto_init() {
 		(*CodeRequest_GitDiff)(nil),
 		(*CodeRequest_ShellExec)(nil),
 	}
-	file_codefly_services_code_v0_code_proto_msgTypes[52].OneofWrappers = []any{
+	file_codefly_services_code_v0_code_proto_msgTypes[53].OneofWrappers = []any{
 		(*CodeResponse_Fix)(nil),
 		(*CodeResponse_ApplyEdit)(nil),
 		(*CodeResponse_ApplySymbolPatch)(nil),
@@ -4786,6 +4868,7 @@ func file_codefly_services_code_v0_code_proto_init() {
 		(*CodeResponse_DiscoverCodeUnits)(nil),
 		(*CodeResponse_GetSemanticIndex)(nil),
 		(*CodeResponse_GetSourceManifest)(nil),
+		(*CodeResponse_GetInstructionIndex)(nil),
 		(*CodeResponse_ReadFile)(nil),
 		(*CodeResponse_WriteFile)(nil),
 		(*CodeResponse_CreateFile)(nil),
@@ -4805,7 +4888,7 @@ func file_codefly_services_code_v0_code_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_code_v0_code_proto_rawDesc), len(file_codefly_services_code_v0_code_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   54,
+			NumMessages:   55,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

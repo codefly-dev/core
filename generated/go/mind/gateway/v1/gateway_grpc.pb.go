@@ -67,6 +67,7 @@ const (
 	Gateway_RemoveDependency_FullMethodName              = "/mind.gateway.v1.Gateway/RemoveDependency"
 	Gateway_GetProjectInfo_FullMethodName                = "/mind.gateway.v1.Gateway/GetProjectInfo"
 	Gateway_GetSemanticIndex_FullMethodName              = "/mind.gateway.v1.Gateway/GetSemanticIndex"
+	Gateway_GetInstructionIndex_FullMethodName           = "/mind.gateway.v1.Gateway/GetInstructionIndex"
 	Gateway_GetSourceManifest_FullMethodName             = "/mind.gateway.v1.Gateway/GetSourceManifest"
 	Gateway_DiscoverCodeUnits_FullMethodName             = "/mind.gateway.v1.Gateway/DiscoverCodeUnits"
 	Gateway_OpenTerminal_FullMethodName                  = "/mind.gateway.v1.Gateway/OpenTerminal"
@@ -191,6 +192,10 @@ type GatewayClient interface {
 	// GetSemanticIndex returns body-free semantic facts produced inside the
 	// production agent rooted at one exact code unit.
 	GetSemanticIndex(ctx context.Context, in *GetSemanticIndexRequest, opts ...grpc.CallOption) (*GetSemanticIndexResponse, error)
+	// GetInstructionIndex returns typed project guidance produced inside the
+	// repository-rooted Codefly source boundary. An optional code unit narrows
+	// the result to the instruction scopes applicable at that boundary.
+	GetInstructionIndex(ctx context.Context, in *GetInstructionIndexRequest, opts ...grpc.CallOption) (*GetInstructionIndexResponse, error)
 	// GetSourceManifest returns body-free project artifact identities produced
 	// inside Codefly for either the live worktree or one immutable Git revision.
 	GetSourceManifest(ctx context.Context, in *GetSourceManifestRequest, opts ...grpc.CallOption) (*GetSourceManifestResponse, error)
@@ -697,6 +702,16 @@ func (c *gatewayClient) GetSemanticIndex(ctx context.Context, in *GetSemanticInd
 	return out, nil
 }
 
+func (c *gatewayClient) GetInstructionIndex(ctx context.Context, in *GetInstructionIndexRequest, opts ...grpc.CallOption) (*GetInstructionIndexResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetInstructionIndexResponse)
+	err := c.cc.Invoke(ctx, Gateway_GetInstructionIndex_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *gatewayClient) GetSourceManifest(ctx context.Context, in *GetSourceManifestRequest, opts ...grpc.CallOption) (*GetSourceManifestResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetSourceManifestResponse)
@@ -885,6 +900,10 @@ type GatewayServer interface {
 	// GetSemanticIndex returns body-free semantic facts produced inside the
 	// production agent rooted at one exact code unit.
 	GetSemanticIndex(context.Context, *GetSemanticIndexRequest) (*GetSemanticIndexResponse, error)
+	// GetInstructionIndex returns typed project guidance produced inside the
+	// repository-rooted Codefly source boundary. An optional code unit narrows
+	// the result to the instruction scopes applicable at that boundary.
+	GetInstructionIndex(context.Context, *GetInstructionIndexRequest) (*GetInstructionIndexResponse, error)
 	// GetSourceManifest returns body-free project artifact identities produced
 	// inside Codefly for either the live worktree or one immutable Git revision.
 	GetSourceManifest(context.Context, *GetSourceManifestRequest) (*GetSourceManifestResponse, error)
@@ -1052,6 +1071,9 @@ func (UnimplementedGatewayServer) GetProjectInfo(context.Context, *GetProjectInf
 }
 func (UnimplementedGatewayServer) GetSemanticIndex(context.Context, *GetSemanticIndexRequest) (*GetSemanticIndexResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSemanticIndex not implemented")
+}
+func (UnimplementedGatewayServer) GetInstructionIndex(context.Context, *GetInstructionIndexRequest) (*GetInstructionIndexResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetInstructionIndex not implemented")
 }
 func (UnimplementedGatewayServer) GetSourceManifest(context.Context, *GetSourceManifestRequest) (*GetSourceManifestResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSourceManifest not implemented")
@@ -1934,6 +1956,24 @@ func _Gateway_GetSemanticIndex_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Gateway_GetInstructionIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetInstructionIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).GetInstructionIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_GetInstructionIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).GetInstructionIndex(ctx, req.(*GetInstructionIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Gateway_GetSourceManifest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetSourceManifestRequest)
 	if err := dec(in); err != nil {
@@ -2239,6 +2279,10 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSemanticIndex",
 			Handler:    _Gateway_GetSemanticIndex_Handler,
+		},
+		{
+			MethodName: "GetInstructionIndex",
+			Handler:    _Gateway_GetInstructionIndex_Handler,
 		},
 		{
 			MethodName: "GetSourceManifest",

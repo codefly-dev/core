@@ -102,8 +102,8 @@ func TestSourceBridgeAdvertisesOnlyImplementedSourceTools(t *testing.T) {
 	bridge := lang.NewSourceToolboxFromTooling("source", "1.0.0", fakeTooling{})
 	listed, err := bridge.ListTools(context.Background(), &toolboxv0.ListToolsRequest{})
 	require.NoError(t, err)
-	require.Equal(t, []string{lang.ToolFix, lang.ToolApplyEdit, lang.ToolGetProjectInfo, lang.ToolGetSemanticIndex}, []string{
-		listed.Tools[0].GetName(), listed.Tools[1].GetName(), listed.Tools[2].GetName(), listed.Tools[3].GetName(),
+	require.Equal(t, []string{lang.ToolFix, lang.ToolApplyEdit, lang.ToolGetProjectInfo, lang.ToolGetSemanticIndex, lang.ToolGetInstructionIndex}, []string{
+		listed.Tools[0].GetName(), listed.Tools[1].GetName(), listed.Tools[2].GetName(), listed.Tools[3].GetName(), listed.Tools[4].GetName(),
 	})
 	require.True(t, listed.Tools[0].GetDestructive())
 	properties := listed.Tools[0].GetInputSchema().GetFields()["properties"].GetStructValue().GetFields()

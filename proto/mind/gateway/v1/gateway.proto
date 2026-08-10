@@ -3,6 +3,7 @@ package mind.gateway.v1;
 
 import "codefly/base/v0/source.proto";
 import "codefly/base/v0/failure.proto";
+import "codefly/base/v0/instruction.proto";
 import "codefly/base/v0/semantic.proto";
 import "codefly/services/builder/v0/builder.proto";
 import "codefly/services/runtime/v0/runtime.proto";
@@ -198,6 +199,11 @@ service Gateway {
   // GetSemanticIndex returns body-free semantic facts produced inside the
   // production agent rooted at one exact code unit.
   rpc GetSemanticIndex(GetSemanticIndexRequest) returns (GetSemanticIndexResponse);
+
+  // GetInstructionIndex returns typed project guidance produced inside the
+  // repository-rooted Codefly source boundary. An optional code unit narrows
+  // the result to the instruction scopes applicable at that boundary.
+  rpc GetInstructionIndex(GetInstructionIndexRequest) returns (GetInstructionIndexResponse);
 
   // GetSourceManifest returns body-free project artifact identities produced
   // inside Codefly for either the live worktree or one immutable Git revision.
@@ -1802,6 +1808,21 @@ message GetSemanticIndexRequest {
 // inspected boundary. Paths in index are repository-relative.
 message GetSemanticIndexResponse {
   codefly.base.v0.SemanticIndex index = 1;
+  codefly.base.v0.Failure failure = 2;
+  CodeUnitTarget code_unit = 3;
+}
+
+// GetInstructionIndexRequest identifies a repository projection and an
+// optional code-unit scope filter.
+message GetInstructionIndexRequest {
+  string service = 1;
+  CodeUnitTarget code_unit = 2;
+}
+
+// GetInstructionIndexResponse preserves typed analyzer coverage and echoes an
+// exact requested scope. Source paths in index are repository-relative.
+message GetInstructionIndexResponse {
+  codefly.base.v0.InstructionIndex index = 1;
   codefly.base.v0.Failure failure = 2;
   CodeUnitTarget code_unit = 3;
 }

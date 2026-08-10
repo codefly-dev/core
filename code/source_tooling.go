@@ -117,3 +117,17 @@ func (t *SourceTooling) GetSemanticIndex(ctx context.Context, _ *toolingv0.GetSe
 	}
 	return &toolingv0.GetSemanticIndexResponse{Index: index, Failure: failures.Clone(response.GetFailure())}, nil
 }
+
+// GetInstructionIndex delegates document discovery and Markdown parsing to
+// Code. Tooling translates only the envelope; typed records remain unchanged.
+func (t *SourceTooling) GetInstructionIndex(ctx context.Context, _ *toolingv0.GetInstructionIndexRequest) (*toolingv0.GetInstructionIndexResponse, error) {
+	response, err := t.code.Execute(ctx, &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetInstructionIndex{GetInstructionIndex: &codev0.GetInstructionIndexRequest{}}})
+	if err != nil {
+		return nil, fmt.Errorf("tooling get instruction index: %w", err)
+	}
+	index := response.GetGetInstructionIndex()
+	if index == nil {
+		return &toolingv0.GetInstructionIndexResponse{Failure: failures.Ensure(response.GetFailure(), basev0.FailureCode_FAILURE_CODE_INTERNAL, "tooling.get-instruction-index", "code service returned no instruction index")}, nil
+	}
+	return &toolingv0.GetInstructionIndexResponse{Index: index, Failure: failures.Clone(response.GetFailure())}, nil
+}

@@ -21,8 +21,9 @@ const (
 	ToolRemoveDependency = "lang.remove_dependency"
 
 	// Project metadata
-	ToolGetProjectInfo   = "lang.get_project_info"
-	ToolGetSemanticIndex = "lang.get_semantic_index"
+	ToolGetProjectInfo      = "lang.get_project_info"
+	ToolGetSemanticIndex    = "lang.get_semantic_index"
+	ToolGetInstructionIndex = "lang.get_instruction_index"
 
 	// Dev validation (delegates to Runtime)
 	ToolBuild = "lang.build"

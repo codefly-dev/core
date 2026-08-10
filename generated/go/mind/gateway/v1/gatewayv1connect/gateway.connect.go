@@ -143,6 +143,9 @@ const (
 	// GatewayGetSemanticIndexProcedure is the fully-qualified name of the Gateway's GetSemanticIndex
 	// RPC.
 	GatewayGetSemanticIndexProcedure = "/mind.gateway.v1.Gateway/GetSemanticIndex"
+	// GatewayGetInstructionIndexProcedure is the fully-qualified name of the Gateway's
+	// GetInstructionIndex RPC.
+	GatewayGetInstructionIndexProcedure = "/mind.gateway.v1.Gateway/GetInstructionIndex"
 	// GatewayGetSourceManifestProcedure is the fully-qualified name of the Gateway's GetSourceManifest
 	// RPC.
 	GatewayGetSourceManifestProcedure = "/mind.gateway.v1.Gateway/GetSourceManifest"
@@ -271,6 +274,10 @@ type GatewayClient interface {
 	// GetSemanticIndex returns body-free semantic facts produced inside the
 	// production agent rooted at one exact code unit.
 	GetSemanticIndex(context.Context, *connect.Request[v1.GetSemanticIndexRequest]) (*connect.Response[v1.GetSemanticIndexResponse], error)
+	// GetInstructionIndex returns typed project guidance produced inside the
+	// repository-rooted Codefly source boundary. An optional code unit narrows
+	// the result to the instruction scopes applicable at that boundary.
+	GetInstructionIndex(context.Context, *connect.Request[v1.GetInstructionIndexRequest]) (*connect.Response[v1.GetInstructionIndexResponse], error)
 	// GetSourceManifest returns body-free project artifact identities produced
 	// inside Codefly for either the live worktree or one immutable Git revision.
 	GetSourceManifest(context.Context, *connect.Request[v1.GetSourceManifestRequest]) (*connect.Response[v1.GetSourceManifestResponse], error)
@@ -583,6 +590,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(gatewayMethods.ByName("GetSemanticIndex")),
 			connect.WithClientOptions(opts...),
 		),
+		getInstructionIndex: connect.NewClient[v1.GetInstructionIndexRequest, v1.GetInstructionIndexResponse](
+			httpClient,
+			baseURL+GatewayGetInstructionIndexProcedure,
+			connect.WithSchema(gatewayMethods.ByName("GetInstructionIndex")),
+			connect.WithClientOptions(opts...),
+		),
 		getSourceManifest: connect.NewClient[v1.GetSourceManifestRequest, v1.GetSourceManifestResponse](
 			httpClient,
 			baseURL+GatewayGetSourceManifestProcedure,
@@ -677,6 +690,7 @@ type gatewayClient struct {
 	removeDependency              *connect.Client[v1.RemoveDependencyRequest, v1.RemoveDependencyResponse]
 	getProjectInfo                *connect.Client[v1.GetProjectInfoRequest, v1.GetProjectInfoResponse]
 	getSemanticIndex              *connect.Client[v1.GetSemanticIndexRequest, v1.GetSemanticIndexResponse]
+	getInstructionIndex           *connect.Client[v1.GetInstructionIndexRequest, v1.GetInstructionIndexResponse]
 	getSourceManifest             *connect.Client[v1.GetSourceManifestRequest, v1.GetSourceManifestResponse]
 	discoverCodeUnits             *connect.Client[v1.DiscoverCodeUnitsRequest, v1.DiscoverCodeUnitsResponse]
 	openTerminal                  *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
@@ -921,6 +935,11 @@ func (c *gatewayClient) GetSemanticIndex(ctx context.Context, req *connect.Reque
 	return c.getSemanticIndex.CallUnary(ctx, req)
 }
 
+// GetInstructionIndex calls mind.gateway.v1.Gateway.GetInstructionIndex.
+func (c *gatewayClient) GetInstructionIndex(ctx context.Context, req *connect.Request[v1.GetInstructionIndexRequest]) (*connect.Response[v1.GetInstructionIndexResponse], error) {
+	return c.getInstructionIndex.CallUnary(ctx, req)
+}
+
 // GetSourceManifest calls mind.gateway.v1.Gateway.GetSourceManifest.
 func (c *gatewayClient) GetSourceManifest(ctx context.Context, req *connect.Request[v1.GetSourceManifestRequest]) (*connect.Response[v1.GetSourceManifestResponse], error) {
 	return c.getSourceManifest.CallUnary(ctx, req)
@@ -1066,6 +1085,10 @@ type GatewayHandler interface {
 	// GetSemanticIndex returns body-free semantic facts produced inside the
 	// production agent rooted at one exact code unit.
 	GetSemanticIndex(context.Context, *connect.Request[v1.GetSemanticIndexRequest]) (*connect.Response[v1.GetSemanticIndexResponse], error)
+	// GetInstructionIndex returns typed project guidance produced inside the
+	// repository-rooted Codefly source boundary. An optional code unit narrows
+	// the result to the instruction scopes applicable at that boundary.
+	GetInstructionIndex(context.Context, *connect.Request[v1.GetInstructionIndexRequest]) (*connect.Response[v1.GetInstructionIndexResponse], error)
 	// GetSourceManifest returns body-free project artifact identities produced
 	// inside Codefly for either the live worktree or one immutable Git revision.
 	GetSourceManifest(context.Context, *connect.Request[v1.GetSourceManifestRequest]) (*connect.Response[v1.GetSourceManifestResponse], error)
@@ -1374,6 +1397,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(gatewayMethods.ByName("GetSemanticIndex")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayGetInstructionIndexHandler := connect.NewUnaryHandler(
+		GatewayGetInstructionIndexProcedure,
+		svc.GetInstructionIndex,
+		connect.WithSchema(gatewayMethods.ByName("GetInstructionIndex")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gatewayGetSourceManifestHandler := connect.NewUnaryHandler(
 		GatewayGetSourceManifestProcedure,
 		svc.GetSourceManifest,
@@ -1512,6 +1541,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayGetProjectInfoHandler.ServeHTTP(w, r)
 		case GatewayGetSemanticIndexProcedure:
 			gatewayGetSemanticIndexHandler.ServeHTTP(w, r)
+		case GatewayGetInstructionIndexProcedure:
+			gatewayGetInstructionIndexHandler.ServeHTTP(w, r)
 		case GatewayGetSourceManifestProcedure:
 			gatewayGetSourceManifestHandler.ServeHTTP(w, r)
 		case GatewayDiscoverCodeUnitsProcedure:
@@ -1721,6 +1752,10 @@ func (UnimplementedGatewayHandler) GetProjectInfo(context.Context, *connect.Requ
 
 func (UnimplementedGatewayHandler) GetSemanticIndex(context.Context, *connect.Request[v1.GetSemanticIndexRequest]) (*connect.Response[v1.GetSemanticIndexResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GetSemanticIndex is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) GetInstructionIndex(context.Context, *connect.Request[v1.GetInstructionIndexRequest]) (*connect.Response[v1.GetInstructionIndexResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GetInstructionIndex is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) GetSourceManifest(context.Context, *connect.Request[v1.GetSourceManifestRequest]) (*connect.Response[v1.GetSourceManifestResponse], error) {

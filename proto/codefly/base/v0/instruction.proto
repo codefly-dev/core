@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package codefly.base.v0;
+
+// InstructionIndexState states how completely Codefly inspected recognized
+// repository instruction documents. Consumers must not infer completeness
+// from a non-empty record list.
+enum InstructionIndexState {
+  INSTRUCTION_INDEX_STATE_UNSPECIFIED = 0;
+  INSTRUCTION_INDEX_STATE_COMPLETE = 1;
+  INSTRUCTION_INDEX_STATE_DEGRADED = 2;
+  INSTRUCTION_INDEX_STATE_NOT_ATTEMPTED = 3;
+}
+
+// InstructionKnowledgeKind is the deterministic semantic class assigned to
+// one instruction section by the Codefly analyzer.
+enum InstructionKnowledgeKind {
+  INSTRUCTION_KNOWLEDGE_KIND_UNSPECIFIED = 0;
+  INSTRUCTION_KNOWLEDGE_KIND_RULE = 1;
+  INSTRUCTION_KNOWLEDGE_KIND_CONVENTION = 2;
+  INSTRUCTION_KNOWLEDGE_KIND_ANTI_PATTERN = 3;
+  INSTRUCTION_KNOWLEDGE_KIND_DECISION = 4;
+  INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT = 5;
+  INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE = 6;
+  INSTRUCTION_KNOWLEDGE_KIND_LESSON = 7;
+  INSTRUCTION_KNOWLEDGE_KIND_ASSUMPTION = 8;
+}
+
+// InstructionDocument is the body-free identity of one recognized project
+// instruction source. scope_path is the repository-relative subtree to which
+// the document applies; "." means the repository root.
+message InstructionDocument {
+  string path = 1;
+  string content_sha256 = 2;
+  int64 byte_size = 3;
+  string scope_path = 4;
+}
+
+// InstructionKnowledge is one typed Markdown section. Guidance is the
+// section's bounded instruction text; the complete source document never
+// crosses the Codefly boundary. Source hashes and line spans make every
+// record independently auditable without giving the orchestration brain a
+// Markdown parser.
+message InstructionKnowledge {
+  string id = 1;
+  InstructionKnowledgeKind kind = 2;
+  string title = 3;
+  string guidance = 4;
+  string source_path = 5;
+  string source_sha256 = 6;
+  int32 start_line = 7;
+  int32 end_line = 8;
+  string scope_path = 9;
+}
+
+// InstructionIssue preserves one source-local inspection failure while
+// retaining records successfully extracted from sibling documents.
+message InstructionIssue {
+  string code = 1;
+  string message = 2;
+  string path = 3;
+}
+
+// InstructionIndex is one deterministic typed projection of recognized
+// project instruction documents. Analyzer provenance is part of the durable
+// identity consumers persist alongside repository/version scope.
+message InstructionIndex {
+  InstructionIndexState state = 1;
+  string analyzer = 2;
+  string analyzer_version = 3;
+  repeated InstructionDocument documents = 4;
+  repeated InstructionKnowledge records = 5;
+  repeated InstructionIssue issues = 6;
+  // fingerprint seals the sorted typed projection (documents, records, and
+  // issue identities) so a consumer can bind it to one immutable repository
+  // version without persisting project documents.
+  string fingerprint = 7;
+}
