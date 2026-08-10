@@ -122,6 +122,54 @@ func TestGetSourceManifestRevisionPreservesGitEntryKinds(t *testing.T) {
 	}
 }
 
+func TestGetSourceManifestWorktreeTreatsInitializedSubmoduleAsOneGitlink(t *testing.T) {
+	dependency := t.TempDir()
+	gitSourceManifest(t, dependency, "init", "-b", "main")
+	gitSourceManifest(t, dependency, "config", "commit.gpgsign", "false")
+	writeSourceManifestFile(t, dependency, "dependency.go", "package dependency\n", 0o644)
+	gitSourceManifest(t, dependency, "add", "dependency.go")
+	gitSourceManifest(t, dependency, "commit", "-m", "dependency")
+	wantCommit := gitSourceManifest(t, dependency, "rev-parse", "HEAD")
+
+	root := t.TempDir()
+	gitSourceManifest(t, root, "init", "-b", "main")
+	gitSourceManifest(t, root, "config", "commit.gpgsign", "false")
+	writeSourceManifestFile(t, root, "main.go", "package main\n", 0o644)
+	gitSourceManifest(t, root, "add", "main.go")
+	gitSourceManifest(t, root, "commit", "-m", "root")
+	gitSourceManifest(t, root, "-c", "protocol.file.allow=always", "submodule", "add", dependency, "modules/dependency")
+	gitSourceManifest(t, root, "commit", "-am", "submodule")
+
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	})
+	if err != nil {
+		t.Fatalf("GetSourceManifest worktree gitlink: %v", err)
+	}
+	if response.GetFailure() != nil {
+		t.Fatalf("GetSourceManifest worktree gitlink failure: %+v", response.GetFailure())
+	}
+	entries := sourceManifestEntriesByPath(response.GetGetSourceManifest())
+	if len(entries) != 3 || entries["modules/dependency/dependency.go"] != nil {
+		t.Fatalf("worktree entries = %v, want parent files plus one gitlink", sourceManifestEntryPaths(response.GetGetSourceManifest()))
+	}
+	gitlink := entries["modules/dependency"]
+	if gitlink.GetKind() != basev0.SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK || gitlink.GetMode() != 0o160000 || gitlink.GetIdentity().GetDigest() != wantCommit || gitlink.GetIdentity().GetSizeBytes() != -1 {
+		t.Fatalf("worktree gitlink = %+v", gitlink)
+	}
+
+	writeSourceManifestFile(t, root, "modules/dependency/untracked.go", "package dependency\n", 0o644)
+	dirtyResponse, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	})
+	if err != nil {
+		t.Fatalf("GetSourceManifest dirty gitlink transport: %v", err)
+	}
+	if dirtyResponse.GetFailure() == nil || !strings.Contains(dirtyResponse.GetFailure().GetMessage(), "dirty gitlink modules/dependency") {
+		t.Fatalf("dirty gitlink failure = %+v", dirtyResponse.GetFailure())
+	}
+}
+
 func writeSourceManifestFile(t *testing.T, root, relative, body string, mode os.FileMode) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(relative))
