@@ -45,6 +45,7 @@ func (t *SourceTooling) Fix(ctx context.Context, req *toolingv0.FixRequest) (*to
 		Failure: failures.Clone(response.GetFailure()), Changed: fix.GetChanged(),
 		BeforeSha256: fix.GetBeforeSha256(), AfterSha256: fix.GetAfterSha256(),
 		Wrote: fix.GetWrote(), Output: fix.GetOutput(),
+		BeforeSizeBytes: fix.GetBeforeSizeBytes(), AfterSizeBytes: fix.GetAfterSizeBytes(),
 	}, nil
 }
 
@@ -65,6 +66,7 @@ func (t *SourceTooling) ApplyEdit(ctx context.Context, req *toolingv0.ApplyEditR
 		FixActions: edit.GetFixActions(), Failure: failures.Clone(response.GetFailure()),
 		Changed: edit.GetChanged(), BeforeSha256: edit.GetBeforeSha256(),
 		AfterSha256: edit.GetAfterSha256(), Wrote: edit.GetWrote(), Output: edit.GetOutput(),
+		BeforeSizeBytes: edit.GetBeforeSizeBytes(), AfterSizeBytes: edit.GetAfterSizeBytes(),
 	}, nil
 }
 

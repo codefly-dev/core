@@ -571,15 +571,17 @@ func (s *DefaultCodeServer) applyEdit(ctx context.Context, req *codev0.ApplyEdit
 		s.notifyWrite(ctx, "write", req.File, "", content)
 	}
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{
-		Success:      true,
-		Content:      string(content),
-		Strategy:     result.Strategy,
-		FixActions:   actions,
-		Changed:      changed,
-		BeforeSha256: sourceDigest(data),
-		AfterSha256:  sourceDigest(content),
-		Wrote:        wrote,
-		Output:       output,
+		Success:         true,
+		Content:         string(content),
+		Strategy:        result.Strategy,
+		FixActions:      actions,
+		Changed:         changed,
+		BeforeSha256:    sourceDigest(data),
+		AfterSha256:     sourceDigest(content),
+		Wrote:           wrote,
+		Output:          output,
+		BeforeSizeBytes: uint64(len(data)),
+		AfterSizeBytes:  uint64(len(content)),
 	}}}, nil
 }
 
@@ -599,6 +601,7 @@ func (s *DefaultCodeServer) fixDefault(ctx context.Context, req *codev0.FixReque
 		digest := sourceDigest(data)
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{
 			Success: true, Content: string(data), BeforeSha256: digest, AfterSha256: digest,
+			BeforeSizeBytes: uint64(len(data)), AfterSizeBytes: uint64(len(data)),
 		}}}, nil
 	}
 	if s.sourceFixer == nil {
@@ -621,14 +624,16 @@ func (s *DefaultCodeServer) fixDefault(ctx context.Context, req *codev0.FixReque
 		s.notifyWrite(ctx, "write", req.File, "", fixed.Content)
 	}
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{
-		Success:      true,
-		Content:      string(fixed.Content),
-		Actions:      fixed.Actions,
-		Changed:      changed,
-		BeforeSha256: sourceDigest(data),
-		AfterSha256:  sourceDigest(fixed.Content),
-		Wrote:        wrote,
-		Output:       boundedFixOutput(fixed.Output),
+		Success:         true,
+		Content:         string(fixed.Content),
+		Actions:         fixed.Actions,
+		Changed:         changed,
+		BeforeSha256:    sourceDigest(data),
+		AfterSha256:     sourceDigest(fixed.Content),
+		Wrote:           wrote,
+		Output:          boundedFixOutput(fixed.Output),
+		BeforeSizeBytes: uint64(len(data)),
+		AfterSizeBytes:  uint64(len(fixed.Content)),
 	}}}, nil
 }
 

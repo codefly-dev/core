@@ -105,6 +105,10 @@ message FixResponse {
   bool wrote = 8;
   // output preserves bounded formatter/fixer output useful for follow-up linting.
   string output = 9;
+  // before_size_bytes is the exact original content length.
+  uint64 before_size_bytes = 10;
+  // after_size_bytes is the exact returned content length.
+  uint64 after_size_bytes = 11;
 }
 
 // --- ApplyEdit ---
@@ -148,6 +152,10 @@ message ApplyEditResponse {
   bool wrote = 9;
   // output preserves bounded formatter/fixer output useful for follow-up linting.
   string output = 10;
+  // before_size_bytes is the exact original content length.
+  uint64 before_size_bytes = 11;
+  // after_size_bytes is the exact returned content length.
+  uint64 after_size_bytes = 12;
 }
 
 // --- ApplySymbolPatch ---
@@ -179,6 +187,10 @@ message ApplySymbolPatchResponse {
   bool wrote = 9;
   string output = 10;
   codefly.base.v0.SymbolPatchFailureReason failure_reason = 11;
+  // before_size_bytes is the exact original content length.
+  uint64 before_size_bytes = 12;
+  // after_size_bytes is the exact returned content length.
+  uint64 after_size_bytes = 13;
 }
 
 // --- Search ---

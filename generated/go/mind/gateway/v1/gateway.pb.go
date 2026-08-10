@@ -1825,9 +1825,13 @@ type FixResponse struct {
 	// wrote reports whether the plugin committed the returned content.
 	Wrote bool `protobuf:"varint,8,opt,name=wrote,proto3" json:"wrote,omitempty"`
 	// output preserves bounded formatter/fixer output useful for follow-up linting.
-	Output        string `protobuf:"bytes,9,opt,name=output,proto3" json:"output,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Output string `protobuf:"bytes,9,opt,name=output,proto3" json:"output,omitempty"`
+	// before_size_bytes is the exact original content length.
+	BeforeSizeBytes uint64 `protobuf:"varint,10,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	// after_size_bytes is the exact returned content length.
+	AfterSizeBytes uint64 `protobuf:"varint,11,opt,name=after_size_bytes,json=afterSizeBytes,proto3" json:"after_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *FixResponse) Reset() {
@@ -1921,6 +1925,20 @@ func (x *FixResponse) GetOutput() string {
 		return x.Output
 	}
 	return ""
+}
+
+func (x *FixResponse) GetBeforeSizeBytes() uint64 {
+	if x != nil {
+		return x.BeforeSizeBytes
+	}
+	return 0
+}
+
+func (x *FixResponse) GetAfterSizeBytes() uint64 {
+	if x != nil {
+		return x.AfterSizeBytes
+	}
+	return 0
 }
 
 // ApplyEditRequest asks the gateway to apply a smart find/replace edit.
@@ -2036,9 +2054,13 @@ type ApplyEditResponse struct {
 	// wrote reports whether the plugin committed the returned content.
 	Wrote bool `protobuf:"varint,9,opt,name=wrote,proto3" json:"wrote,omitempty"`
 	// output preserves bounded formatter/fixer output useful for follow-up linting.
-	Output        string `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Output string `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
+	// before_size_bytes is the exact original content length.
+	BeforeSizeBytes uint64 `protobuf:"varint,11,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	// after_size_bytes is the exact returned content length.
+	AfterSizeBytes uint64 `protobuf:"varint,12,opt,name=after_size_bytes,json=afterSizeBytes,proto3" json:"after_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ApplyEditResponse) Reset() {
@@ -2139,6 +2161,20 @@ func (x *ApplyEditResponse) GetOutput() string {
 		return x.Output
 	}
 	return ""
+}
+
+func (x *ApplyEditResponse) GetBeforeSizeBytes() uint64 {
+	if x != nil {
+		return x.BeforeSizeBytes
+	}
+	return 0
+}
+
+func (x *ApplyEditResponse) GetAfterSizeBytes() uint64 {
+	if x != nil {
+		return x.AfterSizeBytes
+	}
+	return 0
 }
 
 // ApplySymbolPatchRequest addresses one declaration by the exact qualified
@@ -2253,8 +2289,12 @@ type ApplySymbolPatchResponse struct {
 	// requiring Mind to parse the human-readable error string.
 	Failure       *v0.Failure                 `protobuf:"bytes,11,opt,name=failure,proto3" json:"failure,omitempty"`
 	FailureReason v0.SymbolPatchFailureReason `protobuf:"varint,12,opt,name=failure_reason,json=failureReason,proto3,enum=codefly.base.v0.SymbolPatchFailureReason" json:"failure_reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// before_size_bytes is the exact original content length.
+	BeforeSizeBytes uint64 `protobuf:"varint,13,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	// after_size_bytes is the exact returned content length.
+	AfterSizeBytes uint64 `protobuf:"varint,14,opt,name=after_size_bytes,json=afterSizeBytes,proto3" json:"after_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ApplySymbolPatchResponse) Reset() {
@@ -2369,6 +2409,20 @@ func (x *ApplySymbolPatchResponse) GetFailureReason() v0.SymbolPatchFailureReaso
 		return x.FailureReason
 	}
 	return v0.SymbolPatchFailureReason(0)
+}
+
+func (x *ApplySymbolPatchResponse) GetBeforeSizeBytes() uint64 {
+	if x != nil {
+		return x.BeforeSizeBytes
+	}
+	return 0
+}
+
+func (x *ApplySymbolPatchResponse) GetAfterSizeBytes() uint64 {
+	if x != nil {
+		return x.AfterSizeBytes
+	}
+	return 0
 }
 
 // BatchApplyEditsRequest applies multiple edits in one call.
@@ -2687,13 +2741,17 @@ type PreparedFileMutation struct {
 	Operation    PreparedFileOperation  `protobuf:"varint,2,opt,name=operation,proto3,enum=mind.gateway.v1.PreparedFileOperation" json:"operation,omitempty"`
 	BeforeSha256 string                 `protobuf:"bytes,3,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
 	AfterSha256  string                 `protobuf:"bytes,4,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
-	Strategy     string                 `protobuf:"bytes,6,opt,name=strategy,proto3" json:"strategy,omitempty"`
-	FixActions   []string               `protobuf:"bytes,7,rep,name=fix_actions,json=fixActions,proto3" json:"fix_actions,omitempty"`
+	// before_size_bytes is the exact original content length.
+	BeforeSizeBytes uint64   `protobuf:"varint,5,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	Strategy        string   `protobuf:"bytes,6,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	FixActions      []string `protobuf:"bytes,7,rep,name=fix_actions,json=fixActions,proto3" json:"fix_actions,omitempty"`
 	// symbol_id is set only when Codefly prepared an exact symbol mutation. It
 	// causes the coordinator to issue a symbol fence instead of a file fence.
-	SymbolId      string `protobuf:"bytes,8,opt,name=symbol_id,json=symbolId,proto3" json:"symbol_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SymbolId string `protobuf:"bytes,8,opt,name=symbol_id,json=symbolId,proto3" json:"symbol_id,omitempty"`
+	// after_size_bytes is the exact prepared content length.
+	AfterSizeBytes uint64 `protobuf:"varint,9,opt,name=after_size_bytes,json=afterSizeBytes,proto3" json:"after_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *PreparedFileMutation) Reset() {
@@ -2754,6 +2812,13 @@ func (x *PreparedFileMutation) GetAfterSha256() string {
 	return ""
 }
 
+func (x *PreparedFileMutation) GetBeforeSizeBytes() uint64 {
+	if x != nil {
+		return x.BeforeSizeBytes
+	}
+	return 0
+}
+
 func (x *PreparedFileMutation) GetStrategy() string {
 	if x != nil {
 		return x.Strategy
@@ -2773,6 +2838,13 @@ func (x *PreparedFileMutation) GetSymbolId() string {
 		return x.SymbolId
 	}
 	return ""
+}
+
+func (x *PreparedFileMutation) GetAfterSizeBytes() uint64 {
+	if x != nil {
+		return x.AfterSizeBytes
+	}
+	return 0
 }
 
 // PreparedMutation is one immutable, version-bound write proposal. The digest
@@ -3299,13 +3371,17 @@ func (x *ApplyPreparedMutationRequest) GetMutationDigest() string {
 }
 
 type AppliedFileMutation struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	Operation     PreparedFileOperation  `protobuf:"varint,2,opt,name=operation,proto3,enum=mind.gateway.v1.PreparedFileOperation" json:"operation,omitempty"`
-	BeforeSha256  string                 `protobuf:"bytes,3,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
-	AfterSha256   string                 `protobuf:"bytes,4,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Path         string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Operation    PreparedFileOperation  `protobuf:"varint,2,opt,name=operation,proto3,enum=mind.gateway.v1.PreparedFileOperation" json:"operation,omitempty"`
+	BeforeSha256 string                 `protobuf:"bytes,3,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
+	AfterSha256  string                 `protobuf:"bytes,4,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
+	// before_size_bytes is the exact original content length.
+	BeforeSizeBytes uint64 `protobuf:"varint,5,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	// after_size_bytes is the exact applied content length.
+	AfterSizeBytes uint64 `protobuf:"varint,6,opt,name=after_size_bytes,json=afterSizeBytes,proto3" json:"after_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AppliedFileMutation) Reset() {
@@ -3364,6 +3440,20 @@ func (x *AppliedFileMutation) GetAfterSha256() string {
 		return x.AfterSha256
 	}
 	return ""
+}
+
+func (x *AppliedFileMutation) GetBeforeSizeBytes() uint64 {
+	if x != nil {
+		return x.BeforeSizeBytes
+	}
+	return 0
+}
+
+func (x *AppliedFileMutation) GetAfterSizeBytes() uint64 {
+	if x != nil {
+		return x.AfterSizeBytes
+	}
+	return 0
 }
 
 type ApplyPreparedMutationResponse struct {
@@ -10750,7 +10840,7 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12,\n" +
 	"\x04mode\x18\x03 \x01(\x0e2\x18.codefly.base.v0.FixModeR\x04mode\x12\x17\n" +
-	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"\x81\x02\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"\xd7\x02\n" +
 	"\vFixResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x14\n" +
@@ -10760,14 +10850,17 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\rbefore_sha256\x18\x06 \x01(\tR\fbeforeSha256\x12!\n" +
 	"\fafter_sha256\x18\a \x01(\tR\vafterSha256\x12\x14\n" +
 	"\x05wrote\x18\b \x01(\bR\x05wrote\x12\x16\n" +
-	"\x06output\x18\t \x01(\tR\x06output\"\xbc\x01\n" +
+	"\x06output\x18\t \x01(\tR\x06output\x12*\n" +
+	"\x11before_size_bytes\x18\n" +
+	" \x01(\x04R\x0fbeforeSizeBytes\x12(\n" +
+	"\x10after_size_bytes\x18\v \x01(\x04R\x0eafterSizeBytes\"\xbc\x01\n" +
 	"\x10ApplyEditRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
 	"\x04file\x18\x02 \x01(\tR\x04file\x12\x12\n" +
 	"\x04find\x18\x03 \x01(\tR\x04find\x12\x18\n" +
 	"\areplace\x18\x04 \x01(\tR\areplace\x123\n" +
 	"\bfix_mode\x18\x05 \x01(\x0e2\x18.codefly.base.v0.FixModeR\afixMode\x12\x17\n" +
-	"\adry_run\x18\x06 \x01(\bR\x06dryRun\"\xaa\x02\n" +
+	"\adry_run\x18\x06 \x01(\bR\x06dryRun\"\x80\x03\n" +
 	"\x11ApplyEditResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x14\n" +
@@ -10780,7 +10873,9 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\fafter_sha256\x18\b \x01(\tR\vafterSha256\x12\x14\n" +
 	"\x05wrote\x18\t \x01(\bR\x05wrote\x12\x16\n" +
 	"\x06output\x18\n" +
-	" \x01(\tR\x06output\"\x9b\x02\n" +
+	" \x01(\tR\x06output\x12*\n" +
+	"\x11before_size_bytes\x18\v \x01(\x04R\x0fbeforeSizeBytes\x12(\n" +
+	"\x10after_size_bytes\x18\f \x01(\x04R\x0eafterSizeBytes\"\x9b\x02\n" +
 	"\x17ApplySymbolPatchRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
 	"\x04file\x18\x02 \x01(\tR\x04file\x12%\n" +
@@ -10789,7 +10884,7 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\n" +
 	"new_source\x18\x05 \x01(\tR\tnewSource\x123\n" +
 	"\bfix_mode\x18\x06 \x01(\x0e2\x18.codefly.base.v0.FixModeR\afixMode\x12\x17\n" +
-	"\adry_run\x18\a \x01(\bR\x06dryRun\"\xcc\x03\n" +
+	"\adry_run\x18\a \x01(\bR\x06dryRun\"\xa2\x04\n" +
 	"\x18ApplySymbolPatchResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12\x1a\n" +
@@ -10804,7 +10899,9 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x06output\x18\n" +
 	" \x01(\tR\x06output\x122\n" +
 	"\afailure\x18\v \x01(\v2\x18.codefly.base.v0.FailureR\afailure\x12P\n" +
-	"\x0efailure_reason\x18\f \x01(\x0e2).codefly.base.v0.SymbolPatchFailureReasonR\rfailureReason\"Q\n" +
+	"\x0efailure_reason\x18\f \x01(\x0e2).codefly.base.v0.SymbolPatchFailureReasonR\rfailureReason\x12*\n" +
+	"\x11before_size_bytes\x18\r \x01(\x04R\x0fbeforeSizeBytes\x12(\n" +
+	"\x10after_size_bytes\x18\x0e \x01(\x04R\x0eafterSizeBytes\"Q\n" +
 	"\x16BatchApplyEditsRequest\x127\n" +
 	"\x05edits\x18\x01 \x03(\v2!.mind.gateway.v1.ApplyEditRequestR\x05edits\"\x86\x01\n" +
 	"\n" +
@@ -10824,16 +10921,18 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x12ed25519_public_key\x18\x03 \x01(\fR\x10ed25519PublicKey\"j\n" +
 	"\"ConfigureMutationAuthorityResponse\x12!\n" +
 	"\fauthority_id\x18\x01 \x01(\tR\vauthorityId\x12!\n" +
-	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\"\x98\x02\n" +
+	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\"\xe8\x02\n" +
 	"\x14PreparedFileMutation\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12D\n" +
 	"\toperation\x18\x02 \x01(\x0e2&.mind.gateway.v1.PreparedFileOperationR\toperation\x12#\n" +
 	"\rbefore_sha256\x18\x03 \x01(\tR\fbeforeSha256\x12!\n" +
-	"\fafter_sha256\x18\x04 \x01(\tR\vafterSha256\x12\x1a\n" +
+	"\fafter_sha256\x18\x04 \x01(\tR\vafterSha256\x12*\n" +
+	"\x11before_size_bytes\x18\x05 \x01(\x04R\x0fbeforeSizeBytes\x12\x1a\n" +
 	"\bstrategy\x18\x06 \x01(\tR\bstrategy\x12\x1f\n" +
 	"\vfix_actions\x18\a \x03(\tR\n" +
 	"fixActions\x12\x1b\n" +
-	"\tsymbol_id\x18\b \x01(\tR\bsymbolIdJ\x04\b\x05\x10\x06\"\xcb\x03\n" +
+	"\tsymbol_id\x18\b \x01(\tR\bsymbolId\x12(\n" +
+	"\x10after_size_bytes\x18\t \x01(\x04R\x0eafterSizeBytes\"\xcb\x03\n" +
 	"\x10PreparedMutation\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12%\n" +
 	"\x0epreparation_id\x18\x02 \x01(\tR\rpreparationId\x12!\n" +
@@ -10880,12 +10979,14 @@ const file_mind_gateway_v1_gateway_proto_rawDesc = "" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12%\n" +
 	"\x0epreparation_id\x18\x02 \x01(\tR\rpreparationId\x12'\n" +
 	"\x0fmutation_permit\x18\x03 \x01(\tR\x0emutationPermit\x12'\n" +
-	"\x0fmutation_digest\x18\x04 \x01(\tR\x0emutationDigest\"\xb7\x01\n" +
+	"\x0fmutation_digest\x18\x04 \x01(\tR\x0emutationDigest\"\x8d\x02\n" +
 	"\x13AppliedFileMutation\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12D\n" +
 	"\toperation\x18\x02 \x01(\x0e2&.mind.gateway.v1.PreparedFileOperationR\toperation\x12#\n" +
 	"\rbefore_sha256\x18\x03 \x01(\tR\fbeforeSha256\x12!\n" +
-	"\fafter_sha256\x18\x04 \x01(\tR\vafterSha256\"\xdb\x01\n" +
+	"\fafter_sha256\x18\x04 \x01(\tR\vafterSha256\x12*\n" +
+	"\x11before_size_bytes\x18\x05 \x01(\x04R\x0fbeforeSizeBytes\x12(\n" +
+	"\x10after_size_bytes\x18\x06 \x01(\x04R\x0eafterSizeBytes\"\xdb\x01\n" +
 	"\x1dApplyPreparedMutationResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12%\n" +

@@ -481,9 +481,13 @@ type FixResponse struct {
 	// wrote reports whether the agent committed the returned content to its VFS.
 	Wrote bool `protobuf:"varint,8,opt,name=wrote,proto3" json:"wrote,omitempty"`
 	// output preserves bounded formatter/fixer output useful for follow-up linting.
-	Output        string `protobuf:"bytes,9,opt,name=output,proto3" json:"output,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Output string `protobuf:"bytes,9,opt,name=output,proto3" json:"output,omitempty"`
+	// before_size_bytes is the exact original content length.
+	BeforeSizeBytes uint64 `protobuf:"varint,10,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	// after_size_bytes is the exact returned content length.
+	AfterSizeBytes uint64 `protobuf:"varint,11,opt,name=after_size_bytes,json=afterSizeBytes,proto3" json:"after_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *FixResponse) Reset() {
@@ -570,6 +574,20 @@ func (x *FixResponse) GetOutput() string {
 		return x.Output
 	}
 	return ""
+}
+
+func (x *FixResponse) GetBeforeSizeBytes() uint64 {
+	if x != nil {
+		return x.BeforeSizeBytes
+	}
+	return 0
+}
+
+func (x *FixResponse) GetAfterSizeBytes() uint64 {
+	if x != nil {
+		return x.AfterSizeBytes
+	}
+	return 0
 }
 
 // ApplyEdit performs a smart FIND/REPLACE on a file at the plugin level.
@@ -677,9 +695,13 @@ type ApplyEditResponse struct {
 	// wrote reports whether the agent committed the returned content to its VFS.
 	Wrote bool `protobuf:"varint,9,opt,name=wrote,proto3" json:"wrote,omitempty"`
 	// output preserves bounded formatter/fixer output useful for follow-up linting.
-	Output        string `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Output string `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
+	// before_size_bytes is the exact original content length.
+	BeforeSizeBytes uint64 `protobuf:"varint,11,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	// after_size_bytes is the exact returned content length.
+	AfterSizeBytes uint64 `protobuf:"varint,12,opt,name=after_size_bytes,json=afterSizeBytes,proto3" json:"after_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ApplyEditResponse) Reset() {
@@ -773,6 +795,20 @@ func (x *ApplyEditResponse) GetOutput() string {
 		return x.Output
 	}
 	return ""
+}
+
+func (x *ApplyEditResponse) GetBeforeSizeBytes() uint64 {
+	if x != nil {
+		return x.BeforeSizeBytes
+	}
+	return 0
+}
+
+func (x *ApplyEditResponse) GetAfterSizeBytes() uint64 {
+	if x != nil {
+		return x.AfterSizeBytes
+	}
+	return 0
 }
 
 // ApplySymbolPatchRequest replaces one complete declaration selected by the
@@ -878,8 +914,12 @@ type ApplySymbolPatchResponse struct {
 	Wrote             bool                        `protobuf:"varint,9,opt,name=wrote,proto3" json:"wrote,omitempty"`
 	Output            string                      `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
 	FailureReason     v0.SymbolPatchFailureReason `protobuf:"varint,11,opt,name=failure_reason,json=failureReason,proto3,enum=codefly.base.v0.SymbolPatchFailureReason" json:"failure_reason,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// before_size_bytes is the exact original content length.
+	BeforeSizeBytes uint64 `protobuf:"varint,12,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	// after_size_bytes is the exact returned content length.
+	AfterSizeBytes uint64 `protobuf:"varint,13,opt,name=after_size_bytes,json=afterSizeBytes,proto3" json:"after_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ApplySymbolPatchResponse) Reset() {
@@ -987,6 +1027,20 @@ func (x *ApplySymbolPatchResponse) GetFailureReason() v0.SymbolPatchFailureReaso
 		return x.FailureReason
 	}
 	return v0.SymbolPatchFailureReason(0)
+}
+
+func (x *ApplySymbolPatchResponse) GetBeforeSizeBytes() uint64 {
+	if x != nil {
+		return x.BeforeSizeBytes
+	}
+	return 0
+}
+
+func (x *ApplySymbolPatchResponse) GetAfterSizeBytes() uint64 {
+	if x != nil {
+		return x.AfterSizeBytes
+	}
+	return 0
 }
 
 // SearchRequest searches service files using either regex or literal matching.
@@ -4270,7 +4324,7 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"FixRequest\x12\x12\n" +
 	"\x04file\x18\x01 \x01(\tR\x04file\x12,\n" +
 	"\x04mode\x18\x02 \x01(\x0e2\x18.codefly.base.v0.FixModeR\x04mode\x12\x17\n" +
-	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\xf8\x01\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\xce\x02\n" +
 	"\vFixResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x18\n" +
@@ -4279,13 +4333,16 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\rbefore_sha256\x18\x06 \x01(\tR\fbeforeSha256\x12!\n" +
 	"\fafter_sha256\x18\a \x01(\tR\vafterSha256\x12\x14\n" +
 	"\x05wrote\x18\b \x01(\bR\x05wrote\x12\x16\n" +
-	"\x06output\x18\t \x01(\tR\x06outputJ\x04\b\x03\x10\x04R\x05error\"\xa2\x01\n" +
+	"\x06output\x18\t \x01(\tR\x06output\x12*\n" +
+	"\x11before_size_bytes\x18\n" +
+	" \x01(\x04R\x0fbeforeSizeBytes\x12(\n" +
+	"\x10after_size_bytes\x18\v \x01(\x04R\x0eafterSizeBytesJ\x04\b\x03\x10\x04R\x05error\"\xa2\x01\n" +
 	"\x10ApplyEditRequest\x12\x12\n" +
 	"\x04file\x18\x01 \x01(\tR\x04file\x12\x12\n" +
 	"\x04find\x18\x02 \x01(\tR\x04find\x12\x18\n" +
 	"\areplace\x18\x03 \x01(\tR\areplace\x123\n" +
 	"\bfix_mode\x18\x04 \x01(\x0e2\x18.codefly.base.v0.FixModeR\afixMode\x12\x17\n" +
-	"\adry_run\x18\x06 \x01(\bR\x06dryRun\"\xa1\x02\n" +
+	"\adry_run\x18\x06 \x01(\bR\x06dryRun\"\xf7\x02\n" +
 	"\x11ApplyEditResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1a\n" +
@@ -4297,7 +4354,9 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\fafter_sha256\x18\b \x01(\tR\vafterSha256\x12\x14\n" +
 	"\x05wrote\x18\t \x01(\bR\x05wrote\x12\x16\n" +
 	"\x06output\x18\n" +
-	" \x01(\tR\x06outputJ\x04\b\x03\x10\x04R\x05error\"\x81\x02\n" +
+	" \x01(\tR\x06output\x12*\n" +
+	"\x11before_size_bytes\x18\v \x01(\x04R\x0fbeforeSizeBytes\x12(\n" +
+	"\x10after_size_bytes\x18\f \x01(\x04R\x0eafterSizeBytesJ\x04\b\x03\x10\x04R\x05error\"\x81\x02\n" +
 	"\x17ApplySymbolPatchRequest\x12\x12\n" +
 	"\x04file\x18\x01 \x01(\tR\x04file\x12%\n" +
 	"\x0equalified_name\x18\x02 \x01(\tR\rqualifiedName\x12>\n" +
@@ -4305,7 +4364,7 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\n" +
 	"new_source\x18\x04 \x01(\tR\tnewSource\x123\n" +
 	"\bfix_mode\x18\x05 \x01(\x0e2\x18.codefly.base.v0.FixModeR\afixMode\x12\x17\n" +
-	"\adry_run\x18\x06 \x01(\bR\x06dryRun\"\x9c\x03\n" +
+	"\adry_run\x18\x06 \x01(\bR\x06dryRun\"\xf2\x03\n" +
 	"\x18ApplySymbolPatchResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1a\n" +
@@ -4319,7 +4378,9 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\x05wrote\x18\t \x01(\bR\x05wrote\x12\x16\n" +
 	"\x06output\x18\n" +
 	" \x01(\tR\x06output\x12P\n" +
-	"\x0efailure_reason\x18\v \x01(\x0e2).codefly.base.v0.SymbolPatchFailureReasonR\rfailureReason\"\x82\x02\n" +
+	"\x0efailure_reason\x18\v \x01(\x0e2).codefly.base.v0.SymbolPatchFailureReasonR\rfailureReason\x12*\n" +
+	"\x11before_size_bytes\x18\f \x01(\x04R\x0fbeforeSizeBytes\x12(\n" +
+	"\x10after_size_bytes\x18\r \x01(\x04R\x0eafterSizeBytes\"\x82\x02\n" +
 	"\rSearchRequest\x12\x18\n" +
 	"\apattern\x18\x01 \x01(\tR\apattern\x12\x18\n" +
 	"\aliteral\x18\x02 \x01(\bR\aliteral\x12)\n" +

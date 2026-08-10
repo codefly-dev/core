@@ -39,6 +39,10 @@ func TestApplySymbolPatchUsesAnalyzerOwnedDeclarationAcrossSupportedLanguages(t 
 			if err != nil || !preview.GetApplySymbolPatch().GetSuccess() || !preview.GetApplySymbolPatch().GetChanged() || preview.GetApplySymbolPatch().GetWrote() {
 				t.Fatalf("preview response=%+v failure=%+v err=%v", preview.GetApplySymbolPatch(), preview.GetFailure(), err)
 			}
+			previewResult := preview.GetApplySymbolPatch()
+			if previewResult.GetBeforeSizeBytes() != uint64(len(test.before)) || previewResult.GetAfterSizeBytes() != uint64(len(previewResult.GetContent())) {
+				t.Fatalf("preview content sizes = before:%d after:%d, want before:%d after:%d", previewResult.GetBeforeSizeBytes(), previewResult.GetAfterSizeBytes(), len(test.before), len(previewResult.GetContent()))
+			}
 			unchanged, err := os.ReadFile(path)
 			if err != nil || string(unchanged) != test.before {
 				t.Fatalf("dry run changed file: content=%q err=%v", unchanged, err)

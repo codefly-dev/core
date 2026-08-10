@@ -100,7 +100,9 @@ func TestExecute_ApplyEdit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir, srv := tc.setupFunc(t)
 			ctx := context.Background()
-			srv.FS.WriteFile(filepath.Join(dir, "edit_me.txt"), []byte("line one\nline two\nline three\n"), 0o644)
+			before := "line one\nline two\nline three\n"
+			after := "line one\nline TWO\nline three\n"
+			srv.FS.WriteFile(filepath.Join(dir, "edit_me.txt"), []byte(before), 0o644)
 
 			resp, err := srv.Execute(ctx, &codev0.CodeRequest{
 				Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
@@ -116,6 +118,9 @@ func TestExecute_ApplyEdit(t *testing.T) {
 			}
 			if ae.Strategy != "exact" {
 				t.Errorf("expected exact strategy, got %s", ae.Strategy)
+			}
+			if ae.GetBeforeSizeBytes() != uint64(len(before)) || ae.GetAfterSizeBytes() != uint64(len(after)) {
+				t.Errorf("content sizes = before:%d after:%d, want before:%d after:%d", ae.GetBeforeSizeBytes(), ae.GetAfterSizeBytes(), len(before), len(after))
 			}
 		})
 	}

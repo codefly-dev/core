@@ -136,6 +136,8 @@ func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.Ap
 	result.Changed = changed
 	result.BeforeSha256 = sourceDigest(before)
 	result.AfterSha256 = sourceDigest(after)
+	result.BeforeSizeBytes = uint64(len(before))
+	result.AfterSizeBytes = uint64(len(after))
 	result.DeclarationSha256 = expected
 	result.Wrote = wrote
 	result.Output = output

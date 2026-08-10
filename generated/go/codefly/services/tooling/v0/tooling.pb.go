@@ -432,9 +432,13 @@ type FixResponse struct {
 	// wrote reports whether the agent committed the returned content to its VFS.
 	Wrote bool `protobuf:"varint,9,opt,name=wrote,proto3" json:"wrote,omitempty"`
 	// output preserves bounded formatter/fixer output useful for follow-up linting.
-	Output        string `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Output string `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
+	// before_size_bytes is the exact original content length.
+	BeforeSizeBytes uint64 `protobuf:"varint,11,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	// after_size_bytes is the exact returned content length.
+	AfterSizeBytes uint64 `protobuf:"varint,12,opt,name=after_size_bytes,json=afterSizeBytes,proto3" json:"after_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *FixResponse) Reset() {
@@ -528,6 +532,20 @@ func (x *FixResponse) GetOutput() string {
 		return x.Output
 	}
 	return ""
+}
+
+func (x *FixResponse) GetBeforeSizeBytes() uint64 {
+	if x != nil {
+		return x.BeforeSizeBytes
+	}
+	return 0
+}
+
+func (x *FixResponse) GetAfterSizeBytes() uint64 {
+	if x != nil {
+		return x.AfterSizeBytes
+	}
+	return 0
 }
 
 // ApplyEditRequest asks the agent to apply a language-aware find/replace edit.
@@ -634,9 +652,13 @@ type ApplyEditResponse struct {
 	// wrote reports whether the agent committed the returned content to its VFS.
 	Wrote bool `protobuf:"varint,10,opt,name=wrote,proto3" json:"wrote,omitempty"`
 	// output preserves bounded formatter/fixer output useful for follow-up linting.
-	Output        string `protobuf:"bytes,11,opt,name=output,proto3" json:"output,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Output string `protobuf:"bytes,11,opt,name=output,proto3" json:"output,omitempty"`
+	// before_size_bytes is the exact original content length.
+	BeforeSizeBytes uint64 `protobuf:"varint,12,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	// after_size_bytes is the exact returned content length.
+	AfterSizeBytes uint64 `protobuf:"varint,13,opt,name=after_size_bytes,json=afterSizeBytes,proto3" json:"after_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ApplyEditResponse) Reset() {
@@ -737,6 +759,20 @@ func (x *ApplyEditResponse) GetOutput() string {
 		return x.Output
 	}
 	return ""
+}
+
+func (x *ApplyEditResponse) GetBeforeSizeBytes() uint64 {
+	if x != nil {
+		return x.BeforeSizeBytes
+	}
+	return 0
+}
+
+func (x *ApplyEditResponse) GetAfterSizeBytes() uint64 {
+	if x != nil {
+		return x.AfterSizeBytes
+	}
+	return 0
 }
 
 // ListDependenciesRequest carries optional filters for listing dependencies.
@@ -1779,7 +1815,7 @@ const file_codefly_services_tooling_v0_tooling_proto_rawDesc = "" +
 	"FixRequest\x12\x12\n" +
 	"\x04file\x18\x01 \x01(\tR\x04file\x12,\n" +
 	"\x04mode\x18\x02 \x01(\x0e2\x18.codefly.base.v0.FixModeR\x04mode\x12\x17\n" +
-	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\xac\x02\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\x82\x03\n" +
 	"\vFixResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x18\n" +
@@ -1790,13 +1826,15 @@ const file_codefly_services_tooling_v0_tooling_proto_rawDesc = "" +
 	"\fafter_sha256\x18\b \x01(\tR\vafterSha256\x12\x14\n" +
 	"\x05wrote\x18\t \x01(\bR\x05wrote\x12\x16\n" +
 	"\x06output\x18\n" +
-	" \x01(\tR\x06outputJ\x04\b\x03\x10\x04R\x05error\"\xa2\x01\n" +
+	" \x01(\tR\x06output\x12*\n" +
+	"\x11before_size_bytes\x18\v \x01(\x04R\x0fbeforeSizeBytes\x12(\n" +
+	"\x10after_size_bytes\x18\f \x01(\x04R\x0eafterSizeBytesJ\x04\b\x03\x10\x04R\x05error\"\xa2\x01\n" +
 	"\x10ApplyEditRequest\x12\x12\n" +
 	"\x04file\x18\x01 \x01(\tR\x04file\x12\x12\n" +
 	"\x04find\x18\x02 \x01(\tR\x04find\x12\x18\n" +
 	"\areplace\x18\x03 \x01(\tR\areplace\x123\n" +
 	"\bfix_mode\x18\x04 \x01(\x0e2\x18.codefly.base.v0.FixModeR\afixMode\x12\x17\n" +
-	"\adry_run\x18\x05 \x01(\bR\x06dryRun\"\xd5\x02\n" +
+	"\adry_run\x18\x05 \x01(\bR\x06dryRun\"\xab\x03\n" +
 	"\x11ApplyEditResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1a\n" +
@@ -1809,7 +1847,9 @@ const file_codefly_services_tooling_v0_tooling_proto_rawDesc = "" +
 	"\fafter_sha256\x18\t \x01(\tR\vafterSha256\x12\x14\n" +
 	"\x05wrote\x18\n" +
 	" \x01(\bR\x05wrote\x12\x16\n" +
-	"\x06output\x18\v \x01(\tR\x06outputJ\x04\b\x03\x10\x04R\x05error\"\x19\n" +
+	"\x06output\x18\v \x01(\tR\x06output\x12*\n" +
+	"\x11before_size_bytes\x18\f \x01(\x04R\x0fbeforeSizeBytes\x12(\n" +
+	"\x10after_size_bytes\x18\r \x01(\x04R\x0eafterSizeBytesJ\x04\b\x03\x10\x04R\x05error\"\x19\n" +
 	"\x17ListDependenciesRequest\"\xa8\x01\n" +
 	"\x18ListDependenciesResponse\x12K\n" +
 	"\fdependencies\x18\x01 \x03(\v2'.codefly.services.tooling.v0.DependencyR\fdependencies\x122\n" +
