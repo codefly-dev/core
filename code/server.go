@@ -260,6 +260,8 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 
 	case *codev0.CodeRequest_ApplyEdit:
 		return s.applyEdit(ctx, op.ApplyEdit)
+	case *codev0.CodeRequest_ApplySymbolPatch:
+		return s.applySymbolPatch(ctx, op.ApplySymbolPatch)
 	case *codev0.CodeRequest_GetProjectInfo:
 		return s.getProjectInfo(ctx, op.GetProjectInfo)
 	case *codev0.CodeRequest_DiscoverCodeUnits:
@@ -1023,6 +1025,8 @@ func OperationName(req *codev0.CodeRequest) string {
 	// Core operations
 	case *codev0.CodeRequest_ApplyEdit:
 		return "apply_edit"
+	case *codev0.CodeRequest_ApplySymbolPatch:
+		return "apply_symbol_patch"
 	case *codev0.CodeRequest_GetProjectInfo:
 		return "get_project_info"
 	case *codev0.CodeRequest_DiscoverCodeUnits:

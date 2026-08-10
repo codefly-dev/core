@@ -30,6 +30,7 @@ const (
 	Gateway_CreateFile_FullMethodName                    = "/mind.gateway.v1.Gateway/CreateFile"
 	Gateway_Fix_FullMethodName                           = "/mind.gateway.v1.Gateway/Fix"
 	Gateway_ApplyEdit_FullMethodName                     = "/mind.gateway.v1.Gateway/ApplyEdit"
+	Gateway_ApplySymbolPatch_FullMethodName              = "/mind.gateway.v1.Gateway/ApplySymbolPatch"
 	Gateway_BatchApplyEdits_FullMethodName               = "/mind.gateway.v1.Gateway/BatchApplyEdits"
 	Gateway_ConfigureMutationAuthority_FullMethodName    = "/mind.gateway.v1.Gateway/ConfigureMutationAuthority"
 	Gateway_PrepareMutation_FullMethodName               = "/mind.gateway.v1.Gateway/PrepareMutation"
@@ -104,6 +105,9 @@ type GatewayClient interface {
 	Fix(ctx context.Context, in *FixRequest, opts ...grpc.CallOption) (*FixResponse, error)
 	// ApplyEdit performs a smart FIND/REPLACE on a file.
 	ApplyEdit(ctx context.Context, in *ApplyEditRequest, opts ...grpc.CallOption) (*ApplyEditResponse, error)
+	// ApplySymbolPatch replaces one analyzer-owned declaration and returns only
+	// source-free mutation evidence across the Mind boundary.
+	ApplySymbolPatch(ctx context.Context, in *ApplySymbolPatchRequest, opts ...grpc.CallOption) (*ApplySymbolPatchResponse, error)
 	// BatchApplyEdits applies multiple edits atomically across files/services.
 	BatchApplyEdits(ctx context.Context, in *BatchApplyEditsRequest, opts ...grpc.CallOption) (*BatchApplyEditsResponse, error)
 	// ConfigureMutationAuthority pins the SaaS coordinator verification key and
@@ -317,6 +321,16 @@ func (c *gatewayClient) ApplyEdit(ctx context.Context, in *ApplyEditRequest, opt
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ApplyEditResponse)
 	err := c.cc.Invoke(ctx, Gateway_ApplyEdit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) ApplySymbolPatch(ctx context.Context, in *ApplySymbolPatchRequest, opts ...grpc.CallOption) (*ApplySymbolPatchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplySymbolPatchResponse)
+	err := c.cc.Invoke(ctx, Gateway_ApplySymbolPatch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -785,6 +799,9 @@ type GatewayServer interface {
 	Fix(context.Context, *FixRequest) (*FixResponse, error)
 	// ApplyEdit performs a smart FIND/REPLACE on a file.
 	ApplyEdit(context.Context, *ApplyEditRequest) (*ApplyEditResponse, error)
+	// ApplySymbolPatch replaces one analyzer-owned declaration and returns only
+	// source-free mutation evidence across the Mind boundary.
+	ApplySymbolPatch(context.Context, *ApplySymbolPatchRequest) (*ApplySymbolPatchResponse, error)
 	// BatchApplyEdits applies multiple edits atomically across files/services.
 	BatchApplyEdits(context.Context, *BatchApplyEditsRequest) (*BatchApplyEditsResponse, error)
 	// ConfigureMutationAuthority pins the SaaS coordinator verification key and
@@ -924,6 +941,9 @@ func (UnimplementedGatewayServer) Fix(context.Context, *FixRequest) (*FixRespons
 }
 func (UnimplementedGatewayServer) ApplyEdit(context.Context, *ApplyEditRequest) (*ApplyEditResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ApplyEdit not implemented")
+}
+func (UnimplementedGatewayServer) ApplySymbolPatch(context.Context, *ApplySymbolPatchRequest) (*ApplySymbolPatchResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplySymbolPatch not implemented")
 }
 func (UnimplementedGatewayServer) BatchApplyEdits(context.Context, *BatchApplyEditsRequest) (*BatchApplyEditsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method BatchApplyEdits not implemented")
@@ -1244,6 +1264,24 @@ func _Gateway_ApplyEdit_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GatewayServer).ApplyEdit(ctx, req.(*ApplyEditRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_ApplySymbolPatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplySymbolPatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).ApplySymbolPatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_ApplySymbolPatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).ApplySymbolPatch(ctx, req.(*ApplySymbolPatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2053,6 +2091,10 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ApplyEdit",
 			Handler:    _Gateway_ApplyEdit_Handler,
+		},
+		{
+			MethodName: "ApplySymbolPatch",
+			Handler:    _Gateway_ApplySymbolPatch_Handler,
 		},
 		{
 			MethodName: "BatchApplyEdits",

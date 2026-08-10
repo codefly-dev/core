@@ -55,6 +55,9 @@ const (
 	GatewayFixProcedure = "/mind.gateway.v1.Gateway/Fix"
 	// GatewayApplyEditProcedure is the fully-qualified name of the Gateway's ApplyEdit RPC.
 	GatewayApplyEditProcedure = "/mind.gateway.v1.Gateway/ApplyEdit"
+	// GatewayApplySymbolPatchProcedure is the fully-qualified name of the Gateway's ApplySymbolPatch
+	// RPC.
+	GatewayApplySymbolPatchProcedure = "/mind.gateway.v1.Gateway/ApplySymbolPatch"
 	// GatewayBatchApplyEditsProcedure is the fully-qualified name of the Gateway's BatchApplyEdits RPC.
 	GatewayBatchApplyEditsProcedure = "/mind.gateway.v1.Gateway/BatchApplyEdits"
 	// GatewayConfigureMutationAuthorityProcedure is the fully-qualified name of the Gateway's
@@ -182,6 +185,9 @@ type GatewayClient interface {
 	Fix(context.Context, *connect.Request[v1.FixRequest]) (*connect.Response[v1.FixResponse], error)
 	// ApplyEdit performs a smart FIND/REPLACE on a file.
 	ApplyEdit(context.Context, *connect.Request[v1.ApplyEditRequest]) (*connect.Response[v1.ApplyEditResponse], error)
+	// ApplySymbolPatch replaces one analyzer-owned declaration and returns only
+	// source-free mutation evidence across the Mind boundary.
+	ApplySymbolPatch(context.Context, *connect.Request[v1.ApplySymbolPatchRequest]) (*connect.Response[v1.ApplySymbolPatchResponse], error)
 	// BatchApplyEdits applies multiple edits atomically across files/services.
 	BatchApplyEdits(context.Context, *connect.Request[v1.BatchApplyEditsRequest]) (*connect.Response[v1.BatchApplyEditsResponse], error)
 	// ConfigureMutationAuthority pins the SaaS coordinator verification key and
@@ -353,6 +359,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			httpClient,
 			baseURL+GatewayApplyEditProcedure,
 			connect.WithSchema(gatewayMethods.ByName("ApplyEdit")),
+			connect.WithClientOptions(opts...),
+		),
+		applySymbolPatch: connect.NewClient[v1.ApplySymbolPatchRequest, v1.ApplySymbolPatchResponse](
+			httpClient,
+			baseURL+GatewayApplySymbolPatchProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ApplySymbolPatch")),
 			connect.WithClientOptions(opts...),
 		),
 		batchApplyEdits: connect.NewClient[v1.BatchApplyEditsRequest, v1.BatchApplyEditsResponse](
@@ -628,6 +640,7 @@ type gatewayClient struct {
 	createFile                    *connect.Client[v1.CreateFileRequest, v1.CreateFileResponse]
 	fix                           *connect.Client[v1.FixRequest, v1.FixResponse]
 	applyEdit                     *connect.Client[v1.ApplyEditRequest, v1.ApplyEditResponse]
+	applySymbolPatch              *connect.Client[v1.ApplySymbolPatchRequest, v1.ApplySymbolPatchResponse]
 	batchApplyEdits               *connect.Client[v1.BatchApplyEditsRequest, v1.BatchApplyEditsResponse]
 	configureMutationAuthority    *connect.Client[v1.ConfigureMutationAuthorityRequest, v1.ConfigureMutationAuthorityResponse]
 	prepareMutation               *connect.Client[v1.PrepareMutationRequest, v1.PrepareMutationResponse]
@@ -721,6 +734,11 @@ func (c *gatewayClient) Fix(ctx context.Context, req *connect.Request[v1.FixRequ
 // ApplyEdit calls mind.gateway.v1.Gateway.ApplyEdit.
 func (c *gatewayClient) ApplyEdit(ctx context.Context, req *connect.Request[v1.ApplyEditRequest]) (*connect.Response[v1.ApplyEditResponse], error) {
 	return c.applyEdit.CallUnary(ctx, req)
+}
+
+// ApplySymbolPatch calls mind.gateway.v1.Gateway.ApplySymbolPatch.
+func (c *gatewayClient) ApplySymbolPatch(ctx context.Context, req *connect.Request[v1.ApplySymbolPatchRequest]) (*connect.Response[v1.ApplySymbolPatchResponse], error) {
+	return c.applySymbolPatch.CallUnary(ctx, req)
 }
 
 // BatchApplyEdits calls mind.gateway.v1.Gateway.BatchApplyEdits.
@@ -962,6 +980,9 @@ type GatewayHandler interface {
 	Fix(context.Context, *connect.Request[v1.FixRequest]) (*connect.Response[v1.FixResponse], error)
 	// ApplyEdit performs a smart FIND/REPLACE on a file.
 	ApplyEdit(context.Context, *connect.Request[v1.ApplyEditRequest]) (*connect.Response[v1.ApplyEditResponse], error)
+	// ApplySymbolPatch replaces one analyzer-owned declaration and returns only
+	// source-free mutation evidence across the Mind boundary.
+	ApplySymbolPatch(context.Context, *connect.Request[v1.ApplySymbolPatchRequest]) (*connect.Response[v1.ApplySymbolPatchResponse], error)
 	// BatchApplyEdits applies multiple edits atomically across files/services.
 	BatchApplyEdits(context.Context, *connect.Request[v1.BatchApplyEditsRequest]) (*connect.Response[v1.BatchApplyEditsResponse], error)
 	// ConfigureMutationAuthority pins the SaaS coordinator verification key and
@@ -1129,6 +1150,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		GatewayApplyEditProcedure,
 		svc.ApplyEdit,
 		connect.WithSchema(gatewayMethods.ByName("ApplyEdit")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayApplySymbolPatchHandler := connect.NewUnaryHandler(
+		GatewayApplySymbolPatchProcedure,
+		svc.ApplySymbolPatch,
+		connect.WithSchema(gatewayMethods.ByName("ApplySymbolPatch")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gatewayBatchApplyEditsHandler := connect.NewUnaryHandler(
@@ -1411,6 +1438,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayFixHandler.ServeHTTP(w, r)
 		case GatewayApplyEditProcedure:
 			gatewayApplyEditHandler.ServeHTTP(w, r)
+		case GatewayApplySymbolPatchProcedure:
+			gatewayApplySymbolPatchHandler.ServeHTTP(w, r)
 		case GatewayBatchApplyEditsProcedure:
 			gatewayBatchApplyEditsHandler.ServeHTTP(w, r)
 		case GatewayConfigureMutationAuthorityProcedure:
@@ -1544,6 +1573,10 @@ func (UnimplementedGatewayHandler) Fix(context.Context, *connect.Request[v1.FixR
 
 func (UnimplementedGatewayHandler) ApplyEdit(context.Context, *connect.Request[v1.ApplyEditRequest]) (*connect.Response[v1.ApplyEditResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ApplyEdit is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ApplySymbolPatch(context.Context, *connect.Request[v1.ApplySymbolPatchRequest]) (*connect.Response[v1.ApplySymbolPatchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ApplySymbolPatch is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) BatchApplyEdits(context.Context, *connect.Request[v1.BatchApplyEditsRequest]) (*connect.Response[v1.BatchApplyEditsResponse], error) {

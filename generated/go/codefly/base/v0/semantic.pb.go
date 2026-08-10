@@ -153,6 +153,69 @@ func (SemanticSymbolKind) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_base_v0_semantic_proto_rawDescGZIP(), []int{1}
 }
 
+// SymbolPatchFailureReason is the typed recovery branch for analyzer-owned
+// declaration mutation. Callers never infer recovery behavior from messages.
+type SymbolPatchFailureReason int32
+
+const (
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_UNSPECIFIED          SymbolPatchFailureReason = 0
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR         SymbolPatchFailureReason = 1
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND            SymbolPatchFailureReason = 2
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_AMBIGUOUS            SymbolPatchFailureReason = 3
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_SHARED_DECLARATION   SymbolPatchFailureReason = 4
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE SymbolPatchFailureReason = 5
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT  SymbolPatchFailureReason = 6
+)
+
+// Enum value maps for SymbolPatchFailureReason.
+var (
+	SymbolPatchFailureReason_name = map[int32]string{
+		0: "SYMBOL_PATCH_FAILURE_REASON_UNSPECIFIED",
+		1: "SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR",
+		2: "SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND",
+		3: "SYMBOL_PATCH_FAILURE_REASON_AMBIGUOUS",
+		4: "SYMBOL_PATCH_FAILURE_REASON_SHARED_DECLARATION",
+		5: "SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE",
+		6: "SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT",
+	}
+	SymbolPatchFailureReason_value = map[string]int32{
+		"SYMBOL_PATCH_FAILURE_REASON_UNSPECIFIED":          0,
+		"SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR":         1,
+		"SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND":            2,
+		"SYMBOL_PATCH_FAILURE_REASON_AMBIGUOUS":            3,
+		"SYMBOL_PATCH_FAILURE_REASON_SHARED_DECLARATION":   4,
+		"SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE": 5,
+		"SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT":  6,
+	}
+)
+
+func (x SymbolPatchFailureReason) Enum() *SymbolPatchFailureReason {
+	p := new(SymbolPatchFailureReason)
+	*p = x
+	return p
+}
+
+func (x SymbolPatchFailureReason) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SymbolPatchFailureReason) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_base_v0_semantic_proto_enumTypes[2].Descriptor()
+}
+
+func (SymbolPatchFailureReason) Type() protoreflect.EnumType {
+	return &file_codefly_base_v0_semantic_proto_enumTypes[2]
+}
+
+func (x SymbolPatchFailureReason) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SymbolPatchFailureReason.Descriptor instead.
+func (SymbolPatchFailureReason) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_base_v0_semantic_proto_rawDescGZIP(), []int{2}
+}
+
 // SemanticLocation identifies a declaration or use without exposing source
 // bytes. Lines and columns are one-based and inclusive.
 type SemanticLocation struct {
@@ -379,8 +442,12 @@ type SemanticSymbol struct {
 	BodySha256          string                 `protobuf:"bytes,9,opt,name=body_sha256,json=bodySha256,proto3" json:"body_sha256,omitempty"`
 	Calls               []*SemanticUse         `protobuf:"bytes,10,rep,name=calls,proto3" json:"calls,omitempty"`
 	References          []*SemanticUse         `protobuf:"bytes,11,rep,name=references,proto3" json:"references,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// declaration_sha256 identifies the complete declaration span selected by
+	// the analyzer. Typed symbol mutations use this source-free precondition;
+	// callers never reconstruct declaration boundaries from lines or bytes.
+	DeclarationSha256 string `protobuf:"bytes,12,opt,name=declaration_sha256,json=declarationSha256,proto3" json:"declaration_sha256,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SemanticSymbol) Reset() {
@@ -488,6 +555,13 @@ func (x *SemanticSymbol) GetReferences() []*SemanticUse {
 		return x.References
 	}
 	return nil
+}
+
+func (x *SemanticSymbol) GetDeclarationSha256() string {
+	if x != nil {
+		return x.DeclarationSha256
+	}
+	return ""
 }
 
 // SemanticIssue preserves per-file analyzer failures without converting a
@@ -667,7 +741,7 @@ const file_codefly_base_v0_semantic_proto_rawDesc = "" +
 	"\x0econtent_sha256\x18\x02 \x01(\tR\rcontentSha256\x12\x1b\n" +
 	"\tbyte_size\x18\x03 \x01(\x03R\bbyteSize\x12\x18\n" +
 	"\aimports\x18\x04 \x03(\tR\aimports\x12\x1a\n" +
-	"\blanguage\x18\x05 \x01(\tR\blanguage\"\xed\x03\n" +
+	"\blanguage\x18\x05 \x01(\tR\blanguage\"\x9c\x04\n" +
 	"\x0eSemanticSymbol\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12%\n" +
 	"\x0equalified_name\x18\x02 \x01(\tR\rqualifiedName\x127\n" +
@@ -683,7 +757,8 @@ const file_codefly_base_v0_semantic_proto_rawDesc = "" +
 	" \x03(\v2\x1c.codefly.base.v0.SemanticUseR\x05calls\x12<\n" +
 	"\n" +
 	"references\x18\v \x03(\v2\x1c.codefly.base.v0.SemanticUseR\n" +
-	"references\"Q\n" +
+	"references\x12-\n" +
+	"\x12declaration_sha256\x18\f \x01(\tR\x11declarationSha256\"Q\n" +
 	"\rSemanticIssue\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x12\n" +
@@ -714,7 +789,15 @@ const file_codefly_base_v0_semantic_proto_rawDesc = "" +
 	"\x1dSEMANTIC_SYMBOL_KIND_CONSTANT\x10\t\x12#\n" +
 	"\x1fSEMANTIC_SYMBOL_KIND_TYPE_ALIAS\x10\n" +
 	"\x12\x1f\n" +
-	"\x1bSEMANTIC_SYMBOL_KIND_MODULE\x10\vB\xbc\x01\n" +
+	"\x1bSEMANTIC_SYMBOL_KIND_MODULE\x10\v*\xea\x02\n" +
+	"\x18SymbolPatchFailureReason\x12+\n" +
+	"'SYMBOL_PATCH_FAILURE_REASON_UNSPECIFIED\x10\x00\x12,\n" +
+	"(SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR\x10\x01\x12)\n" +
+	"%SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND\x10\x02\x12)\n" +
+	"%SYMBOL_PATCH_FAILURE_REASON_AMBIGUOUS\x10\x03\x122\n" +
+	".SYMBOL_PATCH_FAILURE_REASON_SHARED_DECLARATION\x10\x04\x124\n" +
+	"0SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE\x10\x05\x123\n" +
+	"/SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT\x10\x06B\xbc\x01\n" +
 	"\x13com.codefly.base.v0B\rSemanticProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 
 var (
@@ -729,28 +812,29 @@ func file_codefly_base_v0_semantic_proto_rawDescGZIP() []byte {
 	return file_codefly_base_v0_semantic_proto_rawDescData
 }
 
-var file_codefly_base_v0_semantic_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_codefly_base_v0_semantic_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_codefly_base_v0_semantic_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_codefly_base_v0_semantic_proto_goTypes = []any{
-	(SemanticIndexState)(0),  // 0: codefly.base.v0.SemanticIndexState
-	(SemanticSymbolKind)(0),  // 1: codefly.base.v0.SemanticSymbolKind
-	(*SemanticLocation)(nil), // 2: codefly.base.v0.SemanticLocation
-	(*SemanticUse)(nil),      // 3: codefly.base.v0.SemanticUse
-	(*SemanticFile)(nil),     // 4: codefly.base.v0.SemanticFile
-	(*SemanticSymbol)(nil),   // 5: codefly.base.v0.SemanticSymbol
-	(*SemanticIssue)(nil),    // 6: codefly.base.v0.SemanticIssue
-	(*SemanticIndex)(nil),    // 7: codefly.base.v0.SemanticIndex
+	(SemanticIndexState)(0),       // 0: codefly.base.v0.SemanticIndexState
+	(SemanticSymbolKind)(0),       // 1: codefly.base.v0.SemanticSymbolKind
+	(SymbolPatchFailureReason)(0), // 2: codefly.base.v0.SymbolPatchFailureReason
+	(*SemanticLocation)(nil),      // 3: codefly.base.v0.SemanticLocation
+	(*SemanticUse)(nil),           // 4: codefly.base.v0.SemanticUse
+	(*SemanticFile)(nil),          // 5: codefly.base.v0.SemanticFile
+	(*SemanticSymbol)(nil),        // 6: codefly.base.v0.SemanticSymbol
+	(*SemanticIssue)(nil),         // 7: codefly.base.v0.SemanticIssue
+	(*SemanticIndex)(nil),         // 8: codefly.base.v0.SemanticIndex
 }
 var file_codefly_base_v0_semantic_proto_depIdxs = []int32{
-	2, // 0: codefly.base.v0.SemanticUse.location:type_name -> codefly.base.v0.SemanticLocation
+	3, // 0: codefly.base.v0.SemanticUse.location:type_name -> codefly.base.v0.SemanticLocation
 	1, // 1: codefly.base.v0.SemanticSymbol.kind:type_name -> codefly.base.v0.SemanticSymbolKind
-	2, // 2: codefly.base.v0.SemanticSymbol.location:type_name -> codefly.base.v0.SemanticLocation
-	3, // 3: codefly.base.v0.SemanticSymbol.calls:type_name -> codefly.base.v0.SemanticUse
-	3, // 4: codefly.base.v0.SemanticSymbol.references:type_name -> codefly.base.v0.SemanticUse
+	3, // 2: codefly.base.v0.SemanticSymbol.location:type_name -> codefly.base.v0.SemanticLocation
+	4, // 3: codefly.base.v0.SemanticSymbol.calls:type_name -> codefly.base.v0.SemanticUse
+	4, // 4: codefly.base.v0.SemanticSymbol.references:type_name -> codefly.base.v0.SemanticUse
 	0, // 5: codefly.base.v0.SemanticIndex.state:type_name -> codefly.base.v0.SemanticIndexState
-	4, // 6: codefly.base.v0.SemanticIndex.files:type_name -> codefly.base.v0.SemanticFile
-	5, // 7: codefly.base.v0.SemanticIndex.symbols:type_name -> codefly.base.v0.SemanticSymbol
-	6, // 8: codefly.base.v0.SemanticIndex.issues:type_name -> codefly.base.v0.SemanticIssue
+	5, // 6: codefly.base.v0.SemanticIndex.files:type_name -> codefly.base.v0.SemanticFile
+	6, // 7: codefly.base.v0.SemanticIndex.symbols:type_name -> codefly.base.v0.SemanticSymbol
+	7, // 8: codefly.base.v0.SemanticIndex.issues:type_name -> codefly.base.v0.SemanticIssue
 	9, // [9:9] is the sub-list for method output_type
 	9, // [9:9] is the sub-list for method input_type
 	9, // [9:9] is the sub-list for extension type_name
@@ -768,7 +852,7 @@ func file_codefly_base_v0_semantic_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_base_v0_semantic_proto_rawDesc), len(file_codefly_base_v0_semantic_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,

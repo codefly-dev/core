@@ -150,6 +150,37 @@ message ApplyEditResponse {
   string output = 10;
 }
 
+// --- ApplySymbolPatch ---
+
+// ApplySymbolPatchRequest replaces one complete declaration selected by the
+// exact qualified name emitted by GetSemanticIndex. The expected declaration
+// hash makes stale or ambiguous authoring fail before any workspace write.
+message ApplySymbolPatchRequest {
+  string file = 1;
+  string qualified_name = 2;
+  string expected_declaration_sha256 = 3;
+  string new_source = 4;
+  codefly.base.v0.FixMode fix_mode = 5;
+  bool dry_run = 6;
+}
+
+// ApplySymbolPatchResponse returns the complete post-edit file only inside the
+// Codefly boundary. Gateway callers receive a source-free projection of these
+// hashes and actions.
+message ApplySymbolPatchResponse {
+  bool success = 1;
+  string content = 2;
+  string strategy = 3;
+  repeated string fix_actions = 4;
+  bool changed = 5;
+  string before_sha256 = 6;
+  string after_sha256 = 7;
+  string declaration_sha256 = 8;
+  bool wrote = 9;
+  string output = 10;
+  codefly.base.v0.SymbolPatchFailureReason failure_reason = 11;
+}
+
 // --- Search ---
 
 // SearchRequest searches service files using either regex or literal matching.
@@ -608,6 +639,8 @@ message CodeRequest {
     FixRequest fix = 13;
     // apply_edit applies a smart find/replace edit through the plugin.
     ApplyEditRequest apply_edit = 14;
+    // apply_symbol_patch replaces one analyzer-owned declaration atomically.
+    ApplySymbolPatchRequest apply_symbol_patch = 15;
     // list_dependencies reads dependencies from the native package manager.
     ListDependenciesRequest list_dependencies = 16;
     // add_dependency installs a package through the native package manager.
@@ -668,6 +701,8 @@ message CodeResponse {
     FixResponse fix = 13;
     // apply_edit returns edited content and the matching strategy used.
     ApplyEditResponse apply_edit = 14;
+    // apply_symbol_patch returns the analyzer-owned declaration edit result.
+    ApplySymbolPatchResponse apply_symbol_patch = 15;
     // list_dependencies returns package manager dependencies.
     ListDependenciesResponse list_dependencies = 16;
     // add_dependency returns the installed dependency version.
