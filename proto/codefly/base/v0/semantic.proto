@@ -27,6 +27,18 @@ enum SemanticSymbolKind {
   SEMANTIC_SYMBOL_KIND_MODULE = 11;
 }
 
+// SymbolPatchFailureReason is the typed recovery branch for analyzer-owned
+// declaration mutation. Callers never infer recovery behavior from messages.
+enum SymbolPatchFailureReason {
+  SYMBOL_PATCH_FAILURE_REASON_UNSPECIFIED = 0;
+  SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR = 1;
+  SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND = 2;
+  SYMBOL_PATCH_FAILURE_REASON_AMBIGUOUS = 3;
+  SYMBOL_PATCH_FAILURE_REASON_SHARED_DECLARATION = 4;
+  SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE = 5;
+  SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT = 6;
+}
+
 // SemanticLocation identifies a declaration or use without exposing source
 // bytes. Lines and columns are one-based and inclusive.
 message SemanticLocation {
@@ -69,6 +81,10 @@ message SemanticSymbol {
   string body_sha256 = 9;
   repeated SemanticUse calls = 10;
   repeated SemanticUse references = 11;
+  // declaration_sha256 identifies the complete declaration span selected by
+  // the analyzer. Typed symbol mutations use this source-free precondition;
+  // callers never reconstruct declaration boundaries from lines or bytes.
+  string declaration_sha256 = 12;
 }
 
 // SemanticIssue preserves per-file analyzer failures without converting a

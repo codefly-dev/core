@@ -195,11 +195,21 @@ func projectSemanticFile(ctx context.Context, definition semanticLanguage, path 
 	}
 	packageName := semanticPackage(definition.name, path, root, body)
 	var symbols []*basev0.SemanticSymbol
-	projectSemanticDeclarations(definition.name, path, packageName, "", false, root, body, &symbols)
+	projectSemanticDeclarations(definition.name, path, packageName, "", false, root, body, &symbols, nil)
 	return file, symbols, nil
 }
 
-func projectSemanticDeclarations(language, path, packageName, parent string, inCallable bool, node *sitter.Node, body []byte, out *[]*basev0.SemanticSymbol) {
+// semanticSymbolProjection is retained only inside the Codefly execution
+// boundary. It joins one body-free semantic fact to the exact parser-owned
+// declaration span used by typed symbol mutation.
+type semanticSymbolProjection struct {
+	symbol         *basev0.SemanticSymbol
+	startByte      uint32
+	endByte        uint32
+	declarationKey string
+}
+
+func projectSemanticDeclarations(language, path, packageName, parent string, inCallable bool, node *sitter.Node, body []byte, out *[]*basev0.SemanticSymbol, projections *[]semanticSymbolProjection) {
 	if node == nil || node.IsNull() {
 		return
 	}
@@ -225,11 +235,12 @@ func projectSemanticDeclarations(language, path, packageName, parent string, inC
 		} else if semanticDataDeclaration(declaration.kind) {
 			bodyBytes = nodeBytes(node, body)
 		}
+		declarationBytes := nodeBytes(node, body)
 		symbol := &basev0.SemanticSymbol{
 			Name: name, QualifiedName: qualified, Kind: declaration.kind,
 			Location: semanticLocation(path, node), Package: packageName,
 			ParentQualifiedName: parent, Signature: boundedSignature(signatureBytes),
-			SignatureSha256: semanticHash(signatureBytes),
+			SignatureSha256: semanticHash(signatureBytes), DeclarationSha256: semanticHash(declarationBytes),
 		}
 		if len(bodyBytes) > 0 {
 			symbol.BodySha256 = semanticHash(bodyBytes)
@@ -239,6 +250,12 @@ func projectSemanticDeclarations(language, path, packageName, parent string, inC
 			symbol.References = semanticUses(language, path, node, body, false)
 		}
 		*out = append(*out, symbol)
+		if projections != nil {
+			*projections = append(*projections, semanticSymbolProjection{
+				symbol: symbol, startByte: node.StartByte(), endByte: node.EndByte(),
+				declarationKey: fmt.Sprintf("%d:%d", node.StartByte(), node.EndByte()),
+			})
+		}
 		if semanticContainer(declaration.kind) || semanticCallable(declaration.kind) {
 			nextParent = qualified
 		}
@@ -249,10 +266,10 @@ func projectSemanticDeclarations(language, path, packageName, parent string, inC
 	for index := 0; index < int(node.NamedChildCount()); index++ {
 		child := node.NamedChild(index)
 		if len(declarations) > 0 && isNestedSemanticBody(node, child) {
-			projectSemanticDeclarations(language, path, packageName, nextParent, nextInCallable, child, body, out)
+			projectSemanticDeclarations(language, path, packageName, nextParent, nextInCallable, child, body, out, projections)
 			continue
 		}
-		projectSemanticDeclarations(language, path, packageName, parent, inCallable, child, body, out)
+		projectSemanticDeclarations(language, path, packageName, parent, inCallable, child, body, out, projections)
 	}
 }
 

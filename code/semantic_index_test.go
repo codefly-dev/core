@@ -73,6 +73,11 @@ public class Cart { public string Id() { return Guid.NewGuid().ToString(); } }
 			t.Fatalf("invalid semantic file: %#v", file)
 		}
 	}
+	for _, symbol := range index.GetSymbols() {
+		if !canonicalSemanticSHA256(symbol.GetDeclarationSha256()) {
+			t.Fatalf("symbol %q has no analyzer-owned declaration hash", symbol.GetQualifiedName())
+		}
+	}
 	for _, want := range []string{"api.Server", "api.Server.Handle", "python.app.Client", "python.app.Client.fetch", "web.service.Service", "web.service.Service.run", "demo.worker.Worker", "demo.worker.Worker.run", "demo.queue.Queue", "Shop.Cart.Cart", "Shop.Cart.Cart.Id"} {
 		if !hasSemanticQualifiedName(index, want) {
 			t.Errorf("missing semantic symbol %q; got %v", want, semanticQualifiedNames(index))

@@ -58,6 +58,10 @@ service Gateway {
   // ApplyEdit performs a smart FIND/REPLACE on a file.
   rpc ApplyEdit(ApplyEditRequest) returns (ApplyEditResponse);
 
+  // ApplySymbolPatch replaces one analyzer-owned declaration and returns only
+  // source-free mutation evidence across the Mind boundary.
+  rpc ApplySymbolPatch(ApplySymbolPatchRequest) returns (ApplySymbolPatchResponse);
+
   // BatchApplyEdits applies multiple edits atomically across files/services.
   rpc BatchApplyEdits(BatchApplyEditsRequest) returns (BatchApplyEditsResponse);
 
@@ -493,6 +497,37 @@ message ApplyEditResponse {
   string output = 10;
 }
 
+// ApplySymbolPatchRequest addresses one declaration by the exact qualified
+// name and declaration hash returned by Codefly semantic projection.
+message ApplySymbolPatchRequest {
+  string service = 1;
+  string file = 2;
+  string qualified_name = 3;
+  string expected_declaration_sha256 = 4;
+  string new_source = 5;
+  codefly.base.v0.FixMode fix_mode = 6;
+  bool dry_run = 7;
+}
+
+// ApplySymbolPatchResponse deliberately omits project content. Mind receives
+// only typed success/failure and exact identities needed for orchestration.
+message ApplySymbolPatchResponse {
+  bool success = 1;
+  string error = 2;
+  string strategy = 3;
+  repeated string fix_actions = 4;
+  bool changed = 5;
+  string before_sha256 = 6;
+  string after_sha256 = 7;
+  string declaration_sha256 = 8;
+  bool wrote = 9;
+  string output = 10;
+  // failure preserves the agent-owned recovery classification without
+  // requiring Mind to parse the human-readable error string.
+  codefly.base.v0.Failure failure = 11;
+  codefly.base.v0.SymbolPatchFailureReason failure_reason = 12;
+}
+
 // BatchApplyEditsRequest applies multiple edits in one call.
 message BatchApplyEditsRequest {
   // edits are the requested edits, potentially spanning services.
@@ -553,6 +588,9 @@ message PreparedFileMutation {
   reserved 5;
   string strategy = 6;
   repeated string fix_actions = 7;
+  // symbol_id is set only when Codefly prepared an exact symbol mutation. It
+  // causes the coordinator to issue a symbol fence instead of a file fence.
+  string symbol_id = 8;
 }
 
 // PreparedMutation is one immutable, version-bound write proposal. The digest
@@ -577,11 +615,25 @@ message PrepareApplyEditMutation {
   codefly.base.v0.FixMode fix_mode = 4;
 }
 
+message PrepareSymbolPatchMutation {
+  string file = 1;
+  // symbol_id is the stable KG/coordinator resource identity used for the
+  // exact claim, lease, and permit fence.
+  string symbol_id = 2;
+  // qualified_name is the exact analyzer-emitted declaration selector. It is
+  // deliberately distinct from the stable resource identity above.
+  string qualified_name = 3;
+  string expected_declaration_sha256 = 4;
+  string new_source = 5;
+  codefly.base.v0.FixMode fix_mode = 6;
+}
+
 message PrepareMutationRequest {
   string service = 1;
   string workspace_version = 2;
   oneof mutation {
     PrepareApplyEditMutation apply_edit = 10;
+    PrepareSymbolPatchMutation symbol_patch = 11;
   }
 }
 
@@ -589,6 +641,12 @@ message PrepareMutationResponse {
   bool success = 1;
   string error = 2;
   PreparedMutation prepared = 3;
+  // failure preserves the agent-owned classification when preparation invokes
+  // a language capability. It is absent for Gateway-local validation errors.
+  codefly.base.v0.Failure failure = 4;
+  // symbol_patch_failure_reason gives Mind a stable recovery branch for a
+  // failed semantic preparation without parsing error text.
+  codefly.base.v0.SymbolPatchFailureReason symbol_patch_failure_reason = 5;
 }
 
 message ApplyPreparedMutationRequest {
