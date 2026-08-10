@@ -24,6 +24,7 @@ func TestSourceToolingPreservesFixContract(t *testing.T) {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{
 			Success: true, Content: "fixed", Actions: []string{"formatter"}, Changed: true,
 			BeforeSha256: "before", AfterSha256: "after", Output: "diagnostic",
+			BeforeSizeBytes: 6, AfterSizeBytes: 5,
 		}}}, nil
 	}))
 
@@ -33,7 +34,7 @@ func TestSourceToolingPreservesFixContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !response.GetSuccess() || !response.GetChanged() || response.GetAfterSha256() != "after" || response.GetOutput() != "diagnostic" {
+	if !response.GetSuccess() || !response.GetChanged() || response.GetAfterSha256() != "after" || response.GetOutput() != "diagnostic" || response.GetBeforeSizeBytes() != 6 || response.GetAfterSizeBytes() != 5 {
 		t.Fatalf("response = %+v", response)
 	}
 }

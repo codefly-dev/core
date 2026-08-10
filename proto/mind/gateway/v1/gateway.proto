@@ -453,6 +453,10 @@ message FixResponse {
   bool wrote = 8;
   // output preserves bounded formatter/fixer output useful for follow-up linting.
   string output = 9;
+  // before_size_bytes is the exact original content length.
+  uint64 before_size_bytes = 10;
+  // after_size_bytes is the exact returned content length.
+  uint64 after_size_bytes = 11;
 }
 
 // ─── Code Edit ────────────────────────────────────────────────
@@ -495,6 +499,10 @@ message ApplyEditResponse {
   bool wrote = 9;
   // output preserves bounded formatter/fixer output useful for follow-up linting.
   string output = 10;
+  // before_size_bytes is the exact original content length.
+  uint64 before_size_bytes = 11;
+  // after_size_bytes is the exact returned content length.
+  uint64 after_size_bytes = 12;
 }
 
 // ApplySymbolPatchRequest addresses one declaration by the exact qualified
@@ -526,6 +534,10 @@ message ApplySymbolPatchResponse {
   // requiring Mind to parse the human-readable error string.
   codefly.base.v0.Failure failure = 11;
   codefly.base.v0.SymbolPatchFailureReason failure_reason = 12;
+  // before_size_bytes is the exact original content length.
+  uint64 before_size_bytes = 13;
+  // after_size_bytes is the exact returned content length.
+  uint64 after_size_bytes = 14;
 }
 
 // BatchApplyEditsRequest applies multiple edits in one call.
@@ -585,12 +597,15 @@ message PreparedFileMutation {
   PreparedFileOperation operation = 2;
   string before_sha256 = 3;
   string after_sha256 = 4;
-  reserved 5;
+  // before_size_bytes is the exact original content length.
+  uint64 before_size_bytes = 5;
   string strategy = 6;
   repeated string fix_actions = 7;
   // symbol_id is set only when Codefly prepared an exact symbol mutation. It
   // causes the coordinator to issue a symbol fence instead of a file fence.
   string symbol_id = 8;
+  // after_size_bytes is the exact prepared content length.
+  uint64 after_size_bytes = 9;
 }
 
 // PreparedMutation is one immutable, version-bound write proposal. The digest
@@ -664,6 +679,10 @@ message AppliedFileMutation {
   PreparedFileOperation operation = 2;
   string before_sha256 = 3;
   string after_sha256 = 4;
+  // before_size_bytes is the exact original content length.
+  uint64 before_size_bytes = 5;
+  // after_size_bytes is the exact applied content length.
+  uint64 after_size_bytes = 6;
 }
 
 message ApplyPreparedMutationResponse {

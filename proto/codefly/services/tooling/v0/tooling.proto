@@ -120,6 +120,10 @@ message FixResponse {
   bool wrote = 9;
   // output preserves bounded formatter/fixer output useful for follow-up linting.
   string output = 10;
+  // before_size_bytes is the exact original content length.
+  uint64 before_size_bytes = 11;
+  // after_size_bytes is the exact returned content length.
+  uint64 after_size_bytes = 12;
 }
 
 // ApplyEditRequest asks the agent to apply a language-aware find/replace edit.
@@ -160,6 +164,10 @@ message ApplyEditResponse {
   bool wrote = 10;
   // output preserves bounded formatter/fixer output useful for follow-up linting.
   string output = 11;
+  // before_size_bytes is the exact original content length.
+  uint64 before_size_bytes = 12;
+  // after_size_bytes is the exact returned content length.
+  uint64 after_size_bytes = 13;
 }
 
 // ── Dependency Management (require package manager) ─────
