@@ -102,12 +102,16 @@ func inspectSourceImports(ctx context.Context, vfs VFS, root, language string) (
 		if _, wanted := definition.extensions[extension]; !wanted {
 			return nil
 		}
+		relative, err := sourceInspectionRelativePath(root, filename)
+		if err != nil {
+			return err
+		}
 		info, err := vfs.Stat(filename)
 		if err != nil {
 			return err
 		}
 		if info.Size() > maxHashFileSize {
-			return fmt.Errorf("source file %q exceeds inspection limit", filename)
+			return fmt.Errorf("source file %q exceeds inspection limit", relative)
 		}
 		body, err := vfs.ReadFile(filename)
 		if err != nil {
@@ -118,20 +122,16 @@ func inspectSourceImports(ctx context.Context, vfs VFS, root, language string) (
 		tree, err := parser.ParseCtx(ctx, nil, body)
 		parser.Close()
 		if err != nil {
-			return fmt.Errorf("parse %s: %w", filename, err)
+			return fmt.Errorf("parse %s: %w", relative, err)
 		}
 		rootNode := tree.RootNode()
 		if rootNode.HasError() {
 			tree.Close()
-			return fmt.Errorf("parse %s: syntax tree contains errors", filename)
+			return fmt.Errorf("parse %s: syntax tree contains errors", relative)
 		}
 		imports := canonicalImports(definition.extract(rootNode, body))
 		tree.Close()
-		relative, err := filepath.Rel(root, filename)
-		if err != nil {
-			return err
-		}
-		result = append(result, &codev0.SourceFileInfo{Path: filepath.ToSlash(relative), Imports: imports})
+		result = append(result, &codev0.SourceFileInfo{Path: relative, Imports: imports})
 		return nil
 	})
 	if err != nil {
@@ -159,27 +159,27 @@ func inspectGoSourceImports(ctx context.Context, vfs VFS, root string) ([]*codev
 		if filepath.Ext(entry.Name()) != ".go" {
 			return nil
 		}
+		relative, err := sourceInspectionRelativePath(root, filename)
+		if err != nil {
+			return err
+		}
 		body, err := vfs.ReadFile(filename)
 		if err != nil {
 			return err
 		}
 		parsed, err := parser.ParseFile(token.NewFileSet(), filename, body, parser.ImportsOnly)
 		if err != nil {
-			return fmt.Errorf("parse %s: %w", filename, err)
+			return fmt.Errorf("parse %s: %w", relative, err)
 		}
 		imports := make([]string, 0, len(parsed.Imports))
 		for _, declaration := range parsed.Imports {
 			value, err := strconv.Unquote(declaration.Path.Value)
 			if err != nil {
-				return fmt.Errorf("parse %s import %q: %w", filename, declaration.Path.Value, err)
+				return fmt.Errorf("parse %s import %q: %w", relative, declaration.Path.Value, err)
 			}
 			imports = append(imports, value)
 		}
-		relative, err := filepath.Rel(root, filename)
-		if err != nil {
-			return err
-		}
-		result = append(result, &codev0.SourceFileInfo{Path: filepath.ToSlash(relative), Imports: canonicalImports(imports)})
+		result = append(result, &codev0.SourceFileInfo{Path: relative, Imports: canonicalImports(imports)})
 		return nil
 	})
 	if err != nil {
@@ -187,6 +187,22 @@ func inspectGoSourceImports(ctx context.Context, vfs VFS, root string) ([]*codev
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].GetPath() < result[j].GetPath() })
 	return result, nil
+}
+
+// sourceInspectionRelativePath is the only path identity that may cross the
+// source-inspection boundary. Agent-local roots are execution details: putting
+// them in typed diagnostics makes identical immutable worktrees observably
+// different and leaks host layout to consumers.
+func sourceInspectionRelativePath(root, filename string) (string, error) {
+	relative, err := filepath.Rel(root, filename)
+	if err != nil {
+		return "", fmt.Errorf("source inspection relative path: %w", err)
+	}
+	relative = filepath.ToSlash(relative)
+	if relative == "." || relative == "" || relative == ".." || strings.HasPrefix(relative, "../") {
+		return "", fmt.Errorf("source inspection path escapes source root")
+	}
+	return relative, nil
 }
 
 func skipSourceInspectionDir(name string) bool {

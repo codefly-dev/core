@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -49,7 +50,38 @@ func TestInspectSourceImportsRejectsMalformedSyntax(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "broken.py"), []byte("from import\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := inspectSourceImports(t.Context(), LocalVFS{}, root, "python"); err == nil {
+	_, err := inspectSourceImports(t.Context(), LocalVFS{}, root, "python")
+	if err == nil {
 		t.Fatal("malformed source was certified as complete")
+	}
+	if got := err.Error(); !strings.Contains(got, "parse broken.py:") || strings.Contains(got, root) {
+		t.Fatalf("malformed-source diagnostic = %q, want repository-relative path only", got)
+	}
+}
+
+func TestInspectSourceImportsSizeLimitUsesRepositoryRelativePath(t *testing.T) {
+	root := t.TempDir()
+	filename := filepath.Join(root, "nested", "oversized.py")
+	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxHashFileSize + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = inspectSourceImports(t.Context(), LocalVFS{}, root, "python")
+	if err == nil {
+		t.Fatal("oversized source was inspected")
+	}
+	if got := err.Error(); !strings.Contains(got, `source file "nested/oversized.py"`) || strings.Contains(got, root) {
+		t.Fatalf("size-limit diagnostic = %q, want repository-relative path only", got)
 	}
 }
