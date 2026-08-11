@@ -22,6 +22,7 @@ import (
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	"github.com/codefly-dev/core/grpcconfig"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/toolbox/policyguard"
 	"github.com/codefly-dev/core/wool"
@@ -418,7 +419,8 @@ func Serve(reg PluginRegistration) {
 	wool.SetRethrowAfterCatch(true)
 
 	var runtimeLoaded atomic.Bool
-	s := grpc.NewServer(
+	serverOptions := grpcconfig.TypedMessageServerOptions()
+	serverOptions = append(serverOptions,
 		grpc.ChainUnaryInterceptor(
 			// panicRecovery is OUTERMOST so it catches panics from the
 			// handler AND from the auth/principal interceptors, turning any
@@ -440,6 +442,7 @@ func Serve(reg PluginRegistration) {
 			principalStreamInterceptor(),
 		),
 	)
+	s := grpc.NewServer(serverOptions...)
 
 	if reg.Agent != nil {
 		agentv0.RegisterAgentServer(s, reg.Agent)
