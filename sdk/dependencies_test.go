@@ -103,6 +103,35 @@ func TestWithDependencies_ReturnsWhenCLIExitsBeforeReady(t *testing.T) {
 	}
 }
 
+func TestWithDependenciesUsesPinnedCodeflyBinary(t *testing.T) {
+	dir := t.TempDir()
+	selectedPath := filepath.Join(dir, "selected-codefly")
+	conflictingPath := filepath.Join(dir, "conflicting-codefly")
+	markerPath := filepath.Join(dir, "selected")
+
+	selected := "#!/bin/sh\nprintf selected > " + markerPath + "\nexit 23\n"
+	if err := os.WriteFile(selectedPath, []byte(selected), 0o755); err != nil {
+		t.Fatalf("write selected binary: %v", err)
+	}
+	conflicting := "#!/bin/sh\nprintf conflicting > " + markerPath + "\nexit 24\n"
+	if err := os.WriteFile(conflictingPath, []byte(conflicting), 0o755); err != nil {
+		t.Fatalf("write conflicting binary: %v", err)
+	}
+	t.Setenv("CODEFLY_BINARY", conflictingPath)
+
+	_, err := WithDependencies(t.Context(), WithCodeflyBinary(selectedPath), WithTimeout(10*time.Second))
+	if err == nil || !strings.Contains(err.Error(), "CLI subprocess exited") {
+		t.Fatalf("WithDependencies() error = %v, want selected child exit", err)
+	}
+	marker, readErr := os.ReadFile(markerPath)
+	if readErr != nil {
+		t.Fatalf("read selected binary marker: %v", readErr)
+	}
+	if got := string(marker); got != "selected" {
+		t.Fatalf("dependency runner = %q, want selected", got)
+	}
+}
+
 func TestWithCLIServerPortPinsChildControlChannel(t *testing.T) {
 	environment := []string{
 		"PATH=/usr/bin",
@@ -162,6 +191,14 @@ func TestWithDependencyHomeChangesOnlySpawnedDependencyEnvironment(t *testing.T)
 func TestWithDependencyHomeRequiresAbsolutePath(t *testing.T) {
 	option := &Option{}
 	WithDependencyHome("relative/home")(option)
+	if err := validateDependencyOptions(option); err == nil || !strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("validateDependencyOptions() error = %v, want absolute-path rejection", err)
+	}
+}
+
+func TestWithCodeflyBinaryRequiresAbsolutePath(t *testing.T) {
+	option := &Option{}
+	WithCodeflyBinary("codefly")(option)
 	if err := validateDependencyOptions(option); err == nil || !strings.Contains(err.Error(), "must be absolute") {
 		t.Fatalf("validateDependencyOptions() error = %v, want absolute-path rejection", err)
 	}

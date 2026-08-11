@@ -42,6 +42,7 @@ type Dependencies struct {
 type Option struct {
 	Debug                   bool
 	Timeout                 time.Duration
+	CodeflyBinary           string
 	NamingScope             string
 	Fixture                 string
 	RunProfile              string
@@ -64,6 +65,17 @@ func WithDebug() OptionFunc {
 func WithTimeout(timeout time.Duration) OptionFunc {
 	return func(o *Option) {
 		o.Timeout = timeout
+	}
+}
+
+// WithCodeflyBinary pins the executable used to own the dependency flow.
+// Process-composition boundaries such as the Codefly CLI use this option to
+// guarantee that nested startup cannot silently select a different release
+// from PATH. SDK callers that omit it retain the CODEFLY_BINARY override and
+// the normal PATH lookup.
+func WithCodeflyBinary(path string) OptionFunc {
+	return func(o *Option) {
+		o.CodeflyBinary = path
 	}
 }
 
@@ -224,7 +236,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, codeflyBinary(), args...)
+	cmd := exec.CommandContext(ctx, codeflyBinary(opt), args...)
 	// ARCHITECTURE: the SDK owns the control channel for the child it starts.
 	// Pass the exact selected port to the CLI instead of asking two separately
 	// versioned binaries to reproduce the same hash algorithm. This keeps
@@ -320,6 +332,9 @@ func validateDependencyOptions(opt *Option) error {
 	}
 	if opt.DependencyHome != "" && !filepath.IsAbs(opt.DependencyHome) {
 		return fmt.Errorf("dependency home must be absolute: %s", opt.DependencyHome)
+	}
+	if opt.CodeflyBinary != "" && !filepath.IsAbs(opt.CodeflyBinary) {
+		return fmt.Errorf("Codefly binary must be absolute: %s", opt.CodeflyBinary)
 	}
 	return nil
 }
@@ -528,7 +543,12 @@ func withServiceConfigurationOverrides(
 	return append(result, prefix+encoded), nil
 }
 
-func codeflyBinary() string {
+func codeflyBinary(opt *Option) string {
+	if opt != nil {
+		if path := strings.TrimSpace(opt.CodeflyBinary); path != "" {
+			return path
+		}
+	}
 	if path := strings.TrimSpace(os.Getenv("CODEFLY_BINARY")); path != "" {
 		return path
 	}
