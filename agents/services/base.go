@@ -41,6 +41,7 @@ type Base struct {
 	Logger *wool.Wool
 
 	// Continuity check
+	loadMu sync.Mutex
 	loaded bool
 
 	// State
@@ -120,6 +121,9 @@ func (s *Base) UniqueWithWorkspace() string {
 }
 
 func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {
+	s.loadMu.Lock()
+	defer s.loadMu.Unlock()
+
 	// Information about what we run
 	s.Identity = resources.ServiceIdentityFromProto(identity)
 	s.Location = path.Join(identity.WorkspacePath, identity.RelativeToWorkspace)
@@ -145,6 +149,9 @@ func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentit
 }
 
 func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, settings any) error {
+	s.loadMu.Lock()
+	defer s.loadMu.Unlock()
+
 	s.Identity = resources.ServiceIdentityFromProto(identity)
 
 	s.Location = path.Join(identity.WorkspacePath, identity.RelativeToWorkspace)
