@@ -46,6 +46,7 @@ const (
 	Gateway_RunChecks_FullMethodName                     = "/mind.gateway.v1.Gateway/RunChecks"
 	Gateway_GitStatus_FullMethodName                     = "/mind.gateway.v1.Gateway/GitStatus"
 	Gateway_GitDiff_FullMethodName                       = "/mind.gateway.v1.Gateway/GitDiff"
+	Gateway_ApplyPatch_FullMethodName                    = "/mind.gateway.v1.Gateway/ApplyPatch"
 	Gateway_GitLog_FullMethodName                        = "/mind.gateway.v1.Gateway/GitLog"
 	Gateway_GitCommit_FullMethodName                     = "/mind.gateway.v1.Gateway/GitCommit"
 	Gateway_GitBranch_FullMethodName                     = "/mind.gateway.v1.Gateway/GitBranch"
@@ -144,6 +145,9 @@ type GatewayClient interface {
 	GitStatus(ctx context.Context, in *GitStatusRequest, opts ...grpc.CallOption) (*GitStatusResponse, error)
 	// GitDiff shows changes (unstaged or staged).
 	GitDiff(ctx context.Context, in *GitDiffRequest, opts ...grpc.CallOption) (*GitDiffResponse, error)
+	// ApplyPatch applies or reverses one unified diff inside the execution box.
+	// Codefly owns patch parsing, path safety, and the underlying VCS command.
+	ApplyPatch(ctx context.Context, in *ApplyPatchRequest, opts ...grpc.CallOption) (*ApplyPatchResponse, error)
 	// GitLog returns recent commit history.
 	GitLog(ctx context.Context, in *GitLogRequest, opts ...grpc.CallOption) (*GitLogResponse, error)
 	// GitCommit commits staged changes.
@@ -486,6 +490,16 @@ func (c *gatewayClient) GitDiff(ctx context.Context, in *GitDiffRequest, opts ..
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GitDiffResponse)
 	err := c.cc.Invoke(ctx, Gateway_GitDiff_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) ApplyPatch(ctx context.Context, in *ApplyPatchRequest, opts ...grpc.CallOption) (*ApplyPatchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyPatchResponse)
+	err := c.cc.Invoke(ctx, Gateway_ApplyPatch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -852,6 +866,9 @@ type GatewayServer interface {
 	GitStatus(context.Context, *GitStatusRequest) (*GitStatusResponse, error)
 	// GitDiff shows changes (unstaged or staged).
 	GitDiff(context.Context, *GitDiffRequest) (*GitDiffResponse, error)
+	// ApplyPatch applies or reverses one unified diff inside the execution box.
+	// Codefly owns patch parsing, path safety, and the underlying VCS command.
+	ApplyPatch(context.Context, *ApplyPatchRequest) (*ApplyPatchResponse, error)
 	// GitLog returns recent commit history.
 	GitLog(context.Context, *GitLogRequest) (*GitLogResponse, error)
 	// GitCommit commits staged changes.
@@ -1008,6 +1025,9 @@ func (UnimplementedGatewayServer) GitStatus(context.Context, *GitStatusRequest) 
 }
 func (UnimplementedGatewayServer) GitDiff(context.Context, *GitDiffRequest) (*GitDiffResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GitDiff not implemented")
+}
+func (UnimplementedGatewayServer) ApplyPatch(context.Context, *ApplyPatchRequest) (*ApplyPatchResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplyPatch not implemented")
 }
 func (UnimplementedGatewayServer) GitLog(context.Context, *GitLogRequest) (*GitLogResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GitLog not implemented")
@@ -1574,6 +1594,24 @@ func _Gateway_GitDiff_Handler(srv interface{}, ctx context.Context, dec func(int
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GatewayServer).GitDiff(ctx, req.(*GitDiffRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_ApplyPatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyPatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).ApplyPatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_ApplyPatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).ApplyPatch(ctx, req.(*ApplyPatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2195,6 +2233,10 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GitDiff",
 			Handler:    _Gateway_GitDiff_Handler,
+		},
+		{
+			MethodName: "ApplyPatch",
+			Handler:    _Gateway_ApplyPatch_Handler,
 		},
 		{
 			MethodName: "GitLog",

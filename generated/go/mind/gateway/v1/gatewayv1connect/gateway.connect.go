@@ -91,6 +91,8 @@ const (
 	GatewayGitStatusProcedure = "/mind.gateway.v1.Gateway/GitStatus"
 	// GatewayGitDiffProcedure is the fully-qualified name of the Gateway's GitDiff RPC.
 	GatewayGitDiffProcedure = "/mind.gateway.v1.Gateway/GitDiff"
+	// GatewayApplyPatchProcedure is the fully-qualified name of the Gateway's ApplyPatch RPC.
+	GatewayApplyPatchProcedure = "/mind.gateway.v1.Gateway/ApplyPatch"
 	// GatewayGitLogProcedure is the fully-qualified name of the Gateway's GitLog RPC.
 	GatewayGitLogProcedure = "/mind.gateway.v1.Gateway/GitLog"
 	// GatewayGitCommitProcedure is the fully-qualified name of the Gateway's GitCommit RPC.
@@ -226,6 +228,9 @@ type GatewayClient interface {
 	GitStatus(context.Context, *connect.Request[v1.GitStatusRequest]) (*connect.Response[v1.GitStatusResponse], error)
 	// GitDiff shows changes (unstaged or staged).
 	GitDiff(context.Context, *connect.Request[v1.GitDiffRequest]) (*connect.Response[v1.GitDiffResponse], error)
+	// ApplyPatch applies or reverses one unified diff inside the execution box.
+	// Codefly owns patch parsing, path safety, and the underlying VCS command.
+	ApplyPatch(context.Context, *connect.Request[v1.ApplyPatchRequest]) (*connect.Response[v1.ApplyPatchResponse], error)
 	// GitLog returns recent commit history.
 	GitLog(context.Context, *connect.Request[v1.GitLogRequest]) (*connect.Response[v1.GitLogResponse], error)
 	// GitCommit commits staged changes.
@@ -464,6 +469,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(gatewayMethods.ByName("GitDiff")),
 			connect.WithClientOptions(opts...),
 		),
+		applyPatch: connect.NewClient[v1.ApplyPatchRequest, v1.ApplyPatchResponse](
+			httpClient,
+			baseURL+GatewayApplyPatchProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ApplyPatch")),
+			connect.WithClientOptions(opts...),
+		),
 		gitLog: connect.NewClient[v1.GitLogRequest, v1.GitLogResponse](
 			httpClient,
 			baseURL+GatewayGitLogProcedure,
@@ -669,6 +680,7 @@ type gatewayClient struct {
 	runChecks                     *connect.Client[v1.RunChecksRequest, v1.RunChecksResponse]
 	gitStatus                     *connect.Client[v1.GitStatusRequest, v1.GitStatusResponse]
 	gitDiff                       *connect.Client[v1.GitDiffRequest, v1.GitDiffResponse]
+	applyPatch                    *connect.Client[v1.ApplyPatchRequest, v1.ApplyPatchResponse]
 	gitLog                        *connect.Client[v1.GitLogRequest, v1.GitLogResponse]
 	gitCommit                     *connect.Client[v1.GitCommitRequest, v1.GitCommitResponse]
 	gitBranch                     *connect.Client[v1.GitBranchRequest, v1.GitBranchResponse]
@@ -828,6 +840,11 @@ func (c *gatewayClient) GitStatus(ctx context.Context, req *connect.Request[v1.G
 // GitDiff calls mind.gateway.v1.Gateway.GitDiff.
 func (c *gatewayClient) GitDiff(ctx context.Context, req *connect.Request[v1.GitDiffRequest]) (*connect.Response[v1.GitDiffResponse], error) {
 	return c.gitDiff.CallUnary(ctx, req)
+}
+
+// ApplyPatch calls mind.gateway.v1.Gateway.ApplyPatch.
+func (c *gatewayClient) ApplyPatch(ctx context.Context, req *connect.Request[v1.ApplyPatchRequest]) (*connect.Response[v1.ApplyPatchResponse], error) {
+	return c.applyPatch.CallUnary(ctx, req)
 }
 
 // GitLog calls mind.gateway.v1.Gateway.GitLog.
@@ -1037,6 +1054,9 @@ type GatewayHandler interface {
 	GitStatus(context.Context, *connect.Request[v1.GitStatusRequest]) (*connect.Response[v1.GitStatusResponse], error)
 	// GitDiff shows changes (unstaged or staged).
 	GitDiff(context.Context, *connect.Request[v1.GitDiffRequest]) (*connect.Response[v1.GitDiffResponse], error)
+	// ApplyPatch applies or reverses one unified diff inside the execution box.
+	// Codefly owns patch parsing, path safety, and the underlying VCS command.
+	ApplyPatch(context.Context, *connect.Request[v1.ApplyPatchRequest]) (*connect.Response[v1.ApplyPatchResponse], error)
 	// GitLog returns recent commit history.
 	GitLog(context.Context, *connect.Request[v1.GitLogRequest]) (*connect.Response[v1.GitLogResponse], error)
 	// GitCommit commits staged changes.
@@ -1271,6 +1291,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(gatewayMethods.ByName("GitDiff")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayApplyPatchHandler := connect.NewUnaryHandler(
+		GatewayApplyPatchProcedure,
+		svc.ApplyPatch,
+		connect.WithSchema(gatewayMethods.ByName("ApplyPatch")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gatewayGitLogHandler := connect.NewUnaryHandler(
 		GatewayGitLogProcedure,
 		svc.GitLog,
@@ -1499,6 +1525,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayGitStatusHandler.ServeHTTP(w, r)
 		case GatewayGitDiffProcedure:
 			gatewayGitDiffHandler.ServeHTTP(w, r)
+		case GatewayApplyPatchProcedure:
+			gatewayApplyPatchHandler.ServeHTTP(w, r)
 		case GatewayGitLogProcedure:
 			gatewayGitLogHandler.ServeHTTP(w, r)
 		case GatewayGitCommitProcedure:
@@ -1668,6 +1696,10 @@ func (UnimplementedGatewayHandler) GitStatus(context.Context, *connect.Request[v
 
 func (UnimplementedGatewayHandler) GitDiff(context.Context, *connect.Request[v1.GitDiffRequest]) (*connect.Response[v1.GitDiffResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.GitDiff is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ApplyPatch(context.Context, *connect.Request[v1.ApplyPatchRequest]) (*connect.Response[v1.ApplyPatchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ApplyPatch is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) GitLog(context.Context, *connect.Request[v1.GitLogRequest]) (*connect.Response[v1.GitLogResponse], error) {
