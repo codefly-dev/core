@@ -1409,6 +1409,11 @@ message MaterializeRepositorySnapshotResponse {
   string revision = 3;
   // snapshot_directory echoes the validated Gateway-relative lease path.
   string snapshot_directory = 4;
+  // equivalent_snapshot_requirement is Codefly's conservative measurement of
+  // the Gateway-root storage needed to lease another detached worktree for
+  // this whole repository snapshot. The execution authority derives it from
+  // the materialized project tree; callers never inspect project bytes.
+  codefly.base.v0.StorageCapacityRequirement equivalent_snapshot_requirement = 5;
 }
 
 // PrepareRepositoryCheckoutRequest asks Codefly to ensure a repository cache,
