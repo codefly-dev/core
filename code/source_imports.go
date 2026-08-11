@@ -20,6 +20,7 @@ import (
 	tsjava "github.com/smacker/go-tree-sitter/java"
 	tskotlin "github.com/smacker/go-tree-sitter/kotlin"
 	tspython "github.com/smacker/go-tree-sitter/python"
+	tsrust "github.com/smacker/go-tree-sitter/rust"
 	tstsx "github.com/smacker/go-tree-sitter/typescript/tsx"
 
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
@@ -56,6 +57,11 @@ var sourceImportLanguages = map[string]sourceImportLanguage{
 		extensions: extensionSet(".cs"),
 		grammar:    func(string) *sitter.Language { return tscsharp.GetLanguage() },
 		extract:    extractCSharpImports,
+	},
+	"rust": {
+		extensions: extensionSet(".rs"),
+		grammar:    func(string) *sitter.Language { return tsrust.GetLanguage() },
+		extract:    extractRustImports,
 	},
 }
 

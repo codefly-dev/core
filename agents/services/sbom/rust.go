@@ -1,70 +1,43 @@
 package sbom
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	"github.com/codefly-dev/core/internal/cargometadata"
 )
 
-type cargoMetadata struct {
-	Packages []cargoPackage `json:"packages"`
-	Resolve  *struct {
-		Root  *string     `json:"root"`
-		Nodes []cargoNode `json:"nodes"`
-	} `json:"resolve"`
-	WorkspaceMembers []string `json:"workspace_members"`
-}
-
-type cargoPackage struct {
-	Name     string  `json:"name"`
-	Version  string  `json:"version"`
-	ID       string  `json:"id"`
-	Source   *string `json:"source"`
-	License  *string `json:"license"`
-	Checksum *string `json:"checksum"`
-}
-
-type cargoNode struct {
-	ID   string `json:"id"`
-	Deps []struct {
-		Pkg      string `json:"pkg"`
-		DepKinds []struct {
-			Kind *string `json:"kind"`
-		} `json:"dep_kinds"`
-	} `json:"deps"`
-}
+type cargoPackage = cargometadata.Package
 
 // Rust inventories Cargo's locked, fully resolved package graph. --locked
 // prevents metadata collection from changing Cargo.lock. Dev-only edges and
 // components are removed when includeDev is false.
 func Rust(ctx context.Context, dir string, includeDev bool) (*Result, error) {
-	cmd := exec.CommandContext(ctx, "cargo", "metadata", "--locked", "--format-version", "1")
-	cmd.Dir = dir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		if _, lookupErr := exec.LookPath("cargo"); lookupErr != nil {
+	metadata, err := cargometadata.Run(ctx, dir, cargometadata.Options{Locked: true})
+	if err != nil {
+		if errors.Is(err, cargometadata.ErrUnavailable) {
 			return nil, fmt.Errorf("%w: cargo is required", ErrUnsupported)
 		}
-		return nil, fmt.Errorf("cargo metadata --locked: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, err
 	}
-	return parseCargoMetadata(stdout.Bytes(), dir, includeDev)
+	return cargoMetadataResult(metadata, dir, includeDev)
 }
 
 func parseCargoMetadata(data []byte, dir string, includeDev bool) (*Result, error) {
-	var metadata cargoMetadata
-	if err := json.Unmarshal(data, &metadata); err != nil {
-		return nil, fmt.Errorf("parse cargo metadata: %w", err)
+	metadata, err := cargometadata.Parse(data)
+	if err != nil {
+		return nil, err
 	}
+	return cargoMetadataResult(metadata, dir, includeDev)
+}
+
+func cargoMetadataResult(metadata cargometadata.Metadata, dir string, includeDev bool) (*Result, error) {
 	if metadata.Resolve == nil || len(metadata.WorkspaceMembers) == 0 {
 		return nil, fmt.Errorf("cargo metadata has no resolved workspace graph")
 	}
@@ -154,9 +127,7 @@ func parseCargoMetadata(data []byte, dir string, includeDev bool) (*Result, erro
 	return finish(root, components, dependencies, "cargo-metadata", "RUST")
 }
 
-func cargoDependencyIsRuntime(kinds []struct {
-	Kind *string `json:"kind"`
-}) bool {
+func cargoDependencyIsRuntime(kinds []cargometadata.DependencyKind) bool {
 	if len(kinds) == 0 {
 		return true
 	}
