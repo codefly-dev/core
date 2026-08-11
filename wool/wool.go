@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 	"sync/atomic"
 
+	"github.com/codefly-dev/core/internal/sensitive"
 	"github.com/pkg/errors"
 )
 
@@ -167,8 +168,16 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 		fs = out
 	}
 
-	log := &Log{Message: msg, Fields: fs, Level: l, Header: w.name}
+	log := &Log{Message: sensitive.RedactText(msg), Fields: fs, Level: l, Header: w.name}
 	log.Fields = append(log.Fields, w.fields...)
+	for index, field := range log.Fields {
+		if field == nil || !sensitive.Key(field.Key) {
+			continue
+		}
+		copy := *field
+		copy.Value = "****"
+		log.Fields[index] = &copy
+	}
 
 	// Send to telemetry if enabled
 	if w.span != nil {

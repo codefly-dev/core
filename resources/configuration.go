@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	"github.com/codefly-dev/core/internal/sensitive"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -176,13 +177,7 @@ func MakeConfigurationValueSummary(value *basev0.ConfigurationValue) string {
 // caller forgot to set ConfigurationValue.Secret. Secret metadata remains the
 // primary signal; this is defense in depth for logs and diagnostics.
 func IsSensitiveKey(key string) bool {
-	key = strings.ToUpper(key)
-	for _, marker := range []string{"PASSWORD", "PASSWD", "SECRET", "TOKEN", "CREDENTIAL", "API_KEY", "PRIVATE_KEY", "ACCESS_KEY", "AUTH", "DATABASE_URL", "CONNECTION", "DSN", "COOKIE", "SESSION"} {
-		if strings.Contains(key, marker) {
-			return true
-		}
-	}
-	return false
+	return sensitive.Key(key)
 }
 
 // configRuntimeKind folds the nix runtime onto native for configuration

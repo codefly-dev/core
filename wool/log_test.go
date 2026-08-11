@@ -101,6 +101,24 @@ func TestSecretField_NeverLeaksValue(t *testing.T) {
 	require.NotContains(t, f.String(), "hunter2")
 }
 
+func TestLoggingBoundaryRedactsForwardedAndStructuredSecrets(t *testing.T) {
+	const unseal = "forwarded-unseal-value-must-not-survive"
+	const token = "structured-root-token-must-not-survive"
+	w, cap := newWool(t, wool.INFO)
+
+	_, err := w.Forward([]byte("Unseal Key: " + unseal + "\n"))
+	require.NoError(t, err)
+	w.Info("vault initialized", wool.Field("root token", token))
+
+	cap.mu.Lock()
+	defer cap.mu.Unlock()
+	require.Len(t, cap.logs, 2)
+	require.NotContains(t, cap.logs[0].Message, unseal)
+	require.Contains(t, cap.logs[0].Message, "Unseal Key: ****")
+	require.Equal(t, "****", cap.logs[1].Fields[0].Value)
+	require.NotContains(t, cap.logs[1].String(), token)
+}
+
 func TestFocus_OrdersAboveInfo(t *testing.T) {
 	require.Greater(t, wool.FOCUS, wool.INFO,
 		"FOCUS must outrank INFO so an INFO-level run still shows it")
