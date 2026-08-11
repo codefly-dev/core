@@ -125,6 +125,60 @@ pub type Key = String;
 	}
 }
 
+func TestSemanticIndexAcceptsCurrentGoAndECMAScriptSyntax(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"generic/alias.go": `package generic
+type Value[T any] struct { Item T }
+type Alias[T any] = Value[T]
+`,
+		"web/banner.tsx": `export function Banner() {
+  return <h3>Cookies &amp; terms</h3>;
+}
+`,
+		"scripts/cockpit.mjs": `export class Locator {
+  async find(using, value) {
+    return this.request(using, value);
+  }
+}
+`,
+	}
+	for name, body := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := response.GetGetSemanticIndex()
+	if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE {
+		encoded, _ := protojson.Marshal(index)
+		t.Fatalf("semantic index = %s, want current language syntax to parse completely", encoded)
+	}
+	for path, language := range map[string]string{
+		"generic/alias.go":    "go",
+		"web/banner.tsx":      "typescript",
+		"scripts/cockpit.mjs": "javascript",
+	} {
+		file := semanticFile(index, path)
+		if file == nil || file.GetLanguage() != language {
+			t.Errorf("semantic file %q = %#v, want language %q", path, file, language)
+		}
+	}
+	for _, qualifiedName := range []string{"generic.Alias", "web.banner.Banner", "scripts.cockpit.Locator", "scripts.cockpit.Locator.find"} {
+		if !hasSemanticQualifiedName(index, qualifiedName) {
+			t.Errorf("missing semantic symbol %q; got %v", qualifiedName, semanticQualifiedNames(index))
+		}
+	}
+}
+
 func TestSemanticIndexReportsDegradedAndNotAttemptedCoverage(t *testing.T) {
 	t.Run("degraded", func(t *testing.T) {
 		root := t.TempDir()
@@ -186,7 +240,7 @@ func TestSemanticIndexTraversesLocalDirectorySymlinkRoot(t *testing.T) {
 	if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || len(index.GetFiles()) != 1 || index.GetFiles()[0].GetPath() != "app.py" {
 		t.Fatalf("semantic index = %#v, want one root-relative Python file", index)
 	}
-	if index.GetAnalyzerVersion() != "codefly.semantic-index/v3" {
+	if index.GetAnalyzerVersion() != "codefly.semantic-index/v4" {
 		t.Fatalf("analyzer version = %q, want the symlink-root contract generation", index.GetAnalyzerVersion())
 	}
 

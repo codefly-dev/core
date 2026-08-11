@@ -16,7 +16,6 @@ import (
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
-	sitter "github.com/smacker/go-tree-sitter"
 )
 
 const semanticSymbolPatchStrategy = "semantic-qualified-declaration"
@@ -145,10 +144,7 @@ func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.Ap
 }
 
 func semanticDeclarationSpans(ctx context.Context, definition semanticLanguage, path string, body []byte) ([]semanticSymbolProjection, error) {
-	parser := sitter.NewParser()
-	defer parser.Close()
-	parser.SetLanguage(definition.grammar)
-	tree, err := parser.ParseCtx(ctx, nil, body)
+	tree, err := parseSyntaxTree(ctx, definition.grammar, body)
 	if err != nil {
 		return nil, err
 	}
@@ -165,10 +161,7 @@ func semanticDeclarationSpans(ctx context.Context, definition semanticLanguage, 
 }
 
 func validateSemanticSyntax(ctx context.Context, definition semanticLanguage, body []byte) error {
-	parser := sitter.NewParser()
-	defer parser.Close()
-	parser.SetLanguage(definition.grammar)
-	tree, err := parser.ParseCtx(ctx, nil, body)
+	tree, err := parseSyntaxTree(ctx, definition.grammar, body)
 	if err != nil {
 		return err
 	}

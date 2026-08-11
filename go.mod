@@ -21,6 +21,7 @@ require (
 	github.com/codefly-dev/gortk v0.2.0
 	github.com/creativeprojects/go-selfupdate v1.6.0
 	github.com/cyphar/filepath-securejoin v0.6.1
+	github.com/dekobon/tree-sitter-groovy v0.2.2
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/docker/go-connections v0.7.0
 	github.com/fatih/color v1.19.0
@@ -40,8 +41,16 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/scagogogo/python-requirements-parser v0.0.0-20250717025652-6ca77234c827
 	github.com/shirou/gopsutil/v3 v3.24.5
-	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/stretchr/testify v1.11.1
+	github.com/tree-sitter-grammars/tree-sitter-kotlin v1.1.0
+	github.com/tree-sitter/go-tree-sitter v0.25.0
+	github.com/tree-sitter/tree-sitter-c-sharp v0.23.5
+	github.com/tree-sitter/tree-sitter-go v0.25.0
+	github.com/tree-sitter/tree-sitter-java v0.23.5
+	github.com/tree-sitter/tree-sitter-javascript v0.25.0
+	github.com/tree-sitter/tree-sitter-python v0.25.0
+	github.com/tree-sitter/tree-sitter-rust v0.24.2
+	github.com/tree-sitter/tree-sitter-typescript v0.23.2
 	github.com/ulikunitz/xz v0.5.15
 	github.com/yoheimuta/go-protoparser/v4 v4.14.2
 	github.com/yuin/goldmark v1.8.2
@@ -142,6 +151,7 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.21 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
+	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
