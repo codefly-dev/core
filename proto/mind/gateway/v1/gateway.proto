@@ -125,6 +125,10 @@ service Gateway {
   // GitDiff shows changes (unstaged or staged).
   rpc GitDiff(GitDiffRequest) returns (GitDiffResponse);
 
+  // ApplyPatch applies or reverses one unified diff inside the execution box.
+  // Codefly owns patch parsing, path safety, and the underlying VCS command.
+  rpc ApplyPatch(ApplyPatchRequest) returns (ApplyPatchResponse);
+
   // GitLog returns recent commit history.
   rpc GitLog(GitLogRequest) returns (GitLogResponse);
 
@@ -1083,6 +1087,35 @@ message GitDiffResponse {
   string diff = 1;
   // error explains why the operation failed; empty means success at this layer.
   string error = 2;
+}
+
+// ApplyPatchRequest asks Codefly to apply one complete unified diff. The patch
+// is project mutation input, not a command line assembled by the caller.
+message ApplyPatchRequest {
+  // service is the Codefly service name, optionally scoped by module in callers.
+  string service = 1;
+  // patch is a unified diff accepted by the execution box's VCS implementation.
+  string patch = 2;
+  // reverse applies the inverse operation without asking the caller to rewrite
+  // hunk headers or swap old/new file identities.
+  bool reverse = 3;
+  // dry_run validates applicability and reports affected paths without writing.
+  bool dry_run = 4;
+}
+
+// ApplyPatchResponse contains source-free mutation evidence. Project file
+// bodies and command output remain inside Codefly.
+message ApplyPatchResponse {
+  // success is true when validation or application completed successfully.
+  bool success = 1;
+  // error explains a rejected or conflicting patch without exposing file bodies.
+  string error = 2;
+  // changed_files are canonical service-relative paths declared by the patch.
+  repeated string changed_files = 3;
+  // changed is true only when a non-dry-run request mutated the workspace.
+  bool changed = 4;
+  // strategy identifies the Codefly-owned patch implementation used.
+  string strategy = 5;
 }
 
 // GitLogRequest asks for recent commit history.
