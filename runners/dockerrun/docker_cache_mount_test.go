@@ -65,6 +65,7 @@ func TestContainerConfigFingerprintDetectsReusableRuntimeDrift(t *testing.T) {
 		Image:      "codeflydev/node:0.0.12",
 		User:       "1000:1000",
 		Env:        []string{"PUBLIC=value", "SECRET=do-not-store-in-label"},
+		Entrypoint: []string{"/usr/bin/tini", "--"},
 		Cmd:        []string{"sleep", "infinity"},
 		WorkingDir: "/workspace",
 		Tty:        false,
@@ -119,5 +120,25 @@ func TestContainerConfigFingerprintDetectsReusableRuntimeDrift(t *testing.T) {
 	}
 	if changedEnvironment == original {
 		t.Fatal("changing the runtime environment did not change the fingerprint")
+	}
+
+	changedEntrypointConfig := *config
+	changedEntrypointConfig.Entrypoint = []string{"/bin/sh", "-c"}
+	changedEntrypoint, err := containerConfigFingerprint(&changedEntrypointConfig, host)
+	if err != nil {
+		t.Fatalf("fingerprint changed entrypoint: %v", err)
+	}
+	if changedEntrypoint == original {
+		t.Fatal("changing the image entrypoint did not change the fingerprint")
+	}
+
+	clearedEntrypointConfig := *config
+	clearedEntrypointConfig.Entrypoint = []string{}
+	clearedEntrypoint, err := containerConfigFingerprint(&clearedEntrypointConfig, host)
+	if err != nil {
+		t.Fatalf("fingerprint cleared entrypoint: %v", err)
+	}
+	if clearedEntrypoint == original {
+		t.Fatal("clearing the image entrypoint did not change the fingerprint")
 	}
 }

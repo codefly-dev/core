@@ -26,6 +26,11 @@ interface and never care which backend is running underneath.
 Use NewCompanionRunner to create one -- it picks the best available backend.
 */
 type CompanionRunner interface {
+	// WithEntrypoint replaces a Docker image's declared entrypoint. This lets
+	// toolchain images become long-lived companion environments even when their
+	// default entrypoint is a one-shot command. Nix/Local runners ignore it.
+	WithEntrypoint(command ...string)
+
 	// WithMount makes a host directory visible inside the companion.
 	// Docker: bind mount. Nix/Local: no-op (already on host).
 	WithMount(hostPath, targetPath string)
@@ -154,6 +159,10 @@ func (d *dockerCompanion) WithMount(hostPath, targetPath string) {
 	d.inner.WithMount(hostPath, targetPath)
 }
 
+func (d *dockerCompanion) WithEntrypoint(command ...string) {
+	d.inner.WithEntrypoint(command...)
+}
+
 func (d *dockerCompanion) WithPortMapping(ctx context.Context, hostPort, companionPort uint16) {
 	d.inner.WithPortMapping(ctx, hostPort, companionPort)
 }
@@ -202,6 +211,10 @@ func newLocalCompanion(ctx context.Context, opts CompanionOpts) (*localCompanion
 	}
 	return &localCompanion{inner: env, workDir: opts.SourceDir}, nil
 }
+
+// WithEntrypoint is a no-op for local runners, which do not have an image
+// entrypoint.
+func (l *localCompanion) WithEntrypoint(_ ...string) {}
 
 // WithMount is a no-op for local runners -- host filesystem is already visible.
 func (l *localCompanion) WithMount(_, _ string) {}
@@ -258,6 +271,10 @@ func newNixCompanion(ctx context.Context, opts CompanionOpts) (*nixCompanion, er
 	}
 	return &nixCompanion{inner: env, workDir: opts.SourceDir}, nil
 }
+
+// WithEntrypoint is a no-op for Nix runners, which do not have an image
+// entrypoint.
+func (n *nixCompanion) WithEntrypoint(_ ...string) {}
 
 // WithMount is a no-op for Nix runners -- host filesystem is already visible.
 func (n *nixCompanion) WithMount(_, _ string) {}
