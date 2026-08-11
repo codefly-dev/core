@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codefly-dev/core/code/semanticcontract"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
@@ -240,7 +241,7 @@ func TestSemanticIndexTraversesLocalDirectorySymlinkRoot(t *testing.T) {
 	if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || len(index.GetFiles()) != 1 || index.GetFiles()[0].GetPath() != "app.py" {
 		t.Fatalf("semantic index = %#v, want one root-relative Python file", index)
 	}
-	if index.GetAnalyzerVersion() != "codefly.semantic-index/v4" {
+	if index.GetAnalyzerVersion() != semanticcontract.Version {
 		t.Fatalf("analyzer version = %q, want the symlink-root contract generation", index.GetAnalyzerVersion())
 	}
 
