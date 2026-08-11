@@ -74,7 +74,7 @@ func (s *RustCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.Cod
 		packageInfo.Imports = sortedUniqueStrings(packageInfo.Imports)
 		response.Packages = append(response.Packages, packageInfo)
 	}
-	response.Module = rustModuleName(sourceRoot, response.Packages)
+	response.Module = rustModuleName(response.Packages)
 	response.LanguageVersion = strings.Join(sortedStringSet(editions), ",")
 	for _, dependency := range dependencies {
 		response.Dependencies = append(response.Dependencies, dependency)
@@ -141,13 +141,17 @@ func relativePathWithin(root, candidate string) (string, bool) {
 	return filepath.ToSlash(relative), true
 }
 
-func rustModuleName(sourceRoot string, packages []*codev0.PackageInfo) string {
+func rustModuleName(packages []*codev0.PackageInfo) string {
 	for _, pkg := range packages {
 		if pkg.RelativePath == "." {
 			return pkg.Name
 		}
 	}
-	return filepath.Base(filepath.Clean(sourceRoot))
+	// A virtual Cargo workspace has no package/module identity of its own.
+	// ARCHITECTURE: the source root is an execution location and may be a
+	// lease-local checkout name. Publishing its basename would make identical
+	// Cargo metadata differ across sandboxes and poison durable consumers.
+	return ""
 }
 
 func sortedUniqueStrings(values []string) []string {

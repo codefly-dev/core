@@ -1,6 +1,7 @@
 package code
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -60,7 +61,11 @@ func TestRustCodeServerScopesCargoWorkspaceToMemberCodeUnit(t *testing.T) {
 }
 
 func TestRustCodeServerGetProjectInfoCargoWorkspace(t *testing.T) {
-	root := filepath.Join("testdata", "rust", "workspace")
+	fixture := filepath.Join("testdata", "rust", "workspace")
+	root := filepath.Join(t.TempDir(), "session-matrix.repository-worktree-ephemeral")
+	if err := os.CopyFS(root, os.DirFS(fixture)); err != nil {
+		t.Fatal(err)
+	}
 	response, err := NewRustCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
 		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
 	})
@@ -71,7 +76,10 @@ func TestRustCodeServerGetProjectInfoCargoWorkspace(t *testing.T) {
 		t.Fatalf("GetProjectInfo failure = %+v", failure)
 	}
 	info := response.GetGetProjectInfo()
-	if info.GetModule() != "workspace" || info.GetLanguageVersion() != "2021,2024" || len(info.GetPackages()) != 2 {
+	// A virtual workspace has no Cargo module of its own. Its checkout directory
+	// is deliberately lease-shaped to prove execution location never becomes
+	// published project identity.
+	if info.GetModule() != "" || info.GetLanguageVersion() != "2021,2024" || len(info.GetPackages()) != 2 {
 		t.Fatalf("workspace project = %+v", info)
 	}
 	if info.GetPackages()[0].GetRelativePath() != "alpha" || info.GetPackages()[1].GetRelativePath() != "beta" {
