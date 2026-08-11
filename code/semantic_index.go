@@ -27,6 +27,7 @@ import (
 	tsjava "github.com/smacker/go-tree-sitter/java"
 	tskotlin "github.com/smacker/go-tree-sitter/kotlin"
 	tspython "github.com/smacker/go-tree-sitter/python"
+	tsrust "github.com/smacker/go-tree-sitter/rust"
 	tstsx "github.com/smacker/go-tree-sitter/typescript/tsx"
 )
 
@@ -41,6 +42,7 @@ type semanticLanguage struct {
 var semanticLanguages = []semanticLanguage{
 	{name: "go", grammar: tsgo.GetLanguage(), extensions: extensionSet(".go")},
 	{name: "python", grammar: tspython.GetLanguage(), extensions: extensionSet(".py")},
+	{name: "rust", grammar: tsrust.GetLanguage(), extensions: extensionSet(".rs")},
 	{name: "typescript", grammar: tstsx.GetLanguage(), extensions: extensionSet(".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")},
 	{name: "java", grammar: tsjava.GetLanguage(), extensions: extensionSet(".java")},
 	{name: "kotlin", grammar: tskotlin.GetLanguage(), extensions: extensionSet(".kt", ".kts")},
@@ -54,14 +56,17 @@ const (
 	semanticStruct    = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_STRUCT
 	semanticInterface = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_INTERFACE
 	semanticEnum      = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_ENUM
+	semanticField     = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FIELD
 	semanticVariable  = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_VARIABLE
 	semanticConstant  = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CONSTANT
 	semanticAlias     = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_TYPE_ALIAS
+	semanticModule    = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_MODULE
 )
 
 var semanticDeclarationKinds = map[string]map[string]basev0.SemanticSymbolKind{
 	"go":         {"function_declaration": semanticFunction, "method_declaration": semanticMethod, "type_spec": semanticAlias, "const_spec": semanticConstant, "var_spec": semanticVariable},
 	"python":     {"function_definition": semanticFunction, "class_definition": semanticClass, "assignment": semanticVariable},
+	"rust":       {"function_item": semanticFunction, "function_signature_item": semanticFunction, "struct_item": semanticStruct, "union_item": semanticStruct, "enum_item": semanticEnum, "trait_item": semanticInterface, "type_item": semanticAlias, "associated_type": semanticAlias, "const_item": semanticConstant, "static_item": semanticVariable, "field_declaration": semanticField, "enum_variant": semanticConstant, "mod_item": semanticModule},
 	"typescript": {"function_declaration": semanticFunction, "method_definition": semanticMethod, "class_declaration": semanticClass, "abstract_class_declaration": semanticClass, "interface_declaration": semanticInterface, "enum_declaration": semanticEnum, "type_alias_declaration": semanticAlias, "lexical_declaration": semanticVariable, "variable_declaration": semanticVariable},
 	"java":       {"method_declaration": semanticMethod, "constructor_declaration": semanticMethod, "class_declaration": semanticClass, "record_declaration": semanticClass, "interface_declaration": semanticInterface, "enum_declaration": semanticEnum, "field_declaration": semanticVariable},
 	"kotlin":     {"function_declaration": semanticMethod, "class_declaration": semanticClass, "object_declaration": semanticClass, "property_declaration": semanticVariable, "type_alias": semanticAlias},
@@ -216,6 +221,11 @@ func projectSemanticDeclarations(language, path, packageName, parent string, inC
 	declarations := semanticDeclarations(language, node, body, inCallable)
 	nextParent := parent
 	nextInCallable := inCallable
+	if language == "rust" && node.Type() == "impl_item" {
+		if receiver := rustImplReceiver(node, body); receiver != "" {
+			nextParent = qualifySemanticName(packageName, parent, receiver)
+		}
+	}
 	for _, declaration := range declarations {
 		name := strings.TrimSpace(declaration.name)
 		if name == "" {
@@ -265,7 +275,7 @@ func projectSemanticDeclarations(language, path, packageName, parent string, inC
 	}
 	for index := 0; index < int(node.NamedChildCount()); index++ {
 		child := node.NamedChild(index)
-		if len(declarations) > 0 && isNestedSemanticBody(node, child) {
+		if (len(declarations) > 0 || nextParent != parent) && isNestedSemanticBody(node, child) {
 			projectSemanticDeclarations(language, path, packageName, nextParent, nextInCallable, child, body, out, projections)
 			continue
 		}
@@ -296,11 +306,14 @@ func semanticDeclarations(language string, node *sitter.Node, body []byte, inCal
 			}
 		}
 	}
-	if language == "python" && node.Type() == "function_definition" && insideSemanticContainer(node) {
+	if language == "python" && node.Type() == "function_definition" && insideSemanticContainer(language, node) {
 		kind = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD
 	}
-	if language == "kotlin" && node.Type() == "function_declaration" && !insideSemanticContainer(node) {
+	if language == "kotlin" && node.Type() == "function_declaration" && !insideSemanticContainer(language, node) {
 		kind = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FUNCTION
+	}
+	if language == "rust" && (node.Type() == "function_item" || node.Type() == "function_signature_item") && insideSemanticContainer(language, node) {
+		kind = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD
 	}
 	names := semanticDeclarationNames(node, body)
 	result := make([]semanticDeclaration, 0, len(names))
@@ -461,7 +474,8 @@ func semanticContainer(kind basev0.SemanticSymbolKind) bool {
 	case basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CLASS,
 		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_STRUCT,
 		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_INTERFACE,
-		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_ENUM:
+		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_ENUM,
+		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_MODULE:
 		return true
 	default:
 		return false
@@ -473,16 +487,24 @@ func isNestedSemanticBody(parent, child *sitter.Node) bool {
 	return body != nil && !body.IsNull() && body.StartByte() == child.StartByte() && body.EndByte() == child.EndByte()
 }
 
-func insideSemanticContainer(node *sitter.Node) bool {
+func insideSemanticContainer(language string, node *sitter.Node) bool {
 	for parent := node.Parent(); parent != nil && !parent.IsNull(); parent = parent.Parent() {
-		if kind, ok := semanticDeclarationKind("python", parent.Type()); ok && semanticContainer(kind) {
+		if language == "rust" && parent.Type() == "impl_item" {
 			return true
 		}
-		if kind, ok := semanticDeclarationKind("kotlin", parent.Type()); ok && semanticContainer(kind) {
+		if kind, ok := semanticDeclarationKind(language, parent.Type()); ok && semanticContainer(kind) {
 			return true
 		}
 	}
 	return false
+}
+
+func rustImplReceiver(node *sitter.Node, body []byte) string {
+	receiver := node.ChildByFieldName("type")
+	if receiver == nil || receiver.IsNull() {
+		return ""
+	}
+	return cleanSemanticName(receiver.Content(body))
 }
 
 func goReceiverName(node *sitter.Node, body []byte) string {
@@ -589,7 +611,7 @@ func cleanSemanticName(value string) string {
 
 func semanticTypeNode(nodeType string) bool {
 	switch nodeType {
-	case "type_identifier", "generic_type", "user_type", "nullable_type", "predefined_type":
+	case "type_identifier", "scoped_type_identifier", "generic_type", "user_type", "nullable_type", "predefined_type", "primitive_type":
 		return true
 	default:
 		return false
@@ -612,6 +634,8 @@ func semanticImports(language, path string, root *sitter.Node, body []byte) []st
 		return canonicalImports(imports)
 	case "python":
 		return canonicalImports(extractPythonImports(root, body))
+	case "rust":
+		return canonicalImports(extractRustImports(root, body))
 	case "typescript":
 		return canonicalImports(extractTypeScriptImports(root, body))
 	case "java", "kotlin":
@@ -621,4 +645,29 @@ func semanticImports(language, path string, root *sitter.Node, body []byte) []st
 	default:
 		return nil
 	}
+}
+
+func extractRustImports(root *sitter.Node, body []byte) []string {
+	var imports []string
+	walkSyntax(root, func(node *sitter.Node) {
+		var keyword string
+		switch node.Type() {
+		case "use_declaration":
+			keyword = "use "
+		case "extern_crate_declaration":
+			keyword = "extern crate "
+		default:
+			return
+		}
+		value := strings.TrimSpace(node.Content(body))
+		position := strings.Index(value, keyword)
+		if position < 0 {
+			return
+		}
+		value = strings.TrimSpace(strings.TrimSuffix(value[position+len(keyword):], ";"))
+		if value != "" {
+			imports = append(imports, value)
+		}
+	})
+	return imports
 }

@@ -43,6 +43,16 @@ class Queue
 namespace Shop.Cart;
 public class Cart { public string Id() { return Guid.NewGuid().ToString(); } }
 `,
+		"rust/lib.rs": `use std::collections::HashMap;
+pub struct Store { values: HashMap<String, String> }
+impl Store {
+    pub fn new() -> Self { panic!("rust-body-secret") }
+    pub fn get(&self, key: &str) -> Option<&String> { self.values.get(key) }
+}
+pub trait Lookup { fn find(&self, key: &str) -> Option<&String>; }
+pub const DEFAULT_LIMIT: usize = 10;
+pub type Key = String;
+`,
 	}
 	for name, body := range files {
 		path := filepath.Join(root, filepath.FromSlash(name))
@@ -64,7 +74,7 @@ public class Cart { public string Id() { return Guid.NewGuid().ToString(); } }
 		encoded, _ := protojson.Marshal(index)
 		t.Fatalf("semantic index = %s, failure = %#v", encoded, response.GetFailure())
 	}
-	wantLanguages := []string{"csharp", "go", "java", "kotlin", "python", "typescript"}
+	wantLanguages := []string{"csharp", "go", "java", "kotlin", "python", "rust", "typescript"}
 	if !slices.Equal(index.GetLanguages(), wantLanguages) {
 		t.Fatalf("languages = %v, want %v", index.GetLanguages(), wantLanguages)
 	}
@@ -78,7 +88,7 @@ public class Cart { public string Id() { return Guid.NewGuid().ToString(); } }
 			t.Fatalf("symbol %q has no analyzer-owned declaration hash", symbol.GetQualifiedName())
 		}
 	}
-	for _, want := range []string{"api.Server", "api.Server.Handle", "python.app.Client", "python.app.Client.fetch", "web.service.Service", "web.service.Service.run", "demo.worker.Worker", "demo.worker.Worker.run", "demo.queue.Queue", "Shop.Cart.Cart", "Shop.Cart.Cart.Id"} {
+	for _, want := range []string{"api.Server", "api.Server.Handle", "python.app.Client", "python.app.Client.fetch", "web.service.Service", "web.service.Service.run", "demo.worker.Worker", "demo.worker.Worker.run", "demo.queue.Queue", "Shop.Cart.Cart", "Shop.Cart.Cart.Id", "rust.lib.Store", "rust.lib.Store.new", "rust.lib.Store.get", "rust.lib.Lookup", "rust.lib.Lookup.find", "rust.lib.DEFAULT_LIMIT", "rust.lib.Key"} {
 		if !hasSemanticQualifiedName(index, want) {
 			t.Errorf("missing semantic symbol %q; got %v", want, semanticQualifiedNames(index))
 		}
@@ -87,7 +97,7 @@ public class Cart { public string Id() { return Guid.NewGuid().ToString(); } }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(encoded), "X-Body-Secret") || strings.Contains(string(encoded), "never-cross") {
+	if strings.Contains(string(encoded), "X-Body-Secret") || strings.Contains(string(encoded), "never-cross") || strings.Contains(string(encoded), "rust-body-secret") {
 		t.Fatalf("implementation body crossed semantic boundary: %s", encoded)
 	}
 	if strings.Contains(string(encoded), "prefix-body-must-not-cross") {
@@ -109,6 +119,9 @@ public class Cart { public string Id() { return Guid.NewGuid().ToString(); } }
 	}
 	if got := semanticFile(index, "dotnet/Cart.cs").GetImports(); !slices.Equal(got, []string{"System"}) {
 		t.Fatalf("C# imports = %v", got)
+	}
+	if got := semanticFile(index, "rust/lib.rs").GetImports(); !slices.Equal(got, []string{"std::collections::HashMap"}) {
+		t.Fatalf("Rust imports = %v", got)
 	}
 }
 
