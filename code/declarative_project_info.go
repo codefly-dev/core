@@ -15,9 +15,9 @@ import (
 	"sort"
 	"strings"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	tsgroovy "github.com/smacker/go-tree-sitter/groovy"
-	tskotlin "github.com/smacker/go-tree-sitter/kotlin"
+	tsgroovy "github.com/dekobon/tree-sitter-groovy/bindings/go"
+	tskotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/codefly-dev/core/failures"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -64,11 +64,11 @@ func (s *DefaultCodeServer) inspectJVMProject(ctx context.Context, info *codev0.
 			return fmt.Errorf("inspect pom.xml: %w", err)
 		}
 	} else if data, gradleErr := s.FS.ReadFile(filepath.Join(s.SourceDir, "build.gradle")); gradleErr == nil {
-		if err := inspectGradleProject(ctx, data, tsgroovy.GetLanguage(), info); err != nil {
+		if err := inspectGradleProject(ctx, data, sitter.NewLanguage(tsgroovy.Language()), info); err != nil {
 			return fmt.Errorf("inspect build.gradle: %w", err)
 		}
 	} else if data, kotlinErr := s.FS.ReadFile(filepath.Join(s.SourceDir, "build.gradle.kts")); kotlinErr == nil {
-		if err := inspectGradleProject(ctx, data, tskotlin.GetLanguage(), info); err != nil {
+		if err := inspectGradleProject(ctx, data, sitter.NewLanguage(tskotlin.Language()), info); err != nil {
 			return fmt.Errorf("inspect build.gradle.kts: %w", err)
 		}
 	} else {
@@ -80,9 +80,9 @@ func (s *DefaultCodeServer) inspectJVMProject(ctx context.Context, info *codev0.
 			if err != nil {
 				continue
 			}
-			language := tsgroovy.GetLanguage()
+			language := sitter.NewLanguage(tsgroovy.Language())
 			if strings.HasSuffix(settingsName, ".kts") {
-				language = tskotlin.GetLanguage()
+				language = sitter.NewLanguage(tskotlin.Language())
 			}
 			assignments, parseErr := syntaxAssignments(ctx, data, language)
 			if parseErr != nil {
@@ -176,10 +176,7 @@ func inspectMavenProject(data []byte, info *codev0.GetProjectInfoResponse) error
 }
 
 func inspectGradleProject(ctx context.Context, data []byte, language *sitter.Language, info *codev0.GetProjectInfoResponse) error {
-	parser := sitter.NewParser()
-	parser.SetLanguage(language)
-	tree, err := parser.ParseCtx(ctx, nil, data)
-	parser.Close()
+	tree, err := parseSyntaxTree(ctx, language, data)
 	if err != nil {
 		return err
 	}
@@ -204,7 +201,7 @@ func inspectGradleProject(ctx context.Context, data []byte, language *sitter.Lan
 	}
 	seen := make(map[string]struct{})
 	walkSyntax(root, func(node *sitter.Node) {
-		if node.Type() != "string" && node.Type() != "string_literal" {
+		if node.Kind() != "string" && node.Kind() != "string_literal" {
 			return
 		}
 		if !insideNamedSyntaxBlock(node, data, "dependencies") {
@@ -226,10 +223,7 @@ func inspectGradleProject(ctx context.Context, data []byte, language *sitter.Lan
 }
 
 func syntaxAssignments(ctx context.Context, data []byte, language *sitter.Language) (map[string]string, error) {
-	parser := sitter.NewParser()
-	parser.SetLanguage(language)
-	tree, err := parser.ParseCtx(ctx, nil, data)
-	parser.Close()
+	tree, err := parseSyntaxTree(ctx, language, data)
 	if err != nil {
 		return nil, err
 	}
@@ -243,10 +237,10 @@ func syntaxAssignments(ctx context.Context, data []byte, language *sitter.Langua
 func syntaxAssignmentsFromTree(root *sitter.Node, data []byte) (map[string]string, error) {
 	assignments := make(map[string]string)
 	walkSyntax(root, func(node *sitter.Node) {
-		if node.Type() != "assignment" && node.Type() != "declaration" {
+		if node.Kind() != "assignment" && node.Kind() != "declaration" && node.Kind() != "assignment_expression" && node.Kind() != "local_variable_declaration" {
 			return
 		}
-		text := strings.TrimSpace(node.Content(data))
+		text := strings.TrimSpace(node.Utf8Text(data))
 		left, right, found := strings.Cut(text, "=")
 		if !found {
 			return
@@ -268,11 +262,16 @@ func syntaxAssignmentsFromTree(root *sitter.Node, data []byte) (map[string]strin
 }
 
 func insideNamedSyntaxBlock(node *sitter.Node, data []byte, name string) bool {
-	for current := node.Parent(); current != nil && !current.IsNull(); current = current.Parent() {
-		switch current.Type() {
+	for current := node.Parent(); current != nil; current = current.Parent() {
+		switch current.Kind() {
 		case "function_call", "juxt_function_call", "call_expression":
 			function := current.ChildByFieldName("function")
-			if function != nil && !function.IsNull() && strings.TrimSpace(function.Content(data)) == name {
+			if function != nil && strings.TrimSpace(function.Utf8Text(data)) == name {
+				return true
+			}
+		case "command_chain":
+			receiver := current.ChildByFieldName("receiver")
+			if receiver != nil && strings.TrimSpace(receiver.Utf8Text(data)) == name {
 				return true
 			}
 		}

@@ -15,13 +15,14 @@ import (
 	"strconv"
 	"strings"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	tscsharp "github.com/smacker/go-tree-sitter/csharp"
-	tsjava "github.com/smacker/go-tree-sitter/java"
-	tskotlin "github.com/smacker/go-tree-sitter/kotlin"
-	tspython "github.com/smacker/go-tree-sitter/python"
-	tsrust "github.com/smacker/go-tree-sitter/rust"
-	tstsx "github.com/smacker/go-tree-sitter/typescript/tsx"
+	tskotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
+	sitter "github.com/tree-sitter/go-tree-sitter"
+	tscsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
+	tsjava "github.com/tree-sitter/tree-sitter-java/bindings/go"
+	tsjavascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	tspython "github.com/tree-sitter/tree-sitter-python/bindings/go"
+	tsrust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
+	tstypescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
@@ -35,34 +36,45 @@ type sourceImportLanguage struct {
 var sourceImportLanguages = map[string]sourceImportLanguage{
 	"python": {
 		extensions: extensionSet(".py"),
-		grammar:    func(string) *sitter.Language { return tspython.GetLanguage() },
+		grammar:    func(string) *sitter.Language { return sitter.NewLanguage(tspython.Language()) },
 		extract:    extractPythonImports,
 	},
 	"typescript": {
 		extensions: extensionSet(".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"),
-		grammar:    func(string) *sitter.Language { return tstsx.GetLanguage() },
+		grammar:    ecmaScriptGrammar,
 		extract:    extractTypeScriptImports,
 	},
 	"jvm": {
 		extensions: extensionSet(".java", ".kt"),
 		grammar: func(extension string) *sitter.Language {
 			if extension == ".kt" {
-				return tskotlin.GetLanguage()
+				return sitter.NewLanguage(tskotlin.Language())
 			}
-			return tsjava.GetLanguage()
+			return sitter.NewLanguage(tsjava.Language())
 		},
 		extract: extractJVMImports,
 	},
 	"dotnet": {
 		extensions: extensionSet(".cs"),
-		grammar:    func(string) *sitter.Language { return tscsharp.GetLanguage() },
+		grammar:    func(string) *sitter.Language { return sitter.NewLanguage(tscsharp.Language()) },
 		extract:    extractCSharpImports,
 	},
 	"rust": {
 		extensions: extensionSet(".rs"),
-		grammar:    func(string) *sitter.Language { return tsrust.GetLanguage() },
+		grammar:    func(string) *sitter.Language { return sitter.NewLanguage(tsrust.Language()) },
 		extract:    extractRustImports,
 	},
+}
+
+func ecmaScriptGrammar(extension string) *sitter.Language {
+	switch extension {
+	case ".ts", ".mts", ".cts":
+		return sitter.NewLanguage(tstypescript.LanguageTypescript())
+	case ".tsx":
+		return sitter.NewLanguage(tstypescript.LanguageTSX())
+	default:
+		return sitter.NewLanguage(tsjavascript.Language())
+	}
 }
 
 func extensionSet(values ...string) map[string]struct{} {
@@ -117,10 +129,7 @@ func inspectSourceImports(ctx context.Context, vfs VFS, root, language string) (
 		if err != nil {
 			return err
 		}
-		parser := sitter.NewParser()
-		parser.SetLanguage(definition.grammar(extension))
-		tree, err := parser.ParseCtx(ctx, nil, body)
-		parser.Close()
+		tree, err := parseSyntaxTree(ctx, definition.grammar(extension), body)
 		if err != nil {
 			return fmt.Errorf("parse %s: %w", relative, err)
 		}
@@ -221,9 +230,9 @@ func skipSourceInspectionDir(name string) bool {
 func extractPythonImports(root *sitter.Node, body []byte) []string {
 	var imports []string
 	walkSyntax(root, func(node *sitter.Node) {
-		switch node.Type() {
+		switch node.Kind() {
 		case "import_statement":
-			text := strings.TrimSpace(node.Content(body))
+			text := strings.TrimSpace(node.Utf8Text(body))
 			text = strings.TrimSpace(strings.TrimPrefix(text, "import"))
 			for _, item := range strings.Split(text, ",") {
 				if fields := strings.Fields(strings.TrimSpace(item)); len(fields) > 0 {
@@ -231,7 +240,7 @@ func extractPythonImports(root *sitter.Node, body []byte) []string {
 				}
 			}
 		case "import_from_statement":
-			text := strings.TrimSpace(node.Content(body))
+			text := strings.TrimSpace(node.Utf8Text(body))
 			text = strings.TrimSpace(strings.TrimPrefix(text, "from"))
 			if index := strings.Index(text, " import"); index > 0 {
 				module := strings.TrimSpace(text[:index])
@@ -247,14 +256,14 @@ func extractPythonImports(root *sitter.Node, body []byte) []string {
 func extractTypeScriptImports(root *sitter.Node, body []byte) []string {
 	var imports []string
 	walkSyntax(root, func(node *sitter.Node) {
-		switch node.Type() {
+		switch node.Kind() {
 		case "import_statement", "export_statement":
 			if value := firstStringLiteral(node, body); validExternalImport(value) {
 				imports = append(imports, value)
 			}
 		case "call_expression":
 			function := node.ChildByFieldName("function")
-			if function != nil && !function.IsNull() && strings.TrimSpace(function.Content(body)) == "require" {
+			if function != nil && strings.TrimSpace(function.Utf8Text(body)) == "require" {
 				if value := firstStringLiteral(node, body); validExternalImport(value) {
 					imports = append(imports, value)
 				}
@@ -267,10 +276,10 @@ func extractTypeScriptImports(root *sitter.Node, body []byte) []string {
 func extractJVMImports(root *sitter.Node, body []byte) []string {
 	var imports []string
 	walkSyntax(root, func(node *sitter.Node) {
-		if node.Type() != "import_declaration" && node.Type() != "import_header" {
+		if node.Kind() != "import_declaration" && node.Kind() != "import_header" && node.Kind() != "import" {
 			return
 		}
-		value := strings.TrimSpace(node.Content(body))
+		value := strings.TrimSpace(node.Utf8Text(body))
 		value = strings.TrimSpace(strings.TrimPrefix(value, "import"))
 		value = strings.TrimSpace(strings.TrimPrefix(value, "static"))
 		value = strings.TrimSuffix(value, ";")
@@ -287,10 +296,10 @@ func extractJVMImports(root *sitter.Node, body []byte) []string {
 func extractCSharpImports(root *sitter.Node, body []byte) []string {
 	var imports []string
 	walkSyntax(root, func(node *sitter.Node) {
-		if node.Type() != "using_directive" {
+		if node.Kind() != "using_directive" {
 			return
 		}
-		value := strings.TrimSpace(node.Content(body))
+		value := strings.TrimSpace(node.Utf8Text(body))
 		value = strings.TrimSpace(strings.TrimPrefix(value, "global"))
 		value = strings.TrimSpace(strings.TrimPrefix(value, "using"))
 		value = strings.TrimSpace(strings.TrimPrefix(value, "static"))
@@ -306,11 +315,11 @@ func extractCSharpImports(root *sitter.Node, body []byte) []string {
 }
 
 func walkSyntax(node *sitter.Node, visit func(*sitter.Node)) {
-	if node == nil || node.IsNull() {
+	if node == nil {
 		return
 	}
 	visit(node)
-	for index := 0; index < int(node.NamedChildCount()); index++ {
+	for index := uint(0); index < node.NamedChildCount(); index++ {
 		walkSyntax(node.NamedChild(index), visit)
 	}
 }
@@ -318,10 +327,10 @@ func walkSyntax(node *sitter.Node, visit func(*sitter.Node)) {
 func firstStringLiteral(node *sitter.Node, body []byte) string {
 	value := ""
 	walkSyntax(node, func(candidate *sitter.Node) {
-		if value != "" || (candidate.Type() != "string" && candidate.Type() != "string_literal") {
+		if value != "" || (candidate.Kind() != "string" && candidate.Kind() != "string_literal") {
 			return
 		}
-		literal := strings.TrimSpace(candidate.Content(body))
+		literal := strings.TrimSpace(candidate.Utf8Text(body))
 		if unquoted, err := strconv.Unquote(literal); err == nil {
 			value = unquoted
 		} else {
