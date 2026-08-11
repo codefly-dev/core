@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,8 +46,9 @@ type DockerEnvironment struct {
 	localDir   string
 	workingDir string
 
-	cmd   []string
-	pause bool
+	cmd        []string
+	entrypoint []string
+	pause      bool
 	// user, when set, runs the container (and its execs) as this UID[:GID].
 	// Used to make files a container writes to a bind mount owned by the
 	// invoking host user rather than root — see WithUser.
@@ -389,6 +391,7 @@ type containerRuntimeFingerprint struct {
 	Image        string                            `json:"image"`
 	User         string                            `json:"user"`
 	Environment  []string                          `json:"environment"`
+	Entrypoint   []string                          `json:"entrypoint"`
 	Command      []string                          `json:"command"`
 	WorkingDir   string                            `json:"working_dir"`
 	TTY          bool                              `json:"tty"`
@@ -433,6 +436,7 @@ func containerConfigFingerprint(containerConfig *container.Config, hostConfig *c
 		Image:        containerConfig.Image,
 		User:         containerConfig.User,
 		Environment:  append([]string(nil), containerConfig.Env...),
+		Entrypoint:   slices.Clone(containerConfig.Entrypoint),
 		Command:      append([]string(nil), containerConfig.Cmd...),
 		WorkingDir:   containerConfig.WorkingDir,
 		TTY:          containerConfig.Tty,
@@ -453,11 +457,13 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	w := wool.Get(ctx).In("Docker.createContainerConfig")
 	docker.mu.Lock()
 	envCopy := append([]*resources.EnvironmentVariable(nil), docker.envs...)
+	entrypointCopy := slices.Clone(docker.entrypoint)
 	docker.mu.Unlock()
 	config := &container.Config{
-		Image: docker.image.FullName(),
-		User:  docker.user,
-		Env:   resources.EnvironmentVariableAsStrings(envCopy),
+		Image:      docker.image.FullName(),
+		User:       docker.user,
+		Env:        resources.EnvironmentVariableAsStrings(envCopy),
+		Entrypoint: entrypointCopy,
 		// Service containers are background processes, not interactive terminal
 		// sessions. A pseudo-TTY merges stdout/stderr, changes application
 		// buffering/color behavior, and makes Docker's log stream incompatible
@@ -738,6 +744,19 @@ func (docker *DockerEnvironment) WithPublicPorts() *DockerEnvironment {
 
 func (docker *DockerEnvironment) WithPause() {
 	docker.pause = true
+}
+
+// WithEntrypoint replaces the image-declared entrypoint. Passing no arguments
+// explicitly clears it, which is required when a one-shot tool image is reused
+// as a companion environment whose processes are launched through Docker exec.
+func (docker *DockerEnvironment) WithEntrypoint(command ...string) {
+	docker.mu.Lock()
+	if command == nil {
+		docker.entrypoint = []string{}
+	} else {
+		docker.entrypoint = slices.Clone(command)
+	}
+	docker.mu.Unlock()
 }
 
 // WithUser runs the container as the given user, in Docker's "UID[:GID]"
