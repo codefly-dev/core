@@ -36,6 +36,9 @@ const (
 const (
 	// GatewayListServicesProcedure is the fully-qualified name of the Gateway's ListServices RPC.
 	GatewayListServicesProcedure = "/mind.gateway.v1.Gateway/ListServices"
+	// GatewayEvaluateStorageCapacityProcedure is the fully-qualified name of the Gateway's
+	// EvaluateStorageCapacity RPC.
+	GatewayEvaluateStorageCapacityProcedure = "/mind.gateway.v1.Gateway/EvaluateStorageCapacity"
 	// GatewayReadFileProcedure is the fully-qualified name of the Gateway's ReadFile RPC.
 	GatewayReadFileProcedure = "/mind.gateway.v1.Gateway/ReadFile"
 	// GatewayWriteFileProcedure is the fully-qualified name of the Gateway's WriteFile RPC.
@@ -170,6 +173,12 @@ const (
 type GatewayClient interface {
 	// ListServices returns all services known to the gateway.
 	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
+	// EvaluateStorageCapacity asks the execution authority whether its Gateway
+	// and service-state roots can satisfy named byte requirements. Requirements
+	// that resolve to one physical volume are evaluated together. The result is
+	// an observation, not a reservation; no host path or project content crosses
+	// the boundary.
+	EvaluateStorageCapacity(context.Context, *connect.Request[v1.EvaluateStorageCapacityRequest]) (*connect.Response[v1.EvaluateStorageCapacityResponse], error)
 	// ReadFile reads a file from a service's source tree.
 	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error)
 	// WriteFile writes (creates or overwrites) a file in a service's source tree.
@@ -317,6 +326,12 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			httpClient,
 			baseURL+GatewayListServicesProcedure,
 			connect.WithSchema(gatewayMethods.ByName("ListServices")),
+			connect.WithClientOptions(opts...),
+		),
+		evaluateStorageCapacity: connect.NewClient[v1.EvaluateStorageCapacityRequest, v1.EvaluateStorageCapacityResponse](
+			httpClient,
+			baseURL+GatewayEvaluateStorageCapacityProcedure,
+			connect.WithSchema(gatewayMethods.ByName("EvaluateStorageCapacity")),
 			connect.WithClientOptions(opts...),
 		),
 		readFile: connect.NewClient[v1.ReadFileRequest, v1.ReadFileResponse](
@@ -655,6 +670,7 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 // gatewayClient implements GatewayClient.
 type gatewayClient struct {
 	listServices                  *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
+	evaluateStorageCapacity       *connect.Client[v1.EvaluateStorageCapacityRequest, v1.EvaluateStorageCapacityResponse]
 	readFile                      *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
 	writeFile                     *connect.Client[v1.WriteFileRequest, v1.WriteFileResponse]
 	listFiles                     *connect.Client[v1.ListFilesRequest, v1.ListFilesResponse]
@@ -715,6 +731,11 @@ type gatewayClient struct {
 // ListServices calls mind.gateway.v1.Gateway.ListServices.
 func (c *gatewayClient) ListServices(ctx context.Context, req *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error) {
 	return c.listServices.CallUnary(ctx, req)
+}
+
+// EvaluateStorageCapacity calls mind.gateway.v1.Gateway.EvaluateStorageCapacity.
+func (c *gatewayClient) EvaluateStorageCapacity(ctx context.Context, req *connect.Request[v1.EvaluateStorageCapacityRequest]) (*connect.Response[v1.EvaluateStorageCapacityResponse], error) {
+	return c.evaluateStorageCapacity.CallUnary(ctx, req)
 }
 
 // ReadFile calls mind.gateway.v1.Gateway.ReadFile.
@@ -996,6 +1017,12 @@ func (c *gatewayClient) ListTerminals(ctx context.Context, req *connect.Request[
 type GatewayHandler interface {
 	// ListServices returns all services known to the gateway.
 	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
+	// EvaluateStorageCapacity asks the execution authority whether its Gateway
+	// and service-state roots can satisfy named byte requirements. Requirements
+	// that resolve to one physical volume are evaluated together. The result is
+	// an observation, not a reservation; no host path or project content crosses
+	// the boundary.
+	EvaluateStorageCapacity(context.Context, *connect.Request[v1.EvaluateStorageCapacityRequest]) (*connect.Response[v1.EvaluateStorageCapacityResponse], error)
 	// ReadFile reads a file from a service's source tree.
 	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error)
 	// WriteFile writes (creates or overwrites) a file in a service's source tree.
@@ -1139,6 +1166,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		GatewayListServicesProcedure,
 		svc.ListServices,
 		connect.WithSchema(gatewayMethods.ByName("ListServices")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayEvaluateStorageCapacityHandler := connect.NewUnaryHandler(
+		GatewayEvaluateStorageCapacityProcedure,
+		svc.EvaluateStorageCapacity,
+		connect.WithSchema(gatewayMethods.ByName("EvaluateStorageCapacity")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gatewayReadFileHandler := connect.NewUnaryHandler(
@@ -1475,6 +1508,8 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		switch r.URL.Path {
 		case GatewayListServicesProcedure:
 			gatewayListServicesHandler.ServeHTTP(w, r)
+		case GatewayEvaluateStorageCapacityProcedure:
+			gatewayEvaluateStorageCapacityHandler.ServeHTTP(w, r)
 		case GatewayReadFileProcedure:
 			gatewayReadFileHandler.ServeHTTP(w, r)
 		case GatewayWriteFileProcedure:
@@ -1596,6 +1631,10 @@ type UnimplementedGatewayHandler struct{}
 
 func (UnimplementedGatewayHandler) ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ListServices is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) EvaluateStorageCapacity(context.Context, *connect.Request[v1.EvaluateStorageCapacityRequest]) (*connect.Response[v1.EvaluateStorageCapacityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.EvaluateStorageCapacity is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error) {
