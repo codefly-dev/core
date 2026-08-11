@@ -25,9 +25,13 @@ import (
 // StorageFilesystem is a path-free point-in-time capacity observation. The
 // AuthorityID is comparable only within the current reporting process.
 type StorageFilesystem struct {
-	AuthorityID         string
-	TotalBytes          uint64
-	AvailableBytes      uint64
+	// AuthorityID is an opaque identity comparable within this process.
+	AuthorityID string
+	// TotalBytes is the filesystem's total formatted capacity.
+	TotalBytes uint64
+	// AvailableBytes is the capacity currently available to the caller.
+	AvailableBytes uint64
+	// AllocationUnitBytes is the minimum unit used for conservative demand.
 	AllocationUnitBytes uint64
 }
 
@@ -38,8 +42,10 @@ type StorageFilesystem struct {
 // clones are deliberately charged at their logical size: the requirement must
 // remain safe when the next materialization cannot preserve those optimizations.
 type StorageTree struct {
+	// RequiredBytes is the allocation-unit-rounded demand of every entry.
 	RequiredBytes uint64
-	EntryCount    uint64
+	// EntryCount is the number of observed files, links, and directories.
+	EntryCount uint64
 }
 
 var storageAuthorityScope struct {
