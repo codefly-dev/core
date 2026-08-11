@@ -8,6 +8,7 @@ package resources
 // the same scope and can combine demands on one physical volume.
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -24,9 +25,27 @@ import (
 // StorageFilesystem is a path-free point-in-time capacity observation. The
 // AuthorityID is comparable only within the current reporting process.
 type StorageFilesystem struct {
-	AuthorityID    string
-	TotalBytes     uint64
+	// AuthorityID is an opaque identity comparable within this process.
+	AuthorityID string
+	// TotalBytes is the filesystem's total formatted capacity.
+	TotalBytes uint64
+	// AvailableBytes is the capacity currently available to the caller.
 	AvailableBytes uint64
+	// AllocationUnitBytes is the minimum unit used for conservative demand.
+	AllocationUnitBytes uint64
+}
+
+// StorageTree is a conservative storage requirement for materializing one
+// existing filesystem tree on the same authority. RequiredBytes rounds every
+// entry to the authority's allocation unit, so tiny files and directories do
+// not disappear from admission estimates. Sparse files and copy-on-write
+// clones are deliberately charged at their logical size: the requirement must
+// remain safe when the next materialization cannot preserve those optimizations.
+type StorageTree struct {
+	// RequiredBytes is the allocation-unit-rounded demand of every entry.
+	RequiredBytes uint64
+	// EntryCount is the number of observed files, links, and directories.
+	EntryCount uint64
 }
 
 var storageAuthorityScope struct {
@@ -66,10 +85,52 @@ func InspectStorageFilesystem(root string) (StorageFilesystem, error) {
 	identity := fmt.Sprintf("%x:%v:%d", scope, state.Fsid, totalBytes)
 	digest := sha256.Sum256([]byte(identity))
 	return StorageFilesystem{
-		AuthorityID:    "storage/sha256:" + hex.EncodeToString(digest[:16]),
-		TotalBytes:     totalBytes,
-		AvailableBytes: availableBytes,
+		AuthorityID:         "storage/sha256:" + hex.EncodeToString(digest[:16]),
+		TotalBytes:          totalBytes,
+		AvailableBytes:      availableBytes,
+		AllocationUnitBytes: blockSize,
 	}, nil
+}
+
+// InspectStorageTree measures an existing tree through filesystem metadata.
+// It never reads file contents and never follows symlinks. Callers must invoke
+// it only at the execution/storage boundary that owns the inspected tree.
+func InspectStorageTree(ctx context.Context, root string) (StorageTree, error) {
+	filesystem, err := InspectStorageFilesystem(root)
+	if err != nil {
+		return StorageTree{}, err
+	}
+	var tree StorageTree
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("inspect storage tree entry: %w", err)
+		}
+		size := uint64(1)
+		if info.Size() > 0 {
+			size = uint64(info.Size())
+		}
+		allocated, ok := roundedStorageBytes(size, filesystem.AllocationUnitBytes)
+		if !ok || math.MaxUint64-tree.RequiredBytes < allocated {
+			return errors.New("storage tree byte count overflows uint64")
+		}
+		tree.RequiredBytes += allocated
+		if tree.EntryCount == math.MaxUint64 {
+			return errors.New("storage tree entry count overflows uint64")
+		}
+		tree.EntryCount++
+		return nil
+	})
+	if err != nil {
+		return StorageTree{}, fmt.Errorf("inspect storage tree: %w", err)
+	}
+	return tree, nil
 }
 
 func existingStorageAncestor(root string) (string, error) {
@@ -109,4 +170,19 @@ func checkedStorageBytes(blocks, blockSize uint64) (uint64, bool) {
 		return 0, false
 	}
 	return blocks * blockSize, true
+}
+
+func roundedStorageBytes(size, allocationUnit uint64) (uint64, bool) {
+	if allocationUnit == 0 {
+		return 0, false
+	}
+	remainder := size % allocationUnit
+	if remainder == 0 {
+		return size, true
+	}
+	addition := allocationUnit - remainder
+	if size > math.MaxUint64-addition {
+		return 0, false
+	}
+	return size + addition, true
 }
