@@ -139,6 +139,9 @@ func TestSemanticIndexReportsDegradedAndNotAttemptedCoverage(t *testing.T) {
 		if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_DEGRADED || len(index.GetIssues()) != 1 || len(index.GetFiles()) != 1 {
 			t.Fatalf("index = %#v", index)
 		}
+		if got := index.GetIssues()[0].GetMessage(); !strings.Contains(got, " at 1:") {
+			t.Fatalf("parse diagnostic = %q, want first syntax-error coordinates", got)
+		}
 	})
 
 	t.Run("not attempted", func(t *testing.T) {

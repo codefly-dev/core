@@ -196,7 +196,7 @@ func projectSemanticFile(ctx context.Context, definition semanticLanguage, path 
 	root := tree.RootNode()
 	file.Imports = semanticImports(definition.name, path, root, body)
 	if root.HasError() {
-		return file, nil, fmt.Errorf("syntax tree contains errors")
+		return file, nil, fmt.Errorf("%s", treeSitterSyntaxDiagnostic(root))
 	}
 	packageName := semanticPackage(definition.name, path, root, body)
 	var symbols []*basev0.SemanticSymbol

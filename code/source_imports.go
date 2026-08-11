@@ -126,8 +126,9 @@ func inspectSourceImports(ctx context.Context, vfs VFS, root, language string) (
 		}
 		rootNode := tree.RootNode()
 		if rootNode.HasError() {
+			diagnostic := treeSitterSyntaxDiagnostic(rootNode)
 			tree.Close()
-			return fmt.Errorf("parse %s: syntax tree contains errors", relative)
+			return fmt.Errorf("parse %s: %s", relative, diagnostic)
 		}
 		imports := canonicalImports(definition.extract(rootNode, body))
 		tree.Close()

@@ -54,8 +54,8 @@ func TestInspectSourceImportsRejectsMalformedSyntax(t *testing.T) {
 	if err == nil {
 		t.Fatal("malformed source was certified as complete")
 	}
-	if got := err.Error(); !strings.Contains(got, "parse broken.py:") || strings.Contains(got, root) {
-		t.Fatalf("malformed-source diagnostic = %q, want repository-relative path only", got)
+	if got := err.Error(); !strings.Contains(got, "parse broken.py:") || !strings.Contains(got, " at 1:") || strings.Contains(got, root) {
+		t.Fatalf("malformed-source diagnostic = %q, want repository-relative path and first syntax-error coordinates", got)
 	}
 }
 
