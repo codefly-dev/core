@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/agents"
+	"github.com/codefly-dev/core/grpcconfig"
 	"github.com/codefly-dev/core/policy"
 	providerartifact "github.com/codefly-dev/core/provider/artifact"
 	"github.com/codefly-dev/core/resources"
@@ -1033,6 +1034,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithPerRPCCredentials(bearerCreds{token: authToken}),
+		grpcconfig.TypedMessageClientDialOption(),
 	)
 	if err != nil {
 		return nil, killAndDescribe(ErrAgentDialTimeout,
