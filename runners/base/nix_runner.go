@@ -497,9 +497,10 @@ func (proc *NixProc) publishExit(err error) {
 		proc.exitErr = err
 		proc.lifecycleMu.Lock()
 		cmd := proc.exec
+		group := proc.group
 		proc.lifecycleMu.Unlock()
-		if cmd != nil && cmd.Process != nil {
-			_ = removePgidFileAfterExit(cmd.Process.Pid)
+		if cmd != nil && cmd.Process != nil && group != nil {
+			_ = group.RemoveIfDead()
 		}
 		close(proc.exitCh)
 	})
@@ -513,6 +514,7 @@ type NixProc struct {
 	output io.Writer
 	cmd    []string
 	exec   *exec.Cmd
+	group  *TrackedProcessGroup
 	envs   []*resources.EnvironmentVariable
 
 	lifecycleMu   sync.Mutex
@@ -728,8 +730,8 @@ func (proc *NixProc) start(ctx context.Context) error {
 	// Without Setpgid, Stop()/ctx-cancel only signalled the nix-develop
 	// wrapper; any test workers it spawned leaked to PID 1. Now the whole
 	// subtree gets SIGTERM via negative-PID broadcast, and WaitDelay handles
-	// the SIGKILL fallback + leaked-pipe cleanup the runtime provides.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// the SIGKILL fallback + leaked-pipe cleanup the runtime provides. The
+	// tracked-process-group start below owns Setpgid.
 	cmd.Cancel = func() error {
 		pgid := cmd.Process.Pid
 		return syscall.Kill(-pgid, syscall.SIGTERM)
@@ -780,6 +782,7 @@ func (proc *NixProc) start(ctx context.Context) error {
 			return err
 		}
 		if err = proc.startCommand(ctx, cmd); err != nil {
+			_ = stderr.Close()
 			return w.Wrapf(err, "cannot start nix process")
 		}
 		proc.forwarderWG.Add(1)
@@ -812,6 +815,8 @@ func (proc *NixProc) start(ctx context.Context) error {
 			return err
 		}
 		if err = proc.startCommand(ctx, cmd); err != nil {
+			_ = stdout.Close()
+			_ = stderr.Close()
 			return w.Wrapf(err, "cannot start nix process")
 		}
 		proc.forwarderWG.Add(2)
@@ -847,7 +852,7 @@ func (proc *NixProc) start(ctx context.Context) error {
 	return nil
 }
 
-func (proc *NixProc) startCommand(ctx context.Context, cmd *exec.Cmd) error {
+func (proc *NixProc) startCommand(_ context.Context, cmd *exec.Cmd) error {
 	proc.lifecycleMu.Lock()
 	defer proc.lifecycleMu.Unlock()
 	if proc.stopRequested {
@@ -856,17 +861,12 @@ func (proc *NixProc) startCommand(ctx context.Context, cmd *exec.Cmd) error {
 	if proc.exec != nil {
 		return errors.New("process already started")
 	}
-	if err := cmd.Start(); err != nil {
+	group, err := StartTrackedProcessGroup(cmd)
+	if err != nil {
 		return err
 	}
 	proc.exec = cmd
-	// Track ownership before any Wait goroutine can win a fast-exit race.
-	// publishExit removes naturally completed groups; Stop removes groups it
-	// terminates explicitly.
-	if perr := writePgidFile(cmd.Process.Pid, cmd.Dir, proc.cmd); perr != nil {
-		wool.Get(ctx).In("NixProc.startCommand").
-			Warn("could not persist pgid file", wool.Field("err", perr))
-	}
+	proc.group = group
 	return nil
 }
 
@@ -902,6 +902,7 @@ func (proc *NixProc) Stop(ctx context.Context) error {
 	proc.lifecycleMu.Lock()
 	proc.stopRequested = true
 	cmd := proc.exec
+	group := proc.group
 	proc.lifecycleMu.Unlock()
 	if cmd == nil || cmd.Process == nil {
 		w.Trace("nix process not started, nothing to stop")
@@ -911,9 +912,11 @@ func (proc *NixProc) Stop(ctx context.Context) error {
 
 	pgid := cmd.Process.Pid
 	w.Trace("sending SIGTERM to process group", wool.Field("pgid", pgid))
-	// Tree-kill via negative PID — previously Signal() only reached the
-	// nix-develop wrapper, leaking any test workers it had spawned.
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	// Signal every authenticated member, including test workers spawned by the
+	// nix-develop wrapper.
+	if group != nil {
+		_ = group.Signal(context.Background(), syscall.SIGTERM)
+	}
 
 	// Poll for exit every 100ms up to a 5s SIGTERM grace, honoring ctx.
 	const sigtermGrace = 5 * time.Second
@@ -941,13 +944,15 @@ waitLoop:
 
 	if !exited {
 		w.Trace("nix pgroup still alive after SIGTERM grace, sending SIGKILL", wool.Field("pgid", pgid))
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		if group != nil {
+			_ = group.Signal(context.Background(), syscall.SIGKILL)
+		}
 	} else {
 		w.Trace("nix pgroup exited after SIGTERM")
 	}
 
-	// Remove the pgid tracking file now that the group is confirmed dead.
-	if perr := removePgidFile(pgid); perr != nil {
+	// Remove the registration only if the entire group is confirmed dead.
+	if perr := group.RemoveIfDead(); perr != nil {
 		w.Trace("could not remove pgid file", wool.Field("err", perr))
 	}
 

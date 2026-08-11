@@ -18,12 +18,10 @@ func TestCommandSummaryDoesNotExposeArguments(t *testing.T) {
 func TestPgidFileIsPrivateAndDoesNotPersistArguments(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	const secret = "super-secret-password"
+	t.Setenv("CODEFLY_TEST_SECRET", secret)
 	leader := startRegistryLeader(t, "member")
 	defer stopRegistryLeader(t, leader)
 	pid := leader.Process.Pid
-	if err := writePgidFile(pid, "/private/workspace", []string{"redis-server", "--requirepass", secret}); err != nil {
-		t.Fatalf("writePgidFile: %v", err)
-	}
 	path := filepath.Join(os.Getenv("HOME"), ".codefly", pgidDirName, fmt.Sprintf("%d.pgid", pid))
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -31,6 +29,9 @@ func TestPgidFileIsPrivateAndDoesNotPersistArguments(t *testing.T) {
 	}
 	if strings.Contains(string(data), secret) || strings.Contains(string(data), "--requirepass") || strings.Contains(string(data), "/private/workspace") {
 		t.Fatalf("pgid file leaked argv: %s", data)
+	}
+	if strings.Contains(string(data), `"registered"`) {
+		t.Fatalf("pgid file retained wall-clock registration ordering: %s", data)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -53,6 +54,9 @@ func TestPgidFileIsPrivateAndDoesNotPersistArguments(t *testing.T) {
 	}
 	if !leaderIdentity.matches(rec.Leader) || !ownerIdentity.matches(rec.Owner) {
 		t.Fatal("record did not persist exact process birth identities")
+	}
+	if len(rec.Authentication) != groupAuthBytes*2 {
+		t.Fatalf("authentication length = %d, want %d", len(rec.Authentication), groupAuthBytes*2)
 	}
 	if rec.Leader.Executable != filepath.Base(os.Args[0]) {
 		t.Fatalf("executable identity = %q, want basename %q", rec.Leader.Executable, filepath.Base(os.Args[0]))

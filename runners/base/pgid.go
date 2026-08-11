@@ -3,12 +3,16 @@ package base
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -63,15 +67,19 @@ func forwardLines(r io.Reader, w io.Writer) {
 // owner no longer exists.
 
 const (
-	pgidDirName   = "runs"
-	pgidLockName  = ".reaper.lock"
-	pgidLockRetry = 25 * time.Millisecond
-	sigtermGrace  = 3 * time.Second
-	sigkillGrace  = time.Second
-	maxRecordSize = 16 << 10
+	pgidDirName    = "runs"
+	pgidLockName   = ".reaper.lock"
+	pgidLockRetry  = 25 * time.Millisecond
+	sigtermGrace   = 3 * time.Second
+	sigkillGrace   = time.Second
+	maxRecordSize  = 16 << 10
+	groupAuthBytes = 32
+	groupAuthEnv   = "CODEFLY_PROCESS_GROUP_AUTH"
 )
 
 var registryProcessLock = make(chan struct{}, 1)
+
+var errProcessGroupIdentityChanged = errors.New("process group identity changed")
 
 type recordedProcessIdentity struct {
 	PID        int    `json:"pid"`
@@ -80,20 +88,26 @@ type recordedProcessIdentity struct {
 	Executable string `json:"executable"`
 }
 
-type processBoundary struct {
-	BootID  string `json:"boot_id"`
-	StartID uint64 `json:"start_id"`
-}
-
 type pgidRecord struct {
-	PGID       int                     `json:"pgid"`
-	Leader     recordedProcessIdentity `json:"leader"`
-	Owner      recordedProcessIdentity `json:"owner"`
-	Registered processBoundary         `json:"registered"`
+	PGID           int                     `json:"pgid"`
+	Leader         recordedProcessIdentity `json:"leader"`
+	Owner          recordedProcessIdentity `json:"owner"`
+	Authentication string                  `json:"authentication"`
 }
 
 type recordSnapshot struct {
 	info os.FileInfo
+}
+
+// TrackedProcessGroup is the identity-bearing handle returned for a process
+// group whose private registry record was durably published.
+type TrackedProcessGroup struct {
+	record pgidRecord
+}
+
+type processSignalHandle interface {
+	Signal(syscall.Signal) error
+	Close() error
 }
 
 func sanitizeExecutableIdentity(executable string) string {
@@ -163,19 +177,156 @@ func releaseRegistryLock(lock *flock.Flock) error {
 	return errors.Join(err, closeErr)
 }
 
-// WritePgidFile is the exported entry point used by spawners outside this
-// package that use Setpgid:true and need their groups reaped on ungraceful
-// parent death.
-func WritePgidFile(pgid int, cwd string, argv []string) error {
-	return writePgidFile(pgid, cwd, argv)
+// StartTrackedProcessGroup starts cmd as a new process-group leader and
+// returns only after its authenticated registry record is published.
+func StartTrackedProcessGroup(cmd *exec.Cmd) (*TrackedProcessGroup, error) {
+	if cmd == nil {
+		return nil, errors.New("process-group command is nil")
+	}
+	if cmd.Process != nil {
+		return nil, errors.New("process-group command is already started")
+	}
+	authentication, err := mintProcessGroupAuthentication()
+	if err != nil {
+		return nil, fmt.Errorf("mint process-group authentication: %w", err)
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
+	gate, executable, err := startProcessGroupGate(cmd, authentication)
+	if err != nil {
+		return nil, err
+	}
+
+	group, err := captureProcessGroup(cmd.Process.Pid, authentication, executable)
+	if err == nil {
+		err = group.persist()
+	}
+	if err != nil {
+		_ = gate.Close()
+		cleanupErr := abortUnregisteredProcessGroup(cmd, group, authentication)
+		return nil, errors.Join(fmt.Errorf("register process group: %w", err), cleanupErr)
+	}
+	if err := gate.Release(); err != nil {
+		cleanupErr := abortUnregisteredProcessGroup(cmd, group, authentication)
+		removeErr := group.RemoveIfDead()
+		return nil, errors.Join(fmt.Errorf("release process-group start gate: %w", err), cleanupErr, removeErr)
+	}
+	return group, nil
 }
 
-// RemovePgidFile drops the tracking file for a pgid after graceful stop.
-func RemovePgidFile(pgid int) error {
-	return removePgidFile(pgid)
+type processGroupGate struct {
+	reader *os.File
+	writer *os.File
 }
 
-func writePgidFile(pgid int, _ string, _ []string) (returnErr error) {
+func startProcessGroupGate(cmd *exec.Cmd, authentication string) (*processGroupGate, string, error) {
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		return nil, "", fmt.Errorf("locate process-group start gate: %w", err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, "", fmt.Errorf("create process-group start gate: %w", err)
+	}
+	gate := &processGroupGate{reader: reader, writer: writer}
+	originalPath := cmd.Path
+	originalArgs := append([]string(nil), cmd.Args...)
+	if originalPath == "" || len(originalArgs) == 0 {
+		_ = gate.Close()
+		return nil, "", errors.New("process-group command has no executable")
+	}
+	originalEnv := cmd.Env
+	originalExtraFiles := cmd.ExtraFiles
+	gateFD := 3 + len(originalExtraFiles)
+	gateFDValue := strconv.Itoa(gateFD)
+	cmd.Path = shell
+	cmd.Args = append([]string{"sh", "-c", "IFS= read -r codefly_gate < \"$CODEFLY_PROCESS_GROUP_GATE\" || exit 125; eval \"exec ${CODEFLY_PROCESS_GROUP_GATE_FD}<&-\"; unset CODEFLY_PROCESS_GROUP_GATE CODEFLY_PROCESS_GROUP_GATE_FD; exec \"$@\"", "codefly-process-group-gate", originalPath}, originalArgs[1:]...)
+	cmd.Env = append(cmd.Environ(),
+		groupAuthEnv+"="+authentication,
+		"CODEFLY_PROCESS_GROUP_GATE=/dev/fd/"+gateFDValue,
+		"CODEFLY_PROCESS_GROUP_GATE_FD="+gateFDValue)
+	cmd.ExtraFiles = append(append([]*os.File(nil), originalExtraFiles...), reader)
+	err = cmd.Start()
+	cmd.Path = originalPath
+	cmd.Args = originalArgs
+	cmd.Env = originalEnv
+	cmd.ExtraFiles = originalExtraFiles
+	if closeErr := reader.Close(); err == nil {
+		err = closeErr
+	}
+	gate.reader = nil
+	if err != nil {
+		_ = writer.Close()
+		return nil, "", err
+	}
+	return gate, sanitizeExecutableIdentity(originalPath), nil
+}
+
+func (gate *processGroupGate) Release() error {
+	if gate == nil || gate.writer == nil {
+		return nil
+	}
+	_, writeErr := gate.writer.Write([]byte{'\n'})
+	closeErr := gate.writer.Close()
+	gate.writer = nil
+	return errors.Join(writeErr, closeErr)
+}
+
+func (gate *processGroupGate) Close() error {
+	if gate == nil {
+		return nil
+	}
+	var failures []error
+	if gate.reader != nil {
+		failures = append(failures, gate.reader.Close())
+		gate.reader = nil
+	}
+	if gate.writer != nil {
+		failures = append(failures, gate.writer.Close())
+		gate.writer = nil
+	}
+	return errors.Join(failures...)
+}
+
+func mintProcessGroupAuthentication() (string, error) {
+	value := make([]byte, groupAuthBytes)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value), nil
+}
+
+func captureProcessGroup(pgid int, authentication, executable string) (*TrackedProcessGroup, error) {
+	leader, err := inspectProcess(pgid)
+	if err != nil {
+		return nil, fmt.Errorf("inspect process-group leader %d: %w", pgid, err)
+	}
+	if leader.pgid != pgid {
+		return nil, fmt.Errorf("process %d belongs to process group %d", pgid, leader.pgid)
+	}
+	if executable == "" {
+		return nil, errors.New("process-group executable identity is empty")
+	}
+	leader.executable = executable
+	owner, err := inspectProcess(os.Getpid())
+	if err != nil {
+		return nil, fmt.Errorf("inspect process-group owner %d: %w", os.Getpid(), err)
+	}
+	if leader.bootID != owner.bootID {
+		return nil, errors.New("process identities do not belong to the current boot")
+	}
+	return &TrackedProcessGroup{record: pgidRecord{
+		PGID:           pgid,
+		Leader:         leader.recorded(),
+		Owner:          owner.recorded(),
+		Authentication: authentication,
+	}}, nil
+}
+
+func (group *TrackedProcessGroup) persist() (returnErr error) {
+	rec := group.record
 	dir, err := pgidStateDir()
 	if err != nil {
 		return err
@@ -187,38 +338,25 @@ func writePgidFile(pgid int, _ string, _ []string) (returnErr error) {
 	defer func() {
 		returnErr = errors.Join(returnErr, releaseRegistryLock(lock))
 	}()
-
-	leader, err := inspectProcess(pgid)
-	if err != nil {
-		return fmt.Errorf("inspect process-group leader %d: %w", pgid, err)
-	}
-	if leader.pgid != pgid {
-		return fmt.Errorf("process %d belongs to process group %d", pgid, leader.pgid)
-	}
-	owner, err := inspectProcess(os.Getpid())
-	if err != nil {
-		return fmt.Errorf("inspect process-group owner %d: %w", os.Getpid(), err)
-	}
-	registered, err := currentProcessBoundary()
-	if err != nil {
-		return fmt.Errorf("inspect process registry clock: %w", err)
-	}
-	if leader.bootID != registered.BootID || owner.bootID != registered.BootID {
-		return errors.New("process identities do not belong to the current boot")
+	path := filepath.Join(dir, fmt.Sprintf("%d.pgid", rec.PGID))
+	if _, err := os.Lstat(path); err == nil {
+		existing, _, readErr := readPgidRecord(path)
+		if readErr != nil {
+			return fmt.Errorf("existing process-group record is invalid: %w", readErr)
+		}
+		if !sameProcessGroupRegistration(existing, rec) {
+			return errors.New("process-group record already belongs to another identity")
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect process-group record: %w", err)
 	}
 
-	rec := pgidRecord{
-		PGID:       pgid,
-		Leader:     leader.recorded(),
-		Owner:      owner.recorded(),
-		Registered: registered,
-	}
 	content, err := json.Marshal(rec)
 	if err != nil {
 		return fmt.Errorf("encode process-group record: %w", err)
 	}
 	content = append(content, '\n')
-	path := filepath.Join(dir, fmt.Sprintf("%d.pgid", pgid))
 	file, err := os.CreateTemp(dir, ".pgid-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create process-group record: %w", err)
@@ -245,7 +383,71 @@ func writePgidFile(pgid int, _ string, _ []string) (returnErr error) {
 	if err := os.Rename(temporaryPath, path); err != nil {
 		return fmt.Errorf("publish process-group record: %w", err)
 	}
+	directory, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("open process-group registry for sync: %w", err)
+	}
+	if err := errors.Join(directory.Sync(), directory.Close()); err != nil {
+		return fmt.Errorf("sync process-group registry: %w", err)
+	}
 	return nil
+}
+
+func sameProcessGroupRegistration(first, second pgidRecord) bool {
+	return first.PGID == second.PGID &&
+		first.Leader == second.Leader &&
+		first.Owner == second.Owner &&
+		first.Authentication == second.Authentication
+}
+
+// Signal delivers signal only to process instances authenticated as members
+// of this registered group.
+func (group *TrackedProcessGroup) Signal(ctx context.Context, signal syscall.Signal) error {
+	if group == nil {
+		return errors.New("process group is not registered")
+	}
+	return signalAuthenticatedGroup(ctx, group.record, signal)
+}
+
+func abortUnregisteredProcessGroup(cmd *exec.Cmd, group *TrackedProcessGroup, authentication string) error {
+	var failures []error
+	if group != nil {
+		if err := group.Signal(context.Background(), syscall.SIGKILL); err != nil &&
+			!errors.Is(err, errProcessGroupIdentityChanged) {
+			failures = append(failures, fmt.Errorf("terminate unregistered process group: %w", err))
+		}
+	} else if cmd.Process != nil {
+		members, err := inspectProcessGroup(context.Background(), cmd.Process.Pid)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("inspect unregistered process group: %w", err))
+		} else {
+			credentialed := make([]processIdentity, 0, len(members))
+			for _, member := range members {
+				authenticated, authErr := processHasAuthentication(member, authentication)
+				if authErr == nil && authenticated {
+					credentialed = append(credentialed, member)
+				}
+			}
+			if len(credentialed) > 0 {
+				if err := signalProcessIdentities(context.Background(), credentialed, syscall.SIGKILL); err != nil &&
+					!errors.Is(err, errProcessGroupIdentityChanged) {
+					failures = append(failures, fmt.Errorf("terminate credentialed processes: %w", err))
+				}
+			}
+		}
+	}
+	if cmd.Process != nil {
+		if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			failures = append(failures, fmt.Errorf("terminate process-group leader: %w", err))
+		}
+	}
+	if err := cmd.Wait(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			failures = append(failures, fmt.Errorf("wait for unregistered process group: %w", err))
+		}
+	}
+	return errors.Join(failures...)
 }
 
 // CommandSummary is safe for logs and process metadata: it identifies the
@@ -258,7 +460,12 @@ func CommandSummary(argv []string) string {
 	return fmt.Sprintf("%s <%d args>", filepath.Base(argv[0]), len(argv)-1)
 }
 
-func removePgidFile(pgid int) (returnErr error) {
+// RemoveIfDead removes this registration only when it still names the same
+// record and the process group is empty.
+func (group *TrackedProcessGroup) RemoveIfDead() (returnErr error) {
+	if group == nil {
+		return nil
+	}
 	dir, err := pgidStateDir()
 	if err != nil {
 		return err
@@ -270,22 +477,18 @@ func removePgidFile(pgid int) (returnErr error) {
 	defer func() {
 		returnErr = errors.Join(returnErr, releaseRegistryLock(lock))
 	}()
-	path := filepath.Join(dir, fmt.Sprintf("%d.pgid", pgid))
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
-}
-
-// removePgidFileAfterExit forgets a naturally completed process group only
-// after the kernel confirms the entire group is empty. If a leader exits while
-// descendants remain, the record deliberately survives so the orphan sweep
-// can still reap that process tree after its owner exits.
-func removePgidFileAfterExit(pgid int) error {
-	if pgid <= 1 || isProcessGroupAlive(pgid) {
+	path := filepath.Join(dir, fmt.Sprintf("%d.pgid", group.record.PGID))
+	rec, snapshot, err := readPgidRecord(path)
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	return removePgidFile(pgid)
+	if err != nil {
+		return fmt.Errorf("read process-group record before removal: %w", err)
+	}
+	if !sameProcessGroupRegistration(rec, group.record) || isProcessGroupAlive(rec.PGID) {
+		return nil
+	}
+	return removeRecord(path, snapshot)
 }
 
 // isProcessGroupAlive probes whether any process still belongs to pgid.
@@ -390,20 +593,18 @@ func (rec pgidRecord) validate() error {
 	if err := rec.Owner.validate(); err != nil {
 		return fmt.Errorf("invalid process-group owner identity: %w", err)
 	}
-	if rec.Registered.BootID == "" || rec.Registered.StartID == 0 {
-		return errors.New("invalid process-group registration boundary")
-	}
-	if rec.Leader.BootID != rec.Registered.BootID || rec.Owner.BootID != rec.Registered.BootID {
+	if rec.Leader.BootID != rec.Owner.BootID {
 		return errors.New("process-group record crosses boot identities")
 	}
-	if rec.Leader.StartID > rec.Registered.StartID || rec.Owner.StartID > rec.Registered.StartID {
-		return errors.New("process-group identity starts after registration")
+	decoded, err := hex.DecodeString(rec.Authentication)
+	if err != nil || len(decoded) != groupAuthBytes {
+		return errors.New("invalid process-group authentication")
 	}
 	return nil
 }
 
 func (identity recordedProcessIdentity) validate() error {
-	if identity.PID <= 1 || identity.BootID == "" || identity.StartID == 0 || identity.Executable == "" {
+	if identity.PID < 1 || identity.BootID == "" || identity.StartID == 0 || identity.Executable == "" {
 		return errors.New("identity is incomplete")
 	}
 	if filepath.Base(identity.Executable) != identity.Executable {
@@ -526,7 +727,7 @@ func reconcilePgidRecord(ctx context.Context, path, name string) (bool, error) {
 		return false, nil
 	}
 
-	authenticated, err := authenticateProcessGroup(ctx, rec)
+	_, authenticated, err := authenticateProcessGroup(ctx, rec)
 	if err != nil {
 		return false, fmt.Errorf("authenticate process group %d from %s: %w", rec.PGID, name, err)
 	}
@@ -548,7 +749,7 @@ func reconcilePgidRecord(ctx context.Context, path, name string) (bool, error) {
 	if err := recordIsUnchanged(path, snapshot); err != nil {
 		return false, fmt.Errorf("verify process-group record %s before signaling: %w", name, err)
 	}
-	authenticated, err = authenticateProcessGroup(ctx, rec)
+	_, authenticated, err = authenticateProcessGroup(ctx, rec)
 	if err != nil {
 		return false, fmt.Errorf("reauthenticate process group %d from %s: %w", rec.PGID, name, err)
 	}
@@ -569,33 +770,56 @@ func reconcilePgidRecord(ctx context.Context, path, name string) (bool, error) {
 	return true, nil
 }
 
-func authenticateProcessGroup(ctx context.Context, rec pgidRecord) (bool, error) {
-	leader, err := inspectProcess(rec.PGID)
-	if err == nil {
-		return leader.pgid == rec.PGID && leader.matches(rec.Leader), nil
-	}
-	if !errors.Is(err, errProcessNotFound) {
-		return false, err
-	}
-
+func authenticateProcessGroup(ctx context.Context, rec pgidRecord) ([]processIdentity, bool, error) {
 	members, err := inspectProcessGroup(ctx, rec.PGID)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 	if len(members) == 0 {
 		if isProcessGroupAlive(rec.PGID) {
-			return false, errors.New("live leaderless group had no inspectable members")
+			return nil, false, errors.New("live process group had no inspectable members")
 		}
-		return false, nil
+		return nil, false, nil
 	}
 	for _, member := range members {
-		if member.bootID == rec.Registered.BootID &&
-			member.startID >= rec.Leader.StartID &&
-			member.startID <= rec.Registered.StartID {
-			return true, nil
+		if member.pid == rec.PGID {
+			return members, member.matches(rec.Leader), nil
 		}
 	}
-	return false, nil
+
+	var failures []error
+	for _, member := range members {
+		authenticated, err := processHasAuthentication(member, rec.Authentication)
+		if errors.Is(err, errProcessNotFound) || errors.Is(err, errProcessGroupIdentityChanged) {
+			continue
+		}
+		if err != nil {
+			failures = append(failures, fmt.Errorf("authenticate process-group member %d: %w", member.pid, err))
+			continue
+		}
+		if authenticated {
+			return members, true, nil
+		}
+	}
+	if len(failures) > 0 {
+		return nil, false, errors.Join(failures...)
+	}
+	return members, false, nil
+}
+
+func processHasAuthentication(expected processIdentity, authentication string) (bool, error) {
+	value, err := readProcessGroupAuthentication(expected.pid)
+	if err != nil {
+		return false, err
+	}
+	current, err := inspectProcess(expected.pid)
+	if err != nil {
+		return false, err
+	}
+	if current.pgid != expected.pgid || !current.matches(expected.recorded()) {
+		return false, errProcessGroupIdentityChanged
+	}
+	return value == authentication, nil
 }
 
 func inspectProcessGroup(ctx context.Context, pgid int) ([]processIdentity, error) {
@@ -645,17 +869,7 @@ func terminateAuthenticatedGroup(ctx context.Context, rec pgidRecord) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	authenticated, err := authenticateProcessGroup(ctx, rec)
-	if err != nil {
-		return err
-	}
-	if !authenticated {
-		return errors.New("process group identity changed before SIGTERM")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := syscall.Kill(-rec.PGID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := signalAuthenticatedGroup(ctx, rec, syscall.SIGTERM); err != nil {
 		return err
 	}
 	if waitForGroupDeath(ctx, rec.PGID, sigtermGrace) {
@@ -664,17 +878,7 @@ func terminateAuthenticatedGroup(ctx context.Context, rec pgidRecord) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	authenticated, err = authenticateProcessGroup(ctx, rec)
-	if err != nil {
-		return err
-	}
-	if !authenticated {
-		return errors.New("process group identity changed after SIGTERM")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := syscall.Kill(-rec.PGID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := signalAuthenticatedGroup(ctx, rec, syscall.SIGKILL); err != nil {
 		return err
 	}
 	if waitForGroupDeath(ctx, rec.PGID, sigkillGrace) {
@@ -684,6 +888,63 @@ func terminateAuthenticatedGroup(ctx context.Context, rec pgidRecord) error {
 		return err
 	}
 	return errors.New("process group remained alive after SIGKILL")
+}
+
+func signalAuthenticatedGroup(ctx context.Context, rec pgidRecord, signal syscall.Signal) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	members, authenticated, err := authenticateProcessGroup(ctx, rec)
+	if err != nil {
+		return err
+	}
+	if !authenticated {
+		return errProcessGroupIdentityChanged
+	}
+	return signalProcessIdentities(ctx, members, signal)
+}
+
+func signalProcessIdentities(ctx context.Context, identities []processIdentity, signal syscall.Signal) error {
+	handles := make([]processSignalHandle, 0, len(identities))
+	for _, identity := range identities {
+		if err := ctx.Err(); err != nil {
+			closeProcessSignalHandles(handles)
+			return err
+		}
+		handle, err := openProcessSignalHandle(identity)
+		if errors.Is(err, errProcessNotFound) || errors.Is(err, errProcessGroupIdentityChanged) {
+			continue
+		}
+		if err != nil {
+			closeProcessSignalHandles(handles)
+			return fmt.Errorf("open authenticated process %d: %w", identity.pid, err)
+		}
+		handles = append(handles, handle)
+	}
+	if len(handles) == 0 {
+		return errProcessGroupIdentityChanged
+	}
+
+	var failures []error
+	for _, handle := range handles {
+		if err := ctx.Err(); err != nil {
+			failures = append(failures, err)
+			break
+		}
+		if err := handle.Signal(signal); err != nil && !errors.Is(err, syscall.ESRCH) {
+			failures = append(failures, err)
+		}
+	}
+	failures = append(failures, closeProcessSignalHandles(handles))
+	return errors.Join(failures...)
+}
+
+func closeProcessSignalHandles(handles []processSignalHandle) error {
+	var failures []error
+	for _, handle := range handles {
+		failures = append(failures, handle.Close())
+	}
+	return errors.Join(failures...)
 }
 
 func removeRecord(path string, snapshot recordSnapshot) error {

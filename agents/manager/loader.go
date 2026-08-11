@@ -62,9 +62,10 @@ type ProcessInfo struct {
 // AgentConn is a connection to a running agent process.
 // It owns the gRPC connection and the child process.
 type AgentConn struct {
-	conn *grpc.ClientConn
-	cmd  *exec.Cmd
-	info *ProcessInfo
+	conn  *grpc.ClientConn
+	cmd   *exec.Cmd
+	info  *ProcessInfo
+	group *runnersbase.TrackedProcessGroup
 
 	// runtimeDir is the private per-spawn directory containing the agent's
 	// Unix socket. It is removed after the child exits (including crashes) and
@@ -164,7 +165,7 @@ func (c *AgentConn) close() {
 	_ = c.cmd.Process.Signal(os.Interrupt)
 	if c.done == nil {
 		// No reaper to wait on — best-effort kill and bail.
-		killAgentGroup(pid)
+		c.killProcessGroup()
 		return
 	}
 
@@ -177,9 +178,19 @@ func (c *AgentConn) close() {
 		// pgroup (agent + any still-running user binaries it spawned) and
 		// wait for the reaper so we don't leave zombies behind.
 		w.Warn(fmt.Sprintf("agent did not exit within %s of SIGTERM — sending SIGKILL", gracefulShutdownTimeout))
-		killAgentGroup(pid)
+		c.killProcessGroup()
 		<-c.done
 		w.Info(fmt.Sprintf("agent killed after %s", time.Since(startedAt).Round(time.Millisecond)))
+	}
+}
+
+func (c *AgentConn) killProcessGroup() {
+	if c.group != nil {
+		_ = c.group.Signal(context.Background(), syscall.SIGKILL)
+		return
+	}
+	if c.cmd != nil && c.cmd.Process != nil {
+		killAgentGroup(c.cmd.Process.Pid)
 	}
 }
 
@@ -734,13 +745,6 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// (e.g. 60s timeout) for the load handshake, but the agent should keep
 	// running until explicitly closed. Lifecycle is managed via Close().
 	cmd := exec.Command(bin)
-	// Put the agent (and everything it spawns) in its own process group.
-	// Without this the agent inherits codefly's pgid, which in turn
-	// inherits the caller's (e.g. Claude Code's Bash tool) — a single
-	// stray signal to that pgroup then cascades into every agent and
-	// every user binary. Own pgid also lets Close() send SIGTERM to
-	// the negative pid and reap the whole agent subtree atomically.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// SECURITY BOUNDARY: the CLI has already converted invocation-scoped
 	// configuration carriers into typed, service-scoped configurations. Never
 	// let an agent inherit the aggregate carriers, which can contain credentials
@@ -931,22 +935,14 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		}
 	}
 
-	if err := cmd.Start(); err != nil {
+	group, err := runnersbase.StartTrackedProcessGroup(cmd)
+	if err != nil {
+		_ = stdout.Close()
 		return nil, w.Wrapf(fmt.Errorf("%w: %v", ErrAgentSpawn, err),
 			"cannot start agent binary: %s", bin)
 	}
 
-	pid := 0
-	if cmd.Process != nil {
-		pid = cmd.Process.Pid
-		// Track the agent's pgroup so an ungraceful CLI death (SIGKILL on
-		// parent, terminal force-closed) doesn't leave the whole agent
-		// subtree orphaned at PPID=1. The next `codefly run` sweep reaps
-		// any pgroup whose owning CLI is dead.
-		if perr := runnersbase.WritePgidFile(pid, cmd.Dir, []string{bin}); perr != nil {
-			w.Warn("could not persist agent pgid", wool.Field("err", perr))
-		}
-	}
+	pid := cmd.Process.Pid
 
 	w.Trace("agent process started", wool.Field("pid", pid), wool.Path(bin))
 
@@ -955,15 +951,13 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// switch on the sentinel via errors.Is; the message preserves
 	// reason + stderr for human readers.
 	killAndDescribe := func(sentinel error, reason string) error {
-		if cmd.Process != nil {
-			killAgentGroup(cmd.Process.Pid)
-		}
+		_ = group.Signal(context.Background(), syscall.SIGKILL)
 		_ = cmd.Wait()
 		// Remove the pgid tracking file written right after Start. The reaper
 		// goroutine (which would remove it) is only started on the success
 		// path, so every failure path leaked the file. A stale file can later
 		// make the orphan sweep SIGKILL a recycled, unrelated process group.
-		_ = runnersbase.RemovePgidFile(pid)
+		_ = group.RemoveIfDead()
 		tail := stderrBuf.String()
 		if tail != "" {
 			return w.Wrapf(fmt.Errorf("%w: %s", sentinel, reason),
@@ -1058,6 +1052,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		conn:                conn,
 		cmd:                 cmd,
 		info:                &ProcessInfo{PID: pid},
+		group:               group,
 		runtimeDir:          udsRuntimeDir,
 		stderrBuf:           stderrBuf,
 		done:                make(chan struct{}),
@@ -1083,11 +1078,9 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		// is abandoned without a Close()/ClearAgents teardown. Idempotent
 		// with Close's own closeLogWriter.
 		agentConn.closeLogWriter()
-		// Agent process is confirmed dead — drop its pgid tracking file.
-		// Only the sweep's orphan check depends on this file; missing it
-		// just means the next sweep treats it as an already-dead group.
+		// Drop the registration only if the agent left no descendants behind.
 		if pid > 0 {
-			_ = runnersbase.RemovePgidFile(pid)
+			_ = group.RemoveIfDead()
 		}
 		if waitErr != nil {
 			// Log at debug – the consumer will observe errors through the

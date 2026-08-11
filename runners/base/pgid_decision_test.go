@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -38,15 +39,10 @@ func TestProcessGroupRegistryHelper(t *testing.T) {
 	case "owner":
 		leader := registryHelperCommand("member")
 		leader.Env = append(leader.Env, processGroupReadyFileEnv+"="+os.Getenv(processGroupReadyFileEnv))
-		leader.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		if err := leader.Start(); err != nil {
+		if _, err := StartTrackedProcessGroup(leader); err != nil {
 			t.Fatal(err)
 		}
 		pid := leader.Process.Pid
-		if err := WritePgidFile(pid, "/private/workspace", []string{os.Args[0], "secret"}); err != nil {
-			_ = syscall.Kill(-pid, syscall.SIGKILL)
-			t.Fatal(err)
-		}
 		writeTestFile(t, os.Getenv(processGroupPIDFileEnv), strconv.Itoa(pid))
 		waitForTestFile(t, os.Getenv(processGroupReadyFileEnv))
 	case "leaderless-owner":
@@ -55,31 +51,29 @@ func TestProcessGroupRegistryHelper(t *testing.T) {
 			processGroupReadyFileEnv+"="+os.Getenv(processGroupReadyFileEnv),
 			processGroupLeaderReadyEnv+"="+os.Getenv(processGroupLeaderReadyEnv),
 			processGroupReleaseFileEnv+"="+os.Getenv(processGroupReleaseFileEnv))
-		leader.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		if err := leader.Start(); err != nil {
+		group, err := StartTrackedProcessGroup(leader)
+		if err != nil {
 			t.Fatal(err)
 		}
 		pid := leader.Process.Pid
 		waitForTestFile(t, os.Getenv(processGroupLeaderReadyEnv))
-		if err := WritePgidFile(pid, "/private/workspace", []string{os.Args[0], "secret"}); err != nil {
-			_ = syscall.Kill(-pid, syscall.SIGKILL)
-			t.Fatal(err)
-		}
 		writeTestFile(t, os.Getenv(processGroupPIDFileEnv), strconv.Itoa(pid))
 		writeTestFile(t, os.Getenv(processGroupReleaseFileEnv), "release")
 		if err := leader.Wait(); err != nil {
 			t.Fatal(err)
 		}
+		if err := group.RemoveIfDead(); err != nil {
+			t.Fatal(err)
+		}
 	case "leader-with-member":
-		time.Sleep(50 * time.Millisecond)
+		writeTestFile(t, os.Getenv(processGroupLeaderReadyEnv), "ready")
+		waitForTestFile(t, os.Getenv(processGroupReleaseFileEnv))
 		member := registryHelperCommand("member")
 		member.Env = append(member.Env, processGroupReadyFileEnv+"="+os.Getenv(processGroupReadyFileEnv))
 		if err := member.Start(); err != nil {
 			t.Fatal(err)
 		}
 		waitForTestFile(t, os.Getenv(processGroupReadyFileEnv))
-		writeTestFile(t, os.Getenv(processGroupLeaderReadyEnv), "ready")
-		waitForTestFile(t, os.Getenv(processGroupReleaseFileEnv))
 	}
 }
 
@@ -88,9 +82,6 @@ func TestReaperPreservesGroupOwnedByLiveProcess(t *testing.T) {
 	leader := startRegistryLeader(t, "member")
 	defer stopRegistryLeader(t, leader)
 	pid := leader.Process.Pid
-	if err := WritePgidFile(pid, t.TempDir(), []string{os.Args[0]}); err != nil {
-		t.Fatal(err)
-	}
 
 	if err := ReapStaleProcessGroups(context.Background()); err != nil {
 		t.Fatal(err)
@@ -123,6 +114,9 @@ func TestReaperReapsAuthenticatedLeaderlessDescendant(t *testing.T) {
 		t.Fatalf("process-group leader %d still exists: %v", pid, err)
 	}
 	assertGroupAlive(t, pid)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("leader exit cleanup removed a live descendant's record: %v", err)
+	}
 
 	if err := ReapStaleProcessGroups(context.Background()); err != nil {
 		t.Fatal(err)
@@ -135,9 +129,6 @@ func TestReaperRejectsRecordForReusedGroupWithoutSignaling(t *testing.T) {
 	leader := startRegistryLeader(t, "member")
 	defer stopRegistryLeader(t, leader)
 	pid := leader.Process.Pid
-	if err := WritePgidFile(pid, t.TempDir(), []string{os.Args[0]}); err != nil {
-		t.Fatal(err)
-	}
 	path := recordPath(t, pid)
 	rewriteRecord(t, path, func(rec *pgidRecord) {
 		rec.Leader.StartID--
@@ -157,7 +148,7 @@ func TestReaperRejectsReusedLeaderlessGroupWithoutSignaling(t *testing.T) {
 	pid, path := spawnOrphanedGroup(t, true)
 	defer cleanupOrphanedGroup(pid, path)
 	rewriteRecord(t, path, func(rec *pgidRecord) {
-		rec.Registered.StartID = rec.Leader.StartID
+		rec.Authentication = strings.Repeat("0", groupAuthBytes*2)
 	})
 
 	if err := ReapStaleProcessGroups(context.Background()); err != nil {
@@ -179,9 +170,6 @@ func TestReaperAuthenticatesOwnerBirth(t *testing.T) {
 		_ = leader.Wait()
 		_ = os.Remove(path)
 	}()
-	if err := WritePgidFile(pid, t.TempDir(), []string{os.Args[0]}); err != nil {
-		t.Fatal(err)
-	}
 	rewriteRecord(t, path, func(rec *pgidRecord) {
 		rec.Owner.StartID--
 	})
@@ -204,9 +192,6 @@ func TestReaperRetainsPartialRecordAndFailsClosed(t *testing.T) {
 	leader := startRegistryLeader(t, "member")
 	defer stopRegistryLeader(t, leader)
 	pid := leader.Process.Pid
-	if err := WritePgidFile(pid, t.TempDir(), []string{os.Args[0]}); err != nil {
-		t.Fatal(err)
-	}
 	path := recordPath(t, pid)
 	if err := os.WriteFile(path, []byte(`{"pgid":`), 0o600); err != nil {
 		t.Fatal(err)
@@ -226,9 +211,6 @@ func TestChangedRecordIsRetained(t *testing.T) {
 	leader := startRegistryLeader(t, "member")
 	defer stopRegistryLeader(t, leader)
 	pid := leader.Process.Pid
-	if err := WritePgidFile(pid, t.TempDir(), []string{os.Args[0]}); err != nil {
-		t.Fatal(err)
-	}
 	path := recordPath(t, pid)
 	_, snapshot, err := readPgidRecord(path)
 	if err != nil {
@@ -279,9 +261,6 @@ func TestReaperCancellationDoesNotEscalateToSIGKILL(t *testing.T) {
 		_ = syscall.Kill(-pid, syscall.SIGKILL)
 		_ = leader.Wait()
 	}()
-	if err := WritePgidFile(pid, t.TempDir(), []string{os.Args[0]}); err != nil {
-		t.Fatal(err)
-	}
 	rec, _, err := readPgidRecord(recordPath(t, pid))
 	if err != nil {
 		t.Fatal(err)
@@ -318,6 +297,161 @@ func TestReaperWaitsForCrossProcessRegistryLock(t *testing.T) {
 	}
 }
 
+func TestStartTrackedProcessGroupCapturesIdentityBeforeRegistryLock(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir, err := pgidStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock := flock.New(filepath.Join(dir, pgidLockName))
+	if err := lock.Lock(); err != nil {
+		t.Fatal(err)
+	}
+
+	readyPath := filepath.Join(t.TempDir(), "ready")
+	command := registryHelperCommand("member")
+	command.Env = append(command.Env, processGroupReadyFileEnv+"="+readyPath)
+	type startResult struct {
+		group *TrackedProcessGroup
+		err   error
+	}
+	result := make(chan startResult, 1)
+	go func() {
+		group, startErr := StartTrackedProcessGroup(command)
+		result <- startResult{group: group, err: startErr}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(registryProcessLock) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(registryProcessLock) == 0 {
+		t.Fatal("registration never reached the registry lock")
+	}
+	if _, err := os.Stat(readyPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("process ran before its identity was registered: %v", err)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	started := <-result
+	if started.err != nil {
+		t.Fatalf("registration lost the process birth identity while waiting for the lock: %v", started.err)
+	}
+	waitForTestFile(t, readyPath)
+	path := recordPath(t, command.Process.Pid)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("captured process-group record was not published: %v", err)
+	}
+	if err := started.group.Signal(context.Background(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if err := started.group.RemoveIfDead(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDelayedCleanupDoesNotRemoveReplacementRecord(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	leader := startRegistryLeader(t, "member")
+	path := recordPath(t, leader.Process.Pid)
+	replacementAuthentication := strings.Repeat("0", groupAuthBytes*2)
+	rewriteRecord(t, path, func(rec *pgidRecord) {
+		rec.Authentication = replacementAuthentication
+	})
+	if err := leader.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if err := leader.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if err := leader.group.RemoveIfDead(); err != nil {
+		t.Fatal(err)
+	}
+	rec, _, err := readPgidRecord(path)
+	if err != nil {
+		t.Fatalf("replacement record was removed: %v", err)
+	}
+	if rec.Authentication != replacementAuthentication {
+		t.Fatalf("authentication = %q, want replacement", rec.Authentication)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStartTrackedProcessGroupFailsClosedWhenRegistryIsUnavailable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.WriteFile(filepath.Join(home, ".codefly"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command := registryHelperCommand("ignores-term")
+	command.Env = append(command.Env, processGroupReadyFileEnv+"="+filepath.Join(t.TempDir(), "ready"))
+	group, err := StartTrackedProcessGroup(command)
+	if err == nil || group != nil {
+		t.Fatalf("StartTrackedProcessGroup = (%v, %v), want registration error", group, err)
+	}
+	if command.ProcessState == nil {
+		t.Fatal("unregistered process-group leader was not reaped")
+	}
+	if signalErr := syscall.Kill(command.Process.Pid, 0); !errors.Is(signalErr, syscall.ESRCH) {
+		t.Fatalf("unregistered process is still signalable: %v", signalErr)
+	}
+}
+
+func TestExpiredProcessSignalHandleDoesNotRetarget(t *testing.T) {
+	readyPath := filepath.Join(t.TempDir(), "ready")
+	target := registryHelperCommand("member")
+	target.Env = append(target.Env, processGroupReadyFileEnv+"="+readyPath)
+	target.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := target.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitForTestFile(t, readyPath)
+	identity, err := inspectProcess(target.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := openProcessSignalHandle(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Close()
+	if err := target.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if err := target.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", t.TempDir())
+	replacement := startRegistryLeader(t, "member")
+	defer stopRegistryLeader(t, replacement)
+	if err := handle.Signal(syscall.SIGKILL); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("expired process handle signal = %v, want ESRCH", err)
+	}
+	assertGroupAlive(t, replacement.Process.Pid)
+}
+
+func TestRecordAcceptsPIDOneOwnerIdentity(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	leader := startRegistryLeader(t, "member")
+	defer stopRegistryLeader(t, leader)
+	path := recordPath(t, leader.Process.Pid)
+	rewriteRecord(t, path, func(rec *pgidRecord) {
+		rec.Owner.PID = 1
+	})
+	if _, _, err := readPgidRecord(path); err != nil {
+		t.Fatalf("PID 1 owner record was rejected: %v", err)
+	}
+}
+
 func registryHelperCommand(role string) *exec.Cmd {
 	command := exec.Command(os.Args[0], "-test.run=^TestProcessGroupRegistryHelper$")
 	command.Env = append(os.Environ(), processGroupRoleEnv+"="+role)
@@ -326,27 +460,31 @@ func registryHelperCommand(role string) *exec.Cmd {
 	return command
 }
 
-func startRegistryLeader(t *testing.T, role string) *exec.Cmd {
+type registryLeader struct {
+	*exec.Cmd
+	group *TrackedProcessGroup
+}
+
+func startRegistryLeader(t *testing.T, role string) *registryLeader {
 	t.Helper()
 	readyPath := filepath.Join(t.TempDir(), "ready")
 	command := registryHelperCommand(role)
 	command.Env = append(command.Env, processGroupReadyFileEnv+"="+readyPath)
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := command.Start(); err != nil {
+	group, err := StartTrackedProcessGroup(command)
+	if err != nil {
 		t.Fatal(err)
 	}
 	waitForTestFile(t, readyPath)
-	return command
+	return &registryLeader{Cmd: command, group: group}
 }
 
-func stopRegistryLeader(t *testing.T, leader *exec.Cmd) {
+func stopRegistryLeader(t *testing.T, leader *registryLeader) {
 	t.Helper()
-	pid := leader.Process.Pid
-	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	_ = leader.group.Signal(context.Background(), syscall.SIGTERM)
 	if err := leader.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	_ = RemovePgidFile(pid)
+	_ = leader.group.RemoveIfDead()
 }
 
 func spawnOrphanedGroup(t *testing.T, leaderless bool) (int, string) {

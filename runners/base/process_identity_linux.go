@@ -3,14 +3,16 @@
 package base
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
-	"github.com/tklauser/go-sysconf"
 	"golang.org/x/sys/unix"
 )
 
@@ -85,26 +87,6 @@ func readLinuxProcessStat(pid int) (processIdentity, error) {
 	return processIdentity{pid: pid, pgid: pgid, startID: startID}, nil
 }
 
-func currentProcessBoundary() (processBoundary, error) {
-	bootID, err := linuxBootID()
-	if err != nil {
-		return processBoundary{}, err
-	}
-	clockTicks, err := sysconf.Sysconf(sysconf.SC_CLK_TCK)
-	if err != nil {
-		return processBoundary{}, fmt.Errorf("read clock ticks: %w", err)
-	}
-	if clockTicks <= 0 {
-		return processBoundary{}, errors.New("clock ticks must be positive")
-	}
-	var now unix.Timespec
-	if err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &now); err != nil {
-		return processBoundary{}, err
-	}
-	startID := uint64(now.Sec)*uint64(clockTicks) + uint64(now.Nsec)*uint64(clockTicks)/1_000_000_000
-	return processBoundary{BootID: bootID, StartID: startID}, nil
-}
-
 func linuxBootID() (string, error) {
 	data, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
 	if err != nil {
@@ -115,4 +97,58 @@ func linuxBootID() (string, error) {
 		return "", errors.New("boot identity is empty")
 	}
 	return bootID, nil
+}
+
+func readProcessGroupAuthentication(pid int) (string, error) {
+	file, err := os.Open(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", errProcessNotFound
+		}
+		return "", err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, 4<<20))
+	if err != nil {
+		return "", err
+	}
+	prefix := []byte(groupAuthEnv + "=")
+	for entry := range bytes.SplitSeq(data, []byte{0}) {
+		if value, ok := bytes.CutPrefix(entry, prefix); ok {
+			return string(value), nil
+		}
+	}
+	return "", nil
+}
+
+type linuxProcessSignalHandle struct {
+	fd int
+}
+
+func openProcessSignalHandle(expected processIdentity) (processSignalHandle, error) {
+	fd, err := unix.PidfdOpen(expected.pid, 0)
+	if errors.Is(err, syscall.ESRCH) {
+		return nil, errProcessNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	current, err := inspectProcess(expected.pid)
+	if err != nil {
+		_ = unix.Close(fd)
+		return nil, err
+	}
+	if current.pgid != expected.pgid || !current.matches(expected.recorded()) {
+		_ = unix.Close(fd)
+		return nil, errProcessGroupIdentityChanged
+	}
+	return &linuxProcessSignalHandle{fd: fd}, nil
+}
+
+func (handle *linuxProcessSignalHandle) Signal(signal syscall.Signal) error {
+	return unix.PidfdSendSignal(handle.fd, unix.Signal(signal), nil, 0)
+}
+
+func (handle *linuxProcessSignalHandle) Close() error {
+	return unix.Close(handle.fd)
 }
