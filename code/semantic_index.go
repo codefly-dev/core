@@ -19,6 +19,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/codefly-dev/core/code/semanticcontract"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	tskotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
@@ -31,8 +32,6 @@ import (
 	tsrust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
 	tstypescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
-
-const semanticAnalyzerVersion = "codefly.semantic-index/v4"
 
 type semanticLanguage struct {
 	name       string
@@ -97,7 +96,7 @@ func (s *DefaultCodeServer) getSemanticIndex(ctx context.Context, _ *codev0.GetS
 	index := &basev0.SemanticIndex{
 		State:           basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_NOT_ATTEMPTED,
 		Analyzer:        "codefly-core/tree-sitter",
-		AnalyzerVersion: semanticAnalyzerVersion,
+		AnalyzerVersion: semanticcontract.Version,
 	}
 	err := s.FS.WalkDir(s.SourceDir, func(filename string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
