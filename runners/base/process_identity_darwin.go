@@ -7,7 +7,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"runtime"
 	"syscall"
+	"unsafe"
 
 	"github.com/shirou/gopsutil/v3/process"
 	"golang.org/x/sys/unix"
@@ -126,55 +128,87 @@ func readProcessGroupAuthentication(pid int) (string, error) {
 }
 
 type darwinProcessSignalHandle struct {
-	queue    int
-	identity processIdentity
+	token darwinAuditToken
 }
 
 func openProcessSignalHandle(expected processIdentity) (processSignalHandle, error) {
-	queue, err := unix.Kqueue()
+	unique, err := readDarwinProcessUniqueInfo(expected.pid)
 	if err != nil {
-		return nil, err
-	}
-	var event unix.Kevent_t
-	unix.SetKevent(&event, expected.pid, unix.EVFILT_PROC, unix.EV_ADD|unix.EV_ENABLE|unix.EV_ONESHOT)
-	event.Fflags = unix.NOTE_EXIT
-	if _, err := unix.Kevent(queue, []unix.Kevent_t{event}, nil, nil); err != nil {
-		_ = unix.Close(queue)
-		if errors.Is(err, syscall.ESRCH) {
-			return nil, errProcessNotFound
-		}
 		return nil, err
 	}
 	current, err := inspectProcess(expected.pid)
 	if err != nil {
-		_ = unix.Close(queue)
 		return nil, err
 	}
 	if current.pgid != expected.pgid || !current.matches(expected.recorded()) {
-		_ = unix.Close(queue)
 		return nil, errProcessGroupIdentityChanged
 	}
-	return &darwinProcessSignalHandle{queue: queue, identity: expected}, nil
+	token := darwinAuditToken{}
+	token.Value[5] = uint32(expected.pid)
+	token.Value[7] = uint32(unique.PIDVersion)
+	return &darwinProcessSignalHandle{token: token}, nil
 }
 
 func (handle *darwinProcessSignalHandle) Signal(signal syscall.Signal) error {
-	events := make([]unix.Kevent_t, 1)
-	timeout := unix.Timespec{}
-	if count, err := unix.Kevent(handle.queue, nil, events, &timeout); err != nil {
-		return err
-	} else if count > 0 {
-		return syscall.ESRCH
+	const procInfoCallSignalAuditToken = 0x11
+	_, _, errno := syscall.Syscall6(
+		syscall.SYS_PROC_INFO,
+		procInfoCallSignalAuditToken,
+		0,
+		uintptr(signal),
+		0,
+		uintptr(unsafe.Pointer(&handle.token)),
+		unsafe.Sizeof(handle.token),
+	)
+	runtime.KeepAlive(handle)
+	if errno != 0 {
+		return errno
 	}
-	current, err := inspectProcess(handle.identity.pid)
-	if err != nil {
-		return err
-	}
-	if current.pgid != handle.identity.pgid || !current.matches(handle.identity.recorded()) {
-		return errProcessGroupIdentityChanged
-	}
-	return syscall.Kill(handle.identity.pid, signal)
+	return nil
 }
 
 func (handle *darwinProcessSignalHandle) Close() error {
-	return unix.Close(handle.queue)
+	return nil
+}
+
+type darwinAuditToken struct {
+	Value [8]uint32
+}
+
+type darwinProcessUniqueInfo struct {
+	ExecutableUUID           [16]byte
+	UniqueID                 uint64
+	ParentUniqueID           uint64
+	PIDVersion               int32
+	OriginalParentPIDVersion int32
+	Reserved                 [2]uint64
+}
+
+func readDarwinProcessUniqueInfo(pid int) (darwinProcessUniqueInfo, error) {
+	const (
+		procInfoCallPIDInfo             = 0x2
+		procPIDUniqueIdentifierInfo     = 17
+		procPIDUniqueIdentifierInfoSize = 56
+	)
+	var info darwinProcessUniqueInfo
+	written, _, errno := syscall.Syscall6(
+		syscall.SYS_PROC_INFO,
+		procInfoCallPIDInfo,
+		uintptr(pid),
+		procPIDUniqueIdentifierInfo,
+		0,
+		uintptr(unsafe.Pointer(&info)),
+		unsafe.Sizeof(info),
+	)
+	runtime.KeepAlive(&info)
+	if errno != 0 {
+		if errors.Is(errno, syscall.ESRCH) {
+			return darwinProcessUniqueInfo{}, errProcessNotFound
+		}
+		return darwinProcessUniqueInfo{}, errno
+	}
+	if written != procPIDUniqueIdentifierInfoSize || info.PIDVersion <= 0 {
+		return darwinProcessUniqueInfo{}, errors.New("process unique identity is incomplete")
+	}
+	return info, nil
 }
