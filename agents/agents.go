@@ -39,6 +39,12 @@ import (
 // the ambiguous numeric-port endpoint used by pre-UDS agents.
 const ProtocolVersion = 2
 
+// WorkDirEnvironment is the manager-to-agent source attachment boundary.
+// The value names the service declaration root selected for this agent
+// process; service implementations resolve their configured project source
+// relative to it without requiring the Runtime lifecycle.
+const WorkDirEnvironment = "CODEFLY_AGENT_WORKDIR"
+
 // agentShutdownHardDeadline bounds how long the agent may take to exit AFTER a
 // shutdown signal before it force-exits itself. Larger than the graceful budget
 // (5s Runtime.Stop + 3s GracefulStop) so a clean shutdown finishes on its own, but

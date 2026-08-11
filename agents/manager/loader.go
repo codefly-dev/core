@@ -377,7 +377,7 @@ func WithLogWriter(w io.Writer) LoadOption {
 }
 
 // WithWorkDir sets the working directory for the agent process and
-// exports CODEFLY_AGENT_WORKDIR so the agent can resolve file paths.
+// exports agents.WorkDirEnvironment so the agent can resolve file paths.
 func WithWorkDir(dir string) LoadOption {
 	return func(c *loadConfig) { c.workDir = dir }
 }
@@ -755,7 +755,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	}
 	if cfg.workDir != "" {
 		cmd.Dir = cfg.workDir
-		cmd.Env = append(cmd.Env, "CODEFLY_AGENT_WORKDIR="+cfg.workDir)
+		cmd.Env = append(cmd.Env, agents.WorkDirEnvironment+"="+cfg.workDir)
 	}
 	if len(cfg.extraEnv) > 0 {
 		// Caller-supplied env wins over parent inheritance — exec
