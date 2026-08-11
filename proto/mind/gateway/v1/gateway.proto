@@ -5,6 +5,7 @@ import "codefly/base/v0/source.proto";
 import "codefly/base/v0/failure.proto";
 import "codefly/base/v0/instruction.proto";
 import "codefly/base/v0/semantic.proto";
+import "codefly/base/v0/storage.proto";
 import "codefly/services/builder/v0/builder.proto";
 import "codefly/services/runtime/v0/runtime.proto";
 import "google/protobuf/timestamp.proto";
@@ -25,6 +26,13 @@ service Gateway {
 
   // ListServices returns all services known to the gateway.
   rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+
+  // EvaluateStorageCapacity asks the execution authority whether its Gateway
+  // and service-state roots can satisfy named byte requirements. Requirements
+  // that resolve to one physical volume are evaluated together. The result is
+  // an observation, not a reservation; no host path or project content crosses
+  // the boundary.
+  rpc EvaluateStorageCapacity(EvaluateStorageCapacityRequest) returns (EvaluateStorageCapacityResponse);
 
   // ─── File Operations ────────────────────────────────────────
 
@@ -2017,4 +2025,18 @@ message TerminalInfo {
 message ListTerminalsResponse {
   // terminals contains one entry per visible terminal session.
   repeated TerminalInfo terminals = 1;
+}
+
+// EvaluateStorageCapacityRequest carries the caller's typed operation demand.
+// At least one unique, non-zero, authority-scoped requirement is required.
+message EvaluateStorageCapacityRequest {
+  repeated codefly.base.v0.StorageCapacityRequirement requirements = 1;
+}
+
+// EvaluateStorageCapacityResponse returns one admission per distinct physical
+// storage authority and the sole structured cause when the request is invalid,
+// unavailable, or any authority rejects its combined requirements.
+message EvaluateStorageCapacityResponse {
+  repeated codefly.base.v0.StorageCapacityAdmission admissions = 1;
+  codefly.base.v0.Failure failure = 2;
 }

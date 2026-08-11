@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package codefly.base.v0;
+
+option go_package = "github.com/codefly-dev/core/generated/go/codefly/base/v0;basev0";
+
+// StorageAuthorityKind identifies the boundary that owns a capacity reading.
+// Callers use the kind and opaque authority_id for diagnostics; host paths and
+// implementation details never cross the boundary.
+enum StorageAuthorityKind {
+  STORAGE_AUTHORITY_KIND_UNSPECIFIED = 0;
+  // GATEWAY_ROOT is the filesystem that contains the Codefly Gateway's
+  // execution root, including caller-authorized repository/cache state below it.
+  STORAGE_AUTHORITY_KIND_GATEWAY_ROOT = 1;
+  // SERVICE_STATE is storage owned by one managed Codefly service, such as a
+  // database data volume. Service agents may report this kind through their
+  // own typed capacity surface.
+  STORAGE_AUTHORITY_KIND_SERVICE_STATE = 2;
+  // APPLICATION_STATE is non-project state owned by the calling application,
+  // such as traces, journals, or cassettes behind its storage interface.
+  STORAGE_AUTHORITY_KIND_APPLICATION_STATE = 3;
+}
+
+// StorageCapacityRequirement is one named contribution to an operation's
+// storage demand. Components remain separate in traces so operators can see
+// which subsystem made an admission expensive.
+message StorageCapacityRequirement {
+  string component = 1;
+  uint64 bytes = 2;
+  // authority_kind identifies the logical owner of this demand. The
+  // evaluating boundary resolves that logical owner to an opaque physical
+  // storage authority and coalesces requirements that share one volume.
+  StorageAuthorityKind authority_kind = 3;
+}
+
+// StorageCapacityAdmission is one point-in-time evaluation by the storage
+// authority. It is deliberately not a reservation: callers must preserve the
+// evidence and re-evaluate before a later expensive phase when concurrency or
+// elapsed time can invalidate the observation.
+message StorageCapacityAdmission {
+  // authority_id is stable and opaque within the reporting authority.
+  string authority_id = 1;
+  // authority_kinds are the logical owners whose requirements resolved to
+  // this physical storage authority. More than one kind can share a volume.
+  repeated StorageAuthorityKind authority_kinds = 2;
+  uint64 total_bytes = 3;
+  uint64 available_bytes = 4;
+  repeated StorageCapacityRequirement requirements = 5;
+  uint64 required_bytes = 6;
+  // projected_available_bytes is available_bytes - required_bytes when the
+  // request is admitted, otherwise zero.
+  uint64 projected_available_bytes = 7;
+  // shortfall_bytes is required_bytes - available_bytes when rejected,
+  // otherwise zero.
+  uint64 shortfall_bytes = 8;
+  bool admitted = 9;
+}

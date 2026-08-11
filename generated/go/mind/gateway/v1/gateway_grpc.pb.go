@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	Gateway_ListServices_FullMethodName                  = "/mind.gateway.v1.Gateway/ListServices"
+	Gateway_EvaluateStorageCapacity_FullMethodName       = "/mind.gateway.v1.Gateway/EvaluateStorageCapacity"
 	Gateway_ReadFile_FullMethodName                      = "/mind.gateway.v1.Gateway/ReadFile"
 	Gateway_WriteFile_FullMethodName                     = "/mind.gateway.v1.Gateway/WriteFile"
 	Gateway_ListFiles_FullMethodName                     = "/mind.gateway.v1.Gateway/ListFiles"
@@ -87,6 +88,12 @@ const (
 type GatewayClient interface {
 	// ListServices returns all services known to the gateway.
 	ListServices(ctx context.Context, in *ListServicesRequest, opts ...grpc.CallOption) (*ListServicesResponse, error)
+	// EvaluateStorageCapacity asks the execution authority whether its Gateway
+	// and service-state roots can satisfy named byte requirements. Requirements
+	// that resolve to one physical volume are evaluated together. The result is
+	// an observation, not a reservation; no host path or project content crosses
+	// the boundary.
+	EvaluateStorageCapacity(ctx context.Context, in *EvaluateStorageCapacityRequest, opts ...grpc.CallOption) (*EvaluateStorageCapacityResponse, error)
 	// ReadFile reads a file from a service's source tree.
 	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error)
 	// WriteFile writes (creates or overwrites) a file in a service's source tree.
@@ -231,6 +238,16 @@ func (c *gatewayClient) ListServices(ctx context.Context, in *ListServicesReques
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListServicesResponse)
 	err := c.cc.Invoke(ctx, Gateway_ListServices_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) EvaluateStorageCapacity(ctx context.Context, in *EvaluateStorageCapacityRequest, opts ...grpc.CallOption) (*EvaluateStorageCapacityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EvaluateStorageCapacityResponse)
+	err := c.cc.Invoke(ctx, Gateway_EvaluateStorageCapacity_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -808,6 +825,12 @@ func (c *gatewayClient) ListTerminals(ctx context.Context, in *ListTerminalsRequ
 type GatewayServer interface {
 	// ListServices returns all services known to the gateway.
 	ListServices(context.Context, *ListServicesRequest) (*ListServicesResponse, error)
+	// EvaluateStorageCapacity asks the execution authority whether its Gateway
+	// and service-state roots can satisfy named byte requirements. Requirements
+	// that resolve to one physical volume are evaluated together. The result is
+	// an observation, not a reservation; no host path or project content crosses
+	// the boundary.
+	EvaluateStorageCapacity(context.Context, *EvaluateStorageCapacityRequest) (*EvaluateStorageCapacityResponse, error)
 	// ReadFile reads a file from a service's source tree.
 	ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error)
 	// WriteFile writes (creates or overwrites) a file in a service's source tree.
@@ -950,6 +973,9 @@ type UnimplementedGatewayServer struct{}
 
 func (UnimplementedGatewayServer) ListServices(context.Context, *ListServicesRequest) (*ListServicesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListServices not implemented")
+}
+func (UnimplementedGatewayServer) EvaluateStorageCapacity(context.Context, *EvaluateStorageCapacityRequest) (*EvaluateStorageCapacityResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method EvaluateStorageCapacity not implemented")
 }
 func (UnimplementedGatewayServer) ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReadFile not implemented")
@@ -1151,6 +1177,24 @@ func _Gateway_ListServices_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GatewayServer).ListServices(ctx, req.(*ListServicesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_EvaluateStorageCapacity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EvaluateStorageCapacityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).EvaluateStorageCapacity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_EvaluateStorageCapacity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).EvaluateStorageCapacity(ctx, req.(*EvaluateStorageCapacityRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2137,6 +2181,10 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListServices",
 			Handler:    _Gateway_ListServices_Handler,
+		},
+		{
+			MethodName: "EvaluateStorageCapacity",
+			Handler:    _Gateway_EvaluateStorageCapacity_Handler,
 		},
 		{
 			MethodName: "ReadFile",
