@@ -496,6 +496,7 @@ func (s *DefaultCodeServer) search(ctx context.Context, req *codev0.SearchReques
 		Extensions:      req.Extensions,
 		Exclude:         req.Exclude,
 		MaxResults:      int(req.MaxResults),
+		MaxBytes:        int(req.MaxBytes),
 		ContextLines:    int(req.ContextLines),
 	}
 
@@ -515,11 +516,27 @@ func (s *DefaultCodeServer) search(ctx context.Context, req *codev0.SearchReques
 
 	var matches []*codev0.SearchMatch
 	for _, m := range result.Matches {
-		matches = append(matches, &codev0.SearchMatch{File: m.File, Line: int32(m.Line), Text: m.Text})
+		matches = append(matches, &codev0.SearchMatch{
+			File: m.File, Line: int32(m.Line), Text: m.Text,
+			TextTruncated: m.TextTruncated, OriginalTextBytes: int64(m.OriginalTextBytes),
+		})
 	}
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_Search{Search: &codev0.SearchResponse{
 		Matches: matches, Truncated: result.Truncated, TotalMatches: int32(len(matches)),
+		TruncationReason:  searchTruncationReasonProto(result.TruncationReason),
+		ReturnedTextBytes: int64(result.ReturnedTextBytes),
 	}}}, nil
+}
+
+func searchTruncationReasonProto(reason SearchTruncationReason) codev0.SearchTruncationReason {
+	switch reason {
+	case SearchTruncationMaxResults:
+		return codev0.SearchTruncationReason_SEARCH_TRUNCATION_REASON_MAX_RESULTS
+	case SearchTruncationMaxBytes:
+		return codev0.SearchTruncationReason_SEARCH_TRUNCATION_REASON_MAX_BYTES
+	default:
+		return codev0.SearchTruncationReason_SEARCH_TRUNCATION_REASON_UNSPECIFIED
+	}
 }
 
 // --- ApplyEdit ---

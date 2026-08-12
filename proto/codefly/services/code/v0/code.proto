@@ -214,6 +214,9 @@ message SearchRequest {
   int32 max_results = 7;           // 0 = default (100)
   // context_lines is the number of neighboring lines returned around each match.
   int32 context_lines = 8;         // lines of context around each match
+  // max_bytes caps cumulative UTF-8 bytes across returned match text. File,
+  // line, and typed metadata are excluded; zero uses the service default.
+  int64 max_bytes = 9;             // 0 = default (64 KiB)
 }
 
 // SearchMatch identifies one matching line and optional surrounding context.
@@ -228,16 +231,31 @@ message SearchMatch {
   repeated string context_before = 4;
   // context_after contains lines immediately after the match.
   repeated string context_after = 5;
+  // text_truncated reports that text is a UTF-8-safe prefix selected to fit
+  // the response byte budget.
+  bool text_truncated = 6;
+  // original_text_bytes is the exact byte length before budget truncation.
+  int64 original_text_bytes = 7;
+}
+
+enum SearchTruncationReason {
+  SEARCH_TRUNCATION_REASON_UNSPECIFIED = 0;
+  SEARCH_TRUNCATION_REASON_MAX_RESULTS = 1;
+  SEARCH_TRUNCATION_REASON_MAX_BYTES = 2;
 }
 
 // SearchResponse returns matching source lines and truncation metadata.
 message SearchResponse {
   // matches are the search hits returned by the gateway.
   repeated SearchMatch matches = 1;
-  // truncated is true when max_results stopped the search before all hits were returned.
-  bool truncated = 2;              // true if max_results was hit
+  // truncated is true when a match-count or byte budget stopped the search.
+  bool truncated = 2;
   // total_matches is the number of hits observed before truncation.
   int32 total_matches = 3;
+  // truncation_reason identifies the first deterministic result boundary hit.
+  SearchTruncationReason truncation_reason = 4;
+  // returned_text_bytes is the cumulative UTF-8 byte length of match text.
+  int64 returned_text_bytes = 5;
 }
 
 // --- DeleteFile ---
