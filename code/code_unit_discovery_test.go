@@ -105,6 +105,35 @@ func TestDefaultCodeServerKeepsRequirementsOnlyRepositoryAsPython(t *testing.T) 
 	}
 }
 
+func TestDefaultCodeServerDoesNotPromoteWeakNestedPythonFixtureInsideStrongUnit(t *testing.T) {
+	root := t.TempDir()
+	files := []string{
+		"setup.py",
+		"package/__init__.py",
+		"tests/templates/generated_project/requirements.txt",
+		"tests/templates/generated_project/application.py",
+	}
+	for _, name := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("fixture\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_DiscoverCodeUnits{DiscoverCodeUnits: &codev0.DiscoverCodeUnitsRequest{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	units := response.GetDiscoverCodeUnits().GetCodeUnits()
+	if len(units) != 1 || units[0].GetPath() != "." || units[0].GetPrimaryLanguage() != "python" {
+		t.Fatalf("strong parent with weak nested fixture = %+v, want one root Python unit", units)
+	}
+}
+
 func TestDefaultCodeServerDiscoversMarkerlessRootAsGeneric(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("source\n"), 0o644); err != nil {

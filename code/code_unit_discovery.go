@@ -177,6 +177,11 @@ func (s *DefaultCodeServer) scanCodeUnitDeclarations(ctx context.Context) ([]dis
 // becoming runtime boundaries. Root dependency manifests remain sufficient for
 // the common requirements-only repository, and a weak manifest co-located with
 // a strong declaration remains part of that unit's complete manifest evidence.
+// A strong Python boundary owns weak dependency inventories below it: source
+// files beside a nested requirements.txt can be project templates, examples, or
+// test fixtures and do not establish a second independently executable unit.
+// A nested weak declaration outside any strong Python boundary still needs
+// source in its subtree before it becomes a unit.
 func retainSourceBackedDeclarations(declarations []discoveredDeclaration, pythonSourceDirectories []string) []discoveredDeclaration {
 	strongPythonDirectories := make(map[string]struct{})
 	for _, declaration := range declarations {
@@ -192,6 +197,16 @@ func retainSourceBackedDeclarations(declarations []discoveredDeclaration, python
 		}
 		if _, strong := strongPythonDirectories[declaration.directory]; strong {
 			retained = append(retained, declaration)
+			continue
+		}
+		ownedByStrongBoundary := false
+		for strongDirectory := range strongPythonDirectories {
+			if strongDirectory != declaration.directory && isRelativeWithin(strongDirectory, declaration.directory) {
+				ownedByStrongBoundary = true
+				break
+			}
+		}
+		if ownedByStrongBoundary {
 			continue
 		}
 		for _, sourceDirectory := range pythonSourceDirectories {
