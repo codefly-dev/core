@@ -169,6 +169,121 @@ func ParseUnittestText(output string) *StructuredTestRun {
 	return run
 }
 
+// completeSelectedUnittestCases recovers typed identities when a unittest
+// wrapper ignores or cannot accept verbose output. It is deliberately strict:
+// every selector must name one unique case, the runner must report exactly the
+// same total, and the aggregate remainder must have one unambiguous state.
+// Mixed outcomes without identities remain incomplete so callers cannot claim
+// a DOD pass from guessed evidence.
+func completeSelectedUnittestCases(run *StructuredTestRun, selectors []string) {
+	if run == nil || run.Summary == nil || run.Summary.Total == 0 || len(selectors) != run.Summary.Total {
+		return
+	}
+
+	type identity struct {
+		method string
+		class  string
+		full   string
+	}
+	identities := make([]identity, 0, len(selectors))
+	selected := make(map[string]identity, len(selectors))
+	for _, selector := range selectors {
+		method, class, ok := unittestSelectorIdentity(selector)
+		if !ok {
+			return
+		}
+		id := identity{method: method, class: class, full: class + "." + method}
+		if _, duplicate := selected[id.full]; duplicate {
+			return
+		}
+		selected[id.full] = id
+		identities = append(identities, id)
+	}
+
+	known := make(map[string]runtimev0.TestCaseState, len(selectors))
+	for _, suite := range run.Suites {
+		for _, testCase := range suite.Cases {
+			if _, requested := selected[testCase.FullName]; !requested {
+				return
+			}
+			known[testCase.FullName] = testCase.State
+		}
+	}
+	if len(known) == len(identities) {
+		return
+	}
+
+	remaining := map[runtimev0.TestCaseState]int{
+		runtimev0.TestCaseState_TEST_CASE_STATE_PASSED:  run.Summary.Passed,
+		runtimev0.TestCaseState_TEST_CASE_STATE_FAILED:  run.Summary.Failed,
+		runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED: run.Summary.Errored,
+		runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED: run.Summary.Skipped,
+	}
+	for _, state := range known {
+		remaining[state]--
+		if remaining[state] < 0 {
+			return
+		}
+	}
+
+	missing := len(identities) - len(known)
+	var inferred runtimev0.TestCaseState
+	nonzero := 0
+	total := 0
+	for state, count := range remaining {
+		total += count
+		if count > 0 {
+			inferred = state
+			nonzero++
+		}
+	}
+	if total != missing || nonzero != 1 || remaining[inferred] != missing {
+		return
+	}
+
+	suites := make(map[string]*StructuredSuite, len(run.Suites))
+	for _, suite := range run.Suites {
+		suites[suite.Name] = suite
+	}
+	for _, id := range identities {
+		if _, exists := known[id.full]; exists {
+			continue
+		}
+		suite := suites[id.class]
+		if suite == nil {
+			suite = &StructuredSuite{Name: id.class}
+			suites[id.class] = suite
+			run.Suites = append(run.Suites, suite)
+		}
+		suite.Cases = append(suite.Cases, &StructuredCase{
+			Name:     id.method,
+			FullName: id.full,
+			State:    inferred,
+		})
+	}
+	sort.Slice(run.Suites, func(i, j int) bool { return run.Suites[i].Name < run.Suites[j].Name })
+}
+
+// unittestSelectorIdentity accepts both TextTestRunner's display identity
+// (`method (module.Class)`) and the dotted loader identity
+// (`module.Class.method`). Broader module/class selectors cannot identify one
+// case and therefore are intentionally rejected.
+func unittestSelectorIdentity(selector string) (method, class string, ok bool) {
+	selector = strings.TrimSpace(selector)
+	if display := reUnittestBareID.FindStringSubmatch(selector); display != nil {
+		return display[1], display[2], true
+	}
+	lastDot := strings.LastIndex(selector, ".")
+	if lastDot <= 0 || lastDot == len(selector)-1 {
+		return "", "", false
+	}
+	method, class = selector[lastDot+1:], selector[:lastDot]
+	if !strings.HasPrefix(method, "test") {
+		return "", "", false
+	}
+	return method, class, true
+}
+
 func atoiSafe(s string) int {
 	n := 0
 	for _, r := range s {
