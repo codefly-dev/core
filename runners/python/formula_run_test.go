@@ -473,6 +473,16 @@ func TestSelectorsForCommand_DjangoLabelTranslation(t *testing.T) {
 	if len(got) != 1 || got[0] != "admin_docs.test_utils" {
 		t.Fatalf("django selector = %v, want [admin_docs.test_utils]", got)
 	}
+	// unittest's verbose output identifies a case as `method (module.Class)`,
+	// but the loader accepts only the inverse dotted label. SWE-bench and other
+	// result-driven callers legitimately retain that structured display id.
+	if g := selectorsForCommand(
+		[]string{"python", "runtests.py"},
+		"tests",
+		[]string{"test_autoescape_off (template_tests.test_engine.RenderToStringTest)"},
+	); g[0] != "template_tests.test_engine.RenderToStringTest.test_autoescape_off" {
+		t.Fatalf("unittest display selector not normalized: %v", g)
+	}
 	// Already-dotted label passes through.
 	if g := selectorsForCommand([]string{"runtests.py"}, "tests", []string{"admin_docs.test_utils.T.test_x"}); g[0] != "admin_docs.test_utils.T.test_x" {
 		t.Fatalf("dotted label mangled: %v", g)

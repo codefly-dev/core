@@ -289,6 +289,10 @@ func BuildUvArgs(spec TestFormulaSpec, junitFile string) []string {
 // and runs the ENTIRE suite (8-12 min). That was the real reason every django
 // test.run ran the full suite despite a target: the selector was unusable.
 // Translate cwd-relative .py paths → dotted module labels for runtests.py.
+// Unittest reports canonical cases in display form (`method (module.Class)`),
+// while its command-line loader consumes `module.Class.method`; normalize that
+// format here as runner grammar instead of teaching benchmark orchestrators how
+// to invoke a Python framework.
 func selectorsForCommand(command []string, cwd string, selectors []string) []string {
 	if len(selectors) == 0 || !commandIsDjangoRuntests(command) {
 		return selectors
@@ -296,6 +300,9 @@ func selectorsForCommand(command []string, cwd string, selectors []string) []str
 	root := djangoTestRoot(command, cwd)
 	out := make([]string, 0, len(selectors))
 	for _, s := range selectors {
+		if display := reUnittestBareID.FindStringSubmatch(strings.TrimSpace(s)); display != nil {
+			s = display[2] + "." + display[1]
+		}
 		out = append(out, djangoTestLabel(s, root))
 	}
 	return out
