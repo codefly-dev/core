@@ -64,6 +64,7 @@ require (
 	go.uber.org/goleak v1.3.0
 	golang.org/x/mod v0.38.0
 	golang.org/x/net v0.56.0
+	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.44.0
 	golang.org/x/text v0.39.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260420184626-e10c466a9529
@@ -192,7 +193,6 @@ require (
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect

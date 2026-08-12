@@ -87,6 +87,7 @@ type NativeProc struct {
 	output io.Writer
 	cmd    []string
 	exec   *exec.Cmd
+	group  *TrackedProcessGroup
 	envs   []*resources.EnvironmentVariable
 
 	// lifecycleMu serializes Start's cmd.Start/exec publication with Stop and
@@ -296,9 +297,6 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		cmd.Dir = proc.dir
 	}
 
-	// Create new process group so we can kill all children on stop
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
 	// Go 1.20+ ctx-cancel semantics. When ctx is cancelled, send SIGTERM to
 	// the pgroup (not just the lead pid) and give it a grace window; if the
 	// process is still alive after WaitDelay, the runtime SIGKILLs it AND
@@ -350,6 +348,7 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		}
 		err = proc.startCommand(ctx, cmd)
 		if err != nil {
+			_ = stderr.Close()
 			return err
 		}
 		proc.forwarderWG.Add(1)
@@ -381,6 +380,8 @@ func (proc *NativeProc) start(ctx context.Context) error {
 		}
 		err = proc.startCommand(ctx, cmd)
 		if err != nil {
+			_ = stdout.Close()
+			_ = stderr.Close()
 			return err
 		}
 		proc.forwarderWG.Add(2)
@@ -414,7 +415,7 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	return nil
 }
 
-func (proc *NativeProc) startCommand(ctx context.Context, cmd *exec.Cmd) error {
+func (proc *NativeProc) startCommand(_ context.Context, cmd *exec.Cmd) error {
 	proc.lifecycleMu.Lock()
 	defer proc.lifecycleMu.Unlock()
 	if proc.stopRequested {
@@ -423,18 +424,12 @@ func (proc *NativeProc) startCommand(ctx context.Context, cmd *exec.Cmd) error {
 	if proc.exec != nil {
 		return errors.New("process already started")
 	}
-	if err := cmd.Start(); err != nil {
+	group, err := StartTrackedProcessGroup(cmd)
+	if err != nil {
 		return err
 	}
 	proc.exec = cmd
-	// Persist ownership before any Wait goroutine can observe a fast natural
-	// exit. Natural exit removes this record in publishExit; Stop owns the
-	// explicit-termination path. Writing after starting the Wait goroutine
-	// races a fast command and can recreate an already-cleaned stale record.
-	if perr := writePgidFile(cmd.Process.Pid, cmd.Dir, proc.cmd); perr != nil {
-		wool.Get(ctx).In("NativeProc.startCommand").
-			Warn("could not persist pgid file", wool.Field("err", perr))
-	}
+	proc.group = group
 	return nil
 }
 
@@ -445,9 +440,10 @@ func (proc *NativeProc) publishExit(err error) {
 		proc.exitErr = err
 		proc.lifecycleMu.Lock()
 		cmd := proc.exec
+		group := proc.group
 		proc.lifecycleMu.Unlock()
-		if cmd != nil && cmd.Process != nil {
-			_ = removePgidFileAfterExit(cmd.Process.Pid)
+		if cmd != nil && cmd.Process != nil && group != nil {
+			_ = group.RemoveIfDead()
 		}
 		close(proc.exitCh)
 	})
@@ -509,6 +505,7 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 	proc.lifecycleMu.Lock()
 	proc.stopRequested = true
 	cmd := proc.exec
+	group := proc.group
 	proc.lifecycleMu.Unlock()
 	if cmd == nil || cmd.Process == nil {
 		w.Trace("process not started, nothing to stop")
@@ -516,10 +513,12 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// Kill the entire process group (negative PID) so child processes also die.
+	// Signal the authenticated process-group members so child processes also die.
 	pgid := cmd.Process.Pid
 	w.Trace("sending SIGTERM to process group", wool.Field("pgid", pgid))
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	if group != nil {
+		_ = group.Signal(context.Background(), syscall.SIGTERM)
+	}
 
 	// Block until the cmd.Wait goroutine publishes exit, or until the SIGTERM
 	// grace window elapses. Returning before the process is reaped is what
@@ -534,7 +533,9 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 		w.Trace("process exited after SIGTERM")
 	case <-time.After(sigtermGrace):
 		w.Trace("process did not exit after SIGTERM, sending SIGKILL", wool.Field("pgid", pgid))
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		if group != nil {
+			_ = group.Signal(context.Background(), syscall.SIGKILL)
+		}
 		select {
 		case <-proc.exitCh:
 			w.Trace("process exited after SIGKILL")
@@ -543,9 +544,8 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Process is confirmed dead — drop the pgid tracking file so the next
-	// `codefly run` sweep has nothing to reap for this proc.
-	if perr := removePgidFile(pgid); perr != nil {
+	// Drop the registration only if no descendant remains in the group.
+	if perr := group.RemoveIfDead(); perr != nil {
 		w.Trace("could not remove pgid file", wool.Field("err", perr))
 	}
 
