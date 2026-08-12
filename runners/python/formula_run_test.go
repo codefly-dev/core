@@ -45,6 +45,24 @@ func TestBuildUvArgs_DjangoFormula_NoJunit(t *testing.T) {
 	}
 }
 
+func TestSpecFromFormulaRequiresTypedDjangoCaseOutput(t *testing.T) {
+	for _, command := range [][]string{
+		{"python", "runtests.py"},
+		{"python", "runtests.py", "--verbosity=1"},
+		{"python", "runtests.py", "--verbosity", "0"},
+	} {
+		spec := SpecFromFormula(command, OutputUnittestText, nil, nil, nil)
+		got := strings.Join(spec.Command, " ")
+		if !strings.Contains(got, "--keepdb") || !strings.Contains(got, "verbosity=2") && !strings.Contains(got, "--verbosity 2") {
+			t.Fatalf("typed django command = %q, want keepdb and verbosity 2", got)
+		}
+	}
+	explicit := SpecFromFormula([]string{"python", "runtests.py", "--verbosity=3"}, OutputUnittestText, nil, nil, nil)
+	if got := strings.Join(explicit.Command, " "); !strings.Contains(got, "--verbosity=3") {
+		t.Fatalf("higher explicit verbosity was not preserved: %q", got)
+	}
+}
+
 func TestBuildUvArgs_ProvisioningIsData(t *testing.T) {
 	// The SWE-bench per-instance provisioning (python pin, editable install,
 	// requirement files, extra deps) flows as DATA into uv flags — this is what
@@ -225,8 +243,9 @@ func TestSpecFromFormula_CwdIsDataNotAUvFlag(t *testing.T) {
 		t.Fatalf("Cwd = %q, want %q", spec.Cwd, "tests")
 	}
 	got := strings.Join(BuildUvArgs(spec, ""), " ")
-	// runtests.py gains --keepdb (django DB reuse); cwd must NOT appear in uv args.
-	if got != "run python runtests.py --keepdb" {
+	// runtests.py gains --keepdb (database reuse) and verbosity 2 (typed case
+	// identities); cwd must NOT appear in uv args.
+	if got != "run python runtests.py --keepdb --verbosity=2" {
 		t.Fatalf("cwd must not leak into uv args, got %q", got)
 	}
 }

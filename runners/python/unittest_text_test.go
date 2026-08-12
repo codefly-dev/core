@@ -98,6 +98,31 @@ func TestParseUnittestText_Empty(t *testing.T) {
 	}
 }
 
+func TestCompleteSelectedUnittestCasesFromUnambiguousAggregate(t *testing.T) {
+	run := ParseUnittestText("..\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\n\nOK\n")
+	completeSelectedUnittestCases(run, []string{
+		"test_first (sample.Cases)",
+		"sample.Cases.test_second",
+	})
+	for _, full := range []string{"sample.Cases.test_first", "sample.Cases.test_second"} {
+		got := caseByFullName(run, full)
+		if got == nil || got.State != runtimev0.TestCaseState_TEST_CASE_STATE_PASSED {
+			t.Fatalf("selected case %q = %+v, want typed pass", full, got)
+		}
+	}
+	if got := run.ToProtoResponse("unittest", "", 0).GetCounts(); got.GetTotal() != 2 || got.GetPassed() != 2 {
+		t.Fatalf("typed counts = %+v, want two passes", got)
+	}
+}
+
+func TestCompleteSelectedUnittestCasesRefusesAmbiguousAggregate(t *testing.T) {
+	run := ParseUnittestText(".F\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\n\nFAILED (failures=1)\n")
+	completeSelectedUnittestCases(run, []string{"sample.Cases.test_first", "sample.Cases.test_second"})
+	if len(run.Suites) != 0 {
+		t.Fatalf("mixed aggregate must not invent case identities: %+v", run.Suites)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)
 }

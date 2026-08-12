@@ -100,8 +100,9 @@ const (
 // become uv flags.
 // Callers (Mind, the agent handler) stay framework- and toolchain-blind.
 func SpecFromFormula(command []string, output string, env, provisioning map[string]string, selectors []string) TestFormulaSpec {
+	command = withDjangoStructuredOutput(withDjangoKeepDB(tokenizeCommand(command)), output)
 	spec := TestFormulaSpec{
-		Command:          withDjangoKeepDB(tokenizeCommand(command)),
+		Command:          command,
 		Output:           output,
 		Selectors:        append([]string{}, selectors...),
 		NoProject:        provisioning["no_project"] == "true",
@@ -317,6 +318,38 @@ func commandIsDjangoRuntests(command []string) bool {
 	return false
 }
 
+// withDjangoStructuredOutput makes the unittest-text contract truthful for
+// Django's runner. Its default verbosity prints only dots plus aggregate
+// counts, which cannot identify individual cases in the typed TestResponse.
+// The Python adapter owns this runner grammar and raises verbosity to the
+// minimum that emits real per-case identities; Mind remains framework-blind.
+func withDjangoStructuredOutput(command []string, output string) []string {
+	if output != OutputUnittestText || !commandIsDjangoRuntests(command) {
+		return command
+	}
+	out := append([]string(nil), command...)
+	for i, arg := range out {
+		switch {
+		case arg == "--verbosity" || arg == "-v":
+			if i+1 < len(out) && (out[i+1] == "0" || out[i+1] == "1") {
+				out[i+1] = "2"
+			}
+			return out
+		case arg == "--verbosity=0" || arg == "--verbosity=1":
+			out[i] = "--verbosity=2"
+			return out
+		case strings.HasPrefix(arg, "--verbosity="):
+			return out
+		case arg == "-v0" || arg == "-v1":
+			out[i] = "-v2"
+			return out
+		case strings.HasPrefix(arg, "-v") && len(arg) > 2:
+			return out
+		}
+	}
+	return append(out, "--verbosity=2")
+}
+
 // djangoTestRoot is the directory django's test labels are relative to — the
 // directory CONTAINING runtests.py. It works for both invocation shapes:
 //
@@ -514,6 +547,7 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 		run = ParsePytestJUnit(string(xmlBytes), scrapeCoverageFromOutput(rawStr))
 	} else {
 		run = ParseUnittestText(rawStr)
+		completeSelectedUnittestCases(run, spec.Selectors)
 	}
 	run.RawOutput = rawStr
 
