@@ -13,14 +13,15 @@ func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.
 	spec := TestFormulaSpec{
 		NoBuildIsolation: true,
 		ExcludeNewer:     "2022-07-27T14:44:33Z",
-		With:             []string{"numpy>=1.19", "cython"},
+		With:             []string{"setuptools<60", "numpy>=1.19", "cython"},
 		Requirements:     []string{"build-requirements.txt"},
 		DependencyGroups: []string{"dev"},
 		Extras:           []string{"test", "testing"},
 		EditableTarget:   "/w",
 	}
-	dependencies := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", spec), " ")
-	wantDependencies := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z pip setuptools -r build-requirements.txt numpy>=1.19 cython --group dev"
+	buildRequirements := []string{"setuptools>=40", "wheel", "oldest-supported-numpy"}
+	dependencies := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", spec, buildRequirements), " ")
+	wantDependencies := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z pip setuptools -r build-requirements.txt setuptools>=40 wheel oldest-supported-numpy setuptools<60 numpy>=1.19 cython --group dev"
 	if dependencies != wantDependencies {
 		t.Fatalf("dependency install:\n got %q\nwant %q", dependencies, wantDependencies)
 	}
@@ -38,7 +39,7 @@ func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.
 }
 
 func TestVenvDependencyInstallArgsAlwaysMaterializesHistoricalPackaging(t *testing.T) {
-	got := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", TestFormulaSpec{}), " ")
+	got := strings.Join(venvDependencyInstallArgs("/w/.mind-venv/bin/python", TestFormulaSpec{}, nil), " ")
 	if got != "pip install --python /w/.mind-venv/bin/python pip setuptools" {
 		t.Fatalf("minimal dependency install args = %q", got)
 	}
@@ -74,17 +75,44 @@ func TestHistoricalEditableFallbackIsCapabilityBound(t *testing.T) {
 // one is stable (reuses the warm venv).
 func TestVenvProvisionHashStableAndSensitive(t *testing.T) {
 	base := TestFormulaSpec{Python: "3.9", EditableTarget: "/w", With: []string{"numpy", "cython"}}
-	if venvProvisionHash(base) != venvProvisionHash(TestFormulaSpec{Python: "3.9", EditableTarget: "/w", With: []string{"cython", "numpy"}}) {
+	if venvProvisionHash(base, []string{"wheel", "setuptools"}) != venvProvisionHash(TestFormulaSpec{Python: "3.9", EditableTarget: "/w", With: []string{"cython", "numpy"}}, []string{"setuptools", "wheel"}) {
 		t.Fatal("hash must be order-independent for the same dep set")
 	}
-	if venvProvisionHash(base) == venvProvisionHash(TestFormulaSpec{Python: "3.10", EditableTarget: "/w", With: []string{"numpy", "cython"}}) {
+	if venvProvisionHash(base, nil) == venvProvisionHash(TestFormulaSpec{Python: "3.10", EditableTarget: "/w", With: []string{"numpy", "cython"}}, nil) {
 		t.Fatal("a changed python pin must change the hash")
 	}
-	if venvProvisionHash(base) == venvProvisionHash(TestFormulaSpec{Python: "3.9", EditableTarget: "/w", With: []string{"numpy", "cython"}, DependencyGroups: []string{"dev"}}) {
+	if venvProvisionHash(base, nil) == venvProvisionHash(TestFormulaSpec{Python: "3.9", EditableTarget: "/w", With: []string{"numpy", "cython"}, DependencyGroups: []string{"dev"}}, nil) {
 		t.Fatal("a changed dependency-group set must change the hash")
 	}
-	if venvProvisionHash(base) == venvProvisionHash(TestFormulaSpec{Python: "3.9", EditableTarget: "/w", With: []string{"numpy", "cython"}, Extras: []string{"test"}}) {
+	if venvProvisionHash(base, nil) == venvProvisionHash(TestFormulaSpec{Python: "3.9", EditableTarget: "/w", With: []string{"numpy", "cython"}, Extras: []string{"test"}}, nil) {
 		t.Fatal("a changed optional-extra set must change the hash")
+	}
+	if venvProvisionHash(base, []string{"setuptools"}) == venvProvisionHash(base, []string{"setuptools", "wheel"}) {
+		t.Fatal("a changed PEP 517 build requirement set must change the hash")
+	}
+}
+
+func TestReadBuildSystemRequirementsPreservesStandardRequirementData(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "pyproject.toml", `[build-system]
+requires = [
+  "setuptools>=40",
+  "wheel; python_version < '3.12'",
+  "backend @ https://example.invalid/backend.whl",
+]
+build-backend = "setuptools.build_meta"
+`)
+	got, err := readBuildSystemRequirements(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"setuptools>=40",
+		"wheel; python_version < '3.12'",
+		"backend @ https://example.invalid/backend.whl",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("build requirements = %#v, want %#v", got, want)
 	}
 }
 

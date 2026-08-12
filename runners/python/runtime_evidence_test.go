@@ -65,3 +65,22 @@ func TestRuntimeEvidenceNamesEditableCodeUnitRootAcrossChangedCwd(t *testing.T) 
 		t.Fatalf("runtime evidence must not imply cwd-relative editable install:\n%s", evidence)
 	}
 }
+
+func TestRuntimeEvidenceReportsAutomaticNoIsolationBuildRequirements(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "pyproject.toml", `[build-system]
+requires = ["backend>=2", "wheel"]
+build-backend = "backend.build"
+`)
+	evidence := RuntimeEvidenceForFormula(
+		dir,
+		[]string{"python", "-m", "unittest"},
+		OutputUnittestText,
+		nil,
+		map[string]string{"editable": "true", "no_build_isolation": "true"},
+		true,
+	)
+	if !strings.Contains(evidence, "pep517_static_build_requirements: backend>=2, wheel (materialized automatically)") {
+		t.Fatalf("runtime evidence must expose automatic build provisioning:\n%s", evidence)
+	}
+}
