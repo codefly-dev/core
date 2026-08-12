@@ -60,6 +60,31 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 	}
 }
 
+func TestGetSourceManifestWorktreePreservesTrackedGeneratedDirectory(t *testing.T) {
+	root := t.TempDir()
+	writeSourceManifestFile(t, root, "vendor/example.com/library/library.go", "package library\n", 0o644)
+	writeSourceManifestFile(t, root, "node_modules/untracked.js", "generated\n", 0o644)
+	gitSourceManifest(t, root, "init", "-b", "main")
+	gitSourceManifest(t, root, "config", "commit.gpgsign", "false")
+	gitSourceManifest(t, root, "add", "vendor/example.com/library/library.go")
+	gitSourceManifest(t, root, "commit", "-m", "tracked vendor source")
+
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	})
+	if err != nil {
+		t.Fatalf("GetSourceManifest worktree: %v", err)
+	}
+	if response.GetFailure() != nil {
+		t.Fatalf("GetSourceManifest worktree failure: %+v", response.GetFailure())
+	}
+	entries := sourceManifestEntriesByPath(response.GetGetSourceManifest())
+	assertSourceManifestEntry(t, entries["vendor/example.com/library/library.go"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "package library\n")
+	if entries["node_modules/untracked.js"] != nil {
+		t.Fatalf("untracked generated file leaked into worktree manifest: %+v", entries["node_modules/untracked.js"])
+	}
+}
+
 func TestGetSourceManifestRevisionPreservesGitEntryKinds(t *testing.T) {
 	root := t.TempDir()
 	writeSourceManifestFile(t, root, "README.md", "versioned\n", 0o644)
