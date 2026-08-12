@@ -187,22 +187,34 @@ func TestReaperAuthenticatesOwnerBirth(t *testing.T) {
 	assertGroupDead(t, pid)
 }
 
-func TestReaperRetainsPartialRecordAndFailsClosed(t *testing.T) {
+func TestReaperQuarantinesPartialRecordWithoutSignaling(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	leader := startRegistryLeader(t, "member")
 	defer stopRegistryLeader(t, leader)
 	pid := leader.Process.Pid
 	path := recordPath(t, pid)
-	if err := os.WriteFile(path, []byte(`{"pgid":`), 0o600); err != nil {
+	partial := []byte(`{"pgid":`)
+	if err := os.WriteFile(path, partial, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := ReapStaleProcessGroups(context.Background()); err == nil {
-		t.Fatal("reaper accepted a partial record")
+	if err := ReapStaleProcessGroups(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 	assertGroupAlive(t, pid)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("partial record was removed: %v", err)
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("partial record remained active: %v", err)
+	}
+	quarantinePath := path + ".invalid"
+	data, err := os.ReadFile(quarantinePath)
+	if err != nil {
+		t.Fatalf("read quarantined record: %v", err)
+	}
+	if string(data) != string(partial) {
+		t.Fatalf("quarantined record = %q, want %q", data, partial)
+	}
+	if err := ReapStaleProcessGroups(context.Background()); err != nil {
+		t.Fatalf("quarantined record poisoned the next sweep: %v", err)
 	}
 }
 
@@ -236,7 +248,7 @@ func TestChangedRecordIsRetained(t *testing.T) {
 	}
 }
 
-func TestReaperContinuesAfterIndependentRecordFailure(t *testing.T) {
+func TestReaperQuarantinesInvalidRecordAndContinues(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	failedPID, failedPath := spawnOrphanedGroup(t, false)
 	defer cleanupOrphanedGroup(failedPID, failedPath)
@@ -246,11 +258,17 @@ func TestReaperContinuesAfterIndependentRecordFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ReapStaleProcessGroups(context.Background()); err == nil {
-		t.Fatal("reaper did not report the invalid record")
+	if err := ReapStaleProcessGroups(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 	assertGroupAlive(t, failedPID)
 	assertGroupDead(t, reapedPID)
+	if _, err := os.Stat(failedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid record remained active: %v", err)
+	}
+	if _, err := os.Stat(failedPath + ".invalid"); err != nil {
+		t.Fatalf("invalid record was not retained for forensics: %v", err)
+	}
 }
 
 func TestReaperCancellationDoesNotEscalateToSIGKILL(t *testing.T) {

@@ -536,9 +536,6 @@ func readPgidRecord(path string) (pgidRecord, recordSnapshot, error) {
 	if err != nil {
 		return pgidRecord{}, recordSnapshot{}, err
 	}
-	if len(data) > maxRecordSize {
-		return pgidRecord{}, recordSnapshot{}, errors.New("record is too large")
-	}
 	after, err := file.Stat()
 	if err != nil {
 		return pgidRecord{}, recordSnapshot{}, err
@@ -550,20 +547,24 @@ func readPgidRecord(path string) (pgidRecord, recordSnapshot, error) {
 	if !sameRecordFile(before, after) || !sameRecordFile(after, current) {
 		return pgidRecord{}, recordSnapshot{}, errors.New("record changed while being read")
 	}
+	snapshot := recordSnapshot{info: current}
+	if len(data) > maxRecordSize {
+		return pgidRecord{}, snapshot, errors.New("record is too large")
+	}
 
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
 	var rec pgidRecord
 	if err := decoder.Decode(&rec); err != nil {
-		return pgidRecord{}, recordSnapshot{}, err
+		return pgidRecord{}, snapshot, err
 	}
 	if err := ensureJSONEOF(decoder); err != nil {
-		return pgidRecord{}, recordSnapshot{}, err
+		return pgidRecord{}, snapshot, err
 	}
 	if err := rec.validate(); err != nil {
-		return pgidRecord{}, recordSnapshot{}, err
+		return pgidRecord{}, snapshot, err
 	}
-	return rec, recordSnapshot{info: current}, nil
+	return rec, snapshot, nil
 }
 
 func ensureJSONEOF(decoder *json.Decoder) error {
@@ -614,6 +615,9 @@ func (identity recordedProcessIdentity) validate() error {
 }
 
 func recordIsUnchanged(path string, snapshot recordSnapshot) error {
+	if snapshot.info == nil {
+		return errors.New("record has no stable file identity")
+	}
 	current, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -622,6 +626,27 @@ func recordIsUnchanged(path string, snapshot recordSnapshot) error {
 		return errors.New("record changed during reconciliation")
 	}
 	return nil
+}
+
+// quarantineInvalidRecord atomically removes stable malformed state from the
+// active registry while retaining the exact bytes for operator forensics. It
+// never interprets the record and therefore can never authorize a signal.
+func quarantineInvalidRecord(path string, snapshot recordSnapshot) (string, error) {
+	if err := recordIsUnchanged(path, snapshot); err != nil {
+		return "", err
+	}
+	quarantinePath := path + ".invalid"
+	if err := os.Rename(path, quarantinePath); err != nil {
+		return "", err
+	}
+	directory, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return quarantinePath, err
+	}
+	if err := errors.Join(directory.Sync(), directory.Close()); err != nil {
+		return quarantinePath, err
+	}
+	return quarantinePath, nil
 }
 
 // IsProcessAlive tests a single PID via Signal(0). Exported so the docker
@@ -639,7 +664,9 @@ func IsProcessAlive(pid int) bool {
 
 // ReapStaleProcessGroups reconciles authenticated records in
 // ~/.codefly/runs. Live owners are preserved; groups with dead or reused
-// owners are terminated. Invalid records are retained and reported.
+// owners are terminated. Stable malformed records are quarantined without
+// signaling any process; records that cannot prove a stable file identity
+// remain active and are reported.
 func ReapStaleProcessGroups(ctx context.Context) (returnErr error) {
 	w := wool.Get(ctx).In("base.ReapStaleProcessGroups")
 	dir, err := pgidStateDir()
@@ -711,7 +738,21 @@ func reconcilePgidRecord(ctx context.Context, path, name string) (bool, error) {
 	w := wool.Get(ctx).In("base.reconcilePgidRecord")
 	rec, snapshot, err := readPgidRecord(path)
 	if err != nil {
-		return false, fmt.Errorf("read process-group record %s: %w", name, err)
+		if snapshot.info == nil {
+			return false, fmt.Errorf("read process-group record %s: %w", name, err)
+		}
+		quarantinePath, quarantineErr := quarantineInvalidRecord(path, snapshot)
+		if quarantineErr != nil {
+			return false, errors.Join(
+				fmt.Errorf("read process-group record %s: %w", name, err),
+				fmt.Errorf("quarantine invalid process-group record %s: %w", name, quarantineErr),
+			)
+		}
+		w.Warn("quarantined invalid process-group record without signaling",
+			wool.Field("file", name),
+			wool.Field("quarantine", filepath.Base(quarantinePath)),
+			wool.Field("reason", err.Error()))
+		return false, nil
 	}
 	fields := []*wool.LogField{
 		wool.Field("pgid", rec.PGID),
