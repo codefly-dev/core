@@ -88,3 +88,56 @@ func TestApplySymbolPatchFailsClosedOnStaleAnchorAndInvalidReplacement(t *testin
 		t.Fatalf("rejected patches changed file: content=%q err=%v", current, err)
 	}
 }
+
+func TestApplySymbolPatchAcceptsFileShapedNestedDeclaration(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "engine.py")
+	before := "class Engine:\n    def render(self):\n        return 1\n"
+	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := NewDefaultCodeServer(root)
+	t.Cleanup(func() { _ = server.Close() })
+	declaration := "def render(self):\n        return 1"
+	replacement := "    def render(self):\n        return 2"
+	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: &codev0.ApplySymbolPatchRequest{
+			File: "engine.py", QualifiedName: "engine.Engine.render",
+			ExpectedDeclarationSha256: semanticHash([]byte(declaration)),
+			NewSource:                 replacement, FixMode: basev0.FixMode_FIX_MODE_NONE,
+		}},
+	})
+	if err != nil || !response.GetApplySymbolPatch().GetSuccess() || !response.GetApplySymbolPatch().GetWrote() {
+		t.Fatalf("apply response=%+v failure=%+v err=%v", response.GetApplySymbolPatch(), response.GetFailure(), err)
+	}
+	current, err := os.ReadFile(path)
+	want := "class Engine:\n    def render(self):\n        return 2\n"
+	if err != nil || string(current) != want {
+		t.Fatalf("file-shaped replacement = %q, want %q, err=%v", current, want, err)
+	}
+}
+
+func TestApplySymbolPatchRejectsChangedQualifiedIdentity(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	before := "package api\n\nfunc Value() int { return 1 }\n"
+	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := NewDefaultCodeServer(root)
+	t.Cleanup(func() { _ = server.Close() })
+	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: &codev0.ApplySymbolPatchRequest{
+			File: "main.go", QualifiedName: "api.Value",
+			ExpectedDeclarationSha256: semanticHash([]byte("func Value() int { return 1 }")),
+			NewSource:                 "func Other() int { return 2 }", FixMode: basev0.FixMode_FIX_MODE_NONE,
+		}},
+	})
+	if err != nil || response.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED || response.GetApplySymbolPatch().GetFailureReason() != basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT {
+		t.Fatalf("identity-changing response=%+v failure=%+v err=%v", response.GetApplySymbolPatch(), response.GetFailure(), err)
+	}
+	current, err := os.ReadFile(path)
+	if err != nil || string(current) != before {
+		t.Fatalf("identity-changing replacement changed file: content=%q err=%v", current, err)
+	}
+}

@@ -98,13 +98,40 @@ func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.Ap
 	if start < 0 || end < start || end > len(before) {
 		return failure(basev0.FailureCode_FAILURE_CODE_INTERNAL, "code.apply-symbol-patch", "semantic analyzer returned an invalid declaration span")
 	}
-	after := make([]byte, 0, len(before)-(end-start)+len(req.GetNewSource()))
-	after = append(after, before[:start]...)
+	// Tree-sitter declaration spans begin at the first declaration token, not
+	// at the line's outer indentation. Accept both analyzer-relative source and
+	// the file-shaped source a model naturally copies from a read: when the
+	// replacement already carries the exact existing prefix, replace that
+	// prefix too instead of silently doubling it.
+	replacementStart := start
+	if lineStart := bytes.LastIndexByte(before[:start], '\n') + 1; lineStart < start {
+		prefix := before[lineStart:start]
+		if len(bytes.Trim(prefix, " \t")) == 0 && strings.HasPrefix(req.GetNewSource(), string(prefix)) {
+			replacementStart = lineStart
+		}
+	}
+	after := make([]byte, 0, len(before)-(end-replacementStart)+len(req.GetNewSource()))
+	after = append(after, before[:replacementStart]...)
 	after = append(after, req.GetNewSource()...)
 	after = append(after, before[end:]...)
 	if err := validateSemanticSyntax(ctx, definition, after); err != nil {
 		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
 		return failure(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("replacement is not valid %s source: %v", definition.name, err))
+	}
+	updated, err := semanticDeclarationSpans(ctx, definition, file, after)
+	if err != nil {
+		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
+		return failure(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("inspect replacement declaration: %v", err))
+	}
+	preservedIdentity := 0
+	for _, projection := range updated {
+		if projection.symbol.GetQualifiedName() == qualifiedName && projection.startByte == target.startByte {
+			preservedIdentity++
+		}
+	}
+	if preservedIdentity != 1 {
+		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
+		return failure(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("replacement must preserve exactly one qualified symbol %q", qualifiedName))
 	}
 	var actions []string
 	var output string
