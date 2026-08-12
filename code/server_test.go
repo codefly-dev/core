@@ -13,7 +13,7 @@ import (
 
 func TestListFilesSkipsGeneratedDependencyTrees(t *testing.T) {
 	dir := t.TempDir()
-	for _, path := range []string{"main.ts", "src/app.ts", "node_modules/pkg/index.ts", "dist/bundle.ts", "target/generated.rs"} {
+	for _, path := range []string{".config/tool.ts", ".pytest_cache/generated.ts", "main.ts", "src/app.ts", "node_modules/pkg/index.ts", "dist/bundle.ts", "target/generated.rs"} {
 		absolute := filepath.Join(dir, path)
 		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
 			t.Fatal(err)
@@ -34,7 +34,7 @@ func TestListFilesSkipsGeneratedDependencyTrees(t *testing.T) {
 			paths = append(paths, filepath.ToSlash(file.GetPath()))
 		}
 	}
-	if got, want := strings.Join(paths, ","), "main.ts,src/app.ts"; got != want {
+	if got, want := strings.Join(paths, ","), ".config/tool.ts,main.ts,src/app.ts"; got != want {
 		t.Fatalf("files = %q, want %q", got, want)
 	}
 }

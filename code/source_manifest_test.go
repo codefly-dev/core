@@ -19,8 +19,10 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 	writeSourceManifestFile(t, root, "README.md", "hello\n", 0o644)
 	writeSourceManifestFile(t, root, "bin/run", "#!/bin/sh\n", 0o755)
 	writeSourceManifestFile(t, root, ".env.example", "SAFE=true\n", 0o644)
+	writeSourceManifestFile(t, root, ".github/workflows/ci.yml", "name: ci\n", 0o644)
 	writeSourceManifestFile(t, root, "Cart.cs", "namespace Shop;\n", 0o644)
 	writeSourceManifestFile(t, root, "node_modules/ignored.js", "ignored\n", 0o644)
+	writeSourceManifestFile(t, root, ".pytest_cache/ignored", "generated\n", 0o644)
 	if err := os.Symlink("README.md", filepath.Join(root, "readme-link")); err != nil {
 		t.Fatalf("create real symlink: %v", err)
 	}
@@ -39,12 +41,13 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 		t.Fatalf("worktree revision = %q, want empty", manifest.GetRevision())
 	}
 	entries := sourceManifestEntriesByPath(manifest)
-	if len(entries) != 5 {
-		t.Fatalf("worktree entries = %v, want five source artifacts", sourceManifestEntryPaths(manifest))
+	if len(entries) != 6 {
+		t.Fatalf("worktree entries = %v, want six source artifacts", sourceManifestEntryPaths(manifest))
 	}
 	assertSourceManifestEntry(t, entries["README.md"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "hello\n")
 	assertSourceManifestEntry(t, entries["bin/run"], 0o100755, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "#!/bin/sh\n")
 	assertSourceManifestEntry(t, entries[".env.example"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "SAFE=true\n")
+	assertSourceManifestEntry(t, entries[".github/workflows/ci.yml"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "name: ci\n")
 	assertSourceManifestEntry(t, entries["readme-link"], 0o120000, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "README.md")
 	if got := entries["README.md"].GetAttributes(); got.GetLanguage() != basev0.SourceLanguage_SOURCE_LANGUAGE_MARKDOWN || got.GetContentKind() != basev0.SourceContentKind_SOURCE_CONTENT_KIND_TEXT || got.GetSourceRole() != basev0.SourceRole_SOURCE_ROLE_DOCS || got.GetClassifierVersion() != sourceAttributesClassifierVersion {
 		t.Fatalf("README attributes = %+v", got)
