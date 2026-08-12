@@ -96,7 +96,7 @@ func (s *DefaultCodeServer) worktreeSourceManifest(ctx context.Context) (*basev0
 			}
 		}
 		if entry.IsDir() {
-			if path != s.SourceDir && (strings.HasPrefix(entry.Name(), ".") || isGeneratedSourceDirectory(entry.Name())) {
+			if path != s.SourceDir && isExcludedSourceDirectory(entry.Name()) {
 				return fs.SkipDir
 			}
 			return nil

@@ -377,7 +377,7 @@ func (s *DefaultCodeServer) listFiles(_ context.Context, req *codev0.ListFilesRe
 			return nil
 		}
 		if d.IsDir() && path != base {
-			if strings.HasPrefix(d.Name(), ".") || isGeneratedSourceDirectory(d.Name()) {
+			if isExcludedSourceDirectory(d.Name()) {
 				return fs.SkipDir
 			}
 		}
@@ -411,6 +411,19 @@ func isGeneratedSourceDirectory(name string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// isExcludedSourceDirectory rejects implementation and generated trees, not
+// every dot-prefixed directory. Dot directories such as .github, .circleci,
+// and .devcontainer are tracked project artifacts and must remain visible to
+// Codefly's file and manifest capabilities.
+func isExcludedSourceDirectory(name string) bool {
+	switch name {
+	case ".git", ".hg", ".svn", ".venv", ".tox", ".nox", ".pytest_cache", ".mypy_cache", ".ruff_cache":
+		return true
+	default:
+		return isGeneratedSourceDirectory(name)
 	}
 }
 
