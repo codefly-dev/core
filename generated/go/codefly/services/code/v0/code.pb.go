@@ -23,6 +23,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type SearchTruncationReason int32
+
+const (
+	SearchTruncationReason_SEARCH_TRUNCATION_REASON_UNSPECIFIED SearchTruncationReason = 0
+	SearchTruncationReason_SEARCH_TRUNCATION_REASON_MAX_RESULTS SearchTruncationReason = 1
+	SearchTruncationReason_SEARCH_TRUNCATION_REASON_MAX_BYTES   SearchTruncationReason = 2
+)
+
+// Enum value maps for SearchTruncationReason.
+var (
+	SearchTruncationReason_name = map[int32]string{
+		0: "SEARCH_TRUNCATION_REASON_UNSPECIFIED",
+		1: "SEARCH_TRUNCATION_REASON_MAX_RESULTS",
+		2: "SEARCH_TRUNCATION_REASON_MAX_BYTES",
+	}
+	SearchTruncationReason_value = map[string]int32{
+		"SEARCH_TRUNCATION_REASON_UNSPECIFIED": 0,
+		"SEARCH_TRUNCATION_REASON_MAX_RESULTS": 1,
+		"SEARCH_TRUNCATION_REASON_MAX_BYTES":   2,
+	}
+)
+
+func (x SearchTruncationReason) Enum() *SearchTruncationReason {
+	p := new(SearchTruncationReason)
+	*p = x
+	return p
+}
+
+func (x SearchTruncationReason) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SearchTruncationReason) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_services_code_v0_code_proto_enumTypes[0].Descriptor()
+}
+
+func (SearchTruncationReason) Type() protoreflect.EnumType {
+	return &file_codefly_services_code_v0_code_proto_enumTypes[0]
+}
+
+func (x SearchTruncationReason) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SearchTruncationReason.Descriptor instead.
+func (SearchTruncationReason) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_services_code_v0_code_proto_rawDescGZIP(), []int{0}
+}
+
 // ReadFileRequest identifies a source file to read from the service tree.
 type ReadFileRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1061,7 +1110,10 @@ type SearchRequest struct {
 	// max_results caps returned matches; zero uses the gateway default.
 	MaxResults int32 `protobuf:"varint,7,opt,name=max_results,json=maxResults,proto3" json:"max_results,omitempty"` // 0 = default (100)
 	// context_lines is the number of neighboring lines returned around each match.
-	ContextLines  int32 `protobuf:"varint,8,opt,name=context_lines,json=contextLines,proto3" json:"context_lines,omitempty"` // lines of context around each match
+	ContextLines int32 `protobuf:"varint,8,opt,name=context_lines,json=contextLines,proto3" json:"context_lines,omitempty"` // lines of context around each match
+	// max_bytes caps cumulative UTF-8 bytes across returned match text. File,
+	// line, and typed metadata are excluded; zero uses the service default.
+	MaxBytes      int64 `protobuf:"varint,9,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"` // 0 = default (64 KiB)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1152,6 +1204,13 @@ func (x *SearchRequest) GetContextLines() int32 {
 	return 0
 }
 
+func (x *SearchRequest) GetMaxBytes() int64 {
+	if x != nil {
+		return x.MaxBytes
+	}
+	return 0
+}
+
 // SearchMatch identifies one matching line and optional surrounding context.
 type SearchMatch struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1164,9 +1223,14 @@ type SearchMatch struct {
 	// context_before contains lines immediately before the match.
 	ContextBefore []string `protobuf:"bytes,4,rep,name=context_before,json=contextBefore,proto3" json:"context_before,omitempty"`
 	// context_after contains lines immediately after the match.
-	ContextAfter  []string `protobuf:"bytes,5,rep,name=context_after,json=contextAfter,proto3" json:"context_after,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ContextAfter []string `protobuf:"bytes,5,rep,name=context_after,json=contextAfter,proto3" json:"context_after,omitempty"`
+	// text_truncated reports that text is a UTF-8-safe prefix selected to fit
+	// the response byte budget.
+	TextTruncated bool `protobuf:"varint,6,opt,name=text_truncated,json=textTruncated,proto3" json:"text_truncated,omitempty"`
+	// original_text_bytes is the exact byte length before budget truncation.
+	OriginalTextBytes int64 `protobuf:"varint,7,opt,name=original_text_bytes,json=originalTextBytes,proto3" json:"original_text_bytes,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SearchMatch) Reset() {
@@ -1234,17 +1298,35 @@ func (x *SearchMatch) GetContextAfter() []string {
 	return nil
 }
 
+func (x *SearchMatch) GetTextTruncated() bool {
+	if x != nil {
+		return x.TextTruncated
+	}
+	return false
+}
+
+func (x *SearchMatch) GetOriginalTextBytes() int64 {
+	if x != nil {
+		return x.OriginalTextBytes
+	}
+	return 0
+}
+
 // SearchResponse returns matching source lines and truncation metadata.
 type SearchResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// matches are the search hits returned by the gateway.
 	Matches []*SearchMatch `protobuf:"bytes,1,rep,name=matches,proto3" json:"matches,omitempty"`
-	// truncated is true when max_results stopped the search before all hits were returned.
-	Truncated bool `protobuf:"varint,2,opt,name=truncated,proto3" json:"truncated,omitempty"` // true if max_results was hit
+	// truncated is true when a match-count or byte budget stopped the search.
+	Truncated bool `protobuf:"varint,2,opt,name=truncated,proto3" json:"truncated,omitempty"`
 	// total_matches is the number of hits observed before truncation.
-	TotalMatches  int32 `protobuf:"varint,3,opt,name=total_matches,json=totalMatches,proto3" json:"total_matches,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	TotalMatches int32 `protobuf:"varint,3,opt,name=total_matches,json=totalMatches,proto3" json:"total_matches,omitempty"`
+	// truncation_reason identifies the first deterministic result boundary hit.
+	TruncationReason SearchTruncationReason `protobuf:"varint,4,opt,name=truncation_reason,json=truncationReason,proto3,enum=codefly.services.code.v0.SearchTruncationReason" json:"truncation_reason,omitempty"`
+	// returned_text_bytes is the cumulative UTF-8 byte length of match text.
+	ReturnedTextBytes int64 `protobuf:"varint,5,opt,name=returned_text_bytes,json=returnedTextBytes,proto3" json:"returned_text_bytes,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SearchResponse) Reset() {
@@ -1294,6 +1376,20 @@ func (x *SearchResponse) GetTruncated() bool {
 func (x *SearchResponse) GetTotalMatches() int32 {
 	if x != nil {
 		return x.TotalMatches
+	}
+	return 0
+}
+
+func (x *SearchResponse) GetTruncationReason() SearchTruncationReason {
+	if x != nil {
+		return x.TruncationReason
+	}
+	return SearchTruncationReason_SEARCH_TRUNCATION_REASON_UNSPECIFIED
+}
+
+func (x *SearchResponse) GetReturnedTextBytes() int64 {
+	if x != nil {
+		return x.ReturnedTextBytes
 	}
 	return 0
 }
@@ -4454,7 +4550,7 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	" \x01(\tR\x06output\x12P\n" +
 	"\x0efailure_reason\x18\v \x01(\x0e2).codefly.base.v0.SymbolPatchFailureReasonR\rfailureReason\x12*\n" +
 	"\x11before_size_bytes\x18\f \x01(\x04R\x0fbeforeSizeBytes\x12(\n" +
-	"\x10after_size_bytes\x18\r \x01(\x04R\x0eafterSizeBytes\"\x82\x02\n" +
+	"\x10after_size_bytes\x18\r \x01(\x04R\x0eafterSizeBytes\"\x9f\x02\n" +
 	"\rSearchRequest\x12\x18\n" +
 	"\apattern\x18\x01 \x01(\tR\apattern\x12\x18\n" +
 	"\aliteral\x18\x02 \x01(\bR\aliteral\x12)\n" +
@@ -4466,17 +4562,22 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\aexclude\x18\x06 \x03(\tR\aexclude\x12\x1f\n" +
 	"\vmax_results\x18\a \x01(\x05R\n" +
 	"maxResults\x12#\n" +
-	"\rcontext_lines\x18\b \x01(\x05R\fcontextLines\"\x95\x01\n" +
+	"\rcontext_lines\x18\b \x01(\x05R\fcontextLines\x12\x1b\n" +
+	"\tmax_bytes\x18\t \x01(\x03R\bmaxBytes\"\xec\x01\n" +
 	"\vSearchMatch\x12\x12\n" +
 	"\x04file\x18\x01 \x01(\tR\x04file\x12\x12\n" +
 	"\x04line\x18\x02 \x01(\x05R\x04line\x12\x12\n" +
 	"\x04text\x18\x03 \x01(\tR\x04text\x12%\n" +
 	"\x0econtext_before\x18\x04 \x03(\tR\rcontextBefore\x12#\n" +
-	"\rcontext_after\x18\x05 \x03(\tR\fcontextAfter\"\x94\x01\n" +
+	"\rcontext_after\x18\x05 \x03(\tR\fcontextAfter\x12%\n" +
+	"\x0etext_truncated\x18\x06 \x01(\bR\rtextTruncated\x12.\n" +
+	"\x13original_text_bytes\x18\a \x01(\x03R\x11originalTextBytes\"\xa3\x02\n" +
 	"\x0eSearchResponse\x12?\n" +
 	"\amatches\x18\x01 \x03(\v2%.codefly.services.code.v0.SearchMatchR\amatches\x12\x1c\n" +
 	"\ttruncated\x18\x02 \x01(\bR\ttruncated\x12#\n" +
-	"\rtotal_matches\x18\x03 \x01(\x05R\ftotalMatches\"'\n" +
+	"\rtotal_matches\x18\x03 \x01(\x05R\ftotalMatches\x12]\n" +
+	"\x11truncation_reason\x18\x04 \x01(\x0e20.codefly.services.code.v0.SearchTruncationReasonR\x10truncationReason\x12.\n" +
+	"\x13returned_text_bytes\x18\x05 \x01(\x03R\x11returnedTextBytes\"'\n" +
 	"\x11DeleteFileRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\";\n" +
 	"\x12DeleteFileResponse\x12\x18\n" +
@@ -4672,7 +4773,11 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\bgit_diff\x18$ \x01(\v2).codefly.services.code.v0.GitDiffResponseH\x00R\agitDiff\x12L\n" +
 	"\n" +
 	"shell_exec\x18% \x01(\v2+.codefly.services.code.v0.ShellExecResponseH\x00R\tshellExecB\b\n" +
-	"\x06result2b\n" +
+	"\x06result*\x94\x01\n" +
+	"\x16SearchTruncationReason\x12(\n" +
+	"$SEARCH_TRUNCATION_REASON_UNSPECIFIED\x10\x00\x12(\n" +
+	"$SEARCH_TRUNCATION_REASON_MAX_RESULTS\x10\x01\x12&\n" +
+	"\"SEARCH_TRUNCATION_REASON_MAX_BYTES\x10\x022b\n" +
 	"\x04Code\x12Z\n" +
 	"\aExecute\x12%.codefly.services.code.v0.CodeRequest\x1a&.codefly.services.code.v0.CodeResponse\"\x00B\xf0\x01\n" +
 	"\x1ccom.codefly.services.code.v0B\tCodeProtoP\x01ZAgithub.com/codefly-dev/core/generated/go/codefly/services/code/v0\xa2\x02\x04CSCV\xaa\x02\x18Codefly.Services.Code.V0\xca\x02\x18Codefly\\Services\\Code\\V0\xe2\x02$Codefly\\Services\\Code\\V0\\GPBMetadata\xea\x02\x1bCodefly::Services::Code::V0b\x06proto3"
@@ -4689,142 +4794,145 @@ func file_codefly_services_code_v0_code_proto_rawDescGZIP() []byte {
 	return file_codefly_services_code_v0_code_proto_rawDescData
 }
 
+var file_codefly_services_code_v0_code_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_codefly_services_code_v0_code_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_codefly_services_code_v0_code_proto_goTypes = []any{
-	(*ReadFileRequest)(nil),            // 0: codefly.services.code.v0.ReadFileRequest
-	(*ReadFileResponse)(nil),           // 1: codefly.services.code.v0.ReadFileResponse
-	(*WriteFileRequest)(nil),           // 2: codefly.services.code.v0.WriteFileRequest
-	(*WriteFileResponse)(nil),          // 3: codefly.services.code.v0.WriteFileResponse
-	(*ListFilesRequest)(nil),           // 4: codefly.services.code.v0.ListFilesRequest
-	(*FileInfo)(nil),                   // 5: codefly.services.code.v0.FileInfo
-	(*ListFilesResponse)(nil),          // 6: codefly.services.code.v0.ListFilesResponse
-	(*FixRequest)(nil),                 // 7: codefly.services.code.v0.FixRequest
-	(*FixResponse)(nil),                // 8: codefly.services.code.v0.FixResponse
-	(*ApplyEditRequest)(nil),           // 9: codefly.services.code.v0.ApplyEditRequest
-	(*ApplyEditResponse)(nil),          // 10: codefly.services.code.v0.ApplyEditResponse
-	(*ApplySymbolPatchRequest)(nil),    // 11: codefly.services.code.v0.ApplySymbolPatchRequest
-	(*ApplySymbolPatchResponse)(nil),   // 12: codefly.services.code.v0.ApplySymbolPatchResponse
-	(*SearchRequest)(nil),              // 13: codefly.services.code.v0.SearchRequest
-	(*SearchMatch)(nil),                // 14: codefly.services.code.v0.SearchMatch
-	(*SearchResponse)(nil),             // 15: codefly.services.code.v0.SearchResponse
-	(*DeleteFileRequest)(nil),          // 16: codefly.services.code.v0.DeleteFileRequest
-	(*DeleteFileResponse)(nil),         // 17: codefly.services.code.v0.DeleteFileResponse
-	(*MoveFileRequest)(nil),            // 18: codefly.services.code.v0.MoveFileRequest
-	(*MoveFileResponse)(nil),           // 19: codefly.services.code.v0.MoveFileResponse
-	(*CreateFileRequest)(nil),          // 20: codefly.services.code.v0.CreateFileRequest
-	(*CreateFileResponse)(nil),         // 21: codefly.services.code.v0.CreateFileResponse
-	(*Dependency)(nil),                 // 22: codefly.services.code.v0.Dependency
-	(*ListDependenciesRequest)(nil),    // 23: codefly.services.code.v0.ListDependenciesRequest
-	(*ListDependenciesResponse)(nil),   // 24: codefly.services.code.v0.ListDependenciesResponse
-	(*AddDependencyRequest)(nil),       // 25: codefly.services.code.v0.AddDependencyRequest
-	(*AddDependencyResponse)(nil),      // 26: codefly.services.code.v0.AddDependencyResponse
-	(*RemoveDependencyRequest)(nil),    // 27: codefly.services.code.v0.RemoveDependencyRequest
-	(*RemoveDependencyResponse)(nil),   // 28: codefly.services.code.v0.RemoveDependencyResponse
-	(*PackageInfo)(nil),                // 29: codefly.services.code.v0.PackageInfo
-	(*SourceFileInfo)(nil),             // 30: codefly.services.code.v0.SourceFileInfo
-	(*GetProjectInfoRequest)(nil),      // 31: codefly.services.code.v0.GetProjectInfoRequest
-	(*GetProjectInfoResponse)(nil),     // 32: codefly.services.code.v0.GetProjectInfoResponse
-	(*GetSemanticIndexRequest)(nil),    // 33: codefly.services.code.v0.GetSemanticIndexRequest
-	(*GetInstructionIndexRequest)(nil), // 34: codefly.services.code.v0.GetInstructionIndexRequest
-	(*GetSourceManifestRequest)(nil),   // 35: codefly.services.code.v0.GetSourceManifestRequest
-	(*DiscoverCodeUnitsRequest)(nil),   // 36: codefly.services.code.v0.DiscoverCodeUnitsRequest
-	(*CodeUnitInfo)(nil),               // 37: codefly.services.code.v0.CodeUnitInfo
-	(*DiscoverCodeUnitsResponse)(nil),  // 38: codefly.services.code.v0.DiscoverCodeUnitsResponse
-	(*GitLogRequest)(nil),              // 39: codefly.services.code.v0.GitLogRequest
-	(*GitCommit)(nil),                  // 40: codefly.services.code.v0.GitCommit
-	(*GitLogResponse)(nil),             // 41: codefly.services.code.v0.GitLogResponse
-	(*GitDiffRequest)(nil),             // 42: codefly.services.code.v0.GitDiffRequest
-	(*GitDiffFile)(nil),                // 43: codefly.services.code.v0.GitDiffFile
-	(*GitDiffResponse)(nil),            // 44: codefly.services.code.v0.GitDiffResponse
-	(*GitShowRequest)(nil),             // 45: codefly.services.code.v0.GitShowRequest
-	(*GitShowResponse)(nil),            // 46: codefly.services.code.v0.GitShowResponse
-	(*GitBlameRequest)(nil),            // 47: codefly.services.code.v0.GitBlameRequest
-	(*GitBlameLine)(nil),               // 48: codefly.services.code.v0.GitBlameLine
-	(*GitBlameResponse)(nil),           // 49: codefly.services.code.v0.GitBlameResponse
-	(*ShellExecRequest)(nil),           // 50: codefly.services.code.v0.ShellExecRequest
-	(*ShellExecResponse)(nil),          // 51: codefly.services.code.v0.ShellExecResponse
-	(*CodeRequest)(nil),                // 52: codefly.services.code.v0.CodeRequest
-	(*CodeResponse)(nil),               // 53: codefly.services.code.v0.CodeResponse
-	nil,                                // 54: codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
-	(v0.FixMode)(0),                    // 55: codefly.base.v0.FixMode
-	(v0.SymbolPatchFailureReason)(0),   // 56: codefly.base.v0.SymbolPatchFailureReason
-	(v0.SourceManifestIdentityMode)(0), // 57: codefly.base.v0.SourceManifestIdentityMode
-	(*v0.Failure)(nil),                 // 58: codefly.base.v0.Failure
-	(*v0.SemanticIndex)(nil),           // 59: codefly.base.v0.SemanticIndex
-	(*v0.SourceManifest)(nil),          // 60: codefly.base.v0.SourceManifest
-	(*v0.InstructionIndex)(nil),        // 61: codefly.base.v0.InstructionIndex
+	(SearchTruncationReason)(0),        // 0: codefly.services.code.v0.SearchTruncationReason
+	(*ReadFileRequest)(nil),            // 1: codefly.services.code.v0.ReadFileRequest
+	(*ReadFileResponse)(nil),           // 2: codefly.services.code.v0.ReadFileResponse
+	(*WriteFileRequest)(nil),           // 3: codefly.services.code.v0.WriteFileRequest
+	(*WriteFileResponse)(nil),          // 4: codefly.services.code.v0.WriteFileResponse
+	(*ListFilesRequest)(nil),           // 5: codefly.services.code.v0.ListFilesRequest
+	(*FileInfo)(nil),                   // 6: codefly.services.code.v0.FileInfo
+	(*ListFilesResponse)(nil),          // 7: codefly.services.code.v0.ListFilesResponse
+	(*FixRequest)(nil),                 // 8: codefly.services.code.v0.FixRequest
+	(*FixResponse)(nil),                // 9: codefly.services.code.v0.FixResponse
+	(*ApplyEditRequest)(nil),           // 10: codefly.services.code.v0.ApplyEditRequest
+	(*ApplyEditResponse)(nil),          // 11: codefly.services.code.v0.ApplyEditResponse
+	(*ApplySymbolPatchRequest)(nil),    // 12: codefly.services.code.v0.ApplySymbolPatchRequest
+	(*ApplySymbolPatchResponse)(nil),   // 13: codefly.services.code.v0.ApplySymbolPatchResponse
+	(*SearchRequest)(nil),              // 14: codefly.services.code.v0.SearchRequest
+	(*SearchMatch)(nil),                // 15: codefly.services.code.v0.SearchMatch
+	(*SearchResponse)(nil),             // 16: codefly.services.code.v0.SearchResponse
+	(*DeleteFileRequest)(nil),          // 17: codefly.services.code.v0.DeleteFileRequest
+	(*DeleteFileResponse)(nil),         // 18: codefly.services.code.v0.DeleteFileResponse
+	(*MoveFileRequest)(nil),            // 19: codefly.services.code.v0.MoveFileRequest
+	(*MoveFileResponse)(nil),           // 20: codefly.services.code.v0.MoveFileResponse
+	(*CreateFileRequest)(nil),          // 21: codefly.services.code.v0.CreateFileRequest
+	(*CreateFileResponse)(nil),         // 22: codefly.services.code.v0.CreateFileResponse
+	(*Dependency)(nil),                 // 23: codefly.services.code.v0.Dependency
+	(*ListDependenciesRequest)(nil),    // 24: codefly.services.code.v0.ListDependenciesRequest
+	(*ListDependenciesResponse)(nil),   // 25: codefly.services.code.v0.ListDependenciesResponse
+	(*AddDependencyRequest)(nil),       // 26: codefly.services.code.v0.AddDependencyRequest
+	(*AddDependencyResponse)(nil),      // 27: codefly.services.code.v0.AddDependencyResponse
+	(*RemoveDependencyRequest)(nil),    // 28: codefly.services.code.v0.RemoveDependencyRequest
+	(*RemoveDependencyResponse)(nil),   // 29: codefly.services.code.v0.RemoveDependencyResponse
+	(*PackageInfo)(nil),                // 30: codefly.services.code.v0.PackageInfo
+	(*SourceFileInfo)(nil),             // 31: codefly.services.code.v0.SourceFileInfo
+	(*GetProjectInfoRequest)(nil),      // 32: codefly.services.code.v0.GetProjectInfoRequest
+	(*GetProjectInfoResponse)(nil),     // 33: codefly.services.code.v0.GetProjectInfoResponse
+	(*GetSemanticIndexRequest)(nil),    // 34: codefly.services.code.v0.GetSemanticIndexRequest
+	(*GetInstructionIndexRequest)(nil), // 35: codefly.services.code.v0.GetInstructionIndexRequest
+	(*GetSourceManifestRequest)(nil),   // 36: codefly.services.code.v0.GetSourceManifestRequest
+	(*DiscoverCodeUnitsRequest)(nil),   // 37: codefly.services.code.v0.DiscoverCodeUnitsRequest
+	(*CodeUnitInfo)(nil),               // 38: codefly.services.code.v0.CodeUnitInfo
+	(*DiscoverCodeUnitsResponse)(nil),  // 39: codefly.services.code.v0.DiscoverCodeUnitsResponse
+	(*GitLogRequest)(nil),              // 40: codefly.services.code.v0.GitLogRequest
+	(*GitCommit)(nil),                  // 41: codefly.services.code.v0.GitCommit
+	(*GitLogResponse)(nil),             // 42: codefly.services.code.v0.GitLogResponse
+	(*GitDiffRequest)(nil),             // 43: codefly.services.code.v0.GitDiffRequest
+	(*GitDiffFile)(nil),                // 44: codefly.services.code.v0.GitDiffFile
+	(*GitDiffResponse)(nil),            // 45: codefly.services.code.v0.GitDiffResponse
+	(*GitShowRequest)(nil),             // 46: codefly.services.code.v0.GitShowRequest
+	(*GitShowResponse)(nil),            // 47: codefly.services.code.v0.GitShowResponse
+	(*GitBlameRequest)(nil),            // 48: codefly.services.code.v0.GitBlameRequest
+	(*GitBlameLine)(nil),               // 49: codefly.services.code.v0.GitBlameLine
+	(*GitBlameResponse)(nil),           // 50: codefly.services.code.v0.GitBlameResponse
+	(*ShellExecRequest)(nil),           // 51: codefly.services.code.v0.ShellExecRequest
+	(*ShellExecResponse)(nil),          // 52: codefly.services.code.v0.ShellExecResponse
+	(*CodeRequest)(nil),                // 53: codefly.services.code.v0.CodeRequest
+	(*CodeResponse)(nil),               // 54: codefly.services.code.v0.CodeResponse
+	nil,                                // 55: codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
+	(v0.FixMode)(0),                    // 56: codefly.base.v0.FixMode
+	(v0.SymbolPatchFailureReason)(0),   // 57: codefly.base.v0.SymbolPatchFailureReason
+	(v0.SourceManifestIdentityMode)(0), // 58: codefly.base.v0.SourceManifestIdentityMode
+	(*v0.Failure)(nil),                 // 59: codefly.base.v0.Failure
+	(*v0.SemanticIndex)(nil),           // 60: codefly.base.v0.SemanticIndex
+	(*v0.SourceManifest)(nil),          // 61: codefly.base.v0.SourceManifest
+	(*v0.InstructionIndex)(nil),        // 62: codefly.base.v0.InstructionIndex
 }
 var file_codefly_services_code_v0_code_proto_depIdxs = []int32{
-	5,  // 0: codefly.services.code.v0.ListFilesResponse.files:type_name -> codefly.services.code.v0.FileInfo
-	55, // 1: codefly.services.code.v0.FixRequest.mode:type_name -> codefly.base.v0.FixMode
-	55, // 2: codefly.services.code.v0.ApplyEditRequest.fix_mode:type_name -> codefly.base.v0.FixMode
-	55, // 3: codefly.services.code.v0.ApplySymbolPatchRequest.fix_mode:type_name -> codefly.base.v0.FixMode
-	56, // 4: codefly.services.code.v0.ApplySymbolPatchResponse.failure_reason:type_name -> codefly.base.v0.SymbolPatchFailureReason
-	14, // 5: codefly.services.code.v0.SearchResponse.matches:type_name -> codefly.services.code.v0.SearchMatch
-	22, // 6: codefly.services.code.v0.ListDependenciesResponse.dependencies:type_name -> codefly.services.code.v0.Dependency
-	29, // 7: codefly.services.code.v0.GetProjectInfoResponse.packages:type_name -> codefly.services.code.v0.PackageInfo
-	22, // 8: codefly.services.code.v0.GetProjectInfoResponse.dependencies:type_name -> codefly.services.code.v0.Dependency
-	54, // 9: codefly.services.code.v0.GetProjectInfoResponse.file_hashes:type_name -> codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
-	30, // 10: codefly.services.code.v0.GetProjectInfoResponse.source_files:type_name -> codefly.services.code.v0.SourceFileInfo
-	57, // 11: codefly.services.code.v0.GetSourceManifestRequest.identity_mode:type_name -> codefly.base.v0.SourceManifestIdentityMode
-	37, // 12: codefly.services.code.v0.DiscoverCodeUnitsResponse.code_units:type_name -> codefly.services.code.v0.CodeUnitInfo
-	40, // 13: codefly.services.code.v0.GitLogResponse.commits:type_name -> codefly.services.code.v0.GitCommit
-	43, // 14: codefly.services.code.v0.GitDiffResponse.files:type_name -> codefly.services.code.v0.GitDiffFile
-	48, // 15: codefly.services.code.v0.GitBlameResponse.lines:type_name -> codefly.services.code.v0.GitBlameLine
-	7,  // 16: codefly.services.code.v0.CodeRequest.fix:type_name -> codefly.services.code.v0.FixRequest
-	9,  // 17: codefly.services.code.v0.CodeRequest.apply_edit:type_name -> codefly.services.code.v0.ApplyEditRequest
-	11, // 18: codefly.services.code.v0.CodeRequest.apply_symbol_patch:type_name -> codefly.services.code.v0.ApplySymbolPatchRequest
-	23, // 19: codefly.services.code.v0.CodeRequest.list_dependencies:type_name -> codefly.services.code.v0.ListDependenciesRequest
-	25, // 20: codefly.services.code.v0.CodeRequest.add_dependency:type_name -> codefly.services.code.v0.AddDependencyRequest
-	27, // 21: codefly.services.code.v0.CodeRequest.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyRequest
-	31, // 22: codefly.services.code.v0.CodeRequest.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoRequest
-	36, // 23: codefly.services.code.v0.CodeRequest.discover_code_units:type_name -> codefly.services.code.v0.DiscoverCodeUnitsRequest
-	33, // 24: codefly.services.code.v0.CodeRequest.get_semantic_index:type_name -> codefly.services.code.v0.GetSemanticIndexRequest
-	35, // 25: codefly.services.code.v0.CodeRequest.get_source_manifest:type_name -> codefly.services.code.v0.GetSourceManifestRequest
-	34, // 26: codefly.services.code.v0.CodeRequest.get_instruction_index:type_name -> codefly.services.code.v0.GetInstructionIndexRequest
-	0,  // 27: codefly.services.code.v0.CodeRequest.read_file:type_name -> codefly.services.code.v0.ReadFileRequest
-	2,  // 28: codefly.services.code.v0.CodeRequest.write_file:type_name -> codefly.services.code.v0.WriteFileRequest
-	20, // 29: codefly.services.code.v0.CodeRequest.create_file:type_name -> codefly.services.code.v0.CreateFileRequest
-	16, // 30: codefly.services.code.v0.CodeRequest.delete_file:type_name -> codefly.services.code.v0.DeleteFileRequest
-	18, // 31: codefly.services.code.v0.CodeRequest.move_file:type_name -> codefly.services.code.v0.MoveFileRequest
-	4,  // 32: codefly.services.code.v0.CodeRequest.list_files:type_name -> codefly.services.code.v0.ListFilesRequest
-	13, // 33: codefly.services.code.v0.CodeRequest.search:type_name -> codefly.services.code.v0.SearchRequest
-	39, // 34: codefly.services.code.v0.CodeRequest.git_log:type_name -> codefly.services.code.v0.GitLogRequest
-	45, // 35: codefly.services.code.v0.CodeRequest.git_show:type_name -> codefly.services.code.v0.GitShowRequest
-	47, // 36: codefly.services.code.v0.CodeRequest.git_blame:type_name -> codefly.services.code.v0.GitBlameRequest
-	42, // 37: codefly.services.code.v0.CodeRequest.git_diff:type_name -> codefly.services.code.v0.GitDiffRequest
-	50, // 38: codefly.services.code.v0.CodeRequest.shell_exec:type_name -> codefly.services.code.v0.ShellExecRequest
-	58, // 39: codefly.services.code.v0.CodeResponse.failure:type_name -> codefly.base.v0.Failure
-	8,  // 40: codefly.services.code.v0.CodeResponse.fix:type_name -> codefly.services.code.v0.FixResponse
-	10, // 41: codefly.services.code.v0.CodeResponse.apply_edit:type_name -> codefly.services.code.v0.ApplyEditResponse
-	12, // 42: codefly.services.code.v0.CodeResponse.apply_symbol_patch:type_name -> codefly.services.code.v0.ApplySymbolPatchResponse
-	24, // 43: codefly.services.code.v0.CodeResponse.list_dependencies:type_name -> codefly.services.code.v0.ListDependenciesResponse
-	26, // 44: codefly.services.code.v0.CodeResponse.add_dependency:type_name -> codefly.services.code.v0.AddDependencyResponse
-	28, // 45: codefly.services.code.v0.CodeResponse.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyResponse
-	32, // 46: codefly.services.code.v0.CodeResponse.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoResponse
-	38, // 47: codefly.services.code.v0.CodeResponse.discover_code_units:type_name -> codefly.services.code.v0.DiscoverCodeUnitsResponse
-	59, // 48: codefly.services.code.v0.CodeResponse.get_semantic_index:type_name -> codefly.base.v0.SemanticIndex
-	60, // 49: codefly.services.code.v0.CodeResponse.get_source_manifest:type_name -> codefly.base.v0.SourceManifest
-	61, // 50: codefly.services.code.v0.CodeResponse.get_instruction_index:type_name -> codefly.base.v0.InstructionIndex
-	1,  // 51: codefly.services.code.v0.CodeResponse.read_file:type_name -> codefly.services.code.v0.ReadFileResponse
-	3,  // 52: codefly.services.code.v0.CodeResponse.write_file:type_name -> codefly.services.code.v0.WriteFileResponse
-	21, // 53: codefly.services.code.v0.CodeResponse.create_file:type_name -> codefly.services.code.v0.CreateFileResponse
-	17, // 54: codefly.services.code.v0.CodeResponse.delete_file:type_name -> codefly.services.code.v0.DeleteFileResponse
-	19, // 55: codefly.services.code.v0.CodeResponse.move_file:type_name -> codefly.services.code.v0.MoveFileResponse
-	6,  // 56: codefly.services.code.v0.CodeResponse.list_files:type_name -> codefly.services.code.v0.ListFilesResponse
-	15, // 57: codefly.services.code.v0.CodeResponse.search:type_name -> codefly.services.code.v0.SearchResponse
-	41, // 58: codefly.services.code.v0.CodeResponse.git_log:type_name -> codefly.services.code.v0.GitLogResponse
-	46, // 59: codefly.services.code.v0.CodeResponse.git_show:type_name -> codefly.services.code.v0.GitShowResponse
-	49, // 60: codefly.services.code.v0.CodeResponse.git_blame:type_name -> codefly.services.code.v0.GitBlameResponse
-	44, // 61: codefly.services.code.v0.CodeResponse.git_diff:type_name -> codefly.services.code.v0.GitDiffResponse
-	51, // 62: codefly.services.code.v0.CodeResponse.shell_exec:type_name -> codefly.services.code.v0.ShellExecResponse
-	52, // 63: codefly.services.code.v0.Code.Execute:input_type -> codefly.services.code.v0.CodeRequest
-	53, // 64: codefly.services.code.v0.Code.Execute:output_type -> codefly.services.code.v0.CodeResponse
-	64, // [64:65] is the sub-list for method output_type
-	63, // [63:64] is the sub-list for method input_type
-	63, // [63:63] is the sub-list for extension type_name
-	63, // [63:63] is the sub-list for extension extendee
-	0,  // [0:63] is the sub-list for field type_name
+	6,  // 0: codefly.services.code.v0.ListFilesResponse.files:type_name -> codefly.services.code.v0.FileInfo
+	56, // 1: codefly.services.code.v0.FixRequest.mode:type_name -> codefly.base.v0.FixMode
+	56, // 2: codefly.services.code.v0.ApplyEditRequest.fix_mode:type_name -> codefly.base.v0.FixMode
+	56, // 3: codefly.services.code.v0.ApplySymbolPatchRequest.fix_mode:type_name -> codefly.base.v0.FixMode
+	57, // 4: codefly.services.code.v0.ApplySymbolPatchResponse.failure_reason:type_name -> codefly.base.v0.SymbolPatchFailureReason
+	15, // 5: codefly.services.code.v0.SearchResponse.matches:type_name -> codefly.services.code.v0.SearchMatch
+	0,  // 6: codefly.services.code.v0.SearchResponse.truncation_reason:type_name -> codefly.services.code.v0.SearchTruncationReason
+	23, // 7: codefly.services.code.v0.ListDependenciesResponse.dependencies:type_name -> codefly.services.code.v0.Dependency
+	30, // 8: codefly.services.code.v0.GetProjectInfoResponse.packages:type_name -> codefly.services.code.v0.PackageInfo
+	23, // 9: codefly.services.code.v0.GetProjectInfoResponse.dependencies:type_name -> codefly.services.code.v0.Dependency
+	55, // 10: codefly.services.code.v0.GetProjectInfoResponse.file_hashes:type_name -> codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntry
+	31, // 11: codefly.services.code.v0.GetProjectInfoResponse.source_files:type_name -> codefly.services.code.v0.SourceFileInfo
+	58, // 12: codefly.services.code.v0.GetSourceManifestRequest.identity_mode:type_name -> codefly.base.v0.SourceManifestIdentityMode
+	38, // 13: codefly.services.code.v0.DiscoverCodeUnitsResponse.code_units:type_name -> codefly.services.code.v0.CodeUnitInfo
+	41, // 14: codefly.services.code.v0.GitLogResponse.commits:type_name -> codefly.services.code.v0.GitCommit
+	44, // 15: codefly.services.code.v0.GitDiffResponse.files:type_name -> codefly.services.code.v0.GitDiffFile
+	49, // 16: codefly.services.code.v0.GitBlameResponse.lines:type_name -> codefly.services.code.v0.GitBlameLine
+	8,  // 17: codefly.services.code.v0.CodeRequest.fix:type_name -> codefly.services.code.v0.FixRequest
+	10, // 18: codefly.services.code.v0.CodeRequest.apply_edit:type_name -> codefly.services.code.v0.ApplyEditRequest
+	12, // 19: codefly.services.code.v0.CodeRequest.apply_symbol_patch:type_name -> codefly.services.code.v0.ApplySymbolPatchRequest
+	24, // 20: codefly.services.code.v0.CodeRequest.list_dependencies:type_name -> codefly.services.code.v0.ListDependenciesRequest
+	26, // 21: codefly.services.code.v0.CodeRequest.add_dependency:type_name -> codefly.services.code.v0.AddDependencyRequest
+	28, // 22: codefly.services.code.v0.CodeRequest.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyRequest
+	32, // 23: codefly.services.code.v0.CodeRequest.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoRequest
+	37, // 24: codefly.services.code.v0.CodeRequest.discover_code_units:type_name -> codefly.services.code.v0.DiscoverCodeUnitsRequest
+	34, // 25: codefly.services.code.v0.CodeRequest.get_semantic_index:type_name -> codefly.services.code.v0.GetSemanticIndexRequest
+	36, // 26: codefly.services.code.v0.CodeRequest.get_source_manifest:type_name -> codefly.services.code.v0.GetSourceManifestRequest
+	35, // 27: codefly.services.code.v0.CodeRequest.get_instruction_index:type_name -> codefly.services.code.v0.GetInstructionIndexRequest
+	1,  // 28: codefly.services.code.v0.CodeRequest.read_file:type_name -> codefly.services.code.v0.ReadFileRequest
+	3,  // 29: codefly.services.code.v0.CodeRequest.write_file:type_name -> codefly.services.code.v0.WriteFileRequest
+	21, // 30: codefly.services.code.v0.CodeRequest.create_file:type_name -> codefly.services.code.v0.CreateFileRequest
+	17, // 31: codefly.services.code.v0.CodeRequest.delete_file:type_name -> codefly.services.code.v0.DeleteFileRequest
+	19, // 32: codefly.services.code.v0.CodeRequest.move_file:type_name -> codefly.services.code.v0.MoveFileRequest
+	5,  // 33: codefly.services.code.v0.CodeRequest.list_files:type_name -> codefly.services.code.v0.ListFilesRequest
+	14, // 34: codefly.services.code.v0.CodeRequest.search:type_name -> codefly.services.code.v0.SearchRequest
+	40, // 35: codefly.services.code.v0.CodeRequest.git_log:type_name -> codefly.services.code.v0.GitLogRequest
+	46, // 36: codefly.services.code.v0.CodeRequest.git_show:type_name -> codefly.services.code.v0.GitShowRequest
+	48, // 37: codefly.services.code.v0.CodeRequest.git_blame:type_name -> codefly.services.code.v0.GitBlameRequest
+	43, // 38: codefly.services.code.v0.CodeRequest.git_diff:type_name -> codefly.services.code.v0.GitDiffRequest
+	51, // 39: codefly.services.code.v0.CodeRequest.shell_exec:type_name -> codefly.services.code.v0.ShellExecRequest
+	59, // 40: codefly.services.code.v0.CodeResponse.failure:type_name -> codefly.base.v0.Failure
+	9,  // 41: codefly.services.code.v0.CodeResponse.fix:type_name -> codefly.services.code.v0.FixResponse
+	11, // 42: codefly.services.code.v0.CodeResponse.apply_edit:type_name -> codefly.services.code.v0.ApplyEditResponse
+	13, // 43: codefly.services.code.v0.CodeResponse.apply_symbol_patch:type_name -> codefly.services.code.v0.ApplySymbolPatchResponse
+	25, // 44: codefly.services.code.v0.CodeResponse.list_dependencies:type_name -> codefly.services.code.v0.ListDependenciesResponse
+	27, // 45: codefly.services.code.v0.CodeResponse.add_dependency:type_name -> codefly.services.code.v0.AddDependencyResponse
+	29, // 46: codefly.services.code.v0.CodeResponse.remove_dependency:type_name -> codefly.services.code.v0.RemoveDependencyResponse
+	33, // 47: codefly.services.code.v0.CodeResponse.get_project_info:type_name -> codefly.services.code.v0.GetProjectInfoResponse
+	39, // 48: codefly.services.code.v0.CodeResponse.discover_code_units:type_name -> codefly.services.code.v0.DiscoverCodeUnitsResponse
+	60, // 49: codefly.services.code.v0.CodeResponse.get_semantic_index:type_name -> codefly.base.v0.SemanticIndex
+	61, // 50: codefly.services.code.v0.CodeResponse.get_source_manifest:type_name -> codefly.base.v0.SourceManifest
+	62, // 51: codefly.services.code.v0.CodeResponse.get_instruction_index:type_name -> codefly.base.v0.InstructionIndex
+	2,  // 52: codefly.services.code.v0.CodeResponse.read_file:type_name -> codefly.services.code.v0.ReadFileResponse
+	4,  // 53: codefly.services.code.v0.CodeResponse.write_file:type_name -> codefly.services.code.v0.WriteFileResponse
+	22, // 54: codefly.services.code.v0.CodeResponse.create_file:type_name -> codefly.services.code.v0.CreateFileResponse
+	18, // 55: codefly.services.code.v0.CodeResponse.delete_file:type_name -> codefly.services.code.v0.DeleteFileResponse
+	20, // 56: codefly.services.code.v0.CodeResponse.move_file:type_name -> codefly.services.code.v0.MoveFileResponse
+	7,  // 57: codefly.services.code.v0.CodeResponse.list_files:type_name -> codefly.services.code.v0.ListFilesResponse
+	16, // 58: codefly.services.code.v0.CodeResponse.search:type_name -> codefly.services.code.v0.SearchResponse
+	42, // 59: codefly.services.code.v0.CodeResponse.git_log:type_name -> codefly.services.code.v0.GitLogResponse
+	47, // 60: codefly.services.code.v0.CodeResponse.git_show:type_name -> codefly.services.code.v0.GitShowResponse
+	50, // 61: codefly.services.code.v0.CodeResponse.git_blame:type_name -> codefly.services.code.v0.GitBlameResponse
+	45, // 62: codefly.services.code.v0.CodeResponse.git_diff:type_name -> codefly.services.code.v0.GitDiffResponse
+	52, // 63: codefly.services.code.v0.CodeResponse.shell_exec:type_name -> codefly.services.code.v0.ShellExecResponse
+	53, // 64: codefly.services.code.v0.Code.Execute:input_type -> codefly.services.code.v0.CodeRequest
+	54, // 65: codefly.services.code.v0.Code.Execute:output_type -> codefly.services.code.v0.CodeResponse
+	65, // [65:66] is the sub-list for method output_type
+	64, // [64:65] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_code_v0_code_proto_init() }
@@ -4887,13 +4995,14 @@ func file_codefly_services_code_v0_code_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_code_v0_code_proto_rawDesc), len(file_codefly_services_code_v0_code_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   55,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_codefly_services_code_v0_code_proto_goTypes,
 		DependencyIndexes: file_codefly_services_code_v0_code_proto_depIdxs,
+		EnumInfos:         file_codefly_services_code_v0_code_proto_enumTypes,
 		MessageInfos:      file_codefly_services_code_v0_code_proto_msgTypes,
 	}.Build()
 	File_codefly_services_code_v0_code_proto = out.File
