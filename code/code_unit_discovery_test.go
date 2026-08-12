@@ -16,6 +16,8 @@ func TestDefaultCodeServerDiscoversSupportedAndGenericCodeUnits(t *testing.T) {
 		"src/worker/pyproject.toml",
 		"src/worker/requirements.txt",
 		"src/input-only/requirements.in",
+		"src/input-only/worker.py",
+		"src/worker/tests/template/additional_dir/requirements.txt",
 		"src/ads/build.gradle",
 		"src/cart/cart.sln",
 		"src/cart/src/cart.csproj",
@@ -83,6 +85,23 @@ func TestDefaultCodeServerDiscoversSupportedAndGenericCodeUnits(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing units: %+v", want)
+	}
+}
+
+func TestDefaultCodeServerKeepsRequirementsOnlyRepositoryAsPython(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "requirements.txt"), []byte("django==5.2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_DiscoverCodeUnits{DiscoverCodeUnits: &codev0.DiscoverCodeUnitsRequest{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	units := response.GetDiscoverCodeUnits().GetCodeUnits()
+	if len(units) != 1 || units[0].GetPath() != "." || units[0].GetPrimaryLanguage() != "python" || units[0].GetRuntimeAgent() != "python" {
+		t.Fatalf("requirements-only root = %+v, want one Python unit", units)
 	}
 }
 

@@ -22,6 +22,7 @@ type codeUnitDeclaration struct {
 	runtimeAgent   string
 	priority       int
 	aggregatesTree bool
+	requiresSource bool
 	match          func(string) bool
 }
 
@@ -56,7 +57,12 @@ type codeUnitAccumulator struct {
 // precedence for a genuinely co-located polyglot boundary.
 var codeUnitDeclarations = []codeUnitDeclaration{
 	{language: "go", runtimeAgent: "go", priority: 10, match: exactManifest("go.mod")},
-	{language: "python", runtimeAgent: "python", priority: 20, match: exactManifest("pyproject.toml", "uv.lock", "setup.py", "setup.cfg", "requirements.in", "requirements.txt")},
+	{language: "python", runtimeAgent: "python", priority: 20, match: exactManifest("pyproject.toml", "setup.py", "setup.cfg")},
+	// Dependency inventories are valid roots and useful evidence beside a
+	// strong Python declaration, but a nested requirements file alone is often
+	// a fixture or input to the enclosing project. Require source in that
+	// subtree before promoting it to an independently executable code unit.
+	{language: "python", runtimeAgent: "python", priority: 20, requiresSource: true, match: exactManifest("uv.lock", "requirements.in", "requirements.txt")},
 	{language: "typescript", runtimeAgent: "nextjs", priority: 30, match: exactManifest("package.json")},
 	{language: "rust", runtimeAgent: "rust", priority: 40, match: exactManifest("Cargo.toml")},
 	{language: "swift", runtimeAgent: "swift", priority: 50, match: exactManifest("Package.swift")},
@@ -111,6 +117,7 @@ func (s *DefaultCodeServer) discoverCodeUnits(ctx context.Context, _ *codev0.Dis
 func (s *DefaultCodeServer) scanCodeUnitDeclarations(ctx context.Context) ([]discoveredDeclaration, error) {
 	var declarations []discoveredDeclaration
 	var nodeSources []nodeSourceEvidence
+	var pythonSourceDirectories []string
 	err := s.FS.WalkDir(s.SourceDir, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -149,13 +156,61 @@ func (s *DefaultCodeServer) scanCodeUnitDeclarations(ctx context.Context) ([]dis
 			}
 			nodeSources = append(nodeSources, nodeSourceEvidence{directory: directory, language: language})
 		}
+		if isPythonSource(entry.Name()) {
+			directory := filepath.ToSlash(filepath.Dir(filepath.ToSlash(relative)))
+			if directory == "" {
+				directory = "."
+			}
+			pythonSourceDirectories = append(pythonSourceDirectories, directory)
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	declarations = retainSourceBackedDeclarations(declarations, pythonSourceDirectories)
 	resolveNodeDeclarationLanguages(declarations, nodeSources)
 	return declarations, nil
+}
+
+// retainSourceBackedDeclarations prevents dependency-only fixture trees from
+// becoming runtime boundaries. Root dependency manifests remain sufficient for
+// the common requirements-only repository, and a weak manifest co-located with
+// a strong declaration remains part of that unit's complete manifest evidence.
+func retainSourceBackedDeclarations(declarations []discoveredDeclaration, pythonSourceDirectories []string) []discoveredDeclaration {
+	strongPythonDirectories := make(map[string]struct{})
+	for _, declaration := range declarations {
+		if declaration.language == "python" && !declaration.requiresSource {
+			strongPythonDirectories[declaration.directory] = struct{}{}
+		}
+	}
+	retained := declarations[:0]
+	for _, declaration := range declarations {
+		if !declaration.requiresSource || declaration.directory == "." {
+			retained = append(retained, declaration)
+			continue
+		}
+		if _, strong := strongPythonDirectories[declaration.directory]; strong {
+			retained = append(retained, declaration)
+			continue
+		}
+		for _, sourceDirectory := range pythonSourceDirectories {
+			if isRelativeWithin(declaration.directory, sourceDirectory) {
+				retained = append(retained, declaration)
+				break
+			}
+		}
+	}
+	return retained
+}
+
+func isPythonSource(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".py", ".pyi", ".pyw":
+		return true
+	default:
+		return false
+	}
 }
 
 // resolveNodeDeclarationLanguages keeps package.json as the structural unit
