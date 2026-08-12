@@ -35,6 +35,23 @@ func TestSmartEdit_Trimmed(t *testing.T) {
 	}
 }
 
+func TestSmartEdit_TrimmedAnchorEndingInNewline(t *testing.T) {
+	content := "switch op {\n\t\tcase \"/\":\n\t\t\treturn divide()\n\t\tdefault:\n\t\t\treturn unknown()\n}\n"
+	find := "\t\t\tcase \"/\":\n\t\t\t\treturn divide()\n\t\t\tdefault:\n"
+	replace := "\t\t\tcase \"/\":\n\t\t\t\treturn divide()\n\t\t\tcase \"new\":\n\t\t\t\treturn added()\n\t\t\tdefault:\n"
+
+	r := SmartEdit(content, find, replace)
+	if !r.OK || r.Strategy != "trimmed" {
+		t.Fatalf("expected newline-terminated trimmed match, got ok=%v strategy=%q", r.OK, r.Strategy)
+	}
+	if strings.Contains(r.Content, "default:\n\n") {
+		t.Fatalf("newline-terminated replacement inserted a blank line:\n%s", r.Content)
+	}
+	if !strings.Contains(r.Content, "case \"new\":") || !strings.Contains(r.Content, "default:\n\t\t\treturn unknown()") {
+		t.Fatalf("replacement did not preserve the untouched suffix:\n%s", r.Content)
+	}
+}
+
 func TestSmartEdit_IndentShifted(t *testing.T) {
 	content := "func outer() {\n\tif true {\n\t\tfmt.Println(\"hello\")\n\t\tfmt.Println(\"world\")\n\t}\n}\n"
 	find := "if true {\n\tfmt.Println(\"hello\")\n\tfmt.Println(\"world\")\n}"

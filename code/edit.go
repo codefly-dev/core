@@ -106,7 +106,7 @@ func normFull(s string) string {
 func tryNormReplace(content, find, replace string, norm func(string) string) editAttempt {
 	contentLines := strings.Split(content, "\n")
 	nf := norm(find)
-	findLines := strings.Split(nf, "\n")
+	findLines := splitEditLines(nf)
 
 	if nf == "" {
 		return editAttempt{}
@@ -135,7 +135,7 @@ func tryNormReplace(content, find, replace string, norm func(string) string) edi
 
 func tryIndentShifted(content, find, replace string) editAttempt {
 	contentLines := strings.Split(content, "\n")
-	findLines := strings.Split(find, "\n")
+	findLines := splitEditLines(find)
 	n := len(findLines)
 
 	if n == 0 || n > len(contentLines) {
@@ -197,7 +197,7 @@ func DedentLines(lines []string) []string {
 // ─── Strategy 5: Anchor-based ────────────────────────────────
 
 func tryAnchor(content, find, replace string) editAttempt {
-	findLines := strings.Split(find, "\n")
+	findLines := splitEditLines(find)
 	contentLines := strings.Split(content, "\n")
 	n := len(findLines)
 
@@ -250,7 +250,7 @@ func tryAnchor(content, find, replace string) editAttempt {
 
 func fuzzyScore(content, find, replace string) editAttempt {
 	contentLines := strings.Split(content, "\n")
-	findLines := strings.Split(find, "\n")
+	findLines := splitEditLines(find)
 	n := len(findLines)
 
 	if n == 0 || n > len(contentLines) {
@@ -342,7 +342,7 @@ func min3(a, b, c int) int {
 
 func fuzzyBlock(content, find, replace string) editAttempt {
 	contentLines := strings.Split(content, "\n")
-	findLines := strings.Split(find, "\n")
+	findLines := splitEditLines(find)
 	n := len(findLines)
 
 	if n == 0 || n > len(contentLines) {
@@ -387,7 +387,21 @@ func replaceLines(contentLines []string, start, count int, replace string) editA
 	}
 	var result []string
 	result = append(result, contentLines[:start]...)
-	result = append(result, strings.Split(replace, "\n")...)
+	result = append(result, splitEditLines(replace)...)
 	result = append(result, contentLines[start+count:]...)
 	return editAttempt{content: strings.Join(result, "\n"), matched: true}
+}
+
+// splitEditLines removes the terminal sentinel produced by strings.Split for
+// text ending in a newline. Line-oriented matching owns the separators between
+// the replacement and the untouched suffix; treating that sentinel as a real
+// line makes an otherwise equivalent indented FIND block consume the first
+// untouched line, and makes a newline-terminated replacement insert a blank
+// line. Interior blank lines remain significant.
+func splitEditLines(text string) []string {
+	lines := strings.Split(text, "\n")
+	if strings.HasSuffix(text, "\n") {
+		return lines[:len(lines)-1]
+	}
+	return lines
 }
