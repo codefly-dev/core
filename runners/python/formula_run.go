@@ -54,8 +54,9 @@ type TestFormulaSpec struct {
 	Extras           []string // uv --extra <name>
 	// NoBuildIsolation maps to `uv run --no-build-isolation`: source builds
 	// (editable installs of C-extension projects) see the run environment's
-	// packages instead of an isolated build env — pair it with With entries
-	// carrying the build requirements (numpy, cython, …).
+	// packages instead of an isolated build env. The persistent-venv path
+	// materializes static [build-system].requires automatically; With carries
+	// only recovery constraints or dynamic requirements absent from that list.
 	NoBuildIsolation bool
 	// EditableTarget is the path uv installs editable (--with-editable):
 	// the executor stamps the ABSOLUTE project root so a Cwd-moved run

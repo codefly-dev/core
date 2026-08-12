@@ -68,6 +68,11 @@ func RuntimeEvidenceForFormula(sourceDir string, cmd []string, output string, en
 	}
 	if len(cmd) > 0 {
 		spec := SpecFromFormula(cmd, output, env, prov, nil)
+		if spec.NoBuildIsolation {
+			if requirements, err := readBuildSystemRequirements(sourceDir); err == nil && len(requirements) > 0 {
+				b.WriteString("  pep517_static_build_requirements: " + strings.Join(requirements, ", ") + " (materialized automatically)\n")
+			}
+		}
 		// RunFormulaStructured resolves editable installs to the absolute source
 		// root before spawning uv. Render the same semantic target without leaking
 		// a machine-specific temporary workspace path into logs/cassettes. A bare

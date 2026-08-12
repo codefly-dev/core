@@ -17,6 +17,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,6 +25,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 // ensurePersistentVenv provisions (or reuses) the workspace venv and returns its
@@ -33,7 +36,15 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 	venvDir := filepath.Join(sourceDir, ".mind-venv")
 	pyPath := venvInterpreter(venvDir)
 	marker := filepath.Join(venvDir, ".mind-provisioned")
-	want := venvProvisionHash(spec)
+	var buildRequirements []string
+	if spec.NoBuildIsolation {
+		var err error
+		buildRequirements, err = readBuildSystemRequirements(sourceDir)
+		if err != nil {
+			return "", fmt.Errorf("read PEP 517 build requirements: %w", err)
+		}
+	}
+	want := venvProvisionHash(spec, buildRequirements)
 
 	if got, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(got)) == want {
 		if _, statErr := os.Stat(pyPath); statErr == nil {
@@ -55,11 +66,11 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 
 	// 2) Install declared requirements and build dependencies into the venv.
 	//    This MUST be a separate uv invocation from the editable install below.
-	//    A single `uv pip install setuptools ... -e . --no-build-isolation` may
+	//    A single `uv pip install <requirements> -e . --no-build-isolation` may
 	//    prepare the editable metadata before installing its peer requirements,
-	//    so the backend still fails to import setuptools/cython/numpy even though
-	//    they are present in the argv. Astropy exposed this exact ordering bug.
-	if dependencyArgs := venvDependencyInstallArgs(pyPath, spec); len(dependencyArgs) > 0 {
+	//    so the backend can still fail to import them even though they are present
+	//    in the argv.
+	if dependencyArgs := venvDependencyInstallArgs(pyPath, spec, buildRequirements); len(dependencyArgs) > 0 {
 		if out, err := runUv(ctx, sourceDir, dependencyArgs); err != nil {
 			return "", fmt.Errorf("uv pip install requirements and build dependencies failed: %v\n%s", err, out)
 		}
@@ -67,7 +78,7 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 
 	// 3) Build/install the editable project after its declared build environment
 	//    is materialized. --no-build-isolation is now safe because the backend
-	//    can import every package derived from [build-system].requires.
+	//    can import the static packages declared by [build-system].requires.
 	installArgs := venvEditableInstallArgs(pyPath, spec)
 	if out, err := runUv(ctx, sourceDir, installArgs); err != nil {
 		if !editableHookUnavailable(out) {
@@ -93,13 +104,16 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 }
 
 // venvDependencyInstallArgs builds the first `uv pip install` argv that
-// materializes requirements, build dependencies, and the pip release available
-// at ExcludeNewer. Historical pip is the standards-compliant compatibility
-// implementation for editable backends that predate PEP 660. setuptools is
-// materialized alongside it because historical pip's setup.py-develop path
-// imports setuptools from the target venv; build isolation's private copy is
-// not visible to that interpreter.
-func venvDependencyInstallArgs(pyPath string, spec TestFormulaSpec) []string {
+// materializes requirements, static PEP 517 build dependencies, and the pip
+// release available at ExcludeNewer. Keeping buildRequirements and With in one
+// resolver transaction honors explicit recovery constraints without discarding
+// the project's standard packaging contract. Historical pip
+// is the standards-compliant compatibility implementation for editable
+// backends that predate PEP 660. setuptools is materialized alongside it
+// because historical pip's setup.py-develop path imports setuptools from the
+// target venv; build isolation's private copy is not visible to that
+// interpreter.
+func venvDependencyInstallArgs(pyPath string, spec TestFormulaSpec, buildRequirements []string) []string {
 	args := []string{"pip", "install", "--python", pyPath}
 	if spec.ExcludeNewer != "" {
 		args = append(args, "--exclude-newer", spec.ExcludeNewer)
@@ -108,6 +122,11 @@ func venvDependencyInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 	for _, r := range spec.Requirements {
 		if r != "" {
 			args = append(args, "-r", r)
+		}
+	}
+	for _, requirement := range buildRequirements {
+		if requirement = strings.TrimSpace(requirement); requirement != "" {
+			args = append(args, requirement)
 		}
 	}
 	for _, w := range spec.With {
@@ -121,6 +140,29 @@ func venvDependencyInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 		}
 	}
 	return args
+}
+
+// readBuildSystemRequirements returns the static PEP 517 requirements declared
+// by the project. The values stay opaque PEP 508 strings: uv remains the
+// packaging implementation and evaluates markers, versions, and direct
+// references. Missing pyproject metadata is valid for legacy setup.py projects.
+func readBuildSystemRequirements(sourceDir string) ([]string, error) {
+	payload, err := os.ReadFile(filepath.Join(sourceDir, "pyproject.toml"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var project struct {
+		BuildSystem struct {
+			Requires []string `toml:"requires"`
+		} `toml:"build-system"`
+	}
+	if err := toml.Unmarshal(payload, &project); err != nil {
+		return nil, err
+	}
+	return project.BuildSystem.Requires, nil
 }
 
 // venvEditableInstallArgs builds the second `uv pip install` argv. The
@@ -196,21 +238,24 @@ func editableTargetWithExtras(target string, extras []string) string {
 
 // venvProvisionHash fingerprints the inputs that affect the built venv so a
 // changed python pin / dep set forces a rebuild but an unchanged one reuses.
-func venvProvisionHash(spec TestFormulaSpec) string {
+func venvProvisionHash(spec TestFormulaSpec, buildRequirements []string) string {
 	parts := []string{"py=" + spec.Python, "exclude-newer=" + spec.ExcludeNewer, "editable=" + spec.EditableTarget}
 	if spec.NoBuildIsolation {
 		parts = append(parts, "nobuildiso")
 	}
 	reqs := append([]string{}, spec.Requirements...)
 	withs := append([]string{}, spec.With...)
+	builds := append([]string{}, buildRequirements...)
 	groups := append([]string{}, spec.DependencyGroups...)
 	extras := append([]string{}, spec.Extras...)
 	sort.Strings(reqs)
 	sort.Strings(withs)
+	sort.Strings(builds)
 	sort.Strings(groups)
 	sort.Strings(extras)
 	parts = append(parts, "req="+strings.Join(reqs, ","))
 	parts = append(parts, "with="+strings.Join(withs, ","))
+	parts = append(parts, "build="+strings.Join(builds, ","))
 	parts = append(parts, "groups="+strings.Join(groups, ","))
 	parts = append(parts, "extras="+strings.Join(extras, ","))
 	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
