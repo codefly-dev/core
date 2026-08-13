@@ -664,9 +664,11 @@ message UpgradeResponse {
   string lockfile_diff = 3;
 }
 
-// ConfigChange sets or appends a value at a dotted path into the service config
-// (service.codefly.yaml). The paths + valid values are those the plugin
-// advertises in GetAgentInformation's configuration_details.
+// ConfigChange sets, appends, or removes an explicit value at a dotted path in
+// the service config (service.codefly.yaml). Removing an explicit value lets
+// the owning plugin's project-derived default become effective again. The
+// paths + valid values are those the plugin advertises in
+// GetAgentInformation's configuration_details.
 message ConfigChange {
   // Op selects how the value is applied at path.
   enum Op {
@@ -676,10 +678,13 @@ message ConfigChange {
     SET = 1;
     // APPEND adds the value to a comma-separated / list field at path.
     APPEND = 2;
+    // UNSET removes the persisted value at path. The plugin may then derive an
+    // effective value from project declarations or its own defaults.
+    UNSET = 3;
   }
   // path is a dotted config path, e.g. "test.provisioning.with".
   string path = 1;
-  // value is the value to set or append.
+  // value is the value to set or append. It is ignored for UNSET.
   string value = 2;
   // op is how to apply value at path.
   Op op = 3;
