@@ -2,6 +2,11 @@ name: go-service-ci
 
 on:
   workflow_call:
+    inputs:
+      setup-run:
+        description: Optional shell command run before the test suite (e.g. docker pull of a test dependency).
+        type: string
+        default: ''
 
 jobs:
   build:
@@ -17,3 +22,16 @@ jobs:
         run: go vet ./...
       - name: Verify go.mod and go.sum are tidy
         run: go mod tidy -diff
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Setup
+        if: inputs.setup-run != ''
+        run: ${{ inputs.setup-run }}
+      - name: Test
+        run: go test -v ./...
