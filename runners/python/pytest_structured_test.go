@@ -285,6 +285,67 @@ func TestToProtoResponseTagsDependencyWarningFailures(t *testing.T) {
 	}
 }
 
+// Historical checkouts can execute their tests against bundled runtime data
+// that has expired since the commit was authored. That warning-as-error is an
+// environment verdict, not evidence that the candidate patch is wrong.
+func TestToProtoResponseTagsStaleRuntimeDataWarnings(t *testing.T) {
+	stale := &python.StructuredTestRun{Suites: []*python.StructuredSuite{{
+		File: "tests/test_time.py",
+		Cases: []*python.StructuredCase{{
+			Name:  "test_historical_epoch",
+			State: runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+			Output: "astropy.utils.exceptions.AstropyWarning: leap-second auto-update failed due to " +
+				"IERSStaleWarning('leap-second file is expired.')",
+			Failure: &python.StructuredFailure{
+				Message: "astropy.utils.exceptions.AstropyWarning: leap-second auto-update failed",
+				Detail:  "IERSStaleWarning('leap-second file is expired.')",
+			},
+		}},
+	}}}
+	resp := stale.ToProtoResponse("formula", "", 0)
+	if msg := resp.GetResult().GetMessage(); !strings.Contains(msg, "env-blocked ("+python.EnvErrorRuntimeDataStale+")") {
+		t.Fatalf("stale runtime data must be tagged as an environment block, got %q", msg)
+	}
+
+	// A real assertion whose text happens to mention a stale data file remains
+	// a code failure.
+	assertion := &python.StructuredTestRun{Suites: []*python.StructuredSuite{{
+		File: "tests/test_cache.py",
+		Cases: []*python.StructuredCase{{
+			Name:    "test_rejects_stale_cache",
+			State:   runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+			Output:  "AssertionError: expected warning for stale cache data",
+			Failure: &python.StructuredFailure{Message: "AssertionError"},
+		}},
+	}}}
+	if msg := assertion.ToProtoResponse("formula", "", 0).GetResult().GetMessage(); strings.Contains(msg, "env-blocked") {
+		t.Fatalf("assertion failure must not be laundered into an environment block, got %q", msg)
+	}
+
+	// A mixed run also remains a code failure: one environmental warning must
+	// never hide another case's genuine assertion.
+	mixed := &python.StructuredTestRun{Suites: []*python.StructuredSuite{{
+		File: "tests/test_mixed.py",
+		Cases: []*python.StructuredCase{
+			{
+				Name:    "test_stale_data",
+				State:   runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+				Output:  "RuntimeDataStaleWarning: bundled table file is expired",
+				Failure: &python.StructuredFailure{Message: "RuntimeDataStaleWarning"},
+			},
+			{
+				Name:    "test_result",
+				State:   runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+				Output:  "AssertionError: 2 != 3",
+				Failure: &python.StructuredFailure{Message: "AssertionError"},
+			},
+		},
+	}}}
+	if msg := mixed.ToProtoResponse("formula", "", 0).GetResult().GetMessage(); strings.Contains(msg, "env-blocked") {
+		t.Fatalf("mixed code and environment failures must stay an honest failure, got %q", msg)
+	}
+}
+
 // Selector-scoped zero-match is the CALLER naming tests that don't exist; the
 // environment may be perfectly healthy. It must carry the test-selection-error
 // tag — never env-blocked, which routes callers into environment repair (seen

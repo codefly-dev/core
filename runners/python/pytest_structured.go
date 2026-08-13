@@ -195,6 +195,12 @@ const (
 	// install of the editable project + deps) failed — a real environment block
 	// the healer can act on (wrong python, missing build dep, compile error).
 	EnvErrorProvisioningFailed = "provisioning-failed"
+	// EnvErrorRuntimeDataStale: the test runner executed cases, but every
+	// failing case stopped on a warning that says required runtime data is stale
+	// or expired. This is distinct from a code assertion: the environment needs
+	// fresh data or a narrowly scoped warning policy before the patch can be
+	// judged.
+	EnvErrorRuntimeDataStale = "runtime-data-stale"
 )
 
 // UnittestSummary is the aggregate a default-verbosity unittest runner prints
@@ -749,6 +755,19 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		runResult.State = runtimev0.TestRunResult_ERRORED
 		runResult.Message = fmt.Sprintf("%d run-level error(s)", counts.Errored)
 	}
+	// Runtime-data warning-as-error: historical/scientific projects commonly
+	// bundle time tables, certificate stores, schema caches, and similar data
+	// that expires independently of their source checkout. When EVERY failing
+	// case terminates on such a freshness warning, the candidate code has not
+	// received a verdict. Preserve the executed counts and state, but publish the
+	// explicit env-blocked tag so an orchestrator can repair the runtime layer.
+	// The all-failures guard in runtimeDataWarningBlockDetail prevents a real
+	// assertion from being hidden by an unrelated stale-data warning.
+	if counts.Failed+counts.Errored > 0 {
+		if detail := r.runtimeDataWarningBlockDetail(); detail != "" {
+			runResult.Message = fmt.Sprintf("env-blocked (%s): %s (%d test(s) failed)", EnvErrorRuntimeDataStale, detail, counts.Failed+counts.Errored)
+		}
+	}
 	// Environment block: the run could not EXECUTE the tests (zero cases + a
 	// non-zero exit — dep failed to install, project failed to import, ...). This
 	// is NOT "all passed" (the default when counts are zero); it is ERRORED so a
@@ -938,4 +957,95 @@ func (r *StructuredTestRun) dependencyWarningBlockDetail() string {
 		}
 	}
 	return "external dependency deprecation warning treated as error"
+}
+
+// runtimeDataWarningBlockDetail reports a one-line diagnosis when every
+// failed/errored case was interrupted by a warning about stale or expired
+// runtime data. The classifier is deliberately semantic rather than tied to a
+// package: historical projects may rely on leap-second tables, certificate
+// bundles, cached schemas, or other independently expiring data.
+//
+// A warning is not enough. Each failing case must contain both a warning signal
+// and a freshness signal, and assertion-shaped failures are rejected. This
+// keeps ordinary warning tests and real project regressions as code failures.
+func (r *StructuredTestRun) runtimeDataWarningBlockDetail() string {
+	failing := 0
+	detail := ""
+	for _, suite := range r.Suites {
+		for _, c := range suite.Cases {
+			if c.State != runtimev0.TestCaseState_TEST_CASE_STATE_FAILED &&
+				c.State != runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+				continue
+			}
+			failing++
+			var caseText strings.Builder
+			if c.Failure != nil {
+				caseText.WriteString(c.Failure.Message)
+				caseText.WriteString("\n")
+				caseText.WriteString(c.Failure.Detail)
+				caseText.WriteString("\n")
+			}
+			caseText.WriteString(c.Output)
+			text := caseText.String()
+			low := strings.ToLower(text)
+			if runtimeDataAssertionFailure(low) ||
+				!strings.Contains(low, "warning") ||
+				!runtimeDataFreshnessFailure(low) {
+				return ""
+			}
+			if detail == "" {
+				detail = runtimeDataWarningLine(text)
+			}
+		}
+	}
+	if failing == 0 {
+		return ""
+	}
+	if detail == "" {
+		return "required runtime data is stale or expired"
+	}
+	return "required runtime data is stale or expired: " + detail
+}
+
+func runtimeDataAssertionFailure(low string) bool {
+	for _, signal := range []string{
+		"assertionerror", "pytest.fail", "failed: did not warn", "failed: no warning",
+	} {
+		if strings.Contains(low, signal) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeDataFreshnessFailure(low string) bool {
+	if strings.Contains(low, "auto-update failed") || strings.Contains(low, "automatic update failed") {
+		return true
+	}
+	freshness := strings.Contains(low, "stale") || strings.Contains(low, "expired") || strings.Contains(low, "out of date") || strings.Contains(low, "out-of-date")
+	if !freshness {
+		return false
+	}
+	for _, dataSignal := range []string{"data", "file", "table", "cache", "database", "bundle", "catalog", "schema"} {
+		if strings.Contains(low, dataSignal) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeDataWarningLine(text string) string {
+	const capLen = 400
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		low := strings.ToLower(trimmed)
+		if trimmed == "" || !strings.Contains(low, "warning") || !runtimeDataFreshnessFailure(low) {
+			continue
+		}
+		if len(trimmed) > capLen {
+			return trimmed[:capLen]
+		}
+		return trimmed
+	}
+	return ""
 }
