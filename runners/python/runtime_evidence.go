@@ -92,7 +92,7 @@ func RuntimeEvidenceForFormula(sourceDir string, cmd []string, output string, en
 	}
 	// The healer reads this evidence to repair blocked environments; name the
 	// levers it can set so it does not have to guess the plugin's vocabulary.
-	b.WriteString("  settable_provisioning_keys: python, exclude_newer, editable, no_project, requirements, with, dependency_groups, extras, no_build_isolation, cwd\n")
+	b.WriteString("  settable_provisioning_keys: python, exclude_newer, editable, no_project, requirements, with, dependency_groups, extras, no_build_isolation, persistent_venv, cwd\n")
 	b.WriteString("  settable_environment_path: test.env.<NAME> (for example test.env.CFLAGS)\n")
 	return strings.TrimRight(b.String(), "\n")
 }
