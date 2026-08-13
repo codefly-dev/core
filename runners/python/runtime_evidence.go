@@ -90,10 +90,28 @@ func RuntimeEvidenceForFormula(sourceDir string, cmd []string, output string, en
 			b.WriteString("    - " + src.Kind + ": " + src.Path + "\n")
 		}
 	}
-	// The healer reads this evidence to repair blocked environments; name the
-	// levers it can set so it does not have to guess the plugin's vocabulary.
-	b.WriteString("  settable_provisioning_keys: python, exclude_newer, editable, no_project, requirements, with, dependency_groups, extras, no_build_isolation, persistent_venv, cwd\n")
-	b.WriteString("  settable_environment_path: test.env.<NAME> (for example test.env.CFLAGS)\n")
+	// ARCHITECTURE: This is the model-visible configuration contract at the
+	// project/runtime boundary. Mind must stay language-agnostic, so the Python
+	// plugin owns both the vocabulary and the value semantics. A bare key list
+	// proved too weak: callers confused requirement FILES with package SPECS and
+	// used editable=false as a build workaround even though it removes the
+	// project from the test environment. Keep the contract beside the formula
+	// evidence so every typed environment block is self-describing.
+	b.WriteString(`  settable_configuration:
+    test.provisioning.python: SET a CPython version (for example "3.10"); UNSET restores project derivation
+    test.provisioning.exclude_newer: SET an RFC3339 dependency publication cutoff; UNSET restores project derivation
+    test.provisioning.editable: SET true to install the code-unit root editable; false deliberately omits that source install; UNSET restores project derivation
+    test.provisioning.no_project: SET true or false; UNSET restores project derivation
+    test.provisioning.requirements: SET or APPEND code-unit-relative requirement FILE paths (for example "requirements/test.txt"), never package specs
+    test.provisioning.with: SET or APPEND Python package requirement SPECS (for example "pytest" or "Werkzeug<3"), never paths or placeholders
+    test.provisioning.dependency_groups: SET or APPEND project-declared dependency group names
+    test.provisioning.extras: SET or APPEND project-declared extra names
+    test.provisioning.no_build_isolation: SET true when an editable PEP 517 build cannot import its declared build backend/requirements; the plugin materializes declared build requirements; UNSET restores project derivation
+    test.provisioning.persistent_venv: SET true or false; UNSET restores project derivation
+    test.provisioning.cwd: SET a code-unit-relative existing test working directory; UNSET restores project derivation
+    test.env.<NAME>: SET a diagnostic-proven environment variable (for example test.env.CFLAGS); UNSET removes the override
+  recovery_policy: preserve the project source install, change only the smallest diagnostic-supported setting, probe after each atomic repair, and UNSET disproven experiments
+`)
 	return strings.TrimRight(b.String(), "\n")
 }
 
