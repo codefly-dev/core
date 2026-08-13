@@ -414,6 +414,59 @@ build-backend = "setuptools.build_meta"
 	}
 }
 
+// Historical setuptools projects declare their complete test environment in
+// setup.cfg rather than PEP 621 metadata. Derivation must select the focused
+// test extra and leave broader/unrelated extras alone; otherwise the recovery
+// loop discovers every missing package one probe at a time.
+func TestDeriveProvisioningIncludesSetupCfgTestExtra(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "pyproject.toml", `[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+`)
+	writeFile(t, dir, "setup.cfg", `[metadata]
+name = demo
+
+[options]
+packages = find:
+
+[options.extras_require]
+test =
+    declared-test-tool==1
+test_all =
+    declared-test-tool==1
+    unrelated-heavy-tool
+recommended =
+    unrelated-runtime-tool
+`)
+
+	prov := deriveProvisioning(dir)
+	if got, want := prov["extras"], "test"; got != want {
+		t.Fatalf("extras = %q, want focused setup.cfg extra %q", got, want)
+	}
+	if prov["persistent_venv"] != "true" {
+		t.Fatalf("declared setup.cfg test extra must use one materialized environment: %+v", prov)
+	}
+	if prov["editable"] != "true" {
+		t.Fatalf("setup.cfg package must remain editable: %+v", prov)
+	}
+}
+
+func TestDeriveProvisioningUsesSetupCfgDevelopmentExtraWhenNoFocusedTestExtraExists(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "setup.cfg", `[options.extras_require]
+development =
+    declared-development-tool
+device =
+    substring-must-not-match
+`)
+
+	prov := deriveProvisioning(dir)
+	if got, want := prov["extras"], "development"; got != want {
+		t.Fatalf("extras = %q, want %q", got, want)
+	}
+}
+
 // django's runtests.py recreates test DBs on every run (minutes each);
 // --keepdb is auto-injected so the agent's repeated reproduce→edit→verify
 // runs and the grader reuse the DB. No-op for pytest; idempotent.

@@ -29,7 +29,7 @@ func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.
 		t.Fatalf("dependency install:\n got %q\nwant %q", dependencies, wantDependencies)
 	}
 	editable := strings.Join(venvEditableInstallArgs("/w/.mind-venv/bin/python", spec), " ")
-	wantEditable := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z --no-build-isolation --extra test --extra testing -e /w"
+	wantEditable := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z --no-build-isolation -e /w[test,testing]"
 	if editable != wantEditable {
 		t.Fatalf("editable install:\n got %q\nwant %q", editable, wantEditable)
 	}

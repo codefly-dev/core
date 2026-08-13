@@ -177,16 +177,16 @@ func venvEditableInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 	if spec.NoBuildIsolation {
 		args = append(args, "--no-build-isolation")
 	}
-	for _, extra := range spec.Extras {
-		if extra != "" {
-			args = append(args, "--extra", extra)
-		}
-	}
 	target := spec.EditableTarget
 	if target == "" {
 		target = "."
 	}
-	args = append(args, "-e", target)
+	// `uv pip install` resolves extras on an explicit requirement target. Its
+	// project-level --extra flag is for lock/project discovery and rejects this
+	// standalone target form even when setup.cfg is present. Preserve the
+	// standard editable requirement spelling for both modern uv and the
+	// historical-pip fallback.
+	args = append(args, "-e", editableTargetWithExtras(target, spec.Extras))
 	return args
 }
 
