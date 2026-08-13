@@ -87,11 +87,16 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 		}
 
 		// PEP 660 was standardized before every historical build backend
-		// implemented build_editable. The pip version available at the source
-		// commit date is already installed in this venv and owns the standard
-		// compatibility path for those backends (setup.py develop for old
-		// setuptools). Reuse that real packaging implementation instead of
-		// reproducing it in Codefly or allowing a post-commit setuptools release.
+		// implemented build_editable. First let uv resolve and install the same
+		// project through its standard wheel contract. That preserves
+		// ExcludeNewer for runtime and extra dependencies even though historical
+		// pip has no equivalent resolver cutoff. The pip version available at the
+		// source commit date then owns only the compatibility link (setup.py
+		// develop for old setuptools), with dependency resolution disabled.
+		resolvedArgs := venvResolvedProjectInstallArgs(pyPath, spec)
+		if resolvedOut, resolvedErr := runUv(ctx, sourceDir, resolvedArgs, spec.Env); resolvedErr != nil {
+			return "", fmt.Errorf("editable project install failed with PEP 660 and historical wheel resolution: editable: %v\n%s\nwheel: %v\n%s", err, out, resolvedErr, resolvedOut)
+		}
 		fallbackArgs := venvHistoricalEditableInstallArgs(spec)
 		if fallbackOut, fallbackErr := runExecutable(ctx, sourceDir, pyPath, fallbackArgs, spec.Env); fallbackErr != nil {
 			return "", fmt.Errorf("editable project install failed with PEP 660 and historical pip fallback: uv: %v\n%s\npip: %v\n%s", err, out, fallbackErr, fallbackOut)
@@ -170,6 +175,18 @@ func readBuildSystemRequirements(sourceDir string) ([]string, error) {
 // dependency step above has already populated the venv, so a no-isolation
 // editable build can safely import its declared backend requirements.
 func venvEditableInstallArgs(pyPath string, spec TestFormulaSpec) []string {
+	return venvProjectInstallArgs(pyPath, spec, true)
+}
+
+// venvResolvedProjectInstallArgs builds the non-editable wheel invocation used
+// before the historical-pip compatibility link. uv remains the sole dependency
+// resolver, so ExcludeNewer governs project runtime dependencies and extras on
+// both the PEP 660 path and the legacy setup.py-develop path.
+func venvResolvedProjectInstallArgs(pyPath string, spec TestFormulaSpec) []string {
+	return venvProjectInstallArgs(pyPath, spec, false)
+}
+
+func venvProjectInstallArgs(pyPath string, spec TestFormulaSpec, editable bool) []string {
 	args := []string{"pip", "install", "--python", pyPath}
 	if spec.ExcludeNewer != "" {
 		args = append(args, "--exclude-newer", spec.ExcludeNewer)
@@ -186,7 +203,10 @@ func venvEditableInstallArgs(pyPath string, spec TestFormulaSpec) []string {
 	// standalone target form even when setup.cfg is present. Preserve the
 	// standard editable requirement spelling for both modern uv and the
 	// historical-pip fallback.
-	args = append(args, "-e", editableTargetWithExtras(target, spec.Extras))
+	if editable {
+		args = append(args, "-e")
+	}
+	args = append(args, editableTargetWithExtras(target, spec.Extras))
 	return args
 }
 
@@ -205,11 +225,12 @@ func editableHookUnavailable(output string) bool {
 }
 
 // venvHistoricalEditableInstallArgs builds argv for `<venv-python> -m pip`.
-// Declared requirements and backend dependencies were materialized by uv
-// first. Historical pip then owns the complete editable-install contract,
-// including the project's runtime dependencies, just as it did at that date.
+// Declared requirements, backend dependencies, project runtime dependencies,
+// and extras were materialized by uv first. Historical pip owns only the
+// editable-link compatibility contract and must never re-resolve dependencies
+// without uv's historical cutoff.
 func venvHistoricalEditableInstallArgs(spec TestFormulaSpec) []string {
-	args := []string{"-m", "pip", "install"}
+	args := []string{"-m", "pip", "install", "--no-deps"}
 	if spec.NoBuildIsolation {
 		args = append(args, "--no-build-isolation")
 	}

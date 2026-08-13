@@ -248,6 +248,76 @@ class DeclaredExtraTest(unittest.TestCase):
 	}
 }
 
+// A pre-PEP-660 setuptools backend must not give dependency resolution back to
+// historical pip. This real uv + setuptools 63 environment exercises the
+// complete fallback: uv installs the project wheel and declared test extra,
+// then pip's setup.py-develop compatibility path creates only the editable
+// link. The test imports a local extra, so passing proves the uv-owned
+// dependency transaction completed before the legacy link.
+func TestRunFormulaStructuredLegacyEditableKeepsUvOwnedExtras(t *testing.T) {
+	requireUv(t)
+	root := t.TempDir()
+	helper := filepath.Join(t.TempDir(), "codefly-legacy-extra")
+	if err := os.MkdirAll(filepath.Join(helper, "src", "codefly_legacy_extra"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, helper, "pyproject.toml", `[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codefly-legacy-extra"
+version = "1.0.0"
+`)
+	writeFile(t, helper, "src/codefly_legacy_extra/__init__.py", "VALUE = 'uv-owned-extra'\n")
+	writeFile(t, root, "pyproject.toml", `[build-system]
+requires = ["setuptools==63.2.0", "wheel"]
+build-backend = "setuptools.build_meta"
+`)
+	writeFile(t, root, "setup.cfg", `[metadata]
+name = codefly-legacy-editable
+version = 1.0.0
+
+[options]
+py_modules = legacy_subject
+
+[options.extras_require]
+test =
+    codefly-legacy-extra @ file://`+helper+`
+`)
+	writeFile(t, root, "setup.py", "from setuptools import setup\nsetup()\n")
+	writeFile(t, root, "legacy_subject.py", "SUBJECT = True\n")
+	writeFile(t, root, "test_legacy_extra.py", `import unittest
+import codefly_legacy_extra
+
+class LegacyExtraTest(unittest.TestCase):
+    def test_uv_materialized_extra(self):
+        self.assertEqual(codefly_legacy_extra.VALUE, "uv-owned-extra")
+`)
+
+	provisioning := deriveProvisioning(root)
+	provisioning["exclude_newer"] = "2022-07-27T14:44:33Z"
+	provisioning["no_build_isolation"] = "true"
+	spec := SpecFromFormula(
+		[]string{"python", "-m", "unittest", "-v", "test_legacy_extra"},
+		OutputUnittestText,
+		nil,
+		provisioning,
+		nil,
+	)
+	run, err := RunFormulaStructured(context.Background(), root, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.EnvError != nil {
+		t.Fatalf("legacy editable environment did not materialize: %+v\n%s", run.EnvError, run.RawOutput)
+	}
+	response := run.ToProtoResponse("formula", "", 0)
+	if response.GetResult().GetState() != runtimev0.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
+		t.Fatalf("result = %+v, counts = %+v\n%s", response.GetResult(), response.GetCounts(), run.RawOutput)
+	}
+}
+
 func TestSpecFromFormulaKeepsExplicitJUnitRunnerConstraint(t *testing.T) {
 	spec := SpecFromFormula(
 		[]string{"pytest"},
