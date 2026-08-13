@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -60,7 +61,7 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 		venvArgs = append(venvArgs, "--python", spec.Python)
 	}
 	venvArgs = append(venvArgs, venvDir)
-	if out, err := runUv(ctx, sourceDir, venvArgs); err != nil {
+	if out, err := runUv(ctx, sourceDir, venvArgs, spec.Env); err != nil {
 		return "", fmt.Errorf("uv venv failed: %v\n%s", err, out)
 	}
 
@@ -71,7 +72,7 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 	//    so the backend can still fail to import them even though they are present
 	//    in the argv.
 	if dependencyArgs := venvDependencyInstallArgs(pyPath, spec, buildRequirements); len(dependencyArgs) > 0 {
-		if out, err := runUv(ctx, sourceDir, dependencyArgs); err != nil {
+		if out, err := runUv(ctx, sourceDir, dependencyArgs, spec.Env); err != nil {
 			return "", fmt.Errorf("uv pip install requirements and build dependencies failed: %v\n%s", err, out)
 		}
 	}
@@ -80,7 +81,7 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 	//    is materialized. --no-build-isolation is now safe because the backend
 	//    can import the static packages declared by [build-system].requires.
 	installArgs := venvEditableInstallArgs(pyPath, spec)
-	if out, err := runUv(ctx, sourceDir, installArgs); err != nil {
+	if out, err := runUv(ctx, sourceDir, installArgs, spec.Env); err != nil {
 		if !editableHookUnavailable(out) {
 			return "", fmt.Errorf("uv pip install (editable project) failed: %v\n%s", err, out)
 		}
@@ -92,7 +93,7 @@ func ensurePersistentVenv(ctx context.Context, sourceDir string, spec TestFormul
 		// setuptools). Reuse that real packaging implementation instead of
 		// reproducing it in Codefly or allowing a post-commit setuptools release.
 		fallbackArgs := venvHistoricalEditableInstallArgs(spec)
-		if fallbackOut, fallbackErr := runExecutable(ctx, sourceDir, pyPath, fallbackArgs); fallbackErr != nil {
+		if fallbackOut, fallbackErr := runExecutable(ctx, sourceDir, pyPath, fallbackArgs, spec.Env); fallbackErr != nil {
 			return "", fmt.Errorf("editable project install failed with PEP 660 and historical pip fallback: uv: %v\n%s\npip: %v\n%s", err, out, fallbackErr, fallbackOut)
 		}
 	}
@@ -248,16 +249,27 @@ func venvProvisionHash(spec TestFormulaSpec, buildRequirements []string) string 
 	builds := append([]string{}, buildRequirements...)
 	groups := append([]string{}, spec.DependencyGroups...)
 	extras := append([]string{}, spec.Extras...)
+	environment := make([]string, 0, len(spec.Env))
+	for _, variable := range spec.Env {
+		if variable == nil || strings.TrimSpace(variable.Key) == "" {
+			continue
+		}
+		environment = append(environment, variable.Key+"="+variable.ValueAsString())
+	}
 	sort.Strings(reqs)
 	sort.Strings(withs)
 	sort.Strings(builds)
 	sort.Strings(groups)
 	sort.Strings(extras)
+	sort.Strings(environment)
 	parts = append(parts, "req="+strings.Join(reqs, ","))
 	parts = append(parts, "with="+strings.Join(withs, ","))
 	parts = append(parts, "build="+strings.Join(builds, ","))
 	parts = append(parts, "groups="+strings.Join(groups, ","))
 	parts = append(parts, "extras="+strings.Join(extras, ","))
+	// Build environment is part of the compiled editable installation. A
+	// recovered CFLAGS/CC value must invalidate a venv created without it.
+	parts = append(parts, "env="+strings.Join(environment, "\x00"))
 	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return hex.EncodeToString(sum[:])
 }
@@ -270,14 +282,46 @@ func venvInterpreter(venvDir string) string {
 	return filepath.Join(venvDir, "bin", "python")
 }
 
-func runUv(ctx context.Context, dir string, args []string) (string, error) {
-	return runExecutable(ctx, dir, "uv", args)
+func runUv(ctx context.Context, dir string, args []string, environment []*resources.EnvironmentVariable) (string, error) {
+	return runExecutable(ctx, dir, "uv", args, environment)
 }
 
-func runExecutable(ctx context.Context, dir, executable string, args []string) (string, error) {
+// runExecutable applies the typed test environment to every provisioning
+// subprocess. ARCHITECTURE: persistent-venv creation, dependency resolution,
+// editable installation, and historical-pip fallback are all part of the same
+// test formula contract as execution; delaying these variables until pytest
+// starts makes compiler recovery impossible.
+func runExecutable(ctx context.Context, dir, executable string, args []string, environment []*resources.EnvironmentVariable) (string, error) {
 	cmd := exec.CommandContext(ctx, executable, args...)
 	cmd.Dir = dir
-	cmd.Env = os.Environ()
+	cmd.Env = processEnvironment(environment...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// processEnvironment overlays typed values onto the ambient process
+// environment without emitting duplicate keys. Later values win, matching the
+// configuration contract used by test formula execution.
+func processEnvironment(environment ...*resources.EnvironmentVariable) []string {
+	result := append([]string(nil), os.Environ()...)
+	positions := make(map[string]int, len(result)+len(environment))
+	for index, entry := range result {
+		key, _, found := strings.Cut(entry, "=")
+		if found {
+			positions[key] = index
+		}
+	}
+	for _, variable := range environment {
+		if variable == nil || strings.TrimSpace(variable.Key) == "" {
+			continue
+		}
+		entry := variable.Key + "=" + variable.ValueAsString()
+		if index, found := positions[variable.Key]; found {
+			result[index] = entry
+			continue
+		}
+		positions[variable.Key] = len(result)
+		result = append(result, entry)
+	}
+	return result
 }
