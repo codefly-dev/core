@@ -625,9 +625,9 @@ func iniKey(line string) (key, val string, ok bool) {
 // deriveProvisioning reads the project's packaging metadata and produces the uv
 // provisioning map SpecFromFormula consumes: no_project + editable install,
 // python version (pyproject requires-python / .python-version), requirement
-// files (requirements*.txt, requirements/*.txt), and test extras (pyproject
-// optional-dependencies test/tests/dev). Best-effort: every field is optional and
-// the tooling inner loop heals what derivation can't see.
+// files (requirements*.txt, requirements/*.txt), and declared test extras/groups
+// (PEP 621/735 or setuptools setup.cfg). Best-effort: every field is optional
+// and the tooling inner loop heals what derivation can't see.
 func deriveProvisioning(dir string) map[string]string {
 	prov := map[string]string{"no_project": "true"}
 	// --with-editable . only makes sense when the project IS an installable
@@ -664,7 +664,7 @@ func deriveProvisioning(dir string) map[string]string {
 	// Test tooling is often deliberately absent from the installable package's
 	// runtime dependencies. Preserve that distinction and ask uv to materialize
 	// the project's declared test/dev dependency groups and optional extras. The
-	// names come from TOML structure; uv remains the dependency implementation.
+	// names come from packaging structure; uv remains the dependency implementation.
 	groups, extras := deriveTestDependencySets(dir)
 	if len(groups) > 0 {
 		prov["dependency_groups"] = strings.Join(groups, ",")
@@ -692,27 +692,100 @@ type pyprojectDependencySets struct {
 // test/development intent. This is naming-policy, not package inference: no
 // dependency or framework name is inspected or invented.
 func deriveTestDependencySets(dir string) (groups, extras []string) {
-	payload, err := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+	groupNames := map[string]struct{}{}
+	extraNames := map[string]struct{}{}
+	if payload, err := os.ReadFile(filepath.Join(dir, "pyproject.toml")); err == nil {
+		var project pyprojectDependencySets
+		if toml.Unmarshal(payload, &project) == nil {
+			for name := range project.DependencyGroups {
+				groupNames[name] = struct{}{}
+			}
+			for name := range project.Project.OptionalDependencies {
+				extraNames[name] = struct{}{}
+			}
+		}
+	}
+	for _, name := range setupCfgExtraNames(dir) {
+		extraNames[name] = struct{}{}
+	}
+	return declaredTestDependencySetNames(groupNames), preferredTestExtraNames(extraNames)
+}
+
+// setupCfgExtraNames reads only option names from setuptools' declarative
+// [options.extras_require] section. Dependency values remain opaque and uv
+// resolves them through the selected extra. Supporting this current setuptools
+// contract is essential for historical projects that predate PEP 621 but still
+// declare a complete test environment.
+func setupCfgExtraNames(dir string) []string {
+	payload, err := os.ReadFile(filepath.Join(dir, "setup.cfg"))
 	if err != nil {
-		return nil, nil
+		return nil
 	}
-	var project pyprojectDependencySets
-	if err := toml.Unmarshal(payload, &project); err != nil {
-		return nil, nil
-	}
-	for name := range project.DependencyGroups {
-		if testDependencySetName(name) {
-			groups = append(groups, name)
+	inExtras := false
+	names := map[string]struct{}{}
+	for _, raw := range strings.Split(string(payload), "\n") {
+		line := strings.TrimRight(raw, "\r")
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			inExtras = strings.EqualFold(strings.TrimSpace(trimmed[1:len(trimmed)-1]), "options.extras_require")
+			continue
+		}
+		if !inExtras || trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		// Indented lines are requirement continuations, not option names.
+		if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+			continue
+		}
+		if name, _, ok := iniKey(trimmed); ok && name != "" {
+			names[name] = struct{}{}
 		}
 	}
-	for name := range project.Project.OptionalDependencies {
+	all := make([]string, 0, len(names))
+	for name := range names {
+		all = append(all, name)
+	}
+	sort.Strings(all)
+	return all
+}
+
+func declaredTestDependencySetNames(names map[string]struct{}) []string {
+	selected := make([]string, 0, len(names))
+	for name := range names {
 		if testDependencySetName(name) {
-			extras = append(extras, name)
+			selected = append(selected, name)
 		}
 	}
-	sort.Strings(groups)
-	sort.Strings(extras)
-	return groups, extras
+	sort.Strings(selected)
+	return selected
+}
+
+// preferredTestExtraNames chooses declared extra names, never individual
+// packages. When a project offers a focused conventional test extra alongside
+// broader sets such as test_all or development, the focused set is
+// authoritative; installing every broader extra makes narrow test execution
+// slower and can introduce unrelated dependency conflicts. Dependency groups
+// intentionally retain all matching groups because PEP 735 groups may include
+// one another and do not have setuptools' common test/test_all convention.
+func preferredTestExtraNames(names map[string]struct{}) []string {
+	var focused, fallback []string
+	for name := range names {
+		if !testDependencySetName(name) {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case "test", "tests", "testing":
+			focused = append(focused, name)
+		default:
+			fallback = append(fallback, name)
+		}
+	}
+	if len(focused) > 0 {
+		sort.Strings(focused)
+		return focused
+	}
+	sort.Strings(fallback)
+	return fallback
 }
 
 // testDependencySetName recognizes conventional intent tokens without fuzzy

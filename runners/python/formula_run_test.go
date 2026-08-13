@@ -160,6 +160,94 @@ func TestSpecFromFormulaMaterializesJUnitRunner(t *testing.T) {
 	}
 }
 
+// This is the production contract exercised by historical projects such as
+// Astropy: setup.cfg declares the test extra, derivation selects its NAME, and
+// the real uv persistent environment materializes the extra before execution.
+// The dependency is a real local package so the proof is deterministic and
+// does not rely on anything installed in the host interpreter.
+func TestRunFormulaStructuredMaterializesSetupCfgTestExtra(t *testing.T) {
+	requireUv(t)
+	root := t.TempDir()
+	helper := filepath.Join(t.TempDir(), "codefly-test-helper")
+	if err := os.MkdirAll(filepath.Join(helper, "src", "codefly_test_helper"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(helper, "pyproject.toml"), []byte(`[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codefly-test-helper"
+version = "1.0.0"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(helper, "src", "codefly_test_helper", "__init__.py"), []byte("VALUE = 'declared-extra-materialized'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setupCfg := `[metadata]
+name = codefly-setupcfg-subject
+version = 1.0.0
+
+[options]
+py_modules = subject
+
+[options.extras_require]
+test =
+    codefly-test-helper @ file://` + helper + `
+test_all =
+    codefly-test-helper @ file://` + helper + `
+`
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte(`[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "setup.cfg"), []byte(setupCfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "setup.py"), []byte("from setuptools import setup\nsetup()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "subject.py"), []byte("SUBJECT = True\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testBody := `import unittest
+import codefly_test_helper
+
+class DeclaredExtraTest(unittest.TestCase):
+    def test_extra_is_materialized(self):
+        self.assertEqual(codefly_test_helper.VALUE, "declared-extra-materialized")
+`
+	if err := os.WriteFile(filepath.Join(root, "test_declared_extra.py"), []byte(testBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	provisioning := deriveProvisioning(root)
+	if provisioning["extras"] != "test" {
+		t.Fatalf("derived provisioning = %+v, want focused setup.cfg test extra", provisioning)
+	}
+	spec := SpecFromFormula(
+		[]string{"python", "-m", "unittest", "-v", "test_declared_extra"},
+		OutputUnittestText,
+		nil,
+		provisioning,
+		nil,
+	)
+	run, err := RunFormulaStructured(context.Background(), root, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.EnvError != nil {
+		t.Fatalf("setup.cfg extra was not materialized: %+v\n%s", run.EnvError, run.RawOutput)
+	}
+	response := run.ToProtoResponse("formula", "", 0)
+	if response.GetResult().GetState() != runtimev0.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
+		t.Fatalf("result = %+v, counts = %+v\n%s", response.GetResult(), response.GetCounts(), run.RawOutput)
+	}
+}
+
 func TestSpecFromFormulaKeepsExplicitJUnitRunnerConstraint(t *testing.T) {
 	spec := SpecFromFormula(
 		[]string{"pytest"},
