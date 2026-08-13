@@ -75,6 +75,13 @@ type TestFormulaSpec struct {
 	// Env are extra environment variables for the run.
 	Env []*resources.EnvironmentVariable
 
+	// ExecutionMode distinguishes a health probe from a complete test run when
+	// the runner scope is expressed entirely by command options (for example a
+	// pytest -k name expression) and therefore has no positional Selectors.
+	// Auto preserves the historical contract: zero selectors probe until the
+	// environment materializes; one or more selectors run to completion.
+	ExecutionMode FormulaExecutionMode
+
 	// PersistentVenv opts into building the editable project + its deps ONCE
 	// into a persistent per-workspace venv, then running tests against that venv
 	// WITHOUT `--with-editable`. It caches both standards-isolated PEP 517 builds
@@ -88,6 +95,20 @@ type TestFormulaSpec struct {
 	// RunFormulaStructured, never by callers.
 	venvPython string
 }
+
+// FormulaExecutionMode controls whether a formula proves environment
+// materialization or executes its selected test scope to completion.
+type FormulaExecutionMode uint8
+
+const (
+	// FormulaExecutionAuto derives probe behavior from positional selectors.
+	FormulaExecutionAuto FormulaExecutionMode = iota
+	// FormulaExecutionProbe stops as soon as the runner has materialized.
+	FormulaExecutionProbe
+	// FormulaExecutionComplete always waits for the test result, including when
+	// scope is expressed only through runner-owned command options.
+	FormulaExecutionComplete
+)
 
 const (
 	OutputJUnitXML     = "junit-xml"
@@ -512,10 +533,14 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 	// selectors purely to prove the environment MATERIALIZES (uv resolves, the
 	// project imports, the runner launches). Stream the output and cancel the
 	// INSTANT the runner launches instead of waiting out a full multi-thousand-
-	// test suite — turning a ~15-min django pre-warm into ~1-2 min. Real runs
-	// (agent test.run, grader) always carry selectors, so they run to
-	// completion and never early-stop.
-	probe := len(spec.Selectors) == 0
+	// test suite — turning a ~15-min django pre-warm into ~1-2 min. A complete
+	// run may still have no positional selectors when its scope is carried by a
+	// runner-owned option such as pytest -k, so callers can override Auto
+	// explicitly rather than smuggling flags into Selectors.
+	probe, modeErr := formulaProbeMode(spec)
+	if modeErr != nil {
+		return nil, modeErr
+	}
 	rawStr, runErr, materializedEarly := executeFormulaUV(ctx, runDir, args, commandEnv, probe)
 	// uv deliberately hides backend stderr on its normal path and can return
 	// only "The build backend returned an error". That classification is not
@@ -614,6 +639,19 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 		}
 	}
 	return run, nil
+}
+
+func formulaProbeMode(spec TestFormulaSpec) (bool, error) {
+	switch spec.ExecutionMode {
+	case FormulaExecutionAuto:
+		return len(spec.Selectors) == 0, nil
+	case FormulaExecutionProbe:
+		return true, nil
+	case FormulaExecutionComplete:
+		return false, nil
+	default:
+		return false, fmt.Errorf("unknown Python formula execution mode %d", spec.ExecutionMode)
+	}
 }
 
 // executeFormulaUV owns one uv process execution, including process-group

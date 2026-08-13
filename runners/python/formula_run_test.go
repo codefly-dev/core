@@ -473,6 +473,43 @@ func TestRunFormulaStructured_ZeroTestsExecutedIsEnvError(t *testing.T) {
 	}
 }
 
+// A complete run may carry its scope entirely in runner-owned command options
+// and therefore have no positional selectors. It must execute to a structured
+// result instead of being mistaken for an environment pre-warm probe.
+func TestRunFormulaStructured_CompleteModeRunsWithoutSelectors(t *testing.T) {
+	requireUv(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "test_sample.py"), []byte("def test_selected():\n    assert 2 + 2 == 4\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec := SpecFromFormula(
+		[]string{"pytest", "test_sample.py"},
+		OutputJUnitXML,
+		nil,
+		map[string]string{"no_project": "true"},
+		nil,
+	)
+	spec.ExtraArgs = append(spec.ExtraArgs, "-k", "test_selected")
+	spec.ExecutionMode = FormulaExecutionComplete
+	run, err := RunFormulaStructured(context.Background(), root, spec)
+	if err != nil {
+		t.Fatalf("RunFormulaStructured: %v", err)
+	}
+	if run.EnvError != nil {
+		t.Fatalf("complete filter-only run returned environment error: %+v\n%s", run.EnvError, run.RawOutput)
+	}
+	if run.Materialized || run.caseCount() != 1 {
+		t.Fatalf("complete filter-only run materialized=%t cases=%d, want one completed case\n%s", run.Materialized, run.caseCount(), run.RawOutput)
+	}
+}
+
+func TestFormulaProbeModeRejectsUnknownMode(t *testing.T) {
+	_, err := formulaProbeMode(TestFormulaSpec{ExecutionMode: FormulaExecutionMode(99)})
+	if err == nil || !strings.Contains(err.Error(), "execution mode 99") {
+		t.Fatalf("unknown mode error = %v", err)
+	}
+}
+
 // Selectors that match nothing classify DISTINCTLY (the command may be fine,
 // the selection is wrong) so healers/callers can tell the two apart.
 func TestRunFormulaStructured_ZeroTestsMatchedSelectors(t *testing.T) {
