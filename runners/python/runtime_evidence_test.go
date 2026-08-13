@@ -21,6 +21,8 @@ func TestRuntimeEvidenceReportsDetectedEnvironment(t *testing.T) {
 		"test_command: python -m pytest",
 		"test_output: junit-xml",
 		"uv_args: uv run",
+		"settable_provisioning_keys:",
+		"persistent_venv",
 		"settable_environment_path: test.env.<NAME>",
 		"test command declaration: tox.ini",
 		"python project/environment declaration: pyproject.toml",

@@ -769,6 +769,9 @@ const (
 	ConfigChange_SET ConfigChange_Op = 1
 	// APPEND adds the value to a comma-separated / list field at path.
 	ConfigChange_APPEND ConfigChange_Op = 2
+	// UNSET removes the persisted value at path. The plugin may then derive an
+	// effective value from project declarations or its own defaults.
+	ConfigChange_UNSET ConfigChange_Op = 3
 )
 
 // Enum value maps for ConfigChange_Op.
@@ -777,11 +780,13 @@ var (
 		0: "UNKNOWN",
 		1: "SET",
 		2: "APPEND",
+		3: "UNSET",
 	}
 	ConfigChange_Op_value = map[string]int32{
 		"UNKNOWN": 0,
 		"SET":     1,
 		"APPEND":  2,
+		"UNSET":   3,
 	}
 )
 
@@ -3597,14 +3602,16 @@ func (x *UpgradeResponse) GetLockfileDiff() string {
 	return ""
 }
 
-// ConfigChange sets or appends a value at a dotted path into the service config
-// (service.codefly.yaml). The paths + valid values are those the plugin
-// advertises in GetAgentInformation's configuration_details.
+// ConfigChange sets, appends, or removes an explicit value at a dotted path in
+// the service config (service.codefly.yaml). Removing an explicit value lets
+// the owning plugin's project-derived default become effective again. The
+// paths + valid values are those the plugin advertises in
+// GetAgentInformation's configuration_details.
 type ConfigChange struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// path is a dotted config path, e.g. "test.provisioning.with".
 	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	// value is the value to set or append.
+	// value is the value to set or append. It is ignored for UNSET.
 	Value string `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
 	// op is how to apply value at path.
 	Op            ConfigChange_Op `protobuf:"varint,3,opt,name=op,proto3,enum=codefly.services.builder.v0.ConfigChange_Op" json:"op,omitempty"`
@@ -4074,16 +4081,17 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\x0fUpgradeResponse\x12@\n" +
 	"\x05state\x18\x01 \x01(\v2*.codefly.services.builder.v0.UpgradeStatusR\x05state\x12D\n" +
 	"\achanges\x18\x02 \x03(\v2*.codefly.services.builder.v0.UpgradeChangeR\achanges\x12#\n" +
-	"\rlockfile_diff\x18\x03 \x01(\tR\flockfileDiff\"\x9e\x01\n" +
+	"\rlockfile_diff\x18\x03 \x01(\tR\flockfileDiff\"\xa9\x01\n" +
 	"\fConfigChange\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\x12<\n" +
-	"\x02op\x18\x03 \x01(\x0e2,.codefly.services.builder.v0.ConfigChange.OpR\x02op\"&\n" +
+	"\x02op\x18\x03 \x01(\x0e2,.codefly.services.builder.v0.ConfigChange.OpR\x02op\"1\n" +
 	"\x02Op\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\a\n" +
 	"\x03SET\x10\x01\x12\n" +
 	"\n" +
-	"\x06APPEND\x10\x02\"W\n" +
+	"\x06APPEND\x10\x02\x12\t\n" +
+	"\x05UNSET\x10\x03\"W\n" +
 	"\x10ConfigureRequest\x12C\n" +
 	"\achanges\x18\x01 \x03(\v2).codefly.services.builder.v0.ConfigChangeR\achanges\"\xd9\x01\n" +
 	"\x0fConfigureStatus\x12I\n" +
