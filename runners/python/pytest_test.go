@@ -285,6 +285,12 @@ def test_project_built_from_git_version():
 		{"init"},
 		{"config", "user.email", "test@codefly.dev"},
 		{"config", "user.name", "codefly test"},
+		// Test repositories own their complete Git identity. Inheriting a
+		// developer's global commit/tag signing policy makes this headless
+		// fixture depend on an interactive key agent and fail before exercising
+		// Python.
+		{"config", "commit.gpgsign", "false"},
+		{"config", "tag.gpgsign", "false"},
 		{"add", "-A"},
 		{"commit", "-m", "init"},
 		{"tag", "-m", "release", "v1.2.3"},
