@@ -501,13 +501,12 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 
 	args := BuildUvArgs(spec, junitFile)
 
-	commandEnv := append(os.Environ(),
-		"PYTHONPYCACHEPREFIX="+filepath.Join(runtimeDir, "pycache"),
-		"COVERAGE_FILE="+filepath.Join(runtimeDir, "coverage"),
-	)
-	for _, ev := range spec.Env {
-		commandEnv = append(commandEnv, fmt.Sprintf("%s=%s", ev.Key, ev.Value))
+	commandEnvironment := []*resources.EnvironmentVariable{
+		{Key: "PYTHONPYCACHEPREFIX", Value: filepath.Join(runtimeDir, "pycache")},
+		{Key: "COVERAGE_FILE", Value: filepath.Join(runtimeDir, "coverage")},
 	}
+	commandEnvironment = append(commandEnvironment, spec.Env...)
+	commandEnv := processEnvironment(commandEnvironment...)
 
 	// PROBE MODE: a health/pre-warm probe runs the default command with NO
 	// selectors purely to prove the environment MATERIALIZES (uv resolves, the

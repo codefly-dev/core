@@ -1,8 +1,11 @@
 package python
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/codefly-dev/core/resources"
 )
 
 // The persistent venv materializes requirements/build dependencies in a
@@ -89,6 +92,44 @@ func TestVenvProvisionHashStableAndSensitive(t *testing.T) {
 	}
 	if venvProvisionHash(base, []string{"setuptools"}) == venvProvisionHash(base, []string{"setuptools", "wheel"}) {
 		t.Fatal("a changed PEP 517 build requirement set must change the hash")
+	}
+	withCompilerEnvironment := base
+	withCompilerEnvironment.Env = []*resources.EnvironmentVariable{{Key: "CFLAGS", Value: "-Wno-incompatible-function-pointer-types"}}
+	if venvProvisionHash(base, nil) == venvProvisionHash(withCompilerEnvironment, nil) {
+		t.Fatal("a changed build environment must invalidate the persistent venv")
+	}
+	reorderedEnvironment := base
+	reorderedEnvironment.Env = []*resources.EnvironmentVariable{
+		{Key: "CPPFLAGS", Value: "-DVALUE=1"},
+		{Key: "CFLAGS", Value: "-Wno-incompatible-function-pointer-types"},
+	}
+	oppositeOrder := base
+	oppositeOrder.Env = []*resources.EnvironmentVariable{
+		{Key: "CFLAGS", Value: "-Wno-incompatible-function-pointer-types"},
+		{Key: "CPPFLAGS", Value: "-DVALUE=1"},
+	}
+	if venvProvisionHash(reorderedEnvironment, nil) != venvProvisionHash(oppositeOrder, nil) {
+		t.Fatal("equivalent environment maps must have an order-independent provisioning hash")
+	}
+}
+
+// The persistent installer executes real uv/compiler child processes. Prove
+// its common subprocess boundary replaces an ambient value with the typed
+// formula value before relying on that boundary for editable builds.
+func TestRunExecutableForwardsTypedProvisioningEnvironment(t *testing.T) {
+	t.Setenv("CODEFLY_PERSISTENT_VENV_ENV", "ambient")
+	out, err := runExecutable(
+		context.Background(),
+		t.TempDir(),
+		"sh",
+		[]string{"-c", `printf %s "$CODEFLY_PERSISTENT_VENV_ENV"`},
+		[]*resources.EnvironmentVariable{{Key: "CODEFLY_PERSISTENT_VENV_ENV", Value: "configured"}},
+	)
+	if err != nil {
+		t.Fatalf("run real provisioning subprocess: %v", err)
+	}
+	if out != "configured" {
+		t.Fatalf("provisioning environment = %q, want configured", out)
 	}
 }
 
