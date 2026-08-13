@@ -36,3 +36,32 @@ func RenderTestSelection(selection *runtimev0.TestSelection, command []string, c
 		return nil, fmt.Errorf("unsupported Python test selection %T", scope)
 	}
 }
+
+// CommandForExactSelection returns the runner invocation that an authoritative
+// typed selector may safely extend. Pytest positional operands are discovery
+// roots, so retaining a derived command such as `pytest --pyargs astropy docs`
+// and appending one node ID still collects the broad roots. Unrelated
+// collection errors can then masquerade as the selected test's result.
+//
+// The selected pytest node ID is a complete collection target. Preserve the
+// real runner prefix (direct pytest, python -m pytest, coverage run -m pytest)
+// and replace every later discovery/option operand. Pytest still loads the
+// project's own configuration from the workspace. Other runners keep their
+// project-declared argv because their selection grammar is runner-specific.
+func CommandForExactSelection(command []string) []string {
+	for index, argument := range command {
+		if pythonExecutableName(argument) == "pytest" || pythonExecutableName(argument) == "py.test" {
+			return append([]string(nil), command[:index+1]...)
+		}
+	}
+	return append([]string(nil), command...)
+}
+
+func pythonExecutableName(argument string) string {
+	normalized := strings.ReplaceAll(strings.TrimSpace(argument), `\`, "/")
+	if slash := strings.LastIndexByte(normalized, '/'); slash >= 0 {
+		normalized = normalized[slash+1:]
+	}
+	normalized = strings.ToLower(normalized)
+	return strings.TrimSuffix(normalized, ".exe")
+}

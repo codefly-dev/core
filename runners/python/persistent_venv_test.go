@@ -39,6 +39,14 @@ func TestVenvInstallArgsMaterializeDependenciesBeforeEditableProject(t *testing.
 	if strings.Contains(editable, "setuptools") || strings.Contains(editable, "build-requirements") {
 		t.Fatalf("editable invocation must not combine peer dependencies: %q", editable)
 	}
+	resolvedProject := strings.Join(venvResolvedProjectInstallArgs("/w/.mind-venv/bin/python", spec), " ")
+	wantResolvedProject := "pip install --python /w/.mind-venv/bin/python --exclude-newer 2022-07-27T14:44:33Z --no-build-isolation /w[test,testing]"
+	if resolvedProject != wantResolvedProject {
+		t.Fatalf("resolved project install:\n got %q\nwant %q", resolvedProject, wantResolvedProject)
+	}
+	if strings.Contains(resolvedProject, " -e ") {
+		t.Fatalf("historical dependency resolution must use the standard wheel contract: %q", resolvedProject)
+	}
 }
 
 func TestVenvDependencyInstallArgsAlwaysMaterializesHistoricalPackaging(t *testing.T) {
@@ -68,7 +76,7 @@ func TestHistoricalEditableFallbackIsCapabilityBound(t *testing.T) {
 		EditableTarget:   "/w",
 		Extras:           []string{"test", "testing"},
 	}), " ")
-	want := "-m pip install --no-build-isolation -e /w[test,testing]"
+	want := "-m pip install --no-deps --no-build-isolation -e /w[test,testing]"
 	if args != want {
 		t.Fatalf("historical editable args = %q, want %q", args, want)
 	}
