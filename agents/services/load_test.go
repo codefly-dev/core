@@ -54,6 +54,11 @@ func TestBuilderInitRejectsAmbiguousSameAPIDependency(t *testing.T) {
 	initResponse, err = base.Builder.InitResponse()
 	require.NoError(t, err)
 	require.Equal(t, builderv0.InitStatus_SUCCESS, initResponse.GetState().GetState())
+
+	base.DependencyEndpoints = nil
+	initResponse, err = base.Builder.InitResponse()
+	require.NoError(t, err)
+	require.Equal(t, builderv0.InitStatus_SUCCESS, initResponse.GetState().GetState())
 }
 
 func TestRuntimeLoadServiceLoadsEnvironmentAndEndpoints(t *testing.T) {

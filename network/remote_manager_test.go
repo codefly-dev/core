@@ -7,6 +7,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
+	"github.com/stretchr/testify/require"
 )
 
 type remoteDNSManager struct {
@@ -159,4 +160,36 @@ func TestRemoteManagerAssignsSameAPIEndpointsIndependentPorts(t *testing.T) {
 	if usagePort == grpcPort {
 		t.Fatalf("named usage endpoint reused grpc port %d", grpcPort)
 	}
+}
+
+func TestRemoteManagerAssignsCollidingAPIsIndependentStablePorts(t *testing.T) {
+	manager, err := NewRemoteManager(context.Background(), remoteDNSManager{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := &resources.Environment{Name: "aws", Namespace: "platform"}
+	workspace := &resources.Workspace{Name: "mind", Layout: resources.LayoutKindModules}
+	service := &resources.ServiceIdentity{Module: "web", Name: "gateway"}
+	rest := &basev0.Endpoint{Module: "web", Service: "gateway", Name: standards.REST, Api: standards.REST}
+	http := &basev0.Endpoint{Module: "web", Service: "gateway", Name: standards.HTTP, Api: standards.HTTP}
+
+	forward, err := manager.GenerateNetworkMappings(context.Background(), environment, workspace, service, []*basev0.Endpoint{rest, http})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reverse, err := manager.GenerateNetworkMappings(context.Background(), environment, workspace, service, []*basev0.Endpoint{http, rest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports := func(mappings []*basev0.NetworkMapping) map[string]uint32 {
+		result := make(map[string]uint32, len(mappings))
+		for _, mapping := range mappings {
+			result[mapping.Endpoint.Name] = mapping.Instances[0].Port
+		}
+		return result
+	}
+	forwardPorts := ports(forward)
+	require.NotEqual(t, forwardPorts[standards.REST], forwardPorts[standards.HTTP])
+	require.Equal(t, uint32(standards.Port(standards.REST)), forwardPorts[standards.REST])
+	require.Equal(t, forwardPorts, ports(reverse))
 }

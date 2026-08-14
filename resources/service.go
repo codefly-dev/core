@@ -742,15 +742,15 @@ func (s *ServiceDependency) String() string {
 	return fmt.Sprintf("ServiceDependency<%s/%s>", s.Module, s.Name)
 }
 
-// ConsumesEndpoint reports whether this dependency pulls in the named producer
-// endpoint. A dependency that lists no endpoints consumes them all, so an
-// unnamed dependency matches every endpoint name.
-func (s *ServiceDependency) ConsumesEndpoint(name string) bool {
+// ConsumesEndpoint reports whether this dependency pulls in the producer
+// endpoint identified by name and API. A dependency that lists no endpoints
+// consumes them all.
+func (s *ServiceDependency) ConsumesEndpoint(name, api string) bool {
 	if len(s.Endpoints) == 0 {
 		return true
 	}
 	for _, ref := range s.Endpoints {
-		if ref.Name == name {
+		if (ref.Name == "" || ref.Name == name) && (ref.API == "" || ref.API == api) {
 			return true
 		}
 	}

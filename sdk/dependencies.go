@@ -366,7 +366,7 @@ func validateConsumedMappingVisibility(consumerModule string, deps []*resources.
 
 // dependenciesConsumeMapping reports whether any declared dependency consumes
 // the given producer endpoint. A dependency matches by producer service (and
-// module when both are known) and then by endpoint name.
+// module when both are known) and then by its endpoint selector.
 func dependenciesConsumeMapping(deps []*resources.ServiceDependency, ep *basev0.Endpoint) bool {
 	for _, dep := range deps {
 		if dep.Name != ep.Service {
@@ -375,7 +375,7 @@ func dependenciesConsumeMapping(deps []*resources.ServiceDependency, ep *basev0.
 		if dep.Module != "" && ep.Module != "" && dep.Module != ep.Module {
 			continue
 		}
-		if dep.ConsumesEndpoint(ep.Name) {
+		if dep.ConsumesEndpoint(ep.Name, ep.Api) {
 			return true
 		}
 	}

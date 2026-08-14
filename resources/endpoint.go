@@ -457,6 +457,15 @@ func findUniqueEndpoint(api string, endpoints []*basev0.Endpoint) (*basev0.Endpo
 	}
 }
 
+func findConventionalEndpoint(api string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	for _, endpoint := range endpoints {
+		if endpoint.Name == api {
+			return endpoint, nil
+		}
+	}
+	return findUniqueEndpoint(api, endpoints)
+}
+
 func FindEndpoint(ctx context.Context, name, api string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
 	matches := findTypedEndpointsByAPI(ctx, api, endpoints)
 	if name != "" {
@@ -467,7 +476,7 @@ func FindEndpoint(ctx context.Context, name, api string, endpoints []*basev0.End
 	return findUniqueEndpoint(api, matches)
 }
 
-func ResolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+func serviceDependencyCandidates(service *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
 	if service == nil {
 		return nil, fmt.Errorf("service dependency cannot be nil")
 	}
@@ -485,67 +494,141 @@ func ResolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*
 			candidates = append(candidates, endpoint)
 		}
 	}
+	return candidates, nil
+}
+
+func endpointReferenceKey(reference *EndpointReference) string {
+	return reference.Name + "\x00" + reference.API
+}
+
+func endpointReferenceDescription(reference *EndpointReference) string {
+	switch {
+	case reference.Name != "" && reference.API != "":
+		return fmt.Sprintf("endpoint %q with API %q", reference.Name, reference.API)
+	case reference.Name != "":
+		return fmt.Sprintf("endpoint %q", reference.Name)
+	default:
+		return fmt.Sprintf("API %q", reference.API)
+	}
+}
+
+func validateEndpointReferences(service *ServiceDependency) error {
+	seen := make(map[string]struct{}, len(service.Endpoints))
+	for _, reference := range service.Endpoints {
+		if reference == nil {
+			return fmt.Errorf("service dependency %s has a nil endpoint reference", service.Unique())
+		}
+		if reference.Name == "" && reference.API == "" {
+			return fmt.Errorf("service dependency %s has an empty endpoint reference", service.Unique())
+		}
+		key := endpointReferenceKey(reference)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("service dependency %s declares %s more than once", service.Unique(), endpointReferenceDescription(reference))
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func endpointReferenceMatches(reference *EndpointReference, endpoint *basev0.Endpoint) bool {
+	if reference.Name != "" && reference.Name != endpoint.Name {
+		return false
+	}
+	return reference.API == "" || reference.API == endpoint.Api
+}
+
+func resolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev0.Endpoint, requireDeclared bool) ([]*basev0.Endpoint, error) {
+	candidates, err := serviceDependencyCandidates(service, endpoints)
+	if err != nil {
+		return nil, err
+	}
 	if len(service.Endpoints) == 0 {
 		return candidates, nil
 	}
-
-	declared := make(map[string]*EndpointReference, len(service.Endpoints))
-	for _, reference := range service.Endpoints {
-		if reference == nil {
-			return nil, fmt.Errorf("service dependency %s has a nil endpoint reference", service.Unique())
-		}
-		if _, exists := declared[reference.Name]; exists {
-			return nil, fmt.Errorf("service dependency %s declares endpoint %q more than once", service.Unique(), reference.Name)
-		}
-		declared[reference.Name] = reference
+	if err := validateEndpointReferences(service); err != nil {
+		return nil, err
 	}
 
-	found := make(map[string]bool, len(declared))
+	selectedNames := make(map[string]struct{}, len(service.Endpoints))
 	var selected []*basev0.Endpoint
-	for _, endpoint := range candidates {
-		reference, exists := declared[endpoint.Name]
-		if !exists {
-			continue
-		}
-		if reference.API != "" && reference.API != endpoint.Api {
-			continue
-		}
-		found[reference.Name] = true
-		selected = append(selected, endpoint)
-	}
 	for _, reference := range service.Endpoints {
-		if !found[reference.Name] {
-			return nil, fmt.Errorf("service dependency %s declares undeclared endpoint %q", service.Unique(), reference.Name)
+		var matches []*basev0.Endpoint
+		for _, endpoint := range candidates {
+			if endpointReferenceMatches(reference, endpoint) {
+				matches = append(matches, endpoint)
+			}
 		}
+		if len(matches) == 0 {
+			if requireDeclared {
+				return nil, fmt.Errorf("service dependency %s declares undeclared %s", service.Unique(), endpointReferenceDescription(reference))
+			}
+			continue
+		}
+		if len(matches) > 1 {
+			names := make([]string, 0, len(matches))
+			for _, endpoint := range matches {
+				names = append(names, endpoint.Name)
+			}
+			slices.Sort(names)
+			return nil, fmt.Errorf("service dependency %s has multiple %s endpoints (%s); specify an endpoint name", service.Unique(), reference.API, strings.Join(names, ", "))
+		}
+		endpoint := matches[0]
+		if _, exists := selectedNames[endpoint.Name]; exists {
+			return nil, fmt.Errorf("service dependency %s selects endpoint %q more than once", service.Unique(), endpoint.Name)
+		}
+		selectedNames[endpoint.Name] = struct{}{}
+		selected = append(selected, endpoint)
 	}
 	return selected, nil
 }
 
+func ResolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+	return resolveServiceDependencyEndpoints(service, endpoints, true)
+}
+
+func SelectServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+	return resolveServiceDependencyEndpoints(service, endpoints, false)
+}
+
+func ValidateServiceDependencyEndpoints(dependency *ServiceDependency, endpoints []*basev0.Endpoint) error {
+	resolved, err := ResolveServiceDependencyEndpoints(dependency, endpoints)
+	if err != nil {
+		return err
+	}
+	if len(dependency.Endpoints) != 0 {
+		return nil
+	}
+	byAPI := make(map[string][]string)
+	for _, endpoint := range resolved {
+		byAPI[endpoint.Api] = append(byAPI[endpoint.Api], endpoint.Name)
+	}
+	apis := make([]string, 0, len(byAPI))
+	for api := range byAPI {
+		apis = append(apis, api)
+	}
+	slices.Sort(apis)
+	for _, api := range apis {
+		names := byAPI[api]
+		if len(names) < 2 {
+			continue
+		}
+		slices.Sort(names)
+		return fmt.Errorf("service dependency %s has multiple %s endpoints (%s); declare endpoint names", dependency.Unique(), api, strings.Join(names, ", "))
+	}
+	return nil
+}
+
 func ValidateDependencyEndpoints(dependencies []*ServiceDependency, endpoints []*basev0.Endpoint) error {
 	for _, dependency := range dependencies {
-		resolved, err := ResolveServiceDependencyEndpoints(dependency, endpoints)
+		candidates, err := serviceDependencyCandidates(dependency, endpoints)
 		if err != nil {
 			return err
 		}
-		if len(dependency.Endpoints) != 0 {
+		if len(candidates) == 0 {
 			continue
 		}
-		byAPI := make(map[string][]string)
-		for _, endpoint := range resolved {
-			byAPI[endpoint.Api] = append(byAPI[endpoint.Api], endpoint.Name)
-		}
-		apis := make([]string, 0, len(byAPI))
-		for api := range byAPI {
-			apis = append(apis, api)
-		}
-		slices.Sort(apis)
-		for _, api := range apis {
-			names := byAPI[api]
-			if len(names) < 2 {
-				continue
-			}
-			slices.Sort(names)
-			return fmt.Errorf("service dependency %s has multiple %s endpoints (%s); declare endpoint names", dependency.Unique(), api, strings.Join(names, ", "))
+		if err := ValidateServiceDependencyEndpoints(dependency, endpoints); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -564,7 +647,7 @@ func findEndpointFromService(ctx context.Context, service *ServiceDependency, ap
 }
 
 func FindGRPCEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	return findUniqueEndpoint(standards.GRPC, findTypedEndpointsByAPI(ctx, standards.GRPC, endpoints))
+	return findConventionalEndpoint(standards.GRPC, findTypedEndpointsByAPI(ctx, standards.GRPC, endpoints))
 }
 
 func FindGRPCEndpointFromService(ctx context.Context, service *ServiceDependency, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
@@ -576,19 +659,19 @@ func FindRestEndpointFromService(ctx context.Context, service *ServiceDependency
 }
 
 func FindRestEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	return findUniqueEndpoint(standards.REST, findTypedEndpointsByAPI(ctx, standards.REST, endpoints))
+	return findConventionalEndpoint(standards.REST, findTypedEndpointsByAPI(ctx, standards.REST, endpoints))
 }
 
 func FindHTTPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	return findUniqueEndpoint(standards.HTTP, findTypedEndpointsByAPI(ctx, standards.HTTP, endpoints))
+	return findConventionalEndpoint(standards.HTTP, findTypedEndpointsByAPI(ctx, standards.HTTP, endpoints))
 }
 
 func FindConnectEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	return findUniqueEndpoint(standards.CONNECT, FindEndpointsByAPI(ctx, standards.CONNECT, endpoints))
+	return findConventionalEndpoint(standards.CONNECT, FindEndpointsByAPI(ctx, standards.CONNECT, endpoints))
 }
 
 func FindTCPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	return findUniqueEndpoint(standards.TCP, findTypedEndpointsByAPI(ctx, standards.TCP, endpoints))
+	return findConventionalEndpoint(standards.TCP, findTypedEndpointsByAPI(ctx, standards.TCP, endpoints))
 }
 
 func FindTCPEndpointWithName(ctx context.Context, name string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {

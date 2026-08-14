@@ -84,8 +84,16 @@ func TestServiceRejectsDuplicateEndpointNames(t *testing.T) {
 	require.ErrorContains(t, err, `duplicate endpoint name "usage"`)
 }
 
-func TestFindGRPCEndpointRejectsAmbiguousAPIResolution(t *testing.T) {
-	_, err := resources.FindGRPCEndpoint(context.Background(), loadMultipleGRPCEndpoints(t))
+func TestFindGRPCEndpointSelectsConventionalEndpoint(t *testing.T) {
+	endpoint, err := resources.FindGRPCEndpoint(context.Background(), loadMultipleGRPCEndpoints(t))
+	require.NoError(t, err)
+	require.Equal(t, standards.GRPC, endpoint.Name)
+}
+
+func TestFindGRPCEndpointRejectsMultipleNamedEndpointsWithoutConvention(t *testing.T) {
+	endpoints := loadMultipleGRPCEndpoints(t)
+	endpoints[0].Name = "admin"
+	_, err := resources.FindGRPCEndpoint(context.Background(), endpoints)
 	require.ErrorContains(t, err, "multiple grpc endpoints found")
 	require.ErrorContains(t, err, "specify an endpoint name")
 }
@@ -99,6 +107,29 @@ func TestFindGRPCEndpointFromServiceResolvesDeclaredName(t *testing.T) {
 	endpoint, err := resources.FindGRPCEndpointFromService(context.Background(), dependency, loadMultipleGRPCEndpoints(t))
 	require.NoError(t, err)
 	require.Equal(t, "usage", endpoint.Name)
+}
+
+func TestFindGRPCEndpointFromServiceResolvesUniqueAPIReference(t *testing.T) {
+	dependency := &resources.ServiceDependency{
+		Module:    "saas",
+		Name:      "accounts",
+		Endpoints: []*resources.EndpointReference{{API: standards.GRPC}},
+	}
+	endpoints := loadMultipleGRPCEndpoints(t)[1:]
+	endpoint, err := resources.FindGRPCEndpointFromService(context.Background(), dependency, endpoints)
+	require.NoError(t, err)
+	require.Equal(t, "usage", endpoint.Name)
+}
+
+func TestFindGRPCEndpointFromServiceRejectsAmbiguousAPIReference(t *testing.T) {
+	dependency := &resources.ServiceDependency{
+		Module:    "saas",
+		Name:      "accounts",
+		Endpoints: []*resources.EndpointReference{{API: standards.GRPC}},
+	}
+	_, err := resources.FindGRPCEndpointFromService(context.Background(), dependency, loadMultipleGRPCEndpoints(t))
+	require.ErrorContains(t, err, "multiple grpc endpoints")
+	require.ErrorContains(t, err, "specify an endpoint name")
 }
 
 func TestValidateDependencyEndpointsRejectsAmbiguousAndUndeclaredReferences(t *testing.T) {

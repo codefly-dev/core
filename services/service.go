@@ -11,6 +11,7 @@ import (
 	"github.com/codefly-dev/core/failures"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/codefly-dev/core/agents/communicate"
 
@@ -300,6 +301,15 @@ func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRe
 }
 
 func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
+	if req != nil && instance.Service != nil {
+		mappings, err := resources.ResolveDependencyNetworkMappings(instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
+		if err != nil {
+			return nil, err
+		}
+		filtered := proto.Clone(req).(*runtimev0.StartRequest)
+		filtered.DependenciesNetworkMappings = mappings
+		req = filtered
+	}
 	resp, err := instance.Runtime.Start(ctx, req)
 	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.StartStatus_ERROR {
 		err = operationStatusFailure("runtime start", resp.Status.Message, resp.Status.Failure)

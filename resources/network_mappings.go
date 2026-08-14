@@ -160,21 +160,21 @@ func ResolveDependencyNetworkMappings(dependencies []*ServiceDependency, mapping
 		}
 		endpoints = append(endpoints, mapping.Endpoint)
 	}
-	if err := ValidateDependencyEndpoints(dependencies, endpoints); err != nil {
-		return nil, err
-	}
 
+	selected := make(map[string]struct{})
+	for _, dependency := range dependencies {
+		resolved, err := SelectServiceDependencyEndpoints(dependency, endpoints)
+		if err != nil {
+			return nil, err
+		}
+		for _, endpoint := range resolved {
+			selected[EndpointDestination(endpoint)] = struct{}{}
+		}
+	}
 	var resolved []*basev0.NetworkMapping
 	for _, mapping := range mappings {
-		for _, dependency := range dependencies {
-			endpoint := mapping.Endpoint
-			if endpoint.Module != dependency.Module || endpoint.Service != dependency.Name {
-				continue
-			}
-			if dependency.ConsumesEndpoint(endpoint.Name) {
-				resolved = append(resolved, mapping)
-			}
-			break
+		if _, ok := selected[EndpointDestination(mapping.Endpoint)]; ok {
+			resolved = append(resolved, mapping)
 		}
 	}
 	return resolved, nil

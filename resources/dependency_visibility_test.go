@@ -1,7 +1,10 @@
 package resources_test
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
@@ -81,4 +84,20 @@ func TestValidateServiceDependenciesAllowsNamedSameAPIEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, consumer.ServiceDependencies, 1)
 	require.Equal(t, "usage", consumer.ServiceDependencies[0].Endpoints[0].Name)
+}
+
+func TestValidateServiceDependenciesRejectsAmbiguousAPIReference(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.CopyFS(dir, os.DirFS("testdata/workspaces/named-same-api-dependency")))
+	servicePath := filepath.Join(dir, "modules", "platform", "services", "meter", resources.ServiceConfigurationName)
+	content, err := os.ReadFile(servicePath)
+	require.NoError(t, err)
+	content = bytes.Replace(content, []byte("      - name: usage"), []byte("      - api: grpc"), 1)
+	require.NoError(t, os.WriteFile(servicePath, content, 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(context.Background(), dir)
+	require.NoError(t, err)
+	err = workspace.ValidateServiceDependencies(context.Background())
+	require.ErrorContains(t, err, "multiple grpc endpoints")
+	require.ErrorContains(t, err, "specify an endpoint name")
 }

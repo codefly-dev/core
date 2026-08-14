@@ -60,9 +60,9 @@ func (m *RemoteManager) KubernetesService(service *resources.ServiceIdentity, en
 // GenerateNetworkMappings generates network mappings for a service endpoints.
 //
 // Unlike RuntimeManager, this takes no runtime context: remote (k8s) mappings
-// use canonical per-API ports for a service's sole endpoint of an API. When a
-// service exposes the same API more than once, the conventional endpoint keeps
-// the canonical port and named siblings receive stable endpoint-specific ports.
+// use canonical per-API ports when they do not collide. The conventional
+// endpoint of the highest-priority API keeps a shared canonical port; named
+// siblings and colliding APIs receive stable endpoint-specific ports.
 func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 	env *resources.Environment,
 	workspace *resources.Workspace,
@@ -76,6 +76,25 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 	for _, endpoint := range endpoints {
 		if endpoint != nil && !resources.IsExternalEndpoint(endpoint) {
 			apiCounts[endpoint.Api]++
+		}
+	}
+	apiPriority := make(map[string]int, len(standards.APIS()))
+	for priority, api := range standards.APIS() {
+		apiPriority[api] = priority
+	}
+	canonicalOwners := make(map[uint16]*basev0.Endpoint)
+	for _, endpoint := range endpoints {
+		if endpoint == nil || resources.IsExternalEndpoint(endpoint) {
+			continue
+		}
+		if apiCounts[endpoint.Api] > 1 && endpoint.Name != endpoint.Api {
+			continue
+		}
+		port := standards.Port(endpoint.Api)
+		owner := canonicalOwners[port]
+		if owner == nil || apiPriority[endpoint.Api] < apiPriority[owner.Api] ||
+			(apiPriority[endpoint.Api] == apiPriority[owner.Api] && resources.EndpointDestination(endpoint) < resources.EndpointDestination(owner)) {
+			canonicalOwners[port] = endpoint
 		}
 	}
 	allocatedPorts := make(map[uint16]string)
@@ -109,7 +128,7 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 		// Internal endpoints use a declared environment DNS contract when
 		// present. Otherwise Kubernetes service discovery is synthesized.
 		port := standards.Port(endpoint.Api)
-		if apiCounts[endpoint.Api] > 1 && endpoint.Name != endpoint.Api {
+		if canonicalOwners[port] != endpoint {
 			port = ToNamedPort(ctx, "", service.Module, service.Name, endpoint.Name, endpoint.Api, PortModeHost)
 		}
 		dns, dnsErr := m.dnsManager.GetDNS(ctx, service, endpoint.Name)

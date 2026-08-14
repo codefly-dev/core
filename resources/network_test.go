@@ -44,3 +44,31 @@ func TestResolveDependencyNetworkMappingsKeepsOnlyNamedEndpoint(t *testing.T) {
 	require.Len(t, resolved, 1)
 	require.Equal(t, "usage", resolved[0].Endpoint.Name)
 }
+
+func TestResolveDependencyNetworkMappingsAllowsUnavailableNamedEndpoint(t *testing.T) {
+	dependency := &resources.ServiceDependency{
+		Module:    "saas",
+		Name:      "accounts",
+		Endpoints: []*resources.EndpointReference{{Name: "usage"}},
+	}
+
+	resolved, err := resources.ResolveDependencyNetworkMappings([]*resources.ServiceDependency{dependency}, nil)
+	require.NoError(t, err)
+	require.Empty(t, resolved)
+}
+
+func TestResolveDependencyNetworkMappingsSelectsUniqueAPIReference(t *testing.T) {
+	dependency := &resources.ServiceDependency{
+		Module:    "saas",
+		Name:      "accounts",
+		Endpoints: []*resources.EndpointReference{{API: standards.GRPC}},
+	}
+	mappings := []*basev0.NetworkMapping{
+		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC}},
+	}
+
+	resolved, err := resources.ResolveDependencyNetworkMappings([]*resources.ServiceDependency{dependency}, mappings)
+	require.NoError(t, err)
+	require.Len(t, resolved, 1)
+	require.Equal(t, "usage", resolved[0].Endpoint.Name)
+}
