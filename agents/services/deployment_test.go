@@ -34,7 +34,12 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 		Identity:             identity,
 		Information:          &Information{Service: resources.ToServiceWithCase(identity)},
 		EnvironmentVariables: manager,
-		loaded:               true,
+		Service: &resources.Service{ServiceDependencies: []*resources.ServiceDependency{{
+			Module:    "saas",
+			Name:      "accounts",
+			Endpoints: []*resources.EndpointReference{{Name: "usage"}},
+		}}},
+		loaded: true,
 	}
 	base.SetDockerImage(resources.NewDockerImage("example/service:1.2.3"))
 	builder := &BuilderWrapper{Base: base}
@@ -54,6 +59,10 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 		DependenciesConfigurations: []*basev0.Configuration{
 			configuration("module/database", "database", "PASSWORD", "dependency-secret", true),
 		},
+		DependenciesNetworkMappings: []*basev0.NetworkMapping{
+			dependencyMapping("saas", "accounts", "grpc", "grpc", 9090),
+			dependencyMapping("saas", "accounts", "usage", "grpc", 19090),
+		},
 	}
 
 	response, err := builder.DeployKustomize(ctx, req, KustomizeDeployment{
@@ -62,6 +71,7 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 		Inputs: DeploymentInputs{
 			OwnConfiguration:         true,
 			DependencyConfigurations: true,
+			DependencyEndpoints:      true,
 		},
 		Parameters: struct{ Name string }{Name: "prepared"},
 		Prepare: func(ctx context.Context, deployment *KustomizeDeploymentContext) error {
@@ -91,12 +101,14 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 		`CODEFLY__FIXTURE: "dev-admin"`,
 		`CODEFLY__SERVICE_CONFIGURATION__MODULE__SERVICE__APPLICATION__PLAIN: "value"`,
 		`CODEFLY__SERVICE_CONFIGURATION__MODULE__SERVICE__CONNECTION__URL: "redis://service"`,
+		`CODEFLY__ENDPOINT__SAAS__ACCOUNTS__USAGE__GRPC: "accounts:19090"`,
 		`EXTRA: "config"`,
 	} {
 		if !strings.Contains(manifest, expected) {
 			t.Errorf("ConfigMap missing %q:\n%s", expected, manifest)
 		}
 	}
+	require.NotContains(t, manifest, "CODEFLY__ENDPOINT__SAAS__ACCOUNTS__GRPC__GRPC")
 
 	secretManifest, err := os.ReadFile(filepath.Join(destination, "base", "secret.yaml"))
 	require.NoError(t, err)
@@ -113,6 +125,15 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 	deploymentManifest, err := os.ReadFile(filepath.Join(destination, "base", "deployment.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(deploymentManifest), `codefly.dev/test-parameter: "prepared"`)
+}
+
+func dependencyMapping(module, service, name, api string, port uint16) *basev0.NetworkMapping {
+	instance := resources.NewNetworkInstance(service, port)
+	instance.Access = resources.NewContainerNetworkAccess()
+	return &basev0.NetworkMapping{
+		Endpoint:  &basev0.Endpoint{Module: module, Service: service, Name: name, Api: api},
+		Instances: []*basev0.NetworkInstance{instance},
+	}
 }
 
 func TestDeployKustomizeRejectsSecretBytesForRestricted(t *testing.T) {

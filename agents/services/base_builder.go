@@ -132,6 +132,11 @@ func (s *BuilderWrapper) InitResponse() (*builderv0.InitResponse, error) {
 	if !s.loaded {
 		return s.InitError(fmt.Errorf("not loaded"))
 	}
+	if s.Service != nil {
+		if err := resources.ValidateDependencyEndpoints(s.Service.ServiceDependencies, s.DependencyEndpoints); err != nil {
+			return s.InitError(err)
+		}
+	}
 	return &builderv0.InitResponse{
 		State: &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS},
 	}, nil
@@ -668,7 +673,14 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		}
 	}
 	if deployment.Inputs.DependencyEndpoints {
-		err = manager.AddEndpoints(ctx, req.GetDependenciesNetworkMappings(), resources.NewContainerNetworkAccess())
+		dependencyMappings := req.GetDependenciesNetworkMappings()
+		if s.Service != nil {
+			dependencyMappings, err = resources.ResolveDependencyNetworkMappings(s.Service.ServiceDependencies, dependencyMappings)
+			if err != nil {
+				return fail(err)
+			}
+		}
+		err = manager.AddEndpoints(ctx, dependencyMappings, resources.NewContainerNetworkAccess())
 		if err != nil {
 			return fail(err)
 		}

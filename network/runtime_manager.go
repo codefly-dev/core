@@ -195,13 +195,14 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 		m.mu.Lock()
 		// GetFreePort marks the port it hands out with the placeholder owner
 		// randomPortOwner so a concurrent GetFreePort can't re-hand it. That is
-		// NOT a real cross-service conflict — the caller is about to claim it
-		// below — so only a port owned by a DIFFERENT real service collides.
-		if unique, found := m.allocatedPorts[port]; found && unique != randomPortOwner && unique != service.Unique() {
+		// NOT a real cross-endpoint conflict — the caller is about to claim it
+		// below — so only a port owned by a DIFFERENT real endpoint collides.
+		owner := resources.EndpointDestination(endpoint)
+		if allocatedTo, found := m.allocatedPorts[port]; found && allocatedTo != randomPortOwner && allocatedTo != owner {
 			m.mu.Unlock()
-			return nil, w.NewError("port %d already allocated for service %s", port, service.Unique())
+			return nil, w.NewError("port %d for endpoint %s is already allocated to %s", port, owner, allocatedTo)
 		}
-		m.allocatedPorts[port] = service.Unique()
+		m.allocatedPorts[port] = owner
 		m.mu.Unlock()
 		nm.Instances = []*basev0.NetworkInstance{
 			Container(endpoint, port),
@@ -225,9 +226,9 @@ func (m *RuntimeManager) WithTemporaryPorts() {
 }
 
 // randomPortOwner is the placeholder owner GetFreePort writes into
-// allocatedPorts for a port it has handed out but that no service has formally
+// allocatedPorts for a port it has handed out but that no endpoint has formally
 // claimed yet. The named-port conflict check treats it as "claimable", not a
-// cross-service conflict.
+// cross-endpoint conflict.
 const randomPortOwner = "random"
 
 // GetFreePort asks the kernel to bind an ephemeral IPv4 loopback port, records

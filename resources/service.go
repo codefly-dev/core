@@ -382,6 +382,9 @@ func (s *Service) Save(ctx context.Context) error {
 	if err := s.validatePaths(); err != nil {
 		return w.Wrap(err)
 	}
+	if err := validateEndpointNames(s.Endpoints); err != nil {
+		return w.Wrap(err)
+	}
 	// preSave blanks fields that are redundant on disk (module/service are
 	// implied by location). It returns a restore func so the in-memory model
 	// is put back AFTER marshalling — otherwise Save corrupts live objects
@@ -456,6 +459,9 @@ func ReloadService(ctx context.Context, service *Service) (*Service, error) {
 func (s *Service) postLoad(ctx context.Context) error {
 	w := wool.Get(ctx).In("Service::postLoad", wool.NameField(s.Name), wool.ModuleField(s.module))
 	if err := s.validatePaths(); err != nil {
+		return w.Wrap(err)
+	}
+	if err := validateEndpointNames(s.Endpoints); err != nil {
 		return w.Wrap(err)
 	}
 	for _, dep := range s.ServiceDependencies {
@@ -613,6 +619,9 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 	if s.module == "" {
 		return nil, fmt.Errorf("module not set")
 	}
+	if err := validateEndpointNames(s.Endpoints); err != nil {
+		return nil, err
+	}
 	var multi error
 	var out []*basev0.Endpoint
 	for _, ed := range s.Endpoints {
@@ -733,15 +742,15 @@ func (s *ServiceDependency) String() string {
 	return fmt.Sprintf("ServiceDependency<%s/%s>", s.Module, s.Name)
 }
 
-// ConsumesEndpoint reports whether this dependency pulls in the named producer
-// endpoint. A dependency that lists no endpoints consumes them all, so an
-// unnamed dependency matches every endpoint name.
-func (s *ServiceDependency) ConsumesEndpoint(name string) bool {
+// ConsumesEndpoint reports whether this dependency pulls in the producer
+// endpoint identified by name and API. A dependency that lists no endpoints
+// consumes them all.
+func (s *ServiceDependency) ConsumesEndpoint(name, api string) bool {
 	if len(s.Endpoints) == 0 {
 		return true
 	}
 	for _, ref := range s.Endpoints {
-		if ref.Name == name {
+		if (ref.Name == "" || ref.Name == name) && (ref.API == "" || ref.API == api) {
 			return true
 		}
 	}

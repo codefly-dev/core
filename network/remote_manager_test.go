@@ -7,6 +7,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
+	"github.com/stretchr/testify/require"
 )
 
 type remoteDNSManager struct {
@@ -129,4 +130,66 @@ func TestRemoteManagerSynthesizesInternalDNSWhenUndeclared(t *testing.T) {
 	if instance.GetHostname() != "accounts.platform.svc.cluster.local" || instance.GetPort() != uint32(standards.Port(standards.GRPC)) {
 		t.Fatalf("instance = %s:%d, want accounts.platform.svc.cluster.local:%d", instance.GetHostname(), instance.GetPort(), standards.Port(standards.GRPC))
 	}
+}
+
+func TestRemoteManagerAssignsSameAPIEndpointsIndependentPorts(t *testing.T) {
+	manager, err := NewRemoteManager(context.Background(), remoteDNSManager{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := &resources.Environment{Name: "aws", Namespace: "platform"}
+	workspace := &resources.Workspace{Name: "mind", Layout: resources.LayoutKindModules}
+	service := &resources.ServiceIdentity{Module: "saas", Name: "accounts"}
+	endpoints := []*basev0.Endpoint{
+		{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC},
+		{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC},
+	}
+
+	mappings, err := manager.GenerateNetworkMappings(context.Background(), environment, workspace, service, endpoints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mappings) != 2 {
+		t.Fatalf("mappings = %d, want 2", len(mappings))
+	}
+	grpcPort := mappings[0].Instances[0].GetPort()
+	usagePort := mappings[1].Instances[0].GetPort()
+	if grpcPort != uint32(standards.Port(standards.GRPC)) {
+		t.Fatalf("default grpc port = %d, want %d", grpcPort, standards.Port(standards.GRPC))
+	}
+	if usagePort == grpcPort {
+		t.Fatalf("named usage endpoint reused grpc port %d", grpcPort)
+	}
+}
+
+func TestRemoteManagerAssignsCollidingAPIsIndependentStablePorts(t *testing.T) {
+	manager, err := NewRemoteManager(context.Background(), remoteDNSManager{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := &resources.Environment{Name: "aws", Namespace: "platform"}
+	workspace := &resources.Workspace{Name: "mind", Layout: resources.LayoutKindModules}
+	service := &resources.ServiceIdentity{Module: "web", Name: "gateway"}
+	rest := &basev0.Endpoint{Module: "web", Service: "gateway", Name: standards.REST, Api: standards.REST}
+	http := &basev0.Endpoint{Module: "web", Service: "gateway", Name: standards.HTTP, Api: standards.HTTP}
+
+	forward, err := manager.GenerateNetworkMappings(context.Background(), environment, workspace, service, []*basev0.Endpoint{rest, http})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reverse, err := manager.GenerateNetworkMappings(context.Background(), environment, workspace, service, []*basev0.Endpoint{http, rest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports := func(mappings []*basev0.NetworkMapping) map[string]uint32 {
+		result := make(map[string]uint32, len(mappings))
+		for _, mapping := range mappings {
+			result[mapping.Endpoint.Name] = mapping.Instances[0].Port
+		}
+		return result
+	}
+	forwardPorts := ports(forward)
+	require.NotEqual(t, forwardPorts[standards.REST], forwardPorts[standards.HTTP])
+	require.Equal(t, uint32(standards.Port(standards.REST)), forwardPorts[standards.REST])
+	require.Equal(t, forwardPorts, ports(reverse))
 }

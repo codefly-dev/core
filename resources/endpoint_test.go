@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,104 @@ func TestLoadEndpointsPrefersDependencyContract(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, endpoints, 1)
 	require.Equal(t, "current.v1", resources.IsGRPC(ctx, endpoints[0]).Package)
+}
+
+func loadMultipleGRPCEndpoints(t *testing.T) []*basev0.Endpoint {
+	t.Helper()
+	ctx := context.Background()
+	service, err := resources.LoadServiceFromDir(ctx, "testdata/workspaces/named-same-api-dependency/modules/saas/services/accounts")
+	require.NoError(t, err)
+	service.WithModule("saas")
+	endpoints, err := service.LoadEndpoints(ctx)
+	require.NoError(t, err)
+	return endpoints
+}
+
+func TestLoadEndpointsAllowsNamedSameAPIEndpoints(t *testing.T) {
+	endpoints := loadMultipleGRPCEndpoints(t)
+	require.Len(t, endpoints, 2)
+	require.Equal(t, "grpc", endpoints[0].Name)
+	require.Equal(t, resources.VisibilityPublic, endpoints[0].Visibility)
+	require.Equal(t, "usage", endpoints[1].Name)
+	require.Equal(t, resources.VisibilityModule, endpoints[1].Visibility)
+	for _, endpoint := range endpoints {
+		require.Equal(t, standards.GRPC, endpoint.Api)
+		require.Equal(t, "accounts.v1", resources.IsGRPC(context.Background(), endpoint).Package)
+	}
+}
+
+func TestServiceRejectsDuplicateEndpointNames(t *testing.T) {
+	service := &resources.Service{
+		Name: "accounts",
+		Endpoints: []*resources.Endpoint{
+			{Name: "usage", API: standards.GRPC},
+			{Name: "usage", API: standards.REST},
+		},
+	}
+	err := service.SaveAtDir(context.Background(), t.TempDir())
+	require.ErrorContains(t, err, `duplicate endpoint name "usage"`)
+}
+
+func TestFindGRPCEndpointSelectsConventionalEndpoint(t *testing.T) {
+	endpoint, err := resources.FindGRPCEndpoint(context.Background(), loadMultipleGRPCEndpoints(t))
+	require.NoError(t, err)
+	require.Equal(t, standards.GRPC, endpoint.Name)
+}
+
+func TestFindGRPCEndpointRejectsMultipleNamedEndpointsWithoutConvention(t *testing.T) {
+	endpoints := loadMultipleGRPCEndpoints(t)
+	endpoints[0].Name = "admin"
+	_, err := resources.FindGRPCEndpoint(context.Background(), endpoints)
+	require.ErrorContains(t, err, "multiple grpc endpoints found")
+	require.ErrorContains(t, err, "specify an endpoint name")
+}
+
+func TestFindGRPCEndpointFromServiceResolvesDeclaredName(t *testing.T) {
+	dependency := &resources.ServiceDependency{
+		Module:    "saas",
+		Name:      "accounts",
+		Endpoints: []*resources.EndpointReference{{Name: "usage"}},
+	}
+	endpoint, err := resources.FindGRPCEndpointFromService(context.Background(), dependency, loadMultipleGRPCEndpoints(t))
+	require.NoError(t, err)
+	require.Equal(t, "usage", endpoint.Name)
+}
+
+func TestFindGRPCEndpointFromServiceResolvesUniqueAPIReference(t *testing.T) {
+	dependency := &resources.ServiceDependency{
+		Module:    "saas",
+		Name:      "accounts",
+		Endpoints: []*resources.EndpointReference{{API: standards.GRPC}},
+	}
+	endpoints := loadMultipleGRPCEndpoints(t)[1:]
+	endpoint, err := resources.FindGRPCEndpointFromService(context.Background(), dependency, endpoints)
+	require.NoError(t, err)
+	require.Equal(t, "usage", endpoint.Name)
+}
+
+func TestFindGRPCEndpointFromServiceRejectsAmbiguousAPIReference(t *testing.T) {
+	dependency := &resources.ServiceDependency{
+		Module:    "saas",
+		Name:      "accounts",
+		Endpoints: []*resources.EndpointReference{{API: standards.GRPC}},
+	}
+	_, err := resources.FindGRPCEndpointFromService(context.Background(), dependency, loadMultipleGRPCEndpoints(t))
+	require.ErrorContains(t, err, "multiple grpc endpoints")
+	require.ErrorContains(t, err, "specify an endpoint name")
+}
+
+func TestValidateDependencyEndpointsRejectsAmbiguousAndUndeclaredReferences(t *testing.T) {
+	endpoints := loadMultipleGRPCEndpoints(t)
+
+	err := resources.ValidateDependencyEndpoints([]*resources.ServiceDependency{{Module: "saas", Name: "accounts"}}, endpoints)
+	require.ErrorContains(t, err, "multiple grpc endpoints")
+
+	err = resources.ValidateDependencyEndpoints([]*resources.ServiceDependency{{
+		Module:    "saas",
+		Name:      "accounts",
+		Endpoints: []*resources.EndpointReference{{Name: "missing"}},
+	}}, endpoints)
+	require.ErrorContains(t, err, `declares undeclared endpoint "missing"`)
 }
 
 func TestEnvironmentVariables(t *testing.T) {

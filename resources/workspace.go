@@ -320,14 +320,10 @@ func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) err
 				if producerModule == "" {
 					producerModule = mod.Name
 				}
-				if producerModule == mod.Name {
-					continue
-				}
 				// Whether the producer module and service exist is the
-				// dependency resolver's concern; this pass judges visibility
-				// only, so an unresolvable producer is skipped rather than
-				// reported here. Real load failures (e.g. malformed config)
-				// still propagate.
+				// dependency resolver's concern, so an unresolvable producer is
+				// skipped rather than reported here. Real load failures (e.g.
+				// malformed config) still propagate.
 				producerMod, ok := byName[producerModule]
 				if !ok {
 					continue
@@ -340,11 +336,29 @@ func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) err
 					}
 					return w.Wrap(err)
 				}
-				for _, ep := range producer.Endpoints {
-					if !dep.ConsumesEndpoint(ep.Name) {
-						continue
-					}
-					if err := ValidateEndpointVisibility(mod.Name, producerModule, dep.Name, ep.Name, ep.Visibility, ep.AllowModules); err != nil {
+				producerEndpoints := make([]*basev0.Endpoint, 0, len(producer.Endpoints))
+				for _, endpoint := range producer.Endpoints {
+					producerEndpoints = append(producerEndpoints, &basev0.Endpoint{
+						Module:       producerModule,
+						Service:      producer.Name,
+						Name:         endpoint.Name,
+						Api:          endpoint.API,
+						Visibility:   endpoint.Visibility,
+						AllowModules: endpoint.AllowModules,
+					})
+				}
+				if err := ValidateServiceDependencyEndpoints(dep, producerEndpoints); err != nil {
+					return w.Wrap(err)
+				}
+				if producerModule == mod.Name {
+					continue
+				}
+				consumed, err := ResolveServiceDependencyEndpoints(dep, producerEndpoints)
+				if err != nil {
+					return w.Wrap(err)
+				}
+				for _, endpoint := range consumed {
+					if err := ValidateEndpointVisibility(mod.Name, producerModule, dep.Name, endpoint.Name, endpoint.Visibility, endpoint.AllowModules); err != nil {
 						return w.Wrap(err)
 					}
 				}

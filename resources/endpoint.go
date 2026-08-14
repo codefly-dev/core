@@ -54,6 +54,20 @@ type Endpoint struct {
 	AllowModules []string `yaml:"allow-modules,omitempty"`
 }
 
+func validateEndpointNames(endpoints []*Endpoint) error {
+	seen := make(map[string]struct{}, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint == nil {
+			return fmt.Errorf("endpoint cannot be nil")
+		}
+		if _, exists := seen[endpoint.Name]; exists {
+			return fmt.Errorf("duplicate endpoint name %q", endpoint.Name)
+		}
+		seen[endpoint.Name] = struct{}{}
+	}
+	return nil
+}
+
 func (endpoint *Endpoint) postLoad(ctx context.Context) {
 	// "module" and "external" are deprecated visibility values. They are
 	// interpreted by External() and AllowsModule() rather than rewritten here,
@@ -399,87 +413,269 @@ func EndpointHash(ctx context.Context, endpoints ...*basev0.Endpoint) (string, e
 	return hasher.Hash(), nil
 }
 
-func FindGRPCEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	for _, e := range endpoints {
-		if IsGRPC(ctx, e) != nil {
-			return e, nil
+func FindEndpointsByAPI(_ context.Context, api string, endpoints []*basev0.Endpoint) []*basev0.Endpoint {
+	var matches []*basev0.Endpoint
+	for _, endpoint := range endpoints {
+		if endpoint != nil && endpoint.Api == api {
+			matches = append(matches, endpoint)
 		}
 	}
-	return nil, fmt.Errorf("no grpc endpoint found")
+	return matches
+}
+
+func findTypedEndpointsByAPI(ctx context.Context, api string, endpoints []*basev0.Endpoint) []*basev0.Endpoint {
+	matches := FindEndpointsByAPI(ctx, api, endpoints)
+	return slices.DeleteFunc(matches, func(endpoint *basev0.Endpoint) bool {
+		switch api {
+		case standards.GRPC:
+			return IsGRPC(ctx, endpoint) == nil
+		case standards.REST:
+			return IsRest(ctx, endpoint) == nil
+		case standards.HTTP:
+			return IsHTTP(ctx, endpoint) == nil
+		case standards.TCP:
+			return IsTCP(ctx, endpoint) == nil
+		default:
+			return false
+		}
+	})
+}
+
+func findUniqueEndpoint(api string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	switch len(endpoints) {
+	case 0:
+		return nil, fmt.Errorf("no %s endpoint found", api)
+	case 1:
+		return endpoints[0], nil
+	default:
+		names := make([]string, 0, len(endpoints))
+		for _, endpoint := range endpoints {
+			names = append(names, endpoint.Name)
+		}
+		slices.Sort(names)
+		return nil, fmt.Errorf("multiple %s endpoints found (%s); specify an endpoint name", api, strings.Join(names, ", "))
+	}
+}
+
+func findConventionalEndpoint(api string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	for _, endpoint := range endpoints {
+		if endpoint.Name == api {
+			return endpoint, nil
+		}
+	}
+	return findUniqueEndpoint(api, endpoints)
+}
+
+func FindEndpoint(ctx context.Context, name, api string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	matches := findTypedEndpointsByAPI(ctx, api, endpoints)
+	if name != "" {
+		matches = slices.DeleteFunc(matches, func(endpoint *basev0.Endpoint) bool {
+			return endpoint.Name != name
+		})
+	}
+	return findUniqueEndpoint(api, matches)
+}
+
+func serviceDependencyCandidates(service *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+	if service == nil {
+		return nil, fmt.Errorf("service dependency cannot be nil")
+	}
+	var candidates []*basev0.Endpoint
+	seenNames := make(map[string]struct{})
+	for _, endpoint := range endpoints {
+		if endpoint == nil {
+			return nil, fmt.Errorf("dependency endpoint cannot be nil")
+		}
+		if endpoint.Service == service.Name && endpoint.Module == service.Module {
+			if _, exists := seenNames[endpoint.Name]; exists {
+				return nil, fmt.Errorf("service dependency %s received duplicate endpoint name %q", service.Unique(), endpoint.Name)
+			}
+			seenNames[endpoint.Name] = struct{}{}
+			candidates = append(candidates, endpoint)
+		}
+	}
+	return candidates, nil
+}
+
+func endpointReferenceKey(reference *EndpointReference) string {
+	return reference.Name + "\x00" + reference.API
+}
+
+func endpointReferenceDescription(reference *EndpointReference) string {
+	switch {
+	case reference.Name != "" && reference.API != "":
+		return fmt.Sprintf("endpoint %q with API %q", reference.Name, reference.API)
+	case reference.Name != "":
+		return fmt.Sprintf("endpoint %q", reference.Name)
+	default:
+		return fmt.Sprintf("API %q", reference.API)
+	}
+}
+
+func validateEndpointReferences(service *ServiceDependency) error {
+	seen := make(map[string]struct{}, len(service.Endpoints))
+	for _, reference := range service.Endpoints {
+		if reference == nil {
+			return fmt.Errorf("service dependency %s has a nil endpoint reference", service.Unique())
+		}
+		if reference.Name == "" && reference.API == "" {
+			return fmt.Errorf("service dependency %s has an empty endpoint reference", service.Unique())
+		}
+		key := endpointReferenceKey(reference)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("service dependency %s declares %s more than once", service.Unique(), endpointReferenceDescription(reference))
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func endpointReferenceMatches(reference *EndpointReference, endpoint *basev0.Endpoint) bool {
+	if reference.Name != "" && reference.Name != endpoint.Name {
+		return false
+	}
+	return reference.API == "" || reference.API == endpoint.Api
+}
+
+func resolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev0.Endpoint, requireDeclared bool) ([]*basev0.Endpoint, error) {
+	candidates, err := serviceDependencyCandidates(service, endpoints)
+	if err != nil {
+		return nil, err
+	}
+	if len(service.Endpoints) == 0 {
+		return candidates, nil
+	}
+	if err := validateEndpointReferences(service); err != nil {
+		return nil, err
+	}
+
+	selectedNames := make(map[string]struct{}, len(service.Endpoints))
+	var selected []*basev0.Endpoint
+	for _, reference := range service.Endpoints {
+		var matches []*basev0.Endpoint
+		for _, endpoint := range candidates {
+			if endpointReferenceMatches(reference, endpoint) {
+				matches = append(matches, endpoint)
+			}
+		}
+		if len(matches) == 0 {
+			if requireDeclared {
+				return nil, fmt.Errorf("service dependency %s declares undeclared %s", service.Unique(), endpointReferenceDescription(reference))
+			}
+			continue
+		}
+		if len(matches) > 1 {
+			names := make([]string, 0, len(matches))
+			for _, endpoint := range matches {
+				names = append(names, endpoint.Name)
+			}
+			slices.Sort(names)
+			return nil, fmt.Errorf("service dependency %s has multiple %s endpoints (%s); specify an endpoint name", service.Unique(), reference.API, strings.Join(names, ", "))
+		}
+		endpoint := matches[0]
+		if _, exists := selectedNames[endpoint.Name]; exists {
+			return nil, fmt.Errorf("service dependency %s selects endpoint %q more than once", service.Unique(), endpoint.Name)
+		}
+		selectedNames[endpoint.Name] = struct{}{}
+		selected = append(selected, endpoint)
+	}
+	return selected, nil
+}
+
+func ResolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+	return resolveServiceDependencyEndpoints(service, endpoints, true)
+}
+
+func SelectServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+	return resolveServiceDependencyEndpoints(service, endpoints, false)
+}
+
+func ValidateServiceDependencyEndpoints(dependency *ServiceDependency, endpoints []*basev0.Endpoint) error {
+	resolved, err := ResolveServiceDependencyEndpoints(dependency, endpoints)
+	if err != nil {
+		return err
+	}
+	if len(dependency.Endpoints) != 0 {
+		return nil
+	}
+	byAPI := make(map[string][]string)
+	for _, endpoint := range resolved {
+		byAPI[endpoint.Api] = append(byAPI[endpoint.Api], endpoint.Name)
+	}
+	apis := make([]string, 0, len(byAPI))
+	for api := range byAPI {
+		apis = append(apis, api)
+	}
+	slices.Sort(apis)
+	for _, api := range apis {
+		names := byAPI[api]
+		if len(names) < 2 {
+			continue
+		}
+		slices.Sort(names)
+		return fmt.Errorf("service dependency %s has multiple %s endpoints (%s); declare endpoint names", dependency.Unique(), api, strings.Join(names, ", "))
+	}
+	return nil
+}
+
+func ValidateDependencyEndpoints(dependencies []*ServiceDependency, endpoints []*basev0.Endpoint) error {
+	for _, dependency := range dependencies {
+		candidates, err := serviceDependencyCandidates(dependency, endpoints)
+		if err != nil {
+			return err
+		}
+		if len(candidates) == 0 {
+			continue
+		}
+		if err := ValidateServiceDependencyEndpoints(dependency, endpoints); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func findEndpointFromService(ctx context.Context, service *ServiceDependency, api string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	resolved, err := ResolveServiceDependencyEndpoints(service, endpoints)
+	if err != nil {
+		return nil, err
+	}
+	matches := findTypedEndpointsByAPI(ctx, api, resolved)
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	return findUniqueEndpoint(api, matches)
+}
+
+func FindGRPCEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	return findConventionalEndpoint(standards.GRPC, findTypedEndpointsByAPI(ctx, standards.GRPC, endpoints))
 }
 
 func FindGRPCEndpointFromService(ctx context.Context, service *ServiceDependency, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	w := wool.Get(ctx).In("resources.FindGRPCEndpointFromService")
-	for _, e := range endpoints {
-		w.Debug("endpoint", wool.NameField(e.Name), wool.Field("service", service.Name), wool.Field("module", service.Module))
-		if e.Service != service.Name || e.Module != service.Module {
-			continue
-		}
-		if IsGRPC(ctx, e) != nil {
-			return e, nil
-		}
-	}
-	return nil, nil
+	return findEndpointFromService(ctx, service, standards.GRPC, endpoints)
 }
 
 func FindRestEndpointFromService(ctx context.Context, service *ServiceDependency, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	for _, e := range endpoints {
-		if e.Service != service.Name || e.Module != service.Module {
-			continue
-		}
-		if IsRest(ctx, e) != nil {
-			return e, nil
-		}
-	}
-	return nil, nil
+	return findEndpointFromService(ctx, service, standards.REST, endpoints)
 }
 
 func FindRestEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	for _, e := range endpoints {
-		if IsRest(ctx, e) != nil {
-			return e, nil
-		}
-	}
-	return nil, fmt.Errorf("no rest endpoint found")
+	return findConventionalEndpoint(standards.REST, findTypedEndpointsByAPI(ctx, standards.REST, endpoints))
 }
 
 func FindHTTPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	for _, e := range endpoints {
-		if IsHTTP(ctx, e) != nil {
-			return e, nil
-		}
-	}
-	return nil, fmt.Errorf("no http endpoint found")
+	return findConventionalEndpoint(standards.HTTP, findTypedEndpointsByAPI(ctx, standards.HTTP, endpoints))
 }
 
-func FindConnectEndpoint(_ context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	for _, e := range endpoints {
-		if e.Api == "connect" {
-			return e, nil
-		}
-	}
-	return nil, fmt.Errorf("no connect endpoint found")
+func FindConnectEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	return findConventionalEndpoint(standards.CONNECT, FindEndpointsByAPI(ctx, standards.CONNECT, endpoints))
 }
 
 func FindTCPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	for _, e := range endpoints {
-		if IsTCP(ctx, e) != nil {
-			return e, nil
-		}
-	}
-	return nil, fmt.Errorf("no tcp endpoint found")
+	return findConventionalEndpoint(standards.TCP, findTypedEndpointsByAPI(ctx, standards.TCP, endpoints))
 }
 
 func FindTCPEndpointWithName(ctx context.Context, name string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
-	for _, e := range endpoints {
-		if e.Name != name {
-			continue
-		}
-		if IsTCP(ctx, e) != nil {
-			return e, nil
-		}
-	}
-	return nil, fmt.Errorf("no tcp endpoint found")
+	return FindEndpoint(ctx, name, standards.TCP, endpoints)
 }
 
 func HasPublicEndpoints(endpoints []*basev0.Endpoint) bool {
