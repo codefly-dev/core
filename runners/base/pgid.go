@@ -61,20 +61,23 @@ func forwardLines(r io.Reader, w io.Writer) {
 // reparented to PID 1. The in-memory pgid dies with the Go process, so nobody
 // knows which groups to reap on the next invocation.
 //
-// Every successful start persists `<pgid>.pgid` under ~/.codefly/runs/.
+// Every successful start persists `<pgid>.pgid` under the authenticated
+// registry namespace in ~/.codefly/runs/. Independently released agents may
+// carry different record contracts, so record formats never share a directory.
 // Stop() removes the file on clean exit. At startup, process-owning hosts call
 // ReapStaleProcessGroups to authenticate and terminate groups whose recorded
 // owner no longer exists.
 
 const (
-	pgidDirName    = "runs"
-	pgidLockName   = ".reaper.lock"
-	pgidLockRetry  = 25 * time.Millisecond
-	sigtermGrace   = 3 * time.Second
-	sigkillGrace   = time.Second
-	maxRecordSize  = 16 << 10
-	groupAuthBytes = 32
-	groupAuthEnv   = "CODEFLY_PROCESS_GROUP_AUTH"
+	pgidRootDirName       = "runs"
+	pgidRegistryNamespace = "authenticated-v1"
+	pgidLockName          = ".reaper.lock"
+	pgidLockRetry         = 25 * time.Millisecond
+	sigtermGrace          = 3 * time.Second
+	sigkillGrace          = time.Second
+	maxRecordSize         = 16 << 10
+	groupAuthBytes        = 32
+	groupAuthEnv          = "CODEFLY_PROCESS_GROUP_AUTH"
 )
 
 var registryProcessLock = make(chan struct{}, 1)
@@ -135,8 +138,11 @@ func pgidStateDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	dir := filepath.Join(home, ".codefly", pgidDirName)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// The namespace is part of the current record contract. Codefly agents are
+	// released independently; an agent with another contract must neither parse
+	// nor quarantine these records, and this reaper must never inspect theirs.
+	dir := filepath.Join(home, ".codefly", pgidRootDirName, pgidRegistryNamespace)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("cannot create pgid dir: %w", err)
 	}
 	return dir, nil
@@ -662,8 +668,8 @@ func IsProcessAlive(pid int) bool {
 	return proc.Signal(syscall.Signal(0)) == nil
 }
 
-// ReapStaleProcessGroups reconciles authenticated records in
-// ~/.codefly/runs. Live owners are preserved; groups with dead or reused
+// ReapStaleProcessGroups reconciles authenticated records in the current
+// contract namespace. Live owners are preserved; groups with dead or reused
 // owners are terminated. Stable malformed records are quarantined without
 // signaling any process; records that cannot prove a stable file identity
 // remain active and are reported.

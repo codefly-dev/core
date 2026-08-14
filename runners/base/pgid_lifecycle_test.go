@@ -3,7 +3,6 @@ package base
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,7 +28,10 @@ func TestNativeProcNaturalExitRemovesProcessGroupRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	pid := native.exec.Process.Pid
-	path := filepath.Join(os.Getenv("HOME"), ".codefly", pgidDirName, fmt.Sprintf("%d.pgid", pid))
+	path, err := pgidFilePath(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("natural exit left process-group record %s: %v", path, err)
 	}
@@ -55,7 +57,10 @@ func TestNixProcNaturalExitRemovesProcessGroupRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	pid := nix.exec.Process.Pid
-	path := filepath.Join(os.Getenv("HOME"), ".codefly", pgidDirName, fmt.Sprintf("%d.pgid", pid))
+	path, err := pgidFilePath(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("natural exit left process-group record %s: %v", path, err)
 	}
