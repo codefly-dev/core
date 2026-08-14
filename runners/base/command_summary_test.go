@@ -1,7 +1,6 @@
 package base
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +21,10 @@ func TestPgidFileIsPrivateAndDoesNotPersistArguments(t *testing.T) {
 	leader := startRegistryLeader(t, "member")
 	defer stopRegistryLeader(t, leader)
 	pid := leader.Process.Pid
-	path := filepath.Join(os.Getenv("HOME"), ".codefly", pgidDirName, fmt.Sprintf("%d.pgid", pid))
+	path, err := pgidFilePath(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read pgid file: %v", err)
