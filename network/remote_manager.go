@@ -60,8 +60,9 @@ func (m *RemoteManager) KubernetesService(service *resources.ServiceIdentity, en
 // GenerateNetworkMappings generates network mappings for a service endpoints.
 //
 // Unlike RuntimeManager, this takes no runtime context: remote (k8s) mappings
-// use canonical per-API ports (standards.Port) and cluster-internal DNS, not
-// the runtime-dependent named-port hash, so the runtime can't affect the port.
+// use canonical per-API ports for a service's sole endpoint of an API. When a
+// service exposes the same API more than once, the conventional endpoint keeps
+// the canonical port and named siblings receive stable endpoint-specific ports.
 func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 	env *resources.Environment,
 	workspace *resources.Workspace,
@@ -71,8 +72,18 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 	if m.dnsManager == nil {
 		return nil, w.NewError("RemoteManager: dnsManager is nil — call NewRemoteManager with a non-nil DNSManager")
 	}
+	apiCounts := make(map[string]int)
+	for _, endpoint := range endpoints {
+		if endpoint != nil && !resources.IsExternalEndpoint(endpoint) {
+			apiCounts[endpoint.Api]++
+		}
+	}
+	allocatedPorts := make(map[uint16]string)
 	var out []*basev0.NetworkMapping
 	for _, endpoint := range endpoints {
+		if endpoint == nil {
+			return nil, w.NewError("cannot generate network mapping for nil endpoint")
+		}
 		nm := &basev0.NetworkMapping{
 			Endpoint: endpoint,
 		}
@@ -98,6 +109,9 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 		// Internal endpoints use a declared environment DNS contract when
 		// present. Otherwise Kubernetes service discovery is synthesized.
 		port := standards.Port(endpoint.Api)
+		if apiCounts[endpoint.Api] > 1 && endpoint.Name != endpoint.Api {
+			port = ToNamedPort(ctx, "", service.Module, service.Name, endpoint.Name, endpoint.Api, PortModeHost)
+		}
 		dns, dnsErr := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
 		if dnsErr == nil && dns != nil {
 			nm.Instances = []*basev0.NetworkInstance{
@@ -112,6 +126,10 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
+		if owner, exists := allocatedPorts[port]; exists {
+			return nil, w.NewError("endpoints %q and %q resolve to the same port %d", owner, endpoint.Name, port)
+		}
+		allocatedPorts[port] = endpoint.Name
 		nm.Instances = append(nm.Instances, ContainerInstance(m.KubernetesService(service, endpoint, namespace, port)))
 		out = append(out, nm)
 	}

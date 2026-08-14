@@ -3,7 +3,9 @@ package resources_test
 import (
 	"testing"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/standards"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,4 +26,21 @@ func TestParsingFromAddress(t *testing.T) {
 			require.Equal(t, tc.hostname, add.Hostname)
 		})
 	}
+}
+
+func TestResolveDependencyNetworkMappingsKeepsOnlyNamedEndpoint(t *testing.T) {
+	dependency := &resources.ServiceDependency{
+		Module:    "saas",
+		Name:      "accounts",
+		Endpoints: []*resources.EndpointReference{{Name: "usage"}},
+	}
+	mappings := []*basev0.NetworkMapping{
+		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC}},
+		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC}},
+	}
+
+	resolved, err := resources.ResolveDependencyNetworkMappings([]*resources.ServiceDependency{dependency}, mappings)
+	require.NoError(t, err)
+	require.Len(t, resolved, 1)
+	require.Equal(t, "usage", resolved[0].Endpoint.Name)
 }

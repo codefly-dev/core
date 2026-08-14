@@ -31,6 +31,31 @@ func TestBuilderLoadServiceHandlesCreationMode(t *testing.T) {
 	require.Equal(t, "# ExampleService\n", response.GetGettingStarted())
 }
 
+func TestBuilderInitRejectsAmbiguousSameAPIDependency(t *testing.T) {
+	ctx := context.Background()
+	identity := saveLoadTestService(t, ctx)
+	base := NewServiceBase(ctx, &resources.Agent{Kind: resources.ServiceAgent, Name: "test", Version: "0.0.1"})
+	response, err := base.Builder.LoadService(ctx, &builderv0.LoadRequest{Identity: identity}, BuilderLoad{Settings: &struct{}{}})
+	require.NoError(t, err)
+	require.Equal(t, builderv0.LoadStatus_READY, response.GetState().GetState())
+
+	base.Service.ServiceDependencies = []*resources.ServiceDependency{{Module: "saas", Name: "accounts"}}
+	base.DependencyEndpoints = []*basev0.Endpoint{
+		{Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc"},
+		{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc"},
+	}
+	initResponse, err := base.Builder.InitResponse()
+	require.NoError(t, err)
+	require.Equal(t, builderv0.InitStatus_ERROR, initResponse.GetState().GetState())
+	require.Contains(t, initResponse.GetState().GetMessage(), "declare endpoint names")
+
+	base.Service.ServiceDependencies[0].Endpoints = []*resources.EndpointReference{{Name: "usage"}}
+	base.DependencyEndpoints = base.DependencyEndpoints[1:]
+	initResponse, err = base.Builder.InitResponse()
+	require.NoError(t, err)
+	require.Equal(t, builderv0.InitStatus_SUCCESS, initResponse.GetState().GetState())
+}
+
 func TestRuntimeLoadServiceLoadsEnvironmentAndEndpoints(t *testing.T) {
 	ctx := context.Background()
 	identity := saveLoadTestService(t, ctx)

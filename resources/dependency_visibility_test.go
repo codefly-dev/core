@@ -68,3 +68,17 @@ func TestValidateServiceDependenciesDenied(t *testing.T) {
 	require.Contains(t, err.Error(), "private to module \"saas\"")
 	require.Contains(t, err.Error(), "platform")
 }
+
+func TestValidateServiceDependenciesAllowsNamedSameAPIEndpoint(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/named-same-api-dependency")
+	require.NoError(t, err)
+	require.NoError(t, workspace.ValidateServiceDependencies(ctx))
+
+	module, err := workspace.LoadModuleFromName(ctx, "platform")
+	require.NoError(t, err)
+	consumer, err := module.LoadServiceFromName(ctx, "meter")
+	require.NoError(t, err)
+	require.Len(t, consumer.ServiceDependencies, 1)
+	require.Equal(t, "usage", consumer.ServiceDependencies[0].Endpoints[0].Name)
+}

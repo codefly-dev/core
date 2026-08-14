@@ -54,10 +54,11 @@ func NewDefaultBuilder(wrapper *BuilderWrapper) *DefaultBuilder {
 	return &DefaultBuilder{wrapper: wrapper}
 }
 
-func (s *DefaultBuilder) Init(context.Context, *builderv0.InitRequest) (*builderv0.InitResponse, error) {
+func (s *DefaultBuilder) Init(_ context.Context, request *builderv0.InitRequest) (*builderv0.InitResponse, error) {
 	if s == nil || s.wrapper == nil {
 		return (&BuilderWrapper{}).InitError(errDefaultBuilderNotWired)
 	}
+	s.wrapper.DependencyEndpoints = request.GetDependenciesEndpoints()
 	return s.wrapper.InitResponse()
 }
 

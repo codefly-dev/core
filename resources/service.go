@@ -382,6 +382,9 @@ func (s *Service) Save(ctx context.Context) error {
 	if err := s.validatePaths(); err != nil {
 		return w.Wrap(err)
 	}
+	if err := validateEndpointNames(s.Endpoints); err != nil {
+		return w.Wrap(err)
+	}
 	// preSave blanks fields that are redundant on disk (module/service are
 	// implied by location). It returns a restore func so the in-memory model
 	// is put back AFTER marshalling — otherwise Save corrupts live objects
@@ -456,6 +459,9 @@ func ReloadService(ctx context.Context, service *Service) (*Service, error) {
 func (s *Service) postLoad(ctx context.Context) error {
 	w := wool.Get(ctx).In("Service::postLoad", wool.NameField(s.Name), wool.ModuleField(s.module))
 	if err := s.validatePaths(); err != nil {
+		return w.Wrap(err)
+	}
+	if err := validateEndpointNames(s.Endpoints); err != nil {
 		return w.Wrap(err)
 	}
 	for _, dep := range s.ServiceDependencies {
@@ -612,6 +618,9 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 	w.Debug("processing endpoints", wool.SliceCountField(s.Endpoints))
 	if s.module == "" {
 		return nil, fmt.Errorf("module not set")
+	}
+	if err := validateEndpointNames(s.Endpoints); err != nil {
+		return nil, err
 	}
 	var multi error
 	var out []*basev0.Endpoint

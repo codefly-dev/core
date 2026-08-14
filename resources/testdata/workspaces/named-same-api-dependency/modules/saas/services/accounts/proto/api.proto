@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package accounts.v1;
+
+service UsageService {
+  rpc ConsumeUsage(ConsumeUsageRequest) returns (ConsumeUsageResponse);
+}
+
+message ConsumeUsageRequest {}
+message ConsumeUsageResponse {}

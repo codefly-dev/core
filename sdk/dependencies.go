@@ -715,16 +715,20 @@ func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 		if err != nil {
 			return w.Wrapf(err, "failed to get dependencies network mappings")
 		}
+		dependencyMappings, err := resources.ResolveDependencyNetworkMappings(svc.ServiceDependencies, resp.NetworkMappings)
+		if err != nil {
+			return w.Wrapf(err, "failed to resolve dependencies network mappings")
+		}
 		// Enforce visibility only over the endpoints this service actually
 		// consumes. The dependency graph may surface sibling endpoints of a
 		// producer (e.g. an internal admin endpoint next to the public one),
 		// and rejecting a run because of an endpoint the consumer never
 		// references would be a false positive — the static workspace pass
 		// (Workspace.ValidateServiceDependencies) scopes the same way.
-		if err := validateConsumedMappingVisibility(mod.Name, svc.ServiceDependencies, resp.NetworkMappings); err != nil {
+		if err := validateConsumedMappingVisibility(mod.Name, svc.ServiceDependencies, dependencyMappings); err != nil {
 			return w.Wrap(err)
 		}
-		for _, np := range resp.NetworkMappings {
+		for _, np := range dependencyMappings {
 			inst := resources.FilterNetworkInstance(ctx, np.Instances, networkAccess)
 			if inst == nil {
 				return w.NewError("no network instance found")

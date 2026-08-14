@@ -2,6 +2,7 @@ package network_test
 
 import (
 	"context"
+	"net"
 	"testing"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -92,6 +93,57 @@ func TestRuntimeNetworkMappingGenerationNoDNS(t *testing.T) {
 	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, endpoints, resources.NewRuntimeContextNative())
 	require.NoError(t, err)
 	require.Equal(t, 2, len(mappings))
+}
+
+func TestRuntimeManagerAllocatesAndInjectsSameAPIEndpointsIndependently(t *testing.T) {
+	ctx := context.Background()
+	manager, err := network.NewRuntimeManager(ctx, testDnsManager{})
+	require.NoError(t, err)
+	manager.WithTemporaryPorts()
+	service := &resources.ServiceIdentity{Module: "saas", Name: "accounts"}
+	endpoints := []*basev0.Endpoint{
+		{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityPublic},
+		{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC, Visibility: resources.VisibilityModule},
+	}
+
+	mappings, err := manager.GenerateNetworkMappings(
+		ctx,
+		resources.LocalEnvironment(),
+		&resources.Workspace{Name: "fixture"},
+		service,
+		endpoints,
+		resources.NewRuntimeContextNative(),
+	)
+	require.NoError(t, err)
+	require.Len(t, mappings, 2)
+
+	ports := make(map[uint32]bool)
+	keys := make(map[string]bool)
+	var listeners []net.Listener
+	defer func() {
+		for _, listener := range listeners {
+			require.NoError(t, listener.Close())
+		}
+	}()
+	for _, mapping := range mappings {
+		instance := resources.FilterNetworkInstance(ctx, mapping.Instances, resources.NewNativeNetworkAccess())
+		require.NotNil(t, instance)
+		require.False(t, ports[instance.Port], "endpoint %s reused port %d", mapping.Endpoint.Name, instance.Port)
+		ports[instance.Port] = true
+
+		listener, err := net.Listen("tcp", instance.Host)
+		require.NoError(t, err)
+		listeners = append(listeners, listener)
+
+		environmentVariable := resources.EndpointAsEnvironmentVariable(&resources.EndpointAccess{
+			Endpoint:        mapping.Endpoint,
+			NetworkInstance: instance,
+		})
+		require.False(t, keys[environmentVariable.Key])
+		keys[environmentVariable.Key] = true
+	}
+	require.True(t, keys["CODEFLY__ENDPOINT__SAAS__ACCOUNTS__GRPC__GRPC"])
+	require.True(t, keys["CODEFLY__ENDPOINT__SAAS__ACCOUNTS__USAGE__GRPC"])
 }
 
 // TestRuntimeNetworkMappingAccessKinds_NoDNS asserts that the named-port

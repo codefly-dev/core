@@ -152,6 +152,34 @@ func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, 
 	return nil, w.NewError("no network mapping for endpoint: %s", EndpointFromProto(endpoint).Unique())
 }
 
+func ResolveDependencyNetworkMappings(dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
+	endpoints := make([]*basev0.Endpoint, 0, len(mappings))
+	for _, mapping := range mappings {
+		if mapping == nil || mapping.Endpoint == nil {
+			return nil, fmt.Errorf("dependency network mapping is missing its endpoint")
+		}
+		endpoints = append(endpoints, mapping.Endpoint)
+	}
+	if err := ValidateDependencyEndpoints(dependencies, endpoints); err != nil {
+		return nil, err
+	}
+
+	var resolved []*basev0.NetworkMapping
+	for _, mapping := range mappings {
+		for _, dependency := range dependencies {
+			endpoint := mapping.Endpoint
+			if endpoint.Module != dependency.Module || endpoint.Service != dependency.Name {
+				continue
+			}
+			if dependency.ConsumesEndpoint(endpoint.Name) {
+				resolved = append(resolved, mapping)
+			}
+			break
+		}
+	}
+	return resolved, nil
+}
+
 func MakeManyNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
 	var results []string
 	for _, mapping := range mappings {
