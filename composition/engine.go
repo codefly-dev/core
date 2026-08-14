@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -40,14 +41,35 @@ type Engine struct {
 type UpdateResult struct {
 	Lock       *Lock
 	Projection string
+	Namespace  *Namespace
 	Report     *SemanticReport
 	Applied    bool
+}
+
+type Materialization struct {
+	Source     string
+	Projection string
+	Namespace  *Namespace
+}
+
+type resolvedMaterializationSource struct {
+	path     string
+	manifest *PackageManifest
+	lock     *Lock
+	local    bool
 }
 
 type MaterializeOptions struct {
 	Namespace string
 	LockPath  string
 	CI        bool
+}
+
+const projectionMarkerPath = ".codefly/projection.json"
+
+type projectionMarker struct {
+	Schema string `json:"schema"`
+	Digest string `json:"digest"`
 }
 
 func NewEngine(projectRoot string, resolver Resolver, trust TrustPolicy) *Engine {
@@ -63,6 +85,10 @@ func NewEngine(projectRoot string, resolver Resolver, trust TrustPolicy) *Engine
 
 func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion string, apply bool) (*UpdateResult, error) {
 	descriptor, err := LoadDescriptor(moduleDir)
+	if err != nil {
+		return nil, err
+	}
+	inputs, err := LoadContributionInputs(moduleDir, descriptor)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +125,7 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 	if err != nil {
 		return nil, err
 	}
-	contracts, err := NegotiateContracts(descriptor, verified.Manifest, toolVersion, engine.supportedContracts())
+	contracts, err := NegotiateContracts(descriptor, verified.manifest, toolVersion, engine.supportedContracts())
 	if err != nil {
 		return nil, err
 	}
@@ -121,23 +147,26 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
-	catalog, validations, renderErr := engine.Renderer.Render(ctx, base, moduleDir, staging, descriptor, verified.Manifest, contracts)
+	catalog, validations, renderErr := engine.Renderer.Render(ctx, base, moduleDir, staging, namespace, descriptor, verified.manifest, contracts, inputs)
 	if renderErr != nil {
-		failedReport := newSemanticReport(descriptor, current, candidate, nil, verified.Manifest, nil, nil, validations)
+		failedReport := newSemanticReport(descriptor, current, candidate, nil, verified.manifest, nil, nil, validations)
 		failedReport.BlockedReasons = append(failedReport.BlockedReasons, renderErr.Error())
 		failedReport.LockDiff, _ = LockDiff(current, candidate)
-		return &UpdateResult{Lock: candidate, Projection: namespace.ProjectionDir, Report: failedReport}, renderErr
+		return &UpdateResult{Lock: candidate, Projection: namespace.ProjectionDir, Namespace: namespace, Report: failedReport}, renderErr
 	}
 	if err := writeProjectionMetadata(staging, candidate, catalog); err != nil {
 		return nil, err
 	}
-	oldClaims, oldManifest := engine.currentState(moduleDir, current)
-	report := newSemanticReport(descriptor, current, candidate, oldManifest, verified.Manifest, oldClaims, catalog.Claims, validations)
+	oldCatalog, oldManifest, err := engine.currentState(ctx, moduleDir, descriptor, inputs, current)
+	if err != nil {
+		return nil, fmt.Errorf("render current module composition for semantic report: %w", err)
+	}
+	report := newSemanticReport(descriptor, current, candidate, oldManifest, verified.manifest, oldCatalog, catalog, validations)
 	report.LockDiff, err = LockDiff(current, candidate)
 	if err != nil {
 		return nil, err
 	}
-	result := &UpdateResult{Lock: candidate, Report: report, Projection: namespace.ProjectionDir}
+	result := &UpdateResult{Lock: candidate, Report: report, Projection: namespace.ProjectionDir, Namespace: namespace}
 	if !apply || len(report.BlockedReasons) > 0 {
 		return result, nil
 	}
@@ -155,9 +184,94 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 	return result, nil
 }
 
-func (engine *Engine) Materialize(ctx context.Context, moduleDir string, options MaterializeOptions) (string, error) {
+func (engine *Engine) Materialize(ctx context.Context, moduleDir string, options MaterializeOptions) (*Materialization, error) {
 	descriptor, err := LoadDescriptor(moduleDir)
 	if err != nil {
+		return nil, err
+	}
+	inputs, err := LoadContributionInputs(moduleDir, descriptor)
+	if err != nil {
+		return nil, err
+	}
+	lockPath := options.LockPath
+	if lockPath == "" {
+		lockPath = filepath.Join(moduleDir, LockFileName)
+	}
+	lockData, err := os.ReadFile(lockPath)
+	if err != nil {
+		return nil, fmt.Errorf("read module lock: %w", err)
+	}
+	lock, err := ParseLock(lockData)
+	if err != nil {
+		return nil, err
+	}
+	if lock.Module != descriptor.Name || lock.Package != descriptor.Base.ID {
+		return nil, ErrPackageIdentity
+	}
+	compositionDigest, err := CompositionDigest(moduleDir, descriptor)
+	if err != nil {
+		return nil, err
+	}
+	namespaceName := options.Namespace
+	if namespaceName == "" {
+		namespaceName = "stable"
+	}
+	development := namespaceName == "dev" && !options.CI
+	if !development && compositionDigest != lock.CompositionDigest {
+		return nil, fmt.Errorf("composition contribution digest differs from lock: got %s, want %s", compositionDigest, lock.CompositionDigest)
+	}
+	resolved, err := engine.resolveMaterializationSource(ctx, descriptor, lock, namespaceName, options.CI)
+	if err != nil {
+		return nil, err
+	}
+	if development {
+		resolved.lock.CompositionDigest = compositionDigest
+	}
+	toolVersion, err := engine.toolVersion(ctx)
+	if err != nil {
+		return nil, err
+	}
+	validateContracts := ValidateLockedContracts
+	if resolved.local {
+		validateContracts = ValidateDevelopContracts
+	}
+	if err := validateContracts(descriptor, resolved.manifest, resolved.lock, toolVersion, engine.supportedContracts()); err != nil {
+		return nil, err
+	}
+	namespace, err := ResolveNamespace(engine.ProjectRoot, moduleDir, namespaceName, lockPath, resolved.lock)
+	if err != nil {
+		return nil, err
+	}
+	if err := namespace.Prepare(); err != nil {
+		return nil, err
+	}
+	if projectionMatches(namespace.ProjectionDir, resolved.lock) {
+		return &Materialization{Source: resolved.path, Projection: namespace.ProjectionDir, Namespace: namespace}, nil
+	}
+	staging, err := engine.projectionStaging(namespace)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(staging) }()
+	catalog, _, err := engine.Renderer.Render(ctx, resolved.path, moduleDir, staging, namespace, descriptor, resolved.manifest, lock.Contracts, inputs)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeProjectionMetadata(staging, resolved.lock, catalog); err != nil {
+		return nil, err
+	}
+	if err := promoteProjection(staging, namespace.ProjectionDir, resolved.lock); err != nil {
+		return nil, err
+	}
+	return &Materialization{Source: resolved.path, Projection: namespace.ProjectionDir, Namespace: namespace}, nil
+}
+
+func (engine *Engine) Source(ctx context.Context, moduleDir string, options MaterializeOptions) (string, error) {
+	descriptor, err := LoadDescriptor(moduleDir)
+	if err != nil {
+		return "", err
+	}
+	if _, err := LoadContributionInputs(moduleDir, descriptor); err != nil {
 		return "", err
 	}
 	lockPath := options.LockPath
@@ -166,7 +280,7 @@ func (engine *Engine) Materialize(ctx context.Context, moduleDir string, options
 	}
 	lockData, err := os.ReadFile(lockPath)
 	if err != nil {
-		return "", fmt.Errorf("read module lock: %w", err)
+		return "", err
 	}
 	lock, err := ParseLock(lockData)
 	if err != nil {
@@ -175,171 +289,136 @@ func (engine *Engine) Materialize(ctx context.Context, moduleDir string, options
 	if lock.Module != descriptor.Name || lock.Package != descriptor.Base.ID {
 		return "", ErrPackageIdentity
 	}
-	compositionDigest, err := CompositionDigest(moduleDir, descriptor)
+	digest, err := CompositionDigest(moduleDir, descriptor)
 	if err != nil {
 		return "", err
 	}
-	if compositionDigest != lock.CompositionDigest {
-		return "", fmt.Errorf("composition contribution digest differs from lock: got %s, want %s", compositionDigest, lock.CompositionDigest)
+	namespace := options.Namespace
+	if namespace == "" {
+		namespace = "stable"
 	}
-	namespaceName := options.Namespace
-	if namespaceName == "" {
-		namespaceName = "stable"
+	development := namespace == "dev" && !options.CI
+	if !development && digest != lock.CompositionDigest {
+		return "", fmt.Errorf("composition contribution digest differs from lock: got %s, want %s", digest, lock.CompositionDigest)
 	}
-	base, manifest, effectiveLock, err := engine.resolveMaterializationSource(ctx, descriptor, lock, namespaceName, options.CI)
+	resolved, err := engine.resolveMaterializationSource(ctx, descriptor, lock, namespace, options.CI)
 	if err != nil {
 		return "", err
+	}
+	if development {
+		resolved.lock.CompositionDigest = digest
 	}
 	toolVersion, err := engine.toolVersion(ctx)
 	if err != nil {
 		return "", err
 	}
-	if err := ValidateLockedContracts(descriptor, manifest, effectiveLock, toolVersion, engine.supportedContracts()); err != nil {
+	validateContracts := ValidateLockedContracts
+	if resolved.local {
+		validateContracts = ValidateDevelopContracts
+	}
+	if err := validateContracts(descriptor, resolved.manifest, resolved.lock, toolVersion, engine.supportedContracts()); err != nil {
 		return "", err
 	}
-	namespace, err := ResolveNamespace(engine.ProjectRoot, moduleDir, namespaceName, lockPath, effectiveLock)
-	if err != nil {
-		return "", err
-	}
-	if projectionMatches(namespace.ProjectionDir, effectiveLock) {
-		return namespace.ProjectionDir, nil
-	}
-	staging, err := engine.projectionStaging(namespace)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = os.RemoveAll(staging) }()
-	catalog, _, err := engine.Renderer.Render(ctx, base, moduleDir, staging, descriptor, manifest, lock.Contracts)
-	if err != nil {
-		return "", err
-	}
-	if err := writeProjectionMetadata(staging, effectiveLock, catalog); err != nil {
-		return "", err
-	}
-	if err := promoteProjection(staging, namespace.ProjectionDir, effectiveLock); err != nil {
-		return "", err
-	}
-	return namespace.ProjectionDir, nil
+	return resolved.path, nil
 }
 
-func (engine *Engine) Source(ctx context.Context, moduleDir string, options MaterializeOptions) (string, error) {
-	descriptor, err := LoadDescriptor(moduleDir)
-	if err != nil {
-		return "", err
-	}
-	if options.Namespace == "dev" && !options.CI {
-		override, overrideErr := LoadDevelopOverride(engine.ProjectRoot, descriptor.Name)
-		if overrideErr == nil {
-			return override.Source, nil
-		}
-		if !errors.Is(overrideErr, os.ErrNotExist) {
-			return "", overrideErr
-		}
-	}
-	lock, err := LoadLock(moduleDir)
-	if err != nil {
-		return "", err
-	}
-	if cached, cacheErr := engine.materializer().Cached(lock); cacheErr == nil {
-		return cached, nil
-	}
-	if _, err := engine.Materialize(ctx, moduleDir, options); err != nil {
-		return "", err
-	}
-	return engine.materializer().Cached(lock)
-}
-
-func (engine *Engine) Rollback(ctx context.Context, moduleDir string, priorLock []byte) (string, error) {
+func (engine *Engine) Rollback(ctx context.Context, moduleDir string, priorLock []byte) (*Materialization, error) {
 	lock, err := ParseLock(priorLock)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	descriptor, err := LoadDescriptor(moduleDir)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if lock.Module != descriptor.Name || lock.Package != descriptor.Base.ID {
-		return "", ErrPackageIdentity
+		return nil, ErrPackageIdentity
 	}
 	temporaryDirectory := filepath.Join(engine.ProjectRoot, ".codefly", "rollback")
 	if err := os.MkdirAll(temporaryDirectory, 0o700); err != nil {
-		return "", err
+		return nil, err
 	}
 	temporaryFile, err := os.CreateTemp(temporaryDirectory, descriptor.Name+"-*.lock")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	temporaryLock := temporaryFile.Name()
 	if _, err := temporaryFile.Write(priorLock); err != nil {
 		_ = temporaryFile.Close()
-		return "", err
+		return nil, err
 	}
 	if err := temporaryFile.Close(); err != nil {
-		return "", err
+		return nil, err
 	}
 	defer func() { _ = os.Remove(temporaryLock) }()
-	projection, err := engine.Materialize(ctx, moduleDir, MaterializeOptions{Namespace: "stable", LockPath: temporaryLock, CI: true})
+	materialized, err := engine.Materialize(ctx, moduleDir, MaterializeOptions{Namespace: "stable", LockPath: temporaryLock, CI: true})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	canonical, err := MarshalLock(lock)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := shared.WriteFileAtomic(ctx, filepath.Join(moduleDir, LockFileName), canonical, 0o644); err != nil {
-		return "", err
+		return nil, err
 	}
-	return projection, nil
+	return materialized, nil
 }
 
-func (engine *Engine) resolveMaterializationSource(ctx context.Context, descriptor *Descriptor, lock *Lock, namespace string, ci bool) (string, *PackageManifest, *Lock, error) {
+func (engine *Engine) resolveMaterializationSource(ctx context.Context, descriptor *Descriptor, lock *Lock, namespace string, ci bool) (*resolvedMaterializationSource, error) {
 	if namespace == "dev" && !ci {
 		override, err := LoadDevelopOverride(engine.ProjectRoot, descriptor.Name)
 		if err == nil {
 			manifest, validationErr := validateDevelopSource(override, descriptor, lock)
 			if validationErr != nil {
-				return "", nil, nil, validationErr
+				return nil, validationErr
 			}
 			localDigest, digestErr := sourceTreeDigest(override.Source)
 			if digestErr != nil {
-				return "", nil, nil, digestErr
+				return nil, digestErr
 			}
 			effective := *lock
 			effective.Version = manifest.Version
 			effective.Artifact.Digest = localDigest
 			effective.Artifact.Signature = "local-development"
-			return override.Source, manifest, &effective, nil
+			return &resolvedMaterializationSource{path: override.Source, manifest: manifest, lock: &effective, local: true}, nil
 		}
 		if !errors.Is(err, os.ErrNotExist) {
-			return "", nil, nil, err
+			return nil, err
 		}
 	}
 	cache, err := engine.materializer().Cached(lock)
 	if err == nil {
 		manifest, manifestErr := LoadPackageManifest(cache)
-		return cache, manifest, lock, manifestErr
+		if manifestErr != nil {
+			return nil, manifestErr
+		}
+		return &resolvedMaterializationSource{path: cache, manifest: manifest, lock: lock}, nil
 	}
 	if engine.Resolver == nil {
-		return "", nil, nil, fmt.Errorf("verified module cache is unavailable offline: %w", err)
+		return nil, fmt.Errorf("verified module cache is unavailable offline: %w", err)
 	}
 	release, err := engine.Resolver.Fetch(ctx, lock)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("fetch locked module release: %w", err)
+		return nil, fmt.Errorf("fetch locked module release: %w", err)
 	}
 	verified, err := VerifyLockedRelease(release, lock, engine.Trust)
 	if err != nil {
-		return "", nil, nil, err
+		return nil, err
 	}
 	cache, err = engine.materializer().Materialize(ctx, verified)
 	if err != nil {
-		return "", nil, nil, err
+		return nil, err
 	}
-	return cache, verified.Manifest, lock, nil
+	return &resolvedMaterializationSource{path: cache, manifest: verified.manifest, lock: lock}, nil
 }
 
 func validateDevelopSource(override *DevelopOverride, descriptor *Descriptor, lock *Lock) (*PackageManifest, error) {
 	if override.Module != descriptor.Name || override.Package != descriptor.Base.ID || override.Package != lock.Package {
 		return nil, ErrPackageIdentity
+	}
+	if !maps.Equal(override.Contracts, lock.Contracts) {
+		return nil, fmt.Errorf("%w: local override contracts differ from the lock", ErrContract)
 	}
 	manifest, err := LoadPackageManifest(override.Source)
 	if err != nil {
@@ -372,19 +451,19 @@ func sourceTreeDigest(source string) (string, error) {
 
 func lockForRelease(descriptor *Descriptor, release *VerifiedRelease, contracts map[string]string, compositionDigest string) *Lock {
 	return &Lock{
-		Schema: LockSchema, Module: descriptor.Name, Package: release.Manifest.ID, Version: release.Manifest.Version,
-		Source:    SourceLock{Repository: release.Release.Repository, Ref: release.Release.Ref, Commit: release.Release.Commit},
-		Artifact:  ArtifactLock{MediaType: ArtifactMediaType, Digest: release.Digest, Signature: release.Provenance.SignatureIdentity},
+		Schema: LockSchema, Module: descriptor.Name, Package: release.manifest.ID, Version: release.manifest.Version,
+		Source:    SourceLock{Repository: release.release.Repository, Ref: release.release.Ref, Commit: release.release.Commit},
+		Artifact:  ArtifactLock{MediaType: ArtifactMediaType, Digest: release.digest, Signature: release.provenance.SignatureIdentity},
 		Contracts: contracts, CompositionDigest: compositionDigest,
 	}
 }
 
 func rejectMovedTag(current *Lock, candidate *VerifiedRelease) error {
-	if current == nil || current.Package != candidate.Manifest.ID || current.Version != candidate.Manifest.Version || current.Source.Ref != candidate.Release.Ref {
+	if current == nil || current.Package != candidate.manifest.ID || current.Version != candidate.manifest.Version || current.Source.Ref != candidate.release.Ref {
 		return nil
 	}
-	if current.Source.Repository != candidate.Release.Repository || current.Source.Commit != candidate.Release.Commit ||
-		current.Artifact.Digest != candidate.Digest || current.Artifact.Signature != candidate.Provenance.SignatureIdentity {
+	if current.Source.Repository != candidate.release.Repository || current.Source.Commit != candidate.release.Commit ||
+		current.Artifact.Digest != candidate.digest || current.Artifact.Signature != candidate.provenance.SignatureIdentity {
 		return ErrMovedTag
 	}
 	return nil
@@ -422,29 +501,131 @@ func writeProjectionMetadata(projection string, lock *Lock, catalog *Catalog) er
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(projection, filepath.FromSlash(CompositionCatalogName)), append(catalogData, '\n'), 0o644)
+	if err := os.WriteFile(filepath.Join(projection, filepath.FromSlash(CompositionCatalogName)), append(catalogData, '\n'), 0o644); err != nil {
+		return err
+	}
+	digest, err := projectionContentDigest(projection)
+	if err != nil {
+		return err
+	}
+	markerData, err := json.Marshal(projectionMarker{Schema: "codefly/composed-projection/v2", Digest: digest})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(projection, filepath.FromSlash(projectionMarkerPath)), append(markerData, '\n'), 0o644)
 }
 
 func projectionMatches(projection string, lock *Lock) bool {
+	return projectionMatchesMode(projection, lock, true)
+}
+
+func projectionMatchesMode(projection string, lock *Lock, requireReadOnly bool) bool {
 	data, err := os.ReadFile(filepath.Join(projection, ".codefly", "projection.lock"))
 	if err != nil {
 		return false
 	}
 	actual, err := ParseLock(data)
-	return err == nil && locksEqual(actual, lock)
+	if err != nil || !locksEqual(actual, lock) {
+		return false
+	}
+	markerData, err := os.ReadFile(filepath.Join(projection, filepath.FromSlash(projectionMarkerPath)))
+	if err != nil {
+		return false
+	}
+	var marker projectionMarker
+	if err := decodeStrictJSON(markerData, &marker); err != nil || marker.Schema != "codefly/composed-projection/v2" || !digestPattern.MatchString(marker.Digest) {
+		return false
+	}
+	digest, err := projectionContentDigest(projection)
+	if err != nil || digest != marker.Digest {
+		return false
+	}
+	return !requireReadOnly || treeReadOnly(projection) == nil
 }
 
 func promoteProjection(staging, destination string, lock *Lock) error {
-	if projectionMatches(destination, lock) {
-		return nil
+	if !projectionMatchesMode(staging, lock, false) {
+		return errors.New("candidate projection failed content verification")
 	}
-	if err := os.RemoveAll(destination); err != nil {
+	markerData, err := os.ReadFile(filepath.Join(staging, filepath.FromSlash(projectionMarkerPath)))
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(staging, destination); err != nil {
-		return fmt.Errorf("promote composed projection: %w", err)
+	var marker projectionMarker
+	if err := decodeStrictJSON(markerData, &marker); err != nil {
+		return err
+	}
+	parent := filepath.Dir(destination)
+	revisions := filepath.Join(parent, ".revisions")
+	if err := os.MkdirAll(revisions, 0o755); err != nil {
+		return err
+	}
+	revision := filepath.Join(revisions, strings.TrimPrefix(marker.Digest, "sha256:"))
+	if projectionMatches(revision, lock) {
+		if err := removeCacheTree(staging); err != nil {
+			return err
+		}
+	} else {
+		if _, err := os.Lstat(revision); err == nil {
+			recovery, err := os.MkdirTemp(revisions, strings.TrimPrefix(marker.Digest, "sha256:")+"-recovered-")
+			if err != nil {
+				return err
+			}
+			if err := os.Remove(recovery); err != nil {
+				return err
+			}
+			revision = recovery
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := os.Rename(staging, revision); err != nil {
+			return fmt.Errorf("promote composed projection revision: %w", err)
+		}
+		if err := makeReadOnly(revision); err != nil {
+			_ = removeCacheTree(revision)
+			return err
+		}
+	}
+	linkFile, err := os.CreateTemp(parent, ".projection-link-")
+	if err != nil {
+		return err
+	}
+	linkPath := linkFile.Name()
+	if err := linkFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Remove(linkPath); err != nil {
+		return err
+	}
+	target, err := filepath.Rel(parent, revision)
+	if err != nil {
+		return err
+	}
+	if err := os.Symlink(target, linkPath); err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(linkPath) }()
+	if info, statErr := os.Lstat(destination); statErr == nil && info.Mode()&os.ModeSymlink == 0 {
+		return errors.New("composed projection destination is not an atomic link")
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	if err := os.Rename(linkPath, destination); err != nil {
+		return fmt.Errorf("activate composed projection: %w", err)
 	}
 	return nil
+}
+
+func projectionContentDigest(projection string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(projection)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.New()
+	if err := writeCanonicalArchive(resolved, hash, map[string]struct{}{projectionMarkerPath: {}}); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("sha256:%x", hash.Sum(nil)), nil
 }
 
 func locksEqual(left, right *Lock) bool {
@@ -453,20 +634,35 @@ func locksEqual(left, right *Lock) bool {
 	return leftErr == nil && rightErr == nil && string(leftData) == string(rightData)
 }
 
-func (engine *Engine) currentState(moduleDir string, lock *Lock) ([]Claim, *PackageManifest) {
+func (engine *Engine) currentState(ctx context.Context, moduleDir string, descriptor *Descriptor, inputs []CatalogInput, lock *Lock) (*Catalog, *PackageManifest, error) {
 	if lock == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	namespace, err := ResolveNamespace(engine.ProjectRoot, moduleDir, "stable", "", lock)
+	resolved, err := engine.resolveMaterializationSource(ctx, descriptor, lock, "stable", true)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
-	catalog, err := LoadCatalog(namespace.ProjectionDir)
+	toolVersion, err := engine.toolVersion(ctx)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
-	manifest, _ := LoadPackageManifest(namespace.ProjectionDir)
-	return catalog.Claims, manifest
+	if err := ValidateDevelopContracts(descriptor, resolved.manifest, resolved.lock, toolVersion, engine.supportedContracts()); err != nil {
+		return nil, nil, err
+	}
+	namespace, err := ResolveNamespace(engine.ProjectRoot, moduleDir, "report", "", lock)
+	if err != nil {
+		return nil, nil, err
+	}
+	staging, err := engine.projectionStaging(namespace)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = removeCacheTree(staging) }()
+	catalog, _, err := engine.Renderer.Render(ctx, resolved.path, moduleDir, staging, namespace, descriptor, resolved.manifest, lock.Contracts, inputs)
+	if err != nil {
+		return nil, nil, err
+	}
+	return catalog, resolved.manifest, nil
 }
 
 func LockDiff(before, after *Lock) (string, error) {

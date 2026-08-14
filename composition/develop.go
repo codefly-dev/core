@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,9 +27,15 @@ func SetDevelopOverride(ctx context.Context, projectRoot, moduleDir, source stri
 	if err != nil {
 		return nil, err
 	}
+	if _, err := LoadContributionInputs(moduleDir, descriptor); err != nil {
+		return nil, err
+	}
 	lock, err := LoadLock(moduleDir)
 	if err != nil {
 		return nil, err
+	}
+	if lock.Module != descriptor.Name || lock.Package != descriptor.Base.ID {
+		return nil, ErrPackageIdentity
 	}
 	source, err = filepath.Abs(source)
 	if err != nil {
@@ -54,7 +61,7 @@ func SetDevelopOverride(ctx context.Context, projectRoot, moduleDir, source stri
 	}
 	override := &DevelopOverride{
 		Schema: "codefly/module-develop/v2", Module: descriptor.Name, Package: manifest.ID,
-		Source: source, Contracts: lock.Contracts,
+		Source: source, Contracts: maps.Clone(lock.Contracts),
 	}
 	data, err := json.MarshalIndent(override, "", "  ")
 	if err != nil {

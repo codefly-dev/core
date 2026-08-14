@@ -31,10 +31,10 @@ func CanonicalArchive(root string) ([]byte, string, error) {
 }
 
 func WriteCanonicalArchive(root string, destination io.Writer) error {
-	return writeCanonicalArchive(root, destination, false)
+	return writeCanonicalArchive(root, destination, nil)
 }
 
-func writeCanonicalArchive(root string, destination io.Writer, excludeCacheMarker bool) error {
+func writeCanonicalArchive(root string, destination io.Writer, excluded map[string]struct{}) error {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return err
@@ -51,7 +51,7 @@ func writeCanonicalArchive(root string, destination io.Writer, excludeCacheMarke
 		if err != nil {
 			return err
 		}
-		if excludeCacheMarker && filepath.ToSlash(relative) == cacheMarkerName {
+		if _, skip := excluded[filepath.ToSlash(relative)]; skip {
 			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
@@ -82,7 +82,7 @@ func writeCanonicalArchive(root string, destination io.Writer, excludeCacheMarke
 
 func canonicalCacheDigest(root string) (string, error) {
 	hash := sha256.New()
-	if err := writeCanonicalArchive(root, hash, true); err != nil {
+	if err := writeCanonicalArchive(root, hash, map[string]struct{}{cacheMarkerName: {}}); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("sha256:%x", hash.Sum(nil)), nil

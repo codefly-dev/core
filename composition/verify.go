@@ -73,7 +73,15 @@ func VerifyRelease(release *Release, expectedPackage, expectedVersion string, tr
 	if manifest.ID != expectedPackage || manifest.Version != provenance.Version {
 		return nil, fmt.Errorf("%w: manifest identifies %s@%s", ErrPackageIdentity, manifest.ID, manifest.Version)
 	}
-	return &VerifiedRelease{Release: release, Provenance: provenance, Manifest: manifest, Digest: artifactDigest}, nil
+	verifiedRelease := &Release{
+		Repository: release.Repository,
+		Ref:        release.Ref,
+		Commit:     release.Commit,
+		Artifact:   append([]byte(nil), release.Artifact...),
+		Provenance: append([]byte(nil), release.Provenance...),
+		Signature:  append([]byte(nil), release.Signature...),
+	}
+	return &VerifiedRelease{release: verifiedRelease, provenance: provenance, manifest: manifest, digest: artifactDigest}, nil
 }
 
 func VerifyLockedRelease(release *Release, lock *Lock, trust TrustPolicy) (*VerifiedRelease, error) {
@@ -85,7 +93,7 @@ func VerifyLockedRelease(release *Release, lock *Lock, trust TrustPolicy) (*Veri
 		return nil, err
 	}
 	if release.Repository != lock.Source.Repository || release.Ref != lock.Source.Ref || release.Commit != lock.Source.Commit ||
-		verified.Digest != lock.Artifact.Digest || verified.Provenance.SignatureIdentity != lock.Artifact.Signature {
+		verified.digest != lock.Artifact.Digest || verified.provenance.SignatureIdentity != lock.Artifact.Signature {
 		return nil, fmt.Errorf("%w: fetched release does not match locked tag", ErrMovedTag)
 	}
 	return verified, nil

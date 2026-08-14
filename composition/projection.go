@@ -3,12 +3,14 @@ package composition
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 )
 
 type CommandSpec struct {
@@ -49,11 +51,18 @@ type CompositionInput struct {
 	Projection   string            `json:"projection"`
 	Contracts    map[string]string `json:"contracts"`
 	Descriptor   *Descriptor       `json:"descriptor"`
+	Namespace    *Namespace        `json:"namespace"`
 }
 
-func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection string, descriptor *Descriptor, manifest *PackageManifest, contracts map[string]string) (*Catalog, []ValidationResult, error) {
+func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection string, namespace *Namespace, descriptor *Descriptor, manifest *PackageManifest, contracts map[string]string, inputs []CatalogInput) (*Catalog, []ValidationResult, error) {
 	if renderer.Runner == nil {
 		renderer.Runner = ExecCommandRunner{}
+	}
+	if namespace == nil {
+		return nil, nil, errors.New("composition namespace is required")
+	}
+	if err := namespace.Prepare(); err != nil {
+		return nil, nil, fmt.Errorf("prepare composition namespace: %w", err)
 	}
 	if err := copyProjection(base, projection); err != nil {
 		return nil, nil, fmt.Errorf("render base projection: %w", err)
@@ -75,6 +84,7 @@ func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection
 		Projection:   projection,
 		Contracts:    contracts,
 		Descriptor:   descriptor,
+		Namespace:    namespace,
 	}
 	inputData, err := json.MarshalIndent(input, "", "  ")
 	if err != nil {
@@ -91,6 +101,12 @@ func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection
 		"CODEFLY_COMPOSITION_INPUT=" + inputPath,
 		"CODEFLY_COMPOSITION_CONSUMER=" + moduleDir,
 		"CODEFLY_COMPOSITION_PROJECTION=" + projection,
+		"CODEFLY_COMPOSITION_CACHE=" + namespace.CacheDir,
+		"CODEFLY_COMPOSITION_BUILD=" + namespace.BuildDir,
+		"CODEFLY_COMPOSITION_NEXTJS=" + namespace.NextJSDir,
+		"CODEFLY_COMPOSITION_RUNTIME_CONFIG=" + namespace.RuntimeConfigDir,
+		"CODEFLY_COMPOSITION_CONTAINER_SUFFIX=" + namespace.ContainerSuffix,
+		"CODEFLY_COMPOSITION_PORT_SEED=" + strconv.FormatUint(uint64(namespace.PortSeed), 10),
 	}
 	validations := make([]ValidationResult, 0, len(manifest.Generators)+len(manifest.Conformance)+len(descriptor.Contributions.Tests)+1)
 	for _, generator := range manifest.Generators {
@@ -102,6 +118,14 @@ func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection
 	}
 	catalog, err := LoadCatalog(projection)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) && len(inputs) == 0 {
+			catalog = &Catalog{Schema: catalogSchema}
+		} else {
+			validations = append(validations, ValidationResult{Name: "collisions", Kind: "validation", Status: ValidationFailed, Detail: err.Error()})
+			return nil, validations, err
+		}
+	}
+	if err := ValidateCatalog(catalog, inputs); err != nil {
 		validations = append(validations, ValidationResult{Name: "collisions", Kind: "validation", Status: ValidationFailed, Detail: err.Error()})
 		return nil, validations, err
 	}
@@ -131,6 +155,9 @@ func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection
 			return nil, validations, err
 		}
 		validations = append(validations, ValidationResult{Name: suite.Path, Kind: "integration", Status: ValidationPassed})
+	}
+	if err := os.Remove(inputPath); err != nil {
+		return nil, validations, err
 	}
 	catalog.Claims = claims
 	return catalog, validations, nil

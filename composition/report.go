@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/Masterminds/semver/v3"
 )
 
 type ValidationStatus string
@@ -35,19 +37,21 @@ type Delta struct {
 }
 
 type SemanticReport struct {
-	Schema         string                  `json:"schema"`
-	Module         string                  `json:"module"`
-	Package        string                  `json:"package"`
-	BeforeVersion  string                  `json:"beforeVersion,omitempty"`
-	AfterVersion   string                  `json:"afterVersion"`
-	Contracts      []ContractChange        `json:"contracts"`
-	Services       Delta                   `json:"services"`
-	Endpoints      Delta                   `json:"endpoints"`
-	Dependencies   Delta                   `json:"dependencies"`
-	Deltas         map[CollisionKind]Delta `json:"deltas"`
-	Validations    []ValidationResult      `json:"validations"`
-	BlockedReasons []string                `json:"blockedReasons,omitempty"`
-	LockDiff       string                  `json:"lockDiff"`
+	Schema          string                  `json:"schema"`
+	Module          string                  `json:"module"`
+	Package         string                  `json:"package"`
+	BeforeVersion   string                  `json:"beforeVersion,omitempty"`
+	AfterVersion    string                  `json:"afterVersion"`
+	Contracts       []ContractChange        `json:"contracts"`
+	Services        Delta                   `json:"services"`
+	Endpoints       Delta                   `json:"endpoints"`
+	Dependencies    Delta                   `json:"dependencies"`
+	Migrations      Delta                   `json:"migrations"`
+	BreakingChanges []string                `json:"breakingChanges,omitempty"`
+	Deltas          map[CollisionKind]Delta `json:"deltas"`
+	Validations     []ValidationResult      `json:"validations"`
+	BlockedReasons  []string                `json:"blockedReasons,omitempty"`
+	LockDiff        string                  `json:"lockDiff"`
 }
 
 func (report *SemanticReport) JSON() ([]byte, error) {
@@ -69,6 +73,7 @@ func (report *SemanticReport) String() string {
 		fmt.Fprintf(&output, "  %-24s +%d / -%d\n", kind, len(delta.Added), len(delta.Removed))
 	}
 	fmt.Fprintf(&output, "  %-24s +%d / -%d\n", "dependencies", len(report.Dependencies.Added), len(report.Dependencies.Removed))
+	fmt.Fprintf(&output, "  %-24s +%d / -%d\n", "migrations", len(report.Migrations.Added), len(report.Migrations.Removed))
 	output.WriteString("\nValidation\n")
 	for _, validation := range report.Validations {
 		fmt.Fprintf(&output, "  %-24s %s\n", validation.Name, validation.Status)
@@ -81,7 +86,7 @@ func (report *SemanticReport) String() string {
 	return output.String()
 }
 
-func newSemanticReport(descriptor *Descriptor, before *Lock, after *Lock, beforeManifest, afterManifest *PackageManifest, oldClaims, newClaims []Claim, validations []ValidationResult) *SemanticReport {
+func newSemanticReport(descriptor *Descriptor, before *Lock, after *Lock, beforeManifest, afterManifest *PackageManifest, beforeCatalog, afterCatalog *Catalog, validations []ValidationResult) *SemanticReport {
 	report := &SemanticReport{
 		Schema: "codefly/module-update-report/v2", Module: descriptor.Name, Package: after.Package,
 		AfterVersion: after.Version, Deltas: make(map[CollisionKind]Delta), Validations: validations,
@@ -115,12 +120,51 @@ func newSemanticReport(descriptor *Descriptor, before *Lock, after *Lock, before
 		report.Contracts = append(report.Contracts, change)
 	}
 	for _, kind := range collisionKinds {
-		report.Deltas[kind] = claimsDelta(kind, oldClaims, newClaims)
+		report.Deltas[kind] = claimsDelta(kind, catalogClaims(beforeCatalog), catalogClaims(afterCatalog))
 	}
 	report.Services = stringDelta(serviceNames(beforeManifest), serviceNames(afterManifest))
 	report.Endpoints = stringDelta(endpointNames(beforeManifest), endpointNames(afterManifest))
-	report.Dependencies = report.Deltas[CollisionPackage]
+	report.Dependencies = stringDelta(catalogDependencies(beforeCatalog), catalogDependencies(afterCatalog))
+	report.Migrations = stringDelta(migrationNames(beforeManifest), migrationNames(afterManifest))
+	if before != nil && before.Version != after.Version && afterManifest != nil {
+		report.BreakingChanges = append([]string(nil), afterManifest.BreakingChanges...)
+		for _, change := range report.BreakingChanges {
+			report.BlockedReasons = append(report.BlockedReasons, "package declares breaking change: "+change)
+		}
+		for _, migration := range afterManifest.Migrations {
+			constraint, err := semver.NewConstraint(migration.From)
+			version, versionErr := semver.StrictNewVersion(before.Version)
+			if err == nil && versionErr == nil && migration.Breaking && constraint.Check(version) {
+				report.BlockedReasons = append(report.BlockedReasons, fmt.Sprintf("migration %s from %s is breaking", migration.ID, before.Version))
+			}
+		}
+	}
 	return report
+}
+
+func catalogClaims(catalog *Catalog) []Claim {
+	if catalog == nil {
+		return nil
+	}
+	return catalog.Claims
+}
+
+func catalogDependencies(catalog *Catalog) []string {
+	if catalog == nil {
+		return nil
+	}
+	return catalog.Dependencies
+}
+
+func migrationNames(manifest *PackageManifest) []string {
+	if manifest == nil {
+		return nil
+	}
+	values := make([]string, 0, len(manifest.Migrations))
+	for _, migration := range manifest.Migrations {
+		values = append(values, migration.ID)
+	}
+	return values
 }
 
 func serviceNames(manifest *PackageManifest) []string {

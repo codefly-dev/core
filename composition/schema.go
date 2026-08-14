@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/yoheimuta/go-protoparser/v4"
+	"github.com/yoheimuta/go-protoparser/v4/parser"
 	"gopkg.in/yaml.v3"
 )
 
@@ -125,6 +127,167 @@ func (descriptor *Descriptor) Validate() error {
 			return fmt.Errorf("duplicate service binding %q", identity)
 		}
 		bindings[identity] = struct{}{}
+	}
+	return nil
+}
+
+func LoadContributionInputs(moduleDir string, descriptor *Descriptor) ([]CatalogInput, error) {
+	if err := descriptor.Validate(); err != nil {
+		return nil, err
+	}
+	paths := contributionPaths(descriptor)
+	inputs := make([]CatalogInput, 0, len(paths))
+	for _, contribution := range paths {
+		absolute := filepath.Join(moduleDir, filepath.FromSlash(contribution.Path))
+		if err := validateContributionDocument(contribution, absolute); err != nil {
+			return nil, fmt.Errorf("load %s contribution %s: %w", contribution.Kind, contribution.Path, err)
+		}
+		if contribution.Kind == "tests" {
+			continue
+		}
+		digest, err := contributionDigest(absolute)
+		if err != nil {
+			return nil, fmt.Errorf("digest %s contribution %s: %w", contribution.Kind, contribution.Path, err)
+		}
+		inputs = append(inputs, CatalogInput{Kind: contribution.Kind, Path: contribution.Path, Identity: contribution.Identity, Digest: digest})
+	}
+	return inputs, nil
+}
+
+func validateContributionDocument(contribution contributionPath, absolute string) error {
+	info, err := os.Lstat(absolute)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errorsUnsafeContribution(absolute)
+	}
+	switch contribution.Kind {
+	case "frontend":
+		if !info.IsDir() {
+			return errors.New("frontend contribution must be a directory")
+		}
+		packageData, err := os.ReadFile(filepath.Join(absolute, "package.json"))
+		if err != nil {
+			return fmt.Errorf("read frontend package.json: %w", err)
+		}
+		var packageDocument map[string]any
+		if err := decodeStrictJSON(packageData, &packageDocument); err != nil {
+			return fmt.Errorf("decode frontend package.json: %w", err)
+		}
+		if name, ok := packageDocument["name"].(string); !ok || strings.TrimSpace(name) == "" {
+			return errors.New("frontend package.json requires a package name")
+		}
+	case "settings":
+		if !info.Mode().IsRegular() {
+			return errors.New("settings contribution must be a protobuf file")
+		}
+		data, err := os.ReadFile(absolute)
+		if err != nil {
+			return err
+		}
+		proto, err := protoparser.Parse(bytes.NewReader(data))
+		if err != nil {
+			return fmt.Errorf("parse settings protobuf: %w", err)
+		}
+		if !protoDefinesMessage(proto, contribution.Identity) {
+			return fmt.Errorf("settings protobuf does not define message %q", contribution.Identity)
+		}
+	case "permissions", "fixtures":
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s contribution must be a YAML document", contribution.Kind)
+		}
+		data, err := os.ReadFile(absolute)
+		if err != nil {
+			return err
+		}
+		if err := validateStrictYAMLDocument(data); err != nil {
+			return err
+		}
+	case "tests":
+		if !info.IsDir() {
+			return errors.New("integration contribution must be a directory")
+		}
+	default:
+		return fmt.Errorf("unsupported contribution kind %q", contribution.Kind)
+	}
+	return nil
+}
+
+func protoDefinesMessage(proto *parser.Proto, expected string) bool {
+	packageName := ""
+	for _, element := range proto.ProtoBody {
+		if declaration, ok := element.(*parser.Package); ok {
+			packageName = declaration.Name
+		}
+	}
+	for _, element := range proto.ProtoBody {
+		if message, ok := element.(*parser.Message); ok && messageMatches(message, packageName, expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func messageMatches(message *parser.Message, prefix, expected string) bool {
+	name := message.MessageName
+	if prefix != "" {
+		name = prefix + "." + name
+	}
+	if name == expected {
+		return true
+	}
+	for _, element := range message.MessageBody {
+		if nested, ok := element.(*parser.Message); ok && messageMatches(nested, name, expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateStrictYAMLDocument(data []byte) error {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	var document yaml.Node
+	if err := decoder.Decode(&document); err != nil {
+		return fmt.Errorf("decode YAML contribution: %w", err)
+	}
+	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		return errors.New("YAML contribution must contain one mapping document")
+	}
+	if err := validateYAMLNode(document.Content[0]); err != nil {
+		return err
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple YAML documents are not allowed")
+		}
+		return err
+	}
+	return nil
+}
+
+func validateYAMLNode(node *yaml.Node) error {
+	if node.Kind == yaml.AliasNode || node.Alias != nil {
+		return errors.New("YAML contribution aliases are not allowed")
+	}
+	if node.Kind == yaml.MappingNode {
+		seen := make(map[string]struct{}, len(node.Content)/2)
+		for index := 0; index < len(node.Content); index += 2 {
+			key := node.Content[index]
+			if key.Kind != yaml.ScalarNode || key.Tag != "!!str" || strings.TrimSpace(key.Value) == "" {
+				return errors.New("YAML contribution keys must be non-empty strings")
+			}
+			if _, exists := seen[key.Value]; exists {
+				return fmt.Errorf("YAML contribution contains duplicate key %q", key.Value)
+			}
+			seen[key.Value] = struct{}{}
+		}
+	}
+	for _, child := range node.Content {
+		if err := validateYAMLNode(child); err != nil {
+			return err
+		}
 	}
 	return nil
 }

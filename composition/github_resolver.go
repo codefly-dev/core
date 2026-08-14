@@ -83,8 +83,8 @@ func (resolver *GitHubResolver) fetchTag(ctx context.Context, packageSource GitH
 	if err != nil {
 		return nil, fmt.Errorf("get GitHub module release %s: %w", tagName, err)
 	}
-	if release.GetDraft() || release.GetTagName() != tagName {
-		return nil, fmt.Errorf("GitHub module release %s is draft or has a mismatched tag", tagName)
+	if release.GetDraft() || release.GetTagName() != tagName || release.Immutable == nil || !*release.Immutable {
+		return nil, fmt.Errorf("GitHub module release %s must be published with an immutable matching tag", tagName)
 	}
 	commit, err := resolver.peeledCommit(ctx, packageSource, tagName)
 	if err != nil {

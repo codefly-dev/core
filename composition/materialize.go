@@ -46,22 +46,22 @@ func (materializer *Materializer) CachePath(digest string) (string, error) {
 }
 
 func (materializer *Materializer) Materialize(ctx context.Context, release *VerifiedRelease) (string, error) {
-	if release == nil || release.Release == nil || release.Manifest == nil || release.Provenance == nil {
+	if release == nil || release.release == nil || release.manifest == nil || release.provenance == nil {
 		return "", errors.New("verified module release is required")
 	}
-	target, err := materializer.CachePath(release.Digest)
+	target, err := materializer.CachePath(release.digest)
 	if err != nil {
 		return "", err
 	}
 	expected := &cacheMarker{
 		Schema:            "codefly/module-cache/v2",
-		Package:           release.Manifest.ID,
-		Version:           release.Manifest.Version,
-		ArtifactDigest:    release.Digest,
-		SignatureIdentity: release.Provenance.SignatureIdentity,
+		Package:           release.manifest.ID,
+		Version:           release.manifest.Version,
+		ArtifactDigest:    release.digest,
+		SignatureIdentity: release.provenance.SignatureIdentity,
 	}
-	return materializer.withArtifactLock(ctx, release.Digest, func() (string, error) {
-		if err := materializer.removeInterrupted(release.Digest); err != nil {
+	return materializer.withArtifactLock(ctx, release.digest, func() (string, error) {
+		if err := materializer.removeInterrupted(release.digest); err != nil {
 			return "", err
 		}
 		if err := materializer.verifyCache(target, expected); err == nil {
@@ -70,12 +70,12 @@ func (materializer *Materializer) Materialize(ctx context.Context, release *Veri
 		if err := removeCacheTree(target); err != nil {
 			return "", fmt.Errorf("evict invalid module cache: %w", err)
 		}
-		temporary, err := os.MkdirTemp(materializer.Root, ".tmp-"+strings.TrimPrefix(release.Digest, "sha256:")+"-")
+		temporary, err := os.MkdirTemp(materializer.Root, ".tmp-"+strings.TrimPrefix(release.digest, "sha256:")+"-")
 		if err != nil {
 			return "", fmt.Errorf("create module cache staging directory: %w", err)
 		}
 		defer func() { _ = removeCacheTree(temporary) }()
-		if err := extractArchive(ctx, release.Release.Artifact, temporary, materializer.maxEntries(), materializer.maxExpandedBytes()); err != nil {
+		if err := extractArchive(ctx, release.release.Artifact, temporary, materializer.maxEntries(), materializer.maxExpandedBytes()); err != nil {
 			return "", err
 		}
 		manifest, err := LoadPackageManifest(temporary)
@@ -89,7 +89,7 @@ func (materializer *Materializer) Materialize(ctx context.Context, release *Veri
 		if err != nil {
 			return "", err
 		}
-		if canonicalDigest != release.Digest {
+		if canonicalDigest != release.digest {
 			return "", fmt.Errorf("%w: release archive is not canonical", ErrDigestMismatch)
 		}
 		marker, err := json.Marshal(expected)
@@ -152,6 +152,9 @@ func (materializer *Materializer) verifyCache(target string, expected *cacheMark
 	}
 	if digest != expected.ArtifactDigest {
 		return fmt.Errorf("%w: canonical artifact digest mismatch", ErrCacheVerification)
+	}
+	if err := treeReadOnly(target); err != nil {
+		return fmt.Errorf("%w: %v", ErrCacheVerification, err)
 	}
 	return nil
 }
@@ -236,6 +239,29 @@ func makeReadOnly(root string) error {
 		}
 	}
 	return nil
+}
+
+func treeReadOnly(root string) error {
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	return filepath.WalkDir(resolved, func(current string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("read-only tree contains symlink %s", current)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm()&0o222 != 0 {
+			return fmt.Errorf("tree path %s is writable", current)
+		}
+		return nil
+	})
 }
 
 func removeCacheTree(target string) error {

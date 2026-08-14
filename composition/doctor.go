@@ -23,6 +23,10 @@ func (engine *Engine) Doctor(ctx context.Context, moduleDir string, ci bool) ([]
 		return append(checks, DoctorCheck{Name: "descriptor", Status: ValidationFailed, Detail: err.Error()}), err
 	}
 	checks = append(checks, DoctorCheck{Name: "descriptor", Status: ValidationPassed})
+	if _, err := LoadContributionInputs(moduleDir, descriptor); err != nil {
+		return append(checks, DoctorCheck{Name: "contributions-schema", Status: ValidationFailed, Detail: err.Error()}), err
+	}
+	checks = append(checks, DoctorCheck{Name: "contributions-schema", Status: ValidationPassed})
 	lock, err := LoadLock(moduleDir)
 	if err != nil {
 		return append(checks, DoctorCheck{Name: "lock", Status: ValidationFailed, Detail: err.Error()}), err
@@ -58,6 +62,14 @@ func (engine *Engine) Doctor(ctx context.Context, moduleDir string, ci bool) ([]
 		return append(checks, DoctorCheck{Name: "contracts", Status: ValidationFailed, Detail: err.Error()}), err
 	}
 	checks = append(checks, DoctorCheck{Name: "contracts", Status: ValidationPassed})
+	namespace, err := ResolveNamespace(engine.ProjectRoot, moduleDir, "stable", "", lock)
+	if err != nil || !projectionMatches(namespace.ProjectionDir, lock) {
+		if err == nil {
+			err = errors.New("composed projection is missing or does not match its content digest")
+		}
+		return append(checks, DoctorCheck{Name: "projection", Status: ValidationFailed, Detail: err.Error()}), err
+	}
+	checks = append(checks, DoctorCheck{Name: "projection", Status: ValidationPassed})
 	if !ci {
 		override, overrideErr := LoadDevelopOverride(engine.ProjectRoot, descriptor.Name)
 		if overrideErr == nil {

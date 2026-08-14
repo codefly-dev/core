@@ -4,21 +4,22 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
 
 type Namespace struct {
-	Name             string
-	LockPath         string
-	Digest           string
-	ProjectionDir    string
-	CacheDir         string
-	BuildDir         string
-	NextJSDir        string
-	RuntimeConfigDir string
-	ContainerSuffix  string
-	PortSeed         uint32
+	Name             string `json:"name"`
+	LockPath         string `json:"lockPath"`
+	Digest           string `json:"digest"`
+	ProjectionDir    string `json:"projectionDir"`
+	CacheDir         string `json:"cacheDir"`
+	BuildDir         string `json:"buildDir"`
+	NextJSDir        string `json:"nextJSDir"`
+	RuntimeConfigDir string `json:"runtimeConfigDir"`
+	ContainerSuffix  string `json:"containerSuffix"`
+	PortSeed         uint32 `json:"portSeed"`
 }
 
 func ResolveNamespace(projectRoot, moduleDir, name, lockPath string, lock *Lock) (*Namespace, error) {
@@ -48,4 +49,13 @@ func ResolveNamespace(projectRoot, moduleDir, name, lockPath string, lock *Lock)
 		ContainerSuffix:  name + "-" + leaf[:12],
 		PortSeed:         binary.BigEndian.Uint32(digestBytes[:4]),
 	}, nil
+}
+
+func (namespace *Namespace) Prepare() error {
+	for _, directory := range []string{namespace.CacheDir, namespace.BuildDir, namespace.NextJSDir, namespace.RuntimeConfigDir} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }

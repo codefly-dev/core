@@ -183,10 +183,10 @@ type Release struct {
 }
 
 type VerifiedRelease struct {
-	Release    *Release
-	Provenance *Provenance
-	Manifest   *PackageManifest
-	Digest     string
+	release    *Release
+	provenance *Provenance
+	manifest   *PackageManifest
+	digest     string
 }
 
 type CollisionKind string
@@ -218,8 +218,17 @@ type Claim struct {
 }
 
 type Catalog struct {
-	Schema string  `json:"schema"`
-	Claims []Claim `json:"claims"`
+	Schema       string         `json:"schema"`
+	Inputs       []CatalogInput `json:"inputs,omitempty"`
+	Claims       []Claim        `json:"claims"`
+	Dependencies []string       `json:"dependencies,omitempty"`
+}
+
+type CatalogInput struct {
+	Kind     string `json:"kind"`
+	Path     string `json:"path"`
+	Identity string `json:"identity"`
+	Digest   string `json:"digest"`
 }
 
 func (c CollisionKind) valid() bool {

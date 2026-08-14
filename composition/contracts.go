@@ -17,6 +17,14 @@ var DefaultSupportedContracts = map[string][]string{
 }
 
 func ValidateLockedContracts(descriptor *Descriptor, manifest *PackageManifest, lock *Lock, toolVersion string, supported map[string][]string) error {
+	return validateContracts(descriptor, manifest, lock, toolVersion, supported, true)
+}
+
+func ValidateDevelopContracts(descriptor *Descriptor, manifest *PackageManifest, lock *Lock, toolVersion string, supported map[string][]string) error {
+	return validateContracts(descriptor, manifest, lock, toolVersion, supported, false)
+}
+
+func validateContracts(descriptor *Descriptor, manifest *PackageManifest, lock *Lock, toolVersion string, supported map[string][]string, enforceReleaseVersion bool) error {
 	if err := descriptor.Validate(); err != nil {
 		return err
 	}
@@ -26,13 +34,18 @@ func ValidateLockedContracts(descriptor *Descriptor, manifest *PackageManifest, 
 	if err := lock.Validate(); err != nil {
 		return err
 	}
-	if manifest.ID != lock.Package || manifest.Version != lock.Version {
+	if manifest.ID != lock.Package || (enforceReleaseVersion && manifest.Version != lock.Version) {
 		return ErrPackageIdentity
 	}
-	baseConstraint, _ := semver.NewConstraint(descriptor.Base.Version)
-	packageVersion, _ := semver.StrictNewVersion(manifest.Version)
-	if descriptor.Base.ID != manifest.ID || !baseConstraint.Check(packageVersion) {
+	if descriptor.Base.ID != manifest.ID {
 		return fmt.Errorf("%w: package %s@%s does not satisfy %s@%s", ErrPackageIdentity, manifest.ID, manifest.Version, descriptor.Base.ID, descriptor.Base.Version)
+	}
+	if enforceReleaseVersion {
+		baseConstraint, _ := semver.NewConstraint(descriptor.Base.Version)
+		packageVersion, _ := semver.StrictNewVersion(manifest.Version)
+		if !baseConstraint.Check(packageVersion) {
+			return fmt.Errorf("%w: package %s@%s does not satisfy %s@%s", ErrPackageIdentity, manifest.ID, manifest.Version, descriptor.Base.ID, descriptor.Base.Version)
+		}
 	}
 	providedServices := make(map[string]struct{}, len(manifest.Services))
 	for _, service := range manifest.Services {

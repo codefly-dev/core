@@ -134,6 +134,11 @@ func hashContributionFile(destination io.Writer, source string) error {
 		_ = file.Close()
 		return err
 	}
+	mode := []byte("0644")
+	if info.Mode().Perm()&0o111 != 0 {
+		mode = []byte("0755")
+	}
+	writeDigestFrame(destination, mode)
 	var size [8]byte
 	binary.BigEndian.PutUint64(size[:], uint64(info.Size()))
 	_, _ = destination.Write(size[:])
@@ -143,6 +148,14 @@ func hashContributionFile(destination io.Writer, source string) error {
 		return copyErr
 	}
 	return closeErr
+}
+
+func contributionDigest(source string) (string, error) {
+	hash := sha256.New()
+	if err := hashContribution(hash, source); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("sha256:%x", hash.Sum(nil)), nil
 }
 
 func writeDigestFrame(destination io.Writer, value []byte) {

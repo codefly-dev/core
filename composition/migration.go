@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 type V1BaseSource struct {
@@ -31,8 +33,11 @@ type V1Bridge struct {
 type V1MigrationClassification string
 
 const (
-	V1MigrationDrop    V1MigrationClassification = "drop"
-	V1MigrationBlocked V1MigrationClassification = "blocked"
+	V1MigrationDrop         V1MigrationClassification = "drop"
+	V1MigrationUpstream     V1MigrationClassification = "upstream"
+	V1MigrationContribution V1MigrationClassification = "contribution"
+	V1MigrationGenerated    V1MigrationClassification = "generated"
+	V1MigrationBlocked      V1MigrationClassification = "blocked"
 )
 
 type V1MigrationEntry struct {
@@ -95,12 +100,40 @@ func LoadV1Bridge(moduleDir string) (*V1Bridge, error) {
 	return &V1Bridge{Source: &source, Manifest: &manifest}, nil
 }
 
-func PlanV1Migration(moduleDir, newBaseDir string, bridge *V1Bridge) ([]V1MigrationEntry, error) {
+func PlanV1Migration(moduleDir, newBaseDir string, bridge *V1Bridge, ownership map[string]V1MigrationClassification) ([]V1MigrationEntry, error) {
 	if bridge == nil || bridge.Manifest == nil {
 		return nil, errors.New("v1 base manifest is required")
 	}
-	paths := make([]string, 0, len(bridge.Manifest.Files))
+	pathsByName := make(map[string]struct{}, len(bridge.Manifest.Files))
 	for path := range bridge.Manifest.Files {
+		pathsByName[path] = struct{}{}
+	}
+	for path, classification := range ownership {
+		if err := validateRelativePath("v1 migration ownership", path); err != nil {
+			return nil, err
+		}
+		switch classification {
+		case V1MigrationUpstream, V1MigrationContribution, V1MigrationGenerated:
+		default:
+			return nil, fmt.Errorf("v1 migration ownership for %s has invalid classification %q", path, classification)
+		}
+	}
+	consumerPaths, err := migrationTreePaths(moduleDir, true)
+	if err != nil {
+		return nil, err
+	}
+	newPaths, err := migrationTreePaths(newBaseDir, false)
+	if err != nil {
+		return nil, err
+	}
+	for path := range consumerPaths {
+		pathsByName[path] = struct{}{}
+	}
+	for path := range newPaths {
+		pathsByName[path] = struct{}{}
+	}
+	paths := make([]string, 0, len(pathsByName))
+	for path := range pathsByName {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
@@ -114,14 +147,54 @@ func PlanV1Migration(moduleDir, newBaseDir string, bridge *V1Bridge) ([]V1Migrat
 		if err != nil {
 			return nil, err
 		}
-		oldDigest := bridge.Manifest.Files[path]
+		oldDigest, oldExists := bridge.Manifest.Files[path]
 		entry := V1MigrationEntry{Path: path, OldDigest: oldDigest, ConsumerDigest: consumerDigest, NewDigest: newDigest, Classification: V1MigrationBlocked}
-		if (consumerExists && (consumerDigest == oldDigest || consumerDigest == newDigest)) || (!consumerExists && !newExists) {
+		if (consumerExists && ((oldExists && consumerDigest == oldDigest) || (newExists && consumerDigest == newDigest))) ||
+			(!consumerExists && !newExists) || (!oldExists && !consumerExists) {
 			entry.Classification = V1MigrationDrop
+		} else if classification, exists := ownership[path]; exists {
+			entry.Classification = classification
 		}
 		entries = append(entries, entry)
 	}
 	return entries, nil
+}
+
+func migrationTreePaths(root string, excludeBridge bool) (map[string]struct{}, error) {
+	paths := make(map[string]struct{})
+	err := filepath.WalkDir(root, func(current string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if current == root {
+			return nil
+		}
+		relative, err := filepath.Rel(root, current)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		if excludeBridge && isV1BridgePath(relative) {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("v1 migration path %s contains a symlink", relative)
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("v1 migration path %s is not a regular file", relative)
+		}
+		paths[relative] = struct{}{}
+		return nil
+	})
+	return paths, err
+}
+
+func isV1BridgePath(path string) bool {
+	leaf := strings.TrimPrefix(path, "tools/")
+	return leaf == "base-source.json" || leaf == "base-manifest.json" || leaf == "base-integrity-allow.json"
 }
 
 func migrationFileDigest(path string) (string, bool, error) {
