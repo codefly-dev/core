@@ -32,17 +32,25 @@ func inspectProcess(pid int) (processIdentity, error) {
 	}
 	proc, err := process.NewProcess(int32(pid))
 	if err != nil {
-		if errors.Is(err, process.ErrorProcessNotRunning) {
+		if darwinProcessNotFound(err) {
 			return processIdentity{}, errProcessNotFound
 		}
 		return processIdentity{}, err
 	}
 	executablePath, err := proc.Exe()
 	if err != nil {
-		if errors.Is(err, process.ErrorProcessNotRunning) {
+		if darwinProcessNotFound(err) {
 			return processIdentity{}, errProcessNotFound
 		}
-		return processIdentity{}, err
+		// A running executable may be unlinked after launch (for example when a
+		// test removes its temporary build directory). Darwin then returns
+		// ENOENT for the path even though the PID and process-group membership
+		// remain live. The kinfo command name is sufficient for diagnostics;
+		// boot id + start id are the authentication identity.
+		if !errors.Is(err, syscall.ENOENT) {
+			return processIdentity{}, err
+		}
+		executablePath = darwinProcessCommand(info)
 	}
 	verified, err := readDarwinProcessInfo(pid)
 	if err != nil {
@@ -66,6 +74,28 @@ func inspectProcess(pid int) (processIdentity, error) {
 		startID:    uint64(info.Proc.P_starttime.Sec)*1_000_000 + uint64(info.Proc.P_starttime.Usec),
 		executable: executable,
 	}, nil
+}
+
+// darwinProcessNotFound normalizes disappearance contracts that prove the PID
+// no longer exists. ENOENT is deliberately excluded: Exe also returns it for a
+// live process whose backing executable was unlinked.
+func darwinProcessNotFound(err error) bool {
+	return errors.Is(err, process.ErrorProcessNotRunning) ||
+		errors.Is(err, syscall.ESRCH)
+}
+
+func darwinProcessCommand(info *unix.KinfoProc) string {
+	if info == nil {
+		return ""
+	}
+	command := make([]byte, 0, len(info.Proc.P_comm))
+	for _, character := range info.Proc.P_comm {
+		if character == 0 {
+			break
+		}
+		command = append(command, byte(character))
+	}
+	return string(command)
 }
 
 func readDarwinProcessInfo(pid int) (*unix.KinfoProc, error) {
