@@ -69,6 +69,14 @@ func ReapStaleContainers(ctx context.Context) error {
 		return nil
 	}
 	defer cli.Close()
+	// Constructing a Docker client does not establish a connection. Probe the
+	// resolved daemon before listing so an installed but stopped/unresponsive
+	// engine remains the documented no-op instead of emitting a misleading
+	// sweep warning on runs that resolve entirely to Local or Nix backends.
+	if err := pingDockerClient(ctx, cli); err != nil {
+		w.Trace("docker engine unavailable — skipping container sweep", wool.ErrField(err))
+		return nil
+	}
 
 	// Filter containers by the codefly owner label so we only touch ones
 	// we created. Using labels (not name prefix) is authoritative: a user
