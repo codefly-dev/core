@@ -2,9 +2,11 @@ package configuration
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
@@ -17,12 +19,14 @@ const (
 	ErrorTrackingBuildContract  = "codefly.dev/configuration/error-tracking-build@1"
 	FeatureFlagsContract        = "codefly.dev/configuration/feature-flags@1"
 	FeatureFlagsBrowserContract = "codefly.dev/configuration/feature-flags-browser@1"
+	ProductAnalyticsContract    = "codefly.dev/configuration/product-analytics@1"
 )
 
 type ValueType string
 
 const (
 	ValueString            ValueType = "string"
+	ValueOrigin            ValueType = "origin"
 	ValueBoolean           ValueType = "boolean"
 	ValueInteger           ValueType = "integer"
 	ValueOpaqueReference   ValueType = "opaque-reference"
@@ -179,6 +183,18 @@ func NewRegistry() *Registry {
 					CredentialPurpose: PurposeRuntime, BrowserExposure: BrowserAllowed, Consumer: ConsumerBrowser,
 					ProviderMutable: true, HostMutable: true, RequiredProvenance: providerProvenance,
 				},
+			},
+		},
+		ProductAnalyticsContract: {
+			ID: ProductAnalyticsContract,
+			Keys: map[string]Key{
+				"PRODUCT_ANALYTICS_MODE":                   publicKey(true, ConsumerRuntime, PurposeNone, providerProvenance),
+				"PRODUCT_ANALYTICS_PROJECT_ID":             publicKey(true, ConsumerRuntime, PurposeNone, providerProvenance),
+				"PRODUCT_ANALYTICS_ENVIRONMENT":            publicKey(true, ConsumerRuntime, PurposeNone, providerProvenance),
+				"PRODUCT_ANALYTICS_BROWSER_CAPTURE_ORIGIN": originKey(false, ConsumerBrowser, providerProvenance),
+				"PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY":    browserCaptureKey(false, providerProvenance),
+				"PRODUCT_ANALYTICS_SERVER_CAPTURE_ORIGIN":  originKey(true, ConsumerRuntime, providerProvenance),
+				"PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY":     opaqueKey(true, ConsumerRuntime, PurposeRuntime, providerProvenance),
 			},
 		},
 	}}
@@ -381,7 +397,7 @@ func validateValue(name string, declaration Key, value Value) error {
 		}
 	}
 	switch value.Type {
-	case ValueString, ValueEndpointReference:
+	case ValueString, ValueOrigin, ValueEndpointReference:
 		if value.String == "" {
 			return fmt.Errorf("%s string value is empty", name)
 		}
@@ -394,6 +410,15 @@ func validateValue(name string, declaration Key, value Value) error {
 		if value.Type == ValueEndpointReference {
 			if err := ValidateEndpointReference(value.String); err != nil {
 				return fmt.Errorf("%s: %w", name, err)
+			}
+		}
+		if value.Type == ValueOrigin {
+			canonical, err := CanonicalOrigin(value.String)
+			if err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+			if canonical != value.String {
+				return fmt.Errorf("%s origin is not canonical; use %q", name, canonical)
 			}
 		}
 	case ValueOpaqueReference:
@@ -416,6 +441,7 @@ func validateValue(name string, declaration Key, value Value) error {
 var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^sk_(live|test)_[A-Za-z0-9]{8,}$`),
 	regexp.MustCompile(`(?i)^rk_(live|test)_[A-Za-z0-9]{8,}$`),
+	regexp.MustCompile(`(?i)^phx_[A-Za-z0-9_-]{8,}$`),
 	regexp.MustCompile(`(?i)^bearer\s+\S+$`),
 	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`),
 	regexp.MustCompile(`(?i)(password|client_secret|access_token|api_key)=`),
@@ -465,6 +491,28 @@ func endpointKey(consumer ConsumerClass, provenance []Provenance) Key {
 	}
 }
 
+func originKey(required bool, consumer ConsumerClass, provenance []Provenance) Key {
+	exposure := BrowserDenied
+	if consumer == ConsumerBrowser {
+		exposure = BrowserAllowed
+	}
+	return Key{
+		Type: ValueOrigin, Required: required,
+		ClassificationFloor: ClassificationPublic, ClassificationCeiling: ClassificationSensitive,
+		CredentialPurpose: PurposeNone, BrowserExposure: exposure, Consumer: consumer,
+		ProviderMutable: true, HostMutable: true, RequiredProvenance: provenance,
+	}
+}
+
+func browserCaptureKey(required bool, provenance []Provenance) Key {
+	return Key{
+		Type: ValueString, Required: required,
+		ClassificationFloor: ClassificationPublic, ClassificationCeiling: ClassificationPublic,
+		CredentialPurpose: PurposeRuntime, BrowserExposure: BrowserAllowed, Consumer: ConsumerBrowser,
+		ProviderMutable: true, HostMutable: true, RequiredProvenance: provenance,
+	}
+}
+
 func validClassification(classification Classification) bool {
 	return classification == ClassificationPublic || classification == ClassificationSensitive || classification == ClassificationSecret
 }
@@ -491,6 +539,49 @@ func browserExposureRank(exposure BrowserExposure) int {
 		return 1
 	}
 	return 0
+}
+
+var originHostname = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$`)
+
+func CanonicalOrigin(raw string) (string, error) {
+	if raw == "" || strings.TrimSpace(raw) != raw || strings.Contains(raw, "%") {
+		return "", fmt.Errorf("origin is not an absolute HTTP origin")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || parsed.Opaque != "" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" ||
+		(parsed.Path != "" && parsed.Path != "/") {
+		return "", fmt.Errorf("origin is not an absolute HTTP origin")
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "https" && scheme != "http" {
+		return "", fmt.Errorf("origin uses an unsupported scheme")
+	}
+	hostname := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if hostname == "" {
+		return "", fmt.Errorf("origin hostname is invalid")
+	}
+	host := hostname
+	if ip := net.ParseIP(hostname); ip != nil {
+		hostname = ip.String()
+		host = hostname
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+	} else if len(hostname) > 253 || !originHostname.MatchString(hostname) {
+		return "", fmt.Errorf("origin hostname is invalid")
+	}
+	port := parsed.Port()
+	if port != "" {
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || n == 0 {
+			return "", fmt.Errorf("origin port is invalid")
+		}
+		if (scheme == "https" && n != 443) || (scheme == "http" && n != 80) {
+			host = net.JoinHostPort(hostname, port)
+		}
+	}
+	return (&url.URL{Scheme: scheme, Host: host}).String(), nil
 }
 
 var opaqueReferenceComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$`)

@@ -16,6 +16,7 @@ func TestRegistrySeedsVersionedGenericContracts(t *testing.T) {
 		configuration.ErrorTrackingContract,
 		configuration.FeatureFlagsBrowserContract,
 		configuration.FeatureFlagsContract,
+		configuration.ProductAnalyticsContract,
 	}, registry.Contracts())
 	for _, id := range registry.Contracts() {
 		contract, err := registry.Lookup(id)
@@ -220,6 +221,152 @@ func TestFeatureFlagsContractsRejectUnsafeRuntimeProjection(t *testing.T) {
 	})
 }
 
+func TestProductAnalyticsContractSeparatesBrowserAndServerCapture(t *testing.T) {
+	registry := configuration.NewRegistry()
+	require.NoError(t, registry.Validate(configuration.ProductAnalyticsContract, validProductAnalyticsValues()))
+
+	contract, err := registry.Lookup(configuration.ProductAnalyticsContract)
+	require.NoError(t, err)
+	expectedKeys := []string{
+		"PRODUCT_ANALYTICS_MODE",
+		"PRODUCT_ANALYTICS_PROJECT_ID",
+		"PRODUCT_ANALYTICS_ENVIRONMENT",
+		"PRODUCT_ANALYTICS_BROWSER_CAPTURE_ORIGIN",
+		"PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY",
+		"PRODUCT_ANALYTICS_SERVER_CAPTURE_ORIGIN",
+		"PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY",
+	}
+	require.Len(t, contract.Keys, len(expectedKeys))
+	for _, name := range expectedKeys {
+		require.Contains(t, contract.Keys, name)
+	}
+	browser := contract.Keys["PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY"]
+	require.Equal(t, configuration.ClassificationPublic, browser.ClassificationFloor)
+	require.Equal(t, configuration.ClassificationPublic, browser.ClassificationCeiling)
+	require.Equal(t, configuration.PurposeRuntime, browser.CredentialPurpose)
+	require.Equal(t, configuration.BrowserAllowed, browser.BrowserExposure)
+	require.Equal(t, configuration.ConsumerBrowser, browser.Consumer)
+
+	server := contract.Keys["PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY"]
+	require.Equal(t, configuration.ValueOpaqueReference, server.Type)
+	require.Equal(t, configuration.ClassificationSecret, server.ClassificationFloor)
+	require.Equal(t, configuration.PurposeRuntime, server.CredentialPurpose)
+	require.Equal(t, configuration.BrowserDenied, server.BrowserExposure)
+	require.Equal(t, configuration.ConsumerRuntime, server.Consumer)
+
+	for name, key := range contract.Keys {
+		require.True(t, key.ProviderMutable, name)
+		require.True(t, key.HostMutable, name)
+		require.NotEqual(t, configuration.PurposeManagement, key.CredentialPurpose, name)
+		require.Equal(t, []configuration.Provenance{
+			configuration.ProvenanceProvider,
+			configuration.ProvenanceBinding,
+			configuration.ProvenanceArtifact,
+		}, key.RequiredProvenance, name)
+		if key.Consumer == configuration.ConsumerBrowser {
+			require.NotEqual(t, configuration.ClassificationSecret, key.ClassificationCeiling, name)
+		}
+	}
+}
+
+func TestProductAnalyticsContractRejectsUnsafeProjection(t *testing.T) {
+	registry := configuration.NewRegistry()
+
+	t.Run("personal key in browser capture", func(t *testing.T) {
+		values := validProductAnalyticsValues()
+		value := values["PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY"]
+		value.String = "phx_personal_management_key"
+		values["PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY"] = value
+		require.ErrorContains(t, registry.Validate(configuration.ProductAnalyticsContract, values), "secret-shaped")
+	})
+	t.Run("management purpose in browser capture", func(t *testing.T) {
+		values := validProductAnalyticsValues()
+		value := values["PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY"]
+		value.CredentialPurpose = configuration.PurposeManagement
+		values["PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY"] = value
+		require.ErrorContains(t, registry.Validate(configuration.ProductAnalyticsContract, values), "credential purpose")
+	})
+	t.Run("secret browser classification", func(t *testing.T) {
+		values := validProductAnalyticsValues()
+		value := values["PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY"]
+		value.Classification = configuration.ClassificationSecret
+		values["PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY"] = value
+		require.ErrorContains(t, registry.Validate(configuration.ProductAnalyticsContract, values), "classification exceeds")
+	})
+	t.Run("server capture exposed to browser", func(t *testing.T) {
+		values := validProductAnalyticsValues()
+		value := values["PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY"]
+		value.BrowserExposure = configuration.BrowserAllowed
+		values["PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY"] = value
+		require.ErrorContains(t, registry.Validate(configuration.ProductAnalyticsContract, values), "browser exposure")
+	})
+	t.Run("server capture replaced by management authority", func(t *testing.T) {
+		values := validProductAnalyticsValues()
+		value := values["PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY"]
+		value.CredentialPurpose = configuration.PurposeManagement
+		values["PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY"] = value
+		require.ErrorContains(t, registry.Validate(configuration.ProductAnalyticsContract, values), "credential purpose")
+	})
+}
+
+func TestProductAnalyticsPrivacyAuthorityIsNotRuntimeConfiguration(t *testing.T) {
+	registry := configuration.NewRegistry()
+	for _, name := range []string{
+		"PRODUCT_ANALYTICS_MANAGEMENT_API_KEY",
+		"PRODUCT_ANALYTICS_PERSONAL_API_KEY",
+		"PRODUCT_ANALYTICS_PRIVACY_DELETION_KEY",
+	} {
+		t.Run("undeclared "+name, func(t *testing.T) {
+			values := validProductAnalyticsValues()
+			values[name] = opaqueValue("secret://analytics/management", configuration.PurposeManagement, configuration.ConsumerRuntime)
+			require.ErrorContains(t, registry.Validate(configuration.ProductAnalyticsContract, values), "undeclared key")
+		})
+	}
+}
+
+func TestProductAnalyticsContractContainsOnlyProductAnalyticsKeys(t *testing.T) {
+	contract, err := configuration.NewRegistry().Lookup(configuration.ProductAnalyticsContract)
+	require.NoError(t, err)
+	for name := range contract.Keys {
+		for _, forbidden := range []string{"FEATURE_FLAG", "ERROR_TRACKING", "SENTRY", "APM", "OTEL", "TRACE"} {
+			require.NotContains(t, name, forbidden)
+		}
+	}
+}
+
+func TestProductAnalyticsOriginsMustBeCanonical(t *testing.T) {
+	canonical, err := configuration.CanonicalOrigin("HTTPS://EU.I.POSTHOG.COM:443/")
+	require.NoError(t, err)
+	require.Equal(t, "https://eu.i.posthog.com", canonical)
+	canonical, err = configuration.CanonicalOrigin("HTTP://[0:0:0:0:0:0:0:1]:8080/")
+	require.NoError(t, err)
+	require.Equal(t, "http://[::1]:8080", canonical)
+
+	registry := configuration.NewRegistry()
+	for _, origin := range []string{
+		"HTTPS://eu.i.posthog.com",
+		"https://eu.i.posthog.com/",
+		"https://eu.i.posthog.com:443",
+		"https://eu.i.posthog.com/batch",
+		"https://eu.i.posthog.com?api_key=public",
+		"https://user@eu.i.posthog.com",
+	} {
+		t.Run(origin, func(t *testing.T) {
+			values := validProductAnalyticsValues()
+			value := values["PRODUCT_ANALYTICS_BROWSER_CAPTURE_ORIGIN"]
+			value.String = origin
+			values["PRODUCT_ANALYTICS_BROWSER_CAPTURE_ORIGIN"] = value
+			require.Error(t, registry.Validate(configuration.ProductAnalyticsContract, values))
+		})
+	}
+}
+
+func TestPostHogCaptureAndManagementKeyShapesRemainDistinct(t *testing.T) {
+	require.False(t, configuration.LooksSecret("phc_public_project_capture_key"))
+	require.True(t, configuration.LooksSecret("phx_personal_management_key"))
+	require.True(t, configuration.LooksSecret("PHX_PERSONAL_MANAGEMENT_KEY"))
+}
+
 func validBillingValues() map[string]configuration.Value {
 	return map[string]configuration.Value{
 		"STRIPE_PUBLISHABLE_KEY": publicValue("pk_live_public_identifier", configuration.PurposeRuntime, configuration.ConsumerBrowser, configuration.BrowserAllowed),
@@ -262,6 +409,18 @@ func endpointValue(reference string, consumer configuration.ConsumerClass, brows
 	}
 }
 
+func validProductAnalyticsValues() map[string]configuration.Value {
+	return map[string]configuration.Value{
+		"PRODUCT_ANALYTICS_MODE":                   publicValue("posthog", configuration.PurposeNone, configuration.ConsumerRuntime, configuration.BrowserDenied),
+		"PRODUCT_ANALYTICS_PROJECT_ID":             publicValue("12345", configuration.PurposeNone, configuration.ConsumerRuntime, configuration.BrowserDenied),
+		"PRODUCT_ANALYTICS_ENVIRONMENT":            publicValue("production", configuration.PurposeNone, configuration.ConsumerRuntime, configuration.BrowserDenied),
+		"PRODUCT_ANALYTICS_BROWSER_CAPTURE_ORIGIN": originValue("https://eu.i.posthog.com", configuration.ConsumerBrowser, configuration.BrowserAllowed),
+		"PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY":    publicValue("phc_public_project_capture_key", configuration.PurposeRuntime, configuration.ConsumerBrowser, configuration.BrowserAllowed),
+		"PRODUCT_ANALYTICS_SERVER_CAPTURE_ORIGIN":  originValue("https://eu.i.posthog.com", configuration.ConsumerRuntime, configuration.BrowserDenied),
+		"PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY":     opaqueValue("capture://analytics/server", configuration.PurposeRuntime, configuration.ConsumerRuntime),
+	}
+}
+
 func publicValue(value string, purpose configuration.CredentialPurpose, consumer configuration.ConsumerClass, browser configuration.BrowserExposure) configuration.Value {
 	return configuration.Value{
 		Type: configuration.ValueString, String: value,
@@ -276,6 +435,15 @@ func opaqueValue(reference string, purpose configuration.CredentialPurpose, cons
 		Type: configuration.ValueOpaqueReference, OpaqueReference: reference,
 		Classification: configuration.ClassificationSecret, CredentialPurpose: purpose,
 		BrowserExposure: configuration.BrowserDenied, Consumer: consumer, MutatedBy: configuration.MutatorProvider,
+		Provenance: provenance(),
+	}
+}
+
+func originValue(value string, consumer configuration.ConsumerClass, browser configuration.BrowserExposure) configuration.Value {
+	return configuration.Value{
+		Type: configuration.ValueOrigin, String: value,
+		Classification: configuration.ClassificationPublic, CredentialPurpose: configuration.PurposeNone,
+		BrowserExposure: browser, Consumer: consumer, MutatedBy: configuration.MutatorProvider,
 		Provenance: provenance(),
 	}
 }
