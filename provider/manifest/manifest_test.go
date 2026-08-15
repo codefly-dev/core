@@ -54,6 +54,17 @@ func TestManifestRequestDescriptorBindsPathAndOwnershipFields(t *testing.T) {
 	require.ErrorContains(t, err, "undeclared body field")
 }
 
+func TestManifestRequestDescriptorAcceptsCaseSensitiveJSONBodyFields(t *testing.T) {
+	camelCase := strings.ReplaceAll(validManifest, "allowed_body_fields: [name, enabled]", "allowed_body_fields: [tokenName, enabled]")
+	camelCase = strings.ReplaceAll(camelCase, "ownership_body_fields: [name]", "ownership_body_fields: [tokenName]")
+	_, err := manifest.Load([]byte(camelCase))
+	require.NoError(t, err)
+
+	invalid := strings.ReplaceAll(validManifest, "allowed_body_fields: [name, enabled]", "allowed_body_fields: [token$name, enabled]")
+	_, err = manifest.Load([]byte(invalid))
+	require.ErrorContains(t, err, "allowed_body_fields")
+}
+
 func TestManifestRequestDescriptorBindsPermissionCeiling(t *testing.T) {
 	unknown := strings.Replace(validManifest, "permissions: [account-observe]", "permissions: [missing]", 1)
 	_, err := manifest.Load([]byte(unknown))
