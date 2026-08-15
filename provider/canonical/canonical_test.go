@@ -7,6 +7,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
 	"github.com/codefly-dev/core/provider/canonical"
+	"github.com/codefly-dev/core/provider/configuration"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -94,6 +95,34 @@ func TestPlannedRequestDigestIsCredentialPurposeOrderIndependent(t *testing.T) {
 	reorderedDigest, err := canonical.PlannedRequestDigest(reordered)
 	require.NoError(t, err)
 	require.Equal(t, baseDigest, reorderedDigest)
+}
+
+func TestFeatureFlagsOutputProposalDigestIsValueOrderIndependent(t *testing.T) {
+	endpoint := &providerv0.OutputValue{Kind: &providerv0.OutputValue_PublicValue{PublicValue: stringValue("https://flags.example.invalid")}}
+	credential := &providerv0.OutputValue{Kind: &providerv0.OutputValue_OpaqueReference{OpaqueReference: &providerv0.OpaqueReference{
+		Reference: "secret://feature-flags/browser", Purpose: providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		SafeFingerprint: digest("b"),
+	}}}
+	first := &providerv0.OutputProposal{
+		Contract: configuration.FeatureFlagsContract, TargetGeneration: 1,
+		Values: map[string]*providerv0.OutputValue{
+			"FEATURE_FLAGS_EDGE_ENDPOINT":      endpoint,
+			"FEATURE_FLAGS_BROWSER_CREDENTIAL": credential,
+		},
+	}
+	second := &providerv0.OutputProposal{
+		Contract: configuration.FeatureFlagsContract, TargetGeneration: 1,
+		Values: map[string]*providerv0.OutputValue{
+			"FEATURE_FLAGS_BROWSER_CREDENTIAL": proto.Clone(credential).(*providerv0.OutputValue),
+			"FEATURE_FLAGS_EDGE_ENDPOINT":      proto.Clone(endpoint).(*providerv0.OutputValue),
+		},
+	}
+
+	firstDigest, err := canonical.OutputProposalDigest(first)
+	require.NoError(t, err)
+	secondDigest, err := canonical.OutputProposalDigest(second)
+	require.NoError(t, err)
+	require.Equal(t, firstDigest, secondDigest)
 }
 
 func TestVolatileObservationMetadataDoesNotChangeMaterialDigest(t *testing.T) {

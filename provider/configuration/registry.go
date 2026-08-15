@@ -13,6 +13,7 @@ const (
 	EmailContract              = "codefly.dev/configuration/email@1"
 	ErrorTrackingContract      = "codefly.dev/configuration/error-tracking@1"
 	ErrorTrackingBuildContract = "codefly.dev/configuration/error-tracking-build@1"
+	FeatureFlagsContract       = "codefly.dev/configuration/feature-flags@1"
 )
 
 type ValueType string
@@ -148,6 +149,23 @@ func NewRegistry() *Registry {
 				"SENTRY_AUTH_TOKEN": opaqueKey(true, ConsumerBuild, PurposeBuild, providerProvenance),
 				"SENTRY_ORG":        publicKey(true, ConsumerBuild, PurposeNone, providerProvenance),
 				"SENTRY_PROJECT":    publicKey(true, ConsumerBuild, PurposeNone, providerProvenance),
+			},
+		},
+		FeatureFlagsContract: {
+			ID: FeatureFlagsContract,
+			Keys: map[string]Key{
+				"FEATURE_FLAGS_SERVER_ENDPOINT":   publicKey(true, ConsumerRuntime, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_EDGE_ENDPOINT":     publicKey(true, ConsumerBrowser, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_APPLICATION_ID":    publicKey(true, ConsumerBrowser, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_ENVIRONMENT_ID":    publicKey(true, ConsumerBrowser, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_PROVIDER_MODE":     publicKey(true, ConsumerBrowser, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_SERVER_CREDENTIAL": opaqueKey(true, ConsumerRuntime, PurposeRuntime, providerProvenance),
+				"FEATURE_FLAGS_BROWSER_CREDENTIAL": {
+					Type: ValueOpaqueReference, Required: true,
+					ClassificationFloor: ClassificationSensitive, ClassificationCeiling: ClassificationSensitive,
+					CredentialPurpose: PurposeRuntime, BrowserExposure: BrowserAllowed, Consumer: ConsumerBrowser,
+					ProviderMutable: true, HostMutable: true, RequiredProvenance: providerProvenance,
+				},
 			},
 		},
 	}}

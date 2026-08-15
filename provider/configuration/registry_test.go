@@ -14,6 +14,7 @@ func TestRegistrySeedsVersionedGenericContracts(t *testing.T) {
 		configuration.EmailContract,
 		configuration.ErrorTrackingBuildContract,
 		configuration.ErrorTrackingContract,
+		configuration.FeatureFlagsContract,
 	}, registry.Contracts())
 	for _, id := range registry.Contracts() {
 		contract, err := registry.Lookup(id)
@@ -107,11 +108,105 @@ func TestBrowserExposureMayTightenBelowSchemaCeiling(t *testing.T) {
 	}))
 }
 
+func TestFeatureFlagsContractSeparatesServerAndBrowserConsumers(t *testing.T) {
+	registry := configuration.NewRegistry()
+	values := validFeatureFlagsValues()
+	require.NoError(t, registry.Validate(configuration.FeatureFlagsContract, values))
+
+	contract, err := registry.Lookup(configuration.FeatureFlagsContract)
+	require.NoError(t, err)
+	require.Equal(t, configuration.ConsumerRuntime, contract.Keys["FEATURE_FLAGS_SERVER_ENDPOINT"].Consumer)
+	require.Equal(t, configuration.ConsumerRuntime, contract.Keys["FEATURE_FLAGS_SERVER_CREDENTIAL"].Consumer)
+	require.Equal(t, configuration.ConsumerBrowser, contract.Keys["FEATURE_FLAGS_EDGE_ENDPOINT"].Consumer)
+	require.Equal(t, configuration.ConsumerBrowser, contract.Keys["FEATURE_FLAGS_BROWSER_CREDENTIAL"].Consumer)
+	require.Equal(t, configuration.BrowserDenied, contract.Keys["FEATURE_FLAGS_SERVER_CREDENTIAL"].BrowserExposure)
+	require.Equal(t, configuration.BrowserAllowed, contract.Keys["FEATURE_FLAGS_BROWSER_CREDENTIAL"].BrowserExposure)
+	require.Equal(t, configuration.ClassificationSecret, contract.Keys["FEATURE_FLAGS_SERVER_CREDENTIAL"].ClassificationFloor)
+	require.Equal(t, configuration.ClassificationSensitive, contract.Keys["FEATURE_FLAGS_BROWSER_CREDENTIAL"].ClassificationFloor)
+
+	for name, key := range contract.Keys {
+		require.True(t, key.ProviderMutable, name)
+		require.True(t, key.HostMutable, name)
+		require.Equal(t, []configuration.Provenance{
+			configuration.ProvenanceProvider,
+			configuration.ProvenanceBinding,
+			configuration.ProvenanceArtifact,
+		}, key.RequiredProvenance, name)
+	}
+}
+
+func TestFeatureFlagsContractRejectsUnsafeRuntimeProjection(t *testing.T) {
+	registry := configuration.NewRegistry()
+
+	t.Run("undeclared management credential", func(t *testing.T) {
+		values := validFeatureFlagsValues()
+		values["FEATURE_FLAGS_MANAGEMENT_CREDENTIAL"] = opaqueValue("secret://feature-flags/management", configuration.PurposeManagement, configuration.ConsumerRuntime)
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "undeclared key")
+	})
+	t.Run("management purpose on server credential", func(t *testing.T) {
+		values := validFeatureFlagsValues()
+		value := values["FEATURE_FLAGS_SERVER_CREDENTIAL"]
+		value.CredentialPurpose = configuration.PurposeManagement
+		values["FEATURE_FLAGS_SERVER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "credential purpose")
+	})
+	t.Run("secret browser credential", func(t *testing.T) {
+		values := validFeatureFlagsValues()
+		value := values["FEATURE_FLAGS_BROWSER_CREDENTIAL"]
+		value.Classification = configuration.ClassificationSecret
+		values["FEATURE_FLAGS_BROWSER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "classification exceeds schema ceiling")
+	})
+	t.Run("weakened browser credential classification", func(t *testing.T) {
+		values := validFeatureFlagsValues()
+		value := values["FEATURE_FLAGS_BROWSER_CREDENTIAL"]
+		value.Classification = configuration.ClassificationPublic
+		values["FEATURE_FLAGS_BROWSER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "weaken classification")
+	})
+	t.Run("server credential assigned to browser", func(t *testing.T) {
+		values := validFeatureFlagsValues()
+		value := values["FEATURE_FLAGS_SERVER_CREDENTIAL"]
+		value.Consumer = configuration.ConsumerBrowser
+		values["FEATURE_FLAGS_SERVER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "consumer")
+	})
+	t.Run("browser credential assigned to backend", func(t *testing.T) {
+		values := validFeatureFlagsValues()
+		value := values["FEATURE_FLAGS_BROWSER_CREDENTIAL"]
+		value.Consumer = configuration.ConsumerRuntime
+		values["FEATURE_FLAGS_BROWSER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "consumer")
+	})
+	t.Run("noncanonical credential reference", func(t *testing.T) {
+		values := validFeatureFlagsValues()
+		value := values["FEATURE_FLAGS_BROWSER_CREDENTIAL"]
+		value.OpaqueReference = "secret://feature-flags/browser?version=1"
+		values["FEATURE_FLAGS_BROWSER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "canonical host reference")
+	})
+}
+
 func validBillingValues() map[string]configuration.Value {
 	return map[string]configuration.Value{
 		"STRIPE_PUBLISHABLE_KEY": publicValue("pk_live_public_identifier", configuration.PurposeRuntime, configuration.ConsumerBrowser, configuration.BrowserAllowed),
 		"STRIPE_SECRET_KEY":      opaqueValue("secret://stripe/runtime", configuration.PurposeRuntime, configuration.ConsumerRuntime),
 		"STRIPE_WEBHOOK_SECRET":  opaqueValue("secret://stripe/webhook", configuration.PurposeWebhookVerification, configuration.ConsumerRuntime),
+	}
+}
+
+func validFeatureFlagsValues() map[string]configuration.Value {
+	browserCredential := opaqueValue("secret://feature-flags/browser", configuration.PurposeRuntime, configuration.ConsumerBrowser)
+	browserCredential.Classification = configuration.ClassificationSensitive
+	browserCredential.BrowserExposure = configuration.BrowserAllowed
+	return map[string]configuration.Value{
+		"FEATURE_FLAGS_SERVER_ENDPOINT":    publicValue("https://flags.internal.invalid", configuration.PurposeNone, configuration.ConsumerRuntime, configuration.BrowserDenied),
+		"FEATURE_FLAGS_EDGE_ENDPOINT":      publicValue("https://flags.example.invalid", configuration.PurposeNone, configuration.ConsumerBrowser, configuration.BrowserAllowed),
+		"FEATURE_FLAGS_APPLICATION_ID":     publicValue("accounts", configuration.PurposeNone, configuration.ConsumerBrowser, configuration.BrowserAllowed),
+		"FEATURE_FLAGS_ENVIRONMENT_ID":     publicValue("production", configuration.PurposeNone, configuration.ConsumerBrowser, configuration.BrowserAllowed),
+		"FEATURE_FLAGS_PROVIDER_MODE":      publicValue("hosted", configuration.PurposeNone, configuration.ConsumerBrowser, configuration.BrowserAllowed),
+		"FEATURE_FLAGS_SERVER_CREDENTIAL":  opaqueValue("secret://feature-flags/server", configuration.PurposeRuntime, configuration.ConsumerRuntime),
+		"FEATURE_FLAGS_BROWSER_CREDENTIAL": browserCredential,
 	}
 }
 
