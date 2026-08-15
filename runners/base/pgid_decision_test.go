@@ -77,6 +77,21 @@ func TestProcessGroupRegistryHelper(t *testing.T) {
 	}
 }
 
+func TestInspectProcessGroupMemberRejectsNonPositiveEnumeratorEntries(t *testing.T) {
+	// Explicitly inject the transient invalid observations seen from the real
+	// Darwin process enumerator. Calling Getpgid(0) would inspect this test's
+	// process group, so both values must be rejected before any syscall.
+	for _, rawPID := range []int32{0, -1} {
+		identity, matched, err := inspectProcessGroupMember(rawPID, syscall.Getpgrp())
+		if err != nil {
+			t.Fatalf("PID %d returned error: %v", rawPID, err)
+		}
+		if matched || identity != (processIdentity{}) {
+			t.Fatalf("PID %d matched as %+v", rawPID, identity)
+		}
+	}
+}
+
 func TestReaperPreservesGroupOwnedByLiveProcess(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	leader := startRegistryLeader(t, "member")

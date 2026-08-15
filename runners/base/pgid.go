@@ -879,26 +879,46 @@ func inspectProcessGroup(ctx context.Context, pgid int) ([]processIdentity, erro
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		pid := int(rawPID)
-		actualGroup, err := syscall.Getpgid(pid)
-		if errors.Is(err, syscall.ESRCH) {
-			continue
-		}
-		if err != nil || actualGroup != pgid {
-			continue
-		}
-		identity, err := inspectProcess(pid)
-		if errors.Is(err, errProcessNotFound) {
-			continue
-		}
+		identity, matched, err := inspectProcessGroupMember(rawPID, pgid)
 		if err != nil {
-			return nil, fmt.Errorf("inspect process-group member %d: %w", pid, err)
+			return nil, err
 		}
-		if identity.pgid == pgid {
-			identities = append(identities, identity)
+		if !matched {
+			continue
 		}
+		identities = append(identities, identity)
 	}
 	return identities, nil
+}
+
+func inspectProcessGroupMember(rawPID int32, pgid int) (processIdentity, bool, error) {
+	// ARCHITECTURE: A process enumerator is observational evidence, not an
+	// authority. gopsutil can transiently surface PID 0 while Darwin's process
+	// table changes. Getpgid(0) means the current process rather than an invalid
+	// process, so reject every non-positive observation before any syscall can
+	// accidentally authenticate Codefly itself as a member of the target group.
+	if rawPID <= 0 {
+		return processIdentity{}, false, nil
+	}
+	pid := int(rawPID)
+	actualGroup, err := syscall.Getpgid(pid)
+	if errors.Is(err, syscall.ESRCH) {
+		return processIdentity{}, false, nil
+	}
+	if err != nil || actualGroup != pgid {
+		return processIdentity{}, false, nil
+	}
+	identity, err := inspectProcess(pid)
+	if errors.Is(err, errProcessNotFound) {
+		return processIdentity{}, false, nil
+	}
+	if err != nil {
+		return processIdentity{}, false, fmt.Errorf("inspect process-group member %d: %w", pid, err)
+	}
+	if identity.pgid != pgid {
+		return processIdentity{}, false, nil
+	}
+	return identity, true, nil
 }
 
 func recordedOwnerAlive(owner recordedProcessIdentity) (bool, error) {
