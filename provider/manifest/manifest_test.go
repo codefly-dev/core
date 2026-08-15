@@ -55,14 +55,45 @@ func TestManifestRequestDescriptorBindsPathAndOwnershipFields(t *testing.T) {
 }
 
 func TestManifestRequestDescriptorAcceptsCaseSensitiveJSONBodyFields(t *testing.T) {
-	camelCase := strings.ReplaceAll(validManifest, "allowed_body_fields: [name, enabled]", "allowed_body_fields: [tokenName, enabled]")
-	camelCase = strings.ReplaceAll(camelCase, "ownership_body_fields: [name]", "ownership_body_fields: [tokenName]")
-	_, err := manifest.Load([]byte(camelCase))
-	require.NoError(t, err)
+	for _, field := range []string{"tokenName", "TokenName"} {
+		t.Run(field, func(t *testing.T) {
+			caseSensitive := strings.ReplaceAll(validManifest, "allowed_body_fields: [name, enabled]", "allowed_body_fields: ["+field+", enabled]")
+			caseSensitive = strings.ReplaceAll(caseSensitive, "ownership_body_fields: [name]", "ownership_body_fields: ["+field+"]")
+			_, err := manifest.Load([]byte(caseSensitive))
+			require.NoError(t, err)
+		})
+	}
 
 	invalid := strings.ReplaceAll(validManifest, "allowed_body_fields: [name, enabled]", "allowed_body_fields: [token$name, enabled]")
-	_, err = manifest.Load([]byte(invalid))
+	_, err := manifest.Load([]byte(invalid))
 	require.ErrorContains(t, err, "allowed_body_fields")
+}
+
+func TestManifestRequestDescriptorKeepsNonBodyIdentifiersLowercase(t *testing.T) {
+	tests := map[string]struct {
+		manifest string
+		error    string
+	}{
+		"manifest identifier": {
+			manifest: strings.Replace(validManifest, "  - id: account\n", "  - id: Account\n", 1),
+			error:    "resource_types[0].id is invalid",
+		},
+		"query key": {
+			manifest: strings.Replace(validManifest, "allowed_query_fields: [expand]", "allowed_query_fields: [Expand]", 1),
+			error:    "allowed_query_fields",
+		},
+		"credential purpose": {
+			manifest: strings.Replace(validManifest, "credential_purposes: [management]", "credential_purposes: [Management]", 1),
+			error:    "credential_purposes",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := manifest.Load([]byte(test.manifest))
+			require.ErrorContains(t, err, test.error)
+		})
+	}
 }
 
 func TestManifestRequestDescriptorBindsPermissionCeiling(t *testing.T) {

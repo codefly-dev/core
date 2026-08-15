@@ -33,10 +33,10 @@ const (
 )
 
 var (
-	idPattern           = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
-	jsonFieldPattern    = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*$`)
-	pathParameter       = regexp.MustCompile(`\{([a-z][a-z0-9_-]*)\}`)
-	diagnosticNSPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+\.$`)
+	idPattern               = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
+	jsonObjectMemberPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*$`)
+	pathParameter           = regexp.MustCompile(`\{([a-z][a-z0-9_-]*)\}`)
+	diagnosticNSPattern     = regexp.MustCompile(`^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+\.$`)
 )
 
 type Manifest struct {
@@ -539,7 +539,7 @@ func validateRequestDescriptor(index int, descriptor RequestDescriptor, resource
 		"allowed_body_fields":   descriptor.AllowedBodyFields,
 		"ownership_body_fields": descriptor.OwnershipBodyFields,
 	} {
-		if err := validateStringSet(fmt.Sprintf("requests[%d].%s", index, fieldName), fields, func(value string) bool { return jsonFieldPattern.MatchString(value) }); err != nil {
+		if err := validateStringSet(fmt.Sprintf("requests[%d].%s", index, fieldName), fields, func(value string) bool { return jsonObjectMemberPattern.MatchString(value) }); err != nil {
 			return err
 		}
 	}
