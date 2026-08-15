@@ -13,14 +13,7 @@ import (
 )
 
 func TestProjectOutputActionIsValidationReady(t *testing.T) {
-	proposal := &providerv0.OutputProposal{
-		Contract: "codefly.dev/configuration/billing@1", TargetGeneration: 2,
-		Values: map[string]*providerv0.OutputValue{
-			"PUBLIC_ID": {Kind: &providerv0.OutputValue_PublicValue{
-				PublicValue: &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: "remote"}},
-			}},
-		},
-	}
+	proposal := billingProposal()
 	action, err := sdk.NewProjectOutputAction("emit", 0, proposal)
 	require.NoError(t, err)
 	require.NotNil(t, action.GetOutput())
@@ -44,18 +37,7 @@ func TestTypedActionsAndOutputProposal(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, providerv0.ActionType_ACTION_TYPE_CREATE, action.Type)
 
-	proposal := &providerv0.OutputProposal{
-		Contract: "codefly.dev/configuration/billing@1", TargetGeneration: 2,
-		Values: map[string]*providerv0.OutputValue{
-			"STRIPE_SECRET_KEY": {
-				Kind: &providerv0.OutputValue_OpaqueReference{
-					OpaqueReference: &providerv0.OpaqueReference{
-						Reference: "secret://stripe/runtime", Purpose: providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
-					},
-				},
-			},
-		},
-	}
+	proposal := billingProposal()
 	bound, err := sdk.BindOutputProposal(proposal)
 	require.NoError(t, err)
 	repeated, err := sdk.BindOutputProposal(bound)
@@ -65,6 +47,56 @@ func TestTypedActionsAndOutputProposal(t *testing.T) {
 	proposal.Values["STRIPE_SECRET_KEY"].GetOpaqueReference().Reference = "sk_live_1234567890abcdef"
 	_, err = sdk.BindOutputProposal(proposal)
 	require.ErrorContains(t, err, "opaque reference")
+}
+
+func TestFeatureFlagsOutputProposalEnforcesConsumerAndAdmissionBoundaries(t *testing.T) {
+	for _, proposal := range []*providerv0.OutputProposal{
+		featureFlagsServerProposal(),
+		featureFlagsBrowserProposal(),
+	} {
+		_, err := sdk.BindOutputProposal(proposal)
+		require.NoError(t, err)
+	}
+
+	tests := map[string]struct {
+		proposal *providerv0.OutputProposal
+		want     string
+	}{
+		"missing required server value": {
+			proposal: featureFlagsServerProposalWithout("FEATURE_FLAGS_APPLICATION_ID"),
+			want:     "required key",
+		},
+		"undeclared management credential": {
+			proposal: withOutputValue(featureFlagsServerProposal(), "FEATURE_FLAGS_MANAGEMENT_CREDENTIAL",
+				opaqueOutput("secret://feature-flags/management", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT)),
+			want: "undeclared key",
+		},
+		"management purpose on server credential": {
+			proposal: withOutputValue(featureFlagsServerProposal(), "FEATURE_FLAGS_SERVER_CREDENTIAL",
+				opaqueOutput("secret://feature-flags/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT)),
+			want: "credential purpose",
+		},
+		"raw server URL instead of admitted endpoint reference": {
+			proposal: withOutputValue(featureFlagsServerProposal(), "FEATURE_FLAGS_SERVER_ENDPOINT", publicOutput("http://169.254.169.254")),
+			want:     "endpoint reference",
+		},
+		"server credential in browser contract": {
+			proposal: withOutputValue(featureFlagsBrowserProposal(), "FEATURE_FLAGS_SERVER_CREDENTIAL",
+				opaqueOutput("secret://feature-flags/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)),
+			want: "undeclared key",
+		},
+		"browser credential in server contract": {
+			proposal: withOutputValue(featureFlagsServerProposal(), "FEATURE_FLAGS_BROWSER_CREDENTIAL",
+				opaqueOutput("secret://feature-flags/browser", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)),
+			want: "undeclared key",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := sdk.BindOutputProposal(test.proposal)
+			require.ErrorContains(t, err, test.want)
+		})
+	}
 }
 
 func TestFilteredResponseAndCaptureHelpersExposeOnlySafeValuesOrReferences(t *testing.T) {
@@ -168,4 +200,64 @@ func TestValidateUpgradeRequiresOneExactOfflineStep(t *testing.T) {
 	response.Record.FromVersion = 1
 	response.Record.ToVersion = 2
 	require.ErrorContains(t, sdk.ValidateUpgrade(response, 1, 2), "does not match v1 payload")
+}
+
+func featureFlagsServerProposal() *providerv0.OutputProposal {
+	return &providerv0.OutputProposal{
+		Contract: "codefly.dev/configuration/feature-flags@1", TargetGeneration: 1,
+		Values: map[string]*providerv0.OutputValue{
+			"FEATURE_FLAGS_SERVER_ENDPOINT":   publicOutput("endpoint://feature-flags/server"),
+			"FEATURE_FLAGS_APPLICATION_ID":    publicOutput("accounts"),
+			"FEATURE_FLAGS_ENVIRONMENT_ID":    publicOutput("production"),
+			"FEATURE_FLAGS_PROVIDER_MODE":     publicOutput("hosted"),
+			"FEATURE_FLAGS_SERVER_CREDENTIAL": opaqueOutput("secret://feature-flags/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+		},
+	}
+}
+
+func billingProposal() *providerv0.OutputProposal {
+	return &providerv0.OutputProposal{
+		Contract: "codefly.dev/configuration/billing@1", TargetGeneration: 2,
+		Values: map[string]*providerv0.OutputValue{
+			"STRIPE_PUBLISHABLE_KEY": publicOutput("pk_live_public_identifier"),
+			"STRIPE_SECRET_KEY":      opaqueOutput("secret://stripe/runtime", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			"STRIPE_WEBHOOK_SECRET":  opaqueOutput("secret://stripe/webhook", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION),
+		},
+	}
+}
+
+func featureFlagsBrowserProposal() *providerv0.OutputProposal {
+	return &providerv0.OutputProposal{
+		Contract: "codefly.dev/configuration/feature-flags-browser@1", TargetGeneration: 1,
+		Values: map[string]*providerv0.OutputValue{
+			"FEATURE_FLAGS_EDGE_ENDPOINT":      publicOutput("endpoint://feature-flags/edge"),
+			"FEATURE_FLAGS_APPLICATION_ID":     publicOutput("accounts"),
+			"FEATURE_FLAGS_ENVIRONMENT_ID":     publicOutput("production"),
+			"FEATURE_FLAGS_PROVIDER_MODE":      publicOutput("hosted"),
+			"FEATURE_FLAGS_BROWSER_CREDENTIAL": opaqueOutput("secret://feature-flags/browser", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+		},
+	}
+}
+
+func featureFlagsServerProposalWithout(key string) *providerv0.OutputProposal {
+	proposal := featureFlagsServerProposal()
+	delete(proposal.Values, key)
+	return proposal
+}
+
+func withOutputValue(proposal *providerv0.OutputProposal, key string, value *providerv0.OutputValue) *providerv0.OutputProposal {
+	proposal.Values[key] = value
+	return proposal
+}
+
+func publicOutput(value string) *providerv0.OutputValue {
+	return &providerv0.OutputValue{Kind: &providerv0.OutputValue_PublicValue{PublicValue: &providerv0.PublicValue{
+		Kind: &providerv0.PublicValue_StringValue{StringValue: value},
+	}}}
+}
+
+func opaqueOutput(reference string, purpose providerv0.CredentialPurpose) *providerv0.OutputValue {
+	return &providerv0.OutputValue{Kind: &providerv0.OutputValue_OpaqueReference{OpaqueReference: &providerv0.OpaqueReference{
+		Reference: reference, Purpose: purpose,
+	}}}
 }

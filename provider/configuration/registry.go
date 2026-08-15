@@ -6,22 +6,27 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
 )
 
 const (
-	BillingContract            = "codefly.dev/configuration/billing@1"
-	EmailContract              = "codefly.dev/configuration/email@1"
-	ErrorTrackingContract      = "codefly.dev/configuration/error-tracking@1"
-	ErrorTrackingBuildContract = "codefly.dev/configuration/error-tracking-build@1"
+	BillingContract             = "codefly.dev/configuration/billing@1"
+	EmailContract               = "codefly.dev/configuration/email@1"
+	ErrorTrackingContract       = "codefly.dev/configuration/error-tracking@1"
+	ErrorTrackingBuildContract  = "codefly.dev/configuration/error-tracking-build@1"
+	FeatureFlagsContract        = "codefly.dev/configuration/feature-flags@1"
+	FeatureFlagsBrowserContract = "codefly.dev/configuration/feature-flags-browser@1"
 )
 
 type ValueType string
 
 const (
-	ValueString          ValueType = "string"
-	ValueBoolean         ValueType = "boolean"
-	ValueInteger         ValueType = "integer"
-	ValueOpaqueReference ValueType = "opaque-reference"
+	ValueString            ValueType = "string"
+	ValueBoolean           ValueType = "boolean"
+	ValueInteger           ValueType = "integer"
+	ValueOpaqueReference   ValueType = "opaque-reference"
+	ValueEndpointReference ValueType = "endpoint-reference"
 )
 
 type Classification string
@@ -111,6 +116,7 @@ type Registry struct {
 
 func NewRegistry() *Registry {
 	providerProvenance := []Provenance{ProvenanceProvider, ProvenanceBinding, ProvenanceArtifact}
+	hostProvenance := append(append([]Provenance(nil), providerProvenance...), ProvenanceHost)
 	return &Registry{contracts: map[string]Contract{
 		BillingContract: {
 			ID: BillingContract,
@@ -148,6 +154,31 @@ func NewRegistry() *Registry {
 				"SENTRY_AUTH_TOKEN": opaqueKey(true, ConsumerBuild, PurposeBuild, providerProvenance),
 				"SENTRY_ORG":        publicKey(true, ConsumerBuild, PurposeNone, providerProvenance),
 				"SENTRY_PROJECT":    publicKey(true, ConsumerBuild, PurposeNone, providerProvenance),
+			},
+		},
+		FeatureFlagsContract: {
+			ID: FeatureFlagsContract,
+			Keys: map[string]Key{
+				"FEATURE_FLAGS_SERVER_ENDPOINT":   endpointKey(ConsumerRuntime, hostProvenance),
+				"FEATURE_FLAGS_APPLICATION_ID":    publicKey(true, ConsumerRuntime, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_ENVIRONMENT_ID":    publicKey(true, ConsumerRuntime, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_PROVIDER_MODE":     publicKey(true, ConsumerRuntime, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_SERVER_CREDENTIAL": opaqueKey(true, ConsumerRuntime, PurposeRuntime, providerProvenance),
+			},
+		},
+		FeatureFlagsBrowserContract: {
+			ID: FeatureFlagsBrowserContract,
+			Keys: map[string]Key{
+				"FEATURE_FLAGS_EDGE_ENDPOINT":  endpointKey(ConsumerBrowser, hostProvenance),
+				"FEATURE_FLAGS_APPLICATION_ID": publicKey(true, ConsumerBrowser, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_ENVIRONMENT_ID": publicKey(true, ConsumerBrowser, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_PROVIDER_MODE":  publicKey(true, ConsumerBrowser, PurposeNone, providerProvenance),
+				"FEATURE_FLAGS_BROWSER_CREDENTIAL": {
+					Type: ValueOpaqueReference, Required: true,
+					ClassificationFloor: ClassificationSensitive, ClassificationCeiling: ClassificationSensitive,
+					CredentialPurpose: PurposeRuntime, BrowserExposure: BrowserAllowed, Consumer: ConsumerBrowser,
+					ProviderMutable: true, HostMutable: true, RequiredProvenance: providerProvenance,
+				},
 			},
 		},
 	}}
@@ -196,6 +227,109 @@ func (r *Registry) Validate(id string, values map[string]Value) error {
 		}
 	}
 	return nil
+}
+
+func (r *Registry) ValidateProposal(proposal *providerv0.OutputProposal) error {
+	if proposal == nil {
+		return fmt.Errorf("output proposal is required")
+	}
+	contract, err := r.Lookup(proposal.GetContract())
+	if err != nil {
+		return err
+	}
+	for name := range proposal.GetValues() {
+		if _, declared := contract.Keys[name]; !declared {
+			return fmt.Errorf("%s: undeclared key %q", contract.ID, name)
+		}
+	}
+	for name, declaration := range contract.Keys {
+		value, present := proposal.GetValues()[name]
+		if !present {
+			if declaration.Required {
+				return fmt.Errorf("%s: required key %q is missing", contract.ID, name)
+			}
+			continue
+		}
+		if err := validateProposalValue(name, declaration, value); err != nil {
+			return fmt.Errorf("%s: %w", contract.ID, err)
+		}
+	}
+	return nil
+}
+
+func validateProposalValue(name string, declaration Key, value *providerv0.OutputValue) error {
+	if value == nil {
+		return fmt.Errorf("%s value is required", name)
+	}
+	if declaration.Type == ValueOpaqueReference {
+		reference := value.GetOpaqueReference()
+		if reference == nil {
+			return fmt.Errorf("%s type does not match schema type %q", name, declaration.Type)
+		}
+		purpose, ok := credentialPurposeFromProto(reference.GetPurpose())
+		if !ok {
+			return fmt.Errorf("%s has unknown credential purpose %d", name, reference.GetPurpose())
+		}
+		if purpose != declaration.CredentialPurpose {
+			return fmt.Errorf("%s credential purpose %q does not match schema purpose %q", name, purpose, declaration.CredentialPurpose)
+		}
+		if err := ValidateOpaqueReference(reference.GetReference()); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		return nil
+	}
+
+	public := value.GetPublicValue()
+	if public == nil {
+		return fmt.Errorf("%s type does not match schema type %q", name, declaration.Type)
+	}
+	switch declaration.Type {
+	case ValueString:
+		kind, ok := public.GetKind().(*providerv0.PublicValue_StringValue)
+		if !ok {
+			return fmt.Errorf("%s type does not match schema type %q", name, declaration.Type)
+		}
+		if kind.StringValue == "" {
+			return fmt.Errorf("%s string value is empty", name)
+		}
+		if (declaration.ClassificationFloor == ClassificationPublic || declaration.BrowserExposure == BrowserAllowed) && LooksSecret(kind.StringValue) {
+			return fmt.Errorf("%s contains a secret-shaped value in a public or browser field", name)
+		}
+	case ValueEndpointReference:
+		kind, ok := public.GetKind().(*providerv0.PublicValue_StringValue)
+		if !ok {
+			return fmt.Errorf("%s type does not match schema type %q", name, declaration.Type)
+		}
+		if err := ValidateEndpointReference(kind.StringValue); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	case ValueBoolean:
+		if _, ok := public.GetKind().(*providerv0.PublicValue_BoolValue); !ok {
+			return fmt.Errorf("%s type does not match schema type %q", name, declaration.Type)
+		}
+	case ValueInteger:
+		if _, ok := public.GetKind().(*providerv0.PublicValue_IntegerValue); !ok {
+			return fmt.Errorf("%s type does not match schema type %q", name, declaration.Type)
+		}
+	default:
+		return fmt.Errorf("%s has unsupported schema type %q", name, declaration.Type)
+	}
+	return nil
+}
+
+func credentialPurposeFromProto(purpose providerv0.CredentialPurpose) (CredentialPurpose, bool) {
+	switch purpose {
+	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT:
+		return PurposeManagement, true
+	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME:
+		return PurposeRuntime, true
+	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD:
+		return PurposeBuild, true
+	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+		return PurposeWebhookVerification, true
+	default:
+		return "", false
+	}
 }
 
 func validateValue(name string, declaration Key, value Value) error {
@@ -247,7 +381,7 @@ func validateValue(name string, declaration Key, value Value) error {
 		}
 	}
 	switch value.Type {
-	case ValueString:
+	case ValueString, ValueEndpointReference:
 		if value.String == "" {
 			return fmt.Errorf("%s string value is empty", name)
 		}
@@ -256,6 +390,11 @@ func validateValue(name string, declaration Key, value Value) error {
 		}
 		if value.OpaqueReference != "" {
 			return fmt.Errorf("%s string value cannot also carry an opaque reference", name)
+		}
+		if value.Type == ValueEndpointReference {
+			if err := ValidateEndpointReference(value.String); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
 		}
 	case ValueOpaqueReference:
 		if value.OpaqueReference == "" || value.String != "" {
@@ -313,6 +452,19 @@ func opaqueKey(required bool, consumer ConsumerClass, purpose CredentialPurpose,
 	}
 }
 
+func endpointKey(consumer ConsumerClass, provenance []Provenance) Key {
+	exposure := BrowserDenied
+	if consumer == ConsumerBrowser {
+		exposure = BrowserAllowed
+	}
+	return Key{
+		Type: ValueEndpointReference, Required: true,
+		ClassificationFloor: ClassificationPublic, ClassificationCeiling: ClassificationSensitive,
+		CredentialPurpose: PurposeNone, BrowserExposure: exposure, Consumer: consumer,
+		ProviderMutable: false, HostMutable: true, RequiredProvenance: provenance,
+	}
+}
+
 func validClassification(classification Classification) bool {
 	return classification == ClassificationPublic || classification == ClassificationSensitive || classification == ClassificationSecret
 }
@@ -342,6 +494,24 @@ func browserExposureRank(exposure BrowserExposure) int {
 }
 
 var opaqueReferenceComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$`)
+
+func ValidateEndpointReference(reference string) error {
+	if len(reference) == 0 || len(reference) > 512 || strings.ContainsAny(reference, " \t\r\n%?#") {
+		return fmt.Errorf("endpoint reference is not canonical")
+	}
+	parsed, err := url.Parse(reference)
+	if err != nil || parsed.Scheme != "endpoint" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" {
+		return fmt.Errorf("endpoint reference is not canonical")
+	}
+	if parsed.Host == "" || parsed.Hostname() != parsed.Host || !opaqueReferenceComponent.MatchString(parsed.Host) {
+		return fmt.Errorf("endpoint reference origin rule is invalid")
+	}
+	components := strings.Split(strings.TrimPrefix(parsed.Path, "/"), "/")
+	if len(components) != 1 || !opaqueReferenceComponent.MatchString(components[0]) {
+		return fmt.Errorf("endpoint reference endpoint identifier is invalid")
+	}
+	return nil
+}
 
 func ValidateOpaqueReference(reference string) error {
 	if len(reference) == 0 || len(reference) > 512 || strings.ContainsAny(reference, " \t\r\n%") {

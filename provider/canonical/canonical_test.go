@@ -7,6 +7,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
 	"github.com/codefly-dev/core/provider/canonical"
+	"github.com/codefly-dev/core/provider/configuration"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -94,6 +95,41 @@ func TestPlannedRequestDigestIsCredentialPurposeOrderIndependent(t *testing.T) {
 	reorderedDigest, err := canonical.PlannedRequestDigest(reordered)
 	require.NoError(t, err)
 	require.Equal(t, baseDigest, reorderedDigest)
+}
+
+func TestFeatureFlagsOutputProposalDigestIsValueOrderIndependent(t *testing.T) {
+	endpoint := outputPublicValue("endpoint://feature-flags/server")
+	application := outputPublicValue("accounts")
+	environment := outputPublicValue("production")
+	mode := outputPublicValue("hosted")
+	credential := outputOpaqueValue("secret://feature-flags/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)
+	credential.GetOpaqueReference().SafeFingerprint = digest("b")
+	first := &providerv0.OutputProposal{
+		Contract: configuration.FeatureFlagsContract, TargetGeneration: 1,
+		Values: map[string]*providerv0.OutputValue{
+			"FEATURE_FLAGS_SERVER_ENDPOINT":   endpoint,
+			"FEATURE_FLAGS_APPLICATION_ID":    application,
+			"FEATURE_FLAGS_ENVIRONMENT_ID":    environment,
+			"FEATURE_FLAGS_PROVIDER_MODE":     mode,
+			"FEATURE_FLAGS_SERVER_CREDENTIAL": credential,
+		},
+	}
+	second := &providerv0.OutputProposal{
+		Contract: configuration.FeatureFlagsContract, TargetGeneration: 1,
+		Values: map[string]*providerv0.OutputValue{
+			"FEATURE_FLAGS_SERVER_CREDENTIAL": proto.Clone(credential).(*providerv0.OutputValue),
+			"FEATURE_FLAGS_PROVIDER_MODE":     proto.Clone(mode).(*providerv0.OutputValue),
+			"FEATURE_FLAGS_ENVIRONMENT_ID":    proto.Clone(environment).(*providerv0.OutputValue),
+			"FEATURE_FLAGS_APPLICATION_ID":    proto.Clone(application).(*providerv0.OutputValue),
+			"FEATURE_FLAGS_SERVER_ENDPOINT":   proto.Clone(endpoint).(*providerv0.OutputValue),
+		},
+	}
+
+	firstDigest, err := canonical.OutputProposalDigest(first)
+	require.NoError(t, err)
+	secondDigest, err := canonical.OutputProposalDigest(second)
+	require.NoError(t, err)
+	require.Equal(t, firstDigest, secondDigest)
 }
 
 func TestVolatileObservationMetadataDoesNotChangeMaterialDigest(t *testing.T) {
@@ -269,12 +305,7 @@ func orderedPlan() *providerv0.OrderedPlan {
 	if err != nil {
 		panic(err)
 	}
-	output := &providerv0.OutputProposal{
-		Contract: "codefly.dev/configuration/billing@1", TargetGeneration: 2,
-		Values: map[string]*providerv0.OutputValue{
-			"PUBLIC_ID": {Kind: &providerv0.OutputValue_PublicValue{PublicValue: stringValue("remote")}},
-		},
-	}
+	output := billingOutputProposal()
 	output.Digest, err = canonical.OutputProposalDigest(output)
 	if err != nil {
 		panic(err)
@@ -292,6 +323,27 @@ func orderedPlan() *providerv0.OrderedPlan {
 
 func stringValue(value string) *providerv0.PublicValue {
 	return &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: value}}
+}
+
+func outputPublicValue(value string) *providerv0.OutputValue {
+	return &providerv0.OutputValue{Kind: &providerv0.OutputValue_PublicValue{PublicValue: stringValue(value)}}
+}
+
+func outputOpaqueValue(reference string, purpose providerv0.CredentialPurpose) *providerv0.OutputValue {
+	return &providerv0.OutputValue{Kind: &providerv0.OutputValue_OpaqueReference{OpaqueReference: &providerv0.OpaqueReference{
+		Reference: reference, Purpose: purpose,
+	}}}
+}
+
+func billingOutputProposal() *providerv0.OutputProposal {
+	return &providerv0.OutputProposal{
+		Contract: configuration.BillingContract, TargetGeneration: 2,
+		Values: map[string]*providerv0.OutputValue{
+			"STRIPE_PUBLISHABLE_KEY": outputPublicValue("pk_live_public_identifier"),
+			"STRIPE_SECRET_KEY":      outputOpaqueValue("secret://stripe/runtime", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			"STRIPE_WEBHOOK_SECRET":  outputOpaqueValue("secret://stripe/webhook", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION),
+		},
+	}
 }
 
 func digest(character string) string {

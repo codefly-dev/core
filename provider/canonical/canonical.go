@@ -193,6 +193,9 @@ func OutputProposalDigest(proposal *providerv0.OutputProposal) (string, error) {
 	if proposal == nil {
 		return "", fmt.Errorf("output proposal is required")
 	}
+	if err := configuration.NewRegistry().ValidateProposal(proposal); err != nil {
+		return "", err
+	}
 	clone := proto.Clone(proposal).(*providerv0.OutputProposal)
 	clone.Digest = ""
 	return Digest(clone)

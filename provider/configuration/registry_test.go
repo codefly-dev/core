@@ -14,6 +14,8 @@ func TestRegistrySeedsVersionedGenericContracts(t *testing.T) {
 		configuration.EmailContract,
 		configuration.ErrorTrackingBuildContract,
 		configuration.ErrorTrackingContract,
+		configuration.FeatureFlagsBrowserContract,
+		configuration.FeatureFlagsContract,
 	}, registry.Contracts())
 	for _, id := range registry.Contracts() {
 		contract, err := registry.Lookup(id)
@@ -107,11 +109,156 @@ func TestBrowserExposureMayTightenBelowSchemaCeiling(t *testing.T) {
 	}))
 }
 
+func TestFeatureFlagsContractsSeparateServerAndBrowserConsumers(t *testing.T) {
+	registry := configuration.NewRegistry()
+	require.NoError(t, registry.Validate(configuration.FeatureFlagsContract, validFeatureFlagsServerValues()))
+	require.NoError(t, registry.Validate(configuration.FeatureFlagsBrowserContract, validFeatureFlagsBrowserValues()))
+
+	server, err := registry.Lookup(configuration.FeatureFlagsContract)
+	require.NoError(t, err)
+	browser, err := registry.Lookup(configuration.FeatureFlagsBrowserContract)
+	require.NoError(t, err)
+	require.NotContains(t, server.Keys, "FEATURE_FLAGS_BROWSER_CREDENTIAL")
+	require.NotContains(t, browser.Keys, "FEATURE_FLAGS_SERVER_CREDENTIAL")
+	for name, key := range server.Keys {
+		require.Equal(t, configuration.ConsumerRuntime, key.Consumer, name)
+	}
+	for name, key := range browser.Keys {
+		require.Equal(t, configuration.ConsumerBrowser, key.Consumer, name)
+	}
+	require.Contains(t, server.Keys, "FEATURE_FLAGS_APPLICATION_ID")
+	require.Contains(t, server.Keys, "FEATURE_FLAGS_ENVIRONMENT_ID")
+	require.Contains(t, server.Keys, "FEATURE_FLAGS_PROVIDER_MODE")
+	require.Contains(t, browser.Keys, "FEATURE_FLAGS_APPLICATION_ID")
+	require.Contains(t, browser.Keys, "FEATURE_FLAGS_ENVIRONMENT_ID")
+	require.Contains(t, browser.Keys, "FEATURE_FLAGS_PROVIDER_MODE")
+
+	serverEndpoint := server.Keys["FEATURE_FLAGS_SERVER_ENDPOINT"]
+	require.Equal(t, configuration.ValueEndpointReference, serverEndpoint.Type)
+	require.False(t, serverEndpoint.ProviderMutable)
+	require.True(t, serverEndpoint.HostMutable)
+	require.Contains(t, serverEndpoint.RequiredProvenance, configuration.ProvenanceHost)
+}
+
+func TestFeatureFlagsContractsRejectUnsafeRuntimeProjection(t *testing.T) {
+	registry := configuration.NewRegistry()
+
+	t.Run("undeclared management credential", func(t *testing.T) {
+		values := validFeatureFlagsServerValues()
+		values["FEATURE_FLAGS_MANAGEMENT_CREDENTIAL"] = opaqueValue("secret://feature-flags/management", configuration.PurposeManagement, configuration.ConsumerRuntime)
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "undeclared key")
+	})
+	t.Run("management purpose on server credential", func(t *testing.T) {
+		values := validFeatureFlagsServerValues()
+		value := values["FEATURE_FLAGS_SERVER_CREDENTIAL"]
+		value.CredentialPurpose = configuration.PurposeManagement
+		values["FEATURE_FLAGS_SERVER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "credential purpose")
+	})
+	t.Run("secret browser credential", func(t *testing.T) {
+		values := validFeatureFlagsBrowserValues()
+		value := values["FEATURE_FLAGS_BROWSER_CREDENTIAL"]
+		value.Classification = configuration.ClassificationSecret
+		values["FEATURE_FLAGS_BROWSER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsBrowserContract, values), "classification exceeds schema ceiling")
+	})
+	t.Run("weakened browser credential classification", func(t *testing.T) {
+		values := validFeatureFlagsBrowserValues()
+		value := values["FEATURE_FLAGS_BROWSER_CREDENTIAL"]
+		value.Classification = configuration.ClassificationPublic
+		values["FEATURE_FLAGS_BROWSER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsBrowserContract, values), "weaken classification")
+	})
+	t.Run("server credential assigned to browser", func(t *testing.T) {
+		values := validFeatureFlagsServerValues()
+		value := values["FEATURE_FLAGS_SERVER_CREDENTIAL"]
+		value.Consumer = configuration.ConsumerBrowser
+		values["FEATURE_FLAGS_SERVER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "consumer")
+	})
+	t.Run("browser credential assigned to backend", func(t *testing.T) {
+		values := validFeatureFlagsBrowserValues()
+		value := values["FEATURE_FLAGS_BROWSER_CREDENTIAL"]
+		value.Consumer = configuration.ConsumerRuntime
+		values["FEATURE_FLAGS_BROWSER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsBrowserContract, values), "consumer")
+	})
+	t.Run("noncanonical credential reference", func(t *testing.T) {
+		values := validFeatureFlagsBrowserValues()
+		value := values["FEATURE_FLAGS_BROWSER_CREDENTIAL"]
+		value.OpaqueReference = "secret://feature-flags/browser?version=1"
+		values["FEATURE_FLAGS_BROWSER_CREDENTIAL"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsBrowserContract, values), "canonical host reference")
+	})
+	t.Run("raw server URL", func(t *testing.T) {
+		values := validFeatureFlagsServerValues()
+		value := values["FEATURE_FLAGS_SERVER_ENDPOINT"]
+		value.String = "http://169.254.169.254"
+		values["FEATURE_FLAGS_SERVER_ENDPOINT"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "endpoint reference")
+	})
+	t.Run("noncanonical endpoint reference", func(t *testing.T) {
+		values := validFeatureFlagsBrowserValues()
+		value := values["FEATURE_FLAGS_EDGE_ENDPOINT"]
+		value.String = "endpoint://feature-flags/edge?"
+		values["FEATURE_FLAGS_EDGE_ENDPOINT"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsBrowserContract, values), "endpoint reference")
+	})
+	t.Run("provider supplied endpoint", func(t *testing.T) {
+		values := validFeatureFlagsServerValues()
+		value := values["FEATURE_FLAGS_SERVER_ENDPOINT"]
+		value.MutatedBy = configuration.MutatorProvider
+		values["FEATURE_FLAGS_SERVER_ENDPOINT"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "not provider mutable")
+	})
+	t.Run("endpoint without host provenance", func(t *testing.T) {
+		values := validFeatureFlagsServerValues()
+		value := values["FEATURE_FLAGS_SERVER_ENDPOINT"]
+		delete(value.Provenance, configuration.ProvenanceHost)
+		values["FEATURE_FLAGS_SERVER_ENDPOINT"] = value
+		require.ErrorContains(t, registry.Validate(configuration.FeatureFlagsContract, values), "host provenance")
+	})
+}
+
 func validBillingValues() map[string]configuration.Value {
 	return map[string]configuration.Value{
 		"STRIPE_PUBLISHABLE_KEY": publicValue("pk_live_public_identifier", configuration.PurposeRuntime, configuration.ConsumerBrowser, configuration.BrowserAllowed),
 		"STRIPE_SECRET_KEY":      opaqueValue("secret://stripe/runtime", configuration.PurposeRuntime, configuration.ConsumerRuntime),
 		"STRIPE_WEBHOOK_SECRET":  opaqueValue("secret://stripe/webhook", configuration.PurposeWebhookVerification, configuration.ConsumerRuntime),
+	}
+}
+
+func validFeatureFlagsServerValues() map[string]configuration.Value {
+	return map[string]configuration.Value{
+		"FEATURE_FLAGS_SERVER_ENDPOINT":   endpointValue("endpoint://feature-flags/server", configuration.ConsumerRuntime, configuration.BrowserDenied),
+		"FEATURE_FLAGS_APPLICATION_ID":    publicValue("accounts", configuration.PurposeNone, configuration.ConsumerRuntime, configuration.BrowserDenied),
+		"FEATURE_FLAGS_ENVIRONMENT_ID":    publicValue("production", configuration.PurposeNone, configuration.ConsumerRuntime, configuration.BrowserDenied),
+		"FEATURE_FLAGS_PROVIDER_MODE":     publicValue("hosted", configuration.PurposeNone, configuration.ConsumerRuntime, configuration.BrowserDenied),
+		"FEATURE_FLAGS_SERVER_CREDENTIAL": opaqueValue("secret://feature-flags/server", configuration.PurposeRuntime, configuration.ConsumerRuntime),
+	}
+}
+
+func validFeatureFlagsBrowserValues() map[string]configuration.Value {
+	browserCredential := opaqueValue("secret://feature-flags/browser", configuration.PurposeRuntime, configuration.ConsumerBrowser)
+	browserCredential.Classification = configuration.ClassificationSensitive
+	browserCredential.BrowserExposure = configuration.BrowserAllowed
+	return map[string]configuration.Value{
+		"FEATURE_FLAGS_EDGE_ENDPOINT":      endpointValue("endpoint://feature-flags/edge", configuration.ConsumerBrowser, configuration.BrowserAllowed),
+		"FEATURE_FLAGS_APPLICATION_ID":     publicValue("accounts", configuration.PurposeNone, configuration.ConsumerBrowser, configuration.BrowserAllowed),
+		"FEATURE_FLAGS_ENVIRONMENT_ID":     publicValue("production", configuration.PurposeNone, configuration.ConsumerBrowser, configuration.BrowserAllowed),
+		"FEATURE_FLAGS_PROVIDER_MODE":      publicValue("hosted", configuration.PurposeNone, configuration.ConsumerBrowser, configuration.BrowserAllowed),
+		"FEATURE_FLAGS_BROWSER_CREDENTIAL": browserCredential,
+	}
+}
+
+func endpointValue(reference string, consumer configuration.ConsumerClass, browser configuration.BrowserExposure) configuration.Value {
+	valueProvenance := provenance()
+	valueProvenance[configuration.ProvenanceHost] = "endpoint-admission:sha256:origin"
+	return configuration.Value{
+		Type: configuration.ValueEndpointReference, String: reference,
+		Classification: configuration.ClassificationPublic, CredentialPurpose: configuration.PurposeNone,
+		BrowserExposure: browser, Consumer: consumer, MutatedBy: configuration.MutatorHost,
+		Provenance: valueProvenance,
 	}
 }
 
