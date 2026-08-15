@@ -11,12 +11,14 @@ import (
 )
 
 const (
-	BillingContract             = "codefly.dev/configuration/billing@1"
-	EmailContract               = "codefly.dev/configuration/email@1"
-	ErrorTrackingContract       = "codefly.dev/configuration/error-tracking@1"
-	ErrorTrackingBuildContract  = "codefly.dev/configuration/error-tracking-build@1"
-	FeatureFlagsContract        = "codefly.dev/configuration/feature-flags@1"
-	FeatureFlagsBrowserContract = "codefly.dev/configuration/feature-flags-browser@1"
+	BillingContract                 = "codefly.dev/configuration/billing@1"
+	EmailContract                   = "codefly.dev/configuration/email@1"
+	ErrorTrackingContract           = "codefly.dev/configuration/error-tracking@1"
+	ErrorTrackingBuildContract      = "codefly.dev/configuration/error-tracking-build@1"
+	FeatureFlagsContract            = "codefly.dev/configuration/feature-flags@1"
+	FeatureFlagsBrowserContract     = "codefly.dev/configuration/feature-flags-browser@1"
+	ProductAnalyticsContract        = "codefly.dev/configuration/product-analytics@1"
+	ProductAnalyticsBrowserContract = "codefly.dev/configuration/product-analytics-browser@1"
 )
 
 type ValueType string
@@ -102,12 +104,22 @@ type Value struct {
 	Boolean           bool
 	Integer           int64
 	OpaqueReference   string
+	SafeFingerprint   string
 	Classification    Classification
 	CredentialPurpose CredentialPurpose
 	BrowserExposure   BrowserExposure
 	Consumer          ConsumerClass
 	MutatedBy         Mutator
 	Provenance        map[Provenance]string
+}
+
+type HostAttestations struct {
+	OpaqueReferences []*providerv0.OpaqueReference
+}
+
+type ValidationContext struct {
+	Consumer     ConsumerClass
+	Attestations HostAttestations
 }
 
 type Registry struct {
@@ -181,6 +193,26 @@ func NewRegistry() *Registry {
 				},
 			},
 		},
+		ProductAnalyticsContract: {
+			ID: ProductAnalyticsContract,
+			Keys: map[string]Key{
+				"PRODUCT_ANALYTICS_SERVER_CAPTURE_ORIGIN": endpointKey(ConsumerRuntime, hostProvenance),
+				"PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY":    opaqueKey(true, ConsumerRuntime, PurposeRuntime, hostProvenance),
+				"PRODUCT_ANALYTICS_MODE":                  publicKey(true, ConsumerRuntime, PurposeNone, providerProvenance),
+				"PRODUCT_ANALYTICS_PROJECT_ID":            publicKey(true, ConsumerRuntime, PurposeNone, providerProvenance),
+				"PRODUCT_ANALYTICS_ENVIRONMENT":           publicKey(true, ConsumerRuntime, PurposeNone, providerProvenance),
+			},
+		},
+		ProductAnalyticsBrowserContract: {
+			ID: ProductAnalyticsBrowserContract,
+			Keys: map[string]Key{
+				"PRODUCT_ANALYTICS_BROWSER_CAPTURE_ORIGIN": endpointKey(ConsumerBrowser, hostProvenance),
+				"PRODUCT_ANALYTICS_BROWSER_CAPTURE_KEY":    browserCaptureKey(true, providerProvenance),
+				"PRODUCT_ANALYTICS_MODE":                   publicKey(true, ConsumerBrowser, PurposeNone, providerProvenance),
+				"PRODUCT_ANALYTICS_PROJECT_ID":             publicKey(true, ConsumerBrowser, PurposeNone, providerProvenance),
+				"PRODUCT_ANALYTICS_ENVIRONMENT":            publicKey(true, ConsumerBrowser, PurposeNone, providerProvenance),
+			},
+		},
 	}}
 }
 
@@ -204,17 +236,27 @@ func (r *Registry) Lookup(id string) (Contract, error) {
 	return cloneContract(contract), nil
 }
 
-func (r *Registry) Validate(id string, values map[string]Value) error {
+func (r *Registry) Validate(id string, values map[string]Value, context ValidationContext) error {
 	contract, err := r.Lookup(id)
 	if err != nil {
 		return err
 	}
+	if !validConsumer(context.Consumer) {
+		return fmt.Errorf("%s: validation consumer %q is unknown", id, context.Consumer)
+	}
 	for key := range values {
-		if _, declared := contract.Keys[key]; !declared {
+		declaration, declared := contract.Keys[key]
+		if !declared {
 			return fmt.Errorf("%s: undeclared key %q", id, key)
+		}
+		if declaration.Consumer != context.Consumer {
+			return fmt.Errorf("%s: key %q belongs to the %q consumer, not the %q consumer configuration", id, key, declaration.Consumer, context.Consumer)
 		}
 	}
 	for name, declaration := range contract.Keys {
+		if declaration.Consumer != context.Consumer {
+			continue
+		}
 		value, present := values[name]
 		if !present {
 			if declaration.Required {
@@ -222,7 +264,7 @@ func (r *Registry) Validate(id string, values map[string]Value) error {
 			}
 			continue
 		}
-		if err := validateValue(name, declaration, value); err != nil {
+		if err := validateValue(name, declaration, value, context.Attestations); err != nil {
 			return fmt.Errorf("%s: %w", id, err)
 		}
 	}
@@ -332,7 +374,7 @@ func credentialPurposeFromProto(purpose providerv0.CredentialPurpose) (Credentia
 	}
 }
 
-func validateValue(name string, declaration Key, value Value) error {
+func validateValue(name string, declaration Key, value Value, attestations HostAttestations) error {
 	if value.Type != declaration.Type {
 		return fmt.Errorf("%s type %q does not match schema type %q", name, value.Type, declaration.Type)
 	}
@@ -388,7 +430,7 @@ func validateValue(name string, declaration Key, value Value) error {
 		if (value.Classification == ClassificationPublic || value.BrowserExposure == BrowserAllowed) && LooksSecret(value.String) {
 			return fmt.Errorf("%s contains a secret-shaped value in a public or browser field", name)
 		}
-		if value.OpaqueReference != "" {
+		if value.OpaqueReference != "" || value.SafeFingerprint != "" {
 			return fmt.Errorf("%s string value cannot also carry an opaque reference", name)
 		}
 		if value.Type == ValueEndpointReference {
@@ -403,8 +445,22 @@ func validateValue(name string, declaration Key, value Value) error {
 		if err := ValidateOpaqueReference(value.OpaqueReference); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
+		attested := opaqueReference(value.OpaqueReference, attestations.OpaqueReferences)
+		if attested == nil {
+			return fmt.Errorf("%s opaque reference is not host-attested", name)
+		}
+		attestedPurpose, known := credentialPurposeFromProto(attested.GetPurpose())
+		if !known || attestedPurpose != declaration.CredentialPurpose {
+			return fmt.Errorf("%s host-attested purpose %q does not match schema purpose %q", name, attested.GetPurpose(), declaration.CredentialPurpose)
+		}
+		if !digestPattern.MatchString(value.SafeFingerprint) || value.SafeFingerprint != attested.GetSafeFingerprint() {
+			return fmt.Errorf("%s safe fingerprint does not match its host attestation", name)
+		}
+		if slices.Contains(declaration.RequiredProvenance, ProvenanceHost) && value.Provenance[ProvenanceHost] != attested.GetSafeFingerprint() {
+			return fmt.Errorf("%s host provenance does not match its opaque reference", name)
+		}
 	case ValueBoolean, ValueInteger:
-		if value.String != "" || value.OpaqueReference != "" {
+		if value.String != "" || value.OpaqueReference != "" || value.SafeFingerprint != "" {
 			return fmt.Errorf("%s scalar value carries an incompatible string field", name)
 		}
 	default:
@@ -416,6 +472,7 @@ func validateValue(name string, declaration Key, value Value) error {
 var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^sk_(live|test)_[A-Za-z0-9]{8,}$`),
 	regexp.MustCompile(`(?i)^rk_(live|test)_[A-Za-z0-9]{8,}$`),
+	regexp.MustCompile(`(?i)^phx_[A-Za-z0-9_-]{8,}$`),
 	regexp.MustCompile(`(?i)^bearer\s+\S+$`),
 	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`),
 	regexp.MustCompile(`(?i)(password|client_secret|access_token|api_key)=`),
@@ -465,6 +522,15 @@ func endpointKey(consumer ConsumerClass, provenance []Provenance) Key {
 	}
 }
 
+func browserCaptureKey(required bool, provenance []Provenance) Key {
+	return Key{
+		Type: ValueString, Required: required,
+		ClassificationFloor: ClassificationPublic, ClassificationCeiling: ClassificationPublic,
+		CredentialPurpose: PurposeRuntime, BrowserExposure: BrowserAllowed, Consumer: ConsumerBrowser,
+		ProviderMutable: true, HostMutable: true, RequiredProvenance: provenance,
+	}
+}
+
 func validClassification(classification Classification) bool {
 	return classification == ClassificationPublic || classification == ClassificationSensitive || classification == ClassificationSecret
 }
@@ -491,6 +557,21 @@ func browserExposureRank(exposure BrowserExposure) int {
 		return 1
 	}
 	return 0
+}
+
+func validConsumer(consumer ConsumerClass) bool {
+	return consumer == ConsumerRuntime || consumer == ConsumerBrowser || consumer == ConsumerBuild
+}
+
+var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+func opaqueReference(value string, attestations []*providerv0.OpaqueReference) *providerv0.OpaqueReference {
+	for _, attestation := range attestations {
+		if attestation != nil && attestation.GetReference() == value {
+			return attestation
+		}
+	}
+	return nil
 }
 
 var opaqueReferenceComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$`)
