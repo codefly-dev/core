@@ -61,6 +61,9 @@ func TestOperationCeilingsAdmitExactlyTheirRPCs(t *testing.T) {
 	}{
 		{"inspect", CeilingInspect(), map[string]bool{"GetSolutionInformation": true}},
 		{"scaffold", CeilingScaffold(), map[string]bool{
+			"GetSolutionInformation": true, "Create": true, "Update": true,
+		}},
+		{"render", CeilingRender(), map[string]bool{
 			"GetSolutionInformation": true, "Create": true, "Update": true, "Render": true,
 		}},
 		{"publish", CeilingPublish(), map[string]bool{

@@ -51,7 +51,8 @@ type SolutionClient interface {
 	Update(ctx context.Context, in *UpdateRequest, opts ...grpc.CallOption) (*UpdateResponse, error)
 	// Package builds an OCI artifact from a solution source directory and pushes it.
 	Package(ctx context.Context, in *PackageRequest, opts ...grpc.CallOption) (*PackageResponse, error)
-	// Render renders a packaged solution's manifests into a gitops destination.
+	// Render pulls the packaged solution from artifact_reference and writes its
+	// manifests into a gitops destination.
 	Render(ctx context.Context, in *RenderRequest, opts ...grpc.CallOption) (*RenderResponse, error)
 }
 
@@ -137,7 +138,8 @@ type SolutionServer interface {
 	Update(context.Context, *UpdateRequest) (*UpdateResponse, error)
 	// Package builds an OCI artifact from a solution source directory and pushes it.
 	Package(context.Context, *PackageRequest) (*PackageResponse, error)
-	// Render renders a packaged solution's manifests into a gitops destination.
+	// Render pulls the packaged solution from artifact_reference and writes its
+	// manifests into a gitops destination.
 	Render(context.Context, *RenderRequest) (*RenderResponse, error)
 	mustEmbedUnimplementedSolutionServer()
 }

@@ -27,7 +27,9 @@ const (
 
 // SolutionNetworkMode declares the maximum network reach an RPC may use.
 // Values are ordered by increasing reach so a host ceiling admits every
-// mode at or below it.
+// mode at or below it. A solution executor's network is unmediated (unlike a
+// provider, it dials directly): Package pushes the OCI artifact and Render
+// pulls it from artifact_reference, so Render is a registry read, not offline.
 type SolutionNetworkMode int32
 
 const (
@@ -35,8 +37,10 @@ const (
 	SolutionNetworkMode_SOLUTION_NETWORK_MODE_UNSPECIFIED SolutionNetworkMode = 0
 	// SOLUTION_NETWORK_MODE_OFFLINE forbids all network access.
 	SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE SolutionNetworkMode = 1
+	// SOLUTION_NETWORK_MODE_REGISTRY_READ permits pulling the packaged OCI artifact.
+	SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_READ SolutionNetworkMode = 2
 	// SOLUTION_NETWORK_MODE_REGISTRY_WRITE permits pushing to an OCI registry.
-	SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE SolutionNetworkMode = 2
+	SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE SolutionNetworkMode = 3
 )
 
 // Enum value maps for SolutionNetworkMode.
@@ -44,12 +48,14 @@ var (
 	SolutionNetworkMode_name = map[int32]string{
 		0: "SOLUTION_NETWORK_MODE_UNSPECIFIED",
 		1: "SOLUTION_NETWORK_MODE_OFFLINE",
-		2: "SOLUTION_NETWORK_MODE_REGISTRY_WRITE",
+		2: "SOLUTION_NETWORK_MODE_REGISTRY_READ",
+		3: "SOLUTION_NETWORK_MODE_REGISTRY_WRITE",
 	}
 	SolutionNetworkMode_value = map[string]int32{
 		"SOLUTION_NETWORK_MODE_UNSPECIFIED":    0,
 		"SOLUTION_NETWORK_MODE_OFFLINE":        1,
-		"SOLUTION_NETWORK_MODE_REGISTRY_WRITE": 2,
+		"SOLUTION_NETWORK_MODE_REGISTRY_READ":  2,
+		"SOLUTION_NETWORK_MODE_REGISTRY_WRITE": 3,
 	}
 )
 
@@ -1108,11 +1114,12 @@ const file_codefly_services_solution_v0_solution_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x92\x01\n" +
 	"\x0eRenderResponse\x120\n" +
 	"\x0erendered_paths\x18\x01 \x03(\tB\t\xbaH\x06\x92\x01\x03\x10\x90NR\rrenderedPaths\x12N\n" +
-	"\vdiagnostics\x18\x02 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics*\x89\x01\n" +
+	"\vdiagnostics\x18\x02 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics*\xb2\x01\n" +
 	"\x13SolutionNetworkMode\x12%\n" +
 	"!SOLUTION_NETWORK_MODE_UNSPECIFIED\x10\x00\x12!\n" +
-	"\x1dSOLUTION_NETWORK_MODE_OFFLINE\x10\x01\x12(\n" +
-	"$SOLUTION_NETWORK_MODE_REGISTRY_WRITE\x10\x02*\x95\x01\n" +
+	"\x1dSOLUTION_NETWORK_MODE_OFFLINE\x10\x01\x12'\n" +
+	"#SOLUTION_NETWORK_MODE_REGISTRY_READ\x10\x02\x12(\n" +
+	"$SOLUTION_NETWORK_MODE_REGISTRY_WRITE\x10\x03*\x95\x01\n" +
 	"\x0eSolutionEffect\x12\x1f\n" +
 	"\x1bSOLUTION_EFFECT_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19SOLUTION_EFFECT_READ_ONLY\x10\x01\x12\x1f\n" +
@@ -1122,8 +1129,8 @@ const file_codefly_services_solution_v0_solution_proto_rawDesc = "" +
 	"\x16GetSolutionInformation\x12;.codefly.services.solution.v0.GetSolutionInformationRequest\x1a<.codefly.services.solution.v0.GetSolutionInformationResponse\"\b\xd2\xf3\x18\x04\b\x01\x10\x01\x12m\n" +
 	"\x06Create\x12+.codefly.services.solution.v0.CreateRequest\x1a,.codefly.services.solution.v0.CreateResponse\"\b\xd2\xf3\x18\x04\b\x01\x10\x02\x12m\n" +
 	"\x06Update\x12+.codefly.services.solution.v0.UpdateRequest\x1a,.codefly.services.solution.v0.UpdateResponse\"\b\xd2\xf3\x18\x04\b\x01\x10\x02\x12p\n" +
-	"\aPackage\x12,.codefly.services.solution.v0.PackageRequest\x1a-.codefly.services.solution.v0.PackageResponse\"\b\xd2\xf3\x18\x04\b\x02\x10\x03\x12m\n" +
-	"\x06Render\x12+.codefly.services.solution.v0.RenderRequest\x1a,.codefly.services.solution.v0.RenderResponse\"\b\xd2\xf3\x18\x04\b\x01\x10\x02:\x8a\x01\n" +
+	"\aPackage\x12,.codefly.services.solution.v0.PackageRequest\x1a-.codefly.services.solution.v0.PackageResponse\"\b\xd2\xf3\x18\x04\b\x03\x10\x03\x12m\n" +
+	"\x06Render\x12+.codefly.services.solution.v0.RenderRequest\x1a,.codefly.services.solution.v0.RenderResponse\"\b\xd2\xf3\x18\x04\b\x02\x10\x02:\x8a\x01\n" +
 	"\x16solution_method_policy\x12\x1e.google.protobuf.MethodOptions\x18\xba\x8e\x03 \x01(\v22.codefly.services.solution.v0.SolutionMethodPolicyR\x14solutionMethodPolicyB\x8c\x02\n" +
 	" com.codefly.services.solution.v0B\rSolutionProtoP\x01ZEgithub.com/codefly-dev/core/generated/go/codefly/services/solution/v0\xa2\x02\x04CSSV\xaa\x02\x1cCodefly.Services.Solution.V0\xca\x02\x1cCodefly\\Services\\Solution\\V0\xe2\x02(Codefly\\Services\\Solution\\V0\\GPBMetadata\xea\x02\x1fCodefly::Services::Solution::V0b\x06proto3"
 

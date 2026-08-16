@@ -58,7 +58,8 @@ type SolutionClient interface {
 	Update(context.Context, *connect.Request[v0.UpdateRequest]) (*connect.Response[v0.UpdateResponse], error)
 	// Package builds an OCI artifact from a solution source directory and pushes it.
 	Package(context.Context, *connect.Request[v0.PackageRequest]) (*connect.Response[v0.PackageResponse], error)
-	// Render renders a packaged solution's manifests into a gitops destination.
+	// Render pulls the packaged solution from artifact_reference and writes its
+	// manifests into a gitops destination.
 	Render(context.Context, *connect.Request[v0.RenderRequest]) (*connect.Response[v0.RenderResponse], error)
 }
 
@@ -151,7 +152,8 @@ type SolutionHandler interface {
 	Update(context.Context, *connect.Request[v0.UpdateRequest]) (*connect.Response[v0.UpdateResponse], error)
 	// Package builds an OCI artifact from a solution source directory and pushes it.
 	Package(context.Context, *connect.Request[v0.PackageRequest]) (*connect.Response[v0.PackageResponse], error)
-	// Render renders a packaged solution's manifests into a gitops destination.
+	// Render pulls the packaged solution from artifact_reference and writes its
+	// manifests into a gitops destination.
 	Render(context.Context, *connect.Request[v0.RenderRequest]) (*connect.Response[v0.RenderResponse], error)
 }
 

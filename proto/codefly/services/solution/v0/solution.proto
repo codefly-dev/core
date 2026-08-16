@@ -8,14 +8,18 @@ import "google/protobuf/descriptor.proto";
 
 // SolutionNetworkMode declares the maximum network reach an RPC may use.
 // Values are ordered by increasing reach so a host ceiling admits every
-// mode at or below it.
+// mode at or below it. A solution executor's network is unmediated (unlike a
+// provider, it dials directly): Package pushes the OCI artifact and Render
+// pulls it from artifact_reference, so Render is a registry read, not offline.
 enum SolutionNetworkMode {
   // SOLUTION_NETWORK_MODE_UNSPECIFIED is never admitted.
   SOLUTION_NETWORK_MODE_UNSPECIFIED = 0;
   // SOLUTION_NETWORK_MODE_OFFLINE forbids all network access.
   SOLUTION_NETWORK_MODE_OFFLINE = 1;
+  // SOLUTION_NETWORK_MODE_REGISTRY_READ permits pulling the packaged OCI artifact.
+  SOLUTION_NETWORK_MODE_REGISTRY_READ = 2;
   // SOLUTION_NETWORK_MODE_REGISTRY_WRITE permits pushing to an OCI registry.
-  SOLUTION_NETWORK_MODE_REGISTRY_WRITE = 2;
+  SOLUTION_NETWORK_MODE_REGISTRY_WRITE = 3;
 }
 
 // SolutionEffect declares the maximum state effect of one RPC. Values are
@@ -86,10 +90,11 @@ service Solution {
       effect: SOLUTION_EFFECT_REGISTRY_WRITE
     };
   }
-  // Render renders a packaged solution's manifests into a gitops destination.
+  // Render pulls the packaged solution from artifact_reference and writes its
+  // manifests into a gitops destination.
   rpc Render(RenderRequest) returns (RenderResponse) {
     option (solution_method_policy) = {
-      network: SOLUTION_NETWORK_MODE_OFFLINE
+      network: SOLUTION_NETWORK_MODE_REGISTRY_READ
       effect: SOLUTION_EFFECT_LOCAL_WRITE
     };
   }

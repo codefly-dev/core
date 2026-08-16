@@ -55,11 +55,21 @@ func CeilingInspect() Ceiling {
 	}
 }
 
-// CeilingScaffold admits offline local-filesystem RPCs — Create, Update, and
-// Render — but not Package's registry push.
+// CeilingScaffold admits offline local-filesystem RPCs — Create and Update —
+// but not Render (which pulls the packaged artifact) or Package's registry push.
 func CeilingScaffold() Ceiling {
 	return Ceiling{
 		network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE,
+		effect:  solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE,
+	}
+}
+
+// CeilingRender admits Render — a registry pull of the packaged artifact plus a
+// local-filesystem write of its manifests — and every lower RPC, but not
+// Package's registry push.
+func CeilingRender() Ceiling {
+	return Ceiling{
+		network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_READ,
 		effect:  solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE,
 	}
 }

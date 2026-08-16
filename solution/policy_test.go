@@ -24,7 +24,7 @@ func TestSolutionRPCMethodPolicyIsMachineEnforceable(t *testing.T) {
 		"Create":                 {Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
 		"Update":                 {Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
 		"Package":                {Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE},
-		"Render":                 {Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
+		"Render":                 {Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_READ, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
 	}
 
 	service := solutionv0.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
@@ -54,11 +54,11 @@ func TestSolutionContractIsUnaryOnly(t *testing.T) {
 	}
 }
 
-// TestSolutionMethodPolicyAxesAreCoherent guards the two policy axes against
-// incoherent combinations. Network and effect are independent in the model (as
-// in provider_method_policy), but for real methods a registry push is a remote
-// write and vice versa: you cannot push to a registry while offline, and no
-// non-registry effect needs registry network. This catches an annotation like
+// TestSolutionMethodPolicyAxesAreCoherent guards the registry-write pairing: a
+// remote push is both a REGISTRY_WRITE network reach and a REGISTRY_WRITE effect,
+// so the two must agree. (A REGISTRY_READ network legitimately pairs with a
+// local-write effect — Render pulls the artifact and writes manifests locally —
+// so that pairing is not constrained here.) This catches an annotation like
 // {network: OFFLINE, effect: REGISTRY_WRITE} that the ordered ceiling checks
 // would otherwise silently accept.
 func TestSolutionMethodPolicyAxesAreCoherent(t *testing.T) {
@@ -196,6 +196,7 @@ func TestSolutionPolicyEnumsAreOrderedAsCeilings(t *testing.T) {
 	require.Equal(t, []protoreflect.Name{
 		"SOLUTION_NETWORK_MODE_UNSPECIFIED",
 		"SOLUTION_NETWORK_MODE_OFFLINE",
+		"SOLUTION_NETWORK_MODE_REGISTRY_READ",
 		"SOLUTION_NETWORK_MODE_REGISTRY_WRITE",
 	}, enumNames(networks.Values()))
 
