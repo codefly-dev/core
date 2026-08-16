@@ -28,6 +28,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	runnersbase "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/runners/sandbox"
+	"github.com/codefly-dev/core/solution"
 	coretoolbox "github.com/codefly-dev/core/toolbox"
 	"github.com/codefly-dev/core/wool"
 
@@ -1028,6 +1029,11 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithPerRPCCredentials(bearerCreds{token: authToken}),
+		// Host-side dispatch gate for the Solution contract: refuses to send a
+		// Solution RPC whose declared effect/network policy exceeds the ceiling
+		// stamped on the call context (solution.WithCeiling). No-ops for every
+		// other service, so it is safe on every agent connection.
+		grpc.WithChainUnaryInterceptor(solution.EnforcingClientInterceptor()),
 		grpcconfig.TypedMessageClientDialOption(),
 	)
 	if err != nil {
