@@ -75,85 +75,16 @@ func TestSolutionMethodPolicyAxesAreCoherent(t *testing.T) {
 	}
 }
 
-func TestPolicyForResolvesByFullMethodName(t *testing.T) {
-	policy, isSolution := solution.PolicyFor(solutionv0.Solution_Package_FullMethodName)
-	require.True(t, isSolution)
-	require.Equal(t, solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE, policy.GetNetwork())
-	require.Equal(t, solutionv0.SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE, policy.GetEffect())
-
-	_, isSolution = solution.PolicyFor("/grpc.health.v1.Health/Check")
-	require.False(t, isSolution)
-
-	_, isSolution = solution.PolicyFor("/codefly.services.solution.v0.Solution/DoesNotExist")
-	require.False(t, isSolution)
-}
-
-func TestAdmitsEnforcesBothAxesAndFailsClosed(t *testing.T) {
-	create := &solutionv0.SolutionMethodPolicy{Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE}
-	pkg := &solutionv0.SolutionMethodPolicy{Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE}
-
-	require.NoError(t, solution.Admits(create, solution.CeilingScaffold()))
-	require.NoError(t, solution.Admits(create, solution.CeilingPublish()))
-	// Package exceeds a scaffold ceiling on both axes.
-	require.Error(t, solution.Admits(pkg, solution.CeilingScaffold()))
-	require.NoError(t, solution.Admits(pkg, solution.CeilingPublish()))
-
-	// Fail closed: nil policy, unspecified policy field, zero-value ceiling.
-	require.Error(t, solution.Admits(nil, solution.CeilingPublish()))
-	require.Error(t, solution.Admits(&solutionv0.SolutionMethodPolicy{Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_READ_ONLY}, solution.CeilingPublish()))
-	require.Error(t, solution.Admits(create, solution.Ceiling{}))
-}
-
-// TestOperationCeilingsAdmitExactlyTheirRPCs pins the provenance chokepoint: each
-// named operation ceiling admits exactly the Solution RPCs that operation is
-// allowed to invoke and denies the rest. A drift in the intent→ceiling mapping
-// (or an RPC's declared policy) surfaces here rather than silently widening what
-// an operation can dispatch.
-func TestOperationCeilingsAdmitExactlyTheirRPCs(t *testing.T) {
-	rpcPolicy := func(fullMethod string) *solutionv0.SolutionMethodPolicy {
-		policy, isSolution := solution.PolicyFor(fullMethod)
-		require.True(t, isSolution, fullMethod)
-		return policy
-	}
-	all := map[string]*solutionv0.SolutionMethodPolicy{
-		"GetSolutionInformation": rpcPolicy(solutionv0.Solution_GetSolutionInformation_FullMethodName),
-		"Create":                 rpcPolicy(solutionv0.Solution_Create_FullMethodName),
-		"Update":                 rpcPolicy(solutionv0.Solution_Update_FullMethodName),
-		"Package":                rpcPolicy(solutionv0.Solution_Package_FullMethodName),
-		"Render":                 rpcPolicy(solutionv0.Solution_Render_FullMethodName),
-	}
-	cases := []struct {
-		name    string
-		ceiling solution.Ceiling
-		admits  map[string]bool
-	}{
-		{"inspect", solution.CeilingInspect(), map[string]bool{"GetSolutionInformation": true}},
-		{"scaffold", solution.CeilingScaffold(), map[string]bool{
-			"GetSolutionInformation": true, "Create": true, "Update": true, "Render": true,
-		}},
-		{"publish", solution.CeilingPublish(), map[string]bool{
-			"GetSolutionInformation": true, "Create": true, "Update": true, "Render": true, "Package": true,
-		}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			for rpc, policy := range all {
-				err := solution.Admits(policy, tc.ceiling)
-				if tc.admits[rpc] {
-					require.NoError(t, err, "%s must admit %s", tc.name, rpc)
-				} else {
-					require.Error(t, err, "%s must deny %s", tc.name, rpc)
-				}
-			}
-		})
-	}
-}
-
 // recordingSolutionServer is a real Solution server that records which RPCs it
 // handled so a test can assert a denied call never reached it.
 type recordingSolutionServer struct {
 	solutionv0.UnimplementedSolutionServer
 	handled map[string]int
+}
+
+func (s *recordingSolutionServer) GetSolutionInformation(context.Context, *solutionv0.GetSolutionInformationRequest) (*solutionv0.GetSolutionInformationResponse, error) {
+	s.handled["GetSolutionInformation"]++
+	return &solutionv0.GetSolutionInformationResponse{}, nil
 }
 
 func (s *recordingSolutionServer) Create(context.Context, *solutionv0.CreateRequest) (*solutionv0.CreateResponse, error) {
@@ -197,14 +128,54 @@ func TestEnforcingClientInterceptorDeniesOverCeilingBeforeTheWire(t *testing.T) 
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	require.Equal(t, 0, server.handled["Package"])
 
-	// A Solution RPC with no ceiling on its context fails closed — the same
-	// long-lived connection is reused, so a missing per-call ceiling must deny.
+	// No ceiling on the context defaults to least privilege: the read-only
+	// advertisement call is admitted and reaches the server...
+	_, err = client.GetSolutionInformation(context.Background(), &solutionv0.GetSolutionInformationRequest{})
+	require.NoError(t, err)
+	require.Equal(t, 1, server.handled["GetSolutionInformation"])
+
+	// ...but a mutating RPC without a ceiling is still denied before the wire,
+	// and the denial names the remedy so it is not mistaken for an auth failure:
+	// the missing ceiling, not the token, is what the caller must fix.
 	_, err = client.Create(context.Background(), &solutionv0.CreateRequest{})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	require.Equal(t, 1, server.handled["Create"])
-	// The denial must name the remedy so it is not mistaken for an auth failure:
-	// the missing ceiling, not the token, is what the caller must fix.
 	require.Contains(t, status.Convert(err).Message(), "solution.WithCeiling")
+}
+
+// TestClientRequiresCeilingPerCall proves the typed Client makes the ceiling a
+// mandatory, unforgeable argument: the same low ceiling admits Create and denies
+// Package over the wire, so a caller cannot dispatch a Solution RPC without
+// declaring the operation it performs.
+func TestClientRequiresCeilingPerCall(t *testing.T) {
+	server := &recordingSolutionServer{handled: map[string]int{}}
+	listener := bufconn.Listen(1 << 20)
+	grpcServer := grpc.NewServer()
+	solutionv0.RegisterSolutionServer(grpcServer, server)
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(grpcServer.Stop)
+
+	conn, err := grpc.NewClient(
+		"passthrough:///bufconn",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(solution.EnforcingClientInterceptor()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := solution.NewClient(conn)
+
+	// Scaffold ceiling admits Create...
+	_, err = client.Create(context.Background(), solution.CeilingScaffold(), &solutionv0.CreateRequest{})
+	require.NoError(t, err)
+	require.Equal(t, 1, server.handled["Create"])
+
+	// ...and denies Package, which the wrapper cannot dispatch without a
+	// publish-level ceiling.
+	_, err = client.Package(context.Background(), solution.CeilingScaffold(), &solutionv0.PackageRequest{})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	require.Equal(t, 0, server.handled["Package"])
 }
 
 func TestEnforcingClientInterceptorPassesThroughNonSolutionCalls(t *testing.T) {

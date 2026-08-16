@@ -72,6 +72,47 @@ func CeilingPublish() Ceiling {
 	}
 }
 
+// Client is the host-side Solution client that makes the operation ceiling a
+// required argument of every call, so host code cannot dispatch a Solution RPC
+// without declaring the operation it performs — the obligation is type-level, not
+// a convention a caller can forget. Each method stamps the ceiling with
+// WithCeiling and delegates to the generated client; EnforcingClientInterceptor,
+// installed on the connection, is what actually gates the call.
+type Client struct {
+	inner solutionv0.SolutionClient
+}
+
+// NewClient wraps a connection whose dial installed EnforcingClientInterceptor
+// (every agent connection from agents/manager.Load does).
+func NewClient(conn grpc.ClientConnInterface) *Client {
+	return &Client{inner: solutionv0.NewSolutionClient(conn)}
+}
+
+// GetSolutionInformation reads a solution executor's advertisement.
+func (c *Client) GetSolutionInformation(ctx context.Context, ceiling Ceiling, in *solutionv0.GetSolutionInformationRequest, opts ...grpc.CallOption) (*solutionv0.GetSolutionInformationResponse, error) {
+	return c.inner.GetSolutionInformation(WithCeiling(ctx, ceiling), in, opts...)
+}
+
+// Create scaffolds a new solution into a destination directory.
+func (c *Client) Create(ctx context.Context, ceiling Ceiling, in *solutionv0.CreateRequest, opts ...grpc.CallOption) (*solutionv0.CreateResponse, error) {
+	return c.inner.Create(WithCeiling(ctx, ceiling), in, opts...)
+}
+
+// Update reconciles an existing solution source with the executor's template.
+func (c *Client) Update(ctx context.Context, ceiling Ceiling, in *solutionv0.UpdateRequest, opts ...grpc.CallOption) (*solutionv0.UpdateResponse, error) {
+	return c.inner.Update(WithCeiling(ctx, ceiling), in, opts...)
+}
+
+// Package builds an OCI artifact from a solution source directory and pushes it.
+func (c *Client) Package(ctx context.Context, ceiling Ceiling, in *solutionv0.PackageRequest, opts ...grpc.CallOption) (*solutionv0.PackageResponse, error) {
+	return c.inner.Package(WithCeiling(ctx, ceiling), in, opts...)
+}
+
+// Render renders a packaged solution's manifests into a gitops destination.
+func (c *Client) Render(ctx context.Context, ceiling Ceiling, in *solutionv0.RenderRequest, opts ...grpc.CallOption) (*solutionv0.RenderResponse, error) {
+	return c.inner.Render(WithCeiling(ctx, ceiling), in, opts...)
+}
+
 type ceilingContextKey struct{}
 
 // WithCeiling stamps the ceiling admitted for the current operation onto a
@@ -79,8 +120,9 @@ type ceilingContextKey struct{}
 // (CeilingInspect/CeilingScaffold/CeilingPublish). The host sets it per call
 // because one solution-agent connection is long-lived and reused across
 // operations (see agents/manager.loader: AgentConn.GRPCConn), so the ceiling
-// belongs to the call, not the dial. A Solution RPC issued without a ceiling in
-// its context is refused by EnforcingClientInterceptor.
+// belongs to the call, not the dial. A Solution RPC issued without a ceiling is
+// gated against the least-privilege ceiling by EnforcingClientInterceptor, so
+// only the read-only advertisement call succeeds unstamped.
 func WithCeiling(ctx context.Context, ceiling Ceiling) context.Context {
 	return context.WithValue(ctx, ceilingContextKey{}, ceiling)
 }
@@ -94,11 +136,13 @@ func ceilingFrom(ctx context.Context) (Ceiling, bool) {
 	return ceiling, ok
 }
 
-// PolicyFor returns the declared method policy for a full gRPC method name
+// policyFor returns the declared method policy for a full gRPC method name
 // (e.g. "/codefly.services.solution.v0.Solution/Package"). The second result
 // reports whether the method belongs to the Solution service; a Solution method
-// with no annotation returns (nil, true) so callers fail closed.
-func PolicyFor(fullMethod string) (*solutionv0.SolutionMethodPolicy, bool) {
+// with no annotation returns (nil, true) so callers fail closed. It is
+// unexported: only the interceptor consults policies; a host uses the interceptor
+// plus WithCeiling, never the policy lookup directly.
+func policyFor(fullMethod string) (*solutionv0.SolutionMethodPolicy, bool) {
 	method := methodDescriptor(fullMethod)
 	if method == nil {
 		return nil, false
@@ -110,10 +154,11 @@ func PolicyFor(fullMethod string) (*solutionv0.SolutionMethodPolicy, bool) {
 	return proto.GetExtension(options, solutionv0.E_SolutionMethodPolicy).(*solutionv0.SolutionMethodPolicy), true
 }
 
-// Admits reports whether a method policy is within the ceiling. It fails closed:
+// admits reports whether a method policy is within the ceiling. It fails closed:
 // a nil policy, an unspecified policy field, or an unspecified ceiling field is
-// never admitted.
-func Admits(policy *solutionv0.SolutionMethodPolicy, ceiling Ceiling) error {
+// never admitted. It is unexported for the same reason as policyFor — it is the
+// interceptor's internal check, not host-facing API.
+func admits(policy *solutionv0.SolutionMethodPolicy, ceiling Ceiling) error {
 	if policy == nil {
 		return fmt.Errorf("no method policy declared")
 	}
@@ -143,9 +188,16 @@ func Admits(policy *solutionv0.SolutionMethodPolicy, ceiling Ceiling) error {
 // interceptor installed on every agent connection (agents/manager.loader). For
 // each outgoing Solution RPC it reads the declared policy and the ceiling
 // stamped on the call context (see WithCeiling) and refuses to dispatch a call
-// whose declared ceiling exceeds the admitted ceiling, or that carries no
-// ceiling at all. Calls to services other than Solution pass through untouched,
-// so installing it universally does not affect non-solution agents.
+// whose declared network or effect exceeds the admitted ceiling. Calls to
+// services other than Solution pass through untouched, so installing it
+// universally does not affect non-solution agents.
+//
+// A call with no ceiling on its context is admitted against the least-privilege
+// ceiling (CeilingInspect): a caller that never declared its operation may still
+// read a solution executor's advertisement, but every mutating RPC is refused
+// until the host declares a higher ceiling with WithCeiling. Defaulting to the
+// minimum — rather than denying even the harmless read — keeps inspection
+// ergonomic while staying fail-closed for every effectful RPC.
 //
 // It covers unary RPCs only, which is complete because the Solution contract is
 // unary-only — an invariant TestSolutionContractIsUnaryOnly guards. A streaming
@@ -153,18 +205,21 @@ func Admits(policy *solutionv0.SolutionMethodPolicy, ceiling Ceiling) error {
 // dispatch unchecked.
 func EnforcingClientInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		policy, isSolution := PolicyFor(method)
+		policy, isSolution := policyFor(method)
 		if !isSolution {
 			return invoker(ctx, method, req, reply, cc, opts...)
 		}
-		ceiling, ok := ceilingFrom(ctx)
-		if !ok {
-			return status.Errorf(codes.PermissionDenied,
-				"solution method %s denied: caller stamped no operation ceiling on the context; "+
-					"the host must declare one with solution.WithCeiling (e.g. CeilingInspect) before dispatch",
-				method)
+		ceiling, explicit := ceilingFrom(ctx)
+		if !explicit {
+			ceiling = CeilingInspect()
 		}
-		if err := Admits(policy, ceiling); err != nil {
+		if err := admits(policy, ceiling); err != nil {
+			if !explicit {
+				return status.Errorf(codes.PermissionDenied,
+					"solution method %s denied under the default least-privilege ceiling: %v; "+
+						"declare this operation's ceiling with solution.WithCeiling",
+					method, err)
+			}
 			return status.Errorf(codes.PermissionDenied, "solution method %s denied: %v", method, err)
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
