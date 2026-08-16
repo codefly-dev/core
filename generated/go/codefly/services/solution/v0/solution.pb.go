@@ -15,6 +15,7 @@ import (
 	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
 )
 
 const (
@@ -23,6 +24,176 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+// SolutionNetworkMode declares the maximum network reach an RPC may use.
+// Values are ordered by increasing reach so a host ceiling admits every
+// mode at or below it.
+type SolutionNetworkMode int32
+
+const (
+	// SOLUTION_NETWORK_MODE_UNSPECIFIED is never admitted.
+	SolutionNetworkMode_SOLUTION_NETWORK_MODE_UNSPECIFIED SolutionNetworkMode = 0
+	// SOLUTION_NETWORK_MODE_OFFLINE forbids all network access.
+	SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE SolutionNetworkMode = 1
+	// SOLUTION_NETWORK_MODE_REGISTRY_WRITE permits pushing to an OCI registry.
+	SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE SolutionNetworkMode = 2
+)
+
+// Enum value maps for SolutionNetworkMode.
+var (
+	SolutionNetworkMode_name = map[int32]string{
+		0: "SOLUTION_NETWORK_MODE_UNSPECIFIED",
+		1: "SOLUTION_NETWORK_MODE_OFFLINE",
+		2: "SOLUTION_NETWORK_MODE_REGISTRY_WRITE",
+	}
+	SolutionNetworkMode_value = map[string]int32{
+		"SOLUTION_NETWORK_MODE_UNSPECIFIED":    0,
+		"SOLUTION_NETWORK_MODE_OFFLINE":        1,
+		"SOLUTION_NETWORK_MODE_REGISTRY_WRITE": 2,
+	}
+)
+
+func (x SolutionNetworkMode) Enum() *SolutionNetworkMode {
+	p := new(SolutionNetworkMode)
+	*p = x
+	return p
+}
+
+func (x SolutionNetworkMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SolutionNetworkMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_services_solution_v0_solution_proto_enumTypes[0].Descriptor()
+}
+
+func (SolutionNetworkMode) Type() protoreflect.EnumType {
+	return &file_codefly_services_solution_v0_solution_proto_enumTypes[0]
+}
+
+func (x SolutionNetworkMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SolutionNetworkMode.Descriptor instead.
+func (SolutionNetworkMode) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{0}
+}
+
+// SolutionEffect declares the maximum state effect of one RPC. Values are
+// ordered by increasing effect so a host ceiling admits every effect at or
+// below it.
+type SolutionEffect int32
+
+const (
+	// SOLUTION_EFFECT_UNSPECIFIED is never admitted.
+	SolutionEffect_SOLUTION_EFFECT_UNSPECIFIED SolutionEffect = 0
+	// SOLUTION_EFFECT_READ_ONLY inspects state but writes nothing.
+	SolutionEffect_SOLUTION_EFFECT_READ_ONLY SolutionEffect = 1
+	// SOLUTION_EFFECT_LOCAL_WRITE writes only the local filesystem.
+	SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE SolutionEffect = 2
+	// SOLUTION_EFFECT_REGISTRY_WRITE pushes a remote OCI artifact.
+	SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE SolutionEffect = 3
+)
+
+// Enum value maps for SolutionEffect.
+var (
+	SolutionEffect_name = map[int32]string{
+		0: "SOLUTION_EFFECT_UNSPECIFIED",
+		1: "SOLUTION_EFFECT_READ_ONLY",
+		2: "SOLUTION_EFFECT_LOCAL_WRITE",
+		3: "SOLUTION_EFFECT_REGISTRY_WRITE",
+	}
+	SolutionEffect_value = map[string]int32{
+		"SOLUTION_EFFECT_UNSPECIFIED":    0,
+		"SOLUTION_EFFECT_READ_ONLY":      1,
+		"SOLUTION_EFFECT_LOCAL_WRITE":    2,
+		"SOLUTION_EFFECT_REGISTRY_WRITE": 3,
+	}
+)
+
+func (x SolutionEffect) Enum() *SolutionEffect {
+	p := new(SolutionEffect)
+	*p = x
+	return p
+}
+
+func (x SolutionEffect) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SolutionEffect) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_services_solution_v0_solution_proto_enumTypes[1].Descriptor()
+}
+
+func (SolutionEffect) Type() protoreflect.EnumType {
+	return &file_codefly_services_solution_v0_solution_proto_enumTypes[1]
+}
+
+func (x SolutionEffect) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SolutionEffect.Descriptor instead.
+func (SolutionEffect) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{1}
+}
+
+// SolutionMethodPolicy is descriptor metadata the host reads and enforces
+// before invoking a Solution RPC.
+type SolutionMethodPolicy struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// network is the maximum network reach available to the method.
+	Network SolutionNetworkMode `protobuf:"varint,1,opt,name=network,proto3,enum=codefly.services.solution.v0.SolutionNetworkMode" json:"network,omitempty"`
+	// effect is the maximum state effect available to the method.
+	Effect        SolutionEffect `protobuf:"varint,2,opt,name=effect,proto3,enum=codefly.services.solution.v0.SolutionEffect" json:"effect,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SolutionMethodPolicy) Reset() {
+	*x = SolutionMethodPolicy{}
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SolutionMethodPolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SolutionMethodPolicy) ProtoMessage() {}
+
+func (x *SolutionMethodPolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SolutionMethodPolicy.ProtoReflect.Descriptor instead.
+func (*SolutionMethodPolicy) Descriptor() ([]byte, []int) {
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *SolutionMethodPolicy) GetNetwork() SolutionNetworkMode {
+	if x != nil {
+		return x.Network
+	}
+	return SolutionNetworkMode_SOLUTION_NETWORK_MODE_UNSPECIFIED
+}
+
+func (x *SolutionMethodPolicy) GetEffect() SolutionEffect {
+	if x != nil {
+		return x.Effect
+	}
+	return SolutionEffect_SOLUTION_EFFECT_UNSPECIFIED
+}
 
 // SolutionArtifact binds one concrete solution executor binary to its package.
 type SolutionArtifact struct {
@@ -43,7 +214,7 @@ type SolutionArtifact struct {
 
 func (x *SolutionArtifact) Reset() {
 	*x = SolutionArtifact{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[0]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -55,7 +226,7 @@ func (x *SolutionArtifact) String() string {
 func (*SolutionArtifact) ProtoMessage() {}
 
 func (x *SolutionArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[0]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -68,7 +239,7 @@ func (x *SolutionArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SolutionArtifact.ProtoReflect.Descriptor instead.
 func (*SolutionArtifact) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{0}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *SolutionArtifact) GetPublisher() string {
@@ -121,7 +292,7 @@ type SolutionContext struct {
 
 func (x *SolutionContext) Reset() {
 	*x = SolutionContext{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[1]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -133,7 +304,7 @@ func (x *SolutionContext) String() string {
 func (*SolutionContext) ProtoMessage() {}
 
 func (x *SolutionContext) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[1]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -146,7 +317,7 @@ func (x *SolutionContext) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SolutionContext.ProtoReflect.Descriptor instead.
 func (*SolutionContext) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{1}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *SolutionContext) GetWorkspace() string {
@@ -187,7 +358,7 @@ type SolutionCapabilities struct {
 
 func (x *SolutionCapabilities) Reset() {
 	*x = SolutionCapabilities{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[2]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -199,7 +370,7 @@ func (x *SolutionCapabilities) String() string {
 func (*SolutionCapabilities) ProtoMessage() {}
 
 func (x *SolutionCapabilities) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[2]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -212,7 +383,7 @@ func (x *SolutionCapabilities) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SolutionCapabilities.ProtoReflect.Descriptor instead.
 func (*SolutionCapabilities) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{2}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SolutionCapabilities) GetSupportsCreate() bool {
@@ -254,7 +425,7 @@ type GetSolutionInformationRequest struct {
 
 func (x *GetSolutionInformationRequest) Reset() {
 	*x = GetSolutionInformationRequest{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[3]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -266,7 +437,7 @@ func (x *GetSolutionInformationRequest) String() string {
 func (*GetSolutionInformationRequest) ProtoMessage() {}
 
 func (x *GetSolutionInformationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[3]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -279,7 +450,7 @@ func (x *GetSolutionInformationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSolutionInformationRequest.ProtoReflect.Descriptor instead.
 func (*GetSolutionInformationRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{3}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetSolutionInformationRequest) GetArtifact() *SolutionArtifact {
@@ -304,7 +475,7 @@ type GetSolutionInformationResponse struct {
 
 func (x *GetSolutionInformationResponse) Reset() {
 	*x = GetSolutionInformationResponse{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[4]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -316,7 +487,7 @@ func (x *GetSolutionInformationResponse) String() string {
 func (*GetSolutionInformationResponse) ProtoMessage() {}
 
 func (x *GetSolutionInformationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[4]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -329,7 +500,7 @@ func (x *GetSolutionInformationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSolutionInformationResponse.ProtoReflect.Descriptor instead.
 func (*GetSolutionInformationResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{4}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetSolutionInformationResponse) GetArtifact() *SolutionArtifact {
@@ -368,7 +539,7 @@ type CreateRequest struct {
 
 func (x *CreateRequest) Reset() {
 	*x = CreateRequest{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[5]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -380,7 +551,7 @@ func (x *CreateRequest) String() string {
 func (*CreateRequest) ProtoMessage() {}
 
 func (x *CreateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[5]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -393,7 +564,7 @@ func (x *CreateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRequest.ProtoReflect.Descriptor instead.
 func (*CreateRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{5}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CreateRequest) GetContext() *SolutionContext {
@@ -430,7 +601,7 @@ type CreateResponse struct {
 
 func (x *CreateResponse) Reset() {
 	*x = CreateResponse{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[6]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -442,7 +613,7 @@ func (x *CreateResponse) String() string {
 func (*CreateResponse) ProtoMessage() {}
 
 func (x *CreateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[6]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -455,7 +626,7 @@ func (x *CreateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateResponse.ProtoReflect.Descriptor instead.
 func (*CreateResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{6}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CreateResponse) GetCreatedPaths() []string {
@@ -487,7 +658,7 @@ type UpdateRequest struct {
 
 func (x *UpdateRequest) Reset() {
 	*x = UpdateRequest{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[7]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -499,7 +670,7 @@ func (x *UpdateRequest) String() string {
 func (*UpdateRequest) ProtoMessage() {}
 
 func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[7]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -512,7 +683,7 @@ func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{7}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UpdateRequest) GetContext() *SolutionContext {
@@ -549,7 +720,7 @@ type UpdateResponse struct {
 
 func (x *UpdateResponse) Reset() {
 	*x = UpdateResponse{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[8]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -561,7 +732,7 @@ func (x *UpdateResponse) String() string {
 func (*UpdateResponse) ProtoMessage() {}
 
 func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[8]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -574,7 +745,7 @@ func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateResponse.ProtoReflect.Descriptor instead.
 func (*UpdateResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{8}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *UpdateResponse) GetUpdatedPaths() []string {
@@ -606,7 +777,7 @@ type PackageRequest struct {
 
 func (x *PackageRequest) Reset() {
 	*x = PackageRequest{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[9]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -618,7 +789,7 @@ func (x *PackageRequest) String() string {
 func (*PackageRequest) ProtoMessage() {}
 
 func (x *PackageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[9]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -631,7 +802,7 @@ func (x *PackageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackageRequest.ProtoReflect.Descriptor instead.
 func (*PackageRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{9}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *PackageRequest) GetContext() *SolutionContext {
@@ -670,7 +841,7 @@ type PackageResponse struct {
 
 func (x *PackageResponse) Reset() {
 	*x = PackageResponse{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[10]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -682,7 +853,7 @@ func (x *PackageResponse) String() string {
 func (*PackageResponse) ProtoMessage() {}
 
 func (x *PackageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[10]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -695,7 +866,7 @@ func (x *PackageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackageResponse.ProtoReflect.Descriptor instead.
 func (*PackageResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{10}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *PackageResponse) GetReference() string {
@@ -736,7 +907,7 @@ type RenderRequest struct {
 
 func (x *RenderRequest) Reset() {
 	*x = RenderRequest{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[11]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -748,7 +919,7 @@ func (x *RenderRequest) String() string {
 func (*RenderRequest) ProtoMessage() {}
 
 func (x *RenderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[11]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -761,7 +932,7 @@ func (x *RenderRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenderRequest.ProtoReflect.Descriptor instead.
 func (*RenderRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{11}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RenderRequest) GetContext() *SolutionContext {
@@ -805,7 +976,7 @@ type RenderResponse struct {
 
 func (x *RenderResponse) Reset() {
 	*x = RenderResponse{}
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[12]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -817,7 +988,7 @@ func (x *RenderResponse) String() string {
 func (*RenderResponse) ProtoMessage() {}
 
 func (x *RenderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[12]
+	mi := &file_codefly_services_solution_v0_solution_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -830,7 +1001,7 @@ func (x *RenderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenderResponse.ProtoReflect.Descriptor instead.
 func (*RenderResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{12}
+	return file_codefly_services_solution_v0_solution_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RenderResponse) GetRenderedPaths() []string {
@@ -847,11 +1018,33 @@ func (x *RenderResponse) GetDiagnostics() []*v0.FailureDiagnostic {
 	return nil
 }
 
+var file_codefly_services_solution_v0_solution_proto_extTypes = []protoimpl.ExtensionInfo{
+	{
+		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
+		ExtensionType: (*SolutionMethodPolicy)(nil),
+		Field:         51002,
+		Name:          "codefly.services.solution.v0.solution_method_policy",
+		Tag:           "bytes,51002,opt,name=solution_method_policy",
+		Filename:      "codefly/services/solution/v0/solution.proto",
+	},
+}
+
+// Extension fields to descriptorpb.MethodOptions.
+var (
+	// solution_method_policy binds enforceable network and effect policy to an RPC.
+	//
+	// optional codefly.services.solution.v0.SolutionMethodPolicy solution_method_policy = 51002;
+	E_SolutionMethodPolicy = &file_codefly_services_solution_v0_solution_proto_extTypes[0]
+)
+
 var File_codefly_services_solution_v0_solution_proto protoreflect.FileDescriptor
 
 const file_codefly_services_solution_v0_solution_proto_rawDesc = "" +
 	"\n" +
-	"+codefly/services/solution/v0/solution.proto\x12\x1ccodefly.services.solution.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1dcodefly/base/v0/failure.proto\"\xb0\x01\n" +
+	"+codefly/services/solution/v0/solution.proto\x12\x1ccodefly.services.solution.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1dcodefly/base/v0/failure.proto\x1a google/protobuf/descriptor.proto\"\xa9\x01\n" +
+	"\x14SolutionMethodPolicy\x12K\n" +
+	"\anetwork\x18\x01 \x01(\x0e21.codefly.services.solution.v0.SolutionNetworkModeR\anetwork\x12D\n" +
+	"\x06effect\x18\x02 \x01(\x0e2,.codefly.services.solution.v0.SolutionEffectR\x06effect\"\xb0\x01\n" +
 	"\x10SolutionArtifact\x12\x1c\n" +
 	"\tpublisher\x18\x01 \x01(\tR\tpublisher\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -915,13 +1108,23 @@ const file_codefly_services_solution_v0_solution_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x92\x01\n" +
 	"\x0eRenderResponse\x120\n" +
 	"\x0erendered_paths\x18\x01 \x03(\tB\t\xbaH\x06\x92\x01\x03\x10\x90NR\rrenderedPaths\x12N\n" +
-	"\vdiagnostics\x18\x02 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics2\xb7\x04\n" +
-	"\bSolution\x12\x93\x01\n" +
-	"\x16GetSolutionInformation\x12;.codefly.services.solution.v0.GetSolutionInformationRequest\x1a<.codefly.services.solution.v0.GetSolutionInformationResponse\x12c\n" +
-	"\x06Create\x12+.codefly.services.solution.v0.CreateRequest\x1a,.codefly.services.solution.v0.CreateResponse\x12c\n" +
-	"\x06Update\x12+.codefly.services.solution.v0.UpdateRequest\x1a,.codefly.services.solution.v0.UpdateResponse\x12f\n" +
-	"\aPackage\x12,.codefly.services.solution.v0.PackageRequest\x1a-.codefly.services.solution.v0.PackageResponse\x12c\n" +
-	"\x06Render\x12+.codefly.services.solution.v0.RenderRequest\x1a,.codefly.services.solution.v0.RenderResponseB\x8c\x02\n" +
+	"\vdiagnostics\x18\x02 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics*\x89\x01\n" +
+	"\x13SolutionNetworkMode\x12%\n" +
+	"!SOLUTION_NETWORK_MODE_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dSOLUTION_NETWORK_MODE_OFFLINE\x10\x01\x12(\n" +
+	"$SOLUTION_NETWORK_MODE_REGISTRY_WRITE\x10\x02*\x95\x01\n" +
+	"\x0eSolutionEffect\x12\x1f\n" +
+	"\x1bSOLUTION_EFFECT_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19SOLUTION_EFFECT_READ_ONLY\x10\x01\x12\x1f\n" +
+	"\x1bSOLUTION_EFFECT_LOCAL_WRITE\x10\x02\x12\"\n" +
+	"\x1eSOLUTION_EFFECT_REGISTRY_WRITE\x10\x032\xe9\x04\n" +
+	"\bSolution\x12\x9d\x01\n" +
+	"\x16GetSolutionInformation\x12;.codefly.services.solution.v0.GetSolutionInformationRequest\x1a<.codefly.services.solution.v0.GetSolutionInformationResponse\"\b\xd2\xf3\x18\x04\b\x01\x10\x01\x12m\n" +
+	"\x06Create\x12+.codefly.services.solution.v0.CreateRequest\x1a,.codefly.services.solution.v0.CreateResponse\"\b\xd2\xf3\x18\x04\b\x01\x10\x02\x12m\n" +
+	"\x06Update\x12+.codefly.services.solution.v0.UpdateRequest\x1a,.codefly.services.solution.v0.UpdateResponse\"\b\xd2\xf3\x18\x04\b\x01\x10\x02\x12p\n" +
+	"\aPackage\x12,.codefly.services.solution.v0.PackageRequest\x1a-.codefly.services.solution.v0.PackageResponse\"\b\xd2\xf3\x18\x04\b\x02\x10\x03\x12m\n" +
+	"\x06Render\x12+.codefly.services.solution.v0.RenderRequest\x1a,.codefly.services.solution.v0.RenderResponse\"\b\xd2\xf3\x18\x04\b\x01\x10\x02:\x8a\x01\n" +
+	"\x16solution_method_policy\x12\x1e.google.protobuf.MethodOptions\x18\xba\x8e\x03 \x01(\v22.codefly.services.solution.v0.SolutionMethodPolicyR\x14solutionMethodPolicyB\x8c\x02\n" +
 	" com.codefly.services.solution.v0B\rSolutionProtoP\x01ZEgithub.com/codefly-dev/core/generated/go/codefly/services/solution/v0\xa2\x02\x04CSSV\xaa\x02\x1cCodefly.Services.Solution.V0\xca\x02\x1cCodefly\\Services\\Solution\\V0\xe2\x02(Codefly\\Services\\Solution\\V0\\GPBMetadata\xea\x02\x1fCodefly::Services::Solution::V0b\x06proto3"
 
 var (
@@ -936,58 +1139,67 @@ func file_codefly_services_solution_v0_solution_proto_rawDescGZIP() []byte {
 	return file_codefly_services_solution_v0_solution_proto_rawDescData
 }
 
-var file_codefly_services_solution_v0_solution_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_codefly_services_solution_v0_solution_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_codefly_services_solution_v0_solution_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_codefly_services_solution_v0_solution_proto_goTypes = []any{
-	(*SolutionArtifact)(nil),               // 0: codefly.services.solution.v0.SolutionArtifact
-	(*SolutionContext)(nil),                // 1: codefly.services.solution.v0.SolutionContext
-	(*SolutionCapabilities)(nil),           // 2: codefly.services.solution.v0.SolutionCapabilities
-	(*GetSolutionInformationRequest)(nil),  // 3: codefly.services.solution.v0.GetSolutionInformationRequest
-	(*GetSolutionInformationResponse)(nil), // 4: codefly.services.solution.v0.GetSolutionInformationResponse
-	(*CreateRequest)(nil),                  // 5: codefly.services.solution.v0.CreateRequest
-	(*CreateResponse)(nil),                 // 6: codefly.services.solution.v0.CreateResponse
-	(*UpdateRequest)(nil),                  // 7: codefly.services.solution.v0.UpdateRequest
-	(*UpdateResponse)(nil),                 // 8: codefly.services.solution.v0.UpdateResponse
-	(*PackageRequest)(nil),                 // 9: codefly.services.solution.v0.PackageRequest
-	(*PackageResponse)(nil),                // 10: codefly.services.solution.v0.PackageResponse
-	(*RenderRequest)(nil),                  // 11: codefly.services.solution.v0.RenderRequest
-	(*RenderResponse)(nil),                 // 12: codefly.services.solution.v0.RenderResponse
-	nil,                                    // 13: codefly.services.solution.v0.CreateRequest.ParametersEntry
-	nil,                                    // 14: codefly.services.solution.v0.UpdateRequest.ParametersEntry
-	nil,                                    // 15: codefly.services.solution.v0.RenderRequest.ValuesEntry
-	(*v0.FailureDiagnostic)(nil),           // 16: codefly.base.v0.FailureDiagnostic
+	(SolutionNetworkMode)(0),               // 0: codefly.services.solution.v0.SolutionNetworkMode
+	(SolutionEffect)(0),                    // 1: codefly.services.solution.v0.SolutionEffect
+	(*SolutionMethodPolicy)(nil),           // 2: codefly.services.solution.v0.SolutionMethodPolicy
+	(*SolutionArtifact)(nil),               // 3: codefly.services.solution.v0.SolutionArtifact
+	(*SolutionContext)(nil),                // 4: codefly.services.solution.v0.SolutionContext
+	(*SolutionCapabilities)(nil),           // 5: codefly.services.solution.v0.SolutionCapabilities
+	(*GetSolutionInformationRequest)(nil),  // 6: codefly.services.solution.v0.GetSolutionInformationRequest
+	(*GetSolutionInformationResponse)(nil), // 7: codefly.services.solution.v0.GetSolutionInformationResponse
+	(*CreateRequest)(nil),                  // 8: codefly.services.solution.v0.CreateRequest
+	(*CreateResponse)(nil),                 // 9: codefly.services.solution.v0.CreateResponse
+	(*UpdateRequest)(nil),                  // 10: codefly.services.solution.v0.UpdateRequest
+	(*UpdateResponse)(nil),                 // 11: codefly.services.solution.v0.UpdateResponse
+	(*PackageRequest)(nil),                 // 12: codefly.services.solution.v0.PackageRequest
+	(*PackageResponse)(nil),                // 13: codefly.services.solution.v0.PackageResponse
+	(*RenderRequest)(nil),                  // 14: codefly.services.solution.v0.RenderRequest
+	(*RenderResponse)(nil),                 // 15: codefly.services.solution.v0.RenderResponse
+	nil,                                    // 16: codefly.services.solution.v0.CreateRequest.ParametersEntry
+	nil,                                    // 17: codefly.services.solution.v0.UpdateRequest.ParametersEntry
+	nil,                                    // 18: codefly.services.solution.v0.RenderRequest.ValuesEntry
+	(*v0.FailureDiagnostic)(nil),           // 19: codefly.base.v0.FailureDiagnostic
+	(*descriptorpb.MethodOptions)(nil),     // 20: google.protobuf.MethodOptions
 }
 var file_codefly_services_solution_v0_solution_proto_depIdxs = []int32{
-	0,  // 0: codefly.services.solution.v0.SolutionContext.artifact:type_name -> codefly.services.solution.v0.SolutionArtifact
-	0,  // 1: codefly.services.solution.v0.GetSolutionInformationRequest.artifact:type_name -> codefly.services.solution.v0.SolutionArtifact
-	0,  // 2: codefly.services.solution.v0.GetSolutionInformationResponse.artifact:type_name -> codefly.services.solution.v0.SolutionArtifact
-	2,  // 3: codefly.services.solution.v0.GetSolutionInformationResponse.capabilities:type_name -> codefly.services.solution.v0.SolutionCapabilities
-	16, // 4: codefly.services.solution.v0.GetSolutionInformationResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
-	1,  // 5: codefly.services.solution.v0.CreateRequest.context:type_name -> codefly.services.solution.v0.SolutionContext
-	13, // 6: codefly.services.solution.v0.CreateRequest.parameters:type_name -> codefly.services.solution.v0.CreateRequest.ParametersEntry
-	16, // 7: codefly.services.solution.v0.CreateResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
-	1,  // 8: codefly.services.solution.v0.UpdateRequest.context:type_name -> codefly.services.solution.v0.SolutionContext
-	14, // 9: codefly.services.solution.v0.UpdateRequest.parameters:type_name -> codefly.services.solution.v0.UpdateRequest.ParametersEntry
-	16, // 10: codefly.services.solution.v0.UpdateResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
-	1,  // 11: codefly.services.solution.v0.PackageRequest.context:type_name -> codefly.services.solution.v0.SolutionContext
-	16, // 12: codefly.services.solution.v0.PackageResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
-	1,  // 13: codefly.services.solution.v0.RenderRequest.context:type_name -> codefly.services.solution.v0.SolutionContext
-	15, // 14: codefly.services.solution.v0.RenderRequest.values:type_name -> codefly.services.solution.v0.RenderRequest.ValuesEntry
-	16, // 15: codefly.services.solution.v0.RenderResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
-	3,  // 16: codefly.services.solution.v0.Solution.GetSolutionInformation:input_type -> codefly.services.solution.v0.GetSolutionInformationRequest
-	5,  // 17: codefly.services.solution.v0.Solution.Create:input_type -> codefly.services.solution.v0.CreateRequest
-	7,  // 18: codefly.services.solution.v0.Solution.Update:input_type -> codefly.services.solution.v0.UpdateRequest
-	9,  // 19: codefly.services.solution.v0.Solution.Package:input_type -> codefly.services.solution.v0.PackageRequest
-	11, // 20: codefly.services.solution.v0.Solution.Render:input_type -> codefly.services.solution.v0.RenderRequest
-	4,  // 21: codefly.services.solution.v0.Solution.GetSolutionInformation:output_type -> codefly.services.solution.v0.GetSolutionInformationResponse
-	6,  // 22: codefly.services.solution.v0.Solution.Create:output_type -> codefly.services.solution.v0.CreateResponse
-	8,  // 23: codefly.services.solution.v0.Solution.Update:output_type -> codefly.services.solution.v0.UpdateResponse
-	10, // 24: codefly.services.solution.v0.Solution.Package:output_type -> codefly.services.solution.v0.PackageResponse
-	12, // 25: codefly.services.solution.v0.Solution.Render:output_type -> codefly.services.solution.v0.RenderResponse
-	21, // [21:26] is the sub-list for method output_type
-	16, // [16:21] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	0,  // 0: codefly.services.solution.v0.SolutionMethodPolicy.network:type_name -> codefly.services.solution.v0.SolutionNetworkMode
+	1,  // 1: codefly.services.solution.v0.SolutionMethodPolicy.effect:type_name -> codefly.services.solution.v0.SolutionEffect
+	3,  // 2: codefly.services.solution.v0.SolutionContext.artifact:type_name -> codefly.services.solution.v0.SolutionArtifact
+	3,  // 3: codefly.services.solution.v0.GetSolutionInformationRequest.artifact:type_name -> codefly.services.solution.v0.SolutionArtifact
+	3,  // 4: codefly.services.solution.v0.GetSolutionInformationResponse.artifact:type_name -> codefly.services.solution.v0.SolutionArtifact
+	5,  // 5: codefly.services.solution.v0.GetSolutionInformationResponse.capabilities:type_name -> codefly.services.solution.v0.SolutionCapabilities
+	19, // 6: codefly.services.solution.v0.GetSolutionInformationResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	4,  // 7: codefly.services.solution.v0.CreateRequest.context:type_name -> codefly.services.solution.v0.SolutionContext
+	16, // 8: codefly.services.solution.v0.CreateRequest.parameters:type_name -> codefly.services.solution.v0.CreateRequest.ParametersEntry
+	19, // 9: codefly.services.solution.v0.CreateResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	4,  // 10: codefly.services.solution.v0.UpdateRequest.context:type_name -> codefly.services.solution.v0.SolutionContext
+	17, // 11: codefly.services.solution.v0.UpdateRequest.parameters:type_name -> codefly.services.solution.v0.UpdateRequest.ParametersEntry
+	19, // 12: codefly.services.solution.v0.UpdateResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	4,  // 13: codefly.services.solution.v0.PackageRequest.context:type_name -> codefly.services.solution.v0.SolutionContext
+	19, // 14: codefly.services.solution.v0.PackageResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	4,  // 15: codefly.services.solution.v0.RenderRequest.context:type_name -> codefly.services.solution.v0.SolutionContext
+	18, // 16: codefly.services.solution.v0.RenderRequest.values:type_name -> codefly.services.solution.v0.RenderRequest.ValuesEntry
+	19, // 17: codefly.services.solution.v0.RenderResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	20, // 18: codefly.services.solution.v0.solution_method_policy:extendee -> google.protobuf.MethodOptions
+	2,  // 19: codefly.services.solution.v0.solution_method_policy:type_name -> codefly.services.solution.v0.SolutionMethodPolicy
+	6,  // 20: codefly.services.solution.v0.Solution.GetSolutionInformation:input_type -> codefly.services.solution.v0.GetSolutionInformationRequest
+	8,  // 21: codefly.services.solution.v0.Solution.Create:input_type -> codefly.services.solution.v0.CreateRequest
+	10, // 22: codefly.services.solution.v0.Solution.Update:input_type -> codefly.services.solution.v0.UpdateRequest
+	12, // 23: codefly.services.solution.v0.Solution.Package:input_type -> codefly.services.solution.v0.PackageRequest
+	14, // 24: codefly.services.solution.v0.Solution.Render:input_type -> codefly.services.solution.v0.RenderRequest
+	7,  // 25: codefly.services.solution.v0.Solution.GetSolutionInformation:output_type -> codefly.services.solution.v0.GetSolutionInformationResponse
+	9,  // 26: codefly.services.solution.v0.Solution.Create:output_type -> codefly.services.solution.v0.CreateResponse
+	11, // 27: codefly.services.solution.v0.Solution.Update:output_type -> codefly.services.solution.v0.UpdateResponse
+	13, // 28: codefly.services.solution.v0.Solution.Package:output_type -> codefly.services.solution.v0.PackageResponse
+	15, // 29: codefly.services.solution.v0.Solution.Render:output_type -> codefly.services.solution.v0.RenderResponse
+	25, // [25:30] is the sub-list for method output_type
+	20, // [20:25] is the sub-list for method input_type
+	19, // [19:20] is the sub-list for extension type_name
+	18, // [18:19] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_solution_v0_solution_proto_init() }
@@ -1000,14 +1212,16 @@ func file_codefly_services_solution_v0_solution_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_solution_v0_solution_proto_rawDesc), len(file_codefly_services_solution_v0_solution_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   16,
-			NumExtensions: 0,
+			NumEnums:      2,
+			NumMessages:   17,
+			NumExtensions: 1,
 			NumServices:   1,
 		},
 		GoTypes:           file_codefly_services_solution_v0_solution_proto_goTypes,
 		DependencyIndexes: file_codefly_services_solution_v0_solution_proto_depIdxs,
+		EnumInfos:         file_codefly_services_solution_v0_solution_proto_enumTypes,
 		MessageInfos:      file_codefly_services_solution_v0_solution_proto_msgTypes,
+		ExtensionInfos:    file_codefly_services_solution_v0_solution_proto_extTypes,
 	}.Build()
 	File_codefly_services_solution_v0_solution_proto = out.File
 	file_codefly_services_solution_v0_solution_proto_goTypes = nil
