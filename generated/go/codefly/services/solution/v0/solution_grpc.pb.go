@@ -36,27 +36,23 @@ const (
 // manifests into a gitops repository. The solution spec it operates on stays
 // codefly-agnostic; only the executor is a codefly plugin.
 //
-// The per-RPC effect notes below describe each method's maximum side effect.
-// They are documentation only in this version: unlike provider.proto's
-// host-enforced provider_method_policy, nothing yet enforces these ceilings.
-// A host-enforceable method policy is tracked in codefly-dev/core#289, and the
-// agents.Serve() wiring that lets a plugin expose this contract is tracked in
-// codefly-dev/core#290.
+// Every RPC binds a solution_method_policy declaring its maximum network reach
+// and state effect. The host reads the policy from these descriptors and
+// refuses to invoke any method whose declared ceiling exceeds the ceiling
+// admitted for the current operation. The agents.Serve() wiring that lets a
+// plugin expose this contract is tracked in codefly-dev/core#290.
 type SolutionClient interface {
 	// GetSolutionInformation returns the concrete artifact identity and the
-	// lifecycle operations this executor implements. Effect: read-only, no writes.
+	// lifecycle operations this executor implements.
 	GetSolutionInformation(ctx context.Context, in *GetSolutionInformationRequest, opts ...grpc.CallOption) (*GetSolutionInformationResponse, error)
 	// Create scaffolds a new solution into a destination directory.
-	// Effect: writes files under the destination directory.
 	Create(ctx context.Context, in *CreateRequest, opts ...grpc.CallOption) (*CreateResponse, error)
 	// Update reconciles an existing solution source with the executor's template.
-	// Effect: mutates files under the source directory.
 	Update(ctx context.Context, in *UpdateRequest, opts ...grpc.CallOption) (*UpdateResponse, error)
-	// Package builds an OCI artifact from a solution source directory.
-	// Effect: reads the source directory and pushes an OCI artifact (network write).
+	// Package builds an OCI artifact from a solution source directory and pushes it.
 	Package(ctx context.Context, in *PackageRequest, opts ...grpc.CallOption) (*PackageResponse, error)
-	// Render renders a packaged solution's manifests into a gitops destination.
-	// Effect: writes manifests into the gitops destination (filesystem/git mutation).
+	// Render pulls the packaged solution from artifact_reference and writes its
+	// manifests into a gitops destination.
 	Render(ctx context.Context, in *RenderRequest, opts ...grpc.CallOption) (*RenderResponse, error)
 }
 
@@ -127,27 +123,23 @@ func (c *solutionClient) Render(ctx context.Context, in *RenderRequest, opts ...
 // manifests into a gitops repository. The solution spec it operates on stays
 // codefly-agnostic; only the executor is a codefly plugin.
 //
-// The per-RPC effect notes below describe each method's maximum side effect.
-// They are documentation only in this version: unlike provider.proto's
-// host-enforced provider_method_policy, nothing yet enforces these ceilings.
-// A host-enforceable method policy is tracked in codefly-dev/core#289, and the
-// agents.Serve() wiring that lets a plugin expose this contract is tracked in
-// codefly-dev/core#290.
+// Every RPC binds a solution_method_policy declaring its maximum network reach
+// and state effect. The host reads the policy from these descriptors and
+// refuses to invoke any method whose declared ceiling exceeds the ceiling
+// admitted for the current operation. The agents.Serve() wiring that lets a
+// plugin expose this contract is tracked in codefly-dev/core#290.
 type SolutionServer interface {
 	// GetSolutionInformation returns the concrete artifact identity and the
-	// lifecycle operations this executor implements. Effect: read-only, no writes.
+	// lifecycle operations this executor implements.
 	GetSolutionInformation(context.Context, *GetSolutionInformationRequest) (*GetSolutionInformationResponse, error)
 	// Create scaffolds a new solution into a destination directory.
-	// Effect: writes files under the destination directory.
 	Create(context.Context, *CreateRequest) (*CreateResponse, error)
 	// Update reconciles an existing solution source with the executor's template.
-	// Effect: mutates files under the source directory.
 	Update(context.Context, *UpdateRequest) (*UpdateResponse, error)
-	// Package builds an OCI artifact from a solution source directory.
-	// Effect: reads the source directory and pushes an OCI artifact (network write).
+	// Package builds an OCI artifact from a solution source directory and pushes it.
 	Package(context.Context, *PackageRequest) (*PackageResponse, error)
-	// Render renders a packaged solution's manifests into a gitops destination.
-	// Effect: writes manifests into the gitops destination (filesystem/git mutation).
+	// Render pulls the packaged solution from artifact_reference and writes its
+	// manifests into a gitops destination.
 	Render(context.Context, *RenderRequest) (*RenderResponse, error)
 	mustEmbedUnimplementedSolutionServer()
 }
