@@ -18,6 +18,7 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 	require.Equal(t, int32(4), int32(basev0.Agent_MODULE))
 	require.Equal(t, int32(5), int32(basev0.Agent_TOOLBOX))
 	require.Equal(t, int32(6), int32(basev0.Agent_PROVIDER))
+	require.Equal(t, int32(7), int32(basev0.Agent_SOLUTION))
 	expected := map[basev0.Agent_Kind]struct {
 		resource   string
 		subdir     string
@@ -60,6 +61,13 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 		},
 		basev0.Agent_PROVIDER: {
 			"codefly:provider", "providers", "provider",
+			resources.AgentResolutionSupport{
+				Local: resources.AgentResolutionVerifiedArtifact, Nix: resources.AgentResolutionVerifiedArtifact,
+			},
+			resources.AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
+		},
+		basev0.Agent_SOLUTION: {
+			"codefly:solution", "solutions", "solution",
 			resources.AgentResolutionSupport{
 				Local: resources.AgentResolutionVerifiedArtifact, Nix: resources.AgentResolutionVerifiedArtifact,
 			},
@@ -131,6 +139,7 @@ func TestAgentPathsUseRegisteredKindSubdirectories(t *testing.T) {
 		{resources.ModuleAgent, "modules"},
 		{resources.ToolboxAgent, "toolboxes"},
 		{resources.ProviderAgent, "providers"},
+		{resources.SolutionAgent, "solutions"},
 	} {
 		agent := &resources.Agent{Kind: tc.kind, Publisher: "codefly.dev", Name: "same", Version: "1.0.0"}
 		got, err := agent.Path(ctx)

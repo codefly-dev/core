@@ -1,0 +1,152 @@
+syntax = "proto3";
+
+package codefly.services.solution.v0;
+
+import "buf/validate/validate.proto";
+import "codefly/base/v0/failure.proto";
+
+// Solution is the host-to-solution executor protocol. A solution agent
+// scaffolds a solution, packages it as an OCI artifact, and renders its
+// manifests into a gitops repository. The solution spec it operates on stays
+// codefly-agnostic; only the executor is a codefly plugin.
+service Solution {
+  // GetSolutionInformation returns the concrete artifact identity and the
+  // lifecycle operations this executor implements.
+  rpc GetSolutionInformation(GetSolutionInformationRequest) returns (GetSolutionInformationResponse);
+  // Create scaffolds a new solution into a destination directory.
+  rpc Create(CreateRequest) returns (CreateResponse);
+  // Update reconciles an existing solution source with the executor's template.
+  rpc Update(UpdateRequest) returns (UpdateResponse);
+  // Package builds an OCI artifact from a solution source directory.
+  rpc Package(PackageRequest) returns (PackageResponse);
+  // Render renders a packaged solution's manifests into a gitops destination.
+  rpc Render(RenderRequest) returns (RenderResponse);
+}
+
+// SolutionArtifact binds one concrete solution executor binary to its package.
+message SolutionArtifact {
+  // publisher is the agent publisher namespace.
+  string publisher = 1;
+  // name is the solution agent name.
+  string name = 2;
+  // version is the concrete agent version.
+  string version = 3;
+  // artifact_digest is the verified package digest.
+  string artifact_digest = 4;
+  // manifest_digest is the packaged solution manifest digest.
+  string manifest_digest = 5;
+}
+
+// SolutionContext carries the environment-scoped identity for one invocation.
+message SolutionContext {
+  // workspace is the stable workspace identity.
+  string workspace = 1;
+  // environment is the stable environment identity.
+  string environment = 2;
+  // artifact is the concrete verified executor package.
+  SolutionArtifact artifact = 3;
+}
+
+// SolutionCapabilities advertises which lifecycle operations are implemented.
+message SolutionCapabilities {
+  // supports_create declares Create support.
+  bool supports_create = 1;
+  // supports_update declares Update support.
+  bool supports_update = 2;
+  // supports_package declares Package support.
+  bool supports_package = 3;
+  // supports_render declares Render support.
+  bool supports_render = 4;
+}
+
+// GetSolutionInformationRequest identifies the binary asking to advertise.
+message GetSolutionInformationRequest {
+  // artifact is the verified executor package identity.
+  SolutionArtifact artifact = 1;
+}
+
+// GetSolutionInformationResponse returns immutable executor advertisement.
+message GetSolutionInformationResponse {
+  // artifact must exactly match the request identity.
+  SolutionArtifact artifact = 1;
+  // capabilities are the implemented lifecycle operations.
+  SolutionCapabilities capabilities = 2;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 3 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// CreateRequest asks the executor to scaffold a new solution.
+message CreateRequest {
+  // context carries the environment-scoped invocation identity.
+  SolutionContext context = 1;
+  // destination is the directory the solution is scaffolded into.
+  string destination = 2;
+  // parameters are executor-defined scaffold inputs.
+  map<string, string> parameters = 3;
+}
+
+// CreateResponse reports the scaffolded solution.
+message CreateResponse {
+  // created_paths are the paths written relative to the destination.
+  repeated string created_paths = 1;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 2 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// UpdateRequest asks the executor to reconcile an existing solution source.
+message UpdateRequest {
+  // context carries the environment-scoped invocation identity.
+  SolutionContext context = 1;
+  // source is the existing solution directory to update.
+  string source = 2;
+  // parameters are executor-defined update inputs.
+  map<string, string> parameters = 3;
+}
+
+// UpdateResponse reports the updated solution.
+message UpdateResponse {
+  // updated_paths are the paths changed relative to the source.
+  repeated string updated_paths = 1;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 2 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// PackageRequest asks the executor to package a solution as an OCI artifact.
+message PackageRequest {
+  // context carries the environment-scoped invocation identity.
+  SolutionContext context = 1;
+  // source is the solution directory to package.
+  string source = 2;
+  // reference is the target OCI reference.
+  string reference = 3;
+}
+
+// PackageResponse reports the packaged OCI artifact.
+message PackageResponse {
+  // reference is the pushed OCI reference.
+  string reference = 1;
+  // artifact_digest is the digest of the packaged artifact.
+  string artifact_digest = 2;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 3 [(buf.validate.field).repeated.max_items = 100];
+}
+
+// RenderRequest asks the executor to render manifests into a gitops destination.
+message RenderRequest {
+  // context carries the environment-scoped invocation identity.
+  SolutionContext context = 1;
+  // artifact_reference is the packaged OCI reference to render from.
+  string artifact_reference = 2;
+  // destination is the gitops repository path manifests are rendered into.
+  string destination = 3;
+  // values are executor-defined render inputs.
+  map<string, string> values = 4;
+}
+
+// RenderResponse reports the rendered manifests.
+message RenderResponse {
+  // rendered_paths are the manifest paths written relative to the destination.
+  repeated string rendered_paths = 1;
+  // diagnostics are bounded neutral diagnostics.
+  repeated codefly.base.v0.FailureDiagnostic diagnostics = 2 [(buf.validate.field).repeated.max_items = 100];
+}

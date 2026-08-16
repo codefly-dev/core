@@ -26,6 +26,7 @@ const (
 	ModuleAgent      AgentKind = "codefly:module"
 	ToolboxAgent     AgentKind = "codefly:toolbox"
 	ProviderAgent    AgentKind = "codefly:provider"
+	SolutionAgent    AgentKind = "codefly:solution"
 )
 
 type AgentStore string
@@ -185,6 +186,19 @@ var agentKindRegistry = []AgentKindRegistration{
 		ExecutablePrefix:       "provider",
 		GitHubRepositoryPrefix: "provider",
 		GitHubAssetPrefix:      "provider",
+		Resolution: AgentResolutionSupport{
+			Local: AgentResolutionVerifiedArtifact,
+			Nix:   AgentResolutionVerifiedArtifact,
+		},
+		Operations: AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
+	},
+	{
+		ProtoKind:              basev0.Agent_SOLUTION,
+		Resource:               SolutionAgent,
+		InstallSubdirectory:    "solutions",
+		ExecutablePrefix:       "solution",
+		GitHubRepositoryPrefix: "solution",
+		GitHubAssetPrefix:      "solution",
 		Resolution: AgentResolutionSupport{
 			Local: AgentResolutionVerifiedArtifact,
 			Nix:   AgentResolutionVerifiedArtifact,
@@ -415,6 +429,11 @@ func (p *Agent) IsToolbox() bool {
 func (p *Agent) IsProvider() bool {
 	registration, err := AgentKindRegistrationFor(p.Kind)
 	return err == nil && registration.Resource == ProviderAgent
+}
+
+func (p *Agent) IsSolution() bool {
+	registration, err := AgentKindRegistrationFor(p.Kind)
+	return err == nil && registration.Resource == SolutionAgent
 }
 
 func isRunningInDocker() bool {
