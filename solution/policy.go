@@ -37,6 +37,24 @@ type Ceiling struct {
 	Effect  solutionv0.SolutionEffect
 }
 
+type ceilingContextKey struct{}
+
+// WithCeiling stamps the ceiling admitted for the current operation onto a
+// context. The host sets it per call because one solution-agent connection is
+// long-lived and reused across operations (see agents/manager.loader:
+// AgentConn.GRPCConn), so the ceiling belongs to the call, not the dial. A
+// Solution RPC issued without a ceiling in its context is refused by
+// EnforcingClientInterceptor.
+func WithCeiling(ctx context.Context, ceiling Ceiling) context.Context {
+	return context.WithValue(ctx, ceilingContextKey{}, ceiling)
+}
+
+// CeilingFrom returns the ceiling stamped on the context, if any.
+func CeilingFrom(ctx context.Context) (Ceiling, bool) {
+	ceiling, ok := ctx.Value(ceilingContextKey{}).(Ceiling)
+	return ceiling, ok
+}
+
 // PolicyFor returns the declared method policy for a full gRPC method name
 // (e.g. "/codefly.services.solution.v0.Solution/Package"). The second result
 // reports whether the method belongs to the Solution service; a Solution method
@@ -82,22 +100,27 @@ func Admits(policy *solutionv0.SolutionMethodPolicy, ceiling Ceiling) error {
 	return nil
 }
 
-// EnforcingClientInterceptor returns the host-side dispatch gate: a unary client
-// interceptor a host installs on the connection it uses to call a solution
-// executor (the agents.Serve wiring that stands up that executor is tracked in
-// codefly-dev/core#290). It reads each outgoing Solution RPC's declared policy
-// and refuses to dispatch a call whose declared ceiling exceeds the admitted
-// ceiling. Calls to services other than Solution pass through untouched.
+// EnforcingClientInterceptor is the host-side dispatch gate: a unary client
+// interceptor installed on every agent connection (agents/manager.loader). For
+// each outgoing Solution RPC it reads the declared policy and the ceiling
+// stamped on the call context (see WithCeiling) and refuses to dispatch a call
+// whose declared ceiling exceeds the admitted ceiling, or that carries no
+// ceiling at all. Calls to services other than Solution pass through untouched,
+// so installing it universally does not affect non-solution agents.
 //
 // It covers unary RPCs only, which is complete because the Solution contract is
 // unary-only — an invariant TestSolutionContractIsUnaryOnly guards. A streaming
 // Solution RPC must not be added without a matching stream gate, or it would
 // dispatch unchecked.
-func EnforcingClientInterceptor(ceiling Ceiling) grpc.UnaryClientInterceptor {
+func EnforcingClientInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		policy, isSolution := PolicyFor(method)
 		if !isSolution {
 			return invoker(ctx, method, req, reply, cc, opts...)
+		}
+		ceiling, ok := CeilingFrom(ctx)
+		if !ok {
+			return status.Errorf(codes.PermissionDenied, "solution method %s denied: no operation ceiling on context", method)
 		}
 		if err := Admits(policy, ceiling); err != nil {
 			return status.Errorf(codes.PermissionDenied, "solution method %s denied: %v", method, err)
