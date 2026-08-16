@@ -32,19 +32,55 @@ const solutionServiceName protoreflect.FullName = "codefly.services.solution.v0.
 // Ceiling is the maximum network reach and state effect a host admits for one
 // operation. A method is admitted only when both of its declared policy fields
 // are at or below the ceiling.
+//
+// The fields are unexported and a ceiling is obtained only through the named
+// operation constructors below. That gives the ceiling a provenance: a caller
+// declares the operation it is performing (inspect/scaffold/publish) rather than
+// hand-assembling bounds, so it cannot silently widen its own privilege with a
+// struct literal, and the interceptor can never receive an incoherent ceiling
+// (e.g. registry network with only read-only effect). The intent→ceiling mapping
+// lives here as the single audited chokepoint.
 type Ceiling struct {
-	Network solutionv0.SolutionNetworkMode
-	Effect  solutionv0.SolutionEffect
+	network solutionv0.SolutionNetworkMode
+	effect  solutionv0.SolutionEffect
+}
+
+// CeilingInspect admits only offline, read-only RPCs — GetSolutionInformation.
+// It is the ceiling for an operation that reads a solution executor's
+// advertisement without invoking any lifecycle mutation.
+func CeilingInspect() Ceiling {
+	return Ceiling{
+		network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE,
+		effect:  solutionv0.SolutionEffect_SOLUTION_EFFECT_READ_ONLY,
+	}
+}
+
+// CeilingScaffold admits offline local-filesystem RPCs — Create, Update, and
+// Render — but not Package's registry push.
+func CeilingScaffold() Ceiling {
+	return Ceiling{
+		network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE,
+		effect:  solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE,
+	}
+}
+
+// CeilingPublish admits every Solution RPC, including Package's registry push.
+func CeilingPublish() Ceiling {
+	return Ceiling{
+		network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE,
+		effect:  solutionv0.SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE,
+	}
 }
 
 type ceilingContextKey struct{}
 
 // WithCeiling stamps the ceiling admitted for the current operation onto a
-// context. The host sets it per call because one solution-agent connection is
-// long-lived and reused across operations (see agents/manager.loader:
-// AgentConn.GRPCConn), so the ceiling belongs to the call, not the dial. A
-// Solution RPC issued without a ceiling in its context is refused by
-// EnforcingClientInterceptor.
+// context. Pass a ceiling from one of the operation constructors
+// (CeilingInspect/CeilingScaffold/CeilingPublish). The host sets it per call
+// because one solution-agent connection is long-lived and reused across
+// operations (see agents/manager.loader: AgentConn.GRPCConn), so the ceiling
+// belongs to the call, not the dial. A Solution RPC issued without a ceiling in
+// its context is refused by EnforcingClientInterceptor.
 func WithCeiling(ctx context.Context, ceiling Ceiling) context.Context {
 	return context.WithValue(ctx, ceilingContextKey{}, ceiling)
 }
@@ -85,17 +121,17 @@ func Admits(policy *solutionv0.SolutionMethodPolicy, ceiling Ceiling) error {
 	if effect == solutionv0.SolutionEffect_SOLUTION_EFFECT_UNSPECIFIED {
 		return fmt.Errorf("effect is unspecified")
 	}
-	if ceiling.Network == solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_UNSPECIFIED {
+	if ceiling.network == solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_UNSPECIFIED {
 		return fmt.Errorf("ceiling network mode is unspecified")
 	}
-	if ceiling.Effect == solutionv0.SolutionEffect_SOLUTION_EFFECT_UNSPECIFIED {
+	if ceiling.effect == solutionv0.SolutionEffect_SOLUTION_EFFECT_UNSPECIFIED {
 		return fmt.Errorf("ceiling effect is unspecified")
 	}
-	if network > ceiling.Network {
-		return fmt.Errorf("network mode %s exceeds ceiling %s", network, ceiling.Network)
+	if network > ceiling.network {
+		return fmt.Errorf("network mode %s exceeds ceiling %s", network, ceiling.network)
 	}
-	if effect > ceiling.Effect {
-		return fmt.Errorf("effect %s exceeds ceiling %s", effect, ceiling.Effect)
+	if effect > ceiling.effect {
+		return fmt.Errorf("effect %s exceeds ceiling %s", effect, ceiling.effect)
 	}
 	return nil
 }
@@ -120,7 +156,10 @@ func EnforcingClientInterceptor() grpc.UnaryClientInterceptor {
 		}
 		ceiling, ok := CeilingFrom(ctx)
 		if !ok {
-			return status.Errorf(codes.PermissionDenied, "solution method %s denied: no operation ceiling on context", method)
+			return status.Errorf(codes.PermissionDenied,
+				"solution method %s denied: caller stamped no operation ceiling on the context; "+
+					"the host must declare one with solution.WithCeiling (e.g. CeilingInspect) before dispatch",
+				method)
 		}
 		if err := Admits(policy, ceiling); err != nil {
 			return status.Errorf(codes.PermissionDenied, "solution method %s denied: %v", method, err)
