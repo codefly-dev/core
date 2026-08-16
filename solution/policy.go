@@ -85,8 +85,11 @@ func WithCeiling(ctx context.Context, ceiling Ceiling) context.Context {
 	return context.WithValue(ctx, ceilingContextKey{}, ceiling)
 }
 
-// CeilingFrom returns the ceiling stamped on the context, if any.
-func CeilingFrom(ctx context.Context) (Ceiling, bool) {
+// ceilingFrom returns the ceiling stamped on the context, if any. It is
+// unexported because only the interceptor consumes a ceiling; a caller cannot
+// read a Ceiling's bounds (its fields are unexported), so there is nothing for
+// external code to do with the value.
+func ceilingFrom(ctx context.Context) (Ceiling, bool) {
 	ceiling, ok := ctx.Value(ceilingContextKey{}).(Ceiling)
 	return ceiling, ok
 }
@@ -154,7 +157,7 @@ func EnforcingClientInterceptor() grpc.UnaryClientInterceptor {
 		if !isSolution {
 			return invoker(ctx, method, req, reply, cc, opts...)
 		}
-		ceiling, ok := CeilingFrom(ctx)
+		ceiling, ok := ceilingFrom(ctx)
 		if !ok {
 			return status.Errorf(codes.PermissionDenied,
 				"solution method %s denied: caller stamped no operation ceiling on the context; "+
