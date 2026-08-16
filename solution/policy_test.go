@@ -97,7 +97,13 @@ func (s *recordingSolutionServer) Package(context.Context, *solutionv0.PackageRe
 	return &solutionv0.PackageResponse{}, nil
 }
 
-func TestEnforcingClientInterceptorDeniesOverCeilingBeforeTheWire(t *testing.T) {
+// TestEnforcingClientInterceptorDefaultsToLeastPrivilege pins the fail-closed
+// behavior seen by a caller holding the raw generated client — the path that can
+// no longer stamp a ceiling now that Client is the single canonical entry point.
+// Such a call is gated at the least-privilege CeilingInspect, so only the
+// read-only advertisement succeeds and every mutating RPC is denied before the
+// wire with a message that names the remedy.
+func TestEnforcingClientInterceptorDefaultsToLeastPrivilege(t *testing.T) {
 	server := &recordingSolutionServer{handled: map[string]int{}}
 	listener := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
@@ -116,31 +122,20 @@ func TestEnforcingClientInterceptorDeniesOverCeilingBeforeTheWire(t *testing.T) 
 
 	client := solutionv0.NewSolutionClient(conn)
 
-	ctx := solution.WithCeiling(context.Background(), solution.CeilingScaffold())
-
-	// Create is at the ceiling — admitted and reaches the server.
-	_, err = client.Create(ctx, &solutionv0.CreateRequest{})
-	require.NoError(t, err)
-	require.Equal(t, 1, server.handled["Create"])
-
-	// Package exceeds the ceiling — denied before crossing the wire.
-	_, err = client.Package(ctx, &solutionv0.PackageRequest{})
-	require.Equal(t, codes.PermissionDenied, status.Code(err))
-	require.Equal(t, 0, server.handled["Package"])
-
 	// No ceiling on the context defaults to least privilege: the read-only
 	// advertisement call is admitted and reaches the server...
 	_, err = client.GetSolutionInformation(context.Background(), &solutionv0.GetSolutionInformationRequest{})
 	require.NoError(t, err)
 	require.Equal(t, 1, server.handled["GetSolutionInformation"])
 
-	// ...but a mutating RPC without a ceiling is still denied before the wire,
-	// and the denial names the remedy so it is not mistaken for an auth failure:
-	// the missing ceiling, not the token, is what the caller must fix.
+	// ...but a mutating RPC without a ceiling is denied before the wire, and the
+	// denial names the remedy so it is not mistaken for an auth failure: the
+	// missing ceiling — declared by routing through solution.Client — not the
+	// token, is what the caller must fix.
 	_, err = client.Create(context.Background(), &solutionv0.CreateRequest{})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
-	require.Equal(t, 1, server.handled["Create"])
-	require.Contains(t, status.Convert(err).Message(), "solution.WithCeiling")
+	require.Equal(t, 0, server.handled["Create"])
+	require.Contains(t, status.Convert(err).Message(), "solution.Client")
 }
 
 // TestClientRequiresCeilingPerCall proves the typed Client makes the ceiling a
