@@ -20,6 +20,7 @@ import (
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 	"github.com/codefly-dev/core/grpcconfig"
@@ -84,6 +85,7 @@ type PluginRegistration struct {
 	Tooling           toolingv0.ToolingServer             // Transitional: collapses into Toolbox via lang.* convention.
 	Toolbox           toolboxv0.ToolboxServer             // The unified callable contract (MCP-shape).
 	Provider          providerv0.ProviderServer           // Provider-neutral external binding reconciliation.
+	Solution          solutionv0.SolutionServer           // Solution executor: scaffold/package/render a solution spec.
 	ExecutionExporter executionv1.ExecutionExporterServer // Product-neutral receipt exporter plugin.
 
 	// PDP gates Toolbox tool calls when non-nil. Wires the
@@ -347,6 +349,36 @@ func ResetRPCStats() {
 	rpcStats = make(map[string]*rpcMethodStats)
 }
 
+// registerServices wires each non-nil plugin server onto the gRPC server.
+// The Toolbox path is handled separately in Serve because its PDP wrapping
+// is env-dependent and fails closed via os.Exit.
+func registerServices(s grpc.ServiceRegistrar, reg PluginRegistration) {
+	if reg.Agent != nil {
+		agentv0.RegisterAgentServer(s, reg.Agent)
+	}
+	if reg.Runtime != nil {
+		runtimev0.RegisterRuntimeServer(s, reg.Runtime)
+	}
+	if reg.Builder != nil {
+		builderv0.RegisterBuilderServer(s, reg.Builder)
+	}
+	if reg.Code != nil {
+		codev0.RegisterCodeServer(s, reg.Code)
+	}
+	if reg.ExecutionExporter != nil {
+		executionv1.RegisterExecutionExporterServer(s, reg.ExecutionExporter)
+	}
+	if reg.Tooling != nil {
+		toolingv0.RegisterToolingServer(s, reg.Tooling)
+	}
+	if reg.Provider != nil {
+		providerv0.RegisterProviderServer(s, reg.Provider)
+	}
+	if reg.Solution != nil {
+		solutionv0.RegisterSolutionServer(s, reg.Solution)
+	}
+}
+
 // Serve starts a gRPC server, registers the plugin's services,
 // signals its endpoint to the CLI via stdout, and blocks until the
 // process is terminated.
@@ -450,27 +482,8 @@ func Serve(reg PluginRegistration) {
 	)
 	s := grpc.NewServer(serverOptions...)
 
-	if reg.Agent != nil {
-		agentv0.RegisterAgentServer(s, reg.Agent)
-	}
-	if reg.Runtime != nil {
-		runtimev0.RegisterRuntimeServer(s, reg.Runtime)
-	}
-	if reg.Builder != nil {
-		builderv0.RegisterBuilderServer(s, reg.Builder)
-	}
-	if reg.Code != nil {
-		codev0.RegisterCodeServer(s, reg.Code)
-	}
-	if reg.ExecutionExporter != nil {
-		executionv1.RegisterExecutionExporterServer(s, reg.ExecutionExporter)
-	}
-	if reg.Tooling != nil {
-		toolingv0.RegisterToolingServer(s, reg.Tooling)
-	}
-	if reg.Provider != nil {
-		providerv0.RegisterProviderServer(s, reg.Provider)
-	}
+	registerServices(s, reg)
+
 	if reg.Toolbox != nil {
 		// Wrap with policyguard.Guard when a PDP is configured. The
 		// Guard intercepts CallTool/ReadResource/GetPrompt and routes
