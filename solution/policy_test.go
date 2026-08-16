@@ -41,6 +41,19 @@ func TestSolutionRPCMethodPolicyIsMachineEnforceable(t *testing.T) {
 	}
 }
 
+// TestSolutionContractIsUnaryOnly guards the invariant EnforcingClientInterceptor
+// relies on: the gate is unary-only, so a streaming Solution RPC would dispatch
+// unchecked. Adding one must fail here until a stream gate exists.
+func TestSolutionContractIsUnaryOnly(t *testing.T) {
+	service := solutionv0.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
+	require.NotNil(t, service)
+	for i := 0; i < service.Methods().Len(); i++ {
+		method := service.Methods().Get(i)
+		require.False(t, method.IsStreamingClient(), "%s is client-streaming", method.Name())
+		require.False(t, method.IsStreamingServer(), "%s is server-streaming", method.Name())
+	}
+}
+
 func TestPolicyForResolvesByFullMethodName(t *testing.T) {
 	policy, isSolution := solution.PolicyFor(solutionv0.Solution_Package_FullMethodName)
 	require.True(t, isSolution)

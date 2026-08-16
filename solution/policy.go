@@ -1,8 +1,16 @@
-// Package solution holds the host-side enforcement for the Solution executor
+// Package solution holds the host-side dispatch gate for the Solution executor
 // contract. The Solution service binds a solution_method_policy to every RPC
 // declaring its maximum network reach and state effect; the host reads that
-// policy from the generated descriptors and refuses to invoke any method whose
-// ceiling exceeds the ceiling admitted for the current operation.
+// policy from the generated descriptors and refuses to dispatch any method
+// whose declared ceiling exceeds the ceiling admitted for the current operation.
+//
+// The gate constrains what the host chooses to invoke — it does not, and under
+// this contract cannot, constrain what a solution executor actually does inside
+// a handler. Unlike provider.proto (where ProviderHost brokers the provider's
+// side effects and the host enforces the policy at the point of effect), the
+// Solution contract has no host-brokered callback path: a plugin's real
+// filesystem and registry writes are unmediated. Enforcing declared effects
+// against plugin behavior would require a broker this contract does not define.
 package solution
 
 import (
@@ -74,10 +82,17 @@ func Admits(policy *solutionv0.SolutionMethodPolicy, ceiling Ceiling) error {
 	return nil
 }
 
-// EnforcingClientInterceptor returns the host-side enforcement point: a unary
-// client interceptor that reads each outgoing Solution RPC's declared policy and
-// refuses to send a call whose ceiling exceeds the admitted ceiling. Calls to
-// services other than Solution pass through untouched.
+// EnforcingClientInterceptor returns the host-side dispatch gate: a unary client
+// interceptor a host installs on the connection it uses to call a solution
+// executor (the agents.Serve wiring that stands up that executor is tracked in
+// codefly-dev/core#290). It reads each outgoing Solution RPC's declared policy
+// and refuses to dispatch a call whose declared ceiling exceeds the admitted
+// ceiling. Calls to services other than Solution pass through untouched.
+//
+// It covers unary RPCs only, which is complete because the Solution contract is
+// unary-only — an invariant TestSolutionContractIsUnaryOnly guards. A streaming
+// Solution RPC must not be added without a matching stream gate, or it would
+// dispatch unchecked.
 func EnforcingClientInterceptor(ceiling Ceiling) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		policy, isSolution := PolicyFor(method)
