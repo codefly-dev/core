@@ -202,6 +202,9 @@ func TestEnforcingClientInterceptorDeniesOverCeilingBeforeTheWire(t *testing.T) 
 	_, err = client.Create(context.Background(), &solutionv0.CreateRequest{})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	require.Equal(t, 1, server.handled["Create"])
+	// The denial must name the remedy so it is not mistaken for an auth failure:
+	// the missing ceiling, not the token, is what the caller must fix.
+	require.Contains(t, status.Convert(err).Message(), "solution.WithCeiling")
 }
 
 func TestEnforcingClientInterceptorPassesThroughNonSolutionCalls(t *testing.T) {
