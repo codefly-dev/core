@@ -3,7 +3,7 @@ package codefly.base.v0;
 
 import "buf/validate/validate.proto";
 
-// Agent identifies the plugin binary that owns a service, job, application, module, or toolbox lifecycle.
+// Agent identifies the plugin binary that owns a service, job, application, module, toolbox, provider, or solution lifecycle.
 message Agent {
   // Kind enumerates supported kinds.
   enum Kind {
@@ -27,6 +27,11 @@ message Agent {
     // PROVIDER agents reconcile environment-scoped external provider bindings.
     // They are typed leaf plugins and never own a service workload lifecycle.
     PROVIDER = 6;
+    // SOLUTION agents scaffold a solution, package it as an OCI artifact, and
+    // render its manifests into a gitops repository. Like providers they are
+    // dynamically installable and stay out of the application graph; the
+    // solution spec they operate on stays codefly-agnostic.
+    SOLUTION = 7;
   }
   // kind identifies which resource family this agent can manage.
   Kind kind = 1;
