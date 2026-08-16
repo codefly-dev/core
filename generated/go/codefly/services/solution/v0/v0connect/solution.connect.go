@@ -50,15 +50,19 @@ const (
 // SolutionClient is a client for the codefly.services.solution.v0.Solution service.
 type SolutionClient interface {
 	// GetSolutionInformation returns the concrete artifact identity and the
-	// lifecycle operations this executor implements.
+	// lifecycle operations this executor implements. Effect: read-only, no writes.
 	GetSolutionInformation(context.Context, *connect.Request[v0.GetSolutionInformationRequest]) (*connect.Response[v0.GetSolutionInformationResponse], error)
 	// Create scaffolds a new solution into a destination directory.
+	// Effect: writes files under the destination directory.
 	Create(context.Context, *connect.Request[v0.CreateRequest]) (*connect.Response[v0.CreateResponse], error)
 	// Update reconciles an existing solution source with the executor's template.
+	// Effect: mutates files under the source directory.
 	Update(context.Context, *connect.Request[v0.UpdateRequest]) (*connect.Response[v0.UpdateResponse], error)
 	// Package builds an OCI artifact from a solution source directory.
+	// Effect: reads the source directory and pushes an OCI artifact (network write).
 	Package(context.Context, *connect.Request[v0.PackageRequest]) (*connect.Response[v0.PackageResponse], error)
 	// Render renders a packaged solution's manifests into a gitops destination.
+	// Effect: writes manifests into the gitops destination (filesystem/git mutation).
 	Render(context.Context, *connect.Request[v0.RenderRequest]) (*connect.Response[v0.RenderResponse], error)
 }
 
@@ -143,15 +147,19 @@ func (c *solutionClient) Render(ctx context.Context, req *connect.Request[v0.Ren
 // SolutionHandler is an implementation of the codefly.services.solution.v0.Solution service.
 type SolutionHandler interface {
 	// GetSolutionInformation returns the concrete artifact identity and the
-	// lifecycle operations this executor implements.
+	// lifecycle operations this executor implements. Effect: read-only, no writes.
 	GetSolutionInformation(context.Context, *connect.Request[v0.GetSolutionInformationRequest]) (*connect.Response[v0.GetSolutionInformationResponse], error)
 	// Create scaffolds a new solution into a destination directory.
+	// Effect: writes files under the destination directory.
 	Create(context.Context, *connect.Request[v0.CreateRequest]) (*connect.Response[v0.CreateResponse], error)
 	// Update reconciles an existing solution source with the executor's template.
+	// Effect: mutates files under the source directory.
 	Update(context.Context, *connect.Request[v0.UpdateRequest]) (*connect.Response[v0.UpdateResponse], error)
 	// Package builds an OCI artifact from a solution source directory.
+	// Effect: reads the source directory and pushes an OCI artifact (network write).
 	Package(context.Context, *connect.Request[v0.PackageRequest]) (*connect.Response[v0.PackageResponse], error)
 	// Render renders a packaged solution's manifests into a gitops destination.
+	// Effect: writes manifests into the gitops destination (filesystem/git mutation).
 	Render(context.Context, *connect.Request[v0.RenderRequest]) (*connect.Response[v0.RenderResponse], error)
 }
 

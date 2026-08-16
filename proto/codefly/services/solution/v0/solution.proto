@@ -9,17 +9,28 @@ import "codefly/base/v0/failure.proto";
 // scaffolds a solution, packages it as an OCI artifact, and renders its
 // manifests into a gitops repository. The solution spec it operates on stays
 // codefly-agnostic; only the executor is a codefly plugin.
+//
+// The per-RPC effect notes below describe each method's maximum side effect.
+// They are documentation only in this version: unlike provider.proto's
+// host-enforced provider_method_policy, nothing yet enforces these ceilings.
+// A host-enforceable method policy is tracked in codefly-dev/core#289, and the
+// agents.Serve() wiring that lets a plugin expose this contract is tracked in
+// codefly-dev/core#290.
 service Solution {
   // GetSolutionInformation returns the concrete artifact identity and the
-  // lifecycle operations this executor implements.
+  // lifecycle operations this executor implements. Effect: read-only, no writes.
   rpc GetSolutionInformation(GetSolutionInformationRequest) returns (GetSolutionInformationResponse);
   // Create scaffolds a new solution into a destination directory.
+  // Effect: writes files under the destination directory.
   rpc Create(CreateRequest) returns (CreateResponse);
   // Update reconciles an existing solution source with the executor's template.
+  // Effect: mutates files under the source directory.
   rpc Update(UpdateRequest) returns (UpdateResponse);
   // Package builds an OCI artifact from a solution source directory.
+  // Effect: reads the source directory and pushes an OCI artifact (network write).
   rpc Package(PackageRequest) returns (PackageResponse);
   // Render renders a packaged solution's manifests into a gitops destination.
+  // Effect: writes manifests into the gitops destination (filesystem/git mutation).
   rpc Render(RenderRequest) returns (RenderResponse);
 }
 
@@ -88,7 +99,7 @@ message CreateRequest {
 // CreateResponse reports the scaffolded solution.
 message CreateResponse {
   // created_paths are the paths written relative to the destination.
-  repeated string created_paths = 1;
+  repeated string created_paths = 1 [(buf.validate.field).repeated.max_items = 10000];
   // diagnostics are bounded neutral diagnostics.
   repeated codefly.base.v0.FailureDiagnostic diagnostics = 2 [(buf.validate.field).repeated.max_items = 100];
 }
@@ -106,7 +117,7 @@ message UpdateRequest {
 // UpdateResponse reports the updated solution.
 message UpdateResponse {
   // updated_paths are the paths changed relative to the source.
-  repeated string updated_paths = 1;
+  repeated string updated_paths = 1 [(buf.validate.field).repeated.max_items = 10000];
   // diagnostics are bounded neutral diagnostics.
   repeated codefly.base.v0.FailureDiagnostic diagnostics = 2 [(buf.validate.field).repeated.max_items = 100];
 }
@@ -146,7 +157,7 @@ message RenderRequest {
 // RenderResponse reports the rendered manifests.
 message RenderResponse {
   // rendered_paths are the manifest paths written relative to the destination.
-  repeated string rendered_paths = 1;
+  repeated string rendered_paths = 1 [(buf.validate.field).repeated.max_items = 10000];
   // diagnostics are bounded neutral diagnostics.
   repeated codefly.base.v0.FailureDiagnostic diagnostics = 2 [(buf.validate.field).repeated.max_items = 100];
 }

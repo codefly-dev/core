@@ -881,9 +881,9 @@ const file_codefly_services_solution_v0_solution_proto_rawDesc = "" +
 	"parameters\x1a=\n" +
 	"\x0fParametersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x85\x01\n" +
-	"\x0eCreateResponse\x12#\n" +
-	"\rcreated_paths\x18\x01 \x03(\tR\fcreatedPaths\x12N\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x90\x01\n" +
+	"\x0eCreateResponse\x12.\n" +
+	"\rcreated_paths\x18\x01 \x03(\tB\t\xbaH\x06\x92\x01\x03\x10\x90NR\fcreatedPaths\x12N\n" +
 	"\vdiagnostics\x18\x02 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics\"\x8c\x02\n" +
 	"\rUpdateRequest\x12G\n" +
 	"\acontext\x18\x01 \x01(\v2-.codefly.services.solution.v0.SolutionContextR\acontext\x12\x16\n" +
@@ -893,9 +893,9 @@ const file_codefly_services_solution_v0_solution_proto_rawDesc = "" +
 	"parameters\x1a=\n" +
 	"\x0fParametersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x85\x01\n" +
-	"\x0eUpdateResponse\x12#\n" +
-	"\rupdated_paths\x18\x01 \x03(\tR\fupdatedPaths\x12N\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x90\x01\n" +
+	"\x0eUpdateResponse\x12.\n" +
+	"\rupdated_paths\x18\x01 \x03(\tB\t\xbaH\x06\x92\x01\x03\x10\x90NR\fupdatedPaths\x12N\n" +
 	"\vdiagnostics\x18\x02 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics\"\x8f\x01\n" +
 	"\x0ePackageRequest\x12G\n" +
 	"\acontext\x18\x01 \x01(\v2-.codefly.services.solution.v0.SolutionContextR\acontext\x12\x16\n" +
@@ -912,9 +912,9 @@ const file_codefly_services_solution_v0_solution_proto_rawDesc = "" +
 	"\x06values\x18\x04 \x03(\v27.codefly.services.solution.v0.RenderRequest.ValuesEntryR\x06values\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x87\x01\n" +
-	"\x0eRenderResponse\x12%\n" +
-	"\x0erendered_paths\x18\x01 \x03(\tR\rrenderedPaths\x12N\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x92\x01\n" +
+	"\x0eRenderResponse\x120\n" +
+	"\x0erendered_paths\x18\x01 \x03(\tB\t\xbaH\x06\x92\x01\x03\x10\x90NR\rrenderedPaths\x12N\n" +
 	"\vdiagnostics\x18\x02 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics2\xb7\x04\n" +
 	"\bSolution\x12\x93\x01\n" +
 	"\x16GetSolutionInformation\x12;.codefly.services.solution.v0.GetSolutionInformationRequest\x1a<.codefly.services.solution.v0.GetSolutionInformationResponse\x12c\n" +

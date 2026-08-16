@@ -14,10 +14,10 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"slices"
 	"sort"
 
 	"github.com/Masterminds/semver/v3"
+	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
@@ -151,6 +151,11 @@ func (m *Manifest) Validate() error {
 	if err := validateIDs("services", len(m.Services), func(i int) string { return m.Services[i].ID }); err != nil {
 		return err
 	}
+	for i := range m.Services {
+		if m.Services[i].Name == "" {
+			return fmt.Errorf("services[%d].name is required", i)
+		}
+	}
 	if err := validateAPIDeclarations("api.exposes", m.API.Exposes); err != nil {
 		return err
 	}
@@ -166,8 +171,18 @@ func (m *Manifest) Validate() error {
 	if err := validateIDs("ui", len(m.UI), func(i int) string { return m.UI[i].ID }); err != nil {
 		return err
 	}
+	for i := range m.UI {
+		if m.UI[i].Slot == "" {
+			return fmt.Errorf("ui[%d].slot is required", i)
+		}
+	}
 	if err := validateIDs("needs", len(m.Needs), func(i int) string { return m.Needs[i].ID }); err != nil {
 		return err
+	}
+	for i := range m.Needs {
+		if m.Needs[i].Kind == "" {
+			return fmt.Errorf("needs[%d].kind is required", i)
+		}
 	}
 	if err := validatePermissions(m.Permissions); err != nil {
 		return err
@@ -202,6 +217,9 @@ func validatePermissions(permissions []Permission) error {
 	for i, permission := range permissions {
 		if !idPattern.MatchString(permission.ID) || !idPattern.MatchString(permission.Action) || permission.Reason == "" {
 			return fmt.Errorf("permissions[%d] requires a valid id, action, and reason", i)
+		}
+		if permission.Resource == "" || permission.Resource == "*" {
+			return fmt.Errorf("permissions[%d].resource must be a bounded resource identifier", i)
 		}
 		if _, duplicate := seen[permission.ID]; duplicate {
 			return fmt.Errorf("permissions[%d].id %q is duplicated", i, permission.ID)
@@ -262,6 +280,40 @@ func (m *Manifest) Digest() (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
+// AdmitInformation binds a runtime GetSolutionInformation advertisement to this
+// packaged manifest. The advertised manifest digest must equal this manifest's
+// digest, and every lifecycle operation the runtime advertises must have been
+// declared in the packaged manifest. A runtime may implement a subset of the
+// declared operations, but never one the audited manifest did not declare.
+func (m *Manifest) AdmitInformation(info *solutionv0.GetSolutionInformationResponse) error {
+	if info == nil {
+		return fmt.Errorf("solution information is required")
+	}
+	digest, err := m.Digest()
+	if err != nil {
+		return err
+	}
+	if advertised := info.GetArtifact().GetManifestDigest(); advertised != digest {
+		return fmt.Errorf("manifest digest mismatch: advertised %q, packaged %q", advertised, digest)
+	}
+	capabilities := info.GetCapabilities()
+	for _, operation := range []struct {
+		name       string
+		advertised bool
+		declared   bool
+	}{
+		{"create", capabilities.GetSupportsCreate(), m.Lifecycle.Create},
+		{"update", capabilities.GetSupportsUpdate(), m.Lifecycle.Update},
+		{"package", capabilities.GetSupportsPackage(), m.Lifecycle.Package},
+		{"render", capabilities.GetSupportsRender(), m.Lifecycle.Render},
+	} {
+		if operation.advertised && !operation.declared {
+			return fmt.Errorf("runtime advertises %s but the packaged manifest does not declare it", operation.name)
+		}
+	}
+	return nil
+}
+
 func sortedAPIDeclarations(values []APIDeclaration) []APIDeclaration {
 	out := append([]APIDeclaration(nil), values...)
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -270,15 +322,6 @@ func sortedAPIDeclarations(values []APIDeclaration) []APIDeclaration {
 
 func sortedEventDeclarations(values []EventDeclaration) []EventDeclaration {
 	out := append([]EventDeclaration(nil), values...)
-	slices.SortFunc(out, func(a, b EventDeclaration) int {
-		switch {
-		case a.ID < b.ID:
-			return -1
-		case a.ID > b.ID:
-			return 1
-		default:
-			return 0
-		}
-	})
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }

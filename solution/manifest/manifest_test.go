@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
 	"github.com/codefly-dev/core/solution/manifest"
 	"github.com/stretchr/testify/require"
 )
@@ -88,6 +89,21 @@ func TestManifestRejectsMalformedDeclarations(t *testing.T) {
 		{"permission missing reason", func(s string) string {
 			return strings.Replace(s, "    reason: Write manifests into the gitops repository.\n", "", 1)
 		}, "valid id, action, and reason"},
+		{"permission empty resource", func(s string) string {
+			return strings.Replace(s, `    resource: "gitops:fixture"`, `    resource: ""`, 1)
+		}, "resource must be a bounded resource identifier"},
+		{"permission wildcard resource", func(s string) string {
+			return strings.Replace(s, `    resource: "gitops:fixture"`, `    resource: "*"`, 1)
+		}, "resource must be a bounded resource identifier"},
+		{"service missing name", func(s string) string {
+			return strings.Replace(s, "  - id: api\n    name: API\n", "  - id: api\n    name: \"\"\n", 1)
+		}, "services[0].name is required"},
+		{"ui missing slot", func(s string) string {
+			return strings.Replace(s, "    slot: solution.summary", "    slot: \"\"", 1)
+		}, "ui[0].slot is required"},
+		{"need missing kind", func(s string) string {
+			return strings.Replace(s, "    kind: repository", "    kind: \"\"", 1)
+		}, "needs[0].kind is required"},
 		{"no lifecycle operation", func(s string) string {
 			return strings.Replace(s,
 				"  create: true\n  update: true\n  package: true\n  render: true",
@@ -108,6 +124,47 @@ func TestManifestAcceptsDescriptorOnlySolution(t *testing.T) {
 	loaded, err := manifest.Load([]byte(descriptorOnly))
 	require.NoError(t, err)
 	require.Empty(t, loaded.Services)
+}
+
+func TestAdmitInformationBindsCapabilitiesToPackagedManifest(t *testing.T) {
+	packaged, err := manifest.Load([]byte(validManifest))
+	require.NoError(t, err)
+	digest, err := packaged.Digest()
+	require.NoError(t, err)
+
+	info := func(d string, caps *solutionv0.SolutionCapabilities) *solutionv0.GetSolutionInformationResponse {
+		return &solutionv0.GetSolutionInformationResponse{
+			Artifact:     &solutionv0.SolutionArtifact{ManifestDigest: d},
+			Capabilities: caps,
+		}
+	}
+	allCaps := &solutionv0.SolutionCapabilities{
+		SupportsCreate: true, SupportsUpdate: true, SupportsPackage: true, SupportsRender: true,
+	}
+
+	require.NoError(t, packaged.AdmitInformation(info(digest, allCaps)))
+
+	// A runtime may implement a strict subset of the declared operations.
+	require.NoError(t, packaged.AdmitInformation(info(digest, &solutionv0.SolutionCapabilities{SupportsCreate: true})))
+	// Advertising nothing is a valid subset.
+	require.NoError(t, packaged.AdmitInformation(info(digest, nil)))
+
+	// Advertising against a different manifest is rejected.
+	err = packaged.AdmitInformation(info("sha256:"+strings.Repeat("0", 64), allCaps))
+	require.ErrorContains(t, err, "manifest digest mismatch")
+
+	// Advertising a capability the packaged manifest never declared is rejected,
+	// even though the digest matches.
+	renderOnly, err := manifest.Load([]byte(strings.Replace(validManifest,
+		"  create: true\n  update: true\n  package: true\n  render: true",
+		"  create: true\n  update: false\n  package: false\n  render: false", 1)))
+	require.NoError(t, err)
+	renderOnlyDigest, err := renderOnly.Digest()
+	require.NoError(t, err)
+	err = renderOnly.AdmitInformation(info(renderOnlyDigest, allCaps))
+	require.ErrorContains(t, err, "runtime advertises update but the packaged manifest does not declare it")
+
+	require.ErrorContains(t, packaged.AdmitInformation(nil), "solution information is required")
 }
 
 const validManifest = `
