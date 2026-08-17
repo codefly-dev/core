@@ -310,7 +310,7 @@ func extractFromTox(d declaration) (string, bool) {
 	inTestEnv, collecting := false, false
 	var fallback string
 	consider := func(value string) (string, bool) {
-		cmd := firstCommandLine(stripToxFactor(value))
+		cmd := firstCommandLine(dropLeadingToxSubstitutions(stripToxFactor(value)))
 		if cmd == "" {
 			return "", false
 		}
@@ -359,17 +359,53 @@ func extractFromTox(d declaration) (string, bool) {
 	return fallback, fallback != ""
 }
 
+// dropLeadingToxSubstitutions removes optional environment-provided command
+// prefixes before validating the portable command head. Pytest uses
+// `{env:_PYTEST_TOX_COVERAGE_RUN:} pytest {posargs:...}` so coverage can be
+// injected in CI; with no such environment the executable is simply pytest.
+// Selector-bearing posargs are retained because they identify the command that
+// owns exact test selection.
+func dropLeadingToxSubstitutions(command string) string {
+	command = strings.TrimSpace(command)
+	for strings.HasPrefix(command, "{") && !strings.HasPrefix(command, "{posargs") {
+		depth, end := 0, -1
+		for index, character := range command {
+			switch character {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					end = index
+				}
+			}
+			if end >= 0 {
+				break
+			}
+		}
+		if end < 0 {
+			return command
+		}
+		command = strings.TrimSpace(command[end+1:])
+	}
+	return command
+}
+
 var reToxFactor = regexp.MustCompile(`^[A-Za-z0-9_!,{}.-]+$`)
 
 // stripToxFactor removes tox's leading environment-factor condition from a
 // command. Requiring one factor-grammar token keeps ordinary command colons
 // intact while making the selected command runnable outside tox orchestration.
 func stripToxFactor(command string) string {
-	prefix, rest, found := strings.Cut(strings.TrimSpace(command), ":")
+	trimmed := strings.TrimSpace(command)
+	if strings.HasPrefix(trimmed, "{env:") {
+		return trimmed
+	}
+	prefix, rest, found := strings.Cut(trimmed, ":")
 	if found && reToxFactor.MatchString(prefix) && strings.TrimSpace(rest) != "" {
 		return strings.TrimSpace(rest)
 	}
-	return strings.TrimSpace(command)
+	return trimmed
 }
 
 func extractFromMakefile(d declaration) (string, bool) {
@@ -498,6 +534,9 @@ func commandRunsTests(fields []string) bool {
 		return false
 	}
 	executable := commandToken(fields[0])
+	if executable == "tox" || executable == "nox" {
+		return automationRunnerCommandRunsTests(fields)
+	}
 	if testIntentToken(executable) {
 		return true
 	}
@@ -538,6 +577,63 @@ func commandRunsTests(fields []string) bool {
 		}
 	}
 	return false
+}
+
+// automationRunnerCommandRunsTests distinguishes a tox/nox test session from
+// repository automation that happens to use the same environment runner. A
+// release workflow such as `tox -e publish-gh-release-notes` is executable but
+// is not a test formula and must not outrank the project's default [testenv].
+// Unknown and interpreter-named environments stay admitted because projects
+// commonly use opaque names such as `plugins` or `py311` for real tests.
+func automationRunnerCommandRunsTests(fields []string) bool {
+	for _, field := range fields[1:] {
+		switch strings.ToLower(strings.Trim(field, `"'`)) {
+		case "-a", "-av", "--help", "--list", "--listenvs", "--list-envs", "--list-sessions", "--list-tags",
+			"--showconfig", "--show-config", "--version", "-h", "-l":
+			return false
+		}
+	}
+	for _, environment := range automationRunnerEnvironments(fields) {
+		lower := strings.ToLower(environment)
+		if strings.Contains(lower, "test") {
+			continue
+		}
+		for _, token := range strings.FieldsFunc(lower, func(r rune) bool {
+			return r == '-' || r == '_' || r == '.'
+		}) {
+			switch token {
+			case "backport", "build", "changelog", "deploy", "docs", "format", "lint", "linting",
+				"package", "prepare", "publish", "regen", "release", "style", "typecheck", "typing", "upload":
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func automationRunnerEnvironments(fields []string) []string {
+	var environments []string
+	for index := 1; index < len(fields); index++ {
+		field := strings.Trim(fields[index], `"'`)
+		switch field {
+		case "-e", "--env", "-s", "--session":
+			if index+1 < len(fields) {
+				index++
+				environments = append(environments, strings.Split(strings.Trim(fields[index], `"'`), ",")...)
+			}
+		default:
+			for _, prefix := range []string{"--env=", "--session=", "-e=", "-s="} {
+				if strings.HasPrefix(field, prefix) {
+					environments = append(environments, strings.Split(strings.TrimPrefix(field, prefix), ",")...)
+					break
+				}
+			}
+			if strings.HasPrefix(field, "-e") && !strings.HasPrefix(field, "-e=") && len(field) > 2 {
+				environments = append(environments, strings.Split(strings.TrimPrefix(field, "-e"), ",")...)
+			}
+		}
+	}
+	return environments
 }
 
 func commandToken(field string) string {
