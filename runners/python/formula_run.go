@@ -609,7 +609,20 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 		run.Materialized = true
 	}
 	if !run.Materialized && runErr != nil && run.caseCount() == 0 {
-		run.EnvError = ClassifyEnvError(rawStr, runErr)
+		// A pytest selector miss is a caller-input defect, not a broken runtime.
+		// Classify pytest's authoritative exit/signature before the generic
+		// environment classifier: otherwise its necessarily non-zero exit becomes
+		// `unknown`, and the selector-specific zero-case branch below is
+		// unreachable. Keep this narrow so collection/import/provisioning failures
+		// still route to environment repair.
+		if len(spec.Selectors) > 0 && spec.Output == OutputJUnitXML && defaultPytestSelectionMiss(rawStr, runErr) {
+			run.EnvError = &RunEnvError{
+				Reason: EnvErrorNoTestsMatchedSelectors,
+				Detail: fmt.Sprintf("selectors %v matched zero tests (uv %s%s) — the selectors do not name any collectible test", spec.Selectors, strings.Join(args, " "), exitSuffix(runErr)),
+			}
+		} else {
+			run.EnvError = ClassifyEnvError(rawStr, runErr)
+		}
 	}
 	// Even when SOME cases ran (caseCount > 0), a dependency incompatibility can
 	// repeat across many of them (a mis-resolved package surfacing at fixture

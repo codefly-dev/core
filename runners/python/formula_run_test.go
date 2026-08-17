@@ -531,6 +531,35 @@ func TestRunFormulaStructured_ZeroTestsMatchedSelectors(t *testing.T) {
 	}
 }
 
+// Pytest exits non-zero when a selector matches nothing. The formula runner
+// must preserve that as caller-input evidence rather than letting the generic
+// process-error classifier relabel a healthy environment as `unknown`.
+func TestRunFormulaStructured_PytestZeroMatchPrecedesUnknownEnvironmentError(t *testing.T) {
+	requireUv(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "test_sample.py"), []byte("def test_present():\n    assert True\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec := SpecFromFormula(
+		[]string{"pytest"},
+		OutputJUnitXML,
+		nil,
+		map[string]string{"no_project": "true"},
+		[]string{"test_sample.py::test_missing|test_sample.py::test_present"},
+	)
+	run, err := RunFormulaStructured(context.Background(), root, spec)
+	if err != nil {
+		t.Fatalf("unexpected raw process error: %v", err)
+	}
+	if run.EnvError == nil || run.EnvError.Reason != EnvErrorNoTestsMatchedSelectors {
+		t.Fatalf("want %q env error, got %+v\n%s", EnvErrorNoTestsMatchedSelectors, run.EnvError, run.RawOutput)
+	}
+	response := run.ToProtoResponse("formula", "", 0)
+	if message := response.GetResult().GetMessage(); !strings.HasPrefix(message, "test-selection-error (") {
+		t.Fatalf("message = %q, want test-selection-error tag", message)
+	}
+}
+
 // The formula's cwd moves the RUN directory: a unittest module that is only
 // importable from tests/ must pass with cwd=tests and env-block without it.
 func TestRunFormulaStructured_CwdMovesRunDirectory(t *testing.T) {
