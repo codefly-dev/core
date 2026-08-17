@@ -149,7 +149,16 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 			return nil, w.NewError("endpoints %q and %q resolve to the same port %d", owner, endpoint.Name, port)
 		}
 		allocatedPorts[port] = endpoint.Name
-		nm.Instances = append(nm.Instances, ContainerInstance(m.KubernetesService(service, endpoint, namespace, port)))
+		// A no-ingress endpoint's ClusterIP is the only address that exists, so
+		// it has to answer both Public and Container lookups — mirror the DNS
+		// branch above. KubernetesService is called twice on purpose: it returns
+		// a fresh instance each time and PublicInstance/ContainerInstance stamp
+		// Access in place, so a single shared instance would collapse to one
+		// access and silently drop the other.
+		nm.Instances = append(nm.Instances,
+			PublicInstance(m.KubernetesService(service, endpoint, namespace, port)),
+			ContainerInstance(m.KubernetesService(service, endpoint, namespace, port)),
+		)
 		out = append(out, nm)
 	}
 	return out, nil
@@ -201,11 +210,17 @@ func (m *RemoteManager) Expose(ctx context.Context,
 
 func (m *RemoteManager) StartPairing(ctx context.Context, _ *resources.Environment, _ *resources.Workspace, service *resources.ServiceIdentity, pairing *Pairing, output wool.LogProcessorWithSource) error {
 	w := wool.Get(ctx).In("startPairing")
-	// Get the remote service
-	if len(pairing.Remote.Instances) != 1 {
-		return w.NewError("remote service must have exactly one instance")
+	// Internal endpoints carry both a Public and a Container instance off the
+	// same ClusterIP host:port; port-forward the Container one. External
+	// endpoints have only a Public instance. A count check here would reject
+	// every internal mapping.
+	remote := resources.FilterNetworkInstance(ctx, pairing.Remote.Instances, resources.NewContainerNetworkAccess())
+	if remote == nil {
+		remote = resources.FilterNetworkInstance(ctx, pairing.Remote.Instances, resources.NewPublicNetworkAccess())
 	}
-	remote := pairing.Remote.Instances[0]
+	if remote == nil {
+		return w.NewError("no container or public instance in remote network mapping")
+	}
 	remoteService, err := m.GetKubernetesService(ctx, service, remote.Hostname, uint16(remote.Port))
 	if err != nil {
 		return w.Wrap(err)
