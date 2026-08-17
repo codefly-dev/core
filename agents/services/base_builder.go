@@ -512,6 +512,7 @@ type DeploymentParameters struct {
 	SecretMap        EnvironmentMap
 	SecretReferences map[string]*builderv0.KubernetesSecretKeyReference
 	Parameters       any
+	PodOverlay       *PodTemplateOverlay
 }
 
 // DeploymentInputs declares which standard Codefly inputs a Kubernetes
@@ -547,18 +548,42 @@ type KustomizeDeployment struct {
 	Templates            fs.FS
 	Inputs               DeploymentInputs
 	Parameters           any
-	Prepare              func(context.Context, *KustomizeDeploymentContext) error
+	// PodOverlay carries the standard, typed pod/workload customizations
+	// (serviceAccountName, an annotated ServiceAccount, pod labels and
+	// annotations) shared across all service agents. Nil leaves rendering
+	// unchanged.
+	PodOverlay *PodTemplateOverlay
+	Prepare    func(context.Context, *KustomizeDeploymentContext) error
+}
+
+// KustomizeDeploymentOption customizes a KustomizeDeployment so language
+// helpers such as golang.DeployGoKubernetes can expose opt-in features without
+// each agent re-inlining the DeployKustomize wiring.
+type KustomizeDeploymentOption func(*KustomizeDeployment)
+
+// WithPodOverlay threads a typed pod-template overlay into the deployment.
+func WithPodOverlay(overlay *PodTemplateOverlay) KustomizeDeploymentOption {
+	return func(d *KustomizeDeployment) { d.PodOverlay = overlay }
+}
+
+// WithDeploymentParameters attaches plugin-specific template parameters.
+func WithDeploymentParameters(parameters any) KustomizeDeploymentOption {
+	return func(d *KustomizeDeployment) { d.Parameters = parameters }
 }
 
 // KustomizeDeploymentContext is passed to a plugin's Prepare hook after the
 // requested standard inputs have been collected and before ConfigMap/Secret
 // data is rendered.
 type KustomizeDeploymentContext struct {
-	Request               *builderv0.DeploymentRequest
-	Kubernetes            *builderv0.KubernetesDeployment
-	Profile               builderv0.KubernetesOutputProfile
-	EnvironmentVariables  *resources.EnvironmentVariableManager
-	Parameters            any
+	Request              *builderv0.DeploymentRequest
+	Kubernetes           *builderv0.KubernetesDeployment
+	Profile              builderv0.KubernetesOutputProfile
+	EnvironmentVariables *resources.EnvironmentVariableManager
+	Parameters           any
+	// PodOverlay is seeded from the KustomizeDeployment and may be replaced by
+	// a Prepare hook that derives it centrally (e.g. from spec.service-account)
+	// so agents don't each parse the same configuration.
+	PodOverlay            *PodTemplateOverlay
 	ConfigMap             []*resources.EnvironmentVariable
 	Secrets               []*resources.EnvironmentVariable
 	exportedConfiguration *basev0.Configuration
@@ -643,6 +668,9 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	if deployment.Templates == nil {
 		return s.DeployError(fmt.Errorf("kustomize deployment requires templates"))
 	}
+	if err := deployment.PodOverlay.Validate(); err != nil {
+		return s.DeployError(err)
+	}
 
 	kubernetes, err := s.KubernetesDeploymentRequest(ctx, req)
 	if err != nil {
@@ -702,9 +730,13 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		Profile:              profile,
 		EnvironmentVariables: manager,
 		Parameters:           deployment.Parameters,
+		PodOverlay:           deployment.PodOverlay,
 	}
 	if deployment.Prepare != nil {
 		if err = deployment.Prepare(ctx, deploymentContext); err != nil {
+			return fail(err)
+		}
+		if err = deploymentContext.PodOverlay.Validate(); err != nil {
 			return fail(err)
 		}
 	}
@@ -742,6 +774,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		SecretMap:        secretMap,
 		SecretReferences: kubernetes.GetSecretReferences(),
 		Parameters:       deploymentContext.Parameters,
+		PodOverlay:       deploymentContext.PodOverlay,
 	}
 	if err = s.KustomizeDeploy(ctx, req.GetEnvironment(), kubernetes, deployment.Templates, parameters); err != nil {
 		return fail(err)
@@ -848,6 +881,11 @@ type DeploymentWrapper struct {
 	ConfigMap        EnvironmentMap
 	SecretMap        EnvironmentMap
 	SecretReferences map[string]*builderv0.KubernetesSecretKeyReference
+
+	// PodOverlay is the typed, shared pod-customization model. Templates read
+	// {{ with .PodOverlay }}{{ .ServiceAccountName }}{{ range .PodLabels }}…
+	// instead of blind-accessing an untyped parameter object.
+	PodOverlay *PodTemplateOverlay
 }
 
 func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.FS, k *builderv0.KubernetesDeployment, base *DeploymentBase, params any) error {
@@ -860,11 +898,13 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 		wrapper.ConfigMap = deployment.ConfigMap
 		wrapper.SecretMap = deployment.SecretMap
 		wrapper.SecretReferences = deployment.SecretReferences
+		wrapper.PodOverlay = deployment.PodOverlay
 	case *DeploymentParameters:
 		if deployment != nil {
 			wrapper.ConfigMap = deployment.ConfigMap
 			wrapper.SecretMap = deployment.SecretMap
 			wrapper.SecretReferences = deployment.SecretReferences
+			wrapper.PodOverlay = deployment.PodOverlay
 		}
 	}
 	// Delete
@@ -878,6 +918,11 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 	)
 	if err != nil {
 		return err
+	}
+	if wrapper.PodOverlay.HasServiceAccount() {
+		if err = emitWorkloadServiceAccount(ctx, path.Join(k.Destination, "base"), base.Namespace, wrapper.PodOverlay.ServiceAccount); err != nil {
+			return s.Wool.Wrapf(err, "cannot emit workload service account")
+		}
 	}
 	return nil
 }

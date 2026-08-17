@@ -130,13 +130,21 @@ func goDockerBuilderConfiguration(
 
 // DeployGoKubernetes deploys a Go service to Kubernetes.
 // Handles environment variable setup, config maps, secrets, and kustomize generation.
+// Pass options such as services.WithPodOverlay to opt into pod-level
+// customization (serviceAccountName, an annotated ServiceAccount, pod labels)
+// without re-inlining the DeployKustomize wiring.
 func DeployGoKubernetes(ctx context.Context, builder *services.BuilderWrapper, req *builderv0.DeploymentRequest,
-	envVars *resources.EnvironmentVariableManager, deploymentFS embed.FS) (*builderv0.DeploymentResponse, error) {
-	return builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
+	envVars *resources.EnvironmentVariableManager, deploymentFS embed.FS,
+	opts ...services.KustomizeDeploymentOption) (*builderv0.DeploymentResponse, error) {
+	deployment := services.KustomizeDeployment{
 		EnvironmentVariables: envVars,
 		Templates:            deploymentFS,
 		Inputs:               services.ApplicationDeploymentInputs(),
-	})
+	}
+	for _, opt := range opts {
+		opt(&deployment)
+	}
+	return builder.DeployKustomize(ctx, req, deployment)
 }
 
 // SplitSourceDir splits a source directory like "code/cmd/server" into
