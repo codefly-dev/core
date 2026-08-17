@@ -453,6 +453,9 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 		if err := env.ServiceSecrets.Validate(); err != nil {
 			return w.Wrapf(err, "environment %q has invalid service-secrets", env.Name)
 		}
+		if err := env.ResourceQuota.Validate(); err != nil {
+			return w.Wrapf(err, "environment %q has invalid resource-quota", env.Name)
+		}
 	}
 	if workspace.Layout == LayoutKindFlat {
 		workspace.Modules = []*ModuleReference{{Name: workspace.Name}}

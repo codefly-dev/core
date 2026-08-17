@@ -131,6 +131,56 @@ type EnvironmentServiceSecretMapping struct {
 	RemoteKeys  map[string]string                `yaml:"remote-keys,omitempty"`
 }
 
+// EnvironmentResourceQuota sizes the ResourceQuota rendered into an
+// environment's namespace. Requests and Limits map to the ResourceQuota's hard
+// requests.cpu/requests.memory and limits.cpu/limits.memory; Pods caps the pod
+// count. DefaultContainer, when set, also renders a LimitRange giving every
+// container in the namespace default requests/limits — a ResourceQuota that
+// caps a compute resource otherwise rejects any pod that leaves that resource
+// unset.
+type EnvironmentResourceQuota struct {
+	Requests         *EnvironmentResourceList       `yaml:"requests,omitempty"`
+	Limits           *EnvironmentResourceList       `yaml:"limits,omitempty"`
+	Pods             string                         `yaml:"pods,omitempty"`
+	DefaultContainer *EnvironmentContainerResources `yaml:"default-container,omitempty"`
+}
+
+// EnvironmentResourceList is a cpu/memory pair expressed as Kubernetes quantity
+// strings ("500m", "512Mi"). Kubernetes validates the quantity syntax at
+// admission; only presence is checked here.
+type EnvironmentResourceList struct {
+	CPU    string `yaml:"cpu,omitempty"`
+	Memory string `yaml:"memory,omitempty"`
+}
+
+// EnvironmentContainerResources is the per-container default requests/limits a
+// LimitRange applies to pods that omit their own.
+type EnvironmentContainerResources struct {
+	Requests *EnvironmentResourceList `yaml:"requests,omitempty"`
+	Limits   *EnvironmentResourceList `yaml:"limits,omitempty"`
+}
+
+func (l *EnvironmentResourceList) empty() bool {
+	return l == nil || (strings.TrimSpace(l.CPU) == "" && strings.TrimSpace(l.Memory) == "")
+}
+
+// Validate reports whether a declared resource-quota carries at least one cap.
+// A non-nil block that sets nothing would render an empty ResourceMap that
+// caps nothing yet still claims namespace ownership, so it fails at load. A nil
+// receiver is a valid "not declared" state.
+func (q *EnvironmentResourceQuota) Validate() error {
+	if q == nil {
+		return nil
+	}
+	if q.Requests.empty() && q.Limits.empty() && strings.TrimSpace(q.Pods) == "" {
+		if q.DefaultContainer == nil ||
+			(q.DefaultContainer.Requests.empty() && q.DefaultContainer.Limits.empty()) {
+			return fmt.Errorf("resource-quota must set at least one of requests, limits, pods, or default-container")
+		}
+	}
+	return nil
+}
+
 // validate reports whether the store reference resolves to a usable name/kind.
 // label names the offending block in the error so a misdeclared store fails
 // loudly at load instead of projecting an ExternalSecret against store "".
@@ -209,6 +259,13 @@ type Environment struct {
 	// rendered and secret-<service> stays an operator precondition. CLI-side; not
 	// serialized to proto.
 	ServiceSecrets *EnvironmentServiceSecrets `yaml:"service-secrets,omitempty"`
+
+	// ResourceQuota, when set, renders a ResourceQuota (and an optional
+	// LimitRange of container defaults) into this environment's namespace so one
+	// workspace sharing a cell cannot starve another. Absent, no quota is
+	// rendered and the namespace stays uncapped. CLI-side; not serialized to
+	// proto.
+	ResourceQuota *EnvironmentResourceQuota `yaml:"resource-quota,omitempty"`
 
 	// Secrets lists the secret backends for this environment. Reference-only
 	// manifests fail when their backend is absent. Legacy plaintext *.secret.*
