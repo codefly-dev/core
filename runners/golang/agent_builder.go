@@ -24,11 +24,15 @@ type DockerTemplating struct {
 	Envs          []DockerEnv
 	GoVersion     string
 	AlpineVersion string
-	SourceDir     string // e.g. "code/cmd/server" — the Go main package location
-	ModuleRoot    string // e.g. "code" — where go.mod lives
-	BuildTarget   string // e.g. "./cmd/server" — package to build (relative to ModuleRoot)
-	ContextRoot   string // optional exact Docker context root; defaults to the service directory
-	Workspace     bool   // template hint for workspace-aware source copying
+	// WithCGO selects a native toolchain build for services that bind C
+	// libraries. Agent templates must keep the default false path static and
+	// install only the build dependencies required by the true path.
+	WithCGO     bool
+	SourceDir   string // e.g. "code/cmd/server" — the Go main package location
+	ModuleRoot  string // e.g. "code" — where go.mod lives
+	BuildTarget string // e.g. "./cmd/server" — package to build (relative to ModuleRoot)
+	ContextRoot string // optional exact Docker context root; defaults to the service directory
+	Workspace   bool   // template hint for workspace-aware source copying
 }
 
 // DockerEnv is a key-value pair for Docker environment variables.
