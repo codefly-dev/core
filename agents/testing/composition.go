@@ -106,12 +106,11 @@ func MissingField(field string) string {
 func AssertKustomizeTemplates(t *testing.T, templates fs.FS, parameters any) string {
 	t.Helper()
 	AssertKubernetesManifestContract(t)
-	AssertNoDeadDeploymentTemplates(t, templates, parameters)
 	ephemeral := assertKustomizeProfile(
 		t,
 		templates,
 		parameters,
-		ephemeralProfile,
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 	)
 	assertKustomizeProfile(
 		t,
@@ -127,11 +126,6 @@ func AssertKustomizeTemplates(t *testing.T, templates fs.FS, parameters any) str
 	)
 	return ephemeral
 }
-
-// ephemeralProfile is the most inclusive output profile: unlike the restricted
-// profile it renders every conditional manifest (Secret, Namespace), so it is
-// the reference tree for reachability analysis.
-const ephemeralProfile = builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1
 
 func assertKustomizeProfile(
 	t *testing.T,

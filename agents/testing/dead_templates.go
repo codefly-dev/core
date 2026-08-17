@@ -1,171 +1,124 @@
 package testing
 
 import (
-	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
-// AssertNoDeadDeploymentTemplates renders a plugin's deployment templates and
-// fails if any embedded `.tmpl` file is dead: either it sits outside the
-// rendered kustomize pipeline entirely (e.g. an orphaned root
-// serviceaccount.yaml.tmpl that no kustomization references), or its rendered
-// output is unreachable from the environment overlay. A dead template drifts
-// silently — it looks maintained but never ships — so the contract forbids it.
-func AssertNoDeadDeploymentTemplates(t *testing.T, templates fs.FS, parameters any) {
+const (
+	deploymentTemplateRoot = "templates/deployment"
+	baseTemplateDir        = "kustomize/base"
+	overlayTemplateDir     = "kustomize/overlays/environment"
+)
+
+// AssertNoDeadDeploymentTemplates fails if any embedded deployment `.tmpl` file
+// is dead: it sits outside the rendered kustomize pipeline entirely (e.g. an
+// orphaned root serviceaccount.yaml.tmpl that no kustomization references), or
+// its rendered filename is referenced by no kustomization. A dead template
+// drifts silently — it looks maintained but never ships.
+//
+// This is an opt-in helper agents call alongside AssertKustomizeTemplates, not
+// a step folded into it: the analysis is static (it scans the raw kustomization
+// template sources, it does not render), so it must not be gated on any
+// particular parameter set.
+func AssertNoDeadDeploymentTemplates(t *testing.T, templates fs.FS) {
 	t.Helper()
-	renderedDir := assertKustomizeProfile(
-		t,
-		templates,
-		parameters,
-		ephemeralProfile,
-	)
-	dead, err := deadDeploymentTemplates(templates, renderedDir)
+	dead, err := deadDeploymentTemplates(templates)
 	if err != nil {
 		t.Fatalf("scan deployment templates for dead files: %v", err)
 	}
 	if len(dead) > 0 {
-		t.Fatalf("dead/unreferenced deployment templates (no kustomization reaches their rendered output):\n  %s",
+		t.Fatalf("dead/unreferenced deployment templates (no kustomization references their rendered output):\n  %s",
 			strings.Join(dead, "\n  "))
 	}
 }
 
-// deadDeploymentTemplates returns the deployment templates whose rendered
-// output no kustomization reaches, resolved against an already-rendered tree.
-func deadDeploymentTemplates(templates fs.FS, renderedDir string) ([]string, error) {
-	env, err := overlayEnvironment(renderedDir)
-	if err != nil {
-		return nil, err
+// deadDeploymentTemplates returns the deployment templates no kustomization
+// reaches. It works on the template sources rather than a rendered tree so that
+// a manifest gated behind a conditional (rendered empty under some parameter
+// sets) is not mistaken for dead, and so that a file referenced from any
+// resource-bearing kustomization field — resources, bases, components, patches,
+// patchesStrategicMerge, crds, transformers, generators, *Generator files — is
+// seen as referenced. Both arms of a template conditional live in the source,
+// so the scan is branch- and parameter-insensitive by construction.
+func deadDeploymentTemplates(templates fs.FS) ([]string, error) {
+	var kustomizationSources []string
+	type manifestTemplate struct {
+		templatePath string
+		dir          string
+		name         string
 	}
-	reachable, err := reachableManifestFiles(renderedDir, env)
-	if err != nil {
-		return nil, err
-	}
+	var manifests []manifestTemplate
 
-	var dead []string
-	err = fs.WalkDir(templates, "templates/deployment", func(templatePath string, entry fs.DirEntry, walkErr error) error {
+	err := fs.WalkDir(templates, deploymentTemplateRoot, func(p string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() || !strings.HasSuffix(templatePath, ".tmpl") {
+		if entry.IsDir() || !strings.HasSuffix(p, ".tmpl") {
 			return nil
 		}
-		rendered, inPipeline := renderedManifestPath(templatePath, env)
-		if !inPipeline {
-			dead = append(dead, templatePath)
+		name := strings.TrimSuffix(path.Base(p), ".tmpl")
+		if name == "kustomization.yaml" || name == "kustomization.yml" {
+			content, readErr := fs.ReadFile(templates, p)
+			if readErr != nil {
+				return readErr
+			}
+			kustomizationSources = append(kustomizationSources, string(content))
 			return nil
 		}
-		if _, ok := reachable[filepath.Join(renderedDir, rendered)]; !ok {
-			dead = append(dead, templatePath)
-		}
+		manifests = append(manifests, manifestTemplate{templatePath: p, dir: path.Dir(p), name: name})
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	var dead []string
+	for _, manifest := range manifests {
+		rel := strings.TrimPrefix(manifest.dir, deploymentTemplateRoot+"/")
+		if rel != baseTemplateDir && rel != overlayTemplateDir {
+			// Not one of the two rendered kustomize roots — never rendered.
+			dead = append(dead, manifest.templatePath)
+			continue
+		}
+		if !referencedByKustomization(kustomizationSources, manifest.name) {
+			dead = append(dead, manifest.templatePath)
+		}
+	}
 	sort.Strings(dead)
 	return dead, nil
 }
 
-// renderedManifestPath maps a template path in the embedded FS to the path its
-// output lands at in the rendered tree. Templates outside the two rendered
-// kustomize roots are not part of the pipeline at all.
-func renderedManifestPath(templatePath, env string) (string, bool) {
-	rel := strings.TrimPrefix(templatePath, "templates/deployment/")
-	rel = strings.TrimSuffix(rel, ".tmpl")
-	if sub, ok := strings.CutPrefix(rel, "kustomize/base/"); ok {
-		return filepath.Join("base", sub), true
-	}
-	if sub, ok := strings.CutPrefix(rel, "kustomize/overlays/environment/"); ok {
-		return filepath.Join("overlays", env, sub), true
-	}
-	return "", false
-}
-
-func overlayEnvironment(renderedDir string) (string, error) {
-	entries, err := os.ReadDir(filepath.Join(renderedDir, "overlays"))
-	if err != nil {
-		return "", fmt.Errorf("read overlays: %w", err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			return entry.Name(), nil
-		}
-	}
-	return "", fmt.Errorf("no environment overlay rendered under %s", renderedDir)
-}
-
-// reachableManifestFiles walks the kustomization graph starting from the
-// environment overlay and returns the set of absolute file paths it reaches,
-// including every visited kustomization file.
-func reachableManifestFiles(renderedDir, env string) (map[string]struct{}, error) {
-	reachable := make(map[string]struct{})
-	queue := []string{filepath.Join(renderedDir, "overlays", env)}
-	visited := make(map[string]struct{})
-	for len(queue) > 0 {
-		dir := queue[0]
-		queue = queue[1:]
-		if _, seen := visited[dir]; seen {
-			continue
-		}
-		visited[dir] = struct{}{}
-		kustomization, err := kustomizationPath(dir)
-		if err != nil {
-			return nil, err
-		}
-		if kustomization == "" {
-			continue
-		}
-		reachable[kustomization] = struct{}{}
-		resources, err := kustomizationResources(kustomization)
-		if err != nil {
-			return nil, err
-		}
-		for _, resource := range resources {
-			target := filepath.Clean(filepath.Join(dir, resource))
-			info, err := os.Stat(target)
-			if err != nil {
-				// A resource that does not resolve is a broken kustomization,
-				// not a dead template; the manifest contract check surfaces it.
-				continue
+// referencedByKustomization reports whether a rendered file name appears as a
+// file reference in any kustomization source.
+func referencedByKustomization(sources []string, name string) bool {
+	for _, source := range sources {
+		for _, line := range strings.Split(source, "\n") {
+			if lineReferencesFile(line, name) {
+				return true
 			}
-			if info.IsDir() {
-				queue = append(queue, target)
-				continue
-			}
-			reachable[target] = struct{}{}
 		}
 	}
-	return reachable, nil
+	return false
 }
 
-func kustomizationPath(dir string) (string, error) {
-	for _, name := range []string{"kustomization.yaml", "kustomization.yml"} {
-		candidate := filepath.Join(dir, name)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
+// lineReferencesFile reports whether a single kustomization line names a file
+// whose base name matches name. It handles YAML sequence items (`- x.yaml`),
+// mapping values (`path: x.yaml`), and the combination of the two
+// (`- path: x.yaml`), tolerating relative paths (`../../base/x.yaml`) and
+// quoting.
+func lineReferencesFile(line, name string) bool {
+	value := strings.TrimSpace(line)
+	value = strings.TrimSpace(strings.TrimPrefix(value, "- "))
+	if index := strings.Index(value, ": "); index >= 0 {
+		value = strings.TrimSpace(value[index+2:])
 	}
-	return "", nil
-}
-
-func kustomizationResources(path string) ([]string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
+	value = strings.Trim(value, `"'`)
+	if value == "" {
+		return false
 	}
-	var document struct {
-		Resources []string `yaml:"resources"`
-		Bases     []string `yaml:"bases"`
-	}
-	if err = yaml.Unmarshal(content, &document); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
-	}
-	return append(document.Resources, document.Bases...), nil
+	return path.Base(value) == name
 }

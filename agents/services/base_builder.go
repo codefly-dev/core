@@ -566,11 +566,6 @@ func WithPodOverlay(overlay *PodTemplateOverlay) KustomizeDeploymentOption {
 	return func(d *KustomizeDeployment) { d.PodOverlay = overlay }
 }
 
-// WithDeploymentParameters attaches plugin-specific template parameters.
-func WithDeploymentParameters(parameters any) KustomizeDeploymentOption {
-	return func(d *KustomizeDeployment) { d.Parameters = parameters }
-}
-
 // KustomizeDeploymentContext is passed to a plugin's Prepare hook after the
 // requested standard inputs have been collected and before ConfigMap/Secret
 // data is rendered.
