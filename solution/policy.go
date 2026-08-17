@@ -82,19 +82,20 @@ func CeilingPublish() Ceiling {
 	}
 }
 
-// Client is the canonical host-side Solution client and the only supported way to
-// dispatch a Solution RPC. It makes the operation ceiling a required argument of
-// every call, so host code cannot dispatch a Solution RPC without declaring the
-// operation it performs — the obligation is type-level, not a convention a caller
-// can forget. Each method stamps the ceiling onto the context and delegates to the
-// generated client; EnforcingClientInterceptor, installed on the connection, is
-// what actually gates the call.
+// Client is the canonical host-side Solution client and the only path that can
+// dispatch an effectful Solution RPC. It makes the operation ceiling a required
+// argument of every call, so host code cannot dispatch a Solution RPC without
+// declaring the operation it performs — the obligation is type-level, not a
+// convention a caller can forget. Each method stamps the ceiling onto the context
+// and delegates to the generated client; EnforcingClientInterceptor, installed on
+// the connection, is what actually gates the call.
 //
 // The raw generated solutionv0.SolutionClient is deliberately not a second entry
-// point: the context stamp is unexported (withCeiling), so a caller holding the
-// raw client can only ever reach the least-privilege default ceiling and every
-// mutating RPC fails closed. That leaves this type as the single path that can
-// dispatch anything beyond the read-only advertisement.
+// point for effectful calls: the context stamp is unexported (withCeiling), so a
+// caller holding the raw client can only ever reach the least-privilege default
+// ceiling — enough for the read-only advertisement, which stays reachable that way
+// by design — while every mutating RPC fails closed. That leaves this type as the
+// single path that can dispatch anything beyond that read.
 type Client struct {
 	inner solutionv0.SolutionClient
 }
