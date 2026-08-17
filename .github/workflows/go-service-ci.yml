@@ -16,6 +16,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          # go.mod pins a `toolchain` newer than the `go` line, so GOTOOLCHAIN
+          # downloads the toolchain module into the cache; setup-go's cache tar
+          # then corrupts it on restore (tar: .../toolchain@.../*: File exists),
+          # and generated-service builds fail with "package … is not in std".
+          # Skip the cache so every build uses an intact toolchain.
+          cache: false
       - name: Build
         run: go build ./...
       - name: Vet
@@ -30,6 +36,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          # go.mod pins a `toolchain` newer than the `go` line, so GOTOOLCHAIN
+          # downloads the toolchain module into the cache; setup-go's cache tar
+          # then corrupts it on restore (tar: .../toolchain@.../*: File exists),
+          # and generated-service builds fail with "package … is not in std".
+          # Skip the cache so every build uses an intact toolchain.
+          cache: false
       - name: Setup
         if: inputs.setup-run != ''
         run: ${{ inputs.setup-run }}
