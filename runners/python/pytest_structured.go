@@ -699,7 +699,6 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	suites := make([]*runtimev0.TestSuite, 0, len(r.Suites))
 	counts := &runtimev0.TestCounts{}
 	legacyFailures := make([]string, 0)
-	var legacyOutput strings.Builder
 
 	for _, s := range r.Suites {
 		ps, sCounts := s.toProto()
@@ -802,7 +801,10 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		legacyState = runtimev0.TestStatus_ERROR
 	}
 
-	output := legacyOutput.String()
+	// Legacy output is the same normalized failure set as Failures. The prior
+	// builder was never written, so ordinary failing runs exposed an empty
+	// TestResponse.output even though their structured cases were populated.
+	output := strings.Join(legacyFailures, "\n")
 	if strings.TrimSpace(output) == "" && r.EnvError != nil {
 		output = r.RawOutput
 	}

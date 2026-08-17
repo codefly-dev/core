@@ -180,6 +180,8 @@ func TestPytestStructured_LegacyFieldsMirrorStructured(t *testing.T) {
 	require.Len(t, resp.Failures, 1)
 	require.Contains(t, resp.Failures[0], "tests/test_admin.py")
 	require.Contains(t, resp.Failures[0], "test_fail")
+	require.Equal(t, resp.Failures[0], resp.Output,
+		"legacy output must expose the same normalized failure evidence")
 
 	// Structured equivalent
 	require.NotNil(t, resp.Coverage)

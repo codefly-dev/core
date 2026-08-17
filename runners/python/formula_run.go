@@ -466,7 +466,13 @@ func (w *materializeWatcher) Write(p []byte) (int, error) {
 // RunFormulaStructured runs a test formula through `uv run` and returns the
 // structured result, parsed by the formula's output format. One executor for
 // every python test runner — the formula data is what differs.
-func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormulaSpec) (*StructuredTestRun, error) {
+func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormulaSpec) (run *StructuredTestRun, err error) {
+	diagnosticRoots := []string{sourceDir}
+	defer func() {
+		if run != nil {
+			run.normalizeDiagnostics(diagnosticRoots...)
+		}
+	}()
 	// The formula's cwd (provisioning "cwd") moves the RUN directory, not the
 	// uv args — django's `python runtests.py` only works from tests/. An
 	// invalid cwd is an ENVIRONMENT error the healer can act on, never a
@@ -511,6 +517,7 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 		return nil, fmt.Errorf("create formula evidence directory: %w", err)
 	}
 	defer os.RemoveAll(runtimeDir)
+	diagnosticRoots = append(diagnosticRoots, runtimeDir)
 
 	var junitFile string
 	if spec.Output == OutputJUnitXML {
@@ -566,7 +573,6 @@ func RunFormulaStructured(ctx context.Context, sourceDir string, spec TestFormul
 		return RunFormulaStructured(ctx, sourceDir, spec)
 	}
 
-	var run *StructuredTestRun
 	if spec.Output == OutputJUnitXML {
 		xmlBytes, _ := os.ReadFile(junitFile) //nolint:gosec // private temporary path
 		run = ParsePytestJUnit(string(xmlBytes), scrapeCoverageFromOutput(rawStr))

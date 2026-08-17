@@ -173,7 +173,13 @@ func RunPythonTests(ctx context.Context, sourceDir string, envVars []*resources.
 // Coverage is scraped from pytest-cov's terminal output (XML doesn't
 // carry coverage); the OnEvent callback still works against the
 // verbose stream.
-func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*resources.EnvironmentVariable, opts ...TestOptions) (*StructuredTestRun, error) {
+func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*resources.EnvironmentVariable, opts ...TestOptions) (run *StructuredTestRun, err error) {
+	diagnosticRoots := []string{sourceDir}
+	defer func() {
+		if run != nil {
+			run.normalizeDiagnostics(diagnosticRoots...)
+		}
+	}()
 	var opt TestOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -187,6 +193,7 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 		return nil, fmt.Errorf("create pytest evidence directory: %w", err)
 	}
 	defer os.RemoveAll(junitDir)
+	diagnosticRoots = append(diagnosticRoots, junitDir)
 	junitFile := filepath.Join(junitDir, fmt.Sprintf("pytest-junit-%d.xml", time.Now().UnixNano()))
 
 	// ARCHITECTURE: Packaging backends are allowed to materialize metadata next
@@ -201,6 +208,7 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	if err := snapshotSourceTree(sourceDir, runtimeSourceDir); err != nil {
 		return nil, fmt.Errorf("snapshot Python source for read-only test execution: %w", err)
 	}
+	diagnosticRoots = append(diagnosticRoots, runtimeSourceDir)
 
 	// ARCHITECTURE: The default pytest adapter is still a real formula. Build it
 	// through the same project-derived provisioning contract as an explicitly
@@ -333,7 +341,7 @@ func RunPythonTestsStructured(ctx context.Context, sourceDir string, envVars []*
 	// runErr indicates something went wrong; the caller surfaces it.
 	xmlBytes, _ := os.ReadFile(junitFile) //nolint:gosec // private temporary path
 	coverage := scrapeCoverageFromOutput(rawStr)
-	run := ParsePytestJUnit(string(xmlBytes), coverage)
+	run = ParsePytestJUnit(string(xmlBytes), coverage)
 	run.RawOutput = rawStr
 	// Match formula execution's typed unhappy-path contract. A collection or
 	// provisioning failure that produces zero cases is an environment error,
