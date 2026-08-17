@@ -36,7 +36,7 @@ func TestAdmitsEnforcesBothAxesAndFailsClosed(t *testing.T) {
 	require.Error(t, admits(create, Ceiling{}))
 }
 
-// TestOperationCeilingsAdmitExactlyTheirRPCs pins the provenance chokepoint: each
+// TestOperationCeilingsAdmitExactlyTheirRPCs pins the intent-provenance chokepoint: each
 // named operation ceiling admits exactly the Solution RPCs that operation is
 // allowed to invoke and denies the rest. A drift in the intent→ceiling mapping
 // (or an RPC's declared policy) surfaces here rather than silently widening what
