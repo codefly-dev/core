@@ -149,6 +149,15 @@ func Copy(ctx context.Context, fs shared.FileSystem, f string, destination strin
 }
 
 func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f string, destination string, obj any) error {
+	return copyAndApplyTemplate(ctx, fs, f, destination, obj, false)
+}
+
+// copyAndApplyTemplate renders template f and writes the result to destination.
+// When skipEmpty is set, a result that is blank (only whitespace) writes no file
+// at all: a guarded template whose condition is false then leaves no empty stub
+// behind, rather than an empty file a downstream inventory (e.g. a signed
+// manifest bundle) would still pick up and force a reviewer to re-verify.
+func copyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f string, destination string, obj any, skipEmpty bool) error {
 	w := wool.Get(ctx).In("templates.CopyAndApplyTemplate", wool.Field("from", f), wool.Field("to", destination))
 	// Read the file from the embedded file system
 	data, err := fs.ReadFile(f)
@@ -158,6 +167,9 @@ func CopyAndApplyTemplate(ctx context.Context, fs shared.FileSystem, f string, d
 	out, err := ApplyTemplate(string(data), obj)
 	if err != nil {
 		return w.Wrapf(err, destination)
+	}
+	if skipEmpty && strings.TrimSpace(out) == "" {
+		return nil
 	}
 	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -221,6 +233,10 @@ type Templator struct {
 	PathSelect shared.PathSelect
 	Override   shared.Override
 	NameReplacer
+	// SkipEmptyRender omits a file whose rendered template is blank (only
+	// whitespace) instead of writing an empty stub. Opt-in: the zero value keeps
+	// the historical behavior of always writing a file per template.
+	SkipEmptyRender bool
 }
 
 type CutTemplateSuffix struct {
@@ -278,9 +294,10 @@ func CopyAndApply(ctx context.Context, fs shared.FileSystem, root string, destin
 }
 
 type TemplateVisitor struct {
-	fs      shared.FileSystem
-	tmp     any
-	ignores []string
+	fs        shared.FileSystem
+	tmp       any
+	ignores   []string
+	skipEmpty bool
 }
 
 func (t TemplateVisitor) Ignore(ctx context.Context, file string) bool {
@@ -294,13 +311,13 @@ func (t TemplateVisitor) Ignore(ctx context.Context, file string) bool {
 
 func (t TemplateVisitor) Apply(ctx context.Context, from string, to string) error {
 	if strings.HasSuffix(from, ".tmpl") {
-		return CopyAndApplyTemplate(ctx, t.fs, from, to, t.tmp)
+		return copyAndApplyTemplate(ctx, t.fs, from, to, t.tmp, t.skipEmpty)
 	}
 	return Copy(ctx, t.fs, from, to)
 }
 
 func (t *Templator) CopyAndApply(ctx context.Context, fs shared.FileSystem, root string, destination string, obj any) error {
-	visitor := TemplateVisitor{tmp: obj, fs: fs}
+	visitor := TemplateVisitor{tmp: obj, fs: fs, skipEmpty: t.SkipEmptyRender}
 	return t.WalkAndVisit(ctx, fs, root, destination, visitor)
 }
 

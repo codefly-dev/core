@@ -313,9 +313,8 @@ func TestDeployKustomizeRendersRestrictedSecretFreeTreeWithoutClusterAccess(t *t
 	require.True(t, output.GetValidation().GetRestricted())
 	require.Equal(t, output.GetValidation().GetRestricted(), output.GetValidation().GetPromotable(), //nolint:staticcheck // deprecated field must mirror restricted for the migration window
 		"deprecated promotable field must mirror restricted for the neutral profile")
-	secretManifest, err := os.ReadFile(filepath.Join(destination, "base", "secret.yaml"))
-	require.NoError(t, err)
-	require.Empty(t, strings.TrimSpace(string(secretManifest)))
+	_, err = os.Stat(filepath.Join(destination, "base", "secret.yaml"))
+	require.True(t, os.IsNotExist(err), "restricted render must omit the empty secret manifest, not leave an empty stub")
 	deploymentManifest, err := os.ReadFile(filepath.Join(destination, "base", "deployment.yaml"))
 	require.NoError(t, err)
 	require.NotContains(t, string(deploymentManifest), "must-not-render")
@@ -445,9 +444,8 @@ func TestDeployKustomizeDoesNotRetainSecretsBetweenRequests(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, gitOpsResponse.GetState().GetState())
 	require.NotContains(t, gitOpsResponse.GetState().GetMessage(), "cannot receive secret values")
-	secretManifest, err := os.ReadFile(filepath.Join(gitOpsDestination, "base", "secret.yaml"))
-	require.NoError(t, err)
-	require.Empty(t, strings.TrimSpace(string(secretManifest)))
+	_, err = os.Stat(filepath.Join(gitOpsDestination, "base", "secret.yaml"))
+	require.True(t, os.IsNotExist(err), "restricted render must omit the empty secret manifest, not leave an empty stub")
 }
 
 func TestDeployKustomizeKeepsConcurrentOutputsRequestScoped(t *testing.T) {
