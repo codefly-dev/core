@@ -7,6 +7,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
+	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
 )
 
@@ -120,16 +121,59 @@ func TestRemoteManagerSynthesizesInternalDNSWhenUndeclared(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mappings) != 1 || len(mappings[0].Instances) != 1 {
-		t.Fatalf("mappings = %#v, want one mapping with one instance", mappings)
+	if len(mappings) != 1 || len(mappings[0].Instances) != 2 {
+		t.Fatalf("mappings = %#v, want one mapping with public and container instances", mappings)
 	}
-	instance := mappings[0].Instances[0]
-	if instance.GetAccess().GetKind() != resources.NetworkAccessContainer {
-		t.Fatalf("access = %q, want %q", instance.GetAccess().GetKind(), resources.NetworkAccessContainer)
+	for _, access := range []*basev0.NetworkAccess{
+		resources.NewPublicNetworkAccess(),
+		resources.NewContainerNetworkAccess(),
+	} {
+		instance := resources.FilterNetworkInstance(context.Background(), mappings[0].Instances, access)
+		if instance == nil {
+			t.Fatalf("missing %q access instance", access.GetKind())
+		}
+		if instance.GetHostname() != "accounts.platform.svc.cluster.local" || instance.GetPort() != uint32(standards.Port(standards.GRPC)) {
+			t.Fatalf("%s instance = %s:%d, want accounts.platform.svc.cluster.local:%d", access.GetKind(), instance.GetHostname(), instance.GetPort(), standards.Port(standards.GRPC))
+		}
 	}
-	if instance.GetHostname() != "accounts.platform.svc.cluster.local" || instance.GetPort() != uint32(standards.Port(standards.GRPC)) {
-		t.Fatalf("instance = %s:%d, want accounts.platform.svc.cluster.local:%d", instance.GetHostname(), instance.GetPort(), standards.Port(standards.GRPC))
+}
+
+type noopOutput struct{}
+
+func (noopOutput) ProcessWithSource(*wool.Identifier, *wool.Log) {}
+
+func TestRemoteManagerStartPairingAcceptsTwoInstanceRemoteMapping(t *testing.T) {
+	manager, err := NewRemoteManager(context.Background(), remoteDNSManager{})
+	if err != nil {
+		t.Fatal(err)
 	}
+	environment := &resources.Environment{Name: "aws", Namespace: "platform"}
+	workspace := &resources.Workspace{Name: "mind", Layout: resources.LayoutKindModules}
+	service := &resources.ServiceIdentity{Module: "users", Name: "accounts"}
+	endpoint := &basev0.Endpoint{Module: "users", Service: "accounts", Name: "grpc", Api: standards.GRPC}
+
+	remotes, err := manager.GenerateNetworkMappings(context.Background(), environment, workspace, service, []*basev0.Endpoint{endpoint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remotes[0].Instances) != 2 {
+		t.Fatalf("expected a two-instance synthesized remote mapping, got %#v", remotes[0].Instances)
+	}
+	local := &basev0.NetworkMapping{
+		Endpoint:  endpoint,
+		Instances: []*basev0.NetworkInstance{NativeInstance(resources.NewNetworkInstance("localhost", 12345))},
+	}
+	pairing := &Pairing{Local: local, Remote: remotes[0]}
+
+	// Cancel before StartPairing so the kubectl goroutines return without
+	// spawning a real process; this test only exercises the instance-selection
+	// guard, which runs before any goroutine is launched.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := manager.StartPairing(ctx, environment, workspace, service, pairing, noopOutput{}); err != nil {
+		t.Fatalf("StartPairing rejected a two-instance remote mapping: %v", err)
+	}
+	manager.Stop()
 }
 
 func TestRemoteManagerAssignsSameAPIEndpointsIndependentPorts(t *testing.T) {
