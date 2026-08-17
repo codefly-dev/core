@@ -173,6 +173,42 @@ func TestClientRequiresCeilingPerCall(t *testing.T) {
 	require.Equal(t, 0, server.handled["Package"])
 }
 
+// TestClientEnforcesWithoutDialInterceptor proves Client's ceiling guarantee is
+// intrinsic, not borrowed from the connection: even on a dial that installed NO
+// EnforcingClientInterceptor, an over-ceiling RPC is refused before the wire.
+// Without Client's own check, the ceiling stamp would land on a context nobody
+// reads and every RPC would dispatch unchecked.
+func TestClientEnforcesWithoutDialInterceptor(t *testing.T) {
+	server := &recordingSolutionServer{handled: map[string]int{}}
+	listener := bufconn.Listen(1 << 20)
+	grpcServer := grpc.NewServer()
+	solutionv0.RegisterSolutionServer(grpcServer, server)
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(grpcServer.Stop)
+
+	// Deliberately no EnforcingClientInterceptor on this connection.
+	conn, err := grpc.NewClient(
+		"passthrough:///bufconn",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := solution.NewClient(conn)
+
+	// Scaffold ceiling admits Create — it reaches the server.
+	_, err = client.Create(context.Background(), solution.CeilingScaffold(), &solutionv0.CreateRequest{})
+	require.NoError(t, err)
+	require.Equal(t, 1, server.handled["Create"])
+
+	// Package exceeds it — refused by Client itself, never reaching the server,
+	// even though nothing on the connection would have stopped it.
+	_, err = client.Package(context.Background(), solution.CeilingScaffold(), &solutionv0.PackageRequest{})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	require.Equal(t, 0, server.handled["Package"])
+}
+
 func TestEnforcingClientInterceptorPassesThroughNonSolutionCalls(t *testing.T) {
 	interceptor := solution.EnforcingClientInterceptor()
 	invoked := false

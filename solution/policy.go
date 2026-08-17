@@ -86,9 +86,16 @@ func CeilingPublish() Ceiling {
 // dispatch an effectful Solution RPC. It makes the operation ceiling a required
 // argument of every call, so host code cannot dispatch a Solution RPC without
 // declaring the operation it performs — the obligation is type-level, not a
-// convention a caller can forget. Each method stamps the ceiling onto the context
-// and delegates to the generated client; EnforcingClientInterceptor, installed on
-// the connection, is what actually gates the call.
+// convention a caller can forget.
+//
+// Each method checks the method's declared policy against the ceiling before it
+// dispatches, so the guarantee is intrinsic to Client and does not depend on the
+// connection having been dialed with EnforcingClientInterceptor: a Client built
+// over a plain connection still refuses an over-ceiling call before the wire. It
+// also stamps the ceiling onto the context so that interceptor — installed on
+// every agent connection (agents/manager.Load) as defense in depth and to gate
+// callers that bypass Client — admits the same call rather than defaulting it to
+// least privilege.
 //
 // The raw generated solutionv0.SolutionClient is deliberately not a second entry
 // point for effectful calls: the context stamp is unexported (withCeiling), so a
@@ -100,35 +107,66 @@ type Client struct {
 	inner solutionv0.SolutionClient
 }
 
-// NewClient wraps a connection whose dial installed EnforcingClientInterceptor
-// (every agent connection from agents/manager.Load does).
+// NewClient wraps a connection with the typed, ceiling-enforcing Solution client.
+// The connection need not carry EnforcingClientInterceptor — Client enforces the
+// ceiling itself — though every agent connection from agents/manager.Load installs
+// it anyway to gate any caller that reaches for the raw generated client.
 func NewClient(conn grpc.ClientConnInterface) *Client {
 	return &Client{inner: solutionv0.NewSolutionClient(conn)}
 }
 
 // GetSolutionInformation reads a solution executor's advertisement.
 func (c *Client) GetSolutionInformation(ctx context.Context, ceiling Ceiling, in *solutionv0.GetSolutionInformationRequest, opts ...grpc.CallOption) (*solutionv0.GetSolutionInformationResponse, error) {
+	if err := enforce(solutionv0.Solution_GetSolutionInformation_FullMethodName, ceiling); err != nil {
+		return nil, err
+	}
 	return c.inner.GetSolutionInformation(withCeiling(ctx, ceiling), in, opts...)
 }
 
 // Create scaffolds a new solution into a destination directory.
 func (c *Client) Create(ctx context.Context, ceiling Ceiling, in *solutionv0.CreateRequest, opts ...grpc.CallOption) (*solutionv0.CreateResponse, error) {
+	if err := enforce(solutionv0.Solution_Create_FullMethodName, ceiling); err != nil {
+		return nil, err
+	}
 	return c.inner.Create(withCeiling(ctx, ceiling), in, opts...)
 }
 
 // Update reconciles an existing solution source with the executor's template.
 func (c *Client) Update(ctx context.Context, ceiling Ceiling, in *solutionv0.UpdateRequest, opts ...grpc.CallOption) (*solutionv0.UpdateResponse, error) {
+	if err := enforce(solutionv0.Solution_Update_FullMethodName, ceiling); err != nil {
+		return nil, err
+	}
 	return c.inner.Update(withCeiling(ctx, ceiling), in, opts...)
 }
 
 // Package builds an OCI artifact from a solution source directory and pushes it.
 func (c *Client) Package(ctx context.Context, ceiling Ceiling, in *solutionv0.PackageRequest, opts ...grpc.CallOption) (*solutionv0.PackageResponse, error) {
+	if err := enforce(solutionv0.Solution_Package_FullMethodName, ceiling); err != nil {
+		return nil, err
+	}
 	return c.inner.Package(withCeiling(ctx, ceiling), in, opts...)
 }
 
 // Render renders a packaged solution's manifests into a gitops destination.
 func (c *Client) Render(ctx context.Context, ceiling Ceiling, in *solutionv0.RenderRequest, opts ...grpc.CallOption) (*solutionv0.RenderResponse, error) {
+	if err := enforce(solutionv0.Solution_Render_FullMethodName, ceiling); err != nil {
+		return nil, err
+	}
 	return c.inner.Render(withCeiling(ctx, ceiling), in, opts...)
+}
+
+// enforce refuses an over-ceiling dispatch from Client itself, so the ceiling
+// guarantee holds even on a connection whose dial did not install
+// EnforcingClientInterceptor. It mirrors the interceptor's over-ceiling denial
+// (same PermissionDenied, same message shape); admits fails closed on a missing or
+// unspecified policy, which cannot occur for Client's own annotated Solution
+// methods but keeps the check total.
+func enforce(fullMethod string, ceiling Ceiling) error {
+	policy, _ := policyFor(fullMethod)
+	if err := admits(policy, ceiling); err != nil {
+		return status.Errorf(codes.PermissionDenied, "solution method %s denied: %v", fullMethod, err)
+	}
+	return nil
 }
 
 type ceilingContextKey struct{}
