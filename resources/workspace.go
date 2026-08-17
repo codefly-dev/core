@@ -447,6 +447,9 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 		return w.Wrapf(err, "invalid workspace path data")
 	}
 	for _, env := range workspace.Environments {
+		if env == nil {
+			return w.NewError("workspace declares an empty environment entry")
+		}
 		if err := env.ServiceSecrets.Validate(); err != nil {
 			return w.Wrapf(err, "environment %q has invalid service-secrets", env.Name)
 		}

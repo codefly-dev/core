@@ -92,6 +92,29 @@ func TestValidateEnvironmentsRejectsUnknownService(t *testing.T) {
 	}
 }
 
+// An empty list item under environments unmarshals to a nil *Environment;
+// postLoad must reject it with an error instead of dereferencing it into a panic.
+func TestLoadWorkspaceRejectsEmptyEnvironmentEntry(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: flat
+environments:
+  - name: prod
+    namespace: platform
+  -
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err == nil {
+		t.Fatal("expected an error for an empty environment entry")
+	}
+	if !strings.Contains(err.Error(), "empty environment") {
+		t.Fatalf("error = %v, want it to name the empty environment entry", err)
+	}
+}
+
 func TestEnvironmentGitopsTopologyLoadsFromWorkspace(t *testing.T) {
 	root := t.TempDir()
 	workspace := `name: platform
