@@ -93,12 +93,17 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 // shape to golang.DeployGoKubernetes — the deployment path is language
 // agnostic (env vars + config maps + secrets + kustomize).
 func DeployRustKubernetes(ctx context.Context, builder *services.BuilderWrapper, req *builderv0.DeploymentRequest,
-	envVars *resources.EnvironmentVariableManager, deploymentFS embed.FS) (*builderv0.DeploymentResponse, error) {
-	return builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
+	envVars *resources.EnvironmentVariableManager, deploymentFS embed.FS,
+	opts ...services.KustomizeDeploymentOption) (*builderv0.DeploymentResponse, error) {
+	deployment := services.KustomizeDeployment{
 		EnvironmentVariables: envVars,
 		Templates:            deploymentFS,
 		Inputs:               services.ApplicationDeploymentInputs(),
-	})
+	}
+	for _, opt := range opts {
+		opt(&deployment)
+	}
+	return builder.DeployKustomize(ctx, req, deployment)
 }
 
 // SplitSourceDir splits a source directory like "code/crates/server" into a
