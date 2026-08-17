@@ -11,6 +11,16 @@
 // Solution contract has no host-brokered callback path: a plugin's real
 // filesystem and registry writes are unmediated. Enforcing declared effects
 // against plugin behavior would require a broker this contract does not define.
+//
+// Two properties bound what the gate guarantees. First, it enforces
+// caller-asserted intent, not authority: the constructors below stop a host from
+// hand-widening its own bounds, but the ceiling is not bound to an authorized
+// principal/operation/environment at a trusted chokepoint, so the gate prevents
+// an honest host's accidental over-reach, not a hostile one's. Second, the tier
+// vocabulary (Inspect/Scaffold/Render/Publish) is shaped by this contract alone:
+// its fit to a host's real operations, and whether Render's reach stays
+// REGISTRY_READ or becomes OFFLINE (which follows from how the host resolves the
+// artifact — see solution.proto), are the consuming host's to establish.
 package solution
 
 import (
@@ -34,12 +44,15 @@ const solutionServiceName protoreflect.FullName = "codefly.services.solution.v0.
 // are at or below the ceiling.
 //
 // The fields are unexported and a ceiling is obtained only through the named
-// operation constructors below. That gives the ceiling a provenance: a caller
-// declares the operation it is performing (inspect/scaffold/publish) rather than
-// hand-assembling bounds, so it cannot silently widen its own privilege with a
-// struct literal, and the interceptor can never receive an incoherent ceiling
-// (e.g. registry network with only read-only effect). The intent→ceiling mapping
-// lives here as the single audited chokepoint.
+// operation constructors below. That gives the ceiling an intent provenance: a
+// caller declares the operation it is performing (inspect/scaffold/render/
+// publish) rather than hand-assembling bounds, so it cannot silently widen its
+// own privilege with a struct literal, and the interceptor can never receive an
+// incoherent ceiling (e.g. registry network with only read-only effect). The
+// intent→ceiling mapping lives here as the single audited chokepoint. Binding
+// that intent to an authorized principal is a separate concern the constructors
+// do not address (see the package doc): the constructor proves which operation a
+// caller named, not that the caller was entitled to it.
 type Ceiling struct {
 	network solutionv0.SolutionNetworkMode
 	effect  solutionv0.SolutionEffect
