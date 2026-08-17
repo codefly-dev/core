@@ -56,6 +56,11 @@ type Service struct {
 	// Spec is the specialized configuration of the service
 	Spec map[string]any `yaml:"spec,omitempty"`
 
+	// Autoscale, when set, renders a HorizontalPodAutoscaler next to this
+	// service's Deployment so replicas scale under load instead of relying on
+	// node autoscale alone. CLI-side; not serialized to proto.
+	Autoscale *ServiceAutoscale `yaml:"autoscale,omitempty"`
+
 	// Test is the LANGUAGE-AGNOSTIC test formula for this service: the command
 	// to run plus provisioning, all data, set ONCE here so callers need not
 	// pass a formula on every Test RPC. A per-call runtime TestRequest.formula
@@ -79,6 +84,33 @@ type TestFormula struct {
 	Output       string            `yaml:"output,omitempty"`
 	Env          map[string]string `yaml:"env,omitempty"`
 	Provisioning map[string]string `yaml:"provisioning,omitempty"`
+}
+
+// ServiceAutoscale renders a HorizontalPodAutoscaler that scales the service's
+// Deployment between Min and Max replicas to hold average CPU utilization at
+// TargetCPU percent of each pod's requested CPU.
+type ServiceAutoscale struct {
+	Min       int32 `yaml:"min"`
+	Max       int32 `yaml:"max"`
+	TargetCPU int32 `yaml:"target-cpu"`
+}
+
+// Validate reports whether a declared autoscale block would render a usable
+// HorizontalPodAutoscaler. A nil receiver is a valid "not declared" state.
+func (a *ServiceAutoscale) Validate() error {
+	if a == nil {
+		return nil
+	}
+	if a.Min < 1 {
+		return fmt.Errorf("autoscale.min must be at least 1")
+	}
+	if a.Max < a.Min {
+		return fmt.Errorf("autoscale.max (%d) must be greater than or equal to autoscale.min (%d)", a.Max, a.Min)
+	}
+	if a.TargetCPU < 1 || a.TargetCPU > 100 {
+		return fmt.Errorf("autoscale.target-cpu must be between 1 and 100")
+	}
+	return nil
 }
 
 func (s *Service) Proto(_ context.Context) (*basev0.Service, error) {
@@ -462,6 +494,9 @@ func (s *Service) postLoad(ctx context.Context) error {
 		return w.Wrap(err)
 	}
 	if err := validateEndpointNames(s.Endpoints); err != nil {
+		return w.Wrap(err)
+	}
+	if err := s.Autoscale.Validate(); err != nil {
 		return w.Wrap(err)
 	}
 	for _, dep := range s.ServiceDependencies {
