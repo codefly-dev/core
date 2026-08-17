@@ -71,6 +71,47 @@ environments:
 	}
 }
 
+func TestEnvironmentServiceSecretsLoadFromWorkspace(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    cluster:
+      kind: aks
+    service-secrets:
+      secret-store:
+        name: azure-keyvault-prod
+        kind: ClusterSecretStore
+      services:
+        accounts:
+          remote-keys:
+            workos-client-secret: workos/prod/client-secret
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Environments) != 1 {
+		t.Fatalf("environments = %d, want 1", len(loaded.Environments))
+	}
+	secrets := loaded.Environments[0].ServiceSecrets
+	if secrets == nil {
+		t.Fatal("service-secrets did not load")
+	}
+	if secrets.SecretStore.Name != "azure-keyvault-prod" || secrets.SecretStore.Kind != "ClusterSecretStore" {
+		t.Fatalf("service secret store = %+v", secrets.SecretStore)
+	}
+	if got := secrets.Services["accounts"].RemoteKeys["workos-client-secret"]; got != "workos/prod/client-secret" {
+		t.Fatalf("accounts remote key override = %q", got)
+	}
+}
+
 //
 //func TestEnvironment(t *testing.T) {
 //	ctx := context.Background()

@@ -107,6 +107,25 @@ type EnvironmentManagedService struct {
 	SecretReferences []EnvironmentManagedSecretReference `yaml:"secret-references,omitempty"`
 }
 
+// EnvironmentServiceSecrets declares the External Secrets store that resolves a
+// regular (app) service's secret-service-configurations for an environment. It is
+// the app-service counterpart to EnvironmentManagedService.SecretReferences: the
+// promotion bundle projects each consuming service's secret-<service> from this
+// store, so the Secret its promotable manifests reference via non-optional
+// secretKeyRefs materializes in-cluster without any secret value entering git,
+// state, or manifests.
+type EnvironmentServiceSecrets struct {
+	SecretStore EnvironmentSecretStoreReference            `yaml:"secret-store"`
+	Services    map[string]EnvironmentServiceSecretMapping `yaml:"services,omitempty"`
+}
+
+// EnvironmentServiceSecretMapping overrides the remote-key paths for one service.
+// A secret key absent from RemoteKeys defaults to the "<service>/<key>" path in
+// the store.
+type EnvironmentServiceSecretMapping struct {
+	RemoteKeys map[string]string `yaml:"remote-keys,omitempty"`
+}
+
 // Environment is a configuration for an environment
 type Environment struct {
 	Name        string `yaml:"name"`
@@ -133,6 +152,12 @@ type Environment struct {
 
 	Ingress         []EnvironmentIngressRoute            `yaml:"ingress,omitempty"`
 	ManagedServices map[string]EnvironmentManagedService `yaml:"managed-services,omitempty"`
+
+	// ServiceSecrets declares where this environment's regular services resolve
+	// their secret-service-configurations. Absent, no service secret projection is
+	// rendered and secret-<service> stays an operator precondition. CLI-side; not
+	// serialized to proto.
+	ServiceSecrets *EnvironmentServiceSecrets `yaml:"service-secrets,omitempty"`
 
 	// Secrets lists the secret backends for this environment. Reference-only
 	// manifests fail when their backend is absent. Legacy plaintext *.secret.*
