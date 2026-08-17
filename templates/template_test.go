@@ -80,6 +80,56 @@ func TestCopyAndApplyTemplateToDirLocal(t *testing.T) {
 	testCopyAndApplyTemplateToDir(t, fs, dir)
 }
 
+//go:embed testdata_skipempty/*
+var skipEmpty embed.FS
+
+type skipEmptyData struct {
+	Test string
+	Keep bool
+}
+
+func TestCopyAndApplySkipEmptyRender(t *testing.T) {
+	ctx := context.Background()
+	fs := shared.Embed(skipEmpty)
+	const dir = "testdata_skipempty"
+
+	// Opt-in: a template that renders only whitespace produces no file, while a
+	// sibling that renders content is still written.
+	skipDest := t.TempDir()
+	skipTemplator := &templates.Templator{NameReplacer: templates.CutTemplateSuffix{}, SkipEmptyRender: true}
+	require.NoError(t, skipTemplator.CopyAndApply(ctx, fs, dir, skipDest, skipEmptyData{Test: "x", Keep: false}))
+	_, err := os.Stat(path.Join(skipDest, "blank.txt"))
+	require.True(t, os.IsNotExist(err), "whitespace-only render must not create a file")
+	content, err := os.ReadFile(path.Join(skipDest, "always.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "always: x\n", string(content))
+
+	// Default (opt-out): the same blank template still writes an empty stub, so
+	// the new behavior never changes existing callers.
+	keepDest := t.TempDir()
+	keepTemplator := &templates.Templator{NameReplacer: templates.CutTemplateSuffix{}}
+	require.NoError(t, keepTemplator.CopyAndApply(ctx, fs, dir, keepDest, skipEmptyData{Test: "x", Keep: false}))
+	info, err := os.Stat(path.Join(keepDest, "blank.txt"))
+	require.NoError(t, err, "default behavior unchanged: empty stub still created")
+	require.Empty(t, strings.TrimSpace(readFile(t, path.Join(keepDest, "blank.txt"))))
+	require.NotNil(t, info)
+
+	// Opt-in but non-blank: the guarded branch now renders content, so the file
+	// is written even with SkipEmptyRender.
+	filledDest := t.TempDir()
+	require.NoError(t, skipTemplator.CopyAndApply(ctx, fs, dir, filledDest, skipEmptyData{Test: "y", Keep: true}))
+	content, err = os.ReadFile(path.Join(filledDest, "blank.txt"))
+	require.NoError(t, err)
+	require.Contains(t, string(content), "kept: y")
+}
+
+func readFile(t *testing.T, p string) string {
+	t.Helper()
+	content, err := os.ReadFile(p)
+	require.NoError(t, err)
+	return string(content)
+}
+
 func testCopyAndReplaceToDir(t *testing.T, fs shared.FileSystem, dir string) {
 	ctx := context.Background()
 	dest := t.TempDir()

@@ -827,9 +827,14 @@ func WithBuilder(fsys fs.FS) *TemplateWrapper {
 	return &TemplateWrapper{fs: shared.Embed(fsys), dir: "templates/builder", relative: "builder"}
 }
 
+// WithDeployment renders deployment (kustomize) manifests. A guarded template
+// that renders blank — e.g. a Secret or Namespace elided under a restricted
+// profile — must not leave an empty manifest stub in the tree, which would be
+// inventoried and digested into the signed promotion bundle, so empty renders
+// are skipped here.
 func WithDeployment(fsys fs.FS, sub string) *TemplateWrapper {
 	return &TemplateWrapper{
-		fs: shared.Embed(fsys), dir: fmt.Sprintf("templates/deployment/%s", sub), relative: "deployment"}
+		fs: shared.Embed(fsys), dir: fmt.Sprintf("templates/deployment/%s", sub), relative: "deployment", SkipEmptyRender: true}
 }
 
 type DeploymentWrapper struct {

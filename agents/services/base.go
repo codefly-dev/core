@@ -378,10 +378,19 @@ type TemplateWrapper struct {
 
 	PathSelect shared.PathSelect
 	Override   shared.Override
+
+	// SkipEmptyRender omits a manifest whose rendered template is blank (only
+	// whitespace) rather than writing an empty stub into the destination tree.
+	SkipEmptyRender bool
 }
 
 func (wrapper *TemplateWrapper) WithPathSelect(pathSelect shared.PathSelect) *TemplateWrapper {
 	wrapper.PathSelect = pathSelect
+	return wrapper
+}
+
+func (wrapper *TemplateWrapper) WithSkipEmptyRender() *TemplateWrapper {
+	wrapper.SkipEmptyRender = true
 	return wrapper
 }
 
@@ -411,7 +420,7 @@ func (wrapper *TemplateWrapper) Destination(s *Base) string {
 
 func (s *Base) Templates(ctx context.Context, obj any, wrappers ...*TemplateWrapper) error {
 	for _, wrapper := range wrappers {
-		templator := &templates.Templator{PathSelect: wrapper.PathSelect, Override: wrapper.Override, NameReplacer: templates.CutTemplateSuffix{}}
+		templator := &templates.Templator{PathSelect: wrapper.PathSelect, Override: wrapper.Override, NameReplacer: templates.CutTemplateSuffix{}, SkipEmptyRender: wrapper.SkipEmptyRender}
 		destination := wrapper.Destination(s)
 		s.Wool.Trace("copying and applying template", wool.DirField(destination))
 		err := templator.CopyAndApply(ctx, wrapper.fs, wrapper.dir, destination, obj)
