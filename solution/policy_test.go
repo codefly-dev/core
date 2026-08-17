@@ -97,7 +97,13 @@ func (s *recordingSolutionServer) Package(context.Context, *solutionv0.PackageRe
 	return &solutionv0.PackageResponse{}, nil
 }
 
-func TestEnforcingClientInterceptorDeniesOverCeilingBeforeTheWire(t *testing.T) {
+// TestEnforcingClientInterceptorDefaultsToLeastPrivilege pins the fail-closed
+// behavior seen by a caller holding the raw generated client — the path that can
+// no longer stamp a ceiling now that Client is the single canonical entry point.
+// Such a call is gated at the least-privilege CeilingInspect, so only the
+// read-only advertisement succeeds and every mutating RPC is denied before the
+// wire with a message that names the remedy.
+func TestEnforcingClientInterceptorDefaultsToLeastPrivilege(t *testing.T) {
 	server := &recordingSolutionServer{handled: map[string]int{}}
 	listener := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
@@ -116,31 +122,20 @@ func TestEnforcingClientInterceptorDeniesOverCeilingBeforeTheWire(t *testing.T) 
 
 	client := solutionv0.NewSolutionClient(conn)
 
-	ctx := solution.WithCeiling(context.Background(), solution.CeilingScaffold())
-
-	// Create is at the ceiling — admitted and reaches the server.
-	_, err = client.Create(ctx, &solutionv0.CreateRequest{})
-	require.NoError(t, err)
-	require.Equal(t, 1, server.handled["Create"])
-
-	// Package exceeds the ceiling — denied before crossing the wire.
-	_, err = client.Package(ctx, &solutionv0.PackageRequest{})
-	require.Equal(t, codes.PermissionDenied, status.Code(err))
-	require.Equal(t, 0, server.handled["Package"])
-
 	// No ceiling on the context defaults to least privilege: the read-only
 	// advertisement call is admitted and reaches the server...
 	_, err = client.GetSolutionInformation(context.Background(), &solutionv0.GetSolutionInformationRequest{})
 	require.NoError(t, err)
 	require.Equal(t, 1, server.handled["GetSolutionInformation"])
 
-	// ...but a mutating RPC without a ceiling is still denied before the wire,
-	// and the denial names the remedy so it is not mistaken for an auth failure:
-	// the missing ceiling, not the token, is what the caller must fix.
+	// ...but a mutating RPC without a ceiling is denied before the wire, and the
+	// denial names the remedy so it is not mistaken for an auth failure: the
+	// missing ceiling — declared by routing through solution.Client — not the
+	// token, is what the caller must fix.
 	_, err = client.Create(context.Background(), &solutionv0.CreateRequest{})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
-	require.Equal(t, 1, server.handled["Create"])
-	require.Contains(t, status.Convert(err).Message(), "solution.WithCeiling")
+	require.Equal(t, 0, server.handled["Create"])
+	require.Contains(t, status.Convert(err).Message(), "solution.Client")
 }
 
 // TestClientRequiresCeilingPerCall proves the typed Client makes the ceiling a
@@ -173,6 +168,42 @@ func TestClientRequiresCeilingPerCall(t *testing.T) {
 
 	// ...and denies Package, which the wrapper cannot dispatch without a
 	// publish-level ceiling.
+	_, err = client.Package(context.Background(), solution.CeilingScaffold(), &solutionv0.PackageRequest{})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	require.Equal(t, 0, server.handled["Package"])
+}
+
+// TestClientEnforcesWithoutDialInterceptor proves Client's ceiling guarantee is
+// intrinsic, not borrowed from the connection: even on a dial that installed NO
+// EnforcingClientInterceptor, an over-ceiling RPC is refused before the wire.
+// Without Client's own check, the ceiling stamp would land on a context nobody
+// reads and every RPC would dispatch unchecked.
+func TestClientEnforcesWithoutDialInterceptor(t *testing.T) {
+	server := &recordingSolutionServer{handled: map[string]int{}}
+	listener := bufconn.Listen(1 << 20)
+	grpcServer := grpc.NewServer()
+	solutionv0.RegisterSolutionServer(grpcServer, server)
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(grpcServer.Stop)
+
+	// Deliberately no EnforcingClientInterceptor on this connection.
+	conn, err := grpc.NewClient(
+		"passthrough:///bufconn",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := solution.NewClient(conn)
+
+	// Scaffold ceiling admits Create — it reaches the server.
+	_, err = client.Create(context.Background(), solution.CeilingScaffold(), &solutionv0.CreateRequest{})
+	require.NoError(t, err)
+	require.Equal(t, 1, server.handled["Create"])
+
+	// Package exceeds it — refused by Client itself, never reaching the server,
+	// even though nothing on the connection would have stopped it.
 	_, err = client.Package(context.Background(), solution.CeilingScaffold(), &solutionv0.PackageRequest{})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	require.Equal(t, 0, server.handled["Package"])

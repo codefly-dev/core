@@ -1031,7 +1031,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		grpc.WithPerRPCCredentials(bearerCreds{token: authToken}),
 		// Host-side dispatch gate for the Solution contract: refuses to send a
 		// Solution RPC whose declared effect/network policy exceeds the ceiling
-		// stamped on the call context (solution.WithCeiling). No-ops for every
+		// stamped on the call context by solution.Client. No-ops for every
 		// other service, so it is safe on every agent connection.
 		grpc.WithChainUnaryInterceptor(solution.EnforcingClientInterceptor()),
 		grpcconfig.TypedMessageClientDialOption(),
