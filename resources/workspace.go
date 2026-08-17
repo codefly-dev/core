@@ -368,6 +368,47 @@ func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) err
 	return nil
 }
 
+// ValidateEnvironments cross-checks environment declarations that name services
+// against the workspace's actual service graph. Service-secret overrides are keyed
+// by service name (Environment.ServiceSecrets.Services); a key that matches no
+// loaded service is otherwise a silent no-op at projection time — the service
+// keeps the default "<service>/<key>" remote paths, so a typo'd name resolves the
+// wrong secret or fails at in-cluster sync with nothing catching it earlier.
+// Loading the graph is why this is a pass separate from postLoad, mirroring
+// ValidateServiceDependencies.
+func (workspace *Workspace) ValidateEnvironments(ctx context.Context) error {
+	w := wool.Get(ctx).In("Workspace::ValidateEnvironments", wool.NameField(workspace.Name))
+	needsGraph := false
+	for _, env := range workspace.Environments {
+		if env != nil && env.ServiceSecrets != nil && len(env.ServiceSecrets.Services) > 0 {
+			needsGraph = true
+			break
+		}
+	}
+	if !needsGraph {
+		return nil
+	}
+	services, err := workspace.LoadServices(ctx)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	known := make(map[string]struct{}, len(services))
+	for _, svc := range services {
+		known[svc.Name] = struct{}{}
+	}
+	for _, env := range workspace.Environments {
+		if env == nil || env.ServiceSecrets == nil {
+			continue
+		}
+		for name := range env.ServiceSecrets.Services {
+			if _, ok := known[name]; !ok {
+				return w.Wrap(fmt.Errorf("environment %q service-secrets references unknown service %q", env.Name, name))
+			}
+		}
+	}
+	return nil
+}
+
 // ModulesNames returns the names of the modules in the
 func (workspace *Workspace) ModulesNames() []string {
 	var names []string
@@ -404,6 +445,11 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 	}
 	if err := workspace.validatePaths(); err != nil {
 		return w.Wrapf(err, "invalid workspace path data")
+	}
+	for _, env := range workspace.Environments {
+		if err := env.ServiceSecrets.Validate(); err != nil {
+			return w.Wrapf(err, "environment %q has invalid service-secrets", env.Name)
+		}
 	}
 	if workspace.Layout == LayoutKindFlat {
 		workspace.Modules = []*ModuleReference{{Name: workspace.Name}}

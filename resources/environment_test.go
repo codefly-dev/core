@@ -4,10 +4,93 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
 )
+
+// writeServiceSecretsWorkspace lays down a modules-layout workspace with a single
+// module "saas" owning service "accounts", plus an environment whose
+// service-secrets names serviceName. It is the real graph ValidateEnvironments
+// cross-checks against.
+func writeServiceSecretsWorkspace(t *testing.T, serviceName string) string {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		resources.WorkspaceConfigurationName: `name: platform
+layout: modules
+modules:
+  - name: saas
+environments:
+  - name: prod
+    namespace: platform
+    service-secrets:
+      secret-store:
+        name: azure-keyvault-prod
+        kind: ClusterSecretStore
+      services:
+        ` + serviceName + `:
+          remote-keys:
+            workos-client-secret: workos/prod/client-secret
+`,
+		filepath.Join("modules", "saas", resources.ModuleConfigurationName): `kind: module
+name: saas
+services:
+    - name: accounts
+`,
+		filepath.Join("modules", "saas", "services", "accounts", resources.ServiceConfigurationName): `kind: service
+name: accounts
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+`,
+	}
+	for rel, content := range files {
+		full := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+// A service-secrets override that names a real service passes the graph check.
+func TestValidateEnvironmentsAllowsKnownService(t *testing.T) {
+	ctx := context.Background()
+	root := writeServiceSecretsWorkspace(t, "accounts")
+	ws, err := resources.LoadWorkspaceFromDir(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.ValidateEnvironments(ctx); err != nil {
+		t.Fatalf("ValidateEnvironments = %v, want nil", err)
+	}
+}
+
+// A typo'd service name (here "accunts") would silently drop the override at
+// projection time; the graph check must reject it instead.
+func TestValidateEnvironmentsRejectsUnknownService(t *testing.T) {
+	ctx := context.Background()
+	root := writeServiceSecretsWorkspace(t, "accunts")
+	ws, err := resources.LoadWorkspaceFromDir(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ws.ValidateEnvironments(ctx)
+	if err == nil {
+		t.Fatal("expected ValidateEnvironments to reject unknown service")
+	}
+	if !strings.Contains(err.Error(), "accunts") {
+		t.Fatalf("error = %v, want it to mention the unknown service", err)
+	}
+}
 
 func TestEnvironmentGitopsTopologyLoadsFromWorkspace(t *testing.T) {
 	root := t.TempDir()
@@ -88,6 +171,12 @@ environments:
         accounts:
           remote-keys:
             workos-client-secret: workos/prod/client-secret
+        billing:
+          secret-store:
+            name: aws-secrets-billing
+            kind: SecretStore
+          remote-keys:
+            stripe-key: stripe/prod/key
 `
 	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
 		t.Fatal(err)
@@ -109,6 +198,104 @@ environments:
 	}
 	if got := secrets.Services["accounts"].RemoteKeys["workos-client-secret"]; got != "workos/prod/client-secret" {
 		t.Fatalf("accounts remote key override = %q", got)
+	}
+	// accounts inherits the environment-wide store.
+	if secrets.Services["accounts"].SecretStore != nil {
+		t.Fatalf("accounts secret store override = %+v, want nil", secrets.Services["accounts"].SecretStore)
+	}
+	// billing overrides the store so it can resolve from a different backend.
+	billing := secrets.Services["billing"].SecretStore
+	if billing == nil {
+		t.Fatal("billing secret store override did not load")
+	}
+	if billing.Name != "aws-secrets-billing" || billing.Kind != "SecretStore" {
+		t.Fatalf("billing secret store override = %+v", billing)
+	}
+}
+
+// A workspace with no service-secrets block must load with a nil ServiceSecrets,
+// which is the "no service secret projection is rendered" default — validation
+// must not treat absence as an error.
+func TestEnvironmentServiceSecretsAbsentIsNil(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    cluster:
+      kind: aks
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Environments[0].ServiceSecrets != nil {
+		t.Fatalf("service-secrets = %+v, want nil", loaded.Environments[0].ServiceSecrets)
+	}
+}
+
+// A declared service-secrets block whose store name/kind is missing (here a
+// mistyped `secret-stores:` key that YAML silently drops) must fail at load
+// rather than reach the cluster as an ExternalSecret pointing at store "".
+func TestEnvironmentServiceSecretsRejectsEmptyStore(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    service-secrets:
+      secret-stores:
+        name: azure-keyvault-prod
+        kind: ClusterSecretStore
+      services:
+        accounts:
+          remote-keys:
+            workos-client-secret: workos/prod/client-secret
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err == nil {
+		t.Fatal("expected load to fail for empty service-secrets store")
+	}
+	if !strings.Contains(err.Error(), "secret-store") {
+		t.Fatalf("error = %v, want it to mention secret-store", err)
+	}
+}
+
+// A remote-key mapping to an empty path resolves to no remote at all; it must
+// fail at load instead of projecting a key with a blank remoteRef.
+func TestEnvironmentServiceSecretsRejectsEmptyRemoteKeyPath(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    service-secrets:
+      secret-store:
+        name: azure-keyvault-prod
+        kind: ClusterSecretStore
+      services:
+        accounts:
+          remote-keys:
+            workos-client-secret: ""
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err == nil {
+		t.Fatal("expected load to fail for empty remote-key path")
+	}
+	if !strings.Contains(err.Error(), "workos-client-secret") {
+		t.Fatalf("error = %v, want it to mention the offending key", err)
 	}
 }
 

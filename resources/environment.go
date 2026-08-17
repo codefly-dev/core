@@ -119,11 +119,62 @@ type EnvironmentServiceSecrets struct {
 	Services    map[string]EnvironmentServiceSecretMapping `yaml:"services,omitempty"`
 }
 
-// EnvironmentServiceSecretMapping overrides the remote-key paths for one service.
-// A secret key absent from RemoteKeys defaults to the "<service>/<key>" path in
-// the store.
+// EnvironmentServiceSecretMapping overrides how one service resolves its
+// secret-service-configurations. A secret key absent from RemoteKeys defaults to
+// the "<service>/<key>" path in the store. SecretStore, when set, overrides the
+// environment-wide EnvironmentServiceSecrets.SecretStore for this service so that
+// services in a single environment can resolve from different External Secrets
+// stores — mirroring EnvironmentManagedSecretReference, which also carries a
+// per-reference store.
 type EnvironmentServiceSecretMapping struct {
-	RemoteKeys map[string]string `yaml:"remote-keys,omitempty"`
+	SecretStore *EnvironmentSecretStoreReference `yaml:"secret-store,omitempty"`
+	RemoteKeys  map[string]string                `yaml:"remote-keys,omitempty"`
+}
+
+// validate reports whether the store reference resolves to a usable name/kind.
+// label names the offending block in the error so a misdeclared store fails
+// loudly at load instead of projecting an ExternalSecret against store "".
+func (ref EnvironmentSecretStoreReference) validate(label string) error {
+	if strings.TrimSpace(ref.Name) == "" {
+		return fmt.Errorf("%s: name cannot be empty", label)
+	}
+	if strings.TrimSpace(ref.Kind) == "" {
+		return fmt.Errorf("%s: kind cannot be empty", label)
+	}
+	return nil
+}
+
+// Validate checks the structural invariants of a declared service-secrets block.
+// A non-nil ServiceSecrets that carries an empty store name/kind or a remote-key
+// path that resolves to "" would otherwise load without error and reach the
+// cluster as a broken (or store-less) ExternalSecret; this makes that fail at
+// workspace load instead. A nil receiver is a valid "not declared" state.
+func (s *EnvironmentServiceSecrets) Validate() error {
+	if s == nil {
+		return nil
+	}
+	if err := s.SecretStore.validate("service-secrets secret-store"); err != nil {
+		return err
+	}
+	for name, mapping := range s.Services {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("service-secrets: service name cannot be empty")
+		}
+		if mapping.SecretStore != nil {
+			if err := mapping.SecretStore.validate(fmt.Sprintf("service-secrets service %q secret-store", name)); err != nil {
+				return err
+			}
+		}
+		for key, remote := range mapping.RemoteKeys {
+			if strings.TrimSpace(key) == "" {
+				return fmt.Errorf("service-secrets service %q: remote-key name cannot be empty", name)
+			}
+			if strings.TrimSpace(remote) == "" {
+				return fmt.Errorf("service-secrets service %q: remote-key %q resolves to an empty path", name, key)
+			}
+		}
+	}
+	return nil
 }
 
 // Environment is a configuration for an environment
