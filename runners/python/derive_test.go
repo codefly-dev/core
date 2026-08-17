@@ -318,12 +318,68 @@ commands =
 	}
 }
 
+// Pytest's release workflow uses tox as an automation shell before the
+// matrix-driven test workflow is inspected. A release-notes session must not
+// outrank the default [testenv] command that owns selectors and test output.
+func TestDeriveFormula_PytestReleaseWorkflowFallsBackToDefaultToxCommand(t *testing.T) {
+	dir := t.TempDir()
+	deployWorkflow := `jobs:
+  deploy:
+    steps:
+      - name: Publish GitHub release notes
+        run: tox -e publish-gh-release-notes
+`
+	writeFile(t, dir, ".github/workflows/deploy.yml", deployWorkflow)
+	writeFile(t, dir, ".github/workflows/test.yml", `jobs:
+  test:
+    strategy:
+      matrix:
+        tox_env: [py311, plugins, docs]
+    steps:
+      - name: Run tests
+        run: tox -e ${{ matrix.tox_env }}
+`)
+	toxINI := `[testenv]
+commands =
+    {env:_PYTEST_TOX_COVERAGE_RUN:} pytest {posargs:{env:_PYTEST_TOX_DEFAULT_POSARGS:}}
+
+[testenv:publish-gh-release-notes]
+commands = python scripts/publish-gh-release-notes.py {posargs}
+`
+	writeFile(t, dir, "tox.ini", toxINI)
+	if command, ok := extractFromCI(declaration{source: srcCI, path: "deploy.yml", text: deployWorkflow}); ok {
+		t.Fatalf("release workflow produced test command %q", command)
+	}
+	if command, ok := extractFromTox(declaration{source: srcTox, path: "tox.ini", text: toxINI}); !ok || !strings.Contains(command, "pytest") {
+		t.Fatalf("default tox declaration = %q, %t; want selector-bearing pytest", command, ok)
+	}
+
+	command, output, _, _, ok := DeriveFormula(dir)
+	if !ok {
+		t.Fatal("expected the default tox test formula")
+	}
+	if got := strings.Join(command, " "); got != "pytest" {
+		t.Fatalf("command = %q, want pytest", got)
+	}
+	if output != OutputJUnitXML {
+		t.Fatalf("output = %q, want %q", output, OutputJUnitXML)
+	}
+}
+
 func TestPortableCICommandRequiresTestIntentInExecutionPosition(t *testing.T) {
 	tests := map[string]bool{
 		"pytest -q":                           true,
 		"python -m pytest -q":                 true,
 		"python tests/runtests.py":            true,
 		"tox -e py":                           true,
+		"tox -e py311,plugins":                true,
+		"tox -e publish-gh-release-notes":     false,
+		"tox --env=prepare-release-pr":        false,
+		"tox --showconfig":                    false,
+		"tox -v":                              true,
+		"nox -s tests":                        true,
+		"nox --session release":               false,
+		"nox --list-sessions":                 false,
 		"make test":                           true,
 		"uv run pytest -q":                    true,
 		"coverage run -m pytest":              true,
@@ -335,6 +391,21 @@ func TestPortableCICommandRequiresTestIntentInExecutionPosition(t *testing.T) {
 	for command, want := range tests {
 		if got := portableCICommand(command); got != want {
 			t.Errorf("portableCICommand(%q) = %v, want %v", command, got, want)
+		}
+	}
+}
+
+func TestDropLeadingToxSubstitutions(t *testing.T) {
+	tests := map[string]string{
+		"{env:COVERAGE:} pytest {posargs}":                       "pytest {posargs}",
+		"{env:COVERAGE:python -m coverage run} pytest {posargs}": "pytest {posargs}",
+		"{env:COVERAGE:{tty:coverage run:}} pytest {posargs}":    "pytest {posargs}",
+		"{posargs:{env:DEFAULT_TESTS:tests}}":                    "{posargs:{env:DEFAULT_TESTS:tests}}",
+		"{env:UNTERMINATED pytest {posargs}":                     "{env:UNTERMINATED pytest {posargs}",
+	}
+	for command, want := range tests {
+		if got := dropLeadingToxSubstitutions(command); got != want {
+			t.Errorf("dropLeadingToxSubstitutions(%q) = %q, want %q", command, got, want)
 		}
 	}
 }
