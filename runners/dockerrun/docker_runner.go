@@ -31,7 +31,9 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/go-connections/nat"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/codefly-dev/core/wool"
 	"github.com/docker/docker/api/types/mount"
@@ -42,6 +44,12 @@ type DockerEnvironment struct {
 	client *client.Client
 	image  *resources.DockerImage
 	name   string
+
+	// platform pins the OS/arch a foreign-architecture image is pulled and run
+	// as. It is nil for the common case (host-native image); it is set only
+	// when the image is not published for the host architecture but can run
+	// under emulation — see resolveImagePlatform.
+	platform *ocispec.Platform
 
 	localDir   string
 	workingDir string
@@ -334,7 +342,7 @@ func (docker *DockerEnvironment) createAndStartContainer(
 		wool.Field("host", hostConfig),
 	)
 
-	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, docker.name)
+	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, docker.platform, docker.name)
 	if err != nil {
 		return w.Wrapf(err, "cannot create container")
 	}
@@ -1620,7 +1628,17 @@ func (proc *DockerProc) Match(cmd []string) bool {
 }
 
 func (docker *DockerEnvironment) GetImageIfNotPresent(ctx context.Context, imag *resources.DockerImage) error {
-	return GetImageIfNotPresent(ctx, docker.client, imag, docker.out)
+	w := wool.Get(ctx).In("Docker.GetImageIfNotPresent")
+	exists, err := ImageExists(ctx, docker.client, imag)
+	if err != nil {
+		return w.Wrapf(err, "cannot check if image exists")
+	}
+	if exists {
+		w.Trace("found Docker image locally")
+		return nil
+	}
+	docker.platform = resolveImagePlatform(ctx, docker.client, imag)
+	return pullImage(ctx, docker.client, imag, docker.platform, docker.out)
 }
 
 func GetImageIfNotPresent(ctx context.Context, c *client.Client, imag *resources.DockerImage, out io.Writer) error {
@@ -1631,8 +1649,75 @@ func GetImageIfNotPresent(ctx context.Context, c *client.Client, imag *resources
 		w.Trace("found Docker image locally")
 		return nil
 	}
+	return pullImage(ctx, c, imag, nil, out)
+}
+
+// resolveImagePlatform decides which platform imag must be pulled and run as.
+//
+// It returns nil for the common case — the host architecture can run the image
+// natively — so nothing changes for multi-arch images. It returns a concrete
+// platform only when the image is not published for the host architecture but
+// is published for one the host can run under emulation. Some companion images
+// are pinned single-arch (e.g. linux/amd64 only); a default pull of such an
+// image on a foreign host (Apple Silicon pulling an amd64-only manifest list)
+// fails with "no matching manifest", which would otherwise take down code
+// generation even though Docker can run the image emulated. Targeting the
+// available platform explicitly makes the pull resolve and the container run.
+//
+// Any ambiguity — the distribution can't be inspected (offline, private
+// registry without auth, Docker-less probe) — falls back to the host default so
+// the normal pull path still surfaces a genuine error.
+func resolveImagePlatform(ctx context.Context, cli imageDistributionInspector, imag *resources.DockerImage) *ocispec.Platform {
+	w := wool.Get(ctx).In("Docker.resolveImagePlatform")
+	inspect, err := cli.DistributionInspect(ctx, imag.FullName(), "")
+	if err != nil {
+		w.Debug("cannot inspect image distribution; using host platform", wool.ErrField(err))
+		return nil
+	}
+	var fallback *ocispec.Platform
+	for i := range inspect.Platforms {
+		p := inspect.Platforms[i]
+		if p.OS != "linux" {
+			continue
+		}
+		if p.Architecture == runtime.GOARCH {
+			return nil
+		}
+		if fallback == nil || p.Architecture == "amd64" {
+			fallback = &ocispec.Platform{OS: p.OS, Architecture: p.Architecture, Variant: p.Variant}
+		}
+	}
+	if fallback != nil {
+		w.Warn("image lacks host architecture; running under emulation",
+			wool.Field("image", imag.FullName()),
+			wool.Field("host_arch", runtime.GOARCH),
+			wool.Field("platform", imagePlatformRef(fallback)))
+	}
+	return fallback
+}
+
+// imageDistributionInspector is the subset of the Docker client used to read an
+// image's published platforms without pulling it.
+type imageDistributionInspector interface {
+	DistributionInspect(ctx context.Context, imageRef, encodedRegistryAuth string) (registry.DistributionInspect, error)
+}
+
+func imagePlatformRef(p *ocispec.Platform) string {
+	ref := p.OS + "/" + p.Architecture
+	if p.Variant != "" {
+		ref += "/" + p.Variant
+	}
+	return ref
+}
+
+func pullImage(ctx context.Context, c *client.Client, imag *resources.DockerImage, platform *ocispec.Platform, out io.Writer) error {
+	w := wool.Get(ctx).In("Docker.pullImage")
 	_, _ = w.Forward([]byte(fmt.Sprintf("pulling Docker image %s. Will show progress every 5 seconds.", imag.FullName())))
-	progress, err := c.ImagePull(ctx, imag.FullName(), image.PullOptions{})
+	opts := image.PullOptions{}
+	if platform != nil {
+		opts.Platform = imagePlatformRef(platform)
+	}
+	progress, err := c.ImagePull(ctx, imag.FullName(), opts)
 	if err != nil {
 		return w.Wrapf(err, "cannot pull image: %s", imag.FullName())
 	}
