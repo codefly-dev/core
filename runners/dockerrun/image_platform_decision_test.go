@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
@@ -108,5 +109,47 @@ func TestImagePlatformRef(t *testing.T) {
 	}
 	if ref := imagePlatformRef(&ocispec.Platform{OS: "linux", Architecture: "arm64", Variant: "v8"}); ref != "linux/arm64/v8" {
 		t.Fatalf("got %q, want linux/arm64/v8", ref)
+	}
+}
+
+// TestIsNoMatchingManifestError pins the trigger for the emulation retry: only
+// the registry's architecture-mismatch error opts into inspect+retry; every
+// other pull failure (and the common host-native pull) must propagate unchanged
+// so we never pay the extra DistributionInspect round-trip or mask a real error.
+func TestIsNoMatchingManifestError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil error", err: nil, want: false},
+		{name: "arch mismatch", err: errors.New("no matching manifest for linux/arm64 in the manifest list entries"), want: true},
+		{name: "arch mismatch mixed case", err: errors.New("No Matching Manifest for linux/arm64"), want: true},
+		{name: "auth failure is not a mismatch", err: errors.New("unauthorized: authentication required"), want: false},
+		{name: "not found is not a mismatch", err: errors.New("manifest unknown: not found"), want: false},
+		{name: "network failure is not a mismatch", err: errors.New("dial tcp: connection refused"), want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isNoMatchingManifestError(tc.err); got != tc.want {
+				t.Fatalf("isNoMatchingManifestError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestEmulationFailureHint locks the diagnostic restored at container-start
+// time: a host-native run (platform nil) adds nothing, while a foreign-platform
+// run explains the arch mismatch and points at missing emulation — the clear
+// signal the host-native pull used to surface up front at pull time.
+func TestEmulationFailureHint(t *testing.T) {
+	if hint := emulationFailureHint(nil); hint != "" {
+		t.Fatalf("host-native run must produce no hint, got %q", hint)
+	}
+	hint := emulationFailureHint(&ocispec.Platform{OS: "linux", Architecture: "amd64"})
+	for _, want := range []string{"linux/amd64", runtime.GOARCH, "emulation"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("hint %q must mention %q", hint, want)
+		}
 	}
 }
