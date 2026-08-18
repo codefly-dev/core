@@ -67,9 +67,9 @@ func (s *PythonCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.C
 	if requirementErr != nil {
 		return codeFailure(wrapProjectInfoPython(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", requirementErr.Error()), nil
 	}
-	resp.SourceFiles, err = inspectSourceImports(ctx, s.FS, srcDir, "python")
+	resp.SourceFiles, err = s.inspectSourceImports(ctx, srcDir, "python")
 	if err != nil {
-		return codeFailure(wrapProjectInfoPython(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
+		return codeFailure(wrapProjectInfoPython(resp), sourceImportFailureCode(err), "code.get-project-info", err.Error()), nil
 	}
 
 	return wrapProjectInfoPython(resp), nil
@@ -422,12 +422,12 @@ func splitPEP440Spec(spec string) (name, version string) {
 	return spec, ""
 }
 
-// pythonPackageWalkMaxDepth caps how many directory levels below the
+// PythonPackageWalkMaxDepth caps how many directory levels below the
 // source root discoverPackages recurses into. Ten levels is far deeper
 // than any sane Python package layout (skip set already excludes venvs
 // and caches); the cap bounds the walk on pathological trees such as
 // generated output or vendored data dumps.
-const pythonPackageWalkMaxDepth = 10
+const PythonPackageWalkMaxDepth = 10
 
 // pythonSkipDirs are directory names discoverPackages never descends
 // into — virtualenvs, dependency trees, and VCS/cache directories.
@@ -489,11 +489,11 @@ func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev0.PackageInfo
 // walkPythonPackages emits a PackageInfo for rel if it directly holds
 // .py files, then recurses into its (non-skipped) subdirectories.
 // One FS.ReadDir per directory — the walk is a single pass over the
-// tree, bounded by pythonPackageWalkMaxDepth. Pre-order emission keeps
+// tree, bounded by PythonPackageWalkMaxDepth. Pre-order emission keeps
 // parents ahead of their subpackages and preserves the historical
 // ordering for flat repositories.
 func (s *PythonCodeServer) walkPythonPackages(srcDir, rel string, depth int, out *[]*codev0.PackageInfo) {
-	if depth > pythonPackageWalkMaxDepth {
+	if depth > PythonPackageWalkMaxDepth {
 		return
 	}
 	entries, err := s.FS.ReadDir(filepath.Join(srcDir, rel))

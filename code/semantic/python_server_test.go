@@ -1,4 +1,4 @@
-package code
+package semantic
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codefly-dev/core/code"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
@@ -16,7 +17,7 @@ import (
 // recursive package walk: nested subpackages, namespace packages
 // (no __init__.py), an intermediate directory with no .py files of its
 // own, and skip-set directories that must stay invisible.
-func newPythonProject(t *testing.T, files map[string]string) *PythonCodeServer {
+func newPythonProject(t *testing.T, files map[string]string) *code.PythonCodeServer {
 	t.Helper()
 	dir := t.TempDir()
 	for rel, content := range files {
@@ -28,7 +29,7 @@ func newPythonProject(t *testing.T, files map[string]string) *PythonCodeServer {
 			t.Fatalf("write %s: %v", rel, err)
 		}
 	}
-	return NewPythonCodeServer(dir, nil)
+	return code.NewPythonCodeServer(dir, []code.ServerOption{code.WithSemanticAnalyzer(New())})
 }
 
 func TestPythonProjectInfoReadsPreferredInputRequirements(t *testing.T) {
@@ -109,7 +110,7 @@ func TestPythonProjectInfoReturnsTypedPartialFailureForMissingRequirementInclude
 }
 
 // packagesByPath indexes a GetProjectInfo package list by RelativePath.
-func packagesByPath(t *testing.T, s *PythonCodeServer) map[string]pkgView {
+func packagesByPath(t *testing.T, s *code.PythonCodeServer) map[string]pkgView {
 	t.Helper()
 	response, err := s.Execute(context.Background(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}}})
 	if err != nil {
@@ -218,11 +219,11 @@ func TestPythonDiscoverPackages_NestedSubpackages(t *testing.T) {
 }
 
 // TestPythonDiscoverPackages_DepthCap asserts the recursion stops at
-// pythonPackageWalkMaxDepth so pathological trees stay bounded.
+// code.PythonPackageWalkMaxDepth so pathological trees stay bounded.
 func TestPythonDiscoverPackages_DepthCap(t *testing.T) {
 	files := map[string]string{}
 	rel := ""
-	for i := 0; i < pythonPackageWalkMaxDepth+2; i++ {
+	for i := 0; i < code.PythonPackageWalkMaxDepth+2; i++ {
 		if rel == "" {
 			rel = "d"
 		} else {
@@ -233,7 +234,7 @@ func TestPythonDiscoverPackages_DepthCap(t *testing.T) {
 	s := newPythonProject(t, files)
 	pkgs := packagesByPath(t, s)
 
-	atCap := strings.TrimSuffix(strings.Repeat("d/", pythonPackageWalkMaxDepth), "/")
+	atCap := strings.TrimSuffix(strings.Repeat("d/", code.PythonPackageWalkMaxDepth), "/")
 	if _, ok := pkgs[atCap]; !ok {
 		t.Errorf("package at depth cap %q should be discovered; got %v", atCap, pkgPaths(pkgs))
 	}

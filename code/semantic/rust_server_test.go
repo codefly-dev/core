@@ -1,18 +1,19 @@
-package code
+package semantic
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/codefly-dev/core/code"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 )
 
 func TestRustCodeServerGetProjectInfoSingleCrate(t *testing.T) {
-	root := filepath.Join("testdata", "rust", "single")
-	server := NewRustCodeServer(root)
+	root := filepath.Join("..", "testdata", "rust", "single")
+	server := code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New()))
 	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
 		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
 	})
@@ -39,8 +40,8 @@ func TestRustCodeServerGetProjectInfoSingleCrate(t *testing.T) {
 }
 
 func TestRustCodeServerScopesCargoWorkspaceToMemberCodeUnit(t *testing.T) {
-	root := filepath.Join("testdata", "rust", "workspace", "alpha")
-	response, err := NewSourceTooling(NewRustCodeServer(root)).GetProjectInfo(t.Context(), &toolingv0.GetProjectInfoRequest{})
+	root := filepath.Join("..", "testdata", "rust", "workspace", "alpha")
+	response, err := code.NewSourceTooling(code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New()))).GetProjectInfo(t.Context(), &toolingv0.GetProjectInfoRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,12 +62,12 @@ func TestRustCodeServerScopesCargoWorkspaceToMemberCodeUnit(t *testing.T) {
 }
 
 func TestRustCodeServerGetProjectInfoCargoWorkspace(t *testing.T) {
-	fixture := filepath.Join("testdata", "rust", "workspace")
+	fixture := filepath.Join("..", "testdata", "rust", "workspace")
 	root := filepath.Join(t.TempDir(), "session-matrix.repository-worktree-ephemeral")
 	if err := os.CopyFS(root, os.DirFS(fixture)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := NewRustCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+	response, err := code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New())).Execute(t.Context(), &codev0.CodeRequest{
 		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
 	})
 	if err != nil {
@@ -88,8 +89,8 @@ func TestRustCodeServerGetProjectInfoCargoWorkspace(t *testing.T) {
 }
 
 func TestRustCodeServerMalformedManifestFailsClosed(t *testing.T) {
-	root := filepath.Join("testdata", "rust", "malformed")
-	response, err := NewRustCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+	root := filepath.Join("..", "testdata", "rust", "malformed")
+	response, err := code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New())).Execute(t.Context(), &codev0.CodeRequest{
 		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
 	})
 	if err != nil {

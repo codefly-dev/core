@@ -1,4 +1,4 @@
-package code
+package semantic
 
 import (
 	"context"
@@ -30,7 +30,7 @@ import org.apache.logging.log4j.Logger;
 class Ads {}
 `)
 
-	response, err := NewDefaultCodeServer(root).Execute(context.Background(), &codev0.CodeRequest{
+	response, err := newSemanticServer(root).Execute(context.Background(), &codev0.CodeRequest{
 		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
 	})
 	if err != nil {
@@ -69,7 +69,7 @@ func TestDefaultCodeServerInspectsDotNetSolutionProjects(t *testing.T) {
 	writeProjectInspectionFile(t, root, "tests/cartservice.tests.csproj", `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup><ItemGroup><PackageReference Include="xunit" Version="2.9.3" /></ItemGroup></Project>`)
 	writeProjectInspectionFile(t, root, "src/Program.cs", "using Grpc.Core;\nusing Microsoft.AspNetCore.Hosting;\nclass Program {}\n")
 
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+	response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{
 		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
 	})
 	if err != nil {
@@ -98,7 +98,7 @@ func TestDefaultCodeServerInspectsDotNetSolutionProjects(t *testing.T) {
 func TestDefaultCodeServerReportsUnsupportedInspectionAsTypedFailure(t *testing.T) {
 	root := t.TempDir()
 	writeProjectInspectionFile(t, root, "Gemfile", "source 'https://rubygems.org'\n")
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
+	response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{
 		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
 	})
 	if err != nil {

@@ -76,7 +76,7 @@ func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeR
 	}
 
 	resp.FileHashes = computeFileHashes(s.FS, srcDir)
-	resp.SourceFiles, err = inspectSourceImports(ctx, s.FS, srcDir, "go")
+	resp.SourceFiles, err = s.inspectSourceImports(ctx, srcDir, "go")
 	if err != nil {
 		return codeFailure(wrapProjectInfo(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
 	}

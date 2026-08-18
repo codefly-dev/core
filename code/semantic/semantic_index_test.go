@@ -1,4 +1,4 @@
-package code
+package semantic
 
 import (
 	"os"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codefly-dev/core/code"
 	"github.com/codefly-dev/core/code/semanticcontract"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
@@ -65,7 +66,7 @@ pub type Key = String;
 		}
 	}
 
-	server := NewDefaultCodeServer(root)
+	server := newSemanticServer(root)
 	response, err := server.Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +86,7 @@ pub type Key = String;
 		}
 	}
 	for _, symbol := range index.GetSymbols() {
-		if !canonicalSemanticSHA256(symbol.GetDeclarationSha256()) {
+		if !isCanonicalSHA256(symbol.GetDeclarationSha256()) {
 			t.Fatalf("symbol %q has no analyzer-owned declaration hash", symbol.GetQualifiedName())
 		}
 	}
@@ -154,7 +155,7 @@ type Alias[T any] = Value[T]
 		}
 	}
 
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +187,7 @@ func TestSemanticIndexReportsDegradedAndNotAttemptedCoverage(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "broken.py"), []byte("def broken(:\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+		response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -204,7 +205,7 @@ func TestSemanticIndexReportsDegradedAndNotAttemptedCoverage(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "main.rb"), []byte("puts 'hello'\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+		response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -229,7 +230,7 @@ func TestSemanticIndexTraversesLocalDirectorySymlinkRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server := NewDefaultCodeServer(logicalRoot)
+	server := newSemanticServer(logicalRoot)
 	if server.SourceDir != physicalRoot {
 		t.Fatalf("source root = %q, want physical root %q", server.SourceDir, physicalRoot)
 	}
@@ -246,7 +247,7 @@ func TestSemanticIndexTraversesLocalDirectorySymlinkRoot(t *testing.T) {
 	}
 
 	customRoot := filepath.Join(logicalRoot, "opaque")
-	custom := NewDefaultCodeServer(customRoot, WithVFS(NewMemoryVFS()))
+	custom := newSemanticServer(customRoot, code.WithVFS(code.NewMemoryVFS()))
 	if custom.SourceDir != customRoot {
 		t.Fatalf("custom VFS root = %q, want opaque identity %q", custom.SourceDir, customRoot)
 	}
@@ -271,7 +272,7 @@ func second() {
 	if err := os.WriteFile(filepath.Join(root, "nested.py"), []byte(python), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +296,7 @@ func TestSourceToolingDelegatesSemanticIndex(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	response, err := NewSourceTooling(NewDefaultCodeServer(root)).GetSemanticIndex(t.Context(), &toolingv0.GetSemanticIndexRequest{})
+	response, err := code.NewSourceTooling(newSemanticServer(root)).GetSemanticIndex(t.Context(), &toolingv0.GetSemanticIndexRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}

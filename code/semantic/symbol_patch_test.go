@@ -1,4 +1,4 @@
-package code
+package semantic
 
 import (
 	"os"
@@ -28,7 +28,7 @@ func TestApplySymbolPatchUsesAnalyzerOwnedDeclarationAcrossSupportedLanguages(t 
 			if err := os.WriteFile(path, []byte(test.before), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			server := NewDefaultCodeServer(root)
+			server := newSemanticServer(root)
 			t.Cleanup(func() { _ = server.Close() })
 			request := &codev0.ApplySymbolPatchRequest{
 				File: test.file, QualifiedName: test.qualifiedName,
@@ -67,7 +67,7 @@ func TestApplySymbolPatchFailsClosedOnStaleAnchorAndInvalidReplacement(t *testin
 	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	server := NewDefaultCodeServer(root)
+	server := newSemanticServer(root)
 	t.Cleanup(func() { _ = server.Close() })
 	request := func(hash, replacement string) *codev0.CodeRequest {
 		return &codev0.CodeRequest{Operation: &codev0.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: &codev0.ApplySymbolPatchRequest{
@@ -96,7 +96,7 @@ func TestApplySymbolPatchAcceptsFileShapedNestedDeclaration(t *testing.T) {
 	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	server := NewDefaultCodeServer(root)
+	server := newSemanticServer(root)
 	t.Cleanup(func() { _ = server.Close() })
 	declaration := "def render(self):\n        return 1"
 	replacement := "    def render(self):\n        return 2"
@@ -124,7 +124,7 @@ func TestApplySymbolPatchRejectsChangedQualifiedIdentity(t *testing.T) {
 	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	server := NewDefaultCodeServer(root)
+	server := newSemanticServer(root)
 	t.Cleanup(func() { _ = server.Close() })
 	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
 		Operation: &codev0.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: &codev0.ApplySymbolPatchRequest{

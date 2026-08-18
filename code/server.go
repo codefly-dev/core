@@ -99,12 +99,13 @@ type DefaultCodeServer struct {
 	overrides          map[string]OperationHandler
 	wantCachedFS       bool
 	wantTrigramIndex   bool
-	contentCacheBudget int64         // 0 = no content cache
-	cachedFS           *CachedVFS    // non-nil when CachedVFS is active
-	trigramIdx         *TrigramIndex // non-nil when trigram indexing is active
-	nativeGit          *NativeGit    // lazily opened go-git repo
-	writeListener      WriteListener // optional post-mutation hook
-	sourceFixer        SourceFixer   // optional language-aware in-memory fixer
+	contentCacheBudget int64            // 0 = no content cache
+	cachedFS           *CachedVFS       // non-nil when CachedVFS is active
+	trigramIdx         *TrigramIndex    // non-nil when trigram indexing is active
+	nativeGit          *NativeGit       // lazily opened go-git repo
+	writeListener      WriteListener    // optional post-mutation hook
+	sourceFixer        SourceFixer      // optional language-aware in-memory fixer
+	semantic           SemanticAnalyzer // optional tree-sitter source analysis
 }
 
 // NewDefaultCodeServer creates a server rooted at sourceDir.
@@ -676,9 +677,11 @@ func sourceDigest(content []byte) string {
 
 // --- GetProjectInfo (generic: file walk + hashes) ---
 
-// maxHashFileSize is the maximum file size we'll read for hashing.
-// Files larger than this are skipped to avoid unbounded memory usage.
-const maxHashFileSize = 10 * 1024 * 1024 // 10MB
+// MaxSourceFileSize is the maximum size of a single source file that Codefly
+// will read whole — for hashing here and for source parsing in the semantic
+// analyzer. Larger files are skipped to bound memory usage. It is the one
+// limit both boundaries share; keep it single-sourced so they cannot drift.
+const MaxSourceFileSize = 10 * 1024 * 1024 // 10MB
 
 func (s *DefaultCodeServer) getProjectInfo(ctx context.Context, _ *codev0.GetProjectInfoRequest) (*codev0.CodeResponse, error) {
 	info, failure := s.inspectDeclarativeProject(ctx)
@@ -687,7 +690,7 @@ func (s *DefaultCodeServer) getProjectInfo(ctx context.Context, _ *codev0.GetPro
 
 // ComputeFileHashes walks a directory and hashes source files.
 // If extensions is nil, all files are included. Otherwise only matching extensions.
-// Files larger than maxHashFileSize are skipped.
+// Files larger than MaxSourceFileSize are skipped.
 // Shared by DefaultCodeServer and language-specific servers.
 func ComputeFileHashes(vfs VFS, dir string, extensions map[string]bool) map[string]string {
 	hashes := make(map[string]string)
@@ -712,7 +715,7 @@ func ComputeFileHashes(vfs VFS, dir string, extensions map[string]bool) map[stri
 		}
 		// Skip large files
 		info, statErr := vfs.Stat(path)
-		if statErr != nil || info.Size() > maxHashFileSize {
+		if statErr != nil || info.Size() > MaxSourceFileSize {
 			return nil
 		}
 		rel, _ := filepath.Rel(dir, path)
