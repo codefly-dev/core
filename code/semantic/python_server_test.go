@@ -1,4 +1,4 @@
-package code
+package semantic
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codefly-dev/core/code"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
@@ -16,7 +17,7 @@ import (
 // recursive package walk: nested subpackages, namespace packages
 // (no __init__.py), an intermediate directory with no .py files of its
 // own, and skip-set directories that must stay invisible.
-func newPythonProject(t *testing.T, files map[string]string) *PythonCodeServer {
+func newPythonProject(t *testing.T, files map[string]string) *code.PythonCodeServer {
 	t.Helper()
 	dir := t.TempDir()
 	for rel, content := range files {
@@ -28,7 +29,7 @@ func newPythonProject(t *testing.T, files map[string]string) *PythonCodeServer {
 			t.Fatalf("write %s: %v", rel, err)
 		}
 	}
-	return NewPythonCodeServer(dir, nil)
+	return code.NewPythonCodeServer(dir, []code.ServerOption{code.WithSemanticAnalyzer(New())})
 }
 
 func TestPythonProjectInfoReadsPreferredInputRequirements(t *testing.T) {
@@ -109,7 +110,7 @@ func TestPythonProjectInfoReturnsTypedPartialFailureForMissingRequirementInclude
 }
 
 // packagesByPath indexes a GetProjectInfo package list by RelativePath.
-func packagesByPath(t *testing.T, s *PythonCodeServer) map[string]pkgView {
+func packagesByPath(t *testing.T, s *code.PythonCodeServer) map[string]pkgView {
 	t.Helper()
 	response, err := s.Execute(context.Background(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}}})
 	if err != nil {
@@ -216,6 +217,10 @@ func TestPythonDiscoverPackages_NestedSubpackages(t *testing.T) {
 		t.Errorf("app package absorbed subpackage imports: %v", app.imports)
 	}
 }
+
+// pythonPackageWalkMaxDepth mirrors the cap enforced in code's Python server;
+// keep the two in sync.
+const pythonPackageWalkMaxDepth = 10
 
 // TestPythonDiscoverPackages_DepthCap asserts the recursion stops at
 // pythonPackageWalkMaxDepth so pathological trees stay bounded.

@@ -87,7 +87,7 @@ func (s *RustCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.Cod
 	})
 
 	response.FileHashes = ComputeFileHashes(s.FS, sourceRoot, rustProjectFileExtensions)
-	response.SourceFiles, err = inspectSourceImports(ctx, s.FS, sourceRoot, "rust")
+	response.SourceFiles, err = s.inspectSourceImports(ctx, sourceRoot, "rust")
 	if err != nil {
 		return codeFailure(wrapRustProjectInfo(response), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED,
 			"code.get-project-info", err.Error()), nil

@@ -1,4 +1,4 @@
-package code
+package semantic
 
 // ARCHITECTURE: tree-sitter stays inside the Codefly source boundary. Parse
 // diagnostics may expose stable body-free coordinates and node kinds, but

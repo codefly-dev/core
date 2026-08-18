@@ -67,7 +67,7 @@ func (s *PythonCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.C
 	if requirementErr != nil {
 		return codeFailure(wrapProjectInfoPython(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", requirementErr.Error()), nil
 	}
-	resp.SourceFiles, err = inspectSourceImports(ctx, s.FS, srcDir, "python")
+	resp.SourceFiles, err = s.inspectSourceImports(ctx, srcDir, "python")
 	if err != nil {
 		return codeFailure(wrapProjectInfoPython(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
 	}

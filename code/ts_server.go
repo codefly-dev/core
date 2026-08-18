@@ -64,7 +64,7 @@ func (s *TypeScriptCodeServer) handleGetProjectInfo(ctx context.Context, _ *code
 	resp.Packages = s.discoverTSPackages(srcDir)
 	resp.FileHashes = s.computeTSFileHashes(srcDir)
 	var err error
-	resp.SourceFiles, err = inspectSourceImports(ctx, s.FS, srcDir, "typescript")
+	resp.SourceFiles, err = s.inspectSourceImports(ctx, srcDir, "typescript")
 	if err != nil {
 		return codeFailure(wrapProjectInfoTS(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
 	}

@@ -99,12 +99,13 @@ type DefaultCodeServer struct {
 	overrides          map[string]OperationHandler
 	wantCachedFS       bool
 	wantTrigramIndex   bool
-	contentCacheBudget int64         // 0 = no content cache
-	cachedFS           *CachedVFS    // non-nil when CachedVFS is active
-	trigramIdx         *TrigramIndex // non-nil when trigram indexing is active
-	nativeGit          *NativeGit    // lazily opened go-git repo
-	writeListener      WriteListener // optional post-mutation hook
-	sourceFixer        SourceFixer   // optional language-aware in-memory fixer
+	contentCacheBudget int64            // 0 = no content cache
+	cachedFS           *CachedVFS       // non-nil when CachedVFS is active
+	trigramIdx         *TrigramIndex    // non-nil when trigram indexing is active
+	nativeGit          *NativeGit       // lazily opened go-git repo
+	writeListener      WriteListener    // optional post-mutation hook
+	sourceFixer        SourceFixer      // optional language-aware in-memory fixer
+	semantic           SemanticAnalyzer // optional tree-sitter source analysis
 }
 
 // NewDefaultCodeServer creates a server rooted at sourceDir.
