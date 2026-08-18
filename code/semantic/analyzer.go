@@ -15,10 +15,6 @@ func New() *Analyzer { return &Analyzer{} }
 
 var _ code.SemanticAnalyzer = (*Analyzer)(nil)
 
-// maxSourceFileSize bounds the bytes read for a single source file during
-// inspection.
-const maxSourceFileSize = 10 * 1024 * 1024 // 10MB
-
 // Hash returns the lowercase SHA-256 hex digest used for semantic declaration
 // identity.
 func Hash(value []byte) string { return semanticHash(value) }

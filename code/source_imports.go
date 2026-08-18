@@ -10,6 +10,7 @@ package code
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -19,8 +20,14 @@ import (
 	"strconv"
 	"strings"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
+
+// errNoSemanticAnalyzer marks a source-import failure caused by a missing
+// analyzer (a wiring gap) rather than malformed source, so callers can report
+// it as unsupported instead of a validation failure.
+var errNoSemanticAnalyzer = errors.New("source-semantics analyzer not installed")
 
 // inspectSourceImports returns a deterministic per-file import inventory. Go is
 // parsed with the standard library; other languages require an installed
@@ -30,9 +37,19 @@ func (s *DefaultCodeServer) inspectSourceImports(ctx context.Context, root, lang
 		return inspectGoSourceImports(ctx, s.FS, root)
 	}
 	if s.semantic == nil {
-		return nil, fmt.Errorf("source import inspection for language %q requires a source-semantics analyzer", language)
+		return nil, fmt.Errorf("source import inspection for language %q requires a source-semantics analyzer: %w", language, errNoSemanticAnalyzer)
 	}
 	return s.semantic.SourceImports(ctx, s.FS, root, language)
+}
+
+// sourceImportFailureCode classifies a source-import error: a missing analyzer
+// is an unsupported operation, everything else (malformed source, I/O) is a
+// validation failure.
+func sourceImportFailureCode(err error) basev0.FailureCode {
+	if errors.Is(err, errNoSemanticAnalyzer) {
+		return basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION
+	}
+	return basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED
 }
 
 func inspectGoSourceImports(ctx context.Context, vfs VFS, root string) ([]*codev0.SourceFileInfo, error) {

@@ -119,7 +119,7 @@ func (a *Analyzer) SourceImports(ctx context.Context, vfs code.VFS, root, langua
 		if err != nil {
 			return err
 		}
-		if info.Size() > maxSourceFileSize {
+		if info.Size() > code.MaxSourceFileSize {
 			return fmt.Errorf("source file %q exceeds inspection limit", relative)
 		}
 		body, err := vfs.ReadFile(filename)

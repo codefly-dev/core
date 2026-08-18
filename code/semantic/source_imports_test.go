@@ -70,7 +70,7 @@ func TestSourceImportsSizeLimitUsesRepositoryRelativePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Truncate(maxSourceFileSize + 1); err != nil {
+	if err := file.Truncate(code.MaxSourceFileSize + 1); err != nil {
 		_ = file.Close()
 		t.Fatal(err)
 	}

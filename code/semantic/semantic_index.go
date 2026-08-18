@@ -124,8 +124,8 @@ func (a *Analyzer) SemanticIndex(ctx context.Context, sourceDir string, fs code.
 		if err != nil {
 			return err
 		}
-		if info.Size() > maxSourceFileSize {
-			index.Issues = append(index.Issues, semanticIssue("file_too_large", relative, fmt.Sprintf("source file exceeds %d-byte semantic inspection limit", maxSourceFileSize)))
+		if info.Size() > code.MaxSourceFileSize {
+			index.Issues = append(index.Issues, semanticIssue("file_too_large", relative, fmt.Sprintf("source file exceeds %d-byte semantic inspection limit", code.MaxSourceFileSize)))
 			return nil
 		}
 		body, err := fs.ReadFile(filename)

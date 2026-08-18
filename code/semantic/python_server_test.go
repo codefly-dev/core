@@ -218,16 +218,12 @@ func TestPythonDiscoverPackages_NestedSubpackages(t *testing.T) {
 	}
 }
 
-// pythonPackageWalkMaxDepth mirrors the cap enforced in code's Python server;
-// keep the two in sync.
-const pythonPackageWalkMaxDepth = 10
-
 // TestPythonDiscoverPackages_DepthCap asserts the recursion stops at
-// pythonPackageWalkMaxDepth so pathological trees stay bounded.
+// code.PythonPackageWalkMaxDepth so pathological trees stay bounded.
 func TestPythonDiscoverPackages_DepthCap(t *testing.T) {
 	files := map[string]string{}
 	rel := ""
-	for i := 0; i < pythonPackageWalkMaxDepth+2; i++ {
+	for i := 0; i < code.PythonPackageWalkMaxDepth+2; i++ {
 		if rel == "" {
 			rel = "d"
 		} else {
@@ -238,7 +234,7 @@ func TestPythonDiscoverPackages_DepthCap(t *testing.T) {
 	s := newPythonProject(t, files)
 	pkgs := packagesByPath(t, s)
 
-	atCap := strings.TrimSuffix(strings.Repeat("d/", pythonPackageWalkMaxDepth), "/")
+	atCap := strings.TrimSuffix(strings.Repeat("d/", code.PythonPackageWalkMaxDepth), "/")
 	if _, ok := pkgs[atCap]; !ok {
 		t.Errorf("package at depth cap %q should be discovered; got %v", atCap, pkgPaths(pkgs))
 	}
