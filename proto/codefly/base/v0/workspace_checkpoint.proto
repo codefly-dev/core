@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package codefly.base.v0;
+
+import "codefly/base/v0/failure.proto";
+import "codefly/base/v0/storage.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/codefly-dev/core/generated/go/codefly/base/v0;basev0";
+
+// WorkspaceLeaseIdentity binds mutable state to one active workspace lease.
+message WorkspaceLeaseIdentity {
+  // workspace_id identifies the stable mutable workspace.
+  string workspace_id = 1;
+  // lease_id identifies the active authority lifetime for the workspace.
+  string lease_id = 2;
+}
+
+// WorkspaceStateIdentity is Codefly's body-free identity for exact project
+// bytes. version is the canonical compare-and-swap token; digest is retained
+// separately so journals never need to interpret the version encoding.
+message WorkspaceStateIdentity {
+  // version is the canonical token used for compare-and-swap operations.
+  string version = 1;
+  // digest is the SHA-256 identity of the exact project state.
+  string digest = 2;
+}
+
+// WorkspaceCheckpointRetentionIntent selects the maximum retention lifetime.
+enum WorkspaceCheckpointRetentionIntent {
+  // UNSPECIFIED is rejected by checkpoint creation.
+  WORKSPACE_CHECKPOINT_RETENTION_INTENT_UNSPECIFIED = 0;
+  // UNTIL_RELEASE_OR_LEASE_END retains the checkpoint across run-control
+  // segments until explicit release or termination of its owning lease.
+  WORKSPACE_CHECKPOINT_RETENTION_INTENT_UNTIL_RELEASE_OR_LEASE_END = 1;
+}
+
+// WorkspaceCheckpoint is the source-free receipt for one durable dirty
+// workspace candidate. checkpoint_id is opaque and never a filesystem path.
+message WorkspaceCheckpoint {
+  // checkpoint_id is the opaque, lease- and content-bound lookup identity.
+  string checkpoint_id = 1;
+  // lease is the only workspace lease authorized to restore or release it.
+  WorkspaceLeaseIdentity lease = 2;
+  // source identifies the exact project state stored by the checkpoint.
+  WorkspaceStateIdentity source = 3;
+  // storage_requirement is the pre-admitted conservative storage demand.
+  StorageCapacityRequirement storage_requirement = 4;
+  // storage_admission records the capacity authority's create-time decision.
+  StorageCapacityAdmission storage_admission = 5;
+  // retention_intent records the caller's admitted retention lifetime.
+  WorkspaceCheckpointRetentionIntent retention_intent = 6;
+  // created_at is when the checkpoint became durable.
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// CreateWorkspaceCheckpointRequest preserves an exact live workspace state.
+message CreateWorkspaceCheckpointRequest {
+  // lease binds the checkpoint to one active workspace authority lifetime.
+  WorkspaceLeaseIdentity lease = 1;
+  // expected_workspace_version is compared with authoritative project state.
+  string expected_workspace_version = 2;
+  // caller_id identifies the actor preserving the candidate.
+  string caller_id = 3;
+  // idempotency_key makes retries return the original checkpoint receipt.
+  string idempotency_key = 4;
+  // retention_intent requests the supported checkpoint lifetime.
+  WorkspaceCheckpointRetentionIntent retention_intent = 5;
+}
+
+// CreateWorkspaceCheckpointResponse returns a durable receipt or typed failure.
+message CreateWorkspaceCheckpointResponse {
+  // checkpoint is present when creation succeeded.
+  WorkspaceCheckpoint checkpoint = 1;
+  // failure is the structured reason creation did not complete.
+  Failure failure = 2;
+}
+
+// WorkspaceCheckpointRestoreReceipt records the exact compare-and-swap
+// transition without exposing files, patches, Git objects, or host paths.
+message WorkspaceCheckpointRestoreReceipt {
+  // checkpoint_id is the opaque checkpoint that supplied restored state.
+  string checkpoint_id = 1;
+  // lease identifies the workspace authority that admitted the transition.
+  WorkspaceLeaseIdentity lease = 2;
+  // prior identifies project state immediately before restore.
+  WorkspaceStateIdentity prior = 3;
+  // restored identifies authoritative project state after restore.
+  WorkspaceStateIdentity restored = 4;
+  // authorization_id identifies the authority decision admitting restore.
+  string authorization_id = 5;
+  // idempotency_key binds retries to this exact transition receipt.
+  string idempotency_key = 6;
+  // restored_at is when the restored state became authoritative.
+  google.protobuf.Timestamp restored_at = 7;
+}
+
+// RestoreWorkspaceCheckpointRequest applies one lease-bound candidate by CAS.
+message RestoreWorkspaceCheckpointRequest {
+  // checkpoint_id is the opaque checkpoint selected by the caller.
+  string checkpoint_id = 1;
+  // lease must exactly match the checkpoint's owning lease.
+  WorkspaceLeaseIdentity lease = 2;
+  // expected_workspace_version is compared before any project mutation.
+  string expected_workspace_version = 3;
+  // authorization_id identifies the restore authorization decision.
+  string authorization_id = 4;
+  // idempotency_key makes retries return the original transition receipt.
+  string idempotency_key = 5;
+}
+
+// RestoreWorkspaceCheckpointResponse reports authoritative restored state.
+message RestoreWorkspaceCheckpointResponse {
+  // workspace identifies the new authoritative project state.
+  WorkspaceStateIdentity workspace = 1;
+  // receipt records the exact source-free restore transition.
+  WorkspaceCheckpointRestoreReceipt receipt = 2;
+  // failure is the structured reason restore did not complete.
+  Failure failure = 3;
+}
+
+// WorkspaceCheckpointReleaseReceipt records durable checkpoint cleanup.
+message WorkspaceCheckpointReleaseReceipt {
+  // checkpoint_id is the opaque checkpoint that was released.
+  string checkpoint_id = 1;
+  // lease identifies the workspace authority that owned the checkpoint.
+  WorkspaceLeaseIdentity lease = 2;
+  // released_at is stable across idempotent release retries.
+  google.protobuf.Timestamp released_at = 3;
+}
+
+// ReleaseWorkspaceCheckpointRequest releases one lease-bound checkpoint.
+message ReleaseWorkspaceCheckpointRequest {
+  // checkpoint_id is the opaque checkpoint selected for cleanup.
+  string checkpoint_id = 1;
+  // lease must exactly match the checkpoint's owning lease.
+  WorkspaceLeaseIdentity lease = 2;
+  // caller_id identifies the actor requesting cleanup.
+  string caller_id = 3;
+  // idempotency_key identifies this cleanup request.
+  string idempotency_key = 4;
+}
+
+// ReleaseWorkspaceCheckpointResponse returns a stable cleanup receipt.
+message ReleaseWorkspaceCheckpointResponse {
+  // receipt records when the checkpoint was released.
+  WorkspaceCheckpointReleaseReceipt receipt = 1;
+  // failure is the structured reason release did not complete.
+  Failure failure = 2;
+}
