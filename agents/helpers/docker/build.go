@@ -5,16 +5,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/wool"
-	"github.com/docker/docker/api/types"
 )
 
 type Env struct {
@@ -29,25 +29,43 @@ type Env struct {
 // with `exec format error` on the cluster.
 const DefaultBuildPlatform = "linux/amd64"
 
+// BuildPlatformEnvironmentVariable overrides the target build platform without
+// a code change or a core release, for hosts deploying to a non-amd64 (e.g.
+// arm64) node pool. It is only consulted when BuilderConfiguration.Platform is
+// empty.
+const BuildPlatformEnvironmentVariable = "CODEFLY_BUILD_PLATFORM"
+
 type BuilderConfiguration struct {
 	Root        string
 	Dockerfile  string
 	Ignorefile  string
 	Destination *resources.DockerImage
 	// Platform is the target build platform (e.g. "linux/amd64"). Empty means
-	// DefaultBuildPlatform.
+	// BuildPlatformEnvironmentVariable, then DefaultBuildPlatform.
 	Platform string
 	Output   io.Writer
 }
 
 type Builder struct {
 	BuilderConfiguration
-	newClient func() (imageBuildClient, error)
+	backend buildBackend
 }
 
-type imageBuildClient interface {
-	ImageBuild(context.Context, io.Reader, types.ImageBuildOptions) (types.ImageBuildResponse, error)
-	Close() error
+// buildBackend runs an image build and reports a built image's architecture.
+// The real implementation shells out to docker buildx (see dockerCLIBackend);
+// tests inject a fake so the build-and-verify flow is exercised without a
+// daemon.
+type buildBackend interface {
+	Build(ctx context.Context, req backendBuildRequest) error
+	Architecture(ctx context.Context, image string) (string, error)
+}
+
+type backendBuildRequest struct {
+	Platform   string
+	Dockerfile string
+	Tag        string
+	Context    []byte
+	Output     io.Writer
 }
 
 func IsValidDockerImageName(_ string) bool {
@@ -58,9 +76,7 @@ func IsValidDockerImageName(_ string) bool {
 func NewBuilder(cfg BuilderConfiguration) (*Builder, error) {
 	return &Builder{
 		BuilderConfiguration: cfg,
-		newClient: func() (imageBuildClient, error) {
-			return dockerrun.NewClient()
-		},
+		backend:              dockerCLIBackend{},
 	}, nil
 }
 
@@ -69,126 +85,198 @@ type BuilderOutput struct {
 	Image string
 }
 
+// platform resolves the effective build platform: an explicit configuration
+// wins, then the environment override, then the amd64 default.
+func (builder *Builder) platform() string {
+	if builder.Platform != "" {
+		return builder.Platform
+	}
+	if env := strings.TrimSpace(os.Getenv(BuildPlatformEnvironmentVariable)); env != "" {
+		return env
+	}
+	return DefaultBuildPlatform
+}
+
 func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	w := wool.Get(ctx).In("Builder.Build", wool.DirField(builder.Root))
-	cli, err := builder.newClient()
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot create docker client")
-	}
-	defer cli.Close()
 
 	buildContextBuffer, err := builder.createTarArchive(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create tar archive")
 	}
 	buildContext := buildContextBuffer.Bytes()
+	platform := builder.platform()
 
-	for attempt := 1; attempt <= 2; attempt++ {
-		err = builder.build(ctx, cli, buildContext)
-		if err == nil {
-			return &BuilderOutput{Image: builder.Destination.FullName()}, nil
-		}
-		if attempt == 2 || !isRetryableDockerLayerExportError(err) {
-			return nil, err
-		}
-		w.Warn("Docker lost an intermediate layer while exporting the image; retrying the identical immutable build context once")
+	if err := builder.build(ctx, platform, buildContext); err != nil {
+		return nil, err
 	}
-	return nil, err
+	return &BuilderOutput{Image: builder.Destination.FullName()}, nil
 }
 
-func (builder *Builder) build(ctx context.Context, cli imageBuildClient, buildContext []byte) error {
+func (builder *Builder) build(ctx context.Context, platform string, buildContext []byte) error {
 	w := wool.Get(ctx).In("Builder.Build", wool.DirField(builder.Root))
-	platform := builder.Platform
-	if platform == "" {
-		platform = DefaultBuildPlatform
+	tag := builder.Destination.FullName()
+
+	if err := builder.backend.Build(ctx, backendBuildRequest{
+		Platform:   platform,
+		Dockerfile: builder.Dockerfile,
+		Tag:        tag,
+		Context:    buildContext,
+		Output:     builder.Output,
+	}); err != nil {
+		return err
 	}
-	imageBuildResponse, err := cli.ImageBuild(
-		ctx,
-		bytes.NewReader(buildContext),
-		types.ImageBuildOptions{
-			Dockerfile: builder.Dockerfile,
-			Tags:       []string{builder.Destination.FullName()},
-			Platform:   platform,
-			Remove:     true,
-		},
-	)
+
+	// The classic Docker builder silently accepts the requested platform and
+	// then produces a host-arch image anyway. buildx honors it, but a
+	// wrong-arch image is the expensive failure — a crash-looping
+	// `exec format error` once it reaches the cluster — so verify the built
+	// image and fail loudly here rather than let a bad image get pushed and
+	// digest-pinned downstream.
+	arch, err := builder.backend.Architecture(ctx, tag)
 	if err != nil {
-		return w.Wrapf(err, "cannot build image")
+		return w.Wrapf(err, "cannot inspect built image architecture")
 	}
-
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			w.Error("Error closing build response body", wool.ErrField(err))
-		}
-	}(imageBuildResponse.Body)
-
-	// Respond the build output. The daemon reports a failed build as an
-	// `errorDetail` line in the stream — it is NOT surfaced via the ImageBuild
-	// call's error. We must scan for it and return a real error, otherwise a
-	// broken Dockerfile is reported as a successful build and a stale/missing
-	// image gets pushed/referenced downstream.
-	scanner := bufio.NewScanner(imageBuildResponse.Body)
-	var buildErr string
-	diagnostics := newBuildDiagnostics(8, 6000)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-
-		// Reset per line: the struct is reused across Unmarshal calls, so a
-		// single error line would otherwise make every later line look errored.
-		var buildOutput struct {
-			Error *struct {
-				Message string `json:"message"`
-			} `json:"errorDetail"`
-			Stream string `json:"stream"`
-		}
-		if err := json.Unmarshal(line, &buildOutput); err != nil {
-			w.Error("cannot unmarshal build output", wool.ErrField(err))
-			continue
-		}
-
-		if buildOutput.Error != nil {
-			w.Error("got build error", wool.Field("output", buildOutput.Error.Message))
-			buildErr = buildOutput.Error.Message
-		} else {
-			out := strings.TrimSpace(buildOutput.Stream)
-			if len(out) == 0 {
-				continue
-			}
-			diagnostics.Add(out)
-			if _, err := builder.Output.Write([]byte(out)); err != nil {
-				w.Error("cannot write build output", wool.ErrField(err))
-				buildErr = err.Error()
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return w.Wrapf(err, "cannot read docker build output")
-	}
-	if buildErr != "" {
-		if detail := diagnostics.String(); detail != "" {
-			return w.NewError("docker build failed: %s\nlast build output:\n%s", buildErr, detail)
-		}
-		return w.NewError("docker build failed: %s", buildErr)
+	if want := platformArchitecture(platform); normalizeArch(arch) != normalizeArch(want) {
+		return w.NewError(
+			"docker build produced a %q image but %q was requested (%s); it would fail with 'exec format error' on the target nodes",
+			arch, want, platform,
+		)
 	}
 	return nil
 }
 
-// isRetryableDockerLayerExportError recognizes one narrow Docker daemon
-// storage failure. The classic builder can occasionally delete or lose an
-// intermediate layer before the final image export. Repeating the exact build
-// context reuses the surviving cache and repairs the export. Other Dockerfile,
-// network, disk, and application failures remain single-attempt and fail
-// closed.
-func isRetryableDockerLayerExportError(err error) bool {
-	if err == nil {
-		return false
+// platformArchitecture extracts the architecture component of an OCI platform
+// string ("linux/amd64" → "amd64", "linux/arm64/v8" → "arm64").
+func platformArchitecture(platform string) string {
+	parts := strings.Split(platform, "/")
+	if len(parts) >= 2 {
+		return parts[1]
 	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "failed to export image") &&
-		strings.Contains(message, "failed to get layer") &&
-		strings.Contains(message, "layer does not exist")
+	return platform
+}
+
+// normalizeArch maps the common architecture aliases an operator might type
+// (e.g. `uname -m`'s "aarch64"/"x86_64") to the canonical GOARCH-style names
+// that `docker image inspect` reports. Without this, a correctly built image
+// from `CODEFLY_BUILD_PLATFORM=linux/aarch64` inspects as "arm64" and the
+// verification would reject it as a bogus mismatch.
+func normalizeArch(arch string) string {
+	switch arch {
+	case "x86_64", "x86-64":
+		return "amd64"
+	case "aarch64", "arm64v8":
+		return "arm64"
+	case "armhf", "armel":
+		return "arm"
+	case "i386", "i686", "x86":
+		return "386"
+	default:
+		return arch
+	}
+}
+
+// dockerCLIBackend builds through the docker CLI's buildx builder. The Go SDK's
+// classic /build endpoint discards ImageBuildOptions.Platform; only BuildKit
+// (buildx) honors it, so the fix has to route through buildx rather than the
+// SDK.
+type dockerCLIBackend struct{}
+
+func (dockerCLIBackend) Build(ctx context.Context, req backendBuildRequest) error {
+	if err := ensureBuildx(ctx); err != nil {
+		return err
+	}
+	diagnostics := newBuildDiagnostics(8, 6000)
+	tee := &lineDiagnosticsWriter{diagnostics: diagnostics}
+	// os/exec calls Write from a single goroutine when Stdout and Stderr are
+	// the same writer value, so sharing one MultiWriter is safe.
+	out := io.MultiWriter(req.Output, tee)
+
+	// --load places the single-platform result in the local image store so it
+	// can be inspected and pushed. The context is the already
+	// dockerignore-filtered tar, fed on stdin; -f names the Dockerfile inside
+	// it.
+	cmd := exec.CommandContext(ctx, "docker", "buildx", "build",
+		"--platform", req.Platform,
+		"--load",
+		"--progress", "plain",
+		"-f", req.Dockerfile,
+		"-t", req.Tag,
+		"-",
+	)
+	cmd.Stdin = bytes.NewReader(req.Context)
+	cmd.Stdout = out
+	cmd.Stderr = out
+
+	if err := cmd.Run(); err != nil {
+		tee.flush()
+		if detail := diagnostics.String(); detail != "" {
+			return fmt.Errorf("docker build failed: %w\nlast build output:\n%s", err, detail)
+		}
+		return fmt.Errorf("docker build failed: %w", err)
+	}
+	return nil
+}
+
+func (dockerCLIBackend) Architecture(ctx context.Context, image string) (string, error) {
+	// Inspect through the SDK (like dockerrun.GetImageID) rather than a second
+	// `docker` shell-out: it reuses the context-aware client resolution in
+	// dockerrun and keeps the CLI dependency confined to the build itself,
+	// which genuinely needs buildx.
+	cli, err := dockerrun.NewClient()
+	if err != nil {
+		return "", fmt.Errorf("create docker client: %w", err)
+	}
+	defer cli.Close()
+	inspect, _, err := cli.ImageInspectWithRaw(ctx, image)
+	if err != nil {
+		return "", fmt.Errorf("inspect %s: %w", image, err)
+	}
+	return inspect.Architecture, nil
+}
+
+// ensureBuildx fails with an actionable error when the docker CLI or its buildx
+// plugin is missing. The build routes through buildx because the classic
+// builder silently ignores --platform and produces wrong-architecture images;
+// without this probe a buildx-less host (e.g. Debian's `docker.io` package, or
+// a socket-only environment) fails the build with a cryptic
+// "'buildx' is not a docker command" instead of a clear requirement.
+func ensureBuildx(ctx context.Context) error {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return fmt.Errorf("docker CLI not found on PATH: building service images requires Docker with the buildx plugin so the target --platform is honored: %w", err)
+	}
+	if err := exec.CommandContext(ctx, "docker", "buildx", "version").Run(); err != nil {
+		return fmt.Errorf("docker buildx plugin unavailable: building service images requires buildx so the target --platform is honored (the classic builder ignores it); install the docker-buildx-plugin: %w", err)
+	}
+	return nil
+}
+
+// lineDiagnosticsWriter splits streamed build output into whole lines and feeds
+// them to buildDiagnostics, so a failing build can surface a bounded tail of
+// its output in the returned error.
+type lineDiagnosticsWriter struct {
+	diagnostics *buildDiagnostics
+	partial     []byte
+}
+
+func (w *lineDiagnosticsWriter) Write(p []byte) (int, error) {
+	w.partial = append(w.partial, p...)
+	for {
+		i := bytes.IndexByte(w.partial, '\n')
+		if i < 0 {
+			break
+		}
+		w.diagnostics.Add(string(w.partial[:i]))
+		w.partial = w.partial[i+1:]
+	}
+	return len(p), nil
+}
+
+func (w *lineDiagnosticsWriter) flush() {
+	if len(w.partial) > 0 {
+		w.diagnostics.Add(string(w.partial))
+		w.partial = nil
+	}
 }
 
 type buildDiagnostics struct {
@@ -359,47 +447,3 @@ func (builder *Builder) createTarArchive(ctx context.Context) (*bytes.Buffer, er
 
 	return buf, nil
 }
-
-//func printTarContents(logger *agents.AgentLogger, tarBuffer *bytes.Buffer) {
-//	tarReader := tar.NewReader(tarBuffer)
-//
-//	logger.Debugf("Contents of the tar archive:")
-//	for {
-//		header, err := tarReader.Next()
-//		if err == io.EOF {
-//			break // End of archive
-//		}
-//		if err != nil {
-//			logger.Debugf("got error: %v", err)
-//			break
-//		}
-//
-//		logger.Debugf("FILE: %v", header.Name)
-//	}
-//}
-//
-//func printFileContentFromTar(logger *agents.AgentLogger, tarBuffer *bytes.Buffer, filename string) error {
-//	tarReader := tar.NewReader(tarBuffer)
-//
-//	for {
-//		header, err := tarReader.Next()
-//		if err == io.EOF {
-//			break // End of archive
-//		}
-//		if err != nil {
-//			return fmt.Error("error reading tar header: %v", err)
-//		}
-//
-//		if header.Name == filename {
-//			content, err := ioutil.ReadAll(tarReader)
-//			if err != nil {
-//				return fmt.Error("error reading file content: %v", err)
-//			}
-//			logger.Debugf("Content of %s:\n%s\n", filename, content)
-//			return nil
-//		}
-//	}
-//
-//	logger.Debugf("File %s not found in tar archive\n", filename)
-//	return nil
-//}
