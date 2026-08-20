@@ -59,6 +59,60 @@ type testServiceSpec struct {
 	TestField string `yaml:"test-field"`
 }
 
+func TestSavePreservesUnmodeledKeys(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+
+	// A manifest carrying a genuinely-unknown key (secret-service-configurations)
+	// alongside redundant legacy identity keys (kind/module/project) implied by
+	// the file's location.
+	manifest := `name: with-secrets
+version: 0.0.0
+kind: service
+module: management
+project: codefly-platform
+agent:
+  kind: service
+  publisher: codefly.ai
+  name: vault
+  version: 0.0.0
+secret-service-configurations:
+  vault_token:
+    name: vault_token
+    origin: vault
+`
+	err := os.WriteFile(path.Join(tmp, resources.ServiceConfigurationName), []byte(manifest), 0o600)
+	require.NoError(t, err)
+
+	s, err := resources.LoadServiceFromDir(ctx, tmp)
+	require.NoError(t, err)
+
+	// Mutate a modeled field, then save through the normal path.
+	s.Description = "mutated"
+	err = s.Save(ctx)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(path.Join(tmp, resources.ServiceConfigurationName))
+	require.NoError(t, err)
+	// The genuinely-unknown key and its nested value survive intact.
+	require.Contains(t, string(content), "secret-service-configurations")
+	require.Contains(t, string(content), "vault_token")
+	require.Contains(t, string(content), "origin: vault")
+
+	// preSave leaves the in-memory model untouched after Save, so its stripped
+	// identity keys are restored on the live object.
+	require.Contains(t, s.ExtraFields, "kind")
+
+	// And on reload: the unknown key persists, the redundant identity keys are
+	// normalized away rather than immortalized.
+	s, err = resources.LoadServiceFromDir(ctx, tmp)
+	require.NoError(t, err)
+	require.Contains(t, s.ExtraFields, "secret-service-configurations")
+	require.NotContains(t, s.ExtraFields, "kind")
+	require.NotContains(t, s.ExtraFields, "module")
+	require.NotContains(t, s.ExtraFields, "project")
+}
+
 func TestSpecSave(t *testing.T) {
 	ctx := context.Background()
 	s := &resources.Service{Name: "testName"}
