@@ -3,6 +3,7 @@ package sbom
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -33,15 +34,29 @@ func TestParseGoModulesAndGraph(t *testing.T) {
 	require.Equal(t, first.Bom.GetSerialNumber(), second.Bom.GetSerialNumber())
 }
 
-func TestManagedSyftArgsRemainHardenedWithBoundedScratch(t *testing.T) {
-	args := strings.Join(managedSyftArgs("redis@sha256:abc"), " ")
+func TestManagedSyftArgsRemainHardenedWithDiskBackedScratch(t *testing.T) {
+	args := strings.Join(managedSyftArgs("redis@sha256:abc", "/scratch/xyz"), " ")
 	require.Contains(t, args, "--read-only")
 	require.Contains(t, args, "--cap-drop ALL")
 	require.Contains(t, args, "--security-opt no-new-privileges")
-	require.Contains(t, args, "size="+SyftScratchSize)
+	require.Contains(t, args, "type=bind,source=/scratch/xyz,target=/tmp")
+	require.Contains(t, args, "HOME=/tmp")
 	require.Contains(t, args, SyftImage)
 	require.NotContains(t, args, "/var/run/docker.sock")
 	require.NotContains(t, args, "--privileged")
+	require.NotContains(t, args, "--tmpfs")
+	require.NotContains(t, args, "-q")
+}
+
+func TestWrapSyftErrorSurfacesStderrAndNoSpace(t *testing.T) {
+	failed := wrapSyftError("syft@v1", "redis@sha256:abc", "/scratch/x", errors.New("exit status 1"), "  actual cause here  ")
+	require.Contains(t, failed.Error(), "actual cause here")
+	require.Contains(t, failed.Error(), "redis@sha256:abc")
+
+	noSpace := wrapSyftError("syft@v1", "redis@sha256:abc", "/scratch/x", errors.New("exit status 1"), "write /tmp/layer: no space left on device")
+	require.Contains(t, noSpace.Error(), "ran out of space")
+	require.Contains(t, noSpace.Error(), "/scratch/x")
+	require.Contains(t, noSpace.Error(), "redis@sha256:abc")
 }
 
 func TestParseGoModulesPreservesVersionForLocalReplacement(t *testing.T) {
