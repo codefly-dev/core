@@ -77,6 +77,53 @@ func TestBuilderRetriesOnlyLostLayerExportOnce(t *testing.T) {
 	}
 }
 
+func TestBuilderDefaultsToLinuxAmd64Platform(t *testing.T) {
+	client := &scriptedImageBuildClient{
+		responses: []string{`{"stream":"Step 1/1 : FROM scratch\n"}` + "\n"},
+	}
+	builder, err := NewBuilder(BuilderConfiguration{
+		Root:        t.TempDir(),
+		Dockerfile:  "Dockerfile",
+		Destination: resources.NewDockerImage("test/platform:v1"),
+		Output:      io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder.newClient = func() (imageBuildClient, error) { return client, nil }
+
+	if _, err := builder.Build(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.platforms[0]; got != "linux/amd64" {
+		t.Fatalf("build platform = %q, want linux/amd64", got)
+	}
+}
+
+func TestBuilderHonorsConfiguredPlatform(t *testing.T) {
+	client := &scriptedImageBuildClient{
+		responses: []string{`{"stream":"Step 1/1 : FROM scratch\n"}` + "\n"},
+	}
+	builder, err := NewBuilder(BuilderConfiguration{
+		Root:        t.TempDir(),
+		Dockerfile:  "Dockerfile",
+		Destination: resources.NewDockerImage("test/platform:v1"),
+		Platform:    "linux/arm64",
+		Output:      io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder.newClient = func() (imageBuildClient, error) { return client, nil }
+
+	if _, err := builder.Build(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.platforms[0]; got != "linux/arm64" {
+		t.Fatalf("build platform = %q, want linux/arm64", got)
+	}
+}
+
 func TestBuilderDoesNotRetryOrdinaryBuildFailure(t *testing.T) {
 	client := &scriptedImageBuildClient{
 		responses: []string{
@@ -121,6 +168,7 @@ func TestRetryableDockerLayerExportErrorIsNarrow(t *testing.T) {
 type scriptedImageBuildClient struct {
 	responses []string
 	contexts  [][]byte
+	platforms []string
 	calls     int
 	closed    bool
 }
@@ -128,13 +176,14 @@ type scriptedImageBuildClient struct {
 func (client *scriptedImageBuildClient) ImageBuild(
 	_ context.Context,
 	buildContext io.Reader,
-	_ types.ImageBuildOptions,
+	options types.ImageBuildOptions,
 ) (types.ImageBuildResponse, error) {
 	payload, err := io.ReadAll(buildContext)
 	if err != nil {
 		return types.ImageBuildResponse{}, err
 	}
 	client.contexts = append(client.contexts, payload)
+	client.platforms = append(client.platforms, options.Platform)
 	if client.calls >= len(client.responses) {
 		return types.ImageBuildResponse{}, errors.New("unexpected image build call")
 	}

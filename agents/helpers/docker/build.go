@@ -22,12 +22,22 @@ type Env struct {
 	Value string
 }
 
+// DefaultBuildPlatform is the platform service images target when the caller
+// does not specify one. Deployment images are pulled onto amd64 nodes, so the
+// build must produce amd64 regardless of the host's native architecture —
+// otherwise an image built on Apple Silicon (arm64) is pushed and then crashes
+// with `exec format error` on the cluster.
+const DefaultBuildPlatform = "linux/amd64"
+
 type BuilderConfiguration struct {
 	Root        string
 	Dockerfile  string
 	Ignorefile  string
 	Destination *resources.DockerImage
-	Output      io.Writer
+	// Platform is the target build platform (e.g. "linux/amd64"). Empty means
+	// DefaultBuildPlatform.
+	Platform string
+	Output   io.Writer
 }
 
 type Builder struct {
@@ -88,12 +98,17 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 
 func (builder *Builder) build(ctx context.Context, cli imageBuildClient, buildContext []byte) error {
 	w := wool.Get(ctx).In("Builder.Build", wool.DirField(builder.Root))
+	platform := builder.Platform
+	if platform == "" {
+		platform = DefaultBuildPlatform
+	}
 	imageBuildResponse, err := cli.ImageBuild(
 		ctx,
 		bytes.NewReader(buildContext),
 		types.ImageBuildOptions{
 			Dockerfile: builder.Dockerfile,
 			Tags:       []string{builder.Destination.FullName()},
+			Platform:   platform,
 			Remove:     true,
 		},
 	)
