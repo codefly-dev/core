@@ -69,11 +69,13 @@ type Service struct {
 	// name lives in this config.
 	Test *TestFormula `yaml:"test,omitempty"`
 
-	// ExtraFields captures manifest keys that are valid on disk but not modeled
-	// as struct fields here (e.g. secret-service-configurations). Without this
-	// catch-all, any load → mutate → Save round-trip silently drops them. The
-	// inline tag makes yaml store unmatched keys here on load and re-emit them
-	// on save, so callers that mutate a modeled field don't erase the rest.
+	// ExtraFields captures top-level manifest keys that are valid on disk but not
+	// modeled as struct fields here (e.g. secret-service-configurations). Without
+	// this catch-all, any load → mutate → Save round-trip silently drops them.
+	// The inline tag makes yaml store unmatched top-level keys here on load and
+	// re-emit them on save, so callers that mutate a modeled field don't erase
+	// the rest. Redundant legacy identity keys (kind/module/project) are stripped
+	// on save by preSave — they are implied by the file's location, not data.
 	ExtraFields map[string]any `yaml:",inline"`
 
 	// internal
@@ -537,6 +539,22 @@ func (s *Service) preSave() func() {
 	var eps []epSnap
 	var deps []depSnap
 
+	// Redundant legacy identity keys are implied by the file's location and were
+	// never written back before ExtraFields existed. Strip them from the inline
+	// catch-all so a rewrite normalizes them away instead of relocating them to
+	// the bottom of the file or immortalizing a value that has since drifted
+	// (e.g. a stale top-level module after a rename). Genuinely-unknown keys stay.
+	var strippedExtras map[string]any
+	for _, k := range []string{"kind", "module", "project"} {
+		if v, ok := s.ExtraFields[k]; ok {
+			if strippedExtras == nil {
+				strippedExtras = map[string]any{}
+			}
+			strippedExtras[k] = v
+			delete(s.ExtraFields, k)
+		}
+	}
+
 	for _, dep := range s.ServiceDependencies {
 		if dep.Module == s.module {
 			deps = append(deps, depSnap{dep: dep, module: dep.Module})
@@ -551,6 +569,9 @@ func (s *Service) preSave() func() {
 	}
 
 	return func() {
+		for k, v := range strippedExtras {
+			s.ExtraFields[k] = v
+		}
 		for _, d := range deps {
 			d.dep.Module = d.module
 		}

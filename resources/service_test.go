@@ -63,9 +63,14 @@ func TestSavePreservesUnmodeledKeys(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 
-	// A manifest carrying a key valid on disk but not modeled on Service.
+	// A manifest carrying a genuinely-unknown key (secret-service-configurations)
+	// alongside redundant legacy identity keys (kind/module/project) implied by
+	// the file's location.
 	manifest := `name: with-secrets
 version: 0.0.0
+kind: service
+module: management
+project: codefly-platform
 agent:
   kind: service
   publisher: codefly.ai
@@ -89,13 +94,23 @@ secret-service-configurations:
 
 	content, err := os.ReadFile(path.Join(tmp, resources.ServiceConfigurationName))
 	require.NoError(t, err)
+	// The genuinely-unknown key and its nested value survive intact.
 	require.Contains(t, string(content), "secret-service-configurations")
 	require.Contains(t, string(content), "vault_token")
+	require.Contains(t, string(content), "origin: vault")
 
-	// And the key survives a reload untouched.
+	// preSave leaves the in-memory model untouched after Save, so its stripped
+	// identity keys are restored on the live object.
+	require.Contains(t, s.ExtraFields, "kind")
+
+	// And on reload: the unknown key persists, the redundant identity keys are
+	// normalized away rather than immortalized.
 	s, err = resources.LoadServiceFromDir(ctx, tmp)
 	require.NoError(t, err)
 	require.Contains(t, s.ExtraFields, "secret-service-configurations")
+	require.NotContains(t, s.ExtraFields, "kind")
+	require.NotContains(t, s.ExtraFields, "module")
+	require.NotContains(t, s.ExtraFields, "project")
 }
 
 func TestSpecSave(t *testing.T) {
