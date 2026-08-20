@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 )
@@ -26,26 +25,12 @@ func Container(ctx context.Context, image string) (*Result, error) {
 	name := "syft"
 	args := []string{"registry:" + image, "-o", "cyclonedx-json@1.5"}
 	tool := "syft"
-	scratch := ""
 	if _, err := exec.LookPath(name); err != nil {
 		if _, dockerErr := exec.LookPath("docker"); dockerErr != nil {
 			return nil, fmt.Errorf("%w: neither syft nor docker is installed", ErrUnsupported)
 		}
-		// A disk-backed scratch dir bounds layer extraction by real free space
-		// instead of a hardcoded tmpfs size, which failed once per oversized image.
-		dir, err := os.MkdirTemp("", "codefly-syft-")
-		if err != nil {
-			return nil, fmt.Errorf("container SBOM: create scratch dir: %w", err)
-		}
-		defer os.RemoveAll(dir)
-		// The syft image runs as a non-root user, so the bind-mounted scratch
-		// must be writable regardless of that user's uid.
-		if err := os.Chmod(dir, 0o777); err != nil {
-			return nil, fmt.Errorf("container SBOM: prepare scratch dir: %w", err)
-		}
-		scratch = dir
 		name = "docker"
-		args = managedSyftArgs(image, dir)
+		args = managedSyftArgs(image)
 		tool = "syft@" + SyftVersion
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -53,17 +38,20 @@ func Container(ctx context.Context, image string) (*Result, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, wrapSyftError(tool, image, scratch, err, stderr.String())
+		return nil, wrapSyftError(tool, image, err, stderr.String())
 	}
 	return parseCycloneDX(stdout.Bytes(), tool, "DOCKER")
 }
 
-func managedSyftArgs(image, scratch string) []string {
+func managedSyftArgs(image string) []string {
 	return []string{
 		"run", "--rm", "--network", "bridge", "--read-only", "--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges",
-		"--mount", "type=bind,source=" + scratch + ",target=/tmp",
-		// Point HOME at the writable scratch so syft's cache lands there instead
+		// An unsized tmpfs defaults to half of host memory, so extraction is
+		// bounded by real resources rather than a constant that fails on any
+		// image whose expanded layers exceed it.
+		"--tmpfs", "/tmp:rw,noexec,nosuid",
+		// Point HOME at the writable tmpfs so syft's cache lands there instead
 		// of failing to create /.cache/syft on the read-only root filesystem.
 		"--env", "HOME=/tmp",
 		SyftImage, "registry:" + image, "-o", "cyclonedx-json@1.5",
@@ -71,15 +59,11 @@ func managedSyftArgs(image, scratch string) []string {
 }
 
 // wrapSyftError surfaces syft's stderr on failure instead of swallowing it, and
-// names the scratch dir and image when the scan ran out of disk space.
-func wrapSyftError(tool, image, scratch string, runErr error, stderr string) error {
+// names the memory-bounded scratch and image when the scan runs out of space.
+func wrapSyftError(tool, image string, runErr error, stderr string) error {
 	detail := strings.TrimSpace(stderr)
 	if strings.Contains(detail, "no space left on device") {
-		location := "the host disk"
-		if scratch != "" {
-			location = "scratch dir " + scratch
-		}
-		return fmt.Errorf("%s container SBOM for %s ran out of space in %s; free up disk space and retry: %w: %s", tool, image, location, runErr, detail)
+		return fmt.Errorf("%s container SBOM for %s exhausted its /tmp tmpfs (bounded by container memory); rerun on a host with more memory: %w: %s", tool, image, runErr, detail)
 	}
 	return fmt.Errorf("%s container SBOM for %s failed: %w: %s", tool, image, runErr, detail)
 }

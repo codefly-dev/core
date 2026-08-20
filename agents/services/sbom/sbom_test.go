@@ -34,28 +34,30 @@ func TestParseGoModulesAndGraph(t *testing.T) {
 	require.Equal(t, first.Bom.GetSerialNumber(), second.Bom.GetSerialNumber())
 }
 
-func TestManagedSyftArgsRemainHardenedWithDiskBackedScratch(t *testing.T) {
-	args := strings.Join(managedSyftArgs("redis@sha256:abc", "/scratch/xyz"), " ")
+func TestManagedSyftArgsRemainHardenedWithUnboundedScratch(t *testing.T) {
+	args := strings.Join(managedSyftArgs("redis@sha256:abc"), " ")
 	require.Contains(t, args, "--read-only")
 	require.Contains(t, args, "--cap-drop ALL")
 	require.Contains(t, args, "--security-opt no-new-privileges")
-	require.Contains(t, args, "type=bind,source=/scratch/xyz,target=/tmp")
+	require.Contains(t, args, "--tmpfs /tmp:rw,noexec,nosuid")
 	require.Contains(t, args, "HOME=/tmp")
 	require.Contains(t, args, SyftImage)
 	require.NotContains(t, args, "/var/run/docker.sock")
 	require.NotContains(t, args, "--privileged")
-	require.NotContains(t, args, "--tmpfs")
 	require.NotContains(t, args, "-q")
+	// A size= cap is the original defect: it fails on any image whose expanded
+	// layers exceed the constant. The tmpfs must stay unbounded.
+	require.NotContains(t, args, "size=")
 }
 
 func TestWrapSyftErrorSurfacesStderrAndNoSpace(t *testing.T) {
-	failed := wrapSyftError("syft@v1", "redis@sha256:abc", "/scratch/x", errors.New("exit status 1"), "  actual cause here  ")
+	failed := wrapSyftError("syft@v1", "redis@sha256:abc", errors.New("exit status 1"), "  actual cause here  ")
 	require.Contains(t, failed.Error(), "actual cause here")
 	require.Contains(t, failed.Error(), "redis@sha256:abc")
 
-	noSpace := wrapSyftError("syft@v1", "redis@sha256:abc", "/scratch/x", errors.New("exit status 1"), "write /tmp/layer: no space left on device")
-	require.Contains(t, noSpace.Error(), "ran out of space")
-	require.Contains(t, noSpace.Error(), "/scratch/x")
+	noSpace := wrapSyftError("syft@v1", "redis@sha256:abc", errors.New("exit status 1"), "write /tmp/layer: no space left on device")
+	require.Contains(t, noSpace.Error(), "tmpfs")
+	require.Contains(t, noSpace.Error(), "memory")
 	require.Contains(t, noSpace.Error(), "redis@sha256:abc")
 }
 
