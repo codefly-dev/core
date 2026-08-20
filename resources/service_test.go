@@ -59,6 +59,45 @@ type testServiceSpec struct {
 	TestField string `yaml:"test-field"`
 }
 
+func TestSavePreservesUnmodeledKeys(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+
+	// A manifest carrying a key valid on disk but not modeled on Service.
+	manifest := `name: with-secrets
+version: 0.0.0
+agent:
+  kind: service
+  publisher: codefly.ai
+  name: vault
+  version: 0.0.0
+secret-service-configurations:
+  vault_token:
+    name: vault_token
+    origin: vault
+`
+	err := os.WriteFile(path.Join(tmp, resources.ServiceConfigurationName), []byte(manifest), 0o600)
+	require.NoError(t, err)
+
+	s, err := resources.LoadServiceFromDir(ctx, tmp)
+	require.NoError(t, err)
+
+	// Mutate a modeled field, then save through the normal path.
+	s.Description = "mutated"
+	err = s.Save(ctx)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(path.Join(tmp, resources.ServiceConfigurationName))
+	require.NoError(t, err)
+	require.Contains(t, string(content), "secret-service-configurations")
+	require.Contains(t, string(content), "vault_token")
+
+	// And the key survives a reload untouched.
+	s, err = resources.LoadServiceFromDir(ctx, tmp)
+	require.NoError(t, err)
+	require.Contains(t, s.ExtraFields, "secret-service-configurations")
+}
+
 func TestSpecSave(t *testing.T) {
 	ctx := context.Background()
 	s := &resources.Service{Name: "testName"}

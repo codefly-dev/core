@@ -69,6 +69,13 @@ type Service struct {
 	// name lives in this config.
 	Test *TestFormula `yaml:"test,omitempty"`
 
+	// ExtraFields captures manifest keys that are valid on disk but not modeled
+	// as struct fields here (e.g. secret-service-configurations). Without this
+	// catch-all, any load → mutate → Save round-trip silently drops them. The
+	// inline tag makes yaml store unmatched keys here on load and re-emit them
+	// on save, so callers that mutate a modeled field don't erase the rest.
+	ExtraFields map[string]any `yaml:",inline"`
+
 	// internal
 	dir    string
 	module string
