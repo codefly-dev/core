@@ -28,6 +28,13 @@ type RuntimeManager struct {
 
 	// For testing and ephemeral environments
 	withTemporaryPorts bool
+
+	// portOverrides pins specific endpoints to caller-chosen host ports,
+	// keyed by EndpointDestination (module/service/endpoint). An override
+	// wins over both the deterministic hash and temporary ports; the normal
+	// cross-endpoint conflict check still applies, so two endpoints pinned to
+	// the same port is reported rather than silently double-allocated.
+	portOverrides map[string]uint16
 }
 
 func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
@@ -176,16 +183,20 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 			}
 		}
 		// Generate Port
+		owner := resources.EndpointDestination(endpoint)
 		var port uint16
-		name := endpoint.Name
-		if env.NamingScope != "" {
-			name = fmt.Sprintf("%s-%s", endpoint.Name, env.NamingScope)
-		}
-		if m.withTemporaryPorts {
-			port = m.GetFreePort()
+		if override, ok := m.portOverride(owner); ok {
+			port = override
 		} else {
-			port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, name, endpoint.Api, mode)
-
+			name := endpoint.Name
+			if env.NamingScope != "" {
+				name = fmt.Sprintf("%s-%s", endpoint.Name, env.NamingScope)
+			}
+			if m.withTemporaryPorts {
+				port = m.GetFreePort()
+			} else {
+				port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, name, endpoint.Api, mode)
+			}
 		}
 		w.Debug("allocating port", wool.Field("port", port), wool.Field("service", service.Unique()))
 		// Lock around the read-then-write — without this, two
@@ -197,7 +208,6 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 		// randomPortOwner so a concurrent GetFreePort can't re-hand it. That is
 		// NOT a real cross-endpoint conflict — the caller is about to claim it
 		// below — so only a port owned by a DIFFERENT real endpoint collides.
-		owner := resources.EndpointDestination(endpoint)
 		if allocatedTo, found := m.allocatedPorts[port]; found && allocatedTo != randomPortOwner && allocatedTo != owner {
 			m.mu.Unlock()
 			return nil, w.NewError("port %d for endpoint %s is already allocated to %s", port, owner, allocatedTo)
@@ -223,6 +233,30 @@ func (m *RuntimeManager) WithTemporaryPorts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.withTemporaryPorts = true
+}
+
+// WithPortOverrides pins endpoints to caller-chosen host ports. Keys are
+// EndpointDestination values (module/service/endpoint, e.g. "app/subject/rest");
+// the value is the host port that endpoint must bind. Overrides merge across
+// calls. An override takes precedence over both the deterministic hash and
+// temporary ports, letting a caller anchor a known endpoint while the rest of
+// the graph is still allocated normally.
+func (m *RuntimeManager) WithPortOverrides(overrides map[string]uint16) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.portOverrides == nil {
+		m.portOverrides = make(map[string]uint16, len(overrides))
+	}
+	for destination, port := range overrides {
+		m.portOverrides[destination] = port
+	}
+}
+
+func (m *RuntimeManager) portOverride(destination string) (uint16, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	port, ok := m.portOverrides[destination]
+	return port, ok
 }
 
 // randomPortOwner is the placeholder owner GetFreePort writes into

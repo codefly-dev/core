@@ -146,6 +146,63 @@ func TestRuntimeManagerAllocatesAndInjectsSameAPIEndpointsIndependently(t *testi
 	require.True(t, keys["CODEFLY__ENDPOINT__SAAS__ACCOUNTS__USAGE__GRPC"])
 }
 
+func TestRuntimeManagerPinsOverriddenEndpointAndHashesTheRest(t *testing.T) {
+	ctx := context.Background()
+	manager, err := network.NewRuntimeManager(ctx, testDnsManager{})
+	require.NoError(t, err)
+	service := &resources.ServiceIdentity{Module: "app", Name: "subject"}
+	pinned := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityModule}
+	free := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityModule}
+
+	const overridePort = uint16(45678)
+	manager.WithPortOverrides(map[string]uint16{resources.EndpointDestination(pinned): overridePort})
+
+	mappings, err := manager.GenerateNetworkMappings(
+		ctx,
+		resources.LocalEnvironment(),
+		&resources.Workspace{Name: "fixture"},
+		service,
+		[]*basev0.Endpoint{pinned, free},
+		resources.NewRuntimeContextNative(),
+	)
+	require.NoError(t, err)
+	require.Len(t, mappings, 2)
+
+	byName := map[string]uint32{}
+	for _, mapping := range mappings {
+		instance := resources.FilterNetworkInstance(ctx, mapping.Instances, resources.NewNativeNetworkAccess())
+		require.NotNil(t, instance)
+		byName[mapping.Endpoint.Name] = instance.Port
+	}
+	require.Equal(t, uint32(overridePort), byName["grpc"], "overridden endpoint must bind the pinned port")
+	require.NotEqual(t, uint32(overridePort), byName["rest"], "un-overridden endpoint must keep its allocated port")
+}
+
+func TestRuntimeManagerRejectsTwoEndpointsPinnedToSamePort(t *testing.T) {
+	ctx := context.Background()
+	manager, err := network.NewRuntimeManager(ctx, testDnsManager{})
+	require.NoError(t, err)
+	service := &resources.ServiceIdentity{Module: "app", Name: "subject"}
+	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityModule}
+	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityModule}
+
+	manager.WithPortOverrides(map[string]uint16{
+		resources.EndpointDestination(first):  40000,
+		resources.EndpointDestination(second): 40000,
+	})
+
+	_, err = manager.GenerateNetworkMappings(
+		ctx,
+		resources.LocalEnvironment(),
+		&resources.Workspace{Name: "fixture"},
+		service,
+		[]*basev0.Endpoint{first, second},
+		resources.NewRuntimeContextNative(),
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already allocated")
+}
+
 // TestRuntimeNetworkMappingAccessKinds_NoDNS asserts that the named-port
 // branch produces one Container instance, one Native instance, plus one
 // Public instance iff the endpoint is public-visibility.
