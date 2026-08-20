@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -106,17 +107,10 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	buildContext := buildContextBuffer.Bytes()
 	platform := builder.platform()
 
-	for attempt := 1; attempt <= 2; attempt++ {
-		err = builder.build(ctx, platform, buildContext)
-		if err == nil {
-			return &BuilderOutput{Image: builder.Destination.FullName()}, nil
-		}
-		if attempt == 2 || !isRetryableDockerLayerExportError(err) {
-			return nil, err
-		}
-		w.Warn("Docker lost an intermediate layer while exporting the image; retrying the identical immutable build context once")
+	if err := builder.build(ctx, platform, buildContext); err != nil {
+		return nil, err
 	}
-	return nil, err
+	return &BuilderOutput{Image: builder.Destination.FullName()}, nil
 }
 
 func (builder *Builder) build(ctx context.Context, platform string, buildContext []byte) error {
@@ -143,7 +137,7 @@ func (builder *Builder) build(ctx context.Context, platform string, buildContext
 	if err != nil {
 		return w.Wrapf(err, "cannot inspect built image architecture")
 	}
-	if want := platformArchitecture(platform); arch != want {
+	if want := platformArchitecture(platform); normalizeArch(arch) != normalizeArch(want) {
 		return w.NewError(
 			"docker build produced a %q image but %q was requested (%s); it would fail with 'exec format error' on the target nodes",
 			arch, want, platform,
@@ -162,6 +156,26 @@ func platformArchitecture(platform string) string {
 	return platform
 }
 
+// normalizeArch maps the common architecture aliases an operator might type
+// (e.g. `uname -m`'s "aarch64"/"x86_64") to the canonical GOARCH-style names
+// that `docker image inspect` reports. Without this, a correctly built image
+// from `CODEFLY_BUILD_PLATFORM=linux/aarch64` inspects as "arm64" and the
+// verification would reject it as a bogus mismatch.
+func normalizeArch(arch string) string {
+	switch arch {
+	case "x86_64", "x86-64":
+		return "amd64"
+	case "aarch64", "arm64v8":
+		return "arm64"
+	case "armhf", "armel":
+		return "arm"
+	case "i386", "i686", "x86":
+		return "386"
+	default:
+		return arch
+	}
+}
+
 // dockerCLIBackend builds through the docker CLI's buildx builder. The Go SDK's
 // classic /build endpoint discards ImageBuildOptions.Platform; only BuildKit
 // (buildx) honors it, so the fix has to route through buildx rather than the
@@ -169,6 +183,9 @@ func platformArchitecture(platform string) string {
 type dockerCLIBackend struct{}
 
 func (dockerCLIBackend) Build(ctx context.Context, req backendBuildRequest) error {
+	if err := ensureBuildx(ctx); err != nil {
+		return err
+	}
 	diagnostics := newBuildDiagnostics(8, 6000)
 	tee := &lineDiagnosticsWriter{diagnostics: diagnostics}
 	// os/exec calls Write from a single goroutine when Stdout and Stderr are
@@ -202,11 +219,36 @@ func (dockerCLIBackend) Build(ctx context.Context, req backendBuildRequest) erro
 }
 
 func (dockerCLIBackend) Architecture(ctx context.Context, image string) (string, error) {
-	out, err := exec.CommandContext(ctx, "docker", "image", "inspect", image, "--format", "{{.Architecture}}").Output()
+	// Inspect through the SDK (like dockerrun.GetImageID) rather than a second
+	// `docker` shell-out: it reuses the context-aware client resolution in
+	// dockerrun and keeps the CLI dependency confined to the build itself,
+	// which genuinely needs buildx.
+	cli, err := dockerrun.NewClient()
+	if err != nil {
+		return "", fmt.Errorf("create docker client: %w", err)
+	}
+	defer cli.Close()
+	inspect, _, err := cli.ImageInspectWithRaw(ctx, image)
 	if err != nil {
 		return "", fmt.Errorf("inspect %s: %w", image, err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return inspect.Architecture, nil
+}
+
+// ensureBuildx fails with an actionable error when the docker CLI or its buildx
+// plugin is missing. The build routes through buildx because the classic
+// builder silently ignores --platform and produces wrong-architecture images;
+// without this probe a buildx-less host (e.g. Debian's `docker.io` package, or
+// a socket-only environment) fails the build with a cryptic
+// "'buildx' is not a docker command" instead of a clear requirement.
+func ensureBuildx(ctx context.Context) error {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return fmt.Errorf("docker CLI not found on PATH: building service images requires Docker with the buildx plugin so the target --platform is honored: %w", err)
+	}
+	if err := exec.CommandContext(ctx, "docker", "buildx", "version").Run(); err != nil {
+		return fmt.Errorf("docker buildx plugin unavailable: building service images requires buildx so the target --platform is honored (the classic builder ignores it); install the docker-buildx-plugin: %w", err)
+	}
+	return nil
 }
 
 // lineDiagnosticsWriter splits streamed build output into whole lines and feeds
@@ -235,21 +277,6 @@ func (w *lineDiagnosticsWriter) flush() {
 		w.diagnostics.Add(string(w.partial))
 		w.partial = nil
 	}
-}
-
-// isRetryableDockerLayerExportError recognizes one narrow Docker daemon storage
-// failure. The image export step can occasionally delete or lose an
-// intermediate layer before the final export. Repeating the exact build context
-// reuses the surviving cache and repairs the export. Other Dockerfile, network,
-// disk, and application failures remain single-attempt and fail closed.
-func isRetryableDockerLayerExportError(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "failed to export image") &&
-		strings.Contains(message, "failed to get layer") &&
-		strings.Contains(message, "layer does not exist")
 }
 
 type buildDiagnostics struct {

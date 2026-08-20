@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -41,35 +40,6 @@ func TestBuildDiagnosticsPreservesCauseAndBoundsOutput(t *testing.T) {
 	}
 	if len(got) > 120 {
 		t.Fatalf("diagnostics length = %d, want at most 120", len(got))
-	}
-}
-
-func TestBuilderRetriesOnlyLostLayerExportOnce(t *testing.T) {
-	client := &scriptedBackend{
-		buildErrs: []error{
-			errors.New("failed to export image: failed to create image: failed to get layer sha256:abc: layer does not exist"),
-			nil,
-		},
-	}
-	builder := newTestBuilder(t, BuilderConfiguration{
-		Root:        t.TempDir(),
-		Dockerfile:  "Dockerfile",
-		Destination: resources.NewDockerImage("test/retry:v1"),
-		Output:      io.Discard,
-	}, client)
-
-	output, err := builder.Build(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if client.calls != 2 {
-		t.Fatalf("image build calls = %d, want 2", client.calls)
-	}
-	if len(client.contexts) != 2 || !bytes.Equal(client.contexts[0], client.contexts[1]) {
-		t.Fatal("retry did not reuse the exact immutable build context")
-	}
-	if output.Image != "test/retry:v1" {
-		t.Fatalf("image = %q", output.Image)
 	}
 }
 
@@ -144,42 +114,56 @@ func TestBuilderFailsOnArchitectureMismatch(t *testing.T) {
 	if !strings.Contains(err.Error(), "arm64") || !strings.Contains(err.Error(), "amd64") {
 		t.Fatalf("mismatch error should name both architectures, got: %v", err)
 	}
-	if client.calls != 1 {
-		t.Fatalf("architecture mismatch must not retry: calls = %d, want 1", client.calls)
-	}
 }
 
-func TestBuilderDoesNotRetryOrdinaryBuildFailure(t *testing.T) {
-	client := &scriptedBackend{
-		buildErrs: []error{errors.New("Dockerfile parse error: unknown instruction")},
-	}
+// TestBuilderAcceptsNormalizedArchitectureAlias pins the fix for the override
+// escape hatch: an operator's `CODEFLY_BUILD_PLATFORM=linux/aarch64` builds an
+// image that `docker image inspect` reports as "arm64"; the verification must
+// treat those as the same architecture, not reject the correct image.
+func TestBuilderAcceptsNormalizedArchitectureAlias(t *testing.T) {
+	client := &scriptedBackend{architecture: "arm64"}
 	builder := newTestBuilder(t, BuilderConfiguration{
 		Root:        t.TempDir(),
 		Dockerfile:  "Dockerfile",
-		Destination: resources.NewDockerImage("test/no-retry:v1"),
+		Destination: resources.NewDockerImage("test/alias:v1"),
+		Platform:    "linux/aarch64",
+		Output:      io.Discard,
+	}, client)
+
+	if _, err := builder.Build(context.Background()); err != nil {
+		t.Fatalf("aarch64 alias build was wrongly rejected as a mismatch: %v", err)
+	}
+}
+
+func TestBuilderPropagatesBuildFailure(t *testing.T) {
+	client := &scriptedBackend{buildErr: errors.New("Dockerfile parse error: unknown instruction")}
+	builder := newTestBuilder(t, BuilderConfiguration{
+		Root:        t.TempDir(),
+		Dockerfile:  "Dockerfile",
+		Destination: resources.NewDockerImage("test/fail:v1"),
 		Output:      io.Discard,
 	}, client)
 
 	if _, err := builder.Build(context.Background()); err == nil {
-		t.Fatal("ordinary Dockerfile failure unexpectedly succeeded")
+		t.Fatal("build failure unexpectedly reported success")
 	}
 	if client.calls != 1 {
 		t.Fatalf("image build calls = %d, want 1", client.calls)
 	}
 }
 
-func TestRetryableDockerLayerExportErrorIsNarrow(t *testing.T) {
-	retryable := errors.New("failed to export image: failed to create image: failed to get layer sha256:abc: layer does not exist")
-	if !isRetryableDockerLayerExportError(retryable) {
-		t.Fatal("lost-layer export was not classified as retryable")
-	}
-	for _, message := range []string{
-		"layer does not exist",
-		"failed to export image: disk quota exceeded",
-		"failed to get layer: unauthorized",
+func TestNormalizeArch(t *testing.T) {
+	for arch, want := range map[string]string{
+		"aarch64": "arm64",
+		"arm64":   "arm64",
+		"x86_64":  "amd64",
+		"amd64":   "amd64",
+		"armhf":   "arm",
+		"i386":    "386",
+		"ppc64le": "ppc64le",
 	} {
-		if isRetryableDockerLayerExportError(errors.New(message)) {
-			t.Fatalf("ordinary failure %q was classified as retryable", message)
+		if got := normalizeArch(arch); got != want {
+			t.Fatalf("normalizeArch(%q) = %q, want %q", arch, got, want)
 		}
 	}
 }
@@ -194,6 +178,20 @@ func TestPlatformArchitecture(t *testing.T) {
 		if got := platformArchitecture(platform); got != want {
 			t.Fatalf("platformArchitecture(%q) = %q, want %q", platform, got, want)
 		}
+	}
+}
+
+// TestEnsureBuildxRequiresBuildxPlugin proves a buildx-less host fails with an
+// actionable error naming the requirement, not the cryptic
+// "'buildx' is not a docker command" the raw shell-out would surface.
+func TestEnsureBuildxRequiresBuildxPlugin(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	err := ensureBuildx(context.Background())
+	if err == nil {
+		t.Fatal("expected an error when docker/buildx is unavailable")
+	}
+	if !strings.Contains(err.Error(), "buildx") {
+		t.Fatalf("error must point at the buildx requirement, got: %v", err)
 	}
 }
 
@@ -257,29 +255,24 @@ func newTestBuilder(t *testing.T, cfg BuilderConfiguration, backend buildBackend
 	return builder
 }
 
-// scriptedBackend is a fake buildBackend. It records the platform and context
-// of each build, returns scripted per-call errors, and reports a configurable
+// scriptedBackend is a fake buildBackend. It records the platform of each
+// build, returns a scripted build error, and reports a configurable
 // architecture (defaulting to the requested one, i.e. a correct build).
 type scriptedBackend struct {
-	buildErrs    []error
+	buildErr     error
 	architecture string
 	platforms    []string
-	contexts     [][]byte
 	calls        int
 }
 
 func (b *scriptedBackend) Build(_ context.Context, req backendBuildRequest) error {
 	b.platforms = append(b.platforms, req.Platform)
-	b.contexts = append(b.contexts, req.Context)
-	var err error
-	if b.calls < len(b.buildErrs) {
-		err = b.buildErrs[b.calls]
-	}
 	b.calls++
-	if err == nil {
-		_, _ = req.Output.Write([]byte("Step 1/1 : FROM scratch\n"))
+	if b.buildErr != nil {
+		return b.buildErr
 	}
-	return err
+	_, _ = req.Output.Write([]byte("Step 1/1 : FROM scratch\n"))
+	return nil
 }
 
 func (b *scriptedBackend) Architecture(_ context.Context, _ string) (string, error) {
