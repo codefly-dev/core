@@ -77,6 +77,16 @@ func RecipeBuildPlatforms() []string {
 	return []string{"linux/amd64", "linux/arm64"}
 }
 
+// BuildPlanRequested reports whether the caller (the CLI) owns the build for this
+// request — a non-empty BuildRequest.output_directory means the runner should emit
+// a recipe into that directory instead of building the image in-process. This is
+// the single negotiation point every language runner checks, so the recipe path is
+// language-agnostic: Go, Rust, Python, Node — any agent built on the shared builder
+// switches to CLI-owned builds by consulting this and nothing else.
+func BuildPlanRequested(req *builderv0.BuildRequest) bool {
+	return req.GetOutputDirectory() != ""
+}
+
 // SingleImageBuildPlan assembles the plan for a service that emits one image
 // from builder/Dockerfile with the service directory (outputDirectory) as its
 // build context — the conventional layout every shared-runner agent renders. A
