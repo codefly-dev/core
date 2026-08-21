@@ -16,14 +16,17 @@ import (
 const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v1"
 
 // ValidateBuildRequestOutputDirectory enforces the BuildRequest.output_directory
-// contract at the boundary that populates it: when set, the destination must be
-// an absolute path the caller owns. Empty is valid and selects the legacy
-// in-agent build. The CLI resolves its destination to absolute and calls this
-// before sending a BuildRequest, so a relative path is rejected with a clear
-// error instead of being silently resolved against whatever working directory
-// the agent happens to run in. BuildDockerBuildPlan cannot enforce this — its
-// tree walk is relative-safe, so a guard there would reject valid callers rather
-// than catch the real failure at the point the field is set.
+// contract: when set, the destination must be an absolute path the caller owns.
+// Empty is valid and selects the legacy in-agent build. A relative path is
+// rejected with a clear error rather than silently resolved against whatever
+// working directory the agent happens to run in — the agent and the caller would
+// otherwise resolve it against different directories and the recipe handshake
+// would break with no error at all. DockerBuildRequest calls this so every agent
+// build enforces the invariant at the boundary where the request enters core;
+// the CLI resolves its destination to absolute and can call it before sending.
+// BuildDockerBuildPlan does not enforce it — it takes a bare destination and its
+// tree walk is relative-safe, so a guard there would reject valid callers of a
+// generic helper rather than catch the contract violation at the request boundary.
 func ValidateBuildRequestOutputDirectory(req *builderv0.BuildRequest) error {
 	dir := req.GetOutputDirectory()
 	if dir == "" {
