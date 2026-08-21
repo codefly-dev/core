@@ -22,6 +22,11 @@ message RecipeFile {
   string path = 1;
   // digest is the content digest of the file, formatted as "sha256:<hex>".
   string digest = 2;
+  // mode is the file's Unix permission bits (the low 9 bits of the file mode).
+  // It is part of the plan's integrity boundary: buildx preserves the executable
+  // bit into the image, so a mode change with identical content is a real change
+  // the aggregate digest must detect.
+  uint32 mode = 3;
 }
 
 // DockerBuildRecipe is a single reproducible Docker image build: a Dockerfile,

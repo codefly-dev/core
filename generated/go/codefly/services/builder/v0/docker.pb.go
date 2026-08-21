@@ -129,7 +129,12 @@ type RecipeFile struct {
 	// path is the output_directory-relative POSIX path of the recipe file.
 	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
 	// digest is the content digest of the file, formatted as "sha256:<hex>".
-	Digest        string `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
+	Digest string `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
+	// mode is the file's Unix permission bits (the low 9 bits of the file mode).
+	// It is part of the plan's integrity boundary: buildx preserves the executable
+	// bit into the image, so a mode change with identical content is a real change
+	// the aggregate digest must detect.
+	Mode          uint32 `protobuf:"varint,3,opt,name=mode,proto3" json:"mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -176,6 +181,13 @@ func (x *RecipeFile) GetDigest() string {
 		return x.Digest
 	}
 	return ""
+}
+
+func (x *RecipeFile) GetMode() uint32 {
+	if x != nil {
+		return x.Mode
+	}
+	return 0
 }
 
 // DockerBuildRecipe is a single reproducible Docker image build: a Dockerfile,
@@ -377,11 +389,12 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\x11docker_repository\x18\x01 \x01(\tR\x10dockerRepository\x12!\n" +
 	"\fimage_digest\x18\x02 \x01(\tR\vimageDigest\"+\n" +
 	"\x11DockerBuildResult\x12\x16\n" +
-	"\x06images\x18\x01 \x03(\tR\x06images\"8\n" +
+	"\x06images\x18\x01 \x03(\tR\x06images\"L\n" +
 	"\n" +
 	"RecipeFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
-	"\x06digest\x18\x02 \x01(\tR\x06digest\"\xed\x02\n" +
+	"\x06digest\x18\x02 \x01(\tR\x06digest\x12\x12\n" +
+	"\x04mode\x18\x03 \x01(\rR\x04mode\"\xed\x02\n" +
 	"\x11DockerBuildRecipe\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +

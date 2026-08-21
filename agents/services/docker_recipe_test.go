@@ -123,3 +123,137 @@ func TestBuildDockerBuildPlanDigestChangesWithContent(t *testing.T) {
 
 	require.NotEqual(t, first.GetDigest(), second.GetDigest())
 }
+
+// A plan that passes must be buildable: a recipe whose Dockerfile is not in the
+// emitted tree is rejected rather than deferred to a confusing buildx failure.
+func TestBuildDockerBuildPlanRejectsRecipeReferencingMissingFile(t *testing.T) {
+	destination := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
+
+	_, err := BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "app/Dockerfile", Context: ".", Image: "repo/app:v1"},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not present in the recipe tree")
+}
+
+// Recipe paths must stay inside the caller-owned output directory: neither a
+// traversing relative path nor an absolute path may point buildx elsewhere.
+func TestBuildDockerBuildPlanRejectsRecipePathEscapingOutputDirectory(t *testing.T) {
+	destination := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
+
+	_, err := BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "../Dockerfile", Context: ".", Image: "repo/app:v1"},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "escapes the output directory")
+
+	_, err = BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "Dockerfile", Context: "/etc", Image: "repo/app:v1"},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must be relative")
+}
+
+// Recipe names are the logical identity within a service and must be unique;
+// two recipes sharing a name is rejected rather than silently building both
+// under the same identity.
+func TestBuildDockerBuildPlanRejectsDuplicateRecipeName(t *testing.T) {
+	destination := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(destination, "one"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(destination, "two"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "one", "Dockerfile"), []byte("FROM alpine\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "two", "Dockerfile"), []byte("FROM alpine\n"), 0o644))
+
+	_, err := BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "one/Dockerfile", Context: ".", Image: "repo/app:v1"},
+		{Name: "app", Dockerfile: "two/Dockerfile", Context: ".", Image: "repo/app:v2"},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not unique")
+}
+
+// The aggregate digest covers the recipes, not only the file inventory, so
+// tampering with a recipe's image reference while leaving the on-disk files
+// byte-identical is caught by verification.
+func TestVerifyDockerBuildPlanRejectsTamperedRecipe(t *testing.T) {
+	destination := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
+	recipes := []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"},
+	}
+
+	plan, err := BuildDockerBuildPlan(destination, recipes)
+	require.NoError(t, err)
+	require.NoError(t, VerifyDockerBuildPlan(destination, plan))
+
+	plan.Recipes[0].Image = "attacker/app:v1"
+	err = VerifyDockerBuildPlan(destination, plan)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match plan digest")
+}
+
+// The aggregate digest covers each file's permission bits, so flipping a recipe
+// file's executable bit after the plan is emitted — content byte-identical, a
+// change buildx carries into the image — is caught by verification.
+func TestVerifyDockerBuildPlanRejectsModeTamper(t *testing.T) {
+	destination := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
+	entrypoint := filepath.Join(destination, "entrypoint.sh")
+	require.NoError(t, os.WriteFile(entrypoint, []byte("#!/bin/sh\necho hi\n"), 0o644))
+	recipes := []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"},
+	}
+
+	plan, err := BuildDockerBuildPlan(destination, recipes)
+	require.NoError(t, err)
+	require.NoError(t, VerifyDockerBuildPlan(destination, plan))
+
+	// Flip the executable bit without touching content.
+	require.NoError(t, os.Chmod(entrypoint, 0o755))
+	err = VerifyDockerBuildPlan(destination, plan)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match plan digest")
+}
+
+// A symlink in the recipe tree is the escape the lexical path check cannot see:
+// it is rejected outright rather than followed to an out-of-tree target.
+func TestBuildDockerBuildPlanRejectsSymlinkInTree(t *testing.T) {
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "evil"), []byte("FROM scratch\n"), 0o644))
+
+	destination := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(destination, "context"), 0o755))
+	// Dockerfile is a symlink pointing at a file outside the output directory.
+	if err := os.Symlink(filepath.Join(outside, "evil"), filepath.Join(destination, "Dockerfile")); err != nil {
+		t.Skipf("symlinks unsupported on this platform: %v", err)
+	}
+
+	_, err := BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "Dockerfile", Context: "context", Image: "repo/app:v1"},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "symlinks are not permitted")
+}
+
+// A plan emitted by an older core carries the previous contract version. It is
+// rejected as a contract mismatch — a clear, actionable error — rather than
+// slipping into the digest comparison where a version-driven algorithm change
+// would surface as an indistinguishable "tamper" failure.
+func TestVerifyDockerBuildPlanRejectsStaleContractVersion(t *testing.T) {
+	destination := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
+	recipes := []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"},
+	}
+
+	plan, err := BuildDockerBuildPlan(destination, recipes)
+	require.NoError(t, err)
+	plan.ContractVersion = "codefly.dev/docker-build-recipe/v1"
+
+	err = VerifyDockerBuildPlan(destination, plan)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "contract")
+	require.NotContains(t, err.Error(), "does not match plan digest")
+}
