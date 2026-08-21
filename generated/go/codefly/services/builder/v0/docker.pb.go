@@ -123,6 +123,251 @@ func (x *DockerBuildResult) GetImages() []string {
 	return nil
 }
 
+// RecipeFile is one file in a build recipe, paired with its content digest.
+type RecipeFile struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is the output_directory-relative POSIX path of the recipe file.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// digest is the content digest of the file, formatted as "sha256:<hex>".
+	Digest        string `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecipeFile) Reset() {
+	*x = RecipeFile{}
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecipeFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecipeFile) ProtoMessage() {}
+
+func (x *RecipeFile) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecipeFile.ProtoReflect.Descriptor instead.
+func (*RecipeFile) Descriptor() ([]byte, []int) {
+	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RecipeFile) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *RecipeFile) GetDigest() string {
+	if x != nil {
+		return x.Digest
+	}
+	return ""
+}
+
+// DockerBuildRecipe is a single reproducible Docker image build: a Dockerfile,
+// its build context, and the target image reference. A service may emit many
+// recipes (for example an application image and a migration image).
+type DockerBuildRecipe struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the recipe's logical identity within the service, such as "app" or
+	// "migration". It is unique per service and stable across builds.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// dockerfile is the output_directory-relative path to the Dockerfile.
+	Dockerfile string `protobuf:"bytes,2,opt,name=dockerfile,proto3" json:"dockerfile,omitempty"`
+	// context is the build-context directory the Dockerfile is evaluated against.
+	Context string `protobuf:"bytes,3,opt,name=context,proto3" json:"context,omitempty"`
+	// dockerignore is the optional output_directory-relative ignore file.
+	Dockerignore string `protobuf:"bytes,4,opt,name=dockerignore,proto3" json:"dockerignore,omitempty"`
+	// image is the fully qualified image reference the caller builds and pushes.
+	Image string `protobuf:"bytes,5,opt,name=image,proto3" json:"image,omitempty"`
+	// platforms are target platforms in buildx "os/arch" form, such as
+	// "linux/amd64". More than one platform yields a multi-arch manifest list.
+	Platforms []string `protobuf:"bytes,6,rep,name=platforms,proto3" json:"platforms,omitempty"`
+	// build_args are Docker build arguments passed with --build-arg.
+	BuildArgs map[string]string `protobuf:"bytes,7,rep,name=build_args,json=buildArgs,proto3" json:"build_args,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// target is the optional Dockerfile stage to build.
+	Target        string `protobuf:"bytes,8,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DockerBuildRecipe) Reset() {
+	*x = DockerBuildRecipe{}
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DockerBuildRecipe) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DockerBuildRecipe) ProtoMessage() {}
+
+func (x *DockerBuildRecipe) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DockerBuildRecipe.ProtoReflect.Descriptor instead.
+func (*DockerBuildRecipe) Descriptor() ([]byte, []int) {
+	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DockerBuildRecipe) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DockerBuildRecipe) GetDockerfile() string {
+	if x != nil {
+		return x.Dockerfile
+	}
+	return ""
+}
+
+func (x *DockerBuildRecipe) GetContext() string {
+	if x != nil {
+		return x.Context
+	}
+	return ""
+}
+
+func (x *DockerBuildRecipe) GetDockerignore() string {
+	if x != nil {
+		return x.Dockerignore
+	}
+	return ""
+}
+
+func (x *DockerBuildRecipe) GetImage() string {
+	if x != nil {
+		return x.Image
+	}
+	return ""
+}
+
+func (x *DockerBuildRecipe) GetPlatforms() []string {
+	if x != nil {
+		return x.Platforms
+	}
+	return nil
+}
+
+func (x *DockerBuildRecipe) GetBuildArgs() map[string]string {
+	if x != nil {
+		return x.BuildArgs
+	}
+	return nil
+}
+
+func (x *DockerBuildRecipe) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+// DockerBuildPlan is the reproducible recipe set a builder emits to the caller's
+// output_directory. The caller owns running docker buildx from the recipes, so
+// the recipes are a durable, first-class artifact rather than an image built
+// inside the agent process.
+type DockerBuildPlan struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// recipes is the ordered set of image build recipes for the service.
+	Recipes []*DockerBuildRecipe `protobuf:"bytes,1,rep,name=recipes,proto3" json:"recipes,omitempty"`
+	// files is the canonical, sorted inventory of recipe files with digests.
+	Files []*RecipeFile `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
+	// digest is the aggregate content digest over files, formatted as
+	// "sha256:<hex>". Identical recipe trees yield an identical digest.
+	Digest string `protobuf:"bytes,3,opt,name=digest,proto3" json:"digest,omitempty"`
+	// contract_version identifies the recipe contract the caller validates.
+	ContractVersion string `protobuf:"bytes,4,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *DockerBuildPlan) Reset() {
+	*x = DockerBuildPlan{}
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DockerBuildPlan) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DockerBuildPlan) ProtoMessage() {}
+
+func (x *DockerBuildPlan) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DockerBuildPlan.ProtoReflect.Descriptor instead.
+func (*DockerBuildPlan) Descriptor() ([]byte, []int) {
+	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DockerBuildPlan) GetRecipes() []*DockerBuildRecipe {
+	if x != nil {
+		return x.Recipes
+	}
+	return nil
+}
+
+func (x *DockerBuildPlan) GetFiles() []*RecipeFile {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
+func (x *DockerBuildPlan) GetDigest() string {
+	if x != nil {
+		return x.Digest
+	}
+	return ""
+}
+
+func (x *DockerBuildPlan) GetContractVersion() string {
+	if x != nil {
+		return x.ContractVersion
+	}
+	return ""
+}
+
 var File_codefly_services_builder_v0_docker_proto protoreflect.FileDescriptor
 
 const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
@@ -132,7 +377,31 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\x11docker_repository\x18\x01 \x01(\tR\x10dockerRepository\x12!\n" +
 	"\fimage_digest\x18\x02 \x01(\tR\vimageDigest\"+\n" +
 	"\x11DockerBuildResult\x12\x16\n" +
-	"\x06images\x18\x01 \x03(\tR\x06imagesB\x84\x02\n" +
+	"\x06images\x18\x01 \x03(\tR\x06images\"8\n" +
+	"\n" +
+	"RecipeFile\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
+	"\x06digest\x18\x02 \x01(\tR\x06digest\"\xed\x02\n" +
+	"\x11DockerBuildRecipe\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
+	"\n" +
+	"dockerfile\x18\x02 \x01(\tR\n" +
+	"dockerfile\x12\x18\n" +
+	"\acontext\x18\x03 \x01(\tR\acontext\x12\"\n" +
+	"\fdockerignore\x18\x04 \x01(\tR\fdockerignore\x12\x14\n" +
+	"\x05image\x18\x05 \x01(\tR\x05image\x12\x1c\n" +
+	"\tplatforms\x18\x06 \x03(\tR\tplatforms\x12\\\n" +
+	"\n" +
+	"build_args\x18\a \x03(\v2=.codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntryR\tbuildArgs\x12\x16\n" +
+	"\x06target\x18\b \x01(\tR\x06target\x1a<\n" +
+	"\x0eBuildArgsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdd\x01\n" +
+	"\x0fDockerBuildPlan\x12H\n" +
+	"\arecipes\x18\x01 \x03(\v2..codefly.services.builder.v0.DockerBuildRecipeR\arecipes\x12=\n" +
+	"\x05files\x18\x02 \x03(\v2'.codefly.services.builder.v0.RecipeFileR\x05files\x12\x16\n" +
+	"\x06digest\x18\x03 \x01(\tR\x06digest\x12)\n" +
+	"\x10contract_version\x18\x04 \x01(\tR\x0fcontractVersionB\x84\x02\n" +
 	"\x1fcom.codefly.services.builder.v0B\vDockerProtoP\x01ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\xa2\x02\x04CSBV\xaa\x02\x1bCodefly.Services.Builder.V0\xca\x02\x1bCodefly\\Services\\Builder\\V0\xe2\x02'Codefly\\Services\\Builder\\V0\\GPBMetadata\xea\x02\x1eCodefly::Services::Builder::V0b\x06proto3"
 
 var (
@@ -147,17 +416,24 @@ func file_codefly_services_builder_v0_docker_proto_rawDescGZIP() []byte {
 	return file_codefly_services_builder_v0_docker_proto_rawDescData
 }
 
-var file_codefly_services_builder_v0_docker_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_codefly_services_builder_v0_docker_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_codefly_services_builder_v0_docker_proto_goTypes = []any{
 	(*DockerBuildContext)(nil), // 0: codefly.services.builder.v0.DockerBuildContext
 	(*DockerBuildResult)(nil),  // 1: codefly.services.builder.v0.DockerBuildResult
+	(*RecipeFile)(nil),         // 2: codefly.services.builder.v0.RecipeFile
+	(*DockerBuildRecipe)(nil),  // 3: codefly.services.builder.v0.DockerBuildRecipe
+	(*DockerBuildPlan)(nil),    // 4: codefly.services.builder.v0.DockerBuildPlan
+	nil,                        // 5: codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
 }
 var file_codefly_services_builder_v0_docker_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	5, // 0: codefly.services.builder.v0.DockerBuildRecipe.build_args:type_name -> codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
+	3, // 1: codefly.services.builder.v0.DockerBuildPlan.recipes:type_name -> codefly.services.builder.v0.DockerBuildRecipe
+	2, // 2: codefly.services.builder.v0.DockerBuildPlan.files:type_name -> codefly.services.builder.v0.RecipeFile
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_builder_v0_docker_proto_init() }
@@ -171,7 +447,7 @@ func file_codefly_services_builder_v0_docker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_builder_v0_docker_proto_rawDesc), len(file_codefly_services_builder_v0_docker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

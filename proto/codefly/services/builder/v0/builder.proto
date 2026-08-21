@@ -253,6 +253,10 @@ message BuildContext {
 message BuildRequest {
   // build_context is the container build context supplied to the builder.
   BuildContext build_context = 1;
+  // output_directory is an absolute destination owned by the caller where the
+  // builder writes reproducible build recipes. Empty means the builder does not
+  // emit recipes and performs the legacy in-agent build.
+  string output_directory = 2;
 }
 
 // BuildResult captures the outcome of build.
@@ -267,6 +271,8 @@ message BuildResult {
   oneof kind {
     // docker_build_result carries the DockerBuildResult variant for BuildResult.
     DockerBuildResult docker_build_result = 4;
+    // docker_build_plan carries the reproducible recipe set the caller builds.
+    DockerBuildPlan docker_build_plan = 5;
   }
 }
 
