@@ -68,6 +68,37 @@ func BuildDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRe
 	}, nil
 }
 
+// RecipeBuildPlatforms is the deployment platform set an emitted recipe targets:
+// a linux/amd64 + linux/arm64 manifest list, so a consumer never needs a local
+// rebuild regardless of node architecture. The legacy in-process build honors
+// the single-platform CODEFLY_BUILD_PLATFORM override; the recipe path supersedes
+// it with a multi-arch manifest list.
+func RecipeBuildPlatforms() []string {
+	return []string{"linux/amd64", "linux/arm64"}
+}
+
+// SingleImageBuildPlan assembles the plan for a service that emits one image
+// from builder/Dockerfile with the service directory (outputDirectory) as its
+// build context — the conventional layout every shared-runner agent renders. A
+// runner calls it when the caller requested recipe emission (a non-empty
+// BuildRequest.output_directory) instead of building the image in-process, so
+// the build recipe becomes a durable artifact the caller (the CLI) builds.
+func SingleImageBuildPlan(outputDirectory, image string, platforms []string) (*builderv0.DockerBuildPlan, error) {
+	dockerignore := ""
+	if info, err := os.Stat(filepath.Join(outputDirectory, "builder", "dockerignore")); err == nil && info.Mode().IsRegular() {
+		dockerignore = "builder/dockerignore"
+	}
+	recipe := &builderv0.DockerBuildRecipe{
+		Name:         "app",
+		Dockerfile:   "builder/Dockerfile",
+		Context:      ".",
+		Dockerignore: dockerignore,
+		Image:        image,
+		Platforms:    platforms,
+	}
+	return BuildDockerBuildPlan(outputDirectory, []*builderv0.DockerBuildRecipe{recipe})
+}
+
 // VerifyDockerBuildPlan re-inventories the recipe tree at destination and checks
 // it against plan. The caller (the CLI) runs this before docker buildx so it
 // never builds from a tree that drifted from the inventory the agent validated,

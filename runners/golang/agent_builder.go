@@ -77,6 +77,20 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 		return builder.BuildError(err)
 	}
 
+	// When the caller owns the build (output_directory set), emit the recipe and
+	// let the caller run docker buildx instead of building the image in-process.
+	// A custom ContextRoot builds from a directory other than the service dir, so
+	// the "context is output_directory" recipe model does not hold — fall through
+	// to the in-process build, and the caller uses its legacy push path.
+	if req.GetOutputDirectory() != "" && docker.ContextRoot == "" {
+		plan, planErr := services.SingleImageBuildPlan(req.GetOutputDirectory(), image.FullName(), services.RecipeBuildPlatforms())
+		if planErr != nil {
+			return builder.BuildError(planErr)
+		}
+		builder.WithBuildPlan(plan)
+		return builder.BuildResponse()
+	}
+
 	configuration, err := goDockerBuilderConfiguration(location, image, w, docker)
 	if err != nil {
 		return builder.BuildError(err)
