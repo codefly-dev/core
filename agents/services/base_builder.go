@@ -246,6 +246,18 @@ func (s *BuilderWrapper) WithDockerImages(ims ...*resources.DockerImage) {
 	}
 }
 
+// WithBuildPlan records a reproducible Docker build plan as the build result.
+// Agents that emit recipes to the caller's output_directory return this instead
+// of WithDockerImages: the caller (the CLI) owns running docker buildx from the
+// recipes, so the build recipe becomes a durable, first-class artifact.
+func (s *BuilderWrapper) WithBuildPlan(plan *builderv0.DockerBuildPlan) {
+	s.Builder.BuildResult = &builderv0.BuildResult{
+		Kind: &builderv0.BuildResult_DockerBuildPlan{
+			DockerBuildPlan: plan,
+		},
+	}
+}
+
 func (s *BuilderWrapper) BuildResponse() (*builderv0.BuildResponse, error) {
 	if !s.loaded {
 		return s.BuildError(fmt.Errorf("not loaded"))

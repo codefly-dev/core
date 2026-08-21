@@ -15,3 +15,51 @@ message DockerBuildResult {
   // images are image tags or digests produced by the Docker build.
   repeated string images = 1;
 }
+
+// RecipeFile is one file in a build recipe, paired with its content digest.
+message RecipeFile {
+  // path is the output_directory-relative POSIX path of the recipe file.
+  string path = 1;
+  // digest is the content digest of the file, formatted as "sha256:<hex>".
+  string digest = 2;
+}
+
+// DockerBuildRecipe is a single reproducible Docker image build: a Dockerfile,
+// its build context, and the target image reference. A service may emit many
+// recipes (for example an application image and a migration image).
+message DockerBuildRecipe {
+  // name is the recipe's logical identity within the service, such as "app" or
+  // "migration". It is unique per service and stable across builds.
+  string name = 1;
+  // dockerfile is the output_directory-relative path to the Dockerfile.
+  string dockerfile = 2;
+  // context is the build-context directory the Dockerfile is evaluated against.
+  string context = 3;
+  // dockerignore is the optional output_directory-relative ignore file.
+  string dockerignore = 4;
+  // image is the fully qualified image reference the caller builds and pushes.
+  string image = 5;
+  // platforms are target platforms in buildx "os/arch" form, such as
+  // "linux/amd64". More than one platform yields a multi-arch manifest list.
+  repeated string platforms = 6;
+  // build_args are Docker build arguments passed with --build-arg.
+  map<string, string> build_args = 7;
+  // target is the optional Dockerfile stage to build.
+  string target = 8;
+}
+
+// DockerBuildPlan is the reproducible recipe set a builder emits to the caller's
+// output_directory. The caller owns running docker buildx from the recipes, so
+// the recipes are a durable, first-class artifact rather than an image built
+// inside the agent process.
+message DockerBuildPlan {
+  // recipes is the ordered set of image build recipes for the service.
+  repeated DockerBuildRecipe recipes = 1;
+  // files is the canonical, sorted inventory of recipe files with digests.
+  repeated RecipeFile files = 2;
+  // digest is the aggregate content digest over files, formatted as
+  // "sha256:<hex>". Identical recipe trees yield an identical digest.
+  string digest = 3;
+  // contract_version identifies the recipe contract the caller validates.
+  string contract_version = 4;
+}
