@@ -979,6 +979,9 @@ func (s *BuilderWrapper) LogDeployRequest(req *builderv0.DeploymentRequest, log 
 }
 
 func (s *BuilderWrapper) DockerBuildRequest(_ context.Context, req *builderv0.BuildRequest) (*builderv0.DockerBuildContext, error) {
+	if err := ValidateBuildRequestOutputDirectory(req); err != nil {
+		return nil, s.Wool.Wrapf(err, "cannot build")
+	}
 	switch v := req.BuildContext.Kind.(type) {
 	case *builderv0.BuildContext_DockerBuildContext:
 		return v.DockerBuildContext, nil

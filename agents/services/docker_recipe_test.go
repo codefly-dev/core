@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,6 +61,53 @@ func TestBuildDockerBuildPlanInventoriesRecipeTree(t *testing.T) {
 	// Verification fails when the tree drifts from the plan.
 	require.NoError(t, os.WriteFile(filepath.Join(destination, "app", "Dockerfile"), []byte("FROM alpine:3.21\n"), 0o644))
 	require.Error(t, VerifyDockerBuildPlan(destination, plan))
+}
+
+func TestValidateBuildRequestOutputDirectory(t *testing.T) {
+	// A nil request carries no directory and selects the legacy in-agent build.
+	require.NoError(t, ValidateBuildRequestOutputDirectory(nil))
+
+	// Empty selects the legacy in-agent build and is valid.
+	require.NoError(t, ValidateBuildRequestOutputDirectory(&builderv0.BuildRequest{}))
+
+	// An absolute destination honors the contract.
+	require.NoError(t, ValidateBuildRequestOutputDirectory(&builderv0.BuildRequest{
+		OutputDirectory: filepath.Join(t.TempDir(), "recipes"),
+	}))
+
+	// A relative destination is rejected at the boundary that populates the field.
+	err := ValidateBuildRequestOutputDirectory(&builderv0.BuildRequest{OutputDirectory: "recipes/out"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "absolute")
+}
+
+func TestDockerBuildRequestEnforcesAbsoluteOutputDirectory(t *testing.T) {
+	wrapper := &BuilderWrapper{Base: &Base{Wool: wool.Get(context.Background())}}
+	dockerContext := &builderv0.BuildContext{
+		Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{}},
+	}
+
+	// A relative output_directory is rejected before the build proceeds, so the
+	// agent never writes recipes where the caller cannot find them.
+	_, err := wrapper.DockerBuildRequest(context.Background(), &builderv0.BuildRequest{
+		BuildContext:    dockerContext,
+		OutputDirectory: "recipes/out",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "absolute")
+
+	// An absolute output_directory passes through to the docker build context.
+	got, err := wrapper.DockerBuildRequest(context.Background(), &builderv0.BuildRequest{
+		BuildContext:    dockerContext,
+		OutputDirectory: filepath.Join(t.TempDir(), "recipes"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	// An empty output_directory (legacy in-agent build) passes through.
+	got, err = wrapper.DockerBuildRequest(context.Background(), &builderv0.BuildRequest{BuildContext: dockerContext})
+	require.NoError(t, err)
+	require.NotNil(t, got)
 }
 
 func TestBuildDockerBuildPlanDigestChangesWithContent(t *testing.T) {
