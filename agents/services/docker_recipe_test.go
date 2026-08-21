@@ -61,6 +61,21 @@ func TestBuildDockerBuildPlanInventoriesRecipeTree(t *testing.T) {
 	require.Error(t, VerifyDockerBuildPlan(destination, plan))
 }
 
+func TestValidateBuildRequestOutputDirectory(t *testing.T) {
+	// Empty selects the legacy in-agent build and is valid.
+	require.NoError(t, ValidateBuildRequestOutputDirectory(&builderv0.BuildRequest{}))
+
+	// An absolute destination honors the contract.
+	require.NoError(t, ValidateBuildRequestOutputDirectory(&builderv0.BuildRequest{
+		OutputDirectory: filepath.Join(t.TempDir(), "recipes"),
+	}))
+
+	// A relative destination is rejected at the boundary that populates the field.
+	err := ValidateBuildRequestOutputDirectory(&builderv0.BuildRequest{OutputDirectory: "recipes/out"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "absolute")
+}
+
 func TestBuildDockerBuildPlanDigestChangesWithContent(t *testing.T) {
 	destination := t.TempDir()
 	dockerfile := filepath.Join(destination, "Dockerfile")

@@ -15,6 +15,26 @@ import (
 // validates before building from an emitted plan.
 const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v1"
 
+// ValidateBuildRequestOutputDirectory enforces the BuildRequest.output_directory
+// contract at the boundary that populates it: when set, the destination must be
+// an absolute path the caller owns. Empty is valid and selects the legacy
+// in-agent build. The CLI resolves its destination to absolute and calls this
+// before sending a BuildRequest, so a relative path is rejected with a clear
+// error instead of being silently resolved against whatever working directory
+// the agent happens to run in. BuildDockerBuildPlan cannot enforce this — its
+// tree walk is relative-safe, so a guard there would reject valid callers rather
+// than catch the real failure at the point the field is set.
+func ValidateBuildRequestOutputDirectory(req *builderv0.BuildRequest) error {
+	dir := req.GetOutputDirectory()
+	if dir == "" {
+		return nil
+	}
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("BuildRequest.output_directory must be absolute, got %q", dir)
+	}
+	return nil
+}
+
 // BuildDockerBuildPlan inventories the recipe tree an agent wrote to destination
 // and returns a build plan: the ordered recipes plus the canonical sorted file
 // inventory with per-file sha256 digests and an aggregate digest that is a
