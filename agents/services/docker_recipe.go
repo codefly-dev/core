@@ -34,6 +34,26 @@ func BuildDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRe
 	}, nil
 }
 
+// VerifyDockerBuildPlan re-inventories the recipe tree at destination and checks
+// it against plan. The caller (the CLI) runs this before docker buildx so it
+// never builds from a tree that drifted from the inventory the agent validated.
+func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) error {
+	if plan == nil {
+		return fmt.Errorf("build plan is nil")
+	}
+	if plan.GetContractVersion() != DockerBuildRecipeContractVersion {
+		return fmt.Errorf("build plan contract %q, expected %q", plan.GetContractVersion(), DockerBuildRecipeContractVersion)
+	}
+	files, err := inventoryRecipeFiles(destination)
+	if err != nil {
+		return fmt.Errorf("inventory recipe tree: %w", err)
+	}
+	if digest := aggregateRecipeDigest(files); digest != plan.GetDigest() {
+		return fmt.Errorf("recipe tree digest %s does not match plan digest %s", digest, plan.GetDigest())
+	}
+	return nil
+}
+
 func inventoryRecipeFiles(destination string) ([]*builderv0.RecipeFile, error) {
 	var files []*builderv0.RecipeFile
 	err := filepath.WalkDir(destination, func(entryPath string, entry os.DirEntry, walkErr error) error {

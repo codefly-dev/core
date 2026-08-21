@@ -52,6 +52,13 @@ func TestBuildDockerBuildPlanInventoriesRecipeTree(t *testing.T) {
 	again, err := BuildDockerBuildPlan(destination, recipes)
 	require.NoError(t, err)
 	require.Equal(t, plan.GetDigest(), again.GetDigest())
+
+	// A caller verifies the emitted tree against the plan.
+	require.NoError(t, VerifyDockerBuildPlan(destination, plan))
+
+	// Verification fails when the tree drifts from the plan.
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "app", "Dockerfile"), []byte("FROM alpine:3.21\n"), 0o644))
+	require.Error(t, VerifyDockerBuildPlan(destination, plan))
 }
 
 func TestBuildDockerBuildPlanDigestChangesWithContent(t *testing.T) {
