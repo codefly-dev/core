@@ -14,8 +14,12 @@ import (
 )
 
 // DockerBuildRecipeContractVersion identifies the recipe contract a caller
-// validates before building from an emitted plan.
-const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v1"
+// validates before building from an emitted plan. The version is bumped whenever
+// the aggregate-digest algorithm changes, so a digest produced by an older core
+// is reported as a contract mismatch (a clear, actionable error) rather than as
+// a digest mismatch (indistinguishable from tampering). v2 covers the recipes
+// and per-file mode in the digest; v1 covered only file paths and content.
+const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v2"
 
 // ValidateBuildRequestOutputDirectory enforces the BuildRequest.output_directory
 // contract: when set, the destination must be an absolute path the caller owns.
@@ -176,17 +180,31 @@ func inventoryRecipeFiles(destination string) ([]*builderv0.RecipeFile, error) {
 		if entry.IsDir() {
 			return nil
 		}
-		digest, digestErr := fileDigest(entryPath)
-		if digestErr != nil {
-			return digestErr
-		}
+		// Reject symlinks outright rather than following them. A symlink is the
+		// escape the lexical recipeRelPath check cannot see: fileDigest would
+		// otherwise hash the symlink's out-of-tree target, and buildx would
+		// follow it out of the caller-owned output directory. Rejecting here
+		// contains the tree by construction, and replaces the cryptic
+		// "is a directory" error a directory symlink used to produce.
 		relative, relErr := filepath.Rel(destination, entryPath)
 		if relErr != nil {
 			return relErr
 		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("recipe tree entry %q is a symlink; symlinks are not permitted in the recipe tree", filepath.ToSlash(relative))
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		digest, digestErr := fileDigest(entryPath)
+		if digestErr != nil {
+			return digestErr
+		}
 		files = append(files, &builderv0.RecipeFile{
 			Path:   filepath.ToSlash(relative),
 			Digest: digest,
+			Mode:   uint32(info.Mode().Perm()),
 		})
 		return nil
 	})
@@ -218,7 +236,10 @@ func fileDigest(path string) (string, error) {
 // confused with a field boundary, and map keys are sorted so map iteration order
 // does not perturb the result. Because the recipes are covered, a plan whose
 // image reference, build args, target, or paths were altered no longer matches
-// its digest even when the on-disk files are byte-identical.
+// its digest even when the on-disk files are byte-identical. Each file's Unix
+// permission bits are covered too, so flipping a file's executable bit — which
+// buildx carries into the image — is detected even when its content is
+// unchanged.
 func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile) string {
 	hasher := sha256.New()
 	hashField(hasher, "recipes")
@@ -252,6 +273,7 @@ func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*buil
 	for _, file := range files {
 		hashField(hasher, file.GetPath())
 		hashField(hasher, file.GetDigest())
+		hashCount(hasher, int(file.GetMode()))
 	}
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 }

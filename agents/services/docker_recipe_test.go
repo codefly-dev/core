@@ -193,3 +193,67 @@ func TestVerifyDockerBuildPlanRejectsTamperedRecipe(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "does not match plan digest")
 }
+
+// The aggregate digest covers each file's permission bits, so flipping a recipe
+// file's executable bit after the plan is emitted — content byte-identical, a
+// change buildx carries into the image — is caught by verification.
+func TestVerifyDockerBuildPlanRejectsModeTamper(t *testing.T) {
+	destination := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
+	entrypoint := filepath.Join(destination, "entrypoint.sh")
+	require.NoError(t, os.WriteFile(entrypoint, []byte("#!/bin/sh\necho hi\n"), 0o644))
+	recipes := []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"},
+	}
+
+	plan, err := BuildDockerBuildPlan(destination, recipes)
+	require.NoError(t, err)
+	require.NoError(t, VerifyDockerBuildPlan(destination, plan))
+
+	// Flip the executable bit without touching content.
+	require.NoError(t, os.Chmod(entrypoint, 0o755))
+	err = VerifyDockerBuildPlan(destination, plan)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match plan digest")
+}
+
+// A symlink in the recipe tree is the escape the lexical path check cannot see:
+// it is rejected outright rather than followed to an out-of-tree target.
+func TestBuildDockerBuildPlanRejectsSymlinkInTree(t *testing.T) {
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "evil"), []byte("FROM scratch\n"), 0o644))
+
+	destination := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(destination, "context"), 0o755))
+	// Dockerfile is a symlink pointing at a file outside the output directory.
+	if err := os.Symlink(filepath.Join(outside, "evil"), filepath.Join(destination, "Dockerfile")); err != nil {
+		t.Skipf("symlinks unsupported on this platform: %v", err)
+	}
+
+	_, err := BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "Dockerfile", Context: "context", Image: "repo/app:v1"},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "symlinks are not permitted")
+}
+
+// A plan emitted by an older core carries the previous contract version. It is
+// rejected as a contract mismatch — a clear, actionable error — rather than
+// slipping into the digest comparison where a version-driven algorithm change
+// would surface as an indistinguishable "tamper" failure.
+func TestVerifyDockerBuildPlanRejectsStaleContractVersion(t *testing.T) {
+	destination := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
+	recipes := []*builderv0.DockerBuildRecipe{
+		{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"},
+	}
+
+	plan, err := BuildDockerBuildPlan(destination, recipes)
+	require.NoError(t, err)
+	plan.ContractVersion = "codefly.dev/docker-build-recipe/v1"
+
+	err = VerifyDockerBuildPlan(destination, plan)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "contract")
+	require.NotContains(t, err.Error(), "does not match plan digest")
+}
