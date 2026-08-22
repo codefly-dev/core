@@ -71,6 +71,12 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 		return builder.BuildError(err)
 	}
 
+	// When the caller owns the build (output_directory set), emit the recipe and
+	// let the caller run docker buildx instead of building the image in-process.
+	if services.BuildPlanRequested(req) {
+		return builder.SingleImageBuildResponse(req, image.FullName())
+	}
+
 	b, err := dockerhelpers.NewBuilder(dockerhelpers.BuilderConfiguration{
 		Root:        location,
 		Dockerfile:  "builder/Dockerfile",
