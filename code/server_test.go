@@ -175,6 +175,9 @@ func TestOperationName(t *testing.T) {
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_GetInstructionIndex{}}, "get_instruction_index"},
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSourceManifest{}}, "get_source_manifest"},
 		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_ListDependencies{}}, "list_dependencies"},
+		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_CreateWorkspaceCheckpoint{}}, "create_workspace_checkpoint"},
+		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_RestoreWorkspaceCheckpoint{}}, "restore_workspace_checkpoint"},
+		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_ReleaseWorkspaceCheckpoint{}}, "release_workspace_checkpoint"},
 		{&codev0.CodeRequest{}, ""},
 	}
 	for _, tt := range tests {
