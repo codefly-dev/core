@@ -80,10 +80,17 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 	// When the caller owns the build (output_directory set), emit the recipe and
 	// let the caller run docker buildx instead of building the image in-process.
 	// A custom ContextRoot builds from a directory other than the service dir, so
-	// the "context is output_directory" recipe model does not hold — fall through
-	// to the in-process build, and the caller uses its legacy push path.
-	if services.BuildPlanRequested(req) && docker.ContextRoot == "" {
-		return builder.SingleImageBuildResponse(req, image.FullName())
+	// the "context is the service directory" recipe model does not hold — fall
+	// through to the in-process build, and the caller uses its legacy push path.
+	if services.BuildPlanRequested(req) {
+		if docker.ContextRoot == "" {
+			return builder.SingleImageBuildResponse(req, image.FullName())
+		}
+		// The caller asked for a recipe but a custom ContextRoot forces the legacy
+		// in-process build; surface it so a caller expecting a plan isn't left
+		// wondering why it got a DockerBuildResult instead.
+		w.Warn("recipe emission requested but skipped: service uses a custom Docker context root; building in-process",
+			wool.Field("context_root", docker.ContextRoot))
 	}
 
 	configuration, err := goDockerBuilderConfiguration(location, image, w, docker)

@@ -262,8 +262,8 @@ func (s *BuilderWrapper) WithBuildPlan(plan *builderv0.DockerBuildPlan) {
 // caller's output_directory, records it as the build result, and returns the build
 // response. A language runner calls this — instead of building the image in-process
 // — when BuildPlanRequested(req) is true. The conventional layout it emits
-// (builder/Dockerfile, context = the service directory, an optional
-// builder/dockerignore) is language-agnostic, so Go, Rust, Python, Node, and every
+// (a Dockerfile in output_directory, context = the service directory, an optional
+// dockerignore) is language-agnostic, so Go, Rust, Python, Node, and every
 // other agent built on the shared builder move to CLI-owned, multi-arch builds
 // through this one path — just by re-pinning core.
 func (s *BuilderWrapper) SingleImageBuildResponse(req *builderv0.BuildRequest, image string) (*builderv0.BuildResponse, error) {

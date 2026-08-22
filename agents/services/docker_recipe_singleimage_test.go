@@ -11,12 +11,13 @@ import (
 
 func writeRecipeTree(t *testing.T, withIgnore bool) string {
 	t.Helper()
+	// dir is the output_directory the caller (the CLI) passes: the service's
+	// committed builder/ recipe directory, with the Dockerfile — and the optional
+	// dockerignore — directly inside it, exactly as the runner renders them there.
 	dir := t.TempDir()
-	builder := filepath.Join(dir, "builder")
-	require.NoError(t, os.MkdirAll(builder, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(builder, "Dockerfile"), []byte("FROM alpine\nCOPY . .\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM alpine\nCOPY . .\n"), 0o644))
 	if withIgnore {
-		require.NoError(t, os.WriteFile(filepath.Join(builder, "dockerignore"), []byte("code/node_modules\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "dockerignore"), []byte("code/node_modules\n"), 0o644))
 	}
 	return dir
 }
@@ -30,9 +31,9 @@ func TestSingleImageBuildPlanConventionalLayout(t *testing.T) {
 
 	recipe := plan.GetRecipes()[0]
 	require.Equal(t, "app", recipe.GetName())
-	require.Equal(t, "builder/Dockerfile", recipe.GetDockerfile())
+	require.Equal(t, "Dockerfile", recipe.GetDockerfile())
 	require.Equal(t, ".", recipe.GetContext())
-	require.Equal(t, "builder/dockerignore", recipe.GetDockerignore())
+	require.Equal(t, "dockerignore", recipe.GetDockerignore())
 	require.Equal(t, "repo/app:v1", recipe.GetImage())
 	require.Equal(t, []string{"linux/amd64", "linux/arm64"}, recipe.GetPlatforms())
 
