@@ -68,11 +68,16 @@ func BuildDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRe
 	}, nil
 }
 
-// RecipeBuildPlatforms is the deployment platform set an emitted recipe targets:
-// a linux/amd64 + linux/arm64 manifest list, so a consumer never needs a local
-// rebuild regardless of node architecture. The legacy in-process build honors
-// the single-platform CODEFLY_BUILD_PLATFORM override; the recipe path supersedes
-// it with a multi-arch manifest list.
+// RecipeBuildPlatforms is the platform set an emitted recipe targets: a
+// linux/amd64 + linux/arm64 manifest list, so a pushed image runs on any
+// deployment node regardless of the builder's host architecture. It is
+// deliberately fixed and does NOT read the single-platform CODEFLY_BUILD_PLATFORM
+// override the legacy in-process build honored: the recipe is a durable,
+// reproducible artifact whose digest must not vary with the emitting machine's
+// environment, and a pushed deploy image must always carry the deployment
+// architecture. Narrowing to a single arch for a faster LOCAL (unpushed) build is
+// the caller's concern — the CLI selects a host-matching platform from this list
+// for a --load build — not something the recipe encodes.
 func RecipeBuildPlatforms() []string {
 	return []string{"linux/amd64", "linux/arm64"}
 }
@@ -87,20 +92,28 @@ func BuildPlanRequested(req *builderv0.BuildRequest) bool {
 	return req.GetOutputDirectory() != ""
 }
 
-// SingleImageBuildPlan assembles the plan for a service that emits one image
-// from builder/Dockerfile with the service directory (outputDirectory) as its
-// build context — the conventional layout every shared-runner agent renders. A
-// runner calls it when the caller requested recipe emission (a non-empty
-// BuildRequest.output_directory) instead of building the image in-process, so
-// the build recipe becomes a durable artifact the caller (the CLI) builds.
+// SingleImageBuildPlan assembles the plan for a service that emits one image from
+// a Dockerfile the agent rendered into outputDirectory — the service's committed
+// builder/ recipe directory, and the value the caller passes as
+// BuildRequest.output_directory. The Dockerfile and optional dockerignore live
+// directly in outputDirectory (paths are relative to it, not to a nested builder/
+// subdirectory); the build context "." is the service directory, which the caller
+// (the CLI) resolves and passes to docker buildx. A runner calls it when the
+// caller requested recipe emission (a non-empty BuildRequest.output_directory)
+// instead of building the image in-process, so the build recipe becomes a durable
+// artifact the caller builds.
 func SingleImageBuildPlan(outputDirectory, image string, platforms []string) (*builderv0.DockerBuildPlan, error) {
 	dockerignore := ""
-	if info, err := os.Stat(filepath.Join(outputDirectory, "builder", "dockerignore")); err == nil && info.Mode().IsRegular() {
-		dockerignore = "builder/dockerignore"
+	// Lstat, not Stat: inventoryRecipeFiles rejects symlinks outright, so a
+	// symlinked dockerignore that Stat would follow-and-accept must not enter the
+	// recipe — it would hard-fail the inventory with an error unrelated to the
+	// dockerignore reference.
+	if info, err := os.Lstat(filepath.Join(outputDirectory, "dockerignore")); err == nil && info.Mode().IsRegular() {
+		dockerignore = "dockerignore"
 	}
 	recipe := &builderv0.DockerBuildRecipe{
 		Name:         "app",
-		Dockerfile:   "builder/Dockerfile",
+		Dockerfile:   "Dockerfile",
 		Context:      ".",
 		Dockerignore: dockerignore,
 		Image:        image,
