@@ -1,7 +1,7 @@
 # Proto compilation companion for `codefly generate proto`.
 #
 # Size strategy:
-#   1. Multi-stage: build all the Go plugins in a golang:1.26-alpine
+#   1. Multi-stage: build all the Go plugins in a golang:1.27-alpine
 #      builder stage, copy only the static binaries into the runtime.
 #   2. Strip Go binaries with -ldflags="-s -w" during install — drops
 #      DWARF + symbol tables, typically 20-30% smaller per binary.
@@ -14,7 +14,7 @@
 
 # --- Builder stage: compile every Go plugin from source --------------
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 RUN apk add --no-cache git python3 py3-pip nodejs npm protobuf
 

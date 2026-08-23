@@ -4,7 +4,7 @@
 #
 #   - Reproducible: Nix pins every transitive dependency by content
 #     hash via flake.lock. Two builds from the same commit produce
-#     bit-identical images. The Dockerfile pinned `golang:1.26-alpine`
+#     bit-identical images. The Dockerfile pinned `golang:1.27-alpine`
 #     and `apk add` package versions on a best-effort basis only.
 #
 #   - Layered cache: dockerTools.streamLayeredImage produces an image
@@ -136,8 +136,10 @@
           # Swagger client generator — needs `go` in PATH at runtime
           # to format its output, hence go below.
           go-swagger
-          # Bring `go`/`gofmt` for swagger's source formatter.
-          go
+          # Bring `go`/`gofmt` for swagger's source formatter. Pinned to
+          # go_1_27 to match the rest of the ecosystem (nixpkgs' default
+          # `go` still resolves to 1.26.x); only swagger's gofmt uses it.
+          go_1_27
           # Python grpcio-tools — for grpc_python_plugin et al.
           (python3.withPackages (ps: with ps; [ grpcio-tools ]))
           # protoc-gen-es, version-pinned to the ecosystem runtime (built
