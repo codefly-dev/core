@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine
+FROM golang:1.27-alpine
 
 # Dev toolbox kept minimal (Go agent only uses git for go-module fetches
 # and a shell for diagnostics). Language companions share the same
