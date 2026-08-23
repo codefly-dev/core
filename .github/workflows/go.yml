@@ -45,6 +45,16 @@ jobs:
       - name: Install Dependencies
         run: go mod tidy && go mod download
 
+      - name: CGO-free surface guard
+        # cgo-ness is a link-time property of the import graph: a new import can
+        # silently drag a cgo-only package (the tree-sitter grammars under
+        # code/semantic) into a surface that must stay CGO-free, and nothing
+        # fails until a downstream CGO_ENABLED=0 build (companion publish, an
+        # alpine image) tries to link — weeks later, one repo away. This builds
+        # every package except the documented cgo allowlist with CGO_ENABLED=0
+        # so creep fails HERE, at the PR that introduces it. See docs/cgo.md.
+        run: ./scripts/check_cgo_free.sh
+
       - name: Install apt deps (bubblewrap, ripgrep)
         # bubblewrap → core/runners/sandbox tests (default + sandbox_e2e)
         # ripgrep    → core/code search tests (real-repo grep coverage)
