@@ -4,7 +4,7 @@
 #
 #   - Reproducible: Nix pins every transitive dependency by content
 #     hash via flake.lock. Two builds from the same commit produce
-#     bit-identical images. The Dockerfile pinned `golang:1.26-alpine`
+#     bit-identical images. The Dockerfile pinned `golang:1.27-alpine`
 #     and `apk add` package versions on a best-effort basis only.
 #
 #   - Layered cache: dockerTools.streamLayeredImage produces an image
