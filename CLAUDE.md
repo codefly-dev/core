@@ -151,3 +151,4 @@ grpcEP, _ := resources.FindGRPCEndpoint(ctx, endpoints)
 - **Readiness checks must use gRPC health checks**, not raw TCP connects. A port being open does not mean the service is ready.
 - **`resources/` is the source of truth** for all type definitions. When in doubt about how something is modeled, look there first.
 - **Companion containers** are built separately and used at runtime. If a companion is broken, fix it — we own all of this.
+- **Keep the CGO-free surface CGO-free.** cgo lives only in `code/semantic` (tree-sitter). Consumers get a build-tag-aware server from `code/codeserver.New` (`-tags codefly_nosemantic` for CGO-free builds). `make check-cgo-free` (also a CI step) fails if a new dependency drags cgo into the CGO-free surface. See `docs/cgo.md`.
