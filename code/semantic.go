@@ -46,6 +46,11 @@ type SemanticAnalyzer interface {
 // WithSemanticAnalyzer installs the source-language analyzer. Without it the
 // server stays free of the tree-sitter CGO stack and semantic operations report
 // unsupported.
+//
+// Consumers that need a build-tag-aware server — analyzer installed on normal
+// builds, CGO-free under -tags codefly_nosemantic — should call
+// code/codeserver.New instead of wiring this option (and the build-tag split)
+// themselves. See docs/cgo.md.
 func WithSemanticAnalyzer(analyzer SemanticAnalyzer) ServerOption {
 	return func(s *DefaultCodeServer) { s.semantic = analyzer }
 }
