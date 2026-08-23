@@ -136,8 +136,10 @@
           # Swagger client generator — needs `go` in PATH at runtime
           # to format its output, hence go below.
           go-swagger
-          # Bring `go`/`gofmt` for swagger's source formatter.
-          go
+          # Bring `go`/`gofmt` for swagger's source formatter. Pinned to
+          # go_1_27 to match the rest of the ecosystem (nixpkgs' default
+          # `go` still resolves to 1.26.x); only swagger's gofmt uses it.
+          go_1_27
           # Python grpcio-tools — for grpc_python_plugin et al.
           (python3.withPackages (ps: with ps; [ grpcio-tools ]))
           # protoc-gen-es, version-pinned to the ecosystem runtime (built
