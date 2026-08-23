@@ -51,7 +51,7 @@ CGO creep detected: a package outside the cgo allowlist no longer builds with
 CGO_ENABLED=0.
 
 A "build constraints exclude all Go files" error above means a cgo-only package
-(e.g. the tree-sitter grammars under code/code/semantic) has entered the import
+(e.g. the tree-sitter grammars under code/semantic) has entered the import
 graph of a package that is supposed to stay CGO-free. Downstream CGO-free builds
 (companion publish, alpine images) will fail to link.
 

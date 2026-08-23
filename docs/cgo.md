@@ -20,7 +20,7 @@ The entire cgo surface of the module is confined to **one package**:
 
 | Package | What pulls in cgo | Reachable from the CGO-free surface? |
 |---|---|---|
-| `code/semantic` | tree-sitter runtime + grammar bindings (`github.com/tree-sitter/*`, `github.com/tree-sitter-grammars/*`, `github.com/dekobon/tree-sitter-groovy`); each grammar's `bindings/go` compiles C via cgo | No — no non-test package imports it |
+| `code/semantic` | tree-sitter runtime + grammar bindings (`github.com/tree-sitter/*`, `github.com/tree-sitter-grammars/*`, `github.com/dekobon/tree-sitter-groovy`); each grammar's `bindings/go` compiles C via cgo | No — only `code/codeserver` imports it, and only on the default (cgo) build; the `codefly_nosemantic` build drops the import |
 
 There are **no other cgo dependencies**: no sqlite, no cgo language servers. The
 only literal `import "C"` elsewhere is a runner test fixture
