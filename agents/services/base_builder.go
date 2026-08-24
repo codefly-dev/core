@@ -692,6 +692,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	if deployment.Templates == nil {
 		return s.DeployError(fmt.Errorf("kustomize deployment requires templates"))
 	}
+	deployment.PodOverlay.DefaultServiceAccountName(s.serviceName())
 	if err := deployment.PodOverlay.Validate(); err != nil {
 		return s.DeployError(err)
 	}
@@ -760,6 +761,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		if err = deployment.Prepare(ctx, deploymentContext); err != nil {
 			return fail(err)
 		}
+		deploymentContext.PodOverlay.DefaultServiceAccountName(s.serviceName())
 		if err = deploymentContext.PodOverlay.Validate(); err != nil {
 			return fail(err)
 		}
@@ -878,6 +880,15 @@ func WithFactory(fsys fs.FS) *TemplateWrapper {
 	return &TemplateWrapper{fs: shared.Embed(fsys), dir: "templates/factory", Override: shared.SkipAll()}
 }
 
+// serviceName returns the workload's DNS-cased service name, or "" when the
+// builder has no service identity loaded.
+func (s *BuilderWrapper) serviceName() string {
+	if s.Information == nil || s.Information.Service == nil {
+		return ""
+	}
+	return s.Information.Service.Name.DNSCase
+}
+
 // WithBuilder renders build-time templates (Dockerfile, etc.). These are
 // regenerated artifacts, not user-editable, so they overwrite by default.
 func WithBuilder(fsys fs.FS) *TemplateWrapper {
@@ -906,9 +917,12 @@ type DeploymentWrapper struct {
 	SecretMap        EnvironmentMap
 	SecretReferences map[string]*builderv0.KubernetesSecretKeyReference
 
-	// PodOverlay is the typed, shared pod-customization model. Templates read
-	// {{ with .PodOverlay }}{{ .ServiceAccountName }}{{ range .PodLabels }}…
-	// instead of blind-accessing an untyped parameter object.
+	// PodOverlay is the typed, shared pod-customization model. Core binds it into
+	// the rendered workload manifests after templating (applyPodOverlay), so an
+	// agent inherits serviceAccountName, the SA object, and the pod labels and
+	// annotations without touching its own template. A template may still render
+	// {{ with .PodOverlay }}…{{ end }} itself; the post-render binding is
+	// idempotent and leaves any field the template already set untouched.
 	PodOverlay *PodTemplateOverlay
 }
 
@@ -949,8 +963,13 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 			return s.Wool.Wrapf(err, "cannot emit workload service account")
 		}
 	}
-	if err = applyPodOverlay(ctx, baseDir, wrapper.PodOverlay); err != nil {
+	overlayResult, err := applyPodOverlay(ctx, baseDir, wrapper.PodOverlay)
+	if err != nil {
 		return s.Wool.Wrapf(err, "cannot apply pod overlay")
+	}
+	if wrapper.PodOverlay.HasServiceAccount() && !overlayResult.boundServiceAccount {
+		s.Wool.Warn("pod overlay requested a service account but no workload manifest carried a pod template to bind it to; pods will run under the namespace default",
+			wool.Field("serviceAccount", wrapper.PodOverlay.ServiceAccountName()))
 	}
 	return nil
 }

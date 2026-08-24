@@ -105,23 +105,36 @@ func MissingField(field string) string {
 //	manifest, _ := os.ReadFile(filepath.Join(dir, "base", "deployment.yaml"))
 func AssertKustomizeTemplates(t *testing.T, templates fs.FS, parameters any) string {
 	t.Helper()
+	return AssertKustomizeTemplatesWithOverlay(t, templates, parameters, nil)
+}
+
+// AssertKustomizeTemplatesWithOverlay is AssertKustomizeTemplates with a pod
+// template overlay threaded through the deployment, so an agent can assert that
+// its manifests render serviceAccountName (and the SA object) when a module opts
+// into a per-service identity. A name-less ServiceAccount is keyed off the
+// service name, mirroring DeployKustomize.
+func AssertKustomizeTemplatesWithOverlay(t *testing.T, templates fs.FS, parameters any, overlay *services.PodTemplateOverlay) string {
+	t.Helper()
 	AssertKubernetesManifestContract(t)
 	ephemeral := assertKustomizeProfile(
 		t,
 		templates,
 		parameters,
+		overlay,
 		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 	)
 	assertKustomizeProfile(
 		t,
 		templates,
 		parameters,
+		overlay,
 		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 	)
 	assertKustomizeProfile(
 		t,
 		templates,
 		parameters,
+		overlay,
 		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1, //nolint:staticcheck // migration compatibility
 	)
 	return ephemeral
@@ -131,6 +144,7 @@ func assertKustomizeProfile(
 	t *testing.T,
 	templates fs.FS,
 	parameters any,
+	overlay *services.PodTemplateOverlay,
 	profile builderv0.KubernetesOutputProfile,
 ) string {
 	t.Helper()
@@ -166,10 +180,15 @@ func assertKustomizeProfile(
 			"CODEFLY_TEST_SECRET": {Name: "example-service-secrets", Key: "test-secret"},
 		},
 	}
+	overlay.DefaultServiceAccountName(base.Information.Service.Name.DNSCase)
+	if err := overlay.Validate(); err != nil {
+		t.Fatalf("invalid pod overlay: %v", err)
+	}
 	params := services.DeploymentParameters{
 		ConfigMap:        services.EnvironmentMap{"CODEFLY_TEST_VALUE": "value"},
 		SecretReferences: deployment.GetSecretReferences(),
 		Parameters:       parameters,
+		PodOverlay:       overlay,
 	}
 	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 {
 		params.SecretMap = services.EnvironmentMap{"CODEFLY_TEST_SECRET": "c2VjcmV0"}

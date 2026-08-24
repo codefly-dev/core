@@ -63,6 +63,18 @@ func (o *PodTemplateOverlay) Validate() error {
 	return nil
 }
 
+// DefaultServiceAccountName keys the workload's ServiceAccount off the service
+// name: an overlay that opts into an SA (ServiceAccount set) but leaves the name
+// empty resolves to the service's own name. This is what lets a module opt in
+// without hardcoding a per-service identity string. A name the caller supplied
+// is left untouched.
+func (o *PodTemplateOverlay) DefaultServiceAccountName(serviceName string) {
+	if o == nil || o.ServiceAccount == nil || o.ServiceAccount.Name != "" {
+		return
+	}
+	o.ServiceAccount.Name = serviceName
+}
+
 // HasServiceAccount reports whether a ServiceAccount object should render and
 // the pod should bind serviceAccountName.
 func (o *PodTemplateOverlay) HasServiceAccount() bool {
@@ -122,6 +134,16 @@ var podTemplateWorkloadKinds = map[string]bool{
 	"Job":         true,
 }
 
+// podOverlayResult reports what applyPodOverlay did across the base tree.
+type podOverlayResult struct {
+	// boundServiceAccount is true when at least one workload pod spec now carries
+	// serviceAccountName — either because this pass stamped it or because the
+	// agent's own template already had it. It is false when the overlay wants an
+	// SA but no pod-template-bearing workload was found to bind it to, which
+	// would silently leave the pod on the namespace default.
+	boundServiceAccount bool
+}
+
 // applyPodOverlay binds the pod-template overlay into the rendered base
 // manifests: it stamps serviceAccountName onto each workload's pod spec and
 // merges the pod labels and annotations. Doing this centrally means an agent
@@ -129,36 +151,42 @@ var podTemplateWorkloadKinds = map[string]bool{
 // in its own template. The write is idempotent: a field the template already
 // rendered is left untouched, so an agent mid-migration that still carries the
 // binding does not double-render it.
-func applyPodOverlay(_ context.Context, baseDir string, overlay *PodTemplateOverlay) error {
+func applyPodOverlay(_ context.Context, baseDir string, overlay *PodTemplateOverlay) (podOverlayResult, error) {
+	var result podOverlayResult
 	if overlay == nil {
-		return nil
+		return result, nil
 	}
 	if !overlay.HasServiceAccount() && len(overlay.PodLabels) == 0 && len(overlay.PodAnnotations) == 0 {
-		return nil
+		return result, nil
 	}
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
-		return fmt.Errorf("read base dir: %w", err)
+		return result, fmt.Errorf("read base dir: %w", err)
 	}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
-		if err = applyPodOverlayToFile(filepath.Join(baseDir, entry.Name()), overlay); err != nil {
-			return err
+		bound, err := applyPodOverlayToFile(filepath.Join(baseDir, entry.Name()), overlay)
+		if err != nil {
+			return result, err
+		}
+		if bound {
+			result.boundServiceAccount = true
 		}
 	}
-	return nil
+	return result, nil
 }
 
-func applyPodOverlayToFile(path string, overlay *PodTemplateOverlay) error {
+func applyPodOverlayToFile(path string, overlay *PodTemplateOverlay) (bool, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read manifest: %w", err)
+		return false, fmt.Errorf("read manifest: %w", err)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
 	var documents []*yaml.Node
 	changed := false
+	bound := false
 	for {
 		var document yaml.Node
 		err = decoder.Decode(&document)
@@ -166,45 +194,50 @@ func applyPodOverlayToFile(path string, overlay *PodTemplateOverlay) error {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("parse manifest %s: %w", path, err)
+			return false, fmt.Errorf("parse manifest %s: %w", path, err)
 		}
 		if len(document.Content) == 0 {
 			continue
 		}
-		if applyPodOverlayToDocument(document.Content[0], overlay) {
-			changed = true
-		}
+		documentChanged, documentBound := applyPodOverlayToDocument(document.Content[0], overlay)
+		changed = changed || documentChanged
+		bound = bound || documentBound
 		documents = append(documents, &document)
 	}
 	if !changed {
-		return nil
+		return bound, nil
 	}
 	var out bytes.Buffer
 	encoder := yaml.NewEncoder(&out)
 	encoder.SetIndent(2)
 	for _, document := range documents {
 		if err = encoder.Encode(document); err != nil {
-			return fmt.Errorf("render manifest %s: %w", path, err)
+			return false, fmt.Errorf("render manifest %s: %w", path, err)
 		}
 	}
 	if err = encoder.Close(); err != nil {
-		return fmt.Errorf("render manifest %s: %w", path, err)
+		return false, fmt.Errorf("render manifest %s: %w", path, err)
 	}
-	return os.WriteFile(path, out.Bytes(), 0o644)
+	if err = os.WriteFile(path, out.Bytes(), 0o644); err != nil {
+		return false, err
+	}
+	return bound, nil
 }
 
-func applyPodOverlayToDocument(root *yaml.Node, overlay *PodTemplateOverlay) bool {
+// applyPodOverlayToDocument patches a single workload document, returning
+// whether it mutated the node and whether the pod spec carries serviceAccountName
+// after the pass (already present or newly stamped).
+func applyPodOverlayToDocument(root *yaml.Node, overlay *PodTemplateOverlay) (changed, bound bool) {
 	if root == nil || root.Kind != yaml.MappingNode {
-		return false
+		return false, false
 	}
 	if !podTemplateWorkloadKinds[mappingScalar(root, "kind")] {
-		return false
+		return false, false
 	}
 	template := mappingChild(mappingChild(root, "spec"), "template")
-	if template == nil {
-		return false
+	if template == nil || template.Kind != yaml.MappingNode {
+		return false, false
 	}
-	changed := false
 	if len(overlay.PodLabels) > 0 {
 		metadata := ensureMappingChild(template, "metadata")
 		labels := ensureMappingChild(metadata, "labels")
@@ -220,12 +253,15 @@ func applyPodOverlayToDocument(root *yaml.Node, overlay *PodTemplateOverlay) boo
 		}
 	}
 	if overlay.HasServiceAccount() {
-		podSpec := ensureMappingChild(template, "spec")
-		if setScalarIfAbsent(podSpec, "serviceAccountName", overlay.ServiceAccountName(), false) {
-			changed = true
+		podSpec := mappingChild(template, "spec")
+		if podSpec != nil && podSpec.Kind == yaml.MappingNode {
+			bound = true
+			if setScalarIfAbsent(podSpec, "serviceAccountName", overlay.ServiceAccountName(), false) {
+				changed = true
+			}
 		}
 	}
-	return changed
+	return changed, bound
 }
 
 // mappingChild returns the value node for key in a mapping node, or nil.
