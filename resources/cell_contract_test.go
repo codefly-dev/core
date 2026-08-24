@@ -80,16 +80,30 @@ func TestRequiresClusterContext(t *testing.T) {
 	}
 }
 
-// A cell may carry several registries/databases/secret stores, but this consumer
-// maps a single instance of each into Environment's single slots. Parsing must
-// reject the multi-instance case loudly rather than silently mapping [0] and
-// dropping the rest (a dropped database = its egress CIDRs never applied = silent
-// DB outage).
-func TestRejectsMultipleInstances(t *testing.T) {
+// A deploy target needs exactly one registry to push to; zero would silently fall
+// back to the legacy hard-coded registry (wrong for a BYOC cell).
+func TestRequiresExactlyOneRegistry(t *testing.T) {
 	docs := map[string]string{
-		"registries":    `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"registries":[{"url":"a"},{"url":"b"}]}`,
-		"databases":     `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"databases":[{"name":"a","egress_cidrs":["10.0.0.0/28"]},{"name":"b","egress_cidrs":["10.0.1.0/28"]}]}`,
-		"secret_stores": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"secret_stores":[{"name":"a"},{"name":"b"}]}`,
+		"zero": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"}}`,
+		"two":  `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"registries":[{"url":"a"},{"url":"b"}]}`,
+	}
+	for name, doc := range docs {
+		if _, err := ParseCellContract([]byte(doc)); err == nil {
+			t.Errorf("%s registries: expected a registry-count rejection", name)
+		}
+	}
+}
+
+// A cell may carry several databases/secret stores, but this consumer maps a
+// single instance of each into Environment's single slots. Parsing must reject the
+// multi-instance case loudly rather than silently mapping [0] and dropping the rest
+// (a dropped database = its egress CIDRs never applied = silent DB outage). Each
+// doc carries the one required registry so the assertion isolates its target.
+func TestRejectsMultipleInstances(t *testing.T) {
+	const reg = `"registries":[{"url":"a"}],`
+	docs := map[string]string{
+		"databases":     `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},` + reg + `"databases":[{"name":"a","egress_cidrs":["10.0.0.0/28"]},{"name":"b","egress_cidrs":["10.0.1.0/28"]}]}`,
+		"secret_stores": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},` + reg + `"secret_stores":[{"name":"a"},{"name":"b"}]}`,
 	}
 	for name, doc := range docs {
 		if _, err := ParseCellContract([]byte(doc)); err == nil {
@@ -101,15 +115,31 @@ func TestRejectsMultipleInstances(t *testing.T) {
 // The egress CIDRs gate all DB traffic; an empty, missing, or malformed value
 // silently drops it at runtime, so parsing must reject rather than pass it through.
 func TestRejectsBadEgressCIDRs(t *testing.T) {
+	const reg = `"registries":[{"url":"a"}],`
 	docs := map[string]string{
-		"empty":   `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"databases":[{"name":"a","egress_cidrs":[]}]}`,
-		"missing": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"databases":[{"name":"a"}]}`,
-		"invalid": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"databases":[{"name":"a","egress_cidrs":["10.0.0/28"]}]}`,
+		"empty":   `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},` + reg + `"databases":[{"name":"a","egress_cidrs":[]}]}`,
+		"missing": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},` + reg + `"databases":[{"name":"a"}]}`,
+		"invalid": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},` + reg + `"databases":[{"name":"a","egress_cidrs":["10.0.0/28"]}]}`,
 	}
 	for name, doc := range docs {
 		if _, err := ParseCellContract([]byte(doc)); err == nil {
 			t.Errorf("%s: expected an egress-CIDR rejection", name)
 		}
+	}
+}
+
+// The connectable database name is app-supplied; the cell publishes what exists so
+// a caller can reject a typo at config time instead of at runtime.
+func TestKnowsDatabase(t *testing.T) {
+	c, err := ParseCellContract([]byte(devCellContract))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !c.KnowsDatabase("unleash") || !c.KnowsDatabase("users") {
+		t.Error("expected the cell to know its published databases")
+	}
+	if c.KnowsDatabase("nope") {
+		t.Error("expected an unknown database to be rejected")
 	}
 }
 

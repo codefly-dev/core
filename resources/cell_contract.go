@@ -111,15 +111,20 @@ func ParseCellContract(data []byte) (*CellContract, error) {
 	if c.Cluster.Context == "" {
 		return nil, fmt.Errorf("cell contract for %q carries no cluster context", c.Cell)
 	}
-	// This consumer maps a single instance of each collection into Environment's
-	// single Registry/ServiceSecrets/"store" slots. Reject more than one rather
+	// A deploy target needs exactly one registry to push images to. Zero would
+	// leave env.Registry nil and silently fall back to the legacy hard-coded
+	// registry (wrong, and cross-tenant, for a BYOC cell); more than one has no
+	// single push target this consumer can pick. Public is informational (is that
+	// registry publicly reachable) — not a push/pull selector — so it is not read.
+	if len(c.Registries) != 1 {
+		return nil, fmt.Errorf("cell contract for %q carries %d registries; this consumer needs exactly one", c.Cell, len(c.Registries))
+	}
+	// The database and secret store collapse into Environment's single "store"
+	// managed service and single ServiceSecrets slot. Reject more than one rather
 	// than silently mapping index [0] and dropping the rest — a dropped database's
 	// egress CIDRs are exactly the silent DB-traffic outage this contract exists to
 	// prevent. The wire stays a list (no schema v2); teaching the consumer to map
 	// many is a codefly-internal change when a cell actually has two.
-	if len(c.Registries) > 1 {
-		return nil, fmt.Errorf("cell contract for %q carries %d registries; this consumer maps one", c.Cell, len(c.Registries))
-	}
 	if len(c.Databases) > 1 {
 		return nil, fmt.Errorf("cell contract for %q carries %d databases; this consumer maps one", c.Cell, len(c.Databases))
 	}
@@ -142,6 +147,22 @@ func ParseCellContract(data []byte) (*CellContract, error) {
 		}
 	}
 	return &c, nil
+}
+
+// KnowsDatabase reports whether the cell's managed database exposes a logical
+// database of the given name. The connectable database name is app-supplied — the
+// cell only publishes what exists — so a caller resolving a service against this
+// cell validates the app's requested database here, turning a typo into a
+// config-time error instead of a runtime connection failure.
+func (c *CellContract) KnowsDatabase(name string) bool {
+	for i := range c.Databases {
+		for _, n := range c.Databases[i].DatabaseNames {
+			if n == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ToEnvironment maps a cell descriptor into the deploy-target fields of an
