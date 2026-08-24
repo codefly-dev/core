@@ -52,8 +52,12 @@ name: widget
 		})
 }
 
-func TestAssertKustomizeTemplates_RendersAndValidates(t *testing.T) {
-	templates := fstest.MapFS{
+// sampleDeploymentTemplates models a service agent that has NOT re-implemented
+// the pod-overlay binding in its template — the state of service-nextjs,
+// service-postgres, service-redis, service-vault. Core must render the
+// ServiceAccount identity for it from the overlay parameter alone.
+func sampleDeploymentTemplates() fstest.MapFS {
+	return fstest.MapFS{
 		"templates/deployment/kustomize/base/kustomization.yaml.tmpl": {
 			Data: []byte("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - deployment.yaml\n"),
 		},
@@ -109,12 +113,46 @@ spec:
 			Data: []byte("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ../../base\n"),
 		},
 	}
-	dir := agents_testing.AssertKustomizeTemplates(t, templates, nil)
+}
+
+func TestAssertKustomizeTemplates_RendersAndValidates(t *testing.T) {
+	dir := agents_testing.AssertKustomizeTemplates(t, sampleDeploymentTemplates(), nil)
 	content, err := os.ReadFile(filepath.Join(dir, "base", "deployment.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(content), "name: example-service") {
 		t.Fatalf("unexpected rendered deployment:\n%s", content)
+	}
+}
+
+func TestAssertKustomizeTemplatesWithOverlay_RendersServiceAccount(t *testing.T) {
+	dir := agents_testing.AssertKustomizeTemplatesWithOverlay(t, sampleDeploymentTemplates(), nil,
+		&agents_services.PodTemplateOverlay{
+			ServiceAccount: &agents_services.WorkloadServiceAccount{
+				Annotations: map[string]string{"azure.workload.identity/client-id": "00000000-0000-0000-0000-000000000000"},
+			},
+			PodLabels: map[string]string{"azure.workload.identity/use": "true"},
+		})
+
+	deployment, err := os.ReadFile(filepath.Join(dir, "base", "deployment.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(deployment), "serviceAccountName: example-service") {
+		t.Fatalf("overlay did not render serviceAccountName:\n%s", deployment)
+	}
+	if !strings.Contains(string(deployment), `azure.workload.identity/use: "true"`) {
+		t.Fatalf("overlay did not render pod label:\n%s", deployment)
+	}
+
+	sa, err := os.ReadFile(filepath.Join(dir, "base", "serviceaccount.yaml"))
+	if err != nil {
+		t.Fatalf("overlay did not emit a ServiceAccount object: %v", err)
+	}
+	for _, want := range []string{"kind: ServiceAccount", "name: example-service", "azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000"} {
+		if !strings.Contains(string(sa), want) {
+			t.Fatalf("ServiceAccount missing %q:\n%s", want, sa)
+		}
 	}
 }

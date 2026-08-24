@@ -1,11 +1,15 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -59,6 +63,18 @@ func (o *PodTemplateOverlay) Validate() error {
 	return nil
 }
 
+// DefaultServiceAccountName keys the workload's ServiceAccount off the service
+// name: an overlay that opts into an SA (ServiceAccount set) but leaves the name
+// empty resolves to the service's own name. This is what lets a module opt in
+// without hardcoding a per-service identity string. A name the caller supplied
+// is left untouched.
+func (o *PodTemplateOverlay) DefaultServiceAccountName(serviceName string) {
+	if o == nil || o.ServiceAccount == nil || o.ServiceAccount.Name != "" {
+		return
+	}
+	o.ServiceAccount.Name = serviceName
+}
+
 // HasServiceAccount reports whether a ServiceAccount object should render and
 // the pod should bind serviceAccountName.
 func (o *PodTemplateOverlay) HasServiceAccount() bool {
@@ -103,6 +119,215 @@ func emitWorkloadServiceAccount(_ context.Context, baseDir, namespace string, sa
 		return fmt.Errorf("write service account: %w", err)
 	}
 	return addKustomizeResource(filepath.Join(baseDir, "kustomization.yaml"), "serviceaccount.yaml")
+}
+
+// podTemplateWorkloadKinds are the Kubernetes kinds whose pod template lives at
+// spec.template — every first-party service agent renders one of these
+// (Deployment for stateless services, StatefulSet for postgres/redis). Binding
+// the pod identity here, rather than in each agent's template, is what lets all
+// agents inherit the overlay from core.
+var podTemplateWorkloadKinds = map[string]bool{
+	"Deployment":  true,
+	"StatefulSet": true,
+	"DaemonSet":   true,
+	"ReplicaSet":  true,
+	"Job":         true,
+}
+
+// podOverlayResult reports what applyPodOverlay did across the base tree.
+type podOverlayResult struct {
+	// boundServiceAccount is true when at least one workload pod spec now carries
+	// serviceAccountName — either because this pass stamped it or because the
+	// agent's own template already had it. It is false when the overlay wants an
+	// SA but no pod-template-bearing workload was found to bind it to, which
+	// would silently leave the pod on the namespace default.
+	boundServiceAccount bool
+}
+
+// applyPodOverlay binds the pod-template overlay into the rendered base
+// manifests: it stamps serviceAccountName onto each workload's pod spec and
+// merges the pod labels and annotations. Doing this centrally means an agent
+// only has to pass the overlay parameter — it never re-implements the binding
+// in its own template. The write is idempotent: a field the template already
+// rendered is left untouched, so an agent mid-migration that still carries the
+// binding does not double-render it.
+func applyPodOverlay(_ context.Context, baseDir string, overlay *PodTemplateOverlay) (podOverlayResult, error) {
+	var result podOverlayResult
+	if overlay == nil {
+		return result, nil
+	}
+	if !overlay.HasServiceAccount() && len(overlay.PodLabels) == 0 && len(overlay.PodAnnotations) == 0 {
+		return result, nil
+	}
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return result, fmt.Errorf("read base dir: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		bound, err := applyPodOverlayToFile(filepath.Join(baseDir, entry.Name()), overlay)
+		if err != nil {
+			return result, err
+		}
+		if bound {
+			result.boundServiceAccount = true
+		}
+	}
+	return result, nil
+}
+
+func applyPodOverlayToFile(path string, overlay *PodTemplateOverlay) (bool, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("read manifest: %w", err)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	var documents []*yaml.Node
+	changed := false
+	bound := false
+	for {
+		var document yaml.Node
+		err = decoder.Decode(&document)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return false, fmt.Errorf("parse manifest %s: %w", path, err)
+		}
+		if len(document.Content) == 0 {
+			continue
+		}
+		documentChanged, documentBound := applyPodOverlayToDocument(document.Content[0], overlay)
+		changed = changed || documentChanged
+		bound = bound || documentBound
+		documents = append(documents, &document)
+	}
+	if !changed {
+		return bound, nil
+	}
+	var out bytes.Buffer
+	encoder := yaml.NewEncoder(&out)
+	encoder.SetIndent(2)
+	for _, document := range documents {
+		if err = encoder.Encode(document); err != nil {
+			return false, fmt.Errorf("render manifest %s: %w", path, err)
+		}
+	}
+	if err = encoder.Close(); err != nil {
+		return false, fmt.Errorf("render manifest %s: %w", path, err)
+	}
+	if err = os.WriteFile(path, out.Bytes(), 0o644); err != nil {
+		return false, err
+	}
+	return bound, nil
+}
+
+// applyPodOverlayToDocument patches a single workload document, returning
+// whether it mutated the node and whether the pod spec carries serviceAccountName
+// after the pass (already present or newly stamped).
+func applyPodOverlayToDocument(root *yaml.Node, overlay *PodTemplateOverlay) (changed, bound bool) {
+	if root == nil || root.Kind != yaml.MappingNode {
+		return false, false
+	}
+	if !podTemplateWorkloadKinds[mappingScalar(root, "kind")] {
+		return false, false
+	}
+	template := mappingChild(mappingChild(root, "spec"), "template")
+	if template == nil || template.Kind != yaml.MappingNode {
+		return false, false
+	}
+	if len(overlay.PodLabels) > 0 {
+		metadata := ensureMappingChild(template, "metadata")
+		labels := ensureMappingChild(metadata, "labels")
+		if mergeScalarsIfAbsent(labels, overlay.PodLabels) {
+			changed = true
+		}
+	}
+	if len(overlay.PodAnnotations) > 0 {
+		metadata := ensureMappingChild(template, "metadata")
+		annotations := ensureMappingChild(metadata, "annotations")
+		if mergeScalarsIfAbsent(annotations, overlay.PodAnnotations) {
+			changed = true
+		}
+	}
+	if overlay.HasServiceAccount() {
+		podSpec := mappingChild(template, "spec")
+		if podSpec != nil && podSpec.Kind == yaml.MappingNode {
+			bound = true
+			if setScalarIfAbsent(podSpec, "serviceAccountName", overlay.ServiceAccountName(), false) {
+				changed = true
+			}
+		}
+	}
+	return changed, bound
+}
+
+// mappingChild returns the value node for key in a mapping node, or nil.
+func mappingChild(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func mappingScalar(node *yaml.Node, key string) string {
+	if child := mappingChild(node, key); child != nil {
+		return child.Value
+	}
+	return ""
+}
+
+// ensureMappingChild returns the mapping node at key, creating an empty one when
+// absent so nested fields can be stamped in.
+func ensureMappingChild(node *yaml.Node, key string) *yaml.Node {
+	if child := mappingChild(node, key); child != nil {
+		return child
+	}
+	value := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		value)
+	return value
+}
+
+// setScalarIfAbsent adds a scalar key only when the mapping does not already
+// carry it, so a value the template rendered wins. It reports whether it wrote.
+func setScalarIfAbsent(node *yaml.Node, key, value string, quoted bool) bool {
+	if mappingChild(node, key) != nil {
+		return false
+	}
+	valueNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+	if quoted {
+		valueNode.Style = yaml.DoubleQuotedStyle
+	}
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		valueNode)
+	return true
+}
+
+// mergeScalarsIfAbsent stamps quoted string values into a mapping in a stable
+// key order, leaving any key the mapping already carries untouched.
+func mergeScalarsIfAbsent(node *yaml.Node, values map[string]string) bool {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	changed := false
+	for _, key := range keys {
+		if setScalarIfAbsent(node, key, values[key], true) {
+			changed = true
+		}
+	}
+	return changed
 }
 
 // addKustomizeResource appends a resource to a kustomization's resources list,
