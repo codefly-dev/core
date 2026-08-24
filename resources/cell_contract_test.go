@@ -24,7 +24,10 @@ func TestParseAndMapCellContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	env := c.ToEnvironment("azure", "lodestar")
+	env, err := c.ToEnvironment("azure", "lodestar")
+	if err != nil {
+		t.Fatalf("to environment: %v", err)
+	}
 
 	if env.Name != "azure" || env.Namespace != "lodestar" {
 		t.Errorf("name/namespace = %q/%q", env.Name, env.Namespace)
@@ -54,8 +57,13 @@ func TestParseAndMapCellContract(t *testing.T) {
 	if len(ms.EgressCIDRs) != 1 || ms.EgressCIDRs[0] != "10.20.11.0/28" {
 		t.Errorf("database egress CIDRs = %v (want [10.20.11.0/28])", ms.EgressCIDRs)
 	}
-	if len(ms.SecretReferences) != 1 || ms.SecretReferences[0].SecretStore.Kind != "ClusterSecretStore" {
-		t.Errorf("secret references = %+v", ms.SecretReferences)
+	// Pin the secret-handoff conventions so they can't drift silently.
+	if len(ms.SecretReferences) != 1 {
+		t.Fatalf("secret references = %+v", ms.SecretReferences)
+	}
+	ref := ms.SecretReferences[0]
+	if ref.Name != "secret-store" || ref.RemoteKey != "lodestar/store" || ref.SecretStore.Kind != "ClusterSecretStore" {
+		t.Errorf("secret reference = %+v", ref)
 	}
 }
 
@@ -69,5 +77,53 @@ func TestRequiresClusterContext(t *testing.T) {
 	doc := `{"schema":"codefly/cell/v1","cell":"x","cluster":{}}`
 	if _, err := ParseCellContract([]byte(doc)); err == nil {
 		t.Fatal("expected a missing-cluster-context error")
+	}
+}
+
+// A cell may carry several registries/databases/secret stores, but this consumer
+// maps a single instance of each into Environment's single slots. Parsing must
+// reject the multi-instance case loudly rather than silently mapping [0] and
+// dropping the rest (a dropped database = its egress CIDRs never applied = silent
+// DB outage).
+func TestRejectsMultipleInstances(t *testing.T) {
+	docs := map[string]string{
+		"registries":    `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"registries":[{"url":"a"},{"url":"b"}]}`,
+		"databases":     `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"databases":[{"name":"a","egress_cidrs":["10.0.0.0/28"]},{"name":"b","egress_cidrs":["10.0.1.0/28"]}]}`,
+		"secret_stores": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"secret_stores":[{"name":"a"},{"name":"b"}]}`,
+	}
+	for name, doc := range docs {
+		if _, err := ParseCellContract([]byte(doc)); err == nil {
+			t.Errorf("%s: expected a multiple-instance rejection", name)
+		}
+	}
+}
+
+// The egress CIDRs gate all DB traffic; an empty, missing, or malformed value
+// silently drops it at runtime, so parsing must reject rather than pass it through.
+func TestRejectsBadEgressCIDRs(t *testing.T) {
+	docs := map[string]string{
+		"empty":   `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"databases":[{"name":"a","egress_cidrs":[]}]}`,
+		"missing": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"databases":[{"name":"a"}]}`,
+		"invalid": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"databases":[{"name":"a","egress_cidrs":["10.0.0/28"]}]}`,
+	}
+	for name, doc := range docs {
+		if _, err := ParseCellContract([]byte(doc)); err == nil {
+			t.Errorf("%s: expected an egress-CIDR rejection", name)
+		}
+	}
+}
+
+// The namespace becomes a gitops path component and a secret remote-key segment,
+// so ToEnvironment must reject one that is not a single safe path component
+// instead of building a traversing path.
+func TestRejectsBadNamespace(t *testing.T) {
+	c, err := ParseCellContract([]byte(devCellContract))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, ns := range []string{"", "..", "../etc", "a/b"} {
+		if _, err := c.ToEnvironment("azure", ns); err == nil {
+			t.Errorf("namespace %q: expected a path-component rejection", ns)
+		}
 	}
 }
