@@ -206,6 +206,101 @@ func TestDeployKustomizePrepareCanDeriveOverlay(t *testing.T) {
 	}())
 }
 
+func TestApplyPodOverlayBindsStatefulSetIdentity(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: store
+  namespace: codefly
+spec:
+  serviceName: store
+  template:
+    metadata:
+      labels:
+        app: store
+    spec:
+      containers:
+        - name: store
+          image: example/store
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "statefulset.yaml"), []byte(manifest), 0o644))
+
+	err := applyPodOverlay(context.Background(), dir, &PodTemplateOverlay{
+		ServiceAccount: &WorkloadServiceAccount{Name: "store"},
+		PodLabels:      map[string]string{"azure.workload.identity/use": "true"},
+		PodAnnotations: map[string]string{"codefly.dev/identity": "workload"},
+	})
+	require.NoError(t, err)
+
+	rendered, err := os.ReadFile(filepath.Join(dir, "statefulset.yaml"))
+	require.NoError(t, err)
+	source := string(rendered)
+	require.Contains(t, source, "serviceAccountName: store")
+	require.Contains(t, source, `azure.workload.identity/use: "true"`)
+	require.Contains(t, source, `codefly.dev/identity: "workload"`)
+	// The workload's own fields survive the round-trip.
+	require.Contains(t, source, "serviceName: store")
+	require.Contains(t, source, "image: example/store")
+}
+
+func TestApplyPodOverlayIsIdempotentWithRenderedBinding(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: codefly
+spec:
+  template:
+    metadata:
+      labels:
+        app: web
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: web
+      containers:
+        - name: web
+          image: example/web
+`
+	path := filepath.Join(dir, "deployment.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(manifest), 0o644))
+
+	overlay := &PodTemplateOverlay{
+		ServiceAccount: &WorkloadServiceAccount{Name: "web"},
+		PodLabels:      map[string]string{"azure.workload.identity/use": "true"},
+	}
+	require.NoError(t, applyPodOverlay(context.Background(), dir, overlay))
+
+	rendered, err := os.ReadFile(path)
+	require.NoError(t, err)
+	source := string(rendered)
+	require.Equal(t, 1, strings.Count(source, "serviceAccountName: web"), source)
+	require.Equal(t, 1, strings.Count(source, "azure.workload.identity/use:"), source)
+}
+
+func TestApplyPodOverlaySkipsNonWorkloadManifests(t *testing.T) {
+	dir := t.TempDir()
+	configMap := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web
+  namespace: codefly
+data:
+  KEY: value
+`
+	path := filepath.Join(dir, "config-map.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(configMap), 0o644))
+
+	require.NoError(t, applyPodOverlay(context.Background(), dir, &PodTemplateOverlay{
+		ServiceAccount: &WorkloadServiceAccount{Name: "web"},
+	}))
+
+	rendered, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, configMap, string(rendered), "a non-workload manifest must be left byte-identical")
+}
+
 func TestAddKustomizeResourceIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "kustomization.yaml")

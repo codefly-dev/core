@@ -943,10 +943,14 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 	if err != nil {
 		return err
 	}
+	baseDir := path.Join(k.Destination, "base")
 	if wrapper.PodOverlay.HasServiceAccount() {
-		if err = emitWorkloadServiceAccount(ctx, path.Join(k.Destination, "base"), base.Namespace, wrapper.PodOverlay.ServiceAccount); err != nil {
+		if err = emitWorkloadServiceAccount(ctx, baseDir, base.Namespace, wrapper.PodOverlay.ServiceAccount); err != nil {
 			return s.Wool.Wrapf(err, "cannot emit workload service account")
 		}
+	}
+	if err = applyPodOverlay(ctx, baseDir, wrapper.PodOverlay); err != nil {
+		return s.Wool.Wrapf(err, "cannot apply pod overlay")
 	}
 	return nil
 }

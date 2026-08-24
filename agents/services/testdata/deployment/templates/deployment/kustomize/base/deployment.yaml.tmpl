@@ -12,23 +12,9 @@ spec:
       app: {{ .Name }}
   template:
     metadata:
-{{- with .PodOverlay }}{{- if .PodAnnotations }}
-      annotations:
-{{- range $key, $value := .PodAnnotations }}
-        {{ $key }}: {{ $value | quote }}
-{{- end }}
-{{- end }}{{- end }}
       labels:
         app: {{ .Name }}
-{{- with .PodOverlay }}
-{{- range $key, $value := .PodLabels }}
-        {{ $key }}: {{ $value | quote }}
-{{- end }}
-{{- end }}
     spec:
-{{- with .PodOverlay }}{{- if .HasServiceAccount }}
-      serviceAccountName: {{ .ServiceAccountName }}
-{{- end }}{{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       securityContext:
