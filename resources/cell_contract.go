@@ -6,16 +6,20 @@ import (
 	"strings"
 )
 
-// CellContractSchema is the cell-contract version this consumer understands.
-const CellContractSchema = "obin-infra/cell-contract/v1"
+// CellContractSchema is the cell-descriptor version this consumer understands.
+const CellContractSchema = "codefly/cell/v1"
 
-// CellContract mirrors infra-base's `obinctl cell-contract <coordinate>` output.
-// It carries the facts an Environment needs to target a cell — cluster context,
+// CellContract is the cell descriptor codefly accepts from any platform. It
+// carries the facts an Environment needs to target a cell — cluster context,
 // image registry, managed-Postgres FQDN and its egress CIDRs, the secret store,
 // the app host suffix, the fleet workloads path — so an operator never hand-types
 // them into workspace.codefly.yaml. Hand-typing the egress CIDR wrong silently
-// drops all DB traffic at runtime; consuming the contract removes that class of
-// bug. Emitted by infra-base, consumed here — nothing owned by both. (infra-base #329.)
+// drops all DB traffic at runtime; consuming the descriptor removes that class of
+// bug. codefly owns this contract; any platform conforms to it — infra-base's
+// `obinctl cell-contract <coordinate>` is producer #1, but a customer's
+// provisioner or a hand-written BYOC descriptor could be others. Cloud specifics
+// stay opaque here (kind: aks, auth: acr) — codefly core carries no Azure or
+// infra-base knowledge. (infra-base #329.)
 type CellContract struct {
 	Schema          string                          `json:"schema"`
 	Cell            string                          `json:"cell"`
@@ -67,8 +71,8 @@ type CellContractObjectStorage struct {
 	Backend string `json:"backend"`
 }
 
-// ParseCellContract decodes and validates a cell-contract/v1 document (the JSON
-// emitted by `obinctl cell-contract`).
+// ParseCellContract decodes and validates a codefly/cell/v1 descriptor (e.g. the
+// JSON emitted by `obinctl cell-contract`, which conforms to this schema).
 func ParseCellContract(data []byte) (*CellContract, error) {
 	var c CellContract
 	if err := json.Unmarshal(data, &c); err != nil {

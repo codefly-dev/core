@@ -2,11 +2,12 @@ package resources
 
 import "testing"
 
-// A real cell-contract/v1 document, as emitted by `obinctl cell-contract
-// hosted-eastus2-dev`. The egress-CIDR is the load-bearing field: getting it
-// wrong silently drops all DB traffic, which is why the contract exists.
+// A real codefly/cell/v1 descriptor, as emitted by `obinctl cell-contract
+// hosted-eastus2-dev` (infra-base is one producer; the schema is codefly's). The
+// egress-CIDR is the load-bearing field: getting it wrong silently drops all DB
+// traffic, which is why the descriptor exists.
 const devCellContract = `{
-  "schema": "obin-infra/cell-contract/v1",
+  "schema": "codefly/cell/v1",
   "cell": "hosted-eastus2-dev",
   "coordinate": "obin/azure/eastus2/US/staging",
   "cloud": "azure",
@@ -67,7 +68,7 @@ func TestRejectsUnknownSchema(t *testing.T) {
 }
 
 func TestRequiresClusterContext(t *testing.T) {
-	doc := `{"schema":"obin-infra/cell-contract/v1","cell":"x","cluster":{}}`
+	doc := `{"schema":"codefly/cell/v1","cell":"x","cluster":{}}`
 	if _, err := ParseCellContract([]byte(doc)); err == nil {
 		t.Fatal("expected a missing-cluster-context error")
 	}
