@@ -58,6 +58,9 @@ func validateModuleReferencePathOverride(override *string) error {
 	if override == nil {
 		return nil
 	}
+	if *override == "" {
+		return fmt.Errorf("module path override cannot be empty")
+	}
 	if strings.ContainsAny(*override, "\x00\\") {
 		return fmt.Errorf("module path override %q must not contain NUL or backslash", *override)
 	}
@@ -132,6 +135,10 @@ func (mod *Module) validatePaths() error {
 	if err := validateResourcePathComponent("module", mod.Name); err != nil {
 		return err
 	}
+	// A module's own override stays confined: out-of-repo composition is
+	// expressed by the consuming workspace's ModuleReference (see
+	// validateModuleReferencePathOverride), never by a module declaring itself
+	// external in its own file.
 	if err := validateResourcePathOverride("module", mod.PathOverride); err != nil {
 		return err
 	}

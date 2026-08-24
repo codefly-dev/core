@@ -110,7 +110,7 @@ func TestModuleReferenceOverrideAllowsOutOfRepoPath(t *testing.T) {
 	if err := validateModuleReferencePath(&ModuleReference{Name: "saas", PathOverride: &up}); err != nil {
 		t.Fatalf("out-of-repo module reference rejected: %v", err)
 	}
-	for _, bad := range []string{"../ho\x00st", "..\\host"} {
+	for _, bad := range []string{"", "../ho\x00st", "..\\host"} {
 		override := bad
 		if err := validateModuleReferencePath(&ModuleReference{Name: "saas", PathOverride: &override}); err == nil {
 			t.Fatalf("module reference override %q was accepted", bad)
