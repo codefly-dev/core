@@ -47,6 +47,23 @@ func validateResourcePathOverride(kind string, override *string) error {
 	return validateResourceRelativePath(kind+" override", *override)
 }
 
+// validateModuleReferencePathOverride governs where a workspace module
+// reference resolves. Unlike service/job overrides — which stay confined to
+// their owning resource — a module reference is a composition root: it may
+// point at an out-of-repo module (a sibling checkout next to the workspace) so
+// a solution can boot a host it references without vendoring a copy. Absolute
+// and upward-traversing relative paths are both allowed; NUL and backslash
+// stay rejected as cross-platform hazards.
+func validateModuleReferencePathOverride(override *string) error {
+	if override == nil {
+		return nil
+	}
+	if strings.ContainsAny(*override, "\x00\\") {
+		return fmt.Errorf("module path override %q must not contain NUL or backslash", *override)
+	}
+	return nil
+}
+
 func validateModuleReferencePath(ref *ModuleReference) error {
 	if ref == nil {
 		return fmt.Errorf("module reference cannot be nil")
@@ -54,7 +71,7 @@ func validateModuleReferencePath(ref *ModuleReference) error {
 	if err := validateResourcePathComponent("module", ref.Name); err != nil {
 		return err
 	}
-	return validateResourcePathOverride("module", ref.PathOverride)
+	return validateModuleReferencePathOverride(ref.PathOverride)
 }
 
 func validateServiceReferencePath(ref *ServiceReference) error {

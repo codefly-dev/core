@@ -104,3 +104,21 @@ func TestAbsoluteResourceOverridesRemainSupported(t *testing.T) {
 		t.Fatalf("absolute override rejected: %v", err)
 	}
 }
+
+func TestModuleReferenceOverrideAllowsOutOfRepoPath(t *testing.T) {
+	up := "../host"
+	if err := validateModuleReferencePath(&ModuleReference{Name: "saas", PathOverride: &up}); err != nil {
+		t.Fatalf("out-of-repo module reference rejected: %v", err)
+	}
+	for _, bad := range []string{"../ho\x00st", "..\\host"} {
+		override := bad
+		if err := validateModuleReferencePath(&ModuleReference{Name: "saas", PathOverride: &override}); err == nil {
+			t.Fatalf("module reference override %q was accepted", bad)
+		}
+	}
+	// The out-of-repo escape hatch is for module references only; service
+	// overrides stay confined to their owning module.
+	if err := validateServiceReferencePath(&ServiceReference{Name: "gateway", PathOverride: &up}); err == nil {
+		t.Fatal("traversing service reference override was accepted")
+	}
+}

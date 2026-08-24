@@ -1,0 +1,6 @@
+name: solution
+layout: modules
+modules:
+  - name: platform
+  - name: saas
+    path: ../host
