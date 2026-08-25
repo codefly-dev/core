@@ -64,3 +64,18 @@ spec:
                   optional: {{ $reference.Optional }}
 {{- end }}
 {{- end }}
+{{- with .PodOverlay }}{{ if .HasConfigMounts }}
+          volumeMounts:
+{{- range .ConfigMounts }}
+            - name: {{ .VolumeName }}
+              mountPath: {{ .MountPath }}
+              readOnly: {{ .ReadOnly }}
+{{- end }}
+      volumes:
+{{- range .ConfigMounts }}
+        - name: {{ .VolumeName }}
+          configMap:
+            name: {{ .ConfigMapName }}
+            optional: {{ .Optional }}
+{{- end }}
+{{- end }}{{ end }}

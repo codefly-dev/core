@@ -693,6 +693,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		return s.DeployError(fmt.Errorf("kustomize deployment requires templates"))
 	}
 	deployment.PodOverlay.DefaultServiceAccountName(s.serviceName())
+	deployment.PodOverlay.DefaultConfigMounts()
 	if err := deployment.PodOverlay.Validate(); err != nil {
 		return s.DeployError(err)
 	}
@@ -762,6 +763,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 			return fail(err)
 		}
 		deploymentContext.PodOverlay.DefaultServiceAccountName(s.serviceName())
+		deploymentContext.PodOverlay.DefaultConfigMounts()
 		if err = deploymentContext.PodOverlay.Validate(); err != nil {
 			return fail(err)
 		}
@@ -970,6 +972,18 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 	if wrapper.PodOverlay.HasServiceAccount() && !overlayResult.boundServiceAccount {
 		s.Wool.Warn("pod overlay requested a service account but no workload manifest carried a pod template to bind it to; pods will run under the namespace default",
 			wool.Field("serviceAccount", wrapper.PodOverlay.ServiceAccountName()))
+	}
+	if wrapper.PodOverlay.HasConfigMounts() {
+		var missing []string
+		for _, mount := range wrapper.PodOverlay.ConfigMounts {
+			if !overlayResult.renderedConfigVolumes[mount.VolumeName] {
+				missing = append(missing, mount.MountPath)
+			}
+		}
+		if len(missing) > 0 {
+			s.Wool.Warn("pod overlay requested config mounts but the workload template rendered no matching volumes; the config files will be absent from the pod",
+				wool.Field("mountPaths", missing))
+		}
 	}
 	return nil
 }

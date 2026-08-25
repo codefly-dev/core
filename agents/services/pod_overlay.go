@@ -31,6 +31,33 @@ type PodTemplateOverlay struct {
 
 	// PodAnnotations are stamped onto the pod template metadata.
 	PodAnnotations map[string]string
+
+	// ConfigMounts mount ConfigMaps as files into the workload's pods. This is
+	// the file-based config seam — a ConfigMap rendered onto disk at a container
+	// path — as opposed to envFrom, which only projects keys as environment
+	// variables. Left nil/empty, no volumes or volumeMounts render.
+	ConfigMounts []ConfigMount
+}
+
+// ConfigMount mounts a ConfigMap as a file (or directory of files) into a
+// workload's pods at an absolute container path. The ConfigMap itself may be
+// supplied out-of-band per environment — the mount only names it, so the
+// workload starts once the ConfigMap exists (or immediately when Optional).
+type ConfigMount struct {
+	// ConfigMapName is the ConfigMap to mount. Must be a DNS-1123 subdomain.
+	ConfigMapName string
+	// MountPath is the absolute container path the ConfigMap is mounted at.
+	MountPath string
+	// ReadOnly mounts the volume read-only. Nil defaults to true in
+	// DefaultConfigMounts — read-only is the sensible default for file config —
+	// while an explicit true/false is honored.
+	ReadOnly *bool
+	// Optional lets the pod start even when the ConfigMap is absent, instead of
+	// blocking on it. Defaults to false.
+	Optional bool
+	// VolumeName names the pod volume backing this mount. Derived from
+	// ConfigMapName when empty; a caller-supplied name is left untouched.
+	VolumeName string
 }
 
 // WorkloadServiceAccount describes the Kubernetes ServiceAccount a workload's
@@ -45,20 +72,59 @@ type WorkloadServiceAccount struct {
 // dns1123Subdomain matches a Kubernetes ServiceAccount name.
 var dns1123Subdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 
+// dns1123Label matches a Kubernetes volume name (no dots, unlike a subdomain).
+var dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+
 // Validate rejects an overlay that would silently half-apply. A ServiceAccount
 // with annotations but no name would render nothing and leave the pod on the
 // default SA — token minting then has no identity and connections fail with no
 // deploy error — so a present ServiceAccount must carry a valid name.
 func (o *PodTemplateOverlay) Validate() error {
-	if o == nil || o.ServiceAccount == nil {
+	if o == nil {
 		return nil
 	}
-	name := o.ServiceAccount.Name
-	if name == "" {
-		return fmt.Errorf("workload service account requires a name")
+	if o.ServiceAccount != nil {
+		name := o.ServiceAccount.Name
+		if name == "" {
+			return fmt.Errorf("workload service account requires a name")
+		}
+		if len(name) > 253 || !dns1123Subdomain.MatchString(name) {
+			return fmt.Errorf("workload service account name %q must be a DNS-1123 subdomain", name)
+		}
 	}
-	if len(name) > 253 || !dns1123Subdomain.MatchString(name) {
-		return fmt.Errorf("workload service account name %q must be a DNS-1123 subdomain", name)
+	return o.validateConfigMounts()
+}
+
+// validateConfigMounts rejects a mount that would render an invalid or
+// ambiguous manifest: a relative container path, a ConfigMap name that is not a
+// DNS-1123 subdomain, a volume name that is not a DNS-1123 label, two mounts
+// competing for the same container path (the second would silently shadow the
+// first), or two mounts sharing a volume name (Kubernetes rejects duplicate
+// pod volume names — DefaultConfigMounts keeps derived names unique, but a
+// caller-supplied VolumeName can still collide).
+func (o *PodTemplateOverlay) validateConfigMounts() error {
+	seenPaths := make(map[string]bool, len(o.ConfigMounts))
+	seenVolumes := make(map[string]bool, len(o.ConfigMounts))
+	for _, mount := range o.ConfigMounts {
+		if !filepath.IsAbs(mount.MountPath) {
+			return fmt.Errorf("config mount path %q must be absolute", mount.MountPath)
+		}
+		if seenPaths[mount.MountPath] {
+			return fmt.Errorf("config mount path %q is mounted more than once", mount.MountPath)
+		}
+		seenPaths[mount.MountPath] = true
+		if l := len(mount.ConfigMapName); l == 0 || l > 253 || !dns1123Subdomain.MatchString(mount.ConfigMapName) {
+			return fmt.Errorf("config mount ConfigMap name %q must be a DNS-1123 subdomain", mount.ConfigMapName)
+		}
+		if mount.VolumeName != "" {
+			if len(mount.VolumeName) > 63 || !dns1123Label.MatchString(mount.VolumeName) {
+				return fmt.Errorf("config mount volume name %q must be a DNS-1123 label", mount.VolumeName)
+			}
+			if seenVolumes[mount.VolumeName] {
+				return fmt.Errorf("config mount volume name %q is used more than once", mount.VolumeName)
+			}
+			seenVolumes[mount.VolumeName] = true
+		}
 	}
 	return nil
 }
@@ -87,6 +153,66 @@ func (o *PodTemplateOverlay) ServiceAccountName() string {
 		return ""
 	}
 	return o.ServiceAccount.Name
+}
+
+// HasConfigMounts reports whether any ConfigMap-backed file mounts should
+// render. Templates gate `volumes`/`volumeMounts` on this so an overlay without
+// mounts leaves rendering unchanged.
+func (o *PodTemplateOverlay) HasConfigMounts() bool {
+	return o != nil && len(o.ConfigMounts) > 0
+}
+
+// DefaultConfigMounts normalizes each ConfigMount before validation and
+// rendering: it derives a DNS-1123-label VolumeName from the ConfigMap name
+// when the caller left it empty (kept unique across mounts) and defaults
+// ReadOnly to true when the caller left it unset. A caller-supplied VolumeName
+// or ReadOnly value is left untouched.
+func (o *PodTemplateOverlay) DefaultConfigMounts() {
+	if o == nil {
+		return
+	}
+	used := make(map[string]bool, len(o.ConfigMounts))
+	for i := range o.ConfigMounts {
+		mount := &o.ConfigMounts[i]
+		if mount.ReadOnly == nil {
+			readOnly := true
+			mount.ReadOnly = &readOnly
+		}
+		if mount.VolumeName == "" {
+			mount.VolumeName = uniqueVolumeName(deriveVolumeName(mount.ConfigMapName), used)
+		}
+		used[mount.VolumeName] = true
+	}
+}
+
+// deriveVolumeName turns a ConfigMap name (a DNS-1123 subdomain, which may carry
+// dots) into a DNS-1123 label suitable for a pod volume name.
+func deriveVolumeName(configMapName string) string {
+	name := strings.ReplaceAll(configMapName, ".", "-")
+	if len(name) > 63 {
+		name = strings.TrimRight(name[:63], "-")
+	}
+	return name
+}
+
+// uniqueVolumeName disambiguates two mounts that derive the same volume name
+// (e.g. the same ConfigMap mounted at two paths) by suffixing an index, keeping
+// the result a valid DNS-1123 label.
+func uniqueVolumeName(base string, used map[string]bool) string {
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		suffix := fmt.Sprintf("-%d", i)
+		candidate := base
+		if len(candidate)+len(suffix) > 63 {
+			candidate = strings.TrimRight(candidate[:63-len(suffix)], "-")
+		}
+		candidate += suffix
+		if !used[candidate] {
+			return candidate
+		}
+	}
 }
 
 // emitWorkloadServiceAccount renders the codefly-owned ServiceAccount object
@@ -142,6 +268,11 @@ type podOverlayResult struct {
 	// SA but no pod-template-bearing workload was found to bind it to, which
 	// would silently leave the pod on the namespace default.
 	boundServiceAccount bool
+	// renderedConfigVolumes is the set of pod volume names present across the
+	// workloads. ConfigMounts render via the agent's own template (not this
+	// post-render pass), so this is how the caller detects a mount whose volume
+	// the template never emitted — the same silent-half-apply guard as the SA.
+	renderedConfigVolumes map[string]bool
 }
 
 // applyPodOverlay binds the pod-template overlay into the rendered base
@@ -152,11 +283,11 @@ type podOverlayResult struct {
 // rendered is left untouched, so an agent mid-migration that still carries the
 // binding does not double-render it.
 func applyPodOverlay(_ context.Context, baseDir string, overlay *PodTemplateOverlay) (podOverlayResult, error) {
-	var result podOverlayResult
+	result := podOverlayResult{renderedConfigVolumes: map[string]bool{}}
 	if overlay == nil {
 		return result, nil
 	}
-	if !overlay.HasServiceAccount() && len(overlay.PodLabels) == 0 && len(overlay.PodAnnotations) == 0 {
+	if !overlay.HasServiceAccount() && len(overlay.PodLabels) == 0 && len(overlay.PodAnnotations) == 0 && !overlay.HasConfigMounts() {
 		return result, nil
 	}
 	entries, err := os.ReadDir(baseDir)
@@ -167,24 +298,28 @@ func applyPodOverlay(_ context.Context, baseDir string, overlay *PodTemplateOver
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
-		bound, err := applyPodOverlayToFile(filepath.Join(baseDir, entry.Name()), overlay)
+		bound, volumes, err := applyPodOverlayToFile(filepath.Join(baseDir, entry.Name()), overlay)
 		if err != nil {
 			return result, err
 		}
 		if bound {
 			result.boundServiceAccount = true
 		}
+		for _, name := range volumes {
+			result.renderedConfigVolumes[name] = true
+		}
 	}
 	return result, nil
 }
 
-func applyPodOverlayToFile(path string, overlay *PodTemplateOverlay) (bool, error) {
+func applyPodOverlayToFile(path string, overlay *PodTemplateOverlay) (bool, []string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return false, fmt.Errorf("read manifest: %w", err)
+		return false, nil, fmt.Errorf("read manifest: %w", err)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
 	var documents []*yaml.Node
+	var volumes []string
 	changed := false
 	bound := false
 	for {
@@ -194,50 +329,53 @@ func applyPodOverlayToFile(path string, overlay *PodTemplateOverlay) (bool, erro
 			break
 		}
 		if err != nil {
-			return false, fmt.Errorf("parse manifest %s: %w", path, err)
+			return false, nil, fmt.Errorf("parse manifest %s: %w", path, err)
 		}
 		if len(document.Content) == 0 {
 			continue
 		}
-		documentChanged, documentBound := applyPodOverlayToDocument(document.Content[0], overlay)
+		documentChanged, documentBound, documentVolumes := applyPodOverlayToDocument(document.Content[0], overlay)
 		changed = changed || documentChanged
 		bound = bound || documentBound
+		volumes = append(volumes, documentVolumes...)
 		documents = append(documents, &document)
 	}
 	if !changed {
-		return bound, nil
+		return bound, volumes, nil
 	}
 	var out bytes.Buffer
 	encoder := yaml.NewEncoder(&out)
 	encoder.SetIndent(2)
 	for _, document := range documents {
 		if err = encoder.Encode(document); err != nil {
-			return false, fmt.Errorf("render manifest %s: %w", path, err)
+			return false, nil, fmt.Errorf("render manifest %s: %w", path, err)
 		}
 	}
 	if err = encoder.Close(); err != nil {
-		return false, fmt.Errorf("render manifest %s: %w", path, err)
+		return false, nil, fmt.Errorf("render manifest %s: %w", path, err)
 	}
 	if err = os.WriteFile(path, out.Bytes(), 0o644); err != nil {
-		return false, err
+		return false, nil, err
 	}
-	return bound, nil
+	return bound, volumes, nil
 }
 
 // applyPodOverlayToDocument patches a single workload document, returning
-// whether it mutated the node and whether the pod spec carries serviceAccountName
-// after the pass (already present or newly stamped).
-func applyPodOverlayToDocument(root *yaml.Node, overlay *PodTemplateOverlay) (changed, bound bool) {
+// whether it mutated the node, whether the pod spec carries serviceAccountName
+// after the pass (already present or newly stamped), and the pod volume names
+// the template rendered (used to detect config mounts the template dropped).
+func applyPodOverlayToDocument(root *yaml.Node, overlay *PodTemplateOverlay) (changed, bound bool, volumes []string) {
 	if root == nil || root.Kind != yaml.MappingNode {
-		return false, false
+		return false, false, nil
 	}
 	if !podTemplateWorkloadKinds[mappingScalar(root, "kind")] {
-		return false, false
+		return false, false, nil
 	}
 	template := mappingChild(mappingChild(root, "spec"), "template")
 	if template == nil || template.Kind != yaml.MappingNode {
-		return false, false
+		return false, false, nil
 	}
+	podSpec := mappingChild(template, "spec")
 	if len(overlay.PodLabels) > 0 {
 		metadata := ensureMappingChild(template, "metadata")
 		labels := ensureMappingChild(metadata, "labels")
@@ -253,7 +391,6 @@ func applyPodOverlayToDocument(root *yaml.Node, overlay *PodTemplateOverlay) (ch
 		}
 	}
 	if overlay.HasServiceAccount() {
-		podSpec := mappingChild(template, "spec")
 		if podSpec != nil && podSpec.Kind == yaml.MappingNode {
 			bound = true
 			if setScalarIfAbsent(podSpec, "serviceAccountName", overlay.ServiceAccountName(), false) {
@@ -261,7 +398,22 @@ func applyPodOverlayToDocument(root *yaml.Node, overlay *PodTemplateOverlay) (ch
 			}
 		}
 	}
-	return changed, bound
+	return changed, bound, podVolumeNames(podSpec)
+}
+
+// podVolumeNames returns the names of the volumes declared on a pod spec.
+func podVolumeNames(podSpec *yaml.Node) []string {
+	volumes := mappingChild(podSpec, "volumes")
+	if volumes == nil || volumes.Kind != yaml.SequenceNode {
+		return nil
+	}
+	var names []string
+	for _, volume := range volumes.Content {
+		if name := mappingScalar(volume, "name"); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // mappingChild returns the value node for key in a mapping node, or nil.
