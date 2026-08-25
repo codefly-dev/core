@@ -67,6 +67,14 @@ func TestPodTemplateOverlayValidateConfigMounts(t *testing.T) {
 			wantErr: "mounted more than once",
 		},
 		{name: "bad volume name", mounts: []ConfigMount{{ConfigMapName: "skin", MountPath: "/etc/skin", VolumeName: "Bad_Vol"}}, wantErr: "DNS-1123 label"},
+		{
+			name: "duplicate volume name",
+			mounts: []ConfigMount{
+				{ConfigMapName: "a", MountPath: "/etc/a", VolumeName: "shared"},
+				{ConfigMapName: "b", MountPath: "/etc/b", VolumeName: "shared"},
+			},
+			wantErr: "used more than once",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -81,10 +89,11 @@ func TestPodTemplateOverlayValidateConfigMounts(t *testing.T) {
 }
 
 func TestDefaultConfigMounts(t *testing.T) {
+	writable := false
 	overlay := &PodTemplateOverlay{ConfigMounts: []ConfigMount{
 		{ConfigMapName: "app.skin.config", MountPath: "/etc/skin"},
 		{ConfigMapName: "app.skin.config", MountPath: "/etc/skin-alt"},
-		{ConfigMapName: "theme", MountPath: "/etc/theme", VolumeName: "custom-vol"},
+		{ConfigMapName: "theme", MountPath: "/etc/theme", VolumeName: "custom-vol", ReadOnly: &writable},
 	}}
 	overlay.DefaultConfigMounts()
 
@@ -94,11 +103,27 @@ func TestDefaultConfigMounts(t *testing.T) {
 	require.Equal(t, "app-skin-config-2", overlay.ConfigMounts[1].VolumeName)
 	// A caller-supplied volume name is left untouched.
 	require.Equal(t, "custom-vol", overlay.ConfigMounts[2].VolumeName)
-	for _, mount := range overlay.ConfigMounts {
-		require.True(t, mount.ReadOnly)
-	}
+	// ReadOnly defaults to true when unset...
+	require.True(t, *overlay.ConfigMounts[0].ReadOnly)
+	require.True(t, *overlay.ConfigMounts[1].ReadOnly)
+	// ...but an explicit value is honored, not overwritten.
+	require.False(t, *overlay.ConfigMounts[2].ReadOnly)
 	require.True(t, overlay.HasConfigMounts())
 	require.NoError(t, overlay.Validate())
+}
+
+// A caller-supplied VolumeName that collides with an earlier derived name is a
+// duplicate pod volume — DefaultConfigMounts must not silently rename the
+// caller's explicit name, so Validate has to reject the collision.
+func TestDefaultConfigMountsRejectsExplicitVolumeCollision(t *testing.T) {
+	overlay := &PodTemplateOverlay{ConfigMounts: []ConfigMount{
+		{ConfigMapName: "foo", MountPath: "/etc/foo"},                    // derives "foo"
+		{ConfigMapName: "bar", MountPath: "/etc/bar", VolumeName: "foo"}, // explicit, collides
+	}}
+	overlay.DefaultConfigMounts()
+	require.Equal(t, "foo", overlay.ConfigMounts[0].VolumeName)
+	require.Equal(t, "foo", overlay.ConfigMounts[1].VolumeName)
+	require.ErrorContains(t, overlay.Validate(), "used more than once")
 }
 
 func TestHasConfigMounts(t *testing.T) {
@@ -211,12 +236,20 @@ func TestDeployKustomizeWithoutOverlayRendersNoServiceAccount(t *testing.T) {
 
 func TestDeployKustomizeRendersConfigMounts(t *testing.T) {
 	ctx := context.Background()
+	writable := false
 	destination := deployWithOverlay(ctx, t, &PodTemplateOverlay{
-		ConfigMounts: []ConfigMount{{
-			ConfigMapName: "skin-config",
-			MountPath:     "/etc/codefly/skin",
-			Optional:      true,
-		}},
+		ConfigMounts: []ConfigMount{
+			{
+				ConfigMapName: "skin-config",
+				MountPath:     "/etc/codefly/skin",
+				Optional:      true,
+			},
+			{
+				ConfigMapName: "theme-config",
+				MountPath:     "/etc/codefly/theme",
+				ReadOnly:      &writable,
+			},
+		},
 	})
 
 	deployment, err := os.ReadFile(filepath.Join(destination, "base", "deployment.yaml"))
@@ -225,11 +258,14 @@ func TestDeployKustomizeRendersConfigMounts(t *testing.T) {
 	require.Contains(t, manifest, "volumeMounts:")
 	require.Contains(t, manifest, "mountPath: /etc/codefly/skin")
 	// VolumeName was derived from the ConfigMap name and shared by the mount and
-	// the volume, and ReadOnly normalized to true.
+	// the volume, and ReadOnly defaulted to true.
 	require.Contains(t, manifest, "name: skin-config")
 	require.Contains(t, manifest, "readOnly: true")
 	require.Contains(t, manifest, "configMap:")
 	require.Contains(t, manifest, "optional: true")
+	// An explicit ReadOnly is honored rather than forced to true.
+	require.Contains(t, manifest, "mountPath: /etc/codefly/theme")
+	require.Contains(t, manifest, "readOnly: false")
 }
 
 func TestDeployKustomizeRejectsInvalidServiceAccountName(t *testing.T) {
@@ -310,6 +346,72 @@ func TestDeployKustomizeDefaultsServiceAccountNameToService(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(sa), "name: service")
 	require.Contains(t, string(sa), "azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000")
+}
+
+func TestApplyPodOverlayReportsRenderedConfigVolumes(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: codefly
+spec:
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: example/web
+          volumeMounts:
+            - name: skin-config
+              mountPath: /etc/skin
+              readOnly: true
+      volumes:
+        - name: skin-config
+          configMap:
+            name: skin-config
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "deployment.yaml"), []byte(manifest), 0o644))
+
+	overlay := &PodTemplateOverlay{ConfigMounts: []ConfigMount{{ConfigMapName: "skin-config", MountPath: "/etc/skin", VolumeName: "skin-config"}}}
+	result, err := applyPodOverlay(context.Background(), dir, overlay)
+	require.NoError(t, err)
+	require.True(t, result.renderedConfigVolumes["skin-config"], "a rendered mount's volume must be reported")
+	// Config mounts render via the agent template, not this pass — the manifest
+	// is left byte-identical.
+	after, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, manifest, string(after))
+}
+
+// TestApplyPodOverlayDetectsUnrenderedConfigMount is the guard behind the
+// deploy-time warning: a workload whose template forgot the volumes block leaves
+// the config file silently absent, and the result must make that detectable.
+func TestApplyPodOverlayDetectsUnrenderedConfigMount(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: codefly
+spec:
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: example/web
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "deployment.yaml"), []byte(manifest), 0o644))
+
+	overlay := &PodTemplateOverlay{ConfigMounts: []ConfigMount{{ConfigMapName: "skin-config", MountPath: "/etc/skin", VolumeName: "skin-config"}}}
+	result, err := applyPodOverlay(context.Background(), dir, overlay)
+	require.NoError(t, err)
+	require.False(t, result.renderedConfigVolumes["skin-config"], "an unrendered mount must be detectable")
 }
 
 // TestPodOverlayTemplateContractRenders guards the template-facing PodOverlay
