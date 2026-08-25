@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -52,6 +54,62 @@ func TestReaperPreservesReusedLegacyGroupWithoutSignaling(t *testing.T) {
 	assertGroupAlive(t, pid)
 	if _, err := os.Stat(legacyPath); err != nil {
 		t.Fatalf("reused legacy record was not retained: %v", err)
+	}
+}
+
+func TestReaperReapsLegacyGroupWhenOwnerPidReused(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	pid, authPath := spawnOrphanedGroup(t, false)
+	defer cleanupOrphanedGroup(pid, authPath)
+	if err := os.Remove(authPath); err != nil {
+		t.Fatal(err)
+	}
+	leaderStart, err := processStartUnixSeconds(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A live owner that started strictly after the record was written cannot be
+	// the process that spawned the leader — it is a recycled PID, so the group
+	// is orphaned and must still be reaped.
+	for time.Now().Unix() <= leaderStart {
+		time.Sleep(50 * time.Millisecond)
+	}
+	owner := exec.Command("sleep", "30")
+	if err := owner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = owner.Process.Kill()
+		_ = owner.Wait()
+	}()
+	legacyPath := legacyRecordPath(t, pid, ".pgid")
+	writeLegacyRecord(t, legacyPath, pid, owner.Process.Pid, leaderStart)
+
+	if err := ReapStaleProcessGroups(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertGroupDead(t, pid)
+	if _, err := os.Stat(legacyPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("reaped legacy record still exists: %v", err)
+	}
+}
+
+func TestReaperSIGKILLsStubbornLegacyLeader(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	pid := spawnOrphanedStubbornLeader(t)
+	defer func() { _ = syscall.Kill(-pid, syscall.SIGKILL) }()
+	if err := os.Remove(recordPath(t, pid)); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := legacyRecordPath(t, pid, ".pgid")
+	writeLegacyRecord(t, legacyPath, pid, deadPID, time.Now().Unix())
+
+	if err := ReapStaleProcessGroups(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertGroupDead(t, pid)
+	if _, err := os.Stat(legacyPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("reaped legacy record still exists: %v", err)
 	}
 }
 
@@ -116,6 +174,30 @@ func TestParseLegacyProcessRecordRejectsForeignContracts(t *testing.T) {
 // deadPID names an owner that is guaranteed not to be running, so the reaper
 // treats the legacy group as orphaned.
 const deadPID = 0x7fffffff
+
+func spawnOrphanedStubbornLeader(t *testing.T) int {
+	t.Helper()
+	dir := t.TempDir()
+	pidPath := filepath.Join(dir, "pid")
+	readyPath := filepath.Join(dir, "ready")
+	owner := registryHelperCommand("stubborn-owner")
+	owner.Env = append(owner.Env,
+		processGroupPIDFileEnv+"="+pidPath,
+		processGroupReadyFileEnv+"="+readyPath)
+	if err := owner.Run(); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForTestFile(t, readyPath)
+	return pid
+}
 
 func legacyRecordPath(t *testing.T, pgid int, suffix string) string {
 	t.Helper()
