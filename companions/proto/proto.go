@@ -41,6 +41,13 @@ type Buf struct {
 	// directory. It defaults to Dir, but a service whose protocol tree lives
 	// below the service root can widen this boundary explicitly.
 	generatedRoot string
+
+	// skipOpenAPI opts the generator out of the OpenAPI post-generation stage.
+	// A service that owns a proto tree purely for gRPC stubs but also ships an
+	// openapi/ REST contract (e.g. a Python FastAPI service) would otherwise
+	// have TypeScript types generated into it on every Sync. WithoutOpenAPI
+	// suppresses that stage; buf code generation is unaffected.
+	skipOpenAPI bool
 }
 
 func NewBuf(ctx context.Context, dir string) (*Buf, error) {
@@ -90,6 +97,16 @@ func (g *Buf) WithGeneratedRoot(root string) *Buf {
 // this invariant keeps regeneration cleanup scoped to the managed service.
 func (g *Buf) WithGeneratedDirs(dirs ...string) *Buf {
 	g.generatedDirs = append(g.generatedDirs, dirs...)
+	return g
+}
+
+// WithoutOpenAPI opts out of the OpenAPI post-generation stage: the canonical
+// OpenAPI move and the OpenAPI→TypeScript derivation are both skipped, leaving
+// any openapi/*.swagger.json inputs untouched. buf generate still runs. This
+// suits non-TypeScript services that own a proto tree for gRPC stubs yet keep
+// an unrelated openapi/ REST contract alongside it (e.g. service-python-fastapi).
+func (g *Buf) WithoutOpenAPI() *Buf {
+	g.skipOpenAPI = true
 	return g
 }
 
@@ -176,6 +193,31 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "cannot generate with buf")
 	}
 
+	if err = g.emitOpenAPIArtifacts(ctx, runner); err != nil {
+		return w.Wrapf(err, "cannot emit OpenAPI artifacts")
+	}
+
+	if err = g.updateGenerationCache(ctx); err != nil {
+		return w.Wrapf(err, "cannot update cache")
+	}
+	return nil
+}
+
+// emitOpenAPIArtifacts runs the OpenAPI post-generation stage that follows buf
+// generate: it promotes a generated Swagger document to Codefly's canonical
+// OpenAPI path, then derives TypeScript types from every openapi/*.swagger.json
+// via the Swagger 2.0 → OpenAPI 3.0 → TypeScript pipeline. Callers that own a
+// proto tree purely for gRPC stubs but keep an unrelated openapi/ REST contract
+// opt out with WithoutOpenAPI, which short-circuits this stage and leaves those
+// swagger inputs untouched.
+func (g *Buf) emitOpenAPIArtifacts(ctx context.Context, runner companion.CompanionRunner) error {
+	w := wool.Get(ctx).In("proto.emitOpenAPIArtifacts")
+
+	if g.skipOpenAPI {
+		w.Debug("skipping OpenAPI post-generation stage (opted out)")
+		return nil
+	}
+
 	// Deal with OpenAPI if exists
 	openapi := path.Join(g.Dir, "openapi/api.swagger.json")
 	if ok, err := shared.FileExists(ctx, openapi); err == nil && ok {
@@ -234,9 +276,6 @@ func (g *Buf) Generate(ctx context.Context) error {
 		}
 	}
 
-	if err = g.updateGenerationCache(ctx); err != nil {
-		return w.Wrapf(err, "cannot update cache")
-	}
 	return nil
 }
 
