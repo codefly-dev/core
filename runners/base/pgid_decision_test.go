@@ -36,8 +36,12 @@ func TestProcessGroupRegistryHelper(t *testing.T) {
 		signal.Ignore(syscall.SIGTERM)
 		writeTestFile(t, os.Getenv(processGroupReadyFileEnv), "ready")
 		select {}
-	case "owner":
-		leader := registryHelperCommand("member")
+	case "owner", "stubborn-owner":
+		leaderRole := "member"
+		if os.Getenv(processGroupRoleEnv) == "stubborn-owner" {
+			leaderRole = "ignores-term"
+		}
+		leader := registryHelperCommand(leaderRole)
 		leader.Env = append(leader.Env, processGroupReadyFileEnv+"="+os.Getenv(processGroupReadyFileEnv))
 		if _, err := StartTrackedProcessGroup(leader); err != nil {
 			t.Fatal(err)

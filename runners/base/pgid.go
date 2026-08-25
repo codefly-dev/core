@@ -67,6 +67,18 @@ func forwardLines(r io.Reader, w io.Writer) {
 // Stop() removes the file on clean exit. At startup, process-owning hosts call
 // ReapStaleProcessGroups to authenticate and terminate groups whose recorded
 // owner no longer exists.
+//
+// An older codefly wrote a plaintext record (`pgid=`/`parent=`/`started=`/
+// `cwd=`/`cmd=`) loose in ~/.codefly/runs/ rather than under a namespace.
+// Those records name process groups this reaper would otherwise strand across
+// an upgrade, so ReapStaleProcessGroups also reconciles them — corroborating a
+// live leader's wall-clock start time against the record's spawn second in
+// place of the authentication token those records predate. Namespaced contracts
+// live in subdirectories and are never scanned; only loose files matching the
+// exact legacy schema are reconciled. That schema predates namespacing and was
+// shared by every agent on this runner, so a group is only ever terminated once
+// it is proven orphaned — a recognized record that names a live, owner-managed
+// group is preserved regardless of which agent wrote it.
 
 const (
 	pgidRootDirName       = "runs"
@@ -78,6 +90,12 @@ const (
 	maxRecordSize         = 16 << 10
 	groupAuthBytes        = 32
 	groupAuthEnv          = "CODEFLY_PROCESS_GROUP_AUTH"
+	// legacyStartCorroborationSkew bounds how far a legacy record's recorded
+	// spawn second may trail the leader's wall-clock start second before the
+	// two stop corroborating. The record's `started` is stamped just after the
+	// child forks, so the genuine leader's start second is at or a hair below
+	// it; a recycled pgid's leader starts strictly later and fails this gate.
+	legacyStartCorroborationSkew int64 = 5
 )
 
 var registryProcessLock = make(chan struct{}, 1)
@@ -672,7 +690,9 @@ func IsProcessAlive(pid int) bool {
 // contract namespace. Live owners are preserved; groups with dead or reused
 // owners are terminated. Stable malformed records are quarantined without
 // signaling any process; records that cannot prove a stable file identity
-// remain active and are reported.
+// remain active and are reported. Codefly's own legacy plaintext records,
+// written loose in the registry root by an older release, are reconciled too
+// so their groups cannot leak across an upgrade.
 func ReapStaleProcessGroups(ctx context.Context) (returnErr error) {
 	w := wool.Get(ctx).In("base.ReapStaleProcessGroups")
 	dir, err := pgidStateDir()
@@ -702,6 +722,13 @@ func ReapStaleProcessGroups(ctx context.Context) (returnErr error) {
 		if reaped == 0 {
 			break
 		}
+	}
+	if ctx.Err() == nil {
+		legacyReaped, legacyErr := sweepLegacyRecords(ctx, filepath.Dir(dir))
+		if legacyErr != nil {
+			failures = append(failures, legacyErr)
+		}
+		totalReaped += legacyReaped
 	}
 	if totalReaped > 0 {
 		w.Info("reaped stale process groups", wool.Field("count", totalReaped))
@@ -815,6 +842,315 @@ func reconcilePgidRecord(ctx context.Context, path, name string) (bool, error) {
 		return true, fmt.Errorf("remove reaped process-group record %s: %w", name, err)
 	}
 	return true, nil
+}
+
+type legacyProcessRecord struct {
+	pgid    int
+	parent  int
+	started int64
+	command string
+}
+
+// sweepLegacyRecords reconciles the plaintext records an older codefly wrote
+// loose in the registry root before records moved under a namespace. Namespaced
+// foreign contracts live in subdirectories and are never scanned here; among
+// loose files, only those that name a pgid and parse as the exact legacy schema
+// are touched. That schema was shared by every agent built on this runner
+// before namespacing, so a matched record may have been written by a different
+// agent binary — reaping the orphaned group it names is still correct, and any
+// file that is not this codefly's legacy format is left byte-for-byte intact.
+func sweepLegacyRecords(ctx context.Context, root string) (int, error) {
+	w := wool.Get(ctx).In("base.sweepLegacyRecords")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("cannot read legacy pgid dir: %w", err)
+	}
+	reaped := 0
+	var stranded []int
+	var failures []error
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			failures = append(failures, err)
+			break
+		}
+		if entry.IsDir() {
+			continue
+		}
+		pgid, ok := legacyRecordPGID(entry.Name())
+		if !ok {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		outcome, reconcileErr := reconcileLegacyRecord(ctx, path, entry.Name(), pgid)
+		switch outcome {
+		case legacyOutcomeReaped:
+			reaped++
+		case legacyOutcomeStranded:
+			stranded = append(stranded, pgid)
+		}
+		if reconcileErr != nil {
+			failures = append(failures, reconcileErr)
+		}
+	}
+	if len(stranded) > 0 {
+		w.Warn("legacy process groups are still alive but cannot be authenticated for termination",
+			wool.Field("count", len(stranded)),
+			wool.Field("pgids", stranded))
+	}
+	return reaped, errors.Join(failures...)
+}
+
+func legacyRecordPGID(name string) (int, bool) {
+	stem, ok := strings.CutSuffix(strings.TrimSuffix(name, ".invalid"), ".pgid")
+	if !ok {
+		return 0, false
+	}
+	pgid, err := strconv.Atoi(stem)
+	if err != nil || pgid <= 1 {
+		return 0, false
+	}
+	return pgid, true
+}
+
+func parseLegacyProcessRecord(path string) (legacyProcessRecord, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) > maxRecordSize {
+		return legacyProcessRecord{}, false
+	}
+	var rec legacyProcessRecord
+	var sawPGID, sawParent, sawStarted, sawCWD, sawCommand bool
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return legacyProcessRecord{}, false
+		}
+		switch key {
+		case "pgid":
+			pgid, err := strconv.Atoi(value)
+			if err != nil || pgid <= 1 {
+				return legacyProcessRecord{}, false
+			}
+			rec.pgid, sawPGID = pgid, true
+		case "parent":
+			parent, err := strconv.Atoi(value)
+			if err != nil || parent < 0 {
+				return legacyProcessRecord{}, false
+			}
+			rec.parent, sawParent = parent, true
+		case "started":
+			started, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || started <= 0 {
+				return legacyProcessRecord{}, false
+			}
+			rec.started, sawStarted = started, true
+		case "cwd":
+			sawCWD = true
+		case "cmd":
+			rec.command, sawCommand = value, true
+		default:
+			return legacyProcessRecord{}, false
+		}
+	}
+	if !(sawPGID && sawParent && sawStarted && sawCWD && sawCommand) {
+		return legacyProcessRecord{}, false
+	}
+	return rec, true
+}
+
+type legacyOutcome int
+
+const (
+	// legacyOutcomeSettled covers records that named a dead group (dropped),
+	// a live and managed group (preserved), or nothing this codefly owns.
+	legacyOutcomeSettled legacyOutcome = iota
+	// legacyOutcomeReaped: an orphaned group was authenticated and terminated.
+	legacyOutcomeReaped
+	// legacyOutcomeStranded: a live group that cannot be authenticated for
+	// termination (its leader has exited, or its pgid was reused). The caller
+	// surfaces these in aggregate so an operator sees a leak the reaper cannot
+	// safely clear.
+	legacyOutcomeStranded
+)
+
+func reconcileLegacyRecord(ctx context.Context, path, name string, pgid int) (legacyOutcome, error) {
+	w := wool.Get(ctx).In("base.reconcileLegacyRecord")
+	rec, ok := parseLegacyProcessRecord(path)
+	if !ok || rec.pgid != pgid {
+		return legacyOutcomeSettled, nil
+	}
+	if !isProcessGroupAlive(rec.pgid) {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return legacyOutcomeSettled, fmt.Errorf("remove dead legacy process-group record %s: %w", name, err)
+		}
+		return legacyOutcomeSettled, nil
+	}
+	fields := []*wool.LogField{
+		wool.Field("pgid", rec.pgid),
+		wool.Field("owner", rec.parent),
+		wool.Field("command", rec.command),
+		wool.Field("file", name),
+	}
+	ownerAlive, err := legacyOwnerAlive(rec.parent, rec.started)
+	if err != nil {
+		return legacyOutcomeSettled, fmt.Errorf("read legacy process-group owner %d start time from %s: %w", rec.parent, name, err)
+	}
+	if ownerAlive {
+		w.Debug("preserving live legacy process group with a live owner", fields...)
+		return legacyOutcomeSettled, nil
+	}
+	leader, err := inspectProcess(rec.pgid)
+	if errors.Is(err, errProcessNotFound) {
+		w.Debug("legacy process group is alive but leaderless; cannot authenticate for termination", fields...)
+		return legacyOutcomeStranded, nil
+	}
+	if err != nil {
+		return legacyOutcomeSettled, fmt.Errorf("inspect legacy process-group leader %d from %s: %w", rec.pgid, name, err)
+	}
+	corroborated, err := legacyLeaderCorroborates(leader, rec.started)
+	if err != nil {
+		return legacyOutcomeSettled, fmt.Errorf("read legacy process-group leader %d start time from %s: %w", rec.pgid, name, err)
+	}
+	if !corroborated {
+		w.Debug("legacy process-group id was reused; refusing to signal an unauthenticated group", fields...)
+		return legacyOutcomeStranded, nil
+	}
+
+	w.Warn("reaping orphaned legacy process group from a prior codefly", fields...)
+	if err := terminateLegacyGroup(ctx, rec.pgid, rec.started); err != nil {
+		if errors.Is(err, errProcessGroupIdentityChanged) {
+			w.Debug("legacy process group changed identity before termination; leaving it unsignaled", fields...)
+			return legacyOutcomeStranded, nil
+		}
+		return legacyOutcomeSettled, fmt.Errorf("reap legacy process group %d from %s: %w", rec.pgid, name, err)
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return legacyOutcomeReaped, fmt.Errorf("remove reaped legacy process-group record %s: %w", name, err)
+	}
+	return legacyOutcomeReaped, nil
+}
+
+// legacyOwnerAlive reports whether the recorded owner is still the process that
+// spawned the group. A genuine owner forked the leader and stamped `started`
+// just after, so it cannot be younger than the record. A live PID that
+// post-dates the record is a recycled PID, not the original owner — the group
+// is orphaned and eligible for reaping. The legacy format carries no owner boot
+// or start identity, so this second-granularity start comparison is the only
+// available discriminator; it errs toward preserving (treating an ambiguous
+// same-second PID as the live owner) rather than risking a live managed group.
+func legacyOwnerAlive(parent int, started int64) (bool, error) {
+	if parent <= 0 {
+		return false, nil
+	}
+	startSecond, err := processStartUnixSeconds(parent)
+	if err != nil {
+		if errors.Is(err, process.ErrorProcessNotRunning) {
+			return false, nil
+		}
+		return false, err
+	}
+	return startSecond <= started, nil
+}
+
+// legacyLeaderCorroborates authenticates a legacy record — which predates the
+// authentication token — by matching the live leader's wall-clock start second
+// against the record's spawn second. A recycled pgid's leader always starts
+// after the record was written and fails this gate. leader must be the process
+// whose PID equals the recorded pgid; a group whose leader has exited (only
+// descendants survive) cannot be corroborated and is never signaled.
+func legacyLeaderCorroborates(leader processIdentity, started int64) (bool, error) {
+	if leader.pgid != leader.pid {
+		return false, nil
+	}
+	startSecond, err := processStartUnixSeconds(leader.pid)
+	if err != nil {
+		if errors.Is(err, process.ErrorProcessNotRunning) {
+			return false, nil
+		}
+		return false, err
+	}
+	return startSecond <= started && started-startSecond <= legacyStartCorroborationSkew, nil
+}
+
+func processStartUnixSeconds(pid int) (int64, error) {
+	proc, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return 0, err
+	}
+	createdMillis, err := proc.CreateTime()
+	if err != nil {
+		return 0, err
+	}
+	return createdMillis / 1000, nil
+}
+
+func terminateLegacyGroup(ctx context.Context, pgid int, started int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := signalLegacyGroup(ctx, pgid, started, syscall.SIGTERM); err != nil {
+		return err
+	}
+	if waitForGroupDeath(ctx, pgid, sigtermGrace) {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := signalLegacyGroup(ctx, pgid, started, syscall.SIGKILL); err != nil {
+		return err
+	}
+	if waitForGroupDeath(ctx, pgid, sigkillGrace) {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return errors.New("legacy process group remained alive after SIGKILL")
+}
+
+// signalLegacyGroup re-authenticates the group's leader by its wall-clock start
+// second, then signals every current member through an audit-token handle
+// rather than by pgid. Signaling by pgid is unsafe for a leaderless group: once
+// the leader exits and its PID (== the pgid) is reaped, that PID can be recycled
+// as a new, unrelated group leader while the original descendants keep the pgid
+// alive, and `kill(-pgid)` would then hit the unrelated tree. Requiring a live,
+// corroborated leader on every pass, and delivering only to member incarnations
+// pinned at enumeration time, matches the authenticated path and closes that
+// window; a group whose leader has exited is reported stranded, never signaled.
+func signalLegacyGroup(ctx context.Context, pgid int, started int64, signal syscall.Signal) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	members, err := inspectProcessGroup(ctx, pgid)
+	if err != nil {
+		return err
+	}
+	leaderPresent := false
+	for _, member := range members {
+		if member.pid != pgid {
+			continue
+		}
+		corroborated, err := legacyLeaderCorroborates(member, started)
+		if err != nil {
+			return err
+		}
+		if !corroborated {
+			return errProcessGroupIdentityChanged
+		}
+		leaderPresent = true
+		break
+	}
+	if !leaderPresent {
+		return errProcessGroupIdentityChanged
+	}
+	return signalProcessIdentities(ctx, members, signal)
 }
 
 func authenticateProcessGroup(ctx context.Context, rec pgidRecord) ([]processIdentity, bool, error) {
