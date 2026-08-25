@@ -693,6 +693,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		return s.DeployError(fmt.Errorf("kustomize deployment requires templates"))
 	}
 	deployment.PodOverlay.DefaultServiceAccountName(s.serviceName())
+	deployment.PodOverlay.DefaultConfigMounts()
 	if err := deployment.PodOverlay.Validate(); err != nil {
 		return s.DeployError(err)
 	}
@@ -762,6 +763,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 			return fail(err)
 		}
 		deploymentContext.PodOverlay.DefaultServiceAccountName(s.serviceName())
+		deploymentContext.PodOverlay.DefaultConfigMounts()
 		if err = deploymentContext.PodOverlay.Validate(); err != nil {
 			return fail(err)
 		}
