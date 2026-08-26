@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/codefly-dev/core/failures"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -75,6 +76,12 @@ func WithContentCache(budgetBytes int64) ServerOption {
 	}
 }
 
+// WithWorkspaceCheckpointStore sets the agent-owned directory used for
+// durable mutable-workspace checkpoints.
+func WithWorkspaceCheckpointStore(dir string) ServerOption {
+	return func(s *DefaultCodeServer) { s.workspaceCheckpointStore = dir }
+}
+
 // WriteListener is called after every successful file mutation so that
 // external indexes or subscribers can stay aligned with the VFS state.
 //
@@ -94,18 +101,20 @@ type WriteListener func(ctx context.Context, kind, path, prevPath string, conten
 type DefaultCodeServer struct {
 	codev0.UnimplementedCodeServer
 
-	SourceDir          string
-	FS                 VFS
-	overrides          map[string]OperationHandler
-	wantCachedFS       bool
-	wantTrigramIndex   bool
-	contentCacheBudget int64            // 0 = no content cache
-	cachedFS           *CachedVFS       // non-nil when CachedVFS is active
-	trigramIdx         *TrigramIndex    // non-nil when trigram indexing is active
-	nativeGit          *NativeGit       // lazily opened go-git repo
-	writeListener      WriteListener    // optional post-mutation hook
-	sourceFixer        SourceFixer      // optional language-aware in-memory fixer
-	semantic           SemanticAnalyzer // optional tree-sitter source analysis
+	SourceDir                string
+	FS                       VFS
+	overrides                map[string]OperationHandler
+	wantCachedFS             bool
+	wantTrigramIndex         bool
+	contentCacheBudget       int64            // 0 = no content cache
+	cachedFS                 *CachedVFS       // non-nil when CachedVFS is active
+	trigramIdx               *TrigramIndex    // non-nil when trigram indexing is active
+	nativeGit                *NativeGit       // lazily opened go-git repo
+	writeListener            WriteListener    // optional post-mutation hook
+	sourceFixer              SourceFixer      // optional language-aware in-memory fixer
+	semantic                 SemanticAnalyzer // optional tree-sitter source analysis
+	workspaceCheckpointMu    sync.RWMutex
+	workspaceCheckpointStore string
 }
 
 // NewDefaultCodeServer creates a server rooted at sourceDir.
@@ -221,7 +230,25 @@ func (s *DefaultCodeServer) Execute(ctx context.Context, req *codev0.CodeRequest
 		return nil, failures.GRPC(failures.New(basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "code.execute", "empty CodeRequest: no operation set"))
 	}
 	if h, ok := s.overrides[opName]; ok {
+		switch req.Operation.(type) {
+		case *codev0.CodeRequest_CreateWorkspaceCheckpoint,
+			*codev0.CodeRequest_RestoreWorkspaceCheckpoint,
+			*codev0.CodeRequest_ReleaseWorkspaceCheckpoint:
+			s.workspaceCheckpointMu.Lock()
+			defer s.workspaceCheckpointMu.Unlock()
+		default:
+			s.workspaceCheckpointMu.RLock()
+			defer s.workspaceCheckpointMu.RUnlock()
+		}
 		return h(ctx, req)
+	}
+	switch req.Operation.(type) {
+	case *codev0.CodeRequest_CreateWorkspaceCheckpoint,
+		*codev0.CodeRequest_RestoreWorkspaceCheckpoint,
+		*codev0.CodeRequest_ReleaseWorkspaceCheckpoint:
+	default:
+		s.workspaceCheckpointMu.RLock()
+		defer s.workspaceCheckpointMu.RUnlock()
 	}
 	return s.dispatch(ctx, req)
 }
@@ -308,6 +335,12 @@ func (s *DefaultCodeServer) dispatch(ctx context.Context, req *codev0.CodeReques
 
 	case *codev0.CodeRequest_ShellExec:
 		return s.shellExec(ctx, op.ShellExec)
+	case *codev0.CodeRequest_CreateWorkspaceCheckpoint:
+		return s.createWorkspaceCheckpoint(ctx, op.CreateWorkspaceCheckpoint)
+	case *codev0.CodeRequest_RestoreWorkspaceCheckpoint:
+		return s.restoreWorkspaceCheckpoint(ctx, op.RestoreWorkspaceCheckpoint)
+	case *codev0.CodeRequest_ReleaseWorkspaceCheckpoint:
+		return s.releaseWorkspaceCheckpoint(ctx, op.ReleaseWorkspaceCheckpoint)
 
 	default:
 		return nil, failures.GRPC(failures.New(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.execute", fmt.Sprintf("unknown operation: %T", req.Operation)))
@@ -1089,6 +1122,12 @@ func OperationName(req *codev0.CodeRequest) string {
 	// Shell execution (THE sanctioned path for running commands)
 	case *codev0.CodeRequest_ShellExec:
 		return "shell_exec"
+	case *codev0.CodeRequest_CreateWorkspaceCheckpoint:
+		return "create_workspace_checkpoint"
+	case *codev0.CodeRequest_RestoreWorkspaceCheckpoint:
+		return "restore_workspace_checkpoint"
+	case *codev0.CodeRequest_ReleaseWorkspaceCheckpoint:
+		return "release_workspace_checkpoint"
 	default:
 		return ""
 	}
