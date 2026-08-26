@@ -355,3 +355,20 @@ environments:
 //require.NoError(t, err)
 //	require.Contains(t, string(content), "name: test-environment")
 //}
+
+func TestEnvironmentAppHost(t *testing.T) {
+	service := &resources.ServiceIdentity{Module: "users", Name: "accounts"}
+
+	suffixed := &resources.Environment{Dns: &resources.EnvironmentDNS{AppHostSuffix: "staging.eastus2.azure.example.com"}}
+	if got := suffixed.AppHost(service); got != "accounts-users.staging.eastus2.azure.example.com" {
+		t.Errorf("AppHost = %q", got)
+	}
+
+	// No suffix declared: no derived host (falls back to a local dns.codefly.yaml).
+	if got := (&resources.Environment{}).AppHost(service); got != "" {
+		t.Errorf("AppHost without suffix = %q, want empty", got)
+	}
+	if got := (&resources.Environment{Dns: &resources.EnvironmentDNS{}}).AppHost(service); got != "" {
+		t.Errorf("AppHost with empty suffix = %q, want empty", got)
+	}
+}

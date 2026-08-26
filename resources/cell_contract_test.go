@@ -45,6 +45,14 @@ func TestParseAndMapCellContract(t *testing.T) {
 	if env.Gitops == nil || env.Gitops.Path != "workloads/hosted/staging/lodestar" {
 		t.Errorf("gitops path = %+v", env.Gitops)
 	}
+	// The app host suffix is carried onto the environment so the network layer
+	// can derive external endpoint hosts from declared config, not a local file.
+	if env.Dns == nil || env.Dns.AppHostSuffix != "staging.eastus2.azure.obin.obin.ai" {
+		t.Errorf("dns = %+v", env.Dns)
+	}
+	if got := env.AppHost(&ServiceIdentity{Module: "users", Name: "accounts"}); got != "accounts-users.staging.eastus2.azure.obin.obin.ai" {
+		t.Errorf("app host = %q", got)
+	}
 
 	ms, ok := env.ManagedServices["store"]
 	if !ok {

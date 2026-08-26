@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -236,4 +237,147 @@ func TestRemoteManagerAssignsCollidingAPIsIndependentStablePorts(t *testing.T) {
 	require.NotEqual(t, forwardPorts[standards.REST], forwardPorts[standards.HTTP])
 	require.Equal(t, uint32(standards.Port(standards.REST)), forwardPorts[standards.REST])
 	require.Equal(t, forwardPorts, ports(reverse))
+}
+
+type erroringDNSManager struct{}
+
+func (erroringDNSManager) GetDNS(context.Context, *resources.ServiceIdentity, string) (*basev0.DNS, error) {
+	return nil, fmt.Errorf("no DNS found")
+}
+
+func TestRemoteManagerDerivesExternalHostFromAppHostSuffix(t *testing.T) {
+	// No local dns.codefly.yaml entry (the manager reports a miss), but the
+	// environment carries an app host suffix — the external host is derived from
+	// declared config, so the render is value-free.
+	for name, manager := range map[string]DNSManager{
+		"nil-miss": remoteDNSManager{},
+		"err-miss": erroringDNSManager{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rm, err := NewRemoteManager(context.Background(), manager)
+			if err != nil {
+				t.Fatal(err)
+			}
+			environment := &resources.Environment{
+				Name:      "azure",
+				Namespace: "platform",
+				Dns:       &resources.EnvironmentDNS{AppHostSuffix: "staging.eastus2.azure.example.com"},
+			}
+			workspace := &resources.Workspace{Name: "mind", Layout: resources.LayoutKindModules}
+			service := &resources.ServiceIdentity{Module: "users", Name: "accounts"}
+			endpoint := &basev0.Endpoint{Module: "users", Service: "accounts", Name: "api", Api: standards.REST, Location: resources.LocationExternal}
+
+			mappings, err := rm.GenerateNetworkMappings(context.Background(), environment, workspace, service, []*basev0.Endpoint{endpoint})
+			if err != nil {
+				t.Fatalf("derive external host: %v", err)
+			}
+			if len(mappings) != 1 || len(mappings[0].Instances) != 1 {
+				t.Fatalf("mappings = %#v", mappings)
+			}
+			got := mappings[0].Instances[0]
+			if got.Hostname != "accounts-users.staging.eastus2.azure.example.com" {
+				t.Errorf("derived host = %q", got.Hostname)
+			}
+			if got.Port != 443 {
+				t.Errorf("derived port = %d, want 443", got.Port)
+			}
+		})
+	}
+}
+
+func TestRemoteManagerExternalHostPrefersDeclaredDNS(t *testing.T) {
+	// A declared dns.codefly.yaml entry wins over the derived suffix host.
+	rm, err := NewRemoteManager(context.Background(), remoteDNSManager{
+		dns: &basev0.DNS{Host: "api.declared.example.com", Port: 8443, Secured: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := &resources.Environment{
+		Name:      "azure",
+		Namespace: "platform",
+		Dns:       &resources.EnvironmentDNS{AppHostSuffix: "staging.eastus2.azure.example.com"},
+	}
+	workspace := &resources.Workspace{Name: "mind", Layout: resources.LayoutKindModules}
+	service := &resources.ServiceIdentity{Module: "users", Name: "accounts"}
+	endpoint := &basev0.Endpoint{Module: "users", Service: "accounts", Name: "api", Api: standards.REST, Location: resources.LocationExternal}
+
+	mappings, err := rm.GenerateNetworkMappings(context.Background(), environment, workspace, service, []*basev0.Endpoint{endpoint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mappings[0].Instances[0].Hostname; got != "api.declared.example.com" {
+		t.Errorf("host = %q, want the declared DNS to win", got)
+	}
+}
+
+func TestRemoteManagerExternalHostFailsWithoutSuffixOrDNS(t *testing.T) {
+	// Neither a declared DNS entry nor an app host suffix: nothing to route to,
+	// so the original hard failure stands.
+	rm, err := NewRemoteManager(context.Background(), erroringDNSManager{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := &resources.Environment{Name: "azure", Namespace: "platform"}
+	workspace := &resources.Workspace{Name: "mind", Layout: resources.LayoutKindModules}
+	service := &resources.ServiceIdentity{Module: "users", Name: "accounts"}
+	endpoint := &basev0.Endpoint{Module: "users", Service: "accounts", Name: "api", Api: standards.REST, Location: resources.LocationExternal}
+
+	if _, err := rm.GenerateNetworkMappings(context.Background(), environment, workspace, service, []*basev0.Endpoint{endpoint}); err == nil {
+		t.Fatal("expected a failure when no DNS and no app host suffix are declared")
+	}
+}
+
+func TestRemoteManagerDerivesGRPCExternalHost(t *testing.T) {
+	// A gRPC external is public-routable over TLS on 443, so it derives from the
+	// app host suffix just like an HTTP endpoint — even though gRPC is not
+	// HTTP-based. This pins the gate to "supported, non-TCP", not "HTTP-based":
+	// narrowing it back to IsHTTPBasedAPI would silently drop gRPC externals.
+	rm, err := NewRemoteManager(context.Background(), erroringDNSManager{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := &resources.Environment{
+		Name:      "azure",
+		Namespace: "platform",
+		Dns:       &resources.EnvironmentDNS{AppHostSuffix: "staging.eastus2.azure.example.com"},
+	}
+	workspace := &resources.Workspace{Name: "mind", Layout: resources.LayoutKindModules}
+	service := &resources.ServiceIdentity{Module: "users", Name: "accounts"}
+	endpoint := &basev0.Endpoint{Module: "users", Service: "accounts", Name: "grpc", Api: standards.GRPC, Location: resources.LocationExternal}
+
+	mappings, err := rm.GenerateNetworkMappings(context.Background(), environment, workspace, service, []*basev0.Endpoint{endpoint})
+	if err != nil {
+		t.Fatalf("derive gRPC external host: %v", err)
+	}
+	if len(mappings) != 1 || len(mappings[0].Instances) != 1 {
+		t.Fatalf("mappings = %#v", mappings)
+	}
+	got := mappings[0].Instances[0]
+	if got.Hostname != "accounts-users.staging.eastus2.azure.example.com" || got.Port != 443 {
+		t.Errorf("derived gRPC instance = %q:%d, want accounts-users.staging.eastus2.azure.example.com:443", got.Hostname, got.Port)
+	}
+}
+
+func TestRemoteManagerDoesNotDeriveTCPExternalHost(t *testing.T) {
+	// A raw TCP external (e.g. a managed database) has no public app-edge host —
+	// deriving one would emit a bogus, non-resolving TLS host. The suffix must be
+	// ignored for TCP, so the endpoint still requires a declared DNS entry and,
+	// absent one, the original hard failure stands.
+	rm, err := NewRemoteManager(context.Background(), erroringDNSManager{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := &resources.Environment{
+		Name:      "azure",
+		Namespace: "platform",
+		Dns:       &resources.EnvironmentDNS{AppHostSuffix: "staging.eastus2.azure.example.com"},
+	}
+	workspace := &resources.Workspace{Name: "mind", Layout: resources.LayoutKindModules}
+	service := &resources.ServiceIdentity{Module: "users", Name: "accounts"}
+	endpoint := &basev0.Endpoint{Module: "users", Service: "accounts", Name: "tcp", Api: standards.TCP, Location: resources.LocationExternal}
+
+	if _, err := rm.GenerateNetworkMappings(context.Background(), environment, workspace, service, []*basev0.Endpoint{endpoint}); err == nil {
+		t.Fatal("expected a failure: a TCP external must not derive an app-edge host from the suffix")
+	}
 }
