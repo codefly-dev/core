@@ -254,6 +254,13 @@ type Environment struct {
 	Ingress         []EnvironmentIngressRoute            `yaml:"ingress,omitempty"`
 	ManagedServices map[string]EnvironmentManagedService `yaml:"managed-services,omitempty"`
 
+	// Dns carries the environment's DNS contract, sourced from the cell
+	// descriptor (CellContract.DNS). Its AppHostSuffix lets the network layer
+	// derive an external endpoint's public host from declared config instead of
+	// a local dns.codefly.yaml, keeping a promotable render value-free. CLI-side;
+	// not serialized to proto.
+	Dns *EnvironmentDNS `yaml:"dns,omitempty"`
+
 	// ServiceSecrets declares where this environment's regular services resolve
 	// their secret-service-configurations. Absent, no service secret projection is
 	// rendered and secret-<service> stays an operator precondition. CLI-side; not
@@ -271,6 +278,28 @@ type Environment struct {
 	// manifests fail when their backend is absent. Legacy plaintext *.secret.*
 	// files remain local-only. CLI-side; not serialized to proto.
 	Secrets []*EnvironmentSecretProvider `yaml:"secrets,omitempty"`
+}
+
+// EnvironmentDNS is the environment's DNS contract, sourced from a cell
+// descriptor (CellContractDNS).
+type EnvironmentDNS struct {
+	// AppHostSuffix is the public host suffix an app's external endpoints hang
+	// off of in this cell (e.g. "staging.eastus2.azure.example.com"). Empty means
+	// no declared suffix, so external hosts fall back to a local dns.codefly.yaml.
+	AppHostSuffix string `yaml:"app-host-suffix,omitempty"`
+}
+
+// AppHost returns the public hostname a service's external endpoints are
+// reachable at in this environment, or "" when no app host suffix is declared.
+// The label is "<service>-<module>" (the service-module subdomain convention,
+// see shared.ToDNSCase) so services sharing a name across modules do not collide
+// under one cell suffix; the suffix already scopes the cell/environment.
+func (env *Environment) AppHost(service *ServiceIdentity) string {
+	if env == nil || env.Dns == nil || env.Dns.AppHostSuffix == "" || service == nil {
+		return ""
+	}
+	label := strings.ToLower(fmt.Sprintf("%s-%s", service.Name, service.Module))
+	return fmt.Sprintf("%s.%s", label, env.Dns.AppHostSuffix)
 }
 
 func (env *Environment) Proto() (*basev0.Environment, error) {

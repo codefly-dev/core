@@ -106,23 +106,32 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 		nm := &basev0.NetworkMapping{
 			Endpoint: endpoint,
 		}
-		// External endpoints (e.g. public load-balanced) require a
-		// declared DNS — there's no sane fallback because the public
-		// hostname is environment-specific (a wildcard cert,
-		// CNAME, etc.). Hard-fail when missing.
+		// External endpoints (e.g. public load-balanced) resolve to an
+		// environment-specific public host. A declared dns.codefly.yaml entry
+		// wins when present; otherwise the host is derived from the
+		// environment's declared app host suffix (sourced from the cell
+		// contract) so a promotable render is value-free — no local value file
+		// required. Only when neither exists is there nothing to route to.
 		if resources.IsExternalEndpoint(endpoint) {
 			dns, err := m.dnsManager.GetDNS(ctx, service, endpoint.Name)
+			if err == nil && dns != nil {
+				nm.Instances = []*basev0.NetworkInstance{
+					ExternalInstance(DNS(service, endpoint, dns)),
+				}
+				out = append(out, nm)
+				continue
+			}
+			if derived := DerivedExternalDNS(env, service, endpoint); derived != nil {
+				nm.Instances = []*basev0.NetworkInstance{
+					ExternalInstance(DNS(service, endpoint, derived)),
+				}
+				out = append(out, nm)
+				continue
+			}
 			if err != nil {
 				return nil, err
 			}
-			if dns == nil {
-				return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)
-			}
-			nm.Instances = []*basev0.NetworkInstance{
-				ExternalInstance(DNS(service, endpoint, dns)),
-			}
-			out = append(out, nm)
-			continue
+			return nil, w.NewError("cannot find dns for endpoint %s", endpoint.Name)
 		}
 
 		// Internal endpoints use a declared environment DNS contract when
@@ -162,6 +171,31 @@ func (m *RemoteManager) GenerateNetworkMappings(ctx context.Context,
 		out = append(out, nm)
 	}
 	return out, nil
+}
+
+// DerivedExternalDNS builds a public DNS record for an external endpoint from
+// the environment's declared app host suffix, or nil when no suffix is declared
+// (the caller then falls back to a declared dns.codefly.yaml, or fails). The
+// host is Environment.AppHost(service), reached over TLS on 443 — the public app
+// edge (REST/HTTP/gRPC/Connect/MCP) terminates TLS there. A raw TCP external has
+// no app-edge host, so it is not derived and still requires a declared DNS entry
+// (mirrors the routable-endpoint rule in cmd/expose).
+func DerivedExternalDNS(env *resources.Environment, service *resources.ServiceIdentity, endpoint *basev0.Endpoint) *basev0.DNS {
+	if endpoint == nil || standards.IsSupportedAPI(endpoint.Api) != nil || endpoint.Api == standards.TCP {
+		return nil
+	}
+	host := env.AppHost(service)
+	if host == "" {
+		return nil
+	}
+	return &basev0.DNS{
+		Module:   service.Module,
+		Service:  service.Name,
+		Endpoint: endpoint.Name,
+		Host:     host,
+		Port:     443,
+		Secured:  true,
+	}
 }
 
 type Pairing struct {

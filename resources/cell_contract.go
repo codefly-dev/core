@@ -196,6 +196,9 @@ func (c *CellContract) ToEnvironment(envName, namespace string) (*Environment, e
 			Path:    strings.TrimRight(c.Gitops.WorkloadsPathPrefix, "/") + "/" + namespace,
 		}
 	}
+	if c.DNS.AppHostSuffix != "" {
+		env.Dns = &EnvironmentDNS{AppHostSuffix: c.DNS.AppHostSuffix}
+	}
 	if len(c.Registries) > 0 {
 		// Kind is codefly's auth selector (acr -> az acr login); the URL is opaque.
 		env.Registry = &EnvironmentRegistry{URL: c.Registries[0].URL, Auth: c.Registries[0].Kind}
