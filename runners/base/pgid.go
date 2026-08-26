@@ -433,6 +433,23 @@ func (group *TrackedProcessGroup) Signal(ctx context.Context, signal syscall.Sig
 	return signalAuthenticatedGroup(ctx, group.record, signal)
 }
 
+// Terminate stops every authenticated member and waits for the process group
+// to become empty. The registration remains until RemoveIfDead confirms that
+// termination completed.
+func (group *TrackedProcessGroup) Terminate(ctx context.Context) error {
+	if group == nil {
+		return errors.New("process group is not registered")
+	}
+	if !isProcessGroupAlive(group.record.PGID) {
+		return nil
+	}
+	err := terminateAuthenticatedGroup(ctx, group.record)
+	if errors.Is(err, errProcessGroupIdentityChanged) && !isProcessGroupAlive(group.record.PGID) {
+		return nil
+	}
+	return err
+}
+
 func abortUnregisteredProcessGroup(cmd *exec.Cmd, group *TrackedProcessGroup, authentication string) error {
 	var failures []error
 	if group != nil {
