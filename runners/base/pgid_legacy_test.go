@@ -70,18 +70,13 @@ func TestReaperReapsLegacyGroupWhenOwnerPidReused(t *testing.T) {
 	}
 	// A live owner that started strictly after the record was written cannot be
 	// the process that spawned the leader — it is a recycled PID, so the group
-	// is orphaned and must still be reaped.
-	for time.Now().Unix() <= leaderStart {
-		time.Sleep(50 * time.Millisecond)
-	}
-	owner := exec.Command("sleep", "30")
-	if err := owner.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = owner.Process.Kill()
-		_ = owner.Wait()
-	}()
+	// is orphaned and must still be reaped. The reaper compares the owner's
+	// start second as reported by processStartUnixSeconds (derived from /proc,
+	// which truncates the kernel's clock-tick start time to whole seconds), so
+	// gate the spawn on that same clock rather than wall-clock time.Now: a
+	// wall-clock second past leaderStart can still read back as leaderStart
+	// from /proc, which would make the reaper preserve the group.
+	owner := spawnOwnerAfterSecond(t, leaderStart)
 	legacyPath := legacyRecordPath(t, pid, ".pgid")
 	writeLegacyRecord(t, legacyPath, pid, owner.Process.Pid, leaderStart)
 
@@ -197,6 +192,42 @@ func spawnOrphanedStubbornLeader(t *testing.T) int {
 	}
 	waitForTestFile(t, readyPath)
 	return pid
+}
+
+// spawnOwnerAfterSecond starts a live helper process whose start second, as
+// observed through processStartUnixSeconds (the reaper's own clock), is
+// strictly greater than after. Gating on that clock — rather than wall-clock
+// time.Now — keeps the "reused owner PID" scenario deterministic: /proc
+// truncates the kernel's clock-tick start time to whole seconds, so a process
+// launched a wall-clock second past `after` can still read back as `after`.
+func spawnOwnerAfterSecond(t *testing.T, after int64) *exec.Cmd {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		owner := exec.Command("sleep", "30")
+		if err := owner.Start(); err != nil {
+			t.Fatal(err)
+		}
+		start, err := processStartUnixSeconds(owner.Process.Pid)
+		if err != nil {
+			_ = owner.Process.Kill()
+			_ = owner.Wait()
+			t.Fatal(err)
+		}
+		if start > after {
+			t.Cleanup(func() {
+				_ = owner.Process.Kill()
+				_ = owner.Wait()
+			})
+			return owner
+		}
+		_ = owner.Process.Kill()
+		_ = owner.Wait()
+		if time.Now().After(deadline) {
+			t.Fatalf("owner process start second %d never advanced past %d", start, after)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func legacyRecordPath(t *testing.T, pgid int, suffix string) string {
