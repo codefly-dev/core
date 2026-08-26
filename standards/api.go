@@ -18,12 +18,13 @@ var (
 	HTTP    = "http"
 	TCP     = "tcp"
 	CONNECT = "connect"
+	MCP     = "mcp"
 )
 
 var supportedAPI []string
 
 func init() {
-	supportedAPI = []string{GRPC, REST, TCP, HTTP, CONNECT}
+	supportedAPI = []string{GRPC, REST, TCP, HTTP, CONNECT, MCP}
 }
 
 func APIS() []string {
@@ -38,9 +39,10 @@ func IsSupportedAPI(kind string) error {
 }
 
 // IsHTTPBasedAPI reports whether an endpoint uses an HTTP URL transport.
-// Connect RPC is HTTP-based even though it has its own API identifier.
+// Connect RPC and MCP are HTTP-based even though they have their own API
+// identifiers.
 func IsHTTPBasedAPI(kind string) bool {
-	return kind == HTTP || kind == REST || kind == CONNECT
+	return kind == HTTP || kind == REST || kind == CONNECT || kind == MCP
 }
 
 func PortAddress(api string) string {
@@ -61,6 +63,8 @@ func Port(api string) uint16 {
 		return 8080
 	case CONNECT:
 		return 8081
+	case MCP:
+		return 8082
 	case TCP:
 		return 80
 	}

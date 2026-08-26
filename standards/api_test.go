@@ -3,7 +3,7 @@ package standards
 import "testing"
 
 func TestIsSupportedAPI(t *testing.T) {
-	for _, api := range []string{GRPC, REST, HTTP, TCP, CONNECT} {
+	for _, api := range []string{GRPC, REST, HTTP, TCP, CONNECT, MCP} {
 		if err := IsSupportedAPI(api); err != nil {
 			t.Errorf("IsSupportedAPI(%s) errored: %v", api, err)
 		}
@@ -17,7 +17,7 @@ func TestIsSupportedAPI(t *testing.T) {
 }
 
 func TestIsHTTPBasedAPI(t *testing.T) {
-	for _, api := range []string{HTTP, REST, CONNECT} {
+	for _, api := range []string{HTTP, REST, CONNECT, MCP} {
 		if !IsHTTPBasedAPI(api) {
 			t.Fatalf("%s should be HTTP-based", api)
 		}
@@ -35,6 +35,7 @@ func TestPort_KnownAPIs(t *testing.T) {
 		REST:    8080,
 		HTTP:    8080,
 		CONNECT: 8081,
+		MCP:     8082,
 		TCP:     80,
 		"weird": 80, // default fallback
 	}
@@ -63,7 +64,7 @@ func TestAPIS_Contents(t *testing.T) {
 	for _, a := range apis {
 		have[a] = true
 	}
-	for _, want := range []string{GRPC, REST, HTTP, TCP, CONNECT} {
+	for _, want := range []string{GRPC, REST, HTTP, TCP, CONNECT, MCP} {
 		if !have[want] {
 			t.Errorf("APIS missing %s", want)
 		}
