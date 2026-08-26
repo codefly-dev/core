@@ -105,6 +105,13 @@ func (g *Buf) WithGeneratedDirs(dirs ...string) *Buf {
 // any openapi/*.swagger.json inputs untouched. buf generate still runs. This
 // suits non-TypeScript services that own a proto tree for gRPC stubs yet keep
 // an unrelated openapi/ REST contract alongside it (e.g. service-python-fastapi).
+//
+// The opt-out only stops future emission; it deliberately does not delete
+// artifacts a prior (opted-in) run already produced. A service that adopts this
+// after previously syncing with the stage enabled must remove the now-stale
+// generated files (e.g. a committed openapi/api.ts) once by hand — the stage
+// cannot tell a stale generated .ts from one someone later authored at the same
+// path, so it never removes them.
 func (g *Buf) WithoutOpenAPI() *Buf {
 	g.skipOpenAPI = true
 	return g

@@ -17,13 +17,13 @@ func TestWithoutOpenAPILeavesFlagUnsetByDefault(t *testing.T) {
 		t.Fatalf("NewBuf: %v", err)
 	}
 	if generator.skipOpenAPI {
-		t.Fatal("NewBuf must run the OpenAPI stage by default (skipOpenAPI = true)")
+		t.Fatal("NewBuf must run the OpenAPI stage by default (got skipOpenAPI = true)")
 	}
 	if got := generator.WithoutOpenAPI(); got != generator {
 		t.Fatal("WithoutOpenAPI must return the receiver for fluent chaining")
 	}
 	if !generator.skipOpenAPI {
-		t.Fatal("WithoutOpenAPI must opt out of the OpenAPI stage (skipOpenAPI = false)")
+		t.Fatal("WithoutOpenAPI must opt out of the OpenAPI stage (got skipOpenAPI = false)")
 	}
 }
 
