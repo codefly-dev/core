@@ -740,6 +740,11 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 			base.Api = standards.CONNECT
 			base.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{})
 			out = append(out, base)
+		case standards.MCP:
+			// MCP is served over Streamable HTTP — same API shape as HTTP.
+			base.Api = standards.MCP
+			base.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{})
+			out = append(out, base)
 		}
 	}
 	w.Debug("loaded endpoints", wool.SliceCountField(out))

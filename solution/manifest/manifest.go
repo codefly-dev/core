@@ -204,7 +204,7 @@ func validateAPIDeclarations(name string, declarations []APIDeclaration) error {
 		}
 		seen[declaration.ID] = struct{}{}
 		switch declaration.Protocol {
-		case standards.GRPC, standards.REST, standards.HTTP, standards.TCP, standards.CONNECT:
+		case standards.GRPC, standards.REST, standards.HTTP, standards.TCP, standards.CONNECT, standards.MCP:
 		default:
 			return fmt.Errorf("%s[%d].protocol %q is invalid", name, i, declaration.Protocol)
 		}
