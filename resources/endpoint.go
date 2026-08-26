@@ -670,6 +670,10 @@ func FindConnectEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*ba
 	return findConventionalEndpoint(standards.CONNECT, FindEndpointsByAPI(ctx, standards.CONNECT, endpoints))
 }
 
+func FindMCPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+	return findConventionalEndpoint(standards.MCP, FindEndpointsByAPI(ctx, standards.MCP, endpoints))
+}
+
 func FindTCPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
 	return findConventionalEndpoint(standards.TCP, findTypedEndpointsByAPI(ctx, standards.TCP, endpoints))
 }
