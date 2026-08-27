@@ -135,11 +135,13 @@ func (mod *Module) validatePaths() error {
 	if err := validateResourcePathComponent("module", mod.Name); err != nil {
 		return err
 	}
-	// A module's own override stays confined: out-of-repo composition is
-	// expressed by the consuming workspace's ModuleReference (see
-	// validateModuleReferencePathOverride), never by a module declaring itself
-	// external in its own file.
-	if err := validateResourcePathOverride("module", mod.PathOverride); err != nil {
+	// A module loaded via out-of-repo composition legitimately carries the
+	// consuming workspace's escaping ModuleReference path, so its own override
+	// is validated with the same relaxed rule the reference uses (see
+	// validateModuleReferencePathOverride) rather than the confined resource
+	// rule. Without this, the SDK's in-process load rejects a composed module
+	// that the CLI resolves fine.
+	if err := validateModuleReferencePathOverride(mod.PathOverride); err != nil {
 		return err
 	}
 	if mod.ServiceEntry != "" {

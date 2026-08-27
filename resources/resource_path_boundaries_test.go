@@ -105,6 +105,24 @@ func TestAbsoluteResourceOverridesRemainSupported(t *testing.T) {
 	}
 }
 
+func TestModuleOwnOverrideAllowsComposedOutOfRepoPath(t *testing.T) {
+	abs := t.TempDir()
+	for _, override := range []string{abs, "../../../module-saas-starter/module", "../host"} {
+		value := override
+		mod := &Module{Name: "saas", PathOverride: &value}
+		if err := mod.validatePaths(); err != nil {
+			t.Fatalf("composed module override %q rejected: %v", override, err)
+		}
+	}
+	for _, bad := range []string{"", "../ho\x00st", "..\\host"} {
+		value := bad
+		mod := &Module{Name: "saas", PathOverride: &value}
+		if err := mod.validatePaths(); err == nil {
+			t.Fatalf("module override %q was accepted", bad)
+		}
+	}
+}
+
 func TestModuleReferenceOverrideAllowsOutOfRepoPath(t *testing.T) {
 	up := "../host"
 	if err := validateModuleReferencePath(&ModuleReference{Name: "saas", PathOverride: &up}); err != nil {
