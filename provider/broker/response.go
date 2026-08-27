@@ -27,6 +27,9 @@ func (s *Session) handleResponse(descriptor manifest.RequestDescriptor, resp *ht
 			Certainty:  certaintyForStatus(resp.StatusCode),
 		}, nil
 	}
+	if isEventStream(resp.Header.Get("Content-Type")) {
+		return s.handleStream(descriptor, resp)
+	}
 	policy, err := s.responsePolicyFor(descriptor)
 	if err != nil {
 		return nil, err

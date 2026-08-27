@@ -847,6 +847,24 @@ message CaptureResult {
   bool captured = 4;
 }
 
+// FilteredEvent is one filtered event of a streamed (Server-Sent Events)
+// response. The identical response-policy filtering the non-streaming path runs
+// over a whole body runs over each event's data, so a stream never becomes a
+// filtering bypass: every event carries only safe, schema-declared material.
+message FilteredEvent {
+  // event_type is the SSE `event:` name, preserved so the caller can
+  // reconstruct the ordered typed stream and its terminal event.
+  string event_type = 1;
+  // forwarded contains only FORWARD_SAFE filtered fields for this event.
+  repeated FilteredField forwarded = 2;
+  // suppressed_presence reports presence without forwarding a value.
+  repeated string suppressed_presence = 3;
+  // captures are durable sink results for this event.
+  repeated CaptureResult captures = 4;
+  // terminal marks the stream's final event.
+  bool terminal = 5;
+}
+
 // ExecuteRequestResponse contains no unfiltered response body.
 message ExecuteRequestResponse {
   // request_id matches the callback identity.
@@ -867,6 +885,10 @@ message ExecuteRequestResponse {
   google.protobuf.Timestamp response_received_at = 8;
   // diagnostics are bounded neutral diagnostics.
   repeated codefly.base.v0.FailureDiagnostic diagnostics = 9 [(buf.validate.field).repeated.max_items = 100];
+  // events carries the ordered filtered events of a streamed (SSE) response. It
+  // is empty for a non-streaming response, whose single body is described by
+  // forwarded/suppressed_presence/captures above.
+  repeated FilteredEvent events = 10;
 }
 
 // RecordCheckpointRequest asks the host to durably Put a checkpoint.

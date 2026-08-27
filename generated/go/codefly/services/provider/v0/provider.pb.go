@@ -4309,6 +4309,92 @@ func (x *CaptureResult) GetCaptured() bool {
 	return false
 }
 
+// FilteredEvent is one filtered event of a streamed (Server-Sent Events)
+// response. The identical response-policy filtering the non-streaming path runs
+// over a whole body runs over each event's data, so a stream never becomes a
+// filtering bypass: every event carries only safe, schema-declared material.
+type FilteredEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// event_type is the SSE `event:` name, preserved so the caller can
+	// reconstruct the ordered typed stream and its terminal event.
+	EventType string `protobuf:"bytes,1,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	// forwarded contains only FORWARD_SAFE filtered fields for this event.
+	Forwarded []*FilteredField `protobuf:"bytes,2,rep,name=forwarded,proto3" json:"forwarded,omitempty"`
+	// suppressed_presence reports presence without forwarding a value.
+	SuppressedPresence []string `protobuf:"bytes,3,rep,name=suppressed_presence,json=suppressedPresence,proto3" json:"suppressed_presence,omitempty"`
+	// captures are durable sink results for this event.
+	Captures []*CaptureResult `protobuf:"bytes,4,rep,name=captures,proto3" json:"captures,omitempty"`
+	// terminal marks the stream's final event.
+	Terminal      bool `protobuf:"varint,5,opt,name=terminal,proto3" json:"terminal,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FilteredEvent) Reset() {
+	*x = FilteredEvent{}
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FilteredEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FilteredEvent) ProtoMessage() {}
+
+func (x *FilteredEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FilteredEvent.ProtoReflect.Descriptor instead.
+func (*FilteredEvent) Descriptor() ([]byte, []int) {
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *FilteredEvent) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *FilteredEvent) GetForwarded() []*FilteredField {
+	if x != nil {
+		return x.Forwarded
+	}
+	return nil
+}
+
+func (x *FilteredEvent) GetSuppressedPresence() []string {
+	if x != nil {
+		return x.SuppressedPresence
+	}
+	return nil
+}
+
+func (x *FilteredEvent) GetCaptures() []*CaptureResult {
+	if x != nil {
+		return x.Captures
+	}
+	return nil
+}
+
+func (x *FilteredEvent) GetTerminal() bool {
+	if x != nil {
+		return x.Terminal
+	}
+	return false
+}
+
 // ExecuteRequestResponse contains no unfiltered response body.
 type ExecuteRequestResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -4329,14 +4415,18 @@ type ExecuteRequestResponse struct {
 	// response_received_at is host-attested when a response arrived.
 	ResponseReceivedAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=response_received_at,json=responseReceivedAt,proto3" json:"response_received_at,omitempty"`
 	// diagnostics are bounded neutral diagnostics.
-	Diagnostics   []*v0.FailureDiagnostic `protobuf:"bytes,9,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	Diagnostics []*v0.FailureDiagnostic `protobuf:"bytes,9,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	// events carries the ordered filtered events of a streamed (SSE) response. It
+	// is empty for a non-streaming response, whose single body is described by
+	// forwarded/suppressed_presence/captures above.
+	Events        []*FilteredEvent `protobuf:"bytes,10,rep,name=events,proto3" json:"events,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecuteRequestResponse) Reset() {
 	*x = ExecuteRequestResponse{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[47]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4348,7 +4438,7 @@ func (x *ExecuteRequestResponse) String() string {
 func (*ExecuteRequestResponse) ProtoMessage() {}
 
 func (x *ExecuteRequestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[47]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4361,7 +4451,7 @@ func (x *ExecuteRequestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteRequestResponse.ProtoReflect.Descriptor instead.
 func (*ExecuteRequestResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{47}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ExecuteRequestResponse) GetRequestId() string {
@@ -4427,6 +4517,13 @@ func (x *ExecuteRequestResponse) GetDiagnostics() []*v0.FailureDiagnostic {
 	return nil
 }
 
+func (x *ExecuteRequestResponse) GetEvents() []*FilteredEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
 // RecordCheckpointRequest asks the host to durably Put a checkpoint.
 type RecordCheckpointRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -4438,7 +4535,7 @@ type RecordCheckpointRequest struct {
 
 func (x *RecordCheckpointRequest) Reset() {
 	*x = RecordCheckpointRequest{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[48]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4450,7 +4547,7 @@ func (x *RecordCheckpointRequest) String() string {
 func (*RecordCheckpointRequest) ProtoMessage() {}
 
 func (x *RecordCheckpointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[48]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4463,7 +4560,7 @@ func (x *RecordCheckpointRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordCheckpointRequest.ProtoReflect.Descriptor instead.
 func (*RecordCheckpointRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{48}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *RecordCheckpointRequest) GetCheckpoint() *ActionCheckpoint {
@@ -4486,7 +4583,7 @@ type RecordCheckpointResponse struct {
 
 func (x *RecordCheckpointResponse) Reset() {
 	*x = RecordCheckpointResponse{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[49]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4498,7 +4595,7 @@ func (x *RecordCheckpointResponse) String() string {
 func (*RecordCheckpointResponse) ProtoMessage() {}
 
 func (x *RecordCheckpointResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[49]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4511,7 +4608,7 @@ func (x *RecordCheckpointResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordCheckpointResponse.ProtoReflect.Descriptor instead.
 func (*RecordCheckpointResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{49}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *RecordCheckpointResponse) GetDurable() bool {
@@ -4541,7 +4638,7 @@ type ResolveCaptureRequest struct {
 
 func (x *ResolveCaptureRequest) Reset() {
 	*x = ResolveCaptureRequest{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[50]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4553,7 +4650,7 @@ func (x *ResolveCaptureRequest) String() string {
 func (*ResolveCaptureRequest) ProtoMessage() {}
 
 func (x *ResolveCaptureRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[50]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4566,7 +4663,7 @@ func (x *ResolveCaptureRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveCaptureRequest.ProtoReflect.Descriptor instead.
 func (*ResolveCaptureRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{50}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ResolveCaptureRequest) GetOperation() *OperationIdentity {
@@ -4594,7 +4691,7 @@ type ResolveCaptureResponse struct {
 
 func (x *ResolveCaptureResponse) Reset() {
 	*x = ResolveCaptureResponse{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[51]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4606,7 +4703,7 @@ func (x *ResolveCaptureResponse) String() string {
 func (*ResolveCaptureResponse) ProtoMessage() {}
 
 func (x *ResolveCaptureResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[51]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4619,7 +4716,7 @@ func (x *ResolveCaptureResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveCaptureResponse.ProtoReflect.Descriptor instead.
 func (*ResolveCaptureResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{51}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *ResolveCaptureResponse) GetReference() *OpaqueReference {
@@ -4644,7 +4741,7 @@ type OpaqueReference struct {
 
 func (x *OpaqueReference) Reset() {
 	*x = OpaqueReference{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[52]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4656,7 +4753,7 @@ func (x *OpaqueReference) String() string {
 func (*OpaqueReference) ProtoMessage() {}
 
 func (x *OpaqueReference) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[52]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4669,7 +4766,7 @@ func (x *OpaqueReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpaqueReference.ProtoReflect.Descriptor instead.
 func (*OpaqueReference) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{52}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *OpaqueReference) GetReference() string {
@@ -4709,7 +4806,7 @@ type OutputValue struct {
 
 func (x *OutputValue) Reset() {
 	*x = OutputValue{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[53]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4721,7 +4818,7 @@ func (x *OutputValue) String() string {
 func (*OutputValue) ProtoMessage() {}
 
 func (x *OutputValue) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[53]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4734,7 +4831,7 @@ func (x *OutputValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputValue.ProtoReflect.Descriptor instead.
 func (*OutputValue) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{53}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *OutputValue) GetKind() isOutputValue_Kind {
@@ -4797,7 +4894,7 @@ type OutputProposal struct {
 
 func (x *OutputProposal) Reset() {
 	*x = OutputProposal{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[54]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4809,7 +4906,7 @@ func (x *OutputProposal) String() string {
 func (*OutputProposal) ProtoMessage() {}
 
 func (x *OutputProposal) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[54]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4822,7 +4919,7 @@ func (x *OutputProposal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputProposal.ProtoReflect.Descriptor instead.
 func (*OutputProposal) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{54}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *OutputProposal) GetContract() string {
@@ -4866,7 +4963,7 @@ type ProposeOutputRequest struct {
 
 func (x *ProposeOutputRequest) Reset() {
 	*x = ProposeOutputRequest{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[55]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4878,7 +4975,7 @@ func (x *ProposeOutputRequest) String() string {
 func (*ProposeOutputRequest) ProtoMessage() {}
 
 func (x *ProposeOutputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[55]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4891,7 +4988,7 @@ func (x *ProposeOutputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProposeOutputRequest.ProtoReflect.Descriptor instead.
 func (*ProposeOutputRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{55}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *ProposeOutputRequest) GetOperation() *OperationIdentity {
@@ -4923,7 +5020,7 @@ type ProposeOutputResponse struct {
 
 func (x *ProposeOutputResponse) Reset() {
 	*x = ProposeOutputResponse{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[56]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4935,7 +5032,7 @@ func (x *ProposeOutputResponse) String() string {
 func (*ProposeOutputResponse) ProtoMessage() {}
 
 func (x *ProposeOutputResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[56]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4948,7 +5045,7 @@ func (x *ProposeOutputResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProposeOutputResponse.ProtoReflect.Descriptor instead.
 func (*ProposeOutputResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{56}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ProposeOutputResponse) GetDurable() bool {
@@ -4995,7 +5092,7 @@ type UpgradeRecord struct {
 
 func (x *UpgradeRecord) Reset() {
 	*x = UpgradeRecord{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[57]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5007,7 +5104,7 @@ func (x *UpgradeRecord) String() string {
 func (*UpgradeRecord) ProtoMessage() {}
 
 func (x *UpgradeRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[57]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5020,7 +5117,7 @@ func (x *UpgradeRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpgradeRecord.ProtoReflect.Descriptor instead.
 func (*UpgradeRecord) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{57}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *UpgradeRecord) GetFromVersion() uint32 {
@@ -5129,7 +5226,7 @@ type ProviderStateV1 struct {
 
 func (x *ProviderStateV1) Reset() {
 	*x = ProviderStateV1{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[58]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5141,7 +5238,7 @@ func (x *ProviderStateV1) String() string {
 func (*ProviderStateV1) ProtoMessage() {}
 
 func (x *ProviderStateV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[58]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5154,7 +5251,7 @@ func (x *ProviderStateV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderStateV1.ProtoReflect.Descriptor instead.
 func (*ProviderStateV1) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{58}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *ProviderStateV1) GetStateSchemaVersion() uint32 {
@@ -5342,7 +5439,7 @@ type ProviderState struct {
 
 func (x *ProviderState) Reset() {
 	*x = ProviderState{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[59]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5354,7 +5451,7 @@ func (x *ProviderState) String() string {
 func (*ProviderState) ProtoMessage() {}
 
 func (x *ProviderState) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[59]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5367,7 +5464,7 @@ func (x *ProviderState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderState.ProtoReflect.Descriptor instead.
 func (*ProviderState) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{59}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *ProviderState) GetSchemaVersion() uint32 {
@@ -5421,7 +5518,7 @@ type UpgradeStateRequest struct {
 
 func (x *UpgradeStateRequest) Reset() {
 	*x = UpgradeStateRequest{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[60]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5433,7 +5530,7 @@ func (x *UpgradeStateRequest) String() string {
 func (*UpgradeStateRequest) ProtoMessage() {}
 
 func (x *UpgradeStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[60]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5446,7 +5543,7 @@ func (x *UpgradeStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpgradeStateRequest.ProtoReflect.Descriptor instead.
 func (*UpgradeStateRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{60}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *UpgradeStateRequest) GetContext() *OfflineProviderContext {
@@ -5492,7 +5589,7 @@ type UpgradeStateResponse struct {
 
 func (x *UpgradeStateResponse) Reset() {
 	*x = UpgradeStateResponse{}
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[61]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5504,7 +5601,7 @@ func (x *UpgradeStateResponse) String() string {
 func (*UpgradeStateResponse) ProtoMessage() {}
 
 func (x *UpgradeStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[61]
+	mi := &file_codefly_services_provider_v0_provider_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5517,7 +5614,7 @@ func (x *UpgradeStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpgradeStateResponse.ProtoReflect.Descriptor instead.
 func (*UpgradeStateResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{61}
+	return file_codefly_services_provider_v0_provider_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *UpgradeStateResponse) GetState() *ProviderState {
@@ -5883,7 +5980,14 @@ const file_codefly_services_provider_v0_provider_proto_rawDesc = "" +
 	"capture_id\x18\x01 \x01(\tR\tcaptureId\x12\x1a\n" +
 	"\bselector\x18\x02 \x01(\tR\bselector\x12T\n" +
 	"\x0esink_reference\x18\x03 \x01(\v2-.codefly.services.provider.v0.OpaqueReferenceR\rsinkReference\x12\x1a\n" +
-	"\bcaptured\x18\x04 \x01(\bR\bcaptured\"\xd2\x04\n" +
+	"\bcaptured\x18\x04 \x01(\bR\bcaptured\"\x8f\x02\n" +
+	"\rFilteredEvent\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x01 \x01(\tR\teventType\x12I\n" +
+	"\tforwarded\x18\x02 \x03(\v2+.codefly.services.provider.v0.FilteredFieldR\tforwarded\x12/\n" +
+	"\x13suppressed_presence\x18\x03 \x03(\tR\x12suppressedPresence\x12G\n" +
+	"\bcaptures\x18\x04 \x03(\v2+.codefly.services.provider.v0.CaptureResultR\bcaptures\x12\x1a\n" +
+	"\bterminal\x18\x05 \x01(\bR\bterminal\"\x97\x05\n" +
 	"\x16ExecuteRequestResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12G\n" +
@@ -5895,7 +5999,9 @@ const file_codefly_services_provider_v0_provider_proto_rawDesc = "" +
 	"\bcaptures\x18\x06 \x03(\v2+.codefly.services.provider.v0.CaptureResultR\bcaptures\x12L\n" +
 	"\tcertainty\x18\a \x01(\x0e2..codefly.services.provider.v0.OutcomeCertaintyR\tcertainty\x12L\n" +
 	"\x14response_received_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x12responseReceivedAt\x12N\n" +
-	"\vdiagnostics\x18\t \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics\"i\n" +
+	"\vdiagnostics\x18\t \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics\x12C\n" +
+	"\x06events\x18\n" +
+	" \x03(\v2+.codefly.services.provider.v0.FilteredEventR\x06events\"i\n" +
 	"\x17RecordCheckpointRequest\x12N\n" +
 	"\n" +
 	"checkpoint\x18\x01 \x01(\v2..codefly.services.provider.v0.ActionCheckpointR\n" +
@@ -6094,7 +6200,7 @@ func file_codefly_services_provider_v0_provider_proto_rawDescGZIP() []byte {
 }
 
 var file_codefly_services_provider_v0_provider_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
-var file_codefly_services_provider_v0_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
+var file_codefly_services_provider_v0_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 78)
 var file_codefly_services_provider_v0_provider_proto_goTypes = []any{
 	(MethodNetworkMode)(0),                 // 0: codefly.services.provider.v0.MethodNetworkMode
 	(MethodEffect)(0),                      // 1: codefly.services.provider.v0.MethodEffect
@@ -6153,40 +6259,41 @@ var file_codefly_services_provider_v0_provider_proto_goTypes = []any{
 	(*ExecuteRequestRequest)(nil),          // 54: codefly.services.provider.v0.ExecuteRequestRequest
 	(*FilteredField)(nil),                  // 55: codefly.services.provider.v0.FilteredField
 	(*CaptureResult)(nil),                  // 56: codefly.services.provider.v0.CaptureResult
-	(*ExecuteRequestResponse)(nil),         // 57: codefly.services.provider.v0.ExecuteRequestResponse
-	(*RecordCheckpointRequest)(nil),        // 58: codefly.services.provider.v0.RecordCheckpointRequest
-	(*RecordCheckpointResponse)(nil),       // 59: codefly.services.provider.v0.RecordCheckpointResponse
-	(*ResolveCaptureRequest)(nil),          // 60: codefly.services.provider.v0.ResolveCaptureRequest
-	(*ResolveCaptureResponse)(nil),         // 61: codefly.services.provider.v0.ResolveCaptureResponse
-	(*OpaqueReference)(nil),                // 62: codefly.services.provider.v0.OpaqueReference
-	(*OutputValue)(nil),                    // 63: codefly.services.provider.v0.OutputValue
-	(*OutputProposal)(nil),                 // 64: codefly.services.provider.v0.OutputProposal
-	(*ProposeOutputRequest)(nil),           // 65: codefly.services.provider.v0.ProposeOutputRequest
-	(*ProposeOutputResponse)(nil),          // 66: codefly.services.provider.v0.ProposeOutputResponse
-	(*UpgradeRecord)(nil),                  // 67: codefly.services.provider.v0.UpgradeRecord
-	(*ProviderStateV1)(nil),                // 68: codefly.services.provider.v0.ProviderStateV1
-	(*ProviderState)(nil),                  // 69: codefly.services.provider.v0.ProviderState
-	(*UpgradeStateRequest)(nil),            // 70: codefly.services.provider.v0.UpgradeStateRequest
-	(*UpgradeStateResponse)(nil),           // 71: codefly.services.provider.v0.UpgradeStateResponse
-	nil,                                    // 72: codefly.services.provider.v0.PublicObject.FieldsEntry
-	nil,                                    // 73: codefly.services.provider.v0.OfflineProviderContext.InputEntry
-	nil,                                    // 74: codefly.services.provider.v0.MaterialResourceObservation.ProviderOwnedFieldsEntry
-	nil,                                    // 75: codefly.services.provider.v0.MaterialResourceObservation.SecretReferenceStatusEntry
-	nil,                                    // 76: codefly.services.provider.v0.MaterialResourceObservation.ActionPreconditionsEntry
-	nil,                                    // 77: codefly.services.provider.v0.BindingDesiredState.InputEntry
-	nil,                                    // 78: codefly.services.provider.v0.ActionCheckpoint.RecoveryFieldsEntry
-	nil,                                    // 79: codefly.services.provider.v0.ActionReceipt.SafeResultEntry
-	nil,                                    // 80: codefly.services.provider.v0.PlannedRequest.PathParametersEntry
-	nil,                                    // 81: codefly.services.provider.v0.PlannedRequest.QueryEntry
-	nil,                                    // 82: codefly.services.provider.v0.PlannedRequest.BodyEntry
-	nil,                                    // 83: codefly.services.provider.v0.OutputProposal.ValuesEntry
-	nil,                                    // 84: codefly.services.provider.v0.ProviderStateV1.SafeObservedFieldsEntry
-	nil,                                    // 85: codefly.services.provider.v0.ProviderStateV1.ProviderOwnedFieldsEntry
-	nil,                                    // 86: codefly.services.provider.v0.ProviderStateV1.RecoveryDataEntry
-	(*timestamppb.Timestamp)(nil),          // 87: google.protobuf.Timestamp
-	(*v0.FailureDiagnostic)(nil),           // 88: codefly.base.v0.FailureDiagnostic
-	(*durationpb.Duration)(nil),            // 89: google.protobuf.Duration
-	(*descriptorpb.MethodOptions)(nil),     // 90: google.protobuf.MethodOptions
+	(*FilteredEvent)(nil),                  // 57: codefly.services.provider.v0.FilteredEvent
+	(*ExecuteRequestResponse)(nil),         // 58: codefly.services.provider.v0.ExecuteRequestResponse
+	(*RecordCheckpointRequest)(nil),        // 59: codefly.services.provider.v0.RecordCheckpointRequest
+	(*RecordCheckpointResponse)(nil),       // 60: codefly.services.provider.v0.RecordCheckpointResponse
+	(*ResolveCaptureRequest)(nil),          // 61: codefly.services.provider.v0.ResolveCaptureRequest
+	(*ResolveCaptureResponse)(nil),         // 62: codefly.services.provider.v0.ResolveCaptureResponse
+	(*OpaqueReference)(nil),                // 63: codefly.services.provider.v0.OpaqueReference
+	(*OutputValue)(nil),                    // 64: codefly.services.provider.v0.OutputValue
+	(*OutputProposal)(nil),                 // 65: codefly.services.provider.v0.OutputProposal
+	(*ProposeOutputRequest)(nil),           // 66: codefly.services.provider.v0.ProposeOutputRequest
+	(*ProposeOutputResponse)(nil),          // 67: codefly.services.provider.v0.ProposeOutputResponse
+	(*UpgradeRecord)(nil),                  // 68: codefly.services.provider.v0.UpgradeRecord
+	(*ProviderStateV1)(nil),                // 69: codefly.services.provider.v0.ProviderStateV1
+	(*ProviderState)(nil),                  // 70: codefly.services.provider.v0.ProviderState
+	(*UpgradeStateRequest)(nil),            // 71: codefly.services.provider.v0.UpgradeStateRequest
+	(*UpgradeStateResponse)(nil),           // 72: codefly.services.provider.v0.UpgradeStateResponse
+	nil,                                    // 73: codefly.services.provider.v0.PublicObject.FieldsEntry
+	nil,                                    // 74: codefly.services.provider.v0.OfflineProviderContext.InputEntry
+	nil,                                    // 75: codefly.services.provider.v0.MaterialResourceObservation.ProviderOwnedFieldsEntry
+	nil,                                    // 76: codefly.services.provider.v0.MaterialResourceObservation.SecretReferenceStatusEntry
+	nil,                                    // 77: codefly.services.provider.v0.MaterialResourceObservation.ActionPreconditionsEntry
+	nil,                                    // 78: codefly.services.provider.v0.BindingDesiredState.InputEntry
+	nil,                                    // 79: codefly.services.provider.v0.ActionCheckpoint.RecoveryFieldsEntry
+	nil,                                    // 80: codefly.services.provider.v0.ActionReceipt.SafeResultEntry
+	nil,                                    // 81: codefly.services.provider.v0.PlannedRequest.PathParametersEntry
+	nil,                                    // 82: codefly.services.provider.v0.PlannedRequest.QueryEntry
+	nil,                                    // 83: codefly.services.provider.v0.PlannedRequest.BodyEntry
+	nil,                                    // 84: codefly.services.provider.v0.OutputProposal.ValuesEntry
+	nil,                                    // 85: codefly.services.provider.v0.ProviderStateV1.SafeObservedFieldsEntry
+	nil,                                    // 86: codefly.services.provider.v0.ProviderStateV1.ProviderOwnedFieldsEntry
+	nil,                                    // 87: codefly.services.provider.v0.ProviderStateV1.RecoveryDataEntry
+	(*timestamppb.Timestamp)(nil),          // 88: google.protobuf.Timestamp
+	(*v0.FailureDiagnostic)(nil),           // 89: codefly.base.v0.FailureDiagnostic
+	(*durationpb.Duration)(nil),            // 90: google.protobuf.Duration
+	(*descriptorpb.MethodOptions)(nil),     // 91: google.protobuf.MethodOptions
 }
 var file_codefly_services_provider_v0_provider_proto_depIdxs = []int32{
 	0,   // 0: codefly.services.provider.v0.ProviderMethodPolicy.network:type_name -> codefly.services.provider.v0.MethodNetworkMode
@@ -6194,13 +6301,13 @@ var file_codefly_services_provider_v0_provider_proto_depIdxs = []int32{
 	12,  // 2: codefly.services.provider.v0.PublicValue.list_value:type_name -> codefly.services.provider.v0.PublicList
 	13,  // 3: codefly.services.provider.v0.PublicValue.object_value:type_name -> codefly.services.provider.v0.PublicObject
 	11,  // 4: codefly.services.provider.v0.PublicList.values:type_name -> codefly.services.provider.v0.PublicValue
-	72,  // 5: codefly.services.provider.v0.PublicObject.fields:type_name -> codefly.services.provider.v0.PublicObject.FieldsEntry
-	87,  // 6: codefly.services.provider.v0.RequestBudget.deadline:type_name -> google.protobuf.Timestamp
+	73,  // 5: codefly.services.provider.v0.PublicObject.fields:type_name -> codefly.services.provider.v0.PublicObject.FieldsEntry
+	88,  // 6: codefly.services.provider.v0.RequestBudget.deadline:type_name -> google.protobuf.Timestamp
 	7,   // 7: codefly.services.provider.v0.CredentialHandle.purpose:type_name -> codefly.services.provider.v0.CredentialPurpose
 	8,   // 8: codefly.services.provider.v0.AdmittedOrigin.private_network_class:type_name -> codefly.services.provider.v0.PrivateNetworkClass
 	15,  // 9: codefly.services.provider.v0.OfflineProviderContext.binding:type_name -> codefly.services.provider.v0.BindingAddress
 	14,  // 10: codefly.services.provider.v0.OfflineProviderContext.artifact:type_name -> codefly.services.provider.v0.AgentArtifactIdentity
-	73,  // 11: codefly.services.provider.v0.OfflineProviderContext.input:type_name -> codefly.services.provider.v0.OfflineProviderContext.InputEntry
+	74,  // 11: codefly.services.provider.v0.OfflineProviderContext.input:type_name -> codefly.services.provider.v0.OfflineProviderContext.InputEntry
 	6,   // 12: codefly.services.provider.v0.OfflineProviderContext.mode:type_name -> codefly.services.provider.v0.HostMode
 	21,  // 13: codefly.services.provider.v0.ProviderContext.offline:type_name -> codefly.services.provider.v0.OfflineProviderContext
 	18,  // 14: codefly.services.provider.v0.ProviderContext.credentials:type_name -> codefly.services.provider.v0.CredentialHandle
@@ -6215,34 +6322,34 @@ var file_codefly_services_provider_v0_provider_proto_depIdxs = []int32{
 	23,  // 23: codefly.services.provider.v0.GetProviderInformationResponse.catalog:type_name -> codefly.services.provider.v0.RuntimeCatalog
 	27,  // 24: codefly.services.provider.v0.GetProviderInformationResponse.capabilities:type_name -> codefly.services.provider.v0.ProviderCapabilities
 	26,  // 25: codefly.services.provider.v0.GetProviderInformationResponse.readiness:type_name -> codefly.services.provider.v0.ProviderReadiness
-	88,  // 26: codefly.services.provider.v0.GetProviderInformationResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	89,  // 26: codefly.services.provider.v0.GetProviderInformationResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
 	21,  // 27: codefly.services.provider.v0.ValidateRequest.context:type_name -> codefly.services.provider.v0.OfflineProviderContext
-	69,  // 28: codefly.services.provider.v0.ValidateRequest.previous_state:type_name -> codefly.services.provider.v0.ProviderState
-	88,  // 29: codefly.services.provider.v0.ValidateResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	70,  // 28: codefly.services.provider.v0.ValidateRequest.previous_state:type_name -> codefly.services.provider.v0.ProviderState
+	89,  // 29: codefly.services.provider.v0.ValidateResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
 	32,  // 30: codefly.services.provider.v0.MaterialResourceObservation.identity:type_name -> codefly.services.provider.v0.RemoteIdentity
 	2,   // 31: codefly.services.provider.v0.MaterialResourceObservation.ownership:type_name -> codefly.services.provider.v0.Ownership
-	74,  // 32: codefly.services.provider.v0.MaterialResourceObservation.provider_owned_fields:type_name -> codefly.services.provider.v0.MaterialResourceObservation.ProviderOwnedFieldsEntry
-	75,  // 33: codefly.services.provider.v0.MaterialResourceObservation.secret_reference_status:type_name -> codefly.services.provider.v0.MaterialResourceObservation.SecretReferenceStatusEntry
-	76,  // 34: codefly.services.provider.v0.MaterialResourceObservation.action_preconditions:type_name -> codefly.services.provider.v0.MaterialResourceObservation.ActionPreconditionsEntry
+	75,  // 32: codefly.services.provider.v0.MaterialResourceObservation.provider_owned_fields:type_name -> codefly.services.provider.v0.MaterialResourceObservation.ProviderOwnedFieldsEntry
+	76,  // 33: codefly.services.provider.v0.MaterialResourceObservation.secret_reference_status:type_name -> codefly.services.provider.v0.MaterialResourceObservation.SecretReferenceStatusEntry
+	77,  // 34: codefly.services.provider.v0.MaterialResourceObservation.action_preconditions:type_name -> codefly.services.provider.v0.MaterialResourceObservation.ActionPreconditionsEntry
 	6,   // 35: codefly.services.provider.v0.MaterialObservation.mode:type_name -> codefly.services.provider.v0.HostMode
 	33,  // 36: codefly.services.provider.v0.MaterialObservation.resources:type_name -> codefly.services.provider.v0.MaterialResourceObservation
-	89,  // 37: codefly.services.provider.v0.VolatileObservation.retry_after:type_name -> google.protobuf.Duration
-	87,  // 38: codefly.services.provider.v0.VolatileObservation.retrieved_at:type_name -> google.protobuf.Timestamp
-	88,  // 39: codefly.services.provider.v0.VolatileObservation.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	90,  // 37: codefly.services.provider.v0.VolatileObservation.retry_after:type_name -> google.protobuf.Duration
+	88,  // 38: codefly.services.provider.v0.VolatileObservation.retrieved_at:type_name -> google.protobuf.Timestamp
+	89,  // 39: codefly.services.provider.v0.VolatileObservation.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
 	22,  // 40: codefly.services.provider.v0.ObserveRequest.context:type_name -> codefly.services.provider.v0.ProviderContext
-	69,  // 41: codefly.services.provider.v0.ObserveRequest.state:type_name -> codefly.services.provider.v0.ProviderState
+	70,  // 41: codefly.services.provider.v0.ObserveRequest.state:type_name -> codefly.services.provider.v0.ProviderState
 	34,  // 42: codefly.services.provider.v0.ObserveResponse.material:type_name -> codefly.services.provider.v0.MaterialObservation
 	35,  // 43: codefly.services.provider.v0.ObserveResponse.volatile:type_name -> codefly.services.provider.v0.VolatileObservation
 	15,  // 44: codefly.services.provider.v0.BindingDesiredState.binding:type_name -> codefly.services.provider.v0.BindingAddress
-	77,  // 45: codefly.services.provider.v0.BindingDesiredState.input:type_name -> codefly.services.provider.v0.BindingDesiredState.InputEntry
-	62,  // 46: codefly.services.provider.v0.BindingDesiredState.credential_references:type_name -> codefly.services.provider.v0.OpaqueReference
+	78,  // 45: codefly.services.provider.v0.BindingDesiredState.input:type_name -> codefly.services.provider.v0.BindingDesiredState.InputEntry
+	63,  // 46: codefly.services.provider.v0.BindingDesiredState.credential_references:type_name -> codefly.services.provider.v0.OpaqueReference
 	7,   // 47: codefly.services.provider.v0.PolicyApprovalInput.credential_purpose:type_name -> codefly.services.provider.v0.CredentialPurpose
 	11,  // 48: codefly.services.provider.v0.ActionPrecondition.expected:type_name -> codefly.services.provider.v0.PublicValue
 	3,   // 49: codefly.services.provider.v0.PlanAction.type:type_name -> codefly.services.provider.v0.ActionType
 	32,  // 50: codefly.services.provider.v0.PlanAction.remote_identity:type_name -> codefly.services.provider.v0.RemoteIdentity
 	2,   // 51: codefly.services.provider.v0.PlanAction.ownership:type_name -> codefly.services.provider.v0.Ownership
 	53,  // 52: codefly.services.provider.v0.PlanAction.requests:type_name -> codefly.services.provider.v0.PlannedRequest
-	64,  // 53: codefly.services.provider.v0.PlanAction.output:type_name -> codefly.services.provider.v0.OutputProposal
+	65,  // 53: codefly.services.provider.v0.PlanAction.output:type_name -> codefly.services.provider.v0.OutputProposal
 	42,  // 54: codefly.services.provider.v0.PlanAction.preconditions:type_name -> codefly.services.provider.v0.ActionPrecondition
 	43,  // 55: codefly.services.provider.v0.OrderedPlan.actions:type_name -> codefly.services.provider.v0.PlanAction
 	21,  // 56: codefly.services.provider.v0.PlanRequest.context:type_name -> codefly.services.provider.v0.OfflineProviderContext
@@ -6251,120 +6358,123 @@ var file_codefly_services_provider_v0_provider_proto_depIdxs = []int32{
 	39,  // 59: codefly.services.provider.v0.PlanRequest.output_target:type_name -> codefly.services.provider.v0.OutputTarget
 	40,  // 60: codefly.services.provider.v0.PlanRequest.state_generation:type_name -> codefly.services.provider.v0.StateGeneration
 	41,  // 61: codefly.services.provider.v0.PlanRequest.policy_input:type_name -> codefly.services.provider.v0.PolicyApprovalInput
-	69,  // 62: codefly.services.provider.v0.PlanRequest.state:type_name -> codefly.services.provider.v0.ProviderState
+	70,  // 62: codefly.services.provider.v0.PlanRequest.state:type_name -> codefly.services.provider.v0.ProviderState
 	44,  // 63: codefly.services.provider.v0.PlanResponse.plan:type_name -> codefly.services.provider.v0.OrderedPlan
-	88,  // 64: codefly.services.provider.v0.PlanResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	89,  // 64: codefly.services.provider.v0.PlanResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
 	16,  // 65: codefly.services.provider.v0.ActionCheckpoint.operation:type_name -> codefly.services.provider.v0.OperationIdentity
 	4,   // 66: codefly.services.provider.v0.ActionCheckpoint.delivery:type_name -> codefly.services.provider.v0.DeliveryState
-	87,  // 67: codefly.services.provider.v0.ActionCheckpoint.recorded_at:type_name -> google.protobuf.Timestamp
-	78,  // 68: codefly.services.provider.v0.ActionCheckpoint.recovery_fields:type_name -> codefly.services.provider.v0.ActionCheckpoint.RecoveryFieldsEntry
+	88,  // 67: codefly.services.provider.v0.ActionCheckpoint.recorded_at:type_name -> google.protobuf.Timestamp
+	79,  // 68: codefly.services.provider.v0.ActionCheckpoint.recovery_fields:type_name -> codefly.services.provider.v0.ActionCheckpoint.RecoveryFieldsEntry
 	16,  // 69: codefly.services.provider.v0.ActionReceipt.operation:type_name -> codefly.services.provider.v0.OperationIdentity
 	43,  // 70: codefly.services.provider.v0.ActionReceipt.action:type_name -> codefly.services.provider.v0.PlanAction
 	4,   // 71: codefly.services.provider.v0.ActionReceipt.delivery:type_name -> codefly.services.provider.v0.DeliveryState
 	5,   // 72: codefly.services.provider.v0.ActionReceipt.certainty:type_name -> codefly.services.provider.v0.OutcomeCertainty
-	87,  // 73: codefly.services.provider.v0.ActionReceipt.started_at:type_name -> google.protobuf.Timestamp
-	87,  // 74: codefly.services.provider.v0.ActionReceipt.completed_at:type_name -> google.protobuf.Timestamp
-	79,  // 75: codefly.services.provider.v0.ActionReceipt.safe_result:type_name -> codefly.services.provider.v0.ActionReceipt.SafeResultEntry
-	62,  // 76: codefly.services.provider.v0.ActionReceipt.capture_references:type_name -> codefly.services.provider.v0.OpaqueReference
-	88,  // 77: codefly.services.provider.v0.ActionReceipt.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	88,  // 73: codefly.services.provider.v0.ActionReceipt.started_at:type_name -> google.protobuf.Timestamp
+	88,  // 74: codefly.services.provider.v0.ActionReceipt.completed_at:type_name -> google.protobuf.Timestamp
+	80,  // 75: codefly.services.provider.v0.ActionReceipt.safe_result:type_name -> codefly.services.provider.v0.ActionReceipt.SafeResultEntry
+	63,  // 76: codefly.services.provider.v0.ActionReceipt.capture_references:type_name -> codefly.services.provider.v0.OpaqueReference
+	89,  // 77: codefly.services.provider.v0.ActionReceipt.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
 	22,  // 78: codefly.services.provider.v0.ApplyActionRequest.context:type_name -> codefly.services.provider.v0.ProviderContext
 	44,  // 79: codefly.services.provider.v0.ApplyActionRequest.plan:type_name -> codefly.services.provider.v0.OrderedPlan
 	43,  // 80: codefly.services.provider.v0.ApplyActionRequest.action:type_name -> codefly.services.provider.v0.PlanAction
 	47,  // 81: codefly.services.provider.v0.ApplyActionRequest.prior_checkpoint:type_name -> codefly.services.provider.v0.ActionCheckpoint
-	69,  // 82: codefly.services.provider.v0.ApplyActionRequest.state:type_name -> codefly.services.provider.v0.ProviderState
+	70,  // 82: codefly.services.provider.v0.ApplyActionRequest.state:type_name -> codefly.services.provider.v0.ProviderState
 	48,  // 83: codefly.services.provider.v0.ApplyActionResponse.receipt:type_name -> codefly.services.provider.v0.ActionReceipt
-	69,  // 84: codefly.services.provider.v0.ApplyActionResponse.next_state:type_name -> codefly.services.provider.v0.ProviderState
+	70,  // 84: codefly.services.provider.v0.ApplyActionResponse.next_state:type_name -> codefly.services.provider.v0.ProviderState
 	22,  // 85: codefly.services.provider.v0.DoctorRequest.context:type_name -> codefly.services.provider.v0.ProviderContext
-	69,  // 86: codefly.services.provider.v0.DoctorRequest.state:type_name -> codefly.services.provider.v0.ProviderState
-	88,  // 87: codefly.services.provider.v0.DoctorResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	70,  // 86: codefly.services.provider.v0.DoctorRequest.state:type_name -> codefly.services.provider.v0.ProviderState
+	89,  // 87: codefly.services.provider.v0.DoctorResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
 	9,   // 88: codefly.services.provider.v0.PlannedRequest.method:type_name -> codefly.services.provider.v0.HTTPMethod
-	80,  // 89: codefly.services.provider.v0.PlannedRequest.path_parameters:type_name -> codefly.services.provider.v0.PlannedRequest.PathParametersEntry
-	81,  // 90: codefly.services.provider.v0.PlannedRequest.query:type_name -> codefly.services.provider.v0.PlannedRequest.QueryEntry
-	82,  // 91: codefly.services.provider.v0.PlannedRequest.body:type_name -> codefly.services.provider.v0.PlannedRequest.BodyEntry
+	81,  // 89: codefly.services.provider.v0.PlannedRequest.path_parameters:type_name -> codefly.services.provider.v0.PlannedRequest.PathParametersEntry
+	82,  // 90: codefly.services.provider.v0.PlannedRequest.query:type_name -> codefly.services.provider.v0.PlannedRequest.QueryEntry
+	83,  // 91: codefly.services.provider.v0.PlannedRequest.body:type_name -> codefly.services.provider.v0.PlannedRequest.BodyEntry
 	7,   // 92: codefly.services.provider.v0.PlannedRequest.credential_purposes:type_name -> codefly.services.provider.v0.CredentialPurpose
 	22,  // 93: codefly.services.provider.v0.ExecuteRequestRequest.context:type_name -> codefly.services.provider.v0.ProviderContext
 	53,  // 94: codefly.services.provider.v0.ExecuteRequestRequest.request:type_name -> codefly.services.provider.v0.PlannedRequest
 	20,  // 95: codefly.services.provider.v0.ExecuteRequestRequest.origin:type_name -> codefly.services.provider.v0.AdmittedOrigin
 	18,  // 96: codefly.services.provider.v0.ExecuteRequestRequest.credential_handles:type_name -> codefly.services.provider.v0.CredentialHandle
-	87,  // 97: codefly.services.provider.v0.ExecuteRequestRequest.requested_at:type_name -> google.protobuf.Timestamp
+	88,  // 97: codefly.services.provider.v0.ExecuteRequestRequest.requested_at:type_name -> google.protobuf.Timestamp
 	11,  // 98: codefly.services.provider.v0.FilteredField.value:type_name -> codefly.services.provider.v0.PublicValue
-	62,  // 99: codefly.services.provider.v0.CaptureResult.sink_reference:type_name -> codefly.services.provider.v0.OpaqueReference
-	4,   // 100: codefly.services.provider.v0.ExecuteRequestResponse.delivery:type_name -> codefly.services.provider.v0.DeliveryState
-	55,  // 101: codefly.services.provider.v0.ExecuteRequestResponse.forwarded:type_name -> codefly.services.provider.v0.FilteredField
-	56,  // 102: codefly.services.provider.v0.ExecuteRequestResponse.captures:type_name -> codefly.services.provider.v0.CaptureResult
-	5,   // 103: codefly.services.provider.v0.ExecuteRequestResponse.certainty:type_name -> codefly.services.provider.v0.OutcomeCertainty
-	87,  // 104: codefly.services.provider.v0.ExecuteRequestResponse.response_received_at:type_name -> google.protobuf.Timestamp
-	88,  // 105: codefly.services.provider.v0.ExecuteRequestResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
-	47,  // 106: codefly.services.provider.v0.RecordCheckpointRequest.checkpoint:type_name -> codefly.services.provider.v0.ActionCheckpoint
-	16,  // 107: codefly.services.provider.v0.ResolveCaptureRequest.operation:type_name -> codefly.services.provider.v0.OperationIdentity
-	62,  // 108: codefly.services.provider.v0.ResolveCaptureResponse.reference:type_name -> codefly.services.provider.v0.OpaqueReference
-	7,   // 109: codefly.services.provider.v0.OpaqueReference.purpose:type_name -> codefly.services.provider.v0.CredentialPurpose
-	11,  // 110: codefly.services.provider.v0.OutputValue.public_value:type_name -> codefly.services.provider.v0.PublicValue
-	62,  // 111: codefly.services.provider.v0.OutputValue.opaque_reference:type_name -> codefly.services.provider.v0.OpaqueReference
-	83,  // 112: codefly.services.provider.v0.OutputProposal.values:type_name -> codefly.services.provider.v0.OutputProposal.ValuesEntry
-	16,  // 113: codefly.services.provider.v0.ProposeOutputRequest.operation:type_name -> codefly.services.provider.v0.OperationIdentity
-	64,  // 114: codefly.services.provider.v0.ProposeOutputRequest.proposal:type_name -> codefly.services.provider.v0.OutputProposal
-	87,  // 115: codefly.services.provider.v0.UpgradeRecord.upgraded_at:type_name -> google.protobuf.Timestamp
-	15,  // 116: codefly.services.provider.v0.ProviderStateV1.binding:type_name -> codefly.services.provider.v0.BindingAddress
-	32,  // 117: codefly.services.provider.v0.ProviderStateV1.remote_identity:type_name -> codefly.services.provider.v0.RemoteIdentity
-	2,   // 118: codefly.services.provider.v0.ProviderStateV1.ownership:type_name -> codefly.services.provider.v0.Ownership
-	84,  // 119: codefly.services.provider.v0.ProviderStateV1.safe_observed_fields:type_name -> codefly.services.provider.v0.ProviderStateV1.SafeObservedFieldsEntry
-	85,  // 120: codefly.services.provider.v0.ProviderStateV1.provider_owned_fields:type_name -> codefly.services.provider.v0.ProviderStateV1.ProviderOwnedFieldsEntry
-	62,  // 121: codefly.services.provider.v0.ProviderStateV1.secret_references:type_name -> codefly.services.provider.v0.OpaqueReference
-	16,  // 122: codefly.services.provider.v0.ProviderStateV1.operation:type_name -> codefly.services.provider.v0.OperationIdentity
-	47,  // 123: codefly.services.provider.v0.ProviderStateV1.checkpoint:type_name -> codefly.services.provider.v0.ActionCheckpoint
-	48,  // 124: codefly.services.provider.v0.ProviderStateV1.receipt:type_name -> codefly.services.provider.v0.ActionReceipt
-	86,  // 125: codefly.services.provider.v0.ProviderStateV1.recovery_data:type_name -> codefly.services.provider.v0.ProviderStateV1.RecoveryDataEntry
-	67,  // 126: codefly.services.provider.v0.ProviderStateV1.upgrade_history:type_name -> codefly.services.provider.v0.UpgradeRecord
-	68,  // 127: codefly.services.provider.v0.ProviderState.v1:type_name -> codefly.services.provider.v0.ProviderStateV1
-	21,  // 128: codefly.services.provider.v0.UpgradeStateRequest.context:type_name -> codefly.services.provider.v0.OfflineProviderContext
-	69,  // 129: codefly.services.provider.v0.UpgradeStateRequest.state:type_name -> codefly.services.provider.v0.ProviderState
-	69,  // 130: codefly.services.provider.v0.UpgradeStateResponse.state:type_name -> codefly.services.provider.v0.ProviderState
-	67,  // 131: codefly.services.provider.v0.UpgradeStateResponse.record:type_name -> codefly.services.provider.v0.UpgradeRecord
-	88,  // 132: codefly.services.provider.v0.UpgradeStateResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
-	11,  // 133: codefly.services.provider.v0.PublicObject.FieldsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 134: codefly.services.provider.v0.OfflineProviderContext.InputEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 135: codefly.services.provider.v0.MaterialResourceObservation.ProviderOwnedFieldsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 136: codefly.services.provider.v0.MaterialResourceObservation.ActionPreconditionsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 137: codefly.services.provider.v0.BindingDesiredState.InputEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 138: codefly.services.provider.v0.ActionCheckpoint.RecoveryFieldsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 139: codefly.services.provider.v0.ActionReceipt.SafeResultEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 140: codefly.services.provider.v0.PlannedRequest.PathParametersEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 141: codefly.services.provider.v0.PlannedRequest.QueryEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 142: codefly.services.provider.v0.PlannedRequest.BodyEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	63,  // 143: codefly.services.provider.v0.OutputProposal.ValuesEntry.value:type_name -> codefly.services.provider.v0.OutputValue
-	11,  // 144: codefly.services.provider.v0.ProviderStateV1.SafeObservedFieldsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 145: codefly.services.provider.v0.ProviderStateV1.ProviderOwnedFieldsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	11,  // 146: codefly.services.provider.v0.ProviderStateV1.RecoveryDataEntry.value:type_name -> codefly.services.provider.v0.PublicValue
-	90,  // 147: codefly.services.provider.v0.provider_method_policy:extendee -> google.protobuf.MethodOptions
-	10,  // 148: codefly.services.provider.v0.provider_method_policy:type_name -> codefly.services.provider.v0.ProviderMethodPolicy
-	28,  // 149: codefly.services.provider.v0.Provider.GetProviderInformation:input_type -> codefly.services.provider.v0.GetProviderInformationRequest
-	30,  // 150: codefly.services.provider.v0.Provider.Validate:input_type -> codefly.services.provider.v0.ValidateRequest
-	36,  // 151: codefly.services.provider.v0.Provider.Observe:input_type -> codefly.services.provider.v0.ObserveRequest
-	45,  // 152: codefly.services.provider.v0.Provider.Plan:input_type -> codefly.services.provider.v0.PlanRequest
-	49,  // 153: codefly.services.provider.v0.Provider.ApplyAction:input_type -> codefly.services.provider.v0.ApplyActionRequest
-	51,  // 154: codefly.services.provider.v0.Provider.Doctor:input_type -> codefly.services.provider.v0.DoctorRequest
-	70,  // 155: codefly.services.provider.v0.Provider.UpgradeState:input_type -> codefly.services.provider.v0.UpgradeStateRequest
-	54,  // 156: codefly.services.provider.v0.ProviderHost.ExecuteRequest:input_type -> codefly.services.provider.v0.ExecuteRequestRequest
-	58,  // 157: codefly.services.provider.v0.ProviderHost.RecordCheckpoint:input_type -> codefly.services.provider.v0.RecordCheckpointRequest
-	60,  // 158: codefly.services.provider.v0.ProviderHost.ResolveCapture:input_type -> codefly.services.provider.v0.ResolveCaptureRequest
-	65,  // 159: codefly.services.provider.v0.ProviderHost.ProposeOutput:input_type -> codefly.services.provider.v0.ProposeOutputRequest
-	29,  // 160: codefly.services.provider.v0.Provider.GetProviderInformation:output_type -> codefly.services.provider.v0.GetProviderInformationResponse
-	31,  // 161: codefly.services.provider.v0.Provider.Validate:output_type -> codefly.services.provider.v0.ValidateResponse
-	37,  // 162: codefly.services.provider.v0.Provider.Observe:output_type -> codefly.services.provider.v0.ObserveResponse
-	46,  // 163: codefly.services.provider.v0.Provider.Plan:output_type -> codefly.services.provider.v0.PlanResponse
-	50,  // 164: codefly.services.provider.v0.Provider.ApplyAction:output_type -> codefly.services.provider.v0.ApplyActionResponse
-	52,  // 165: codefly.services.provider.v0.Provider.Doctor:output_type -> codefly.services.provider.v0.DoctorResponse
-	71,  // 166: codefly.services.provider.v0.Provider.UpgradeState:output_type -> codefly.services.provider.v0.UpgradeStateResponse
-	57,  // 167: codefly.services.provider.v0.ProviderHost.ExecuteRequest:output_type -> codefly.services.provider.v0.ExecuteRequestResponse
-	59,  // 168: codefly.services.provider.v0.ProviderHost.RecordCheckpoint:output_type -> codefly.services.provider.v0.RecordCheckpointResponse
-	61,  // 169: codefly.services.provider.v0.ProviderHost.ResolveCapture:output_type -> codefly.services.provider.v0.ResolveCaptureResponse
-	66,  // 170: codefly.services.provider.v0.ProviderHost.ProposeOutput:output_type -> codefly.services.provider.v0.ProposeOutputResponse
-	160, // [160:171] is the sub-list for method output_type
-	149, // [149:160] is the sub-list for method input_type
-	148, // [148:149] is the sub-list for extension type_name
-	147, // [147:148] is the sub-list for extension extendee
-	0,   // [0:147] is the sub-list for field type_name
+	63,  // 99: codefly.services.provider.v0.CaptureResult.sink_reference:type_name -> codefly.services.provider.v0.OpaqueReference
+	55,  // 100: codefly.services.provider.v0.FilteredEvent.forwarded:type_name -> codefly.services.provider.v0.FilteredField
+	56,  // 101: codefly.services.provider.v0.FilteredEvent.captures:type_name -> codefly.services.provider.v0.CaptureResult
+	4,   // 102: codefly.services.provider.v0.ExecuteRequestResponse.delivery:type_name -> codefly.services.provider.v0.DeliveryState
+	55,  // 103: codefly.services.provider.v0.ExecuteRequestResponse.forwarded:type_name -> codefly.services.provider.v0.FilteredField
+	56,  // 104: codefly.services.provider.v0.ExecuteRequestResponse.captures:type_name -> codefly.services.provider.v0.CaptureResult
+	5,   // 105: codefly.services.provider.v0.ExecuteRequestResponse.certainty:type_name -> codefly.services.provider.v0.OutcomeCertainty
+	88,  // 106: codefly.services.provider.v0.ExecuteRequestResponse.response_received_at:type_name -> google.protobuf.Timestamp
+	89,  // 107: codefly.services.provider.v0.ExecuteRequestResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	57,  // 108: codefly.services.provider.v0.ExecuteRequestResponse.events:type_name -> codefly.services.provider.v0.FilteredEvent
+	47,  // 109: codefly.services.provider.v0.RecordCheckpointRequest.checkpoint:type_name -> codefly.services.provider.v0.ActionCheckpoint
+	16,  // 110: codefly.services.provider.v0.ResolveCaptureRequest.operation:type_name -> codefly.services.provider.v0.OperationIdentity
+	63,  // 111: codefly.services.provider.v0.ResolveCaptureResponse.reference:type_name -> codefly.services.provider.v0.OpaqueReference
+	7,   // 112: codefly.services.provider.v0.OpaqueReference.purpose:type_name -> codefly.services.provider.v0.CredentialPurpose
+	11,  // 113: codefly.services.provider.v0.OutputValue.public_value:type_name -> codefly.services.provider.v0.PublicValue
+	63,  // 114: codefly.services.provider.v0.OutputValue.opaque_reference:type_name -> codefly.services.provider.v0.OpaqueReference
+	84,  // 115: codefly.services.provider.v0.OutputProposal.values:type_name -> codefly.services.provider.v0.OutputProposal.ValuesEntry
+	16,  // 116: codefly.services.provider.v0.ProposeOutputRequest.operation:type_name -> codefly.services.provider.v0.OperationIdentity
+	65,  // 117: codefly.services.provider.v0.ProposeOutputRequest.proposal:type_name -> codefly.services.provider.v0.OutputProposal
+	88,  // 118: codefly.services.provider.v0.UpgradeRecord.upgraded_at:type_name -> google.protobuf.Timestamp
+	15,  // 119: codefly.services.provider.v0.ProviderStateV1.binding:type_name -> codefly.services.provider.v0.BindingAddress
+	32,  // 120: codefly.services.provider.v0.ProviderStateV1.remote_identity:type_name -> codefly.services.provider.v0.RemoteIdentity
+	2,   // 121: codefly.services.provider.v0.ProviderStateV1.ownership:type_name -> codefly.services.provider.v0.Ownership
+	85,  // 122: codefly.services.provider.v0.ProviderStateV1.safe_observed_fields:type_name -> codefly.services.provider.v0.ProviderStateV1.SafeObservedFieldsEntry
+	86,  // 123: codefly.services.provider.v0.ProviderStateV1.provider_owned_fields:type_name -> codefly.services.provider.v0.ProviderStateV1.ProviderOwnedFieldsEntry
+	63,  // 124: codefly.services.provider.v0.ProviderStateV1.secret_references:type_name -> codefly.services.provider.v0.OpaqueReference
+	16,  // 125: codefly.services.provider.v0.ProviderStateV1.operation:type_name -> codefly.services.provider.v0.OperationIdentity
+	47,  // 126: codefly.services.provider.v0.ProviderStateV1.checkpoint:type_name -> codefly.services.provider.v0.ActionCheckpoint
+	48,  // 127: codefly.services.provider.v0.ProviderStateV1.receipt:type_name -> codefly.services.provider.v0.ActionReceipt
+	87,  // 128: codefly.services.provider.v0.ProviderStateV1.recovery_data:type_name -> codefly.services.provider.v0.ProviderStateV1.RecoveryDataEntry
+	68,  // 129: codefly.services.provider.v0.ProviderStateV1.upgrade_history:type_name -> codefly.services.provider.v0.UpgradeRecord
+	69,  // 130: codefly.services.provider.v0.ProviderState.v1:type_name -> codefly.services.provider.v0.ProviderStateV1
+	21,  // 131: codefly.services.provider.v0.UpgradeStateRequest.context:type_name -> codefly.services.provider.v0.OfflineProviderContext
+	70,  // 132: codefly.services.provider.v0.UpgradeStateRequest.state:type_name -> codefly.services.provider.v0.ProviderState
+	70,  // 133: codefly.services.provider.v0.UpgradeStateResponse.state:type_name -> codefly.services.provider.v0.ProviderState
+	68,  // 134: codefly.services.provider.v0.UpgradeStateResponse.record:type_name -> codefly.services.provider.v0.UpgradeRecord
+	89,  // 135: codefly.services.provider.v0.UpgradeStateResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	11,  // 136: codefly.services.provider.v0.PublicObject.FieldsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 137: codefly.services.provider.v0.OfflineProviderContext.InputEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 138: codefly.services.provider.v0.MaterialResourceObservation.ProviderOwnedFieldsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 139: codefly.services.provider.v0.MaterialResourceObservation.ActionPreconditionsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 140: codefly.services.provider.v0.BindingDesiredState.InputEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 141: codefly.services.provider.v0.ActionCheckpoint.RecoveryFieldsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 142: codefly.services.provider.v0.ActionReceipt.SafeResultEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 143: codefly.services.provider.v0.PlannedRequest.PathParametersEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 144: codefly.services.provider.v0.PlannedRequest.QueryEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 145: codefly.services.provider.v0.PlannedRequest.BodyEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	64,  // 146: codefly.services.provider.v0.OutputProposal.ValuesEntry.value:type_name -> codefly.services.provider.v0.OutputValue
+	11,  // 147: codefly.services.provider.v0.ProviderStateV1.SafeObservedFieldsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 148: codefly.services.provider.v0.ProviderStateV1.ProviderOwnedFieldsEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	11,  // 149: codefly.services.provider.v0.ProviderStateV1.RecoveryDataEntry.value:type_name -> codefly.services.provider.v0.PublicValue
+	91,  // 150: codefly.services.provider.v0.provider_method_policy:extendee -> google.protobuf.MethodOptions
+	10,  // 151: codefly.services.provider.v0.provider_method_policy:type_name -> codefly.services.provider.v0.ProviderMethodPolicy
+	28,  // 152: codefly.services.provider.v0.Provider.GetProviderInformation:input_type -> codefly.services.provider.v0.GetProviderInformationRequest
+	30,  // 153: codefly.services.provider.v0.Provider.Validate:input_type -> codefly.services.provider.v0.ValidateRequest
+	36,  // 154: codefly.services.provider.v0.Provider.Observe:input_type -> codefly.services.provider.v0.ObserveRequest
+	45,  // 155: codefly.services.provider.v0.Provider.Plan:input_type -> codefly.services.provider.v0.PlanRequest
+	49,  // 156: codefly.services.provider.v0.Provider.ApplyAction:input_type -> codefly.services.provider.v0.ApplyActionRequest
+	51,  // 157: codefly.services.provider.v0.Provider.Doctor:input_type -> codefly.services.provider.v0.DoctorRequest
+	71,  // 158: codefly.services.provider.v0.Provider.UpgradeState:input_type -> codefly.services.provider.v0.UpgradeStateRequest
+	54,  // 159: codefly.services.provider.v0.ProviderHost.ExecuteRequest:input_type -> codefly.services.provider.v0.ExecuteRequestRequest
+	59,  // 160: codefly.services.provider.v0.ProviderHost.RecordCheckpoint:input_type -> codefly.services.provider.v0.RecordCheckpointRequest
+	61,  // 161: codefly.services.provider.v0.ProviderHost.ResolveCapture:input_type -> codefly.services.provider.v0.ResolveCaptureRequest
+	66,  // 162: codefly.services.provider.v0.ProviderHost.ProposeOutput:input_type -> codefly.services.provider.v0.ProposeOutputRequest
+	29,  // 163: codefly.services.provider.v0.Provider.GetProviderInformation:output_type -> codefly.services.provider.v0.GetProviderInformationResponse
+	31,  // 164: codefly.services.provider.v0.Provider.Validate:output_type -> codefly.services.provider.v0.ValidateResponse
+	37,  // 165: codefly.services.provider.v0.Provider.Observe:output_type -> codefly.services.provider.v0.ObserveResponse
+	46,  // 166: codefly.services.provider.v0.Provider.Plan:output_type -> codefly.services.provider.v0.PlanResponse
+	50,  // 167: codefly.services.provider.v0.Provider.ApplyAction:output_type -> codefly.services.provider.v0.ApplyActionResponse
+	52,  // 168: codefly.services.provider.v0.Provider.Doctor:output_type -> codefly.services.provider.v0.DoctorResponse
+	72,  // 169: codefly.services.provider.v0.Provider.UpgradeState:output_type -> codefly.services.provider.v0.UpgradeStateResponse
+	58,  // 170: codefly.services.provider.v0.ProviderHost.ExecuteRequest:output_type -> codefly.services.provider.v0.ExecuteRequestResponse
+	60,  // 171: codefly.services.provider.v0.ProviderHost.RecordCheckpoint:output_type -> codefly.services.provider.v0.RecordCheckpointResponse
+	62,  // 172: codefly.services.provider.v0.ProviderHost.ResolveCapture:output_type -> codefly.services.provider.v0.ResolveCaptureResponse
+	67,  // 173: codefly.services.provider.v0.ProviderHost.ProposeOutput:output_type -> codefly.services.provider.v0.ProposeOutputResponse
+	163, // [163:174] is the sub-list for method output_type
+	152, // [152:163] is the sub-list for method input_type
+	151, // [151:152] is the sub-list for extension type_name
+	150, // [150:151] is the sub-list for extension extendee
+	0,   // [0:150] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_provider_v0_provider_proto_init() }
@@ -6381,11 +6491,11 @@ func file_codefly_services_provider_v0_provider_proto_init() {
 		(*PublicValue_ObjectValue)(nil),
 		(*PublicValue_NullValue)(nil),
 	}
-	file_codefly_services_provider_v0_provider_proto_msgTypes[53].OneofWrappers = []any{
+	file_codefly_services_provider_v0_provider_proto_msgTypes[54].OneofWrappers = []any{
 		(*OutputValue_PublicValue)(nil),
 		(*OutputValue_OpaqueReference)(nil),
 	}
-	file_codefly_services_provider_v0_provider_proto_msgTypes[59].OneofWrappers = []any{
+	file_codefly_services_provider_v0_provider_proto_msgTypes[60].OneofWrappers = []any{
 		(*ProviderState_V1)(nil),
 	}
 	type x struct{}
@@ -6394,7 +6504,7 @@ func file_codefly_services_provider_v0_provider_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_provider_v0_provider_proto_rawDesc), len(file_codefly_services_provider_v0_provider_proto_rawDesc)),
 			NumEnums:      10,
-			NumMessages:   77,
+			NumMessages:   78,
 			NumExtensions: 1,
 			NumServices:   2,
 		},
