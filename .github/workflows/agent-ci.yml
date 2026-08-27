@@ -1,0 +1,43 @@
+name: agent-ci
+
+# Full-lifecycle codefly agent validation, shared by every service agent.
+# `codefly agent ci` runs the source, release, and generated-service
+# conformance gates against the calling repo's agent, using the codefly.dev/go
+# source-packager the CLI pins. Callers add a thin workflow that dispatches this
+# one (see any service repo's .github/workflows/agent-ci.yml).
+on:
+  workflow_call:
+    inputs:
+      codefly-cli-version:
+        description: Released codefly CLI version to validate with (no leading v).
+        type: string
+        required: true
+
+jobs:
+  agent-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          # go.mod pins a `toolchain` newer than the `go` line, so GOTOOLCHAIN
+          # downloads the toolchain module into the cache; setup-go's cache tar
+          # then corrupts it on restore. Skip the cache so the toolchain stays
+          # intact for the source-packager build.
+          cache: false
+      - name: install codefly CLI
+        run: |
+          curl -fsSL -o codefly.tar.gz \
+            "https://github.com/codefly-dev/cli/releases/download/v${{ inputs.codefly-cli-version }}/codefly_${{ inputs.codefly-cli-version }}_linux_amd64.tar.gz"
+          tar -xzf codefly.tar.gz codefly
+          install -m 0755 codefly /usr/local/bin/codefly
+          codefly version
+      - name: install codefly.dev/go source-packager
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: codefly agent install codefly.dev/go
+      - name: codefly agent ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: codefly agent ci
