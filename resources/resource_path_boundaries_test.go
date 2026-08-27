@@ -123,6 +123,40 @@ func TestModuleOwnOverrideAllowsComposedOutOfRepoPath(t *testing.T) {
 	}
 }
 
+// A composed module carries its escaping PathOverride in its own file on disk.
+// This drives the exact chain the SDK's in-process load uses
+// (LoadModuleFromDir -> postLoad -> validatePaths), which #365 reports rejecting
+// the composed module the CLI resolves fine.
+func TestLoadModuleFromDirAcceptsComposedOutOfRepoOverride(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("upward override loads", func(t *testing.T) {
+		dir := t.TempDir()
+		content := []byte("kind: module\nname: saas\npath: ../../../module-saas-starter/module\n")
+		if err := os.WriteFile(filepath.Join(dir, ModuleConfigurationName), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mod, err := LoadModuleFromDir(ctx, dir)
+		if err != nil {
+			t.Fatalf("composed out-of-repo module rejected on load: %v", err)
+		}
+		if mod.PathOverride == nil || *mod.PathOverride != "../../../module-saas-starter/module" {
+			t.Fatalf("override not preserved: %v", mod.PathOverride)
+		}
+	})
+
+	t.Run("backslash override still rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		content := []byte("kind: module\nname: saas\npath: ..\\module-saas-starter\n")
+		if err := os.WriteFile(filepath.Join(dir, ModuleConfigurationName), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadModuleFromDir(ctx, dir); err == nil {
+			t.Fatal("backslash override was accepted on load")
+		}
+	})
+}
+
 func TestModuleReferenceOverrideAllowsOutOfRepoPath(t *testing.T) {
 	up := "../host"
 	if err := validateModuleReferencePath(&ModuleReference{Name: "saas", PathOverride: &up}); err != nil {
