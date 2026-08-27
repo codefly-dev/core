@@ -57,6 +57,18 @@ type Config struct {
 	// never touches the network; record stores only filtered safe responses.
 	Cassette *cassette.Cassette
 
+	// OnStreamEvent, when set, receives each filtered event of a streamed (SSE)
+	// response in order, as it is delivered live or replayed, before Execute
+	// returns. It is how a caller gets live tokens instead of only the fully
+	// buffered ordered set. A non-nil error from it fails the delivery closed.
+	OnStreamEvent func(*providerv0.FilteredEvent) error
+
+	// MaxRequestDuration bounds one round trip — including reading a streamed
+	// body — when the budget carries no absolute deadline. It exists so a slow or
+	// stalled stream cannot hold the session open indefinitely. Zero selects
+	// DefaultMaxRequestDuration.
+	MaxRequestDuration time.Duration
+
 	// ClientFor overrides guarded client construction. Production leaves it nil
 	// to use the SSRF-hardened urlguard client; tests inject a client bound to a
 	// local server.
@@ -64,6 +76,11 @@ type Config struct {
 	// Now overrides the clock for deterministic tests.
 	Now func() time.Time
 }
+
+// DefaultMaxRequestDuration bounds a round trip when no budget deadline is set.
+// It is generous enough for a long model generation yet finite, so a stalled
+// stream releases the session instead of blocking on it forever.
+const DefaultMaxRequestDuration = 10 * time.Minute
 
 // Session is the per-action broker context. A session serializes its requests:
 // budget, capture-gate, and delivery are inherently sequential, so Execute holds
@@ -85,13 +102,15 @@ type Session struct {
 	limits    responsepolicy.Limits
 	remaining uint32
 
-	vault       *credentials.Vault
-	sink        responsepolicy.Sink
-	checkpoints Checkpointer
-	cassette    *cassette.Cassette
-	resolver    *net.Resolver
-	clientFor   func(urlguard.Origin, urlguard.Resolution) *http.Client
-	now         func() time.Time
+	vault         *credentials.Vault
+	sink          responsepolicy.Sink
+	checkpoints   Checkpointer
+	cassette      *cassette.Cassette
+	onStreamEvent func(*providerv0.FilteredEvent) error
+	maxDuration   time.Duration
+	resolver      *net.Resolver
+	clientFor     func(urlguard.Origin, urlguard.Resolution) *http.Client
+	now           func() time.Time
 
 	// captureGate holds the checkpoint id present when the last capture became
 	// durable. A later external request is refused until a newer checkpoint
@@ -125,12 +144,17 @@ func New(cfg Config) (*Session, error) {
 		sink:            cfg.Sink,
 		checkpoints:     cfg.Checkpoints,
 		cassette:        cfg.Cassette,
+		onStreamEvent:   cfg.OnStreamEvent,
+		maxDuration:     cfg.MaxRequestDuration,
 		resolver:        cfg.Resolver,
 		clientFor:       cfg.ClientFor,
 		now:             cfg.Now,
 	}
 	if session.userAgent == "" {
 		session.userAgent = "codefly-provider-broker"
+	}
+	if session.maxDuration <= 0 {
+		session.maxDuration = DefaultMaxRequestDuration
 	}
 	if session.now == nil {
 		session.now = time.Now
@@ -230,8 +254,9 @@ func (s *Session) Execute(ctx context.Context, request *providerv0.ExecuteReques
 		return nil, err
 	}
 	// Arm the capture gate: a durable capture must be checkpointed before the
-	// next external request, whether it was produced live or replayed.
-	if len(response.GetCaptures()) > 0 {
+	// next external request, whether it was produced live or replayed. A streamed
+	// response carries its captures on the individual events, so both are counted.
+	if responseHasCaptures(response) {
 		s.captureGate = checkpointID
 	}
 	response.RequestId = request.GetRequestId()
@@ -262,6 +287,12 @@ func (s *Session) deliver(
 			return 0, nil, err
 		}
 		response.StatusCode = status
+		// Replay is delivery-identical: a streamed response's events are emitted in
+		// order through the same live callback, so a replayed stream is
+		// indistinguishable from a live one to the caller.
+		if err := s.emitStreamEvents(response.GetEvents()); err != nil {
+			return 0, nil, err
+		}
 		return providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response, nil
 	}
 	client := s.clientFor(origin, pinned)
@@ -385,12 +416,17 @@ func (s *Session) injectCredentials(httpRequest *http.Request, request *provider
 // SENT_OUTCOME_UNKNOWN rather than NOT_SENT.
 func (s *Session) roundTrip(ctx context.Context, client *http.Client, descriptor manifest.RequestDescriptor, httpRequest *http.Request) (providerv0.DeliveryState, *providerv0.ExecuteRequestResponse, error) {
 	// The absolute budget deadline bounds the whole round trip, not just the
-	// pre-send admission checks.
+	// pre-send admission checks. When the budget carries no deadline a default
+	// bound still applies, so reading a slow or stalled streamed body cannot hold
+	// the session open indefinitely. Because the body is read on this request's
+	// context, the deadline interrupts a mid-stream read too.
+	var cancel context.CancelFunc
 	if deadline := s.budget.GetDeadline(); deadline != nil {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithDeadline(ctx, deadline.AsTime())
-		defer cancel()
+	} else {
+		ctx, cancel = context.WithTimeout(ctx, s.maxDuration)
 	}
+	defer cancel()
 	var wrote bool
 	trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wrote = true }}
 	traced := httpRequest.WithContext(httptrace.WithClientTrace(ctx, trace))

@@ -99,6 +99,24 @@ func (s *Session) responsePolicyFor(descriptor manifest.RequestDescriptor) (resp
 	return responsepolicy.Policy{Fields: fields, Limits: s.limits}, nil
 }
 
+// streamPolicyFor derives the per-event response policy for a streamed response.
+// It is the descriptor's response policy with every field made non-required: a
+// declared field legitimately appears in only some events of a stream, so its
+// absence from a given event is not drift. Required-ness is a whole-body drift
+// check that does not survive being split across a stream; the security
+// invariant — every present secret-shaped field is captured or suppressed and
+// every undeclared field dropped — holds unchanged per event.
+func (s *Session) streamPolicyFor(descriptor manifest.RequestDescriptor) (responsepolicy.Policy, error) {
+	policy, err := s.responsePolicyFor(descriptor)
+	if err != nil {
+		return responsepolicy.Policy{}, err
+	}
+	for i := range policy.Fields {
+		policy.Fields[i].Required = false
+	}
+	return policy, nil
+}
+
 // plannedRemoteID returns the exact remote identity the action authorizes. Path
 // parameters and ownership body fields must equal this value; a valid template
 // carrying any other id is rejected.
