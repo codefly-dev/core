@@ -15,7 +15,8 @@ type EmbedRequest struct {
 	Input []string
 }
 
-// Body renders the request as descriptor-allowed body fields.
+// Body renders the request as descriptor-allowed body fields. It does no secret
+// screening; callers screen r.content() with ScreenContent first.
 func (r EmbedRequest) Body() map[string]*providerv0.PublicValue {
 	inputs := make([]*providerv0.PublicValue, 0, len(r.Input))
 	for _, input := range r.Input {
@@ -25,6 +26,11 @@ func (r EmbedRequest) Body() map[string]*providerv0.PublicValue {
 		"model": stringValue(r.Model),
 		"input": listValue(inputs),
 	}
+}
+
+// content returns the free-form input strings for secret screening.
+func (r EmbedRequest) content() []string {
+	return r.Input
 }
 
 // Embedding is one embedding vector.

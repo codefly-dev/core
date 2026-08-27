@@ -28,6 +28,11 @@ type ChatRequest struct {
 }
 
 // Body renders the request as descriptor-allowed body fields.
+//
+// Prompt content is user text that may legitimately look secret-shaped; the
+// provider protocol forbids secret-shaped structured values by design (see
+// canonical validation), so callers must screen content with ScreenContent
+// before building a request — Body itself does no screening.
 func (r ChatRequest) Body() map[string]*providerv0.PublicValue {
 	messages := make([]*providerv0.PublicValue, 0, len(r.Messages))
 	for _, message := range r.Messages {
@@ -51,6 +56,19 @@ func (r ChatRequest) Body() map[string]*providerv0.PublicValue {
 	return body
 }
 
+// content returns every free-form text field a caller supplies, so it can be
+// screened against the provider secret heuristic before a request is built.
+func (r ChatRequest) content() []string {
+	texts := make([]string, 0, len(r.Messages)+1)
+	for _, message := range r.Messages {
+		texts = append(texts, message.Content)
+	}
+	if r.System != "" {
+		texts = append(texts, r.System)
+	}
+	return texts
+}
+
 // Usage is the token accounting a chat call reports.
 type Usage struct {
 	InputTokens  int64
@@ -65,20 +83,41 @@ type ChatResponse struct {
 }
 
 // ChatDelta is one incremental streamed event. Text is the fragment this event
-// contributed, if any; Terminal marks the final event of the stream.
+// contributed, if any; StopReason is set on the event that reports it; Terminal
+// marks the final event of the delivered stream.
 type ChatDelta struct {
-	EventType string
-	Text      string
-	Terminal  bool
+	EventType  string
+	Text       string
+	StopReason string
+	Usage      Usage
+	Terminal   bool
+}
+
+// DecodeEvent types a single filtered stream event, for a caller wiring the
+// broker's live OnStreamEvent callback to typed deltas as they arrive.
+func DecodeEvent(event *providerv0.FilteredEvent) ChatDelta {
+	delta := ChatDelta{EventType: event.GetEventType(), Terminal: event.GetTerminal()}
+	for _, field := range event.GetForwarded() {
+		if field.GetSelector() == "$.delta.text" {
+			delta.Text += field.GetValue().GetStringValue()
+			continue
+		}
+		applyChatField(field, &delta.StopReason, &delta.Usage)
+	}
+	return delta
 }
 
 // ChatStream is the reconstructed typed stream of chat deltas plus the assembled
-// text and terminal metadata.
+// text and terminal metadata. Complete distinguishes a stream the model finished
+// (a stop reason was reported) from one that ended early — a truncated stream
+// closed cleanly mid-generation decodes with Complete false, so a consumer never
+// mistakes truncation for a finished answer.
 type ChatStream struct {
 	Deltas     []ChatDelta
 	Text       string
 	StopReason string
 	Usage      Usage
+	Complete   bool
 }
 
 // DecodeChat decodes a whole non-streaming chat response from the filtered
@@ -109,18 +148,23 @@ func DecodeChatStream(response *providerv0.ExecuteRequestResponse) (*ChatStream,
 	stream := &ChatStream{}
 	var assembled strings.Builder
 	for _, event := range response.GetEvents() {
-		delta := ChatDelta{EventType: event.GetEventType(), Terminal: event.GetTerminal()}
-		for _, field := range event.GetForwarded() {
-			if field.GetSelector() == "$.delta.text" {
-				delta.Text += field.GetValue().GetStringValue()
-				continue
-			}
-			applyChatField(field, &stream.StopReason, &stream.Usage)
+		delta := DecodeEvent(event)
+		if delta.StopReason != "" {
+			stream.StopReason = delta.StopReason
+		}
+		if delta.Usage.InputTokens != 0 {
+			stream.Usage.InputTokens = delta.Usage.InputTokens
+		}
+		if delta.Usage.OutputTokens != 0 {
+			stream.Usage.OutputTokens = delta.Usage.OutputTokens
 		}
 		assembled.WriteString(delta.Text)
 		stream.Deltas = append(stream.Deltas, delta)
 	}
 	stream.Text = assembled.String()
+	// A model that finished reports a stop reason; its absence means the stream
+	// ended early (a truncated-but-clean close), which must not read as complete.
+	stream.Complete = stream.StopReason != ""
 	return stream, nil
 }
 
@@ -166,49 +210,4 @@ func joinIndexed(texts map[int]string) string {
 		builder.WriteString(texts[index])
 	}
 	return builder.String()
-}
-
-// ReconstructSSE re-emits the filtered events as a well-formed Server-Sent
-// Events body. Each event becomes an `event:`/`data:` frame carrying the safe
-// projection of its forwarded fields, in order, and the terminal event closes
-// the stream. It reconstructs only the safe, filtered material — the broker
-// never retains raw vendor bytes — so framing and ordering are reproduced
-// without ever replaying an unfiltered field.
-func ReconstructSSE(events []*providerv0.FilteredEvent) []byte {
-	var builder strings.Builder
-	for _, event := range events {
-		if event.GetEventType() != "" {
-			fmt.Fprintf(&builder, "event: %s\n", event.GetEventType())
-		}
-		builder.WriteString("data: ")
-		builder.WriteString(safeProjection(event.GetForwarded()))
-		builder.WriteString("\n\n")
-	}
-	return []byte(builder.String())
-}
-
-// safeProjection renders forwarded fields as a canonical selector-keyed JSON
-// object — the same shape responsepolicy preserves, so the frame is byte-stable.
-func safeProjection(fields []*providerv0.FilteredField) string {
-	pairs := make([]string, 0, len(fields))
-	for _, field := range fields {
-		pairs = append(pairs, fmt.Sprintf("%q:%s", field.GetSelector(), scalarJSON(field.GetValue())))
-	}
-	sort.Strings(pairs)
-	return "{" + strings.Join(pairs, ",") + "}"
-}
-
-func scalarJSON(value *providerv0.PublicValue) string {
-	switch kind := value.GetKind().(type) {
-	case *providerv0.PublicValue_StringValue:
-		return fmt.Sprintf("%q", kind.StringValue)
-	case *providerv0.PublicValue_IntegerValue:
-		return fmt.Sprintf("%d", kind.IntegerValue)
-	case *providerv0.PublicValue_DecimalValue:
-		return kind.DecimalValue
-	case *providerv0.PublicValue_BoolValue:
-		return fmt.Sprintf("%t", kind.BoolValue)
-	default:
-		return "null"
-	}
 }

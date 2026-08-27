@@ -2,12 +2,37 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
 	"github.com/codefly-dev/core/provider/canonical"
+	"github.com/codefly-dev/core/provider/configuration"
 	"github.com/codefly-dev/core/provider/manifest"
 )
+
+// ErrSecretShapedContent reports prompt or embedding-input content the provider
+// broker refuses to send. LLM egress goes through the secret-safe provider
+// broker, whose protocol forbids secret-shaped values in a request by design, so
+// content that trips the secret heuristic (a literal API key, a "password=…"
+// fragment, a PEM private-key header) cannot be sent through this path. This is
+// an inherent property of routing model calls over the broker, surfaced here as
+// a clear, screenable error rather than a confusing failure deep in digest
+// binding. Callers that must send such content need a channel other than the
+// provider broker.
+var ErrSecretShapedContent = errors.New("content is secret-shaped and cannot be sent through the provider broker")
+
+// ScreenContent rejects any free-form text the provider secret heuristic would
+// flag, using the exact heuristic the broker enforces, so a caller fails fast
+// and legibly before a request is built.
+func ScreenContent(texts []string) error {
+	for _, text := range texts {
+		if configuration.LooksSecret(text) {
+			return fmt.Errorf("%w", ErrSecretShapedContent)
+		}
+	}
+	return nil
+}
 
 // Executor runs one admitted broker request. *broker.Session satisfies it.
 type Executor interface {
@@ -57,12 +82,18 @@ func (c *Client) Embed(ctx context.Context, request *providerv0.ExecuteRequestRe
 // chat descriptor. The host wraps it in an ExecuteRequestRequest with the
 // operation, budget, and credential handles before executing.
 func PlannedChat(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, request ChatRequest, idempotencyKey, responsePolicyDigest string) (*providerv0.PlannedRequest, error) {
+	if err := ScreenContent(request.content()); err != nil {
+		return nil, err
+	}
 	return plannedPost(m, origin, ChatDescriptor, request.Body(), idempotencyKey, responsePolicyDigest)
 }
 
 // PlannedEmbed binds an embedding request to a digest-bound PlannedRequest for
 // the embed descriptor.
 func PlannedEmbed(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, request EmbedRequest, idempotencyKey, responsePolicyDigest string) (*providerv0.PlannedRequest, error) {
+	if err := ScreenContent(request.content()); err != nil {
+		return nil, err
+	}
 	return plannedPost(m, origin, EmbedDescriptor, request.Body(), idempotencyKey, responsePolicyDigest)
 }
 

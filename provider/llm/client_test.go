@@ -114,7 +114,7 @@ func TestChat_StreamingRecordReplay(t *testing.T) {
 		deltaTypes(recStream))
 	require.True(t, recStream.Deltas[len(recStream.Deltas)-1].Terminal)
 
-	firstFraming := llm.ReconstructSSE(recorded.GetEvents())
+	firstFraming := reconstructSSE(recorded.GetEvents())
 
 	data, err := recCass.Marshal()
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestChat_StreamingRecordReplay(t *testing.T) {
 	require.Equal(t, recStream, repStream)
 
 	// Framing is reproduced byte-for-byte, terminated by the message_stop event.
-	replayFraming := llm.ReconstructSSE(replayed.GetEvents())
+	replayFraming := reconstructSSE(replayed.GetEvents())
 	require.Equal(t, string(firstFraming), string(replayFraming))
 	require.True(t, strings.Contains(string(replayFraming), "event: message_stop"))
 	require.True(t, strings.HasSuffix(string(replayFraming), "\n\n"))
@@ -180,6 +180,96 @@ func TestChat_StreamReplayUnknownKeyFailsClosed(t *testing.T) {
 	client := llm.NewClient(h.session(t, reservedClosedAddr(t), empty))
 	_, err := client.ChatStream(context.Background(), h.request(t))
 	require.ErrorContains(t, err, "does not fall back to live")
+}
+
+// TestChat_SecretShapedContentFailsClosedAndLegibly is the regression test for
+// the original confusing failure: a prompt whose content trips the provider
+// secret heuristic ("password=…", "api_key=…", a PEM header) must be rejected up
+// front with the clear, typed ErrSecretShapedContent — not a cryptic error deep
+// in digest binding, and never silently sent. The constraint is inherent to
+// routing LLM egress through the secret-safe broker.
+func TestChat_SecretShapedContentFailsClosedAndLegibly(t *testing.T) {
+	m, err := llm.Manifest(testOrigin())
+	require.NoError(t, err)
+	for _, prompt := range []string{
+		"why doesn't api_key=foo work?",
+		"debug this: password=hunter2 in the log",
+		"is this valid? -----BEGIN PRIVATE KEY-----",
+	} {
+		_, err := llm.PlannedChat(m, admittedOrigin(t), llm.ChatRequest{
+			Model:     model,
+			Messages:  []llm.Message{{Role: "user", Content: prompt}},
+			MaxTokens: 16,
+		}, "idem-secret", policyD)
+		require.ErrorIs(t, err, llm.ErrSecretShapedContent, "prompt %q", prompt)
+	}
+
+	// Embedding input is screened identically.
+	_, err = llm.PlannedEmbed(m, admittedOrigin(t), llm.EmbedRequest{
+		Model: "voyage-3",
+		Input: []string{"here is my access_token=abc"},
+	}, "idem-embed", policyD)
+	require.ErrorIs(t, err, llm.ErrSecretShapedContent)
+
+	// A benign prompt is unaffected.
+	_, err = llm.PlannedChat(m, admittedOrigin(t), llm.ChatRequest{
+		Model:     model,
+		Messages:  []llm.Message{{Role: "user", Content: "How do I rotate a key safely?"}},
+		MaxTokens: 16,
+	}, "idem-ok", policyD)
+	require.NoError(t, err)
+}
+
+// TestChat_StreamCompleteVsTruncated proves a decoded stream distinguishes a
+// finished generation from a truncated one: a stream that reports a stop reason
+// is Complete, and one that ends early (no stop reason) is not — so a consumer
+// never mistakes a truncated-but-cleanly-closed stream for a finished answer.
+func TestChat_StreamCompleteVsTruncated(t *testing.T) {
+	complete := decodeStream(t, chatRequest(t, true, "idem-done"), anthropicStream)
+	require.True(t, complete.Complete)
+	require.Equal(t, "end_turn", complete.StopReason)
+	require.Equal(t, "Hello world", complete.Text)
+
+	// The same stream cut off after the first text delta — a clean close with no
+	// message_delta, so no stop reason is ever delivered.
+	const truncated = "event: message_start\n" +
+		"data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01\",\"usage\":{\"input_tokens\":10}}}\n" +
+		"\n" +
+		"event: content_block_delta\n" +
+		"data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"Hel\"}}\n" +
+		"\n"
+	partial := decodeStream(t, chatRequest(t, true, "idem-trunc"), truncated)
+	require.False(t, partial.Complete)
+	require.Empty(t, partial.StopReason)
+	require.Equal(t, "Hel", partial.Text)
+}
+
+// TestChat_LiveDeltasThroughCallback proves a caller receives typed chat deltas
+// live, event by event, by wiring the broker's OnStreamEvent callback through
+// DecodeEvent — the assembled text matches the whole stream.
+func TestChat_LiveDeltasThroughCallback(t *testing.T) {
+	req := chatRequest(t, true, "idem-live")
+	server := jsonServer(t, "text/event-stream", anthropicStream)
+	h := newHarness(t, req)
+	var live strings.Builder
+	h.onStreamEvent = func(event *providerv0.FilteredEvent) error {
+		live.WriteString(llm.DecodeEvent(event).Text)
+		return nil
+	}
+	_, err := h.session(t, serverAddr(t, server), nil).Execute(context.Background(), h.request(t))
+	require.NoError(t, err)
+	require.Equal(t, "Hello world", live.String())
+}
+
+func decodeStream(t *testing.T, req *providerv0.PlannedRequest, body string) *llm.ChatStream {
+	t.Helper()
+	server := jsonServer(t, "text/event-stream", body)
+	h := newHarness(t, req)
+	response, err := h.session(t, serverAddr(t, server), nil).Execute(context.Background(), h.request(t))
+	require.NoError(t, err)
+	stream, err := llm.DecodeChatStream(response)
+	require.NoError(t, err)
+	return stream
 }
 
 func deltaTypes(stream *llm.ChatStream) []string {

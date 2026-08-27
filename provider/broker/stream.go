@@ -1,7 +1,7 @@
 package broker
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -20,44 +20,73 @@ func isEventStream(contentType string) bool {
 }
 
 // handleStream turns a received SSE body into an ordered sequence of filtered
-// events. The response-policy filter runs over every event's data exactly as it
+// events. It reads frame by frame rather than buffering the whole body, so each
+// event is filtered and surfaced to the caller (via OnStreamEvent) the moment it
+// arrives — that is what makes the streaming path live rather than a deferred
+// dump. The response-policy filter runs over every event's data exactly as it
 // runs over a whole non-streaming body, so a stream can never smuggle a
-// secret-bearing or undeclared field past filtering. The whole stream is
-// bounded by the response-bytes budget, and any drift — an unparseable frame or
-// a filtering failure on any event — fails closed, forwarding nothing.
+// secret-bearing or undeclared field past filtering. The running byte total is
+// bounded by the response-bytes budget, and any drift — an unfilterable event,
+// an over-budget stream — fails closed, forwarding nothing further.
 func (s *Session) handleStream(descriptor manifest.RequestDescriptor, resp *http.Response) (*providerv0.ExecuteRequestResponse, error) {
 	policy, err := s.streamPolicyFor(descriptor)
 	if err != nil {
 		return nil, err
 	}
+	ctx := resp.Request.Context()
 	// Read one byte past the budget so an over-budget stream is rejected rather
-	// than silently truncated: the byte budget bounds the entire stream, not one
-	// frame.
+	// than silently truncated: the byte budget bounds the entire stream.
 	limit := s.limits.MaxCompressedBytes
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-	if err != nil {
-		return nil, fmt.Errorf("read response stream: %w", err)
-	}
-	if int64(len(raw)) > limit {
-		return nil, fmt.Errorf("response stream exceeds byte budget")
-	}
-	frames, err := parseSSE(raw)
-	if err != nil {
-		return nil, err
-	}
+	reader := bufio.NewReader(io.LimitReader(resp.Body, limit+1))
+
 	response := &providerv0.ExecuteRequestResponse{
 		StatusCode: uint32(resp.StatusCode),
 		Certainty:  providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
 	}
-	ctx := resp.Request.Context()
-	for _, frame := range frames {
+	var (
+		builder sseBuilder
+		read    int64
+	)
+	dispatch := func() error {
+		frame, ok := builder.take()
+		if !ok {
+			return nil
+		}
 		event := &providerv0.FilteredEvent{EventType: frame.event}
 		if !frame.done {
-			if err := s.filterFrame(ctx, policy, frame, event, response); err != nil {
-				return nil, err
+			if err := s.filterFrame(ctx, policy, frame, event); err != nil {
+				return err
 			}
 		}
 		response.Events = append(response.Events, event)
+		return s.emitStreamEvent(event)
+	}
+	for {
+		line, readErr := reader.ReadString('\n')
+		read += int64(len(line))
+		if read > limit {
+			return nil, fmt.Errorf("response stream exceeds byte budget")
+		}
+		content := strings.TrimRight(line, "\r\n")
+		blank := content == "" && strings.HasSuffix(line, "\n")
+		switch {
+		case blank:
+			if err := dispatch(); err != nil {
+				return nil, err
+			}
+		case content != "":
+			builder.line(content)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, fmt.Errorf("read response stream: %w", readErr)
+		}
+	}
+	// A final frame not terminated by a blank line is still dispatched.
+	if err := dispatch(); err != nil {
+		return nil, err
 	}
 	if n := len(response.Events); n > 0 {
 		response.Events[n-1].Terminal = true
@@ -66,14 +95,14 @@ func (s *Session) handleStream(descriptor manifest.RequestDescriptor, resp *http
 }
 
 // filterFrame filters one event's JSON data through the policy and records the
-// safe result on the event. Captures are also aggregated onto the response so
-// the session's capture gate arms exactly as it does on the non-streaming path.
+// safe result on the event. Captures live only on the event; the session's
+// capture gate inspects both event and top-level captures, so there is no need
+// to duplicate them onto the response.
 func (s *Session) filterFrame(
 	ctx context.Context,
 	policy responsepolicy.Policy,
 	frame sseFrame,
 	event *providerv0.FilteredEvent,
-	response *providerv0.ExecuteRequestResponse,
 ) error {
 	result, err := policy.Filter(ctx, frame.data, "", "application/json", s.sink)
 	if err != nil {
@@ -90,16 +119,47 @@ func (s *Session) filterFrame(
 		if capture.Outcome != responsepolicy.OutcomeCaptured {
 			continue
 		}
-		captured := &providerv0.CaptureResult{
+		event.Captures = append(event.Captures, &providerv0.CaptureResult{
 			CaptureId:     capture.Selector,
 			Selector:      capture.Selector,
 			SinkReference: capture.Reference,
 			Captured:      true,
-		}
-		event.Captures = append(event.Captures, captured)
-		response.Captures = append(response.Captures, captured)
+		})
 	}
 	return nil
+}
+
+// emitStreamEvent surfaces one filtered event to the caller's live callback.
+func (s *Session) emitStreamEvent(event *providerv0.FilteredEvent) error {
+	if s.onStreamEvent == nil {
+		return nil
+	}
+	return s.onStreamEvent(event)
+}
+
+// emitStreamEvents surfaces an ordered set of already-filtered events to the
+// live callback, used on the replay path where events arrive as a block.
+func (s *Session) emitStreamEvents(events []*providerv0.FilteredEvent) error {
+	for _, event := range events {
+		if err := s.emitStreamEvent(event); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// responseHasCaptures reports whether a response captured any secret, on either
+// the non-streaming top-level fields or a streamed event.
+func responseHasCaptures(response *providerv0.ExecuteRequestResponse) bool {
+	if len(response.GetCaptures()) > 0 {
+		return true
+	}
+	for _, event := range response.GetEvents() {
+		if len(event.GetCaptures()) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // sseFrame is one parsed Server-Sent Events frame. done marks the OpenAI-style
@@ -110,53 +170,40 @@ type sseFrame struct {
 	done  bool
 }
 
-// parseSSE parses an SSE body into ordered frames. It follows the dispatch rule
-// of the WHATWG event-stream grammar: lines accumulate into an event that is
-// dispatched on a blank line, multiple data lines join with a newline, and
-// comment lines (starting with a colon) are ignored. A frame that accumulated
-// neither an event name nor data is not dispatched.
-func parseSSE(raw []byte) ([]sseFrame, error) {
-	var (
-		frames []sseFrame
-		event  string
-		data   []string
-		seen   bool
-	)
-	dispatch := func() {
-		if !seen {
-			return
-		}
-		payload := []byte(strings.Join(data, "\n"))
-		frames = append(frames, sseFrame{
-			event: event,
-			data:  payload,
-			done:  string(payload) == "[DONE]",
-		})
-		event, data, seen = "", nil, false
+// sseBuilder accumulates the lines of one event-stream frame. It follows the
+// WHATWG event-stream grammar: an `event`/`data` line sets the frame, multiple
+// data lines join with a newline, a comment line (leading colon) is ignored,
+// and — per the spec — any other field name (id, retry, or a vendor extension)
+// is ignored rather than rejected, so a benign framing addition never fails a
+// stream.
+type sseBuilder struct {
+	event string
+	data  []string
+	seen  bool
+}
+
+func (b *sseBuilder) line(content string) {
+	if content[0] == ':' {
+		return
 	}
-	for _, line := range bytes.Split(raw, []byte("\n")) {
-		line = bytes.TrimSuffix(line, []byte("\r"))
-		if len(line) == 0 {
-			dispatch()
-			continue
-		}
-		if line[0] == ':' {
-			continue
-		}
-		field, value, _ := strings.Cut(string(line), ":")
-		value = strings.TrimPrefix(value, " ")
-		switch field {
-		case "event":
-			event, seen = value, true
-		case "data":
-			data, seen = append(data, value), true
-		case "id", "retry":
-			// Volatile framing fields never leave the host: they are neither
-			// forwarded nor recorded, so a re-record stays byte-stable.
-		default:
-			return nil, fmt.Errorf("unrecognized event-stream field %q", field)
-		}
+	field, value, _ := strings.Cut(content, ":")
+	value = strings.TrimPrefix(value, " ")
+	switch field {
+	case "event":
+		b.event, b.seen = value, true
+	case "data":
+		b.data, b.seen = append(b.data, value), true
 	}
-	dispatch()
-	return frames, nil
+}
+
+// take returns the accumulated frame and resets the builder. A frame that
+// gathered neither an event name nor data is not dispatched.
+func (b *sseBuilder) take() (sseFrame, bool) {
+	if !b.seen {
+		return sseFrame{}, false
+	}
+	payload := []byte(strings.Join(b.data, "\n"))
+	frame := sseFrame{event: b.event, data: payload, done: string(payload) == "[DONE]"}
+	b.event, b.data, b.seen = "", nil, false
+	return frame, true
 }

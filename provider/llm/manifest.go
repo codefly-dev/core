@@ -9,6 +9,12 @@
 // The package owns request shaping and typed decoding only; the host owns the
 // broker session, the admitted origin, credentials, operation identity, and
 // budget.
+//
+// The provider protocol forbids secret-shaped values in a request by design, so
+// prompt or embedding-input content that trips the secret heuristic cannot be
+// sent through the broker. PlannedChat and PlannedEmbed screen content up front
+// and return ErrSecretShapedContent, making that inherent constraint a clear,
+// screenable error rather than a confusing failure deep in digest binding.
 package llm
 
 import (

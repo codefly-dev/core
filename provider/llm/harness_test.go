@@ -136,10 +136,11 @@ func reservedClosedAddr(t *testing.T) string {
 
 // harness wires an admitted broker session for a single planned LLM request.
 type harness struct {
-	manifest *manifest.Manifest
-	origin   *providerv0.AdmittedOrigin
-	planned  *providerv0.PlannedRequest
-	vault    *credentials.Vault
+	manifest      *manifest.Manifest
+	origin        *providerv0.AdmittedOrigin
+	planned       *providerv0.PlannedRequest
+	vault         *credentials.Vault
+	onStreamEvent func(*providerv0.FilteredEvent) error
 }
 
 func newHarness(t *testing.T, planned *providerv0.PlannedRequest) *harness {
@@ -207,16 +208,17 @@ func (h *harness) request(t *testing.T) *providerv0.ExecuteRequestRequest {
 func (h *harness) session(t *testing.T, addr string, cass *cassette.Cassette) *broker.Session {
 	t.Helper()
 	session, err := broker.New(broker.Config{
-		Manifest:    h.manifest,
-		Action:      h.action(t),
-		Binding:     binding(),
-		Budget:      budget(),
-		Vault:       h.vault,
-		Sink:        nopSink{},
-		Checkpoints: &fakeCheckpointer{checkpoint: checkpoint("cp1", h.planned.GetIdempotencyKey())},
-		Deadlines:   urlguard.DefaultDeadlines(),
-		ClientFor:   dialClientFor(addr),
-		Cassette:    cass,
+		Manifest:      h.manifest,
+		Action:        h.action(t),
+		Binding:       binding(),
+		Budget:        budget(),
+		Vault:         h.vault,
+		Sink:          nopSink{},
+		Checkpoints:   &fakeCheckpointer{checkpoint: checkpoint("cp1", h.planned.GetIdempotencyKey())},
+		Deadlines:     urlguard.DefaultDeadlines(),
+		ClientFor:     dialClientFor(addr),
+		Cassette:      cass,
+		OnStreamEvent: h.onStreamEvent,
 	})
 	require.NoError(t, err)
 	return session
