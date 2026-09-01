@@ -11,6 +11,9 @@
 # Hash/cache
 *.hash
 
+# Machine-local module-resolver overlay (identity is committed, location is not)
+codefly.local.yaml
+
 # Test binary, built with `go test -c`
 *.test
 

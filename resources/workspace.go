@@ -74,6 +74,17 @@ type Workspace struct {
 
 	// helper
 	layout Layout `yaml:"-"`
+
+	// overlay is the machine-local codefly.local.yaml (if any) that maps modules
+	// to where they physically live on this machine. nil when no overlay exists,
+	// in which case module references resolve by committed config alone.
+	overlay *LocalOverlay `yaml:"-"`
+
+	// worktreeScan caches the one-time enumeration of local git checkouts under
+	// the worktree container, so resolving several worktree-sourced modules in a
+	// single load does not re-fork git across the whole tree per module.
+	worktreeScan    []worktreeCheckout `yaml:"-"`
+	worktreeScanned bool               `yaml:"-"`
 }
 
 func (workspace *Workspace) Proto(_ context.Context) (*basev0.Workspace, error) {
@@ -219,6 +230,11 @@ func LoadWorkspaceFromDir(ctx context.Context, dir string) (*Workspace, error) {
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
+
+	workspace.overlay, err = LoadLocalOverlay(ctx, workspace.Dir())
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
 	return workspace, nil
 }
 
@@ -257,8 +273,14 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 		return mod, nil
 	}
 
-	dir := workspace.ModulePath(ctx, ref)
-	mod, err := LoadModuleFromDir(ctx, dir)
+	resolution, err := workspace.ResolveModule(ctx, ref)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	if resolution.Kind == ResolutionPinned {
+		return nil, w.NewError("module <%s> resolves to a pinned artifact (source %q, version %q); pinned modules are pulled by the CLI, not loadable as a local checkout", ref.Name, resolution.Source, resolution.Version)
+	}
+	mod, err := LoadModuleFromDir(ctx, resolution.Dir)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load module")
 	}
