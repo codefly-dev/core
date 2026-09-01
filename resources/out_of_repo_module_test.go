@@ -49,3 +49,19 @@ func TestWorkspaceReferencesOutOfRepoModuleByPath(t *testing.T) {
 	// endpoint; visibility wiring resolves across the reference boundary.
 	require.NoError(t, workspace.ValidateServiceDependencies(ctx))
 }
+
+// A composed module whose own declared name differs from the workspace
+// reference name is a silent inconsistency (dependency wiring and service
+// uniques key off the reference name). Loading it must fail loudly at the
+// reference boundary rather than return a module that answers to a different
+// name than the workspace believes it composed.
+func TestWorkspaceRejectsComposedModuleWithMismatchedName(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/out-of-repo/name-mismatch-solution")
+	require.NoError(t, err)
+
+	_, err = workspace.LoadModuleFromName(ctx, "aliased")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "actual-name")
+	require.Contains(t, err.Error(), "aliased")
+}
