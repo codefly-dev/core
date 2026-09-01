@@ -172,6 +172,43 @@ func TestOverlayWorktreeResolvesAgainstRealCheckout(t *testing.T) {
 	require.NoError(t, workspace.ValidateServiceDependencies(ctx))
 }
 
+// Two worktree-sourced modules resolve against two different sibling checkouts
+// through the single cached container scan — the cache must serve each distinct
+// repo correctly, not collapse to the first.
+func TestMultipleWorktreeModulesResolveThroughCachedScan(t *testing.T) {
+	ctx := context.Background()
+	container := t.TempDir()
+
+	solution := filepath.Join(container, "github-acme-solution", "main")
+	writeWorkspace(t, solution, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host-a\n  - name: docs\n    source: acme/host-b\n")
+	require.NoError(t, os.WriteFile(filepath.Join(solution, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    worktree: acme/host-a@main\n  docs:\n    worktree: acme/host-b@main\n"), 0o600))
+
+	hostA := filepath.Join(container, "github-acme-host-a", "main")
+	writeModule(t, hostA, "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+	writeGatewayService(t, hostA)
+	initGitRepo(t, hostA, "git@github.com:acme/host-a.git", "main")
+
+	hostB := filepath.Join(container, "github-acme-host-b", "main")
+	writeModule(t, hostB, "kind: module\nname: docs\nservices: []\n")
+	initGitRepo(t, hostB, "git@github.com:acme/host-b.git", "main")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, solution)
+	require.NoError(t, err)
+
+	saas, err := workspace.ResolveModule(ctx, mustModuleRef(t, workspace, "saas"))
+	require.NoError(t, err)
+	docs, err := workspace.ResolveModule(ctx, mustModuleRef(t, workspace, "docs"))
+	require.NoError(t, err)
+
+	realA, _ := filepath.EvalSymlinks(hostA)
+	realB, _ := filepath.EvalSymlinks(hostB)
+	gotA, _ := filepath.EvalSymlinks(saas.Dir)
+	gotB, _ := filepath.EvalSymlinks(docs.Dir)
+	require.Equal(t, realA, gotA)
+	require.Equal(t, realB, gotB)
+}
+
 // A worktree directive that matches no local checkout is a hard, descriptive
 // error, not a silent fallback.
 func TestOverlayWorktreeNoMatchErrors(t *testing.T) {
@@ -181,6 +218,64 @@ func TestOverlayWorktreeNoMatchErrors(t *testing.T) {
 	writeWorkspace(t, solution, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n")
 	require.NoError(t, os.WriteFile(filepath.Join(solution, resources.LocalOverlayConfigurationName),
 		[]byte("resolve:\n  saas:\n    worktree: acme/host@main\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, solution)
+	require.NoError(t, err)
+
+	_, err = workspace.LoadModuleFromName(ctx, "saas")
+	require.ErrorContains(t, err, "no local worktree")
+}
+
+// A present overlay entry that selects no directive — an empty entry, or one
+// whose only key is a typo yaml silently dropped — must be a hard error, not a
+// silent fall-through to committed config that resolves the module the wrong
+// way. Without this the user's override becomes a no-op with no diagnostic.
+func TestOverlayDirectiveMustSelectExactlyOne(t *testing.T) {
+	ctx := context.Background()
+
+	cases := map[string]string{
+		"typo'd key":   "resolve:\n  saas:\n    worktee: acme/host@main\n",
+		"empty entry":  "resolve:\n  saas: {}\n",
+		"two selected": "resolve:\n  saas:\n    pinned: true\n    path: .\n",
+	}
+	for name, overlay := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n    version: \"1.0\"\n")
+			require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName), []byte(overlay), 0o600))
+
+			workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+			require.NoError(t, err)
+
+			_, err = workspace.ResolveModule(ctx, workspace.Modules[0])
+			require.Error(t, err)
+			require.ErrorContains(t, err, "saas")
+		})
+	}
+}
+
+// A candidate dir that is not its own checkout root — here a non-git placeholder
+// nested inside an ancestor git repo whose origin coincidentally matches the
+// wanted repo — must NOT be treated as a match. git's toplevel for it resolves
+// up to the ancestor, and binding the module there would load the wrong
+// directory. The scan requires toplevel == candidate, so this resolves to a
+// clean "no local worktree" error instead.
+func TestWorktreeIgnoresNonCheckoutNestedInAncestorRepo(t *testing.T) {
+	ctx := context.Background()
+	container := t.TempDir()
+
+	solution := filepath.Join(container, "github-acme-solution", "main")
+	writeWorkspace(t, solution, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n")
+	require.NoError(t, os.WriteFile(filepath.Join(solution, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    worktree: acme/host@main\n"), 0o600))
+
+	// A placeholder branch dir with no .git of its own.
+	require.NoError(t, os.MkdirAll(filepath.Join(container, "github-acme-host", "main"), 0o755))
+
+	// The whole container is a git repo whose origin is exactly the wanted repo.
+	// Without the toplevel==candidate guard, the non-git placeholder would resolve
+	// up to this repo and be picked — a wrong-directory bind.
+	initGitRepo(t, container, "git@github.com:acme/host.git", "main")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, solution)
 	require.NoError(t, err)

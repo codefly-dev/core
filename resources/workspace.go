@@ -79,6 +79,12 @@ type Workspace struct {
 	// to where they physically live on this machine. nil when no overlay exists,
 	// in which case module references resolve by committed config alone.
 	overlay *LocalOverlay `yaml:"-"`
+
+	// worktreeScan caches the one-time enumeration of local git checkouts under
+	// the worktree container, so resolving several worktree-sourced modules in a
+	// single load does not re-fork git across the whole tree per module.
+	worktreeScan    []worktreeCheckout `yaml:"-"`
+	worktreeScanned bool               `yaml:"-"`
 }
 
 func (workspace *Workspace) Proto(_ context.Context) (*basev0.Workspace, error) {
