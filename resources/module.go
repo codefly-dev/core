@@ -118,9 +118,24 @@ func (mod *Module) ApplicationsDir() string {
 }
 
 // An ModuleReference
+//
+// A reference composes a module into the workspace one of two ways:
+//
+//   - by committed location: PathOverride ("path:") points at the module
+//     directory, relative to the workspace or absolute. Portable only when the
+//     path is right for every checkout.
+//   - by identity: Source ("source:") names the canonical repo (e.g.
+//     "obin-ai/module-saas-starter"), Module ("module:") an optional subpath
+//     within it, and Version ("version:") the wanted version. Where the module
+//     physically lives is decided per-machine by the codefly.local.yaml overlay
+//     (see LocalOverlay); with no overlay it defaults to the pinned artifact at
+//     Version. This keeps committed config portable across every worktree.
 type ModuleReference struct {
 	Name          string              `yaml:"name"`
 	PathOverride  *string             `yaml:"path,omitempty"`
+	Source        string              `yaml:"source,omitempty"`
+	Module        string              `yaml:"module,omitempty"`
+	Version       string              `yaml:"version,omitempty"`
 	Services      []*ServiceReference `yaml:"services,omitempty"`
 	ActiveService string              `yaml:"active-service,omitempty"`
 }

@@ -74,7 +74,20 @@ func validateModuleReferencePath(ref *ModuleReference) error {
 	if err := validateResourcePathComponent("module", ref.Name); err != nil {
 		return err
 	}
-	return validateModuleReferencePathOverride(ref.PathOverride)
+	if err := validateModuleReferencePathOverride(ref.PathOverride); err != nil {
+		return err
+	}
+	if strings.ContainsAny(ref.Source, "\x00\\") {
+		return fmt.Errorf("module source %q must not contain NUL or backslash", ref.Source)
+	}
+	// Module is a subpath joined onto a resolved checkout root, so it must stay
+	// confined the way any in-resource relative path does.
+	if ref.Module != "" {
+		if err := validateResourceRelativePath("module subpath", ref.Module); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateServiceReferencePath(ref *ServiceReference) error {
