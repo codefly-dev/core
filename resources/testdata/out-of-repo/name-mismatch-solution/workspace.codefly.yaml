@@ -1,0 +1,5 @@
+name: name-mismatch-solution
+layout: modules
+modules:
+  - name: aliased
+    path: ../aliased-module

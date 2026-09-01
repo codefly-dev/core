@@ -1,0 +1,4 @@
+kind: module
+name: actual-name
+services:
+    - name: api

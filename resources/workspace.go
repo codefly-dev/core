@@ -284,6 +284,14 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load module")
 	}
+	// A reference's name is the module's workspace identity: dependency wiring
+	// and service uniques key off it. A composed module (out-of-repo path or
+	// worktree) whose own declared name differs from the reference is silently
+	// inconsistent — the composition never boots coherently — so reject it here
+	// rather than let the mismatch surface as a baffling "module not found".
+	if mod.Name != ref.Name {
+		return nil, w.NewError("module referenced as <%s> declares its own name <%s> in %s; the reference name must match the module's declared name", ref.Name, mod.Name, resolution.Dir)
+	}
 	return mod, nil
 }
 
