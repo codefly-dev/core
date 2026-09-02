@@ -22,6 +22,15 @@ type Loader interface {
 	DNS() []*basev0.DNS
 }
 
+// compositionRootConfigurationsLoader is an optional capability a Loader may
+// implement to tell the Manager which of the workspace configurations it
+// produced originate from the composition root itself, rather than from a
+// composed module. The Manager injects the former into every service in the run
+// (see GetCompositionRootWorkspaceConfigurations).
+type compositionRootConfigurationsLoader interface {
+	CompositionRootWorkspaceConfigurationNames() []string
+}
+
 type Manager struct {
 	workspace *resources.Workspace
 	services  map[string]*resources.Service
@@ -34,6 +43,11 @@ type Manager struct {
 
 	// Per Name in
 	worspaceConfigurations map[string]*basev0.Configuration
+
+	// Names of the workspace configurations the composition root itself provides,
+	// injected into every service in the run (as opposed to those a composed
+	// module carries only for the services that declare them).
+	compositionRootWorkspaceConfigurations map[string]bool
 
 	// Per service
 	serviceConfigurations map[string]*basev0.Configuration
@@ -60,12 +74,13 @@ type Manager struct {
 
 func NewManager(_ context.Context, workspace *resources.Workspace) (*Manager, error) {
 	return &Manager{
-		workspace:                        workspace,
-		services:                         make(map[string]*resources.Service),
-		worspaceConfigurations:           make(map[string]*basev0.Configuration),
-		serviceConfigurations:            make(map[string]*basev0.Configuration),
-		exposedFromServiceConfigurations: make(map[string][]*basev0.Configuration),
-		resolvedWorkspace:                make(map[string]bool),
+		workspace:                              workspace,
+		services:                               make(map[string]*resources.Service),
+		worspaceConfigurations:                 make(map[string]*basev0.Configuration),
+		compositionRootWorkspaceConfigurations: make(map[string]bool),
+		serviceConfigurations:                  make(map[string]*basev0.Configuration),
+		exposedFromServiceConfigurations:       make(map[string][]*basev0.Configuration),
+		resolvedWorkspace:                      make(map[string]bool),
 	}, nil
 }
 
@@ -171,6 +186,11 @@ func (manager *Manager) resolveWorkspaceConfiguration(ctx context.Context, name 
 // LoadConfigurations fetch different loaders and consolidate
 func (manager *Manager) LoadConfigurations(_ context.Context) error {
 	for _, loader := range manager.loaders {
+		if provider, ok := loader.(compositionRootConfigurationsLoader); ok {
+			for _, name := range provider.CompositionRootWorkspaceConfigurationNames() {
+				manager.compositionRootWorkspaceConfigurations[name] = true
+			}
+		}
 		confs := loader.Configurations()
 		for _, conf := range confs {
 			if conf.Origin == resources.ConfigurationWorkspace {
@@ -208,6 +228,52 @@ func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*base
 	names := make([]string, 0, len(manager.worspaceConfigurations))
 	for name := range manager.worspaceConfigurations {
 		names = append(names, name)
+	}
+	slices.Sort(names)
+	out := make([]*basev0.Configuration, 0, len(names))
+	for _, name := range names {
+		conf := manager.worspaceConfigurations[name]
+		if err := manager.resolveWorkspaceConfiguration(ctx, name, conf); err != nil {
+			return nil, w.Wrapf(err, "cannot resolve workspace configuration %s", name)
+		}
+		resolved, err := manager.interpolateEndpoints(ctx, name, conf)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, resolved)
+	}
+	return out, nil
+}
+
+// GetCompositionRootWorkspaceConfigurations returns the workspace configurations
+// the composition root itself provides to the whole run — its own
+// configurations/<profile>/* and any invocation-scoped override — as opposed to
+// the configurations a composed module carries only for the services that
+// declare them as dependencies. The composition root injects these into every
+// service in the run, so a composed-module service reading
+// WorkspaceValue(name, key) resolves a root-provided value it never had to
+// redeclare.
+//
+// This set and the per-dependency composed-module set are disjoint by name: a
+// name the composition root also declares is resolved to the root at load
+// (composeModuleWorkspaceConfigurations suppresses the module's), so the root
+// fills what a composed module leaves unset and never shadows a name only the
+// module provides.
+//
+// Values are secret-resolved and endpoint-interpolated for the access set on the
+// Manager, exactly like GetWorkspaceConfigurations — and, like it, a bad
+// ${endpoint:…} reference is a hard error, since every returned configuration is
+// injected run-wide.
+func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
+	if manager == nil {
+		return nil, nil
+	}
+	w := wool.Get(ctx).In("Manager.GetCompositionRootWorkspaceConfigurations")
+	names := make([]string, 0, len(manager.compositionRootWorkspaceConfigurations))
+	for name := range manager.compositionRootWorkspaceConfigurations {
+		if _, ok := manager.worspaceConfigurations[name]; ok {
+			names = append(names, name)
+		}
 	}
 	slices.Sort(names)
 	out := make([]*basev0.Configuration, 0, len(names))

@@ -34,6 +34,11 @@ type ConfigurationInformationLocalReader struct {
 	workspace      *resources.Workspace
 	dns            []*basev0.DNS
 	configurations []*basev0.Configuration
+
+	// Names of the workspace configurations that originate from the composition
+	// root itself, as opposed to those brought in from composed modules. See
+	// CompositionRootWorkspaceConfigurationNames.
+	compositionRootConfigurationNames []string
 }
 
 func (local *ConfigurationInformationLocalReader) Identity() string {
@@ -46,6 +51,17 @@ func (local *ConfigurationInformationLocalReader) DNS() []*basev0.DNS {
 
 func (local *ConfigurationInformationLocalReader) Configurations() []*basev0.Configuration {
 	return local.configurations
+}
+
+// CompositionRootWorkspaceConfigurationNames returns the names of the workspace
+// configurations the composition root itself provides — its own
+// configurations/<profile>/* plus any invocation-scoped override — as opposed to
+// the configurations a composed module carries only for the services that
+// declare them. The Manager injects these into every service in the run, so a
+// composed-module service resolves a root-provided value via WorkspaceValue
+// without redeclaring it.
+func (local *ConfigurationInformationLocalReader) CompositionRootWorkspaceConfigurationNames() []string {
+	return local.compositionRootConfigurationNames
 }
 
 func NewConfigurationLocalReader(_ context.Context, workspace *resources.Workspace) (*ConfigurationInformationLocalReader, error) {
@@ -71,13 +87,23 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	if err != nil {
 		return w.Wrapf(err, "cannot load configurations")
 	}
-	workspaceInfos, err = local.composeModuleWorkspaceConfigurations(ctx, workspaceInfos, configurationDir, configurationProfile)
+	workspaceInfos, composedNames, err := local.composeModuleWorkspaceConfigurations(ctx, workspaceInfos, configurationDir, configurationProfile)
 	if err != nil {
 		return w.Wrapf(err, "cannot compose module workspace configurations")
 	}
 	workspaceInfos, err = applyWorkspaceConfigurationOverrides(workspaceInfos, os.Getenv(resources.WorkspaceConfigurationOverridesEnvironment))
 	if err != nil {
 		return w.Wrapf(err, "cannot load invocation-scoped workspace configurations")
+	}
+
+	// Everything not contributed by a composed module — the root's own
+	// configurations directory and any invocation-scoped override — is a
+	// composition-root configuration, provided to every service in the run.
+	local.compositionRootConfigurationNames = nil
+	for _, info := range workspaceInfos {
+		if !composedNames[info.Name] {
+			local.compositionRootConfigurationNames = append(local.compositionRootConfigurationNames, info.Name)
+		}
 	}
 
 	var confs []*basev0.Configuration
@@ -188,17 +214,20 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 // pick; the solution resolves it by declaring its own configuration of that
 // name. Secret material follows the same typed path as any other workspace
 // configuration: reference values resolve lazily once a dependency selects them.
+//
+// It also returns the set of configuration names contributed by composed
+// modules, so the caller can tell them apart from the composition root's own.
 func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigurations(
 	ctx context.Context,
 	workspaceInfos []*basev0.ConfigurationInformation,
 	workspaceConfigurationDir string,
 	configurationProfile string,
-) ([]*basev0.ConfigurationInformation, error) {
+) ([]*basev0.ConfigurationInformation, map[string]bool, error) {
 	w := wool.Get(ctx).In("ConfigurationInformationLocalReader.composeModuleWorkspaceConfigurations")
 
 	modules, err := local.workspace.LoadModules(ctx)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot load modules")
+		return nil, nil, w.Wrapf(err, "cannot load modules")
 	}
 	fromWorkspace := make(map[string]bool, len(workspaceInfos))
 	for _, info := range workspaceInfos {
@@ -232,14 +261,14 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 		loaded[key] = true
 		exists, err := shared.DirectoryExists(ctx, moduleConfigurationDir)
 		if err != nil {
-			return nil, w.Wrapf(err, "cannot check module configuration directory")
+			return nil, nil, w.Wrapf(err, "cannot check module configuration directory")
 		}
 		if !exists {
 			continue
 		}
 		moduleInfos, err := LoadConfigurationInformationsFromFiles(ctx, moduleConfigurationDir)
 		if err != nil {
-			return nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
+			return nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
 		}
 		for _, info := range moduleInfos {
 			if fromWorkspace[info.Name] {
@@ -248,7 +277,7 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 				continue
 			}
 			if other, ok := providedBy[info.Name]; ok {
-				return nil, w.NewError(
+				return nil, nil, w.NewError(
 					"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
 					info.Name, other, mod.Name, ErrConfigurationConflict)
 			}
@@ -256,7 +285,11 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 			workspaceInfos = append(workspaceInfos, info)
 		}
 	}
-	return workspaceInfos, nil
+	composedNames := make(map[string]bool, len(providedBy))
+	for name := range providedBy {
+		composedNames[name] = true
+	}
+	return workspaceInfos, composedNames, nil
 }
 
 // composedModuleWorkspaceDir finds the workspace root a composed module belongs
