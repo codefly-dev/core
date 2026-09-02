@@ -27,8 +27,13 @@ type ModuleResolveDirective struct {
 	// file). Highest precedence: you are editing this module in place.
 	Path string `yaml:"path,omitempty"`
 	// Worktree is "<repo>@<ref>" (e.g. "obin-ai/module-document-store@main"). The
-	// resolver scans the local worktree roots for a checkout of <repo> with <ref>
-	// checked out, wherever it physically sits.
+	// resolver scans the local worktree roots for a checkout of <repo> that is at
+	// <ref>, wherever it physically sits. A checkout matches when <ref> is the
+	// checked-out branch name, or — for a tag, sha, or a detached HEAD created by
+	// `git worktree add <dir> origin/<ref>` — when its HEAD commit is <ref>. The
+	// match is thus by resolved commit, not by which branch happens to be checked
+	// out: a differently-named branch sitting at <ref>'s commit also matches, and
+	// stops matching once it commits away from that point.
 	Worktree string `yaml:"worktree,omitempty"`
 	// Pinned selects the published, base-synced artifact at the committed version.
 	Pinned bool `yaml:"pinned,omitempty"`
