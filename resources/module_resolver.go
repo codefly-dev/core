@@ -289,29 +289,59 @@ func (workspace *Workspace) findWorktreeCheckout(ctx context.Context, repo, ref 
 	}
 	wantRepo := normalizeRepo(repo)
 
-	var exact, fallback []string
+	var exact, fallback, sameRepo []worktreeCheckout
 	for _, checkout := range checkouts {
 		if checkout.repo != wantRepo {
 			continue
 		}
+		sameRepo = append(sameRepo, checkout)
 		if checkout.branch == ref {
-			exact = append(exact, checkout.root)
+			exact = append(exact, checkout)
 		} else if gitRefAtHead(ctx, checkout.root, ref) {
-			fallback = append(fallback, checkout.root)
+			fallback = append(fallback, checkout)
 		}
 	}
 
-	for _, matches := range [][]string{exact, fallback} {
+	for _, matches := range [][]worktreeCheckout{exact, fallback} {
 		switch len(matches) {
 		case 0:
 			continue
 		case 1:
-			return matches[0], nil
+			return matches[0].root, nil
 		default:
-			return "", fmt.Errorf("worktree %s@%s is ambiguous: matches %s", repo, ref, strings.Join(matches, ", "))
+			return "", fmt.Errorf("worktree %s@%s is ambiguous: matches %s", repo, ref, strings.Join(checkoutRoots(matches), ", "))
 		}
 	}
+	if len(sameRepo) > 0 {
+		var states []string
+		for _, checkout := range sameRepo {
+			states = append(states, fmt.Sprintf("%s (%s)", checkout.root, describeCheckoutState(ctx, checkout)))
+		}
+		return "", fmt.Errorf("found a checkout of %s but none has %s checked out: %s; check out a branch named %s, or pin the ref to the matching @<sha|tag>",
+			repo, ref, strings.Join(states, ", "), ref)
+	}
 	return "", fmt.Errorf("no local worktree of %s has %s checked out under the worktree container", repo, ref)
+}
+
+func checkoutRoots(checkouts []worktreeCheckout) []string {
+	roots := make([]string, len(checkouts))
+	for i, checkout := range checkouts {
+		roots[i] = checkout.root
+	}
+	return roots
+}
+
+// describeCheckoutState renders why a checkout of the right repo didn't match the
+// wanted ref: "on branch <x>" for a named branch, or "detached at <short-sha>" for
+// a detached HEAD.
+func describeCheckoutState(ctx context.Context, checkout worktreeCheckout) string {
+	if checkout.branch != "" && checkout.branch != "HEAD" {
+		return "on branch " + checkout.branch
+	}
+	if head, ok := gitOutput(ctx, checkout.root, "rev-parse", "--short", "HEAD"); ok {
+		return "detached at " + head
+	}
+	return "detached"
 }
 
 // worktreeCheckouts enumerates every local git checkout-root under the worktree
@@ -429,19 +459,22 @@ func gitBranch(ctx context.Context, dir string) string {
 	return out
 }
 
-// gitRefAtHead reports whether ref resolves to the same commit as HEAD in dir,
-// covering the case where the wanted ref is a tag or sha rather than the branch
-// name.
+// gitRefAtHead reports whether ref resolves to the same commit as HEAD in dir.
+// It covers a wanted ref that is a tag or sha, and a branch that exists only as a
+// remote-tracking ref — the common case for a detached worktree created with
+// `git worktree add <dir> origin/<ref>`, where no local branch named <ref> exists
+// but origin/<ref> points at the checked-out commit.
 func gitRefAtHead(ctx context.Context, dir, ref string) bool {
 	head, ok := gitOutput(ctx, dir, "rev-parse", "HEAD")
 	if !ok {
 		return false
 	}
-	target, ok := gitOutput(ctx, dir, "rev-parse", "--verify", ref+"^{commit}")
-	if !ok {
-		return false
+	for _, candidate := range []string{ref, "origin/" + ref} {
+		if target, ok := gitOutput(ctx, dir, "rev-parse", "--verify", candidate+"^{commit}"); ok && target == head {
+			return true
+		}
 	}
-	return head == target
+	return false
 }
 
 func gitOutput(ctx context.Context, dir string, args ...string) (string, bool) {

@@ -284,6 +284,90 @@ func TestWorktreeIgnoresNonCheckoutNestedInAncestorRepo(t *testing.T) {
 	require.ErrorContains(t, err, "no local worktree")
 }
 
+// A detached worktree (`git worktree add <dir> origin/main`) has HEAD at the
+// commit of origin/main but no local branch named main. The directive
+// worktree:<repo>@main must resolve it by matching HEAD against origin/main, not
+// only against a branch literally named main.
+func TestOverlayWorktreeResolvesDetachedHeadAtRemoteRef(t *testing.T) {
+	ctx := context.Background()
+	container := t.TempDir()
+
+	solution := filepath.Join(container, "github-acme-solution", "main")
+	writeWorkspace(t, solution, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n")
+	require.NoError(t, os.WriteFile(filepath.Join(solution, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    worktree: acme/host@main\n"), 0o600))
+
+	host := filepath.Join(container, "github-acme-host", "main")
+	writeModule(t, host, "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+	writeGatewayService(t, host)
+	initDetachedRepoAtRemoteRef(t, host, "git@github.com:acme/host.git", "main")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, solution)
+	require.NoError(t, err)
+
+	resolution, err := workspace.ResolveModule(ctx, mustModuleRef(t, workspace, "saas"))
+	require.NoError(t, err)
+	require.Equal(t, resources.ResolutionWorktree, resolution.Kind)
+	realHost, _ := filepath.EvalSymlinks(host)
+	gotDir, _ := filepath.EvalSymlinks(resolution.Dir)
+	require.Equal(t, realHost, gotDir)
+}
+
+// A worktree checked out at a tag resolves through @<tag>: the tag is not a
+// branch name, so the match is by HEAD commit.
+func TestOverlayWorktreeResolvesTag(t *testing.T) {
+	ctx := context.Background()
+	container := t.TempDir()
+
+	solution := filepath.Join(container, "github-acme-solution", "main")
+	writeWorkspace(t, solution, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n")
+	require.NoError(t, os.WriteFile(filepath.Join(solution, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    worktree: acme/host@v0.0.1\n"), 0o600))
+
+	host := filepath.Join(container, "github-acme-host", "release")
+	writeModule(t, host, "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+	writeGatewayService(t, host)
+	initGitRepo(t, host, "git@github.com:acme/host.git", "work")
+	gitRun(t, host, "tag", "v0.0.1")
+	gitRun(t, host, "checkout", "--detach", "v0.0.1")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, solution)
+	require.NoError(t, err)
+
+	resolution, err := workspace.ResolveModule(ctx, mustModuleRef(t, workspace, "saas"))
+	require.NoError(t, err)
+	require.Equal(t, resources.ResolutionWorktree, resolution.Kind)
+	realHost, _ := filepath.EvalSymlinks(host)
+	gotDir, _ := filepath.EvalSymlinks(resolution.Dir)
+	require.Equal(t, realHost, gotDir)
+}
+
+// When a checkout of the wanted repo exists but sits on a different branch (or is
+// detached at a different commit), the error names that checkout and its state so
+// the cause is obvious, instead of the bare "no local worktree" message.
+func TestOverlayWorktreeMismatchErrorNamesCheckout(t *testing.T) {
+	ctx := context.Background()
+	container := t.TempDir()
+
+	solution := filepath.Join(container, "github-acme-solution", "main")
+	writeWorkspace(t, solution, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n")
+	require.NoError(t, os.WriteFile(filepath.Join(solution, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    worktree: acme/host@main\n"), 0o600))
+
+	host := filepath.Join(container, "github-acme-host", "dev")
+	writeModule(t, host, "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+	writeGatewayService(t, host)
+	initGitRepo(t, host, "git@github.com:acme/host.git", "dev")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, solution)
+	require.NoError(t, err)
+
+	_, err = workspace.LoadModuleFromName(ctx, "saas")
+	require.ErrorContains(t, err, "found a checkout of acme/host")
+	require.ErrorContains(t, err, "on branch dev")
+	require.ErrorContains(t, err, "main")
+}
+
 func mustModuleRef(t *testing.T, workspace *resources.Workspace, name string) *resources.ModuleReference {
 	t.Helper()
 	for _, ref := range workspace.Modules {
@@ -323,18 +407,30 @@ func writeAPIService(t *testing.T, moduleDir string) {
 		[]byte("kind: service\nname: api\nversion: 0.0.0\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nservice-dependencies:\n  - name: gateway\n    module: saas\n    endpoints:\n      - name: public-api\n"), 0o600))
 }
 
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, string(out))
+}
+
 func initGitRepo(t *testing.T, dir, remote, branch string) {
 	t.Helper()
-	run := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
-			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
-		out, err := cmd.CombinedOutput()
-		require.NoError(t, err, "git %v: %s", args, string(out))
-	}
-	run("init", "-b", branch)
-	run("remote", "add", "origin", remote)
-	run("add", "-A")
-	run("commit", "-m", "initial")
+	gitRun(t, dir, "init", "-b", branch)
+	gitRun(t, dir, "remote", "add", "origin", remote)
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-m", "initial")
+}
+
+// initDetachedRepoAtRemoteRef builds a repo whose HEAD is detached at the commit
+// of a remote-tracking ref origin/<ref>, with no local branch named <ref> — the
+// state left by `git worktree add <dir> origin/<ref>`.
+func initDetachedRepoAtRemoteRef(t *testing.T, dir, remote, ref string) {
+	t.Helper()
+	initGitRepo(t, dir, remote, "work")
+	gitRun(t, dir, "update-ref", "refs/remotes/origin/"+ref, "HEAD")
+	gitRun(t, dir, "checkout", "--detach", "HEAD")
 }
