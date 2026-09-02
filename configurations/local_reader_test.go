@@ -273,6 +273,57 @@ agent:
 	require.Equal(t, "solution-identity", identityValue)
 }
 
+// Two composed modules that each provide a workspace configuration of the same
+// name is genuine ambiguity with no principled winner. Rather than silently
+// pick one by module order, the loader fails loudly — matching how it rejects
+// conflicting definitions within a single directory. The solution resolves the
+// conflict by declaring its own configuration of that name.
+func TestLocalLoaderRejectsCollidingComposedModuleConfigurations(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: host-a
+    path: ../host-a
+  - name: host-b
+    path: ../host-b
+`)
+
+	for _, host := range []string{"host-a", "host-b"} {
+		writeConfigurationFile(t, root, host+"/module.codefly.yaml", "kind: module\nname: "+host+"\nservices: []\n")
+		writeConfigurationFile(t, root, host+"/configurations/local/observability.env", "OBSERVABILITY_URL="+host+"-observability\n")
+	}
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	err = loader.Load(ctx, resources.LocalEnvironment())
+	require.Error(t, err)
+	require.ErrorIs(t, err, configurations.ErrConfigurationConflict)
+	require.Contains(t, err.Error(), "observability")
+	require.Contains(t, err.Error(), "host-a")
+	require.Contains(t, err.Error(), "host-b")
+
+	// The solution declaring its own configuration of that name resolves the
+	// ambiguity: both modules are overridden and the load succeeds.
+	writeConfigurationFile(t, root, "solution/configurations/local/observability.env", "OBSERVABILITY_URL=solution-observability\n")
+	workspace, err = resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err = configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	observability, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
+	require.Equal(t, "solution-observability", url)
+}
+
 func TestEnvironmentConfigurationProfileRejectsTraversal(t *testing.T) {
 	environment := &resources.Environment{
 		Name:                 "production",
