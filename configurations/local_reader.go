@@ -71,6 +71,10 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	if err != nil {
 		return w.Wrapf(err, "cannot load configurations")
 	}
+	workspaceInfos, err = local.composeModuleWorkspaceConfigurations(ctx, workspaceInfos, configurationDir, configurationProfile)
+	if err != nil {
+		return w.Wrapf(err, "cannot compose module workspace configurations")
+	}
 	workspaceInfos, err = applyWorkspaceConfigurationOverrides(workspaceInfos, os.Getenv(resources.WorkspaceConfigurationOverridesEnvironment))
 	if err != nil {
 		return w.Wrapf(err, "cannot load invocation-scoped workspace configurations")
@@ -159,6 +163,84 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	}
 	local.configurations = confs
 	return nil
+}
+
+// composeModuleWorkspaceConfigurations brings each referenced module's own
+// workspace configurations into the consuming workspace's configuration space.
+// A module composed from another repo carries its configurations/<profile>/*
+// with it; without this, the composed module's services cannot satisfy their
+// workspace-configuration-dependencies from the consuming workspace alone —
+// which is what makes a solution-as-root boot fail on the composed host's
+// config-dependencies.
+//
+// The consuming workspace (and any earlier module) wins on a name conflict, so
+// a solution can override a composed configuration by declaring one of the same
+// name, but is never required to redeclare every configuration the host brings.
+// Secret material follows the same typed path as any other workspace
+// configuration: reference values resolve lazily once a dependency selects them.
+func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigurations(
+	ctx context.Context,
+	workspaceInfos []*basev0.ConfigurationInformation,
+	workspaceConfigurationDir string,
+	configurationProfile string,
+) ([]*basev0.ConfigurationInformation, error) {
+	w := wool.Get(ctx).In("ConfigurationInformationLocalReader.composeModuleWorkspaceConfigurations")
+
+	modules, err := local.workspace.LoadModules(ctx)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load modules")
+	}
+	seen := make(map[string]bool, len(workspaceInfos))
+	for _, info := range workspaceInfos {
+		seen[info.Name] = true
+	}
+	for _, mod := range modules {
+		moduleConfigurationDir := path.Join(mod.Dir(), "configurations", configurationProfile)
+		// The consuming workspace's own configurations are already loaded; a flat
+		// root module's directory coincides with the workspace's, so skip it
+		// rather than load the same directory twice.
+		if sameDirectory(moduleConfigurationDir, workspaceConfigurationDir) {
+			continue
+		}
+		exists, err := shared.DirectoryExists(ctx, moduleConfigurationDir)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot check module configuration directory")
+		}
+		if !exists {
+			continue
+		}
+		moduleInfos, err := LoadConfigurationInformationsFromFiles(ctx, moduleConfigurationDir)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
+		}
+		for _, info := range moduleInfos {
+			if seen[info.Name] {
+				continue
+			}
+			seen[info.Name] = true
+			workspaceInfos = append(workspaceInfos, info)
+		}
+	}
+	return workspaceInfos, nil
+}
+
+// sameDirectory reports whether two paths denote the same directory, resolving
+// symlinks so a /var vs /private/var difference (macOS temp) does not read as
+// distinct. It falls back to a lexical comparison when a path cannot be
+// resolved (e.g. it does not exist).
+func sameDirectory(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ra, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		return false
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	if err != nil {
+		return false
+	}
+	return ra == rb
 }
 
 // applyWorkspaceConfigurationOverrides merges the SDK's invocation-scoped

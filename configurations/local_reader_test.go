@@ -203,6 +203,76 @@ func TestLocalLoaderRejectsInvocationConfigurationForUnknownService(t *testing.T
 	require.ErrorContains(t, err, "targets unknown service test-workspace/missing")
 }
 
+// A module composed into a solution workspace brings its own workspace
+// configurations. Without this, the composed host's services cannot satisfy
+// their workspace-configuration-dependencies and a solution-as-root boot dies
+// on the first host config it needs. The consuming solution overrides a
+// configuration by declaring its own of the same name, but is not required to
+// redeclare every configuration the host provides.
+func TestLocalLoaderComposesModuleWorkspaceConfigurations(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	// Consuming solution: provides only internal-auth and its own identity.
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: host
+    path: ../host
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/internal-auth.secret.env", "TOKEN=solution-token\n")
+	writeConfigurationFile(t, root, "solution/configurations/local/identity.env", "IDENTITY=solution-identity\n")
+
+	// Composed host module: brings observability and its own identity.
+	writeConfigurationFile(t, root, "host/module.codefly.yaml", `kind: module
+name: host
+services:
+  - name: telemetry
+`)
+	writeConfigurationFile(t, root, "host/configurations/local/observability.env", "OBSERVABILITY_URL=host-observability\n")
+	writeConfigurationFile(t, root, "host/configurations/local/identity.env", "IDENTITY=host-identity\n")
+	writeConfigurationFile(t, root, "host/services/telemetry/service.codefly.yaml", `kind: service
+name: telemetry
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+`)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	confs := loader.Configurations()
+
+	// The composed module's observability configuration is available even though
+	// the solution never declared it.
+	observability, err := resources.FindWorkspaceConfiguration(ctx, confs, "observability")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
+	require.Equal(t, "host-observability", url)
+
+	// The solution's own configuration is untouched.
+	auth, err := resources.FindWorkspaceConfiguration(ctx, confs, "internal-auth")
+	require.NoError(t, err)
+	token, err := resources.GetConfigurationValue(ctx, auth, "internal-auth", "TOKEN")
+	require.NoError(t, err)
+	require.Equal(t, "solution-token", token)
+
+	// On a name conflict the solution wins: identity resolves to the solution's
+	// value, not the host's.
+	identity, err := resources.FindWorkspaceConfiguration(ctx, confs, "identity")
+	require.NoError(t, err)
+	identityValue, err := resources.GetConfigurationValue(ctx, identity, "identity", "IDENTITY")
+	require.NoError(t, err)
+	require.Equal(t, "solution-identity", identityValue)
+}
+
 func TestEnvironmentConfigurationProfileRejectsTraversal(t *testing.T) {
 	environment := &resources.Environment{
 		Name:                 "production",
