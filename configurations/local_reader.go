@@ -71,6 +71,10 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	if err != nil {
 		return w.Wrapf(err, "cannot load configurations")
 	}
+	workspaceInfos, err = local.composeModuleWorkspaceConfigurations(ctx, workspaceInfos, configurationDir, configurationProfile)
+	if err != nil {
+		return w.Wrapf(err, "cannot compose module workspace configurations")
+	}
 	workspaceInfos, err = applyWorkspaceConfigurationOverrides(workspaceInfos, os.Getenv(resources.WorkspaceConfigurationOverridesEnvironment))
 	if err != nil {
 		return w.Wrapf(err, "cannot load invocation-scoped workspace configurations")
@@ -159,6 +163,77 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	}
 	local.configurations = confs
 	return nil
+}
+
+// composeModuleWorkspaceConfigurations brings each referenced module's own
+// workspace configurations into the consuming workspace's configuration space.
+// A module composed from another repo carries its configurations/<profile>/*
+// with it; without this, the composed module's services cannot satisfy their
+// workspace-configuration-dependencies from the consuming workspace alone —
+// which is what makes a solution-as-root boot fail on the composed host's
+// config-dependencies.
+//
+// The consuming workspace wins on a name conflict, so a solution can override a
+// composed configuration by declaring one of the same name, but is never
+// required to redeclare every configuration the host brings. A collision
+// between two composed modules is genuine ambiguity with no principled winner —
+// matching how the loader hard-errors on conflicting definitions within a
+// single directory, it is a loud error rather than a silent, order-dependent
+// pick; the solution resolves it by declaring its own configuration of that
+// name. Secret material follows the same typed path as any other workspace
+// configuration: reference values resolve lazily once a dependency selects them.
+func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigurations(
+	ctx context.Context,
+	workspaceInfos []*basev0.ConfigurationInformation,
+	workspaceConfigurationDir string,
+	configurationProfile string,
+) ([]*basev0.ConfigurationInformation, error) {
+	w := wool.Get(ctx).In("ConfigurationInformationLocalReader.composeModuleWorkspaceConfigurations")
+
+	modules, err := local.workspace.LoadModules(ctx)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load modules")
+	}
+	fromWorkspace := make(map[string]bool, len(workspaceInfos))
+	for _, info := range workspaceInfos {
+		fromWorkspace[info.Name] = true
+	}
+	providedBy := make(map[string]string)
+	for _, mod := range modules {
+		moduleConfigurationDir := path.Join(mod.Dir(), "configurations", configurationProfile)
+		// The consuming workspace's own configurations are already loaded; a flat
+		// root module's directory coincides with the workspace's, so skip it
+		// rather than load the same directory twice.
+		if resources.SameDir(moduleConfigurationDir, workspaceConfigurationDir) {
+			continue
+		}
+		exists, err := shared.DirectoryExists(ctx, moduleConfigurationDir)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot check module configuration directory")
+		}
+		if !exists {
+			continue
+		}
+		moduleInfos, err := LoadConfigurationInformationsFromFiles(ctx, moduleConfigurationDir)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
+		}
+		for _, info := range moduleInfos {
+			if fromWorkspace[info.Name] {
+				w.Debug("workspace configuration overrides composed module configuration",
+					wool.Field("configuration", info.Name), wool.Field("module", mod.Name))
+				continue
+			}
+			if other, ok := providedBy[info.Name]; ok {
+				return nil, w.NewError(
+					"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
+					info.Name, other, mod.Name, ErrConfigurationConflict)
+			}
+			providedBy[info.Name] = mod.Name
+			workspaceInfos = append(workspaceInfos, info)
+		}
+	}
+	return workspaceInfos, nil
 }
 
 // applyWorkspaceConfigurationOverrides merges the SDK's invocation-scoped

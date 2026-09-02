@@ -347,7 +347,7 @@ func (workspace *Workspace) worktreeCheckouts(ctx context.Context) ([]worktreeCh
 			}
 			candidate := filepath.Join(container, orgDir.Name(), branchDir.Name())
 			root, ok := gitToplevel(ctx, candidate)
-			if !ok || !sameDir(root, candidate) {
+			if !ok || !SameDir(root, candidate) {
 				continue
 			}
 			repo, ok := gitOriginRepo(ctx, root)
@@ -366,11 +366,16 @@ func (workspace *Workspace) worktreeCheckouts(ctx context.Context) ([]worktreeCh
 	return checkouts, nil
 }
 
-// sameDir reports whether two paths denote the same directory, resolving
-// symlinks first so that e.g. a /var vs /private/var difference (macOS temp) or
-// a symlinked checkout does not read as distinct. git's toplevel is already
-// symlink-resolved; the scanned candidate may not be.
-func sameDir(a, b string) bool {
+// SameDir reports whether two paths denote the same directory. Lexically equal
+// paths are the same directory (this also covers paths that do not exist yet,
+// which EvalSymlinks cannot resolve); otherwise it resolves symlinks so that a
+// /var vs /private/var difference (macOS temp) or a symlinked checkout does not
+// read as distinct. git's toplevel is already symlink-resolved; a scanned
+// candidate may not be.
+func SameDir(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
 	ra, err := filepath.EvalSymlinks(a)
 	if err != nil {
 		return false
