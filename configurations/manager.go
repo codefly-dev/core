@@ -51,6 +51,11 @@ type Manager struct {
 	resolution        *secretResolution
 	env               *resources.Environment
 	resolvedWorkspace map[string]bool
+
+	// Run network mappings used to resolve ${endpoint:…} references in workspace
+	// configuration values, alongside the same secret resolution.
+	networkMappings []*basev0.NetworkMapping
+	networkAccess   *basev0.NetworkAccess
 }
 
 func NewManager(_ context.Context, workspace *resources.Workspace) (*Manager, error) {
@@ -74,6 +79,16 @@ func (manager *Manager) WithLoader(loader Loader) *Manager {
 // is for tests and custom backends.
 func (manager *Manager) WithSecretResolver(resolvers ...SecretResolver) *Manager {
 	manager.secretResolvers = append(manager.secretResolvers, resolvers...)
+	return manager
+}
+
+// WithNetworkMappings supplies the run's network mappings and the network access
+// against which ${endpoint:…} references in workspace configuration values are
+// resolved. The composition root sets these once ports are allocated, before any
+// workspace configuration is selected.
+func (manager *Manager) WithNetworkMappings(mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) *Manager {
+	manager.networkMappings = mappings
+	manager.networkAccess = access
 	return manager
 }
 
@@ -148,6 +163,9 @@ func (manager *Manager) resolveWorkspaceConfiguration(ctx context.Context, name 
 		if err := manager.resolution.resolveConfiguration(ctx, conf, manager.env); err != nil {
 			return err
 		}
+	}
+	if err := resources.InterpolateConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess); err != nil {
+		return err
 	}
 	manager.resolvedWorkspace[name] = true
 	return nil
