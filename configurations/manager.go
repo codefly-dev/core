@@ -51,6 +51,11 @@ type Manager struct {
 	resolution        *secretResolution
 	env               *resources.Environment
 	resolvedWorkspace map[string]bool
+
+	// Run network mappings used to resolve ${endpoint:…} references in workspace
+	// configuration values, alongside the same secret resolution.
+	networkMappings []*basev0.NetworkMapping
+	networkAccess   *basev0.NetworkAccess
 }
 
 func NewManager(_ context.Context, workspace *resources.Workspace) (*Manager, error) {
@@ -74,6 +79,16 @@ func (manager *Manager) WithLoader(loader Loader) *Manager {
 // is for tests and custom backends.
 func (manager *Manager) WithSecretResolver(resolvers ...SecretResolver) *Manager {
 	manager.secretResolvers = append(manager.secretResolvers, resolvers...)
+	return manager
+}
+
+// WithNetworkMappings supplies the run's network mappings and the network access
+// against which ${endpoint:…} references in workspace configuration values are
+// resolved. The composition root sets these once ports are allocated, before any
+// workspace configuration is selected.
+func (manager *Manager) WithNetworkMappings(mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) *Manager {
+	manager.networkMappings = mappings
+	manager.networkAccess = access
 	return manager
 }
 
@@ -201,9 +216,27 @@ func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*base
 		if err := manager.resolveWorkspaceConfiguration(ctx, name, conf); err != nil {
 			return nil, w.Wrapf(err, "cannot resolve workspace configuration %s", name)
 		}
-		out = append(out, conf)
+		resolved, err := manager.interpolateEndpoints(ctx, name, conf)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, resolved)
 	}
 	return out, nil
+}
+
+// interpolateEndpoints resolves ${endpoint:…} references against the run's network
+// mappings for the configured access. The address is consumer-specific, so it is
+// resolved on the way out (never cached into the shared configuration): the
+// composition root sets the consumer's access via WithNetworkMappings before each
+// read.
+func (manager *Manager) interpolateEndpoints(ctx context.Context, name string, conf *basev0.Configuration) (*basev0.Configuration, error) {
+	w := wool.Get(ctx).In("Manager.interpolateEndpoints")
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot interpolate workspace configuration %s", name)
+	}
+	return resolved, nil
 }
 
 func (manager *Manager) GetWorkspaceDependenciesConfigurations(ctx context.Context, deps ...string) ([]*basev0.Configuration, error) {
@@ -220,7 +253,11 @@ func (manager *Manager) GetWorkspaceDependenciesConfigurations(ctx context.Conte
 		if err := manager.resolveWorkspaceConfiguration(ctx, dep, conf); err != nil {
 			return nil, w.Wrapf(err, "cannot resolve workspace configuration %s", dep)
 		}
-		out = append(out, conf)
+		resolved, err := manager.interpolateEndpoints(ctx, dep, conf)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, resolved)
 	}
 	return out, nil
 }

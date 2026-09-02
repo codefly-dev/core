@@ -8,7 +8,9 @@ import (
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/configurations"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/stretchr/testify/require"
@@ -65,6 +67,135 @@ agent:
 	url, err := resources.GetConfigurationValue(ctx, confs[0], "observability", "OBSERVABILITY_URL")
 	require.NoError(t, err)
 	require.Equal(t, "host-observability", url)
+}
+
+// A composition root wires a cross-module URL as a workspace configuration value
+// by referencing a composed endpoint. The Manager resolves that ${endpoint:…}
+// reference against the run's network mappings, so the consumer reads a plain URL.
+func TestManagerInterpolatesEndpointInWorkspaceConfiguration(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	mappings := []*basev0.NetworkMapping{
+		{
+			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev0.NetworkInstance{
+				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
+			},
+		},
+	}
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
+
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	confs, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
+	require.NoError(t, err)
+	require.Len(t, confs, 1)
+	url, err := resources.GetConfigurationValue(ctx, confs[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Equal(t, "http://localhost:45123/v1/auth/.well-known/jwks.json", url)
+}
+
+// The resolved endpoint address is consumer-specific: a native consumer and a
+// container consumer of the same workspace value must each get an address in
+// their own access family, so the first read must not bake one into the shared
+// configuration for the other.
+func TestManagerInterpolatesEndpointPerConsumerAccess(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	mappings := []*basev0.NetworkMapping{
+		{
+			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev0.NetworkInstance{
+				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
+				{Address: "http://host.docker.internal:45123", Access: resources.NewContainerNetworkAccess()},
+			},
+		},
+	}
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	native, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
+	require.NoError(t, err)
+	nativeURL, err := resources.GetConfigurationValue(ctx, native[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Equal(t, "http://localhost:45123/v1/auth/.well-known/jwks.json", nativeURL)
+
+	manager.WithNetworkMappings(mappings, resources.NewContainerNetworkAccess())
+	container, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
+	require.NoError(t, err)
+	containerURL, err := resources.GetConfigurationValue(ctx, container[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Equal(t, "http://host.docker.internal:45123/v1/auth/.well-known/jwks.json", containerURL)
+}
+
+// An unknown endpoint reference fails with a clear error instead of emitting a
+// broken URL.
+func TestManagerErrorsOnUnknownEndpointReference(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/grpc}/v1/auth/.well-known/jwks.json\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	mappings := []*basev0.NetworkMapping{
+		{
+			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev0.NetworkInstance{
+				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
+			},
+		},
+	}
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
+
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	_, err = manager.GetWorkspaceConfigurations(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not found")
 }
 
 func TestLoaderFlatLayout(t *testing.T) {
