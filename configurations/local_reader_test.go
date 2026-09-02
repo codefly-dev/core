@@ -376,6 +376,92 @@ modules:
 	require.Equal(t, "host-observability", url)
 }
 
+// A composed module without its own workspace.codefly.yaml (a bare module
+// checkout) must not have its configurations resolved against some unrelated
+// workspace that happens to sit above its repository on this machine. The search
+// stops at the module's repository root, so a foreign ancestor workspace never
+// captures it: the module keeps its own configurations at its repo root.
+func TestLocalLoaderComposedModuleDoesNotEscapeItsRepository(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	// A foreign workspace sitting above the composed module's repository, with a
+	// configuration of the same name but a different value.
+	writeConfigurationFile(t, root, "workspace.codefly.yaml", "name: foreign\nlayout: modules\nmodules: []\n")
+	writeConfigurationFile(t, root, "configurations/local/observability.env", "OBSERVABILITY_URL=foreign-observability\n")
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: host
+    path: ../host-repo
+`)
+
+	// Bare composed module: its repository root has a .git but no
+	// workspace.codefly.yaml, and its configurations live beside its module file.
+	writeConfigurationFile(t, root, "host-repo/.git", "gitdir: /elsewhere\n")
+	writeConfigurationFile(t, root, "host-repo/module.codefly.yaml", "kind: module\nname: host\nservices: []\n")
+	writeConfigurationFile(t, root, "host-repo/configurations/local/observability.env", "OBSERVABILITY_URL=host-observability\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	observability, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
+	require.Equal(t, "host-observability", url)
+}
+
+// Two modules composed from the same host repo, one reached through a symlinked
+// path, resolve to one physical workspace root by two lexically different paths.
+// The dedup that keeps the shared root from loading twice is symlink-aware, so
+// the load does not misfire the same-name conflict guard against the root's own
+// configurations.
+func TestLocalLoaderComposesSharedWorkspaceRootThroughSymlinkOnce(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	require.NoError(t, os.Symlink(filepath.Join(root, "host-repo"), filepath.Join(root, "host-link")))
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: host
+    path: ../host-repo/modules/host
+  - name: sidecar
+    path: ../host-link/modules/sidecar
+`)
+
+	writeConfigurationFile(t, root, "host-repo/workspace.codefly.yaml", `name: host-workspace
+layout: modules
+modules:
+  - name: host
+    path: modules/host
+  - name: sidecar
+    path: modules/sidecar
+`)
+	writeConfigurationFile(t, root, "host-repo/configurations/local/observability.env", "OBSERVABILITY_URL=host-observability\n")
+	for _, name := range []string{"host", "sidecar"} {
+		writeConfigurationFile(t, root, "host-repo/modules/"+name+"/module.codefly.yaml", "kind: module\nname: "+name+"\nservices: []\n")
+	}
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	observability, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
+	require.Equal(t, "host-observability", url)
+}
+
 // Two composed modules that each provide a workspace configuration of the same
 // name is genuine ambiguity with no principled winner. Rather than silently
 // pick one by module order, the loader fails loudly — matching how it rejects

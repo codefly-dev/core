@@ -207,7 +207,8 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 	providedBy := make(map[string]string)
 	loaded := make(map[string]bool)
 	for _, mod := range modules {
-		moduleConfigurationDir := path.Join(composedModuleWorkspaceDir(mod.Dir()), "configurations", configurationProfile)
+		moduleWorkspaceDir := composedModuleWorkspaceDir(mod.Dir())
+		moduleConfigurationDir := path.Join(moduleWorkspaceDir, "configurations", configurationProfile)
 		// The consuming workspace's own configurations are already loaded; a flat
 		// root module's workspace root coincides with the consuming workspace's,
 		// as does an in-repo module whose nearest workspace root is the consuming
@@ -216,12 +217,19 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 			continue
 		}
 		// Several module references can resolve to the same composed workspace
-		// root (e.g. two non-flat submodules composed from one host repo). Load
-		// its configurations once; loading them again would collide with itself.
-		if loaded[filepath.Clean(moduleConfigurationDir)] {
+		// root (e.g. two non-flat submodules composed from one host repo, one
+		// reached through a symlinked path). Resolve symlinks so those collapse
+		// to one key — matching the symlink-aware SameDir check above — and load
+		// the root's configurations once; loading them again would collide with
+		// itself.
+		key := moduleWorkspaceDir
+		if resolved, err := filepath.EvalSymlinks(moduleWorkspaceDir); err == nil {
+			key = resolved
+		}
+		if loaded[key] {
 			continue
 		}
-		loaded[filepath.Clean(moduleConfigurationDir)] = true
+		loaded[key] = true
 		exists, err := shared.DirectoryExists(ctx, moduleConfigurationDir)
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot check module configuration directory")
@@ -252,16 +260,25 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 }
 
 // composedModuleWorkspaceDir finds the workspace root a composed module belongs
-// to: the nearest ancestor of the module directory holding a
-// workspace.codefly.yaml — the module directory itself in a flat layout, an
-// ancestor in a non-flat one. That root is where the module's own
-// configurations/<profile>/* live, regardless of how deep the module sits. When
-// no workspace root is found above the module (a bare module checkout), the
-// module directory is used, preserving the flat-layout location.
+// to: the nearest ancestor of the module directory (the module directory
+// included) holding a workspace.codefly.yaml — the module directory itself in a
+// flat layout, an ancestor in a non-flat one. That root is where the module's
+// own configurations/<profile>/* live, regardless of how deep the module sits.
+//
+// The search never leaves the module's own repository. A composed module's
+// workspace root is always within its repo, so the walk stops at the repo root
+// (the nearest ancestor holding a .git) rather than climbing into an unrelated
+// ancestor workspace that happens to sit above the repo on this machine — which
+// would silently bind the wrong, foreign configurations. When no workspace root
+// is found within the repo (a bare module checkout), the module directory is
+// used, preserving the flat-layout location.
 func composedModuleWorkspaceDir(dir string) string {
 	for cur := dir; ; {
 		if resources.ExistsAtDir[resources.Workspace](cur) {
 			return cur
+		}
+		if _, err := os.Stat(filepath.Join(cur, ".git")); err == nil {
+			return dir
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {
