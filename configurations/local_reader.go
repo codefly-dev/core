@@ -173,6 +173,12 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 // which is what makes a solution-as-root boot fail on the composed host's
 // config-dependencies.
 //
+// Those configurations live at the composed module's own workspace root, which
+// depends on the module's layout: for a flat module the root is the module
+// directory itself, while for a non-flat module the root is an ancestor and the
+// module sits in a subdirectory of it. composedModuleWorkspaceDir resolves the
+// right one either way, so both layouts contribute their configurations.
+//
 // The consuming workspace wins on a name conflict, so a solution can override a
 // composed configuration by declaring one of the same name, but is never
 // required to redeclare every configuration the host brings. A collision
@@ -199,14 +205,31 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 		fromWorkspace[info.Name] = true
 	}
 	providedBy := make(map[string]string)
+	loaded := make(map[string]bool)
 	for _, mod := range modules {
-		moduleConfigurationDir := path.Join(mod.Dir(), "configurations", configurationProfile)
+		moduleWorkspaceDir := composedModuleWorkspaceDir(mod.Dir())
+		moduleConfigurationDir := path.Join(moduleWorkspaceDir, "configurations", configurationProfile)
 		// The consuming workspace's own configurations are already loaded; a flat
-		// root module's directory coincides with the workspace's, so skip it
-		// rather than load the same directory twice.
+		// root module's workspace root coincides with the consuming workspace's,
+		// as does an in-repo module whose nearest workspace root is the consuming
+		// one, so skip either rather than load the same directory twice.
 		if resources.SameDir(moduleConfigurationDir, workspaceConfigurationDir) {
 			continue
 		}
+		// Several module references can resolve to the same composed workspace
+		// root (e.g. two non-flat submodules composed from one host repo, one
+		// reached through a symlinked path). Resolve symlinks so those collapse
+		// to one key — matching the symlink-aware SameDir check above — and load
+		// the root's configurations once; loading them again would collide with
+		// itself.
+		key := moduleWorkspaceDir
+		if resolved, err := filepath.EvalSymlinks(moduleWorkspaceDir); err == nil {
+			key = resolved
+		}
+		if loaded[key] {
+			continue
+		}
+		loaded[key] = true
 		exists, err := shared.DirectoryExists(ctx, moduleConfigurationDir)
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot check module configuration directory")
@@ -234,6 +257,35 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 		}
 	}
 	return workspaceInfos, nil
+}
+
+// composedModuleWorkspaceDir finds the workspace root a composed module belongs
+// to: the nearest ancestor of the module directory (the module directory
+// included) holding a workspace.codefly.yaml — the module directory itself in a
+// flat layout, an ancestor in a non-flat one. That root is where the module's
+// own configurations/<profile>/* live, regardless of how deep the module sits.
+//
+// The search never leaves the module's own repository. A composed module's
+// workspace root is always within its repo, so the walk stops at the repo root
+// (the nearest ancestor holding a .git) rather than climbing into an unrelated
+// ancestor workspace that happens to sit above the repo on this machine — which
+// would silently bind the wrong, foreign configurations. When no workspace root
+// is found within the repo (a bare module checkout), the module directory is
+// used, preserving the flat-layout location.
+func composedModuleWorkspaceDir(dir string) string {
+	for cur := dir; ; {
+		if resources.ExistsAtDir[resources.Workspace](cur) {
+			return cur
+		}
+		if _, err := os.Stat(filepath.Join(cur, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return dir
+		}
+		cur = parent
+	}
 }
 
 // applyWorkspaceConfigurationOverrides merges the SDK's invocation-scoped
