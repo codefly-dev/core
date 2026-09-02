@@ -368,6 +368,37 @@ func TestOverlayWorktreeMismatchErrorNamesCheckout(t *testing.T) {
 	require.ErrorContains(t, err, "main")
 }
 
+// An on-branch worktree whose HEAD coincidentally sits at origin/<other-ref>'s
+// commit must NOT resolve for worktree:<repo>@<other-ref>. The branch name is the
+// checkout's identity; consulting the remote-tracking ref here would silently
+// bind @<other-ref> to a worktree on a different branch that merely shares a
+// commit with origin/<other-ref> (e.g. right after branching).
+func TestOverlayWorktreeOnBranchDoesNotMatchCoincidentRemoteRef(t *testing.T) {
+	ctx := context.Background()
+	container := t.TempDir()
+
+	solution := filepath.Join(container, "github-acme-solution", "main")
+	writeWorkspace(t, solution, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n")
+	require.NoError(t, os.WriteFile(filepath.Join(solution, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    worktree: acme/host@feature\n"), 0o600))
+
+	host := filepath.Join(container, "github-acme-host", "main")
+	writeModule(t, host, "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+	writeGatewayService(t, host)
+	initGitRepo(t, host, "git@github.com:acme/host.git", "main")
+	// origin/feature points at the same commit as the checked-out main branch,
+	// but the checkout stays on branch main — it has no local or remote identity
+	// as "feature". @feature must not bind to it.
+	gitRun(t, host, "update-ref", "refs/remotes/origin/feature", "HEAD")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, solution)
+	require.NoError(t, err)
+
+	_, err = workspace.LoadModuleFromName(ctx, "saas")
+	require.ErrorContains(t, err, "found a checkout of acme/host")
+	require.ErrorContains(t, err, "on branch main")
+}
+
 func mustModuleRef(t *testing.T, workspace *resources.Workspace, name string) *resources.ModuleReference {
 	t.Helper()
 	for _, ref := range workspace.Modules {

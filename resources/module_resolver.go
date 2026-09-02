@@ -302,7 +302,7 @@ func (workspace *Workspace) findWorktreeCheckout(ctx context.Context, repo, ref 
 		sameRepo = append(sameRepo, checkout)
 		if checkout.branch == ref {
 			exact = append(exact, checkout)
-		} else if gitRefAtHead(ctx, checkout.root, ref) {
+		} else if gitRefAtHead(ctx, checkout.root, ref, detachedHead(checkout.branch)) {
 			fallback = append(fallback, checkout)
 		}
 	}
@@ -340,7 +340,7 @@ func checkoutRoots(checkouts []worktreeCheckout) []string {
 // wanted ref: "on branch <x>" for a named branch, or "detached at <short-sha>" for
 // a detached HEAD.
 func describeCheckoutState(ctx context.Context, checkout worktreeCheckout) string {
-	if checkout.branch != "" && checkout.branch != "HEAD" {
+	if !detachedHead(checkout.branch) {
 		return "on branch " + checkout.branch
 	}
 	if head, ok := gitOutput(ctx, checkout.root, "rev-parse", "--short", "HEAD"); ok {
@@ -465,21 +465,39 @@ func gitBranch(ctx context.Context, dir string) string {
 }
 
 // gitRefAtHead reports whether ref resolves to the same commit as HEAD in dir.
-// It covers a wanted ref that is a tag or sha, and a branch that exists only as a
-// remote-tracking ref — the common case for a detached worktree created with
+// It covers a wanted ref that is a tag or sha. When the checkout is detached (it
+// has no branch identity of its own), it also matches a branch that exists only
+// as a remote-tracking ref — the case for a worktree created with
 // `git worktree add <dir> origin/<ref>`, where no local branch named <ref> exists
 // but origin/<ref> points at the checked-out commit.
-func gitRefAtHead(ctx context.Context, dir, ref string) bool {
+//
+// For an on-branch checkout the remote-tracking ref is deliberately NOT
+// consulted: the branch name is the checkout's identity, and matching
+// origin/<ref> there would bind @<ref> to a worktree sitting on a different
+// branch that merely shares a commit with origin/<ref> (e.g. right after
+// branching, before either side advances).
+func gitRefAtHead(ctx context.Context, dir, ref string, detached bool) bool {
 	head, ok := gitOutput(ctx, dir, "rev-parse", "HEAD")
 	if !ok {
 		return false
 	}
-	for _, candidate := range []string{ref, "origin/" + ref} {
+	candidates := []string{ref}
+	if detached {
+		candidates = append(candidates, "origin/"+ref)
+	}
+	for _, candidate := range candidates {
 		if target, ok := gitOutput(ctx, dir, "rev-parse", "--verify", candidate+"^{commit}"); ok && target == head {
 			return true
 		}
 	}
 	return false
+}
+
+// detachedHead reports whether a checkout's HEAD is detached, given the branch
+// name reported by gitBranch ("HEAD" for a detached HEAD, "" when git could not
+// report it).
+func detachedHead(branch string) bool {
+	return branch == "" || branch == "HEAD"
 }
 
 func gitOutput(ctx context.Context, dir string, args ...string) (string, bool) {
