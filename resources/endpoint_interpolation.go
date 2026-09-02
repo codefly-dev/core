@@ -7,11 +7,12 @@ import (
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/wool"
+	"google.golang.org/protobuf/proto"
 )
 
-// EndpointInterpolationPattern matches ${endpoint:<module>/<service>/<endpoint>}
+// endpointInterpolationPattern matches ${endpoint:<module>/<service>/<endpoint>}
 // references embedded in a configuration value.
-var EndpointInterpolationPattern = regexp.MustCompile(`\$\{endpoint:([^{}]+)\}`)
+var endpointInterpolationPattern = regexp.MustCompile(`\$\{endpoint:([^{}]+)\}`)
 
 // InterpolateEndpoints replaces every ${endpoint:<module>/<service>/<endpoint>}
 // reference in value with the endpoint's runtime address, resolved from mappings
@@ -19,7 +20,7 @@ var EndpointInterpolationPattern = regexp.MustCompile(`\$\{endpoint:([^{}]+)\}`)
 // CODEFLY__ENDPOINT__<MODULE>__<SERVICE>__<ENDPOINT>. A value with no reference is
 // returned unchanged. An unresolvable reference is an error, never a broken URL.
 func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (string, error) {
-	matches := EndpointInterpolationPattern.FindAllStringSubmatchIndex(value, -1)
+	matches := endpointInterpolationPattern.FindAllStringSubmatchIndex(value, -1)
 	if matches == nil {
 		return value, nil
 	}
@@ -40,22 +41,38 @@ func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.
 }
 
 // InterpolateConfigurationEndpoints resolves ${endpoint:…} references in every
-// value of conf in place, using the same resolution as InterpolateEndpoints.
-func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) error {
-	if conf == nil {
-		return nil
+// value of conf, using the same resolution as InterpolateEndpoints. The endpoint
+// address depends on the consuming service's network access, so it must not be
+// baked into the shared configuration: when a value carries a reference, a
+// resolved clone is returned and conf is left untouched; otherwise conf itself is
+// returned unchanged.
+func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (*basev0.Configuration, error) {
+	if conf == nil || !configurationHasEndpointReference(conf) {
+		return conf, nil
 	}
 	w := wool.Get(ctx).In("resources.InterpolateConfigurationEndpoints")
-	for _, info := range conf.Infos {
+	cloned := proto.Clone(conf).(*basev0.Configuration)
+	for _, info := range cloned.Infos {
 		for _, value := range info.ConfigurationValues {
 			resolved, err := InterpolateEndpoints(ctx, value.Value, mappings, access)
 			if err != nil {
-				return w.Wrapf(err, "cannot interpolate configuration %s/%s", info.Name, value.Key)
+				return nil, w.Wrapf(err, "cannot interpolate configuration %s/%s", info.Name, value.Key)
 			}
 			value.Value = resolved
 		}
 	}
-	return nil
+	return cloned, nil
+}
+
+func configurationHasEndpointReference(conf *basev0.Configuration) bool {
+	for _, info := range conf.Infos {
+		for _, value := range info.ConfigurationValues {
+			if endpointInterpolationPattern.MatchString(value.Value) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMapping, reference string, access *basev0.NetworkAccess) (*basev0.NetworkInstance, error) {
@@ -63,6 +80,9 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 	info, err := ParseEndpoint(reference)
 	if err != nil {
 		return nil, w.Wrapf(err, "invalid endpoint reference ${endpoint:%s}", reference)
+	}
+	if info.Name == "" && info.API == "" {
+		return nil, w.NewError("endpoint reference ${endpoint:%s} must name an endpoint (module/service/endpoint)", reference)
 	}
 	var matchedButNoAccess bool
 	available := make([]string, 0, len(mappings))
@@ -77,24 +97,30 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 		matchedButNoAccess = true
 		for _, instance := range mapping.Instances {
 			if accessKindMatches(instance, access) {
+				if instance.Address == "" {
+					return nil, w.NewError("endpoint reference ${endpoint:%s} resolved to an empty address for access=%s", reference, accessKind(access))
+				}
 				return instance, nil
 			}
 		}
 	}
-	wanted := "none"
-	if access != nil {
-		wanted = access.Kind
-	}
 	if matchedButNoAccess {
-		return nil, w.NewError("endpoint reference ${endpoint:%s} matched but has no instance for access=%s; available: %v", reference, wanted, available)
+		return nil, w.NewError("endpoint reference ${endpoint:%s} matched but has no instance for access=%s; available: %v", reference, accessKind(access), available)
 	}
-	return nil, w.NewError("endpoint reference ${endpoint:%s} not found (access=%s); available endpoints: %v", reference, wanted, available)
+	return nil, w.NewError("endpoint reference ${endpoint:%s} not found (access=%s); available endpoints: %v", reference, accessKind(access), available)
 }
 
-// endpointReferenceMatches reports whether endpoint satisfies a parsed reference.
-// The trailing token (info.Name) matches either the endpoint's name or its API, so
-// ${endpoint:m/s/http} resolves whether the endpoint is named "http" or exposes the
-// http API under another name.
+func accessKind(access *basev0.NetworkAccess) string {
+	if access == nil {
+		return "none"
+	}
+	return access.Kind
+}
+
+// endpointReferenceMatchesInfo reports whether endpoint satisfies a parsed
+// reference. The trailing token (info.Name) matches either the endpoint's name or
+// its API, so ${endpoint:m/s/http} resolves whether the endpoint is named "http"
+// or exposes the http API under another name.
 func endpointReferenceMatchesInfo(endpoint *basev0.Endpoint, info *EndpointInformation) bool {
 	if endpoint.Module != info.Module || endpoint.Service != info.Service {
 		return false
@@ -103,7 +129,7 @@ func endpointReferenceMatchesInfo(endpoint *basev0.Endpoint, info *EndpointInfor
 		return false
 	}
 	if info.Name == "" {
-		return true
+		return endpoint.Api == info.API
 	}
 	return endpoint.Name == info.Name || endpoint.Api == info.Name
 }
