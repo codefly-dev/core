@@ -27,8 +27,13 @@ type ModuleResolveDirective struct {
 	// file). Highest precedence: you are editing this module in place.
 	Path string `yaml:"path,omitempty"`
 	// Worktree is "<repo>@<ref>" (e.g. "obin-ai/module-document-store@main"). The
-	// resolver scans the local worktree roots for a checkout of <repo> with <ref>
-	// checked out, wherever it physically sits.
+	// resolver scans the local worktree roots for a checkout of <repo> that is at
+	// <ref>, wherever it physically sits. A checkout matches when <ref> is the
+	// checked-out branch name, or — for a tag, sha, or a detached HEAD created by
+	// `git worktree add <dir> origin/<ref>` — when its HEAD commit is <ref>. The
+	// match is thus by resolved commit, not by which branch happens to be checked
+	// out: a differently-named branch sitting at <ref>'s commit also matches, and
+	// stops matching once it commits away from that point.
 	Worktree string `yaml:"worktree,omitempty"`
 	// Pinned selects the published, base-synced artifact at the committed version.
 	Pinned bool `yaml:"pinned,omitempty"`
@@ -289,29 +294,59 @@ func (workspace *Workspace) findWorktreeCheckout(ctx context.Context, repo, ref 
 	}
 	wantRepo := normalizeRepo(repo)
 
-	var exact, fallback []string
+	var exact, fallback, sameRepo []worktreeCheckout
 	for _, checkout := range checkouts {
 		if checkout.repo != wantRepo {
 			continue
 		}
+		sameRepo = append(sameRepo, checkout)
 		if checkout.branch == ref {
-			exact = append(exact, checkout.root)
-		} else if gitRefAtHead(ctx, checkout.root, ref) {
-			fallback = append(fallback, checkout.root)
+			exact = append(exact, checkout)
+		} else if gitRefAtHead(ctx, checkout.root, ref, detachedHead(checkout.branch)) {
+			fallback = append(fallback, checkout)
 		}
 	}
 
-	for _, matches := range [][]string{exact, fallback} {
+	for _, matches := range [][]worktreeCheckout{exact, fallback} {
 		switch len(matches) {
 		case 0:
 			continue
 		case 1:
-			return matches[0], nil
+			return matches[0].root, nil
 		default:
-			return "", fmt.Errorf("worktree %s@%s is ambiguous: matches %s", repo, ref, strings.Join(matches, ", "))
+			return "", fmt.Errorf("worktree %s@%s is ambiguous: matches %s", repo, ref, strings.Join(checkoutRoots(matches), ", "))
 		}
 	}
+	if len(sameRepo) > 0 {
+		var states []string
+		for _, checkout := range sameRepo {
+			states = append(states, fmt.Sprintf("%s (%s)", checkout.root, describeCheckoutState(ctx, checkout)))
+		}
+		return "", fmt.Errorf("found a checkout of %s but none has %s checked out: %s; check out a branch named %s, or pin the ref to the matching @<sha|tag>",
+			repo, ref, strings.Join(states, ", "), ref)
+	}
 	return "", fmt.Errorf("no local worktree of %s has %s checked out under the worktree container", repo, ref)
+}
+
+func checkoutRoots(checkouts []worktreeCheckout) []string {
+	roots := make([]string, len(checkouts))
+	for i, checkout := range checkouts {
+		roots[i] = checkout.root
+	}
+	return roots
+}
+
+// describeCheckoutState renders why a checkout of the right repo didn't match the
+// wanted ref: "on branch <x>" for a named branch, or "detached at <short-sha>" for
+// a detached HEAD.
+func describeCheckoutState(ctx context.Context, checkout worktreeCheckout) string {
+	if !detachedHead(checkout.branch) {
+		return "on branch " + checkout.branch
+	}
+	if head, ok := gitOutput(ctx, checkout.root, "rev-parse", "--short", "HEAD"); ok {
+		return "detached at " + head
+	}
+	return "detached"
 }
 
 // worktreeCheckouts enumerates every local git checkout-root under the worktree
@@ -434,19 +469,40 @@ func gitBranch(ctx context.Context, dir string) string {
 	return out
 }
 
-// gitRefAtHead reports whether ref resolves to the same commit as HEAD in dir,
-// covering the case where the wanted ref is a tag or sha rather than the branch
-// name.
-func gitRefAtHead(ctx context.Context, dir, ref string) bool {
+// gitRefAtHead reports whether ref resolves to the same commit as HEAD in dir.
+// It covers a wanted ref that is a tag or sha. When the checkout is detached (it
+// has no branch identity of its own), it also matches a branch that exists only
+// as a remote-tracking ref — the case for a worktree created with
+// `git worktree add <dir> origin/<ref>`, where no local branch named <ref> exists
+// but origin/<ref> points at the checked-out commit.
+//
+// For an on-branch checkout the remote-tracking ref is deliberately NOT
+// consulted: the branch name is the checkout's identity, and matching
+// origin/<ref> there would bind @<ref> to a worktree sitting on a different
+// branch that merely shares a commit with origin/<ref> (e.g. right after
+// branching, before either side advances).
+func gitRefAtHead(ctx context.Context, dir, ref string, detached bool) bool {
 	head, ok := gitOutput(ctx, dir, "rev-parse", "HEAD")
 	if !ok {
 		return false
 	}
-	target, ok := gitOutput(ctx, dir, "rev-parse", "--verify", ref+"^{commit}")
-	if !ok {
-		return false
+	candidates := []string{ref}
+	if detached {
+		candidates = append(candidates, "origin/"+ref)
 	}
-	return head == target
+	for _, candidate := range candidates {
+		if target, ok := gitOutput(ctx, dir, "rev-parse", "--verify", candidate+"^{commit}"); ok && target == head {
+			return true
+		}
+	}
+	return false
+}
+
+// detachedHead reports whether a checkout's HEAD is detached, given the branch
+// name reported by gitBranch ("HEAD" for a detached HEAD, "" when git could not
+// report it).
+func detachedHead(branch string) bool {
+	return branch == "" || branch == "HEAD"
 }
 
 func gitOutput(ctx context.Context, dir string, args ...string) (string, bool) {
