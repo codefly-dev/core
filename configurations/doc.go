@@ -83,16 +83,22 @@
 // manifests do not change the loader's existing symlink traversal policy;
 // filesystem and repository permissions remain the boundary.
 //
-// Workspace configurations carry an origin. A composed module brings its own
-// configurations/<env>/* into the run for the services that declare them as
-// dependencies; the composition root's own configurations are provided to every
-// service in the run — a composed-module service reads them via WorkspaceValue
-// without redeclaring them. GetCompositionRootWorkspaceConfigurations returns
-// exactly the root-provided set for that run-wide injection, resolved and
-// endpoint-interpolated like GetWorkspaceConfigurations. The root-provided and
-// per-dependency composed-module sets are disjoint by name (a name the root also
-// declares is resolved to the root at load), so the root fills what a composed
-// module leaves unset without shadowing a name only the module provides.
+// The loader classifies each workspace configuration by origin. The origin is
+// not stored on the Configuration itself (whose Origin is the flat
+// ConfigurationWorkspace marker); it is tracked by name — the loader reports the
+// composition-root names and the Manager keys the run-wide set by them. A
+// composed module brings its own configurations/<env>/* into the run for the
+// services that declare them as dependencies; the composition root's own
+// configurations are provided to every service in the run — a composed-module
+// service reads them via WorkspaceValue without redeclaring them.
+// GetCompositionRootWorkspaceConfigurations returns exactly the root-provided set
+// for that run-wide injection, resolved and endpoint-interpolated like
+// GetWorkspaceConfigurations. The root-provided and per-dependency composed-module
+// sets are disjoint by name (a name the root also declares is resolved to the
+// root at load), so the root fills what a composed module leaves unset without
+// shadowing a name only the module provides. An invocation-scoped override is the
+// run supplying a value, so it is composition-root even when it lands on a name a
+// composed module also provides.
 //
 // Git owns the non-secret manifest and workspace configuration, Core validates
 // and resolves only provider references, the CLI selects the declared

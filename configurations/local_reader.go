@@ -91,17 +91,21 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	if err != nil {
 		return w.Wrapf(err, "cannot compose module workspace configurations")
 	}
-	workspaceInfos, err = applyWorkspaceConfigurationOverrides(workspaceInfos, os.Getenv(resources.WorkspaceConfigurationOverridesEnvironment))
+	workspaceInfos, overriddenNames, err := applyWorkspaceConfigurationOverrides(workspaceInfos, os.Getenv(resources.WorkspaceConfigurationOverridesEnvironment))
 	if err != nil {
 		return w.Wrapf(err, "cannot load invocation-scoped workspace configurations")
 	}
 
 	// Everything not contributed by a composed module — the root's own
 	// configurations directory and any invocation-scoped override — is a
-	// composition-root configuration, provided to every service in the run.
+	// composition-root configuration, provided to every service in the run. An
+	// invocation-scoped override is the run itself supplying a value, so it is
+	// composition-root even when it lands on a name a composed module also
+	// provides: the operator's --set reaches every service, not only the ones
+	// that declared the module's configuration.
 	local.compositionRootConfigurationNames = nil
 	for _, info := range workspaceInfos {
-		if !composedNames[info.Name] {
+		if !composedNames[info.Name] || overriddenNames[info.Name] {
 			local.compositionRootConfigurationNames = append(local.compositionRootConfigurationNames, info.Name)
 		}
 	}
@@ -329,15 +333,18 @@ func composedModuleWorkspaceDir(dir string) string {
 func applyWorkspaceConfigurationOverrides(
 	infos []*basev0.ConfigurationInformation,
 	encoded string,
-) ([]*basev0.ConfigurationInformation, error) {
+) ([]*basev0.ConfigurationInformation, map[string]bool, error) {
 	overrides, err := resources.DecodeWorkspaceConfigurationOverrides(encoded)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	overridden := make(map[string]bool, len(overrides))
 	for _, override := range overrides {
-		infos = applyConfigurationValueOverride(infos, override.Name, override.Key, override.Value, override.Secret)
+		var name string
+		infos, name = applyConfigurationValueOverride(infos, override.Name, override.Key, override.Value, override.Secret)
+		overridden[name] = true
 	}
-	return infos, nil
+	return infos, overridden, nil
 }
 
 // applyServiceConfigurationOverrides merges SDK-owned invocation values over
@@ -377,16 +384,22 @@ func applyServiceConfigurationOverrides(
 			conf = &basev0.Configuration{Origin: origin}
 			confs[origin] = conf
 		}
-		conf.Infos = applyConfigurationValueOverride(conf.Infos, override.Name, override.Key, override.Value, override.Secret)
+		conf.Infos, _ = applyConfigurationValueOverride(conf.Infos, override.Name, override.Key, override.Value, override.Secret)
 	}
 	return confs, nil
 }
 
+// applyConfigurationValueOverride applies one override and returns the updated
+// slice along with the Name of the configuration it touched — which is the
+// matched existing configuration's name (an override may target it by pattern),
+// or the override's own name when it introduces a new one. Callers that classify
+// origin use the returned name so an override is attributed to the configuration
+// it actually landed on.
 func applyConfigurationValueOverride(
 	infos []*basev0.ConfigurationInformation,
 	name, key, value string,
 	secret bool,
-) []*basev0.ConfigurationInformation {
+) ([]*basev0.ConfigurationInformation, string) {
 	var info *basev0.ConfigurationInformation
 	for _, candidate := range infos {
 		if resources.Match(candidate.Name, name) {
@@ -411,7 +424,7 @@ func applyConfigurationValueOverride(
 	}
 	configurationValue.Value = value
 	configurationValue.Secret = secret
-	return infos
+	return infos, info.Name
 }
 
 func loadDNS(_ context.Context, file string) ([]*basev0.DNS, error) {

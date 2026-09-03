@@ -397,6 +397,140 @@ agent:
 	require.Equal(t, "https://root/jwks.json", url)
 }
 
+// An invocation-scoped override that lands on a name a composed module also
+// provides is still a composition-root configuration: the run supplies the value
+// via --set, so it must reach every service, not only the services that declared
+// the composed module's configuration. Attributing the override to the name it
+// touched is what keeps it from silently staying composed-scoped.
+func TestManagerCompositionRootConfigurationsIncludeOverrideOfComposedName(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: host
+    path: ../host
+`)
+
+	writeConfigurationFile(t, root, "host/module.codefly.yaml", `kind: module
+name: host
+services:
+  - name: telemetry
+`)
+	writeConfigurationFile(t, root, "host/configurations/local/observability.env", "OBSERVABILITY_URL=host-observability\n")
+	writeConfigurationFile(t, root, "host/services/telemetry/service.codefly.yaml", `kind: service
+name: telemetry
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+`)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	encoded, err := resources.EncodeWorkspaceConfigurationOverrides([]resources.WorkspaceConfigurationOverride{
+		{Name: "observability", Key: "OBSERVABILITY_URL", Value: "https://override/obs"},
+	})
+	require.NoError(t, err)
+	t.Setenv(resources.WorkspaceConfigurationOverridesEnvironment, encoded)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	// The overridden composed-module name is now in the run-wide set...
+	rootConfs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Len(t, rootConfs, 1)
+	conf, err := resources.FindWorkspaceConfiguration(ctx, rootConfs, "observability")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, conf, "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
+	require.Equal(t, "https://override/obs", url)
+
+	// ...and the override value is what the declaring service sees too.
+	depConfs, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "observability")
+	require.NoError(t, err)
+	require.Len(t, depConfs, 1)
+	depURL, err := resources.GetConfigurationValue(ctx, depConfs[0], "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
+	require.Equal(t, "https://override/obs", depURL)
+}
+
+// A composition-root secret is injected run-wide like any other root
+// configuration: it must appear in the composition-root set, resolved, so every
+// service in the run receives it. This locks the security-relevant path — the
+// feature broadens a root secret's reach from the declaring services to the whole
+// run, and that must stay covered.
+func TestManagerCompositionRootConfigurationsIncludeSecrets(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/ops.secret.env", "TOKEN=ops-token\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	rootConfs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Len(t, rootConfs, 1)
+	conf, err := resources.FindWorkspaceConfiguration(ctx, rootConfs, "ops")
+	require.NoError(t, err)
+	token, err := resources.GetConfigurationValue(ctx, conf, "ops", "TOKEN")
+	require.NoError(t, err)
+	require.Equal(t, "ops-token", token)
+	require.True(t, conf.Infos[0].ConfigurationValues[0].Secret, "root secret must remain marked secret in the run-wide set")
+}
+
+// A composition-root secret that references an unconfigured provider is a hard
+// error from the run-wide getter, never a silently dropped or unresolved value:
+// it is injected into every service, so an unresolvable one must fail the run,
+// exactly as the endpoint reference does. Degrading to skip-or-emit-unresolved
+// would inject a missing secret everywhere.
+func TestManagerCompositionRootConfigurationsErrorOnUnresolvableSecret(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/ops.secret.env", "TOKEN=op://vault/item/field\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	_, err = manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not configured")
+}
+
 func TestLoaderFlatLayout(t *testing.T) {
 	testLoader(t, "testdata/flat")
 }
