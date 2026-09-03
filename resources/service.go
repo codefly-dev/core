@@ -791,6 +791,16 @@ func (s *ServiceDependency) Unique() string {
 	return fmt.Sprintf("%s/%s", s.Module, s.Name)
 }
 
+// Placement is where a dependency's workload runs relative to the consumer. It
+// is declared by the DEPENDENT (a property of the edge, not of the producer):
+// "service" (default) runs the dependency as its own Deployment reached over
+// cluster DNS; "sidecar" places the dependency's container in the consumer's own
+// pod, reached over localhost.
+const (
+	PlacementService = "service"
+	PlacementSidecar = "sidecar"
+)
+
 type ServiceDependency struct {
 	Name   string `yaml:"name,omitempty"`
 	Module string `yaml:"module,omitempty"`
@@ -803,7 +813,27 @@ type ServiceDependency struct {
 	// the consuming service's directory, like the service-level setting.
 	GrpcClientDir string `yaml:"grpc-client-dir,omitempty"`
 
+	// Placement is "service" (default) or "sidecar" — see the Placement consts.
+	// "sidecar" asks composition to contribute this dependency's container into
+	// the consumer's pod (via PodTemplateOverlay.Containers) and resolve its
+	// endpoint to localhost, instead of deploying it separately. Empty == service.
+	Placement string `yaml:"placement,omitempty"`
+
 	Endpoints []*EndpointReference `yaml:"endpoints,omitempty"`
+}
+
+// PlacementOrDefault returns the declared placement, defaulting empty to
+// "service" so callers never branch on the empty string.
+func (s *ServiceDependency) PlacementOrDefault() string {
+	if s.Placement == "" {
+		return PlacementService
+	}
+	return s.Placement
+}
+
+// IsSidecar reports whether this dependency is placed in the consumer's pod.
+func (s *ServiceDependency) IsSidecar() bool {
+	return s.Placement == PlacementSidecar
 }
 
 func (s *ServiceDependency) String() string {
