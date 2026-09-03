@@ -37,6 +37,20 @@ type PodTemplateOverlay struct {
 	// path — as opposed to envFrom, which only projects keys as environment
 	// variables. Left nil/empty, no volumes or volumeMounts render.
 	ConfigMounts []ConfigMount
+
+	// Containers are extra containers merged into the workload's pod, appended to
+	// the primary container the template renders. This is the cross-service
+	// placement seam: a dependency declared with Placement "sidecar" contributes
+	// its own rendered container spec here, so it runs in the consumer's pod and
+	// is reached over localhost. Each is a raw container spec (the same shape a
+	// Deployment's containers[] entry has) and MUST carry a "name"; a container
+	// whose name already exists on the pod is left untouched (idempotent).
+	Containers []map[string]any
+}
+
+// HasContainers reports whether the overlay contributes any extra containers.
+func (o *PodTemplateOverlay) HasContainers() bool {
+	return o != nil && len(o.Containers) > 0
 }
 
 // ConfigMount mounts a ConfigMap as a file (or directory of files) into a
@@ -92,7 +106,32 @@ func (o *PodTemplateOverlay) Validate() error {
 			return fmt.Errorf("workload service account name %q must be a DNS-1123 subdomain", name)
 		}
 	}
+	if err := o.validateContainers(); err != nil {
+		return err
+	}
 	return o.validateConfigMounts()
+}
+
+// validateContainers rejects a contributed container that could not be merged
+// idempotently: one without a name (there is nothing to dedupe on, so a second
+// render would duplicate it), a name that is not a DNS-1123 label, or two
+// contributions competing for the same name.
+func (o *PodTemplateOverlay) validateContainers() error {
+	seen := make(map[string]bool, len(o.Containers))
+	for _, container := range o.Containers {
+		name, _ := container["name"].(string)
+		if name == "" {
+			return fmt.Errorf("contributed container requires a name")
+		}
+		if len(name) > 63 || !dns1123Label.MatchString(name) {
+			return fmt.Errorf("contributed container name %q must be a DNS-1123 label", name)
+		}
+		if seen[name] {
+			return fmt.Errorf("contributed container name %q appears more than once", name)
+		}
+		seen[name] = true
+	}
+	return nil
 }
 
 // validateConfigMounts rejects a mount that would render an invalid or
@@ -287,7 +326,7 @@ func applyPodOverlay(_ context.Context, baseDir string, overlay *PodTemplateOver
 	if overlay == nil {
 		return result, nil
 	}
-	if !overlay.HasServiceAccount() && len(overlay.PodLabels) == 0 && len(overlay.PodAnnotations) == 0 && !overlay.HasConfigMounts() {
+	if !overlay.HasServiceAccount() && len(overlay.PodLabels) == 0 && len(overlay.PodAnnotations) == 0 && !overlay.HasConfigMounts() && !overlay.HasContainers() {
 		return result, nil
 	}
 	entries, err := os.ReadDir(baseDir)
@@ -398,7 +437,81 @@ func applyPodOverlayToDocument(root *yaml.Node, overlay *PodTemplateOverlay) (ch
 			}
 		}
 	}
+	if overlay.HasContainers() && podSpec != nil && podSpec.Kind == yaml.MappingNode {
+		if appendContainers(podSpec, overlay.Containers) {
+			changed = true
+		}
+	}
 	return changed, bound, podVolumeNames(podSpec)
+}
+
+// appendContainers merges the overlay's containers into the pod spec's
+// containers sequence, skipping any whose name already exists so a re-render is
+// idempotent and a template-declared container of the same name wins. It
+// reports whether it added anything.
+func appendContainers(podSpec *yaml.Node, containers []map[string]any) bool {
+	seq := ensureSequenceChild(podSpec, "containers")
+	existing := containerNames(seq)
+	changed := false
+	for _, container := range containers {
+		name, _ := container["name"].(string)
+		if name == "" || existing[name] {
+			continue
+		}
+		node, err := mapToNode(container)
+		if err != nil {
+			continue // Validate() already rejected un-marshalable specs upstream
+		}
+		seq.Content = append(seq.Content, node)
+		existing[name] = true
+		changed = true
+	}
+	return changed
+}
+
+// ensureSequenceChild returns the sequence node at key, creating an empty one
+// when absent so items can be appended.
+func ensureSequenceChild(node *yaml.Node, key string) *yaml.Node {
+	if child := mappingChild(node, key); child != nil {
+		return child
+	}
+	value := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		value)
+	return value
+}
+
+// containerNames returns the set of container names already in a containers
+// sequence, so a contribution never duplicates one.
+func containerNames(seq *yaml.Node) map[string]bool {
+	names := map[string]bool{}
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return names
+	}
+	for _, container := range seq.Content {
+		if name := mappingScalar(container, "name"); name != "" {
+			names[name] = true
+		}
+	}
+	return names
+}
+
+// mapToNode marshals a raw container spec into a YAML mapping node so it can be
+// appended into the rendered document.
+func mapToNode(value map[string]any) (*yaml.Node, error) {
+	encoded, err := yaml.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var document yaml.Node
+	if err = yaml.Unmarshal(encoded, &document); err != nil {
+		return nil, err
+	}
+	if document.Kind == yaml.DocumentNode && len(document.Content) == 1 {
+		return document.Content[0], nil
+	}
+	return nil, fmt.Errorf("container did not encode to a single node")
 }
 
 // podVolumeNames returns the names of the volumes declared on a pod spec.

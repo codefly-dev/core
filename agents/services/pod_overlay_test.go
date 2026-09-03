@@ -14,6 +14,7 @@ import (
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestPodTemplateOverlayValidate(t *testing.T) {
@@ -384,6 +385,107 @@ spec:
 	after, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
 	require.NoError(t, err)
 	require.Equal(t, manifest, string(after))
+}
+
+// podContainerNames reads back the container names on the (single) workload in
+// a rendered manifest file.
+func podContainerNames(t *testing.T, path string) []string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var doc struct {
+		Spec struct {
+			Template struct {
+				Spec struct {
+					Containers []struct {
+						Name string `yaml:"name"`
+					} `yaml:"containers"`
+				} `yaml:"spec"`
+			} `yaml:"template"`
+		} `yaml:"spec"`
+	}
+	require.NoError(t, yaml.Unmarshal(content, &doc))
+	var names []string
+	for _, c := range doc.Spec.Template.Spec.Containers {
+		names = append(names, c.Name)
+	}
+	return names
+}
+
+func TestApplyPodOverlayAppendsContributedContainer(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  namespace: codefly
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: example/app
+`
+	path := filepath.Join(dir, "deployment.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(manifest), 0o644))
+
+	overlay := &PodTemplateOverlay{Containers: []map[string]any{{
+		"name":  "libreoffice",
+		"image": "ghcr.io/obin-ai/service-libreoffice@sha256:deadbeef",
+		"args":  []any{"python3", "-m", "libreoffice_client.server", "--port", "2003"},
+		"ports": []any{map[string]any{"containerPort": 2003}},
+	}}}
+	require.NoError(t, overlay.Validate())
+
+	// First apply appends the sidecar next to the primary container.
+	_, err := applyPodOverlay(context.Background(), dir, overlay)
+	require.NoError(t, err)
+	require.Equal(t, []string{"app", "libreoffice"}, podContainerNames(t, path))
+
+	// Re-apply is idempotent — the sidecar is not duplicated.
+	_, err = applyPodOverlay(context.Background(), dir, overlay)
+	require.NoError(t, err)
+	require.Equal(t, []string{"app", "libreoffice"}, podContainerNames(t, path))
+}
+
+func TestApplyPodOverlaySkipsContainerWhoseNameExists(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  namespace: codefly
+spec:
+  template:
+    spec:
+      containers:
+        - name: libreoffice
+          image: template/owns-this
+`
+	path := filepath.Join(dir, "deployment.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(manifest), 0o644))
+
+	overlay := &PodTemplateOverlay{Containers: []map[string]any{{
+		"name": "libreoffice", "image": "overlay/would-collide",
+	}}}
+	_, err := applyPodOverlay(context.Background(), dir, overlay)
+	require.NoError(t, err)
+	// A template-declared container of the same name wins: still one, unchanged.
+	require.Equal(t, []string{"libreoffice"}, podContainerNames(t, path))
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(after), "template/owns-this")
+	require.NotContains(t, string(after), "overlay/would-collide")
+}
+
+func TestPodTemplateOverlayValidateContainers(t *testing.T) {
+	require.Error(t, (&PodTemplateOverlay{Containers: []map[string]any{{"image": "x"}}}).Validate(),
+		"a container without a name must be rejected")
+	require.Error(t, (&PodTemplateOverlay{Containers: []map[string]any{{"name": "Bad_Name"}}}).Validate(),
+		"a non-DNS-1123 container name must be rejected")
+	require.Error(t, (&PodTemplateOverlay{Containers: []map[string]any{{"name": "a"}, {"name": "a"}}}).Validate(),
+		"duplicate container names must be rejected")
+	require.NoError(t, (&PodTemplateOverlay{Containers: []map[string]any{{"name": "libreoffice", "image": "x"}}}).Validate())
 }
 
 // TestApplyPodOverlayDetectsUnrenderedConfigMount is the guard behind the
