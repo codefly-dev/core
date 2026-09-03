@@ -198,6 +198,205 @@ layout: modules
 	require.Contains(t, err.Error(), "not found")
 }
 
+// The composition root provides a workspace configuration that a composed
+// module's service reads at runtime without declaring it as a dependency
+// (codefly.For(ctx).WorkspaceValue). The root injects such configurations into
+// every service in the run, so they must appear in the composition-root set —
+// while a composed module's own configuration, scoped to the services that
+// declare it, must not.
+func TestManagerCompositionRootConfigurationsReachEveryService(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: host
+    path: ../host
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env", "authority-jwks-url=https://root/jwks.json\n")
+
+	writeConfigurationFile(t, root, "host/module.codefly.yaml", `kind: module
+name: host
+services:
+  - name: telemetry
+`)
+	writeConfigurationFile(t, root, "host/configurations/local/observability.env", "OBSERVABILITY_URL=host-observability\n")
+	writeConfigurationFile(t, root, "host/services/telemetry/service.codefly.yaml", `kind: service
+name: telemetry
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+`)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	rootConfs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Len(t, rootConfs, 1)
+	url, err := resources.GetConfigurationValue(ctx, rootConfs[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Equal(t, "https://root/jwks.json", url)
+
+	// The composed module's own configuration is not a composition-root
+	// configuration: it reaches only the services that declare it.
+	_, err = resources.FindWorkspaceConfiguration(ctx, rootConfs, "observability")
+	require.Error(t, err)
+
+	// Both remain reachable through the full workspace set.
+	all, err := manager.GetWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+}
+
+// A composition root wires a cross-module URL as a workspace configuration by
+// referencing a composed endpoint. Injected run-wide, it must be endpoint
+// interpolated for the consumer's access in the composition-root set too.
+func TestManagerCompositionRootConfigurationsInterpolateEndpoints(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	mappings := []*basev0.NetworkMapping{
+		{
+			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev0.NetworkInstance{
+				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
+				{Address: "http://host.docker.internal:45123", Access: resources.NewContainerNetworkAccess()},
+			},
+		},
+	}
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	native, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Len(t, native, 1)
+	nativeURL, err := resources.GetConfigurationValue(ctx, native[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Equal(t, "http://localhost:45123/v1/auth/.well-known/jwks.json", nativeURL)
+
+	manager.WithNetworkMappings(mappings, resources.NewContainerNetworkAccess())
+	container, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	containerURL, err := resources.GetConfigurationValue(ctx, container[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Equal(t, "http://host.docker.internal:45123/v1/auth/.well-known/jwks.json", containerURL)
+}
+
+// An invocation-scoped workspace override (SDK --set of a workspace value) is a
+// composition-root configuration too: it is provided by the run, not a composed
+// module, so it reaches every service.
+func TestManagerCompositionRootConfigurationsIncludeInvocationOverrides(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	encoded, err := resources.EncodeWorkspaceConfigurationOverrides([]resources.WorkspaceConfigurationOverride{
+		{Name: "work-context", Key: "authority-jwks-url", Value: "https://override/jwks.json"},
+	})
+	require.NoError(t, err)
+	t.Setenv(resources.WorkspaceConfigurationOverridesEnvironment, encoded)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	rootConfs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Len(t, rootConfs, 1)
+	url, err := resources.GetConfigurationValue(ctx, rootConfs[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Equal(t, "https://override/jwks.json", url)
+}
+
+// When the composition root and a composed module both declare a configuration
+// of the same name, the root wins at load (mirror of #374) and the name is
+// composition-root origin — the run-wide value is the root's, never the
+// module's suppressed one.
+func TestManagerCompositionRootWinsOnNameConflict(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: host
+    path: ../host
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env", "authority-jwks-url=https://root/jwks.json\n")
+
+	writeConfigurationFile(t, root, "host/module.codefly.yaml", `kind: module
+name: host
+services:
+  - name: telemetry
+`)
+	writeConfigurationFile(t, root, "host/configurations/local/work-context.env", "authority-jwks-url=https://module/jwks.json\n")
+	writeConfigurationFile(t, root, "host/services/telemetry/service.codefly.yaml", `kind: service
+name: telemetry
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+`)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	rootConfs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Len(t, rootConfs, 1)
+	url, err := resources.GetConfigurationValue(ctx, rootConfs[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Equal(t, "https://root/jwks.json", url)
+}
+
 func TestLoaderFlatLayout(t *testing.T) {
 	testLoader(t, "testdata/flat")
 }
