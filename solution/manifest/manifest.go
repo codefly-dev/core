@@ -218,8 +218,10 @@ func (m *Manifest) Validate() error {
 	return nil
 }
 
-// compositionNamePattern matches module/service/endpoint identifiers. It is the
-// same shape composition/schema.go enforces for module and service names.
+// compositionNamePattern matches module/service/endpoint identifiers: lowercase
+// alphanumeric words joined by single hyphens. This is stricter than
+// composition/schema.go's identifier pattern (which also permits '.', '_', and
+// '/'); consumed-API bindings deliberately allow only the hyphenated form.
 var compositionNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
 
 // protoServiceNamePattern matches protobuf service names (e.g. AuditService).
@@ -247,16 +249,19 @@ func validateExposedAPIs(name string, declarations []APIDeclaration) error {
 		if err := validateAPIDeclarationBase(name, i, declaration, seen); err != nil {
 			return err
 		}
-		for field, set := range map[string]bool{
-			"module":   declaration.Module != "",
-			"service":  declaration.Service != "",
-			"endpoint": declaration.Endpoint != "",
-			"version":  declaration.Version != "",
-			"services": len(declaration.Services) > 0,
-			"as":       declaration.As != "",
+		for _, field := range []struct {
+			name string
+			set  bool
+		}{
+			{"module", declaration.Module != ""},
+			{"service", declaration.Service != ""},
+			{"endpoint", declaration.Endpoint != ""},
+			{"version", declaration.Version != ""},
+			{"services", len(declaration.Services) > 0},
+			{"as", declaration.As != ""},
 		} {
-			if set {
-				return fmt.Errorf("%s[%d].%s is not allowed", name, i, field)
+			if field.set {
+				return fmt.Errorf("%s[%d].%s is not allowed", name, i, field.name)
 			}
 		}
 	}

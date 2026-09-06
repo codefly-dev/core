@@ -773,7 +773,9 @@ type PackageRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// context carries the environment-scoped invocation identity.
 	Context *SolutionContext `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
-	// source is the solution directory to package.
+	// source is the solution directory to package. The executor MUST read
+	// solution.codefly.yaml from here and MAY use its api.consumes declarations
+	// to embed the consumed contract versions into the packaged artifact.
 	Source string `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
 	// reference is the target OCI reference.
 	Reference     string `protobuf:"bytes,3,opt,name=reference,proto3" json:"reference,omitempty"`

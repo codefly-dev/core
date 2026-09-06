@@ -182,6 +182,16 @@ func TestManifestRejectsConsumedFieldsOnExposedAPI(t *testing.T) {
 		"    - id: gateway\n      protocol: grpc\n      module: saas-starter", 1)
 	_, err := manifest.Load([]byte(withModule))
 	require.ErrorContains(t, err, "api.exposes[0].module is not allowed")
+
+	// When several consumed-only fields are set, the reported field is
+	// deterministic (declaration order), not whichever a map happened to yield.
+	withMany := strings.Replace(validManifest,
+		"    - id: gateway\n      protocol: grpc",
+		"    - id: gateway\n      protocol: grpc\n      version: \">=0.1.0\"\n      as: gw\n      module: saas-starter", 1)
+	for range 20 {
+		_, err := manifest.Load([]byte(withMany))
+		require.ErrorContains(t, err, "api.exposes[0].module is not allowed")
+	}
 }
 
 func TestManifestAcceptsDescriptorOnlySolution(t *testing.T) {
