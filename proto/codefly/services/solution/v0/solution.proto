@@ -192,7 +192,9 @@ message UpdateResponse {
 message PackageRequest {
   // context carries the environment-scoped invocation identity.
   SolutionContext context = 1;
-  // source is the solution directory to package.
+  // source is the solution directory to package. The executor MUST read
+  // solution.codefly.yaml from here and MAY use its api.consumes declarations
+  // to embed the consumed contract versions into the packaged artifact.
   string source = 2;
   // reference is the target OCI reference.
   string reference = 3;
