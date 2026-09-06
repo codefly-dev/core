@@ -103,6 +103,36 @@ func TestFacadeGo(t *testing.T) {
 	goVet(t, ctx, dest, "github.com/codefly-dev/cli/pkg/builder/clients/accounts")
 }
 
+// TestFacadeGoStreamingOnly guards the streaming-skip path: a service whose
+// only RPC is streaming emits a wrapper with no methods, so the facade must not
+// import context/connect.NewRequest (which only methods use) — otherwise the
+// file has unused imports and fails to compile.
+func TestFacadeGoStreamingOnly(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	testutil.RequireProtoImage(t, ctx)
+
+	dest := t.TempDir()
+	err := proto.GenerateClient(ctx, proto.ClientRequest{
+		Language:    languages.GO,
+		Destination: dest,
+		Module:      "feed",
+		Facade:      true,
+		Sources: []proto.Source{
+			{Path: "stream/v1/stream.proto", Content: fixture(t, "streaming/stream.proto")},
+		},
+	})
+	require.NoError(t, err, "proto companion image not built: %s", testutil.BuildCompanionsHint)
+
+	body, err := os.ReadFile(filepath.Join(dest, "stream/v1/feed/feed_facade.pb.go"))
+	require.NoError(t, err)
+	require.Contains(t, string(body), "// skipped: streaming RPC Watch")
+	require.NotContains(t, string(body), "\"context\"", "context must not be imported when no method uses it")
+
+	// go vet fails on an unused import, so this proves the file compiles.
+	goVet(t, ctx, dest, "github.com/codefly-dev/cli/pkg/builder/clients/feed")
+}
+
 func TestFacadeTypeScript(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
@@ -155,6 +185,7 @@ func TestFacadeDescriptorSetMatchesSources(t *testing.T) {
 		Module:        "accounts",
 		Facade:        true,
 		DescriptorSet: image,
+		TargetFiles:   []string{auditProtoPath},
 	}))
 
 	sourcesFacade, err := os.ReadFile(filepath.Join(fromSources, "accounts.py"))

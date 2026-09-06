@@ -9,15 +9,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/runners/companion"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 // ClientRequest describes a single client-generation run. Exactly one of
@@ -36,6 +33,14 @@ type ClientRequest struct {
 	// DescriptorSet is a serialized google.protobuf.FileDescriptorSet — the
 	// contract a module package carries. buf accepts it as a generation input.
 	DescriptorSet []byte
+	// TargetFiles names the module's own proto files inside DescriptorSet (the
+	// files the module owns, not its imports). Required with DescriptorSet when
+	// generating a Python Facade: the strip step must keep exactly these and
+	// drop every shared import (buf.validate, google.api, org-shared options,
+	// ...), so that the generated *_pb2 never registers a shared descriptor a
+	// sibling SDK also carries. Ignored for the Sources path (the sources are
+	// the targets) and for non-Python or non-facade generation.
+	TargetFiles []string
 	// Sources are .proto files written to the temp dir — today's
 	// GenerateGRPC path. Each carries its repo-relative path, not just content:
 	// the path decides the generated module/import names, so it must match the
@@ -69,6 +74,7 @@ func GenerateClient(ctx context.Context, req ClientRequest) error {
 		destination:   req.Destination,
 		service:       service,
 		descriptorSet: req.DescriptorSet,
+		targetFiles:   req.TargetFiles,
 		facade: FacadeOptions{
 			Facade:   req.Facade,
 			Services: req.Services,
@@ -87,6 +93,7 @@ type clientSpec struct {
 	service       string
 	sources       []Source
 	descriptorSet []byte
+	targetFiles   []string
 	facade        FacadeOptions
 }
 
@@ -132,14 +139,16 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 		}
 		input := "/workspace/image.binpb"
 		// A Python facade must not register shared descriptors (buf.validate,
-		// google.api, ...) into the global pool, so strip them from the image
-		// before generating the *_pb2 bindings.
+		// google.api, org-shared options, ...) into the global pool, so strip
+		// the image down to the module's own files before generating the *_pb2
+		// bindings. The caller names those files; guessing them (e.g. by path
+		// prefix) silently keeps any shared proto that doesn't match the guess.
 		if spec.language == languages.PYTHON && spec.facade.Facade {
-			targets, terr := nonSharedFiles(spec.descriptorSet)
-			if terr != nil {
-				return w.Wrapf(terr, "cannot inspect descriptor set")
+			if len(spec.targetFiles) == 0 {
+				return w.NewError("TargetFiles is required for a Python facade from a descriptor set: the strip step needs the module's own proto file names")
 			}
 			stripped := "/workspace/image.stripped.binpb"
+			targets := spec.targetFiles
 			before = func(ctx context.Context, runner companion.CompanionRunner) error {
 				args := append([]string{"/workspace/image.binpb", stripped}, targets...)
 				proc, perr := runner.NewProcess("codefly-proto-strip-options", args...)
@@ -159,33 +168,4 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 
 	name := fmt.Sprintf("proto-%s-%d-%s", spec.service, time.Now().UnixMilli(), spec.language)
 	return runBuf(ctx, name, image, tmpDir, spec.destination, depUpdate, generateArgs, before)
-}
-
-// sharedFilePrefixes are the proto files a generated client must never embed
-// into its own descriptor pool — well-known types come from the runtime, and
-// validation/annotation options are shared descriptors.
-var sharedFilePrefixes = []string{"google/", "buf/", "gogoproto/", "grpc/"}
-
-// nonSharedFiles returns the module's own proto files in a descriptor set — the
-// strip targets — by dropping the shared dependency files.
-func nonSharedFiles(descriptorSet []byte) ([]string, error) {
-	var set descriptorpb.FileDescriptorSet
-	if err := proto.Unmarshal(descriptorSet, &set); err != nil {
-		return nil, err
-	}
-	var files []string
-	for _, f := range set.GetFile() {
-		name := f.GetName()
-		shared := false
-		for _, prefix := range sharedFilePrefixes {
-			if strings.HasPrefix(name, prefix) {
-				shared = true
-				break
-			}
-		}
-		if !shared {
-			files = append(files, name)
-		}
-	}
-	return files, nil
 }

@@ -116,16 +116,17 @@
         };
 
         # Facade plugins (Python/Go/TS) + the descriptor-set option stripper.
-        # These mirror the Dockerfile's facade install. The two Nix content
-        # hashes below (vendorHash, npmDepsHash) cannot be computed without a
-        # Nix builder; fill them with a `nix build` on Linux. The Dockerfile
-        # path — what `codefly companion build proto` uses — builds all three
-        # from the same in-tree source and needs no such hash.
+        # These mirror the Dockerfile's facade install. Both are built without a
+        # precomputed Nix content hash so the flake needs no manual hash step:
+        # the Go plugin vendors its deps (vendorHash = null reads facades/go/
+        # vendor), and the TS plugin's node_modules come from its committed
+        # package-lock.json via importNpmLock (which reads the lockfile's own
+        # integrity hashes).
         facadeGo = pkgs.buildGoModule {
           pname = "protoc-gen-codefly-facade-go";
           inherit version;
           src = ./facades/go;
-          vendorHash = pkgs.lib.fakeHash; # TODO(nix): fill via `nix build`
+          vendorHash = null;
           meta.mainProgram = "protoc-gen-codefly-facade-go";
         };
 
@@ -133,7 +134,8 @@
           pname = "protoc-gen-codefly-facade-ts";
           version = "0.0.13";
           src = ./facades/ts;
-          npmDepsHash = pkgs.lib.fakeHash; # TODO(nix): fill via `nix build`
+          npmDeps = pkgs.importNpmLock { npmRoot = ./facades/ts; };
+          npmConfigHook = pkgs.importNpmLock.npmConfigHook;
           dontNpmBuild = true;
           postInstall = ''
             mkdir -p $out/bin

@@ -161,8 +161,6 @@ func emit(gen *protogen.Plugin, g *packageGroup, module string, opts options) er
 	httpClient := gf.QualifiedGoIdent(protogen.GoImportPath("net/http").Ident("Client"))
 	connectImportName := gf.QualifiedGoIdent(protogen.GoImportPath("connectrpc.com/connect").Ident("ClientOption"))
 	connectImportName = connectImportName[:strings.LastIndex(connectImportName, ".")]
-	newRequest := gf.QualifiedGoIdent(protogen.GoImportPath("connectrpc.com/connect").Ident("NewRequest"))
-	ctxType := gf.QualifiedGoIdent(protogen.GoImportPath("context").Ident("Context"))
 
 	gf.P("// Gateway is the minimal surface this facade needs from the solution runtime.")
 	gf.P("type Gateway interface {")
@@ -227,6 +225,11 @@ func emit(gen *protogen.Plugin, g *packageGroup, module string, opts options) er
 				return fmt.Errorf("method name collision in %s: %s and %s both map to %s", s.GoName, m.GoName, other, method)
 			}
 			methodNames[method] = string(m.GoName)
+			// Resolved here, not once up top: a service with only streaming
+			// (skipped) RPCs emits no method, and importing context/NewRequest
+			// then would leave them unused and the file uncompilable.
+			ctxType := gf.QualifiedGoIdent(protogen.GoImportPath("context").Ident("Context"))
+			newRequest := gf.QualifiedGoIdent(protogen.GoImportPath("connectrpc.com/connect").Ident("NewRequest"))
 			req := gf.QualifiedGoIdent(m.Input.GoIdent)
 			resp := gf.QualifiedGoIdent(m.Output.GoIdent)
 			gf.P("func (a *", wrapper, ") ", method, "(ctx ", ctxType, ", req *", req, ") (*", resp, ", error) {")

@@ -10,50 +10,29 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-func TestNonSharedFiles(t *testing.T) {
-	set := &descriptorpb.FileDescriptorSet{
-		File: []*descriptorpb.FileDescriptorProto{
-			{Name: proto.String("buf/validate/validate.proto")},
-			{Name: proto.String("google/protobuf/timestamp.proto")},
-			{Name: proto.String("google/api/http.proto")},
-			{Name: proto.String("saas/policy/v1/options.proto")},
-			{Name: proto.String("saas/accounts/v1/audit.proto")},
-		},
-	}
-	blob, err := proto.Marshal(set)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := nonSharedFiles(blob)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"saas/policy/v1/options.proto", "saas/accounts/v1/audit.proto"}
-	if len(got) != len(want) {
-		t.Fatalf("nonSharedFiles = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("nonSharedFiles = %v, want %v", got, want)
-		}
-	}
-}
-
 // TestStripCustomOptions runs the actual strip_custom_options.py against a
-// descriptor set that imports buf/validate/validate.proto and asserts the
-// shared file and the field options are gone. It needs a python with the
-// protobuf runtime; without one it skips (this test is not Docker-gated).
+// descriptor set that imports both buf/validate/validate.proto and an
+// org-shared options proto (saas/policy), and asserts that only the named
+// target survives — every shared import, whatever its path, is dropped, and
+// the target's field options are cleared. It needs a python with the protobuf
+// runtime; without one it skips (this test is not Docker-gated).
+//
+// saas/policy is the case a path-prefix guess would have wrongly kept: it is
+// neither a google well-known type nor under buf/, yet keeping it re-registers
+// a shared descriptor into the pool. Only the caller's explicit target list
+// gets this right.
 func TestStripCustomOptions(t *testing.T) {
 	python := pythonWithProtobuf(t)
 
 	set := &descriptorpb.FileDescriptorSet{
 		File: []*descriptorpb.FileDescriptorProto{
 			{Name: proto.String("buf/validate/validate.proto"), Package: proto.String("buf.validate")},
+			{Name: proto.String("saas/policy/v1/options.proto"), Package: proto.String("saas.policy.v1")},
 			{Name: proto.String("google/protobuf/timestamp.proto"), Package: proto.String("google.protobuf")},
 			{
 				Name:       proto.String("saas/accounts/v1/audit.proto"),
 				Package:    proto.String("saas.accounts.v1"),
-				Dependency: []string{"buf/validate/validate.proto", "google/protobuf/timestamp.proto"},
+				Dependency: []string{"buf/validate/validate.proto", "saas/policy/v1/options.proto", "google/protobuf/timestamp.proto"},
 				MessageType: []*descriptorpb.DescriptorProto{{
 					Name: proto.String("Req"),
 					Field: []*descriptorpb.FieldDescriptorProto{{
@@ -95,10 +74,12 @@ func TestStripCustomOptions(t *testing.T) {
 
 	var target *descriptorpb.FileDescriptorProto
 	for _, f := range stripped.GetFile() {
-		if f.GetName() == "buf/validate/validate.proto" {
+		switch f.GetName() {
+		case "buf/validate/validate.proto":
 			t.Error("buf/validate/validate.proto survived the strip")
-		}
-		if f.GetName() == "saas/accounts/v1/audit.proto" {
+		case "saas/policy/v1/options.proto":
+			t.Error("saas/policy/v1/options.proto (a shared, non-target proto) survived the strip")
+		case "saas/accounts/v1/audit.proto":
 			target = f
 		}
 	}
@@ -106,8 +87,8 @@ func TestStripCustomOptions(t *testing.T) {
 		t.Fatal("target file dropped by the strip")
 	}
 	for _, dep := range target.GetDependency() {
-		if dep == "buf/validate/validate.proto" {
-			t.Error("target still depends on buf/validate/validate.proto")
+		if dep == "buf/validate/validate.proto" || dep == "saas/policy/v1/options.proto" {
+			t.Errorf("target still depends on stripped file %s", dep)
 		}
 	}
 	if target.GetMessageType()[0].GetField()[0].Options != nil {
