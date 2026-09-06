@@ -50,18 +50,39 @@ func TestWorkspaceReferencesOutOfRepoModuleByPath(t *testing.T) {
 	require.NoError(t, workspace.ValidateServiceDependencies(ctx))
 }
 
-// A composed module whose own declared name differs from the workspace
-// reference name is a silent inconsistency (dependency wiring and service
-// uniques key off the reference name). Loading it must fail loudly at the
-// reference boundary rather than return a module that answers to a different
-// name than the workspace believes it composed.
-func TestWorkspaceRejectsComposedModuleWithMismatchedName(t *testing.T) {
+// A reference carrying an explicit coordinate (here a path override) identifies
+// the module by that coordinate, so its name is a workspace-local alias and the
+// module's own declared name may differ — a module renamed at its source must
+// still resolve for consumers whose coordinate still points at it. The composed
+// module and its services then answer to the alias, not the declared name, so
+// dependency wiring keys off the handle the workspace believes it composed.
+func TestWorkspaceComposesCoordinateModuleUnderAlias(t *testing.T) {
 	ctx := context.Background()
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/out-of-repo/name-mismatch-solution")
 	require.NoError(t, err)
 
-	_, err = workspace.LoadModuleFromName(ctx, "aliased")
+	mod, err := workspace.LoadModuleFromName(ctx, "aliased")
+	require.NoError(t, err)
+	require.Equal(t, "aliased", mod.Name)
+
+	svc, err := mod.LoadServiceFromName(ctx, "api")
+	require.NoError(t, err)
+	identity, err := svc.Identity()
+	require.NoError(t, err)
+	require.Equal(t, "aliased", identity.Module)
+}
+
+// A bare-name reference locates its module purely by that name (the in-repo
+// layout default), so a module declaring a different name is a genuine
+// inconsistency the workspace cannot key off coherently. Loading it must fail
+// loudly rather than return a module answering to an unexpected name.
+func TestWorkspaceRejectsBareNameModuleWithMismatchedName(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/bare-name-mismatch")
+	require.NoError(t, err)
+
+	_, err = workspace.LoadModuleFromName(ctx, "foo")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "actual-name")
-	require.Contains(t, err.Error(), "aliased")
+	require.Contains(t, err.Error(), "bar")
+	require.Contains(t, err.Error(), "foo")
 }

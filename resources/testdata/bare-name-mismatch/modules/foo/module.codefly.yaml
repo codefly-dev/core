@@ -1,0 +1,4 @@
+kind: module
+name: bar
+services:
+    - name: api
