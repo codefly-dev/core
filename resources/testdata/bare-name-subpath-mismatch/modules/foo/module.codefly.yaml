@@ -1,0 +1,4 @@
+kind: module
+name: baz
+services:
+    - name: api

@@ -3,3 +3,4 @@ layout: modules
 modules:
   - name: aliased
     path: ../aliased-module
+  - name: consumer

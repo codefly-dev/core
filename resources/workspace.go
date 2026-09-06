@@ -301,10 +301,15 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 }
 
 // referenceIdentifiesByCoordinate reports whether ref locates its module by an
-// explicit coordinate — a source, a module path, a committed path override, or a
-// local overlay directive — rather than by its bare name alone.
+// explicit coordinate — a source, a committed path override, or a local overlay
+// directive — rather than by its bare name alone. The Module subpath is not a
+// coordinate on its own: ResolveModule consults it only when a source or overlay
+// worktree supplies the checkout root to join it onto, and ignores it otherwise,
+// so a bare `module:` with no source still resolves purely by name. Treating it
+// as a coordinate here would wrongly suppress the declared-name mismatch guard
+// for exactly that name-only resolution.
 func (workspace *Workspace) referenceIdentifiesByCoordinate(ref *ModuleReference) bool {
-	if ref.Source != "" || ref.Module != "" || ref.PathOverride != nil {
+	if ref.Source != "" || ref.PathOverride != nil {
 		return true
 	}
 	return workspace.overlay != nil && workspace.overlay.Resolve[ref.Name] != nil

@@ -59,6 +59,13 @@ type Module struct {
 	// internal
 	dir string
 
+	// declaredName is the name read from module.codefly.yaml on disk, retained
+	// when the module is composed under a workspace-local alias that differs from
+	// it (see adoptWorkspaceName). Empty means Name still matches the on-disk
+	// name. It guards SaveToDir against writing the alias back over the real
+	// source file at dir.
+	declaredName string
+
 	// For flat layout: back-reference to workspace so Save() writes there instead of module.codefly.yaml
 	flatWorkspace *Workspace `yaml:"-"`
 }
@@ -330,6 +337,7 @@ func (mod *Module) adoptWorkspaceName(name string) {
 	if mod.Name == name {
 		return
 	}
+	mod.declaredName = mod.Name
 	mod.Name = name
 	for _, ref := range mod.ServiceReferences {
 		ref.Module = name
@@ -358,6 +366,13 @@ func (mod *Module) SaveToDir(ctx context.Context, dir string) error {
 	w := wool.Get(ctx).In("configurations.SaveToDir", wool.DirField(dir))
 	if dir == "" {
 		return w.NewError("can't save module to empty directory")
+	}
+	// A module composed under a workspace-local alias carries the alias in Name
+	// while dir still points at its real (often shared, out-of-repo or worktree)
+	// checkout. Persisting it would overwrite the on-disk `name` with the alias,
+	// silently corrupting the source for every other workspace that composes it.
+	if mod.declaredName != "" && mod.declaredName != mod.Name {
+		return w.NewError("refusing to save module composed under alias <%s>: its on-disk name is <%s> at %s, and writing would overwrite the source; edit the module from its own checkout", mod.Name, mod.declaredName, dir)
 	}
 	if err := mod.validatePaths(); err != nil {
 		return w.Wrap(err)
