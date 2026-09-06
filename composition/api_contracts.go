@@ -188,6 +188,14 @@ func APIContractDigest(data []byte) string {
 }
 
 func ValidatePackageAPIContracts(moduleDir string, manifest *PackageManifest, catalog *APIContractCatalog) error {
+	// The catalog may be supplied by a caller that built it in memory (e.g. the
+	// CLI from a descriptor set) rather than through LoadAPIContractCatalog, so
+	// this verifier cannot assume it is already valid. Re-validate before any of
+	// its fields — in particular the file Path this function reads from disk —
+	// are trusted.
+	if err := catalog.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrContract, err)
+	}
 	catalogByEndpoint := make(map[string]APIContractEndpoint, len(catalog.Endpoints))
 	for _, endpoint := range catalog.Endpoints {
 		key := endpoint.Service + "\x00" + endpoint.Endpoint
@@ -265,6 +273,15 @@ func validateContractPath(label, value string) error {
 }
 
 func pathUnderArtifactRoots(value string, roots []string) bool {
+	// A ".." segment lets a raw prefix match ("contracts/../../secret" starts
+	// with "contracts/") escape the artifact root once the path is joined and
+	// cleaned, so containment must reject traversal itself rather than trust the
+	// caller to have pre-validated the path.
+	for _, segment := range strings.Split(value, "/") {
+		if segment == ".." {
+			return false
+		}
+	}
 	for _, root := range roots {
 		if value == root || strings.HasPrefix(value, root+"/") {
 			return true

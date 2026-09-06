@@ -2,6 +2,7 @@ package composition
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -214,6 +215,46 @@ func TestValidatePackageAPIContracts(t *testing.T) {
 	t.Run("manifest and catalog disagree", func(t *testing.T) {
 		moduleDir, manifest, catalog := setup(t)
 		catalog.Endpoints[0].Package = "saas.other.v1"
+		err := ValidatePackageAPIContracts(moduleDir, manifest, catalog)
+		require.ErrorIs(t, err, ErrContract)
+	})
+
+	t.Run("catalog path traversal is rejected without reading outside the module", func(t *testing.T) {
+		secretRoot := t.TempDir()
+		writeFile(t, filepath.Join(secretRoot, "secret.txt"), string(descriptor))
+		moduleDir := filepath.Join(secretRoot, "module")
+		require.NoError(t, os.MkdirAll(filepath.Join(moduleDir, "contracts"), 0o755))
+
+		traversal := "contracts/../../secret.txt"
+		manifest := &PackageManifest{
+			ArtifactRoots: []string{"contracts"},
+			Services: []ProvidedService{{
+				Name: "accounts", Endpoints: []string{"connect"},
+				APIContracts: []ProvidedAPIContract{{
+					Endpoint: "connect", Kind: APIContractKindProtobuf, Package: "saas.accounts.v1",
+					Path: traversal, Digest: digest,
+				}},
+			}},
+		}
+		catalog := &APIContractCatalog{
+			Schema: APIContractCatalogSchema, Package: testPackage, Version: "0.1.0",
+			Endpoints: []APIContractEndpoint{{
+				Service: "accounts", Endpoint: "connect", API: "connect",
+				Kind: APIContractKindProtobuf, Package: "saas.accounts.v1", Path: traversal, Digest: digest,
+				Services: []APIContractService{{
+					Name: "AuditService", FullName: "saas.accounts.v1.AuditService",
+					Procedures: []string{"/saas.accounts.v1.AuditService/QueryAuditLog"},
+				}},
+			}},
+		}
+		err := ValidatePackageAPIContracts(moduleDir, manifest, catalog)
+		require.ErrorIs(t, err, ErrContract)
+		require.False(t, pathUnderArtifactRoots(traversal, manifest.ArtifactRoots))
+	})
+
+	t.Run("duplicate catalog endpoint is rejected", func(t *testing.T) {
+		moduleDir, manifest, catalog := setup(t)
+		catalog.Endpoints = append(catalog.Endpoints, catalog.Endpoints[0])
 		err := ValidatePackageAPIContracts(moduleDir, manifest, catalog)
 		require.ErrorIs(t, err, ErrContract)
 	})

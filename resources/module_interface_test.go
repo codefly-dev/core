@@ -63,3 +63,34 @@ interface:
 	require.NoError(t, err)
 	require.True(t, mod.HasInterface())
 }
+
+func TestExportedEndpointsForPackageRequiresInterface(t *testing.T) {
+	ctx := context.Background()
+
+	withInterface := writeInterfaceFixture(t, `kind: module
+name: billing
+services:
+    - name: accounts
+interface:
+    endpoints:
+        - service: accounts
+          endpoint: grpc
+          visibility: module
+`)
+	mod, err := LoadModuleFromDir(ctx, withInterface)
+	require.NoError(t, err)
+	exported, err := mod.ExportedEndpointsForPackage(ctx)
+	require.NoError(t, err)
+	require.Len(t, exported, 1)
+
+	withoutInterface := writeInterfaceFixture(t, `kind: module
+name: billing
+services:
+    - name: accounts
+`)
+	mod, err = LoadModuleFromDir(ctx, withoutInterface)
+	require.NoError(t, err)
+	_, err = mod.ExportedEndpointsForPackage(ctx)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "an interface is required")
+}
