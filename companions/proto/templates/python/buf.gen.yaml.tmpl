@@ -4,3 +4,10 @@ plugins:
     out: {{.Destination}}
   - plugin: buf.build/grpc/python
     out: {{.Destination}}
+{{- if .Facade }}
+  - name: codefly-facade-python
+    out: {{.Destination}}
+{{- if or .Services .Module }}
+    opt: {{ if .Services }}services={{.Services}}{{ end }}{{ if and .Services .Module }},{{ end }}{{ if .Module }}module={{.Module}}{{ end }}
+{{- end }}
+{{- end }}

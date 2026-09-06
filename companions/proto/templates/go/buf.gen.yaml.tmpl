@@ -10,6 +10,14 @@ plugins:
   - name: go
     out: {{.Destination}}
     opt: paths=source_relative
+{{- if .Facade }}
+  - name: connect-go
+    out: {{.Destination}}
+    opt: paths=source_relative
+  - name: codefly-facade-go
+    out: {{.Destination}}
+    opt: paths=source_relative{{ if .Services }},services={{.Services}}{{ end }}{{ if .Module }},module={{.Module}}{{ end }}
+{{- else }}
   - name: go-grpc
     out: {{.Destination}}
     opt: paths=source_relative
@@ -17,3 +25,4 @@ plugins:
     out: {{.Destination}}/../openapi
     opt: logtostderr=true
     path: protoc-gen-openapiv2
+{{- end }}
