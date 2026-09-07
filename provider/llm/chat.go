@@ -27,13 +27,10 @@ type ChatRequest struct {
 	Stream      bool
 }
 
-// Body renders the request as descriptor-allowed body fields.
-//
-// Prompt content is user text that may legitimately look secret-shaped; the
-// provider protocol forbids secret-shaped structured values by design (see
-// canonical validation), so callers must screen content with ScreenContent
-// before building a request — Body itself does no screening.
-func (r ChatRequest) Body() map[string]*providerv0.PublicValue {
+// body renders the request as descriptor-allowed body fields. PlannedChat
+// screens content and validates the fields against the target descriptor; this
+// method does neither.
+func (r ChatRequest) body() map[string]*providerv0.PublicValue {
 	messages := make([]*providerv0.PublicValue, 0, len(r.Messages))
 	for _, message := range r.Messages {
 		messages = append(messages, objectValue(map[string]*providerv0.PublicValue{
@@ -69,10 +66,13 @@ func (r ChatRequest) content() []string {
 	return texts
 }
 
-// Usage is the token accounting a chat call reports.
+// Usage is the token accounting a call reports. Chat reports input and output
+// tokens; embedding and rerank report a total (Voyage) and OpenAI additionally
+// reports prompt tokens as InputTokens.
 type Usage struct {
 	InputTokens  int64
 	OutputTokens int64
+	TotalTokens  int64
 }
 
 // ChatResponse is a whole non-streaming chat completion.
@@ -98,7 +98,7 @@ type ChatDelta struct {
 func DecodeEvent(event *providerv0.FilteredEvent) ChatDelta {
 	delta := ChatDelta{EventType: event.GetEventType(), Terminal: event.GetTerminal()}
 	for _, field := range event.GetForwarded() {
-		if field.GetSelector() == "$.delta.text" {
+		if isStreamText(field.GetSelector()) {
 			delta.Text += field.GetValue().GetStringValue()
 			continue
 		}
@@ -169,25 +169,49 @@ func DecodeChatStream(response *providerv0.ExecuteRequestResponse) (*ChatStream,
 }
 
 // applyChatField maps one non-text forwarded field onto the decoded stop reason
-// and usage.
+// and usage, covering both the Anthropic and OpenAI response shapes.
 func applyChatField(field *providerv0.FilteredField, stopReason *string, usage *Usage) {
-	switch field.GetSelector() {
+	selector := field.GetSelector()
+	if _, ok := indexBetween(selector, "$.choices[", "].finish_reason"); ok {
+		*stopReason = field.GetValue().GetStringValue()
+		return
+	}
+	switch selector {
 	case "$.stop_reason", "$.delta.stop_reason":
 		*stopReason = field.GetValue().GetStringValue()
-	case "$.usage.input_tokens", "$.message.usage.input_tokens":
+	case "$.usage.input_tokens", "$.message.usage.input_tokens", "$.usage.prompt_tokens":
 		usage.InputTokens = field.GetValue().GetIntegerValue()
-	case "$.usage.output_tokens", "$.message.usage.output_tokens":
+	case "$.usage.output_tokens", "$.message.usage.output_tokens", "$.usage.completion_tokens":
 		usage.OutputTokens = field.GetValue().GetIntegerValue()
 	}
 }
 
-// contentIndex reports the array index of a $.content[N].text selector.
+// contentIndex reports the array index of a whole-response chat text selector:
+// Anthropic's $.content[N].text or OpenAI's $.choices[N].message.content.
 func contentIndex(selector string) (int, bool) {
-	rest, ok := strings.CutPrefix(selector, "$.content[")
+	if index, ok := indexBetween(selector, "$.content[", "].text"); ok {
+		return index, true
+	}
+	return indexBetween(selector, "$.choices[", "].message.content")
+}
+
+// isStreamText reports whether selector carries a streamed text fragment:
+// Anthropic's $.delta.text or OpenAI's $.choices[N].delta.content.
+func isStreamText(selector string) bool {
+	if selector == "$.delta.text" {
+		return true
+	}
+	_, ok := indexBetween(selector, "$.choices[", "].delta.content")
+	return ok
+}
+
+// indexBetween parses the array index N from a selector shaped prefix+N+suffix.
+func indexBetween(selector, prefix, suffix string) (int, bool) {
+	rest, ok := strings.CutPrefix(selector, prefix)
 	if !ok {
 		return 0, false
 	}
-	digits, ok := strings.CutSuffix(rest, "].text")
+	digits, ok := strings.CutSuffix(rest, suffix)
 	if !ok {
 		return 0, false
 	}
