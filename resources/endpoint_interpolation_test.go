@@ -7,6 +7,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -197,6 +198,37 @@ func TestInterpolateRunWideConfigurationEndpointsDropsReferenceAbsentFromConsume
 	static, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "static")
 	require.NoError(t, err)
 	assert.Equal(t, "keep-me", static)
+}
+
+// A run-wide drop must not be silent. Dropping a value the consumer cannot
+// satisfy is correct, but if the reference failed to resolve because a mapping
+// that should have propagated did not, an invisible drop is a silent runtime
+// misconfiguration. The drop therefore leaves a DEBUG breadcrumb carrying the
+// configuration, key, and reason — diagnosable with --debug — so the failure is
+// recoverable instead of mysterious.
+func TestInterpolateRunWideConfigurationEndpointsLogsDroppedReference(t *testing.T) {
+	baseCtx := context.Background()
+	capture := &warningCapture{}
+	ctx := wool.New(baseCtx, &wool.Resource{Kind: "test", Unique: "endpoint-drop"}).WithLogger(capture).Inject(baseCtx)
+	previous := wool.GlobalLogLevel()
+	wool.SetGlobalLogLevel(wool.TRACE)
+	t.Cleanup(func() { wool.SetGlobalLogLevel(previous) })
+
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name:                "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/frontend/http}"}},
+			},
+		},
+	}
+
+	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+
+	require.Equal(t, 1, capture.count("omitting run-wide configuration value"),
+		"a dropped run-wide value must leave exactly one diagnosable breadcrumb")
 }
 
 // The run-wide drop is per endpoint reference, not per service. A consumer that

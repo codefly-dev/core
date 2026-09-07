@@ -88,6 +88,19 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 				// left with no values) rather than fail the service. The strict
 				// path propagates the error.
 				if dropUnresolved {
+					// The drop is expected in the common case — a run-wide value
+					// is interpolated for every service and only those depending
+					// on the endpoint resolve it — so this is DEBUG, not WARN: a
+					// WARN would fire on every boot for every non-consumer and
+					// train operators to ignore it. But it must not vanish
+					// silently: if a mapping that should have propagated did not,
+					// this breadcrumb (run with --debug) is what turns an
+					// otherwise silent runtime misconfiguration into a
+					// diagnosable one.
+					w.Debug("omitting run-wide configuration value: endpoint reference does not resolve for this consumer",
+						wool.Field("configuration", info.Name),
+						wool.Field("key", value.Key),
+						wool.Field("reason", err.Error()))
 					continue
 				}
 				return nil, w.Wrapf(err, "cannot interpolate configuration %s/%s", info.Name, value.Key)
