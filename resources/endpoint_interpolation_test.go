@@ -127,12 +127,51 @@ func TestInterpolateConfigurationEndpoints(t *testing.T) {
 	assert.Equal(t, "http://host.docker.internal:1234/v1/auth/.well-known/jwks.json", url)
 }
 
-// A dependency-less workspace configuration is interpolated for every service,
-// including leaf infra services that do not depend on the referenced endpoint and
-// therefore have it absent from their mapping set. Such a value is not for that
-// consumer: it is dropped rather than failing the service, while sibling values
-// with no reference survive.
-func TestInterpolateConfigurationEndpointsDropsReferenceAbsentFromConsumer(t *testing.T) {
+// The strict variant is fail-fast: any reference that does not resolve for the
+// consumer is a hard error, whether the service is absent from the mapping set or
+// present under a different endpoint. This is what preserves typo detection on the
+// GetWorkspaceConfigurations path.
+func TestInterpolateConfigurationEndpointsErrorsOnUnresolvedReference(t *testing.T) {
+	ctx := context.Background()
+
+	// Service present, wrong endpoint token.
+	wrongEndpoint := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name: "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{
+					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/grpc}/v1/jwks"},
+				},
+			},
+		},
+	}
+	_, err := resources.InterpolateConfigurationEndpoints(ctx, wrongEndpoint, gatewayMappings(), resources.NewNativeNetworkAccess())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+
+	// Service absent entirely (empty mapping set) — still a hard error on the
+	// strict path.
+	absentService := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name:                "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/frontend/http}"}},
+			},
+		},
+	}
+	_, err = resources.InterpolateConfigurationEndpoints(ctx, absentService, nil, resources.NewNativeNetworkAccess())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+// A run-wide configuration is interpolated for every service, including leaf infra
+// services that do not depend on the referenced endpoint and therefore have it
+// absent from their mapping set. Such a value is not for that consumer: it is
+// dropped rather than failing the service, while sibling values with no reference
+// survive.
+func TestInterpolateRunWideConfigurationEndpointsDropsReferenceAbsentFromConsumer(t *testing.T) {
 	ctx := context.Background()
 	conf := &basev0.Configuration{
 		Origin: resources.ConfigurationWorkspace,
@@ -148,7 +187,7 @@ func TestInterpolateConfigurationEndpointsDropsReferenceAbsentFromConsumer(t *te
 	}
 
 	// A leaf service that depends on nothing has an empty mapping set.
-	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
 	require.NoError(t, err)
 
 	dropped, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "authority-jwks-url")
@@ -160,10 +199,12 @@ func TestInterpolateConfigurationEndpointsDropsReferenceAbsentFromConsumer(t *te
 	assert.Equal(t, "keep-me", static)
 }
 
-// A reference to a service the consumer does depend on (present in its mapping
-// set) but with a wrong endpoint token is a genuine misconfiguration: it stays a
-// hard error rather than being silently dropped.
-func TestInterpolateConfigurationEndpointsErrorsOnWrongEndpointForPresentService(t *testing.T) {
+// The run-wide drop is per endpoint reference, not per service. A consumer that
+// depends on saas-starter/auth-sidecar for its http endpoint, given a run-wide
+// value referencing that service's grpc endpoint (which it does not depend on),
+// has the value dropped — not hard-failed. The service-granularity heuristic would
+// have failed this consumer's boot on a config it never consumes.
+func TestInterpolateRunWideConfigurationEndpointsDropsSiblingEndpointOfDependedService(t *testing.T) {
 	ctx := context.Background()
 	conf := &basev0.Configuration{
 		Origin: resources.ConfigurationWorkspace,
@@ -171,12 +212,24 @@ func TestInterpolateConfigurationEndpointsErrorsOnWrongEndpointForPresentService
 			{
 				Name: "work-context",
 				ConfigurationValues: []*basev0.ConfigurationValue{
-					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/grpc}/v1/jwks"},
+					{Key: "grpc-url", Value: "${endpoint:saas-starter/auth-sidecar/grpc}"},
+					{Key: "http-url", Value: "${endpoint:saas-starter/auth-sidecar/http}/v1/jwks"},
 				},
 			},
 		},
 	}
-	_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+
+	// gatewayMappings() gives the consumer only the http endpoint of auth-sidecar.
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+
+	// The sibling grpc reference is dropped; the http reference it does depend on
+	// resolves and survives.
+	dropped, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "grpc-url")
+	require.NoError(t, err)
+	assert.Empty(t, dropped)
+
+	url, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "http-url")
+	require.NoError(t, err)
+	assert.Equal(t, "http://localhost:1234/v1/jwks", url)
 }
