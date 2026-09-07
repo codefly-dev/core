@@ -108,7 +108,12 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 			value.Value = resolved
 			values = append(values, value)
 		}
-		if len(values) == 0 {
+		// Drop an information only when run-wide dropping emptied it: it had
+		// values and every one was unsatisfiable for this consumer, so injecting
+		// an empty block would be noise. An information that started with no
+		// values is not a drop victim — it is preserved unchanged, so the strict
+		// path (which drops nothing) returns exactly the structure it was given.
+		if len(values) == 0 && len(info.ConfigurationValues) > 0 {
 			continue
 		}
 		info.ConfigurationValues = values

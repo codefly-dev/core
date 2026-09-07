@@ -128,6 +128,37 @@ func TestInterpolateConfigurationEndpoints(t *testing.T) {
 	assert.Equal(t, "http://host.docker.internal:1234/v1/auth/.well-known/jwks.json", url)
 }
 
+// The strict path must preserve an information block that carries no values
+// (a placeholder). It is not a value that failed to resolve, so the filter that
+// removes infos emptied by run-wide dropping must not remove it here — the strict
+// path drops nothing and returns the same structure it was given.
+func TestInterpolateConfigurationEndpointsPreservesEmptyInformation(t *testing.T) {
+	ctx := context.Background()
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name: "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{
+					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/http}/v1/jwks"},
+				},
+			},
+			{Name: "empty-context", ConfigurationValues: nil},
+		},
+	}
+
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(resolved.Infos))
+	for _, info := range resolved.Infos {
+		names = append(names, info.Name)
+	}
+	assert.Contains(t, names, "work-context")
+	assert.Contains(t, names, "empty-context",
+		"an information block that started with no values must not be dropped by the strict path")
+}
+
 // The strict variant is fail-fast: any reference that does not resolve for the
 // consumer is a hard error, whether the service is absent from the mapping set or
 // present under a different endpoint. This is what preserves typo detection on the
