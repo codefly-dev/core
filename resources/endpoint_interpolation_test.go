@@ -7,6 +7,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
+	"github.com/codefly-dev/core/wool"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -125,4 +126,173 @@ func TestInterpolateConfigurationEndpoints(t *testing.T) {
 	url, err = resources.GetConfigurationValue(ctx, container, "work-context", "authority-jwks-url")
 	require.NoError(t, err)
 	assert.Equal(t, "http://host.docker.internal:1234/v1/auth/.well-known/jwks.json", url)
+}
+
+// The strict path must preserve an information block that carries no values
+// (a placeholder). It is not a value that failed to resolve, so the filter that
+// removes infos emptied by run-wide dropping must not remove it here — the strict
+// path drops nothing and returns the same structure it was given.
+func TestInterpolateConfigurationEndpointsPreservesEmptyInformation(t *testing.T) {
+	ctx := context.Background()
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name: "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{
+					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/http}/v1/jwks"},
+				},
+			},
+			{Name: "empty-context", ConfigurationValues: nil},
+		},
+	}
+
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(resolved.Infos))
+	for _, info := range resolved.Infos {
+		names = append(names, info.Name)
+	}
+	assert.Contains(t, names, "work-context")
+	assert.Contains(t, names, "empty-context",
+		"an information block that started with no values must not be dropped by the strict path")
+}
+
+// The strict variant is fail-fast: any reference that does not resolve for the
+// consumer is a hard error, whether the service is absent from the mapping set or
+// present under a different endpoint. This is what preserves typo detection on the
+// GetWorkspaceConfigurations path.
+func TestInterpolateConfigurationEndpointsErrorsOnUnresolvedReference(t *testing.T) {
+	ctx := context.Background()
+
+	// Service present, wrong endpoint token.
+	wrongEndpoint := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name: "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{
+					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/grpc}/v1/jwks"},
+				},
+			},
+		},
+	}
+	_, err := resources.InterpolateConfigurationEndpoints(ctx, wrongEndpoint, gatewayMappings(), resources.NewNativeNetworkAccess())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+
+	// Service absent entirely (empty mapping set) — still a hard error on the
+	// strict path.
+	absentService := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name:                "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/frontend/http}"}},
+			},
+		},
+	}
+	_, err = resources.InterpolateConfigurationEndpoints(ctx, absentService, nil, resources.NewNativeNetworkAccess())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+// A run-wide configuration is interpolated for every service, including leaf infra
+// services that do not depend on the referenced endpoint and therefore have it
+// absent from their mapping set. Such a value is not for that consumer: it is
+// dropped rather than failing the service, while sibling values with no reference
+// survive.
+func TestInterpolateRunWideConfigurationEndpointsDropsReferenceAbsentFromConsumer(t *testing.T) {
+	ctx := context.Background()
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name: "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{
+					{Key: "authority-jwks-url", Value: "${endpoint:saas/frontend/http}/v1/auth/.well-known/jwks.json"},
+					{Key: "static", Value: "keep-me"},
+				},
+			},
+		},
+	}
+
+	// A leaf service that depends on nothing has an empty mapping set.
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+
+	dropped, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	assert.Empty(t, dropped)
+
+	static, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "static")
+	require.NoError(t, err)
+	assert.Equal(t, "keep-me", static)
+}
+
+// A run-wide drop must not be silent. Dropping a value the consumer cannot
+// satisfy is correct, but if the reference failed to resolve because a mapping
+// that should have propagated did not, an invisible drop is a silent runtime
+// misconfiguration. The drop therefore leaves a DEBUG breadcrumb carrying the
+// configuration, key, and reason — diagnosable with --debug — so the failure is
+// recoverable instead of mysterious.
+func TestInterpolateRunWideConfigurationEndpointsLogsDroppedReference(t *testing.T) {
+	baseCtx := context.Background()
+	capture := &warningCapture{}
+	ctx := wool.New(baseCtx, &wool.Resource{Kind: "test", Unique: "endpoint-drop"}).WithLogger(capture).Inject(baseCtx)
+	previous := wool.GlobalLogLevel()
+	wool.SetGlobalLogLevel(wool.TRACE)
+	t.Cleanup(func() { wool.SetGlobalLogLevel(previous) })
+
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name:                "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/frontend/http}"}},
+			},
+		},
+	}
+
+	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+
+	require.Equal(t, 1, capture.count("omitting run-wide configuration value"),
+		"a dropped run-wide value must leave exactly one diagnosable breadcrumb")
+}
+
+// The run-wide drop is per endpoint reference, not per service. A consumer that
+// depends on saas-starter/auth-sidecar for its http endpoint, given a run-wide
+// value referencing that service's grpc endpoint (which it does not depend on),
+// has the value dropped — not hard-failed. The service-granularity heuristic would
+// have failed this consumer's boot on a config it never consumes.
+func TestInterpolateRunWideConfigurationEndpointsDropsSiblingEndpointOfDependedService(t *testing.T) {
+	ctx := context.Background()
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name: "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{
+					{Key: "grpc-url", Value: "${endpoint:saas-starter/auth-sidecar/grpc}"},
+					{Key: "http-url", Value: "${endpoint:saas-starter/auth-sidecar/http}/v1/jwks"},
+				},
+			},
+		},
+	}
+
+	// gatewayMappings() gives the consumer only the http endpoint of auth-sidecar.
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+
+	// The sibling grpc reference is dropped; the http reference it does depend on
+	// resolves and survives.
+	dropped, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "grpc-url")
+	require.NoError(t, err)
+	assert.Empty(t, dropped)
+
+	url, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "http-url")
+	require.NoError(t, err)
+	assert.Equal(t, "http://localhost:1234/v1/jwks", url)
 }

@@ -310,6 +310,44 @@ layout: modules
 	require.Equal(t, "http://host.docker.internal:45123/v1/auth/.well-known/jwks.json", containerURL)
 }
 
+// A dependency-less workspace configuration is injected run-wide, including into
+// leaf infra services that declare no dependency on the referenced endpoint and
+// so have an empty mapping set. Interpolating its ${endpoint:…} value for such a
+// consumer must not fail the service: the value it cannot satisfy is omitted, and
+// runtime-init proceeds. Regression for the saas/vault boot failure in #393.
+func TestManagerCompositionRootConfigurationsOmitEndpointForNonDependentService(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"authority-jwks-url=${endpoint:saas/frontend/http}/v1/auth/.well-known/jwks.json\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	// A leaf service depending on nothing gets an empty mapping set.
+	manager.WithLoader(loader).WithNetworkMappings(nil, resources.NewNativeNetworkAccess())
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	rootConfs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Len(t, rootConfs, 1)
+
+	// The only value was unsatisfiable for this consumer, so it — and the now
+	// empty information — is omitted rather than failing the service.
+	info, err := resources.GetConfigurationInformation(ctx, rootConfs[0], "work-context")
+	require.NoError(t, err)
+	require.Nil(t, info)
+}
+
 // An invocation-scoped workspace override (SDK --set of a workspace value) is a
 // composition-root configuration too: it is provided by the run, not a composed
 // module, so it reaches every service.

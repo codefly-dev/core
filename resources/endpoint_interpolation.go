@@ -46,21 +46,80 @@ func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.
 // baked into the shared configuration: when a value carries a reference, a
 // resolved clone is returned and conf is left untouched; otherwise conf itself is
 // returned unchanged.
+//
+// This is the strict, fail-fast variant: any reference that does not resolve for
+// access is a hard error. Use it when the caller requested this configuration —
+// by name or in full — and every reference is expected to resolve for the
+// consumer. For a configuration injected run-wide into services that never
+// declared the referenced endpoint, use InterpolateRunWideConfigurationEndpoints.
 func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (*basev0.Configuration, error) {
+	return interpolateConfigurationEndpoints(ctx, conf, mappings, access, false)
+}
+
+// InterpolateRunWideConfigurationEndpoints is InterpolateConfigurationEndpoints
+// for a configuration the composition root injects run-wide into every service.
+// Such a configuration reaches leaf services that never declared the referenced
+// endpoint and so have it absent from their per-consumer mapping set. A value
+// whose ${endpoint:…} does not resolve for this consumer is not for it: the value
+// is dropped — along with an information left with no values — rather than failing
+// the service. The decision is per endpoint reference, not per service: a value
+// referencing one endpoint of a service the consumer depends on for a *different*
+// endpoint is still dropped, because this consumer has no instance for the
+// referenced one. Contrast the strict variant, which errors on any unresolved
+// reference.
+func InterpolateRunWideConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (*basev0.Configuration, error) {
+	return interpolateConfigurationEndpoints(ctx, conf, mappings, access, true)
+}
+
+func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, dropUnresolved bool) (*basev0.Configuration, error) {
 	if conf == nil || !configurationHasEndpointReference(conf) {
 		return conf, nil
 	}
 	w := wool.Get(ctx).In("resources.InterpolateConfigurationEndpoints")
 	cloned := proto.Clone(conf).(*basev0.Configuration)
+	infos := cloned.Infos[:0]
 	for _, info := range cloned.Infos {
+		values := info.ConfigurationValues[:0]
 		for _, value := range info.ConfigurationValues {
 			resolved, err := InterpolateEndpoints(ctx, value.Value, mappings, access)
 			if err != nil {
+				// In the run-wide path, a value the consumer cannot satisfy is
+				// simply not for it: drop the value (and, below, an information
+				// left with no values) rather than fail the service. The strict
+				// path propagates the error.
+				if dropUnresolved {
+					// The drop is expected in the common case — a run-wide value
+					// is interpolated for every service and only those depending
+					// on the endpoint resolve it — so this is DEBUG, not WARN: a
+					// WARN would fire on every boot for every non-consumer and
+					// train operators to ignore it. But it must not vanish
+					// silently: if a mapping that should have propagated did not,
+					// this breadcrumb (run with --debug) is what turns an
+					// otherwise silent runtime misconfiguration into a
+					// diagnosable one.
+					w.Debug("omitting run-wide configuration value: endpoint reference does not resolve for this consumer",
+						wool.Field("configuration", info.Name),
+						wool.Field("key", value.Key),
+						wool.Field("reason", err.Error()))
+					continue
+				}
 				return nil, w.Wrapf(err, "cannot interpolate configuration %s/%s", info.Name, value.Key)
 			}
 			value.Value = resolved
+			values = append(values, value)
 		}
+		// Drop an information only when run-wide dropping emptied it: it had
+		// values and every one was unsatisfiable for this consumer, so injecting
+		// an empty block would be noise. An information that started with no
+		// values is not a drop victim — it is preserved unchanged, so the strict
+		// path (which drops nothing) returns exactly the structure it was given.
+		if len(values) == 0 && len(info.ConfigurationValues) > 0 {
+			continue
+		}
+		info.ConfigurationValues = values
+		infos = append(infos, info)
 	}
+	cloned.Infos = infos
 	return cloned, nil
 }
 
@@ -75,6 +134,12 @@ func configurationHasEndpointReference(conf *basev0.Configuration) bool {
 	return false
 }
 
+// resolveEndpointReference resolves reference against mappings for access. A
+// malformed reference, an endpoint absent from mappings, or a missing instance
+// for access all return an error — the caller (InterpolateConfigurationEndpoints
+// vs InterpolateRunWideConfigurationEndpoints) decides whether an unresolved
+// reference fails the service or is dropped for a consumer that does not depend on
+// it.
 func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMapping, reference string, access *basev0.NetworkAccess) (*basev0.NetworkInstance, error) {
 	w := wool.Get(ctx).In("resources.resolveEndpointReference")
 	info, err := ParseEndpoint(reference)

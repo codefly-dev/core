@@ -260,10 +260,16 @@ func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*base
 // fills what a composed module leaves unset and never shadows a name only the
 // module provides.
 //
-// Values are secret-resolved and endpoint-interpolated for the access set on the
-// Manager, exactly like GetWorkspaceConfigurations — and, like it, a bad
-// ${endpoint:…} reference is a hard error, since every returned configuration is
-// injected run-wide.
+// Values are secret-resolved like GetWorkspaceConfigurations, but endpoints are
+// interpolated leniently: because these configurations are injected run-wide, a
+// value whose ${endpoint:…} does not resolve for the consumer — an endpoint it
+// does not depend on, absent from its mapping set — is omitted for that consumer
+// rather than failing it (#393). The decision is per endpoint reference: a value
+// referencing one endpoint of a service the consumer depends on for a different
+// endpoint is dropped too. A mistyped reference is therefore dropped rather than
+// erroring here; GetWorkspaceConfigurations, which is fail-fast, is where such a
+// typo surfaces. Unresolvable secrets still fail the run (they are universal, not
+// consumer-specific).
 func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
 	if manager == nil {
 		return nil, nil
@@ -282,7 +288,9 @@ func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Co
 		if err := manager.resolveWorkspaceConfiguration(ctx, name, conf); err != nil {
 			return nil, w.Wrapf(err, "cannot resolve workspace configuration %s", name)
 		}
-		resolved, err := manager.interpolateEndpoints(ctx, name, conf)
+		// Run-wide injection: a value whose ${endpoint:…} the consumer does not
+		// depend on is omitted for it rather than failing the service (#393).
+		resolved, err := manager.interpolateEndpointsRunWide(ctx, name, conf)
 		if err != nil {
 			return nil, err
 		}
@@ -295,10 +303,25 @@ func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Co
 // mappings for the configured access. The address is consumer-specific, so it is
 // resolved on the way out (never cached into the shared configuration): the
 // composition root sets the consumer's access via WithNetworkMappings before each
-// read.
+// read. This is the strict path: a reference that does not resolve fails, because
+// the caller selected this configuration and every reference is expected to hold.
 func (manager *Manager) interpolateEndpoints(ctx context.Context, name string, conf *basev0.Configuration) (*basev0.Configuration, error) {
 	w := wool.Get(ctx).In("Manager.interpolateEndpoints")
 	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot interpolate workspace configuration %s", name)
+	}
+	return resolved, nil
+}
+
+// interpolateEndpointsRunWide is interpolateEndpoints for the composition root's
+// run-wide injection set: a value referencing an endpoint the consumer does not
+// depend on is dropped for that consumer rather than failing it. Only this path
+// is lenient; GetWorkspaceConfigurations and GetWorkspaceDependenciesConfigurations
+// stay fail-fast so a mistyped module/service/endpoint still surfaces loudly.
+func (manager *Manager) interpolateEndpointsRunWide(ctx context.Context, name string, conf *basev0.Configuration) (*basev0.Configuration, error) {
+	w := wool.Get(ctx).In("Manager.interpolateEndpointsRunWide")
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot interpolate workspace configuration %s", name)
 	}
