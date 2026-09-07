@@ -284,15 +284,35 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load module")
 	}
-	// A reference's name is the module's workspace identity: dependency wiring
-	// and service uniques key off it. A composed module (out-of-repo path or
-	// worktree) whose own declared name differs from the reference is silently
-	// inconsistent — the composition never boots coherently — so reject it here
-	// rather than let the mismatch surface as a baffling "module not found".
-	if mod.Name != ref.Name {
-		return nil, w.NewError("module referenced as <%s> declares its own name <%s> in %s; the reference name must match the module's declared name", ref.Name, mod.Name, resolution.Dir)
+	// The reference name is the module's workspace-local identity: dependency
+	// wiring and service uniques key off it. When the reference carries an
+	// explicit coordinate (source/module, a path override, or an overlay
+	// directive), that coordinate — not the name — identifies which module is
+	// composed, so the name is a free alias and the module's own declared name
+	// may differ (e.g. renamed at its source without breaking consumers). Only a
+	// bare-name reference, which locates the module purely by that name, is
+	// silently inconsistent when the declared name differs, so reject just that
+	// case rather than let the mismatch surface as a baffling "module not found".
+	if !workspace.referenceIdentifiesByCoordinate(ref) && mod.Name != ref.Name {
+		return nil, w.NewError("module referenced by bare name <%s> declares its own name <%s> in %s; either match the declared name or compose it under an alias with a source/module or path", ref.Name, mod.Name, resolution.Dir)
 	}
+	mod.adoptWorkspaceName(ref.Name)
 	return mod, nil
+}
+
+// referenceIdentifiesByCoordinate reports whether ref locates its module by an
+// explicit coordinate — a source, a committed path override, or a local overlay
+// directive — rather than by its bare name alone. The Module subpath is not a
+// coordinate on its own: ResolveModule consults it only when a source or overlay
+// worktree supplies the checkout root to join it onto, and ignores it otherwise,
+// so a bare `module:` with no source still resolves purely by name. Treating it
+// as a coordinate here would wrongly suppress the declared-name mismatch guard
+// for exactly that name-only resolution.
+func (workspace *Workspace) referenceIdentifiesByCoordinate(ref *ModuleReference) bool {
+	if ref.Source != "" || ref.PathOverride != nil {
+		return true
+	}
+	return workspace.overlay != nil && workspace.overlay.Resolve[ref.Name] != nil
 }
 
 // LoadModuleFromName loads an module from a name

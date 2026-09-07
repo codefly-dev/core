@@ -1,0 +1,4 @@
+kind: module
+name: consumer
+services:
+    - name: web

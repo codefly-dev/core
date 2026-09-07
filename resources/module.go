@@ -59,6 +59,13 @@ type Module struct {
 	// internal
 	dir string
 
+	// declaredName is the name read from module.codefly.yaml on disk, retained
+	// when the module is composed under a workspace-local alias that differs from
+	// it (see adoptWorkspaceName). Empty means Name still matches the on-disk
+	// name. It guards SaveToDir against writing the alias back over the real
+	// source file at dir.
+	declaredName string
+
 	// For flat layout: back-reference to workspace so Save() writes there instead of module.codefly.yaml
 	flatWorkspace *Workspace `yaml:"-"`
 }
@@ -324,6 +331,25 @@ func LoadModuleFromCurrentPath(ctx context.Context) (*Module, error) {
 	return LoadModuleFromDir(ctx, *dir)
 }
 
+// adoptWorkspaceName makes name the module's workspace-local identity and
+// re-propagates it to the service and job references so services, endpoints, and
+// dependency wiring key off the composed handle rather than the module's own
+// declared name (which a coordinate-identified module may have renamed at its
+// source). A no-op when the declared name already equals name.
+func (mod *Module) adoptWorkspaceName(name string) {
+	if mod.Name == name {
+		return
+	}
+	mod.declaredName = mod.Name
+	mod.Name = name
+	for _, ref := range mod.ServiceReferences {
+		ref.Module = name
+	}
+	for _, ref := range mod.JobReferences {
+		ref.Module = name
+	}
+}
+
 func (mod *Module) postLoad(ctx context.Context) error {
 	if err := mod.validatePaths(); err != nil {
 		return err
@@ -343,6 +369,13 @@ func (mod *Module) SaveToDir(ctx context.Context, dir string) error {
 	w := wool.Get(ctx).In("configurations.SaveToDir", wool.DirField(dir))
 	if dir == "" {
 		return w.NewError("can't save module to empty directory")
+	}
+	// A module composed under a workspace-local alias carries the alias in Name
+	// while dir still points at its real (often shared, out-of-repo or worktree)
+	// checkout. Persisting it would overwrite the on-disk `name` with the alias,
+	// silently corrupting the source for every other workspace that composes it.
+	if mod.declaredName != "" && mod.declaredName != mod.Name {
+		return w.NewError("refusing to save module composed under alias <%s>: its on-disk name is <%s> at %s, and writing would overwrite the source; edit the module from its own checkout", mod.Name, mod.declaredName, dir)
 	}
 	if err := mod.validatePaths(); err != nil {
 		return w.Wrap(err)

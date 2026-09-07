@@ -50,18 +50,107 @@ func TestWorkspaceReferencesOutOfRepoModuleByPath(t *testing.T) {
 	require.NoError(t, workspace.ValidateServiceDependencies(ctx))
 }
 
-// A composed module whose own declared name differs from the workspace
-// reference name is a silent inconsistency (dependency wiring and service
-// uniques key off the reference name). Loading it must fail loudly at the
-// reference boundary rather than return a module that answers to a different
-// name than the workspace believes it composed.
-func TestWorkspaceRejectsComposedModuleWithMismatchedName(t *testing.T) {
+// A reference carrying an explicit coordinate (here a path override) identifies
+// the module by that coordinate, so its name is a workspace-local alias and the
+// module's own declared name may differ — a module renamed at its source must
+// still resolve for consumers whose coordinate still points at it. The composed
+// module and its services then answer to the alias, not the declared name, so
+// dependency wiring keys off the handle the workspace believes it composed.
+func TestWorkspaceComposesCoordinateModuleUnderAlias(t *testing.T) {
 	ctx := context.Background()
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/out-of-repo/name-mismatch-solution")
 	require.NoError(t, err)
 
-	_, err = workspace.LoadModuleFromName(ctx, "aliased")
+	mod, err := workspace.LoadModuleFromName(ctx, "aliased")
+	require.NoError(t, err)
+	require.Equal(t, "aliased", mod.Name)
+
+	svc, err := mod.LoadServiceFromName(ctx, "api")
+	require.NoError(t, err)
+	identity, err := svc.Identity()
+	require.NoError(t, err)
+	require.Equal(t, "aliased", identity.Module)
+}
+
+// A bare-name reference locates its module purely by that name (the in-repo
+// layout default), so a module declaring a different name is a genuine
+// inconsistency the workspace cannot key off coherently. Loading it must fail
+// loudly rather than return a module answering to an unexpected name.
+func TestWorkspaceRejectsBareNameModuleWithMismatchedName(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/bare-name-mismatch")
+	require.NoError(t, err)
+
+	_, err = workspace.LoadModuleFromName(ctx, "foo")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "actual-name")
+	require.Contains(t, err.Error(), "bar")
+	require.Contains(t, err.Error(), "foo")
+}
+
+// A `module:` subpath is not a locating coordinate on its own: with no source or
+// overlay worktree to join it onto, resolution falls back to the name-derived
+// layout path, so the reference still locates its module purely by name. Such a
+// reference must therefore hit the same declared-name mismatch guard as a bare
+// name — treating a lone `module:` as a coordinate would silently adopt a
+// mis-declared module.
+func TestWorkspaceRejectsBareNameSubpathModuleWithMismatchedName(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/bare-name-subpath-mismatch")
+	require.NoError(t, err)
+
+	_, err = workspace.LoadModuleFromName(ctx, "foo")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "baz")
+	require.Contains(t, err.Error(), "foo")
+}
+
+// The point of composing under an alias is that consumers wire to the producer
+// by the workspace handle, not by the producer's declared name. The dependency
+// graph keys producer service nodes by their identity (module/service) and
+// consumer edges by the declared dependency (module/service); both must land on
+// the alias so the edge connects. If the composed module answered to its
+// declared name instead, the consumer's `aliased/api` edge would dangle against a
+// producer registered as `actual-name/api`.
+func TestWorkspaceWiresConsumerToAliasedProducer(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/out-of-repo/name-mismatch-solution")
+	require.NoError(t, err)
+
+	producer, err := workspace.LoadModuleFromName(ctx, "aliased")
+	require.NoError(t, err)
+	producerAPI, err := producer.LoadServiceFromName(ctx, "api")
+	require.NoError(t, err)
+	producerIdentity, err := producerAPI.Identity()
+	require.NoError(t, err)
+
+	consumer, err := workspace.LoadModuleFromName(ctx, "consumer")
+	require.NoError(t, err)
+	web, err := consumer.LoadServiceFromName(ctx, "web")
+	require.NoError(t, err)
+	require.Len(t, web.ServiceDependencies, 1)
+
+	// The consumer declared its dependency by the alias; it must resolve to the
+	// exact identity the producer is registered under.
+	require.Equal(t, "aliased/api", producerIdentity.Unique())
+	require.Equal(t, producerIdentity.Unique(), web.ServiceDependencies[0].Unique())
+
+	require.NoError(t, workspace.ValidateServiceDependencies(ctx))
+}
+
+// A module composed under a workspace-local alias carries the alias in memory
+// while its dir still points at the real on-disk source. Persisting it would
+// overwrite the source file's `name` with the alias, corrupting it for every
+// other workspace that composes the same checkout. Saving must be refused.
+func TestComposedAliasedModuleRefusesSave(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/out-of-repo/name-mismatch-solution")
+	require.NoError(t, err)
+
+	mod, err := workspace.LoadModuleFromName(ctx, "aliased")
+	require.NoError(t, err)
+
+	err = mod.Save(ctx)
+	require.Error(t, err)
 	require.Contains(t, err.Error(), "aliased")
+	require.Contains(t, err.Error(), "actual-name")
 }

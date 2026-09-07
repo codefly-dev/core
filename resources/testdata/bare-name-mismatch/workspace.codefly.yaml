@@ -1,0 +1,4 @@
+name: bare-name-mismatch
+layout: modules
+modules:
+  - name: foo

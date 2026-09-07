@@ -1,0 +1,5 @@
+name: subpath-mismatch
+layout: modules
+modules:
+  - name: foo
+    module: modules/bar
