@@ -2,9 +2,11 @@ package resources
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	"gopkg.in/yaml.v3"
 )
 
 /*
@@ -91,11 +93,46 @@ type EnvironmentSecretStoreReference struct {
 }
 
 // EnvironmentManagedSecretReference maps a remote managed secret into a
-// namespaced Kubernetes Secret.
+// namespaced Kubernetes Secret. Property, when set, names the field inside a
+// structured remote document (a Key Vault JSON secret, a Vault KV path) that
+// holds the value, for stores that hold documents rather than bare scalars.
 type EnvironmentManagedSecretReference struct {
 	Name        string                          `yaml:"name"`
 	RemoteKey   string                          `yaml:"remote-key"`
+	Property    string                          `yaml:"property,omitempty"`
 	SecretStore EnvironmentSecretStoreReference `yaml:"secret-store"`
+}
+
+// EnvironmentSecretRemoteRef names where one secret key lives in the external
+// store: the remote key (an Azure Key Vault secret name, a Vault path, …) and,
+// for stores that hold structured documents, the property inside it.
+type EnvironmentSecretRemoteRef struct {
+	Key      string `yaml:"key"`
+	Property string `yaml:"property,omitempty"`
+}
+
+// UnmarshalYAML accepts either a scalar remote key ("lodestar-accounts", which
+// means {key: "lodestar-accounts"}) or an explicit {key, property} mapping, so a
+// store that holds bare scalars stays terse while a store of JSON documents can
+// name the property.
+func (ref *EnvironmentSecretRemoteRef) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		return node.Decode(&ref.Key)
+	}
+	type plain EnvironmentSecretRemoteRef
+	return node.Decode((*plain)(ref))
+}
+
+// MarshalYAML emits the terse scalar form (the remote key alone) when no property
+// is set, so a round-trip that re-serializes the workspace — `environment import`
+// rewrites it in place — preserves a scalar remote-key declaration instead of
+// expanding it to a {key: …} mapping. With a property it emits the full mapping.
+func (ref EnvironmentSecretRemoteRef) MarshalYAML() (any, error) {
+	if ref.Property == "" {
+		return ref.Key, nil
+	}
+	type plain EnvironmentSecretRemoteRef
+	return plain(ref), nil
 }
 
 // EnvironmentManagedService describes an environment-owned replacement for a
@@ -120,15 +157,22 @@ type EnvironmentServiceSecrets struct {
 }
 
 // EnvironmentServiceSecretMapping overrides how one service resolves its
-// secret-service-configurations. A secret key absent from RemoteKeys defaults to
-// the "<service>/<key>" path in the store. SecretStore, when set, overrides the
+// secret-service-configurations. SecretStore, when set, overrides the
 // environment-wide EnvironmentServiceSecrets.SecretStore for this service so that
 // services in a single environment can resolve from different External Secrets
 // stores — mirroring EnvironmentManagedSecretReference, which also carries a
 // per-reference store.
 type EnvironmentServiceSecretMapping struct {
 	SecretStore *EnvironmentSecretStoreReference `yaml:"secret-store,omitempty"`
-	RemoteKeys  map[string]string                `yaml:"remote-keys,omitempty"`
+	// RemoteKeys maps a secret key the rendered manifests reference (the
+	// CODEFLY__… env name) to its remote location. The short string form "key" is
+	// still accepted and means {key: "key"}.
+	RemoteKeys map[string]EnvironmentSecretRemoteRef `yaml:"remote-keys,omitempty"`
+	// Defaults applies to every key of this service not listed in RemoteKeys: Key
+	// and Property may contain "{key}" (replaced by the secret key) and "{service}"
+	// (replaced by the service name); absent, codefly's default "<service>/<key>"
+	// applies.
+	Defaults *EnvironmentSecretRemoteRef `yaml:"defaults,omitempty"`
 }
 
 // EnvironmentResourceQuota sizes the ResourceQuota rendered into an
@@ -219,9 +263,40 @@ func (s *EnvironmentServiceSecrets) Validate() error {
 			if strings.TrimSpace(key) == "" {
 				return fmt.Errorf("service-secrets service %q: remote-key name cannot be empty", name)
 			}
-			if strings.TrimSpace(remote) == "" {
+			if strings.TrimSpace(remote.Key) == "" {
 				return fmt.Errorf("service-secrets service %q: remote-key %q resolves to an empty path", name, key)
 			}
+		}
+		if mapping.Defaults != nil {
+			if strings.TrimSpace(mapping.Defaults.Key) == "" {
+				return fmt.Errorf("service-secrets service %q: defaults key cannot be empty", name)
+			}
+			if err := validateSecretTemplate(mapping.Defaults.Key); err != nil {
+				return fmt.Errorf("service-secrets service %q defaults key: %w", name, err)
+			}
+			if err := validateSecretTemplate(mapping.Defaults.Property); err != nil {
+				return fmt.Errorf("service-secrets service %q defaults property: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// secretTemplatePlaceholder matches any "{…}" token in a defaults template.
+var secretTemplatePlaceholder = regexp.MustCompile(`\{[^{}]*\}`)
+
+// validateSecretTemplate rejects any placeholder in a defaults template other
+// than the two the projection substitutes ({service}, {key}). An unrecognized
+// token — a misspelled placeholder name, say — is left un-substituted, so it
+// would render literally into the ExternalSecret's remoteRef and pass every
+// render check (codefly's single-brace syntax is invisible to the manifest
+// placeholder guard), only failing in-cluster when the store lookup misses.
+// Catching it at load turns that silent runtime break into a loud
+// workspace-load error.
+func validateSecretTemplate(template string) error {
+	for _, token := range secretTemplatePlaceholder.FindAllString(template, -1) {
+		if token != "{service}" && token != "{key}" {
+			return fmt.Errorf("unknown placeholder %q (only {service} and {key} are supported)", token)
 		}
 	}
 	return nil

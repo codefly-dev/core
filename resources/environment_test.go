@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
+	"gopkg.in/yaml.v3"
 )
 
 // writeServiceSecretsWorkspace lays down a modules-layout workspace with a single
@@ -219,8 +220,8 @@ environments:
 	if secrets.SecretStore.Name != "azure-keyvault-prod" || secrets.SecretStore.Kind != "ClusterSecretStore" {
 		t.Fatalf("service secret store = %+v", secrets.SecretStore)
 	}
-	if got := secrets.Services["accounts"].RemoteKeys["workos-client-secret"]; got != "workos/prod/client-secret" {
-		t.Fatalf("accounts remote key override = %q", got)
+	if got := secrets.Services["accounts"].RemoteKeys["workos-client-secret"]; got.Key != "workos/prod/client-secret" || got.Property != "" {
+		t.Fatalf("accounts remote key override = %+v", got)
 	}
 	// accounts inherits the environment-wide store.
 	if secrets.Services["accounts"].SecretStore != nil {
@@ -319,6 +320,171 @@ environments:
 	}
 	if !strings.Contains(err.Error(), "workos-client-secret") {
 		t.Fatalf("error = %v, want it to mention the offending key", err)
+	}
+}
+
+// A remote-key may be declared either as a bare scalar (which is the remote key
+// with no property) or as an explicit {key, property} mapping; both must decode
+// through EnvironmentSecretRemoteRef.UnmarshalYAML.
+func TestEnvironmentSecretRemoteRefDecodesScalarAndMapping(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    service-secrets:
+      secret-store:
+        name: azure-keyvault-prod
+        kind: ClusterSecretStore
+      services:
+        accounts:
+          remote-keys:
+            scalar-key: lodestar-accounts
+            mapping-key:
+              key: lodestar-identity
+              property: client_secret
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := loaded.Environments[0].ServiceSecrets.Services["accounts"].RemoteKeys
+	if scalar := keys["scalar-key"]; scalar.Key != "lodestar-accounts" || scalar.Property != "" {
+		t.Fatalf("scalar form = %+v, want {Key: lodestar-accounts}", scalar)
+	}
+	if mapping := keys["mapping-key"]; mapping.Key != "lodestar-identity" || mapping.Property != "client_secret" {
+		t.Fatalf("mapping form = %+v, want {Key: lodestar-identity, Property: client_secret}", mapping)
+	}
+}
+
+// Marshalling mirrors decoding: a property-less remote ref serializes back to the
+// terse scalar form (so a round-trip that rewrites the workspace, like
+// `environment import`, does not expand it), while one with a property serializes
+// as the {key, property} mapping.
+func TestEnvironmentSecretRemoteRefMarshalsScalarAndMapping(t *testing.T) {
+	scalar, err := yaml.Marshal(resources.EnvironmentSecretRemoteRef{Key: "lodestar-accounts"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(scalar)); got != "lodestar-accounts" {
+		t.Fatalf("scalar marshal = %q, want %q", got, "lodestar-accounts")
+	}
+	mapping, err := yaml.Marshal(resources.EnvironmentSecretRemoteRef{Key: "lodestar-identity", Property: "client_secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(mapping); !strings.Contains(got, "key: lodestar-identity") || !strings.Contains(got, "property: client_secret") {
+		t.Fatalf("mapping marshal = %q, want key+property", got)
+	}
+}
+
+// A defaults block carrying "{key}" (and "{service}") placeholders is a template,
+// not a literal path; it must load and validate rather than being rejected as an
+// empty or malformed remote reference.
+func TestEnvironmentServiceSecretsDefaultsTemplateValidates(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    service-secrets:
+      secret-store:
+        name: azure-keyvault-prod
+        kind: ClusterSecretStore
+      services:
+        accounts:
+          defaults:
+            key: lodestar-{service}
+            property: "{key}"
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaults := loaded.Environments[0].ServiceSecrets.Services["accounts"].Defaults
+	if defaults == nil {
+		t.Fatal("defaults did not load")
+	}
+	if defaults.Key != "lodestar-{service}" || defaults.Property != "{key}" {
+		t.Fatalf("defaults = %+v", defaults)
+	}
+}
+
+// A defaults template carrying an unrecognized placeholder (a typo such as
+// "{sevice}") must fail at load. Unsubstituted, it would render literally into
+// the ExternalSecret's remoteRef and pass every downstream render check, only
+// breaking in-cluster when the store lookup misses — so it has to be caught here.
+func TestEnvironmentServiceSecretsRejectsUnknownDefaultsPlaceholder(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    service-secrets:
+      secret-store:
+        name: azure-keyvault-prod
+        kind: ClusterSecretStore
+      services:
+        accounts:
+          defaults:
+            key: lodestar-{sevice}
+            property: "{key}"
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err == nil {
+		t.Fatal("expected load to fail for unknown defaults placeholder")
+	}
+	if !strings.Contains(err.Error(), "{sevice}") {
+		t.Fatalf("error = %v, want it to name the offending placeholder", err)
+	}
+}
+
+// A managed secret reference may name a property inside a structured remote
+// document, alongside its remote key.
+func TestEnvironmentManagedSecretReferenceDecodesProperty(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    managed-services:
+      accounts:
+        kind: external
+        external-name: accounts.prod.svc
+        secret-references:
+          - name: store-connection
+            remote-key: lodestar-accounts
+            property: store_read_write_connection
+            secret-store:
+              name: azure-keyvault-prod
+              kind: ClusterSecretStore
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := loaded.Environments[0].ManagedServices["accounts"].SecretReferences
+	if len(refs) != 1 {
+		t.Fatalf("secret references = %d, want 1", len(refs))
+	}
+	if refs[0].RemoteKey != "lodestar-accounts" || refs[0].Property != "store_read_write_connection" {
+		t.Fatalf("managed reference = %+v", refs[0])
 	}
 }
 
