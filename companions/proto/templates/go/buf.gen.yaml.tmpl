@@ -16,10 +16,12 @@ plugins:
     opt: paths=source_relative
   - name: codefly-facade-go
     out: {{.Destination}}
-    opt: paths=source_relative{{ if .Services }},services={{.Services}}{{ end }}{{ if .Module }},module={{.Module}}{{ end }}
-    # See the typescript template: the facade needs every file in one
-    # invocation, so override buf's default per-directory strategy.
+    # The facade reads the whole descriptor (grouping services by package,
+    # validating services=), so buf must run it once over every file — not with
+    # its default per-directory strategy, which would hide services in other
+    # directories from each invocation.
     strategy: all
+    opt: paths=source_relative{{ if .Services }},services={{.Services}}{{ end }}{{ if .Module }},module={{.Module}}{{ end }}
 {{- else }}
   - name: go-grpc
     out: {{.Destination}}

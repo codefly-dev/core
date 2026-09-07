@@ -7,8 +7,10 @@ plugins:
 {{- if .Facade }}
   - name: codefly-facade-python
     out: {{.Destination}}
-    # See the typescript template: the facade needs every file in one
-    # invocation, so override buf's default per-directory strategy.
+    # The facade reads the whole descriptor (grouping services by package,
+    # validating services=), so buf must run it once over every file — not with
+    # its default per-directory strategy, which would hide services in other
+    # directories from each invocation.
     strategy: all
 {{- if or .Services .Module }}
     opt: {{ if .Services }}services={{.Services}}{{ end }}{{ if and .Services .Module }},{{ end }}{{ if .Module }}module={{.Module}}{{ end }}

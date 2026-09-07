@@ -51,5 +51,21 @@ func TestFacadePluginsUseAllStrategy(t *testing.T) {
 		if !strings.Contains(string(configuration), "strategy: all") {
 			t.Fatalf("%s facade config must invoke the facade plugin with `strategy: all`:\n%s", lang, configuration)
 		}
+
+		// strategy: all only belongs on the facade plugin. The base plugins are
+		// per-file and correct under buf's default per-directory strategy, so a
+		// non-facade config must not carry it (over-applying it silently changes
+		// how every plugin is invoked).
+		plainDir := t.TempDir()
+		if err := CreateBufConfiguration(context.Background(), plainDir, "accounts", lang, FacadeOptions{}); err != nil {
+			t.Fatalf("CreateBufConfiguration(%s, non-facade): %v", lang, err)
+		}
+		plain, err := os.ReadFile(filepath.Join(plainDir, "buf.gen.yaml"))
+		if err != nil {
+			t.Fatalf("read non-facade buf config (%s): %v", lang, err)
+		}
+		if strings.Contains(string(plain), "strategy: all") {
+			t.Fatalf("%s non-facade config must not carry `strategy: all`:\n%s", lang, plain)
+		}
 	}
 }

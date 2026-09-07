@@ -133,6 +133,42 @@ func TestFacadeGoStreamingOnly(t *testing.T) {
 	goVet(t, ctx, dest, "github.com/codefly-dev/cli/pkg/builder/clients/feed")
 }
 
+// TestFacadeGoMultiDirectorySubset guards the `strategy: all` wiring. The facade
+// plugin validates the services= subset against the files buf hands each
+// invocation. Under buf's default per-directory strategy the plugin runs once
+// per proto directory, so a subset naming a service from one directory is
+// reported "declared services not found" by every other directory's invocation
+// and the whole run fails. These sources span two directories (saas/accounts/v1
+// and stream/v1) while the subset names only AuditService, so generation
+// succeeds only when the facade is invoked with strategy: all — a single-file
+// facade test (one directory) passes either way and would not catch a regression.
+func TestFacadeGoMultiDirectorySubset(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	testutil.RequireProtoImage(t, ctx)
+
+	dest := t.TempDir()
+	err := proto.GenerateClient(ctx, proto.ClientRequest{
+		Language:    languages.GO,
+		Destination: dest,
+		Module:      "accounts",
+		Services:    []string{"AuditService"},
+		Facade:      true,
+		Sources: []proto.Source{
+			{Path: auditProtoPath, Content: fixture(t, auditProtoPath)},
+			{Path: "stream/v1/stream.proto", Content: fixture(t, "streaming/stream.proto")},
+		},
+	})
+	require.NoError(t, err, "facade must run with strategy: all so the services= subset resolves across directories: %s", testutil.BuildCompanionsHint)
+
+	body, err := os.ReadFile(filepath.Join(dest, "saas/accounts/v1/accounts/accounts_facade.pb.go"))
+	require.NoError(t, err)
+	facade := string(body)
+	require.Contains(t, facade, "func (c *Client) Audit()")
+	// The subset excluded the other directory's service.
+	require.NotContains(t, facade, "FeedService")
+}
+
 func TestFacadeTypeScript(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
