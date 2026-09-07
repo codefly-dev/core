@@ -34,7 +34,13 @@ const anthropicMessage = `{"id":"msg_01","type":"message","role":"assistant",` +
 	`"content":[{"type":"text","text":"Hello world"}],"model":"claude-sonnet-4-5",` +
 	`"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`
 
-const embeddingBody = `{"object":"list","data":[{"embedding":[0.1,-0.2,0.3]}],"usage":{"input_tokens":4}}`
+const embeddingBody = `{"object":"list","data":[{"object":"embedding","embedding":[0.1,-0.2,0.3],"index":0}],"model":"voyage-3","usage":{"total_tokens":4}}`
+
+const rerankBody = `{"object":"list","data":[{"index":1,"relevance_score":0.9},{"index":0,"relevance_score":0.2}],"usage":{"total_tokens":26}}`
+
+const openaiMessage = `{"id":"chatcmpl-1","object":"chat.completion","choices":[{"index":0,` +
+	`"message":{"role":"assistant","content":"Hello world"},"finish_reason":"stop"}],` +
+	`"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`
 
 func jsonServer(t *testing.T, contentType, body string) *httptest.Server {
 	t.Helper()
@@ -48,7 +54,7 @@ func jsonServer(t *testing.T, contentType, body string) *httptest.Server {
 
 func chatRequest(t *testing.T, stream bool, key string) *providerv0.PlannedRequest {
 	t.Helper()
-	m, err := llm.Manifest(testOrigin())
+	m, err := llm.Manifest(testOrigin(), llm.VendorAnthropic)
 	require.NoError(t, err)
 	origin := admittedOrigin(t)
 	planned, err := llm.PlannedChat(m, origin, llm.ChatRequest{
@@ -69,7 +75,7 @@ func TestChat_NonStreamingRecordReplay(t *testing.T) {
 	server := jsonServer(t, "application/json", anthropicMessage)
 
 	recCass := cassette.New(cassette.ModeRecord, "0.1.0")
-	rec := newHarness(t, req)
+	rec := newHarness(t, llm.VendorAnthropic, req)
 	recClient := llm.NewClient(rec.session(t, serverAddr(t, server), recCass))
 	recorded, err := recClient.Chat(context.Background(), rec.request(t))
 	require.NoError(t, err)
@@ -83,7 +89,7 @@ func TestChat_NonStreamingRecordReplay(t *testing.T) {
 
 	replayCass, err := cassette.Load(data, "0.1.0")
 	require.NoError(t, err)
-	rep := newHarness(t, req)
+	rep := newHarness(t, llm.VendorAnthropic, req)
 	repClient := llm.NewClient(rep.session(t, reservedClosedAddr(t), replayCass))
 	replayed, err := repClient.Chat(context.Background(), rep.request(t))
 	require.NoError(t, err)
@@ -98,7 +104,7 @@ func TestChat_StreamingRecordReplay(t *testing.T) {
 	server := jsonServer(t, "text/event-stream", anthropicStream)
 
 	recCass := cassette.New(cassette.ModeRecord, "0.1.0")
-	rec := newHarness(t, req)
+	rec := newHarness(t, llm.VendorAnthropic, req)
 	recSession := rec.session(t, serverAddr(t, server), recCass)
 	recorded, err := recSession.Execute(context.Background(), rec.request(t))
 	require.NoError(t, err)
@@ -122,7 +128,7 @@ func TestChat_StreamingRecordReplay(t *testing.T) {
 
 	replayCass, err := cassette.Load(data, "0.1.0")
 	require.NoError(t, err)
-	rep := newHarness(t, req)
+	rep := newHarness(t, llm.VendorAnthropic, req)
 	repSession := rep.session(t, reservedClosedAddr(t), replayCass)
 	replayed, err := repSession.Execute(context.Background(), rep.request(t))
 	require.NoError(t, err)
@@ -140,35 +146,213 @@ func TestChat_StreamingRecordReplay(t *testing.T) {
 
 // TestEmbed_RecordReplay records and replays an embedding call deterministically.
 func TestEmbed_RecordReplay(t *testing.T) {
-	m, err := llm.Manifest(testOrigin())
+	m, err := llm.Manifest(testOrigin(), llm.VendorVoyage)
 	require.NoError(t, err)
 	origin := admittedOrigin(t)
 	planned, err := llm.PlannedEmbed(m, origin, llm.EmbedRequest{
-		Model: "voyage-3",
-		Input: []string{"hello"},
+		Model:     "voyage-3",
+		Input:     []string{"hello"},
+		InputType: "document",
 	}, "idem-embed", policyD)
 	require.NoError(t, err)
 	server := jsonServer(t, "application/json", embeddingBody)
 
 	recCass := cassette.New(cassette.ModeRecord, "0.1.0")
-	rec := newHarness(t, planned)
+	rec := newHarness(t, llm.VendorVoyage, planned)
 	recClient := llm.NewClient(rec.session(t, serverAddr(t, server), recCass))
 	recorded, err := recClient.Embed(context.Background(), rec.request(t))
 	require.NoError(t, err)
 	require.Len(t, recorded.Embeddings, 1)
 	require.Equal(t, llm.Embedding{0.1, -0.2, 0.3}, recorded.Embeddings[0])
-	require.Equal(t, int64(4), recorded.Usage.InputTokens)
+	require.Equal(t, int64(4), recorded.Usage.TotalTokens)
 
 	data, err := recCass.Marshal()
 	require.NoError(t, err)
 
 	replayCass, err := cassette.Load(data, "0.1.0")
 	require.NoError(t, err)
-	rep := newHarness(t, planned)
+	rep := newHarness(t, llm.VendorVoyage, planned)
 	repClient := llm.NewClient(rep.session(t, reservedClosedAddr(t), replayCass))
 	replayed, err := repClient.Embed(context.Background(), rep.request(t))
 	require.NoError(t, err)
 	require.Equal(t, recorded, replayed)
+}
+
+// TestEmbed_DimensionsRendersVendorField proves the vendor-neutral Dimensions
+// field is rendered under each vendor's own body field name, and is dropped by
+// the broker when it is not set — so a truncated-vector request reaches Voyage as
+// output_dimension and OpenAI as dimensions without the caller choosing a name.
+func TestEmbed_DimensionsRendersVendorField(t *testing.T) {
+	for _, tc := range []struct {
+		vendor llm.Vendor
+		origin llm.Origin
+	}{
+		{llm.VendorVoyage, testOrigin()},
+		{llm.VendorOpenAI, testOrigin()},
+	} {
+		m, err := llm.Manifest(tc.origin, tc.vendor)
+		require.NoError(t, err)
+		planned, err := llm.PlannedEmbed(m, admittedOrigin(t), llm.EmbedRequest{
+			Model:      "embed-model",
+			Input:      []string{"hello"},
+			Dimensions: 256,
+		}, "idem-dim", policyD)
+		require.NoError(t, err, "vendor %q", tc.vendor)
+
+		server := jsonServer(t, "application/json", embeddingBody)
+		h := newHarness(t, tc.vendor, planned)
+		client := llm.NewClient(h.session(t, serverAddr(t, server), cassette.New(cassette.ModeRecord, "0.1.0")))
+		recorded, err := client.Embed(context.Background(), h.request(t))
+		require.NoError(t, err, "vendor %q", tc.vendor)
+		require.Equal(t, llm.Embedding{0.1, -0.2, 0.3}, recorded.Embeddings[0])
+	}
+}
+
+// TestRerank_RecordReplay records and replays a Voyage rerank call: the scored
+// results decode in returned order and reproduce deterministically with no
+// network on replay.
+func TestRerank_RecordReplay(t *testing.T) {
+	m, err := llm.Manifest(testOrigin(), llm.VendorVoyage)
+	require.NoError(t, err)
+	planned, err := llm.PlannedRerank(m, admittedOrigin(t), llm.RerankRequest{
+		Model:     "rerank-2",
+		Query:     "what is the capital of france?",
+		Documents: []string{"paris is the capital of france", "berlin is in germany"},
+		TopK:      2,
+	}, "idem-rerank", policyD)
+	require.NoError(t, err)
+	server := jsonServer(t, "application/json", rerankBody)
+
+	recCass := cassette.New(cassette.ModeRecord, "0.1.0")
+	rec := newHarness(t, llm.VendorVoyage, planned)
+	recClient := llm.NewClient(rec.session(t, serverAddr(t, server), recCass))
+	recorded, err := recClient.Rerank(context.Background(), rec.request(t))
+	require.NoError(t, err)
+	require.Equal(t, []llm.RerankResult{{Index: 1, Score: 0.9}, {Index: 0, Score: 0.2}}, recorded.Results)
+	require.Equal(t, int64(26), recorded.Usage.TotalTokens)
+
+	data, err := recCass.Marshal()
+	require.NoError(t, err)
+
+	replayCass, err := cassette.Load(data, "0.1.0")
+	require.NoError(t, err)
+	rep := newHarness(t, llm.VendorVoyage, planned)
+	repClient := llm.NewClient(rep.session(t, reservedClosedAddr(t), replayCass))
+	replayed, err := repClient.Rerank(context.Background(), rep.request(t))
+	require.NoError(t, err)
+	require.Equal(t, recorded, replayed)
+}
+
+// TestChat_OpenAIRecordReplay proves the chat decoder reads OpenAI's
+// /v1/chat/completions response shape ($.choices[N].message.content and
+// finish_reason, prompt/completion token usage) through record and replay.
+func TestChat_OpenAIRecordReplay(t *testing.T) {
+	m, err := llm.Manifest(testOrigin(), llm.VendorOpenAI)
+	require.NoError(t, err)
+	planned, err := llm.PlannedChat(m, admittedOrigin(t), llm.ChatRequest{
+		Model:     "gpt-4o",
+		Messages:  []llm.Message{{Role: "user", Content: "Hi"}},
+		MaxTokens: 1024,
+	}, "idem-openai", policyD)
+	require.NoError(t, err)
+	server := jsonServer(t, "application/json", openaiMessage)
+
+	recCass := cassette.New(cassette.ModeRecord, "0.1.0")
+	rec := newHarness(t, llm.VendorOpenAI, planned)
+	recClient := llm.NewClient(rec.session(t, serverAddr(t, server), recCass))
+	recorded, err := recClient.Chat(context.Background(), rec.request(t))
+	require.NoError(t, err)
+	require.Equal(t, "Hello world", recorded.Text)
+	require.Equal(t, "stop", recorded.StopReason)
+	require.Equal(t, int64(10), recorded.Usage.InputTokens)
+	require.Equal(t, int64(5), recorded.Usage.OutputTokens)
+
+	data, err := recCass.Marshal()
+	require.NoError(t, err)
+
+	replayCass, err := cassette.Load(data, "0.1.0")
+	require.NoError(t, err)
+	rep := newHarness(t, llm.VendorOpenAI, planned)
+	repClient := llm.NewClient(rep.session(t, reservedClosedAddr(t), replayCass))
+	replayed, err := repClient.Chat(context.Background(), rep.request(t))
+	require.NoError(t, err)
+	require.Equal(t, recorded, replayed)
+}
+
+// openaiStream is an OpenAI /v1/chat/completions SSE stream: unlabeled data
+// frames carrying $.choices[N].delta.content and a terminal [DONE] sentinel.
+const openaiStream = "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n" +
+	"\n" +
+	"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"}}]}\n" +
+	"\n" +
+	"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"}}]}\n" +
+	"\n" +
+	"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n" +
+	"\n" +
+	"data: [DONE]\n" +
+	"\n"
+
+// TestChat_OpenAIStreamingRecordReplay proves the chat stream decoder reads
+// OpenAI's SSE shape ($.choices[N].delta.content, terminal [DONE]): the assembled
+// text, stop reason, and completeness reproduce deterministically on replay.
+func TestChat_OpenAIStreamingRecordReplay(t *testing.T) {
+	m, err := llm.Manifest(testOrigin(), llm.VendorOpenAI)
+	require.NoError(t, err)
+	planned, err := llm.PlannedChat(m, admittedOrigin(t), llm.ChatRequest{
+		Model:     "gpt-4o",
+		Messages:  []llm.Message{{Role: "user", Content: "Hi"}},
+		MaxTokens: 1024,
+		Stream:    true,
+	}, "idem-openai-stream", policyD)
+	require.NoError(t, err)
+	server := jsonServer(t, "text/event-stream", openaiStream)
+
+	recCass := cassette.New(cassette.ModeRecord, "0.1.0")
+	rec := newHarness(t, llm.VendorOpenAI, planned)
+	recorded, err := rec.session(t, serverAddr(t, server), recCass).Execute(context.Background(), rec.request(t))
+	require.NoError(t, err)
+	recStream, err := llm.DecodeChatStream(recorded)
+	require.NoError(t, err)
+	require.Equal(t, "Hello world", recStream.Text)
+	require.Equal(t, "stop", recStream.StopReason)
+	require.True(t, recStream.Complete)
+	require.True(t, recStream.Deltas[len(recStream.Deltas)-1].Terminal)
+
+	data, err := recCass.Marshal()
+	require.NoError(t, err)
+
+	replayCass, err := cassette.Load(data, "0.1.0")
+	require.NoError(t, err)
+	rep := newHarness(t, llm.VendorOpenAI, planned)
+	replayed, err := rep.session(t, reservedClosedAddr(t), replayCass).Execute(context.Background(), rep.request(t))
+	require.NoError(t, err)
+	repStream, err := llm.DecodeChatStream(replayed)
+	require.NoError(t, err)
+	require.Equal(t, recStream, repStream)
+}
+
+// TestPlannedChat_DisallowedBodyFieldFailsAtPlanTime proves a body field the
+// target descriptor does not allow is rejected when the request is planned, not
+// deep in broker execution: OpenAI's chat descriptor has no system field, so a
+// ChatRequest.System set against it fails fast and names the field.
+func TestPlannedChat_DisallowedBodyFieldFailsAtPlanTime(t *testing.T) {
+	m, err := llm.Manifest(testOrigin(), llm.VendorOpenAI)
+	require.NoError(t, err)
+	_, err = llm.PlannedChat(m, admittedOrigin(t), llm.ChatRequest{
+		Model:     "gpt-4o",
+		Messages:  []llm.Message{{Role: "user", Content: "Hi"}},
+		MaxTokens: 16,
+		System:    "be terse",
+	}, "idem-sys", policyD)
+	require.ErrorContains(t, err, "system")
+
+	// The same request without the disallowed field plans cleanly.
+	_, err = llm.PlannedChat(m, admittedOrigin(t), llm.ChatRequest{
+		Model:     "gpt-4o",
+		Messages:  []llm.Message{{Role: "user", Content: "Hi"}},
+		MaxTokens: 16,
+	}, "idem-ok", policyD)
+	require.NoError(t, err)
 }
 
 // TestChat_StreamReplayUnknownKeyFailsClosed proves streaming replay never falls
@@ -176,7 +360,7 @@ func TestEmbed_RecordReplay(t *testing.T) {
 func TestChat_StreamReplayUnknownKeyFailsClosed(t *testing.T) {
 	req := chatRequest(t, true, "idem-stream")
 	empty := cassette.New(cassette.ModeReplay, "0.1.0")
-	h := newHarness(t, req)
+	h := newHarness(t, llm.VendorAnthropic, req)
 	client := llm.NewClient(h.session(t, reservedClosedAddr(t), empty))
 	_, err := client.ChatStream(context.Background(), h.request(t))
 	require.ErrorContains(t, err, "does not fall back to live")
@@ -189,7 +373,7 @@ func TestChat_StreamReplayUnknownKeyFailsClosed(t *testing.T) {
 // in digest binding, and never silently sent. The constraint is inherent to
 // routing LLM egress through the secret-safe broker.
 func TestChat_SecretShapedContentFailsClosedAndLegibly(t *testing.T) {
-	m, err := llm.Manifest(testOrigin())
+	m, err := llm.Manifest(testOrigin(), llm.VendorAnthropic)
 	require.NoError(t, err)
 	for _, prompt := range []string{
 		"why doesn't api_key=foo work?",
@@ -250,7 +434,7 @@ func TestChat_StreamCompleteVsTruncated(t *testing.T) {
 func TestChat_LiveDeltasThroughCallback(t *testing.T) {
 	req := chatRequest(t, true, "idem-live")
 	server := jsonServer(t, "text/event-stream", anthropicStream)
-	h := newHarness(t, req)
+	h := newHarness(t, llm.VendorAnthropic, req)
 	var live strings.Builder
 	h.onStreamEvent = func(event *providerv0.FilteredEvent) error {
 		live.WriteString(llm.DecodeEvent(event).Text)
@@ -264,7 +448,7 @@ func TestChat_LiveDeltasThroughCallback(t *testing.T) {
 func decodeStream(t *testing.T, req *providerv0.PlannedRequest, body string) *llm.ChatStream {
 	t.Helper()
 	server := jsonServer(t, "text/event-stream", body)
-	h := newHarness(t, req)
+	h := newHarness(t, llm.VendorAnthropic, req)
 	response, err := h.session(t, serverAddr(t, server), nil).Execute(context.Background(), h.request(t))
 	require.NoError(t, err)
 	stream, err := llm.DecodeChatStream(response)

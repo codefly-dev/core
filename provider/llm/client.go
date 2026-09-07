@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
 	"github.com/codefly-dev/core/provider/canonical"
@@ -78,6 +79,15 @@ func (c *Client) Embed(ctx context.Context, request *providerv0.ExecuteRequestRe
 	return DecodeEmbedding(response)
 }
 
+// Rerank runs a rerank request and decodes the scored results.
+func (c *Client) Rerank(ctx context.Context, request *providerv0.ExecuteRequestRequest) (*RerankResponse, error) {
+	response, err := c.exec.Execute(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeRerank(response)
+}
+
 // PlannedChat binds a chat request to a digest-bound PlannedRequest for the
 // chat descriptor. The host wraps it in an ExecuteRequestRequest with the
 // operation, budget, and credential handles before executing.
@@ -85,29 +95,72 @@ func PlannedChat(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, reques
 	if err := ScreenContent(request.content()); err != nil {
 		return nil, err
 	}
-	return plannedPost(m, origin, ChatDescriptor, request.Body(), idempotencyKey, responsePolicyDigest)
+	descriptor, ok := descriptorByID(m, ChatDescriptor)
+	if !ok {
+		return nil, fmt.Errorf("descriptor %q is not packaged", ChatDescriptor)
+	}
+	return plannedPost(origin, descriptor, request.body(), idempotencyKey, responsePolicyDigest)
 }
 
 // PlannedEmbed binds an embedding request to a digest-bound PlannedRequest for
-// the embed descriptor.
+// the embed descriptor. Dimensions, when set, is rendered under whichever field
+// name the target descriptor allows (output_dimension for Voyage, dimensions for
+// OpenAI).
 func PlannedEmbed(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, request EmbedRequest, idempotencyKey, responsePolicyDigest string) (*providerv0.PlannedRequest, error) {
 	if err := ScreenContent(request.content()); err != nil {
 		return nil, err
 	}
-	return plannedPost(m, origin, EmbedDescriptor, request.Body(), idempotencyKey, responsePolicyDigest)
+	descriptor, ok := descriptorByID(m, EmbedDescriptor)
+	if !ok {
+		return nil, fmt.Errorf("descriptor %q is not packaged", EmbedDescriptor)
+	}
+	body := request.body()
+	if request.Dimensions != 0 {
+		field, ok := dimensionField(descriptor)
+		if !ok {
+			return nil, fmt.Errorf("descriptor %q does not accept a dimension field", EmbedDescriptor)
+		}
+		body[field] = integerValue(request.Dimensions)
+	}
+	return plannedPost(origin, descriptor, body, idempotencyKey, responsePolicyDigest)
 }
 
-func plannedPost(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, descriptorID string, body map[string]*providerv0.PublicValue, idempotencyKey, responsePolicyDigest string) (*providerv0.PlannedRequest, error) {
-	descriptor, ok := descriptorByID(m, descriptorID)
+// PlannedRerank binds a rerank request to a digest-bound PlannedRequest for the
+// rerank descriptor.
+func PlannedRerank(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, request RerankRequest, idempotencyKey, responsePolicyDigest string) (*providerv0.PlannedRequest, error) {
+	if err := ScreenContent(request.content()); err != nil {
+		return nil, err
+	}
+	descriptor, ok := descriptorByID(m, RerankDescriptor)
 	if !ok {
-		return nil, fmt.Errorf("descriptor %q is not packaged", descriptorID)
+		return nil, fmt.Errorf("descriptor %q is not packaged", RerankDescriptor)
+	}
+	return plannedPost(origin, descriptor, request.body(), idempotencyKey, responsePolicyDigest)
+}
+
+// dimensionField reports which vendor-specific dimension body field a descriptor
+// allows.
+func dimensionField(descriptor manifest.RequestDescriptor) (string, bool) {
+	for _, field := range descriptor.AllowedBodyFields {
+		if field == "output_dimension" || field == "dimensions" {
+			return field, true
+		}
+	}
+	return "", false
+}
+
+func plannedPost(origin *providerv0.AdmittedOrigin, descriptor manifest.RequestDescriptor, body map[string]*providerv0.PublicValue, idempotencyKey, responsePolicyDigest string) (*providerv0.PlannedRequest, error) {
+	for key := range body {
+		if !slices.Contains(descriptor.AllowedBodyFields, key) {
+			return nil, fmt.Errorf("body field %q is not allowed by the %q descriptor", key, descriptor.ID)
+		}
 	}
 	digest, err := manifest.RequestDescriptorDigest(descriptor)
 	if err != nil {
 		return nil, err
 	}
 	planned := &providerv0.PlannedRequest{
-		RequestDescriptorId:     descriptorID,
+		RequestDescriptorId:     descriptor.ID,
 		RequestDescriptorDigest: digest,
 		Method:                  providerv0.HTTPMethod_HTTP_METHOD_POST,
 		AdmittedOriginDigest:    origin.GetAdmissionDigest(),

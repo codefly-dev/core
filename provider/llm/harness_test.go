@@ -43,9 +43,9 @@ func urlguardOrigin() urlguard.Origin {
 	return urlguard.Origin{Scheme: o.Scheme, Host: o.Host, Port: o.Port}
 }
 
-func loadManifest(t *testing.T) *manifest.Manifest {
+func loadManifest(t *testing.T, vendor llm.Vendor) *manifest.Manifest {
 	t.Helper()
-	m, err := llm.Manifest(testOrigin())
+	m, err := llm.Manifest(testOrigin(), vendor)
 	require.NoError(t, err)
 	return m
 }
@@ -143,10 +143,10 @@ type harness struct {
 	onStreamEvent func(*providerv0.FilteredEvent) error
 }
 
-func newHarness(t *testing.T, planned *providerv0.PlannedRequest) *harness {
+func newHarness(t *testing.T, vendor llm.Vendor, planned *providerv0.PlannedRequest) *harness {
 	t.Helper()
 	return &harness{
-		manifest: loadManifest(t),
+		manifest: loadManifest(t, vendor),
 		origin:   admittedOrigin(t),
 		planned:  planned,
 		vault:    credentials.NewVault(),
