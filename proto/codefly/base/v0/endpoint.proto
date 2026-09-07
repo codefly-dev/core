@@ -129,7 +129,11 @@ message GrpcAPI {
   string package = 3;
   // rpcs are the callable methods exposed by this gRPC endpoint.
   repeated RPC rpcs = 4;
-  // proto is the serialized protobuf descriptor data for gRPC endpoints.
+  // proto holds the gRPC endpoint's `.proto` source text (what
+  // resources.LoadGrpcAPI reads from the file), not a serialized
+  // FileDescriptorSet. Client generation routes it through
+  // proto.GenerateClient's ProtoSources; a descriptor set would go through
+  // DescriptorSet instead.
   bytes proto = 5;
   // secured is true when the endpoint expects TLS or equivalent transport security.
   bool secured = 6;

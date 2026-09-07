@@ -603,7 +603,11 @@ type GrpcAPI struct {
 	Package string `protobuf:"bytes,3,opt,name=package,proto3" json:"package,omitempty"`
 	// rpcs are the callable methods exposed by this gRPC endpoint.
 	Rpcs []*RPC `protobuf:"bytes,4,rep,name=rpcs,proto3" json:"rpcs,omitempty"`
-	// proto is the serialized protobuf descriptor data for gRPC endpoints.
+	// proto holds the gRPC endpoint's `.proto` source text (what
+	// resources.LoadGrpcAPI reads from the file), not a serialized
+	// FileDescriptorSet. Client generation routes it through
+	// proto.GenerateClient's ProtoSources; a descriptor set would go through
+	// DescriptorSet instead.
 	Proto []byte `protobuf:"bytes,5,opt,name=proto,proto3" json:"proto,omitempty"`
 	// secured is true when the endpoint expects TLS or equivalent transport security.
 	Secured       bool `protobuf:"varint,6,opt,name=secured,proto3" json:"secured,omitempty"`

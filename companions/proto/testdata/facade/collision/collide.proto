@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package collide.v1;
+
+// Two services that map to the same Go facade type (FooService -> FooClient,
+// Foo -> FooClient) and the same accessor, so the facade plugins must reject
+// the generation with a collision error naming both.
+
+message Ping {}
+
+service FooService {
+  rpc Do(Ping) returns (Ping);
+}
+
+service Foo {
+  rpc Act(Ping) returns (Ping);
+}

@@ -115,6 +115,57 @@
           '';
         };
 
+        # Facade plugins (Python/Go/TS) + the descriptor-set option stripper.
+        # These mirror the Dockerfile's facade install. Both are built without a
+        # precomputed Nix content hash so the flake needs no manual hash step:
+        # the Go plugin vendors its deps (vendorHash = null reads facades/go/
+        # vendor), and the TS plugin's node_modules come from its committed
+        # package-lock.json via importNpmLock (which reads the lockfile's own
+        # integrity hashes).
+        facadeGo = pkgs.buildGoModule {
+          pname = "protoc-gen-codefly-facade-go";
+          inherit version;
+          src = ./facades/go;
+          vendorHash = null;
+          meta.mainProgram = "protoc-gen-codefly-facade-go";
+        };
+
+        facadeTs = pkgs.buildNpmPackage {
+          pname = "protoc-gen-codefly-facade-ts";
+          version = "0.0.13";
+          src = ./facades/ts;
+          npmDeps = pkgs.importNpmLock { npmRoot = ./facades/ts; };
+          npmConfigHook = pkgs.importNpmLock.npmConfigHook;
+          dontNpmBuild = true;
+          postInstall = ''
+            mkdir -p $out/bin
+            ln -s "$out/lib/node_modules/@codefly-dev/protoc-gen-codefly-facade-ts/protoc-gen-codefly-facade-ts.js" \
+              "$out/bin/protoc-gen-codefly-facade-ts"
+          '';
+        };
+
+        facadePython =
+          let py = pkgs.python3.withPackages (ps: [ ps.protobuf ]);
+          in pkgs.stdenv.mkDerivation {
+            name = "codefly-facade-python";
+            src = ./facades/python;
+            dontBuild = true;
+            installPhase = ''
+              mkdir -p $out/libexec $out/bin
+              cp $src/protoc_gen_codefly_facade_python.py $src/strip_custom_options.py $out/libexec/
+              cat > $out/bin/protoc-gen-codefly-facade-python <<EOF
+              #!/bin/sh
+              exec ${py}/bin/python $out/libexec/protoc_gen_codefly_facade_python.py "\$@"
+              EOF
+              cat > $out/bin/codefly-proto-strip-options <<EOF
+              #!/bin/sh
+              exec ${py}/bin/python $out/libexec/strip_custom_options.py "\$@"
+              EOF
+              chmod +x $out/bin/protoc-gen-codefly-facade-python $out/bin/codefly-proto-strip-options
+              ln -s protoc-gen-codefly-facade-python $out/bin/protoc-gen-solution_facade
+            '';
+          };
+
         # Tools the proto companion exposes at runtime. Same set as
         # the Dockerfile installs — only the source-of-pinning differs
         # (apk → nixpkgs).
@@ -157,6 +208,11 @@
           # from the codefly host work inside the container.
           bash
           coreutils
+          # Gateway-bound client facade plugins + the descriptor-set option
+          # stripper, mirroring the Dockerfile's facade install.
+          facadeGo
+          facadeTs
+          facadePython
         ];
 
         # Read version from companion's info.codefly.yaml so the

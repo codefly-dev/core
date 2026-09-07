@@ -3,6 +3,7 @@ package proto
 import (
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -29,6 +30,61 @@ func TestDockerfilePinsProtocGenEsToRuntimeVersion(t *testing.T) {
 
 func TestFlakePinsProtocGenEsToRuntimeVersion(t *testing.T) {
 	assertPinnedToRuntime(t, "flake.nix", protocGenEsFlakePin)
+}
+
+// facadeBinaries are the plugin binaries the image must expose for facade
+// generation, on top of the gRPC/OpenAPI set. protoc-gen-connect-go is what the
+// Go facade imports; the three protoc-gen-codefly-facade-* binaries and
+// codefly-proto-strip-options are new. Both build definitions must install
+// every one, or the image's behaviour depends on which builder published it.
+var facadeBinaries = []string{
+	"protoc-gen-connect-go",
+	"protoc-gen-codefly-facade-go",
+	"protoc-gen-codefly-facade-python",
+	"protoc-gen-codefly-facade-ts",
+	"codefly-proto-strip-options",
+}
+
+func TestDockerfileInstallsFacadePlugins(t *testing.T) {
+	assertMentionsAll(t, "Dockerfile", facadeBinaries)
+	// The legacy plugin name is kept for one release so the runtime repo can
+	// switch off it.
+	assertMentionsAll(t, "Dockerfile", []string{"protoc-gen-solution_facade"})
+}
+
+func TestFlakeInstallsFacadePlugins(t *testing.T) {
+	assertMentionsAll(t, "flake.nix", facadeBinaries)
+}
+
+// TestTsFacadePinsProtoplugin keeps the TS facade plugin's protoplugin runtime
+// in lockstep with protoc-gen-es: the facade imports the service schemas es
+// emits, and protoplugin ships alongside es on the same release train.
+func TestTsFacadePinsProtoplugin(t *testing.T) {
+	content, err := os.ReadFile("facades/ts/package.json")
+	if err != nil {
+		t.Fatalf("read facades/ts/package.json: %v", err)
+	}
+	pin := regexp.MustCompile(`"@bufbuild/protoplugin":\s*"([0-9]+\.[0-9]+\.[0-9]+)"`)
+	match := pin.FindSubmatch(content)
+	if match == nil {
+		t.Fatal("facades/ts/package.json no longer pins @bufbuild/protoplugin to an explicit version")
+	}
+	if got := string(match[1]); got != protocGenEsRuntimeVersion {
+		t.Fatalf("facades/ts pins @bufbuild/protoplugin %s, but the ecosystem runtime is %s", got, protocGenEsRuntimeVersion)
+	}
+}
+
+func assertMentionsAll(t *testing.T, file string, needles []string) {
+	t.Helper()
+	content, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("read %s: %v", file, err)
+	}
+	for _, needle := range needles {
+		if !strings.Contains(string(content), needle) {
+			t.Errorf("%s does not install %q", file, needle)
+		}
+	}
 }
 
 func assertPinnedToRuntime(t *testing.T, file string, pin *regexp.Regexp) {

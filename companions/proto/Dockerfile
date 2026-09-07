@@ -31,6 +31,12 @@ RUN go install -ldflags="-s -w" github.com/bufbuild/buf/cmd/buf@v1.71.0 && \
     go install -ldflags="-s -w" github.com/go-swagger/go-swagger/cmd/swagger@v0.35.3 && \
     go install -ldflags="-s -w" github.com/envoyproxy/protoc-gen-validate@v1.2.1
 
+# Go facade plugin (protoc-gen-codefly-facade-go), built from in-tree source.
+# The build context is companions/proto, so facades/go is available here.
+COPY facades/go /src/facade-go
+RUN cd /src/facade-go && \
+    go build -ldflags="-s -w" -o /go/bin/protoc-gen-codefly-facade-go .
+
 # Python grpcio-tools (for grpc_* helpers) — built in a separate venv
 # so site-packages doesn't collide with the system Python.
 RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir grpcio-tools
@@ -59,7 +65,13 @@ FROM codeflydev/codefly:0.0.3
 # their caches under $HOME; the default /root isn't writable by that user.
 ENV HOME=/tmp
 
-RUN apk add --no-cache nodejs npm protobuf go && \
+# python3 + a dedicated /venv host the Python facade + strip plugins. The venv
+# is built here (not copied from the builder) so it is bound to this stage's
+# python — the builder's alpine ships a different python minor version, and a
+# venv is not portable across them.
+RUN apk add --no-cache nodejs npm protobuf go python3 py3-pip && \
+    python3 -m venv /venv && \
+    /venv/bin/pip install --no-cache-dir protobuf && \
     npm install -g \
         openapi-typescript@7.13.0 \
         swagger2openapi@7.0.8 \
@@ -73,7 +85,34 @@ COPY --from=builder /go/bin/protoc-gen-grpc-gateway /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-openapiv2 /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-validate /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-connect-go /usr/local/bin/
+COPY --from=builder /go/bin/protoc-gen-codefly-facade-go /usr/local/bin/
 COPY --from=builder /go/bin/swagger /usr/local/bin/
 COPY --from=builder /usr/bin/grpc_* /usr/local/bin/
+
+# Facade plugin sources (Python scripts + the TS npm package).
+COPY facades/python /opt/codefly-facades/python
+COPY facades/ts /opt/codefly-facades/ts
+
+# TypeScript facade plugin — protoc-gen-codefly-facade-ts. Its one dependency
+# (@bufbuild/protoplugin, pinned via package-lock.json) is installed in place;
+# the executable entry is symlinked onto PATH so buf finds it. `npm install -g`
+# on a local dir only symlinks back here without installing deps, so it can't
+# be used.
+RUN cd /opt/codefly-facades/ts && \
+    npm ci --omit=dev --no-audit --no-fund && \
+    npm cache clean --force && \
+    chmod +x protoc-gen-codefly-facade-ts.js && \
+    ln -sf /opt/codefly-facades/ts/protoc-gen-codefly-facade-ts.js \
+        /usr/local/bin/protoc-gen-codefly-facade-ts
+
+# Python facade plugin + descriptor-set option stripper. Both facade plugin
+# names are exposed (protoc-gen-solution_facade is kept for one release so the
+# runtime repo can switch), each a wrapper running the copied venv's python.
+RUN printf '#!/bin/sh\nexec /venv/bin/python /opt/codefly-facades/python/protoc_gen_codefly_facade_python.py "$@"\n' \
+        > /usr/local/bin/protoc-gen-codefly-facade-python && \
+    printf '#!/bin/sh\nexec /venv/bin/python /opt/codefly-facades/python/strip_custom_options.py "$@"\n' \
+        > /usr/local/bin/codefly-proto-strip-options && \
+    chmod +x /usr/local/bin/protoc-gen-codefly-facade-python /usr/local/bin/codefly-proto-strip-options && \
+    ln -sf protoc-gen-codefly-facade-python /usr/local/bin/protoc-gen-solution_facade
 
 WORKDIR /workspace

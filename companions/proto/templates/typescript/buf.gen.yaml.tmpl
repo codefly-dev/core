@@ -3,3 +3,8 @@ plugins:
   - plugin: buf.build/bufbuild/es:v2.2.3
     out: {{.Destination}}
     opt: target=ts
+{{- if .Facade }}
+  - name: codefly-facade-ts
+    out: {{.Destination}}
+    opt: target=ts{{ if .Services }},services={{.Services}}{{ end }}{{ if .Module }},module={{.Module}}{{ end }}
+{{- end }}

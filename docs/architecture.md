@@ -64,6 +64,20 @@ Consumers generate clients from the package, never from a checkout of the
 producing repository. The module `interface` block is the authoritative export
 boundary: only its endpoints are exported and graphed across modules.
 
+### Client facades
+
+A published client pairs the generated bindings with a small facade that binds
+them to a gateway seam and hides the transport envelope. Those facades are
+themselves generated, not hand-written: the proto companion ships
+`protoc-gen-codefly-facade-{python,go,ts}`, and `proto.GenerateClient` drives
+them from either a descriptor set (what a module package carries) or proto
+sources. Per proto package they emit one client class per service and a
+`<module>` entry point (`accounts(gw)` / `accounts.New(gw)`), each RPC taking
+the request message and returning the response message. The hand-written
+facades still living in consumer repos (`saas-sdk-go`, `saas-sdk-python`,
+`@codefly-dev/saas-sdk`) are to be regenerated through these plugins, not
+maintained by hand.
+
 ### Universal failures
 
 Plugin boundaries use `codefly.base.v0.Failure` as the universal structured

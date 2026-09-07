@@ -12,7 +12,7 @@ import (
 
 func TestGoClientGenerationPreservesProtovalidatePackage(t *testing.T) {
 	dir := t.TempDir()
-	if err := CreateBufConfiguration(context.Background(), dir, "users-api", languages.GO); err != nil {
+	if err := CreateBufConfiguration(context.Background(), dir, "users-api", languages.GO, FacadeOptions{}); err != nil {
 		t.Fatalf("CreateBufConfiguration: %v", err)
 	}
 	configuration, err := os.ReadFile(filepath.Join(dir, "buf.gen.yaml"))

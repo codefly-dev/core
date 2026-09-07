@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package stream.v1;
+
+// A service whose only RPC is streaming. The Go facade skips streaming RPCs, so
+// this service emits a wrapper with no methods — the case that must still
+// compile (no unused context/connect imports).
+
+message Event {}
+
+service FeedService {
+  rpc Watch(Event) returns (stream Event);
+}

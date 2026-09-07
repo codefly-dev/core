@@ -1,0 +1,19 @@
+{
+  "name": "@codefly-dev/protoc-gen-codefly-facade-ts",
+  "version": "0.0.13",
+  "description": "protoc plugin emitting a gateway-bound connect-es client facade per proto package",
+  "type": "module",
+  "bin": {
+    "protoc-gen-codefly-facade-ts": "protoc-gen-codefly-facade-ts.js"
+  },
+  "files": [
+    "protoc-gen-codefly-facade-ts.js",
+    "facade.js"
+  ],
+  "dependencies": {
+    "@bufbuild/protoplugin": "2.11.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
