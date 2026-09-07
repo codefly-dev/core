@@ -1,0 +1,10 @@
+kind: module
+name: api
+services:
+    - name: one
+    - name: two
+interface:
+    endpoints:
+        - service: one
+          endpoint: rest
+          visibility: public

@@ -383,6 +383,32 @@ func (manifest *PackageManifest) Validate() error {
 		if err := uniqueStrings("endpoint for service "+service.Name, service.Endpoints); err != nil {
 			return err
 		}
+		contractEndpoints := make(map[string]struct{}, len(service.APIContracts))
+		for _, contract := range service.APIContracts {
+			label := fmt.Sprintf("api contract for service %s endpoint %s", service.Name, contract.Endpoint)
+			if !slices.Contains(service.Endpoints, contract.Endpoint) {
+				return fmt.Errorf("%s references an endpoint not declared by the service", label)
+			}
+			if _, exists := contractEndpoints[contract.Endpoint]; exists {
+				return fmt.Errorf("service %s declares two api contracts for endpoint %s", service.Name, contract.Endpoint)
+			}
+			contractEndpoints[contract.Endpoint] = struct{}{}
+			if contract.Kind != APIContractKindProtobuf && contract.Kind != APIContractKindOpenAPI {
+				return fmt.Errorf("%s kind %q must be %q or %q", label, contract.Kind, APIContractKindProtobuf, APIContractKindOpenAPI)
+			}
+			if strings.TrimSpace(contract.Package) == "" {
+				return fmt.Errorf("%s package is required", label)
+			}
+			if err := validateContractPath(label, contract.Path); err != nil {
+				return err
+			}
+			if !pathUnderArtifactRoots(contract.Path, manifest.ArtifactRoots) {
+				return fmt.Errorf("%s path %q is not under an artifact root", label, contract.Path)
+			}
+			if !digestPattern.MatchString(contract.Digest) {
+				return fmt.Errorf("%s digest %q must be a SHA-256 digest", label, contract.Digest)
+			}
+		}
 	}
 	if err := uniqueStrings("provided service", serviceNames); err != nil {
 		return err

@@ -1,0 +1,5 @@
+kind: module
+name: api
+services:
+    - name: one
+    - name: two

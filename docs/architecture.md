@@ -57,6 +57,13 @@ that has no serialization or compatibility meaning. An exception at a public
 boundary must be explicit and documented; convenience alone is not an
 exception.
 
+A module package carries the descriptor set and OpenAPI document of every
+interface endpoint under `contracts/api/`, catalogued in
+`contracts/api/catalog.codefly.json` (`codefly/module-api-contracts/v1`).
+Consumers generate clients from the package, never from a checkout of the
+producing repository. The module `interface` block is the authoritative export
+boundary: only its endpoints are exported and graphed across modules.
+
 ### Universal failures
 
 Plugin boundaries use `codefly.base.v0.Failure` as the universal structured

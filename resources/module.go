@@ -306,6 +306,9 @@ func LoadModuleFromDir(ctx context.Context, dir string) (*Module, error) {
 		return nil, w.Wrapf(err, "cannot post load")
 	}
 	mod.dir = dir
+	if err := mod.ValidateInterface(ctx); err != nil {
+		return nil, w.Wrapf(err, "cannot load module %s: invalid interface", mod.Name)
+	}
 	return mod, nil
 }
 
@@ -577,6 +580,17 @@ func (mod *Module) ExposedEndpoints(ctx context.Context) ([]*basev0.Endpoint, er
 		}
 	}
 	return exposed, nil
+}
+
+// ExportedEndpointsForPackage returns the interface endpoints to export as API
+// contracts. It is ExposedEndpoints guarded by a declared interface: a module
+// without one cannot publish contracts by accident.
+func (mod *Module) ExportedEndpointsForPackage(ctx context.Context) ([]*basev0.Endpoint, error) {
+	if !mod.HasInterface() {
+		return nil, wool.Get(ctx).In("Module::ExportedEndpointsForPackage", wool.ThisField(mod)).
+			NewError("module %s declares no interface; an interface is required to export API contracts", mod.Name)
+	}
+	return mod.ExposedEndpoints(ctx)
 }
 
 // ValidateInterface checks that all interface endpoints reference valid services and endpoints

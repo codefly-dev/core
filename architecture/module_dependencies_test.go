@@ -9,6 +9,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoadPublicModuleGraphUsesInterfaceWhenDeclared(t *testing.T) {
+	ctx := context.Background()
+
+	countTypes := func(dir string) (int, int) {
+		workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+		require.NoError(t, err)
+		gs, err := architecture.LoadPublicModuleGraph(ctx, workspace)
+		require.NoError(t, err)
+		require.Len(t, gs, 1)
+		var services, endpoints int
+		for _, node := range gs[0].Nodes() {
+			switch node.Type {
+			case resources.SERVICE:
+				services++
+			case resources.ENDPOINT:
+				endpoints++
+			}
+		}
+		return services, endpoints
+	}
+
+	services, endpoints := countTypes("testdata/interface-declared")
+	require.Equal(t, 1, services)
+	require.Equal(t, 1, endpoints)
+
+	services, endpoints = countTypes("testdata/interface-absent")
+	require.Equal(t, 2, services)
+	require.Equal(t, 2, endpoints)
+}
+
 func TestPublicModuleGraph(t *testing.T) {
 	ctx := context.Background()
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/module-layout")

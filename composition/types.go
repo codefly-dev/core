@@ -24,6 +24,13 @@ const (
 )
 
 const (
+	APIContractCatalogFileName = "contracts/api/catalog.codefly.json"
+	APIContractCatalogSchema   = "codefly/module-api-contracts/v1"
+	APIContractKindProtobuf    = "protobuf"
+	APIContractKindOpenAPI     = "openapi"
+)
+
+const (
 	ContractComposition    = "composition"
 	ContractFrontendPlugin = "frontendPlugin"
 	ContractSettings       = "settings"
@@ -124,6 +131,26 @@ type EntryPoint struct {
 type ProvidedService struct {
 	Name      string   `yaml:"name" json:"name"`
 	Endpoints []string `yaml:"endpoints,omitempty" json:"endpoints,omitempty"`
+	// APIContracts lists the machine-readable contract of each exposed endpoint,
+	// as files inside an artifact root of the package. A consumer generates a
+	// client from these without checking out the producing repository.
+	APIContracts []ProvidedAPIContract `yaml:"api-contracts,omitempty" json:"apiContracts,omitempty"`
+}
+
+// ProvidedAPIContract is one endpoint's contract inside the package.
+type ProvidedAPIContract struct {
+	Endpoint string `yaml:"endpoint" json:"endpoint"`
+	// Kind is "protobuf" (Path is a FileDescriptorSet, .binpb) or "openapi"
+	// (Path is an OpenAPI 3 document, .json or .yaml).
+	Kind string `yaml:"kind" json:"kind"`
+	// Package is the protobuf package (e.g. "saas.accounts.v1") or the OpenAPI
+	// info.title for kind openapi.
+	Package string `yaml:"package" json:"package"`
+	// Path is package-relative, slash-separated, and must sit under one of
+	// ArtifactRoots (conventionally contracts/api/<service>/<endpoint>/...).
+	Path string `yaml:"path" json:"path"`
+	// Digest is "sha256:<hex>" over the file at Path.
+	Digest string `yaml:"digest" json:"digest"`
 }
 
 type PackageCommand struct {
