@@ -117,6 +117,83 @@ func TestManifestRejectsMalformedDeclarations(t *testing.T) {
 	}
 }
 
+func TestConsumedAPIServicesOrderIndependentDigest(t *testing.T) {
+	first, err := manifest.Load([]byte(validManifest))
+	require.NoError(t, err)
+
+	reordered := strings.Replace(validManifest,
+		"services: [AuditService, DatasourceService]",
+		"services: [DatasourceService, AuditService]", 1)
+	require.NotEqual(t, validManifest, reordered)
+	second, err := manifest.Load([]byte(reordered))
+	require.NoError(t, err)
+
+	firstBytes, err := first.CanonicalBytes()
+	require.NoError(t, err)
+	secondBytes, err := second.CanonicalBytes()
+	require.NoError(t, err)
+	require.Equal(t, firstBytes, secondBytes)
+}
+
+func TestManifestRejectsMalformedConsumedAPIs(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		mutate  func(string) string
+		message string
+	}{
+		{"only module set", func(s string) string {
+			return strings.Replace(s,
+				"      module: saas-starter\n      service: accounts\n      endpoint: connect\n",
+				"      module: saas-starter\n", 1)
+		}, "must set module, service, and endpoint together"},
+		{"non-identifier module", func(s string) string {
+			return strings.Replace(s, "      module: saas-starter", "      module: Saas_Starter", 1)
+		}, "module \"Saas_Starter\" is invalid"},
+		{"invalid version constraint", func(s string) string {
+			return strings.Replace(s, `      version: ">=0.1.0 <0.2.0"`, `      version: "latest"`, 1)
+		}, "version \"latest\" is invalid"},
+		{"lowercase proto service", func(s string) string {
+			return strings.Replace(s, "services: [AuditService, DatasourceService]", "services: [auditService]", 1)
+		}, "services entry \"auditService\" is invalid"},
+		{"duplicate as", func(s string) string {
+			return strings.Replace(s,
+				"      services: [AuditService, DatasourceService]\n      as: accounts\n",
+				"      services: [AuditService, DatasourceService]\n      as: accounts\n    - id: billing\n      protocol: rest\n      module: saas-starter\n      service: billing\n      endpoint: connect\n      as: accounts\n", 1)
+		}, "as \"accounts\" is duplicated"},
+		{"duplicate triple", func(s string) string {
+			return strings.Replace(s,
+				"      services: [AuditService, DatasourceService]\n      as: accounts\n",
+				"      services: [AuditService, DatasourceService]\n      as: accounts\n    - id: billing\n      protocol: rest\n      module: saas-starter\n      service: accounts\n      endpoint: connect\n      as: billing\n", 1)
+		}, "is duplicated"},
+		{"invalid as", func(s string) string {
+			return strings.Replace(s, "      as: accounts", "      as: 1bad", 1)
+		}, "as \"1bad\" is invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := manifest.Load([]byte(tc.mutate(validManifest)))
+			require.ErrorContains(t, err, tc.message)
+		})
+	}
+}
+
+func TestManifestRejectsConsumedFieldsOnExposedAPI(t *testing.T) {
+	withModule := strings.Replace(validManifest,
+		"    - id: gateway\n      protocol: grpc",
+		"    - id: gateway\n      protocol: grpc\n      module: saas-starter", 1)
+	_, err := manifest.Load([]byte(withModule))
+	require.ErrorContains(t, err, "api.exposes[0].module is not allowed")
+
+	// When several consumed-only fields are set, the reported field is
+	// deterministic (declaration order), not whichever a map happened to yield.
+	withMany := strings.Replace(validManifest,
+		"    - id: gateway\n      protocol: grpc",
+		"    - id: gateway\n      protocol: grpc\n      version: \">=0.1.0\"\n      as: gw\n      module: saas-starter", 1)
+	for range 20 {
+		_, err := manifest.Load([]byte(withMany))
+		require.ErrorContains(t, err, "api.exposes[0].module is not allowed")
+	}
+}
+
 func TestManifestAcceptsDescriptorOnlySolution(t *testing.T) {
 	descriptorOnly := strings.Replace(validManifest,
 		"services:\n  - id: api\n    name: API\n",
@@ -185,8 +262,14 @@ api:
     - id: dashboard
       protocol: http
   consumes:
-    - id: billing
-      protocol: rest
+    - id: accounts
+      protocol: connect
+      module: saas-starter
+      service: accounts
+      endpoint: connect
+      version: ">=0.1.0 <0.2.0"
+      services: [AuditService, DatasourceService]
+      as: accounts
 events:
   emits:
     - id: solution.rendered

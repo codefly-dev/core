@@ -3,6 +3,14 @@
 // the APIs and events it exposes and consumes, its UI extensions, its needs,
 // its permissions, and the lifecycle operations it implements. The solution
 // spec the executor operates on stays codefly-agnostic and is not modeled here.
+//
+// A consumed API (api.consumes) names the producing endpoint by composition
+// identity through the Module, Service, and Endpoint fields — the same names a
+// service-dependency uses. Version constrains the producing module package
+// version, Services restricts the generated client to a subset of the
+// contract's protobuf services, and As names the facade entry-point. The CLI
+// derives both the runtime service-dependencies and the aggregated solution SDK
+// from api.consumes; a solution does not declare the same dependency twice.
 package manifest
 
 import (
@@ -63,6 +71,23 @@ type API struct {
 type APIDeclaration struct {
 	ID       string `yaml:"id" json:"id"`
 	Protocol string `yaml:"protocol" json:"protocol"`
+
+	// Consumed-API binding (api.consumes only). Module/Service/Endpoint name
+	// the producing endpoint by composition identity — the same names a
+	// service-dependency uses — so the CLI can resolve the contract from the
+	// composed module package and bind the runtime address. Empty on exposes.
+	Module   string `yaml:"module,omitempty" json:"module,omitempty"`
+	Service  string `yaml:"service,omitempty" json:"service,omitempty"`
+	Endpoint string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	// Version is a semver constraint on the producing module package version
+	// (e.g. ">=0.1.0 <0.2.0"). Empty means "whatever the composition lock pins".
+	Version string `yaml:"version,omitempty" json:"version,omitempty"`
+	// Services restricts the generated client to these protobuf service names
+	// (e.g. [AuditService]). Empty means every service of the contract.
+	Services []string `yaml:"services,omitempty" json:"services,omitempty"`
+	// As is the facade entry-point name (default: the endpoint's package
+	// short name, e.g. "accounts").
+	As string `yaml:"as,omitempty" json:"as,omitempty"`
 }
 
 // Events declares the events a solution emits and consumes.
@@ -156,10 +181,10 @@ func (m *Manifest) Validate() error {
 			return fmt.Errorf("services[%d].name is required", i)
 		}
 	}
-	if err := validateAPIDeclarations("api.exposes", m.API.Exposes); err != nil {
+	if err := validateExposedAPIs("api.exposes", m.API.Exposes); err != nil {
 		return err
 	}
-	if err := validateAPIDeclarations("api.consumes", m.API.Consumes); err != nil {
+	if err := validateConsumedAPIs("api.consumes", m.API.Consumes); err != nil {
 		return err
 	}
 	if err := validateIDs("events.emits", len(m.Events.Emits), func(i int) string { return m.Events.Emits[i].ID }); err != nil {
@@ -193,20 +218,108 @@ func (m *Manifest) Validate() error {
 	return nil
 }
 
-func validateAPIDeclarations(name string, declarations []APIDeclaration) error {
+// compositionNamePattern matches module/service/endpoint identifiers: lowercase
+// alphanumeric words joined by single hyphens. This is stricter than
+// composition/schema.go's identifier pattern (which also permits '.', '_', and
+// '/'); consumed-API bindings deliberately allow only the hyphenated form.
+var compositionNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
+
+// protoServiceNamePattern matches protobuf service names (e.g. AuditService).
+var protoServiceNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+
+func validateAPIDeclarationBase(name string, i int, declaration APIDeclaration, seen map[string]struct{}) error {
+	if !idPattern.MatchString(declaration.ID) {
+		return fmt.Errorf("%s[%d].id is invalid", name, i)
+	}
+	if _, duplicate := seen[declaration.ID]; duplicate {
+		return fmt.Errorf("%s[%d].id %q is duplicated", name, i, declaration.ID)
+	}
+	seen[declaration.ID] = struct{}{}
+	switch declaration.Protocol {
+	case standards.GRPC, standards.REST, standards.HTTP, standards.TCP, standards.CONNECT, standards.MCP:
+	default:
+		return fmt.Errorf("%s[%d].protocol %q is invalid", name, i, declaration.Protocol)
+	}
+	return nil
+}
+
+func validateExposedAPIs(name string, declarations []APIDeclaration) error {
 	seen := make(map[string]struct{}, len(declarations))
 	for i, declaration := range declarations {
-		if !idPattern.MatchString(declaration.ID) {
-			return fmt.Errorf("%s[%d].id is invalid", name, i)
+		if err := validateAPIDeclarationBase(name, i, declaration, seen); err != nil {
+			return err
 		}
-		if _, duplicate := seen[declaration.ID]; duplicate {
-			return fmt.Errorf("%s[%d].id %q is duplicated", name, i, declaration.ID)
+		for _, field := range []struct {
+			name string
+			set  bool
+		}{
+			{"module", declaration.Module != ""},
+			{"service", declaration.Service != ""},
+			{"endpoint", declaration.Endpoint != ""},
+			{"version", declaration.Version != ""},
+			{"services", len(declaration.Services) > 0},
+			{"as", declaration.As != ""},
+		} {
+			if field.set {
+				return fmt.Errorf("%s[%d].%s is not allowed", name, i, field.name)
+			}
 		}
-		seen[declaration.ID] = struct{}{}
-		switch declaration.Protocol {
-		case standards.GRPC, standards.REST, standards.HTTP, standards.TCP, standards.CONNECT, standards.MCP:
-		default:
-			return fmt.Errorf("%s[%d].protocol %q is invalid", name, i, declaration.Protocol)
+	}
+	return nil
+}
+
+func validateConsumedAPIs(name string, declarations []APIDeclaration) error {
+	seen := make(map[string]struct{}, len(declarations))
+	seenAs := make(map[string]struct{}, len(declarations))
+	seenTriples := make(map[string]struct{}, len(declarations))
+	for i, declaration := range declarations {
+		if err := validateAPIDeclarationBase(name, i, declaration, seen); err != nil {
+			return err
+		}
+		bound := declaration.Module != "" || declaration.Service != "" || declaration.Endpoint != ""
+		allBound := declaration.Module != "" && declaration.Service != "" && declaration.Endpoint != ""
+		if bound && !allBound {
+			return fmt.Errorf("%s[%d] must set module, service, and endpoint together or leave all empty", name, i)
+		}
+		if allBound {
+			for field, value := range map[string]string{
+				"module":   declaration.Module,
+				"service":  declaration.Service,
+				"endpoint": declaration.Endpoint,
+			} {
+				if !compositionNamePattern.MatchString(value) {
+					return fmt.Errorf("%s[%d].%s %q is invalid", name, i, field, value)
+				}
+			}
+			triple := declaration.Module + "/" + declaration.Service + "/" + declaration.Endpoint
+			if _, duplicate := seenTriples[triple]; duplicate {
+				return fmt.Errorf("%s[%d] (module, service, endpoint) %q is duplicated", name, i, triple)
+			}
+			seenTriples[triple] = struct{}{}
+		}
+		if declaration.Version != "" {
+			if _, err := semver.NewConstraint(declaration.Version); err != nil {
+				return fmt.Errorf("%s[%d].version %q is invalid: %w", name, i, declaration.Version, err)
+			}
+		}
+		seenServices := make(map[string]struct{}, len(declaration.Services))
+		for _, service := range declaration.Services {
+			if !protoServiceNamePattern.MatchString(service) {
+				return fmt.Errorf("%s[%d].services entry %q is invalid", name, i, service)
+			}
+			if _, duplicate := seenServices[service]; duplicate {
+				return fmt.Errorf("%s[%d].services entry %q is duplicated", name, i, service)
+			}
+			seenServices[service] = struct{}{}
+		}
+		if declaration.As != "" {
+			if !idPattern.MatchString(declaration.As) {
+				return fmt.Errorf("%s[%d].as %q is invalid", name, i, declaration.As)
+			}
+			if _, duplicate := seenAs[declaration.As]; duplicate {
+				return fmt.Errorf("%s[%d].as %q is duplicated", name, i, declaration.As)
+			}
+			seenAs[declaration.As] = struct{}{}
 		}
 	}
 	return nil
@@ -316,6 +429,13 @@ func (m *Manifest) AdmitInformation(info *solutionv0.GetSolutionInformationRespo
 
 func sortedAPIDeclarations(values []APIDeclaration) []APIDeclaration {
 	out := append([]APIDeclaration(nil), values...)
+	for i := range out {
+		if len(out[i].Services) > 0 {
+			services := append([]string(nil), out[i].Services...)
+			sort.Strings(services)
+			out[i].Services = services
+		}
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
