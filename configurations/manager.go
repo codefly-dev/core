@@ -261,9 +261,11 @@ func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*base
 // module provides.
 //
 // Values are secret-resolved and endpoint-interpolated for the access set on the
-// Manager, exactly like GetWorkspaceConfigurations — and, like it, a bad
-// ${endpoint:…} reference is a hard error, since every returned configuration is
-// injected run-wide.
+// Manager, exactly like GetWorkspaceConfigurations. Because these configurations
+// are injected run-wide, a value whose ${endpoint:…} names an endpoint the
+// consumer does not depend on (absent from its mapping set) is omitted for that
+// consumer rather than failing it; a reference to a service it does depend on but
+// with a wrong endpoint stays a hard error.
 func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
 	if manager == nil {
 		return nil, nil

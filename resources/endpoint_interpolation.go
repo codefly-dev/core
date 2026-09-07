@@ -20,24 +20,36 @@ var endpointInterpolationPattern = regexp.MustCompile(`\$\{endpoint:([^{}]+)\}`)
 // CODEFLY__ENDPOINT__<MODULE>__<SERVICE>__<ENDPOINT>. A value with no reference is
 // returned unchanged. An unresolvable reference is an error, never a broken URL.
 func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (string, error) {
+	resolved, _, err := interpolateEndpointsValue(ctx, value, mappings, access)
+	return resolved, err
+}
+
+// interpolateEndpointsValue resolves every reference in value. absent is true
+// when a reference names a module/service missing from mappings entirely — the
+// consumer does not depend on that endpoint — so a run-wide workspace-config
+// value referencing it can be dropped for this consumer rather than failing it. A
+// reference to a service the consumer does have but with a wrong endpoint or no
+// instance for access is a genuine misconfiguration: err is set with absent
+// false.
+func interpolateEndpointsValue(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (string, bool, error) {
 	matches := endpointInterpolationPattern.FindAllStringSubmatchIndex(value, -1)
 	if matches == nil {
-		return value, nil
+		return value, false, nil
 	}
 	var b strings.Builder
 	last := 0
 	for _, match := range matches {
 		reference := value[match[2]:match[3]]
-		instance, err := resolveEndpointReference(ctx, mappings, reference, access)
+		instance, absent, err := resolveEndpointReference(ctx, mappings, reference, access)
 		if err != nil {
-			return "", err
+			return "", absent, err
 		}
 		b.WriteString(value[last:match[0]])
 		b.WriteString(instance.Address)
 		last = match[1]
 	}
 	b.WriteString(value[last:])
-	return b.String(), nil
+	return b.String(), false, nil
 }
 
 // InterpolateConfigurationEndpoints resolves ${endpoint:…} references in every
@@ -46,21 +58,46 @@ func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.
 // baked into the shared configuration: when a value carries a reference, a
 // resolved clone is returned and conf is left untouched; otherwise conf itself is
 // returned unchanged.
+//
+// A run-wide workspace configuration is interpolated for every service, including
+// leaf services that do not depend on the referenced endpoint and so have it
+// absent from their mapping set. A value referencing such an endpoint is not for
+// that consumer: it is dropped — along with an information left with no values —
+// rather than failing the service. A reference to a service the consumer does
+// depend on but with a wrong endpoint or no instance for access stays a hard
+// error.
 func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (*basev0.Configuration, error) {
 	if conf == nil || !configurationHasEndpointReference(conf) {
 		return conf, nil
 	}
 	w := wool.Get(ctx).In("resources.InterpolateConfigurationEndpoints")
 	cloned := proto.Clone(conf).(*basev0.Configuration)
+	infos := cloned.Infos[:0]
 	for _, info := range cloned.Infos {
+		values := info.ConfigurationValues[:0]
 		for _, value := range info.ConfigurationValues {
-			resolved, err := InterpolateEndpoints(ctx, value.Value, mappings, access)
+			resolved, absent, err := interpolateEndpointsValue(ctx, value.Value, mappings, access)
 			if err != nil {
+				// A dependency-less workspace configuration is interpolated for
+				// every service. A reference to an endpoint the consumer does not
+				// depend on (absent from its mapping set) is simply not for this
+				// consumer: drop the value rather than fail the service. A wrong
+				// endpoint on a service it does depend on stays a hard error.
+				if absent {
+					continue
+				}
 				return nil, w.Wrapf(err, "cannot interpolate configuration %s/%s", info.Name, value.Key)
 			}
 			value.Value = resolved
+			values = append(values, value)
 		}
+		if len(values) == 0 {
+			continue
+		}
+		info.ConfigurationValues = values
+		infos = append(infos, info)
 	}
+	cloned.Infos = infos
 	return cloned, nil
 }
 
@@ -75,22 +112,31 @@ func configurationHasEndpointReference(conf *basev0.Configuration) bool {
 	return false
 }
 
-func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMapping, reference string, access *basev0.NetworkAccess) (*basev0.NetworkInstance, error) {
+// resolveEndpointReference resolves reference against mappings for access. The
+// absent return is true only when no mapping names the reference's module/service
+// at all — the consumer does not depend on that endpoint. A malformed reference,
+// a wrong endpoint on a service the consumer does have, or a missing instance for
+// access are misconfigurations: err is set with absent false.
+func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMapping, reference string, access *basev0.NetworkAccess) (*basev0.NetworkInstance, bool, error) {
 	w := wool.Get(ctx).In("resources.resolveEndpointReference")
 	info, err := ParseEndpoint(reference)
 	if err != nil {
-		return nil, w.Wrapf(err, "invalid endpoint reference ${endpoint:%s}", reference)
+		return nil, false, w.Wrapf(err, "invalid endpoint reference ${endpoint:%s}", reference)
 	}
 	if info.Name == "" && info.API == "" {
-		return nil, w.NewError("endpoint reference ${endpoint:%s} must name an endpoint (module/service/endpoint)", reference)
+		return nil, false, w.NewError("endpoint reference ${endpoint:%s} must name an endpoint (module/service/endpoint)", reference)
 	}
 	var matchedButNoAccess bool
+	var serviceSeen bool
 	available := make([]string, 0, len(mappings))
 	for _, mapping := range mappings {
 		if mapping == nil || mapping.Endpoint == nil {
 			continue
 		}
 		available = append(available, EndpointFromProto(mapping.Endpoint).Unique())
+		if mapping.Endpoint.Module == info.Module && mapping.Endpoint.Service == info.Service {
+			serviceSeen = true
+		}
 		if !endpointReferenceMatchesInfo(mapping.Endpoint, info) {
 			continue
 		}
@@ -98,16 +144,16 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 		for _, instance := range mapping.Instances {
 			if accessKindMatches(instance, access) {
 				if instance.Address == "" {
-					return nil, w.NewError("endpoint reference ${endpoint:%s} resolved to an empty address for access=%s", reference, accessKind(access))
+					return nil, false, w.NewError("endpoint reference ${endpoint:%s} resolved to an empty address for access=%s", reference, accessKind(access))
 				}
-				return instance, nil
+				return instance, false, nil
 			}
 		}
 	}
 	if matchedButNoAccess {
-		return nil, w.NewError("endpoint reference ${endpoint:%s} matched but has no instance for access=%s; available: %v", reference, accessKind(access), available)
+		return nil, false, w.NewError("endpoint reference ${endpoint:%s} matched but has no instance for access=%s; available: %v", reference, accessKind(access), available)
 	}
-	return nil, w.NewError("endpoint reference ${endpoint:%s} not found (access=%s); available endpoints: %v", reference, accessKind(access), available)
+	return nil, !serviceSeen, w.NewError("endpoint reference ${endpoint:%s} not found (access=%s); available endpoints: %v", reference, accessKind(access), available)
 }
 
 func accessKind(access *basev0.NetworkAccess) string {

@@ -126,3 +126,57 @@ func TestInterpolateConfigurationEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "http://host.docker.internal:1234/v1/auth/.well-known/jwks.json", url)
 }
+
+// A dependency-less workspace configuration is interpolated for every service,
+// including leaf infra services that do not depend on the referenced endpoint and
+// therefore have it absent from their mapping set. Such a value is not for that
+// consumer: it is dropped rather than failing the service, while sibling values
+// with no reference survive.
+func TestInterpolateConfigurationEndpointsDropsReferenceAbsentFromConsumer(t *testing.T) {
+	ctx := context.Background()
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name: "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{
+					{Key: "authority-jwks-url", Value: "${endpoint:saas/frontend/http}/v1/auth/.well-known/jwks.json"},
+					{Key: "static", Value: "keep-me"},
+				},
+			},
+		},
+	}
+
+	// A leaf service that depends on nothing has an empty mapping set.
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+
+	dropped, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	assert.Empty(t, dropped)
+
+	static, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "static")
+	require.NoError(t, err)
+	assert.Equal(t, "keep-me", static)
+}
+
+// A reference to a service the consumer does depend on (present in its mapping
+// set) but with a wrong endpoint token is a genuine misconfiguration: it stays a
+// hard error rather than being silently dropped.
+func TestInterpolateConfigurationEndpointsErrorsOnWrongEndpointForPresentService(t *testing.T) {
+	ctx := context.Background()
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{
+			{
+				Name: "work-context",
+				ConfigurationValues: []*basev0.ConfigurationValue{
+					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/grpc}/v1/jwks"},
+				},
+			},
+		},
+	}
+	_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
