@@ -17,6 +17,9 @@ plugins:
   - name: codefly-facade-go
     out: {{.Destination}}
     opt: paths=source_relative{{ if .Services }},services={{.Services}}{{ end }}{{ if .Module }},module={{.Module}}{{ end }}
+    # See the typescript template: the facade needs every file in one
+    # invocation, so override buf's default per-directory strategy.
+    strategy: all
 {{- else }}
   - name: go-grpc
     out: {{.Destination}}

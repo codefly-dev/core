@@ -7,4 +7,9 @@ plugins:
   - name: codefly-facade-ts
     out: {{.Destination}}
     opt: target=ts{{ if .Services }},services={{.Services}}{{ end }}{{ if .Module }},module={{.Module}}{{ end }}
+    # The facade groups services by package and validates --services across the
+    # whole descriptor, so it must see every file in one invocation. buf's
+    # default per-directory strategy would invoke it once per directory, hiding
+    # the requested services from every invocation but the one that owns them.
+    strategy: all
 {{- end }}
