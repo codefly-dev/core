@@ -209,6 +209,13 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 // module sits in a subdirectory of it. composedModuleWorkspaceDir resolves the
 // right one either way, so both layouts contribute their configurations.
 //
+// A source-referenced module that materializes as a submodule of a multi-module
+// repo splits its defaults in two: the repo's workspace root holds what every
+// module of that repo shares, and the submodule directory holds what only that
+// module declares. Both are read — the root first, so it wins over the copy a
+// submodule ships of one of its configurations, and two submodules of one root
+// shipping the same copy is not ambiguity.
+//
 // The consuming workspace wins on a name conflict, so a solution can override a
 // composed configuration by declaring one of the same name, but is never
 // required to redeclare every configuration the host brings. A collision
@@ -238,9 +245,11 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 		fromWorkspace[info.Name] = true
 	}
 	// A module referenced by source is a foreign module materialized (base-synced)
-	// into this workspace as a bare subtree; its own directory bounds the search
-	// for its shipped defaults. An in-repo or path-referenced module is not, so it
-	// keeps the plain repo-bounded walk (see composedModuleWorkspaceDir).
+	// into this workspace, either as a bare subtree — where its own directory
+	// bounds the search for its shipped defaults — or as its whole repo, where
+	// that directory carries the module's defaults on top of the repo workspace
+	// root's. An in-repo or path-referenced module is neither, so it keeps the
+	// plain repo-bounded walk (see composedModuleWorkspaceDir).
 	sourceReferenced := make(map[string]bool)
 	for _, ref := range local.workspace.Modules {
 		if ref.Source != "" {
@@ -249,6 +258,35 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 	}
 	providedBy := make(map[string]string)
 	loaded := make(map[string]bool)
+	// Names a composed workspace root provides, keyed by that root: they belong
+	// to every module the root holds, so a submodule shipping a copy of one is
+	// not the one providing it.
+	rootNames := make(map[string]map[string]bool)
+	merge := func(moduleName string, infos []*basev0.ConfigurationInformation, providedByRoot map[string]bool) error {
+		for _, info := range infos {
+			if fromWorkspace[info.Name] {
+				w.Debug("workspace configuration overrides composed module configuration",
+					wool.Field("configuration", info.Name), wool.Field("module", moduleName))
+				continue
+			}
+			if providedByRoot[info.Name] {
+				continue
+			}
+			if other, ok := providedBy[info.Name]; ok {
+				return w.NewError(
+					"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
+					info.Name, other, moduleName, ErrConfigurationConflict)
+			}
+			providedBy[info.Name] = moduleName
+			workspaceInfos = append(workspaceInfos, info)
+		}
+		return nil
+	}
+	type submoduleOverlay struct {
+		module  *resources.Module
+		rootKey string
+	}
+	var overlays []submoduleOverlay
 	for _, mod := range modules {
 		consumingBoundary := ""
 		if sourceReferenced[mod.Name] {
@@ -256,22 +294,25 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 		}
 		moduleWorkspaceDir := composedModuleWorkspaceDir(mod.Dir(), consumingBoundary)
 		moduleConfigurationDir := path.Join(moduleWorkspaceDir, "configurations", configurationProfile)
+		// Several module references can resolve to the same composed workspace
+		// root (e.g. two non-flat submodules composed from one host repo, one
+		// reached through a symlinked path). Resolve symlinks so those collapse
+		// to one key — matching the symlink-aware SameDir check below — and load
+		// the root's configurations once; loading them again would collide with
+		// itself.
+		key := moduleWorkspaceDir
+		if resolved, err := filepath.EvalSymlinks(moduleWorkspaceDir); err == nil {
+			key = resolved
+		}
+		if consumingBoundary != "" && !resources.SameDir(mod.Dir(), moduleWorkspaceDir) {
+			overlays = append(overlays, submoduleOverlay{module: mod, rootKey: key})
+		}
 		// The consuming workspace's own configurations are already loaded; a flat
 		// root module's workspace root coincides with the consuming workspace's,
 		// as does an in-repo module whose nearest workspace root is the consuming
 		// one, so skip either rather than load the same directory twice.
 		if resources.SameDir(moduleConfigurationDir, workspaceConfigurationDir) {
 			continue
-		}
-		// Several module references can resolve to the same composed workspace
-		// root (e.g. two non-flat submodules composed from one host repo, one
-		// reached through a symlinked path). Resolve symlinks so those collapse
-		// to one key — matching the symlink-aware SameDir check above — and load
-		// the root's configurations once; loading them again would collide with
-		// itself.
-		key := moduleWorkspaceDir
-		if resolved, err := filepath.EvalSymlinks(moduleWorkspaceDir); err == nil {
-			key = resolved
 		}
 		if loaded[key] {
 			continue
@@ -288,19 +329,33 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 		if err != nil {
 			return nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
 		}
+		names := make(map[string]bool, len(moduleInfos))
 		for _, info := range moduleInfos {
-			if fromWorkspace[info.Name] {
-				w.Debug("workspace configuration overrides composed module configuration",
-					wool.Field("configuration", info.Name), wool.Field("module", mod.Name))
-				continue
-			}
-			if other, ok := providedBy[info.Name]; ok {
-				return nil, nil, w.NewError(
-					"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
-					info.Name, other, mod.Name, ErrConfigurationConflict)
-			}
-			providedBy[info.Name] = mod.Name
-			workspaceInfos = append(workspaceInfos, info)
+			names[info.Name] = true
+		}
+		rootNames[key] = names
+		if err = merge(mod.Name, moduleInfos, nil); err != nil {
+			return nil, nil, err
+		}
+	}
+	// Every composed workspace root is loaded before any submodule overlay, so a
+	// root's configuration wins over the copy a submodule ships of it — and two
+	// submodules of one root shipping the same copy is not ambiguity.
+	for _, overlay := range overlays {
+		moduleConfigurationDir := path.Join(overlay.module.Dir(), "configurations", configurationProfile)
+		exists, err := shared.DirectoryExists(ctx, moduleConfigurationDir)
+		if err != nil {
+			return nil, nil, w.Wrapf(err, "cannot check module configuration directory")
+		}
+		if !exists {
+			continue
+		}
+		moduleInfos, err := LoadConfigurationInformationsFromFiles(ctx, moduleConfigurationDir)
+		if err != nil {
+			return nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", overlay.module.Name)
+		}
+		if err = merge(overlay.module.Name, moduleInfos, rootNames[overlay.rootKey]); err != nil {
+			return nil, nil, err
 		}
 	}
 	composedNames := make(map[string]bool, len(providedBy))

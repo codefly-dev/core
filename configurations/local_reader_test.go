@@ -446,6 +446,152 @@ agent:
 	require.Equal(t, "solution-token", token)
 }
 
+// A source-referenced module can materialize as its whole repository — an
+// aggregator holding several modules under its own workspace root. Its
+// submodule directory carries the configurations only that module declares,
+// which the repo's workspace root does not hold, so provisioning must read both:
+// resolving the module to the enclosing root alone drops them and leaves the
+// module's services without their configuration dependencies.
+func TestLocalLoaderComposesSourceReferencedSubmoduleOfAggregatorRepo(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: saas
+    source: obin-ai/lodestar
+    module: modules/saas
+`)
+	writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
+  saas:
+    path: vendor/lodestar/modules/saas
+`)
+
+	// The materialized aggregator: its own workspace root holds what every
+	// module of the repo shares, the submodule holds what only it declares —
+	// plus a copy of a shared one, as a pinned platform repo carries.
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/workspace.codefly.yaml", `name: lodestar
+layout: modules
+modules:
+  - name: saas
+    path: modules/saas
+  - name: documents
+    path: modules/documents
+`)
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/configurations/local/observability.env", "OBSERVABILITY_URL=lodestar-observability\n")
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/module.codefly.yaml", `kind: module
+name: saas
+services:
+  - name: frontend
+`)
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/configurations/local/observability.env", "OBSERVABILITY_URL=saas-observability\n")
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/services/frontend/service.codefly.yaml", `kind: service
+name: frontend
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+`)
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/documents/module.codefly.yaml", "kind: module\nname: documents\nservices: []\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	// The submodule's own configuration is provisioned.
+	legal, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "legal")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, legal, "legal", "LEGAL_URL")
+	require.NoError(t, err)
+	require.Equal(t, "saas-legal", url)
+
+	// The aggregator root keeps providing what it shares with every module it
+	// holds, including where the submodule ships a copy of it.
+	observability, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
+	require.NoError(t, err)
+	url, err = resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
+	require.Equal(t, "lodestar-observability", url)
+}
+
+// Two source-referenced submodules of one materialized aggregator repo each ship
+// a copy of a configuration their shared workspace root provides. The root
+// provides it once for both, so the copies are not competing definitions — while
+// a configuration two submodules provide that the root does not is the same
+// genuine ambiguity as between two unrelated composed modules.
+func TestLocalLoaderComposesSourceReferencedSubmodulesOfOneAggregatorRepo(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: saas
+    source: obin-ai/lodestar
+    module: modules/saas
+  - name: documents
+    source: obin-ai/lodestar
+    module: modules/documents
+`)
+	writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
+  saas:
+    path: vendor/lodestar/modules/saas
+  documents:
+    path: vendor/lodestar/modules/documents
+`)
+
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/workspace.codefly.yaml", `name: lodestar
+layout: modules
+modules:
+  - name: saas
+    path: modules/saas
+  - name: documents
+    path: modules/documents
+`)
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/configurations/local/observability.env", "OBSERVABILITY_URL=lodestar-observability\n")
+	for _, name := range []string{"saas", "documents"} {
+		writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/"+name+"/module.codefly.yaml", "kind: module\nname: "+name+"\nservices: []\n")
+		writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/"+name+"/configurations/local/observability.env", "OBSERVABILITY_URL="+name+"-observability\n")
+	}
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	observability, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
+	require.Equal(t, "lodestar-observability", url)
+
+	legal, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "legal")
+	require.NoError(t, err)
+	url, err = resources.GetConfigurationValue(ctx, legal, "legal", "LEGAL_URL")
+	require.NoError(t, err)
+	require.Equal(t, "saas-legal", url)
+
+	// The other submodule declaring the same configuration, with the root
+	// silent on it, is ambiguity the solution must resolve.
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/documents/configurations/local/legal.env", "LEGAL_URL=documents-legal\n")
+	workspace, err = resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err = configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	err = loader.Load(ctx, resources.LocalEnvironment())
+	require.ErrorIs(t, err, configurations.ErrConfigurationConflict)
+	require.Contains(t, err.Error(), "legal")
+}
+
 // Two modules composed from the same non-flat host repo resolve to one shared
 // workspace root. Its configurations are composed in once; a naive per-module
 // load would read the same directory twice and misfire the same-name conflict
