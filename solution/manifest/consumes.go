@@ -14,12 +14,13 @@ const APIConsumesEnvironmentVariable = "CODEFLY__API_CONSUMES"
 
 // ConsumedAPI is the runtime-facing projection of one api.consumes entry: the
 // identity a running backend needs to map a consumed prefix to its upstream
-// endpoint. Module, Service, and Endpoint name the producing endpoint by
-// composition identity — the same names that form the injected
-// CODEFLY__ENDPOINT__<MODULE>__<SERVICE>__<ENDPOINT>__<API> address key — so the
-// runtime derives the upstream endpoint key without resolving the composition
-// again. As is the facade entry-point (empty means the runtime applies its
-// default), from which the runtime derives the /v1/<as> route.
+// endpoint. Module, Service, Endpoint, and Protocol name the producing endpoint
+// by composition identity; a reader must feed them through
+// resources.EndpointAsEnvironmentVariableKeyBase to reconstruct the injected
+// CODEFLY__ENDPOINT__<MODULE>__<SERVICE>__<ENDPOINT>__<API> address key rather
+// than hand-rolling the upper-case/hyphen transform. As is the facade
+// entry-point (empty means the runtime applies its default), from which the
+// runtime derives the /v1/<as> route.
 type ConsumedAPI struct {
 	ID       string `json:"id"`
 	Module   string `json:"module"`
@@ -30,13 +31,19 @@ type ConsumedAPI struct {
 }
 
 // ConsumedAPIs returns the runtime projection of the solution's api.consumes, in
-// canonical (id-sorted) order. Nil when the solution consumes no APIs.
+// canonical (id-sorted) order. Nil when the solution consumes no bindable APIs.
 func (m *Manifest) ConsumedAPIs() []ConsumedAPI {
-	if len(m.API.Consumes) == 0 {
-		return nil
-	}
 	out := make([]ConsumedAPI, 0, len(m.API.Consumes))
 	for _, declaration := range m.API.Consumes {
+		// Unbound consumes (module/service/endpoint all empty, permitted by
+		// validateConsumedAPIs) name no producing endpoint, so they carry no
+		// upstream to federate — projecting them would force every reader to
+		// rebuild a garbage CODEFLY__ENDPOINT key from empty segments.
+		// Validation guarantees the binding is all-set or all-empty, so testing
+		// Module alone is sufficient.
+		if declaration.Module == "" {
+			continue
+		}
 		out = append(out, ConsumedAPI{
 			ID:       declaration.ID,
 			Module:   declaration.Module,
@@ -46,23 +53,24 @@ func (m *Manifest) ConsumedAPIs() []ConsumedAPI {
 			As:       declaration.As,
 		})
 	}
+	if len(out) == 0 {
+		return nil
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
 // ConsumedAPIsEnvValue encodes the consumed APIs as the CODEFLY__API_CONSUMES
-// value. It returns the empty string when the solution consumes no APIs, so a
-// caller injects the variable only for solutions that declare api.consumes.
-func (m *Manifest) ConsumedAPIsEnvValue() (string, error) {
+// value. It returns the empty string when the solution consumes no bindable
+// APIs, so a caller injects the variable only for solutions that declare a
+// bound api.consumes. Marshaling a slice of plain-string structs cannot fail.
+func (m *Manifest) ConsumedAPIsEnvValue() string {
 	consumed := m.ConsumedAPIs()
 	if len(consumed) == 0 {
-		return "", nil
+		return ""
 	}
-	encoded, err := json.Marshal(consumed)
-	if err != nil {
-		return "", fmt.Errorf("encode api.consumes: %w", err)
-	}
-	return string(encoded), nil
+	encoded, _ := json.Marshal(consumed)
+	return string(encoded)
 }
 
 // ParseConsumedAPIs decodes a CODEFLY__API_CONSUMES value into the consumed
