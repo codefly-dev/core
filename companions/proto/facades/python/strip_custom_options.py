@@ -22,14 +22,31 @@ from google.protobuf import descriptor_pb2
 _WELL_KNOWN_PREFIX = "google/protobuf/"
 
 
+def clear_enum(enum):
+    # ClearField wipes the whole EnumOptions, including the standard allow_alias
+    # flag. An enum with aliased values (two names on one number) is invalid
+    # without it, and the generator's reparse rejects the descriptor. Strip the
+    # custom/extension options but carry allow_alias through.
+    allow_alias = enum.options.allow_alias
+    enum.ClearField("options")
+    if allow_alias:
+        enum.options.allow_alias = True
+    for value in enum.value:
+        value.ClearField("options")
+
+
 def clear_message(message):
     message.ClearField("options")
     for field in message.field:
         field.ClearField("options")
+    for oneof in message.oneof_decl:
+        oneof.ClearField("options")
+    for extension in message.extension:
+        extension.ClearField("options")
     for nested in message.nested_type:
         clear_message(nested)
     for enum in message.enum_type:
-        enum.ClearField("options")
+        clear_enum(enum)
 
 
 def strip(file_proto):
@@ -42,7 +59,9 @@ def strip(file_proto):
     for message in file_proto.message_type:
         clear_message(message)
     for enum in file_proto.enum_type:
-        enum.ClearField("options")
+        clear_enum(enum)
+    for extension in file_proto.extension:
+        extension.ClearField("options")
     for service in file_proto.service:
         service.ClearField("options")
         for method in service.method:
