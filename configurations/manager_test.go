@@ -69,6 +69,73 @@ agent:
 	require.Equal(t, "host-observability", url)
 }
 
+// Two composed modules defining one workspace configuration differently must not
+// fail a run that never selects that name: the ambiguity lives in vendored
+// content the solution does not consume. A service that does declare it as a
+// dependency fails there instead, with the diagnostic naming both providers and
+// the remedy — not with a bare "not found" that hides why the name is missing.
+func TestManagerDefersComposedModuleConfigurationAmbiguityToConsumption(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: host-a
+    path: ../host-a
+  - name: host-b
+    path: ../host-b
+`)
+
+	for _, host := range []string{"host-a", "host-b"} {
+		writeConfigurationFile(t, root, host+"/module.codefly.yaml", `kind: module
+name: `+host+`
+services:
+  - name: telemetry
+`)
+		writeConfigurationFile(t, root, host+"/configurations/local/legal.env", "LEGAL_URL="+host+"-legal\n")
+		writeConfigurationFile(t, root, host+"/configurations/local/observability.env", "OBSERVABILITY_URL=shared-observability\n")
+		writeConfigurationFile(t, root, host+"/services/telemetry/service.codefly.yaml", `kind: service
+name: telemetry
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+`)
+	}
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+
+	// The run loads: nothing has selected the ambiguous name.
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	// What the modules agree on is provisioned as usual.
+	confs, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "observability")
+	require.NoError(t, err)
+	require.Len(t, confs, 1)
+
+	// Selecting the ambiguous name fails there, with both providers named.
+	_, err = manager.GetWorkspaceDependenciesConfigurations(ctx, "legal")
+	require.ErrorIs(t, err, configurations.ErrConfigurationConflict)
+	require.Contains(t, err.Error(), "host-a")
+	require.Contains(t, err.Error(), "host-b")
+	require.Contains(t, err.Error(), "legal")
+
+	// A name nothing provides still reports as missing, not as ambiguous.
+	_, err = manager.GetWorkspaceDependenciesConfigurations(ctx, "billing")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, configurations.ErrConfigurationConflict)
+	require.Contains(t, err.Error(), "no configuration found for billing")
+}
+
 // A composition root wires a cross-module URL as a workspace configuration value
 // by referencing a composed endpoint. The Manager resolves that ${endpoint:…}
 // reference against the run's network mappings, so the consumer reads a plain URL.

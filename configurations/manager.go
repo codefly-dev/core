@@ -31,6 +31,16 @@ type compositionRootConfigurationsLoader interface {
 	CompositionRootWorkspaceConfigurationNames() []string
 }
 
+// ambiguousConfigurationsLoader is an optional capability a Loader may implement
+// to report workspace configuration names it could not resolve to a single
+// definition. Such a name is absent from the loaded set, so a run that never
+// consumes it proceeds; a service that declares it as a dependency fails with
+// the loader's diagnostic, which names the providers and the remedy, rather than
+// with a bare "not found" that hides why the name is missing.
+type ambiguousConfigurationsLoader interface {
+	AmbiguousWorkspaceConfigurations() map[string]error
+}
+
 type Manager struct {
 	workspace *resources.Workspace
 	services  map[string]*resources.Service
@@ -43,6 +53,10 @@ type Manager struct {
 
 	// Per Name in
 	worspaceConfigurations map[string]*basev0.Configuration
+
+	// Workspace configuration names composed modules defined incompatibly,
+	// mapped to the diagnostic raised when a dependency selects one.
+	ambiguousWorkspaceConfigurations map[string]error
 
 	// Names of the workspace configurations the composition root itself provides,
 	// injected into every service in the run (as opposed to those a composed
@@ -77,6 +91,7 @@ func NewManager(_ context.Context, workspace *resources.Workspace) (*Manager, er
 		workspace:                              workspace,
 		services:                               make(map[string]*resources.Service),
 		worspaceConfigurations:                 make(map[string]*basev0.Configuration),
+		ambiguousWorkspaceConfigurations:       make(map[string]error),
 		compositionRootWorkspaceConfigurations: make(map[string]bool),
 		serviceConfigurations:                  make(map[string]*basev0.Configuration),
 		exposedFromServiceConfigurations:       make(map[string][]*basev0.Configuration),
@@ -189,6 +204,11 @@ func (manager *Manager) LoadConfigurations(_ context.Context) error {
 		if provider, ok := loader.(compositionRootConfigurationsLoader); ok {
 			for _, name := range provider.CompositionRootWorkspaceConfigurationNames() {
 				manager.compositionRootWorkspaceConfigurations[name] = true
+			}
+		}
+		if provider, ok := loader.(ambiguousConfigurationsLoader); ok {
+			for name, diagnostic := range provider.AmbiguousWorkspaceConfigurations() {
+				manager.ambiguousWorkspaceConfigurations[name] = diagnostic
 			}
 		}
 		confs := loader.Configurations()
@@ -337,6 +357,9 @@ func (manager *Manager) GetWorkspaceDependenciesConfigurations(ctx context.Conte
 	for _, dep := range deps {
 		conf, ok := manager.worspaceConfigurations[dep]
 		if !ok {
+			if diagnostic, ambiguous := manager.ambiguousWorkspaceConfigurations[dep]; ambiguous {
+				return nil, w.Wrapf(diagnostic, "cannot select workspace configuration %s", dep)
+			}
 			return nil, w.NewError("no configuration found for %s", dep)
 		}
 		if err := manager.resolveWorkspaceConfiguration(ctx, dep, conf); err != nil {

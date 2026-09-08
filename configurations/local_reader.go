@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 
 	"github.com/codefly-dev/core/resources"
@@ -39,6 +40,10 @@ type ConfigurationInformationLocalReader struct {
 	// root itself, as opposed to those brought in from composed modules. See
 	// CompositionRootWorkspaceConfigurationNames.
 	compositionRootConfigurationNames []string
+
+	// Workspace configuration names composed modules disagreed on, mapped to the
+	// diagnostic. See AmbiguousWorkspaceConfigurations.
+	ambiguousConfigurations map[string]error
 }
 
 func (local *ConfigurationInformationLocalReader) Identity() string {
@@ -64,6 +69,16 @@ func (local *ConfigurationInformationLocalReader) CompositionRootWorkspaceConfig
 	return local.compositionRootConfigurationNames
 }
 
+// AmbiguousWorkspaceConfigurations returns the workspace configuration names two
+// composed modules provided with different definitions, mapped to the diagnostic
+// naming both providers. Such a name is absent from Configurations: a run that
+// never consumes it is not held hostage to an ambiguity in vendored content it
+// does not use, while a service that declares it as a dependency fails with this
+// diagnostic — and its remedy — instead of a bare "not found".
+func (local *ConfigurationInformationLocalReader) AmbiguousWorkspaceConfigurations() map[string]error {
+	return local.ambiguousConfigurations
+}
+
 func NewConfigurationLocalReader(_ context.Context, workspace *resources.Workspace) (*ConfigurationInformationLocalReader, error) {
 	return &ConfigurationInformationLocalReader{workspace: workspace}, nil
 }
@@ -87,10 +102,11 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	if err != nil {
 		return w.Wrapf(err, "cannot load configurations")
 	}
-	workspaceInfos, composedNames, err := local.composeModuleWorkspaceConfigurations(ctx, workspaceInfos, configurationDir, configurationProfile)
+	workspaceInfos, composedNames, ambiguous, err := local.composeModuleWorkspaceConfigurations(ctx, workspaceInfos, configurationDir, configurationProfile)
 	if err != nil {
 		return w.Wrapf(err, "cannot compose module workspace configurations")
 	}
+	local.ambiguousConfigurations = ambiguous
 	workspaceInfos, overriddenNames, err := applyWorkspaceConfigurationOverrides(workspaceInfos, os.Getenv(resources.WorkspaceConfigurationOverridesEnvironment))
 	if err != nil {
 		return w.Wrapf(err, "cannot load invocation-scoped workspace configurations")
@@ -195,6 +211,24 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	return nil
 }
 
+// composedConfiguration is a workspace configuration a composed module offers.
+// Whether it is the one that gets provisioned cannot be decided as it is read:
+// the module's own directory may still override the repository root it sits in,
+// and another module may offer the same name — so every offer is held until all
+// of them are in.
+type composedConfiguration struct {
+	info *basev0.ConfigurationInformation
+	// module is the composed module the current info came from, and repo the
+	// composed repository that module belongs to.
+	module string
+	repo   string
+	// fromRepo distinguishes a configuration read at the repository's workspace
+	// root, shared by every module it holds, from one read at a single module's
+	// own directory.
+	fromRepo bool
+	conflict error
+}
+
 // composeModuleWorkspaceConfigurations brings each referenced module's own
 // workspace configurations into the consuming workspace's configuration space.
 // A module composed from another repo carries its configurations/<profile>/*
@@ -209,105 +243,197 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 // module sits in a subdirectory of it. composedModuleWorkspaceDir resolves the
 // right one either way, so both layouts contribute their configurations.
 //
+// A foreign module that materializes as a submodule of a multi-module repo
+// splits its defaults in two: the repository's workspace root holds what every
+// module of that repo shares, and the submodule directory holds what only that
+// module declares. Both are read, and within one repository the submodule's
+// directory is the more specific declaration, so it overrides the root's on a
+// name they both define. That override reaches every service in the run — a
+// workspace configuration is one flat namespace — so it is logged.
+//
 // The consuming workspace wins on a name conflict, so a solution can override a
 // composed configuration by declaring one of the same name, but is never
-// required to redeclare every configuration the host brings. A collision
-// between two composed modules is genuine ambiguity with no principled winner —
-// matching how the loader hard-errors on conflicting definitions within a
-// single directory, it is a loud error rather than a silent, order-dependent
-// pick; the solution resolves it by declaring its own configuration of that
-// name. Secret material follows the same typed path as any other workspace
-// configuration: reference values resolve lazily once a dependency selects them.
+// required to redeclare every configuration the host brings. Two composed
+// modules defining the same name identically is not a conflict — there is one
+// value to provision and nothing to arbitrate, which is what two submodules
+// vendoring the same file amount to. Two that define it *differently* are
+// genuine ambiguity with no principled winner, so neither is provisioned and the
+// name is reported as ambiguous rather than silently resolved by module order.
+// The run is not failed at load over it: an ambiguity in vendored content the
+// solution never consumes is not the operator's problem, while a service that
+// declares the name as a dependency fails with the diagnostic and its remedy —
+// declare the configuration in the solution workspace. Secret material follows
+// the same typed path as any other workspace configuration: reference values
+// resolve lazily once a dependency selects them.
 //
 // It also returns the set of configuration names contributed by composed
-// modules, so the caller can tell them apart from the composition root's own.
+// modules, so the caller can tell them apart from the composition root's own,
+// and the ambiguous names with their diagnostics.
 func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigurations(
 	ctx context.Context,
 	workspaceInfos []*basev0.ConfigurationInformation,
 	workspaceConfigurationDir string,
 	configurationProfile string,
-) ([]*basev0.ConfigurationInformation, map[string]bool, error) {
+) ([]*basev0.ConfigurationInformation, map[string]bool, map[string]error, error) {
 	w := wool.Get(ctx).In("ConfigurationInformationLocalReader.composeModuleWorkspaceConfigurations")
 
 	modules, err := local.workspace.LoadModules(ctx)
 	if err != nil {
-		return nil, nil, w.Wrapf(err, "cannot load modules")
+		return nil, nil, nil, w.Wrapf(err, "cannot load modules")
 	}
 	fromWorkspace := make(map[string]bool, len(workspaceInfos))
 	for _, info := range workspaceInfos {
 		fromWorkspace[info.Name] = true
 	}
-	// A module referenced by source is a foreign module materialized (base-synced)
-	// into this workspace as a bare subtree; its own directory bounds the search
-	// for its shipped defaults. An in-repo or path-referenced module is not, so it
-	// keeps the plain repo-bounded walk (see composedModuleWorkspaceDir).
 	sourceReferenced := make(map[string]bool)
 	for _, ref := range local.workspace.Modules {
 		if ref.Source != "" {
 			sourceReferenced[ref.Name] = true
 		}
 	}
-	providedBy := make(map[string]string)
+
+	composed := make(map[string]*composedConfiguration)
+	var order []string
+	offer := func(module string, repo string, fromRepo bool, infos []*basev0.ConfigurationInformation) {
+		for _, info := range infos {
+			if fromWorkspace[info.Name] {
+				w.Debug("workspace configuration overrides composed module configuration",
+					wool.Field("configuration", info.Name), wool.Field("module", module))
+				continue
+			}
+			existing, ok := composed[info.Name]
+			if !ok {
+				composed[info.Name] = &composedConfiguration{info: info, module: module, repo: repo, fromRepo: fromRepo}
+				order = append(order, info.Name)
+				continue
+			}
+			if existing.conflict != nil {
+				continue
+			}
+			// A module directory and the root of the repository holding it are
+			// not two competing providers: they are one artifact, where the
+			// module's own directory is the more specific declaration.
+			if existing.repo == repo && existing.fromRepo != fromRepo {
+				overrides := !proto.Equal(existing.info, info)
+				submodule := existing.module
+				if !fromRepo {
+					submodule = module
+					existing.info, existing.module, existing.fromRepo = info, module, false
+				}
+				if overrides {
+					w.Warn("composed module configuration overrides the one its repository provides, for every service in the run",
+						wool.Field("configuration", info.Name), wool.Field("module", submodule))
+				}
+				continue
+			}
+			if proto.Equal(existing.info, info) {
+				continue
+			}
+			existing.conflict = w.NewError(
+				"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
+				info.Name, existing.module, module, ErrConfigurationConflict)
+		}
+	}
+
+	// Several module references can resolve to the same directory: to one
+	// composed workspace root (e.g. two non-flat submodules composed from one
+	// host repo, one reached through a symlinked path), or — since a foreign
+	// reference names its module by coordinate rather than by name — to one
+	// submodule composed twice under different names. Resolve symlinks so those
+	// collapse to one key and read the directory once; reading it twice would
+	// offer every configuration in it against itself.
 	loaded := make(map[string]bool)
+	readOnce := func(dir string) ([]*basev0.ConfigurationInformation, error) {
+		key := dir
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			key = resolved
+		}
+		if loaded[key] {
+			return nil, nil
+		}
+		loaded[key] = true
+		configurationDir := path.Join(dir, "configurations", configurationProfile)
+		exists, err := shared.DirectoryExists(ctx, configurationDir)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot check module configuration directory")
+		}
+		if !exists {
+			return nil, nil
+		}
+		return LoadConfigurationInformationsFromFiles(ctx, configurationDir)
+	}
+
 	for _, mod := range modules {
+		// A foreign module is one composed from elsewhere: referenced by source
+		// — materialized (base-synced) into this workspace, as a bare subtree or
+		// as its whole repo — or resolved outside the consuming workspace's own
+		// tree. Its own directory bounds the search for its shipped defaults and
+		// carries the defaults only that module declares. An in-repo module
+		// (bare-name, layout: modules) is neither: it is native to the consuming
+		// workspace, its configurations belong to that workspace root, and
+		// flattening its module directory in would collide with, or silently
+		// bleed into, its sibling modules' services.
+		foreign := sourceReferenced[mod.Name] || !dirWithin(mod.Dir(), local.workspace.Dir())
 		consumingBoundary := ""
-		if sourceReferenced[mod.Name] {
+		if foreign {
 			consumingBoundary = local.workspace.Dir()
 		}
-		moduleWorkspaceDir := composedModuleWorkspaceDir(mod.Dir(), consumingBoundary)
-		moduleConfigurationDir := path.Join(moduleWorkspaceDir, "configurations", configurationProfile)
+		repoDir := composedModuleWorkspaceDir(mod.Dir(), consumingBoundary)
+		repo := repoDir
+		if resolved, err := filepath.EvalSymlinks(repoDir); err == nil {
+			repo = resolved
+		}
 		// The consuming workspace's own configurations are already loaded; a flat
 		// root module's workspace root coincides with the consuming workspace's,
 		// as does an in-repo module whose nearest workspace root is the consuming
 		// one, so skip either rather than load the same directory twice.
-		if resources.SameDir(moduleConfigurationDir, workspaceConfigurationDir) {
-			continue
-		}
-		// Several module references can resolve to the same composed workspace
-		// root (e.g. two non-flat submodules composed from one host repo, one
-		// reached through a symlinked path). Resolve symlinks so those collapse
-		// to one key — matching the symlink-aware SameDir check above — and load
-		// the root's configurations once; loading them again would collide with
-		// itself.
-		key := moduleWorkspaceDir
-		if resolved, err := filepath.EvalSymlinks(moduleWorkspaceDir); err == nil {
-			key = resolved
-		}
-		if loaded[key] {
-			continue
-		}
-		loaded[key] = true
-		exists, err := shared.DirectoryExists(ctx, moduleConfigurationDir)
-		if err != nil {
-			return nil, nil, w.Wrapf(err, "cannot check module configuration directory")
-		}
-		if !exists {
-			continue
-		}
-		moduleInfos, err := LoadConfigurationInformationsFromFiles(ctx, moduleConfigurationDir)
-		if err != nil {
-			return nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
-		}
-		for _, info := range moduleInfos {
-			if fromWorkspace[info.Name] {
-				w.Debug("workspace configuration overrides composed module configuration",
-					wool.Field("configuration", info.Name), wool.Field("module", mod.Name))
-				continue
+		if !resources.SameDir(path.Join(repoDir, "configurations", configurationProfile), workspaceConfigurationDir) {
+			infos, err := readOnce(repoDir)
+			if err != nil {
+				return nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
 			}
-			if other, ok := providedBy[info.Name]; ok {
-				return nil, nil, w.NewError(
-					"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
-					info.Name, other, mod.Name, ErrConfigurationConflict)
+			offer(mod.Name, repo, true, infos)
+		}
+		if foreign && !resources.SameDir(mod.Dir(), repoDir) {
+			infos, err := readOnce(mod.Dir())
+			if err != nil {
+				return nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
 			}
-			providedBy[info.Name] = mod.Name
-			workspaceInfos = append(workspaceInfos, info)
+			offer(mod.Name, repo, false, infos)
 		}
 	}
-	composedNames := make(map[string]bool, len(providedBy))
-	for name := range providedBy {
+
+	composedNames := make(map[string]bool, len(order))
+	ambiguous := make(map[string]error)
+	for _, name := range order {
+		configuration := composed[name]
+		if configuration.conflict != nil {
+			w.Warn("composed modules disagree on a workspace configuration; it is unavailable until the solution declares it",
+				wool.Field("configuration", name))
+			ambiguous[name] = configuration.conflict
+			continue
+		}
 		composedNames[name] = true
+		workspaceInfos = append(workspaceInfos, configuration.info)
 	}
-	return workspaceInfos, composedNames, nil
+	return workspaceInfos, composedNames, ambiguous, nil
+}
+
+// dirWithin reports whether dir is the directory parent or sits below it.
+// Symlinks are resolved so a vendored subtree that physically lives elsewhere is
+// read as the foreign content it is.
+func dirWithin(dir, parent string) bool {
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+		parent = resolved
+	}
+	rel, err := filepath.Rel(parent, dir)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // composedModuleWorkspaceDir finds the workspace root a composed module belongs
@@ -324,8 +450,8 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 // is found within the repo (a bare module checkout), the module directory is
 // used, preserving the flat-layout location.
 //
-// consumingWorkspaceDir bounds the walk for a source-referenced module and is
-// empty for any other. A module resolved by source/pin is materialized
+// consumingWorkspaceDir bounds the walk for a foreign module and is empty for an
+// in-repo one. A module resolved by source/pin is materialized
 // (base-synced) inside the consuming workspace as a bare module subtree — no
 // intermediate workspace.codefly.yaml or .git to bound the walk — so without a
 // bound the walk would climb to the consuming workspace's own root, whose
