@@ -57,6 +57,7 @@ func TestSaveLocalOverlayRoundTrips(t *testing.T) {
 		Resolve: map[string]*resources.ModuleResolveDirective{
 			"documents": {Worktree: "acme/docs@main"},
 			"saas":      {Pinned: true},
+			"billing":   {Git: true},
 		},
 	}
 	require.NoError(t, resources.SaveLocalOverlay(ctx, dir, overlay))
@@ -66,6 +67,32 @@ func TestSaveLocalOverlayRoundTrips(t *testing.T) {
 	require.NotNil(t, reloaded)
 	require.Equal(t, "acme/docs@main", reloaded.Resolve["documents"].Worktree)
 	require.True(t, reloaded.Resolve["saas"].Pinned)
+	require.True(t, reloaded.Resolve["billing"].Git)
+}
+
+// The documented escape hatch: a git-only overlay entry is a valid selection,
+// and resolves to the module's source at the committed version. Core does not
+// clone — the resolution is what `show dependencies` and `doctor` report, and
+// what the CLI materializes.
+func TestOverlayGitDirectiveResolvesToSource(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n    version: \">=0.0.44\"\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    git: true\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	resolution, err := workspace.ResolveModule(ctx, workspace.Modules[0])
+	require.NoError(t, err)
+	require.Equal(t, resources.ResolutionGit, resolution.Kind)
+	require.Equal(t, "acme/host", resolution.Source)
+	require.Equal(t, ">=0.0.44", resolution.Version)
+	require.Empty(t, resolution.Dir)
+
+	_, err = workspace.LoadModuleFromName(ctx, "saas")
+	require.ErrorContains(t, err, "git")
 }
 
 // An identity-only reference with no overlay and no local checkout resolves to a
@@ -237,6 +264,7 @@ func TestOverlayDirectiveMustSelectExactlyOne(t *testing.T) {
 		"typo'd key":   "resolve:\n  saas:\n    worktee: acme/host@main\n",
 		"empty entry":  "resolve:\n  saas: {}\n",
 		"two selected": "resolve:\n  saas:\n    pinned: true\n    path: .\n",
+		"git and path": "resolve:\n  saas:\n    git: true\n    path: .\n",
 	}
 	for name, overlay := range cases {
 		t.Run(name, func(t *testing.T) {
