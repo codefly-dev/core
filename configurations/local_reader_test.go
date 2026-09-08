@@ -333,6 +333,74 @@ agent:
 	require.Equal(t, "host-observability", url)
 }
 
+// A module composed by source/pin is base-synced into the consuming workspace
+// as a bare module subtree: it carries its shipped configuration defaults at its
+// own module directory, with no intermediate workspace.codefly.yaml or .git to
+// mark a workspace root. Those defaults must still be provisioned — exactly as a
+// path-referenced module in its own repo is — so the composed host's services
+// satisfy their workspace-configuration-dependencies without the consuming
+// solution hand-copying every config group.
+func TestLocalLoaderComposesSourceReferencedModuleMaterializedInWorkspace(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	// Consuming solution references the module by source (portable identity); a
+	// machine-local overlay resolves it to where base-sync materialized it,
+	// inside the solution's own modules/ tree.
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: saas
+    source: obin-ai/lodestar
+    module: modules/saas
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/internal-auth.secret.env", "TOKEN=solution-token\n")
+	writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
+  saas:
+    path: modules/saas
+`)
+
+	// The materialized module: a bare subtree with its shipped defaults beside
+	// its module file. No workspace.codefly.yaml or .git bounds it — it lives in
+	// the consuming solution's repository, not its own.
+	writeConfigurationFile(t, root, "solution/modules/saas/module.codefly.yaml", `kind: module
+name: saas
+services:
+  - name: frontend
+`)
+	writeConfigurationFile(t, root, "solution/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
+	writeConfigurationFile(t, root, "solution/modules/saas/services/frontend/service.codefly.yaml", `kind: service
+name: frontend
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+`)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	// The source-referenced module's shipped default is provisioned even though
+	// the solution never declared it.
+	legal, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "legal")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, legal, "legal", "LEGAL_URL")
+	require.NoError(t, err)
+	require.Equal(t, "saas-legal", url)
+
+	// The solution's own configuration is untouched.
+	auth, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "internal-auth")
+	require.NoError(t, err)
+	token, err := resources.GetConfigurationValue(ctx, auth, "internal-auth", "TOKEN")
+	require.NoError(t, err)
+	require.Equal(t, "solution-token", token)
+}
+
 // Two modules composed from the same non-flat host repo resolve to one shared
 // workspace root. Its configurations are composed in once; a naive per-module
 // load would read the same directory twice and misfire the same-name conflict

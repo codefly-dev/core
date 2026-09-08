@@ -240,7 +240,7 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 	providedBy := make(map[string]string)
 	loaded := make(map[string]bool)
 	for _, mod := range modules {
-		moduleWorkspaceDir := composedModuleWorkspaceDir(mod.Dir())
+		moduleWorkspaceDir := composedModuleWorkspaceDir(mod.Dir(), local.workspace.Dir())
 		moduleConfigurationDir := path.Join(moduleWorkspaceDir, "configurations", configurationProfile)
 		// The consuming workspace's own configurations are already loaded; a flat
 		// root module's workspace root coincides with the consuming workspace's,
@@ -309,8 +309,21 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 // would silently bind the wrong, foreign configurations. When no workspace root
 // is found within the repo (a bare module checkout), the module directory is
 // used, preserving the flat-layout location.
-func composedModuleWorkspaceDir(dir string) string {
+//
+// The consuming workspace is never the composed module's own workspace root, so
+// the walk stops before climbing into it. A module resolved by source/pin is
+// materialized (base-synced) inside the consuming workspace as a bare module
+// subtree — no intermediate workspace.codefly.yaml or .git to bound the walk —
+// so without this it would climb to the consuming workspace's own root, whose
+// configurations directory is already loaded and gets skipped, dropping the
+// module's shipped defaults. Stopping at the boundary returns the module
+// directory instead, where the materialized artifact carries its
+// configurations/<profile>/*.
+func composedModuleWorkspaceDir(dir, consumingWorkspaceDir string) string {
 	for cur := dir; ; {
+		if resources.SameDir(cur, consumingWorkspaceDir) {
+			return dir
+		}
 		if resources.ExistsAtDir[resources.Workspace](cur) {
 			return cur
 		}
