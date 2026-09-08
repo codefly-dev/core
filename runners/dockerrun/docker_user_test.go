@@ -15,7 +15,7 @@ import (
 func TestCreateContainerConfig_User(t *testing.T) {
 	env := &DockerEnvironment{
 		name:  "proto",
-		image: &resources.DockerImage{Name: "codeflydev/proto", Tag: "0.0.11"},
+		image: &resources.DockerImage{Repository: resources.ImageRegistry, Name: "proto", Tag: "0.0.11"},
 	}
 	ctx := context.Background()
 

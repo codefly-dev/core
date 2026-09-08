@@ -12,6 +12,7 @@ import (
 
 	"github.com/Masterminds/semver"
 	"github.com/codefly-dev/core/companions"
+	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,26 +42,21 @@ func TestEmbeddedDerivesEveryTagFromManifest(t *testing.T) {
 	images, err := companions.Embedded(ctx)
 	require.NoError(t, err)
 
-	// Directory holding the info.codefly.yaml that owns each image tag.
-	dirByName := map[string]string{
-		"codeflydev/proto":     "proto",
-		"codeflydev/go":        "go",
-		"codeflydev/python":    "python",
-		"codeflydev/node":      "node",
-		"codeflydev/execution": "execution",
-		"codeflydev/codefly":   "codefly",
-	}
+	// Directory holding the info.codefly.yaml that owns each image tag. The
+	// name is also the ghcr package name, so the two cannot drift.
+	dirs := []string{"proto", "go", "python", "node", "execution", "codefly"}
 
 	got := map[string]string{}
 	for _, img := range images {
-		dir, ok := dirByName[img.Name]
-		require.Truef(t, ok, "unexpected embedded image %s", img.Name)
-		require.Equalf(t, manifestVersion(t, dir), img.Tag,
-			"embedded tag for %s must match %s/info.codefly.yaml", img.Name, dir)
+		require.Containsf(t, dirs, img.Name, "unexpected embedded image %s", img.FullName())
+		require.Equalf(t, resources.ImageRegistry, img.Repository,
+			"embedded image %s must be addressed through the canonical registry", img.Name)
+		require.Equalf(t, manifestVersion(t, img.Name), img.Tag,
+			"embedded tag for %s must match %s/info.codefly.yaml", img.Name, img.Name)
 		got[img.Name] = img.Tag
 	}
 
-	require.Len(t, got, len(dirByName), "every companion image must be enumerated")
+	require.Len(t, got, len(dirs), "every companion image must be enumerated")
 }
 
 func TestNodeCompanionPreservesTargetArchitecture(t *testing.T) {
@@ -76,7 +72,7 @@ func TestNodeCompanionPreservesTargetArchitecture(t *testing.T) {
 	require.NoError(t, err)
 	codeflyVersion := strings.TrimSpace(string(mustReadFile(t, filepath.Join(root, "codefly", "info.codefly.yaml"))))
 	require.Equal(t, "version: 0.0.4", codeflyVersion)
-	require.Contains(t, string(nodeDockerfile), "codeflydev/codefly:0.0.4")
+	require.Contains(t, string(nodeDockerfile), resources.ImageRegistry+"/codefly:0.0.4")
 }
 
 func mustReadFile(t *testing.T, path string) []byte {

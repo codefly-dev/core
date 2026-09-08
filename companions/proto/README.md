@@ -7,9 +7,17 @@ image. Used by `codefly generate proto` and the
 
 ## Build
 
-There are two source-of-truth options today:
+There are two build definitions. CI publishes the **Dockerfile** one: the
+flake emits a `linux/*` OCI tarball that needs a Linux builder and a
+`docker load` + retag round-trip, which buys nothing on a Linux runner that
+already has BuildKit and can cross-build `linux/arm64` in the same invocation.
+Nix stays the reproducible local path and targets the same
+`ghcr.io/codefly-dev/proto:<version>` tag, so either builder produces the
+image the agents pull. `companion_plugins_test.go` keeps the two definitions
+pinned to the same tool versions. Publishing is
+[`docs/runbooks/publish-companions.md`](../../docs/runbooks/publish-companions.md).
 
-### Nix (preferred — reproducible, layered cache)
+### Nix (preferred locally — reproducible, layered cache)
 
 ```sh
 # From core/companions/proto/, with a Linux build target.
@@ -24,8 +32,7 @@ the image ships — no drift between "works on my dev machine" and
 "the agent's image." Image tag is read from `info.codefly.yaml` so
 the existing `tag.sh` version-bump flow continues to work.
 
-### Dockerfile (legacy — kept for parity until the Nix path is
-default)
+### Dockerfile (what CI publishes)
 
 ```sh
 codefly companion build proto
@@ -33,8 +40,7 @@ codefly companion build proto
 
 The Dockerfile assembles the same set via apk + `go install`. Less
 reproducible than Nix (apk packages vary across Alpine releases) but
-needs no Linux builder VM. Will be retired once Phase 1's flake-based
-build is the canonical path.
+needs no Linux builder VM, which is why the publish workflow uses it.
 
 ## What's in the image
 

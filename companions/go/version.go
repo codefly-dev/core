@@ -46,7 +46,8 @@ func CompanionImage(ctx context.Context) (*resources.DockerImage, error) {
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get version")
 	}
-	return &resources.DockerImage{Name: "codeflydev/go", Tag: v}, nil
+	img := resources.PublishedImage("go", v)
+	return &img, nil
 }
 
 //go:embed info.codefly.yaml

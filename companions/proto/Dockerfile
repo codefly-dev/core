@@ -7,7 +7,7 @@
 #      DWARF + symbol tables, typically 20-30% smaller per binary.
 #   3. Clean $GOMODCACHE + $GOCACHE after the last install — those
 #      caches are scaffolding the runtime doesn't need.
-#   4. Runtime FROM codeflydev/codefly:0.0.3 instead of golang:1.26-
+#   4. Runtime FROM ghcr.io/codefly-dev/codefly:0.0.4 instead of golang:1.26-
 #      alpine — saves ~170 MB of Go stdlib we don't need since the
 #      binaries are statically compiled. Still need apk-installed
 #      nodejs+npm for TypeScript generation.
@@ -43,7 +43,7 @@ RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir grpcio-tools
 
 # --- Runtime stage: minimal alpine + the codefly base ---------------
 
-FROM codeflydev/codefly:0.0.3
+FROM ghcr.io/codefly-dev/codefly:0.0.4
 
 # Runtime dependencies:
 #   - nodejs + npm: for the TypeScript generators below (unavoidable).

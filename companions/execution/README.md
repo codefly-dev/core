@@ -18,7 +18,7 @@ docker run --rm --privileged \
   -p 50051:50051 \
   -v "$PWD:/workspace" \
   -e CODEFLY_GATEWAY_TOKEN \
-  codeflydev/execution:0.0.1
+  ghcr.io/codefly-dev/execution:0.0.1
 ```
 
 Run by cloning a repo:
@@ -29,7 +29,7 @@ docker run --rm --privileged \
   -e CODEFLY_GATEWAY_TOKEN \
   -e CODEFLY_REPO_URL=https://github.com/pallets/flask.git \
   -e CODEFLY_REPO_REF=main \
-  codeflydev/execution:0.0.1
+  ghcr.io/codefly-dev/execution:0.0.1
 ```
 
 Mind local proof:

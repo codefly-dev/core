@@ -5,6 +5,12 @@ import (
 	"strings"
 )
 
+// ImageRegistry is the registry every image codefly publishes lives in:
+// companions, agent runtime images, the agent OCI store. ghcr is canonical
+// (infra-base docs/container-registry.md); packages are public and pulled
+// anonymously, pushes come from release workflows with GITHUB_TOKEN.
+const ImageRegistry = "ghcr.io/codefly-dev"
+
 type DockerImage struct {
 	Repository string
 	Name       string
@@ -37,6 +43,12 @@ func (image *DockerImage) FullName() string {
 	return fmt.Sprintf("%s/%s", image.Repository, base)
 }
 
+// PublishedImage returns the DockerImage for a codefly-published image name
+// and tag, addressed through ImageRegistry.
+func PublishedImage(name, tag string) DockerImage {
+	return DockerImage{Repository: ImageRegistry, Name: name, Tag: tag}
+}
+
 func NewDockerImage(s string) *DockerImage {
 	tokens := strings.Split(s, ":")
 	if len(tokens) == 1 {
@@ -61,7 +73,7 @@ func NewDockerImage(s string) *DockerImage {
 // so builds are reproducible. Callers typically feed this a value
 // from a plugin's Settings.DockerImage field.
 //
-// Accepts:  "codeflydev/python:0.0.1", "my.registry/foo:1.2.3"
+// Accepts:  "ghcr.io/codefly-dev/python:0.0.1", "my.registry/foo:1.2.3"
 // Rejects:  "foo" (no tag), "foo:latest" (floating), "foo:1:2" (malformed)
 func ParsePinnedImage(s string) (*DockerImage, error) {
 	s = strings.TrimSpace(s)
