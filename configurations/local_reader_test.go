@@ -520,6 +520,58 @@ agent:
 	require.Equal(t, "lodestar-observability", url)
 }
 
+// A source reference names its module by coordinate, so the same submodule can
+// be composed twice under different names — here reached through two paths to
+// one directory. Its configurations are read once: reading the same directory
+// twice would collide with itself and fail the run on a configuration only one
+// module actually provides.
+func TestLocalLoaderComposesAliasedSourceReferencedSubmoduleOnce(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "solution"), 0o755))
+	require.NoError(t, os.Symlink(filepath.Join(root, "solution", "vendor", "lodestar"), filepath.Join(root, "solution", "mirror")))
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: saas
+    source: obin-ai/lodestar
+    module: modules/saas
+  - name: saas-mirror
+    source: obin-ai/lodestar
+    module: modules/saas
+`)
+	writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
+  saas:
+    path: vendor/lodestar/modules/saas
+  saas-mirror:
+    path: mirror/modules/saas
+`)
+
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/workspace.codefly.yaml", `name: lodestar
+layout: modules
+modules:
+  - name: saas
+    path: modules/saas
+`)
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/configurations/local/observability.env", "OBSERVABILITY_URL=lodestar-observability\n")
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	legal, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "legal")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, legal, "legal", "LEGAL_URL")
+	require.NoError(t, err)
+	require.Equal(t, "saas-legal", url)
+}
+
 // Two source-referenced submodules of one materialized aggregator repo each ship
 // a copy of a configuration their shared workspace root provides. The root
 // provides it once for both, so the copies are not competing definitions — while

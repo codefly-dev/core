@@ -342,6 +342,20 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 	// root's configuration wins over the copy a submodule ships of it — and two
 	// submodules of one root shipping the same copy is not ambiguity.
 	for _, overlay := range overlays {
+		// Two references can alias the same module directory — a source
+		// reference names its module by coordinate, so the same submodule can be
+		// composed twice under different names, reached through different paths.
+		// The root walk collapses those onto one root; their overlays are the
+		// same directory and share the root dedup, since reading a directory
+		// twice would collide with itself.
+		key := overlay.module.Dir()
+		if resolved, err := filepath.EvalSymlinks(key); err == nil {
+			key = resolved
+		}
+		if loaded[key] {
+			continue
+		}
+		loaded[key] = true
 		moduleConfigurationDir := path.Join(overlay.module.Dir(), "configurations", configurationProfile)
 		exists, err := shared.DirectoryExists(ctx, moduleConfigurationDir)
 		if err != nil {
