@@ -16,6 +16,6 @@ RUN apk update && \
 
 # codefly CLI from the pinned base image. Matches python/node companions
 # so users get the same CLI + tool set regardless of language.
-COPY --from=codeflydev/codefly:0.0.3 /bin/codefly /bin/codefly
+COPY --from=ghcr.io/codefly-dev/codefly:0.0.4 /bin/codefly /bin/codefly
 
 WORKDIR /workspace

@@ -2,7 +2,7 @@ FROM alpine:3.21.3
 
 # Base dev toolbox shared across every codefly-built image. Language
 # companions either FROM this image directly (when alpine suffices) or
-# `COPY --from=codeflydev/codefly` the codefly binary (when they need
+# `COPY --from=ghcr.io/codefly-dev/codefly` the codefly binary (when they need
 # a language-specific base like python:3.13.1-alpine3.21).
 #
 # Version pinning strategy:

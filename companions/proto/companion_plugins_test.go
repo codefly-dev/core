@@ -17,7 +17,7 @@ import (
 const protocGenEsRuntimeVersion = "2.11.0"
 
 // The proto companion image has two build definitions (Dockerfile and
-// flake.nix) for the same codeflydev/proto tag. Both must bake the same
+// flake.nix) for the same ghcr.io/codefly-dev/proto tag. Both must bake the same
 // pinned es, or the image's behaviour depends on which builder published it.
 var (
 	protocGenEsDockerfilePin = regexp.MustCompile(`@bufbuild/protoc-gen-es@([0-9]+\.[0-9]+\.[0-9]+)`)

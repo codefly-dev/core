@@ -30,9 +30,9 @@ var derived = []struct {
 	dir  string
 	name string
 }{
-	{dir: "node", name: "codeflydev/node"},
-	{dir: "execution", name: "codeflydev/execution"},
-	{dir: "codefly", name: "codeflydev/codefly"},
+	{dir: "node", name: "node"},
+	{dir: "execution", name: "execution"},
+	{dir: "codefly", name: "codefly"},
 }
 
 // Embedded returns every Docker image agents pull at runtime, each tag
@@ -58,7 +58,7 @@ func Embedded(ctx context.Context) ([]resources.DockerImage, error) {
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot derive <%s> companion image", c.dir)
 		}
-		images = append(images, resources.DockerImage{Name: c.name, Tag: v})
+		images = append(images, resources.PublishedImage(c.name, v))
 	}
 
 	return images, nil

@@ -4,7 +4,7 @@
 # Version pinning strategy (matches the codefly + python companions):
 #   - Base: node:24.16.0-alpine3.22 — Node LTS + matching Alpine release.
 #   - apk packages: not individually pinned; Alpine release freezes repo.
-#   - codefly CLI: copied from the pinned codeflydev/codefly base.
+#   - codefly CLI: copied from the pinned ghcr.io/codefly-dev/codefly base.
 
 FROM node:24.16.0-alpine3.22
 
@@ -23,6 +23,6 @@ RUN apk update && \
 
 # Pull the Codefly CLI from the multi-platform base image. BuildKit resolves
 # the base manifest for the Node image's target architecture.
-COPY --from=codeflydev/codefly:0.0.4 /bin/codefly /bin/codefly
+COPY --from=ghcr.io/codefly-dev/codefly:0.0.4 /bin/codefly /bin/codefly
 
 WORKDIR /workspace

@@ -129,7 +129,7 @@ jobs:
         # before reaching this step.
         #
         # NOT included: proto_companion_required. Those tests
-        # (grpc_test.go, openapi_test.go) need the codeflydev/proto
+        # (grpc_test.go, openapi_test.go) need the ghcr.io/codefly-dev/proto
         # Docker image which can't be built from core's CI alone
         # (it cross-builds the codefly CLI from a sibling checkout).
         # Run locally with `go test -tags=proto_companion_required`,

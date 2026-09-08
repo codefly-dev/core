@@ -78,7 +78,7 @@ func TestResolveImagePlatform(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := resolveImagePlatform(context.Background(), tc.inspector, &resources.DockerImage{Name: "codeflydev/proto", Tag: "0.0.12"})
+			got := resolveImagePlatform(context.Background(), tc.inspector, &resources.DockerImage{Repository: resources.ImageRegistry, Name: "proto", Tag: "0.0.12"})
 			if (got == nil) != (tc.want == nil) {
 				t.Fatalf("nil-ness mismatch: got %+v, want %+v", got, tc.want)
 			}
@@ -97,7 +97,7 @@ func TestResolveImagePlatformPrefersAmd64(t *testing.T) {
 		t.Skip("amd64 host runs amd64 natively; preference is unobservable here")
 	}
 	inspector := fakeDistributionInspector{platforms: []ocispec.Platform{linux("ppc64le"), linux("amd64")}}
-	got := resolveImagePlatform(context.Background(), inspector, &resources.DockerImage{Name: "codeflydev/proto", Tag: "0.0.12"})
+	got := resolveImagePlatform(context.Background(), inspector, &resources.DockerImage{Repository: resources.ImageRegistry, Name: "proto", Tag: "0.0.12"})
 	if got == nil || got.Architecture != "amd64" {
 		t.Fatalf("expected amd64 fallback, got %+v", got)
 	}

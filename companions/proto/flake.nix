@@ -27,7 +27,7 @@
 # x86_64-darwin can't produce a linux/amd64 OCI image directly.
 #
 # Image targets the same tag the existing companion expects:
-# codeflydev/proto:<version-from-info.codefly.yaml>.
+# ghcr.io/codefly-dev/proto:<version-from-info.codefly.yaml>.
 {
   description = "codefly proto companion image — built from Nix";
 
@@ -224,7 +224,7 @@
             (builtins.readFile ./info.codefly.yaml));
 
         dockerImage = pkgs.dockerTools.buildLayeredImage {
-          name = "codeflydev/proto";
+          name = "ghcr.io/codefly-dev/proto";
           tag = version;
 
           contents = protoTools;
@@ -246,7 +246,7 @@
         # store, pipes to stdout instead. Major IO/disk win for
         # large images on the build machine.
         streamDockerImage = pkgs.dockerTools.streamLayeredImage {
-          name = "codeflydev/proto";
+          name = "ghcr.io/codefly-dev/proto";
           tag = version;
           contents = protoTools;
           config = {

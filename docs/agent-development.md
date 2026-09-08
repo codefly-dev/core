@@ -327,6 +327,14 @@ The restricted profile additionally requires every image to use a full
 digest through `DockerBuildContext.image_digest`; stock-image plugins set
 `resources.DockerImage.Digest`.
 
+Every image codefly itself publishes — the companions plugins pull at runtime,
+agent runtime images — is addressed through `resources.ImageRegistry`
+(`ghcr.io/codefly-dev`); build one reference with `resources.PublishedImage`
+rather than spelling out a registry. Companion images are built and pushed by
+`companions-publish.yml`; see
+[`runbooks/publish-companions.md`](runbooks/publish-companions.md) for the
+version-bump rule and the one-time package-visibility setup.
+
 Core records `codefly.dev/kubernetes-manifest/v1`, the selected profile, static
 validation, server-side validation, violations, and the final `restricted`
 decision in `KubernetesDeploymentOutput`. When

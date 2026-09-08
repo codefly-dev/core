@@ -37,7 +37,7 @@ func RequireProtoImage(t *testing.T, ctx context.Context) {
 	if img == nil {
 		t.Fatalf("proto companion image not configured (%s)", BuildCompanionsHint)
 	}
-	ref := img.Name + ":" + img.Tag
+	ref := img.FullName()
 	if err := exec.CommandContext(ctx, "docker", "image", "inspect", ref).Run(); err != nil {
 		t.Fatalf("proto companion image %s not built: %v (%s)", ref, err, BuildCompanionsHint)
 	}
@@ -54,7 +54,7 @@ func RequireGoImage(t *testing.T, ctx context.Context) {
 	if img == nil {
 		t.Fatalf("go companion image not configured (%s)", BuildCompanionsHint)
 	}
-	ref := img.Name + ":" + img.Tag
+	ref := img.FullName()
 	if err := exec.CommandContext(ctx, "docker", "image", "inspect", ref).Run(); err != nil {
 		t.Fatalf("go companion image %s not built: %v (%s)", ref, err, BuildCompanionsHint)
 	}

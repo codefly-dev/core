@@ -62,7 +62,7 @@ func TestWithPersistentCacheMountRejectsUnsafeKeysAndTargets(t *testing.T) {
 func TestContainerConfigFingerprintDetectsReusableRuntimeDrift(t *testing.T) {
 	httpPort := nat.Port("3000/tcp")
 	config := &container.Config{
-		Image:      "codeflydev/node:0.0.12",
+		Image:      "ghcr.io/codefly-dev/node:0.0.12",
 		User:       "1000:1000",
 		Env:        []string{"PUBLIC=value", "SECRET=do-not-store-in-label"},
 		Entrypoint: []string{"/usr/bin/tini", "--"},
