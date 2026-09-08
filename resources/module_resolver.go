@@ -20,8 +20,8 @@ import (
 const LocalOverlayConfigurationName = "codefly.local.yaml"
 
 // ModuleResolveDirective is one entry of the overlay's resolve map. Exactly one
-// of Path, Worktree, or Pinned selects how the module resolves; they are checked
-// in that order.
+// of Path, Worktree, Pinned, or Git selects how the module resolves; they are
+// checked in that order.
 type ModuleResolveDirective struct {
 	// Path is an explicit local directory (absolute, or relative to the overlay
 	// file). Highest precedence: you are editing this module in place.
@@ -37,10 +37,14 @@ type ModuleResolveDirective struct {
 	Worktree string `yaml:"worktree,omitempty"`
 	// Pinned selects the published, base-synced artifact at the committed version.
 	Pinned bool `yaml:"pinned,omitempty"`
+	// Git selects a clone of the module's source repository at the committed
+	// version, bypassing artifact verification. It is the escape hatch for a
+	// source-referenced module with no pullable signed artifact.
+	Git bool `yaml:"git,omitempty"`
 }
 
 // validate rejects a present overlay entry that does not select exactly one of
-// path/worktree/pinned. A present entry means the user intends to override
+// path/worktree/pinned/git. A present entry means the user intends to override
 // resolution, so an empty entry (or one whose only key is a typo yaml silently
 // dropped) must be a hard error rather than fall through to committed config and
 // silently resolve the wrong way.
@@ -55,11 +59,14 @@ func (directive *ModuleResolveDirective) validate(module string) error {
 	if directive.Pinned {
 		set++
 	}
+	if directive.Git {
+		set++
+	}
 	if set == 0 {
-		return fmt.Errorf("overlay entry for module %q selects none of path/worktree/pinned (check for a typo'd or empty directive)", module)
+		return fmt.Errorf("overlay entry for module %q selects none of path/worktree/pinned/git (check for a typo'd or empty directive)", module)
 	}
 	if set > 1 {
-		return fmt.Errorf("overlay entry for module %q selects more than one of path/worktree/pinned; use exactly one", module)
+		return fmt.Errorf("overlay entry for module %q selects more than one of path/worktree/pinned/git; use exactly one", module)
 	}
 	return nil
 }
@@ -147,13 +154,21 @@ type ModuleResolution struct {
 	Source  string // canonical repo identity (worktree/pinned); empty for a pure path
 	Version string // committed version constraint (pinned)
 	Ref     string // git ref (worktree)
+	// Unverified marks a pinned resolution the overlay opted out of artifact
+	// verification: the CLI materializes it by cloning Source rather than by
+	// pulling the signed artifact. It refines a pinned resolution rather than
+	// being a kind of its own, so a consumer that only asks "is this pinned"
+	// still routes it through materialization instead of reading an empty Dir.
+	Unverified bool
 }
 
 // ResolveModule computes where a single module reference resolves, following the
-// precedence: overlay path -> overlay worktree -> overlay pinned -> committed
-// path override -> committed identity (pinned) -> in-repo layout default. A
-// worktree directive that matches no local checkout is an error; a pinned
-// outcome is not (it is a valid resolution the CLI acts on).
+// precedence: overlay path -> overlay worktree -> overlay pinned -> overlay git
+// -> committed path override -> committed identity (pinned) -> in-repo layout
+// default. A worktree directive that matches no local checkout is an error; a
+// pinned outcome is not (it is a valid resolution the CLI acts on). An overlay
+// git directive resolves pinned too, marked Unverified: it selects how the
+// module is materialized, not a different place for it to live.
 func (workspace *Workspace) ResolveModule(ctx context.Context, ref *ModuleReference) (*ModuleResolution, error) {
 	w := wool.Get(ctx).In("Workspace::ResolveModule", wool.NameField(ref.Name))
 
@@ -196,6 +211,13 @@ func (workspace *Workspace) ResolveModule(ctx context.Context, ref *ModuleRefere
 				}, nil
 			case directive.Pinned:
 				return pinnedResolution(ref), nil
+			case directive.Git:
+				if ref.Source == "" {
+					return nil, w.NewError("overlay entry for module <%s> selects git, but the module is composed without a source to clone; give it a source, or point the overlay at a local path", ref.Name)
+				}
+				resolution := pinnedResolution(ref)
+				resolution.Unverified = true
+				return resolution, nil
 			}
 		}
 	}
