@@ -57,6 +57,50 @@ def test_strip_clears_options_on_non_aliased_enum():
     assert not fd.enum_type[0].HasField("options")
 
 
+def test_strip_clears_oneof_options():
+    # A oneof carrying a custom option (e.g. buf.validate.oneof, ext 1159) whose
+    # defining file is dropped from the output would fail reparse with
+    # "OneofOptions: unable to resolve extension"; the option must be stripped.
+    fd = FileDescriptorProto(name="common.proto", package="svc.v1")
+    message = fd.message_type.add(name="Subject")
+    oneof = message.oneof_decl.add(name="ref")
+    oneof.options.uninterpreted_option.add()
+
+    strip_options.strip(fd)
+
+    assert not fd.message_type[0].oneof_decl[0].HasField("options")
+
+
+def test_strip_clears_enum_value_options():
+    fd = FileDescriptorProto(name="common.proto", package="svc.v1")
+    enum = _aliased_enum(fd, "SubjectKind")
+    enum.value[2].options.deprecated = True
+
+    strip_options.strip(fd)
+
+    stripped = fd.enum_type[0]
+    assert stripped.options.allow_alias is True
+    assert not stripped.value[2].HasField("options")
+
+
+def test_strip_clears_extension_options():
+    fd = FileDescriptorProto(name="common.proto", package="svc.v1")
+    file_ext = fd.extension.add(
+        name="file_ext", number=1000, extendee=".google.protobuf.MessageOptions"
+    )
+    file_ext.options.deprecated = True
+    message = fd.message_type.add(name="Subject")
+    msg_ext = message.extension.add(
+        name="msg_ext", number=1001, extendee=".google.protobuf.MessageOptions"
+    )
+    msg_ext.options.deprecated = True
+
+    strip_options.strip(fd)
+
+    assert not fd.extension[0].HasField("options")
+    assert not fd.message_type[0].extension[0].HasField("options")
+
+
 def test_main_round_trips_allow_alias(tmp_path, monkeypatch):
     source = FileDescriptorSet()
     fd = source.file.add(name="common.proto", package="svc.v1")

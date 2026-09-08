@@ -31,12 +31,18 @@ def clear_enum(enum):
     enum.ClearField("options")
     if allow_alias:
         enum.options.allow_alias = True
+    for value in enum.value:
+        value.ClearField("options")
 
 
 def clear_message(message):
     message.ClearField("options")
     for field in message.field:
         field.ClearField("options")
+    for oneof in message.oneof_decl:
+        oneof.ClearField("options")
+    for extension in message.extension:
+        extension.ClearField("options")
     for nested in message.nested_type:
         clear_message(nested)
     for enum in message.enum_type:
@@ -54,6 +60,8 @@ def strip(file_proto):
         clear_message(message)
     for enum in file_proto.enum_type:
         clear_enum(enum)
+    for extension in file_proto.extension:
+        extension.ClearField("options")
     for service in file_proto.service:
         service.ClearField("options")
         for method in service.method:
