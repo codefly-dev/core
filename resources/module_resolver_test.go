@@ -70,11 +70,11 @@ func TestSaveLocalOverlayRoundTrips(t *testing.T) {
 	require.True(t, reloaded.Resolve["billing"].Git)
 }
 
-// The documented escape hatch: a git-only overlay entry is a valid selection,
-// and resolves to the module's source at the committed version. Core does not
-// clone — the resolution is what `show dependencies` and `doctor` report, and
-// what the CLI materializes.
-func TestOverlayGitDirectiveResolvesToSource(t *testing.T) {
+// The documented escape hatch: a git-only overlay entry is a valid selection and
+// resolves pinned, marked Unverified. It stays a pinned resolution on purpose —
+// a consumer that asks only "is this pinned" must still route it through
+// materialization rather than read its empty Dir as a real directory.
+func TestOverlayGitDirectiveResolvesPinnedUnverified(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n    version: \">=0.0.44\"\n")
@@ -86,13 +86,103 @@ func TestOverlayGitDirectiveResolvesToSource(t *testing.T) {
 
 	resolution, err := workspace.ResolveModule(ctx, workspace.Modules[0])
 	require.NoError(t, err)
-	require.Equal(t, resources.ResolutionGit, resolution.Kind)
+	require.Equal(t, resources.ResolutionPinned, resolution.Kind)
+	require.True(t, resolution.Unverified)
 	require.Equal(t, "acme/host", resolution.Source)
 	require.Equal(t, ">=0.0.44", resolution.Version)
 	require.Empty(t, resolution.Dir)
 
 	_, err = workspace.LoadModuleFromName(ctx, "saas")
-	require.ErrorContains(t, err, "git")
+	require.ErrorContains(t, err, "not loadable as a local checkout")
+}
+
+// A pinned resolution that the overlay did not opt out of verification must not
+// carry Unverified: the flag is what tells the CLI to clone instead of pulling
+// the signed artifact, so a stray true would silently downgrade trust.
+func TestPinnedResolutionIsVerifiedUnlessOverlaySaysGit(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n    version: \"1.0\"\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    pinned: true\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	resolution, err := workspace.ResolveModule(ctx, workspace.Modules[0])
+	require.NoError(t, err)
+	require.Equal(t, resources.ResolutionPinned, resolution.Kind)
+	require.False(t, resolution.Unverified)
+}
+
+// git: true says "clone this module's source instead of pulling its artifact".
+// A module composed without a source has nothing to clone, so the directive is
+// unsatisfiable and must fail loudly at resolution rather than resolve to a
+// sourceless pinned outcome the CLI would quietly skip.
+func TestOverlayGitDirectiveRequiresSource(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: platform\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  platform:\n    git: true\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	_, err = workspace.ResolveModule(ctx, workspace.Modules[0])
+	require.ErrorContains(t, err, "platform")
+	require.ErrorContains(t, err, "without a source to clone")
+}
+
+// Every directive kind reported side by side, which is what `show dependencies`
+// renders for a mixed overlay. The git entry must not report as a resolution
+// carrying a directory.
+func TestResolveModulesReportsMixedOverlay(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: local\n    source: acme/local\n  - name: saas\n    source: acme/host\n    version: \"1.0\"\n  - name: docs\n    source: acme/docs\n    version: \"2.0\"\n")
+	writeModule(t, filepath.Join(dir, "here"), "kind: module\nname: local\nservices: []\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  local:\n    path: here\n  saas:\n    pinned: true\n  docs:\n    git: true\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	resolutions, err := workspace.ResolveModules(ctx)
+	require.NoError(t, err)
+	byName := map[string]*resources.ModuleResolution{}
+	for _, r := range resolutions {
+		byName[r.Module] = r
+	}
+	require.Equal(t, resources.ResolutionLocalPath, byName["local"].Kind)
+	require.Equal(t, filepath.Join(dir, "here"), byName["local"].Dir)
+	require.Equal(t, resources.ResolutionPinned, byName["saas"].Kind)
+	require.False(t, byName["saas"].Unverified)
+	require.Equal(t, resources.ResolutionPinned, byName["docs"].Kind)
+	require.True(t, byName["docs"].Unverified)
+	require.Empty(t, byName["docs"].Dir)
+	require.Equal(t, "acme/docs", byName["docs"].Source)
+}
+
+// A git directive survives the load -> save round trip the CLI performs when it
+// materializes other modules. Before core knew the key, marshalling the typed
+// overlay back dropped it and rewrote the entry as an empty map — which the
+// validator then rejects, destroying the user's escape hatch on an unrelated
+// write.
+func TestSaveLocalOverlayPreservesGitDirectiveFromFile(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    git: true\n"), 0o600))
+
+	overlay, err := resources.LoadLocalOverlay(ctx, dir)
+	require.NoError(t, err)
+	overlay.Resolve["other"] = &resources.ModuleResolveDirective{Path: "somewhere"}
+	require.NoError(t, resources.SaveLocalOverlay(ctx, dir, overlay))
+
+	reloaded, err := resources.LoadLocalOverlay(ctx, dir)
+	require.NoError(t, err)
+	require.True(t, reloaded.Resolve["saas"].Git)
 }
 
 // An identity-only reference with no overlay and no local checkout resolves to a

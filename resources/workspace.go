@@ -277,8 +277,8 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
-	if resolution.Kind == ResolutionPinned || resolution.Kind == ResolutionGit {
-		return nil, w.NewError("module <%s> resolves to a remote source (%s: source %q, version %q); such modules are materialized by the CLI, not loadable as a local checkout", ref.Name, resolution.Kind, resolution.Source, resolution.Version)
+	if resolution.Kind == ResolutionPinned {
+		return nil, w.NewError("module <%s> resolves to a pinned artifact (source %q, version %q); pinned modules are pulled by the CLI, not loadable as a local checkout", ref.Name, resolution.Source, resolution.Version)
 	}
 	mod, err := LoadModuleFromDir(ctx, resolution.Dir)
 	if err != nil {

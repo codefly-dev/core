@@ -142,10 +142,6 @@ const (
 	// Core does not pull artifacts; the CLI resolves a pinned module before it is
 	// loaded as a directory.
 	ResolutionPinned ResolutionKind = "pinned"
-	// ResolutionGit: the module resolves to a clone of Source at Version, without
-	// artifact verification. Like pinned, core does not materialize it; the CLI
-	// clones before the module is loaded as a directory.
-	ResolutionGit ResolutionKind = "git"
 )
 
 // ModuleResolution is the outcome of resolving one ModuleReference against the
@@ -154,17 +150,25 @@ const (
 type ModuleResolution struct {
 	Module  string
 	Kind    ResolutionKind
-	Dir     string // resolved directory for path/worktree; empty for pinned/git
-	Source  string // canonical repo identity (worktree/pinned/git); empty for a pure path
-	Version string // committed version constraint (pinned/git)
+	Dir     string // resolved directory for path/worktree; empty for pinned
+	Source  string // canonical repo identity (worktree/pinned); empty for a pure path
+	Version string // committed version constraint (pinned)
 	Ref     string // git ref (worktree)
+	// Unverified marks a pinned resolution the overlay opted out of artifact
+	// verification: the CLI materializes it by cloning Source rather than by
+	// pulling the signed artifact. It refines a pinned resolution rather than
+	// being a kind of its own, so a consumer that only asks "is this pinned"
+	// still routes it through materialization instead of reading an empty Dir.
+	Unverified bool
 }
 
 // ResolveModule computes where a single module reference resolves, following the
 // precedence: overlay path -> overlay worktree -> overlay pinned -> overlay git
 // -> committed path override -> committed identity (pinned) -> in-repo layout
 // default. A worktree directive that matches no local checkout is an error; a
-// pinned or git outcome is not (it is a valid resolution the CLI acts on).
+// pinned outcome is not (it is a valid resolution the CLI acts on). An overlay
+// git directive resolves pinned too, marked Unverified: it selects how the
+// module is materialized, not a different place for it to live.
 func (workspace *Workspace) ResolveModule(ctx context.Context, ref *ModuleReference) (*ModuleResolution, error) {
 	w := wool.Get(ctx).In("Workspace::ResolveModule", wool.NameField(ref.Name))
 
@@ -208,12 +212,12 @@ func (workspace *Workspace) ResolveModule(ctx context.Context, ref *ModuleRefere
 			case directive.Pinned:
 				return pinnedResolution(ref), nil
 			case directive.Git:
-				return &ModuleResolution{
-					Module:  ref.Name,
-					Kind:    ResolutionGit,
-					Source:  ref.Source,
-					Version: ref.Version,
-				}, nil
+				if ref.Source == "" {
+					return nil, w.NewError("overlay entry for module <%s> selects git, but the module is composed without a source to clone; give it a source, or point the overlay at a local path", ref.Name)
+				}
+				resolution := pinnedResolution(ref)
+				resolution.Unverified = true
+				return resolution, nil
 			}
 		}
 	}
