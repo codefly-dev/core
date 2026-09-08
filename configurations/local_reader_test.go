@@ -333,6 +333,51 @@ agent:
 	require.Equal(t, "host-observability", url)
 }
 
+// An in-repo module (bare-name, layout: modules) is native to its workspace, not
+// a foreign composition: its module-directory configurations belong to the
+// workspace root, not to a per-module namespace. They must not be flattened into
+// the workspace configuration set the way a source-referenced module's shipped
+// defaults are — doing so turns two in-repo modules that each carry a same-named
+// config into a hard load-time conflict (and, with a lone provider, silently
+// bleeds one module's default into another module's services). Two such modules
+// with a colliding config name load cleanly, and neither config is provisioned.
+func TestLocalLoaderDoesNotComposeInRepoModuleDirectoryConfigurations(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	// A plain non-flat monorepo run directly: two in-repo modules, each shipping
+	// its own configurations/local with the same config name but different values.
+	writeConfigurationFile(t, root, "workspace.codefly.yaml", `name: monorepo
+layout: modules
+modules:
+  - name: payments
+  - name: wiki
+`)
+	writeConfigurationFile(t, root, "configurations/local/internal-auth.secret.env", "TOKEN=root-token\n")
+
+	writeConfigurationFile(t, root, "modules/payments/module.codefly.yaml", "kind: module\nname: payments\nservices: []\n")
+	writeConfigurationFile(t, root, "modules/payments/configurations/local/legal.env", "LEGAL_URL=payments-legal\n")
+	writeConfigurationFile(t, root, "modules/wiki/module.codefly.yaml", "kind: module\nname: wiki\nservices: []\n")
+	writeConfigurationFile(t, root, "modules/wiki/configurations/local/legal.env", "LEGAL_URL=wiki-legal\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	// The colliding in-repo module configurations neither conflict nor provision.
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+	_, err = resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "legal")
+	require.Error(t, err)
+
+	// The workspace's own configuration is unaffected.
+	auth, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "internal-auth")
+	require.NoError(t, err)
+	token, err := resources.GetConfigurationValue(ctx, auth, "internal-auth", "TOKEN")
+	require.NoError(t, err)
+	require.Equal(t, "root-token", token)
+}
+
 // A module composed by source/pin is base-synced into the consuming workspace
 // as a bare module subtree: it carries its shipped configuration defaults at its
 // own module directory, with no intermediate workspace.codefly.yaml or .git to
