@@ -237,10 +237,24 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 	for _, info := range workspaceInfos {
 		fromWorkspace[info.Name] = true
 	}
+	// A module referenced by source is a foreign module materialized (base-synced)
+	// into this workspace as a bare subtree; its own directory bounds the search
+	// for its shipped defaults. An in-repo or path-referenced module is not, so it
+	// keeps the plain repo-bounded walk (see composedModuleWorkspaceDir).
+	sourceReferenced := make(map[string]bool)
+	for _, ref := range local.workspace.Modules {
+		if ref.Source != "" {
+			sourceReferenced[ref.Name] = true
+		}
+	}
 	providedBy := make(map[string]string)
 	loaded := make(map[string]bool)
 	for _, mod := range modules {
-		moduleWorkspaceDir := composedModuleWorkspaceDir(mod.Dir())
+		consumingBoundary := ""
+		if sourceReferenced[mod.Name] {
+			consumingBoundary = local.workspace.Dir()
+		}
+		moduleWorkspaceDir := composedModuleWorkspaceDir(mod.Dir(), consumingBoundary)
 		moduleConfigurationDir := path.Join(moduleWorkspaceDir, "configurations", configurationProfile)
 		// The consuming workspace's own configurations are already loaded; a flat
 		// root module's workspace root coincides with the consuming workspace's,
@@ -309,8 +323,26 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 // would silently bind the wrong, foreign configurations. When no workspace root
 // is found within the repo (a bare module checkout), the module directory is
 // used, preserving the flat-layout location.
-func composedModuleWorkspaceDir(dir string) string {
+//
+// consumingWorkspaceDir bounds the walk for a source-referenced module and is
+// empty for any other. A module resolved by source/pin is materialized
+// (base-synced) inside the consuming workspace as a bare module subtree — no
+// intermediate workspace.codefly.yaml or .git to bound the walk — so without a
+// bound the walk would climb to the consuming workspace's own root, whose
+// configurations directory is already loaded and gets skipped, dropping the
+// module's shipped defaults; stopping at the boundary returns the module
+// directory instead, where the materialized artifact carries its
+// configurations/<profile>/*. An in-repo module (bare-name, layout: modules)
+// is structurally identical on disk but is native to the consuming workspace:
+// its configurations belong to that workspace root and are already loaded, so
+// it is left unbounded and folds to that root exactly as before, rather than
+// having its module-directory configurations flattened in — which would collide
+// or silently bleed one module's defaults into another's services.
+func composedModuleWorkspaceDir(dir, consumingWorkspaceDir string) string {
 	for cur := dir; ; {
+		if consumingWorkspaceDir != "" && resources.SameDir(cur, consumingWorkspaceDir) {
+			return dir
+		}
 		if resources.ExistsAtDir[resources.Workspace](cur) {
 			return cur
 		}
