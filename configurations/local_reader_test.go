@@ -511,20 +511,92 @@ agent:
 	require.NoError(t, err)
 	require.Equal(t, "saas-legal", url)
 
-	// The aggregator root keeps providing what it shares with every module it
-	// holds, including where the submodule ships a copy of it.
+	// Where the submodule redefines what its repository root provides, the
+	// submodule's definition is the more specific one and wins: reading the
+	// root's value instead would hand the module's services a value its own
+	// directory overrode.
 	observability, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
 	require.NoError(t, err)
 	url, err = resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
 	require.NoError(t, err)
-	require.Equal(t, "lodestar-observability", url)
+	require.Equal(t, "saas-observability", url)
+}
+
+type workspaceConfigurationLogCapture struct {
+	logs []*wool.Log
+}
+
+func (capture *workspaceConfigurationLogCapture) Process(log *wool.Log) {
+	capture.logs = append(capture.logs, log)
+}
+
+func (capture *workspaceConfigurationLogCapture) messages() string {
+	var all string
+	for _, log := range capture.logs {
+		all += log.Message + " "
+	}
+	return all
+}
+
+// A submodule overriding what its repository root provides silently changes the
+// value every service in the run reads — a workspace configuration is one flat
+// namespace, so the override cannot be scoped to the module that declared it.
+// Applying the more specific value without saying so is the failure mode: the
+// override is logged, and only when the definitions actually differ.
+func TestLocalLoaderLogsSubmoduleOverrideOfItsRepositoryConfiguration(t *testing.T) {
+	baseCtx := context.Background()
+	previousLevel := wool.GlobalLogLevel()
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	t.Cleanup(func() { wool.SetGlobalLogLevel(previousLevel) })
+
+	load := func(t *testing.T, submoduleValue string) *workspaceConfigurationLogCapture {
+		t.Helper()
+		capture := &workspaceConfigurationLogCapture{}
+		ctx := wool.New(baseCtx, &wool.Resource{Kind: "test", Unique: "submodule-override"}).WithLogger(capture).Inject(baseCtx)
+		root := t.TempDir()
+
+		writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: saas
+    source: obin-ai/lodestar
+    module: modules/saas
+`)
+		writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
+  saas:
+    path: vendor/lodestar/modules/saas
+`)
+		writeConfigurationFile(t, root, "solution/vendor/lodestar/workspace.codefly.yaml", `name: lodestar
+layout: modules
+modules:
+  - name: saas
+    path: modules/saas
+`)
+		writeConfigurationFile(t, root, "solution/vendor/lodestar/configurations/local/observability.env", "OBSERVABILITY_URL=lodestar-observability\n")
+		writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
+		writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/configurations/local/observability.env", "OBSERVABILITY_URL="+submoduleValue+"\n")
+
+		workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+		require.NoError(t, err)
+		loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+		require.NoError(t, err)
+		require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+		return capture
+	}
+
+	differing := load(t, "saas-observability")
+	require.Contains(t, differing.messages(), "overrides the one its repository provides")
+
+	// A submodule vendoring an unchanged copy overrides nothing, so there is
+	// nothing to report.
+	identical := load(t, "lodestar-observability")
+	require.NotContains(t, identical.messages(), "overrides the one its repository provides")
 }
 
 // A source reference names its module by coordinate, so the same submodule can
 // be composed twice under different names — here reached through two paths to
-// one directory. Its configurations are read once: reading the same directory
-// twice would collide with itself and fail the run on a configuration only one
-// module actually provides.
+// one directory. Its configurations are read once, and one module's own
+// configuration never reads as a disagreement with itself.
 func TestLocalLoaderComposesAliasedSourceReferencedSubmoduleOnce(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
@@ -570,78 +642,6 @@ modules:
 	url, err := resources.GetConfigurationValue(ctx, legal, "legal", "LEGAL_URL")
 	require.NoError(t, err)
 	require.Equal(t, "saas-legal", url)
-}
-
-// Two source-referenced submodules of one materialized aggregator repo each ship
-// a copy of a configuration their shared workspace root provides. The root
-// provides it once for both, so the copies are not competing definitions — while
-// a configuration two submodules provide that the root does not is the same
-// genuine ambiguity as between two unrelated composed modules.
-func TestLocalLoaderComposesSourceReferencedSubmodulesOfOneAggregatorRepo(t *testing.T) {
-	ctx := context.Background()
-	root := t.TempDir()
-
-	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
-layout: modules
-modules:
-  - name: saas
-    source: obin-ai/lodestar
-    module: modules/saas
-  - name: documents
-    source: obin-ai/lodestar
-    module: modules/documents
-`)
-	writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
-  saas:
-    path: vendor/lodestar/modules/saas
-  documents:
-    path: vendor/lodestar/modules/documents
-`)
-
-	writeConfigurationFile(t, root, "solution/vendor/lodestar/workspace.codefly.yaml", `name: lodestar
-layout: modules
-modules:
-  - name: saas
-    path: modules/saas
-  - name: documents
-    path: modules/documents
-`)
-	writeConfigurationFile(t, root, "solution/vendor/lodestar/configurations/local/observability.env", "OBSERVABILITY_URL=lodestar-observability\n")
-	for _, name := range []string{"saas", "documents"} {
-		writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/"+name+"/module.codefly.yaml", "kind: module\nname: "+name+"\nservices: []\n")
-		writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/"+name+"/configurations/local/observability.env", "OBSERVABILITY_URL="+name+"-observability\n")
-	}
-	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
-
-	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
-	require.NoError(t, err)
-	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
-	require.NoError(t, err)
-	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
-
-	observability, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
-	require.NoError(t, err)
-	url, err := resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
-	require.NoError(t, err)
-	require.Equal(t, "lodestar-observability", url)
-
-	legal, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "legal")
-	require.NoError(t, err)
-	url, err = resources.GetConfigurationValue(ctx, legal, "legal", "LEGAL_URL")
-	require.NoError(t, err)
-	require.Equal(t, "saas-legal", url)
-
-	// The other submodule declaring the same configuration, with the root
-	// silent on it, is ambiguity the solution must resolve.
-	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/documents/configurations/local/legal.env", "LEGAL_URL=documents-legal\n")
-	workspace, err = resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
-	require.NoError(t, err)
-	loader, err = configurations.NewConfigurationLocalReader(ctx, workspace)
-	require.NoError(t, err)
-
-	err = loader.Load(ctx, resources.LocalEnvironment())
-	require.ErrorIs(t, err, configurations.ErrConfigurationConflict)
-	require.Contains(t, err.Error(), "legal")
 }
 
 // Two modules composed from the same non-flat host repo resolve to one shared
@@ -773,12 +773,75 @@ modules:
 	require.Equal(t, "host-observability", url)
 }
 
-// Two composed modules that each provide a workspace configuration of the same
-// name is genuine ambiguity with no principled winner. Rather than silently
-// pick one by module order, the loader fails loudly — matching how it rejects
-// conflicting definitions within a single directory. The solution resolves the
-// conflict by declaring its own configuration of that name.
-func TestLocalLoaderRejectsCollidingComposedModuleConfigurations(t *testing.T) {
+// Two submodules of one materialized aggregator repo vendor the same
+// configuration their repository root also provides. Two definitions of one name
+// with one value is not ambiguity — there is nothing to arbitrate — so the run
+// is not failed over it, and the value the submodules agree on is provisioned.
+func TestLocalLoaderComposesSourceReferencedSubmodulesOfOneAggregatorRepo(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: saas
+    source: obin-ai/lodestar
+    module: modules/saas
+  - name: documents
+    source: obin-ai/lodestar
+    module: modules/documents
+`)
+	writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
+  saas:
+    path: vendor/lodestar/modules/saas
+  documents:
+    path: vendor/lodestar/modules/documents
+`)
+
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/workspace.codefly.yaml", `name: lodestar
+layout: modules
+modules:
+  - name: saas
+    path: modules/saas
+  - name: documents
+    path: modules/documents
+`)
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/configurations/local/observability.env", "OBSERVABILITY_URL=lodestar-observability\n")
+	for _, name := range []string{"saas", "documents"} {
+		writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/"+name+"/module.codefly.yaml", "kind: module\nname: "+name+"\nservices: []\n")
+		writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/"+name+"/configurations/local/observability.env", "OBSERVABILITY_URL=pinned-observability\n")
+	}
+	writeConfigurationFile(t, root, "solution/vendor/lodestar/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	// Both submodules override their repository root with the same value.
+	observability, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
+	require.Equal(t, "pinned-observability", url)
+
+	legal, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "legal")
+	require.NoError(t, err)
+	url, err = resources.GetConfigurationValue(ctx, legal, "legal", "LEGAL_URL")
+	require.NoError(t, err)
+	require.Equal(t, "saas-legal", url)
+	require.Empty(t, loader.AmbiguousWorkspaceConfigurations())
+}
+
+// Two composed modules that define the same workspace configuration differently
+// is genuine ambiguity with no principled winner. Rather than silently pick one
+// by module order, the loader provisions neither and reports the name as
+// ambiguous. The load itself succeeds: an ambiguity inside vendored content is
+// not the operator's problem until something in the run actually selects that
+// name — the Manager raises the diagnostic there (see the Manager tests). The
+// solution resolves it by declaring its own configuration of that name.
+func TestLocalLoaderReportsCollidingComposedModuleConfigurationsAsAmbiguous(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 
@@ -801,16 +864,21 @@ modules:
 	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
 	require.NoError(t, err)
 
-	err = loader.Load(ctx, resources.LocalEnvironment())
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+	_, err = resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
 	require.Error(t, err)
-	require.ErrorIs(t, err, configurations.ErrConfigurationConflict)
-	require.Contains(t, err.Error(), "observability")
-	require.Contains(t, err.Error(), "host-a")
-	require.Contains(t, err.Error(), "host-b")
 
-	// The solution declaring its own configuration of that name resolves the
-	// ambiguity: both modules are overridden and the load succeeds.
-	writeConfigurationFile(t, root, "solution/configurations/local/observability.env", "OBSERVABILITY_URL=solution-observability\n")
+	ambiguous := loader.AmbiguousWorkspaceConfigurations()
+	require.Contains(t, ambiguous, "observability")
+	require.ErrorIs(t, ambiguous["observability"], configurations.ErrConfigurationConflict)
+	require.Contains(t, ambiguous["observability"].Error(), "host-a")
+	require.Contains(t, ambiguous["observability"].Error(), "host-b")
+
+	// The same configuration defined identically by both is one value, not a
+	// competition: it is provisioned and nothing is reported ambiguous.
+	for _, host := range []string{"host-a", "host-b"} {
+		writeConfigurationFile(t, root, host+"/configurations/local/observability.env", "OBSERVABILITY_URL=shared-observability\n")
+	}
 	workspace, err = resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
 	loader, err = configurations.NewConfigurationLocalReader(ctx, workspace)
@@ -821,7 +889,73 @@ modules:
 	require.NoError(t, err)
 	url, err := resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
 	require.NoError(t, err)
+	require.Equal(t, "shared-observability", url)
+	require.Empty(t, loader.AmbiguousWorkspaceConfigurations())
+
+	// The solution declaring its own configuration of that name resolves a
+	// genuine disagreement: both modules are overridden and the load succeeds.
+	for _, host := range []string{"host-a", "host-b"} {
+		writeConfigurationFile(t, root, host+"/configurations/local/observability.env", "OBSERVABILITY_URL="+host+"-observability\n")
+	}
+	writeConfigurationFile(t, root, "solution/configurations/local/observability.env", "OBSERVABILITY_URL=solution-observability\n")
+	workspace, err = resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err = configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	observability, err = resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
+	require.NoError(t, err)
+	url, err = resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
 	require.Equal(t, "solution-observability", url)
+	require.Empty(t, loader.AmbiguousWorkspaceConfigurations())
+}
+
+// A module composed from a foreign repository by path — the shape a solution
+// takes when it points at a local clone instead of a pinned source — is foreign
+// content just as a source-referenced one is. Its submodule directory carries
+// the configurations only that module declares, so they are provisioned; the
+// reference kind is not what makes vendored defaults readable.
+func TestLocalLoaderComposesPathReferencedSubmoduleOfAggregatorRepo(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: saas
+    path: ../lodestar/modules/saas
+`)
+
+	writeConfigurationFile(t, root, "lodestar/workspace.codefly.yaml", `name: lodestar
+layout: modules
+modules:
+  - name: saas
+    path: modules/saas
+`)
+	writeConfigurationFile(t, root, "lodestar/configurations/local/observability.env", "OBSERVABILITY_URL=lodestar-observability\n")
+	writeConfigurationFile(t, root, "lodestar/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
+	writeConfigurationFile(t, root, "lodestar/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+
+	legal, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "legal")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, legal, "legal", "LEGAL_URL")
+	require.NoError(t, err)
+	require.Equal(t, "saas-legal", url)
+
+	// The repository root still provides what it shares with every module.
+	observability, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "observability")
+	require.NoError(t, err)
+	url, err = resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
+	require.NoError(t, err)
+	require.Equal(t, "lodestar-observability", url)
 }
 
 func TestEnvironmentConfigurationProfileRejectsTraversal(t *testing.T) {
