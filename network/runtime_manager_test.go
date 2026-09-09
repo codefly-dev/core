@@ -394,32 +394,38 @@ func accessKindsOf(m *basev0.NetworkMapping) []string {
 	return out
 }
 
-// TestGetFreePort_ConcurrentUniqueness regression-covers the
+// TestAllocateTemporaryPort_ConcurrentUniqueness regression-covers the
 // allocation-tracking fix: without recording the returned port in
 // allocatedPorts, two concurrent callers could be handed the same
 // random port (lastRandomPort wrapped before the second caller's
 // listener probe). Post-fix, every returned port is recorded under
 // lock before return, so 50 concurrent callers see 50 distinct
 // ports.
-func TestGetFreePort_ConcurrentUniqueness(t *testing.T) {
+func TestAllocateTemporaryPort_ConcurrentUniqueness(t *testing.T) {
 	ctx := context.Background()
 	m, err := network.NewRuntimeManager(ctx, testDnsManager{})
 	require.NoError(t, err)
 
 	const n = 50
-	ports := make(chan uint16, n)
+	type allocation struct {
+		port uint16
+		err  error
+	}
+	results := make(chan allocation, n)
 	for i := 0; i < n; i++ {
 		go func() {
-			ports <- m.GetFreePort()
+			port, err := m.AllocateTemporaryPort(ctx)
+			results <- allocation{port: port, err: err}
 		}()
 	}
 	seen := make(map[uint16]bool, n)
 	for i := 0; i < n; i++ {
-		p := <-ports
-		require.NotZero(t, p, "GetFreePort must return a non-zero port")
-		require.False(t, seen[p],
-			"GetFreePort returned duplicate port %d — allocation tracking regression", p)
-		seen[p] = true
+		r := <-results
+		require.NoError(t, r.err)
+		require.NotZero(t, r.port, "AllocateTemporaryPort must return a non-zero port")
+		require.False(t, seen[r.port],
+			"AllocateTemporaryPort returned duplicate port %d — allocation tracking regression", r.port)
+		seen[r.port] = true
 	}
 }
 
@@ -466,4 +472,45 @@ func TestNativeFor_MatchesGenerateNetworkMappings(t *testing.T) {
 		require.Equal(t, runtimeNative.Port, computed.Port,
 			"NativeFor port drifted for endpoint %s", mapping.Endpoint.Name)
 	}
+}
+
+// TestGenerateNetworkMappingsReleasesReservationsOnFailure covers the rollback
+// of a part-way failure. The first endpoint is reserved, the second collides
+// and aborts the call — and the reservation the aborted call took must not
+// outlive it, or the manager keeps ports busy for a service that never started.
+func TestGenerateNetworkMappingsReleasesReservationsOnFailure(t *testing.T) {
+	ctx := context.Background()
+	manager, err := network.NewRuntimeManager(ctx, testDnsManager{})
+	require.NoError(t, err)
+
+	const contended = uint16(40100)
+	failing := &resources.ServiceIdentity{Module: "app", Name: "subject"}
+	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityModule}
+	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityModule}
+
+	later := &resources.ServiceIdentity{Module: "app", Name: "successor"}
+	successor := &basev0.Endpoint{Module: "app", Service: "successor", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityModule}
+
+	manager.WithPortOverrides(map[string]uint16{
+		resources.EndpointDestination(first):     contended,
+		resources.EndpointDestination(second):    contended,
+		resources.EndpointDestination(successor): contended,
+	})
+
+	_, err = manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(),
+		&resources.Workspace{Name: "fixture"}, failing,
+		[]*basev0.Endpoint{first, second}, resources.NewRuntimeContextNative())
+	require.Error(t, err, "two endpoints pinned to one port must abort the call")
+
+	// The aborted call reserved `contended` for `first` before failing on
+	// `second`. If that reservation survived, this unrelated service cannot
+	// bind the port it was pinned to.
+	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(),
+		&resources.Workspace{Name: "fixture"}, later,
+		[]*basev0.Endpoint{successor}, resources.NewRuntimeContextNative())
+	require.NoError(t, err, "a failed call must hand back the ports it reserved")
+	require.Len(t, mappings, 1)
+	instance := resources.FilterNetworkInstance(ctx, mappings[0].Instances, resources.NewNativeNetworkAccess())
+	require.NotNil(t, instance)
+	require.Equal(t, uint32(contended), instance.Port)
 }

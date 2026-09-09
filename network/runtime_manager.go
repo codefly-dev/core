@@ -2,9 +2,12 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
@@ -17,7 +20,7 @@ const Localhost = "localhost"
 
 // RuntimeManager tracks per-port allocation across the entire
 // service graph. The CLI fan-allocates ports for parallel services,
-// so concurrent GenerateNetworkMappings / GetFreePort calls share
+// so concurrent GenerateNetworkMappings / AllocateTemporaryPort calls share
 // allocatedPorts. mu serializes all mutations and reads — Go panics
 // on concurrent map writes, and package test processes may ask for
 // multiple temporary endpoints concurrently.
@@ -157,6 +160,16 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
 	mode := PortModeFor(runtimeContext.GetKind())
 	var out []*basev0.NetworkMapping
+	// Ports this call reserved. The manager outlives any single call, so a
+	// failure part-way through the endpoint list must hand back what it took —
+	// otherwise a caller that retries or moves on leaves the manager believing
+	// ports are in use by a service that never started.
+	var reserved []uint16
+	releaseReserved := func() {
+		for _, port := range reserved {
+			m.ReleasePort(port)
+		}
+	}
 	for _, endpoint := range endpoints {
 		nm := &basev0.NetworkMapping{
 			Endpoint: endpoint,
@@ -193,7 +206,12 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 				name = fmt.Sprintf("%s-%s", endpoint.Name, env.NamingScope)
 			}
 			if m.withTemporaryPorts {
-				port = m.GetFreePort()
+				var err error
+				port, err = m.AllocateTemporaryPort(ctx)
+				if err != nil {
+					releaseReserved()
+					return nil, w.Wrapf(err, "cannot allocate a temporary port for endpoint %s", owner)
+				}
 			} else {
 				port = ToNamedPort(ctx, workspace.Name, service.Module, service.Name, name, endpoint.Api, mode)
 			}
@@ -204,16 +222,24 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 		// "free" and both insert, racing the map and (worse) double-
 		// allocating the same port.
 		m.mu.Lock()
-		// GetFreePort marks the port it hands out with the placeholder owner
-		// randomPortOwner so a concurrent GetFreePort can't re-hand it. That is
+		// AllocateTemporaryPort marks the port it hands out with the placeholder
+		// owner randomPortOwner so a concurrent allocation can't re-hand it. That is
 		// NOT a real cross-endpoint conflict — the caller is about to claim it
 		// below — so only a port owned by a DIFFERENT real endpoint collides.
-		if allocatedTo, found := m.allocatedPorts[port]; found && allocatedTo != randomPortOwner && allocatedTo != owner {
+		allocatedTo, found := m.allocatedPorts[port]
+		if found && allocatedTo != randomPortOwner && allocatedTo != owner {
 			m.mu.Unlock()
+			releaseReserved()
 			return nil, w.NewError("port %d for endpoint %s is already allocated to %s", port, owner, allocatedTo)
 		}
+		// A port this owner already held before the call is not ours to hand
+		// back; only reservations this call created are rolled back.
+		heldBeforeCall := found && allocatedTo == owner
 		m.allocatedPorts[port] = owner
 		m.mu.Unlock()
+		if !heldBeforeCall {
+			reserved = append(reserved, port)
+		}
 		nm.Instances = []*basev0.NetworkInstance{
 			Container(endpoint, port),
 			Native(endpoint, port),
@@ -259,42 +285,128 @@ func (m *RuntimeManager) portOverride(destination string) (uint16, bool) {
 	return port, ok
 }
 
-// randomPortOwner is the placeholder owner GetFreePort writes into
+// randomPortOwner is the placeholder owner AllocateTemporaryPort writes into
 // allocatedPorts for a port it has handed out but that no endpoint has formally
 // claimed yet. The named-port conflict check treats it as "claimable", not a
 // cross-endpoint conflict.
 const randomPortOwner = "random"
 
-// GetFreePort asks the kernel to bind an ephemeral IPv4 loopback port, records
-// it in this manager, then releases the probe listener so the service runtime
-// can bind it. Kernel allocation avoids the low-entropy, process-local starting
-// points that caused independent test CLIs to select the same sequential port.
+// temporaryPortAttempts bounds AllocateTemporaryPort's retry loop. Retries
+// cover a reservation collision, a probe-close failure, or a descriptor table
+// that is momentarily full — all of which clear within a handful of attempts;
+// a larger budget only turns a broken host into a long spin.
+const temporaryPortAttempts = 16
+
+// temporaryPortBackoff is the pause between allocation retries. It is short
+// enough to stay invisible in a normal flow and long enough that a pathological
+// host is not hammered.
+const temporaryPortBackoff = 5 * time.Millisecond
+
+// ErrTemporaryPortUnavailable marks an allocation failure the host may recover
+// from on its own: a descriptor table that stayed full for the whole budget, or
+// a manager whose reservations covered every port the kernel offered. Retrying
+// the operation later can succeed.
+var ErrTemporaryPortUnavailable = errors.New("no temporary port available")
+
+// ErrTemporaryPortUnsupported marks an allocation failure that will not clear
+// without operator action: no IPv4 loopback to bind, or a kernel that refuses
+// the address family outright. Retrying is pointless — the host is misconfigured
+// for the way codefly allocates ports.
+var ErrTemporaryPortUnsupported = errors.New("temporary port allocation unsupported on this host")
+
+// AllocateTemporaryPort asks the kernel to bind an ephemeral IPv4 loopback
+// port, records it in this manager, then releases the probe listener so the
+// service runtime can bind it. Kernel allocation avoids the low-entropy,
+// process-local starting points that caused independent test CLIs to select the
+// same sequential port.
 //
 // The listener remains open until after the in-process reservation is recorded,
-// so concurrent callers on this manager cannot receive the same port.
-func (m *RuntimeManager) GetFreePort() uint16 {
-	for {
+// so concurrent callers on this manager cannot receive the same port. Closing
+// the probe does NOT reserve the port against other processes — the reservation
+// is in-process only, and another process may bind the port between this call
+// and the service actually starting. Cross-process listener ownership is
+// tracked separately (audit F05).
+//
+// Allocation is bounded. A host that cannot bind loopback at all fails on the
+// first attempt with ErrTemporaryPortUnsupported. A full descriptor table, a
+// reservation collision, or a probe-close failure retries at most
+// temporaryPortAttempts times with a backoff, then fails with
+// ErrTemporaryPortUnavailable wrapping the last cause. Cancellation is checked
+// before every attempt, so the call returns within the caller's deadline or the
+// attempt budget, whichever comes first.
+func (m *RuntimeManager) AllocateTemporaryPort(ctx context.Context) (uint16, error) {
+	w := wool.Get(ctx).In("network.Runtime.AllocateTemporaryPort")
+	var lastErr error
+	for attempt := 1; attempt <= temporaryPortAttempts; attempt++ {
+		if attempt > 1 {
+			waitTemporaryPortBackoff(ctx)
+		}
+		// ctx.Err() is the authority on cancellation, not the backoff's select:
+		// when the timer and ctx.Done() are both ready, select picks at random,
+		// so branching on which case fired would let an attempt run after the
+		// caller gave up.
+		if err := ctx.Err(); err != nil {
+			return 0, w.Wrapf(err, "cancelled allocating a temporary port after %d/%d attempts (last error: %v)", attempt-1, temporaryPortAttempts, lastErr)
+		}
+
 		listener, port, err := listenTemporaryPort()
 		if err != nil {
+			if !isRetryableListenError(err) {
+				return 0, w.Wrapf(fmt.Errorf("%w: %w", ErrTemporaryPortUnsupported, err), "cannot bind a kernel-assigned loopback port (attempt %d/%d)", attempt, temporaryPortAttempts)
+			}
+			lastErr = err
 			continue
 		}
 
 		m.mu.Lock()
-		if _, alreadyAllocated := m.allocatedPorts[port]; alreadyAllocated {
-			m.mu.Unlock()
-			_ = listener.Close()
-			continue
+		_, alreadyAllocated := m.allocatedPorts[port]
+		if !alreadyAllocated {
+			m.allocatedPorts[port] = randomPortOwner
 		}
-		m.allocatedPorts[port] = randomPortOwner
 		m.mu.Unlock()
 
-		if err := listener.Close(); err != nil {
-			m.mu.Lock()
-			delete(m.allocatedPorts, port)
-			m.mu.Unlock()
+		if alreadyAllocated {
+			_ = listener.Close()
+			lastErr = fmt.Errorf("kernel re-offered port %d, already reserved by this manager", port)
 			continue
 		}
-		return port
+
+		if err := listener.Close(); err != nil {
+			m.ReleasePort(port)
+			lastErr = err
+			continue
+		}
+		return port, nil
+	}
+	return 0, fmt.Errorf("cannot allocate a temporary port after %d attempts: %w: %w", temporaryPortAttempts, ErrTemporaryPortUnavailable, lastErr)
+}
+
+// ReleasePort drops this manager's reservation for a port so a later allocation
+// can hand it out again. Without it the manager's view of the host only ever
+// grows towards "everything is taken", and the bounded retry above turns that
+// drift into a hard allocation failure.
+func (m *RuntimeManager) ReleasePort(port uint16) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.allocatedPorts, port)
+}
+
+// isRetryableListenError separates a host that is momentarily out of
+// descriptors — which clears on its own — from one that cannot serve loopback
+// at all, which never will.
+func isRetryableListenError(err error) bool {
+	return errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE)
+}
+
+// waitTemporaryPortBackoff pauses between attempts, returning early when the
+// caller cancels. It reports nothing: the caller re-reads ctx.Err() so a
+// simultaneously-ready timer can never mask a cancellation.
+func waitTemporaryPortBackoff(ctx context.Context) {
+	timer := time.NewTimer(temporaryPortBackoff)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
 	}
 }
 
