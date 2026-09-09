@@ -3,6 +3,7 @@ package architecture
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/codefly-dev/core/graph"
@@ -26,6 +27,16 @@ type ServiceDependencies struct {
 type DependencyOptions struct {
 	SkipDependencyFor map[string]bool
 	ExcludeService    map[string]bool
+}
+
+func (opt *DependencyOptions) clone() *DependencyOptions {
+	out := &DependencyOptions{
+		SkipDependencyFor: make(map[string]bool, len(opt.SkipDependencyFor)),
+		ExcludeService:    make(map[string]bool, len(opt.ExcludeService)),
+	}
+	maps.Copy(out.SkipDependencyFor, opt.SkipDependencyFor)
+	maps.Copy(out.ExcludeService, opt.ExcludeService)
+	return out
 }
 
 type DependencyOption func(*DependencyOptions) error
@@ -204,7 +215,12 @@ func (d *ServiceDependencies) DirectDependents(ctx context.Context, unique strin
 	return out, nil
 }
 
-// Restrict restricts the dependencies to the services required by the service identified by unique
+// Restrict restricts the dependencies to the services required by the service identified by unique.
+//
+// The restricted view keeps the workspace, the dependency options and the service lookup of
+// the service nodes retained in the sub graph: ServiceFromUnique succeeds for every service
+// node of the restricted graph. Services dropped by the restriction are no longer resolvable
+// and ServiceFromUnique reports them as not found. The receiver is left untouched.
 func (d *ServiceDependencies) Restrict(_ context.Context, unique string) (*ServiceDependencies, error) {
 	// B is required by A if A <- ... <- B
 	sub, err := d.graph.SubGraphTo(unique)
@@ -273,7 +289,7 @@ func (d *ServiceDependencies) withGraph(g *DAG) *ServiceDependencies {
 		Workspace:       d.Workspace,
 		graph:           g,
 		uniqueToService: services,
-		options:         d.options,
+		options:         d.options.clone(),
 	}
 }
 
