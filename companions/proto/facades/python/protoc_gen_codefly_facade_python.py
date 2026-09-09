@@ -78,7 +78,14 @@ class _TypeIndex:
             self._walk(full, f"{attr}.", message.nested_type, module)
 
     def module_of(self, full_name: str) -> str:
-        return self._module_of[full_name]
+        module = self._module_of.get(full_name)
+        if module is None:
+            package = full_name.lstrip(".").rpartition(".")[0]
+            raise ValueError(
+                f"no binding for type {full_name}: package {package} is not part of "
+                "the generated set — the contract must include the proto defining it"
+            )
+        return module
 
     def reference(self, full_name: str, alias: str) -> str:
         return f"{alias}.{self._attr_of[full_name]}"

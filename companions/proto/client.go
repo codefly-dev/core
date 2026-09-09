@@ -35,11 +35,12 @@ type ClientRequest struct {
 	DescriptorSet []byte
 	// TargetFiles names the module's own proto files inside DescriptorSet (the
 	// files the module owns, not its imports). Required with DescriptorSet when
-	// generating a Python Facade: the strip step must keep exactly these and
-	// drop every shared import (buf.validate, google.api, org-shared options,
-	// ...), so that the generated *_pb2 never registers a shared descriptor a
-	// sibling SDK also carries. Ignored for the Sources path (the sources are
-	// the targets) and for non-Python or non-facade generation.
+	// generating a Python Facade: the strip step keeps these plus whatever
+	// files define the types they reference, and drops every import reached
+	// only through options (buf.validate, google.api, org-shared options, ...),
+	// so that the generated *_pb2 never registers a shared descriptor a sibling
+	// SDK also carries. Ignored for the Sources path (the sources are the
+	// targets) and for non-Python or non-facade generation.
 	TargetFiles []string
 	// Sources are .proto files written to the temp dir — today's
 	// GenerateGRPC path. Each carries its repo-relative path, not just content:

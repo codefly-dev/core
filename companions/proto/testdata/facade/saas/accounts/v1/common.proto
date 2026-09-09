@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package saas.accounts.v1;
+
+// Shared enum for the accounts surface: api_keys.proto imports it, and both
+// files are owned by the module, so the strip must keep the edge between them.
+
+enum Permission {
+  PERMISSION_UNSPECIFIED = 0;
+  PERMISSION_READ = 1;
+  PERMISSION_WRITE = 2;
+}
