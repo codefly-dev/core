@@ -1,0 +1,7 @@
+name: codefly-phases
+layout: flat
+services:
+    - name: database
+    - name: api
+    - name: migration
+    - name: worker

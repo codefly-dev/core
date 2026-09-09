@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/architecture"
+	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
 
@@ -314,4 +315,86 @@ func TestSubGraphTo(t *testing.T) {
 	order, err = g.TopologicalSortTo("z")
 	require.NoError(t, err)
 	require.Equal(t, createNodes("x", "u", "w", "v"), order)
+}
+
+func TestCycleReportsPath(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddEdge("a", "b")
+	g.AddEdge("b", "c")
+	g.AddEdge("c", "a")
+	g.AddEdge("d", "a")
+
+	require.Equal(t, []string{"a", "b", "c", "a"}, g.Cycle())
+
+	_, err := g.TopologicalSort()
+	require.ErrorContains(t, err, "a -> b -> c -> a")
+
+	acyclic := architecture.NewDAG("test")
+	acyclic.AddEdge("a", "b")
+	require.Nil(t, acyclic.Cycle())
+}
+
+func TestSubGraphsPreserveEdgeKinds(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddKindedEdge("a", "b", resources.DependencyKindRuntime)
+	g.AddKindedEdge("b", "c", resources.DependencyKindBuild)
+
+	require.Equal(t, []resources.DependencyKind{resources.DependencyKindRuntime}, g.EdgeKinds("a", "b"))
+
+	from := subgraphFrom(t, g, "a")
+	require.Equal(t, []resources.DependencyKind{resources.DependencyKindBuild}, from.EdgeKinds("b", "c"))
+
+	to := subgraphTo(t, g, "c")
+	require.Equal(t, []resources.DependencyKind{resources.DependencyKindRuntime}, to.EdgeKinds("a", "b"))
+
+	inverted := g.Invert()
+	require.Equal(t, []resources.DependencyKind{resources.DependencyKindRuntime}, inverted.EdgeKinds("b", "a"))
+}
+
+func TestForStageKeepsNodesAndDropsForeignEdges(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddKindedEdge("a", "b", resources.DependencyKindRuntime)
+	g.AddKindedEdge("b", "c", resources.DependencyKindBuild)
+
+	build, err := g.ForStage(resources.StageBuild)
+	require.NoError(t, err)
+	require.Equal(t, 3, len(build.Nodes()))
+	require.False(t, build.HasEdge("a", "b"))
+	require.True(t, build.HasEdge("b", "c"))
+
+	run, err := g.ForStage(resources.StageRun)
+	require.NoError(t, err)
+	require.True(t, run.HasEdge("a", "b"))
+	require.False(t, run.HasEdge("b", "c"))
+}
+
+// AddEdge is the untyped constructor: module graphs use it exclusively. An
+// untyped edge must mean "constrains every phase", not "constrains none" —
+// otherwise ForPhase silently returns a graph with every node and no edges.
+func TestForStageKeepsUntypedEdges(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddEdge("a", "b")
+
+	for _, stage := range resources.Stages() {
+		sub, err := g.ForStage(stage)
+		require.NoError(t, err)
+		require.True(t, sub.HasEdge("a", "b"), "stage %s dropped an untyped edge", stage)
+	}
+}
+
+func TestDAGForStageRejectsUnknownStage(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddKindedEdge("a", "b", resources.DependencyKindRuntime)
+
+	_, err := g.ForStage(resources.Stage("bulid"))
+	require.ErrorContains(t, err, "unknown stage")
+}
+
+func TestEdgeKindsDoesNotAliasGraphState(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddKindedEdge("a", "b", resources.DependencyKindRuntime)
+
+	kinds := g.EdgeKinds("a", "b")
+	kinds[0] = resources.DependencyKindExternal
+	require.Equal(t, []resources.DependencyKind{resources.DependencyKindRuntime}, g.EdgeKinds("a", "b"))
 }

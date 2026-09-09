@@ -3,6 +3,7 @@ package architecture
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/codefly-dev/core/graph"
 	"github.com/codefly-dev/core/resources"
@@ -210,10 +211,89 @@ func (d *ServiceDependencies) Restrict(_ context.Context, unique string) (*Servi
 	if err != nil {
 		return nil, fmt.Errorf("cannot restrict to <%s>: %w", unique, err)
 	}
+	return d.withGraph(sub), nil
+}
+
+// ForStage restricts the dependencies to the edges that constrain the given
+// stage. Callers select the stage they are about to execute instead of
+// threading booleans through the call chain, so a build-only edge never orders
+// a run and a consumed endpoint never orders a build.
+func (d *ServiceDependencies) ForStage(stage resources.Stage) (*ServiceDependencies, error) {
+	g, err := d.graph.ForStage(stage)
+	if err != nil {
+		return nil, err
+	}
+	return d.withGraph(g), nil
+}
+
+// StageOrder is the execution order for one stage of a phase.
+type StageOrder struct {
+	Stage    resources.Stage
+	Services []Service
+}
+
+// OrderFor returns what a caller must do, in order, to carry out an operation
+// on a service: one entry per stage the phase decomposes into.
+//
+// This is the API build/run/test/deploy callers want. `test` and `deploy` build
+// and then run, so they return a build order followed by a run order — two
+// sortable graphs rather than one merged graph that would report a cycle
+// between a build-time and a run-time edge pointing opposite ways.
+func (d *ServiceDependencies) OrderFor(ctx context.Context, phase resources.Phase, unique string) ([]StageOrder, error) {
+	w := wool.Get(ctx).In("architecture.OrderFor")
+	if err := phase.Validate(); err != nil {
+		return nil, w.Wrap(err)
+	}
+	var out []StageOrder
+	for _, stage := range phase.Stages() {
+		restricted, err := d.ForStage(stage)
+		if err != nil {
+			return nil, w.Wrap(err)
+		}
+		order, err := restricted.OrderTo(ctx, unique)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot order %s stage of %s", stage, phase)
+		}
+		out = append(out, StageOrder{Stage: stage, Services: order})
+	}
+	return out, nil
+}
+
+// withGraph carries the service lookup and options onto a derived graph,
+// dropping the services the derived graph no longer holds so a removed node
+// cannot be resolved through the restricted view.
+func (d *ServiceDependencies) withGraph(g *DAG) *ServiceDependencies {
+	services := make(map[string]*resources.Service, len(d.uniqueToService))
+	for unique, svc := range d.uniqueToService {
+		if g.HasNode(unique) {
+			services[unique] = svc
+		}
+	}
 	return &ServiceDependencies{
-		Workspace: d.Workspace,
-		graph:     sub,
-	}, nil
+		Workspace:       d.Workspace,
+		graph:           g,
+		uniqueToService: services,
+		options:         d.options,
+	}
+}
+
+// VerifyAcyclic fails when the dependency graph of a stage deadlocks, naming
+// the stage and the cycle. Cycles are a per-stage property: an API consuming a
+// database at runtime while the database bootstrap consumes the API schema at
+// build time is a cycle in neither stage, even though the untyped union of both
+// edges is one.
+func (d *ServiceDependencies) VerifyAcyclic(ctx context.Context) error {
+	w := wool.Get(ctx).In("architecture.VerifyAcyclic")
+	for _, stage := range resources.Stages() {
+		g, err := d.graph.ForStage(stage)
+		if err != nil {
+			return w.Wrap(err)
+		}
+		if cycle := g.Cycle(); cycle != nil {
+			return w.NewError("%s dependencies have a cycle: %s", stage, strings.Join(cycle, " -> "))
+		}
+	}
+	return nil
 }
 
 // X depends on Y means an edge X <- Y
@@ -247,8 +327,17 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 				if _, excluded := d.options.ExcludeService[dep.Unique()]; excluded {
 					continue
 				}
-				graph.AddNode(dep.Unique()).WithType(resources.SERVICE)
-				graph.AddEdge(dep.Unique(), identity.Unique())
+				// An external capability is not a workspace service: typing it
+				// SERVICE put it in Services() while ServiceFromUnique could
+				// never resolve it, so callers iterating Services() hit a
+				// not-found on an entry the same object had just handed them.
+				// The edge is still recorded, so the declaration stays visible.
+				nodeType := resources.SERVICE
+				if dep.Kind == resources.DependencyKindExternal {
+					nodeType = resources.EXTERNAL
+				}
+				graph.AddNode(dep.Unique()).WithType(nodeType)
+				graph.AddKindedEdge(dep.Unique(), identity.Unique(), dep.Kind)
 			}
 		}
 	}

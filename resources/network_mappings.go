@@ -163,6 +163,14 @@ func ResolveDependencyNetworkMappings(dependencies []*ServiceDependency, mapping
 
 	selected := make(map[string]struct{})
 	for _, dependency := range dependencies {
+		// A network mapping is a runtime address. A dependency that does not
+		// constrain the run phase has none to consume: injecting the producer's
+		// connection anyway hands a consumer credentials for a service it only
+		// builds against, and does so only when some *other* service happens to
+		// be running it — a value that silently appears and disappears.
+		if !dependency.Kind.Participates(StageRun) {
+			continue
+		}
 		resolved, err := SelectServiceDependencyEndpoints(dependency, endpoints)
 		if err != nil {
 			return nil, err

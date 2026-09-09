@@ -400,6 +400,9 @@ func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) err
 				if err := ValidateServiceDependencyEndpoints(dep, producerEndpoints); err != nil {
 					return w.Wrap(err)
 				}
+				if err := ValidateDependencyPrerequisite(dep, producerEndpoints); err != nil {
+					return w.Wrap(err)
+				}
 				if producerModule == mod.Name {
 					continue
 				}
