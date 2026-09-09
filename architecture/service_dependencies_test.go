@@ -288,6 +288,8 @@ func TestRestrictKeepsServiceLookup(t *testing.T) {
 
 	afterGateway, err := restricted.ServiceFromUnique(gateway)
 	require.NoError(t, err)
+	// Identity, not equality: the restricted view must hand back the very service the
+	// receiver holds, so callers cannot end up reading a stale copy of it.
 	require.Same(t, beforeGateway, afterGateway)
 
 	t.Run("removed services are not found", func(t *testing.T) {
@@ -326,7 +328,7 @@ func TestRestrictKeepsServiceLookup(t *testing.T) {
 	})
 }
 
-func TestRestrictKeepsDependencyOptions(t *testing.T) {
+func TestRestrictKeepsExcludedServicesOut(t *testing.T) {
 	ctx := context.Background()
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/module-layout")
@@ -346,4 +348,31 @@ func TestRestrictKeepsDependencyOptions(t *testing.T) {
 	require.ElementsMatch(t, createServices(organization, gateway, frontend), restricted.Services())
 	requireEveryServiceResolvable(t, restricted)
 	requireNotResolvable(t, restricted, accounts)
+}
+
+func TestRestrictKeepsUnresolvableNodesUnresolvable(t *testing.T) {
+	ctx := context.Background()
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/dangling-dependency")
+	require.NoError(t, err)
+
+	frontend := shared.Must(workspace.FindUniqueServiceByName(ctx, "web/frontend")).MustUnique()
+	const ghost = "nowhere/ghost"
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace)
+	require.NoError(t, err)
+
+	// A dependency on a service absent from the workspace is a service node with no
+	// service behind it, so the graph holds nodes that never resolve.
+	require.ElementsMatch(t, createServices(frontend, ghost), dep.Services())
+	requireNotResolvable(t, dep, ghost)
+
+	restricted, err := dep.Restrict(ctx, frontend)
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, createServices(frontend, ghost), restricted.Services())
+	svc, err := restricted.ServiceFromUnique(frontend)
+	require.NoError(t, err)
+	require.Equal(t, frontend, svc.MustUnique())
+	requireNotResolvable(t, restricted, ghost)
 }

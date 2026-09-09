@@ -217,10 +217,18 @@ func (d *ServiceDependencies) DirectDependents(ctx context.Context, unique strin
 
 // Restrict restricts the dependencies to the services required by the service identified by unique.
 //
-// The restricted view keeps the workspace, the dependency options and the service lookup of
-// the service nodes retained in the sub graph: ServiceFromUnique succeeds for every service
-// node of the restricted graph. Services dropped by the restriction are no longer resolvable
-// and ServiceFromUnique reports them as not found. The receiver is left untouched.
+// The restricted view keeps the dependency options and the service lookup of the service nodes
+// retained in the sub graph: a service that the receiver resolves and that the sub graph keeps
+// resolves identically here. Services dropped by the restriction are no longer resolvable and
+// ServiceFromUnique reports them as not found. The receiver is left untouched.
+//
+// The lookup is preserved, not repaired: a service node that the receiver cannot resolve stays
+// unresolvable. Such a node is what loadServiceGraph records for a dependency on a service
+// absent from the workspace that is not declared kind external — the external kind is typed
+// EXTERNAL and stays out of Services(), an undeclared one is typed SERVICE with nothing behind it.
+//
+// Workspace is carried over as-is and is NOT restricted, so it still lists modules and services
+// that the restricted graph dropped.
 func (d *ServiceDependencies) Restrict(_ context.Context, unique string) (*ServiceDependencies, error) {
 	// B is required by A if A <- ... <- B
 	sub, err := d.graph.SubGraphTo(unique)
