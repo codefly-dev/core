@@ -98,6 +98,10 @@ type DockerEnvironment struct {
 	// per-env). Used by stateless infra (e.g. vault dev-mode) that gains
 	// nothing from keep-alive reuse and should not be preserved as an orphan.
 	ephemeral bool
+	// invocation binds every container this environment creates to one
+	// session-ledger invocation, so a later recovery pass can prove ownership
+	// from Docker's own state rather than from a name or an owner PID.
+	invocation string
 }
 
 var _ base.RunnerEnvironment = &DockerEnvironment{}
@@ -107,6 +111,15 @@ var _ base.RunnerEnvironment = &DockerEnvironment{}
 // For infra with no persistent state to preserve across runs.
 func (docker *DockerEnvironment) WithEphemeral() *DockerEnvironment {
 	docker.ephemeral = true
+	return docker
+}
+
+// WithInvocation binds containers created by this environment to a
+// session-ledger invocation id. Recovery claims a container only when this
+// label matches the invocation recorded in the ledger, so neither a reused
+// container name nor a recycled owner PID can pass as ownership.
+func (docker *DockerEnvironment) WithInvocation(invocation string) *DockerEnvironment {
+	docker.invocation = invocation
 	return docker
 }
 
@@ -503,6 +516,9 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	if EphemeralContainers() || docker.ephemeral {
 		config.Labels[LabelCodeflyEphemeral] = "true"
 	}
+	if docker.invocation != "" {
+		config.Labels[LabelCodeflyInvocation] = docker.invocation
+	}
 
 	if len(docker.cmd) > 0 {
 		w.Debug("overriding command", wool.Field("cmd", base.CommandSummary(docker.cmd)))
@@ -523,6 +539,11 @@ const (
 	LabelCodeflyName      = "codefly.name"      // container's logical name
 	LabelCodeflyEphemeral = "codefly.ephemeral" // "true" for SDK/test (--cli-server) containers
 	LabelCodeflyConfig    = "codefly.config"    // hash of reusable runtime configuration
+	// LabelCodeflyInvocation binds a container to one session-ledger
+	// invocation. Unlike LabelCodeflySession it is not a PID, so it cannot be
+	// recycled and cannot be claimed by a later run that happens to inherit
+	// the number.
+	LabelCodeflyInvocation = "codefly.invocation"
 	// EphemeralContainersEnvironment carries ephemeral lifecycle intent across
 	// the CLI → agent process boundary: the CLI owns orchestration, but service
 	// agents create the containers. The CLI plants this marker before spawning
