@@ -151,27 +151,27 @@ func TestCompanionDockerfilesCopyTheDeclaredCLIBinary(t *testing.T) {
 
 // ${TARGETARCH} is expanded per target platform, so a binary staged without it
 // is the build host's architecture baked into every platform's image.
-func TestArchitectureBlindCLIBinariesBuildOnePlatform(t *testing.T) {
+func TestStagedCLIBinariesAreArchitectureAware(t *testing.T) {
 	for _, spec := range buildSpecs(t) {
-		if spec.CLIBinary == "" || strings.Contains(spec.CLIBinary, "${TARGETARCH}") {
+		if spec.CLIBinary == "" {
 			continue
 		}
-		require.Lenf(t, spec.Platforms, 1,
+		require.Containsf(t, spec.CLIBinary, "${TARGETARCH}",
 			"%s stages an architecture-blind CLI binary but targets %v", spec.Name, spec.Platforms)
 	}
 }
 
-// The publish workflow builds in two phases — the codefly base, then everything
-// that builds on it — so it is correct only while every base is codefly. A
-// companion introducing a second base tier has to change that workflow, and
-// this fails first rather than publishing a dependent against a missing base.
+// The builder publishes the codefly base and then everything that builds on
+// it, so it is correct only while every base is codefly. A companion
+// introducing a second base tier has to teach the builder about it, and this
+// fails first rather than publishing a dependent against a missing base.
 func TestEveryDependentBuildsOnTheCodeflyBase(t *testing.T) {
 	for _, spec := range buildSpecs(t) {
 		if spec.Base == "" {
 			continue
 		}
 		require.Equalf(t, "codefly", spec.Base,
-			"%s builds on %s; companions-publish.yml only orders the codefly base", spec.Name, spec.Base)
+			"%s builds on %s, and the builder only orders the codefly base", spec.Name, spec.Base)
 	}
 }
 
@@ -192,6 +192,44 @@ func TestRegistryLiteralsAreConfinedToTheBaseImageDefault(t *testing.T) {
 			require.Truef(t, strings.HasPrefix(trimmed, "ARG "+companions.BaseImageArg+"="),
 				"%s:%d names a registry outside the %s default: %s",
 				spec.Dockerfile, number+1, companions.BaseImageArg, trimmed)
+		}
+	}
+}
+
+// The builder stages one context and passes one platform list to every
+// companion, so a spec that wants a narrower context or a different platform
+// set is a spec the builder silently ignores.
+func TestBuildSpecsShareOneContextAndPlatformSet(t *testing.T) {
+	specs := buildSpecs(t)
+	for _, spec := range specs {
+		require.Equalf(t, ".", spec.Context,
+			"%s builds from %q, but every companion is built from the repository root", spec.Name, spec.Context)
+		require.Equalf(t, specs[0].Platforms, spec.Platforms,
+			"%s targets %v; the whole set is built for %v", spec.Name, spec.Platforms, specs[0].Platforms)
+	}
+}
+
+// A COPY source is resolved against the declared context, so one written
+// relative to the companion directory instead reaches the builder as a path
+// that does not exist. Sources under bin/ are the CLI binaries the builder
+// stages before the build and are absent from a clean checkout.
+func TestDockerfileCopySourcesResolveInTheDeclaredContext(t *testing.T) {
+	root := repositoryRoot(t)
+	for _, spec := range buildSpecs(t) {
+		context := filepath.Join(root, filepath.FromSlash(spec.Context))
+		for number, line := range strings.Split(dockerfile(t, spec), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 3 || fields[0] != "COPY" || strings.HasPrefix(fields[1], "--") {
+				continue
+			}
+			for _, source := range fields[1 : len(fields)-1] {
+				if strings.HasPrefix(source, "bin/") {
+					continue
+				}
+				_, err := os.Stat(filepath.Join(context, filepath.FromSlash(source)))
+				require.NoErrorf(t, err, "%s:%d copies %s, which does not exist in the %s context",
+					spec.Dockerfile, number+1, source, spec.Context)
+			}
 		}
 	}
 }

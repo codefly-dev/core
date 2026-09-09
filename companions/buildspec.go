@@ -26,7 +26,8 @@ type BuildSpec struct {
 	// Dockerfile is the repository-root-relative POSIX path to the Dockerfile.
 	Dockerfile string
 	// Context is the repository-root-relative POSIX path to the build context
-	// the Dockerfile is evaluated against.
+	// the Dockerfile is evaluated against. Every companion is built from the
+	// repository root, so one builder invocation serves the whole set.
 	Context string
 	// Platforms are buildx "os/arch" targets. More than one yields a
 	// multi-arch manifest list.
@@ -49,47 +50,42 @@ var specs = []BuildSpec{
 	{
 		Name:       "codefly",
 		Dockerfile: "companions/codefly/Dockerfile",
-		// The repository root, not the companion directory: the Dockerfile
-		// copies the codefly binary the builder cross-compiles into bin/linux.
-		Context:   ".",
-		Platforms: []string{"linux/amd64", "linux/arm64"},
-		CLIBinary: "bin/linux/${TARGETARCH}/codefly",
+		Context:    ".",
+		Platforms:  []string{"linux/amd64", "linux/arm64"},
+		CLIBinary:  "bin/linux/${TARGETARCH}/codefly",
 	},
 	{
 		Name:       "execution",
 		Dockerfile: "companions/execution/Dockerfile",
 		Context:    ".",
-		// Single platform because CLIBinary below does not consult
-		// TARGETARCH: a multi-platform build would bake the amd64 binary into
-		// the arm64 image.
-		Platforms: []string{"linux/amd64"},
-		CLIBinary: "bin/linux/codefly",
+		Platforms:  []string{"linux/amd64", "linux/arm64"},
+		CLIBinary:  "bin/linux/${TARGETARCH}/codefly",
 	},
 	{
 		Name:       "go",
 		Dockerfile: "companions/go/Dockerfile",
-		Context:    "companions/go",
+		Context:    ".",
 		Platforms:  []string{"linux/amd64", "linux/arm64"},
 		Base:       "codefly",
 	},
 	{
 		Name:       "node",
 		Dockerfile: "companions/node/Dockerfile",
-		Context:    "companions/node",
+		Context:    ".",
 		Platforms:  []string{"linux/amd64", "linux/arm64"},
 		Base:       "codefly",
 	},
 	{
 		Name:       "proto",
 		Dockerfile: "companions/proto/Dockerfile",
-		Context:    "companions/proto",
+		Context:    ".",
 		Platforms:  []string{"linux/amd64", "linux/arm64"},
 		Base:       "codefly",
 	},
 	{
 		Name:       "python",
 		Dockerfile: "companions/python/Dockerfile",
-		Context:    "companions/python",
+		Context:    ".",
 		Platforms:  []string{"linux/amd64", "linux/arm64"},
 		Base:       "codefly",
 	},
