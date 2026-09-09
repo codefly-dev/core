@@ -62,6 +62,7 @@ func TestEveryCompanionDockerfileHasABuildSpec(t *testing.T) {
 	for _, spec := range buildSpecs(t) {
 		specified[spec.Name] = struct{}{}
 	}
+	onDisk := 0
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -70,8 +71,11 @@ func TestEveryCompanionDockerfileHasABuildSpec(t *testing.T) {
 			continue
 		}
 		require.Containsf(t, specified, entry.Name(), "companions/%s has a Dockerfile but no build spec", entry.Name())
+		onDisk++
 	}
-	require.Len(t, specified, len(buildSpecs(t)))
+	specs := buildSpecs(t)
+	require.Len(t, specified, len(specs), "two build specs share a name")
+	require.Equal(t, onDisk, len(specs), "a build spec names a companion directory that has no Dockerfile")
 }
 
 // The build inputs name an image and a version; where it is published is the
@@ -154,5 +158,40 @@ func TestArchitectureBlindCLIBinariesBuildOnePlatform(t *testing.T) {
 		}
 		require.Lenf(t, spec.Platforms, 1,
 			"%s stages an architecture-blind CLI binary but targets %v", spec.Name, spec.Platforms)
+	}
+}
+
+// The publish workflow builds in two phases — the codefly base, then everything
+// that builds on it — so it is correct only while every base is codefly. A
+// companion introducing a second base tier has to change that workflow, and
+// this fails first rather than publishing a dependent against a missing base.
+func TestEveryDependentBuildsOnTheCodeflyBase(t *testing.T) {
+	for _, spec := range buildSpecs(t) {
+		if spec.Base == "" {
+			continue
+		}
+		require.Equalf(t, "codefly", spec.Base,
+			"%s builds on %s; companions-publish.yml only orders the codefly base", spec.Name, spec.Base)
+	}
+}
+
+// Where a companion is published is the builder's decision. The one reference
+// core still carries is the base-image argument's default, which the publisher
+// overrides with the digest it just pushed; any other registry literal is a
+// build that silently ignores the builder's registry.
+func TestRegistryLiteralsAreConfinedToTheBaseImageDefault(t *testing.T) {
+	for _, spec := range buildSpecs(t) {
+		for number, line := range strings.Split(dockerfile(t, spec), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			if !strings.Contains(trimmed, "ghcr.io") && !strings.Contains(trimmed, "codeflydev/") {
+				continue
+			}
+			require.Truef(t, strings.HasPrefix(trimmed, "ARG "+companions.BaseImageArg+"="),
+				"%s:%d names a registry outside the %s default: %s",
+				spec.Dockerfile, number+1, companions.BaseImageArg, trimmed)
+		}
 	}
 }

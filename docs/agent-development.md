@@ -331,8 +331,9 @@ Every image codefly itself publishes — the companions plugins pull at runtime,
 agent runtime images — is addressed through `resources.ImageRegistry`
 (`ghcr.io/codefly-dev`); build one reference with `resources.PublishedImage`
 rather than spelling out a registry. Companion images are built and pushed by
-the CLI from the registry-free build inputs `companions.BuildSpecs()` declares;
-see [`runbooks/publish-companions.md`](runbooks/publish-companions.md) for the
+`companions-publish.yml` from the registry-free build inputs
+`companions.BuildSpecs()` declares; see
+[`runbooks/publish-companions.md`](runbooks/publish-companions.md) for the
 version-bump rule and the one-time package-visibility setup.
 
 Core records `codefly.dev/kubernetes-manifest/v1`, the selected profile, static

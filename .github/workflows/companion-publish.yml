@@ -1,0 +1,180 @@
+name: companion-publish
+
+# Builds and publishes one companion image to the canonical registry
+# (ghcr.io/codefly-dev, see resources.ImageRegistry). Called per companion by
+# companions-publish.yml, which owns the trigger and the build order.
+#
+# Every per-companion build input — version, Dockerfile, context, platforms,
+# staged CLI binary — arrives as an input derived from companions.BuildSpecs(),
+# so this workflow holds no companion-specific knowledge of its own and cannot
+# drift from the specs the CLI will build from.
+#
+# Tags are immutable: a companion whose ghcr tag already exists is skipped, so
+# changing an image REQUIRES bumping companions/<name>/info.codefly.yaml.
+on:
+  workflow_call:
+    inputs:
+      companion:
+        description: Companion directory under companions/ to build and publish.
+        type: string
+        required: true
+      version:
+        description: Image tag, from the companion's info.codefly.yaml.
+        type: string
+        required: true
+      dockerfile:
+        description: Repository-relative path to the companion's Dockerfile.
+        type: string
+        required: true
+      context:
+        description: Repository-relative build context the Dockerfile is evaluated against.
+        type: string
+        required: true
+      platforms:
+        description: Comma-separated buildx platforms.
+        type: string
+        required: true
+      cli_binary:
+        description: >-
+          Context-relative path the Dockerfile expects a cross-compiled linux
+          codefly binary at. Empty when the image bakes none.
+        type: string
+        required: false
+        default: ''
+      base_image:
+        description: >-
+          Fully qualified reference for the codefly base image, passed as the
+          CODEFLY_BASE_IMAGE build argument. Empty leaves the Dockerfile's own
+          pinned default in place.
+        type: string
+        required: false
+        default: ''
+    outputs:
+      digest:
+        description: Manifest digest of the published image.
+        value: ${{ jobs.publish.outputs.digest }}
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # The proto companion compiles ~10 Go plugins from source, and the arm64
+    # half of that runs under QEMU emulation. The other five are apk + COPY.
+    timeout-minutes: 180
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: resolve image reference
+        id: plan
+        env:
+          COMPANION: ${{ inputs.companion }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "image=ghcr.io/codefly-dev/${COMPANION}"
+            echo "ref=ghcr.io/codefly-dev/${COMPANION}:${VERSION}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: skip when the tag is already published
+        id: published
+        run: |
+          set -uo pipefail
+          if docker manifest inspect "${{ steps.plan.outputs.ref }}" >/dev/null 2>&1; then
+            echo "${{ steps.plan.outputs.ref }} already published — bump companions/${{ inputs.companion }}/info.codefly.yaml to publish a change."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: stage the codefly CLI binaries
+        # Companions that bake a CLI declare where they expect it; every other
+        # companion picks it up via COPY --from the published codefly image.
+        # Both layouts are produced because ${TARGETARCH} paths need one binary
+        # per architecture and architecture-blind paths need bin/linux/codefly.
+        if: steps.published.outputs.exists == 'false' && inputs.cli_binary != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag=$(gh api repos/codefly-dev/cli/releases/latest --jq .tag_name)
+          version=${tag#v}
+          echo "baking codefly CLI ${version}"
+          for arch in amd64 arm64; do
+            mkdir -p "bin/linux/${arch}"
+            curl -fsSL -o cli.tar.gz \
+              "https://github.com/codefly-dev/cli/releases/download/${tag}/codefly_${version}_linux_${arch}.tar.gz"
+            tar -xzf cli.tar.gz -C "bin/linux/${arch}" codefly
+            chmod +x "bin/linux/${arch}/codefly"
+          done
+          install -m 0755 bin/linux/amd64/codefly bin/linux/codefly
+
+      - uses: docker/setup-qemu-action@v3
+        if: steps.published.outputs.exists == 'false'
+      - uses: docker/setup-buildx-action@v3
+        if: steps.published.outputs.exists == 'false'
+
+      - name: build and push
+        id: build
+        if: steps.published.outputs.exists == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: ${{ steps.plan.outputs.ref }}
+          # Empty leaves the Dockerfile default; an explicit empty assignment
+          # would blank the ARG and make FROM ${CODEFLY_BASE_IMAGE} unresolvable.
+          build-args: ${{ inputs.base_image != '' && format('CODEFLY_BASE_IMAGE={0}', inputs.base_image) || '' }}
+          # Attestation comes from actions/attest-build-provenance below, which
+          # produces a signed, verifiable one; buildx's inline variants would
+          # only add unsigned manifest entries.
+          provenance: false
+          sbom: false
+
+      - uses: actions/attest-build-provenance@v2
+        if: steps.published.outputs.exists == 'false'
+        with:
+          subject-name: ${{ steps.plan.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: resolve the published digest
+        # Dependents build against the digest this run produced rather than a
+        # mutable tag. Resolved from the registry, not from the build step, so
+        # it is also correct on the already-published path where no build ran.
+        id: digest
+        run: |
+          set -euo pipefail
+          digest=$(docker buildx imagetools inspect "${{ steps.plan.outputs.ref }}" --format '{{ .Manifest.Digest }}')
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: verify the package is anonymously pullable
+        # ghcr packages default to private on first push, which silently breaks
+        # every consumer that pulls without credentials. Inspect the manifest
+        # with an empty docker config so the check carries no token.
+        if: steps.published.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          config=$(mktemp -d)
+          echo '{}' > "${config}/config.json"
+          if ! DOCKER_CONFIG="${config}" docker manifest inspect "${{ steps.plan.outputs.ref }}"; then
+            echo "${{ steps.plan.outputs.ref }} is not anonymously pullable." >&2
+            echo "Make the package public at https://github.com/orgs/codefly-dev/packages/container/${{ inputs.companion }}/settings" >&2
+            echo "and link it to codefly-dev/core. See docs/runbooks/publish-companions.md." >&2
+            exit 1
+          fi
