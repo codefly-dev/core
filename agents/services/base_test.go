@@ -12,6 +12,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/helpers/code"
 	"github.com/codefly-dev/core/builders"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
@@ -34,6 +35,31 @@ func TestDockerImageBuildDigestIsRequestScoped(t *testing.T) {
 	require.Equal(t, "registry.example.com/module/service@"+digest, pinned.FullName())
 	require.Equal(t, "registry.example.com/module/service:1.2.3", base.DockerImage(taggedBuild).FullName())
 	require.Equal(t, "registry.example.com/module/service@"+digest, pinned.FullName())
+}
+
+// TestUniqueWithWorkspaceSeparatesInvocationScopes pins the agent-side half of
+// dependency session isolation. UniqueWithWorkspace names the state directory,
+// container and log root an agent creates for a service, so two concurrent
+// invocations of the same service in the same workspace stay separate only
+// while their naming scopes differ.
+func TestUniqueWithWorkspaceSeparatesInvocationScopes(t *testing.T) {
+	ctx := context.Background()
+	scoped := func(scope string) string {
+		base := &Base{
+			Identity:    &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service"},
+			Wool:        wool.Get(ctx),
+			Environment: &basev0.Environment{NamingScope: scope},
+		}
+		return base.UniqueWithWorkspace()
+	}
+
+	unscoped := scoped("")
+	first := scoped("s0123456789ab")
+	second := scoped("s0123456789ac")
+
+	require.NotEqual(t, first, second)
+	require.NotEqual(t, unscoped, first)
+	require.Contains(t, first, "s0123456789ab")
 }
 
 // countWatcherGoroutines counts the live goroutines belonging to a watcher:

@@ -365,8 +365,12 @@ func TestRunProfilesPassThroughToCodefly(t *testing.T) {
 			option := &Option{}
 			WithRunProfile(tt.name)(option)
 			WithExcludedDependencies("storage/postgres")(option)
-			args := dependencyCommandArguments(option)
+			args := dependencyCommandArguments(option, tt.name)
 
+			scopeFlag := slices.Index(args, "--naming-scope")
+			if scopeFlag == -1 || scopeFlag+1 >= len(args) || args[scopeFlag+1] != tt.name {
+				t.Fatalf("naming-scope arguments = %v, want --naming-scope %s", args, tt.name)
+			}
 			profileFlag := slices.Index(args, "--profile")
 			if profileFlag == -1 || profileFlag+1 >= len(args) || args[profileFlag+1] != tt.name {
 				t.Fatalf("profile arguments = %v, want --profile %s", args, tt.name)

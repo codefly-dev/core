@@ -106,6 +106,32 @@ message GetConfigurationsResponse {
   repeated codefly.base.v0.Configuration configurations = 1;
 }
 
+// SessionHandshakeRequest asks the control server to prove it is the dependency
+// session the caller owns.
+message SessionHandshakeRequest {
+  // session_id is the invocation identity the caller minted for this session.
+  string session_id = 1;
+  // challenge is a fresh caller-generated nonce the server must sign.
+  string challenge = 2;
+  // protocol_version is the session contract version the caller speaks.
+  uint32 protocol_version = 3;
+}
+
+// SessionHandshakeResponse carries the server's proof of session ownership.
+message SessionHandshakeResponse {
+  // session_id is the invocation identity the server was started with.
+  string session_id = 1;
+  // proof signs the challenge with the session secret shared through the
+  // private child environment. A server that does not hold the secret cannot
+  // produce it.
+  string proof = 2;
+  // protocol_version is the session contract version the server speaks.
+  uint32 protocol_version = 3;
+  // capabilities are optional isolation guarantees the server implements,
+  // such as isolated-control-socket.
+  repeated string capabilities = 4;
+}
+
 // FlowStatus reports whether the current orchestration flow is ready.
 message FlowStatus {
   // ready is true when the flow or service has reached an operable state.
@@ -136,6 +162,12 @@ service CLI {
     option (google.api.http) = {
       get: "/ping"
     };
+  }
+
+  // SessionHandshake proves that this control server belongs to the dependency
+  // session the caller started. It carries no HTTP annotation: session proofs
+  // must not be reachable through the CLI's REST companion.
+  rpc SessionHandshake(SessionHandshakeRequest) returns (SessionHandshakeResponse) {
   }
 
   /* Overall information

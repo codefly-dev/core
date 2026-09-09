@@ -25,11 +25,15 @@ func TestMyService(t *testing.T) {
 
 **How it works internally:**
 
-1. Runs `codefly run service --exclude-root --cli-server` as a subprocess
-2. Connects to the CLI's gRPC server on port 10000
-3. Waits for all services to be ready (`GetFlowStatus`)
-4. Extracts network mappings and configurations from the CLI
-5. Sets environment variables for the calling process
+1. Mints an invocation identity for the session and creates a private `0700`
+   directory to hold its control socket
+2. Runs `codefly run service --exclude-root --cli-server` as a subprocess, with
+   the socket path and the session credentials in the child's environment
+3. Waits for the child to bind the socket, then makes it prove it owns the
+   session (`SessionHandshake`)
+4. Waits for all services to be ready (`GetFlowStatus`)
+5. Extracts network mappings and configurations from the CLI
+6. Sets environment variables for the calling process
 
 **Why it uses the CLI binary:** This creates a universal integration testing pattern. The same `codefly` binary can be called from Go, Python, Rust, TypeScript, or any language. No language-specific dependency management code needed.
 
@@ -90,9 +94,10 @@ env, _ := sdk.WithDependencies(ctx, sdk.WithExcludedDependencies("infra/temporal
 ```
 
 `WithKeepRunning` is for local development loops. It first tries to attach to an
-already-running CLI server for the same naming scope. If none is available, it
+already-running CLI server started from the same plan. If none is available, it
 starts one and releases it instead of destroying it during `Stop` / `Destroy`.
-Use a stable naming scope, then clean test data explicitly between runs.
+Use a stable naming scope, then clean test data explicitly between runs. See
+[Session Isolation](#session-isolation) for what "the same plan" means.
 
 `WithExcludedDependencies` removes optional services from the dependency graph
 for the run. For example, tests that only need Postgres and Neo4j can exclude
@@ -114,9 +119,88 @@ deps, _ := cli.WithDependencies(ctx,
 )
 ```
 
+## Session Isolation
+
+Every default `WithDependencies` call is a **disposable session**. It mints an
+invocation identity from `crypto/rand`, so nothing about the session is derived
+from the workspace name:
+
+| | control channel | naming scope |
+|---|---|---|
+| disposable (default) | Unix socket in a private `0700` directory owned by this process | `<your label>-s<invocation>` |
+| reusable (`WithKeepRunning`) | Unix socket in a directory keyed by the reuse fingerprint | your label, unchanged |
+| shared (`WithSharedControlChannel`) | TCP port hashed from the workspace name | your label, unchanged |
+
+Two test packages in one workspace, or two worktrees checked out under the same
+workspace name, therefore get separate control channels, state directories and
+containers with no naming flags at all. Stopping one session does not touch the
+other.
+
+**Ownership.** The SDK creates the socket's directory, so only the SDK process
+can put a socket there — the child cannot lose a bind race, and there is no
+deterministic port for an unrelated server to occupy. On top of that, the child
+must answer `SessionHandshake` by signing a fresh nonce with the per-invocation
+secret it received through its private environment. The SDK verifies the proof
+before it reads any environment, polls readiness, or sends `StopFlow` /
+`DestroyFlow`. A server that cannot produce the proof is refused.
+
+**Platform support.** Unix domain sockets, and therefore isolated sessions, are
+available on Linux and macOS. Windows callers must pass
+`WithSharedControlChannel()`.
+
+**Contract for CLI implementers.** A control server started by the SDK reads:
+
+| Variable | Meaning |
+|---|---|
+| `CODEFLY_CLI_SERVER_SOCKET` | absolute path the control server must bind instead of any TCP port |
+| `CODEFLY_SESSION_ID` | invocation identity to echo in the handshake, and to carry into state paths, container labels and log roots |
+| `CODEFLY_SESSION_SECRET` | HMAC key for the handshake proof — never log it or write it to persistent state |
+
+`CODEFLY_CLI_SERVER_PORT` is removed from the child environment for isolated
+sessions. The control server owns the socket file: remove any stale path before
+listening, and remove it again on shutdown — the same contract `agents.Serve`
+follows for `CODEFLY_AGENT_UDS_PATH`. Use
+`github.com/codefly-dev/core/sdk/session` to read the session and compute the
+proof rather than reimplementing it.
+
+### Running against an older CLI
+
+A CLI that ignores `CODEFLY_CLI_SERVER_SOCKET`, or that does not implement
+`SessionHandshake`, is reported as an explicit error naming the missing
+capability. The SDK never silently falls back to the shared workspace port
+while claiming isolation. To drive such a CLI, opt out deliberately:
+
+```go
+env, _ := sdk.WithDependencies(ctx, sdk.WithSharedControlChannel())
+```
+
+That restores the pre-isolation behaviour — a workspace-hashed control port,
+shared by every invocation of that workspace name, with no proof that the
+server answering it is the child that was started.
+
+### Reusable sessions
+
+`WithKeepRunning` is explicit reuse mode, so its naming scope stays stable and
+its containers survive between runs. Attaching to a warm stack requires more
+than a matching workspace name: the SDK records a receipt next to the control
+socket and reuses the stack only when the **reuse fingerprint** matches —
+workspace, service and its declared dependencies, naming scope, fixture, run
+profile, exclusions, silenced services, dependency home and CLI binary. A run
+with a different fixture or profile starts its own stack instead of inheriting
+one built from another plan.
+
+### Borrowed sessions
+
+When a parent Codefly runtime already injected live dependency endpoints, the
+SDK reuses them instead of nesting a second flow. That session is *borrowed*:
+`Stop` and `Destroy` leave the parent's stack running, and invocation-scoped
+configuration overrides are rejected rather than silently ignored.
+
 ### NamingScope
 
-When running parallel tests, use `WithNamingScope` to isolate port allocation:
+`WithNamingScope` is a human label, not an isolation primitive — disposable
+sessions are already unique without it. Use it to make a scope readable in
+container names and logs, or to name a reusable stack:
 
 ```go
 // Test A
@@ -125,6 +209,9 @@ cli.WithDependencies(ctx, cli.WithNamingScope("test-a"))
 cli.WithDependencies(ctx, cli.WithNamingScope("test-b"))
 // Different naming scopes → different deterministic ports → no collisions
 ```
+
+Under `sdk.WithDependencies` the effective scope is `test-a-s<invocation>`, so
+two concurrent runs that both pass `test-a` still stay apart.
 
 The scope is appended to the endpoint name before hashing, so `ToNamedPort(ws, mod, svc, "grpc-test-a", "grpc")` produces a different port than `ToNamedPort(ws, mod, svc, "grpc-test-b", "grpc")`.
 

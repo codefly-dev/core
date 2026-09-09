@@ -40,6 +40,8 @@ const (
 const (
 	// CLIPingProcedure is the fully-qualified name of the CLI's Ping RPC.
 	CLIPingProcedure = "/codefly.cli.v0.CLI/Ping"
+	// CLISessionHandshakeProcedure is the fully-qualified name of the CLI's SessionHandshake RPC.
+	CLISessionHandshakeProcedure = "/codefly.cli.v0.CLI/SessionHandshake"
 	// CLIGetAgentInformationProcedure is the fully-qualified name of the CLI's GetAgentInformation RPC.
 	CLIGetAgentInformationProcedure = "/codefly.cli.v0.CLI/GetAgentInformation"
 	// CLIGetWorkspaceInventoryProcedure is the fully-qualified name of the CLI's GetWorkspaceInventory
@@ -82,6 +84,10 @@ const (
 type CLIClient interface {
 	// Ping checks that the CLI bridge is reachable.
 	Ping(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[emptypb.Empty], error)
+	// SessionHandshake proves that this control server belongs to the dependency
+	// session the caller started. It carries no HTTP annotation: session proofs
+	// must not be reachable through the CLI's REST companion.
+	SessionHandshake(context.Context, *connect.Request[v0.SessionHandshakeRequest]) (*connect.Response[v0.SessionHandshakeResponse], error)
 	// GetAgentInformation returns metadata and documentation for an installed agent.
 	GetAgentInformation(context.Context, *connect.Request[v0.GetAgentInformationRequest]) (*connect.Response[v01.AgentInformation], error)
 	// GetWorkspaceInventory returns the loaded workspace resource tree.
@@ -129,6 +135,12 @@ func NewCLIClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 			httpClient,
 			baseURL+CLIPingProcedure,
 			connect.WithSchema(cLIMethods.ByName("Ping")),
+			connect.WithClientOptions(opts...),
+		),
+		sessionHandshake: connect.NewClient[v0.SessionHandshakeRequest, v0.SessionHandshakeResponse](
+			httpClient,
+			baseURL+CLISessionHandshakeProcedure,
+			connect.WithSchema(cLIMethods.ByName("SessionHandshake")),
 			connect.WithClientOptions(opts...),
 		),
 		getAgentInformation: connect.NewClient[v0.GetAgentInformationRequest, v01.AgentInformation](
@@ -227,6 +239,7 @@ func NewCLIClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 // cLIClient implements CLIClient.
 type cLIClient struct {
 	ping                                     *connect.Client[emptypb.Empty, emptypb.Empty]
+	sessionHandshake                         *connect.Client[v0.SessionHandshakeRequest, v0.SessionHandshakeResponse]
 	getAgentInformation                      *connect.Client[v0.GetAgentInformationRequest, v01.AgentInformation]
 	getWorkspaceInventory                    *connect.Client[emptypb.Empty, v02.Workspace]
 	getWorkspaceServiceDependencyGraph       *connect.Client[emptypb.Empty, v03.GraphResponse]
@@ -247,6 +260,11 @@ type cLIClient struct {
 // Ping calls codefly.cli.v0.CLI.Ping.
 func (c *cLIClient) Ping(ctx context.Context, req *connect.Request[emptypb.Empty]) (*connect.Response[emptypb.Empty], error) {
 	return c.ping.CallUnary(ctx, req)
+}
+
+// SessionHandshake calls codefly.cli.v0.CLI.SessionHandshake.
+func (c *cLIClient) SessionHandshake(ctx context.Context, req *connect.Request[v0.SessionHandshakeRequest]) (*connect.Response[v0.SessionHandshakeResponse], error) {
+	return c.sessionHandshake.CallUnary(ctx, req)
 }
 
 // GetAgentInformation calls codefly.cli.v0.CLI.GetAgentInformation.
@@ -329,6 +347,10 @@ func (c *cLIClient) DestroyFlow(ctx context.Context, req *connect.Request[v0.Des
 type CLIHandler interface {
 	// Ping checks that the CLI bridge is reachable.
 	Ping(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[emptypb.Empty], error)
+	// SessionHandshake proves that this control server belongs to the dependency
+	// session the caller started. It carries no HTTP annotation: session proofs
+	// must not be reachable through the CLI's REST companion.
+	SessionHandshake(context.Context, *connect.Request[v0.SessionHandshakeRequest]) (*connect.Response[v0.SessionHandshakeResponse], error)
 	// GetAgentInformation returns metadata and documentation for an installed agent.
 	GetAgentInformation(context.Context, *connect.Request[v0.GetAgentInformationRequest]) (*connect.Response[v01.AgentInformation], error)
 	// GetWorkspaceInventory returns the loaded workspace resource tree.
@@ -372,6 +394,12 @@ func NewCLIHandler(svc CLIHandler, opts ...connect.HandlerOption) (string, http.
 		CLIPingProcedure,
 		svc.Ping,
 		connect.WithSchema(cLIMethods.ByName("Ping")),
+		connect.WithHandlerOptions(opts...),
+	)
+	cLISessionHandshakeHandler := connect.NewUnaryHandler(
+		CLISessionHandshakeProcedure,
+		svc.SessionHandshake,
+		connect.WithSchema(cLIMethods.ByName("SessionHandshake")),
 		connect.WithHandlerOptions(opts...),
 	)
 	cLIGetAgentInformationHandler := connect.NewUnaryHandler(
@@ -468,6 +496,8 @@ func NewCLIHandler(svc CLIHandler, opts ...connect.HandlerOption) (string, http.
 		switch r.URL.Path {
 		case CLIPingProcedure:
 			cLIPingHandler.ServeHTTP(w, r)
+		case CLISessionHandshakeProcedure:
+			cLISessionHandshakeHandler.ServeHTTP(w, r)
 		case CLIGetAgentInformationProcedure:
 			cLIGetAgentInformationHandler.ServeHTTP(w, r)
 		case CLIGetWorkspaceInventoryProcedure:
@@ -509,6 +539,10 @@ type UnimplementedCLIHandler struct{}
 
 func (UnimplementedCLIHandler) Ping(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.cli.v0.CLI.Ping is not implemented"))
+}
+
+func (UnimplementedCLIHandler) SessionHandshake(context.Context, *connect.Request[v0.SessionHandshakeRequest]) (*connect.Response[v0.SessionHandshakeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.cli.v0.CLI.SessionHandshake is not implemented"))
 }
 
 func (UnimplementedCLIHandler) GetAgentInformation(context.Context, *connect.Request[v0.GetAgentInformationRequest]) (*connect.Response[v01.AgentInformation], error) {
