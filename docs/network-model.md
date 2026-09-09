@@ -81,11 +81,15 @@ For tests and CI where stability does not matter and parallel isolation does:
 ```go
 mgr, _ := network.NewRuntimeManager(ctx, nil)
 mgr.WithTemporaryPorts()
-// Uses GetFreePort() with dedup tracking
-// Random start between 20000-40000 to avoid parallel test collisions
+// Uses AllocateTemporaryPort(ctx) with dedup tracking
+// The kernel assigns the port, so parallel test CLIs cannot collide
 ```
 
-`GetFreePort()` tries each port sequentially, checks both the internal allocation map and actual TCP availability via `net.Listen`, preventing collisions between parallel tests.
+`AllocateTemporaryPort(ctx)` binds an ephemeral loopback port through the kernel and records it in the manager's allocation map before releasing the probe listener, preventing collisions between parallel tests.
+
+Allocation is bounded rather than best-effort: a permanent bind failure (an exhausted file-descriptor table, a missing loopback interface) returns immediately with the underlying cause, reservation collisions retry a fixed number of times with a cancellable backoff, and a cancelled context returns promptly. Callers propagate the failure — `GenerateNetworkMappings` aborts the mapping rather than handing back a port it never reserved.
+
+Closing the probe listener does **not** reserve the port against other processes. The reservation is in-process only; cross-process listener ownership is tracked separately.
 
 ## Configuration Flow
 
