@@ -107,7 +107,26 @@ func TestGoClientFromPlainDescriptorSetOwnsOnlyItsOwnProtos(t *testing.T) {
 	require.Contains(t, string(bindings), "google.golang.org/genproto/googleapis/api/annotations",
 		"the module's bindings must reference the canonical upstream package, not a local copy")
 
-	goVet(t, ctx, dest, "github.com/codefly-dev/cli/pkg/builder/clients/rest")
+	mod := generatedModule(t, dest)
+	run(t, ctx, mod, "go", "mod", "tidy")
+	run(t, ctx, mod, "go", "build", "./...")
+}
+
+// restModulePath must match the go_package prefix CreateBufConfiguration derives
+// from the Module name, or the generated tree cannot be compiled as itself.
+const restModulePath = "github.com/codefly-dev/cli/pkg/builder/clients/rest"
+
+// generatedModule copies the generated tree into a module of its own. It does not
+// resolve dependencies: the non-facade Go template emits go-grpc stubs too, so
+// the dependency set is whatever the generated code imports and each caller lets
+// `go mod tidy` work it out.
+func generatedModule(t *testing.T, dest string) string {
+	t.Helper()
+	mod := t.TempDir()
+	require.NoError(t, copyTree(dest, mod))
+	require.NoError(t, os.WriteFile(filepath.Join(mod, "go.mod"),
+		[]byte("module "+restModulePath+"\n\ngo 1.27.0\n"), 0600))
+	return mod
 }
 
 // TestGoClientFromPlainDescriptorSetLinksWithGoogleapis is the consumer-side half:
@@ -127,17 +146,12 @@ func TestGoClientFromPlainDescriptorSetLinksWithGoogleapis(t *testing.T) {
 		DescriptorSet: plainDescriptorSet(t, ctx),
 	}))
 
-	const modulePath = "github.com/codefly-dev/cli/pkg/builder/clients/rest"
-	mod := t.TempDir()
-	require.NoError(t, copyTree(dest, mod))
-	require.NoError(t, os.WriteFile(filepath.Join(mod, "go.mod"),
-		[]byte("module "+modulePath+"\n\ngo 1.27.0\n"), 0600))
+	mod := generatedModule(t, dest)
 	require.NoError(t, os.MkdirAll(filepath.Join(mod, "cmd", "link"), 0750))
 	require.NoError(t, os.WriteFile(filepath.Join(mod, "cmd", "link", "main.go"), []byte(
 		"package main\n\nimport (\n\t_ \"google.golang.org/genproto/googleapis/api/annotations\"\n\n\t_ \""+
-			modulePath+"/saas/rest/v1\"\n)\n\nfunc main() {}\n"), 0600))
+			restModulePath+"/saas/rest/v1\"\n)\n\nfunc main() {}\n"), 0600))
 
-	run(t, ctx, mod, "go", "get", "google.golang.org/protobuf@v1.36.11", "google.golang.org/genproto/googleapis/api@latest")
 	run(t, ctx, mod, "go", "mod", "tidy")
 
 	// `go run`, not `go build`: the duplicate registration is a panic in
