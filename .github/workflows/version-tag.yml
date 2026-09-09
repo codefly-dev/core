@@ -1,0 +1,69 @@
+name: version-tag
+
+# Cuts the release tag FROM version/info.codefly.yaml, so the file and the tag
+# cannot drift apart.
+#
+# They drifted badly before this existed: tags were cut by hand, out of band,
+# and nothing bumped the file. It sat at 0.3.8 while v0.3.18 shipped and at
+# 0.3.20 while v0.3.24 shipped. That is not cosmetic — the file is embedded and
+# composition/contracts.go gates every package install on it, so a lagging file
+# rejects packages the tool can actually run ("Codefly 0.3.20 does not satisfy
+# package requirement >=0.3.24").
+#
+# This is the same contract companions already use: the manifest is the source
+# of truth, publishing is derived from it, and re-publishing an existing version
+# is a no-op that tells you to bump the file (see companion-publish.yml).
+#
+# Releasing is therefore: bump version/info.codefly.yaml, merge to main, and
+# this cuts vX.Y.Z once CI is green.
+
+on:
+  workflow_run:
+    # Gate on the test suite rather than on `push: main`. Tagging a red commit
+    # publishes a broken version, and a tag is effectively permanent once the
+    # Go module proxy has cached it — there is no un-publishing it.
+    workflows: ["codefly core"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tag exactly the commit that passed CI, not whatever main has moved
+          # on to since.
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: cut the tag declared by version/info.codefly.yaml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          version=$(sed -n 's/^version:[[:space:]]*//p' version/info.codefly.yaml | tr -d '[:space:]')
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "version/info.codefly.yaml: <$version> is not a bare semver (x.y.z)" >&2
+            exit 1
+          fi
+          tag="v${version}"
+
+          # Never move or replace an existing tag. Tags are immutable in
+          # practice (the module proxy caches them), and re-pointing one is how
+          # a commit ends up carrying two versions — 80611ae already carries
+          # both v0.3.21 and v0.3.24, which makes `git describe` ambiguous.
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            echo "${tag} already exists — bump version/info.codefly.yaml to release a change."
+            exit 0
+          fi
+
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${tag}" \
+            -f sha="${SHA}"
+          echo "tagged ${SHA} as ${tag}"

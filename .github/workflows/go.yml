@@ -33,6 +33,15 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
+      - name: version/tag drift guard
+        # version/info.codefly.yaml is embedded into the binary and gates every
+        # package install through composition's minimum-codefly-version check,
+        # but no test reads it — so it has silently rotted (0.3.8 while v0.3.18
+        # shipped; 0.3.20 while v0.3.24 shipped). Fail here instead of at a
+        # user's install. Reads tag names via ls-remote, so the shallow
+        # checkout above is fine.
+        run: ./scripts/check_version_tag.sh
+
       - name: Cache Go Modules
         uses: actions/cache@v4
         continue-on-error: true
