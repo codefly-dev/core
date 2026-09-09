@@ -10,6 +10,7 @@ import "codefly/base/v0/endpoint.proto";
 import "codefly/base/v0/network.proto";
 import "codefly/base/v0/configuration.proto";
 import "codefly/base/v0/failure.proto";
+import "codefly/base/v0/readiness.proto";
 
 import "codefly/services/agent/v0/communicate.proto";
 
@@ -168,6 +169,10 @@ message StartStatus {
   string message = 2;
   // failure is the universal structured cause when state is ERROR.
   codefly.base.v0.Failure failure = 3;
+  // generation increments on every successful Start. It lets a consumer tell a
+  // ready result recorded before a restart from one about the process running
+  // now, instead of carrying an old success across a new lifecycle.
+  uint64 generation = 4;
 }
 
 // StartResponse reports whether the service process reached the started state.
@@ -947,6 +952,10 @@ message InformationResponse {
   // lint_status is the latest Lint lifecycle status.
   LintStatus lint_status = 9;
 
+  // health is the agent's latest evaluation of the declared health predicates,
+  // stamped with the lifecycle generation it belongs to. It is distinct from
+  // start_status: a service can be started and not serving.
+  codefly.base.v0.HealthReport health = 10;
 }
 
 

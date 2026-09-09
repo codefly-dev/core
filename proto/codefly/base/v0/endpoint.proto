@@ -2,6 +2,7 @@ syntax = "proto3";
 package codefly.base.v0;
 
 import "buf/validate/validate.proto";
+import "codefly/base/v0/readiness.proto";
 
 /*
 
@@ -39,6 +40,10 @@ message Endpoint {
   // allow_modules is the explicit allow-list of modules permitted to reach an
   // internal endpoint. The single entry "*" permits every module.
   repeated string allow_modules = 9;
+  // health declares what "healthy" means for this endpoint. Absence keeps the
+  // legacy transport-only semantics: consumers may assume nothing beyond a
+  // reachable address.
+  Health health = 10;
 }
 
 // API selects protocol-specific endpoint details.

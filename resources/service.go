@@ -426,6 +426,9 @@ func (s *Service) Save(ctx context.Context) error {
 	if err := validateEndpointNames(s.Endpoints); err != nil {
 		return w.Wrap(err)
 	}
+	if err := validateEndpointHealth(s.Endpoints); err != nil {
+		return w.Wrap(err)
+	}
 	// preSave blanks fields that are redundant on disk (module/service are
 	// implied by location). It returns a restore func so the in-memory model
 	// is put back AFTER marshalling — otherwise Save corrupts live objects
@@ -516,6 +519,9 @@ func (s *Service) postLoad(ctx context.Context) error {
 		if err := dep.Validate(); err != nil {
 			return w.Wrap(err)
 		}
+		if err := validateDependencyReadinessMode(dep.Unique(), dep.Readiness); err != nil {
+			return w.Wrap(err)
+		}
 	}
 	// Checked after module defaulting: two entries naming the same service are
 	// duplicates whether or not both spell out the module. A second entry cannot
@@ -528,6 +534,11 @@ func (s *Service) postLoad(ctx context.Context) error {
 		endpoint.Service = s.Name
 		endpoint.Module = s.module
 		endpoint.postLoad(ctx)
+	}
+	// After endpoint.postLoad, so an endpoint that infers its API from its name
+	// is validated against the API it actually ends up with.
+	if err := validateEndpointHealth(s.Endpoints); err != nil {
+		return w.Wrap(err)
 	}
 	return nil
 }
@@ -836,6 +847,12 @@ type ServiceDependency struct {
 
 	Endpoints []*EndpointReference `yaml:"endpoints,omitempty"`
 
+	// Readiness is what "ready" means for this dependency when it resolves to no
+	// endpoint at all. It defaults to "started", the legacy behavior, so a
+	// workspace that never declared it keeps its semantics; "completed" is for a
+	// one-shot workload whose work must be finished, not merely running.
+	Readiness DependencyReadiness `yaml:"readiness,omitempty"`
+
 	// ExtraFields captures dependency keys that are valid on disk but not
 	// modeled here, for the same reason Service.ExtraFields does one level up:
 	// without it, a load → mutate → Save round-trip through a binary that does
@@ -882,6 +899,21 @@ func (s *ServiceDependency) ConsumesEndpoint(name, api string) bool {
 	for _, ref := range s.Endpoints {
 		if (ref.Name == "" || ref.Name == name) && (ref.API == "" || ref.API == api) {
 			return true
+		}
+	}
+	return false
+}
+
+// RequiresEndpoint reports whether the consumer's readiness waits on the
+// producer endpoint identified by name and API. A dependency that lists no
+// endpoints requires them all.
+func (s *ServiceDependency) RequiresEndpoint(name, api string) bool {
+	if len(s.Endpoints) == 0 {
+		return true
+	}
+	for _, ref := range s.Endpoints {
+		if (ref.Name == "" || ref.Name == name) && (ref.API == "" || ref.API == api) {
+			return ref.IsRequired()
 		}
 	}
 	return false

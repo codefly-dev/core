@@ -1,0 +1,13 @@
+syntax = "proto3";
+package payments.v1;
+
+message GetRequest {
+}
+
+message GetResponse {
+    string id = 1;
+}
+
+service Payments {
+    rpc Get(GetRequest) returns (GetResponse) {}
+}

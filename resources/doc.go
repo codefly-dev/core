@@ -22,6 +22,7 @@
 //   - Workspace.LoadModules / LoadServices — walk the hierarchy.
 //   - Service.LoadEndpoints + FindGRPCEndpoint / FindHTTPEndpoint — endpoint discovery.
 //   - Environment + Workspace.FindEnvironment — declared deploy targets.
+//   - PlanReadiness / PlanEndpointProbes — declared health predicates (see docs/readiness.md).
 //
 // All loader functions are read-only; they don't mutate the on-disk
 // YAML. Mutators (CreateWorkspace, AddModuleReference, Save) are the

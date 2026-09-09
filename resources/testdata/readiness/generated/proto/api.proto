@@ -1,0 +1,13 @@
+syntax = "proto3";
+package accounts.v1;
+
+message GetRequest {
+}
+
+message GetResponse {
+    string id = 1;
+}
+
+service Accounts {
+    rpc Get(GetRequest) returns (GetResponse) {}
+}

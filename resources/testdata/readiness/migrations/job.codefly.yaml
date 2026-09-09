@@ -1,0 +1,17 @@
+kind: job
+name: migrate
+version: 0.0.1
+execution:
+  type: one-shot
+  timeout: 5m
+service-dependencies:
+  - name: accounts
+    module: saas
+    endpoints:
+      - name: grpc
+job-dependencies:
+  - name: seed
+    module: saas
+  - name: watcher
+    module: saas
+    readiness: started

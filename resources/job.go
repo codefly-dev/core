@@ -69,6 +69,28 @@ func (e *JobExecution) GetRetryDelay() time.Duration {
 type JobDependency struct {
 	Name   string `yaml:"name"`
 	Module string `yaml:"module,omitempty"`
+
+	// Readiness is what "ready" means for the depended-on job. It defaults to
+	// "completed": a job that is still running has not produced whatever the
+	// consumer depends on. Long-running jobs declare "started" instead.
+	Readiness DependencyReadiness `yaml:"readiness,omitempty"`
+}
+
+// ReadinessMode resolves the dependency's declared readiness, applying the
+// completed-by-default rule.
+func (d *JobDependency) ReadinessMode() DependencyReadiness {
+	if d.Readiness == "" {
+		return DependencyReadinessCompleted
+	}
+	return d.Readiness
+}
+
+// Unique identifies the depended-on job.
+func (d *JobDependency) Unique() string {
+	if d.Module == "" {
+		return d.Name
+	}
+	return path.Join(d.Module, d.Name)
 }
 
 // Job represents an ephemeral execution unit for scheduled or one-shot tasks
