@@ -137,7 +137,14 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	depUpdate := len(spec.sources) > 0
 
 	if len(spec.descriptorSet) > 0 {
-		if err = os.WriteFile(filepath.Join(tmpDir, "image.binpb"), spec.descriptorSet, 0600); err != nil {
+		// buf takes every file of a plain FileDescriptorSet as a generation
+		// target, imports included, so tell it the well-known types are not
+		// ours to generate before handing the image over.
+		marked, merr := markWellKnownTypesAsImports(spec.descriptorSet)
+		if merr != nil {
+			return w.Wrapf(merr, "cannot parse descriptor set")
+		}
+		if err = os.WriteFile(filepath.Join(tmpDir, "image.binpb"), marked, 0600); err != nil {
 			return w.Wrapf(err, "cannot write descriptor set")
 		}
 		input := "/workspace/image.binpb"
