@@ -276,7 +276,10 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 			if conn != nil {
 				_ = conn.Close()
 			}
-			_ = proc.Kill()
+			if killErr := proc.Kill(); killErr != nil {
+				wool.Get(ctx).In("sdk.WithDependencies").
+					Warn("could not tear down the CLI process group", wool.Field("error", killErr))
+			}
 		}
 	}()
 
@@ -818,7 +821,9 @@ func (l *Dependencies) Stop(ctx context.Context) error {
 		_ = l.conn.Close()
 	}
 	if l.proc != nil {
-		_ = l.proc.Kill()
+		if killErr := l.proc.Kill(); killErr != nil {
+			w.Warn("could not tear down the CLI process group", wool.Field("error", killErr))
+		}
 	}
 	return err
 }
@@ -854,7 +859,9 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 		_ = l.conn.Close()
 	}
 	if l.proc != nil {
-		_ = l.proc.Kill()
+		if killErr := l.proc.Kill(); killErr != nil {
+			w.Warn("could not tear down the CLI process group", wool.Field("error", killErr))
+		}
 	}
 	return err
 }

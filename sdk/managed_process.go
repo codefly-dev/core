@@ -21,11 +21,12 @@ import (
 //
 //  1. The child leads its own process group, started through
 //     base.StartOwnedProcessGroup so its identity is pinned before it
-//     can fork. Cleanup terminates the whole group; without it, killing
-//     the shell/CLI leaves its grandchildren behind as orphans. Docker
-//     containers the child created are owned by the Docker daemon and
-//     are NOT in this group — no OS signal removes them, that teardown
-//     belongs to the CLI.
+//     can fork and every descendant inherits the group's start
+//     credential. Cleanup terminates the whole group; without it,
+//     killing the shell/CLI leaves its grandchildren behind as orphans.
+//     Docker containers the child created are owned by the Docker
+//     daemon and are NOT in this group — no OS signal removes them,
+//     that teardown belongs to the CLI.
 //
 //  2. Stdout and stderr are piped through internal readers that we drain
 //     in goroutines and echo to the host process's stdout/stderr. This
@@ -48,7 +49,7 @@ import (
 // be unit-tested with any command (see managed_process_test.go).
 type managedProcess struct {
 	cmd   *exec.Cmd
-	group *base.TrackedProcessGroup
+	group *base.OwnedProcessGroup
 
 	// stdoutR and stderrR are line-buffered readers over the child's
 	// stdout and stderr pipes. Tests read from stdoutR via readLine to
@@ -67,17 +68,28 @@ type managedProcess struct {
 	waitErr    error
 	done       chan struct{}
 
-	// Kill state. killOnce runs the teardown exactly once; every caller
-	// blocks on killDone and reads the single killErr it produced.
+	// Kill state. sync.Once already blocks every concurrent caller until the
+	// single teardown returns, so killErr is safe to read afterwards.
 	killOnce sync.Once
-	killDone chan struct{}
 	killErr  error
 }
 
-// killBudget bounds a whole Kill: the SIGTERM grace, the SIGKILL grace and
-// the supervisor's release all have to fit inside it. It is a hard stop, not
-// a delay — cooperative children are gone in milliseconds.
-const killBudget = 15 * time.Second
+const (
+	// killTermGrace is how long the group gets to honour SIGTERM on the
+	// ordinary teardown path before the kill phase starts.
+	killTermGrace = 3 * time.Second
+
+	// signalTermGrace is the same grace on the Ctrl-C path. Kill runs to
+	// completion before the signal is re-raised, so a long grace reads as a
+	// hung terminal; a resistant descendant is still SIGKILLed, just sooner.
+	signalTermGrace = 500 * time.Millisecond
+
+	// killBudget is a hard stop for a whole Kill — escalation plus the
+	// supervisor's release — for the case where enumerating the process table
+	// stalls. It is not a delay: escalation finishes in roughly termGrace plus
+	// a second, and a cooperative child is gone in milliseconds.
+	killBudget = 10 * time.Second
+)
 
 // startManaged starts cmd in its own process group with the lifecycle
 // guarantees described on managedProcess. The returned process is already
@@ -99,19 +111,19 @@ func startManaged(_ any, cmd *exec.Cmd) (*managedProcess, error) {
 	}
 
 	// Start the child as the leader of its own process group, with its
-	// identity captured so cleanup can prove the group is still ours.
+	// identity captured and a start credential in its environment so
+	// cleanup can prove the group is still ours.
 	group, err := base.StartOwnedProcessGroup(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("managed: Start: %w", err)
 	}
 
 	mp := &managedProcess{
-		cmd:      cmd,
-		group:    group,
-		stdoutR:  bufio.NewReader(stdoutPipe),
-		stderrR:  bufio.NewReader(stderrPipe),
-		done:     make(chan struct{}),
-		killDone: make(chan struct{}),
+		cmd:     cmd,
+		group:   group,
+		stdoutR: bufio.NewReader(stdoutPipe),
+		stderrR: bufio.NewReader(stderrPipe),
+		done:    make(chan struct{}),
 	}
 
 	// Supervisor goroutine — reaps the child on exit.
@@ -179,8 +191,10 @@ func (mp *managedProcess) watchSignals() {
 	}
 	// Re-raise the signal to the default handler after we finish cleanup,
 	// so the parent process also dies. Otherwise `go test` would hang on
-	// Ctrl-C waiting for THIS goroutine.
-	_ = mp.Kill()
+	// Ctrl-C waiting for THIS goroutine. Cleanup uses the short SIGTERM
+	// grace: the whole group still dies, but the terminal comes back in
+	// about a second instead of after the full graceful budget.
+	_ = mp.killWithin(signalTermGrace)
 	signal.Stop(mp.sigCh)
 	// Restore default behavior and re-deliver so the process exits with
 	// the expected signal status.
@@ -207,27 +221,26 @@ func (mp *managedProcess) watchSignals() {
 // Kill is idempotent. Concurrent and repeated calls all block until the first
 // call has finished and return the result it produced.
 func (mp *managedProcess) Kill() error {
+	return mp.killWithin(killTermGrace)
+}
+
+func (mp *managedProcess) killWithin(termGrace time.Duration) error {
 	mp.killOnce.Do(func() {
-		mp.killErr = mp.terminate()
-		close(mp.killDone)
+		mp.killErr = mp.terminate(termGrace)
 	})
-	<-mp.killDone
 	return mp.killErr
 }
 
-func (mp *managedProcess) terminate() error {
+func (mp *managedProcess) terminate(termGrace time.Duration) error {
 	defer mp.stopSignalTrap()
-	if mp.group == nil {
-		return nil
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), killBudget)
 	defer cancel()
 
-	err := mp.group.Terminate(ctx)
+	err := mp.group.Terminate(ctx, termGrace)
 	select {
 	case <-mp.done:
 	case <-ctx.Done():
-		err = errors.Join(err, fmt.Errorf("managed: supervisor did not release within %s", killBudget))
+		err = errors.Join(err, fmt.Errorf("managed: supervisor had not reaped the leader %s after teardown started", killBudget))
 	}
 	return err
 }

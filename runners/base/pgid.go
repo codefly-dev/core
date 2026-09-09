@@ -87,10 +87,16 @@ const (
 	pgidLockRetry         = 25 * time.Millisecond
 	sigtermGrace          = 3 * time.Second
 	sigkillGrace          = time.Second
-	killSweeps            = 3
-	maxRecordSize         = 16 << 10
-	groupAuthBytes        = 32
-	groupAuthEnv          = "CODEFLY_PROCESS_GROUP_AUTH"
+	killSweeps            = 2
+	// killSweepInterval is how long the first SIGKILL sweep waits before
+	// re-sweeping. A member that forked between enumeration and delivery is
+	// already running when the sweep lands, so the re-sweep only has to
+	// outlast scheduling, not the full SIGKILL grace — which keeps the total
+	// kill phase at sigkillGrace plus this interval.
+	killSweepInterval = 100 * time.Millisecond
+	maxRecordSize     = 16 << 10
+	groupAuthBytes    = 32
+	groupAuthEnv      = "CODEFLY_PROCESS_GROUP_AUTH"
 	// legacyStartCorroborationSkew bounds how far a legacy record's recorded
 	// spawn second may trail the leader's wall-clock start second before the
 	// two stop corroborating. The record's `started` is stamped just after the
@@ -102,6 +108,14 @@ const (
 var registryProcessLock = make(chan struct{}, 1)
 
 var errProcessGroupIdentityChanged = errors.New("process group identity changed")
+
+// errProcessGroupNotSignalable reports that nothing in the group could be
+// signalled on this pass — it is empty, or everything in it is a zombie
+// holding the pgid until it is reaped, or every member vanished between
+// enumeration and delivery. It says nothing about identity: callers that are
+// escalating must keep going and let group liveness decide, never treat it as
+// proof the group is foreign.
+var errProcessGroupNotSignalable = errors.New("process group has no signalable members")
 
 type recordedProcessIdentity struct {
 	PID        int    `json:"pid"`
@@ -208,16 +222,75 @@ func StartTrackedProcessGroup(cmd *exec.Cmd) (*TrackedProcessGroup, error) {
 	return startProcessGroup(cmd, true)
 }
 
+// OwnedProcessGroup is a process group this process started and is the only
+// process that can clean up. It is a distinct type from TrackedProcessGroup
+// on purpose: a tracked group is authenticated against a registry record that
+// outlives its owner and must prove itself by credential, whereas an owned
+// group is authenticated against a leader identity captured at start. Sharing
+// one type would let a caller pick the weaker proof for a tracked group by
+// calling the wrong method, and would let a tracked group be torn down without
+// its registry record ever being removed.
+type OwnedProcessGroup struct {
+	record pgidRecord
+}
+
 // StartOwnedProcessGroup starts cmd as a process-group leader whose identity is
 // captured before the child can fork, without publishing a registry record.
-// Nothing is left on disk, so ReapStaleProcessGroups never sees the group and
-// the owner is the only process that can clean it up — through Terminate, which
-// authenticates the group from that captured leader identity. Use it for groups
-// the caller may deliberately release to outlive this process; use
-// StartTrackedProcessGroup when the group must stay reapable across an
+// Nothing is left on disk, so ReapStaleProcessGroups never sees the group. Use
+// it for groups the caller may deliberately release to outlive this process;
+// use StartTrackedProcessGroup when the group must stay reapable across an
 // unexpected death of the owner.
-func StartOwnedProcessGroup(cmd *exec.Cmd) (*TrackedProcessGroup, error) {
-	return startProcessGroup(cmd, false)
+func StartOwnedProcessGroup(cmd *exec.Cmd) (*OwnedProcessGroup, error) {
+	group, err := startProcessGroup(cmd, false)
+	if err != nil {
+		return nil, err
+	}
+	return &OwnedProcessGroup{record: group.record}, nil
+}
+
+// PGID reports the process-group id this handle owns.
+func (group *OwnedProcessGroup) PGID() int {
+	if group == nil {
+		return 0
+	}
+	return group.record.PGID
+}
+
+// Terminate ends every member of this group with a bounded SIGTERM → SIGKILL
+// escalation, and returns once the group is empty or the escalation is spent.
+// termGrace is how long members get to honour SIGTERM before the kill phase
+// starts; callers on an interactive path pass a short one.
+//
+// The unit of cleanup is the group, never the leader: liveness is observed on
+// the process group itself, so a descendant that ignores SIGTERM is still
+// escalated to SIGKILL after the grace period even when the leader exited
+// promptly and was already reaped. Every pass re-authenticates the group (see
+// authenticateOwnedProcessGroup) and signals member incarnations pinned at
+// enumeration time rather than a bare -pgid, so a recycled pgid is never
+// signalled. A member that cannot be reached is reported but never cancels
+// delivery to the rest.
+//
+// A group that is gone is not an error — including a pgid that now names a
+// provably different group, which means ours emptied. Everything else — a
+// permission failure, a member that could not be verified, a group that
+// outlived SIGKILL — is returned so callers can report it.
+//
+// Terminate only ends processes. Docker containers a member created belong to
+// the Docker daemon, not to this group, and no signal here removes them.
+func (group *OwnedProcessGroup) Terminate(ctx context.Context, termGrace time.Duration) error {
+	if group == nil {
+		return nil
+	}
+	if !isProcessGroupAlive(group.record.PGID) {
+		return nil
+	}
+	err := terminateGroup(ctx, group.record, authenticateOwnedProcessGroup, termGrace)
+	if errors.Is(err, errProcessGroupIdentityChanged) {
+		// The pgid names a group that is provably not the one we started, so
+		// ours emptied and nothing of ours was signalled or survives.
+		return nil
+	}
+	return err
 }
 
 func startProcessGroup(cmd *exec.Cmd, register bool) (*TrackedProcessGroup, error) {
@@ -453,48 +526,11 @@ func (group *TrackedProcessGroup) Signal(ctx context.Context, signal syscall.Sig
 	return signalAuthenticatedGroup(ctx, group.record, signal)
 }
 
-// PGID reports the process-group id this handle owns.
-func (group *TrackedProcessGroup) PGID() int {
-	if group == nil {
-		return 0
-	}
-	return group.record.PGID
-}
-
-// Terminate ends every member of this group with a bounded SIGTERM → SIGKILL
-// escalation, and returns once the group is empty or the escalation is spent.
-//
-// The unit of cleanup is the group, never the leader: liveness is observed on
-// the process group itself, so a descendant that ignores SIGTERM is still
-// escalated to SIGKILL after the grace period even when the leader exited
-// promptly and was already reaped. Every pass re-authenticates the group as
-// the one this process started (see authenticateOwnedProcessGroup) and signals
-// member incarnations pinned at enumeration time rather than a bare -pgid, so
-// a recycled pgid is never signalled. A group that is already gone is not an
-// error; anything else — a permission failure, an unverifiable member, a group
-// that outlived SIGKILL — is returned so callers can report it.
-//
-// Terminate only ends processes. Docker containers a member created belong to
-// the Docker daemon, not to this group, and no signal here removes them.
-func (group *TrackedProcessGroup) Terminate(ctx context.Context) error {
-	if group == nil {
-		return nil
-	}
-	if !isProcessGroupAlive(group.record.PGID) {
-		return nil
-	}
-	err := terminateGroup(ctx, group.record, authenticateOwnedProcessGroup)
-	if err == nil || !isProcessGroupAlive(group.record.PGID) {
-		return nil
-	}
-	return err
-}
-
 func abortUnregisteredProcessGroup(cmd *exec.Cmd, group *TrackedProcessGroup, authentication string) error {
 	var failures []error
 	if group != nil {
 		if err := group.Signal(context.Background(), syscall.SIGKILL); err != nil &&
-			!errors.Is(err, errProcessGroupIdentityChanged) {
+			!errors.Is(err, errProcessGroupIdentityChanged) && !errors.Is(err, errProcessGroupNotSignalable) {
 			failures = append(failures, fmt.Errorf("terminate unregistered process group: %w", err))
 		}
 	} else if cmd.Process != nil {
@@ -511,7 +547,7 @@ func abortUnregisteredProcessGroup(cmd *exec.Cmd, group *TrackedProcessGroup, au
 			}
 			if len(credentialed) > 0 {
 				if err := signalProcessIdentities(context.Background(), credentialed, syscall.SIGKILL); err != nil &&
-					!errors.Is(err, errProcessGroupIdentityChanged) {
+					!errors.Is(err, errProcessGroupIdentityChanged) && !errors.Is(err, errProcessGroupNotSignalable) {
 					failures = append(failures, fmt.Errorf("terminate credentialed processes: %w", err))
 				}
 			}
@@ -1151,7 +1187,11 @@ func terminateLegacyGroup(ctx context.Context, pgid int, started int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := signalLegacyGroup(ctx, pgid, started, syscall.SIGTERM); err != nil {
+	// "Nothing signalable" is not a failure to escalate on: the group may be
+	// momentarily all zombies, or every member may have exited between
+	// enumeration and delivery. Liveness decides, exactly as in terminateGroup.
+	if err := signalLegacyGroup(ctx, pgid, started, syscall.SIGTERM); err != nil &&
+		!errors.Is(err, errProcessGroupNotSignalable) {
 		return err
 	}
 	if waitForGroupDeath(ctx, pgid, sigtermGrace) {
@@ -1160,7 +1200,8 @@ func terminateLegacyGroup(ctx context.Context, pgid int, started int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := signalLegacyGroup(ctx, pgid, started, syscall.SIGKILL); err != nil {
+	if err := signalLegacyGroup(ctx, pgid, started, syscall.SIGKILL); err != nil &&
+		!errors.Is(err, errProcessGroupNotSignalable) {
 		return err
 	}
 	if waitForGroupDeath(ctx, pgid, sigkillGrace) {
@@ -1211,25 +1252,37 @@ func signalLegacyGroup(ctx context.Context, pgid int, started int64, signal sysc
 }
 
 func authenticateProcessGroup(ctx context.Context, rec pgidRecord) ([]processIdentity, bool, error) {
-	members, err := inspectProcessGroup(ctx, rec.PGID)
-	if err != nil {
-		return nil, false, err
-	}
+	members, inspectErr := inspectProcessGroup(ctx, rec.PGID)
 	if len(members) == 0 {
-		if isProcessGroupAlive(rec.PGID) {
-			return nil, false, errors.New("live process group had no inspectable members")
-		}
-		return nil, false, nil
+		return nil, false, errors.Join(errProcessGroupNotSignalable, inspectErr)
 	}
 	for _, member := range members {
 		if member.pid == rec.PGID {
-			return members, member.matches(rec.Leader), nil
+			if member.matches(rec.Leader) {
+				return members, true, inspectErr
+			}
+			return nil, false, nil
 		}
 	}
 
+	credentialed, err := anyMemberIsCredentialed(members, rec.Authentication)
+	if err != nil {
+		return nil, false, errors.Join(inspectErr, err)
+	}
+	if credentialed {
+		return members, true, inspectErr
+	}
+	return members, false, nil
+}
+
+// anyMemberIsCredentialed reports whether at least one member carries the
+// group's start credential. Members that vanish or change identity mid-check
+// are skipped; a member we cannot read at all is a failure to decide, not a
+// negative answer, so it is returned rather than silently counted as "no".
+func anyMemberIsCredentialed(members []processIdentity, authentication string) (bool, error) {
 	var failures []error
 	for _, member := range members {
-		authenticated, err := processHasAuthentication(member, rec.Authentication)
+		credentialed, err := processHasAuthentication(member, authentication)
 		if errors.Is(err, errProcessNotFound) || errors.Is(err, errProcessGroupIdentityChanged) {
 			continue
 		}
@@ -1237,14 +1290,11 @@ func authenticateProcessGroup(ctx context.Context, rec pgidRecord) ([]processIde
 			failures = append(failures, fmt.Errorf("authenticate process-group member %d: %w", member.pid, err))
 			continue
 		}
-		if authenticated {
-			return members, true, nil
+		if credentialed {
+			return true, nil
 		}
 	}
-	if len(failures) > 0 {
-		return nil, false, errors.Join(failures...)
-	}
-	return members, false, nil
+	return false, errors.Join(failures...)
 }
 
 func processHasAuthentication(expected processIdentity, authentication string) (bool, error) {
@@ -1262,26 +1312,36 @@ func processHasAuthentication(expected processIdentity, authentication string) (
 	return value == authentication, nil
 }
 
+// inspectProcessGroup enumerates the group's inspectable members, returning
+// them alongside a diagnostic for the ones it could not inspect.
+//
+// A member that cannot be inspected must never hide the members that can:
+// cleanup has to be able to signal the rest of the tree. A process caught
+// mid-exec fails inspection because its two identity reads disagree, and a
+// member whose credentials changed can fail it outright — aborting the whole
+// enumeration there would leave the entire group unsignalled.
 func inspectProcessGroup(ctx context.Context, pgid int) ([]processIdentity, error) {
 	pids, err := process.PidsWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	identities := make([]processIdentity, 0)
+	var failures []error
 	for _, rawPID := range pids {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		identity, matched, err := inspectProcessGroupMember(rawPID, pgid)
 		if err != nil {
-			return nil, err
+			failures = append(failures, err)
+			continue
 		}
 		if !matched {
 			continue
 		}
 		identities = append(identities, identity)
 	}
-	return identities, nil
+	return identities, errors.Join(failures...)
 }
 
 func inspectProcessGroupMember(rawPID int32, pgid int) (processIdentity, bool, error) {
@@ -1330,104 +1390,142 @@ func recordedOwnerAlive(owner recordedProcessIdentity) (bool, error) {
 type groupAuthenticator func(context.Context, pgidRecord) ([]processIdentity, bool, error)
 
 func terminateAuthenticatedGroup(ctx context.Context, rec pgidRecord) error {
-	return terminateGroup(ctx, rec, authenticateProcessGroup)
+	return terminateGroup(ctx, rec, authenticateProcessGroup, sigtermGrace)
 }
 
 // terminateGroup escalates SIGTERM to SIGKILL over the group, observing
 // liveness on the group itself rather than on its leader, so members that
 // outlive a leader which exited on SIGTERM are still escalated.
-func terminateGroup(ctx context.Context, rec pgidRecord, authenticate groupAuthenticator) error {
+//
+// Only a proven-foreign group stops the escalation. A pass that could not
+// reach every member, or that found nothing signalable because the group is
+// momentarily all zombies, is recorded and the escalation continues: group
+// liveness decides when we are done, never one member's error. Diagnostics are
+// reported only if the group is still alive when the budget is spent.
+func terminateGroup(ctx context.Context, rec pgidRecord, authenticate groupAuthenticator, termGrace time.Duration) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := signalGroup(ctx, rec, authenticate, syscall.SIGTERM); err != nil {
+	var diagnostics []error
+	record := func(err error) bool {
+		if errors.Is(err, errProcessGroupIdentityChanged) {
+			return false
+		}
+		if err != nil && !errors.Is(err, errProcessGroupNotSignalable) {
+			diagnostics = append(diagnostics, err)
+		}
+		return true
+	}
+
+	if err := signalGroup(ctx, rec, authenticate, syscall.SIGTERM); !record(err) {
 		return err
 	}
-	if waitForGroupDeath(ctx, rec.PGID, sigtermGrace) {
+	if waitForGroupDeath(ctx, rec.PGID, termGrace) {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return errors.Join(append(diagnostics, err)...)
 	}
 	// Members are signalled as incarnations pinned at enumeration time, so a
 	// member that forks between the enumeration and the delivery leaves a
 	// child no pass has covered. That child's parent is dead by then and
-	// cannot spawn another, so re-sweeping converges — bounded, because a
-	// group that survives every sweep is a diagnostic, not something to keep
-	// retrying.
-	for range killSweeps {
+	// cannot spawn another, so one short re-sweep converges. The last sweep
+	// carries the full SIGKILL grace, which keeps the kill phase's cost at
+	// sigkillGrace plus one killSweepInterval.
+	for sweep := range killSweeps {
 		if !isProcessGroupAlive(rec.PGID) {
 			return nil
 		}
-		if err := signalGroup(ctx, rec, authenticate, syscall.SIGKILL); err != nil {
+		if err := signalGroup(ctx, rec, authenticate, syscall.SIGKILL); !record(err) {
 			return err
 		}
-		if waitForGroupDeath(ctx, rec.PGID, sigkillGrace) {
+		grace := killSweepInterval
+		if sweep == killSweeps-1 {
+			grace = sigkillGrace
+		}
+		if waitForGroupDeath(ctx, rec.PGID, grace) {
 			return nil
 		}
 		if err := ctx.Err(); err != nil {
-			return err
+			return errors.Join(append(diagnostics, err)...)
 		}
 	}
-	return errors.New("process group remained alive after SIGKILL")
+	return errors.Join(append(diagnostics, errors.New("process group remained alive after SIGKILL"))...)
 }
 
 func signalAuthenticatedGroup(ctx context.Context, rec pgidRecord, signal syscall.Signal) error {
 	return signalGroup(ctx, rec, authenticateProcessGroup, signal)
 }
 
+// signalGroup delivers signal to the group's members once the group has been
+// authenticated. It separates the three outcomes an escalating caller must
+// tell apart: errProcessGroupIdentityChanged means the group is provably not
+// ours and must never be signalled again, errProcessGroupNotSignalable means
+// there was nothing to signal on this pass, and any other error is a partial
+// failure that leaves the rest of the group signalled.
 func signalGroup(ctx context.Context, rec pgidRecord, authenticate groupAuthenticator, signal syscall.Signal) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	members, authenticated, err := authenticate(ctx, rec)
-	if err != nil {
-		return err
-	}
-	if !authenticated {
+	members, authenticated, diagnostics := authenticate(ctx, rec)
+	switch {
+	case errors.Is(diagnostics, errProcessGroupNotSignalable):
+		return diagnostics
+	case !authenticated && diagnostics != nil:
+		// We could not decide whether the group is ours. Report that rather
+		// than claiming either answer.
+		return diagnostics
+	case !authenticated:
 		return errProcessGroupIdentityChanged
 	}
-	return signalProcessIdentities(ctx, members, signal)
+	return errors.Join(signalProcessIdentities(ctx, members, signal), diagnostics)
 }
 
 // authenticateOwnedProcessGroup authenticates a group whose leader this
 // process started and has held ever since, which is a stronger position than
 // the reaper's: the pgid was pinned by the leader from the moment it forked,
-// and afterwards by whichever descendants keep the group non-empty, so it
-// cannot have been recycled while the group stayed alive.
+// and afterwards by whichever descendants keep the group non-empty.
 //
 // A member occupying the pgid must therefore be the recorded leader; anything
 // else means the group emptied and the pid was reused, and nothing is
-// signalled. A live group with no member on the pgid is leaderless — a group
-// id is only ever created by a leader with that pid, so another group could
-// take it over only by our group emptying, that pid being recycled, and the
-// new leader dying too — and is treated as ours.
-//
-// The environment credential the reaper uses is deliberately not consulted:
-// Darwin's kern.procargs2 returns argv without the environment to a non-root
-// caller, so it cannot prove ownership of a leaderless group there, which is
-// exactly the case this path exists to cover.
+// signalled. For a leaderless group the start credential decides wherever the
+// platform lets us read another process's environment — on Linux it does, and
+// requiring it there closes the reuse window outright. Darwin's kern.procargs2
+// returns argv without the environment to a non-root caller (verified against
+// a same-user direct child), so there the credential cannot be read at all and
+// the group is accepted on the process-group invariant alone: a group id is
+// only ever created by a leader holding that pid, so a foreign group could
+// occupy it only by ours emptying, the pid being recycled, and the new leader
+// dying too. See processEnvironmentReadable.
 func authenticateOwnedProcessGroup(ctx context.Context, rec pgidRecord) ([]processIdentity, bool, error) {
-	members, err := inspectProcessGroup(ctx, rec.PGID)
-	if err != nil {
-		return nil, false, err
-	}
+	members, inspectErr := inspectProcessGroup(ctx, rec.PGID)
 	if len(members) == 0 {
-		if isProcessGroupAlive(rec.PGID) {
-			return nil, false, errors.New("live process group had no inspectable members")
-		}
-		return nil, false, nil
+		return nil, false, errors.Join(errProcessGroupNotSignalable, inspectErr)
 	}
 	for _, member := range members {
 		if member.pid == rec.PGID {
-			return members, member.matches(rec.Leader), nil
+			if member.matches(rec.Leader) {
+				return members, true, inspectErr
+			}
+			return nil, false, nil
 		}
 	}
-	return members, true, nil
+	if !processEnvironmentReadable() {
+		return members, true, inspectErr
+	}
+	credentialed, err := anyMemberIsCredentialed(members, rec.Authentication)
+	if err != nil {
+		return nil, false, errors.Join(inspectErr, err)
+	}
+	if credentialed {
+		return members, true, inspectErr
+	}
+	return nil, false, nil
 }
 
 func signalProcessIdentities(ctx context.Context, identities []processIdentity, signal syscall.Signal) error {
 	handles := make([]processSignalHandle, 0, len(identities))
+	var openFailures []error
 	for _, identity := range identities {
 		if err := ctx.Err(); err != nil {
 			closeProcessSignalHandles(handles)
@@ -1438,16 +1536,18 @@ func signalProcessIdentities(ctx context.Context, identities []processIdentity, 
 			continue
 		}
 		if err != nil {
-			closeProcessSignalHandles(handles)
-			return fmt.Errorf("open authenticated process %d: %w", identity.pid, err)
+			// Report the member we cannot reach, but keep opening the rest:
+			// one unreachable process must not spare the whole tree.
+			openFailures = append(openFailures, fmt.Errorf("open authenticated process %d: %w", identity.pid, err))
+			continue
 		}
 		handles = append(handles, handle)
 	}
 	if len(handles) == 0 {
-		return errProcessGroupIdentityChanged
+		return errors.Join(append(openFailures, errProcessGroupNotSignalable)...)
 	}
 
-	var failures []error
+	failures := openFailures
 	for _, handle := range handles {
 		if err := ctx.Err(); err != nil {
 			failures = append(failures, err)

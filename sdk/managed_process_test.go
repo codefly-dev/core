@@ -87,6 +87,12 @@ func waitFor(d time.Duration, cond func() bool) bool {
 
 // reapTestGroup registers a last-resort SIGKILL of the group the test owns,
 // so a failed assertion never leaves a term-resistant descendant behind.
+//
+// Signalling the bare pgid is what production deliberately avoids, and is
+// sound here for a reason production cannot rely on: the group was started
+// moments ago inside this test, so recycling its pgid would require a full
+// pid-space wrap (~100k forks on Darwin, ~4M on Linux) between the group
+// emptying and this cleanup running.
 func reapTestGroup(t *testing.T, mp *managedProcess) {
 	t.Helper()
 	pgid := mp.group.PGID()
@@ -98,14 +104,21 @@ func reapTestGroup(t *testing.T, mp *managedProcess) {
 
 // openDescriptors counts the descriptors this process holds. /dev/fd is the
 // per-process descriptor directory on both Linux (a symlink to
-// /proc/self/fd) and Darwin.
-func openDescriptors(t *testing.T) int {
-	t.Helper()
+// /proc/self/fd) and Darwin. Callers check availability with
+// requireDescriptorCounts first, so this never aborts mid-assertion.
+func openDescriptors() int {
 	entries, err := os.ReadDir("/dev/fd")
 	if err != nil {
-		t.Skipf("cannot enumerate open descriptors: %v", err)
+		return -1
 	}
 	return len(entries)
+}
+
+func requireDescriptorCounts(t *testing.T) {
+	t.Helper()
+	if openDescriptors() < 0 {
+		t.Skip("cannot enumerate open descriptors on this platform")
+	}
 }
 
 func TestManagedProcess_StartAndKillEntireGroup(t *testing.T) {
@@ -364,10 +377,12 @@ func TestManagedProcess_RepeatedRunsDoNotLeak(t *testing.T) {
 		}
 	}
 
+	requireDescriptorCounts(t)
+
 	// One warm-up run so lazily-initialised runtime state isn't counted.
 	run()
 	goroutinesBefore := settledGoroutines(t)
-	descriptorsBefore := openDescriptors(t)
+	descriptorsBefore := openDescriptors()
 
 	for range 4 {
 		run()
@@ -379,8 +394,8 @@ func TestManagedProcess_RepeatedRunsDoNotLeak(t *testing.T) {
 	if !waitFor(10*time.Second, func() bool { return runtime.NumGoroutine() <= goroutinesBefore }) {
 		t.Errorf("goroutines grew over repeated runs: before=%d after=%d", goroutinesBefore, runtime.NumGoroutine())
 	}
-	if !waitFor(10*time.Second, func() bool { return openDescriptors(t) <= descriptorsBefore }) {
-		t.Errorf("open descriptors grew over repeated runs: before=%d after=%d", descriptorsBefore, openDescriptors(t))
+	if !waitFor(10*time.Second, func() bool { return openDescriptors() <= descriptorsBefore }) {
+		t.Errorf("open descriptors grew over repeated runs: before=%d after=%d", descriptorsBefore, openDescriptors())
 	}
 }
 
@@ -423,4 +438,39 @@ func readTwoPIDs(t *testing.T, mp *managedProcess) (int, int) {
 	// The child writes two PIDs then blocks in sleep. We read line-by-line
 	// via the captured stdout reader.
 	return readPID(t, mp), readPID(t, mp)
+}
+
+// TestManagedProcess_SignalPathUsesShortGrace covers the Ctrl-C path: the
+// signal trap runs teardown to completion before re-raising, so a long
+// SIGTERM grace reads as a hung terminal. The short grace must still take the
+// resistant descendant down, just sooner.
+func TestManagedProcess_SignalPathUsesShortGrace(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mp, err := startManaged(ctx, exec.CommandContext(ctx, "sh", "-c", termResistantScript))
+	if err != nil {
+		t.Fatalf("startManaged: %v", err)
+	}
+	reapTestGroup(t, mp)
+	descendantPID := readPID(t, mp)
+
+	started := time.Now()
+	if err := mp.killWithin(signalTermGrace); err != nil {
+		t.Fatalf("killWithin(signalTermGrace): %v", err)
+	}
+	elapsed := time.Since(started)
+
+	if pidAlive(descendantPID) {
+		t.Errorf("term-resistant descendant %d survived the signal-path teardown", descendantPID)
+	}
+	// The short grace plus the kill phase; anything near the graceful budget
+	// means the signal path is still paying the full SIGTERM wait.
+	budget := signalTermGrace + 3*time.Second
+	if elapsed > budget {
+		t.Errorf("signal-path teardown took %s, want under %s", elapsed, budget)
+	}
+	if elapsed >= killTermGrace {
+		t.Errorf("signal-path teardown took %s, which is no better than the graceful grace %s", elapsed, killTermGrace)
+	}
 }

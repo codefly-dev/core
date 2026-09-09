@@ -123,6 +123,13 @@ func darwinBootID() (string, error) {
 	return fmt.Sprintf("%d:%d", bootTime.Sec, bootTime.Usec), nil
 }
 
+// processEnvironmentReadable reports whether readProcessGroupAuthentication can
+// observe another process's environment on this platform. Darwin's
+// kern.procargs2 returns argc and argv but stops before the environment for a
+// non-root caller — even for a direct child of the caller — so the start
+// credential is unreadable here and cannot be used to authenticate a group.
+func processEnvironmentReadable() bool { return false }
+
 func readProcessGroupAuthentication(pid int) (string, error) {
 	data, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil {
