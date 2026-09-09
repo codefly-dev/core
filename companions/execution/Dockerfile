@@ -6,8 +6,8 @@ FROM docker:28-dind
 # it runs a codefly Gateway over gRPC, has a Docker daemon available for nested
 # builds/tests, and includes Nix so per-repo environments can be made explicit.
 #
-# The codefly CLI is copied from core/bin/linux/codefly, produced by
-# `codefly companion build execution` before docker build starts.
+# The codefly CLI is cross-compiled per target architecture and staged under
+# core/bin/linux/<arch>/ before docker build starts.
 RUN apk update && \
     apk add --no-cache \
         bash \
@@ -42,7 +42,10 @@ RUN apk update && \
         zip \
     && rm -rf /var/cache/apk/*
 
-COPY bin/linux/codefly /bin/codefly
+# BuildKit supplies TARGETARCH for each platform in a multi-platform build, so
+# every image carries the binary cross-compiled for its own architecture.
+ARG TARGETARCH
+COPY bin/linux/${TARGETARCH}/codefly /bin/codefly
 COPY companions/execution/entrypoint.sh /usr/local/bin/codefly-execution-entrypoint
 
 RUN chmod +x /usr/local/bin/codefly-execution-entrypoint && \

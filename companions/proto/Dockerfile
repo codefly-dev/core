@@ -38,8 +38,7 @@ RUN go install -ldflags="-s -w" github.com/bufbuild/buf/cmd/buf@v1.71.0 && \
     go install -ldflags="-s -w" github.com/envoyproxy/protoc-gen-validate@v1.2.1
 
 # Go facade plugin (protoc-gen-codefly-facade-go), built from in-tree source.
-# The build context is companions/proto, so facades/go is available here.
-COPY facades/go /src/facade-go
+COPY companions/proto/facades/go /src/facade-go
 RUN cd /src/facade-go && \
     go build -ldflags="-s -w" -o /go/bin/protoc-gen-codefly-facade-go .
 
@@ -96,8 +95,8 @@ COPY --from=builder /go/bin/swagger /usr/local/bin/
 COPY --from=builder /usr/bin/grpc_* /usr/local/bin/
 
 # Facade plugin sources (Python scripts + the TS npm package).
-COPY facades/python /opt/codefly-facades/python
-COPY facades/ts /opt/codefly-facades/ts
+COPY companions/proto/facades/python /opt/codefly-facades/python
+COPY companions/proto/facades/ts /opt/codefly-facades/ts
 
 # TypeScript facade plugin — protoc-gen-codefly-facade-ts. Its one dependency
 # (@bufbuild/protoplugin, pinned via package-lock.json) is installed in place;

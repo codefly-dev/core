@@ -11,8 +11,8 @@ name: version-tag
 # package requirement >=0.3.24").
 #
 # This is the same contract companions already use: the manifest is the source
-# of truth, publishing is derived from it, and re-publishing an existing version
-# is a no-op that tells you to bump the file (see companion-publish.yml).
+# of truth and publishing is derived from it (see
+# docs/runbooks/publish-companions.md).
 #
 # Releasing is therefore: bump version/info.codefly.yaml, merge to main, and
 # this cuts vX.Y.Z once CI is green.

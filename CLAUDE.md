@@ -67,7 +67,7 @@ Every resource is defined by a YAML file:
 - **companions/** — Sidecar containers for language tooling:
   - **proto/** — Buf-based proto compilation companion.
   - **golang/, python-poetry/, node/** — Language-specific build companions.
-  - Build the images with `codefly companion build --all` (or one at a time: `codefly companion build <name>`; add `--push` to publish).
+  - Build the images with `codefly companion build --all` (or one at a time: `codefly companion build <name>`). Publishing is the CLI's, not core's: see `docs/runbooks/publish-companions.md`.
 
 ### Code Generation
 - **proto/** — Proto source of truth (the `.proto` files for `codefly/*` and `mind/*`). Lives in-tree so a schema change + its regenerated bindings land in one PR. The standalone `codefly-dev/proto` repo is being retired in favor of this.
@@ -99,7 +99,7 @@ go test ./resources/ -v          # Test a specific package
 # Coverage
 make check-coverage
 
-# Companion Docker images (build all, in dependency order; --push to publish)
+# Companion Docker images (build all, in dependency order)
 codefly companion build --all
 
 # Proto regeneration — edit proto sources, then (offline, version-pinned plugins):

@@ -1,0 +1,10 @@
+# Every companion builds from the repository root, so this file bounds both
+# what the daemon receives and what a companion Dockerfile is able to COPY
+# into a published, publicly pullable image.
+#
+# Only paths no companion build needs. companions/buildspec_test.go fails if a
+# pattern here would exclude a Dockerfile, a COPY source, or the staged CLI
+# binary, so an entry that breaks a build cannot land.
+.git
+target
+code/testdata
