@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 
@@ -117,6 +119,22 @@ func (endpoint *Endpoint) AllowsModule(module string) bool {
 		}
 	}
 	return false
+}
+
+// EndpointSecured reports whether the endpoint expects TLS. Each protocol
+// records it in its own API details, so a caller that needs to dial the
+// endpoint must read it from here rather than assume plaintext.
+func EndpointSecured(e *basev0.Endpoint) bool {
+	switch details := e.GetApiDetails().GetValue().(type) {
+	case *basev0.API_Grpc:
+		return details.Grpc.GetSecured()
+	case *basev0.API_Http:
+		return details.Http.GetSecured()
+	case *basev0.API_Rest:
+		return details.Rest.GetSecured()
+	default:
+		return false
+	}
 }
 
 // IsExternalEndpoint reports whether a proto endpoint lives outside the system.
@@ -273,6 +291,9 @@ func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
 func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
 	var endpoints []*Endpoint
 	for _, e := range es {
+		if err := ValidateEndpointHealth(e); err != nil {
+			return nil, err
+		}
 		endpoints = append(endpoints, EndpointFromProto(e))
 	}
 	return endpoints, nil
@@ -399,7 +420,13 @@ func endpointHash(_ context.Context, endpoint *basev0.Endpoint) (string, error) 
 	buf.WriteString(strings.Join(endpoint.AllowModules, ","))
 	buf.WriteString(endpoint.Api)
 	buf.WriteString(endpoint.ApiDetails.String())
-	buf.WriteString(endpoint.Health.String())
+	if endpoint.Health != nil {
+		encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(endpoint.Health)
+		if err != nil {
+			return "", err
+		}
+		buf.Write(encoded)
+	}
 	// if rest := EndpointRestAPI(endpoint); rest != nil {
 	//	w.Debug("hashing rest api TODO: more precise hashing", wool.NameField(endpoint.Name))
 	//	buf.WriteString(rest.String())

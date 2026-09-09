@@ -29,9 +29,17 @@ const (
 	ProbeKindCompletion ProbeKind = "completion"
 )
 
-// ProbeKinds are the health predicate families a declaration may name.
+// ProbeKinds are every health predicate family.
 func ProbeKinds() []ProbeKind {
 	return []ProbeKind{ProbeKindTransport, ProbeKindGRPCHealth, ProbeKindHTTP, ProbeKindAgent, ProbeKindCompletion}
+}
+
+// EndpointProbeKinds are the families an endpoint may declare. Completion is
+// excluded: it describes a workload that terminates, which a listening endpoint
+// never does. Error messages offer this list so they cannot recommend a kind
+// that the next validation step rejects.
+func EndpointProbeKinds() []ProbeKind {
+	return []ProbeKind{ProbeKindTransport, ProbeKindGRPCHealth, ProbeKindHTTP, ProbeKindAgent}
 }
 
 // DependencyReadiness is what "ready" means for a dependency that exposes no
@@ -47,11 +55,15 @@ const (
 	// terminated successfully. It is the default for a job dependency: a
 	// migration that is still running has not prepared anything.
 	DependencyReadinessCompleted DependencyReadiness = "completed"
+	// DependencyReadinessIgnore contributes no requirement at all. It is how a
+	// consumer says it reaches a dependency opportunistically: the endpoints are
+	// still resolved and mapped, they just do not gate startup.
+	DependencyReadinessIgnore DependencyReadiness = "ignore"
 )
 
 // DependencyReadinessModes are the values a dependency readiness field accepts.
 func DependencyReadinessModes() []DependencyReadiness {
-	return []DependencyReadiness{DependencyReadinessStarted, DependencyReadinessCompleted}
+	return []DependencyReadiness{DependencyReadinessStarted, DependencyReadinessCompleted, DependencyReadinessIgnore}
 }
 
 // Probe is the authored form of one health predicate. Kind selects which of the
@@ -90,8 +102,12 @@ type Health struct {
 }
 
 // defaultHTTPStatuses is what an HTTP probe accepts when it declares nothing:
-// success and redirects, but never a 4xx or 5xx.
-var defaultHTTPStatuses = []*basev0.HttpStatusRange{{Min: 200, Max: 399}}
+// success and redirects, but never a 4xx or 5xx. It is built per call because
+// it is handed to callers, who must not be able to edit the default for every
+// probe in the process.
+func defaultHTTPStatuses() []*basev0.HttpStatusRange {
+	return []*basev0.HttpStatusRange{{Min: 200, Max: 399}}
+}
 
 func parseStatusRange(raw string) (*basev0.HttpStatusRange, error) {
 	bounds := strings.SplitN(strings.TrimSpace(raw), "-", 2)
@@ -186,10 +202,10 @@ func (probe *Probe) Proto(api string) (*basev0.Probe, error) {
 		return nil, nil
 	}
 	if probe.Kind == "" {
-		return nil, fmt.Errorf("probe needs a kind (one of %s)", strings.Join(ProbeKinds(), ", "))
+		return nil, fmt.Errorf("probe needs a kind (one of %s)", strings.Join(EndpointProbeKinds(), ", "))
 	}
 	if !slices.Contains(ProbeKinds(), probe.Kind) {
-		return nil, fmt.Errorf("unsupported probe kind %q (expected one of %s)", probe.Kind, strings.Join(ProbeKinds(), ", "))
+		return nil, fmt.Errorf("unsupported probe kind %q (expected one of %s)", probe.Kind, strings.Join(EndpointProbeKinds(), ", "))
 	}
 	if misplaced := probe.misplacedFields(); len(misplaced) > 0 {
 		return nil, fmt.Errorf("probe kind %q does not accept %s", probe.Kind, strings.Join(misplaced, ", "))
@@ -340,6 +356,37 @@ func validateEndpointHealth(endpoints []*Endpoint) error {
 	return nil
 }
 
+// ValidateEndpointHealth reports whether a health block that arrived over the
+// wire is usable, applying the same rules as an authored declaration. An agent
+// can return any Endpoint it likes from Load; without this a contradiction such
+// as a gRPC health probe on an HTTP endpoint is accepted at ingestion and only
+// fails much later, when the service manifest is written back to disk.
+func ValidateEndpointHealth(endpoint *basev0.Endpoint) error {
+	health := endpoint.GetHealth()
+	if health == nil {
+		return nil
+	}
+	for _, intent := range []struct {
+		name  string
+		probe *basev0.Probe
+	}{
+		{"readiness", health.GetReadiness()},
+		{"liveness", health.GetLiveness()},
+		{"startup", health.GetStartup()},
+	} {
+		if intent.probe == nil {
+			continue
+		}
+		if intent.probe.GetPredicate() == nil {
+			return fmt.Errorf("endpoint %q health: %s declares no predicate", endpoint.GetName(), intent.name)
+		}
+		if _, err := ProbeFromProto(intent.probe).Proto(endpoint.GetApi()); err != nil {
+			return fmt.Errorf("endpoint %q health: %s: %w", endpoint.GetName(), intent.name, err)
+		}
+	}
+	return nil
+}
+
 func validateDependencyReadinessMode(unique string, readiness DependencyReadiness) error {
 	if readiness == "" || slices.Contains(DependencyReadinessModes(), readiness) {
 		return nil
@@ -382,10 +429,7 @@ func DescribeProbe(probe *basev0.Probe) string {
 		}
 		return "grpc health SERVING"
 	case *basev0.Probe_Http:
-		statuses := predicate.Http.GetStatuses()
-		if len(statuses) == 0 {
-			statuses = defaultHTTPStatuses
-		}
+		statuses := AcceptedHTTPStatuses(predicate.Http)
 		rendered := make([]string, 0, len(statuses))
 		for _, status := range statuses {
 			if status.GetMin() == status.GetMax() {
@@ -409,7 +453,7 @@ func DescribeProbe(probe *basev0.Probe) string {
 // the point of the audit finding, where any reachable HTTP server passed.
 func AcceptedHTTPStatuses(probe *basev0.HttpProbe) []*basev0.HttpStatusRange {
 	if len(probe.GetStatuses()) == 0 {
-		return defaultHTTPStatuses
+		return defaultHTTPStatuses()
 	}
 	return probe.GetStatuses()
 }

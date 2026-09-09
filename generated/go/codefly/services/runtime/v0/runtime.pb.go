@@ -1276,9 +1276,15 @@ type StartStatus struct {
 	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	// failure is the universal structured cause when state is ERROR.
 	Failure *v0.Failure `protobuf:"bytes,3,opt,name=failure,proto3" json:"failure,omitempty"`
-	// generation increments on every successful Start. It lets a consumer tell a
-	// ready result recorded before a restart from one about the process running
-	// now, instead of carrying an old success across a new lifecycle.
+	// generation increments on every successful Start, counting from 1. It lets a
+	// consumer tell a ready result recorded before a restart from one about the
+	// process running now, instead of carrying an old success across a new
+	// lifecycle.
+	//
+	// Zero means the agent predates this field and reports no generation at all.
+	// A consumer MUST NOT compare zero across restarts: every start of such an
+	// agent reports zero, so equality proves nothing. Read it through
+	// services.StartGeneration, which returns that distinction explicitly.
 	Generation    uint64 `protobuf:"varint,4,opt,name=generation,proto3" json:"generation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

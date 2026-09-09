@@ -263,7 +263,7 @@ func TestUnsupportedDependencyReadinessIsRejectedAtLoad(t *testing.T) {
 
 	_, err := resources.LoadServiceFromDir(context.Background(), dir)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), `dependency saas/seeder declares unsupported readiness "eventually" (expected one of started, completed)`)
+	require.Contains(t, err.Error(), `dependency saas/seeder declares unsupported readiness "eventually" (expected one of started, completed, ignore)`)
 }
 
 func TestPlanReadinessRejectsContradictoryDeclarations(t *testing.T) {

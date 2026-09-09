@@ -26,6 +26,11 @@ type ReadinessRequirement struct {
 	API string
 	// Probe is the predicate to evaluate, with defaults already applied.
 	Probe *basev0.Probe
+	// Secured is the endpoint's declared transport security. It travels with the
+	// requirement because it is recorded in the endpoint's API details, which the
+	// requirement does not carry: an evaluator that had to look it up separately
+	// would default a TLS endpoint to plaintext and report it unreachable.
+	Secured bool
 	// Declared is false when the producer declared no readiness and the
 	// requirement fell back to legacy transport-only semantics. Consumers use it
 	// to report that an open socket is all they were given to check.
@@ -128,7 +133,18 @@ func PlanServiceDependencyReadiness(dependency *ServiceDependency, endpoints []*
 		return nil, fmt.Errorf("dependency %s declares readiness %q but requires endpoint %s; a completed workload serves nothing",
 			dependency.Unique(), DependencyReadinessCompleted, required[0].Name)
 	}
+	if dependency.Readiness == DependencyReadinessIgnore {
+		if len(required) > 0 {
+			return nil, fmt.Errorf("dependency %s declares readiness %q but requires endpoint %s; mark the endpoint 'required: false' or drop the readiness declaration",
+				dependency.Unique(), DependencyReadinessIgnore, required[0].Name)
+		}
+		return nil, nil
+	}
 	if len(required) == 0 {
+		if len(resolved) > 0 && dependency.Readiness == "" {
+			return nil, fmt.Errorf("dependency %s consumes %d endpoint(s) but requires none for readiness; declare readiness %q to wait on its lifecycle instead, or %q to not gate on it at all",
+				dependency.Unique(), len(resolved), DependencyReadinessStarted, DependencyReadinessIgnore)
+		}
 		return []*ReadinessRequirement{endpointlessRequirement(dependency.Unique(), dependency.ReadinessMode())}, nil
 	}
 	requirements := make([]*ReadinessRequirement, 0, len(required))
@@ -139,6 +155,7 @@ func PlanServiceDependencyReadiness(dependency *ServiceDependency, endpoints []*
 			Endpoint:   endpoint.Name,
 			API:        endpoint.Api,
 			Probe:      probe,
+			Secured:    EndpointSecured(endpoint),
 			Declared:   declared,
 		})
 	}

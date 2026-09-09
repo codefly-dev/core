@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/codefly-dev/core/builders"
 	codeflyfailures "github.com/codefly-dev/core/failures"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -170,8 +172,12 @@ func (s *RuntimeWrapper) ReportHealth(report *basev0.HealthReport) {
 		s.health = nil
 		return
 	}
-	report.Generation = s.generation
-	s.health = report
+	// The caller keeps its message: a plugin that re-submits one cached report
+	// would otherwise have its Generation rewritten underneath a marshal of the
+	// same pointer already handed out by InformationResponse.
+	stamped, _ := proto.Clone(report).(*basev0.HealthReport)
+	stamped.Generation = s.generation
+	s.health = stamped
 }
 
 func (s *RuntimeWrapper) StartError(err error) (*runtimev0.StartResponse, error) {

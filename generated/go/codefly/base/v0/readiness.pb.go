@@ -161,8 +161,6 @@ const (
 	ProbeOutcome_PROBE_OUTCOME_PASSED ProbeOutcome = 1
 	// PROBE_OUTCOME_FAILED means the predicate did not hold.
 	ProbeOutcome_PROBE_OUTCOME_FAILED ProbeOutcome = 2
-	// PROBE_OUTCOME_SKIPPED means the probe was deliberately not evaluated.
-	ProbeOutcome_PROBE_OUTCOME_SKIPPED ProbeOutcome = 3
 )
 
 // Enum value maps for ProbeOutcome.
@@ -171,13 +169,11 @@ var (
 		0: "PROBE_OUTCOME_UNSPECIFIED",
 		1: "PROBE_OUTCOME_PASSED",
 		2: "PROBE_OUTCOME_FAILED",
-		3: "PROBE_OUTCOME_SKIPPED",
 	}
 	ProbeOutcome_value = map[string]int32{
 		"PROBE_OUTCOME_UNSPECIFIED": 0,
 		"PROBE_OUTCOME_PASSED":      1,
 		"PROBE_OUTCOME_FAILED":      2,
-		"PROBE_OUTCOME_SKIPPED":     3,
 	}
 )
 
@@ -236,6 +232,11 @@ const (
 	ProbeFailureKind_PROBE_FAILURE_KIND_INCOMPLETE ProbeFailureKind = 7
 	// PROBE_FAILURE_KIND_TIMEOUT means the attempt exceeded its deadline.
 	ProbeFailureKind_PROBE_FAILURE_KIND_TIMEOUT ProbeFailureKind = 8
+	// PROBE_FAILURE_KIND_INVALID_TARGET means the probe could not be attempted
+	// because the address or path is unusable. Unlike UNREACHABLE it never
+	// resolves by waiting, so a caller must stop retrying and report the
+	// declaration or mapping that produced it.
+	ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET ProbeFailureKind = 9
 )
 
 // Enum value maps for ProbeFailureKind.
@@ -250,6 +251,7 @@ var (
 		6: "PROBE_FAILURE_KIND_LIFECYCLE",
 		7: "PROBE_FAILURE_KIND_INCOMPLETE",
 		8: "PROBE_FAILURE_KIND_TIMEOUT",
+		9: "PROBE_FAILURE_KIND_INVALID_TARGET",
 	}
 	ProbeFailureKind_value = map[string]int32{
 		"PROBE_FAILURE_KIND_UNSPECIFIED":       0,
@@ -261,6 +263,7 @@ var (
 		"PROBE_FAILURE_KIND_LIFECYCLE":         6,
 		"PROBE_FAILURE_KIND_INCOMPLETE":        7,
 		"PROBE_FAILURE_KIND_TIMEOUT":           8,
+		"PROBE_FAILURE_KIND_INVALID_TARGET":    9,
 	}
 )
 
@@ -574,18 +577,23 @@ func (*CompletionProbe) Descriptor() ([]byte, []int) {
 	return file_codefly_base_v0_readiness_proto_rawDescGZIP(), []int{5}
 }
 
-// ProbeTiming are the scheduling knobs shared by every predicate.
+// ProbeTiming is the schedule an evaluator must follow to reach a verdict. It
+// is binding, not advisory: an evaluator that ignores failure_threshold turns a
+// declared boot window into an immediate failure.
 type ProbeTiming struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// initial_delay is how long to wait before the first attempt.
 	InitialDelay *durationpb.Duration `protobuf:"bytes,1,opt,name=initial_delay,json=initialDelay,proto3" json:"initial_delay,omitempty"`
-	// period is the interval between attempts.
+	// period is the interval between attempts. Zero means attempts are made back
+	// to back once a threshold requires more than one.
 	Period *durationpb.Duration `protobuf:"bytes,2,opt,name=period,proto3" json:"period,omitempty"`
 	// timeout bounds a single attempt.
 	Timeout *durationpb.Duration `protobuf:"bytes,3,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	// failure_threshold is how many consecutive failures mark the probe failed.
+	// Zero means one: a single failure is a verdict.
 	FailureThreshold uint32 `protobuf:"varint,4,opt,name=failure_threshold,json=failureThreshold,proto3" json:"failure_threshold,omitempty"`
-	// success_threshold is how many consecutive successes mark it passed.
+	// success_threshold is how many consecutive successes mark it passed. Zero
+	// means one.
 	SuccessThreshold uint32 `protobuf:"varint,5,opt,name=success_threshold,json=successThreshold,proto3" json:"success_threshold,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -1125,12 +1133,11 @@ const file_codefly_base_v0_readiness_proto_rawDesc = "" +
 	"\x18PROBE_INTENT_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16PROBE_INTENT_READINESS\x10\x01\x12\x19\n" +
 	"\x15PROBE_INTENT_LIVENESS\x10\x02\x12\x18\n" +
-	"\x14PROBE_INTENT_STARTUP\x10\x03*|\n" +
+	"\x14PROBE_INTENT_STARTUP\x10\x03*g\n" +
 	"\fProbeOutcome\x12\x1d\n" +
 	"\x19PROBE_OUTCOME_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14PROBE_OUTCOME_PASSED\x10\x01\x12\x18\n" +
-	"\x14PROBE_OUTCOME_FAILED\x10\x02\x12\x19\n" +
-	"\x15PROBE_OUTCOME_SKIPPED\x10\x03*\xdb\x02\n" +
+	"\x14PROBE_OUTCOME_FAILED\x10\x02\"\x04\b\x03\x10\x03*\x82\x03\n" +
 	"\x10ProbeFailureKind\x12\"\n" +
 	"\x1ePROBE_FAILURE_KIND_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1ePROBE_FAILURE_KIND_UNREACHABLE\x10\x01\x12\"\n" +
@@ -1140,7 +1147,8 @@ const file_codefly_base_v0_readiness_proto_rawDesc = "" +
 	"\"PROBE_FAILURE_KIND_UNEXPECTED_BODY\x10\x05\x12 \n" +
 	"\x1cPROBE_FAILURE_KIND_LIFECYCLE\x10\x06\x12!\n" +
 	"\x1dPROBE_FAILURE_KIND_INCOMPLETE\x10\a\x12\x1e\n" +
-	"\x1aPROBE_FAILURE_KIND_TIMEOUT\x10\bB\xbd\x01\n" +
+	"\x1aPROBE_FAILURE_KIND_TIMEOUT\x10\b\x12%\n" +
+	"!PROBE_FAILURE_KIND_INVALID_TARGET\x10\tB\xbd\x01\n" +
 	"\x13com.codefly.base.v0B\x0eReadinessProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 
 var (

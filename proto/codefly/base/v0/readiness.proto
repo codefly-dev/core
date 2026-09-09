@@ -96,17 +96,22 @@ message AgentProbe {
 message CompletionProbe {
 }
 
-// ProbeTiming are the scheduling knobs shared by every predicate.
+// ProbeTiming is the schedule an evaluator must follow to reach a verdict. It
+// is binding, not advisory: an evaluator that ignores failure_threshold turns a
+// declared boot window into an immediate failure.
 message ProbeTiming {
   // initial_delay is how long to wait before the first attempt.
   google.protobuf.Duration initial_delay = 1;
-  // period is the interval between attempts.
+  // period is the interval between attempts. Zero means attempts are made back
+  // to back once a threshold requires more than one.
   google.protobuf.Duration period = 2;
   // timeout bounds a single attempt.
   google.protobuf.Duration timeout = 3;
   // failure_threshold is how many consecutive failures mark the probe failed.
+  // Zero means one: a single failure is a verdict.
   uint32 failure_threshold = 4;
-  // success_threshold is how many consecutive successes mark it passed.
+  // success_threshold is how many consecutive successes mark it passed. Zero
+  // means one.
   uint32 success_threshold = 5;
 }
 
@@ -152,8 +157,9 @@ enum ProbeOutcome {
   PROBE_OUTCOME_PASSED = 1;
   // PROBE_OUTCOME_FAILED means the predicate did not hold.
   PROBE_OUTCOME_FAILED = 2;
-  // PROBE_OUTCOME_SKIPPED means the probe was deliberately not evaluated.
-  PROBE_OUTCOME_SKIPPED = 3;
+  // 3 was PROBE_OUTCOME_SKIPPED. A requirement that does not gate readiness is
+  // absent from the plan rather than present with a skipped result.
+  reserved 3;
 }
 
 // ProbeFailureKind classifies why a predicate did not hold, so that a consumer
@@ -182,6 +188,11 @@ enum ProbeFailureKind {
   PROBE_FAILURE_KIND_INCOMPLETE = 7;
   // PROBE_FAILURE_KIND_TIMEOUT means the attempt exceeded its deadline.
   PROBE_FAILURE_KIND_TIMEOUT = 8;
+  // PROBE_FAILURE_KIND_INVALID_TARGET means the probe could not be attempted
+  // because the address or path is unusable. Unlike UNREACHABLE it never
+  // resolves by waiting, so a caller must stop retrying and report the
+  // declaration or mapping that produced it.
+  PROBE_FAILURE_KIND_INVALID_TARGET = 9;
 }
 
 // ProbeResult is the evaluation of one predicate, carrying enough identity for

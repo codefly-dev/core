@@ -74,7 +74,7 @@ service-dependencies:
 |---|---|---|
 | `transport` | any endpoint | the address accepts a connection |
 | `grpc-health` | `grpc` endpoints | `grpc.health.v1.Health/Check` answers `SERVING` for `service` (empty = whole server) |
-| `http` | `http`, `rest`, `connect`, `mcp` endpoints | `GET path` returns a status in `statuses` (default `200-399`) and, when set, a body containing `body-contains` |
+| `http` | `http`, `rest`, `connect`, `mcp` endpoints | `GET path` returns a status in `statuses` (default `200-399`) and, when set, a body containing `body-contains`. Redirects are **not** followed: the probe judges the resource it named, so a `/healthz` that 302s to a login page fails a `statuses: ["200"]` predicate instead of passing on the redirect target |
 | `agent` | any endpoint, or an endpointless dependency | the owning runtime agent reports a started, live service — for health only that agent can judge, such as an authenticated SQL or schema check |
 | `completion` | endpointless dependencies only | a one-shot workload terminated successfully |
 
@@ -84,6 +84,19 @@ down.
 
 Requirements combine conjunctively — a consumer is ready only when *every*
 required predicate holds.
+
+The endpoint's declared transport security (`secured` in its API details) rides
+on the plan, so a probe against a TLS endpoint dials TLS. A caller never has to
+supply it, and so cannot forget to.
+
+### Timing is binding
+
+`initial-delay`, `period`, `failure-threshold` and `success-threshold` are part
+of the predicate, not advice. An evaluator waits out `initial-delay`, then
+attempts the check every `period` until it sees `success-threshold` consecutive
+passes or `failure-threshold` consecutive failures. Both thresholds default to
+1, so a probe that declares no timing is a single attempt — but one that
+declares a boot window gets it, rather than failing on its first attempt.
 
 ## Absence is legacy, not a new requirement
 
@@ -105,18 +118,29 @@ Newly generated services declare the richer predicate they actually support.
 |---|---|---|
 | `readiness: started` | `service-dependencies` | the owning agent reports a started service |
 | `readiness: completed` | `job-dependencies` | the workload finished successfully |
+| `readiness: ignore` | — | never gates: the endpoints are still resolved and mapped, they just do not hold up startup |
 
 A service dependency defaults to `started`, preserving the behavior of every
 workspace that never declared readiness. A job dependency defaults to
 `completed`: a migration that is still running has not prepared anything.
 
+Marking *every* endpoint of a dependency `required: false` is not the same as a
+dependency that exposes none, so it is not silently treated as one: it is an
+error until you say which you meant with `readiness: started` or
+`readiness: ignore`.
+
 ## Lifecycle generation
 
-`StartStatus.generation` increments on every successful `Start`, and every
-`HealthReport` is stamped with the generation it was taken in. A ready verdict
-recorded before a restart cannot be read as evidence about the process running
-now, and a service that dies after `Start` reports `ERROR` at the generation
-that failed.
+`StartStatus.generation` increments on every successful `Start`, counting from
+1, and every `HealthReport` is stamped with the generation it was taken in. A
+ready verdict recorded before a restart cannot be read as evidence about the
+process running now, and a service that dies after `Start` reports `ERROR` at
+the generation that failed.
+
+An agent that predates the field reports `0` on every start, so `0` means
+"unreported", never "the first one". Read it through
+`services.StartGeneration`, which returns that distinction rather than letting
+a consumer compare two zeroes and conclude nothing changed.
 
 ## Using it
 
@@ -140,6 +164,15 @@ Invalid declarations fail at load, naming the source: an unsupported kind, a
 unroutable status, a `completion` probe on an endpoint, a field belonging to a
 different kind, an endpoint reference the producer does not declare, or
 `readiness: completed` on a dependency whose endpoints the consumer requires.
+The same rules apply to endpoints arriving from an agent over the wire —
+`resources.ValidateEndpointHealth`, applied by `FromProtoEndpoints` — so a
+contradiction is caught at ingestion rather than when the manifest is written
+back to disk.
+
+A target that can never be probed — no resolved address, an address that is not
+`host:port`, a path that cannot form a URL — reports
+`PROBE_FAILURE_KIND_INVALID_TARGET` rather than `UNREACHABLE`, so a caller
+stops retrying a declaration bug and reports it.
 
 ## Proto
 

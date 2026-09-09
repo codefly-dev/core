@@ -39,16 +39,11 @@ func serveGRPC(t *testing.T, registerHealth bool, serving healthpb.HealthCheckRe
 	return listener.Addr().String()
 }
 
-// listenAndClose returns an address nothing listens on any more: a service that
-// died after a successful start.
-func listenAndClose(t *testing.T) string {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	address := listener.Addr().String()
-	require.NoError(t, listener.Close())
-	return address
-}
+// closedAddress is a loopback port nothing serves: a service that died after a
+// successful start. It is a fixed low port rather than a bound-then-closed
+// ephemeral one, which another process can claim between the close and the
+// dial.
+const closedAddress = "127.0.0.1:1"
 
 func requirement(t *testing.T, endpoint, api string, probe *resources.Probe) *resources.ReadinessRequirement {
 	t.Helper()
@@ -76,7 +71,7 @@ func TestGrpcHealthProbeDiscriminatesServingFromReachable(t *testing.T) {
 	result = readiness.Check(ctx, requirement(t, standards.GRPC, standards.GRPC, probe), readiness.Target{Address: noHealth})
 	require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNIMPLEMENTED, result.FailureKind)
 
-	result = readiness.Check(ctx, requirement(t, standards.GRPC, standards.GRPC, probe), readiness.Target{Address: listenAndClose(t)})
+	result = readiness.Check(ctx, requirement(t, standards.GRPC, standards.GRPC, probe), readiness.Target{Address: closedAddress})
 	require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, result.FailureKind)
 }
 
@@ -139,7 +134,7 @@ func TestOpenAdminPortDoesNotMaskAClosedGrpcEndpoint(t *testing.T) {
 	admin, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = admin.Close() })
-	closedGRPC := listenAndClose(t)
+	closedGRPC := closedAddress
 
 	report := readiness.Evaluate(ctx, requirements, 7, func(r *resources.ReadinessRequirement) readiness.Target {
 		if r.Endpoint == "admin" {
@@ -204,7 +199,7 @@ func TestLegacyEndpointsStillCheckTransport(t *testing.T) {
 	}
 
 	report = readiness.Evaluate(ctx, requirements, 2, func(*resources.ReadinessRequirement) readiness.Target {
-		return readiness.Target{Address: listenAndClose(t)}
+		return readiness.Target{Address: closedAddress}
 	})
 	require.False(t, report.Ready)
 	require.Len(t, resources.FailingPredicates(report), 2)
