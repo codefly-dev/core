@@ -209,6 +209,34 @@ def test_multiple_packages_emit_separate_files():
     assert "two.v1" not in one  # packages did not bleed together
 
 
+def test_explicit_module_rejected_when_packages_are_ambiguous():
+    # module= names one entry point. Silently deriving a different name per
+    # package instead breaks the caller's import; say so rather than renaming.
+    files = [
+        _file("a.proto", "saas.accounts.v1", ["Req", "Resp"],
+              [("APIKeyService", [("L", ".saas.accounts.v1.Req", ".saas.accounts.v1.Resp")])]),
+        _file("j.proto", "saas.jobs.v1", ["JReq", "JResp"],
+              [("JobService", [("G", ".saas.jobs.v1.JReq", ".saas.jobs.v1.JResp")])]),
+    ]
+    with pytest.raises(ValueError, match="module=sdkclient names one entry point"):
+        facade_gen.generate(_desc_request(files, ["a.proto", "j.proto"], "module=sdkclient"))
+
+
+def test_services_filter_narrows_packages_so_module_is_honored():
+    files = [
+        _file("a.proto", "saas.accounts.v1", ["Req", "Resp"],
+              [("APIKeyService", [("L", ".saas.accounts.v1.Req", ".saas.accounts.v1.Resp")])]),
+        _file("j.proto", "saas.jobs.v1", ["JReq", "JResp"],
+              [("JobService", [("G", ".saas.jobs.v1.JReq", ".saas.jobs.v1.JResp")])]),
+    ]
+    response = facade_gen.generate(
+        _desc_request(files, ["a.proto", "j.proto"], "module=sdkclient,services=APIKeyService")
+    )
+
+    assert [f.name for f in response.file] == ["sdkclient.py"]
+    assert "JobService" not in response.file[0].content
+
+
 def test_main_reports_error_via_response(monkeypatch):
     fd = _file(
         "a.proto",

@@ -189,6 +189,7 @@ def test_main_keeps_import_edge_between_targets(tmp_path, monkeypatch):
     out = _run(
         tmp_path, monkeypatch, _accounts_source(),
         "saas/accounts/v1/common.proto", "saas/accounts/v1/api_keys.proto",
+        "saas/jobs/v1/jobs.proto",
     )
 
     assert "buf/validate/validate.proto" not in out
@@ -197,23 +198,102 @@ def test_main_keeps_import_edge_between_targets(tmp_path, monkeypatch):
     assert "buf/validate/validate.proto" not in api_keys.dependency
 
 
-def test_main_keeps_transitively_referenced_package(tmp_path, monkeypatch):
-    # saas/jobs/v1/jobs.proto is not a target, but an rpc resolves into it, so
-    # its bindings must be generated too — otherwise the facade has no module
-    # for the response type.
+def test_main_keeps_declared_cross_package_file(tmp_path, monkeypatch):
     out = _run(
         tmp_path, monkeypatch, _accounts_source(),
         "saas/accounts/v1/common.proto", "saas/accounts/v1/api_keys.proto",
+        "saas/jobs/v1/jobs.proto",
     )
 
     assert "saas/jobs/v1/jobs.proto" in out
     assert "saas/jobs/v1/jobs.proto" in out["saas/accounts/v1/api_keys.proto"].dependency
 
 
+def test_main_refuses_undeclared_referenced_file(tmp_path, monkeypatch):
+    # saas/jobs/v1/jobs.proto holds an rpc response type. Pulling it in silently
+    # would put another contract's descriptors in this library, so the strip
+    # names it and stops instead.
+    with pytest.raises(SystemExit) as caught:
+        _run(
+            tmp_path, monkeypatch, _accounts_source(),
+            "saas/accounts/v1/common.proto", "saas/accounts/v1/api_keys.proto",
+        )
+
+    message = str(caught.value)
+    assert "saas/jobs/v1/jobs.proto" in message
+    assert "not declared as targets" in message
+
+
+def test_main_refuses_undeclared_sibling_file(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit) as caught:
+        _run(
+            tmp_path, monkeypatch, _accounts_source(),
+            "saas/accounts/v1/api_keys.proto", "saas/jobs/v1/jobs.proto",
+        )
+
+    assert "saas/accounts/v1/common.proto" in str(caught.value)
+
+
+def test_main_refuses_googleapis_common_protos(tmp_path, monkeypatch):
+    # google/rpc/code.proto is shipped by googleapis-common-protos, which
+    # registers that exact file name at import; a vendored copy collides in the
+    # descriptor pool. google/protobuf/* is the exception — it is the runtime.
+    source = _accounts_source()
+    code = source.file.add(name="google/rpc/code.proto", package="google.rpc")
+    code.enum_type.add(name="Code").value.add(name="OK", number=0)
+    api_keys = next(f for f in source.file if f.name == "saas/accounts/v1/api_keys.proto")
+    api_keys.dependency.append("google/rpc/code.proto")
+    api_keys.message_type[0].field.add(
+        name="status",
+        number=3,
+        type_name=".google.rpc.Code",
+        label=FieldDescriptorProto.LABEL_OPTIONAL,
+        type=FieldDescriptorProto.TYPE_ENUM,
+    )
+
+    with pytest.raises(SystemExit) as caught:
+        _run(
+            tmp_path, monkeypatch, source,
+            "saas/accounts/v1/common.proto", "saas/accounts/v1/api_keys.proto",
+            "saas/jobs/v1/jobs.proto",
+        )
+
+    message = str(caught.value)
+    assert "google/rpc/code.proto" in message
+    assert "googleapis-common-protos" in message
+
+
+def test_main_refuses_extension_reference_to_undeclared_file(tmp_path, monkeypatch):
+    # An extension's type is as load-bearing as a field's: dropping the file it
+    # resolves to leaves the same unbuildable descriptor.
+    source = _accounts_source()
+    shared = source.file.add(name="saas/shared/v1/meta.proto", package="saas.shared.v1")
+    shared.message_type.add(name="Meta")
+    api_keys = next(f for f in source.file if f.name == "saas/accounts/v1/api_keys.proto")
+    api_keys.extension.add(
+        name="meta",
+        number=1000,
+        extendee=".google.protobuf.MessageOptions",
+        type_name=".saas.shared.v1.Meta",
+        label=FieldDescriptorProto.LABEL_OPTIONAL,
+        type=FieldDescriptorProto.TYPE_MESSAGE,
+    )
+
+    with pytest.raises(SystemExit) as caught:
+        _run(
+            tmp_path, monkeypatch, source,
+            "saas/accounts/v1/common.proto", "saas/accounts/v1/api_keys.proto",
+            "saas/jobs/v1/jobs.proto",
+        )
+
+    assert "saas/shared/v1/meta.proto" in str(caught.value)
+
+
 def test_main_keeps_topological_order(tmp_path, monkeypatch):
     out = _run(
         tmp_path, monkeypatch, _accounts_source(),
         "saas/accounts/v1/common.proto", "saas/accounts/v1/api_keys.proto",
+        "saas/jobs/v1/jobs.proto",
     )
 
     names = list(out)
@@ -223,16 +303,49 @@ def test_main_keeps_topological_order(tmp_path, monkeypatch):
 
 def test_main_drops_option_only_file_referenced_by_no_field(tmp_path, monkeypatch):
     # An org-shared options proto carries messages too; nothing references them
-    # through a field or rpc, so the closure must leave it out.
+    # through a field, an rpc, or an extension, so it stays out of the output
+    # and out of the declared-target check.
     source = _accounts_source()
     policy = source.file.add(name="saas/policy/v1/options.proto", package="saas.policy.v1")
     policy.message_type.add(name="PolicyRule")
     api_keys = next(f for f in source.file if f.name == "saas/accounts/v1/api_keys.proto")
     api_keys.dependency.append("saas/policy/v1/options.proto")
 
-    out = _run(tmp_path, monkeypatch, source, "saas/accounts/v1/api_keys.proto")
+    out = _run(
+        tmp_path, monkeypatch, source,
+        "saas/accounts/v1/common.proto", "saas/accounts/v1/api_keys.proto",
+        "saas/jobs/v1/jobs.proto",
+    )
 
     assert "saas/policy/v1/options.proto" not in out
+
+
+def test_main_carries_transitive_well_known_types(tmp_path, monkeypatch):
+    # google/protobuf/api.proto imports source_context.proto and type.proto.
+    # Emitting it without them leaves a descriptor protoc cannot build.
+    source = FileDescriptorSet()
+    source.file.add(name="google/protobuf/source_context.proto", package="google.protobuf")
+    source.file.add(name="google/protobuf/type.proto", package="google.protobuf")
+    api = source.file.add(name="google/protobuf/api.proto", package="google.protobuf")
+    api.dependency.extend(
+        ["google/protobuf/source_context.proto", "google/protobuf/type.proto"]
+    )
+    api.message_type.add(name="Api")
+    own = source.file.add(name="svc/v1/thing.proto", package="svc.v1")
+    own.dependency.append("google/protobuf/api.proto")
+    thing = own.message_type.add(name="Thing")
+    thing.field.add(
+        name="api",
+        number=1,
+        type_name=".google.protobuf.Api",
+        label=FieldDescriptorProto.LABEL_OPTIONAL,
+        type=FieldDescriptorProto.TYPE_MESSAGE,
+    )
+
+    out = _run(tmp_path, monkeypatch, source, "svc/v1/thing.proto")
+
+    assert "google/protobuf/source_context.proto" in out
+    assert "google/protobuf/type.proto" in out
 
 
 @pytest.mark.skipif(shutil.which("protoc") is None, reason="protoc not installed")
@@ -242,7 +355,11 @@ def test_stripped_descriptor_regenerates_with_protoc(tmp_path, monkeypatch):
     descriptor, so a missing edge fails here exactly as it does in the
     companion."""
     fixtures = Path(__file__).parent
-    targets = ["saas/accounts/v1/api_keys.proto", "saas/accounts/v1/common.proto"]
+    targets = [
+        "saas/accounts/v1/api_keys.proto",
+        "saas/accounts/v1/common.proto",
+        "saas/jobs/v1/jobs.proto",
+    ]
     descriptors = tmp_path / "in.binpb"
     subprocess.run(
         ["protoc", "-I", str(fixtures), "--include_imports",

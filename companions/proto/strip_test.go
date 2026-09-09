@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -46,31 +47,7 @@ func TestStripCustomOptions(t *testing.T) {
 			},
 		},
 	}
-	blob, err := proto.Marshal(set)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	in := filepath.Join(dir, "in.binpb")
-	out := filepath.Join(dir, "out.binpb")
-	if err := os.WriteFile(in, blob, 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	script := filepath.Join("facades", "python", "strip_custom_options.py")
-	cmd := exec.Command(python, script, in, out, "saas/accounts/v1/audit.proto")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("strip_custom_options.py: %v\n%s", err, output)
-	}
-
-	stripped := &descriptorpb.FileDescriptorSet{}
-	blob, err = os.ReadFile(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := proto.Unmarshal(blob, stripped); err != nil {
-		t.Fatal(err)
-	}
+	stripped := runStrip(t, python, set, "saas/accounts/v1/audit.proto")
 
 	var target *descriptorpb.FileDescriptorProto
 	for _, f := range stripped.GetFile() {
@@ -96,11 +73,10 @@ func TestStripCustomOptions(t *testing.T) {
 	}
 }
 
-// TestStripKeepsTypeDependencies covers the two edges the strip must not cut
-// when a module owns more than one self-referencing proto: the import between
-// two kept target files, and the file another package's rpc type lives in — the
-// latter is not a target, but without its bindings the descriptor is invalid and
-// the facade has no module for the response type.
+// TestStripKeepsTypeDependencies covers the edges the strip must not cut when a
+// library owns more than one self-referencing proto: the import between two kept
+// target files, and the one into the other package whose type an rpc returns.
+// Both ends are declared, so both survive and both edges stay.
 func TestStripKeepsTypeDependencies(t *testing.T) {
 	python := pythonWithProtobuf(t)
 
@@ -156,7 +132,11 @@ func TestStripKeepsTypeDependencies(t *testing.T) {
 		},
 	}
 
-	stripped := runStrip(t, python, set, "saas/accounts/v1/common.proto", "saas/accounts/v1/api_keys.proto")
+	stripped := runStrip(t, python, set,
+		"saas/accounts/v1/common.proto",
+		"saas/accounts/v1/api_keys.proto",
+		"saas/jobs/v1/jobs.proto",
+	)
 
 	kept := map[string]*descriptorpb.FileDescriptorProto{}
 	var order []string
@@ -168,7 +148,7 @@ func TestStripKeepsTypeDependencies(t *testing.T) {
 		t.Error("buf/validate/validate.proto survived the strip")
 	}
 	if _, ok := kept["saas/jobs/v1/jobs.proto"]; !ok {
-		t.Fatal("saas/jobs/v1/jobs.proto dropped: an rpc response type lives there")
+		t.Fatal("declared target saas/jobs/v1/jobs.proto was dropped")
 	}
 	apiKeys := kept["saas/accounts/v1/api_keys.proto"]
 	if apiKeys == nil {
@@ -197,7 +177,126 @@ func TestStripKeepsTypeDependencies(t *testing.T) {
 	}
 }
 
+// TestStripRefusesUndeclaredReference pins the ownership boundary: what the
+// generated library contains is the caller's declaration, so a type reference
+// into a file nobody declared stops generation by name instead of quietly
+// pulling another contract's descriptors into this library.
+func TestStripRefusesUndeclaredReference(t *testing.T) {
+	python := pythonWithProtobuf(t)
+
+	set := &descriptorpb.FileDescriptorSet{
+		File: []*descriptorpb.FileDescriptorProto{
+			{
+				Name:    proto.String("saas/jobs/v1/jobs.proto"),
+				Package: proto.String("saas.jobs.v1"),
+				MessageType: []*descriptorpb.DescriptorProto{
+					{Name: proto.String("GetJobOperationsResponse")},
+				},
+			},
+			{
+				Name:       proto.String("saas/accounts/v1/api_keys.proto"),
+				Package:    proto.String("saas.accounts.v1"),
+				Dependency: []string{"saas/jobs/v1/jobs.proto"},
+				MessageType: []*descriptorpb.DescriptorProto{
+					{Name: proto.String("ListJobsRequest")},
+				},
+				Service: []*descriptorpb.ServiceDescriptorProto{{
+					Name: proto.String("APIKeyService"),
+					Method: []*descriptorpb.MethodDescriptorProto{{
+						Name:       proto.String("ListJobs"),
+						InputType:  proto.String(".saas.accounts.v1.ListJobsRequest"),
+						OutputType: proto.String(".saas.jobs.v1.GetJobOperationsResponse"),
+					}},
+				}},
+			},
+		},
+	}
+
+	output := runStripExpectingFailure(t, python, set, "saas/accounts/v1/api_keys.proto")
+
+	for _, want := range []string{"saas/jobs/v1/jobs.proto", "not declared as targets"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("refusal does not mention %q:\n%s", want, output)
+		}
+	}
+}
+
+// TestStripRefusesGoogleapisCommonProtos guards the descriptor-pool collision
+// the strip exists for: googleapis-common-protos registers google/rpc/code.proto
+// at import, so a copy inside a generated library is a duplicate file name in
+// the default pool. Declaring it cannot make it safe, so declaring it does not
+// help.
+func TestStripRefusesGoogleapisCommonProtos(t *testing.T) {
+	python := pythonWithProtobuf(t)
+
+	set := &descriptorpb.FileDescriptorSet{
+		File: []*descriptorpb.FileDescriptorProto{
+			{
+				Name:    proto.String("google/rpc/code.proto"),
+				Package: proto.String("google.rpc"),
+				EnumType: []*descriptorpb.EnumDescriptorProto{{
+					Name:  proto.String("Code"),
+					Value: []*descriptorpb.EnumValueDescriptorProto{{Name: proto.String("OK"), Number: proto.Int32(0)}},
+				}},
+			},
+			{
+				Name:       proto.String("saas/accounts/v1/api_keys.proto"),
+				Package:    proto.String("saas.accounts.v1"),
+				Dependency: []string{"google/rpc/code.proto"},
+				MessageType: []*descriptorpb.DescriptorProto{{
+					Name: proto.String("APIKey"),
+					Field: []*descriptorpb.FieldDescriptorProto{{
+						Name:     proto.String("status"),
+						Number:   proto.Int32(1),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_ENUM.Enum(),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						TypeName: proto.String(".google.rpc.Code"),
+					}},
+				}},
+			},
+		},
+	}
+
+	output := runStripExpectingFailure(t, python, set,
+		"saas/accounts/v1/api_keys.proto", "google/rpc/code.proto")
+
+	for _, want := range []string{"google/rpc/code.proto", "googleapis-common-protos"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("refusal does not mention %q:\n%s", want, output)
+		}
+	}
+}
+
+func runStripExpectingFailure(t *testing.T, python string, set *descriptorpb.FileDescriptorSet, targets ...string) string {
+	t.Helper()
+	_, output, err := execStrip(t, python, set, targets)
+	if err == nil {
+		t.Fatalf("strip accepted a target set it should have refused:\n%s", output)
+	}
+	return output
+}
+
 func runStrip(t *testing.T, python string, set *descriptorpb.FileDescriptorSet, targets ...string) *descriptorpb.FileDescriptorSet {
+	t.Helper()
+	out, output, err := execStrip(t, python, set, targets)
+	if err != nil {
+		t.Fatalf("strip_custom_options.py: %v\n%s", err, output)
+	}
+
+	stripped := &descriptorpb.FileDescriptorSet{}
+	blob, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = proto.Unmarshal(blob, stripped); err != nil {
+		t.Fatal(err)
+	}
+	return stripped
+}
+
+// execStrip writes the set to a temp dir, runs the real script over it, and
+// reports where the output would be plus what the script said.
+func execStrip(t *testing.T, python string, set *descriptorpb.FileDescriptorSet, targets []string) (string, string, error) {
 	t.Helper()
 	blob, err := proto.Marshal(set)
 	if err != nil {
@@ -212,18 +311,8 @@ func runStrip(t *testing.T, python string, set *descriptorpb.FileDescriptorSet, 
 
 	script := filepath.Join("facades", "python", "strip_custom_options.py")
 	cmd := exec.Command(python, append([]string{script, in, out}, targets...)...)
-	if output, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
-		t.Fatalf("strip_custom_options.py: %v\n%s", cmdErr, output)
-	}
-
-	stripped := &descriptorpb.FileDescriptorSet{}
-	if blob, err = os.ReadFile(out); err != nil {
-		t.Fatal(err)
-	}
-	if err = proto.Unmarshal(blob, stripped); err != nil {
-		t.Fatal(err)
-	}
-	return stripped
+	output, err := cmd.CombinedOutput()
+	return out, string(output), err
 }
 
 func pythonWithProtobuf(t *testing.T) string {
