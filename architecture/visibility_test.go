@@ -48,3 +48,19 @@ func TestVerifyVisibilityUnknownEndpoint(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "nope")
 }
+
+func TestVerifyVisibilityDeniedForBuildDependency(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/visibility-denied-build")
+	require.NoError(t, err)
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace)
+	require.NoError(t, err)
+
+	// A build-time consumer crosses the same export boundary as a runtime one:
+	// declaring a kind must not buy a way out of visibility enforcement.
+	err = dep.VerifyVisibility(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "web/portal")
+	require.Contains(t, err.Error(), "vault/secrets")
+}

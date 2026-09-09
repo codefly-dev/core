@@ -1,0 +1,5 @@
+name: codefly-runtime-cycle
+layout: flat
+services:
+    - name: left
+    - name: right

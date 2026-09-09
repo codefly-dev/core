@@ -15,11 +15,18 @@ const (
 	KindEndpoint = "endpoint"
 )
 
-// EdgeKind is the type of an edge.
+// EdgeKind is the type of an edge. EdgeDependsOn is the untyped dependency an
+// edge carries when its kind is not declared; the four typed dependency kinds
+// below say which execution phase the edge constrains.
 const (
-	EdgeDependsOn = "depends_on"
-	EdgeContains  = "contains"
-	EdgeChildOf   = "child_of"
+	EdgeDependsOn  = "depends_on"
+	EdgeContains   = "contains"
+	EdgeChildOf    = "child_of"
+	EdgeBuildInput = "build"
+	EdgeRuntime    = "runtime"
+	EdgeCompletion = "completion"
+	EdgeSchema     = "schema"
+	EdgeExternal   = "external"
 )
 
 // Node is a vertex in the graph with a stable ID, kind, and optional attributes.

@@ -3,6 +3,7 @@ package architecture
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/codefly-dev/core/graph"
 	"github.com/codefly-dev/core/resources"
@@ -104,6 +105,9 @@ type Service struct {
 type ServiceDependency struct {
 	From Service
 	To   Service
+	// Kinds are the kinds carried by the edge; a dependency that declares none
+	// carries resources.DependencyKindLegacy.
+	Kinds []resources.DependencyKind
 }
 
 func (d *ServiceDependencies) Print() string {
@@ -132,6 +136,7 @@ func (d *ServiceDependencies) Dependencies() []ServiceDependency {
 			To: Service{
 				Unique: edge.To,
 			},
+			Kinds: d.graph.EdgeKinds(edge.From, edge.To),
 		})
 	}
 	return out
@@ -210,10 +215,48 @@ func (d *ServiceDependencies) Restrict(_ context.Context, unique string) (*Servi
 	if err != nil {
 		return nil, fmt.Errorf("cannot restrict to <%s>: %w", unique, err)
 	}
+	return d.withGraph(sub), nil
+}
+
+// ForPhase restricts the dependencies to the edges that constrain the given
+// phase. Callers select the phase they are about to execute instead of
+// threading booleans through the call chain, so a build-only edge never orders
+// a run and a consumed endpoint never orders a build.
+func (d *ServiceDependencies) ForPhase(phase resources.Phase) *ServiceDependencies {
+	return d.withGraph(d.graph.ForPhase(phase))
+}
+
+// withGraph carries the service lookup and options onto a derived graph,
+// dropping the services the derived graph no longer holds so a removed node
+// cannot be resolved through the restricted view.
+func (d *ServiceDependencies) withGraph(g *DAG) *ServiceDependencies {
+	services := make(map[string]*resources.Service, len(d.uniqueToService))
+	for unique, svc := range d.uniqueToService {
+		if g.HasNode(unique) {
+			services[unique] = svc
+		}
+	}
 	return &ServiceDependencies{
-		Workspace: d.Workspace,
-		graph:     sub,
-	}, nil
+		Workspace:       d.Workspace,
+		graph:           g,
+		uniqueToService: services,
+		options:         d.options,
+	}
+}
+
+// VerifyAcyclic fails when the dependency graph of a phase deadlocks, naming
+// the phase and the cycle. Cycles are a per-phase property: an API consuming a
+// database at runtime while the database bootstrap consumes the API schema at
+// build time is a cycle in neither phase, even though the untyped union of both
+// edges is one.
+func (d *ServiceDependencies) VerifyAcyclic(ctx context.Context) error {
+	w := wool.Get(ctx).In("architecture.VerifyAcyclic")
+	for _, phase := range resources.Phases() {
+		if cycle := d.graph.ForPhase(phase).Cycle(); cycle != nil {
+			return w.NewError("%s dependencies have a cycle: %s", phase, strings.Join(cycle, " -> "))
+		}
+	}
+	return nil
 }
 
 // X depends on Y means an edge X <- Y
@@ -248,7 +291,7 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 					continue
 				}
 				graph.AddNode(dep.Unique()).WithType(resources.SERVICE)
-				graph.AddEdge(dep.Unique(), identity.Unique())
+				graph.AddKindedEdge(dep.Unique(), identity.Unique(), dep.Kind)
 			}
 		}
 	}

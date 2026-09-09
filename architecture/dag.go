@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	observabilityv0 "github.com/codefly-dev/core/generated/go/codefly/observability/v0"
+	"github.com/codefly-dev/core/resources"
 )
 
 type DAG struct {
@@ -16,6 +17,7 @@ type DAG struct {
 	incomingEdges map[string]int
 
 	nodeTypes map[string]any
+	edgeKinds map[Edge][]resources.DependencyKind
 	verb      string
 }
 
@@ -26,6 +28,7 @@ func NewDAG(name string) *DAG {
 		edges:         make(map[string][]string),
 		incomingEdges: make(map[string]int),
 		nodeTypes:     make(map[string]any),
+		edgeKinds:     make(map[Edge][]resources.DependencyKind),
 	}
 }
 
@@ -71,6 +74,49 @@ func (g *DAG) AddEdge(u, v string) {
 		g.edges[u] = append(g.edges[u], v)
 		g.incomingEdges[v]++
 	}
+}
+
+// AddKindedEdge adds an edge and records the dependency kind it carries. An
+// edge may carry several kinds when the same pair is declared more than once.
+func (g *DAG) AddKindedEdge(u, v string, kind resources.DependencyKind) {
+	g.AddEdge(u, v)
+	edge := Edge{From: u, To: v}
+	if !slices.Contains(g.edgeKinds[edge], kind) {
+		g.edgeKinds[edge] = append(g.edgeKinds[edge], kind)
+	}
+}
+
+// EdgeKinds returns the dependency kinds carried by an edge. An edge added
+// without a kind carries none.
+func (g *DAG) EdgeKinds(from, to string) []resources.DependencyKind {
+	return g.edgeKinds[Edge{From: from, To: to}]
+}
+
+// inheritEdgeKinds copies the kinds src records for an edge onto the same edge
+// here, so a derived graph keeps knowing which phase each edge constrains.
+func (g *DAG) inheritEdgeKinds(src *DAG, edge Edge) {
+	if kinds := src.edgeKinds[edge]; len(kinds) > 0 {
+		g.edgeKinds[edge] = slices.Clone(kinds)
+	}
+}
+
+// ForPhase returns a graph holding every node but only the edges whose kinds
+// constrain the given phase. Nodes are kept so a service is still resolvable
+// in a phase that imposes no ordering on it.
+func (g *DAG) ForPhase(phase resources.Phase) *DAG {
+	out := NewDAG(fmt.Sprintf("%s-%s", g.Name, phase))
+	out.verb = g.verb
+	for _, node := range g.Nodes() {
+		out.AddNode(node.ID).WithType(node.Type)
+	}
+	for _, edge := range g.Edges() {
+		for _, kind := range g.edgeKinds[edge] {
+			if kind.Participates(phase) {
+				out.AddKindedEdge(edge.From, edge.To, kind)
+			}
+		}
+	}
+	return out
 }
 
 type Node struct {
@@ -178,6 +224,9 @@ func (g *DAG) Invert() *DAG {
 	}
 	for _, edge := range g.Edges() {
 		inverted.AddEdge(edge.To, edge.From)
+		if kinds := g.edgeKinds[edge]; len(kinds) > 0 {
+			inverted.edgeKinds[Edge{From: edge.To, To: edge.From}] = slices.Clone(kinds)
+		}
 	}
 	return inverted
 }
@@ -207,6 +256,56 @@ func ToGraphResponse(g *DAG) *observabilityv0.GraphResponse {
 		})
 	}
 	return resp
+}
+
+// Cycle returns a cycle as the sequence of nodes traversed to come back to the
+// first one, or nil when the graph is acyclic. Reporting the path is what lets
+// a caller say WHICH services deadlock instead of only that some do. Node
+// iteration is sorted so the reported cycle is stable across runs.
+func (g *DAG) Cycle() []string {
+	const (
+		unvisited = 0
+		onStack   = 1
+		done      = 2
+	)
+	state := make(map[string]int, len(g.nodes))
+	var stack []string
+	var cycle []string
+
+	var visit func(node string) bool
+	visit = func(node string) bool {
+		state[node] = onStack
+		stack = append(stack, node)
+		children := slices.Clone(g.edges[node])
+		sort.Strings(children)
+		for _, child := range children {
+			switch state[child] {
+			case unvisited:
+				if visit(child) {
+					return true
+				}
+			case onStack:
+				start := slices.Index(stack, child)
+				cycle = append(slices.Clone(stack[start:]), child)
+				return true
+			}
+		}
+		stack = stack[:len(stack)-1]
+		state[node] = done
+		return false
+	}
+
+	nodes := make([]string, 0, len(g.nodes))
+	for node := range g.nodes {
+		nodes = append(nodes, node)
+	}
+	sort.Strings(nodes)
+	for _, node := range nodes {
+		if state[node] == unvisited && visit(node) {
+			return cycle
+		}
+	}
+	return nil
 }
 
 func (g *DAG) TopologicalSort() ([]Node, error) {
@@ -245,8 +344,7 @@ func (g *DAG) TopologicalSort() ([]Node, error) {
 	}
 
 	if len(sorted) != len(g.nodes) {
-		// DAG has a cycle
-		return nil, fmt.Errorf("graph has a cycle")
+		return nil, fmt.Errorf("graph has a cycle: %s", strings.Join(g.Cycle(), " -> "))
 	}
 	var out []Node
 	for _, node := range sorted {
@@ -318,9 +416,11 @@ func (g *DAG) SubGraphFrom(startNode string) (*DAG, error) {
 			if !visited[child] {
 				subGraph.AddNode(child).WithType(g.nodeTypes[child])
 				subGraph.AddEdge(node, child)
+				subGraph.inheritEdgeKinds(g, Edge{From: node, To: child})
 				dfs(child)
 			} else if subGraph.HasNode(child) {
 				subGraph.AddEdge(node, child)
+				subGraph.inheritEdgeKinds(g, Edge{From: node, To: child})
 			}
 		}
 	}
@@ -350,9 +450,11 @@ func (g *DAG) SubGraphTo(endNode string) (*DAG, error) {
 			if !visited[parent.ID] {
 				subGraph.AddNode(parent.ID).WithType(g.nodeTypes[parent.ID])
 				subGraph.AddEdge(parent.ID, node)
+				subGraph.inheritEdgeKinds(g, Edge{From: parent.ID, To: node})
 				dfs(parent.ID)
 			} else if subGraph.HasNode(parent.ID) {
 				subGraph.AddEdge(parent.ID, node)
+				subGraph.inheritEdgeKinds(g, Edge{From: parent.ID, To: node})
 			}
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/graph"
+	"github.com/codefly-dev/core/resources"
 )
 
 // ToGraph converts a DAG (e.g. service or module dependencies) into the generic graph.Graph.
@@ -18,9 +19,26 @@ func ToGraph(dag *DAG, name string) *graph.Graph {
 		out.AddNode(n.ID, kind)
 	}
 	for _, e := range dag.Edges() {
-		out.AddEdge(e.From, e.To, graph.EdgeDependsOn)
+		kinds := dag.EdgeKinds(e.From, e.To)
+		if len(kinds) == 0 {
+			out.AddEdge(e.From, e.To, graph.EdgeDependsOn)
+			continue
+		}
+		for _, kind := range kinds {
+			out.AddEdge(e.From, e.To, edgeKind(kind))
+		}
 	}
 	return out
+}
+
+// edgeKind maps a dependency kind onto the generic graph vocabulary. The legacy
+// (undeclared) kind stays depends_on so consumers of the untyped graph are
+// unaffected.
+func edgeKind(kind resources.DependencyKind) string {
+	if kind == resources.DependencyKindLegacy {
+		return graph.EdgeDependsOn
+	}
+	return string(kind)
 }
 
 func nodeKind(t any) string {

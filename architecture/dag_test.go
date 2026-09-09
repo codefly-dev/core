@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/architecture"
+	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
 
@@ -314,4 +315,53 @@ func TestSubGraphTo(t *testing.T) {
 	order, err = g.TopologicalSortTo("z")
 	require.NoError(t, err)
 	require.Equal(t, createNodes("x", "u", "w", "v"), order)
+}
+
+func TestCycleReportsPath(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddEdge("a", "b")
+	g.AddEdge("b", "c")
+	g.AddEdge("c", "a")
+	g.AddEdge("d", "a")
+
+	require.Equal(t, []string{"a", "b", "c", "a"}, g.Cycle())
+
+	_, err := g.TopologicalSort()
+	require.ErrorContains(t, err, "a -> b -> c -> a")
+
+	acyclic := architecture.NewDAG("test")
+	acyclic.AddEdge("a", "b")
+	require.Nil(t, acyclic.Cycle())
+}
+
+func TestSubGraphsPreserveEdgeKinds(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddKindedEdge("a", "b", resources.DependencyKindRuntime)
+	g.AddKindedEdge("b", "c", resources.DependencyKindBuild)
+
+	require.Equal(t, []resources.DependencyKind{resources.DependencyKindRuntime}, g.EdgeKinds("a", "b"))
+
+	from := subgraphFrom(t, g, "a")
+	require.Equal(t, []resources.DependencyKind{resources.DependencyKindBuild}, from.EdgeKinds("b", "c"))
+
+	to := subgraphTo(t, g, "c")
+	require.Equal(t, []resources.DependencyKind{resources.DependencyKindRuntime}, to.EdgeKinds("a", "b"))
+
+	inverted := g.Invert()
+	require.Equal(t, []resources.DependencyKind{resources.DependencyKindRuntime}, inverted.EdgeKinds("b", "a"))
+}
+
+func TestForPhaseKeepsNodesAndDropsForeignEdges(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddKindedEdge("a", "b", resources.DependencyKindRuntime)
+	g.AddKindedEdge("b", "c", resources.DependencyKindBuild)
+
+	build := g.ForPhase(resources.PhaseBuild)
+	require.Equal(t, 3, len(build.Nodes()))
+	require.False(t, build.HasEdge("a", "b"))
+	require.True(t, build.HasEdge("b", "c"))
+
+	run := g.ForPhase(resources.PhaseRun)
+	require.True(t, run.HasEdge("a", "b"))
+	require.False(t, run.HasEdge("b", "c"))
 }

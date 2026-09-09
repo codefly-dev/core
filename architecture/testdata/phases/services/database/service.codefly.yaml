@@ -1,0 +1,18 @@
+kind: service
+name: database
+version: 0.0.0
+agent:
+    kind: runtime::service
+    name: postgres
+    version: 0.0.1
+    publisher: codefly.ai
+service-dependencies:
+    # The bootstrap reads the API contract at build time to generate migrations.
+    - name: api
+      kind: schema
+      endpoints:
+        - name: grpc
+endpoints:
+    - name: postgres
+      visibility: public
+      api: tcp

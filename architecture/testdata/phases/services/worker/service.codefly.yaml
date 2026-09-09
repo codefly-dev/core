@@ -1,0 +1,18 @@
+kind: service
+name: worker
+version: 0.0.0
+agent:
+    kind: runtime::service
+    name: go-grpc
+    version: 0.0.1
+    publisher: codefly.ai
+service-dependencies:
+    - name: migration
+      kind: completion
+    - name: api
+      kind: build
+      endpoints:
+        - name: grpc
+    - name: stripe
+      module: vendor
+      kind: external

@@ -1,0 +1,17 @@
+kind: service
+name: right
+version: 0.0.0
+agent:
+    kind: runtime::service
+    name: go-grpc
+    version: 0.0.1
+    publisher: codefly.ai
+service-dependencies:
+    - name: left
+      kind: runtime
+      endpoints:
+        - name: grpc
+endpoints:
+    - name: grpc
+      visibility: public
+      api: grpc

@@ -513,6 +513,9 @@ func (s *Service) postLoad(ctx context.Context) error {
 			w.Trace("setting module for dependency", wool.NameField(dep.Name))
 			dep.Module = s.module
 		}
+		if err := dep.Validate(); err != nil {
+			return w.Wrap(err)
+		}
 	}
 	for _, endpoint := range s.Endpoints {
 		endpoint.Service = s.Name
@@ -795,6 +798,12 @@ type ServiceDependency struct {
 	Name   string `yaml:"name,omitempty"`
 	Module string `yaml:"module,omitempty"`
 
+	// Kind classifies the edge — build input, consumed runtime endpoint,
+	// one-shot completion prerequisite, schema contribution or external
+	// capability — and so which execution phases it constrains. Absent means
+	// legacy: the edge constrains every phase, as untyped edges always did.
+	Kind DependencyKind `yaml:"kind,omitempty"`
+
 	// GrpcClientDir, when set, overrides the consuming service's service-level
 	// grpc-client-dir for THIS dependency's generated gRPC client. It lets a
 	// single dependency's client land in a different crate (e.g. a plugin crate
@@ -808,6 +817,28 @@ type ServiceDependency struct {
 
 func (s *ServiceDependency) String() string {
 	return fmt.Sprintf("ServiceDependency<%s/%s>", s.Module, s.Name)
+}
+
+// Validate checks the declared kind and rejects declarations the kind
+// contradicts.
+func (s *ServiceDependency) Validate() error {
+	if err := s.Kind.Validate(); err != nil {
+		return fmt.Errorf("service dependency %s: %w", s.Unique(), err)
+	}
+	if s.Kind == DependencyKindCompletion && len(s.Endpoints) > 0 {
+		return fmt.Errorf("service dependency %s of kind %q waits for completed one-shot work and cannot consume endpoints", s.Unique(), DependencyKindCompletion)
+	}
+	return nil
+}
+
+// Participates reports whether this dependency constrains the given phase.
+func (s *ServiceDependency) Participates(phase Phase) bool {
+	return s.Kind.Participates(phase)
+}
+
+// Prerequisite returns what the consumer waits for before it may start.
+func (s *ServiceDependency) Prerequisite() Prerequisite {
+	return s.Kind.Prerequisite()
 }
 
 // ConsumesEndpoint reports whether this dependency pulls in the producer
