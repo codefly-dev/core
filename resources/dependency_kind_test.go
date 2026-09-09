@@ -12,36 +12,63 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDependencyKindPhases(t *testing.T) {
+func TestDependencyKindStages(t *testing.T) {
 	cases := []struct {
 		kind   resources.DependencyKind
-		phases []resources.Phase
+		stages []resources.Stage
 	}{
-		{resources.DependencyKindLegacy, []resources.Phase{resources.PhaseBuild, resources.PhaseRun, resources.PhaseTest, resources.PhaseDeploy}},
-		{resources.DependencyKindBuild, []resources.Phase{resources.PhaseBuild}},
-		{resources.DependencyKindSchema, []resources.Phase{resources.PhaseBuild}},
-		{resources.DependencyKindRuntime, []resources.Phase{resources.PhaseRun, resources.PhaseTest, resources.PhaseDeploy}},
-		{resources.DependencyKindCompletion, []resources.Phase{resources.PhaseRun, resources.PhaseTest, resources.PhaseDeploy}},
+		{resources.DependencyKindLegacy, []resources.Stage{resources.StageBuild, resources.StageRun}},
+		{resources.DependencyKindBuild, []resources.Stage{resources.StageBuild}},
+		{resources.DependencyKindSchema, []resources.Stage{resources.StageBuild}},
+		{resources.DependencyKindRuntime, []resources.Stage{resources.StageRun}},
+		{resources.DependencyKindCompletion, []resources.Stage{resources.StageRun}},
 		{resources.DependencyKindExternal, nil},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.kind), func(t *testing.T) {
 			require.NoError(t, tc.kind.Validate())
-			require.Equal(t, tc.phases, tc.kind.Phases())
-			for _, phase := range resources.Phases() {
-				require.Equal(t, tc.kind.Participates(phase), containsPhase(tc.phases, phase), "phase %s", phase)
+			require.Equal(t, tc.stages, tc.kind.Stages())
+			for _, stage := range resources.Stages() {
+				require.Equal(t, tc.kind.Participates(stage), containsStage(tc.stages, stage), "stage %s", stage)
 			}
 		})
 	}
 }
 
-func containsPhase(phases []resources.Phase, phase resources.Phase) bool {
-	for _, p := range phases {
-		if p == phase {
+func containsStage(stages []resources.Stage, stage resources.Stage) bool {
+	for _, s := range stages {
+		if s == stage {
 			return true
 		}
 	}
 	return false
+}
+
+// A phase is what a caller asks for; a stage is a sortable graph. Testing or
+// deploying builds first, so a build input constrains those phases even though
+// it constrains no run.
+func TestPhaseDecomposesIntoStages(t *testing.T) {
+	require.Equal(t, []resources.Stage{resources.StageBuild}, resources.PhaseBuild.Stages())
+	require.Equal(t, []resources.Stage{resources.StageRun}, resources.PhaseRun.Stages())
+	require.Equal(t, []resources.Stage{resources.StageBuild, resources.StageRun}, resources.PhaseTest.Stages())
+	require.Equal(t, []resources.Stage{resources.StageBuild, resources.StageRun}, resources.PhaseDeploy.Stages())
+
+	require.True(t, resources.DependencyKindBuild.ConstrainsPhase(resources.PhaseTest))
+	require.True(t, resources.DependencyKindBuild.ConstrainsPhase(resources.PhaseDeploy))
+	require.False(t, resources.DependencyKindBuild.ConstrainsPhase(resources.PhaseRun))
+	require.False(t, resources.DependencyKindExternal.ConstrainsPhase(resources.PhaseTest))
+}
+
+// The tables are package state shared by every caller; handing out the live
+// slice lets one caller corrupt every later lookup.
+func TestKindAndPhaseTablesAreNotAliased(t *testing.T) {
+	stages := resources.DependencyKindBuild.Stages()
+	stages[0] = resources.StageRun
+	require.Equal(t, []resources.Stage{resources.StageBuild}, resources.DependencyKindBuild.Stages())
+
+	phaseStages := resources.PhaseTest.Stages()
+	phaseStages[0] = resources.StageRun
+	require.Equal(t, []resources.Stage{resources.StageBuild, resources.StageRun}, resources.PhaseTest.Stages())
 }
 
 func TestDependencyKindPrerequisite(t *testing.T) {
@@ -121,8 +148,8 @@ service-dependencies:
 	require.Equal(t, resources.DependencyKindCompletion, svc.ServiceDependencies[1].Kind)
 	require.Equal(t, resources.DependencyKindLegacy, svc.ServiceDependencies[2].Kind)
 
-	require.True(t, svc.ServiceDependencies[0].Participates(resources.PhaseBuild))
-	require.False(t, svc.ServiceDependencies[0].Participates(resources.PhaseRun))
+	require.True(t, svc.ServiceDependencies[0].Participates(resources.StageBuild))
+	require.False(t, svc.ServiceDependencies[0].Participates(resources.StageRun))
 	require.Equal(t, resources.PrerequisiteCompletion, svc.ServiceDependencies[1].Prerequisite())
 
 	require.NoError(t, svc.Save(ctx))
@@ -163,4 +190,111 @@ func TestTypedDependencyRejectsAbsentEndpoint(t *testing.T) {
 	}
 	endpoints := []*basev0.Endpoint{{Module: "web", Service: "api", Name: "grpc", Api: standards.GRPC}}
 	require.ErrorContains(t, resources.ValidateServiceDependencyEndpoints(dependency, endpoints), "undeclared")
+}
+
+// A binary that does not model a dependency key must not erase it. Without a
+// catch-all on ServiceDependency, a load → mutate → Save round-trip through an
+// older core silently deleted `kind` from disk, turning a phase-typed edge back
+// into a legacy one that constrains everything — reintroducing the very cycle
+// kinds exist to remove. Service.ExtraFields exists for the same reason.
+func TestUnknownDependencyKeySurvivesRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	dir := writeService(t, t.TempDir(), `kind: service
+name: worker
+version: 0.0.0
+agent:
+    kind: runtime::service
+    name: go-grpc
+    version: 0.0.1
+    publisher: codefly.ai
+service-dependencies:
+    - name: api
+      module: web
+      kind: build
+      some-future-key: hello
+`)
+	svc, err := resources.LoadServiceFromDir(ctx, dir)
+	require.NoError(t, err)
+	require.NoError(t, svc.Save(ctx))
+
+	out, err := os.ReadFile(filepath.Join(dir, resources.ServiceConfigurationName))
+	require.NoError(t, err)
+	require.Contains(t, string(out), "some-future-key: hello")
+	require.Contains(t, string(out), "kind: build")
+}
+
+// The counterpart to rejecting a completion dependency that consumes endpoints:
+// a dependency that waits for endpoint health onto a producer exporting none
+// waits forever.
+func TestRuntimeDependencyOntoEndpointlessProducerIsRejected(t *testing.T) {
+	dependency := &resources.ServiceDependency{
+		Name:   "migration",
+		Module: "data",
+		Kind:   resources.DependencyKindRuntime,
+	}
+	err := resources.ValidateDependencyPrerequisite(dependency, nil)
+	require.ErrorContains(t, err, "exports no endpoint")
+	require.ErrorContains(t, err, string(resources.DependencyKindCompletion))
+
+	// A producer that does export endpoints is fine.
+	require.NoError(t, resources.ValidateDependencyPrerequisite(dependency,
+		[]*basev0.Endpoint{{Module: "data", Service: "migration", Name: "grpc", Api: standards.GRPC}}))
+
+	// Legacy dependencies are how existing workspaces express one-shot work.
+	legacy := &resources.ServiceDependency{Name: "migration", Module: "data"}
+	require.NoError(t, resources.ValidateDependencyPrerequisite(legacy, nil))
+
+	// A completion dependency is the correct declaration and is never checked
+	// for endpoint health.
+	completion := &resources.ServiceDependency{Name: "migration", Module: "data", Kind: resources.DependencyKindCompletion}
+	require.NoError(t, resources.ValidateDependencyPrerequisite(completion, nil))
+}
+
+// Applications carry the same ServiceDependency type as services and so must
+// reject the same invalid declarations.
+func TestApplicationRejectsUnknownDependencyKind(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.ApplicationConfigurationName), []byte(`kind: application
+name: console
+version: 0.0.1
+agent:
+    kind: runtime::service
+    name: go-grpc
+    version: 0.0.1
+    publisher: codefly.ai
+service-dependencies:
+    - name: api
+      module: web
+      kind: whenever
+`), 0o600))
+	_, err := resources.LoadApplicationFromDir(ctx, dir)
+	require.ErrorContains(t, err, "unknown dependency kind")
+}
+
+// A network mapping is a runtime address, so only dependencies that constrain
+// the run stage may consume one. Injecting a build-only producer's connection
+// hands a consumer credentials for a service it never talks to.
+func TestNetworkMappingsSkipNonRuntimeDependencies(t *testing.T) {
+	mappings := []*basev0.NetworkMapping{{
+		Endpoint: &basev0.Endpoint{Module: "web", Service: "api", Name: "grpc", Api: standards.GRPC},
+	}}
+
+	runtime := []*resources.ServiceDependency{{Name: "api", Module: "web", Kind: resources.DependencyKindRuntime}}
+	resolved, err := resources.ResolveDependencyNetworkMappings(runtime, mappings)
+	require.NoError(t, err)
+	require.Len(t, resolved, 1)
+
+	for _, kind := range []resources.DependencyKind{resources.DependencyKindBuild, resources.DependencyKindSchema, resources.DependencyKindExternal} {
+		deps := []*resources.ServiceDependency{{Name: "api", Module: "web", Kind: kind}}
+		resolved, err := resources.ResolveDependencyNetworkMappings(deps, mappings)
+		require.NoError(t, err, "kind %s", kind)
+		require.Empty(t, resolved, "kind %s must not consume a runtime address", kind)
+	}
+
+	// Legacy keeps consuming mappings exactly as before.
+	legacy := []*resources.ServiceDependency{{Name: "api", Module: "web"}}
+	resolved, err = resources.ResolveDependencyNetworkMappings(legacy, mappings)
+	require.NoError(t, err)
+	require.Len(t, resolved, 1)
 }

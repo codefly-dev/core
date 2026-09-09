@@ -138,6 +138,15 @@ func LoadApplicationFromDir(ctx context.Context, dir string) (*Application, erro
 		return nil, w.Wrap(err)
 	}
 
+	// Applications carry the same ServiceDependency type as services, so they
+	// must reject the same invalid declarations. Without this an application
+	// could name an unknown kind and be accepted in silence.
+	for _, dep := range app.ServiceDependencies {
+		if err := dep.Validate(); err != nil {
+			return nil, w.Wrap(err)
+		}
+	}
+
 	app.dir = dir
 
 	return app, nil

@@ -71,6 +71,14 @@ func (e *Env) Load(dir string) (*Env, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, dep := range svc.ServiceDependencies {
+		// Only dependencies that constrain the run stage are agents to start.
+		// A build/codegen input or an externally-provided capability is not
+		// something codefly runs, and starting it here would boot a producer
+		// the caller never asked for — or, for an external capability, look for
+		// an agent that does not exist in the workspace at all.
+		if !resources.DependencyKind(dep.Kind).Participates(resources.StageRun) {
+			continue
+		}
 		e.agents = append(e.agents, dep.Name)
 	}
 	return e, nil
@@ -79,6 +87,7 @@ func (e *Env) Load(dir string) (*Env, error) {
 type serviceYAML struct {
 	ServiceDependencies []struct {
 		Name string `yaml:"name"`
+		Kind string `yaml:"kind"`
 	} `yaml:"service-dependencies"`
 }
 

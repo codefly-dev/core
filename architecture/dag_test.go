@@ -351,17 +351,50 @@ func TestSubGraphsPreserveEdgeKinds(t *testing.T) {
 	require.Equal(t, []resources.DependencyKind{resources.DependencyKindRuntime}, inverted.EdgeKinds("b", "a"))
 }
 
-func TestForPhaseKeepsNodesAndDropsForeignEdges(t *testing.T) {
+func TestForStageKeepsNodesAndDropsForeignEdges(t *testing.T) {
 	g := architecture.NewDAG("test")
 	g.AddKindedEdge("a", "b", resources.DependencyKindRuntime)
 	g.AddKindedEdge("b", "c", resources.DependencyKindBuild)
 
-	build := g.ForPhase(resources.PhaseBuild)
+	build, err := g.ForStage(resources.StageBuild)
+	require.NoError(t, err)
 	require.Equal(t, 3, len(build.Nodes()))
 	require.False(t, build.HasEdge("a", "b"))
 	require.True(t, build.HasEdge("b", "c"))
 
-	run := g.ForPhase(resources.PhaseRun)
+	run, err := g.ForStage(resources.StageRun)
+	require.NoError(t, err)
 	require.True(t, run.HasEdge("a", "b"))
 	require.False(t, run.HasEdge("b", "c"))
+}
+
+// AddEdge is the untyped constructor: module graphs use it exclusively. An
+// untyped edge must mean "constrains every phase", not "constrains none" —
+// otherwise ForPhase silently returns a graph with every node and no edges.
+func TestForStageKeepsUntypedEdges(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddEdge("a", "b")
+
+	for _, stage := range resources.Stages() {
+		sub, err := g.ForStage(stage)
+		require.NoError(t, err)
+		require.True(t, sub.HasEdge("a", "b"), "stage %s dropped an untyped edge", stage)
+	}
+}
+
+func TestDAGForStageRejectsUnknownStage(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddKindedEdge("a", "b", resources.DependencyKindRuntime)
+
+	_, err := g.ForStage(resources.Stage("bulid"))
+	require.ErrorContains(t, err, "unknown stage")
+}
+
+func TestEdgeKindsDoesNotAliasGraphState(t *testing.T) {
+	g := architecture.NewDAG("test")
+	g.AddKindedEdge("a", "b", resources.DependencyKindRuntime)
+
+	kinds := g.EdgeKinds("a", "b")
+	kinds[0] = resources.DependencyKindExternal
+	require.Equal(t, []resources.DependencyKind{resources.DependencyKindRuntime}, g.EdgeKinds("a", "b"))
 }

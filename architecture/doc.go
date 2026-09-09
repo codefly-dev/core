@@ -7,7 +7,9 @@
 // stable run-order used by `codefly run` and the agent orchestrator.
 //
 // Dependencies carry a kind (see resources.DependencyKind), so a closure is
-// computed per execution phase: ForPhase keeps only the edges that constrain
-// that phase, and cycles are detected within a phase rather than across the
-// union of all of them. See docs/dependency-kinds.md.
+// computed per elementary stage: ForStage keeps only the edges that constrain
+// that stage, and cycles are detected within a stage rather than across the
+// union of all of them. OrderFor decomposes a caller-facing phase (test and
+// deploy each build then run) into its ordered stages.
+// See docs/dependency-kinds.md.
 package architecture

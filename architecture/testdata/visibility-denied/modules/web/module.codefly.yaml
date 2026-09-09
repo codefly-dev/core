@@ -2,3 +2,4 @@ kind: module
 name: web
 services:
     - name: portal
+    - name: builder

@@ -813,6 +813,15 @@ type ServiceDependency struct {
 	GrpcClientDir string `yaml:"grpc-client-dir,omitempty"`
 
 	Endpoints []*EndpointReference `yaml:"endpoints,omitempty"`
+
+	// ExtraFields captures dependency keys that are valid on disk but not
+	// modeled here, for the same reason Service.ExtraFields does one level up:
+	// without it, a load → mutate → Save round-trip through a binary that does
+	// not know a key SILENTLY ERASES it from disk. That is not hypothetical —
+	// `kind` is exactly such a key for any older binary, and dropping it turns
+	// a phase-typed edge back into a legacy one that constrains every phase,
+	// which reintroduces the very cycle kinds exist to remove.
+	ExtraFields map[string]any `yaml:",inline"`
 }
 
 func (s *ServiceDependency) String() string {
@@ -831,9 +840,9 @@ func (s *ServiceDependency) Validate() error {
 	return nil
 }
 
-// Participates reports whether this dependency constrains the given phase.
-func (s *ServiceDependency) Participates(phase Phase) bool {
-	return s.Kind.Participates(phase)
+// Participates reports whether this dependency constrains the given stage.
+func (s *ServiceDependency) Participates(stage Stage) bool {
+	return s.Kind.Participates(stage)
 }
 
 // Prerequisite returns what the consumer waits for before it may start.

@@ -57,7 +57,8 @@ func TestBuildPhaseClosure(t *testing.T) {
 	dep, err := architecture.NewServiceDependencies(ctx, workspace)
 	require.NoError(t, err)
 
-	build := dep.ForPhase(resources.PhaseBuild)
+	build, err := dep.ForStage(resources.StageBuild)
+	require.NoError(t, err)
 
 	// The database bootstrap needs the API contract, nothing else.
 	order, err := build.OrderTo(ctx, unique["database"])
@@ -83,7 +84,8 @@ func TestRunPhaseClosure(t *testing.T) {
 	dep, err := architecture.NewServiceDependencies(ctx, workspace)
 	require.NoError(t, err)
 
-	run := dep.ForPhase(resources.PhaseRun)
+	run, err := dep.ForStage(resources.StageRun)
+	require.NoError(t, err)
 
 	// The API waits on the database, not on its own schema consumer.
 	order, err := run.OrderTo(ctx, unique["api"])
@@ -102,20 +104,23 @@ func TestRunPhaseClosure(t *testing.T) {
 	require.Empty(t, order)
 }
 
-func TestExternalDependencyOrdersNoPhase(t *testing.T) {
+func TestExternalDependencyOrdersNoStage(t *testing.T) {
 	ctx := context.Background()
 	workspace, unique := phasesWorkspace(t)
 
 	dep, err := architecture.NewServiceDependencies(ctx, workspace)
 	require.NoError(t, err)
 
-	// The capability is declared, so it stays visible in the untyped graph.
-	require.Contains(t, dep.Services(), architecture.Service{Unique: "vendor/stripe"})
+	// The capability is declared, so it stays visible as a graph node — but it
+	// is not a service (see TestExternalProducerIsNotListedAsAService).
+	require.True(t, dep.Graph().HasNode("vendor/stripe"))
 
-	for _, phase := range resources.Phases() {
-		requires, err := dep.ForPhase(phase).DirectRequires(ctx, unique["worker"])
+	for _, stage := range resources.Stages() {
+		restricted, err := dep.ForStage(stage)
 		require.NoError(t, err)
-		require.NotContains(t, requires, architecture.Service{Unique: "vendor/stripe"}, "phase %s", phase)
+		requires, err := restricted.DirectRequires(ctx, unique["worker"])
+		require.NoError(t, err)
+		require.NotContains(t, requires, architecture.Service{Unique: "vendor/stripe"}, "stage %s", stage)
 	}
 }
 
@@ -158,10 +163,23 @@ func TestLegacyWorkspaceIsAcyclicInEveryPhase(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expected, full)
 
+	for _, stage := range resources.Stages() {
+		restricted, err := dep.ForStage(stage)
+		require.NoError(t, err, "stage %s", stage)
+		order, err := restricted.OrderTo(ctx, frontend)
+		require.NoError(t, err, "stage %s", stage)
+		require.Equal(t, expected, order, "stage %s", stage)
+	}
+
+	// Every phase, including the composite ones, sees the same legacy order in
+	// each of its stages.
 	for _, phase := range resources.Phases() {
-		order, err := dep.ForPhase(phase).OrderTo(ctx, frontend)
+		stages, err := dep.OrderFor(ctx, phase, frontend)
 		require.NoError(t, err, "phase %s", phase)
-		require.Equal(t, expected, order, "phase %s", phase)
+		require.NotEmpty(t, stages)
+		for _, stage := range stages {
+			require.Equal(t, expected, stage.Services, "phase %s stage %s", phase, stage.Stage)
+		}
 	}
 }
 
@@ -172,7 +190,9 @@ func TestRestrictPreservesLookupAndEdgeKinds(t *testing.T) {
 	dep, err := architecture.NewServiceDependencies(ctx, workspace)
 	require.NoError(t, err)
 
-	restricted, err := dep.ForPhase(resources.PhaseRun).Restrict(ctx, unique["worker"])
+	run, err := dep.ForStage(resources.StageRun)
+	require.NoError(t, err)
+	restricted, err := run.Restrict(ctx, unique["worker"])
 	require.NoError(t, err)
 
 	// Services kept by the restriction stay resolvable...
@@ -198,7 +218,9 @@ func TestPhaseGraphKeepsEdgeKinds(t *testing.T) {
 	dep, err := architecture.NewServiceDependencies(ctx, workspace)
 	require.NoError(t, err)
 
-	g := dep.ForPhase(resources.PhaseBuild).Graph()
+	build, err := dep.ForStage(resources.StageBuild)
+	require.NoError(t, err)
+	g := build.Graph()
 	edges := g.OutEdges(unique["api"])
 	byTarget := make(map[string]string, len(edges))
 	for _, e := range edges {
@@ -218,24 +240,24 @@ func TestPhasesFixtureKeepsVisibilityEnforcement(t *testing.T) {
 	require.NoError(t, workspace.ValidateServiceDependencies(ctx))
 }
 
-func TestDependenciesCarryKinds(t *testing.T) {
+func TestGraphCarriesKinds(t *testing.T) {
 	ctx := context.Background()
 	workspace, unique := phasesWorkspace(t)
 
 	dep, err := architecture.NewServiceDependencies(ctx, workspace)
 	require.NoError(t, err)
 
-	kinds := make(map[string][]resources.DependencyKind)
-	for _, edge := range dep.Dependencies() {
-		kinds[edge.From.Unique+" -> "+edge.To.Unique] = edge.Kinds
+	kinds := make(map[string]string)
+	for _, e := range dep.Graph().Edges() {
+		kinds[e.From+" -> "+e.To] = e.Kind
 	}
-	require.Equal(t, []resources.DependencyKind{resources.DependencyKindRuntime}, kinds[unique["database"]+" -> "+unique["api"]])
-	require.Equal(t, []resources.DependencyKind{resources.DependencyKindSchema}, kinds[unique["api"]+" -> "+unique["database"]])
-	require.Equal(t, []resources.DependencyKind{resources.DependencyKindCompletion}, kinds[unique["migration"]+" -> "+unique["worker"]])
-	require.Equal(t, []resources.DependencyKind{resources.DependencyKindExternal}, kinds["vendor/stripe -> "+unique["worker"]])
+	require.Equal(t, graph.EdgeRuntime, kinds[unique["database"]+" -> "+unique["api"]])
+	require.Equal(t, graph.EdgeSchema, kinds[unique["api"]+" -> "+unique["database"]])
+	require.Equal(t, graph.EdgeCompletion, kinds[unique["migration"]+" -> "+unique["worker"]])
+	require.Equal(t, graph.EdgeExternal, kinds["vendor/stripe -> "+unique["worker"]])
 }
 
-func TestLegacyDependenciesCarryLegacyKind(t *testing.T) {
+func TestLegacyDependenciesCarryDependsOnKind(t *testing.T) {
 	ctx := context.Background()
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/flat-layout")
 	require.NoError(t, err)
@@ -243,7 +265,90 @@ func TestLegacyDependenciesCarryLegacyKind(t *testing.T) {
 	dep, err := architecture.NewServiceDependencies(ctx, workspace)
 	require.NoError(t, err)
 
-	for _, edge := range dep.Dependencies() {
-		require.Equal(t, []resources.DependencyKind{resources.DependencyKindLegacy}, edge.Kinds, "%s -> %s", edge.From.Unique, edge.To.Unique)
+	for _, e := range dep.Graph().Edges() {
+		require.Equal(t, graph.EdgeDependsOn, e.Kind, "%s -> %s", e.From, e.To)
+	}
+}
+
+// A build input constrains the test and deploy that CONTAIN the build. When the
+// kind table listed build inputs under PhaseBuild alone, api vanished from
+// worker's test and deploy closures and the worker was tested and deployed
+// against a stale generated client.
+//
+// Merging the stages into one graph is NOT the fix: the api/database pair has a
+// build edge and a runtime edge pointing opposite ways, so the union is a cycle.
+// The phase must decompose into ordered stages instead.
+func TestBuildDependencyIsInTestAndDeployClosures(t *testing.T) {
+	ctx := context.Background()
+	workspace, unique := phasesWorkspace(t)
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace)
+	require.NoError(t, err)
+
+	for _, phase := range []resources.Phase{resources.PhaseTest, resources.PhaseDeploy} {
+		stages, err := dep.OrderFor(ctx, phase, unique["worker"])
+		require.NoError(t, err, "phase %s must not report a false cycle", phase)
+		require.Equal(t, []resources.Stage{resources.StageBuild, resources.StageRun},
+			[]resources.Stage{stages[0].Stage, stages[1].Stage})
+
+		require.Contains(t, stages[0].Services, architecture.Service{Unique: unique["api"]},
+			"phase %s must build the worker's build input", phase)
+		require.Contains(t, stages[1].Services, architecture.Service{Unique: unique["migration"]},
+			"phase %s must still run the worker's runtime prerequisites", phase)
+	}
+
+	// The schema edge is the same shape: the bootstrap cannot be tested or
+	// deployed without the contract it generates from.
+	for _, phase := range []resources.Phase{resources.PhaseTest, resources.PhaseDeploy} {
+		stages, err := dep.OrderFor(ctx, phase, unique["database"])
+		require.NoError(t, err)
+		require.Contains(t, stages[0].Services, architecture.Service{Unique: unique["api"]}, "phase %s", phase)
+	}
+}
+
+func TestStageSelectionRejectsUnknownNames(t *testing.T) {
+	ctx := context.Background()
+	workspace, _ := phasesWorkspace(t)
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace)
+	require.NoError(t, err)
+
+	// Returning an edgeless graph here is indistinguishable from "nothing
+	// depends on anything", which would silently drop all ordering.
+	_, err = dep.ForStage(resources.Stage("bulid"))
+	require.ErrorContains(t, err, "unknown stage")
+
+	_, err = dep.OrderFor(ctx, resources.Phase("tset"), "whatever")
+	require.ErrorContains(t, err, "unknown phase")
+}
+
+func TestExternalProducerIsNotListedAsAService(t *testing.T) {
+	ctx := context.Background()
+	workspace, _ := phasesWorkspace(t)
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace)
+	require.NoError(t, err)
+
+	// Services() must not hand out an entry ServiceFromUnique cannot resolve.
+	require.NotContains(t, dep.Services(), architecture.Service{Unique: "vendor/stripe"})
+	_, err = dep.ServiceFromUnique("vendor/stripe")
+	require.Error(t, err)
+
+	// The declaration is still visible as an edge.
+	require.True(t, dep.Graph().HasNode("vendor/stripe"))
+}
+
+func TestEveryDependencyKindMapsToADistinctEdgeKind(t *testing.T) {
+	seen := map[string]resources.DependencyKind{}
+	for _, kind := range resources.DeclarableDependencyKinds() {
+		g := architecture.NewDAG("mapping")
+		g.AddKindedEdge("a", "b", kind)
+		edges := architecture.ToGraph(g, "mapping").Edges()
+		require.Len(t, edges, 1)
+		// An unmapped kind falls back to depends_on, which would silently
+		// collapse a typed edge into an untyped one.
+		require.NotEqual(t, graph.EdgeDependsOn, edges[0].Kind, "kind %q is not mapped", kind)
+		require.NotContains(t, seen, edges[0].Kind, "kind %q collides with %q", kind, seen[edges[0].Kind])
+		seen[edges[0].Kind] = kind
 	}
 }

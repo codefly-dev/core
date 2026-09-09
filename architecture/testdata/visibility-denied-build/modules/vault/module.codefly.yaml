@@ -1,4 +1,0 @@
-kind: module
-name: vault
-services:
-    - name: secrets

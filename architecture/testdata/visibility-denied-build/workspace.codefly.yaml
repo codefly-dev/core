@@ -1,5 +1,0 @@
-name: codefly-platform
-layout: modules
-modules:
-    - name: vault
-    - name: web

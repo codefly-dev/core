@@ -87,36 +87,61 @@ func (g *DAG) AddKindedEdge(u, v string, kind resources.DependencyKind) {
 }
 
 // EdgeKinds returns the dependency kinds carried by an edge. An edge added
-// without a kind carries none.
+// through AddEdge carries none; see edgeKindsOrLegacy for how those are treated
+// when selecting a stage. The result is a copy so a caller cannot reach into
+// the graph's own state.
 func (g *DAG) EdgeKinds(from, to string) []resources.DependencyKind {
-	return g.edgeKinds[Edge{From: from, To: to}]
+	return slices.Clone(g.edgeKinds[Edge{From: from, To: to}])
+}
+
+// edgeKindsOrLegacy treats an edge recorded without any kind as legacy rather
+// than as participating in nothing. AddEdge is the untyped constructor (module
+// graphs use it exclusively), and an untyped edge must mean "constrains every
+// stage" — the same thing an undeclared kind means in YAML. Letting it mean
+// "constrains no stage" made stage selection silently return an edgeless graph.
+func (g *DAG) edgeKindsOrLegacy(edge Edge) []resources.DependencyKind {
+	if kinds := g.edgeKinds[edge]; len(kinds) > 0 {
+		return kinds
+	}
+	return []resources.DependencyKind{resources.DependencyKindLegacy}
 }
 
 // inheritEdgeKinds copies the kinds src records for an edge onto the same edge
-// here, so a derived graph keeps knowing which phase each edge constrains.
+// here, so a derived graph keeps knowing which stage each edge constrains.
 func (g *DAG) inheritEdgeKinds(src *DAG, edge Edge) {
 	if kinds := src.edgeKinds[edge]; len(kinds) > 0 {
 		g.edgeKinds[edge] = slices.Clone(kinds)
 	}
 }
 
-// ForPhase returns a graph holding every node but only the edges whose kinds
-// constrain the given phase. Nodes are kept so a service is still resolvable
-// in a phase that imposes no ordering on it.
-func (g *DAG) ForPhase(phase resources.Phase) *DAG {
-	out := NewDAG(fmt.Sprintf("%s-%s", g.Name, phase))
+// ForStage returns a graph holding every node but only the edges whose kinds
+// constrain the given stage. Nodes are kept so a service is still resolvable
+// in a stage that imposes no ordering on it.
+//
+// The unit here is a STAGE, not a phase: only an elementary stage is a sortable
+// graph. Merging the stages of a composite phase produces a false cycle between
+// a build-time and a run-time edge that point opposite ways.
+//
+// An unknown stage is an error rather than an empty result: dropping every edge
+// is indistinguishable from "nothing depends on anything", so a typo in a stage
+// name would silently remove all ordering instead of failing.
+func (g *DAG) ForStage(stage resources.Stage) (*DAG, error) {
+	if err := stage.Validate(); err != nil {
+		return nil, err
+	}
+	out := NewDAG(fmt.Sprintf("%s-%s", g.Name, stage))
 	out.verb = g.verb
 	for _, node := range g.Nodes() {
 		out.AddNode(node.ID).WithType(node.Type)
 	}
 	for _, edge := range g.Edges() {
-		for _, kind := range g.edgeKinds[edge] {
-			if kind.Participates(phase) {
+		for _, kind := range g.edgeKindsOrLegacy(edge) {
+			if kind.Participates(stage) {
 				out.AddKindedEdge(edge.From, edge.To, kind)
 			}
 		}
 	}
-	return out
+	return out, nil
 }
 
 type Node struct {

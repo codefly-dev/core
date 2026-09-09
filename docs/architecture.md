@@ -232,6 +232,6 @@ workspace.codefly.yaml
 
 Start order: `postgres → api-server, worker` (parallel where possible).
 
-A dependency can declare a `kind` saying which phase it constrains — a build
+A dependency can declare a `kind` saying which stage it constrains — a build
 input, a consumed runtime endpoint, a one-shot completion prerequisite, a schema
 contribution or an external capability. See [dependency-kinds.md](dependency-kinds.md).

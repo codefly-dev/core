@@ -1,13 +1,12 @@
 kind: service
-name: secrets
+name: builder
 version: 0.0.0
 agent:
     kind: runtime::service
     name: go-grpc
     version: 0.0.16
     publisher: codefly.ai
-endpoints:
-    - name: http
-      api: http
-      visibility: internal
-      allow-modules: [platform]
+service-dependencies:
+    - name: secrets
+      module: vault
+      kind: build

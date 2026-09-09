@@ -31,14 +31,26 @@ func ToGraph(dag *DAG, name string) *graph.Graph {
 	return out
 }
 
-// edgeKind maps a dependency kind onto the generic graph vocabulary. The legacy
-// (undeclared) kind stays depends_on so consumers of the untyped graph are
-// unaffected.
+// edgeKinds maps a dependency kind onto the generic graph vocabulary. The
+// mapping is explicit rather than a string conversion: the two vocabularies are
+// owned by different packages, and converting silently made them agree only by
+// coincidence — renaming a DependencyKind value would have changed the graph
+// edge kind with nothing to catch it. An unhandled kind is a compile-time gap
+// here, not a silently-invented edge kind.
+var edgeKinds = map[resources.DependencyKind]string{
+	resources.DependencyKindLegacy:     graph.EdgeDependsOn,
+	resources.DependencyKindBuild:      graph.EdgeBuildInput,
+	resources.DependencyKindRuntime:    graph.EdgeRuntime,
+	resources.DependencyKindCompletion: graph.EdgeCompletion,
+	resources.DependencyKindSchema:     graph.EdgeSchema,
+	resources.DependencyKindExternal:   graph.EdgeExternal,
+}
+
 func edgeKind(kind resources.DependencyKind) string {
-	if kind == resources.DependencyKindLegacy {
-		return graph.EdgeDependsOn
+	if mapped, ok := edgeKinds[kind]; ok {
+		return mapped
 	}
-	return string(kind)
+	return graph.EdgeDependsOn
 }
 
 func nodeKind(t any) string {
