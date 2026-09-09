@@ -1,0 +1,4 @@
+name: beta-session
+layout: modules
+modules:
+  - name: office

@@ -33,7 +33,8 @@ func TestMyService(t *testing.T) {
    session (`SessionHandshake`)
 4. Waits for all services to be ready (`GetFlowStatus`)
 5. Extracts network mappings and configurations from the CLI
-6. Sets environment variables for the calling process
+6. Resolves them into the session's environment, and injects it into the calling
+   process unless the session is command-scoped (see below)
 
 **Why it uses the CLI binary:** This creates a universal integration testing pattern. The same `codefly` binary can be called from Go, Python, Rust, TypeScript, or any language. No language-specific dependency management code needed.
 
@@ -214,6 +215,58 @@ SDK reuses them instead of nesting a second flow. That session is *borrowed*:
 `Stop` and `Destroy` leave the parent's stack running, and invocation-scoped
 configuration overrides are rejected rather than silently ignored.
 
+### Session directory
+
+By default a session is anchored to the working directory at the moment it
+starts: the module and service owning that directory become its identity, and
+the Codefly process runs there. `WithDirectory` pins an absolute directory
+instead, so one process can drive several stacks, each on its own service:
+
+```go
+alpha, _ := sdk.WithDependencies(ctx, sdk.WithDirectory("/abs/path/shop/web"))
+beta, _ := sdk.WithDependencies(ctx, sdk.WithDirectory("/abs/path/office/portal"))
+```
+
+A session's identity is resolved once from that directory and never follows a
+later `os.Chdir`. Use `deps.Service(ctx)` / `deps.Module(ctx)` to read it; the
+package-level `sdk.Service()` / `sdk.Module()` resolve from the current working
+directory instead and are deprecated.
+
+### Environment: command-scoped or process-global
+
+A session resolves everything it projects — identity, endpoints, its own
+configuration and its dependencies' — before touching anything.
+
+**Command-scoped (recommended, and the only option for parallel sessions).**
+`WithCommandScopedEnvironment` keeps the session out of `os.Environ`. Hand the
+resolved values to the child processes that need them:
+
+```go
+deps, _ := sdk.WithDependencies(ctx, sdk.WithCommandScopedEnvironment())
+cmd := exec.Command("./my-service")
+cmd.Env = deps.Environ()               // process environment + this session
+address := deps.EnvironmentVariables()["CODEFLY__ENDPOINT__SHOP__STORE__TCP__TCP"]
+url := deps.Connection("postgres", "connection")
+```
+
+`Environ` and `EnvironmentVariables` return defensive copies, so independent
+sessions coexist without contending for a single process-wide resource.
+
+**Process-global injection (compatibility).** Without that option — and through
+`deps.SetEnvironment(ctx)` — the session writes its values into `os.Environ` so
+`os.Getenv` and the package-level `sdk.Connection` keep working. `os.Environ` is
+one process-wide resource, so:
+
+- Exactly one session owns it at a time. A second session's injection is
+  **rejected before any value changes**; run it command-scoped instead.
+- Values are resolved first, then written. A resolution failure leaves the
+  environment untouched, and a failed write rolls its round back.
+- `Stop`, `Destroy`, and `ReleaseEnvironment` give ownership back: every
+  variable the session still owns returns to what it was before the session
+  first injected it, and one the caller has since changed is left alone.
+- Calling `SetEnvironment` again on the same session re-resolves and re-applies;
+  release still restores the values captured before the first injection.
+
 ### NamingScope
 
 `WithNamingScope` is a human label, not an isolation primitive — disposable
@@ -238,7 +291,7 @@ The scope is appended to the endpoint name before hashing, so `ToNamedPort(ws, m
 ### From the SDK
 
 ```go
-// WithDependencies pattern
+// WithDependencies pattern — reads the session's own resolved values
 env, _ := sdk.WithDependencies(ctx)
 url := env.Connection("postgres", "connection")
 

@@ -51,7 +51,7 @@ func TestSharedControlChannelStaysOnTheWorkspacePort(t *testing.T) {
 	if channel.isolated() {
 		t.Fatal("the shared control channel claimed session isolation")
 	}
-	if want := cliServerAddress(ctx, "dev"); channel.target != want {
+	if want := cliServerAddress(ctx, testSessionDirectory(t), "dev"); channel.target != want {
 		t.Fatalf("shared control target = %s, want %s", channel.target, want)
 	}
 	if channel.scope != "dev" {
@@ -143,7 +143,7 @@ func runFailingSession(t *testing.T, mode string, timeout time.Duration, wantErr
 }
 
 func TestWarmSessionReuseRequiresAMatchingPlan(t *testing.T) {
-	channel, err := newControlChannel(context.Background(), &Option{KeepRunning: true, Fixture: "dev-admin"})
+	channel, err := newControlChannel(context.Background(), testSessionDirectory(t), &Option{KeepRunning: true, Fixture: "dev-admin"})
 	if err != nil {
 		t.Fatalf("newControlChannel() error = %v", err)
 	}
@@ -174,7 +174,8 @@ func TestWarmSessionReuseRequiresAMatchingPlan(t *testing.T) {
 
 func TestReuseFingerprintTracksThePlanNotJustTheWorkspace(t *testing.T) {
 	ctx := context.Background()
-	base := reuseFingerprint(ctx, &Option{})
+	dir := testSessionDirectory(t)
+	base := reuseFingerprint(ctx, dir, &Option{})
 	cases := map[string]*Option{
 		"fixture":     {Fixture: "dev-admin"},
 		"profile":     {RunProfile: "local"},
@@ -184,18 +185,18 @@ func TestReuseFingerprintTracksThePlanNotJustTheWorkspace(t *testing.T) {
 		"unchanged":   {},
 		"reorderable": {ExcludedDependencies: []string{"b", "a"}},
 	}
-	if got := reuseFingerprint(ctx, cases["unchanged"]); got != base {
+	if got := reuseFingerprint(ctx, dir, cases["unchanged"]); got != base {
 		t.Fatal("an identical plan produced a different fingerprint")
 	}
-	reordered := reuseFingerprint(ctx, &Option{ExcludedDependencies: []string{"a", "b"}})
-	if reordered != reuseFingerprint(ctx, cases["reorderable"]) {
+	reordered := reuseFingerprint(ctx, dir, &Option{ExcludedDependencies: []string{"a", "b"}})
+	if reordered != reuseFingerprint(ctx, dir, cases["reorderable"]) {
 		t.Fatal("exclusion order changed the fingerprint")
 	}
 	for name, opt := range cases {
 		if name == "unchanged" {
 			continue
 		}
-		if reuseFingerprint(ctx, opt) == base {
+		if reuseFingerprint(ctx, dir, opt) == base {
 			t.Fatalf("changing %s left the reuse fingerprint unchanged", name)
 		}
 	}
@@ -206,7 +207,7 @@ func TestReuseFingerprintTracksThePlanNotJustTheWorkspace(t *testing.T) {
 // path is stable, so clearing it when a server is still listening frees the
 // path for a second child and puts two stacks on one set of containers.
 func TestWarmRespawnRefusesToDisplaceALiveControlServer(t *testing.T) {
-	channel, err := newControlChannel(context.Background(), &Option{KeepRunning: true})
+	channel, err := newControlChannel(context.Background(), testSessionDirectory(t), &Option{KeepRunning: true})
 	if err != nil {
 		t.Fatalf("newControlChannel() error = %v", err)
 	}
@@ -235,7 +236,7 @@ func TestWarmRespawnRefusesToDisplaceALiveControlServer(t *testing.T) {
 }
 
 func TestReusableControlDirectoryRejectsAPlantedSymlink(t *testing.T) {
-	channel, err := newControlChannel(context.Background(), &Option{KeepRunning: true})
+	channel, err := newControlChannel(context.Background(), testSessionDirectory(t), &Option{KeepRunning: true})
 	if err != nil {
 		t.Fatalf("newControlChannel() error = %v", err)
 	}
@@ -287,9 +288,21 @@ func TestHandshakeRequiresTheIsolationCapability(t *testing.T) {
 	runFailingSession(t, "no-capability", 30*time.Second, session.IsolatedControlSocketCapability)
 }
 
+// testSessionDirectory is the directory these tests anchor a session to. They
+// predate WithDirectory and were written against the process working
+// directory, which enterSessionWorkspace moves into a real workspace.
+func testSessionDirectory(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("resolve working directory: %v", err)
+	}
+	return dir
+}
+
 func mustControlChannel(t *testing.T, ctx context.Context, opt *Option) *controlChannel {
 	t.Helper()
-	channel, err := newControlChannel(ctx, opt)
+	channel, err := newControlChannel(ctx, testSessionDirectory(t), opt)
 	if err != nil {
 		t.Fatalf("newControlChannel() error = %v", err)
 	}
@@ -298,13 +311,12 @@ func mustControlChannel(t *testing.T, ctx context.Context, opt *Option) *control
 }
 
 // enterSessionWorkspace runs the test from a real service inside a real
-// workspace and clears the process-wide resource cache the SDK keeps, so a
-// prior test's workspace cannot leak into this one.
+// workspace. The resource cache the SDK keeps is keyed by the directory it was
+// resolved from, so entering and leaving this workspace re-resolves on its own
+// and a prior test's workspace cannot leak into this one.
 func enterSessionWorkspace(t *testing.T) {
 	t.Helper()
 	t.Chdir("testdata/session-workspace/modules/app/services/api")
-	runningModule, runningService = nil, nil
-	t.Cleanup(func() { runningModule, runningService = nil, nil })
 	t.Setenv("CODEFLY__RUNTIME_CONTEXT", "native")
 }
 

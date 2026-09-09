@@ -108,6 +108,15 @@ func FindUp[C Configuration](ctx context.Context) (*string, error) {
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get active directory")
 	}
+	return FindUpFrom[C](ctx, cur)
+}
+
+// FindUpFrom looks for a configuration in dir and up. Callers that must not
+// depend on the process working directory — a long-lived session anchored to
+// the directory it was created in — pass their own absolute directory.
+func FindUpFrom[C Configuration](ctx context.Context, dir string) (*string, error) {
+	w := wool.Get(ctx).In("configurations.FindUpFrom", wool.GenericField[C](), wool.DirField(dir))
+	cur := dir
 	var atRoot bool
 	for {
 		// Look for a configuration
