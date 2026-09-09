@@ -78,7 +78,14 @@ class _TypeIndex:
             self._walk(full, f"{attr}.", message.nested_type, module)
 
     def module_of(self, full_name: str) -> str:
-        return self._module_of[full_name]
+        module = self._module_of.get(full_name)
+        if module is None:
+            package = full_name.lstrip(".").rpartition(".")[0]
+            raise ValueError(
+                f"no binding for type {full_name}: package {package} is not part of "
+                "the generated set — the contract must include the proto defining it"
+            )
+        return module
 
     def reference(self, full_name: str, alias: str) -> str:
         return f"{alias}.{self._attr_of[full_name]}"
@@ -216,15 +223,23 @@ def generate(request: plugin_pb2.CodeGeneratorRequest) -> plugin_pb2.CodeGenerat
 
     # A service's fully-qualified name — hence its facade — is per package, so
     # each package gets its own file rather than being merged under one factory.
+    # Only packages that actually render a service form a group: services= is
+    # what narrows a multi-package image down to the one the caller asked for.
     groups: dict[str, list[FileDescriptorProto]] = {}
     for fd in targets:
-        if fd.service:
+        if any(not selected or service.name in selected for service in fd.service):
             groups.setdefault(fd.package, []).append(fd)
 
     explicit_module = options.get("module")
+    if explicit_module and len(groups) > 1:
+        raise ValueError(
+            f"module={explicit_module} names one entry point but services live in "
+            f"packages {sorted(groups)}; narrow with services= or drop module= to "
+            "derive a name per package"
+        )
     emitted: dict[str, str] = {}
     for package, files in groups.items():
-        module = explicit_module if explicit_module and len(groups) == 1 else _default_module_name(package)
+        module = explicit_module or _default_module_name(package)
         content = render(files, types, module, selected)
         if content is None:
             continue

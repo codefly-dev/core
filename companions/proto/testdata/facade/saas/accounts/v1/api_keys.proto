@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package saas.accounts.v1;
+
+import "saas/accounts/v1/common.proto";
+import "saas/jobs/v1/jobs.proto";
+
+message APIKey {
+  string id = 1;
+  repeated Permission scopes = 2;
+}
+
+message ListAPIKeysRequest {
+  string owner_id = 1;
+}
+
+message ListAPIKeysResponse {
+  repeated APIKey keys = 1;
+}
+
+message ListJobOperationsRequest {
+  string key_id = 1;
+}
+
+service APIKeyService {
+  rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse);
+  rpc ListJobOperations(ListJobOperationsRequest) returns (saas.jobs.v1.GetJobOperationsResponse);
+}

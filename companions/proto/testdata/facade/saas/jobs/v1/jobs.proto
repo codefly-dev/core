@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package saas.jobs.v1;
+
+// Another contract's package. The accounts surface references it from an RPC
+// signature, so its bindings have to come along even though it is not one of
+// the module's own files.
+
+message GetJobOperationsResponse {
+  repeated string operation_ids = 1;
+}

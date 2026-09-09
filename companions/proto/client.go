@@ -33,13 +33,16 @@ type ClientRequest struct {
 	// DescriptorSet is a serialized google.protobuf.FileDescriptorSet — the
 	// contract a module package carries. buf accepts it as a generation input.
 	DescriptorSet []byte
-	// TargetFiles names the module's own proto files inside DescriptorSet (the
-	// files the module owns, not its imports). Required with DescriptorSet when
-	// generating a Python Facade: the strip step must keep exactly these and
-	// drop every shared import (buf.validate, google.api, org-shared options,
-	// ...), so that the generated *_pb2 never registers a shared descriptor a
-	// sibling SDK also carries. Ignored for the Sources path (the sources are
-	// the targets) and for non-Python or non-facade generation.
+	// TargetFiles names the proto files the generated library will own. Required
+	// with DescriptorSet when generating a Python Facade: the strip step keeps
+	// exactly these and drops every import reached only through options
+	// (buf.validate, google.api, org-shared options, ...), so that the generated
+	// *_pb2 never registers a shared descriptor a sibling SDK also carries.
+	// A file whose types these reference must be listed too — the strip refuses
+	// an incomplete set by name rather than pulling the file in, because what
+	// the library contains is this caller's decision, not the strip's. Ignored
+	// for the Sources path (the sources are the targets) and for non-Python or
+	// non-facade generation.
 	TargetFiles []string
 	// Sources are .proto files written to the temp dir — today's
 	// GenerateGRPC path. Each carries its repo-relative path, not just content:

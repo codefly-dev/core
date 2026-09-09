@@ -171,6 +171,30 @@ def test_same_named_service_across_files_collides():
         facade_gen.generate(_desc_request(files, ["a.proto", "b.proto"]))
 
 
+def test_missing_cross_package_type_fails_loud():
+    # A method resolving into a package the contract never generated used to
+    # raise a bare KeyError out of the type index (issue #410).
+    fd = _file(
+        "a.proto",
+        "svc.v1",
+        ["Req"],
+        [("S", [("Do", ".svc.v1.Req", ".other.v1.Resp")])],
+    )
+    with pytest.raises(ValueError, match=r"no binding for type \.other\.v1\.Resp"):
+        facade_gen.generate(_desc_request([fd], ["a.proto"]))
+
+
+def test_cross_package_type_resolves_when_its_proto_is_present():
+    files = [
+        _file("jobs.proto", "other.v1", ["Resp"], []),
+        _file("a.proto", "svc.v1", ["Req"], [("S", [("Do", ".svc.v1.Req", ".other.v1.Resp")])]),
+    ]
+    content = facade_gen.generate(_desc_request(files, ["a.proto"])).file[0].content
+
+    assert "import jobs_pb2 as " in content
+    assert ".Resp)" in content
+
+
 def test_multiple_packages_emit_separate_files():
     files = [
         _file("a.proto", "one.v1", ["Req", "Resp"], [("AlphaService", [("Do", ".one.v1.Req", ".one.v1.Resp")])]),
@@ -183,6 +207,34 @@ def test_multiple_packages_emit_separate_files():
     one = next(f.content for f in response.file if f.name == "one.py")
     assert '"/one.v1.AlphaService/Do"' in one
     assert "two.v1" not in one  # packages did not bleed together
+
+
+def test_explicit_module_rejected_when_packages_are_ambiguous():
+    # module= names one entry point. Silently deriving a different name per
+    # package instead breaks the caller's import; say so rather than renaming.
+    files = [
+        _file("a.proto", "saas.accounts.v1", ["Req", "Resp"],
+              [("APIKeyService", [("L", ".saas.accounts.v1.Req", ".saas.accounts.v1.Resp")])]),
+        _file("j.proto", "saas.jobs.v1", ["JReq", "JResp"],
+              [("JobService", [("G", ".saas.jobs.v1.JReq", ".saas.jobs.v1.JResp")])]),
+    ]
+    with pytest.raises(ValueError, match="module=sdkclient names one entry point"):
+        facade_gen.generate(_desc_request(files, ["a.proto", "j.proto"], "module=sdkclient"))
+
+
+def test_services_filter_narrows_packages_so_module_is_honored():
+    files = [
+        _file("a.proto", "saas.accounts.v1", ["Req", "Resp"],
+              [("APIKeyService", [("L", ".saas.accounts.v1.Req", ".saas.accounts.v1.Resp")])]),
+        _file("j.proto", "saas.jobs.v1", ["JReq", "JResp"],
+              [("JobService", [("G", ".saas.jobs.v1.JReq", ".saas.jobs.v1.JResp")])]),
+    ]
+    response = facade_gen.generate(
+        _desc_request(files, ["a.proto", "j.proto"], "module=sdkclient,services=APIKeyService")
+    )
+
+    assert [f.name for f in response.file] == ["sdkclient.py"]
+    assert "JobService" not in response.file[0].content
 
 
 def test_main_reports_error_via_response(monkeypatch):
