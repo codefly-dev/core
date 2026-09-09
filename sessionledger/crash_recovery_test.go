@@ -28,16 +28,17 @@ const (
 	helperEnv       = "CODEFLY_SESSION_LEDGER_HELPER"
 	helperLedgerEnv = "CODEFLY_SESSION_LEDGER_ROOT"
 
-	// phaseInit crashes with the process group declared but not yet confirmed
-	// — the CLI died between spawning a dependency and it becoming ready.
+	// phaseInit crashes with the process group recorded but nothing else done —
+	// the CLI died between spawning a dependency and it becoming ready.
 	phaseInit = "init"
-	// phaseReady crashes after the group was confirmed running.
+	// phaseReady crashes after the session reached readiness and recorded a
+	// second resource.
 	phaseReady = "ready"
 )
 
 type helperHandoff struct {
 	Invocation string `json:"invocation"`
-	PGID       int    `json:"pgid"`
+	PGIDs      []int  `json:"pgids"`
 }
 
 // TestMain lets the test binary re-execute itself as the crashing CLI.
@@ -72,18 +73,26 @@ func runCrashingSession(phase string) {
 	if err != nil {
 		panic(err)
 	}
+	// A process group has no identifier before it exists, so it is adopted
+	// with its witness in one write rather than declared and later committed.
 	resource, witness := sessionledger.NativeProcessGroup(group)
-	ref, err := handle.Declare(resource)
-	if err != nil {
+	if _, err := handle.Adopt(resource, witness); err != nil {
 		panic(err)
 	}
+	pgids := []int{group.PGID()}
 	if phase == phaseReady {
-		if err := handle.Commit(ref, witness); err != nil {
+		second, err := base.StartTrackedProcessGroup(exec.Command("sleep", "600"))
+		if err != nil {
 			panic(err)
 		}
+		secondResource, secondWitness := sessionledger.NativeProcessGroup(second)
+		if _, err := handle.Adopt(secondResource, secondWitness); err != nil {
+			panic(err)
+		}
+		pgids = append(pgids, second.PGID())
 	}
 
-	handoff, err := json.Marshal(helperHandoff{Invocation: handle.InvocationID(), PGID: group.PGID()})
+	handoff, err := json.Marshal(helperHandoff{Invocation: handle.InvocationID(), PGIDs: pgids})
 	if err != nil {
 		panic(err)
 	}
@@ -146,9 +155,11 @@ func recoverAfterCrash(t *testing.T, phase string) (helperHandoff, *sessionledge
 	ledgerRoot := t.TempDir()
 
 	handoff := startCrashingSession(t, phase, home, ledgerRoot)
-	require.True(t, processGroupAlive(handoff.PGID),
-		"the killed session must have left its process group behind")
-	t.Cleanup(func() { _ = syscall.Kill(-handoff.PGID, syscall.SIGKILL) })
+	for _, pgid := range handoff.PGIDs {
+		require.True(t, processGroupAlive(pgid),
+			"the killed session must have left its process group behind")
+		t.Cleanup(func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+	}
 
 	store, err := sessionledger.Open(ledgerRoot)
 	require.NoError(t, err)
@@ -168,17 +179,23 @@ func TestRecoveryStopsAProcessGroupOrphanedDuringInit(t *testing.T) {
 	require.Len(t, report.Recovered[0].Resources, 1)
 	require.Equal(t, sessionledger.ActionStop, report.Recovered[0].Resources[0].Action)
 	require.Equal(t, sessionledger.Succeeded, report.Recovered[0].Resources[0].Outcome.Result)
-	require.Equal(t, strconv.Itoa(handoff.PGID), report.Recovered[0].Resources[0].Ref.ID)
+	require.Equal(t, strconv.Itoa(handoff.PGIDs[0]), report.Recovered[0].Resources[0].Ref.ID)
 
-	requireGroupGone(t, handoff.PGID)
+	requireGroupGone(t, handoff.PGIDs[0])
 }
 
 func TestRecoveryStopsAProcessGroupOrphanedAfterReady(t *testing.T) {
 	handoff, report := recoverAfterCrash(t, phaseReady)
 
 	require.Len(t, report.Recovered, 1)
-	require.Equal(t, sessionledger.Succeeded, report.Recovered[0].Resources[0].Outcome.Result)
-	requireGroupGone(t, handoff.PGID)
+	require.Len(t, handoff.PGIDs, 2)
+	require.Len(t, report.Recovered[0].Resources, 2)
+	for _, resource := range report.Recovered[0].Resources {
+		require.Equal(t, sessionledger.Succeeded, resource.Outcome.Result)
+	}
+	for _, pgid := range handoff.PGIDs {
+		requireGroupGone(t, pgid)
+	}
 }
 
 func TestRecoveryLeavesAProcessGroupWhoseIdentityChanged(t *testing.T) {
@@ -186,8 +203,8 @@ func TestRecoveryLeavesAProcessGroupWhoseIdentityChanged(t *testing.T) {
 	t.Setenv("HOME", home)
 	ledgerRoot := t.TempDir()
 
-	handoff := startCrashingSession(t, phaseReady, home, ledgerRoot)
-	t.Cleanup(func() { _ = syscall.Kill(-handoff.PGID, syscall.SIGKILL) })
+	handoff := startCrashingSession(t, phaseInit, home, ledgerRoot)
+	t.Cleanup(func() { _ = syscall.Kill(-handoff.PGIDs[0], syscall.SIGKILL) })
 
 	// Rewrite the recorded witness so it names a different incarnation of the
 	// same pgid — what a run whose process-group number was recycled looks
@@ -209,7 +226,7 @@ func TestRecoveryLeavesAProcessGroupWhoseIdentityChanged(t *testing.T) {
 	require.Equal(t, sessionledger.Preserved, report.Recovered[0].Resources[0].Outcome.Result)
 	require.Equal(t, sessionledger.ReasonNotOwned, report.Recovered[0].Resources[0].Outcome.Reason)
 
-	require.True(t, processGroupAlive(handoff.PGID),
+	require.True(t, processGroupAlive(handoff.PGIDs[0]),
 		"a mismatched ownership marker must never be signalled")
 }
 
@@ -221,4 +238,88 @@ func writeSession(t *testing.T, store *sessionledger.Store, session *sessionledg
 	require.NoError(t, err)
 	path := filepath.Join(store.Root(), "sessions", session.InvocationID+".json")
 	require.NoError(t, os.WriteFile(path, append(content, '\n'), 0o600))
+}
+
+// A ledger record and the process-group registry are garbage-collected
+// independently, so a stale ledger entry can outlive the registration that
+// authenticates it and name a pgid another run has since been given. Without a
+// witness there is nothing to tell the two apart, so the record must be refused
+// rather than signalled — otherwise recovery terminates a live, unrelated run.
+func TestRecoveryRefusesANativeRecordWithoutAWitness(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store, err := sessionledger.Open(t.TempDir())
+	require.NoError(t, err)
+
+	victim, err := base.StartTrackedProcessGroup(exec.Command("sleep", "600"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = syscall.Kill(-victim.PGID(), syscall.SIGKILL) })
+
+	owner, err := sessionledger.ProcessWitness(os.Getpid())
+	require.NoError(t, err)
+	handle, err := store.Acquire(context.Background(), sessionledger.AcquireRequest{
+		Key:         "workspace.stale",
+		Mode:        sessionledger.ModeDisposable,
+		Fingerprint: testFingerprint,
+		Owner:       owner,
+	}, nil)
+	require.NoError(t, err)
+
+	// The record names the victim's pgid and proves nothing about it — the
+	// shape a Declare that never reached Commit leaves behind.
+	stale, _ := sessionledger.NativeProcessGroup(victim)
+	_, err = handle.Declare(stale)
+	require.NoError(t, err)
+	invocation := handle.InvocationID()
+	killHolder(t, store, invocation)
+
+	report, err := sessionledger.Recover(context.Background(), store,
+		sessionledger.Backends{sessionledger.BackendNative: sessionledger.NativeBackend{}},
+		sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+	require.Len(t, report.Recovered, 1)
+	require.Equal(t, sessionledger.Preserved, report.Recovered[0].Resources[0].Outcome.Result)
+	require.Equal(t, sessionledger.ReasonNotOwned, report.Recovered[0].Resources[0].Outcome.Reason)
+
+	require.True(t, processGroupAlive(victim.PGID()),
+		"a process group the ledger cannot prove it owns must never be signalled")
+}
+
+// Adopt closes the window the refusal above creates: a process group is
+// recorded together with the witness that identifies it, in one write.
+func TestAdoptRecordsAProcessGroupWithItsWitness(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store, err := sessionledger.Open(t.TempDir())
+	require.NoError(t, err)
+
+	group, err := base.StartTrackedProcessGroup(exec.Command("sleep", "600"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = syscall.Kill(-group.PGID(), syscall.SIGKILL) })
+
+	owner, err := sessionledger.ProcessWitness(os.Getpid())
+	require.NoError(t, err)
+	handle, err := store.Acquire(context.Background(), sessionledger.AcquireRequest{
+		Key:         "workspace.adopt",
+		Mode:        sessionledger.ModeDisposable,
+		Fingerprint: testFingerprint,
+		Owner:       owner,
+	}, nil)
+	require.NoError(t, err)
+
+	resource, witness := sessionledger.NativeProcessGroup(group)
+	ref, err := handle.Adopt(resource, witness)
+	require.NoError(t, err)
+
+	session, err := store.Read(handle.InvocationID())
+	require.NoError(t, err)
+	recorded, ok := session.Resource(ref)
+	require.True(t, ok)
+	require.Equal(t, sessionledger.Running, recorded.Disposition)
+	require.False(t, recorded.Witness.Zero(), "Adopt must leave no unproven window")
+	require.True(t, recorded.VanishesOnStop, "a stopped process group no longer exists")
+
+	observation, err := sessionledger.NativeBackend{}.Claim(context.Background(), recorded, "")
+	require.NoError(t, err)
+	require.True(t, observation.Live)
 }

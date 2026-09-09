@@ -94,8 +94,8 @@ type Witness struct {
 
 // Zero reports whether the witness carries no evidence at all.
 func (witness Witness) Zero() bool {
-	return witness == Witness{} || (witness.PID == 0 && witness.BootID == "" && witness.StartID == 0 &&
-		witness.Executable == "" && witness.CreatedAt == nil && witness.Digest == "")
+	return witness.PID == 0 && witness.BootID == "" && witness.StartID == 0 &&
+		witness.Executable == "" && witness.CreatedAt == nil && witness.Digest == ""
 }
 
 // Matches reports whether observed is evidence of the same instance as this
@@ -189,6 +189,13 @@ type Resource struct {
 	Disposition Disposition `json:"disposition"`
 	// Data marks a resource whose contents must survive a stop.
 	Data bool `json:"data,omitempty"`
+	// VanishesOnStop marks a resource that ceases to exist when it stops — a
+	// process group, not a container. Whether stopping something leaves an
+	// object behind is a fact about the backend, not about the disposition, so
+	// the adapter that creates the resource records it here. It defaults to
+	// false, which keeps the record: forgetting a resource that is still there
+	// is how it becomes state nothing is entitled to remove.
+	VanishesOnStop bool `json:"vanishes_on_stop,omitempty"`
 	// Witness proves the backing resource is still the recorded instance.
 	Witness Witness `json:"witness,omitzero"`
 	// Outcome is the receipt of the last cleanup attempt.
@@ -217,6 +224,9 @@ func (resource Resource) Terminal() bool {
 // loses track of nothing that is still on the machine. Retained data is
 // deliberately still there, so a record naming it is kept however old it is —
 // forgetting it is exactly how state becomes unattributable garbage.
+//
+// A stopped resource only qualifies when its backend says stopping destroyed
+// it. A stopped container still exists, holds disk, and needs an owner.
 func (resource Resource) Forgettable() bool {
 	if resource.Ownership == Borrowed {
 		return true
@@ -224,7 +234,7 @@ func (resource Resource) Forgettable() bool {
 	if resource.Disposition == Deleted {
 		return true
 	}
-	return resource.Disposition == Stopped && !resource.Data
+	return resource.Disposition == Stopped && resource.VanishesOnStop
 }
 
 func (resource Resource) validate() error {

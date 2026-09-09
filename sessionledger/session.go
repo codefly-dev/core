@@ -12,6 +12,12 @@ import (
 // live process. Warm reuse is exclusive; the caller waits or uses its own key.
 var ErrSessionBusy = errors.New("session-ledger warm state is held by a live invocation")
 
+// ErrRecoveryRequired is returned when warm state still holds the lease of an
+// invocation that died. Its resources have not been reconciled, so what the
+// record names may not exist and may not be running. Run Recover — which knows
+// the backends — and acquire again.
+var ErrRecoveryRequired = errors.New("session-ledger warm state was left by a crashed invocation")
+
 // IncompatibleReuseError says why warm state could not be reattached to. The
 // warm state is left exactly as it was: an incompatible fingerprint is a reason
 // to explain the mismatch, never a licence to delete someone's database.
@@ -135,8 +141,15 @@ func (store *Store) warmSession(key string) (*Session, error) {
 }
 
 func (store *Store) reattach(warm *Session, request AcquireRequest, alive LivenessProbe) (*Handle, error) {
-	if warm.Lease != nil && alive(warm.Lease.Holder) {
-		return nil, fmt.Errorf("%w: %s holds key %q", ErrSessionBusy, warm.InvocationID, request.Key)
+	if warm.Lease != nil {
+		if alive(warm.Lease.Holder) {
+			return nil, fmt.Errorf("%w: %s holds key %q", ErrSessionBusy, warm.InvocationID, request.Key)
+		}
+		// A lease left by a dead holder means nobody applied a lifecycle to
+		// these resources. Adopting them here would tell the caller to reuse a
+		// container that may have died with its invocation, and would skip the
+		// reconciliation that a crash is exactly what calls for.
+		return nil, fmt.Errorf("%w: %s holds key %q", ErrRecoveryRequired, warm.InvocationID, request.Key)
 	}
 	if warm.Fingerprint != request.Fingerprint {
 		return nil, &IncompatibleReuseError{
@@ -227,7 +240,8 @@ func (handle *Handle) Declare(resource Resource) (Ref, error) {
 	ref := resource.Ref()
 	if index := handle.indexOf(ref); index >= 0 {
 		existing := handle.session.Resources[index]
-		if existing.Ownership != resource.Ownership || existing.Data != resource.Data {
+		if existing.Ownership != resource.Ownership || existing.Data != resource.Data ||
+			existing.VanishesOnStop != resource.VanishesOnStop {
 			return Ref{}, fmt.Errorf("%w: resource %s/%s is already declared with different ownership",
 				ErrInvalid, ref.Backend, ref.ID)
 		}
@@ -239,6 +253,23 @@ func (handle *Handle) Declare(resource Resource) (Ref, error) {
 		return Ref{}, err
 	}
 	return ref, nil
+}
+
+// Adopt records a resource that already exists, together with the witness that
+// proves which instance it is, in a single durable write.
+//
+// Use it for a resource whose identifier only exists once the resource does — a
+// process group's pgid — where there is nothing to reserve ahead of creation
+// and a Declare/Commit pair would leave a window in which the record names a
+// resource it cannot prove is ours.
+func (handle *Handle) Adopt(resource Resource, witness Witness) (Ref, error) {
+	if witness.Zero() {
+		return Ref{}, fmt.Errorf("%w: adopting %s/%s needs an identity witness",
+			ErrInvalid, resource.Backend, resource.ID)
+	}
+	resource.Witness = witness
+	resource.Disposition = Running
+	return handle.Declare(resource)
 }
 
 // Commit records that a declared resource now exists, along with the witness
@@ -307,13 +338,17 @@ func (handle *Handle) Release(
 	backends Backends,
 	options ReconcileOptions,
 ) (*SessionReport, error) {
+	// The mutex is held across the whole reconcile, not just the lookup. apply
+	// rewrites session.Resources by index and republishes the record; a
+	// concurrent Declare appending to that same slice would reallocate it under
+	// apply's feet and lose the declared resource from the record, which is a
+	// resource nothing will ever clean up.
 	handle.mu.Lock()
+	defer handle.mu.Unlock()
 	if handle.released {
-		handle.mu.Unlock()
 		return nil, errors.New("session-ledger handle is already released")
 	}
 	session := handle.session
-	handle.mu.Unlock()
 
 	if err := lifecycle.Admits(session); err != nil {
 		return nil, err
@@ -329,8 +364,6 @@ func (handle *Handle) Release(
 		return report, err
 	}
 
-	handle.mu.Lock()
-	defer handle.mu.Unlock()
 	handle.released = true
 	session.Lease = nil
 	if writeErr := handle.store.write(session); writeErr != nil {
@@ -340,6 +373,59 @@ func (handle *Handle) Release(
 		return report, handle.store.Forget(session.InvocationID)
 	}
 	return report, nil
+}
+
+// Reset disposes of the warm state recorded for key and forgets it, so a caller
+// that cannot acquire it — an incompatible plan fingerprint, state left by a
+// crash — has a way to clear it deliberately.
+//
+// It is the operation IncompatibleReuseError points at. Without it a changed
+// fixture or artifact wedges warm reuse permanently: the only handle to a
+// session is Acquire, and Acquire is what refused.
+//
+// Reset refuses while a live invocation holds the session, and refuses whole
+// when the session holds borrowed data — the same rule Release applies, since
+// state this session did not create is not this session's to delete.
+func (store *Store) Reset(
+	ctx context.Context,
+	key string,
+	backends Backends,
+	options ReconcileOptions,
+) (*SessionReport, error) {
+	if !keyPattern.MatchString(key) {
+		return nil, fmt.Errorf("%w: key must be a bounded lowercase slug", ErrInvalid)
+	}
+	options = options.resolved()
+	lock, err := lockPath(ctx, store.keyLockPath(key))
+	if err != nil {
+		return nil, fmt.Errorf("cannot lock session key %q: %w", key, err)
+	}
+	defer func() { _ = unlock(lock) }()
+
+	warm, err := store.warmSession(key)
+	if err != nil {
+		return nil, err
+	}
+	if warm == nil {
+		return nil, fmt.Errorf("%w: no warm state for key %q", ErrSessionNotFound, key)
+	}
+	if warm.Lease != nil && options.Alive(warm.Lease.Holder) {
+		return nil, fmt.Errorf("%w: %s holds key %q", ErrSessionBusy, warm.InvocationID, key)
+	}
+	report, applyErr := store.apply(ctx, warm, LifecycleReset, backends, options)
+	if applyErr != nil {
+		return report, applyErr
+	}
+	warm.Lease = nil
+	if writeErr := store.write(warm); writeErr != nil {
+		return report, writeErr
+	}
+	if !allForgettable(warm) {
+		// Something survived the reset — preserved as unowned, or refused for
+		// want of an adapter. The record stays so it keeps naming an owner.
+		return report, nil
+	}
+	return report, store.Forget(warm.InvocationID)
 }
 
 // Explain renders a session's ownership receipt as readable lines. It is the

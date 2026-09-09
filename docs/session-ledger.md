@@ -53,8 +53,15 @@ A record carries:
 
 Each resource records `kind` (namespaced, e.g. `docker.container`), `backend`
 (which adapter speaks for it), `id` (the backend's own identifier),
-`ownership`, `disposition`, `data`, a `witness`, and the `outcome` of the last
-cleanup attempt.
+`ownership`, `disposition`, `data`, `vanishes_on_stop`, a `witness`, and the
+`outcome` of the last cleanup attempt.
+
+`vanishes_on_stop` is set by the adapter that creates the resource and says
+whether stopping it destroys it. A process group is gone once stopped; a
+container still exists and still holds its writable layer. That is a fact about
+the backend, not about the disposition, so it is recorded rather than inferred —
+without it a stopped container's record would be dropped while the container was
+still on disk.
 
 ## Lifecycle policy
 
@@ -92,7 +99,7 @@ developer's database.
 ```
 Declare ──► declared ──Commit──► running ──┬── stop  ──► stopped   (no data)
    │                                       ├── stop  ──► retained (data)
-   │                                       └── reset ──► deleted
+   │           Adopt ────────────►         └── reset ──► deleted
    └── (crash here: the record already names what may exist)
 ```
 
@@ -100,6 +107,16 @@ Declare ──► declared ──Commit──► running ──┬── stop  �
 `Declare` returns — file synced, directory synced. A crash between declare and
 create still leaves the identifier the resource would carry, which is all
 recovery needs to ask the backend whether it exists.
+
+That only works for a backend whose resource can be named ahead of creation and
+whose ownership can be proven independently of the ledger — a container name
+reserved up front and a `codefly.invocation` label to prove it by. A process
+group has neither: its pgid does not exist until the leader runs, and a pgid
+cannot be labelled. Use `Adopt` for those: it records the resource and its
+witness in one durable write, so there is never a moment where the ledger names
+a process group it cannot prove is ours. Nothing is lost, because
+`runners/base` has already persisted its own authenticated registration before
+the pgid is knowable.
 
 ## Crash recovery
 
@@ -123,6 +140,11 @@ the ledger — decides ownership, because only it can read its own state:
   record survives so a later run with that adapter can finish the job.
 - claimed, but the recorded witness does not match what the backend observes →
   preserved as not-owned.
+- a `process.group` record with no witness at all → preserved as not-owned. The
+  ledger and the process-group registry are garbage-collected independently, so
+  a ledger entry can outlive the registration that authenticates it; once that
+  registration is reaped the pgid is free to be handed to an unrelated run, and
+  claiming on the number alone would terminate it.
 
 Nothing is ever found by name sweep, and nothing is ever killed by PID alone.
 Each backend call is bounded by `ReconcileOptions.PerResourceTimeout` (30s by
@@ -142,6 +164,18 @@ the caller presents the same fingerprint:
   state is left exactly as it was. A changed fixture, artifact or backend is a
   reason to explain the mismatch, never a licence to delete a database.
 - holder still live → `ErrSessionBusy`.
+- lease still held by an invocation that died → `ErrRecoveryRequired`. Nobody
+  applied a lifecycle to those resources, so adopting them would hand the caller
+  a container that may have died with its invocation. Run `Recover`, then
+  acquire again.
+
+`Store.Reset(ctx, key, backends, options)` is the way out of an
+`IncompatibleReuseError`: it applies `LifecycleReset` to the warm state and
+forgets it, so the key is usable again. Without it the instruction in that error
+would be unfollowable — the only handle to a session is `Acquire`, and `Acquire`
+is what refused. Reset obeys the same rules as any other reset: refused while a
+live invocation holds the session, and refused whole when the session holds
+borrowed data.
 
 Acquire, release and recovery all take a per-key advisory file lock (plus an
 in-process mutex, so goroutines of one process are serialized deterministically
@@ -160,8 +194,12 @@ becomes unattributable garbage that no later run is entitled to remove. Those
 records are what an inspection command shows a developer asking what is still on
 their disk, and an explicit `reset` is what clears them.
 
-An unreadable record is reported, never deleted or acted on: it may still name
-live resources, and nothing here is entitled to guess otherwise.
+An unreadable record is reported once and quarantined — renamed beside itself
+with a `.invalid` suffix. It is never deleted: it may still name live resources
+and nothing here can read them, so the bytes are kept for a human. Quarantining
+is what stops it being re-reported on every invocation forever, which would
+leave `Recover` permanently returning an error no caller can clear. This mirrors
+how `runners/base` handles an unreadable process-group record.
 
 ## Secrets
 
@@ -192,6 +230,12 @@ Two ship with core:
   its anonymous volumes) or the named volume. Named volumes are separate ledger
   resources and are only removed when the ledger recorded them as owned.
 
+The `codefly.session` owner-PID sweep (`ReapStaleContainers`) skips any
+container carrying `codefly.invocation`. It has to: its "owner dead + stopped →
+reap" rule is exactly inverted for a ledgered container, because stopping a data
+container is how the ledger *retains* it. A ledgered container is disposed of by
+recovery, which can read the ownership record; the sweep cannot.
+
 Registering no adapter for a backend is safe: its resources are recorded as
 `refused` and preserved. That is why a caller for whom Docker is optional should
 skip registering the adapter when the engine is unreachable rather than register
@@ -217,6 +261,10 @@ if !handle.Reattached() {
     _ = env.Init(ctx)
     witness, _ := docker.ContainerWitness(ctx, "mysvc-db")
     _ = handle.Commit(ref, witness)
+
+    // A process group has no name to reserve: record it and its witness at once.
+    group, _ := base.StartTrackedProcessGroup(cmd)
+    _, _ = handle.Adopt(sessionledger.NativeProcessGroup(group))
 }
 
 report, err := handle.Release(ctx, sessionledger.LifecycleStop,

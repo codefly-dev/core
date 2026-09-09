@@ -139,7 +139,7 @@ func Recover(
 			failures = append(failures, err)
 		}
 	}
-	expired, expireErr := store.Expire()
+	expired, expireErr := store.Expire(ctx)
 	report.Expired = expired
 	if expireErr != nil {
 		failures = append(failures, expireErr)

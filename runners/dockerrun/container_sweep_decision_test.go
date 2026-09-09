@@ -16,21 +16,28 @@ func TestShouldReapContainer(t *testing.T) {
 		state      string
 		ownerAlive bool
 		ephemeral  bool
+		ledgered   bool
 		want       bool
 	}{
-		{"owner alive, running, stateful", "running", true, false, false},
-		{"owner alive, running, ephemeral", "running", true, true, false},
-		{"owner dead, stopped, stateful", "exited", false, false, true},
-		{"owner dead, stopped, ephemeral", "exited", false, true, true},
+		{"owner alive, running, stateful", "running", true, false, false, false},
+		{"owner alive, running, ephemeral", "running", true, true, false, false},
+		{"owner dead, stopped, stateful", "exited", false, false, false, true},
+		{"owner dead, stopped, ephemeral", "exited", false, true, false, true},
 		// The reuse-by-name pattern: a live restart will reuse this — keep.
-		{"owner dead, running, stateful (reuse)", "running", false, false, false},
-		// THE FIX: a leaked test dependency, running forever with a dead owner.
-		{"owner dead, running, ephemeral (LEAK)", "running", false, true, true},
+		{"owner dead, running, stateful (reuse)", "running", false, false, false, false},
+		// A leaked test dependency, running forever with a dead owner.
+		{"owner dead, running, ephemeral (LEAK)", "running", false, true, false, true},
+		// A session ledger owns these: stopping a data container is how the
+		// ledger retains it, so this sweep must not read "stopped" as garbage.
+		{"ledgered, owner dead, stopped", "exited", false, false, true, false},
+		{"ledgered, owner dead, stopped, ephemeral", "exited", false, true, true, false},
+		{"ledgered, owner dead, running, ephemeral", "running", false, true, true, false},
 	}
 	for _, tc := range cases {
-		if got := shouldReapContainer(tc.state, tc.ownerAlive, tc.ephemeral); got != tc.want {
-			t.Errorf("%s: shouldReapContainer(%q, alive=%v, ephemeral=%v) = %v, want %v",
-				tc.name, tc.state, tc.ownerAlive, tc.ephemeral, got, tc.want)
+		got := shouldReapContainer(tc.state, tc.ownerAlive, tc.ephemeral, tc.ledgered)
+		if got != tc.want {
+			t.Errorf("%s: shouldReapContainer(%q, alive=%v, ephemeral=%v, ledgered=%v) = %v, want %v",
+				tc.name, tc.state, tc.ownerAlive, tc.ephemeral, tc.ledgered, got, tc.want)
 		}
 	}
 }

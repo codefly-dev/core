@@ -37,9 +37,12 @@
 //
 // # Crash recovery
 //
-// Resources are declared before they are created ([Session.Declare]) and
-// confirmed after ([Session.Commit]), so a crash between the two still leaves a
-// record naming what may exist. Recovery never trusts that record on its own:
+// Resources are declared before they are created ([Handle.Declare]) and
+// confirmed after ([Handle.Commit]), so a crash between the two still leaves a
+// record naming what may exist. A resource that cannot be named before it
+// exists — a process group's pgid — is recorded with its witness in one write
+// by [Handle.Adopt] instead, leaving no window in which the ledger names
+// something it cannot prove is ours. Recovery never trusts a record on its own:
 // [Recover] asks the resource's [Backend] to Claim it, and the backend must
 // prove — from the backend's own state, not from the ledger — that the resource
 // exists and belongs to that invocation. A resource that is gone, or that
@@ -51,7 +54,10 @@
 // A [ModeReusable] session outlives its process. [Store.Acquire] reattaches to
 // it only when the caller presents the same semantic fingerprint; a mismatch
 // returns an [IncompatibleReuseError] naming what changed and leaves the warm
-// state untouched. Acquire is serialized per key by an advisory file lock, so
+// state untouched, and [Store.Reset] is how a caller clears it deliberately.
+// Warm state still holding a dead invocation's lease returns
+// [ErrRecoveryRequired] rather than being adopted unreconciled. Acquire, reset,
+// release and recovery are serialized per key by an advisory file lock, so
 // concurrent attach and reset cannot interleave.
 //
 // # Secrets

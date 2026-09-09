@@ -116,6 +116,14 @@ func directory(id string, ownership sessionledger.Ownership, data bool) sessionl
 	}
 }
 
+// vanishing models a resource that ceases to exist when stopped — a process
+// group, as opposed to a container, which the directory backend models.
+func vanishing(id string) sessionledger.Resource {
+	resource := directory(id, sessionledger.Created, false)
+	resource.VanishesOnStop = true
+	return resource
+}
+
 func acquire(t *testing.T, store *sessionledger.Store, key string, mode sessionledger.Mode) *sessionledger.Handle {
 	t.Helper()
 	handle, err := store.Acquire(context.Background(), sessionledger.AcquireRequest{
@@ -472,7 +480,7 @@ func TestAResourceDisposedByTheCallerIsNotTouchedAgain(t *testing.T) {
 	backend := dirBackend{root: t.TempDir()}
 	handle := acquire(t, store, "workspace.svc", sessionledger.ModeDisposable)
 
-	ref, err := handle.Declare(directory("worker", sessionledger.Created, false))
+	ref, err := handle.Declare(vanishing("worker"))
 	require.NoError(t, err)
 	backend.create(t, "worker", handle.InvocationID())
 	require.NoError(t, handle.Commit(ref, sessionledger.Witness{Digest: "abcdef"}))
@@ -526,7 +534,7 @@ func TestExpiryKeepsRecordsThatStillNameResources(t *testing.T) {
 		sessionledger.Backends{"test": backend}, sessionledger.ReconcileOptions{})
 	require.NoError(t, err)
 
-	removed, err := store.Expire()
+	removed, err := store.Expire(context.Background())
 	require.NoError(t, err)
 	require.Zero(t, removed)
 	_, err = store.Read(invocation)
@@ -645,3 +653,299 @@ func (blockingBackend) Claim(
 
 func (blockingBackend) Stop(context.Context, sessionledger.Resource) error   { return nil }
 func (blockingBackend) Delete(context.Context, sessionledger.Resource) error { return nil }
+
+func TestAbsentProcessIsNotLive(t *testing.T) {
+	absent := selfWitness(t)
+	absent.PID = 0x7FFFFFF0
+	require.False(t, sessionledger.LiveProcess(absent))
+}
+
+func TestRecoveryLeavesASessionWhoseHolderCannotBeInspected(t *testing.T) {
+	store := newStore(t)
+	backend := dirBackend{root: t.TempDir()}
+	handle := acquire(t, store, "workspace.opaque", sessionledger.ModeDisposable)
+	t.Cleanup(func() {
+		_, _ = handle.Release(context.Background(), sessionledger.LifecycleStop,
+			sessionledger.Backends{"test": backend}, sessionledger.ReconcileOptions{})
+	})
+
+	ref, err := handle.Declare(directory("database", sessionledger.Created, true))
+	require.NoError(t, err)
+	backend.create(t, "database", handle.InvocationID())
+	require.NoError(t, handle.Commit(ref, sessionledger.Witness{Digest: "abcdef"}))
+
+	// A probe that cannot tell — the shape of an EPERM inspecting another
+	// user's process — must not licence recovery to touch the session.
+	unknown := func(sessionledger.Witness) bool { return true }
+	report, err := sessionledger.Recover(context.Background(), store,
+		sessionledger.Backends{"test": backend},
+		sessionledger.ReconcileOptions{Alive: unknown})
+	require.NoError(t, err)
+	require.Empty(t, report.Recovered)
+	require.Equal(t, []string{handle.InvocationID()}, report.Skipped)
+
+	observation, err := backend.Claim(context.Background(),
+		directory("database", sessionledger.Created, true), handle.InvocationID())
+	require.NoError(t, err)
+	require.True(t, observation.Live, "an uninspectable holder's resources keep running")
+}
+
+// Release reconciles by index over the same slice Declare appends to. Holding
+// the handle for the lookup only let a concurrent Declare reallocate that slice
+// mid-reconcile, dropping the declared resource from the record — a resource
+// nothing would ever clean up.
+func TestReleaseAndDeclareAreSafeConcurrently(t *testing.T) {
+	store := newStore(t)
+	backend := dirBackend{root: t.TempDir()}
+	handle := acquire(t, store, "workspace.concurrent", sessionledger.ModeDisposable)
+
+	for _, id := range []string{"one", "two", "three", "four"} {
+		ref, err := handle.Declare(directory(id, sessionledger.Created, true))
+		require.NoError(t, err)
+		backend.create(t, id, handle.InvocationID())
+		require.NoError(t, handle.Commit(ref, sessionledger.Witness{Digest: "abcdef"}))
+	}
+	invocation := handle.InvocationID()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	var declareErr error
+	go func() {
+		defer wg.Done()
+		_, _ = handle.Release(context.Background(), sessionledger.LifecycleStop,
+			sessionledger.Backends{"test": backend}, sessionledger.ReconcileOptions{})
+	}()
+	go func() {
+		defer wg.Done()
+		_, declareErr = handle.Declare(directory("late", sessionledger.Created, true))
+	}()
+	wg.Wait()
+
+	session, err := store.Read(invocation)
+	require.NoError(t, err)
+	recorded := map[string]bool{}
+	for _, resource := range session.Resources {
+		recorded[resource.ID] = true
+	}
+	for _, id := range []string{"one", "two", "three", "four"} {
+		require.True(t, recorded[id], "reconcile dropped %s from the record", id)
+	}
+	// The late declare either won the handle and is recorded, or lost it and
+	// was refused. It must never be silently absent from a record it joined.
+	if declareErr == nil {
+		require.True(t, recorded["late"], "a declare that succeeded must be in the record")
+	}
+}
+
+// A stopped resource that still exists must keep its record. Whether stopping
+// destroys something is a fact about the backend, not about the disposition: a
+// process group is gone, a container is still there holding disk.
+func TestAStoppedResourceThatStillExistsKeepsItsRecord(t *testing.T) {
+	store := newStore(t)
+	backend := dirBackend{root: t.TempDir()}
+	handle := acquire(t, store, "workspace.survives", sessionledger.ModeDisposable)
+
+	ref, err := handle.Declare(directory("container", sessionledger.Created, false))
+	require.NoError(t, err)
+	backend.create(t, "container", handle.InvocationID())
+	require.NoError(t, handle.Commit(ref, sessionledger.Witness{Digest: "abcdef"}))
+	invocation := handle.InvocationID()
+
+	_, err = handle.Release(context.Background(), sessionledger.LifecycleStop,
+		sessionledger.Backends{"test": backend}, sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+
+	require.True(t, backend.exists("container"), "a stop leaves the object behind")
+	session, err := store.Read(invocation)
+	require.NoError(t, err, "the record must still name the object that is still there")
+	require.Equal(t, sessionledger.Stopped, session.Resources[0].Disposition)
+
+	removed, err := store.WithRetention(0).Expire(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, removed, "retention must not forget state that still exists")
+}
+
+func TestAStoppedProcessGroupIsForgottenBecauseItIsGone(t *testing.T) {
+	store := newStore(t)
+	backend := dirBackend{root: t.TempDir()}
+	handle := acquire(t, store, "workspace.vanishes", sessionledger.ModeDisposable)
+
+	ref, err := handle.Declare(vanishing("worker"))
+	require.NoError(t, err)
+	backend.create(t, "worker", handle.InvocationID())
+	require.NoError(t, handle.Commit(ref, sessionledger.Witness{Digest: "abcdef"}))
+	invocation := handle.InvocationID()
+
+	_, err = handle.Release(context.Background(), sessionledger.LifecycleStop,
+		sessionledger.Backends{"test": backend}, sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+
+	_, err = store.Read(invocation)
+	require.ErrorIs(t, err, sessionledger.ErrSessionNotFound)
+}
+
+// IncompatibleReuseError tells the caller to reset the warm state. Reset is
+// what makes that instruction followable — without it a changed fixture wedges
+// the key permanently, because the only handle to a session is the Acquire
+// that just refused.
+func TestResetClearsWarmStateThatCannotBeAcquired(t *testing.T) {
+	store := newStore(t)
+	backend := dirBackend{root: t.TempDir()}
+	backends := sessionledger.Backends{"test": backend}
+	changed := "2222222222222222222222222222222222222222222222222222222222222222"
+
+	first := acquire(t, store, "workspace.wedged", sessionledger.ModeReusable)
+	ref, err := first.Declare(directory("database", sessionledger.Created, true))
+	require.NoError(t, err)
+	backend.create(t, "database", first.InvocationID())
+	require.NoError(t, first.Commit(ref, sessionledger.Witness{Digest: "abcdef"}))
+	_, err = first.Release(context.Background(), sessionledger.LifecycleKeepRunning, backends,
+		sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+
+	request := sessionledger.AcquireRequest{
+		Key:         "workspace.wedged",
+		Mode:        sessionledger.ModeReusable,
+		Fingerprint: changed,
+		Owner:       selfWitness(t),
+	}
+	var incompatible *sessionledger.IncompatibleReuseError
+	_, err = store.Acquire(context.Background(), request, nil)
+	require.ErrorAs(t, err, &incompatible)
+
+	report, err := store.Reset(context.Background(), "workspace.wedged", backends,
+		sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+	require.Equal(t, sessionledger.ActionDelete, report.Resources[0].Action)
+	require.False(t, backend.exists("database"), "reset clears the state it owns")
+
+	fresh, err := store.Acquire(context.Background(), request, nil)
+	require.NoError(t, err, "the key must be usable again after a reset")
+	require.False(t, fresh.Reattached())
+	_, err = fresh.Release(context.Background(), sessionledger.LifecycleStop, backends,
+		sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+}
+
+func TestResetRefusesBorrowedDataAndALiveHolder(t *testing.T) {
+	store := newStore(t)
+	backend := dirBackend{root: t.TempDir()}
+	backends := sessionledger.Backends{"test": backend}
+
+	held := acquire(t, store, "workspace.held", sessionledger.ModeReusable)
+	_, err := store.Reset(context.Background(), "workspace.held", backends,
+		sessionledger.ReconcileOptions{})
+	require.ErrorIs(t, err, sessionledger.ErrSessionBusy)
+
+	ref, err := held.Declare(directory("parent-db", sessionledger.Borrowed, true))
+	require.NoError(t, err)
+	backend.create(t, "parent-db", "someone-else")
+	require.NoError(t, held.Commit(ref, sessionledger.Witness{Digest: "abcdef"}))
+	_, err = held.Release(context.Background(), sessionledger.LifecycleKeepRunning, backends,
+		sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+
+	_, err = store.Reset(context.Background(), "workspace.held", backends,
+		sessionledger.ReconcileOptions{})
+	require.ErrorIs(t, err, sessionledger.ErrBorrowedDataNotDisposable)
+	require.True(t, backend.exists("parent-db"))
+}
+
+// Warm state still holding a dead invocation's lease has not been reconciled.
+// Adopting it would hand the caller resources that may have died with their
+// invocation and skip the recovery a crash is exactly what calls for.
+func TestAcquireRefusesWarmStateLeftByACrash(t *testing.T) {
+	store := newStore(t)
+	backend := dirBackend{root: t.TempDir()}
+	backends := sessionledger.Backends{"test": backend}
+
+	crashed := acquire(t, store, "workspace.crashed", sessionledger.ModeReusable)
+	ref, err := crashed.Declare(directory("database", sessionledger.Created, true))
+	require.NoError(t, err)
+	backend.create(t, "database", crashed.InvocationID())
+	require.NoError(t, crashed.Commit(ref, sessionledger.Witness{Digest: "abcdef"}))
+	killHolder(t, store, crashed.InvocationID())
+
+	request := sessionledger.AcquireRequest{
+		Key:         "workspace.crashed",
+		Mode:        sessionledger.ModeReusable,
+		Fingerprint: testFingerprint,
+		Owner:       selfWitness(t),
+	}
+	_, err = store.Acquire(context.Background(), request, nil)
+	require.ErrorIs(t, err, sessionledger.ErrRecoveryRequired)
+	require.True(t, backend.dataIntact("database"), "the refusal must not touch the state")
+
+	_, err = sessionledger.Recover(context.Background(), store, backends,
+		sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+
+	reattached, err := store.Acquire(context.Background(), request, nil)
+	require.NoError(t, err, "recovery must make the warm state acquirable again")
+	require.True(t, reattached.Reattached())
+	require.True(t, backend.dataIntact("database"))
+	_, err = reattached.Release(context.Background(), sessionledger.LifecycleKeepRunning, backends,
+		sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+}
+
+// An undecodable record must be reported once and moved aside, not re-reported
+// on every invocation forever — which would leave Recover permanently returning
+// an error no caller can clear.
+func TestAnUndecodableRecordIsQuarantinedOnceAndKept(t *testing.T) {
+	store := newStore(t)
+	path := filepath.Join(store.Root(), "sessions", "ffffffffffffffffffffffffffffffff.json")
+	require.NoError(t, os.WriteFile(path, []byte("{not json"), 0o600))
+
+	_, err := store.List()
+	require.Error(t, err)
+
+	_, err = os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	quarantined, err := os.ReadFile(path + ".invalid")
+	require.NoError(t, err, "the bytes must be kept for a human, not deleted")
+	require.Equal(t, "{not json", string(quarantined))
+
+	sessions, err := store.List()
+	require.NoError(t, err, "a quarantined record must not be reported again")
+	require.Empty(t, sessions)
+}
+
+// Expire reads a listing and then deletes; another process can take a lease in
+// between, and forgetting a record someone is holding orphans what they create.
+func TestExpireDoesNotForgetASessionAcquiredMeanwhile(t *testing.T) {
+	store := newStore(t).WithRetention(0)
+	backend := dirBackend{root: t.TempDir()}
+	backends := sessionledger.Backends{"test": backend}
+
+	first := acquire(t, store, "workspace.warm", sessionledger.ModeReusable)
+	ref, err := first.Declare(vanishing("worker"))
+	require.NoError(t, err)
+	backend.create(t, "worker", first.InvocationID())
+	require.NoError(t, first.Commit(ref, sessionledger.Witness{Digest: "abcdef"}))
+	_, err = first.Release(context.Background(), sessionledger.LifecycleStop, backends,
+		sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+	invocation := first.InvocationID()
+
+	// Released, forgettable and past retention: Expire's candidate. Acquiring
+	// it first must win, because Expire re-reads under the key lock.
+	reattached, err := store.Acquire(context.Background(), sessionledger.AcquireRequest{
+		Key:         "workspace.warm",
+		Mode:        sessionledger.ModeReusable,
+		Fingerprint: testFingerprint,
+		Owner:       selfWitness(t),
+	}, nil)
+	require.NoError(t, err)
+	require.Equal(t, invocation, reattached.InvocationID())
+
+	removed, err := store.Expire(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, removed, "a leased session must never be expired")
+	_, err = store.Read(invocation)
+	require.NoError(t, err)
+
+	_, err = reattached.Release(context.Background(), sessionledger.LifecycleKeepRunning, backends,
+		sessionledger.ReconcileOptions{})
+	require.NoError(t, err)
+}

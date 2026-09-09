@@ -36,6 +36,13 @@ import (
 // shouldReapContainer decides whether a codefly-owned container is garbage to
 // remove. The rules, in order:
 //
+//   - ledgered → keep, unconditionally. A container carrying an invocation id
+//     belongs to a session ledger that records whether its data must survive a
+//     stop. This sweep cannot see that record, and its "owner dead + stopped →
+//     reap" rule is exactly wrong for one: stopping a data container is how the
+//     ledger RETAINS it, so reaping it here deletes the database the ledger
+//     just promised to keep. Ledgered containers are disposed of by
+//     sessionledger recovery, which reads the ownership record.
 //   - owner still alive   → keep (actively managed by a live CLI).
 //   - owner dead, stopped → reap (orphaned, useless to anyone).
 //   - owner dead, running, NOT ephemeral → keep. This is the "reuse stateful
@@ -49,7 +56,10 @@ import (
 //     a running one with a dead owner is pure garbage. Not reaping these is
 //     what leaked 28 Neo4j/Postgres containers across a day of killed test
 //     runs and blew up OrbStack's memory.
-func shouldReapContainer(state string, ownerAlive, ephemeral bool) bool {
+func shouldReapContainer(state string, ownerAlive, ephemeral, ledgered bool) bool {
+	if ledgered {
+		return false
+	}
 	if ownerAlive {
 		return false
 	}
@@ -104,7 +114,8 @@ func ReapStaleContainers(ctx context.Context) error {
 			continue // malformed label — conservative: leave it
 		}
 		ephemeral := c.Labels[LabelCodeflyEphemeral] == "true"
-		if !shouldReapContainer(c.State, base.IsProcessAlive(pid), ephemeral) {
+		ledgered := c.Labels[LabelCodeflyInvocation] != ""
+		if !shouldReapContainer(c.State, base.IsProcessAlive(pid), ephemeral, ledgered) {
 			continue
 		}
 

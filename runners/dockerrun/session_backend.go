@@ -61,7 +61,9 @@ func (backend *SessionBackend) Close() error {
 	return backend.client.Close()
 }
 
-// ContainerResource describes a container for the ledger.
+// ContainerResource describes a container for the ledger. A stopped container
+// still exists and still holds its writable layer, so it never vanishes on stop
+// and its record is kept until something deletes it.
 func ContainerResource(name string, ownership sessionledger.Ownership, data bool) sessionledger.Resource {
 	return sessionledger.Resource{
 		Kind:      KindContainer,
@@ -173,12 +175,18 @@ func (backend *SessionBackend) claimVolume(
 }
 
 // Stop ends container execution and keeps everything the container holds.
-// Stopping a volume is meaningless and is a no-op rather than an error: the
-// lifecycle policy already retains data, and failing here would report a
-// cleanup failure for state that is exactly where policy wants it.
+//
+// A volume never executes, so reconciliation never asks — a volume's Claim
+// reports it as not live and the stop is skipped. Any other kind reaching here
+// is a resource this adapter does not own, and reporting success for something
+// it did not touch is how a resource ends up recorded as stopped while it is
+// still running.
 func (backend *SessionBackend) Stop(ctx context.Context, resource sessionledger.Resource) error {
-	if resource.Kind != KindContainer {
+	if resource.Kind == KindVolume {
 		return nil
+	}
+	if resource.Kind != KindContainer {
+		return fmt.Errorf("docker backend does not own kind %q", resource.Kind)
 	}
 	err := backend.client.ContainerStop(ctx, resource.ID, container.StopOptions{})
 	if errdefs.IsNotFound(err) {

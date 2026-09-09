@@ -33,6 +33,10 @@ const (
 
 	lockRetry      = 25 * time.Millisecond
 	maxRecordBytes = 1 << 20
+	// invalidSuffix marks a record this release could not decode. The suffix
+	// takes it out of the .json listing, so it is neither parsed nor reported
+	// again, and leaves the bytes on disk for a human to look at.
+	invalidSuffix = ".invalid"
 
 	// DefaultRetention is how long a released session record is kept after its
 	// last resource reached a terminal disposition. It is long enough that a
@@ -96,38 +100,74 @@ func (store *Store) keyLockPath(key string) string {
 // the file lock. The file lock alone is what makes the ledger safe across
 // processes; this makes contention within one process deterministic instead of
 // leaving two goroutines to race their retry timers.
-var processLocks sync.Map
+//
+// Entries are reference-counted and dropped when the last holder leaves, so a
+// long-lived process working through many keys does not accumulate a mutex per
+// key it has ever touched.
+var (
+	processLocksMu sync.Mutex
+	processLocks   = map[string]*processLock{}
+)
+
+type processLock struct {
+	guard   sync.Mutex
+	holders int
+}
+
+func acquireProcessLock(path string) *processLock {
+	processLocksMu.Lock()
+	entry, ok := processLocks[path]
+	if !ok {
+		entry = &processLock{}
+		processLocks[path] = entry
+	}
+	entry.holders++
+	processLocksMu.Unlock()
+
+	entry.guard.Lock()
+	return entry
+}
+
+func releaseProcessLock(path string, entry *processLock) {
+	entry.guard.Unlock()
+
+	processLocksMu.Lock()
+	entry.holders--
+	if entry.holders == 0 {
+		delete(processLocks, path)
+	}
+	processLocksMu.Unlock()
+}
 
 // heldLock pairs a file lock with the in-process mutex taken before it, so both
 // are released in the right order.
 type heldLock struct {
+	path    string
 	file    *flock.Flock
-	process *sync.Mutex
+	process *processLock
 }
 
 // lockPath takes an advisory lock, serializing whichever transition the caller
 // is about to make against every other holder of the same key.
 func lockPath(ctx context.Context, path string) (*heldLock, error) {
-	entry, _ := processLocks.LoadOrStore(path, &sync.Mutex{})
-	guard := entry.(*sync.Mutex)
-	guard.Lock()
+	entry := acquireProcessLock(path)
 
 	lock := flock.New(path, flock.SetPermissions(0o600))
 	locked, err := lock.TryLockContext(ctx, lockRetry)
 	if err != nil {
-		guard.Unlock()
+		releaseProcessLock(path, entry)
 		return nil, err
 	}
 	if !locked {
-		guard.Unlock()
+		releaseProcessLock(path, entry)
 		return nil, errors.New("session-ledger lock was not acquired")
 	}
-	return &heldLock{file: lock, process: guard}, nil
+	return &heldLock{path: path, file: lock, process: entry}, nil
 }
 
 func unlock(lock *heldLock) error {
 	err := errors.Join(lock.file.Unlock(), lock.file.Close())
-	lock.process.Unlock()
+	releaseProcessLock(lock.path, lock.process)
 	return err
 }
 
@@ -214,9 +254,14 @@ func syncDir(dir string) error {
 	return errors.Join(handle.Sync(), handle.Close())
 }
 
-// List returns every readable session record. Records that cannot be decoded
-// are reported rather than deleted: an unreadable record may still name live
-// resources, and no code here is entitled to guess otherwise.
+// List returns every readable session record.
+//
+// A record that cannot be decoded is quarantined — renamed beside itself with a
+// .invalid suffix — and reported once. It is never deleted: it may still name
+// live resources and nothing here can read them, so it is kept for a human.
+// Quarantining is what stops it being re-reported on every invocation forever,
+// which would leave Recover permanently returning an error no caller can clear.
+// This mirrors how runners/base handles an unreadable process-group record.
 func (store *Store) List() ([]*Session, error) {
 	dir := filepath.Join(store.root, sessionsDirName)
 	entries, err := os.ReadDir(dir)
@@ -232,14 +277,28 @@ func (store *Store) List() ([]*Session, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		session, err := readSession(filepath.Join(dir, entry.Name()))
+		path := filepath.Join(dir, entry.Name())
+		session, err := readSession(path)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("session record %s: %w", entry.Name(), err))
+			if quarantineErr := quarantineRecord(path); quarantineErr != nil {
+				failures = append(failures,
+					fmt.Errorf("quarantine session record %s: %w", entry.Name(), quarantineErr))
+			}
 			continue
 		}
 		sessions = append(sessions, session)
 	}
 	return sessions, errors.Join(failures...)
+}
+
+// quarantineRecord moves an undecodable record aside without touching anything
+// it might name.
+func quarantineRecord(path string) error {
+	if err := os.Rename(path, path+invalidSuffix); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(path))
 }
 
 // Forget removes a session record. The resources it named are untouched: this
@@ -256,7 +315,7 @@ func (store *Store) Forget(invocation string) error {
 // machine and whose last update is older than the retention window. A session
 // still naming retained data or a resource that may be running is never
 // expired, however old.
-func (store *Store) Expire() (int, error) {
+func (store *Store) Expire(ctx context.Context) (int, error) {
 	sessions, listErr := store.List()
 	cutoff := store.now().Add(-store.retention)
 	removed := 0
@@ -268,13 +327,47 @@ func (store *Store) Expire() (int, error) {
 		if !allForgettable(session) {
 			continue
 		}
-		if err := store.Forget(session.InvocationID); err != nil {
+		expired, err := store.expireOne(ctx, session.InvocationID, cutoff)
+		if err != nil {
 			failures = append(failures, err)
 			continue
 		}
-		removed++
+		if expired {
+			removed++
+		}
 	}
 	return removed, errors.Join(listErr, errors.Join(failures...))
+}
+
+// expireOne re-reads the record under the key lock before deleting it. The
+// listing above is a snapshot: between it and here another process can acquire
+// the session and take a live lease, and forgetting a record someone is holding
+// orphans whatever they create under it.
+func (store *Store) expireOne(ctx context.Context, invocation string, cutoff time.Time) (bool, error) {
+	session, err := store.Read(invocation)
+	if errors.Is(err, ErrSessionNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	lock, err := lockPath(ctx, store.keyLockPath(session.Key))
+	if err != nil {
+		return false, fmt.Errorf("cannot lock session key %q: %w", session.Key, err)
+	}
+	defer func() { _ = unlock(lock) }()
+
+	current, err := store.Read(invocation)
+	if errors.Is(err, ErrSessionNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if current.Lease != nil || current.UpdatedAt.After(cutoff) || !allForgettable(current) {
+		return false, nil
+	}
+	return true, store.Forget(invocation)
 }
 
 func allForgettable(session *Session) bool {

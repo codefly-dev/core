@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/stretchr/testify/require"
 
@@ -264,4 +266,41 @@ func dropLease(t *testing.T, store *sessionledger.Store, invocation string) {
 	require.NoError(t, err)
 	path := filepath.Join(store.Root(), "sessions", invocation+".json")
 	require.NoError(t, os.WriteFile(path, append(content, '\n'), 0o600))
+}
+
+// The owner-PID sweep predates the ledger and decides on (owner alive, state,
+// ephemeral) alone. Its "owner dead + stopped → reap" rule is exactly inverted
+// for a ledgered container: stopping a data container is how the ledger RETAINS
+// it, so sweeping one deletes the database the ledger just promised to keep.
+func TestReapStaleContainersKeepsLedgeredContainers(t *testing.T) {
+	backend := newBackend(t)
+	ctx := context.Background()
+
+	deadOwner := strconv.Itoa(0x7FFFFFF0)
+	ledgered := uniqueName(t) + "-ledgered"
+	orphan := uniqueName(t) + "-orphan"
+
+	create := func(name string, labels map[string]string) {
+		t.Helper()
+		labels[LabelCodeflyOwner] = "true"
+		labels[LabelCodeflySession] = deadOwner
+		labels[LabelCodeflyName] = name
+		_, err := backend.client.ContainerCreate(ctx,
+			&container.Config{Image: "alpine:latest", Labels: labels, Cmd: []string{"true"}},
+			nil, nil, nil, ContainerName(name))
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = backend.client.ContainerRemove(context.Background(), ContainerName(name),
+				container.RemoveOptions{Force: true})
+		})
+	}
+	create(ledgered, map[string]string{LabelCodeflyInvocation: "0123456789abcdef0123456789abcdef"})
+	create(orphan, map[string]string{})
+
+	require.NoError(t, ReapStaleContainers(ctx))
+
+	require.True(t, containerExists(t, backend, ContainerName(ledgered)),
+		"a ledgered container must be left to session-ledger recovery, which can read its ownership record")
+	require.False(t, containerExists(t, backend, ContainerName(orphan)),
+		"an unledgered orphan with a dead owner is still swept")
 }
