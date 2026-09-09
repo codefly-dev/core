@@ -64,6 +64,11 @@ type GoConfiguration struct {
 	Facade          bool
 	Services        string
 	Module          string
+	// GoPackageOverrides pins the go_package of files the image carries only as
+	// imports, keyed by proto file name. Empty on the Sources path, where buf
+	// resolves those files from buf.yaml dependencies and managed mode's
+	// module-identity `except` already leaves them alone.
+	GoPackageOverrides map[string]string
 }
 
 type PythonConfiguration struct {
@@ -84,11 +89,32 @@ type RustConfiguration struct {
 	Destination string
 }
 
-func CreateBufConfiguration(ctx context.Context, bufDir string, service string, language languages.Language, facade FacadeOptions) error {
+// BufConfigurationOption tunes the rendered buf configuration. It is variadic so
+// existing callers keep compiling unchanged.
+type BufConfigurationOption func(*bufConfigurationOptions)
+
+type bufConfigurationOptions struct {
+	goPackageOverrides map[string]string
+}
+
+// WithGoPackageOverrides pins the go_package of files that are present in the
+// image only to resolve imports. Required on the descriptor-set path: managed
+// mode would otherwise rewrite them to the generated library's own path, and the
+// module's bindings would import a package nothing generated. See
+// MarkForeignImports.
+func WithGoPackageOverrides(overrides map[string]string) BufConfigurationOption {
+	return func(o *bufConfigurationOptions) { o.goPackageOverrides = overrides }
+}
+
+func CreateBufConfiguration(ctx context.Context, bufDir string, service string, language languages.Language, facade FacadeOptions, opts ...BufConfigurationOption) error {
 	w := wool.Get(ctx).In("createBufConfiguration")
+	var options bufConfigurationOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	switch language {
 	case languages.GO:
-		err := templateGoConfiguration(ctx, bufDir, fmt.Sprintf("github.com/codefly-dev/cli/pkg/builder/clients/%s", service), facade)
+		err := templateGoConfiguration(ctx, bufDir, fmt.Sprintf("github.com/codefly-dev/cli/pkg/builder/clients/%s", service), facade, options.goPackageOverrides)
 		if err != nil {
 			return w.Wrapf(err, "cannot templatize")
 		}
@@ -117,15 +143,16 @@ func CreateBufConfiguration(ctx context.Context, bufDir string, service string, 
 	return w.NewError("unknown language")
 }
 
-func templateGoConfiguration(ctx context.Context, bufDir string, goPackagePrefix string, facade FacadeOptions) error {
+func templateGoConfiguration(ctx context.Context, bufDir string, goPackagePrefix string, facade FacadeOptions, goPackageOverrides map[string]string) error {
 	w := wool.Get(ctx).In("templateGoConfiguration", wool.Field("bufDir", bufDir), wool.Field("goPackagePrefix", goPackagePrefix))
 	templator := &templates.Templator{NameReplacer: templates.CutTemplateSuffix{}}
 	conf := GoConfiguration{
-		Destination:     outputDir,
-		GoPackagePrefix: goPackagePrefix,
-		Facade:          facade.Facade,
-		Services:        facade.services(),
-		Module:          facade.Module,
+		Destination:        outputDir,
+		GoPackagePrefix:    goPackagePrefix,
+		Facade:             facade.Facade,
+		Services:           facade.services(),
+		Module:             facade.Module,
+		GoPackageOverrides: goPackageOverrides,
 	}
 	err := templator.CopyAndApply(ctx, goFS, "templates/go", bufDir, conf)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/codefly-dev/core/languages"
@@ -118,7 +119,21 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 		}
 	}(tmpDir)
 
-	if err = CreateBufConfiguration(ctx, tmpDir, spec.service, spec.language, spec.facade); err != nil {
+	// Mark before rendering the buf configuration: the go_package of every file
+	// the image carries only as an import has to be pinned in buf.gen.yaml, or
+	// managed mode rewrites it to this library's own path and the module's
+	// bindings import a package nothing generated.
+	var markedDescriptorSet []byte
+	var goPackageOverrides map[string]string
+	if len(spec.descriptorSet) > 0 {
+		var merr error
+		if markedDescriptorSet, goPackageOverrides, merr = MarkForeignImports(spec.descriptorSet); merr != nil {
+			return w.Wrapf(merr, "cannot mark foreign imports in descriptor set")
+		}
+	}
+
+	if err = CreateBufConfiguration(ctx, tmpDir, spec.service, spec.language, spec.facade,
+		WithGoPackageOverrides(goPackageOverrides)); err != nil {
 		return w.Wrapf(err, "cannot create buf configuration")
 	}
 
@@ -138,13 +153,9 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 
 	if len(spec.descriptorSet) > 0 {
 		// buf takes every file of a plain FileDescriptorSet as a generation
-		// target, imports included, so tell it the well-known types are not
-		// ours to generate before handing the image over.
-		marked, merr := markWellKnownTypesAsImports(spec.descriptorSet)
-		if merr != nil {
-			return w.Wrapf(merr, "cannot parse descriptor set")
-		}
-		if err = os.WriteFile(filepath.Join(tmpDir, "image.binpb"), marked, 0600); err != nil {
+		// target, imports included, so hand it the marked image: the foreign
+		// namespaces are not ours to generate.
+		if err = os.WriteFile(filepath.Join(tmpDir, "image.binpb"), markedDescriptorSet, 0600); err != nil {
 			return w.Wrapf(err, "cannot write descriptor set")
 		}
 		input := "/workspace/image.binpb"
@@ -176,6 +187,31 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 		return w.Wrapf(err, "cannot create destination")
 	}
 
+	if err = removeForeignOutput(ctx, spec.destination); err != nil {
+		return w.Wrapf(err, "cannot remove stale foreign bindings")
+	}
+
 	name := fmt.Sprintf("proto-%s-%d-%s", spec.service, time.Now().UnixMilli(), spec.language)
 	return runBuf(ctx, name, image, tmpDir, spec.destination, depUpdate, generateArgs, before)
+}
+
+// removeForeignOutput deletes the generated trees for the namespaces the
+// generated library never owns. buf writes into destination but nothing empties
+// it, so a library generated before those namespaces were carried as imports
+// keeps its stale google/ and buf/validate/ bindings: the build stays broken (or
+// the descriptors stay in the pool) even though the current run emits nothing
+// there, and the fix looks like it did not work.
+//
+// Only the namespace roots that MarkForeignImports marks are removed, and they
+// are removed before buf runs, so a Sources-path caller that legitimately owns
+// protos under those paths has them regenerated in the same run.
+func removeForeignOutput(ctx context.Context, destination string) error {
+	w := wool.Get(ctx).In("removeForeignOutput", wool.DirField(destination))
+	for _, ns := range foreignNamespaces {
+		path := filepath.Join(destination, filepath.FromSlash(strings.TrimSuffix(ns.pathPrefix, "/")))
+		if err := os.RemoveAll(path); err != nil {
+			return w.Wrapf(err, "cannot remove %s", path)
+		}
+	}
+	return nil
 }

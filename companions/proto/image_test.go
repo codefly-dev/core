@@ -2,6 +2,9 @@ package proto
 
 import (
 	"bytes"
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,27 +13,41 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-// TestMarkWellKnownTypesAsImports pins which files of a descriptor set buf is
-// told not to generate for: the well-known types only. Marking the module's own
-// files would generate nothing at all, and marking the other shared imports
-// (google/api, buf.validate) would leave the module's bindings importing a
-// package that no longer exists, since managed mode rewrites their go_package
-// to the generated library's own path.
-//
-// A file living under google/protobuf/ but declaring the module's own package
-// is the module's, not a well-known type — vendoring a copy of the well-known
-// types puts real files at those paths, and the package is what tells the two
-// apart.
-func TestMarkWellKnownTypesAsImports(t *testing.T) {
-	set := &descriptorpb.FileDescriptorSet{
+// foreignSet is the shape a codefly contract has on the wire: the module's own
+// files plus every namespace the contract imports, all of them plain
+// FileDescriptorProtos with no buf image extensions.
+func foreignSet() *descriptorpb.FileDescriptorSet {
+	return &descriptorpb.FileDescriptorSet{
 		File: []*descriptorpb.FileDescriptorProto{
 			{
 				Name:    googleproto.String("google/protobuf/timestamp.proto"),
 				Package: googleproto.String("google.protobuf"),
+				Options: &descriptorpb.FileOptions{
+					GoPackage: googleproto.String("google.golang.org/protobuf/types/known/timestamppb"),
+				},
+			},
+			{
+				// A well-known type whose proto package is NOT "google.protobuf":
+				// an exact package match leaves it a generation target.
+				Name:    googleproto.String("google/protobuf/compiler/plugin.proto"),
+				Package: googleproto.String("google.protobuf.compiler"),
+				Options: &descriptorpb.FileOptions{
+					GoPackage: googleproto.String("google.golang.org/protobuf/types/pluginpb"),
+				},
 			},
 			{
 				Name:    googleproto.String("google/api/annotations.proto"),
 				Package: googleproto.String("google.api"),
+				Options: &descriptorpb.FileOptions{
+					GoPackage: googleproto.String("google.golang.org/genproto/googleapis/api/annotations;annotations"),
+				},
+			},
+			{
+				Name:    googleproto.String("buf/validate/validate.proto"),
+				Package: googleproto.String("buf.validate"),
+				Options: &descriptorpb.FileOptions{
+					GoPackage: googleproto.String("buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"),
+				},
 			},
 			{
 				Name:       googleproto.String("saas/accounts/v1/accounts.proto"),
@@ -38,15 +55,33 @@ func TestMarkWellKnownTypesAsImports(t *testing.T) {
 				Dependency: []string{"google/protobuf/timestamp.proto", "google/api/annotations.proto"},
 			},
 			{
+				// Vendoring a copy of the well-known types puts real, module-owned
+				// files at those paths; the proto package is what tells them apart.
 				Name:    googleproto.String("google/protobuf/accounts_extras.proto"),
 				Package: googleproto.String("saas.accounts.v1"),
 			},
 		},
 	}
-	source, err := googleproto.Marshal(set)
-	require.NoError(t, err)
+}
 
-	data, err := markWellKnownTypesAsImports(source)
+func marshal(t *testing.T, set *descriptorpb.FileDescriptorSet) []byte {
+	t.Helper()
+	data, err := googleproto.Marshal(set)
+	require.NoError(t, err)
+	return data
+}
+
+// TestMarkForeignImports pins which files of a descriptor set buf is told not to
+// generate for: every namespace whose bindings someone else publishes. Vendoring
+// any of them into the generated library puts a second registration of the same
+// proto file name into the consumer's descriptor pool, which panics at init as
+// soon as the consumer also links the canonical package.
+//
+// Marking the module's own files would generate nothing at all, so a file living
+// under google/protobuf/ but declaring the module's own package is the module's,
+// not a well-known type.
+func TestMarkForeignImports(t *testing.T) {
+	data, _, err := MarkForeignImports(marshal(t, foreignSet()))
 	require.NoError(t, err)
 
 	var image descriptorpb.FileDescriptorSet
@@ -54,7 +89,9 @@ func TestMarkWellKnownTypesAsImports(t *testing.T) {
 
 	want := map[string]bool{
 		"google/protobuf/timestamp.proto":       true,
-		"google/api/annotations.proto":          false,
+		"google/protobuf/compiler/plugin.proto": true,
+		"google/api/annotations.proto":          true,
+		"buf/validate/validate.proto":           true,
 		"saas/accounts/v1/accounts.proto":       false,
 		"google/protobuf/accounts_extras.proto": false,
 	}
@@ -71,27 +108,45 @@ func TestMarkWellKnownTypesAsImports(t *testing.T) {
 	require.Equal(t, "google.protobuf", image.GetFile()[0].GetPackage())
 	require.Equal(t,
 		[]string{"google/protobuf/timestamp.proto", "google/api/annotations.proto"},
-		image.GetFile()[2].GetDependency())
+		image.GetFile()[4].GetDependency())
 }
 
-// TestMarkWellKnownTypesAsImportsIsIdempotent covers the composition that
-// actually happens: a caller (the CLI's `generate client`) marks its own image
-// before calling GenerateClient, which marks again. A second field-8042
-// submessage merges with the first and is_import=true merged onto true stays
-// true, so no coordinated release between core and its callers is needed.
-func TestMarkWellKnownTypesAsImportsIsIdempotent(t *testing.T) {
+// TestMarkForeignImportsReturnsGoPackageOverrides covers the half of the fix that
+// marking alone does not achieve. buf's managed mode rewrites go_package for
+// every file in the image, imports included, and its `except` list matches by buf
+// module identity, which a plain FileDescriptorSet does not carry — so
+// `except: buf.build/googleapis/googleapis` is inert here. Without these
+// overrides fed back into buf.gen.yaml, google/api is rewritten to the generated
+// library's own path and the module's bindings import a package nothing
+// generated.
+func TestMarkForeignImportsReturnsGoPackageOverrides(t *testing.T) {
+	_, overrides, err := MarkForeignImports(marshal(t, foreignSet()))
+	require.NoError(t, err)
+
+	require.Equal(t, map[string]string{
+		"google/protobuf/timestamp.proto":       "google.golang.org/protobuf/types/known/timestamppb",
+		"google/protobuf/compiler/plugin.proto": "google.golang.org/protobuf/types/pluginpb",
+		"google/api/annotations.proto":          "google.golang.org/genproto/googleapis/api/annotations;annotations",
+		"buf/validate/validate.proto":           "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate",
+	}, overrides)
+}
+
+// TestMarkForeignImportsIsIdempotent covers the composition that actually
+// happens: a caller (the CLI's `generate client`) marks its own image before
+// calling GenerateClient, which marks again. A second field-8042 submessage
+// merges with the first and is_import=true merged onto true stays true, so no
+// coordinated release between core and its callers is needed.
+func TestMarkForeignImportsIsIdempotent(t *testing.T) {
 	set := &descriptorpb.FileDescriptorSet{
 		File: []*descriptorpb.FileDescriptorProto{{
 			Name:    googleproto.String("google/protobuf/timestamp.proto"),
 			Package: googleproto.String("google.protobuf"),
 		}},
 	}
-	source, err := googleproto.Marshal(set)
-	require.NoError(t, err)
 
-	once, err := markWellKnownTypesAsImports(source)
+	once, _, err := MarkForeignImports(marshal(t, set))
 	require.NoError(t, err)
-	twice, err := markWellKnownTypesAsImports(once)
+	twice, _, err := MarkForeignImports(once)
 	require.NoError(t, err)
 
 	var image descriptorpb.FileDescriptorSet
@@ -100,21 +155,19 @@ func TestMarkWellKnownTypesAsImportsIsIdempotent(t *testing.T) {
 	require.True(t, isMarkedAsImport(image.GetFile()[0]))
 }
 
-// TestMarkWellKnownTypesAsImportsWireFormat pins the marker's exact bytes. Every
-// other assertion here is written against the same constants the marker is built
-// from, so it would keep passing if those drifted from buf.alpha.image.v1's
-// schema and buf silently resumed generating the well-known types.
-func TestMarkWellKnownTypesAsImportsWireFormat(t *testing.T) {
+// TestMarkForeignImportsWireFormat pins the marker's exact bytes. Every other
+// assertion here is written against the same constants the marker is built from,
+// so it would keep passing if those drifted from buf.alpha.image.v1's schema and
+// buf silently resumed generating the foreign namespaces.
+func TestMarkForeignImportsWireFormat(t *testing.T) {
 	set := &descriptorpb.FileDescriptorSet{
 		File: []*descriptorpb.FileDescriptorProto{{
 			Name:    googleproto.String("google/protobuf/empty.proto"),
 			Package: googleproto.String("google.protobuf"),
 		}},
 	}
-	source, err := googleproto.Marshal(set)
-	require.NoError(t, err)
 
-	data, err := markWellKnownTypesAsImports(source)
+	data, _, err := MarkForeignImports(marshal(t, set))
 	require.NoError(t, err)
 
 	var image descriptorpb.FileDescriptorSet
@@ -124,11 +177,11 @@ func TestMarkWellKnownTypesAsImportsWireFormat(t *testing.T) {
 		[]byte(image.GetFile()[0].ProtoReflect().GetUnknown()))
 }
 
-// markWellKnownTypesAsImports rejects bytes that are not a FileDescriptorSet
-// rather than passing them through: buf could not have generated from them
-// either, and the caller learns which of its inputs is wrong.
-func TestMarkWellKnownTypesAsImportsRejectsGarbage(t *testing.T) {
-	_, err := markWellKnownTypesAsImports([]byte("not-a-descriptor-set"))
+// MarkForeignImports rejects bytes that are not a FileDescriptorSet rather than
+// passing them through: buf could not have generated from them either, and the
+// caller learns which of its inputs is wrong.
+func TestMarkForeignImportsRejectsGarbage(t *testing.T) {
+	_, _, err := MarkForeignImports([]byte("not-a-descriptor-set"))
 	require.Error(t, err)
 }
 
@@ -156,4 +209,46 @@ func isMarkedAsImport(file *descriptorpb.FileDescriptorProto) bool {
 		unknown = unknown[size:]
 	}
 	return false
+}
+
+// TestRemoveForeignOutput covers the migration the marking creates. buf writes
+// into the destination but nothing empties it, so a library generated before the
+// foreign namespaces were carried as imports keeps its stale bindings: the Go
+// build still fails with the very "found packages descriptorpb and durationpb"
+// error the marking removes, and the fix looks like it did not work.
+func TestRemoveForeignOutput(t *testing.T) {
+	dest := t.TempDir()
+	stale := []string{
+		"google/protobuf/timestamp.pb.go",
+		"google/protobuf/descriptor.pb.go",
+		"google/protobuf/compiler/plugin.pb.go",
+		"google/api/annotations.pb.go",
+		"buf/validate/validate.pb.go",
+	}
+	for _, rel := range stale {
+		path := filepath.Join(dest, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0750))
+		require.NoError(t, os.WriteFile(path, []byte("package stale\n"), 0600))
+	}
+	// The module's own bindings are not the generator's to reclaim here: buf
+	// overwrites them in the same run, and removing them would lose the output
+	// of a run that later fails.
+	own := filepath.Join(dest, "saas", "accounts", "v1", "accounts.pb.go")
+	require.NoError(t, os.MkdirAll(filepath.Dir(own), 0750))
+	require.NoError(t, os.WriteFile(own, []byte("package accountsv1\n"), 0600))
+
+	require.NoError(t, removeForeignOutput(context.Background(), dest))
+
+	for _, rel := range stale {
+		_, err := os.Stat(filepath.Join(dest, filepath.FromSlash(rel)))
+		require.True(t, os.IsNotExist(err), "stale binding survived: %s", rel)
+	}
+	_, err := os.Stat(own)
+	require.NoError(t, err, "the module's own bindings must survive")
+}
+
+// removeForeignOutput runs on every generation, including the very first one
+// into an empty destination.
+func TestRemoveForeignOutputOnEmptyDestination(t *testing.T) {
+	require.NoError(t, removeForeignOutput(context.Background(), t.TempDir()))
 }
