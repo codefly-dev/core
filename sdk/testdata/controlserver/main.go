@@ -10,6 +10,9 @@
 //	               the isolated session contract
 //	"no-handshake" bind the socket but leave SessionHandshake unimplemented
 //	"foreign"      bind the socket and answer with a different session secret
+//	"wrong-version" answer a correct proof under a different protocol version
+//	"no-capability" answer correctly but advertise no isolation capability
+//	"hang-handshake" serve health as SERVING, then never answer the handshake
 package main
 
 import (
@@ -59,12 +62,22 @@ func main() {
 		os.Exit(2)
 	}
 
+	server := &controlServer{
+		owner:      owner,
+		stall:      mode == "hang-handshake",
+		handshake:  mode != "no-handshake",
+		version:    handshakeVersion(mode),
+		capability: mode != "no-capability",
+		record:     recordPath(socket),
+	}
+	// Identity first, so a test running two independent driver processes can
+	// compare what each child was actually handed without reaching into the
+	// SDK's unexported state.
+	server.note(fmt.Sprintf("identity session=%s socket=%s scope=%s",
+		session.FromEnvironment(os.Environ()).ID, socket, namingScope(os.Args)))
+
 	srv := grpc.NewServer()
-	v0.RegisterCLIServer(srv, &controlServer{
-		owner:     owner,
-		handshake: mode != "no-handshake",
-		record:    recordPath(socket),
-	})
+	v0.RegisterCLIServer(srv, server)
 	checker := health.NewServer()
 	checker.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(srv, checker)
@@ -85,11 +98,33 @@ func recordPath(socket string) string {
 	return filepath.Join(dir, filepath.Base(filepath.Dir(socket))+".log")
 }
 
+// namingScope reports the --naming-scope the SDK passed on the command line.
+func namingScope(args []string) string {
+	for i, arg := range args {
+		if arg == "--naming-scope" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+// handshakeVersion lets a fixture claim a protocol the SDK does not speak, so
+// version skew can be told apart from a failed ownership proof.
+func handshakeVersion(mode string) uint32 {
+	if mode == "wrong-version" {
+		return session.ProtocolVersion + 1
+	}
+	return session.ProtocolVersion
+}
+
 type controlServer struct {
 	v0.UnimplementedCLIServer
-	owner     *session.Session
-	handshake bool
-	record    string
+	owner      *session.Session
+	handshake  bool
+	stall      bool
+	version    uint32
+	capability bool
+	record     string
 }
 
 func (s *controlServer) note(name string) {
@@ -104,16 +139,24 @@ func (s *controlServer) note(name string) {
 	_, _ = fmt.Fprintln(file, name)
 }
 
-func (s *controlServer) SessionHandshake(_ context.Context, req *v0.SessionHandshakeRequest) (*v0.SessionHandshakeResponse, error) {
+func (s *controlServer) SessionHandshake(ctx context.Context, req *v0.SessionHandshakeRequest) (*v0.SessionHandshakeResponse, error) {
 	s.note("SessionHandshake")
+	if s.stall {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if !s.handshake {
 		return s.UnimplementedCLIServer.SessionHandshake(context.Background(), req)
+	}
+	var capabilities []string
+	if s.capability {
+		capabilities = append(capabilities, session.IsolatedControlSocketCapability)
 	}
 	return &v0.SessionHandshakeResponse{
 		SessionId:       s.owner.ID,
 		Proof:           s.owner.Proof(req.GetChallenge()),
-		ProtocolVersion: session.ProtocolVersion,
-		Capabilities:    []string{session.IsolatedControlSocketCapability},
+		ProtocolVersion: s.version,
+		Capabilities:    capabilities,
 	}, nil
 }
 

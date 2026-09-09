@@ -154,14 +154,28 @@ available on Linux and macOS. Windows callers must pass
 |---|---|
 | `CODEFLY_CLI_SERVER_SOCKET` | absolute path the control server must bind instead of any TCP port |
 | `CODEFLY_SESSION_ID` | invocation identity to echo in the handshake, and to carry into state paths, container labels and log roots |
-| `CODEFLY_SESSION_SECRET` | HMAC key for the handshake proof — never log it or write it to persistent state |
+| `CODEFLY_SESSION_SECRET` | HMAC key for the handshake proof — never log it, and never write it into workspace state, fixtures or anything a later reader may publish |
 
 `CODEFLY_CLI_SERVER_PORT` is removed from the child environment for isolated
-sessions. The control server owns the socket file: remove any stale path before
-listening, and remove it again on shutdown — the same contract `agents.Serve`
-follows for `CODEFLY_AGENT_UDS_PATH`. Use
-`github.com/codefly-dev/core/sdk/session` to read the session and compute the
-proof rather than reimplementing it.
+sessions. Use `github.com/codefly-dev/core/sdk/session` to read the session and
+compute the proof rather than reimplementing it.
+
+**Bind the socket; never unlink an existing one.** If the path is already in
+use, fail — do not remove it and retry. This differs from `agents.Serve`'s
+handling of `CODEFLY_AGENT_UDS_PATH`, and the difference matters: an agent
+socket lives in a fresh per-spawn directory where nothing else can be present,
+while a reusable session's path is stable and shared. Unlinking a live socket
+there does not stop the server holding it, it just frees the path, so a second
+child binds it and a second stack comes up over the first one's containers and
+state with no error on either side. The SDK owns the directory and clears stale
+sockets itself, refusing when a server still answers; a bind failure reaching
+the CLI means a genuine conflict the caller must see. Removing the socket on
+your own clean shutdown is fine.
+
+The SDK stores a reuse receipt beside the socket (`receipt.json`, mode `0600`
+inside the `0700` directory) so a later invocation can recognise a warm stack.
+It holds the session secret, which is why it lives only there; it is dropped
+before a replacement session is started.
 
 ### Running against an older CLI
 
@@ -181,9 +195,13 @@ server answering it is the child that was started.
 ### Reusable sessions
 
 `WithKeepRunning` is explicit reuse mode, so its naming scope stays stable and
-its containers survive between runs. Attaching to a warm stack requires more
-than a matching workspace name: the SDK records a receipt next to the control
-socket and reuses the stack only when the **reuse fingerprint** matches —
+its containers survive between runs. Its control directory lives under the
+user's cache root rather than the temporary root: the name is derived from the
+plan, so it is predictable, and a predictable name in a world-writable
+directory could be pre-created by another local user. Attaching to a warm stack
+requires more than a matching workspace name: the SDK records a receipt next to
+the control socket and reuses the stack only when the **reuse fingerprint**
+matches —
 workspace, service and its declared dependencies, naming scope, fixture, run
 profile, exclusions, silenced services, dependency home and CLI binary. A run
 with a different fixture or profile starts its own stack instead of inheriting

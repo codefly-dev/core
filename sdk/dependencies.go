@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -248,10 +249,21 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err != nil {
 		return nil, err
 	}
+	// Own the private directory from the moment it exists. Every error path
+	// below has to release it, including the ones that return before a child
+	// is ever spawned — otherwise a rejected option set orphans a directory in
+	// the temporary root on every call.
+	success := false
+	defer func() {
+		if !success {
+			channel.discard()
+		}
+	}()
 	args := dependencyCommandArguments(opt, channel.scope)
 
 	if opt.KeepRunning {
 		if deps, err := attachDependencies(ctx, channel, opt); err == nil {
+			success = true
 			return deps, nil
 		} else {
 			// Attach miss is the common case (no warm server yet) but
@@ -262,6 +274,17 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 				Debug("attach to existing CLI server failed; starting new stack",
 					wool.Field("target", channel.target),
 					wool.Field("error", err.Error()))
+		}
+		// The receipt and socket left by the previous session belong to the
+		// SDK, which owns this directory — not to the child. Dropping the
+		// receipt bounds how long its secret survives on disk; clearing the
+		// socket refuses outright when a server still answers there, so a
+		// second stack can never come up over the first one's containers.
+		if err := channel.control.RemoveReceipt(); err != nil {
+			return nil, err
+		}
+		if err := channel.control.ClearStaleSocket(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -290,7 +313,6 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 
 	proc, err := startManaged(ctx, cmd)
 	if err != nil {
-		channel.discard()
 		return nil, err
 	}
 	// Echo the CLI's output to the parent's stdout/stderr in drain
@@ -302,7 +324,6 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// goroutines) plus any open connection on every post-spawn error path.
 	// Disarmed once we return the live Dependencies to the caller.
 	var conn *grpc.ClientConn
-	success := false
 	defer func() {
 		if !success {
 			if conn != nil {
@@ -312,7 +333,6 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 				wool.Get(ctx).In("sdk.WithDependencies").
 					Warn("could not tear down the CLI process group", wool.Field("error", killErr))
 			}
-			channel.discard()
 		}
 	}()
 
@@ -356,7 +376,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// Ownership before anything else: readiness polling, environment reads and
 	// the Stop/Destroy RPCs all act on whatever answers this channel, so the
 	// peer proves it is this session's child before any of them run.
-	if err := channel.verifyOwnership(ctx, cli, channel.session); err != nil {
+	if err := channel.verifyOwnership(ctx, cli, channel.session, opt.Timeout); err != nil {
 		return nil, err
 	}
 	_, err = cli.Ping(ctx, &emptypb.Empty{})
@@ -583,7 +603,7 @@ func (c *controlChannel) discard() {
 // verifyOwnership makes the peer prove it holds this invocation's secret. A
 // shared control channel has no identity to check, so it is accepted as-is —
 // that is precisely the guarantee WithSharedControlChannel gives up.
-func (c *controlChannel) verifyOwnership(ctx context.Context, cli v0.CLIClient, owner *session.Session) error {
+func (c *controlChannel) verifyOwnership(ctx context.Context, cli v0.CLIClient, owner *session.Session, timeout time.Duration) error {
 	if !c.isolated() {
 		return nil
 	}
@@ -591,7 +611,13 @@ func (c *controlChannel) verifyOwnership(ctx context.Context, cli v0.CLIClient, 
 	if err != nil {
 		return err
 	}
-	resp, err := cli.SessionHandshake(ctx, &v0.SessionHandshakeRequest{
+	// The handshake is the one call made to a peer that has not yet been
+	// judged trustworthy, so it carries its own deadline: a server that
+	// completes the health check and then never answers must not be able to
+	// wedge the caller indefinitely.
+	handshakeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	resp, err := cli.SessionHandshake(handshakeCtx, &v0.SessionHandshakeRequest{
 		SessionId:       owner.ID,
 		Challenge:       challenge,
 		ProtocolVersion: session.ProtocolVersion,
@@ -602,8 +628,17 @@ func (c *controlChannel) verifyOwnership(ctx context.Context, cli v0.CLIClient, 
 		}
 		return fmt.Errorf("session handshake with the CLI server at %s failed: %w", c.target, err)
 	}
+	// Version first: the proof is domain-separated by protocol version, so
+	// skew fails verification too. Reporting it as an upgrade problem keeps a
+	// routine version mismatch from being read as tampering.
+	if got := resp.GetProtocolVersion(); got != session.ProtocolVersion {
+		return fmt.Errorf("the CLI server at %s speaks session protocol version %d and this SDK speaks %d: upgrade whichever side is behind", c.target, got, session.ProtocolVersion)
+	}
 	if resp.GetSessionId() != owner.ID || !owner.VerifyProof(challenge, resp.GetProof()) {
 		return fmt.Errorf("the server at %s does not own this dependency session: refusing to drive it", c.target)
+	}
+	if !slices.Contains(resp.GetCapabilities(), session.IsolatedControlSocketCapability) {
+		return fmt.Errorf("the CLI server at %s proved its identity but did not advertise %s, so it does not guarantee an isolated control channel: upgrade codefly, or pass sdk.WithSharedControlChannel()", c.target, session.IsolatedControlSocketCapability)
 	}
 	return nil
 }
@@ -689,13 +724,10 @@ func waitForControlSocket(ctx context.Context, proc *managedProcess, socket stri
 	}
 }
 
-// cliServerAddress is the shared control channel: a port hashed from the
-// workspace name, which every invocation of that workspace computes
-// identically. Only WithSharedControlChannel selects it, because nothing about
-// it isolates one invocation from another.
 func cliServerAddress(ctx context.Context, namingScope string) string {
-	// A naming scope narrows the collision to invocations that chose the same
-	// scope; it does not remove it.
+	// The CLI derives its gRPC port from the workspace name via
+	// network.CLIServerPort. When a naming scope is set (parallel tests),
+	// we include it in the name so each scope gets a unique port.
 	wsName := ""
 	if ws, err := resources.FindWorkspaceUp(ctx); err == nil && ws != nil {
 		wsName = ws.Name
@@ -821,7 +853,7 @@ func attachDependencies(ctx context.Context, channel *controlChannel, opt *Optio
 		return nil, fmt.Errorf("existing CLI server at %s did not become ready within %s", channel.target, opt.Timeout)
 	}
 	cli := v0.NewCLIClient(conn)
-	if err := channel.verifyOwnership(ctx, cli, owner); err != nil {
+	if err := channel.verifyOwnership(ctx, cli, owner, attachExistingTimeout(opt.Timeout)); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
@@ -916,10 +948,17 @@ func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
 	}
 }
 
+// runningMu guards the resolved-resource cache below. WithDependencies now
+// reads it from two places (reuseFingerprint and SetEnvironment), and callers
+// legitimately start dependency sessions from concurrent goroutines, so the
+// lazy fill cannot be left unsynchronised.
+var runningMu sync.Mutex
 var runningModule *resources.Module
 var runningService *resources.Service
 
 func Service() (*resources.Service, error) {
+	runningMu.Lock()
+	defer runningMu.Unlock()
 	if runningService == nil {
 		mod, svc, err := resources.LoadModuleAndServiceFromCurrentPath(context.Background())
 		if err != nil {
@@ -932,6 +971,8 @@ func Service() (*resources.Service, error) {
 }
 
 func Module() (*resources.Module, error) {
+	runningMu.Lock()
+	defer runningMu.Unlock()
 	if runningModule == nil {
 		ctx := context.Background()
 		workspace, err := resources.FindWorkspaceUp(ctx)
