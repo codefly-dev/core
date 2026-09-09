@@ -2,6 +2,8 @@ package sdk
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,15 +12,20 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/codefly-dev/core/runners/base"
 )
 
 // managedProcess wraps an exec.Cmd with a lifecycle that survives the
 // rough edges of running long-lived subprocesses from a Go test binary:
 //
-//  1. The child runs in its own process group (Setpgid=true) so all of
-//     its descendants can be killed with a single group signal. Without
-//     this, killing the shell/CLI leaves its containers and grandchildren
-//     behind as orphans.
+//  1. The child leads its own process group, started through
+//     base.StartOwnedProcessGroup so its identity is pinned before it
+//     can fork. Cleanup terminates the whole group; without it, killing
+//     the shell/CLI leaves its grandchildren behind as orphans. Docker
+//     containers the child created are owned by the Docker daemon and
+//     are NOT in this group — no OS signal removes them, that teardown
+//     belongs to the CLI.
 //
 //  2. Stdout and stderr are piped through internal readers that we drain
 //     in goroutines and echo to the host process's stdout/stderr. This
@@ -29,7 +36,9 @@ import (
 //  3. A single supervisor goroutine calls cmd.Wait() so the child is
 //     always reaped — exiting cleanly, or dying after Kill(). The boolean
 //     `exited` flips under the mutex; callers that need to observe it
-//     (e.g., tests) can lock mu.
+//     (e.g., tests) can lock mu. Reaping the leader is deliberately kept
+//     separate from group teardown: the leader can exit long before the
+//     group is empty.
 //
 //  4. An OS signal trap converts SIGINT / SIGTERM / SIGHUP into a call
 //     to Kill() so Ctrl-C during `go test` doesn't orphan the group.
@@ -38,7 +47,8 @@ import (
 // The struct is intentionally independent of the codefly CLI so it can
 // be unit-tested with any command (see managed_process_test.go).
 type managedProcess struct {
-	cmd *exec.Cmd
+	cmd   *exec.Cmd
+	group *base.TrackedProcessGroup
 
 	// stdoutR and stderrR are line-buffered readers over the child's
 	// stdout and stderr pipes. Tests read from stdoutR via readLine to
@@ -52,12 +62,22 @@ type managedProcess struct {
 	// Teardown state guarded by mu.
 	mu         sync.Mutex
 	exited     bool
-	killed     bool
 	sigCh      chan os.Signal
 	waitedOnce sync.Once
 	waitErr    error
 	done       chan struct{}
+
+	// Kill state. killOnce runs the teardown exactly once; every caller
+	// blocks on killDone and reads the single killErr it produced.
+	killOnce sync.Once
+	killDone chan struct{}
+	killErr  error
 }
+
+// killBudget bounds a whole Kill: the SIGTERM grace, the SIGKILL grace and
+// the supervisor's release all have to fit inside it. It is a hard stop, not
+// a delay — cooperative children are gone in milliseconds.
+const killBudget = 15 * time.Second
 
 // startManaged starts cmd in its own process group with the lifecycle
 // guarantees described on managedProcess. The returned process is already
@@ -66,14 +86,6 @@ type managedProcess struct {
 // Callers are expected to call Kill() (or let the signal trap do it)
 // during teardown. It is safe to call Kill multiple times.
 func startManaged(_ any, cmd *exec.Cmd) (*managedProcess, error) {
-	// Put the child in its own process group so we can kill the whole
-	// tree with one signal. SysProcAttr may already be set by the caller
-	// (e.g., to pass environment tweaks) — we only touch Setpgid.
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	cmd.SysProcAttr.Setpgid = true
-
 	// We wire our own pipes so we can echo to os.Stdout/Stderr in
 	// goroutines we control. Otherwise the child would inherit the
 	// parent's stdio FDs and the Go test runner would wait on them.
@@ -86,15 +98,20 @@ func startManaged(_ any, cmd *exec.Cmd) (*managedProcess, error) {
 		return nil, fmt.Errorf("managed: StderrPipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	// Start the child as the leader of its own process group, with its
+	// identity captured so cleanup can prove the group is still ours.
+	group, err := base.StartOwnedProcessGroup(cmd)
+	if err != nil {
 		return nil, fmt.Errorf("managed: Start: %w", err)
 	}
 
 	mp := &managedProcess{
-		cmd:     cmd,
-		stdoutR: bufio.NewReader(stdoutPipe),
-		stderrR: bufio.NewReader(stderrPipe),
-		done:    make(chan struct{}),
+		cmd:      cmd,
+		group:    group,
+		stdoutR:  bufio.NewReader(stdoutPipe),
+		stderrR:  bufio.NewReader(stderrPipe),
+		done:     make(chan struct{}),
+		killDone: make(chan struct{}),
 	}
 
 	// Supervisor goroutine — reaps the child on exit.
@@ -173,56 +190,46 @@ func (mp *managedProcess) watchSignals() {
 	}
 }
 
-// Kill terminates the entire process group of the managed child. It is
-// idempotent — subsequent calls are no-ops.
+// Kill terminates the entire process group of the managed child and returns
+// once the group is gone, the supervisor has been released and the signal
+// trap is stopped — or once the kill budget is spent, whichever comes first.
 //
-// Sequence:
-//  1. Send SIGTERM to the whole group (pgid = child's PID).
-//  2. Wait up to 2s for the child to exit cleanly.
-//  3. If still alive, send SIGKILL to the group.
-//  4. Ensure the supervise goroutine has completed.
-//  5. Stop the signal trap.
+// The group, not the leader, is the unit of cleanup. Escalation to SIGKILL is
+// driven by group liveness, so a descendant that ignores SIGTERM is killed
+// even when its parent honoured SIGTERM and was reaped immediately. Signals go
+// to authenticated member incarnations rather than to a bare -pgid, so a pgid
+// the kernel recycled once the group emptied is never hit.
+//
+// Killing an OS process group cannot remove Docker containers the child
+// created: they are children of the Docker daemon, not of this group. Removing
+// them is the CLI's job, driven over the CLI control channel.
+//
+// Kill is idempotent. Concurrent and repeated calls all block until the first
+// call has finished and return the result it produced.
 func (mp *managedProcess) Kill() error {
-	mp.mu.Lock()
-	if mp.killed {
-		mp.mu.Unlock()
+	mp.killOnce.Do(func() {
+		mp.killErr = mp.terminate()
+		close(mp.killDone)
+	})
+	<-mp.killDone
+	return mp.killErr
+}
+
+func (mp *managedProcess) terminate() error {
+	defer mp.stopSignalTrap()
+	if mp.group == nil {
 		return nil
 	}
-	mp.killed = true
-	mp.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), killBudget)
+	defer cancel()
 
-	if mp.cmd.Process == nil {
-		return nil
+	err := mp.group.Terminate(ctx)
+	select {
+	case <-mp.done:
+	case <-ctx.Done():
+		err = errors.Join(err, fmt.Errorf("managed: supervisor did not release within %s", killBudget))
 	}
-	pgid := mp.cmd.Process.Pid
-
-	// Graceful first: SIGTERM to the group.
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
-
-	// Poll for exit with a 2s budget.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		mp.mu.Lock()
-		exited := mp.exited
-		mp.mu.Unlock()
-		if exited {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	// Hard kill if graceful didn't work.
-	mp.mu.Lock()
-	exited := mp.exited
-	mp.mu.Unlock()
-	if !exited {
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	}
-
-	// Stop the signal trap so the signal goroutine releases.
-	mp.stopSignalTrap()
-
-	return nil
+	return err
 }
 
 // Release detaches this process from the SDK lifecycle without sending a signal

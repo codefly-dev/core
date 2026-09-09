@@ -25,10 +25,13 @@ import (
 
 // Dependencies manages a running set of codefly-managed service
 // dependencies. The underlying CLI subprocess runs in its own process
-// group via managedProcess so Destroy can tear down the entire tree —
-// the CLI, its spawned agents, and their containers — with a single
-// group kill. Without this, `go test` leaks containers and hangs on
-// WaitDelay waiting for inherited stdout/stderr FDs.
+// group via managedProcess, so Destroy can tear down the whole native
+// tree — the CLI and its spawned agents — in one bounded pass. Docker
+// containers those agents created are not part of that group: they are
+// owned by the Docker daemon and only the CLI's own DestroyFlow removes
+// them, which is why Destroy sends that RPC before killing the group.
+// Without the group, `go test` also hangs on WaitDelay waiting for
+// inherited stdout/stderr FDs.
 type Dependencies struct {
 	proc           *managedProcess
 	cli            v0.CLIClient
