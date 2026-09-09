@@ -1,0 +1,21 @@
+kind: service
+name: orders
+version: 0.0.1
+agent:
+    kind: runtime::service
+    name: go-grpc
+    version: 0.0.16
+    publisher: codefly.ai
+service-dependencies:
+    - name: postgres
+      module: data
+      endpoints:
+        - name: tcp
+workspace-configuration-dependencies:
+    - stripe
+endpoints:
+    - name: grpc
+      api: grpc
+    - name: rest
+      api: rest
+      visibility: public

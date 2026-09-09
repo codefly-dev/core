@@ -1,0 +1,17 @@
+kind: job
+name: db-migration
+description: Apply the orders schema
+version: 0.0.1
+execution:
+  type: one-shot
+  timeout: 5m
+agent:
+  kind: codefly:job
+  name: go-job
+  version: 0.0.1
+  publisher: codefly.ai
+service-dependencies:
+  - name: postgres
+    module: data
+    endpoints:
+      - name: tcp

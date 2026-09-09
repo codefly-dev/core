@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -13,20 +14,24 @@ import (
 // visibility does not permit the consuming service's module. It is the single
 // source of truth the CLI `verify` phase enforces so that a declared dependency
 // and the NetworkPolicy generated from the same topology can never diverge.
-//
-// A dependency onto a service outside the workspace (not part of the loaded
-// graph) is skipped: its endpoints are not available to check here.
 func (d *ServiceDependencies) VerifyVisibility(ctx context.Context) error {
+	return verifyVisibility(ctx, d.uniqueToService)
+}
+
+// verifyVisibility checks every declared dependency between the given services.
+// A dependency onto a service outside the set (not part of the loaded graph or
+// closure) is skipped: its endpoints are not available to check here.
+func verifyVisibility(ctx context.Context, services map[string]*resources.Service) error {
 	w := wool.Get(ctx).In("architecture.VerifyVisibility")
 
 	var violations []string
-	for _, consumer := range d.uniqueToService {
+	for _, consumer := range services {
 		identity, err := consumer.Identity()
 		if err != nil {
 			return w.Wrapf(err, "cannot get identity for service %s", consumer.Name)
 		}
 		for _, dep := range consumer.ServiceDependencies {
-			target, ok := d.uniqueToService[dep.Unique()]
+			target, ok := services[dep.Unique()]
 			if !ok {
 				continue
 			}
