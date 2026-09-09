@@ -6,6 +6,18 @@ managed:
     except:
       - buf.build/googleapis/googleapis
       - buf.build/bufbuild/protovalidate
+{{- if .GoPackageOverrides }}
+  # `except` above matches by buf module identity, which a plain
+  # FileDescriptorSet does not carry, so it is inert on the descriptor-set path.
+  # These per-file overrides pin the go_package each foreign import declares, so
+  # the module's bindings reference the canonical upstream package instead of a
+  # local copy that would collide with it in the descriptor pool.
+  override:
+    GO_PACKAGE:
+{{- range $path, $pkg := .GoPackageOverrides }}
+      "{{ $path }}": "{{ $pkg }}"
+{{- end }}
+{{- end }}
 plugins:
   - name: go
     out: {{.Destination}}

@@ -69,3 +69,52 @@ func TestFacadePluginsUseAllStrategy(t *testing.T) {
 		}
 	}
 }
+
+// TestGoConfigurationPinsForeignGoPackages covers the half of the descriptor-set
+// fix that marking alone does not achieve. managed mode rewrites go_package for
+// every file in the image, imports included, and its `except` list matches by buf
+// module identity — which a plain FileDescriptorSet does not carry, so the
+// `except` entries above are inert on that path. Without a per-file override the
+// module's bindings import <prefix>/google/api, a package nothing generated.
+func TestGoConfigurationPinsForeignGoPackages(t *testing.T) {
+	dir := t.TempDir()
+	overrides := map[string]string{
+		"google/api/annotations.proto": "google.golang.org/genproto/googleapis/api/annotations;annotations",
+		"buf/validate/validate.proto":  "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate",
+	}
+	if err := CreateBufConfiguration(context.Background(), dir, "accounts", languages.GO, FacadeOptions{},
+		WithGoPackageOverrides(overrides)); err != nil {
+		t.Fatalf("CreateBufConfiguration: %v", err)
+	}
+	configuration, err := os.ReadFile(filepath.Join(dir, "buf.gen.yaml"))
+	if err != nil {
+		t.Fatalf("read generated buf config: %v", err)
+	}
+	for path, pkg := range overrides {
+		if !strings.Contains(string(configuration), "\""+path+"\": \""+pkg+"\"") {
+			t.Fatalf("go_package override for %s missing:\n%s", path, configuration)
+		}
+	}
+	if !strings.Contains(string(configuration), "  override:\n    GO_PACKAGE:\n") {
+		t.Fatalf("overrides must sit under managed.override.GO_PACKAGE:\n%s", configuration)
+	}
+}
+
+// The Sources path resolves shared protos from buf.yaml dependencies, where
+// managed mode's module-identity `except` already applies, so it passes no
+// overrides. An empty map must leave the configuration exactly as it was rather
+// than emitting a dangling `override:` key that buf rejects.
+func TestGoConfigurationOmitsEmptyGoPackageOverrides(t *testing.T) {
+	dir := t.TempDir()
+	if err := CreateBufConfiguration(context.Background(), dir, "accounts", languages.GO, FacadeOptions{},
+		WithGoPackageOverrides(nil)); err != nil {
+		t.Fatalf("CreateBufConfiguration: %v", err)
+	}
+	configuration, err := os.ReadFile(filepath.Join(dir, "buf.gen.yaml"))
+	if err != nil {
+		t.Fatalf("read generated buf config: %v", err)
+	}
+	if strings.Contains(string(configuration), "override:") {
+		t.Fatalf("no overrides were requested, none must be rendered:\n%s", configuration)
+	}
+}

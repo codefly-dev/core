@@ -329,3 +329,54 @@ func pythonWithProtobuf(t *testing.T) string {
 	t.Skip("no python with the protobuf runtime available")
 	return ""
 }
+
+// TestStripPreservesImportMarkers pins a coupling that spans two languages and is
+// otherwise invisible. On the Python facade path the image handed to the strip is
+// already marked by MarkForeignImports, and the strip re-serializes every
+// FileDescriptorProto it keeps. It preserves the markers today only because it
+// appends the parsed message; a rewrite that builds fresh descriptors field by
+// field would drop them silently, and buf would resume generating
+// google/protobuf/*_pb2.py into the facade — re-registering descriptors the
+// protobuf runtime already owns, which is the collision the strip exists to
+// prevent.
+func TestStripPreservesImportMarkers(t *testing.T) {
+	python := pythonWithProtobuf(t)
+
+	set := &descriptorpb.FileDescriptorSet{
+		File: []*descriptorpb.FileDescriptorProto{
+			{Name: proto.String("google/protobuf/timestamp.proto"), Package: proto.String("google.protobuf")},
+			{
+				Name:       proto.String("saas/accounts/v1/audit.proto"),
+				Package:    proto.String("saas.accounts.v1"),
+				Dependency: []string{"google/protobuf/timestamp.proto"},
+			},
+		},
+	}
+	source, err := proto.Marshal(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marked, _, err := MarkForeignImports(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markedSet := &descriptorpb.FileDescriptorSet{}
+	if err = proto.Unmarshal(marked, markedSet); err != nil {
+		t.Fatal(err)
+	}
+
+	stripped := runStrip(t, python, markedSet, "saas/accounts/v1/audit.proto")
+
+	var timestamp *descriptorpb.FileDescriptorProto
+	for _, file := range stripped.GetFile() {
+		if file.GetName() == "google/protobuf/timestamp.proto" {
+			timestamp = file
+		}
+	}
+	if timestamp == nil {
+		t.Fatal("the strip dropped the well-known type the target depends on")
+	}
+	if !isMarkedAsImport(timestamp) {
+		t.Fatal("the strip lost buf's is_import marker: buf would generate bindings for the well-known types again")
+	}
+}
