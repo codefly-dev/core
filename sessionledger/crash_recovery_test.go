@@ -92,6 +92,12 @@ func runCrashingSession(phase string) {
 		pgids = append(pgids, second.PGID())
 	}
 
+	// Become immune to SIGTERM before publishing the handoff. The parent treats
+	// that line as permission to kill, and a disposition installed after it
+	// leaves a window in which a stray SIGTERM ends the helper on Go's default
+	// terms rather than the SIGKILL this test is about.
+	signal.Ignore(syscall.SIGTERM)
+
 	handoff, err := json.Marshal(helperHandoff{Invocation: handle.InvocationID(), PGIDs: pgids})
 	if err != nil {
 		panic(err)
@@ -102,7 +108,6 @@ func runCrashingSession(phase string) {
 
 	// Wait to be killed. Nothing after this line ever runs, which is the point:
 	// no deferred Release, no cleanup, exactly like a SIGKILLed CLI.
-	signal.Ignore(syscall.SIGTERM)
 	select {}
 }
 
