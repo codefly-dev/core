@@ -12,6 +12,13 @@ export GOFLAGS ?= -timeout=300s
 check-cgo-free:
 	./scripts/check_cgo_free.sh
 
+# Version guard: version/info.codefly.yaml drives composition's
+# minimum-codefly-version gate, and nothing else in CI notices when it falls
+# behind the published tags. See scripts/check_version_tag.sh.
+.PHONY: check-version-tag
+check-version-tag:
+	./scripts/check_version_tag.sh
+
 .PHONY: install-go-test-coverage
 install-go-test-coverage:
 	go install github.com/vladopajic/go-test-coverage/v2@latest
