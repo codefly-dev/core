@@ -64,6 +64,16 @@ jobs:
         # so creep fails HERE, at the PR that introduces it. See docs/cgo.md.
         run: ./scripts/check_cgo_free.sh
 
+      - name: Audit-doc guard
+        # docs/reliability-audit-2026-09-09.md is normative for 34 issues across
+        # six repositories. The Go seams it names are the ones the open fixes
+        # change, and the finding -> issue map drifts when issues are closed as
+        # duplicates or re-scoped — either way it keeps looking authoritative
+        # while being wrong. This fails HERE instead. See the script header.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/check_audit_doc.sh
+
       - name: Install apt deps (bubblewrap, ripgrep)
         # bubblewrap → core/runners/sandbox tests (default + sandbox_e2e)
         # ripgrep    → core/code search tests (real-repo grep coverage)

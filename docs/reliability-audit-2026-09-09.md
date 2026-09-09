@@ -4,8 +4,12 @@ Tracker: [codefly-dev/core#415](https://github.com/codefly-dev/core/issues/415)
 
 Scope: a source and targeted behavioral audit of core, CLI, go-grpc and Postgres,
 plus a follow-up audit of Redis, Python FastAPI, object storage and generic.
-Twenty-five findings across the two passes, split into independently assignable
-implementation issues.
+Twenty-five findings across the two passes — sixteen in the first, nine in the
+second — split into independently assignable implementation issues. A finding
+may split across repositories, so the issue count is higher than the finding
+count. Five further issues (A01–A05) are **architectural follow-through, not
+findings**; they are marked as such in [Ownership](#ownership). Thirty-four
+issues in total.
 
 This document is the shared statement of the **design defaults** those issues are
 implemented against. The findings span six repositories; without one citable
@@ -32,38 +36,71 @@ service-python-fastapi, service-object-storage and generic.
 
 ## What the audit established
 
-**Reproduced against real processes, sockets and Git** — permissive HTTP/TCP
-readiness; stale pin retention after a requested pin fails to resolve; process
-descendants surviving their group leader; a lost service lookup after a
-dependency graph is restricted; colliding default SDK control addresses; Redis
-accepting a protocol error as a ready reply; FastAPI `Destroy` leaving a native
-process alive; and object-storage readiness reporting ready with an unreachable
-backend.
+The two passes have different evidence bases and are recorded separately.
+
+**First pass — six real-process/socket/Git characterizations reproduced.** Five
+are enumerated in the tracker:
+
+- permissive HTTP/TCP readiness;
+- stale pin retention after a requested pin fails to resolve;
+- process descendants surviving their group leader;
+- a lost service lookup after a dependency graph is restricted;
+- colliding default SDK control addresses.
+
+The tracker states six and names these five. Either "permissive HTTP/TCP
+readiness" counts as two rows (one HTTP, one TCP) or a sixth reproduction is
+unenumerated. This gap is unresolved: do not read the list above as a complete
+inventory, and do not conclude that a finding absent from it has no
+reproduction.
+
+**Second pass — three characterizations reproduced** with real sockets,
+processes and client implementations:
+
+- Redis accepting a protocol error as a ready reply;
+- FastAPI `Destroy` leaving a native process alive;
+- object-storage readiness reporting ready with an unreachable backend.
 
 **Not established** — live database recovery, Docker/Nix parity, and Kubernetes
 health qualification. No child issue may be closed on the strength of a
 characterization test alone; each carries its own behavioral acceptance case.
 
-**Reviewed with no defect asserted** — the generic agent's passive lifecycle and
-its explicit unsupported-capability responses. Its Go suite passed. Absence of an
-asserted defect here is a reviewed result, not an unexamined one.
+**Reviewed with no _new_ defect asserted** — the generic agent's passive
+lifecycle and its explicit unsupported-capability responses. Its Go suite
+passed. This is a reviewed result, not an unexamined one, and it is not a
+statement that the generic agent is clean: [core#318](https://github.com/codefly-dev/core/issues/318)
+("Generic agent process group survives normal Codefly teardown") is open and
+this audit neither reproduced nor closed it.
 
 ## Design defaults
 
-These are normative for the whole roadmap.
+These are normative for the whole roadmap. "Normative" here is a review
+standard, not a mechanism: **nothing makes another repository obey this
+document.** A child issue that contradicts a default is caught by a human
+reading both, and that is the only thing catching it.
+
+What *is* enforced, by `make check-audit-doc` in core's CI
+(`scripts/check_audit_doc.sh`), is that this document does not quietly become
+wrong about its own subject matter: the Go seams it names must still exist, and
+every finding must still map to an issue whose title carries that finding's
+code. That guard fails in the core PR that breaks the claim. Compare
+`docs/cgo.md`, where the contract itself is machine-checked — here only the
+citations are.
 
 ### 1. Disposable tests own fresh invocation-scoped state
 
 A disposable test owns state created for that invocation. Warm reuse and
 borrowed infrastructure are opt-in and named, never the fallback.
 
-In core this is the `sdk.WithDependencies` seam. `cliServerAddress` in
-`sdk/dependencies.go` derives the control address from the workspace name alone
-unless `WithNamingScope` is set, so two concurrent invocations in one workspace
-resolve to the same address and `attachDependencies` adopts whichever session is
-already listening. Identity must be per-invocation by default, and attachment
-must verify it is talking to its own session rather than to whatever answers.
-→ F05, F15.
+In core this is the `sdk.WithDependencies` seam. **At the audited revision**
+(`535d050`), `cliServerAddress` in `sdk/dependencies.go` derived the control
+address from the workspace name alone unless `WithNamingScope` was set, so two
+concurrent invocations in one workspace resolved to the same address and
+`attachDependencies` adopted whichever session was already listening. F05 and
+F15 are open against that seam and the symbols named here may have changed;
+check the issues, not this paragraph, for current state.
+
+The default: identity is per-invocation, and attachment verifies it is talking
+to its own session rather than to whatever answers. → F05, F15.
 
 ### 2. Stop retains data; destructive reset is explicit
 
@@ -77,11 +114,25 @@ Readiness requires **both** current lifecycle success and the declared
 predicates of consumed endpoints and completion jobs. An open port is not
 readiness; neither is a lifecycle that merely returned.
 
-Legacy custom services do not acquire guessed health routes. go-grpc #58
-deliberately introduced transport probes because customized services had no
-declared health surface — that lesson stands. The replacement is *declared
-capabilities*, so a service that declares nothing keeps its transport probe
-rather than silently gaining a route that was never implemented. → F07, F08.
+Legacy custom services do not acquire guessed health routes. That is the
+lesson of closed [go-grpc#58](https://github.com/codefly-dev/service-go-grpc/issues/58):
+the template hard-coded a `/healthz` probe that customized services never
+registered, so kubelet restarted healthy pods on 404s. Readiness must key off
+*declared capabilities*, never an assumed route.
+
+Note the direction of each failure. #58 fixed a **false negative** — healthy
+pods killed by a probe for a route that did not exist. F08 is a **false
+positive** — permissive transport readiness reporting dead services ready.
+Carrying #58's remedy forward as F08's default would apply the fix for one
+direction to the other, where it is precisely the defect. A transport probe is
+therefore not an answer to "is this ready".
+
+What an undeclared service resolves to is defined by F08 contract
+([core#418](https://github.com/codefly-dev/core/issues/418)), not by this
+document. #58 states the shape of the answer — "product-specific dependency
+health belongs in product overlays" — so the undeclared case is closed by
+declaring the predicate in an overlay, not by falling back to transport
+liveness. → F07, F08.
 
 ### 4. One bootstrap plan for local and deployed
 
@@ -130,7 +181,10 @@ infrastructure rows are recorded explicitly rather than omitted. → A05.
 ## Ownership
 
 Status is tracked on the [tracker](https://github.com/codefly-dev/core/issues/415),
-not here.
+not here. This map duplicates the tracker's list, which is why
+`scripts/check_audit_doc.sh` re-verifies every row against the live issue title
+in CI: a mapping that drifts — an issue closed as a duplicate, split, or
+re-scoped — fails the build rather than sitting here looking authoritative.
 
 ### core
 
@@ -142,9 +196,9 @@ not here.
 | F12 — preserve service lookup across graph restriction | [#419](https://github.com/codefly-dev/core/issues/419) |
 | F13 core — bound temporary-port allocation | [#420](https://github.com/codefly-dev/core/issues/420) |
 | F15 — scope SDK identity and environment to sessions | [#421](https://github.com/codefly-dev/core/issues/421) |
-| A01 — immutable resolved execution plan | [#422](https://github.com/codefly-dev/core/issues/422) |
-| A02 — typed build/runtime/schema/completion dependencies | [#423](https://github.com/codefly-dev/core/issues/423) |
-| A03 — ownership, retained state, crash-recoverable sessions | [#424](https://github.com/codefly-dev/core/issues/424) |
+| A01 (follow-through) — immutable resolved execution plan | [#422](https://github.com/codefly-dev/core/issues/422) |
+| A02 (follow-through) — typed build/runtime/schema/completion dependencies | [#423](https://github.com/codefly-dev/core/issues/423) |
+| A03 (follow-through) — ownership, retained state, crash-recoverable sessions | [#424](https://github.com/codefly-dev/core/issues/424) |
 
 ### cli
 
@@ -155,8 +209,8 @@ not here.
 | F08 — lifecycle completion and endpoint health for readiness | [#590](https://github.com/codefly-dev/cli/issues/590) |
 | F09 — reverse topological teardown barriers | [#591](https://github.com/codefly-dev/cli/issues/591) |
 | F11 — publish validated agent-accepted network mappings | [#592](https://github.com/codefly-dev/cli/issues/592) |
-| A04 — rendered/applied/bootstrapped/healthy results | [#593](https://github.com/codefly-dev/cli/issues/593) |
-| A05 — gate combinations on real lifecycle conformance | [#594](https://github.com/codefly-dev/cli/issues/594) |
+| A04 (follow-through) — rendered/applied/bootstrapped/healthy results | [#593](https://github.com/codefly-dev/cli/issues/593) |
+| A05 (follow-through) — gate combinations on real lifecycle conformance | [#594](https://github.com/codefly-dev/cli/issues/594) |
 
 ### service-postgres
 

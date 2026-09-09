@@ -19,6 +19,13 @@ check-cgo-free:
 check-version-tag:
 	./scripts/check_version_tag.sh
 
+# Audit-doc guard: docs/reliability-audit-2026-09-09.md is normative for 34
+# issues across six repositories, and both the code seams and the finding ->
+# issue map it cites rot silently. See scripts/check_audit_doc.sh.
+.PHONY: check-audit-doc
+check-audit-doc:
+	./scripts/check_audit_doc.sh
+
 .PHONY: install-go-test-coverage
 install-go-test-coverage:
 	go install github.com/vladopajic/go-test-coverage/v2@latest
