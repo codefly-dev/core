@@ -72,7 +72,6 @@ type OriginKind string
 const (
 	OriginServiceEndpoint        OriginKind = "service-endpoint"
 	OriginWorkspaceConfiguration OriginKind = "workspace-configuration"
-	OriginServiceConfiguration   OriginKind = "service-configuration"
 )
 
 // SelectionReason explains one choice: why a node or edge is in the closure, or
@@ -87,7 +86,6 @@ const (
 	ReasonLocalOverlay         SelectionReason = "local-overlay"
 	ReasonCommittedPin         SelectionReason = "committed-pin"
 	ReasonWorkspaceLayout      SelectionReason = "workspace-layout"
-	ReasonInvocationOverride   SelectionReason = "invocation-override"
 )
 
 // Lifecycle is what happens to the resources a plan selects when the invocation
@@ -193,13 +191,22 @@ type ConfigurationOrigin struct {
 	Selection     Selection  `json:"selection"`
 }
 
-// SchemaStep is one schema prerequisite. Steps are semantically ordered and are
-// never sorted by canonicalization.
+// SchemaStep is one schema prerequisite. Steps are semantically ordered among
+// themselves and are never sorted by canonicalization.
+//
+// A step is not a node, so no Edge can reach it. After and Before carry its
+// place in the execution order explicitly rather than leaving every consumer to
+// re-derive it from the step's targets and the plan's edges.
 type SchemaStep struct {
-	ID        string    `json:"id"`
-	Module    string    `json:"module"`
-	Name      string    `json:"name"`
-	Targets   []string  `json:"targets,omitempty"`
+	ID     string `json:"id"`
+	Module string `json:"module"`
+	Name   string `json:"name"`
+	// After are the selected nodes that must be ready before this step runs.
+	After []string `json:"after,omitempty"`
+	// Before are the selected nodes that must not start until this step has
+	// completed — every node that depends, directly or transitively, on a node
+	// in After.
+	Before    []string  `json:"before,omitempty"`
 	Backend   *Backend  `json:"backend,omitempty"`
 	Selection Selection `json:"selection"`
 }

@@ -29,6 +29,7 @@ type Closure struct {
 	modules     map[string]*resources.Module
 	resolutions map[string]*resources.ModuleResolution
 	references  map[string]*resources.ModuleReference
+	unloadable  map[string]string
 	unresolved  map[string]string
 	via         map[string][]string
 	graph       *DAG
@@ -62,6 +63,7 @@ func SelectClosure(ctx context.Context, workspace *resources.Workspace, target s
 		modules:     make(map[string]*resources.Module),
 		resolutions: make(map[string]*resources.ModuleResolution),
 		references:  make(map[string]*resources.ModuleReference),
+		unloadable:  make(map[string]string),
 		unresolved:  make(map[string]string),
 		via:         make(map[string][]string),
 	}
@@ -75,6 +77,13 @@ func canonicalTarget(workspace *resources.Workspace, target string) (string, err
 	reference, err := resources.ParseServiceReference(strings.TrimSpace(target))
 	if err != nil {
 		return "", err
+	}
+	// ParseServiceReference splits on "/" without requiring either half to be
+	// non-empty, so "svc/" parses as module "svc" with no name — which would
+	// otherwise become the target "svc/" and produce diagnostics naming a module
+	// the caller never typed.
+	if reference.Name == "" {
+		return "", fmt.Errorf("target <%s> names no service; give it as module/service", target)
 	}
 	if reference.Module == "" {
 		if workspace.Layout != resources.LayoutKindFlat {
@@ -137,10 +146,26 @@ func (closure *Closure) loadService(ctx context.Context, unique string) (*resour
 	return service, ""
 }
 
+// loadModule memoizes both outcomes. Caching only success made every service of
+// a failing module re-run resolution and a full YAML load of a module already
+// known to be unloadable.
 func (closure *Closure) loadModule(ctx context.Context, name string) (*resources.Module, string) {
 	if module, ok := closure.modules[name]; ok {
 		return module, ""
 	}
+	if reason, ok := closure.unloadable[name]; ok {
+		return nil, reason
+	}
+	module, reason := closure.resolveModule(ctx, name)
+	if reason != "" {
+		closure.unloadable[name] = reason
+		return nil, reason
+	}
+	closure.modules[name] = module
+	return module, ""
+}
+
+func (closure *Closure) resolveModule(ctx context.Context, name string) (*resources.Module, string) {
 	reference := closure.moduleReference(name)
 	if reference == nil {
 		return nil, fmt.Sprintf("module <%s> is not composed in workspace <%s>; add it to %s",
@@ -156,7 +181,6 @@ func (closure *Closure) loadModule(ctx context.Context, name string) (*resources
 	if err != nil {
 		return nil, fmt.Sprintf("cannot load module <%s>: %s", name, err)
 	}
-	closure.modules[name] = module
 	return module, ""
 }
 

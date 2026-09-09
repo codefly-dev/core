@@ -126,8 +126,11 @@
       "id": "data/db-migration",
       "module": "data",
       "name": "db-migration",
-      "targets": [
+      "after": [
         "data/postgres"
+      ],
+      "before": [
+        "api/orders"
       ],
       "backend": {
         "kind": "codefly:job",

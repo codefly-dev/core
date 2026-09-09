@@ -113,6 +113,20 @@ func TestPlanGolden(t *testing.T) {
 	}
 }
 
+// A schema step is not a node, so no edge can reach it: the plan must carry its
+// place in the order itself rather than leave every consumer to re-derive it.
+func TestPlanOrdersSchemaStepsAgainstNodes(t *testing.T) {
+	plan := planFrom(t, "testdata/plan-workspace", "api/orders", runOptions())
+
+	require.Len(t, plan.SchemaSteps, 1)
+	step := plan.SchemaSteps[0]
+	require.Equal(t, "data/db-migration", step.ID)
+	require.Equal(t, []string{"data/postgres"}, step.After,
+		"the migration waits for the service it operates on")
+	require.Equal(t, []string{"api/orders"}, step.Before,
+		"everything downstream of that service waits for the migration")
+}
+
 // Paths are not semantic: the same declarations planned from two checkouts must
 // be reusable against each other.
 func TestPlanFingerprintIgnoresCheckoutLocationAndInvocation(t *testing.T) {
@@ -241,6 +255,40 @@ func TestPlanExplainsWhyAnOverlayWon(t *testing.T) {
 	require.Contains(t, artifact.Selection.Detail, resources.LocalOverlayConfigurationName)
 	require.Equal(t, executionplan.VerificationLocal, artifact.Verification)
 	require.Equal(t, "codefly-dev/module-data", artifact.Reference)
+}
+
+// Plan refuses an unresolved closure, but the failure must still be
+// describable: collapsing it into an error string left no way to render which
+// node failed and why.
+func TestDraftDescribesAnUnresolvedClosure(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/unavailable-module")
+	require.NoError(t, err)
+
+	closure, err := architecture.SelectClosure(ctx, workspace, "web/portal")
+	require.NoError(t, err)
+
+	draft, err := closure.Draft(ctx, runOptions())
+	require.NoError(t, err, "a draft describes a closure that cannot run")
+
+	byID := map[string]executionplan.Node{}
+	for _, node := range draft.Nodes {
+		byID[node.ID] = node
+	}
+	require.Contains(t, byID, "web/portal")
+	require.Equal(t, executionplan.Resolved, byID["web/portal"].Resolution)
+
+	broken, present := byID["vault/secrets"]
+	require.True(t, present, "the unresolved node stays in the plan")
+	require.Equal(t, executionplan.Unresolved, broken.Resolution)
+	require.Contains(t, broken.Unresolved, "cannot load module <vault>")
+	require.Equal(t, []string{"web/portal"}, broken.Selection.Via)
+
+	require.Len(t, draft.Edges, 1, "the edge onto the unresolved node is kept")
+	require.Equal(t, "vault/secrets", draft.Edges[0].From)
+
+	require.ErrorContains(t, draft.Validate(), "vault/secrets: cannot load module <vault>",
+		"a draft is describable but never executable")
 }
 
 func TestPlanRefusesAnUnresolvedClosure(t *testing.T) {

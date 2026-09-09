@@ -3,6 +3,7 @@ package architecture
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/codefly-dev/core/executionplan"
 	"github.com/codefly-dev/core/resources"
@@ -26,6 +27,24 @@ func (closure *Closure) Plan(ctx context.Context, options PlanOptions) (*executi
 	if err := closure.Verify(ctx); err != nil {
 		return nil, w.Wrap(err)
 	}
+	plan, err := closure.Draft(ctx, options)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	if err := plan.Validate(); err != nil {
+		return nil, w.Wrap(err)
+	}
+	return plan, nil
+}
+
+// Draft builds the canonical plan without validating it, so a closure that
+// cannot run is still describable: an unresolved node appears as a node carrying
+// why it failed, rather than being collapsed into an error string. It is what an
+// "explain" view renders when Plan refuses.
+//
+// A draft is not executable — Plan is the only thing that returns one that is.
+func (closure *Closure) Draft(ctx context.Context, options PlanOptions) (*executionplan.Plan, error) {
+	w := wool.Get(ctx).In("architecture.Closure.Draft", wool.NameField(closure.Target))
 	consumption, err := closure.resolveConsumption()
 	if err != nil {
 		return nil, w.Wrap(err)
@@ -49,11 +68,18 @@ func (closure *Closure) Plan(ctx context.Context, options PlanOptions) (*executi
 		return nil, w.Wrap(err)
 	}
 	plan.SchemaSteps = steps
-	canonical := plan.Canonical()
-	if err := canonical.Validate(); err != nil {
-		return nil, w.Wrap(err)
+	return plan.Canonical(), nil
+}
+
+// selected reports whether the walk reached this node, resolved or not. An
+// unresolved node stays in the plan so the gap is visible; it is dropped only
+// from the wiring that needs a loaded service to compute.
+func (closure *Closure) selected(unique string) bool {
+	if _, resolved := closure.services[unique]; resolved {
+		return true
 	}
-	return canonical, nil
+	_, unresolved := closure.unresolved[unique]
+	return unresolved
 }
 
 // consumption is which endpoints of a producer each selected consumer pulls in.
@@ -114,6 +140,18 @@ func (closure *Closure) planNodes(consumed consumption) []executionplan.Node {
 			node.Artifacts = []executionplan.Artifact{*artifact}
 		}
 		nodes = append(nodes, node)
+	}
+	for unique, reason := range closure.unresolved {
+		module, name := resources.SplitUnique(unique)
+		nodes = append(nodes, executionplan.Node{
+			ID:         unique,
+			Kind:       executionplan.NodeService,
+			Module:     module,
+			Name:       name,
+			Resolution: executionplan.Unresolved,
+			Unresolved: reason,
+			Selection:  closure.selection(unique),
+		})
 	}
 	return nodes
 }
@@ -219,7 +257,7 @@ func (closure *Closure) planEdges() []executionplan.Edge {
 	for consumer, service := range closure.services {
 		for _, dependency := range service.ServiceDependencies {
 			producer := dependency.Unique()
-			if _, selected := closure.services[producer]; !selected {
+			if !closure.selected(producer) {
 				continue
 			}
 			names := make([]string, 0, len(dependency.Endpoints))
@@ -323,6 +361,39 @@ func (closure *Closure) planConfigurations(consumed consumption) []executionplan
 	return origins
 }
 
+// dependentsOf returns the selected nodes that depend, directly or transitively,
+// on any of the given nodes. A schema step that operates on a node must complete
+// before anything downstream of that node starts.
+func (closure *Closure) dependentsOf(nodes []string) []string {
+	downstream := make(map[string]struct{})
+	for _, node := range nodes {
+		reachable, err := closure.graph.SubGraphFrom(node)
+		if err != nil {
+			continue
+		}
+		for _, candidate := range reachable.Nodes() {
+			if candidate.ID == node {
+				continue
+			}
+			if _, selected := closure.services[candidate.ID]; selected {
+				downstream[candidate.ID] = struct{}{}
+			}
+		}
+	}
+	for _, node := range nodes {
+		delete(downstream, node)
+	}
+	if len(downstream) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(downstream))
+	for node := range downstream {
+		out = append(out, node)
+	}
+	slices.Sort(out)
+	return out
+}
+
 // planSchemaSteps collects the jobs the closure's modules declare that operate
 // on a selected service. Their order is the declaration order — a migration
 // sequence is not a set — so canonicalization leaves it alone.
@@ -339,20 +410,21 @@ func (closure *Closure) planSchemaSteps(ctx context.Context) ([]executionplan.Sc
 			if err != nil {
 				return nil, w.Wrapf(err, "cannot load job <%s> of module <%s>", jobReference.Name, module.Name)
 			}
-			var targets []string
+			var after []string
 			for _, dependency := range job.ServiceDependencies {
 				if _, selected := closure.services[dependency.Unique()]; selected {
-					targets = append(targets, dependency.Unique())
+					after = append(after, dependency.Unique())
 				}
 			}
-			if len(targets) == 0 {
+			if len(after) == 0 {
 				continue
 			}
 			step := executionplan.SchemaStep{
-				ID:      fmt.Sprintf("%s/%s", module.Name, job.Name),
-				Module:  module.Name,
-				Name:    job.Name,
-				Targets: targets,
+				ID:     fmt.Sprintf("%s/%s", module.Name, job.Name),
+				Module: module.Name,
+				Name:   job.Name,
+				After:  after,
+				Before: closure.dependentsOf(after),
 				Selection: executionplan.Selection{
 					Reason: executionplan.ReasonSchemaPrerequisite,
 					Detail: fmt.Sprintf("job <%s> of module <%s> operates on the selected closure", job.Name, module.Name),

@@ -52,11 +52,16 @@ func canonicalArtifacts(artifacts []Artifact) []Artifact {
 	for i := range out {
 		out[i].Selection = canonicalSelection(out[i].Selection)
 	}
+	// Every distinguishing field participates: slices.SortFunc is not stable, so
+	// elements that tie on a partial key would keep their input order and the
+	// "canonical" form would depend on the order the producer emitted them.
 	slices.SortFunc(out, func(a, b Artifact) int {
 		return compareAll(
 			strings.Compare(a.Reference, b.Reference),
 			strings.Compare(a.Version, b.Version),
 			strings.Compare(a.Digest, b.Digest),
+			strings.Compare(string(a.Verification), string(b.Verification)),
+			compareSelection(a.Selection, b.Selection),
 		)
 	})
 	return out
@@ -74,6 +79,8 @@ func canonicalEndpoints(endpoints []EndpointRequirement) []EndpointRequirement {
 		return compareAll(
 			strings.Compare(a.Name, b.Name),
 			strings.Compare(a.API, b.API),
+			strings.Compare(a.Visibility, b.Visibility),
+			slices.Compare(a.RequiredBy, b.RequiredBy),
 		)
 	})
 	return out
@@ -126,7 +133,8 @@ func canonicalSchemaSteps(steps []SchemaStep) []SchemaStep {
 			backend := *out[i].Backend
 			out[i].Backend = &backend
 		}
-		out[i].Targets = sortedStrings(out[i].Targets)
+		out[i].After = sortedStrings(out[i].After)
+		out[i].Before = sortedStrings(out[i].Before)
 		out[i].Selection = canonicalSelection(out[i].Selection)
 	}
 	return out
@@ -145,6 +153,15 @@ func sortedStrings(values []string) []string {
 	out := slices.Clone(values)
 	slices.Sort(out)
 	return out
+}
+
+func compareSelection(a Selection, b Selection) int {
+	return compareAll(
+		strings.Compare(string(a.Reason), string(b.Reason)),
+		slices.Compare(a.Via, b.Via),
+		slices.Compare(a.Over, b.Over),
+		strings.Compare(a.Detail, b.Detail),
+	)
 }
 
 func compareAll(comparisons ...int) int {
@@ -179,8 +196,18 @@ func (plan *Plan) SemanticBytes() ([]byte, error) {
 }
 
 // SemanticFingerprint is the lowercase sha256 hex of the semantic bytes under a
-// versioned hash format. Two plans share a fingerprint exactly when reusing a
-// warm session resolved from one is correct for the other.
+// versioned hash format.
+//
+// It identifies the PLAN, not the build. Two plans share a fingerprint when they
+// resolved to the same selection, backends, pinned artifact identities, wiring
+// and policy — which is not the same as "the same bytes will run". A plan
+// carries no service spec, no test formula and, for an artifact resolved from a
+// local checkout, no content digest, so editing a dependency's source or spec
+// leaves the fingerprint unchanged.
+//
+// A consumer deciding whether to reuse warm state must therefore consult
+// UncoveredContent first: fingerprint equality implies input equality only when
+// it is empty.
 func (plan *Plan) SemanticFingerprint() (string, error) {
 	semantic, err := plan.SemanticBytes()
 	if err != nil {
@@ -191,6 +218,32 @@ func (plan *Plan) SemanticFingerprint() (string, error) {
 	digest.Write([]byte{0})
 	digest.Write(semantic)
 	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+// UncoveredContent returns the sorted ids of selected nodes whose inputs the
+// semantic fingerprint does not pin — a node with no artifact, or one whose
+// artifacts carry no content digest. For those nodes two different working
+// trees produce the same fingerprint, so reusing warm state across a
+// fingerprint match can reattach to a stale build.
+//
+// An empty result means every selected node is content-addressed and
+// fingerprint equality does imply input equality.
+func (plan *Plan) UncoveredContent() []string {
+	var uncovered []string
+	for _, node := range plan.Nodes {
+		if len(node.Artifacts) == 0 {
+			uncovered = append(uncovered, node.ID)
+			continue
+		}
+		for _, artifact := range node.Artifacts {
+			if artifact.Digest == "" {
+				uncovered = append(uncovered, node.ID)
+				break
+			}
+		}
+	}
+	slices.Sort(uncovered)
+	return uncovered
 }
 
 func marshalCompact(plan *Plan) ([]byte, error) {
@@ -206,6 +259,18 @@ func marshalCompact(plan *Plan) ([]byte, error) {
 // Unmarshal decodes a serialized plan and validates it. A plan carrying an
 // unknown schema is refused rather than best-effort parsed.
 func Unmarshal(data []byte) (*Plan, error) {
+	// The schema is read first and on its own: a later schema carries fields
+	// this version does not know, so a strict decode would report a newer plan
+	// as a malformed one and hide the only fact the operator can act on.
+	var envelope struct {
+		Schema string `json:"schema"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return nil, fmt.Errorf("%w: decode plan: %v", ErrInvalid, err)
+	}
+	if envelope.Schema != SchemaV1 {
+		return nil, fmt.Errorf("%w: schema %q is not %q", ErrInvalid, envelope.Schema, SchemaV1)
+	}
 	var plan Plan
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()

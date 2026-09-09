@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 )
@@ -96,10 +95,33 @@ func (plan *Plan) validateNodes() (map[string]struct{}, error) {
 		if err := node.Selection.validate(node.ID); err != nil {
 			return nil, err
 		}
+		// One artifact identity cannot resolve two ways, and one endpoint cannot
+		// carry two visibilities. Permitting either would let a plan be
+		// self-contradictory, and would leave canonicalization ordering two
+		// elements that no sort key can separate.
+		artifacts := make(map[string]struct{}, len(node.Artifacts))
 		for _, artifact := range node.Artifacts {
 			if err := artifact.validate(node.ID); err != nil {
 				return nil, err
 			}
+			key := artifact.Reference + "\x00" + artifact.Version + "\x00" + artifact.Digest
+			if _, exists := artifacts[key]; exists {
+				return nil, fmt.Errorf("%w: node %q pins artifact %q at one version more than once",
+					ErrInvalid, node.ID, artifact.Reference)
+			}
+			artifacts[key] = struct{}{}
+		}
+		endpoints := make(map[string]struct{}, len(node.Endpoints))
+		for _, endpoint := range node.Endpoints {
+			if endpoint.Name == "" {
+				return nil, fmt.Errorf("%w: node %q has an endpoint requirement with no name", ErrInvalid, node.ID)
+			}
+			key := endpoint.Name + "\x00" + endpoint.API
+			if _, exists := endpoints[key]; exists {
+				return nil, fmt.Errorf("%w: node %q requires endpoint %q more than once",
+					ErrInvalid, node.ID, endpoint.Name)
+			}
+			endpoints[key] = struct{}{}
 		}
 	}
 	if len(unresolved) > 0 {
@@ -167,7 +189,7 @@ func (plan *Plan) validateConfigurations(nodes map[string]struct{}) error {
 			return fmt.Errorf("%w: configuration consumed by %q has no key", ErrInvalid, origin.Consumer)
 		}
 		switch origin.Origin {
-		case OriginServiceEndpoint, OriginServiceConfiguration:
+		case OriginServiceEndpoint:
 			if _, exists := nodes[origin.Producer]; !exists {
 				return fmt.Errorf("%w: configuration %q producer %q is not in the closure",
 					ErrInvalid, origin.Key, origin.Producer)
@@ -209,9 +231,20 @@ func (plan *Plan) validateSchemaSteps(nodes map[string]struct{}) error {
 			return fmt.Errorf("%w: duplicate schema step %q", ErrInvalid, step.ID)
 		}
 		seen[step.ID] = struct{}{}
-		for _, target := range step.Targets {
-			if _, exists := nodes[target]; !exists {
-				return fmt.Errorf("%w: schema step %q targets unselected node %q", ErrInvalid, step.ID, target)
+		after := make(map[string]struct{}, len(step.After))
+		for _, node := range step.After {
+			if _, exists := nodes[node]; !exists {
+				return fmt.Errorf("%w: schema step %q runs after unselected node %q", ErrInvalid, step.ID, node)
+			}
+			after[node] = struct{}{}
+		}
+		for _, node := range step.Before {
+			if _, exists := nodes[node]; !exists {
+				return fmt.Errorf("%w: schema step %q runs before unselected node %q", ErrInvalid, step.ID, node)
+			}
+			if _, contradictory := after[node]; contradictory {
+				return fmt.Errorf("%w: schema step %q runs both after and before node %q",
+					ErrInvalid, step.ID, node)
 			}
 		}
 		if err := step.Selection.validate("schema step " + step.ID); err != nil {
@@ -234,7 +267,7 @@ func (selection *Selection) validate(subject string) error {
 	switch selection.Reason {
 	case ReasonRequestedTarget, ReasonDeclaredDependency, ReasonTransitiveDependency,
 		ReasonSchemaPrerequisite, ReasonLocalOverlay, ReasonCommittedPin,
-		ReasonWorkspaceLayout, ReasonInvocationOverride:
+		ReasonWorkspaceLayout:
 		return nil
 	default:
 		return fmt.Errorf("%w: %s has unknown selection reason %q", ErrInvalid, subject, selection.Reason)
@@ -254,13 +287,15 @@ func (plan *Plan) validateAcyclic() error {
 		outgoing[edge.From] = append(outgoing[edge.From], edge.To)
 		inDegree[edge.To]++
 	}
+	// No ordering is emitted — only whether every node could be ordered — so the
+	// queue is not sorted. The reported cycle members are sorted below, where the
+	// determinism is actually observable.
 	var ready []string
 	for id, degree := range inDegree {
 		if degree == 0 {
 			ready = append(ready, id)
 		}
 	}
-	slices.Sort(ready)
 	ordered := 0
 	for len(ready) > 0 {
 		current := ready[0]
@@ -272,7 +307,6 @@ func (plan *Plan) validateAcyclic() error {
 				ready = append(ready, next)
 			}
 		}
-		slices.Sort(ready)
 	}
 	if ordered != len(plan.Nodes) {
 		var cyclic []string

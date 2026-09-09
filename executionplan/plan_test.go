@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -119,10 +120,35 @@ func TestValidateRejectsReferencesOutsideTheClosure(t *testing.T) {
 		ID:        "data/db-migration",
 		Module:    "data",
 		Name:      "db-migration",
-		Targets:   []string{"vault/secrets"},
+		After:     []string{"vault/secrets"},
 		Selection: executionplan.Selection{Reason: executionplan.ReasonSchemaPrerequisite},
 	}}
-	require.ErrorContains(t, plan.Validate(), "targets unselected node \"vault/secrets\"")
+	require.ErrorContains(t, plan.Validate(), "runs after unselected node \"vault/secrets\"")
+
+	plan = valid()
+	plan.SchemaSteps = []executionplan.SchemaStep{{
+		ID:        "data/db-migration",
+		Module:    "data",
+		Name:      "db-migration",
+		After:     []string{"data/postgres"},
+		Before:    []string{"vault/secrets"},
+		Selection: executionplan.Selection{Reason: executionplan.ReasonSchemaPrerequisite},
+	}}
+	require.ErrorContains(t, plan.Validate(), "runs before unselected node \"vault/secrets\"")
+}
+
+// A step cannot both wait on a node and gate it.
+func TestValidateRejectsAContradictorySchemaStep(t *testing.T) {
+	plan := valid()
+	plan.SchemaSteps = []executionplan.SchemaStep{{
+		ID:        "data/db-migration",
+		Module:    "data",
+		Name:      "db-migration",
+		After:     []string{"data/postgres"},
+		Before:    []string{"data/postgres"},
+		Selection: executionplan.Selection{Reason: executionplan.ReasonSchemaPrerequisite},
+	}}
+	require.ErrorContains(t, plan.Validate(), "runs both after and before node \"data/postgres\"")
 }
 
 func TestValidateGuardsSecretReferences(t *testing.T) {
@@ -144,9 +170,75 @@ func TestValidateRejectsOneKeyFromTwoOrigins(t *testing.T) {
 		Consumer:  "api/orders",
 		Key:       plan.Configurations[0].Key,
 		Origin:    executionplan.OriginWorkspaceConfiguration,
-		Selection: executionplan.Selection{Reason: executionplan.ReasonInvocationOverride},
+		Selection: executionplan.Selection{Reason: executionplan.ReasonDeclaredDependency},
 	})
 	require.ErrorContains(t, plan.Validate(), "from more than one origin")
+}
+
+// slices.SortFunc is not stable, so a partial sort key let the same logical
+// plan hash two ways depending on the order the producer emitted its elements.
+func TestCanonicalIsIndependentOfInputOrder(t *testing.T) {
+	verifications := []executionplan.Verification{
+		executionplan.VerificationLocal,
+		executionplan.VerificationVerified,
+		executionplan.VerificationUnverified,
+	}
+	visibilities := []string{"public", "private", "internal"}
+
+	build := func(reverse bool) *executionplan.Plan {
+		plan := valid()
+		var artifacts []executionplan.Artifact
+		var endpoints []executionplan.EndpointRequirement
+		// Enough elements that pdqsort leaves its insertion-sort path, where a
+		// tie on a partial key is silently resolved by input order.
+		for i := 0; i < 14; i++ {
+			artifacts = append(artifacts, executionplan.Artifact{
+				Reference:    "acme/module",
+				Version:      "1.0.0",
+				Verification: verifications[i%len(verifications)],
+				Selection:    executionplan.Selection{Reason: executionplan.ReasonCommittedPin},
+			})
+			endpoints = append(endpoints, executionplan.EndpointRequirement{
+				Name: "grpc", API: "grpc", Visibility: visibilities[i%len(visibilities)],
+			})
+		}
+		if reverse {
+			slices.Reverse(artifacts)
+			slices.Reverse(endpoints)
+		}
+		plan.Nodes[1].Artifacts = artifacts
+		plan.Nodes[1].Endpoints = endpoints
+		return plan
+	}
+
+	forward := build(false).Canonical()
+	reversed := build(true).Canonical()
+	require.Equal(t, forward.Nodes[1].Artifacts, reversed.Nodes[1].Artifacts)
+	require.Equal(t, forward.Nodes[1].Endpoints, reversed.Nodes[1].Endpoints)
+}
+
+// The same artifact cannot resolve two ways, and one endpoint cannot carry two
+// visibilities: such a plan is self-contradictory, not merely ambiguous to sort.
+func TestValidateRejectsAContradictoryNode(t *testing.T) {
+	plan := valid()
+	plan.Nodes[1].Artifacts = append(plan.Nodes[1].Artifacts, executionplan.Artifact{
+		Reference:    plan.Nodes[1].Artifacts[0].Reference,
+		Version:      plan.Nodes[1].Artifacts[0].Version,
+		Verification: executionplan.VerificationLocal,
+		Selection:    executionplan.Selection{Reason: executionplan.ReasonLocalOverlay},
+	})
+	require.ErrorContains(t, plan.Validate(), "pins artifact \"codefly-dev/module-data\" at one version more than once")
+
+	plan = valid()
+	plan.Nodes[1].Endpoints = []executionplan.EndpointRequirement{
+		{Name: "tcp", API: "tcp", Visibility: "internal"},
+		{Name: "tcp", API: "tcp", Visibility: "public"},
+	}
+	require.ErrorContains(t, plan.Validate(), "requires endpoint \"tcp\" more than once")
+
+	plan = valid()
+	plan.Nodes[1].Endpoints = []executionplan.EndpointRequirement{{API: "tcp"}}
+	require.ErrorContains(t, plan.Validate(), "endpoint requirement with no name")
 }
 
 func TestValidateRejectsAMalformedDigest(t *testing.T) {
@@ -203,6 +295,28 @@ func TestSemanticFingerprintIgnoresInvocation(t *testing.T) {
 	serialized, err := plan.MarshalCanonical()
 	require.NoError(t, err)
 	require.Contains(t, string(serialized), "/tmp/checkout")
+}
+
+// A fingerprint over artifacts with no content digest cannot stand in for input
+// equality: the same fingerprint covers two different working trees.
+func TestUncoveredContentNamesNodesTheFingerprintCannotPin(t *testing.T) {
+	plan := valid()
+	require.Equal(t, []string{"api/orders", "data/postgres"}, plan.UncoveredContent(),
+		"api/orders has no artifact; data/postgres pins one with no digest")
+
+	digest := "sha256:" + strings.Repeat("ab", 32)
+	plan.Nodes[1].Artifacts[0].Digest = digest
+	require.Equal(t, []string{"api/orders"}, plan.UncoveredContent())
+
+	plan.Nodes[0].Artifacts = []executionplan.Artifact{{
+		Reference:    "codefly-dev/module-api",
+		Version:      "2.0.0",
+		Digest:       digest,
+		Verification: executionplan.VerificationVerified,
+		Selection:    executionplan.Selection{Reason: executionplan.ReasonCommittedPin},
+	}}
+	require.Empty(t, plan.UncoveredContent(),
+		"every node content-addressed: fingerprint equality now implies input equality")
 }
 
 // The hash format is part of the hashed bytes, so changing how the digest is

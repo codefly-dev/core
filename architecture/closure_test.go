@@ -71,6 +71,37 @@ func TestSelectClosureReportsUncomposedModule(t *testing.T) {
 	require.Contains(t, err.Error(), resources.WorkspaceConfigurationName)
 }
 
+// A target string is a caller-supplied boundary value. "gateway/" parses as
+// module "gateway" with an empty name, which used to become the target
+// "gateway/" and fail naming a module nobody mentioned.
+func TestSelectClosureRejectsMalformedTargets(t *testing.T) {
+	ctx := context.Background()
+	flat, err := resources.LoadWorkspaceFromDir(ctx, "testdata/flat-layout")
+	require.NoError(t, err)
+	modules, err := resources.LoadWorkspaceFromDir(ctx, "testdata/plan-workspace")
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name      string
+		workspace *resources.Workspace
+		target    string
+		message   string
+	}{
+		{"flat trailing slash", flat, "gateway/", "names no service"},
+		{"flat empty", flat, "", "names no service"},
+		{"flat whitespace", flat, "   ", "names no service"},
+		{"modules trailing slash", modules, "api/", "names no service"},
+		{"modules empty", modules, "", "names no service"},
+		{"modules leading slash", modules, "/orders", "must be given as module/service"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := architecture.SelectClosure(ctx, tc.workspace, tc.target)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.message)
+		})
+	}
+}
+
 func TestSelectClosureEnforcesVisibility(t *testing.T) {
 	ctx := context.Background()
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/visibility-denied")

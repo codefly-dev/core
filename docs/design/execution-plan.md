@@ -49,16 +49,28 @@ vocabulary; `architecture` populates it from existing core types:
 
 ## Semantic identity
 
-`Plan.SemanticFingerprint` hashes everything that changes what an invocation
-does, and nothing else. Excluded by construction:
+`Plan.SemanticFingerprint` hashes everything the plan records about what an
+invocation does, and nothing else. Excluded by construction:
 
 - `Plan.Invocation` — invocation id, start time, actor, and the workspace
   directory. Two checkouts of the same workspace at different paths plan
   identically, so a warm session started from one is reusable from the other.
 
 Included: the requested target and environment, every selected node, backend,
-artifact version/digest/verification, every typed edge, every configuration
-origin, the ordered schema steps and the state policy.
+artifact identity/version/digest/verification, every typed edge, every
+configuration origin, the ordered schema steps and the state policy.
+
+**The fingerprint identifies the plan, not the build.** A plan carries no
+service spec, no test formula, no library dependencies, and — for an artifact
+resolved from a local checkout — no content digest, because core has nothing to
+digest it against. Editing a dependency's source, its migrations, or its `spec`
+therefore leaves the fingerprint unchanged. Treating fingerprint equality as
+"the same bytes will run" is exactly the stale-resolution failure this audit
+tracks, so the plan makes the gap machine-readable rather than documentary:
+`Plan.UncoveredContent()` returns the selected nodes whose inputs the
+fingerprint does not pin. A consumer deciding whether to reattach to warm state
+must treat a non-empty result as "cannot prove reuse is safe"; only an empty
+result licenses fingerprint equality to stand in for input equality.
 
 The fingerprint is a bare lowercase sha256 hex so it can be carried directly as
 the `Fingerprint` field of a session ledger record (core#424). The hash *format*
