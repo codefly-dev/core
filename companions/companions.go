@@ -1,8 +1,8 @@
-// Package companions enumerates the Docker images agents pull at runtime so
-// tooling can verify the exact embedded set instead of inferring tags from
-// directory names and manifests. Every tag here is derived from a
-// companion's info.codefly.yaml, the same source `codefly companion publish`
-// builds and pushes.
+// Package companions enumerates the Docker images agents pull at runtime and
+// declares the build inputs that produce them, so tooling works from the exact
+// embedded set instead of inferring tags from directory names and manifests.
+// Every tag here is derived from a companion's info.codefly.yaml, the same
+// source `codefly companion publish` builds and pushes.
 package companions
 
 import (
@@ -20,7 +20,7 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
-//go:embed node/info.codefly.yaml execution/info.codefly.yaml codefly/info.codefly.yaml
+//go:embed codefly/info.codefly.yaml execution/info.codefly.yaml go/info.codefly.yaml node/info.codefly.yaml proto/info.codefly.yaml python/info.codefly.yaml
 var infoFS embed.FS
 
 // derived maps a companion directory to the image agents pull for companions

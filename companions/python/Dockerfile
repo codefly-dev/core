@@ -8,7 +8,14 @@
 #     every build.
 #   - uv: pinned via the install-script URL (version is part of the
 #     path), bumping = editing this line + bumping info.codefly.yaml.
-#   - codefly CLI: copied from the pinned ghcr.io/codefly-dev/codefly:0.0.4.
+#   - codefly CLI: copied from the pinned codefly companion base.
+
+# The codefly base image is a build argument: this repository declares which
+# companion image it builds on, and the builder resolves that to a registry.
+# The default keeps a plain `docker build` working and is pinned to the version
+# in companions/codefly/info.codefly.yaml.
+ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.4
+FROM ${CODEFLY_BASE_IMAGE} AS codeflybase
 
 FROM python:3.13.1-alpine3.21
 
@@ -32,7 +39,7 @@ RUN apk update && \
     && rm -rf /var/cache/apk/*
 
 # Pull the codefly CLI from the base image. `/bin/codefly` is on PATH.
-COPY --from=ghcr.io/codefly-dev/codefly:0.0.4 /bin/codefly /bin/codefly
+COPY --from=codeflybase /bin/codefly /bin/codefly
 
 # Install uv from astral's pinned static-binary installer. Bump uv by
 # editing this version path AND info.codefly.yaml together.

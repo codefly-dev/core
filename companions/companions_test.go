@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -59,25 +58,12 @@ func TestEmbeddedDerivesEveryTagFromManifest(t *testing.T) {
 	require.Len(t, got, len(dirs), "every companion image must be enumerated")
 }
 
-func TestNodeCompanionPreservesTargetArchitecture(t *testing.T) {
+// The codefly companion is the only image staging a per-architecture binary;
+// without the ARG the ${TARGETARCH} in its COPY expands to nothing and the
+// build fails rather than silently picking an architecture.
+func TestCodeflyCompanionDeclaresTargetArchitecture(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
-	root := filepath.Dir(filename)
-
-	codeflyDockerfile, err := os.ReadFile(filepath.Join(root, "codefly", "Dockerfile"))
+	content, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "codefly", "Dockerfile"))
 	require.NoError(t, err)
-	require.Contains(t, string(codeflyDockerfile), "ARG TARGETARCH")
-	require.Contains(t, string(codeflyDockerfile), "bin/linux/${TARGETARCH}/codefly")
-
-	nodeDockerfile, err := os.ReadFile(filepath.Join(root, "node", "Dockerfile"))
-	require.NoError(t, err)
-	codeflyVersion := strings.TrimSpace(string(mustReadFile(t, filepath.Join(root, "codefly", "info.codefly.yaml"))))
-	require.Equal(t, "version: 0.0.4", codeflyVersion)
-	require.Contains(t, string(nodeDockerfile), resources.ImageRegistry+"/codefly:0.0.4")
-}
-
-func mustReadFile(t *testing.T, path string) []byte {
-	t.Helper()
-	content, err := os.ReadFile(path)
-	require.NoError(t, err)
-	return content
+	require.Contains(t, string(content), "ARG TARGETARCH")
 }
