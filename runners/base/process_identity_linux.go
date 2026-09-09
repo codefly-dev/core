@@ -99,6 +99,12 @@ func linuxBootID() (string, error) {
 	return bootID, nil
 }
 
+// processEnvironmentReadable reports whether readProcessGroupAuthentication can
+// observe another process's environment on this platform. Linux exposes it
+// through /proc/<pid>/environ for any process we may ptrace, which includes
+// every same-user descendant this package starts.
+func processEnvironmentReadable() bool { return true }
+
 func readProcessGroupAuthentication(pid int) (string, error) {
 	file, err := os.Open(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
 	if err != nil {
