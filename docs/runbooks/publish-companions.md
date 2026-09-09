@@ -13,9 +13,17 @@ From a checkout with `core/` and `cli/` as siblings (the CLI cross-compiles the
 linux binary the `codefly` and `execution` images bake):
 
 ```sh
-codefly companion publish --all --platform linux/amd64,linux/arm64 --core-dir ./core
+codefly companion publish --all --platform linux/amd64,linux/arm64 \
+  --force-docker --pull --core-dir ./core
 codefly companion verify --core-dir ./core
 ```
+
+`--force-docker` is not optional on a machine with nix installed: `proto` ships
+a `flake.nix`, the publisher prefers the flake when nix is on `PATH`, and the
+nix path cannot emit a multi-platform manifest — so the run aborts on `proto`
+after the earlier companions have already been pushed. `--pull` re-resolves the
+`codefly` base by tag, so a dependent cannot bake a cached older base instead of
+the one the same run just pushed.
 
 In CI this is **codefly-dev/cli → Actions → Companions → Run workflow**, whose
 `core_ref` input selects the core commit to publish from. Publishing is an
@@ -33,6 +41,11 @@ repository-relative Dockerfile and build-context paths, the target platforms,
 the companion image it builds on, and where it expects a cross-compiled linux
 `codefly` binary staged. The specs name **no registry** — they carry `<name>`
 and `<version>`, and the publisher qualifies them.
+
+`.github/workflows/companions-build.yml` builds every image from these specs on
+any change under `companions/`, without publishing, so a Dockerfile that no
+longer builds fails on the pull request rather than when someone dispatches a
+publish.
 
 Every companion builds from the **repository root** for
 `linux/amd64,linux/arm64`, so one publisher invocation is correct for the whole
@@ -54,10 +67,15 @@ explicit override still resolves the base the same run just pushed.
 ## Publishing a change
 
 1. Edit the companion (Dockerfile, entrypoint, pinned tool versions).
-2. **Bump `companions/<name>/info.codefly.yaml`.** Agents pull the pinned tag,
-   so a changed image that keeps its version reaches nobody — and republishing
-   the same tag mutates a reference other checkouts already resolved.
+2. **Bump `companions/<name>/info.codefly.yaml`.** `publish` skips a companion
+   whose tag is already in the registry and tells you to bump, so a change that
+   keeps its version publishes nothing. That skip is what stops a rebuild from
+   swapping the image under every consumer that already resolved the tag.
 3. Merge to `main`, then run the CLI's Companions workflow against that commit.
+
+To replace an image already published under its current tag — repairing a bad
+push rather than shipping a change — pass `--force`. It overwrites the tag for
+everyone who has not pulled it yet, so prefer a version bump wherever one works.
 
 ## proto: Docker in CI, Nix locally
 
