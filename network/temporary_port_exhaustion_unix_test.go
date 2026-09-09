@@ -68,8 +68,14 @@ func TestAllocateTemporaryPortUnderDescriptorExhaustion(t *testing.T) {
 	require.Error(t, err, "exhausted descriptors must surface as an allocation error")
 	require.Zero(t, port, "a failed allocation must not report a port")
 	require.Less(t, elapsed, 2*time.Second,
-		"allocation must fail promptly on a permanent listen failure, took %s", elapsed)
-	require.Contains(t, err.Error(), "cannot bind a kernel-assigned loopback port")
+		"allocation must fail within its budget, not spin; took %s", elapsed)
+	// A full descriptor table is a host that may recover, not one that is
+	// misconfigured — callers branch on that distinction.
+	require.ErrorIs(t, err, network.ErrTemporaryPortUnavailable)
+	require.NotErrorIs(t, err, network.ErrTemporaryPortUnsupported)
+	// The underlying cause must survive every layer of wrapping, or the
+	// operator is left guessing why allocation failed.
+	require.ErrorIs(t, err, syscall.EMFILE)
 }
 
 func runDescriptorExhaustionChild(t *testing.T) {

@@ -473,3 +473,44 @@ func TestNativeFor_MatchesGenerateNetworkMappings(t *testing.T) {
 			"NativeFor port drifted for endpoint %s", mapping.Endpoint.Name)
 	}
 }
+
+// TestGenerateNetworkMappingsReleasesReservationsOnFailure covers the rollback
+// of a part-way failure. The first endpoint is reserved, the second collides
+// and aborts the call — and the reservation the aborted call took must not
+// outlive it, or the manager keeps ports busy for a service that never started.
+func TestGenerateNetworkMappingsReleasesReservationsOnFailure(t *testing.T) {
+	ctx := context.Background()
+	manager, err := network.NewRuntimeManager(ctx, testDnsManager{})
+	require.NoError(t, err)
+
+	const contended = uint16(40100)
+	failing := &resources.ServiceIdentity{Module: "app", Name: "subject"}
+	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityModule}
+	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityModule}
+
+	later := &resources.ServiceIdentity{Module: "app", Name: "successor"}
+	successor := &basev0.Endpoint{Module: "app", Service: "successor", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityModule}
+
+	manager.WithPortOverrides(map[string]uint16{
+		resources.EndpointDestination(first):     contended,
+		resources.EndpointDestination(second):    contended,
+		resources.EndpointDestination(successor): contended,
+	})
+
+	_, err = manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(),
+		&resources.Workspace{Name: "fixture"}, failing,
+		[]*basev0.Endpoint{first, second}, resources.NewRuntimeContextNative())
+	require.Error(t, err, "two endpoints pinned to one port must abort the call")
+
+	// The aborted call reserved `contended` for `first` before failing on
+	// `second`. If that reservation survived, this unrelated service cannot
+	// bind the port it was pinned to.
+	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(),
+		&resources.Workspace{Name: "fixture"}, later,
+		[]*basev0.Endpoint{successor}, resources.NewRuntimeContextNative())
+	require.NoError(t, err, "a failed call must hand back the ports it reserved")
+	require.Len(t, mappings, 1)
+	instance := resources.FilterNetworkInstance(ctx, mappings[0].Instances, resources.NewNativeNetworkAccess())
+	require.NotNil(t, instance)
+	require.Equal(t, uint32(contended), instance.Port)
+}

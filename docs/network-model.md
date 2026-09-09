@@ -82,14 +82,14 @@ For tests and CI where stability does not matter and parallel isolation does:
 mgr, _ := network.NewRuntimeManager(ctx, nil)
 mgr.WithTemporaryPorts()
 // Uses AllocateTemporaryPort(ctx) with dedup tracking
-// The kernel assigns the port, so parallel test CLIs cannot collide
+// The kernel picks the port, so this manager never hands out the same one twice
 ```
 
-`AllocateTemporaryPort(ctx)` binds an ephemeral loopback port through the kernel and records it in the manager's allocation map before releasing the probe listener, preventing collisions between parallel tests.
+`AllocateTemporaryPort(ctx)` binds an ephemeral loopback port through the kernel and records it in the manager's allocation map before releasing the probe listener. That makes allocations unique **within this manager** — it does not make them unique across processes; see the cross-process caveat below.
 
-Allocation is bounded rather than best-effort: a permanent bind failure (an exhausted file-descriptor table, a missing loopback interface) returns immediately with the underlying cause, reservation collisions retry a fixed number of times with a cancellable backoff, and a cancelled context returns promptly. Callers propagate the failure — `GenerateNetworkMappings` aborts the mapping rather than handing back a port it never reserved.
+Allocation is bounded rather than best-effort. A host that cannot bind loopback at all fails on the first attempt with `ErrTemporaryPortUnsupported`; a full descriptor table, a reservation collision, or a probe-close failure retries a fixed number of times with a backoff and then fails with `ErrTemporaryPortUnavailable` wrapping the last cause. The two are separated so a caller can tell a host it should retry from one it must reconfigure. Cancellation is checked before every attempt, so a cancelled context returns promptly. `ReleasePort` hands a reservation back. Callers propagate the failure — `GenerateNetworkMappings` aborts the mapping rather than handing back a port it never reserved.
 
-Closing the probe listener does **not** reserve the port against other processes. The reservation is in-process only; cross-process listener ownership is tracked separately.
+Closing the probe listener does **not** reserve the port against other processes. The reservation is in-process only, so two CLIs running in parallel *can* be handed the same port: the first releases its probe, and the kernel is free to offer that port to the second before the first service binds it. Temporary ports remove collisions between endpoints of one run, not between concurrent runs — isolate concurrent runs at the container or netns boundary. Cross-process listener ownership is tracked separately.
 
 ## Configuration Flow
 
