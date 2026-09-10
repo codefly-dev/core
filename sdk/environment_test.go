@@ -10,13 +10,20 @@ import (
 	"github.com/codefly-dev/core/resources"
 )
 
-func fixtureDir(t *testing.T, elements ...string) string {
-	t.Helper()
-	dir, err := filepath.Abs(filepath.Join(append([]string{"testdata", "sessions"}, elements...)...))
+// packageDir is this package's directory, captured before any test can change
+// the process working directory. Fixture paths and the test CLI build must not
+// depend on where a previous test left the process.
+var packageDir = func() string {
+	dir, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("resolve fixture: %v", err)
+		panic(err)
 	}
 	return dir
+}()
+
+func fixtureDir(t *testing.T, elements ...string) string {
+	t.Helper()
+	return filepath.Join(append([]string{packageDir, "testdata", "sessions"}, elements...)...)
 }
 
 func sessionEnvironmentOf(values ...string) *sessionEnvironment {
@@ -55,6 +62,49 @@ func TestSessionsResolveIdentityFromTheirOwnDirectory(t *testing.T) {
 			t.Fatalf("identity = %s/%s@%s, want %s/%s@%s",
 				mod.Name, svc.Name, svc.Version, session.module, session.service, session.version)
 		}
+	}
+}
+
+// A flat workspace has no module.codefly.yaml: the module is the workspace
+// itself. Resolving that module must not adopt the service, because adopting it
+// stamps the module name onto every dependency that declared none — and
+// serviceDependencyCandidates matches a dependency to a producer endpoint by
+// exact module equality, so stamping it silently changes which endpoints a flat
+// service resolves.
+func TestFlatLayoutIdentityLeavesDeclaredDependencyModulesAlone(t *testing.T) {
+	session := &Dependencies{dir: fixtureDir(t, "flat", "services", "gateway")}
+
+	mod, err := session.Module(t.Context())
+	if err != nil {
+		t.Fatalf("Module() error = %v", err)
+	}
+	svc, err := session.Service(t.Context())
+	if err != nil {
+		t.Fatalf("Service() error = %v", err)
+	}
+	if mod.Name != "flat-session" || svc.Name != "gateway" || svc.Version != "7.8.9" {
+		t.Fatalf("identity = %s/%s@%s, want flat-session/gateway@7.8.9", mod.Name, svc.Name, svc.Version)
+	}
+	if len(svc.ServiceDependencies) != 1 {
+		t.Fatalf("dependencies = %v, want exactly one", svc.ServiceDependencies)
+	}
+	if got := svc.ServiceDependencies[0].Module; got != "" {
+		t.Fatalf("declared dependency module = %q, want it left as declared", got)
+	}
+}
+
+// A directory that owns no service answers with a nil service and no error:
+// callers of these package functions branch on nil, not on an error.
+func TestPackageIdentityIsNilOutsideAService(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	svc, err := Service()
+	if err != nil || svc != nil {
+		t.Fatalf("Service() = %v, %v, want nil, nil", svc, err)
+	}
+	mod, err := Module()
+	if err != nil || mod != nil {
+		t.Fatalf("Module() = %v, %v, want nil, nil", mod, err)
 	}
 }
 
@@ -174,6 +224,11 @@ func TestCompetingGlobalInjectionFailsBeforeMutation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "owns the process environment") {
 		t.Fatalf("competing injection error = %v, want single-owner rejection", err)
 	}
+	// The holder has to be identifiable, or a caller cannot tell a leaked
+	// session from a live one.
+	if !strings.Contains(err.Error(), first.dir) {
+		t.Fatalf("rejection %q does not name the session holding the environment", err)
+	}
 	if got := os.Getenv("CODEFLY_TEST_CONTESTED"); got != "first" {
 		t.Fatalf("contested value = %q, want first", got)
 	}
@@ -211,6 +266,37 @@ func TestFailedInjectionRollsBackAndClaimsNothing(t *testing.T) {
 		t.Fatalf("a failed injection left the process environment owned: %v", err)
 	}
 	other.ReleaseEnvironment()
+}
+
+// A command-scoped session's child must not inherit the endpoints another
+// session injected into os.Environ: those belong to a different workspace and
+// point at dependencies this session never declared. The caller's own values,
+// which the SDK never wrote, are borrowed unchanged.
+func TestEnvironDropsAnotherSessionsInjectedValues(t *testing.T) {
+	t.Setenv("CODEFLY_TEST_BORROWED", "caller")
+	t.Cleanup(func() { os.Unsetenv("CODEFLY_TEST_FOREIGN_ENDPOINT") })
+
+	owner := &Dependencies{dir: "owner"}
+	if err := owner.apply(sessionEnvironmentOf("CODEFLY_TEST_FOREIGN_ENDPOINT", "127.0.0.1:1")); err != nil {
+		t.Fatalf("apply() error = %v", err)
+	}
+	t.Cleanup(owner.ReleaseEnvironment)
+
+	commandScoped := &Dependencies{dir: "command-scoped"}
+	commandScoped.setResolved(sessionEnvironmentOf("CODEFLY_TEST_OWN_ENDPOINT", "127.0.0.1:2"))
+
+	environ := commandScoped.Environ()
+	for _, entry := range environ {
+		if strings.HasPrefix(entry, "CODEFLY_TEST_FOREIGN_ENDPOINT=") {
+			t.Fatalf("Environ() leaked another session's endpoint: %s", entry)
+		}
+	}
+	if !slices.Contains(environ, "CODEFLY_TEST_OWN_ENDPOINT=127.0.0.1:2") {
+		t.Fatal("Environ() is missing the session's own endpoint")
+	}
+	if !slices.Contains(environ, "CODEFLY_TEST_BORROWED=caller") {
+		t.Fatal("Environ() dropped a borrowed value the SDK never wrote")
+	}
 }
 
 // Environ projects the session onto a child environment — one entry per key,

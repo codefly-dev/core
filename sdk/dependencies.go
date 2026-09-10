@@ -53,6 +53,11 @@ type Dependencies struct {
 	// the process working directory, which a caller may change at any time.
 	dir string
 
+	// controlAddress is the CLI control channel this session spawned a server
+	// on and holds against other sessions in this process. Empty for a session
+	// that attached to a server someone else owns.
+	controlAddress string
+
 	// mu guards the lazily resolved identity and the resolved environment.
 	mu          sync.Mutex
 	identity    *resolvedIdentity
@@ -331,6 +336,30 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		}
 	}
 
+	l := &Dependencies{
+		runtimeContext: resources.RuntimeContextFromEnv(),
+		keepRunning:    opt.KeepRunning,
+		dir:            dir,
+		controlAddress: channel.target,
+	}
+	// Claim what this session must own exclusively before provisioning anything.
+	// A competing session then fails in milliseconds instead of starting a full
+	// dependency stack — containers included — only to be refused and torn down.
+	if err = claimControlAddress(channel.target, dir); err != nil {
+		return nil, err
+	}
+	if !opt.CommandScopedEnvironment {
+		if err = claimGlobalEnvironment(l); err != nil {
+			return nil, err
+		}
+	}
+	defer func() {
+		if !success {
+			l.ReleaseEnvironment()
+			releaseControlAddress(channel.target)
+		}
+	}()
+
 	cmd := exec.CommandContext(ctx, codeflyBinary(opt), args...)
 	cmd.Dir = dir
 	// ARCHITECTURE: the SDK owns the control channel for the child it starts.
@@ -427,16 +456,10 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err != nil {
 		return nil, fmt.Errorf("CLI server ping failed: %w", err)
 	}
-	runtimeContext := resources.RuntimeContextFromEnv()
-	l := &Dependencies{
-		proc:           proc,
-		cli:            cli,
-		conn:           conn,
-		control:        channel.control,
-		runtimeContext: runtimeContext,
-		keepRunning:    opt.KeepRunning,
-		dir:            dir,
-	}
+	l.proc = proc
+	l.cli = cli
+	l.conn = conn
+	l.control = channel.control
 	err = l.WaitForReady(ctx, opt)
 	if err != nil {
 		return nil, err
@@ -457,6 +480,46 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	}
 	success = true
 	return l, nil
+}
+
+// controlAddresses are the CLI control addresses this process has spawned a
+// server on. network.CLIServerPort derives the address from the workspace name
+// alone — and returns CODEFLY_CLI_SERVER_PORT verbatim when the caller's
+// environment pins one, which collapses every session onto a single address —
+// so two sessions in one process can resolve the same address. The second
+// spawn's CLI cannot bind it and the SDK would silently drive the first
+// session's server instead, destroying its flow on Stop. Claiming the address
+// turns that into an explicit failure before anything is spawned.
+//
+// Only spawned stacks claim: attaching to a kept-running server (WithKeepRunning)
+// is deliberate sharing of one server between sessions.
+var controlAddresses struct {
+	mu    sync.Mutex
+	inUse map[string]string
+}
+
+func claimControlAddress(addr string, dir string) error {
+	controlAddresses.mu.Lock()
+	defer controlAddresses.mu.Unlock()
+	if owner, held := controlAddresses.inUse[addr]; held {
+		return fmt.Errorf("dependency session %s already owns the Codefly control channel at %s; "+
+			"give this session its own scope with WithNamingScope, or attach to the existing stack with WithKeepRunning",
+			owner, addr)
+	}
+	if controlAddresses.inUse == nil {
+		controlAddresses.inUse = make(map[string]string)
+	}
+	controlAddresses.inUse[addr] = dir
+	return nil
+}
+
+func releaseControlAddress(addr string) {
+	if addr == "" {
+		return
+	}
+	controlAddresses.mu.Lock()
+	defer controlAddresses.mu.Unlock()
+	delete(controlAddresses.inUse, addr)
 }
 
 // sessionDirectory is the absolute directory a session is anchored to: the one
@@ -951,11 +1014,19 @@ func attachDependencies(ctx context.Context, channel *controlChannel, dir string
 		attached:       true,
 		dir:            dir,
 	}
+	if !opt.CommandScopedEnvironment {
+		if err := claimGlobalEnvironment(l); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+	}
 	if err := l.WaitForReady(ctx, opt); err != nil {
+		l.ReleaseEnvironment()
 		_ = conn.Close()
 		return nil, err
 	}
 	if err := l.installEnvironment(ctx, opt); err != nil {
+		l.ReleaseEnvironment()
 		_ = conn.Close()
 		return nil, err
 	}
@@ -1056,9 +1127,15 @@ func currentIdentity() (*resources.Module, *resources.Service, error) {
 	if running.dir == dir {
 		return running.module, running.service, nil
 	}
-	identity, err := resolveSessionIdentity(context.Background(), dir)
+	identity, err := findSessionIdentity(context.Background(), dir)
 	if err != nil {
 		return nil, nil, err
+	}
+	if identity == nil {
+		// A directory that owns no service is not an error here: these
+		// functions have always answered it with a nil module and service, and
+		// callers branch on that rather than on an error.
+		return nil, nil, nil
 	}
 	running.dir = dir
 	running.module = identity.module
@@ -1066,7 +1143,8 @@ func currentIdentity() (*resources.Module, *resources.Service, error) {
 	return identity.module, identity.service, nil
 }
 
-// Service resolves the service owning the current working directory.
+// Service resolves the service owning the current working directory, or nil
+// when the directory belongs to no service.
 //
 // Deprecated: use Dependencies.Service, which is anchored to the directory its
 // session was created in and therefore survives a change of working directory.
@@ -1075,7 +1153,8 @@ func Service() (*resources.Service, error) {
 	return svc, err
 }
 
-// Module resolves the module owning the current working directory.
+// Module resolves the module owning the current working directory, or nil when
+// the directory belongs to no module.
 //
 // Deprecated: use Dependencies.Module, which is anchored to the directory its
 // session was created in and therefore survives a change of working directory.
@@ -1131,6 +1210,7 @@ func (l *Dependencies) Stop(ctx context.Context) error {
 		return nil
 	}
 	l.ReleaseEnvironment()
+	releaseControlAddress(l.controlAddress)
 	if l.keepRunning {
 		if l.conn != nil {
 			_ = l.conn.Close()
@@ -1163,6 +1243,7 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 		return nil
 	}
 	l.ReleaseEnvironment()
+	releaseControlAddress(l.controlAddress)
 	if l.keepRunning {
 		if l.conn != nil {
 			_ = l.conn.Close()

@@ -1,0 +1,5 @@
+name: flat-session
+layout: flat
+services:
+    - name: gateway
+    - name: cache

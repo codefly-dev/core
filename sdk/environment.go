@@ -22,25 +22,42 @@ type resolvedIdentity struct {
 	service *resources.Service
 }
 
+// resolveSessionIdentity is findSessionIdentity for callers that require an
+// identity, turning "nothing here" into an error naming the directory searched.
 func resolveSessionIdentity(ctx context.Context, dir string) (*resolvedIdentity, error) {
+	identity, err := findSessionIdentity(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	if identity == nil {
+		return nil, fmt.Errorf("no Codefly service found from %s", dir)
+	}
+	return identity, nil
+}
+
+// findSessionIdentity resolves the module and service owning dir, returning a
+// nil identity — not an error — when the directory belongs to no service, which
+// is the contract the deprecated package-level Service and Module keep.
+//
+// The module of a service that declares none is left alone: filling it in would
+// change which producer endpoints resolveEnvironment matches, since
+// serviceDependencyCandidates compares dependency and endpoint modules exactly.
+func findSessionIdentity(ctx context.Context, dir string) (*resolvedIdentity, error) {
 	mod, svc, err := resources.LoadModuleAndServiceUpFrom(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
 	if svc == nil {
-		return nil, fmt.Errorf("no service.codefly.yaml found from %s", dir)
+		return nil, nil
 	}
 	if mod == nil {
 		mod, err = flatLayoutModule(ctx, dir)
 		if err != nil {
 			return nil, err
 		}
-		if mod != nil {
-			svc.WithModule(mod.Name)
-		}
 	}
 	if mod == nil {
-		return nil, fmt.Errorf("no module.codefly.yaml found from %s", dir)
+		return nil, nil
 	}
 	return &resolvedIdentity{module: mod, service: svc}, nil
 }
@@ -87,14 +104,21 @@ func (e *sessionEnvironment) variables() map[string]string {
 	return out
 }
 
-// environ overlays the session values onto base, replacing any entry base
-// already carries for the same key.
-func (e *sessionEnvironment) environ(base []string) []string {
+// environ overlays the session values onto base. An entry base carries for a
+// key this session resolved is replaced, and one for a key in foreign is
+// dropped: those were installed in os.Environ by another SDK session, and a
+// child of this session must not inherit another session's endpoints. Values
+// the SDK never wrote — the caller's own environment — are borrowed as they
+// are, which is what keeps borrowed and SDK-owned values distinguishable.
+func (e *sessionEnvironment) environ(base []string, foreign map[string]struct{}) []string {
 	out := make([]string, 0, len(base)+len(e.keys))
 	for _, entry := range base {
 		key, _, found := strings.Cut(entry, "=")
 		if found {
 			if _, owned := e.values[key]; owned {
+				continue
+			}
+			if _, installed := foreign[key]; installed {
 				continue
 			}
 		}
@@ -122,9 +146,91 @@ type ownedVariable struct {
 // may own it at a time, and a competing session is rejected before any value
 // changes. Sessions that need to coexist project their environment onto child
 // commands instead — see Dependencies.Environ.
+//
+// Lock order is globalEnvironment.mu before any Dependencies.mu. Nothing may
+// take globalEnvironment.mu while already holding a session lock.
 var globalEnvironment struct {
 	mu    sync.Mutex
 	owner *Dependencies
+}
+
+// claimGlobalEnvironment makes l the owner of the process environment, or
+// explains who has it. WithDependencies claims before spawning anything, so a
+// competing session is refused before it provisions infrastructure it would
+// then have to tear down; apply claims again for a session that injects
+// directly through SetEnvironment.
+//
+// A session whose Codefly process has exited can no longer be released by its
+// owner — the values it installed point at dependencies that are gone — so it
+// is restored and replaced rather than blocking the process forever.
+func claimGlobalEnvironment(l *Dependencies) error {
+	globalEnvironment.mu.Lock()
+	defer globalEnvironment.mu.Unlock()
+	return claimGlobalEnvironmentLocked(l)
+}
+
+func claimGlobalEnvironmentLocked(l *Dependencies) error {
+	owner := globalEnvironment.owner
+	if owner == nil || owner == l {
+		globalEnvironment.owner = l
+		return nil
+	}
+	if owner.defunct() {
+		owner.restoreOwned()
+		globalEnvironment.owner = l
+		return nil
+	}
+	return fmt.Errorf("dependency session %s owns the process environment; "+
+		"stop it (Stop, Destroy or ReleaseEnvironment) before starting another one, "+
+		"or use WithCommandScopedEnvironment and Dependencies.Environ to run both at once",
+		owner.describe())
+}
+
+func releaseGlobalEnvironmentClaim(l *Dependencies) {
+	globalEnvironment.mu.Lock()
+	defer globalEnvironment.mu.Unlock()
+	if globalEnvironment.owner == l {
+		globalEnvironment.owner = nil
+	}
+}
+
+// foreignEnvironmentKeys are the keys another session has installed into
+// os.Environ. Callers must not hold a session lock.
+func foreignEnvironmentKeys(l *Dependencies) map[string]struct{} {
+	globalEnvironment.mu.Lock()
+	defer globalEnvironment.mu.Unlock()
+	owner := globalEnvironment.owner
+	if owner == nil || owner == l {
+		return nil
+	}
+	return owner.ownedKeys()
+}
+
+// defunct reports whether the session's Codefly process is gone. An attached or
+// inherited session owns no process and is never defunct: its dependencies may
+// well still be running, so its values stay authoritative.
+func (l *Dependencies) defunct() bool {
+	if l.proc == nil {
+		return false
+	}
+	select {
+	case <-l.proc.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// describe names a session for an error message: its identity when it has been
+// resolved, otherwise the directory it is anchored to. It never resolves — an
+// error path must not do file I/O — and never reports a configuration value.
+func (l *Dependencies) describe() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.identity != nil {
+		return fmt.Sprintf("%s/%s (%s)", l.identity.module.Name, l.identity.service.Name, l.dir)
+	}
+	return l.dir
 }
 
 // apply installs env into the process environment transactionally: every value
@@ -134,9 +240,8 @@ var globalEnvironment struct {
 func (l *Dependencies) apply(env *sessionEnvironment) error {
 	globalEnvironment.mu.Lock()
 	defer globalEnvironment.mu.Unlock()
-	if globalEnvironment.owner != nil && globalEnvironment.owner != l {
-		return fmt.Errorf("another dependency session owns the process environment; " +
-			"use WithCommandScopedEnvironment and Dependencies.Environ to run sessions side by side")
+	if err := claimGlobalEnvironmentLocked(l); err != nil {
+		return err
 	}
 	type change struct {
 		key      string
@@ -150,30 +255,35 @@ func (l *Dependencies) apply(env *sessionEnvironment) error {
 			for i := len(round) - 1; i >= 0; i-- {
 				restore(round[i].key, round[i].previous, round[i].existed)
 			}
+			if !l.hasOwned() {
+				globalEnvironment.owner = nil
+			}
 			return fmt.Errorf("cannot inject %s into the process environment: %w", key, err)
 		}
 		round = append(round, change{key: key, previous: previous, existed: existed})
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	for _, applied := range round {
-		if existing, held := l.ownedVariable(applied.key); held {
+		if existing, held := l.ownedVariableLocked(applied.key); held {
 			existing.applied = env.values[applied.key]
-			l.setOwnedVariable(existing)
+			l.setOwnedVariableLocked(existing)
 			continue
 		}
-		l.setOwnedVariable(ownedVariable{
+		l.setOwnedVariableLocked(ownedVariable{
 			key:      applied.key,
 			previous: applied.previous,
 			existed:  applied.existed,
 			applied:  env.values[applied.key],
 		})
 	}
-	globalEnvironment.owner = l
 	return nil
 }
 
-// ownedVariable and setOwnedVariable are only called while globalEnvironment.mu
-// is held, which is what protects the ownership records.
-func (l *Dependencies) ownedVariable(key string) (ownedVariable, bool) {
+// The owned records are guarded by l.mu. Helpers suffixed Locked require the
+// caller to hold it; the others take it themselves, and are only ever called
+// while holding globalEnvironment.mu, which is the documented order.
+func (l *Dependencies) ownedVariableLocked(key string) (ownedVariable, bool) {
 	for _, owned := range l.owned {
 		if owned.key == key {
 			return owned, true
@@ -182,7 +292,7 @@ func (l *Dependencies) ownedVariable(key string) (ownedVariable, bool) {
 	return ownedVariable{}, false
 }
 
-func (l *Dependencies) setOwnedVariable(variable ownedVariable) {
+func (l *Dependencies) setOwnedVariableLocked(variable ownedVariable) {
 	for i, owned := range l.owned {
 		if owned.key == variable.key {
 			l.owned[i] = variable
@@ -190,6 +300,40 @@ func (l *Dependencies) setOwnedVariable(variable ownedVariable) {
 		}
 	}
 	l.owned = append(l.owned, variable)
+}
+
+func (l *Dependencies) hasOwned() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.owned) > 0
+}
+
+func (l *Dependencies) ownedKeys() map[string]struct{} {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.owned) == 0 {
+		return nil
+	}
+	keys := make(map[string]struct{}, len(l.owned))
+	for _, owned := range l.owned {
+		keys[owned.key] = struct{}{}
+	}
+	return keys
+}
+
+// restoreOwned returns the session's variables to their pre-session state and
+// forgets them. The caller holds globalEnvironment.mu.
+func (l *Dependencies) restoreOwned() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := len(l.owned) - 1; i >= 0; i-- {
+		owned := l.owned[i]
+		if current, exists := os.LookupEnv(owned.key); !exists || current != owned.applied {
+			continue
+		}
+		restore(owned.key, owned.previous, owned.existed)
+	}
+	l.owned = nil
 }
 
 func restore(key, previous string, existed bool) {
@@ -208,14 +352,7 @@ func restore(key, previous string, existed bool) {
 func (l *Dependencies) ReleaseEnvironment() {
 	globalEnvironment.mu.Lock()
 	defer globalEnvironment.mu.Unlock()
-	for i := len(l.owned) - 1; i >= 0; i-- {
-		owned := l.owned[i]
-		if current, exists := os.LookupEnv(owned.key); !exists || current != owned.applied {
-			continue
-		}
-		restore(owned.key, owned.previous, owned.existed)
-	}
-	l.owned = nil
+	l.restoreOwned()
 	if globalEnvironment.owner == l {
 		globalEnvironment.owner = nil
 	}
@@ -227,11 +364,15 @@ func (l *Dependencies) ReleaseEnvironment() {
 // process-global state, so independent sessions — parallel tests, for instance
 // — can each drive their own children without contending for os.Environ.
 func (l *Dependencies) Environ() []string {
+	foreign := foreignEnvironmentKeys(l)
 	env := l.resolved()
 	if env == nil {
-		return os.Environ()
+		if len(foreign) == 0 {
+			return os.Environ()
+		}
+		env = newSessionEnvironment(nil)
 	}
-	return env.environ(os.Environ())
+	return env.environ(os.Environ(), foreign)
 }
 
 // EnvironmentVariables returns a defensive copy of the variables this session

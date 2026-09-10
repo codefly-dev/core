@@ -3,6 +3,11 @@
 // dependency, so a test can start it through the ordinary WithDependencies
 // spawn path and then connect to the endpoint the session resolved.
 //
+// It lives under testdata so it stays out of the library's build graph — it is
+// not part of core's public surface and has no business in `go build ./...`,
+// `go vet ./...`, the coverage denominator or the CGO-free guard. The session
+// tests compile it explicitly, which is what keeps it from rotting.
+//
 // Everything it serves is derived from its working directory: the SDK runs it
 // in the directory the session is anchored to, so two concurrent sessions get
 // two distinct identities and two distinct endpoints without any shared state.
@@ -211,7 +216,7 @@ func (c *cli) GetDependenciesConfigurations(_ context.Context, _ *v0.GetConfigur
 					{
 						Name: "connection",
 						ConfigurationValues: []*basev0.ConfigurationValue{
-							{Key: "address", Value: c.address},
+							{Key: "connection", Value: c.address},
 						},
 					},
 				},

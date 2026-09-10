@@ -3,6 +3,8 @@ package sdk
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -43,7 +45,10 @@ func testCLI(t *testing.T) string {
 			return
 		}
 		testCLIPath = filepath.Join(testCLIDir, "codefly")
-		build := exec.Command("go", "build", "-o", testCLIPath, "./internal/testcli")
+		build := exec.Command("go", "build", "-o", testCLIPath, "./testdata/testcli")
+		// Pin the build directory: a test that has changed the working
+		// directory must not decide where this package is compiled from.
+		build.Dir = packageDir
 		if output, err := build.CombinedOutput(); err != nil {
 			testCLIErr = fmt.Errorf("build test CLI: %w: %s", err, output)
 		}
@@ -52,6 +57,57 @@ func testCLI(t *testing.T) string {
 		t.Fatalf("test CLI unavailable: %v", testCLIErr)
 	}
 	return testCLIPath
+}
+
+// uniqueScope keeps a test run off every other run's control port.
+// network.CLIServerPort hashes the workspace name, so without a per-run scope
+// two concurrent `go test` invocations — two checkouts on one machine, or a CI
+// matrix on one runner — resolve the same address, and the second SDK drives
+// the first run's server instead of its own.
+func uniqueScope(t *testing.T) string {
+	t.Helper()
+	var buf [6]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		t.Fatalf("generate scope: %v", err)
+	}
+	return "t" + hex.EncodeToString(buf[:])
+}
+
+// freeSharedScope picks a naming scope whose shared control port is actually
+// free right now. The shared channel's port is hashed from the workspace name,
+// so it is machine-global: on a host running several checkouts, a scope chosen
+// blindly can land on a port something else already holds, and the child would
+// fail to bind for a reason that has nothing to do with what the test asserts.
+func freeSharedScope(t *testing.T, dir string) string {
+	t.Helper()
+	for attempt := 0; attempt < 20; attempt++ {
+		scope := uniqueScope(t)
+		listener, err := net.Listen("tcp", cliServerAddress(context.Background(), dir, scope))
+		if err != nil {
+			continue
+		}
+		if err := listener.Close(); err != nil {
+			t.Fatalf("release probed control port: %v", err)
+		}
+		return scope
+	}
+	t.Fatal("no free shared control port after 20 attempts")
+	return ""
+}
+
+// markerBinary is a stand-in codefly that records the fact that it ran. A test
+// asserts the marker is absent to prove a session was refused before it
+// provisioned anything.
+func markerBinary(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "codefly")
+	marker := filepath.Join(dir, "spawned")
+	script := "#!/bin/sh\ntouch \"" + marker + "\"\nexit 23\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatalf("write marker binary: %v", err)
+	}
+	return binary, marker
 }
 
 func endpointKey(module, service string) string {
@@ -80,13 +136,14 @@ func dependencyIdentity(t *testing.T, address string) string {
 func TestConcurrentSessionsCarryTheirOwnCommandScopedEndpoints(t *testing.T) {
 	binary := testCLI(t)
 	sessions := []struct {
-		dir      string
-		module   string
-		service  string
-		endpoint string
+		dir        string
+		module     string
+		service    string
+		endpoint   string
+		dependency string
 	}{
-		{fixtureDir(t, "alpha", "modules", "shop", "services", "web"), "shop", "web", endpointKey("shop", "store")},
-		{fixtureDir(t, "beta", "modules", "office", "services", "portal"), "office", "portal", endpointKey("office", "vault")},
+		{fixtureDir(t, "alpha", "modules", "shop", "services", "web"), "shop", "web", endpointKey("shop", "store"), "shop/store"},
+		{fixtureDir(t, "beta", "modules", "office", "services", "portal"), "office", "portal", endpointKey("office", "vault"), "office/vault"},
 	}
 
 	type result struct {
@@ -132,6 +189,11 @@ func TestConcurrentSessionsCarryTheirOwnCommandScopedEndpoints(t *testing.T) {
 		}
 		if got := os.Getenv(session.endpoint); got != "" {
 			t.Fatalf("a command-scoped session wrote %s=%q into the process environment", session.endpoint, got)
+		}
+		// Connection reads the session's own resolved values, so it answers for
+		// a command-scoped session that never touched the process environment.
+		if got := deps.Connection("configuration/"+session.dependency, "connection"); got != address {
+			t.Fatalf("Connection() = %q, want the session's own %q", got, address)
 		}
 	}
 }
@@ -179,10 +241,19 @@ func TestGlobalInjectionHasASingleOwnerAcrossSessions(t *testing.T) {
 		t.Fatal("the owning session did not inject its endpoint")
 	}
 
+	// A refused session must not have provisioned anything first: the stand-in
+	// binary records the fact that it ran, and it must not have.
+	refusedBinary, spawned := markerBinary(t)
 	_, err = WithDependencies(context.Background(),
-		WithDirectory(beta), WithCodeflyBinary(binary), WithTimeout(60*time.Second))
+		WithDirectory(beta), WithCodeflyBinary(refusedBinary), WithTimeout(60*time.Second))
 	if err == nil || !strings.Contains(err.Error(), "owns the process environment") {
 		t.Fatalf("second session error = %v, want single-owner rejection", err)
+	}
+	if !strings.Contains(err.Error(), alpha) {
+		t.Fatalf("rejection %q does not name the session holding the environment", err)
+	}
+	if _, statErr := os.Stat(spawned); !os.IsNotExist(statErr) {
+		t.Fatalf("the refused session spawned a dependency stack; stat error = %v", statErr)
 	}
 	if got := os.Getenv(betaKey); got != "" {
 		t.Fatalf("the rejected session injected %s=%q", betaKey, got)
@@ -197,17 +268,86 @@ func TestGlobalInjectionHasASingleOwnerAcrossSessions(t *testing.T) {
 	if _, present := os.LookupEnv(alphaKey); present {
 		t.Fatalf("%s survived the owning session's release", alphaKey)
 	}
+}
 
-	second, err := WithDependencies(context.Background(),
-		WithDirectory(beta), WithCodeflyBinary(binary), WithTimeout(60*time.Second))
+// The shared control channel is a workspace-hashed port, so two sessions in one
+// process can select the same address. The second must be refused rather than
+// silently driving the first session's server, and refused before it spawns.
+func TestSecondSessionOnTheSameControlChannelIsRefusedBeforeSpawning(t *testing.T) {
+	binary := testCLI(t)
+	alpha := fixtureDir(t, "alpha", "modules", "shop", "services", "web")
+	scope := freeSharedScope(t, alpha)
+
+	first, err := WithDependencies(context.Background(),
+		WithDirectory(alpha), WithNamingScope(scope), WithSharedControlChannel(),
+		WithCommandScopedEnvironment(), WithCodeflyBinary(binary), WithTimeout(60*time.Second))
 	if err != nil {
-		t.Fatalf("WithDependencies() after release error = %v", err)
+		t.Fatalf("WithDependencies() error = %v", err)
 	}
-	defer func() { _ = second.Destroy(context.Background()) }()
-	if got := os.Getenv(betaKey); got == "" {
-		t.Fatal("the next owner did not inject its endpoint")
+	defer func() { _ = first.Destroy(context.Background()) }()
+
+	refusedBinary, spawned := markerBinary(t)
+	_, err = WithDependencies(context.Background(),
+		WithDirectory(alpha), WithNamingScope(scope), WithSharedControlChannel(),
+		WithCommandScopedEnvironment(), WithCodeflyBinary(refusedBinary), WithTimeout(60*time.Second))
+	if err == nil || !strings.Contains(err.Error(), "control channel") {
+		t.Fatalf("second session error = %v, want a control-channel rejection", err)
 	}
+	if _, statErr := os.Stat(spawned); !os.IsNotExist(statErr) {
+		t.Fatalf("the refused session spawned a dependency stack; stat error = %v", statErr)
+	}
+}
+
+// Releasing a session hands its control channel back to the process.
+func TestReleasedControlChannelCanBeClaimedAgain(t *testing.T) {
+	address := "127.0.0.1:" + uniqueScope(t)
+	if err := claimControlAddress(address, "first"); err != nil {
+		t.Fatalf("claimControlAddress() error = %v", err)
+	}
+	if err := claimControlAddress(address, "second"); err == nil || !strings.Contains(err.Error(), "first") {
+		t.Fatalf("competing claim error = %v, want a rejection naming the holder", err)
+	}
+	releaseControlAddress(address)
+	if err := claimControlAddress(address, "second"); err != nil {
+		t.Fatalf("claim after release error = %v", err)
+	}
+	releaseControlAddress(address)
+}
+
+// A session dropped without Stop must not lock the process out of global
+// injection forever. Once its Codefly process is gone its injected values point
+// at dependencies that no longer exist, so the next session restores them and
+// takes over.
+func TestDefunctOwnerReleasesTheProcessEnvironment(t *testing.T) {
+	binary := testCLI(t)
+	alphaKey := endpointKey("shop", "store")
+
+	leaked, err := WithDependencies(context.Background(),
+		WithDirectory(fixtureDir(t, "alpha", "modules", "shop", "services", "web")),
+		WithCodeflyBinary(binary), WithTimeout(60*time.Second))
+	if err != nil {
+		t.Fatalf("WithDependencies() error = %v", err)
+	}
+	if os.Getenv(alphaKey) == "" {
+		t.Fatal("the owning session did not inject its endpoint")
+	}
+
+	// The caller drops the session without stopping it and its stack dies.
+	if err := leaked.proc.Kill(); err != nil {
+		t.Fatalf("kill leaked stack: %v", err)
+	}
+	select {
+	case <-leaked.proc.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatal("leaked stack did not exit")
+	}
+
+	next := &Dependencies{dir: "next"}
+	if err := claimGlobalEnvironment(next); err != nil {
+		t.Fatalf("claiming after a defunct owner error = %v", err)
+	}
+	t.Cleanup(next.ReleaseEnvironment)
 	if _, present := os.LookupEnv(alphaKey); present {
-		t.Fatalf("%s from the previous session is still set", alphaKey)
+		t.Fatalf("%s from the defunct session was not restored", alphaKey)
 	}
 }
