@@ -1,0 +1,4 @@
+kind: module
+name: billing
+services:
+    - name: accounts

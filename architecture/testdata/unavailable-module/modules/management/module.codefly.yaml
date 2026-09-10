@@ -1,0 +1,4 @@
+kind: module
+name: management
+services:
+    - name: organization

@@ -1,0 +1,151 @@
+{
+  "schema": "codefly.execution-plan/v1",
+  "requested": {
+    "workspace": "commerce",
+    "service": "api/orders",
+    "phase": "run",
+    "environment": "local"
+  },
+  "nodes": [
+    {
+      "id": "api/orders",
+      "kind": "service",
+      "module": "api",
+      "name": "orders",
+      "resolution": "resolved",
+      "backend": {
+        "kind": "runtime::service",
+        "publisher": "codefly.ai",
+        "name": "go-grpc",
+        "version": "0.0.16"
+      },
+      "artifacts": [
+        {
+          "reference": "commerce/api",
+          "verification": "local",
+          "selection": {
+            "reason": "workspace-layout",
+            "detail": "module <api> is a local checkout of workspace <commerce>"
+          }
+        }
+      ],
+      "endpoints": [
+        {
+          "name": "grpc",
+          "api": "grpc",
+          "visibility": "private"
+        },
+        {
+          "name": "rest",
+          "api": "rest",
+          "visibility": "public"
+        }
+      ],
+      "selection": {
+        "reason": "requested-target"
+      }
+    },
+    {
+      "id": "data/postgres",
+      "kind": "service",
+      "module": "data",
+      "name": "postgres",
+      "resolution": "resolved",
+      "backend": {
+        "kind": "runtime::service",
+        "publisher": "codefly.ai",
+        "name": "postgres",
+        "version": "0.0.11"
+      },
+      "artifacts": [
+        {
+          "reference": "commerce/data",
+          "verification": "local",
+          "selection": {
+            "reason": "workspace-layout",
+            "detail": "module <data> is a local checkout of workspace <commerce>"
+          }
+        }
+      ],
+      "endpoints": [
+        {
+          "name": "tcp",
+          "api": "tcp",
+          "visibility": "internal",
+          "requiredBy": [
+            "api/orders"
+          ]
+        }
+      ],
+      "selection": {
+        "reason": "declared-dependency",
+        "via": [
+          "api/orders"
+        ],
+        "detail": "declared as a service dependency of api/orders"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "data/postgres",
+      "to": "api/orders",
+      "kind": "declared",
+      "endpoints": [
+        "tcp"
+      ],
+      "selection": {
+        "reason": "declared-dependency",
+        "detail": "api/orders declares data/postgres in service-dependencies"
+      }
+    }
+  ],
+  "configurations": [
+    {
+      "consumer": "api/orders",
+      "key": "CODEFLY__ENDPOINT__DATA__POSTGRES__TCP__TCP",
+      "origin": "service-endpoint",
+      "producer": "data/postgres",
+      "selection": {
+        "reason": "declared-dependency",
+        "detail": "api/orders consumes endpoint tcp of data/postgres"
+      }
+    },
+    {
+      "consumer": "api/orders",
+      "key": "CODEFLY__WORKSPACE_CONFIGURATION__STRIPE",
+      "origin": "workspace-configuration",
+      "selection": {
+        "reason": "declared-dependency",
+        "detail": "api/orders declares workspace configuration \"stripe\""
+      }
+    }
+  ],
+  "schemaSteps": [
+    {
+      "id": "data/db-migration",
+      "module": "data",
+      "name": "db-migration",
+      "after": [
+        "data/postgres"
+      ],
+      "before": [
+        "api/orders"
+      ],
+      "backend": {
+        "kind": "codefly:job",
+        "publisher": "codefly.ai",
+        "name": "go-job",
+        "version": "0.0.1"
+      },
+      "selection": {
+        "reason": "schema-prerequisite",
+        "detail": "job <db-migration> of module <data> operates on the selected closure"
+      }
+    }
+  ],
+  "statePolicy": {
+    "reuse": true,
+    "lifecycle": "stop"
+  }
+}

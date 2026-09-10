@@ -517,10 +517,32 @@ func (s *Service) postLoad(ctx context.Context) error {
 			return w.Wrap(err)
 		}
 	}
+	// Checked after module defaulting: two entries naming the same service are
+	// duplicates whether or not both spell out the module. A second entry cannot
+	// add to the first — every consumer keys dependencies by the service they
+	// name — so one of the two endpoint lists would be silently discarded.
+	if err := validateServiceDependencyNames(s.ServiceDependencies); err != nil {
+		return w.Wrap(err)
+	}
 	for _, endpoint := range s.Endpoints {
 		endpoint.Service = s.Name
 		endpoint.Module = s.module
 		endpoint.postLoad(ctx)
+	}
+	return nil
+}
+
+func validateServiceDependencyNames(dependencies []*ServiceDependency) error {
+	seen := make(map[string]struct{}, len(dependencies))
+	for _, dep := range dependencies {
+		if dep == nil {
+			return fmt.Errorf("service dependency cannot be nil")
+		}
+		unique := dep.Unique()
+		if _, exists := seen[unique]; exists {
+			return fmt.Errorf("duplicate service dependency %q: merge the entries, including their endpoints", unique)
+		}
+		seen[unique] = struct{}{}
 	}
 	return nil
 }

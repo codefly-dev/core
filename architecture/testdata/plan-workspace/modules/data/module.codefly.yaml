@@ -1,0 +1,6 @@
+kind: module
+name: data
+services:
+    - name: postgres
+jobs:
+    - name: db-migration

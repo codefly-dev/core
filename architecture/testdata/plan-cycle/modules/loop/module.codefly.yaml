@@ -1,0 +1,5 @@
+kind: module
+name: loop
+services:
+    - name: left
+    - name: right
