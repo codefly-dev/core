@@ -43,6 +43,17 @@ type RunningOptions struct {
 type EndpointReference struct {
 	API  string `yaml:"api"`
 	Name string `yaml:"name"`
+
+	// Required says whether the consumer's readiness waits on this endpoint.
+	// Unset means required: consuming an endpoint without needing it to work is
+	// the exception, and it has to be written down. Setting it to false is how a
+	// consumer opts out of an endpoint it only reaches opportunistically.
+	Required *bool `yaml:"required,omitempty"`
+}
+
+// IsRequired reports whether readiness waits on this endpoint.
+func (e *EndpointReference) IsRequired() bool {
+	return e.Required == nil || *e.Required
 }
 
 func (e *EndpointReference) GetAPI() string {

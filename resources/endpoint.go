@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 
@@ -52,6 +54,9 @@ type Endpoint struct {
 	Location string `yaml:"location,omitempty"`
 	// AllowModules lists the modules permitted to reach an internal endpoint.
 	AllowModules []string `yaml:"allow-modules,omitempty"`
+	// Health declares what "healthy" means for this endpoint. Absence keeps the
+	// legacy transport-only semantics.
+	Health *Health `yaml:"health,omitempty"`
 }
 
 func validateEndpointNames(endpoints []*Endpoint) error {
@@ -114,6 +119,22 @@ func (endpoint *Endpoint) AllowsModule(module string) bool {
 		}
 	}
 	return false
+}
+
+// EndpointSecured reports whether the endpoint expects TLS. Each protocol
+// records it in its own API details, so a caller that needs to dial the
+// endpoint must read it from here rather than assume plaintext.
+func EndpointSecured(e *basev0.Endpoint) bool {
+	switch details := e.GetApiDetails().GetValue().(type) {
+	case *basev0.API_Grpc:
+		return details.Grpc.GetSecured()
+	case *basev0.API_Http:
+		return details.Http.GetSecured()
+	case *basev0.API_Rest:
+		return details.Rest.GetSecured()
+	default:
+		return false
+	}
 }
 
 // IsExternalEndpoint reports whether a proto endpoint lives outside the system.
@@ -222,6 +243,10 @@ func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
 	if err := standards.IsSupportedAPI(endpoint.API); err != nil {
 		return nil, fmt.Errorf("unsupported api: %s", endpoint.API)
 	}
+	health, err := endpoint.Health.Proto(endpoint.API)
+	if err != nil {
+		return nil, fmt.Errorf("endpoint %q health: %w", endpoint.Name, err)
+	}
 	e := &basev0.Endpoint{
 		Name:         endpoint.Name,
 		Module:       endpoint.Module,
@@ -231,6 +256,7 @@ func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
 		Description:  endpoint.Description,
 		Location:     endpoint.Location,
 		AllowModules: endpoint.AllowModules,
+		Health:       health,
 	}
 	// Validate
 	if err := Validate(e); err != nil {
@@ -258,12 +284,16 @@ func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
 		API:          e.Api,
 		Location:     e.Location,
 		AllowModules: e.AllowModules,
+		Health:       HealthFromProto(e.Health),
 	}
 }
 
 func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
 	var endpoints []*Endpoint
 	for _, e := range es {
+		if err := ValidateEndpointHealth(e); err != nil {
+			return nil, err
+		}
 		endpoints = append(endpoints, EndpointFromProto(e))
 	}
 	return endpoints, nil
@@ -278,6 +308,7 @@ func Light(e *basev0.Endpoint) *basev0.Endpoint {
 		ApiDetails:   LightAPI(e.ApiDetails),
 		Location:     e.Location,
 		AllowModules: e.AllowModules,
+		Health:       e.Health,
 	}
 }
 
@@ -389,6 +420,13 @@ func endpointHash(_ context.Context, endpoint *basev0.Endpoint) (string, error) 
 	buf.WriteString(strings.Join(endpoint.AllowModules, ","))
 	buf.WriteString(endpoint.Api)
 	buf.WriteString(endpoint.ApiDetails.String())
+	if endpoint.Health != nil {
+		encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(endpoint.Health)
+		if err != nil {
+			return "", err
+		}
+		buf.Write(encoded)
+	}
 	// if rest := EndpointRestAPI(endpoint); rest != nil {
 	//	w.Debug("hashing rest api TODO: more precise hashing", wool.NameField(endpoint.Name))
 	//	buf.WriteString(rest.String())

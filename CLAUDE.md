@@ -148,7 +148,7 @@ grpcEP, _ := resources.FindGRPCEndpoint(ctx, endpoints)
 - **NEVER mock.** Always test against real infrastructure. Use `testdata/` directories with real YAML fixtures.
 - **Regenerate protos via `codefly generate proto --local`** (source: `core/proto/`). The `--local` mode pins the protoc-gen-* plugin versions and runs goimports so output is byte-reproducible — don't hand-run `buf`/`protoc` ad hoc.
 - **Port allocation must use `network.ToNamedPort()` or `RuntimeManager`.** Never hardcode ports. Always track allocated ports to prevent collisions (the temporal agent had a bug where duplicate ports were assigned because dedup tracking was missing).
-- **Readiness checks must use gRPC health checks**, not raw TCP connects. A port being open does not mean the service is ready.
+- **Readiness checks must use gRPC health checks**, not raw TCP connects. A port being open does not mean the service is ready. Endpoints declare their predicate in `service.codefly.yaml` (`health.readiness`) and consumers evaluate it through `resources.PlanReadiness` + the `readiness` package — see `docs/readiness.md`.
 - **`resources/` is the source of truth** for all type definitions. When in doubt about how something is modeled, look there first.
 - **Companion containers** are built separately and used at runtime. If a companion is broken, fix it — we own all of this.
 - **Keep the CGO-free surface CGO-free.** cgo lives only in `code/semantic` (tree-sitter). Consumers get a build-tag-aware server from `code/codeserver.New` (`-tags codefly_nosemantic` for CGO-free builds). `make check-cgo-free` (also a CI step) fails if a new dependency drags cgo into the CGO-free surface. See `docs/cgo.md`.

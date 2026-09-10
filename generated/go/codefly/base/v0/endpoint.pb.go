@@ -125,7 +125,11 @@ type Endpoint struct {
 	Location string `protobuf:"bytes,8,opt,name=location,proto3" json:"location,omitempty"`
 	// allow_modules is the explicit allow-list of modules permitted to reach an
 	// internal endpoint. The single entry "*" permits every module.
-	AllowModules  []string `protobuf:"bytes,9,rep,name=allow_modules,json=allowModules,proto3" json:"allow_modules,omitempty"`
+	AllowModules []string `protobuf:"bytes,9,rep,name=allow_modules,json=allowModules,proto3" json:"allow_modules,omitempty"`
+	// health declares what "healthy" means for this endpoint. Absence keeps the
+	// legacy transport-only semantics: consumers may assume nothing beyond a
+	// reachable address.
+	Health        *Health `protobuf:"bytes,10,opt,name=health,proto3" json:"health,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -219,6 +223,13 @@ func (x *Endpoint) GetLocation() string {
 func (x *Endpoint) GetAllowModules() []string {
 	if x != nil {
 		return x.AllowModules
+	}
+	return nil
+}
+
+func (x *Endpoint) GetHealth() *Health {
+	if x != nil {
+		return x.Health
 	}
 	return nil
 }
@@ -774,7 +785,7 @@ var File_codefly_base_v0_endpoint_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"\n" +
-	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xce\x03\n" +
+	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1fcodefly/base/v0/readiness.proto\"\xff\x03\n" +
 	"\bEndpoint\x12)\n" +
 	"\x04name\x18\x01 \x01(\tB\x15\xbaH\x12r\x10\x10\x03\x18\x142\b^[a-z]+$h\x01R\x04name\x128\n" +
 	"\aservice\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\aservice\x126\n" +
@@ -787,7 +798,9 @@ const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"\vapi_details\x18\a \x01(\v2\x14.codefly.base.v0.APIR\n" +
 	"apiDetails\x12\x1a\n" +
 	"\blocation\x18\b \x01(\tR\blocation\x12#\n" +
-	"\rallow_modules\x18\t \x03(\tR\fallowModules\"\xcb\x01\n" +
+	"\rallow_modules\x18\t \x03(\tR\fallowModules\x12/\n" +
+	"\x06health\x18\n" +
+	" \x01(\v2\x17.codefly.base.v0.HealthR\x06health\"\xcb\x01\n" +
 	"\x03API\x12+\n" +
 	"\x03tcp\x18\x01 \x01(\v2\x17.codefly.base.v0.TcpAPIH\x00R\x03tcp\x12.\n" +
 	"\x04http\x18\x02 \x01(\v2\x18.codefly.base.v0.HttpAPIH\x00R\x04http\x12.\n" +
@@ -858,22 +871,24 @@ var file_codefly_base_v0_endpoint_proto_goTypes = []any{
 	(*GrpcAPI)(nil),        // 7: codefly.base.v0.GrpcAPI
 	(*HttpAPI)(nil),        // 8: codefly.base.v0.HttpAPI
 	(*TcpAPI)(nil),         // 9: codefly.base.v0.TcpAPI
+	(*Health)(nil),         // 10: codefly.base.v0.Health
 }
 var file_codefly_base_v0_endpoint_proto_depIdxs = []int32{
-	2, // 0: codefly.base.v0.Endpoint.api_details:type_name -> codefly.base.v0.API
-	9, // 1: codefly.base.v0.API.tcp:type_name -> codefly.base.v0.TcpAPI
-	8, // 2: codefly.base.v0.API.http:type_name -> codefly.base.v0.HttpAPI
-	5, // 3: codefly.base.v0.API.rest:type_name -> codefly.base.v0.RestAPI
-	7, // 4: codefly.base.v0.API.grpc:type_name -> codefly.base.v0.GrpcAPI
-	4, // 5: codefly.base.v0.RestRouteGroup.routes:type_name -> codefly.base.v0.RestRoute
-	0, // 6: codefly.base.v0.RestRoute.method:type_name -> codefly.base.v0.HTTPMethod
-	3, // 7: codefly.base.v0.RestAPI.groups:type_name -> codefly.base.v0.RestRouteGroup
-	6, // 8: codefly.base.v0.GrpcAPI.rpcs:type_name -> codefly.base.v0.RPC
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	2,  // 0: codefly.base.v0.Endpoint.api_details:type_name -> codefly.base.v0.API
+	10, // 1: codefly.base.v0.Endpoint.health:type_name -> codefly.base.v0.Health
+	9,  // 2: codefly.base.v0.API.tcp:type_name -> codefly.base.v0.TcpAPI
+	8,  // 3: codefly.base.v0.API.http:type_name -> codefly.base.v0.HttpAPI
+	5,  // 4: codefly.base.v0.API.rest:type_name -> codefly.base.v0.RestAPI
+	7,  // 5: codefly.base.v0.API.grpc:type_name -> codefly.base.v0.GrpcAPI
+	4,  // 6: codefly.base.v0.RestRouteGroup.routes:type_name -> codefly.base.v0.RestRoute
+	0,  // 7: codefly.base.v0.RestRoute.method:type_name -> codefly.base.v0.HTTPMethod
+	3,  // 8: codefly.base.v0.RestAPI.groups:type_name -> codefly.base.v0.RestRouteGroup
+	6,  // 9: codefly.base.v0.GrpcAPI.rpcs:type_name -> codefly.base.v0.RPC
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_endpoint_proto_init() }
@@ -881,6 +896,7 @@ func file_codefly_base_v0_endpoint_proto_init() {
 	if File_codefly_base_v0_endpoint_proto != nil {
 		return
 	}
+	file_codefly_base_v0_readiness_proto_init()
 	file_codefly_base_v0_endpoint_proto_msgTypes[1].OneofWrappers = []any{
 		(*API_Tcp)(nil),
 		(*API_Http)(nil),

@@ -49,6 +49,17 @@ func ValidateRuntimeDestroyResponse(resp *runtimev0.DestroyResponse) error {
 	return runtimeResponseError("destroy", message)
 }
 
+// StartGeneration returns a start status's lifecycle generation and whether the
+// agent reports generations at all. Generations count from 1, so a zero value
+// means an agent that predates the field rather than "the first start": every
+// start of such an agent reports zero, and comparing zero across restarts
+// proves nothing. Callers that use generations to invalidate a stale ready
+// verdict must treat a false second return as "assume it changed".
+func StartGeneration(status *runtimev0.StartStatus) (uint64, bool) {
+	generation := status.GetGeneration()
+	return generation, generation > 0
+}
+
 func runtimeResponseError(operation, message string) error {
 	message = strings.TrimSpace(message)
 	if message == "" {

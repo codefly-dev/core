@@ -1,0 +1,21 @@
+kind: service
+name: gateway
+version: 0.0.1
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+service-dependencies:
+  - name: accounts
+    module: saas
+    endpoints:
+      - name: grpc
+      - name: http
+      - name: admin
+        required: false
+  - name: payments
+    module: saas
+  - name: seeder
+    module: saas
+    kind: completion

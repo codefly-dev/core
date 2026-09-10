@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/codefly-dev/core/builders"
 	codeflyfailures "github.com/codefly-dev/core/failures"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -40,6 +42,12 @@ type RuntimeWrapper struct {
 	LintStatus  *runtimev0.LintStatus
 
 	DesiredState *runtimev0.DesiredState
+
+	// generation counts successful Starts. It is stamped on every StartStatus
+	// and health report so a consumer cannot read a ready result recorded before
+	// a restart as evidence about the process running now.
+	generation uint64
+	health     *basev0.HealthReport
 
 	sync.RWMutex
 }
@@ -148,14 +156,34 @@ func (s *RuntimeWrapper) InitErrorf(err error, msg string, args ...any) (*runtim
 func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED}
+	s.generation++
+	s.health = nil
+	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED, Generation: s.generation}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
+}
+
+// ReportHealth records the agent's latest evaluation of the declared health
+// predicates. The report is stamped with the current lifecycle generation, so a
+// report produced for a previous process is not mistaken for this one's.
+func (s *RuntimeWrapper) ReportHealth(report *basev0.HealthReport) {
+	s.Lock()
+	defer s.Unlock()
+	if report == nil {
+		s.health = nil
+		return
+	}
+	// The caller keeps its message: a plugin that re-submits one cached report
+	// would otherwise have its Generation rewritten underneath a marshal of the
+	// same pointer already handed out by InformationResponse.
+	stamped, _ := proto.Clone(report).(*basev0.HealthReport)
+	stamped.Generation = s.generation
+	s.health = stamped
 }
 
 func (s *RuntimeWrapper) StartError(err error) (*runtimev0.StartResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.start", err, err.Error())}
+	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.start", err, err.Error()), Generation: s.generation}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
 }
 
@@ -163,7 +191,7 @@ func (s *RuntimeWrapper) StartErrorf(err error, msg string, args ...any) (*runti
 	s.Lock()
 	defer s.Unlock()
 	message := ErrorMessage(err, msg, args...)
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: message, Failure: operationFailure("runtime.start", err, message)}
+	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: message, Failure: operationFailure("runtime.start", err, message), Generation: s.generation}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
 }
 
@@ -183,7 +211,7 @@ func (s *RuntimeWrapper) MarkRunnerExited(err error) {
 	if err != nil {
 		msg = err.Error()
 	}
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: msg, Failure: operationFailure("runtime.start", err, msg)}
+	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: msg, Failure: operationFailure("runtime.start", err, msg), Generation: s.generation}
 }
 
 // ── Test ──────────────────────────────────────────────────
@@ -345,6 +373,7 @@ func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev0.Inf
 		BuildStatus:   s.BuildStatus,
 		LintStatus:    s.LintStatus,
 		DesiredState:  s.DesiredState,
+		Health:        s.health,
 	}
 	s.DesiredState = NOOP()
 	return resp, nil

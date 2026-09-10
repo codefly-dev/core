@@ -1,0 +1,36 @@
+kind: service
+name: accounts
+version: 0.0.1
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+endpoints:
+  - name: grpc
+    health:
+      readiness:
+        kind: grpc-health
+        service: accounts.v1.Accounts
+      liveness:
+        kind: grpc-health
+      startup:
+        kind: transport
+        initial-delay: 1s
+        period: 500ms
+        failure-threshold: 30
+  - name: http
+    visibility: public
+    health:
+      readiness:
+        kind: http
+        path: /healthz
+        statuses:
+          - "200"
+          - 204-299
+        body-contains: ok
+  - name: admin
+    api: tcp
+    health:
+      readiness:
+        kind: agent

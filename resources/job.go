@@ -69,6 +69,28 @@ func (e *JobExecution) GetRetryDelay() time.Duration {
 type JobDependency struct {
 	Name   string `yaml:"name"`
 	Module string `yaml:"module,omitempty"`
+
+	// Kind classifies the edge exactly as it does on a service dependency, but
+	// an absent kind means completion rather than legacy: a job is one-shot work,
+	// and one that is still running has not produced whatever the consumer
+	// depends on. A long-running job is declared with kind "runtime".
+	Kind DependencyKind `yaml:"kind,omitempty"`
+}
+
+// Prerequisite returns what the consumer waits for before it may start.
+func (d *JobDependency) Prerequisite() Prerequisite {
+	if d.Kind == DependencyKindLegacy {
+		return PrerequisiteCompletion
+	}
+	return d.Kind.Prerequisite()
+}
+
+// Unique identifies the depended-on job.
+func (d *JobDependency) Unique() string {
+	if d.Module == "" {
+		return d.Name
+	}
+	return path.Join(d.Module, d.Name)
 }
 
 // Job represents an ephemeral execution unit for scheduled or one-shot tasks
