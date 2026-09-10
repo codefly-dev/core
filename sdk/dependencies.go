@@ -348,17 +348,19 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err = claimControlAddress(channel.target, dir); err != nil {
 		return nil, err
 	}
-	if !opt.CommandScopedEnvironment {
-		if err = claimGlobalEnvironment(l); err != nil {
-			return nil, err
-		}
-	}
+	// Registered before the second claim so a failure there — or anywhere
+	// below — cannot leave this session holding the control channel.
 	defer func() {
 		if !success {
 			l.ReleaseEnvironment()
 			releaseControlAddress(channel.target)
 		}
 	}()
+	if !opt.CommandScopedEnvironment {
+		if err = claimGlobalEnvironment(l); err != nil {
+			return nil, err
+		}
+	}
 
 	cmd := exec.CommandContext(ctx, codeflyBinary(opt), args...)
 	cmd.Dir = dir
@@ -1209,8 +1211,11 @@ func (l *Dependencies) Stop(ctx context.Context) error {
 		w.Debug("leaving dependencies owned by the parent Codefly runtime running")
 		return nil
 	}
-	l.ReleaseEnvironment()
-	releaseControlAddress(l.controlAddress)
+	// Deferred, so this session keeps its control channel until the flow is
+	// actually torn down. Releasing it first would let another session in this
+	// process claim the endpoint while the old CLI still holds it.
+	defer l.ReleaseEnvironment()
+	defer releaseControlAddress(l.controlAddress)
 	if l.keepRunning {
 		if l.conn != nil {
 			_ = l.conn.Close()
@@ -1242,8 +1247,11 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 		w.Debug("leaving dependencies owned by the parent Codefly runtime running")
 		return nil
 	}
-	l.ReleaseEnvironment()
-	releaseControlAddress(l.controlAddress)
+	// Deferred, so this session keeps its control channel until the flow is
+	// actually torn down. Releasing it first would let another session in this
+	// process claim the endpoint while the old CLI still holds it.
+	defer l.ReleaseEnvironment()
+	defer releaseControlAddress(l.controlAddress)
 	if l.keepRunning {
 		if l.conn != nil {
 			_ = l.conn.Close()

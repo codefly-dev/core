@@ -186,14 +186,6 @@ func claimGlobalEnvironmentLocked(l *Dependencies) error {
 		owner.describe())
 }
 
-func releaseGlobalEnvironmentClaim(l *Dependencies) {
-	globalEnvironment.mu.Lock()
-	defer globalEnvironment.mu.Unlock()
-	if globalEnvironment.owner == l {
-		globalEnvironment.owner = nil
-	}
-}
-
 // foreignEnvironmentKeys are the keys another session has installed into
 // os.Environ. Callers must not hold a session lock.
 func foreignEnvironmentKeys(l *Dependencies) map[string]struct{} {

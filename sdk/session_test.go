@@ -236,6 +236,10 @@ func TestGlobalInjectionHasASingleOwnerAcrossSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithDependencies() error = %v", err)
 	}
+	// A session that holds the process environment has to be released even if
+	// an assertion below fails, or every later test in this package is refused.
+	// Destroy after the explicit Stop is a no-op.
+	defer func() { _ = first.Destroy(context.Background()) }()
 	injected := os.Getenv(alphaKey)
 	if injected == "" {
 		t.Fatal("the owning session did not inject its endpoint")
@@ -298,6 +302,39 @@ func TestSecondSessionOnTheSameControlChannelIsRefusedBeforeSpawning(t *testing.
 	}
 }
 
+// A session refused the process environment must not walk away still holding
+// the control channel it claimed a moment earlier.
+func TestRefusedGlobalInjectionReleasesTheControlChannel(t *testing.T) {
+	binary := testCLI(t)
+	alpha := fixtureDir(t, "alpha", "modules", "shop", "services", "web")
+
+	holder := &Dependencies{dir: "holder"}
+	if err := claimGlobalEnvironment(holder); err != nil {
+		t.Fatalf("claimGlobalEnvironment() error = %v", err)
+	}
+	t.Cleanup(holder.ReleaseEnvironment)
+
+	claimed := claimedControlChannels()
+	_, err := WithDependencies(context.Background(),
+		WithDirectory(alpha), WithCodeflyBinary(binary), WithTimeout(60*time.Second))
+	if err == nil || !strings.Contains(err.Error(), "owns the process environment") {
+		t.Fatalf("WithDependencies() error = %v, want single-owner rejection", err)
+	}
+
+	if after := claimedControlChannels(); after != claimed {
+		t.Fatalf("control channels claimed after the refusal = %d, want %d", after, claimed)
+	}
+}
+
+// claimedControlChannels counts the control channels this process is holding.
+// An isolated session's channel is a per-invocation socket path, so a test
+// cannot name it from outside — but it can prove none was left behind.
+func claimedControlChannels() int {
+	controlAddresses.mu.Lock()
+	defer controlAddresses.mu.Unlock()
+	return len(controlAddresses.inUse)
+}
+
 // Releasing a session hands its control channel back to the process.
 func TestReleasedControlChannelCanBeClaimedAgain(t *testing.T) {
 	address := "127.0.0.1:" + uniqueScope(t)
@@ -328,6 +365,9 @@ func TestDefunctOwnerReleasesTheProcessEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithDependencies() error = %v", err)
 	}
+	// The takeover below is what normally releases this session; on a failing
+	// assertion nothing would, and the rest of the package would be refused.
+	defer func() { _ = leaked.Destroy(context.Background()) }()
 	if os.Getenv(alphaKey) == "" {
 		t.Fatal("the owning session did not inject its endpoint")
 	}
