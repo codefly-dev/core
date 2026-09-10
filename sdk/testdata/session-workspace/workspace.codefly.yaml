@@ -1,0 +1,4 @@
+name: sdk-session-workspace
+layout: modules
+modules:
+  - name: app

@@ -2,24 +2,31 @@ package sdk
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
 	"github.com/codefly-dev/core/network"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/sdk/session"
 	"github.com/codefly-dev/core/wool"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -36,6 +43,7 @@ type Dependencies struct {
 	proc           *managedProcess
 	cli            v0.CLIClient
 	conn           *grpc.ClientConn
+	control        *session.Control
 	runtimeContext *basev0.RuntimeContext
 	keepRunning    bool
 	attached       bool
@@ -55,6 +63,7 @@ type Option struct {
 	ServiceConfigurations   []resources.ServiceConfigurationOverride
 	DependencyHome          string
 	KeepRunning             bool
+	SharedControlChannel    bool
 }
 
 type OptionFunc func(*Option)
@@ -187,6 +196,21 @@ func WithKeepRunning() OptionFunc {
 	}
 }
 
+// WithSharedControlChannel opts out of session isolation and puts the control
+// channel back on the workspace-derived port that every invocation of the same
+// workspace name computes. Concurrent test packages and same-name worktrees
+// then contend for one port, and the SDK cannot prove the server answering it
+// is the child it started.
+//
+// It exists for one case: driving a Codefly CLI that predates the isolated
+// session contract. Isolated sessions are the default, and an old CLI is
+// reported as an explicit error rather than silently downgraded.
+func WithSharedControlChannel() OptionFunc {
+	return func(o *Option) {
+		o.SharedControlChannel = true
+	}
+}
+
 // WithDependencies starts all dependencies declared in the current service's
 // service.codefly.yaml using the codefly CLI. This handles arbitrarily deep
 // dependency graphs — the CLI resolves and starts everything in order.
@@ -221,11 +245,25 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 			inherited:      true,
 		}, nil
 	}
-	args := dependencyCommandArguments(opt)
+	channel, err := newControlChannel(ctx, opt)
+	if err != nil {
+		return nil, err
+	}
+	// Own the private directory from the moment it exists. Every error path
+	// below has to release it, including the ones that return before a child
+	// is ever spawned — otherwise a rejected option set orphans a directory in
+	// the temporary root on every call.
+	success := false
+	defer func() {
+		if !success {
+			channel.discard()
+		}
+	}()
+	args := dependencyCommandArguments(opt, channel.scope)
 
-	addr := cliServerAddress(ctx, opt.NamingScope)
 	if opt.KeepRunning {
-		if deps, err := attachDependencies(ctx, addr, opt); err == nil {
+		if deps, err := attachDependencies(ctx, channel, opt); err == nil {
+			success = true
 			return deps, nil
 		} else {
 			// Attach miss is the common case (no warm server yet) but
@@ -234,17 +272,29 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 			// keep-running spawned a fresh stack instead of attaching.
 			wool.Get(ctx).In("sdk.WithDependencies").
 				Debug("attach to existing CLI server failed; starting new stack",
-					wool.Field("addr", addr),
+					wool.Field("target", channel.target),
 					wool.Field("error", err.Error()))
+		}
+		// The receipt and socket left by the previous session belong to the
+		// SDK, which owns this directory — not to the child. Dropping the
+		// receipt bounds how long its secret survives on disk; clearing the
+		// socket refuses outright when a server still answers there, so a
+		// second stack can never come up over the first one's containers.
+		if err := channel.control.RemoveReceipt(); err != nil {
+			return nil, err
+		}
+		if err := channel.control.ClearStaleSocket(); err != nil {
+			return nil, err
 		}
 	}
 
 	cmd := exec.CommandContext(ctx, codeflyBinary(opt), args...)
 	// ARCHITECTURE: the SDK owns the control channel for the child it starts.
-	// Pass the exact selected port to the CLI instead of asking two separately
-	// versioned binaries to reproduce the same hash algorithm. This keeps
-	// headless test communication stable while core and the CLI roll forward
-	// independently.
+	// It hands the child the exact endpoint to bind instead of asking two
+	// separately versioned binaries to reproduce the same hash algorithm. An
+	// isolated session hands over a socket path inside a directory only this
+	// process can write, so the child cannot lose a bind race and no unrelated
+	// server can be mistaken for it.
 	processEnvironment, err := withWorkspaceConfigurationOverrides(os.Environ(), opt.WorkspaceConfigurations)
 	if err != nil {
 		return nil, err
@@ -254,7 +304,11 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		return nil, err
 	}
 	processEnvironment = withDependencyHome(processEnvironment, opt.DependencyHome)
-	cmd.Env = withCLIServerPort(processEnvironment, addr)
+	if channel.isolated() {
+		cmd.Env = channel.session.Inject(processEnvironment, channel.control.Socket)
+	} else {
+		cmd.Env = withCLIServerPort(processEnvironment, channel.target)
+	}
 	wool.Get(ctx).In("sdk.WithDependencies").Debug("starting CLI subprocess", wool.Field("cmd", cmd.String()))
 
 	proc, err := startManaged(ctx, cmd)
@@ -270,7 +324,6 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// goroutines) plus any open connection on every post-spawn error path.
 	// Disarmed once we return the live Dependencies to the caller.
 	var conn *grpc.ClientConn
-	success := false
 	defer func() {
 		if !success {
 			if conn != nil {
@@ -283,9 +336,15 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		}
 	}()
 
-	conn, err = grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if channel.isolated() {
+		if err := waitForControlSocket(ctx, proc, channel.control.Socket, opt.Timeout); err != nil {
+			return nil, err
+		}
+	}
+
+	conn, err = grpc.NewClient(channel.target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return nil, fmt.Errorf("cannot create gRPC client for %s: %w", addr, err)
+		return nil, fmt.Errorf("cannot create gRPC client for %s: %w", channel.target, err)
 	}
 
 	// grpc.NewClient is lazy — explicitly trigger the connection and wait
@@ -310,16 +369,22 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 			return nil, fmt.Errorf("CLI subprocess exited before its gRPC server became ready")
 		default:
 		}
-		return nil, fmt.Errorf("gRPC connection to CLI server at %s did not become ready within %s", addr, opt.Timeout)
+		return nil, fmt.Errorf("gRPC connection to CLI server at %s did not become ready within %s", channel.target, opt.Timeout)
 	}
 
 	cli := v0.NewCLIClient(conn)
+	// Ownership before anything else: readiness polling, environment reads and
+	// the Stop/Destroy RPCs all act on whatever answers this channel, so the
+	// peer proves it is this session's child before any of them run.
+	if err := channel.verifyOwnership(ctx, cli, channel.session, opt.Timeout); err != nil {
+		return nil, err
+	}
 	_, err = cli.Ping(ctx, &emptypb.Empty{})
 	if err != nil {
 		return nil, fmt.Errorf("CLI server ping failed: %w", err)
 	}
 	runtimeContext := resources.RuntimeContextFromEnv()
-	l := &Dependencies{proc: proc, cli: cli, conn: conn, runtimeContext: runtimeContext, keepRunning: opt.KeepRunning}
+	l := &Dependencies{proc: proc, cli: cli, conn: conn, control: channel.control, runtimeContext: runtimeContext, keepRunning: opt.KeepRunning}
 	err = l.WaitForReady(ctx, opt)
 	if err != nil {
 		return nil, err
@@ -327,6 +392,17 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	err = l.SetEnvironment(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if opt.KeepRunning && channel.isolated() {
+		// Record ownership only once the stack is actually usable, so a later
+		// invocation never attaches to the remains of a failed start.
+		if err := channel.control.WriteReceipt(session.Receipt{
+			ID:          channel.session.ID,
+			Secret:      channel.session.Secret,
+			Fingerprint: channel.fingerprint,
+		}); err != nil {
+			return nil, err
+		}
 	}
 	success = true
 	return l, nil
@@ -388,13 +464,13 @@ func dependenciesConsumeMapping(deps []*resources.ServiceDependency, ep *basev0.
 	return false
 }
 
-func dependencyCommandArguments(opt *Option) []string {
+func dependencyCommandArguments(opt *Option, scope string) []string {
 	args := []string{"run", "service"}
 	if opt.Debug {
 		args = append(args, "-d")
 	}
-	if opt.NamingScope != "" {
-		args = append(args, "--naming-scope", opt.NamingScope)
+	if scope != "" {
+		args = append(args, "--naming-scope", scope)
 	}
 	if opt.Fixture != "" {
 		args = append(args, "--fixture", opt.Fixture)
@@ -447,6 +523,205 @@ func hasManagedDependencyEnvironment(environment []string) bool {
 		}
 	}
 	return running && hasEndpoint
+}
+
+// controlChannel is the transport the SDK drives the child CLI over, together
+// with the identity it holds the peer to and the naming scope the child must
+// stamp onto the resources it creates.
+type controlChannel struct {
+	target      string
+	scope       string
+	session     *session.Session
+	control     *session.Control
+	fingerprint string
+}
+
+// newControlChannel selects the control endpoint for one invocation.
+//
+// A disposable session — the default — mints a fresh identity from
+// crypto/rand and owns a private directory for its socket. Nothing about the
+// endpoint is derived from the workspace name, so two test packages in one
+// workspace, or two worktrees that share a workspace name, cannot select the
+// same channel even with no naming flags. The identity also becomes the naming
+// scope, which is how it reaches state directories, container names and log
+// roots: the caller's own scope stays in front of it as a human label.
+//
+// A reusable session (WithKeepRunning) is the explicit stable-developer mode.
+// Its directory is keyed by a reuse fingerprint rather than by randomness, and
+// its naming scope stays the developer's label so a warm stack keeps the
+// containers and state it had.
+func newControlChannel(ctx context.Context, opt *Option) (*controlChannel, error) {
+	if opt.SharedControlChannel {
+		return &controlChannel{
+			target: cliServerAddress(ctx, opt.NamingScope),
+			scope:  opt.NamingScope,
+		}, nil
+	}
+	invocation, err := session.New()
+	if err != nil {
+		return nil, err
+	}
+	if opt.KeepRunning {
+		fingerprint := reuseFingerprint(ctx, opt)
+		control, err := session.OpenControl(fingerprint[:16])
+		if err != nil {
+			return nil, err
+		}
+		return &controlChannel{
+			target:      control.Target(),
+			scope:       opt.NamingScope,
+			session:     invocation,
+			control:     control,
+			fingerprint: fingerprint,
+		}, nil
+	}
+	control, err := session.NewControl()
+	if err != nil {
+		return nil, err
+	}
+	return &controlChannel{
+		target:  control.Target(),
+		scope:   scopeWithSession(opt.NamingScope, invocation),
+		session: invocation,
+		control: control,
+	}, nil
+}
+
+func (c *controlChannel) isolated() bool {
+	return c.control != nil
+}
+
+// discard removes a disposable session's private directory. A reusable
+// session's directory is keyed by fingerprint and survives for the next
+// attach, so it is left alone.
+func (c *controlChannel) discard() {
+	if c.control != nil && c.fingerprint == "" {
+		_ = c.control.Remove()
+	}
+}
+
+// verifyOwnership makes the peer prove it holds this invocation's secret. A
+// shared control channel has no identity to check, so it is accepted as-is —
+// that is precisely the guarantee WithSharedControlChannel gives up.
+func (c *controlChannel) verifyOwnership(ctx context.Context, cli v0.CLIClient, owner *session.Session, timeout time.Duration) error {
+	if !c.isolated() {
+		return nil
+	}
+	challenge, err := session.Challenge()
+	if err != nil {
+		return err
+	}
+	// The handshake is the one call made to a peer that has not yet been
+	// judged trustworthy, so it carries its own deadline: a server that
+	// completes the health check and then never answers must not be able to
+	// wedge the caller indefinitely.
+	handshakeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	resp, err := cli.SessionHandshake(handshakeCtx, &v0.SessionHandshakeRequest{
+		SessionId:       owner.ID,
+		Challenge:       challenge,
+		ProtocolVersion: session.ProtocolVersion,
+	})
+	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			return fmt.Errorf("the codefly CLI serving %s does not implement the session handshake, so this dependency session cannot be isolated: upgrade codefly, or pass sdk.WithSharedControlChannel() to accept a shared, unauthenticated control channel", c.target)
+		}
+		return fmt.Errorf("session handshake with the CLI server at %s failed: %w", c.target, err)
+	}
+	// Version first: the proof is domain-separated by protocol version, so
+	// skew fails verification too. Reporting it as an upgrade problem keeps a
+	// routine version mismatch from being read as tampering.
+	if got := resp.GetProtocolVersion(); got != session.ProtocolVersion {
+		return fmt.Errorf("the CLI server at %s speaks session protocol version %d and this SDK speaks %d: upgrade whichever side is behind", c.target, got, session.ProtocolVersion)
+	}
+	if resp.GetSessionId() != owner.ID || !owner.VerifyProof(challenge, resp.GetProof()) {
+		return fmt.Errorf("the server at %s does not own this dependency session: refusing to drive it", c.target)
+	}
+	if !slices.Contains(resp.GetCapabilities(), session.IsolatedControlSocketCapability) {
+		return fmt.Errorf("the CLI server at %s proved its identity but did not advertise %s, so it does not guarantee an isolated control channel: upgrade codefly, or pass sdk.WithSharedControlChannel()", c.target, session.IsolatedControlSocketCapability)
+	}
+	return nil
+}
+
+// scopeWithSession keeps the caller's naming scope readable while making the
+// invocation identity the part that actually guarantees uniqueness.
+func scopeWithSession(label string, invocation *session.Session) string {
+	if label == "" {
+		return invocation.Scope()
+	}
+	return label + "-" + invocation.Scope()
+}
+
+// reuseFingerprint covers everything that changes what a dependency stack
+// contains: the workspace and service being run, the dependencies the service
+// declares, and the fixture, profile, exclusions and home the invocation asked
+// for. Attaching to a warm stack requires a match, so a run with a different
+// fixture or profile starts its own stack instead of silently inheriting one
+// built from another plan.
+func reuseFingerprint(ctx context.Context, opt *Option) string {
+	parts := []string{
+		"codefly-session-v" + fmt.Sprint(session.ProtocolVersion),
+		workspaceName(ctx),
+		opt.NamingScope,
+		opt.Fixture,
+		opt.RunProfile,
+		opt.DependencyHome,
+		codeflyBinary(opt),
+	}
+	if svc, err := Service(); err == nil && svc != nil {
+		parts = append(parts, svc.Reference().String())
+		for _, dep := range svc.ServiceDependencies {
+			parts = append(parts, dep.Unique())
+		}
+	}
+	parts = append(parts, sortedCopy(opt.ExcludedDependencies)...)
+	parts = append(parts, sortedCopy(opt.Silents)...)
+
+	hash := sha256.New()
+	for _, part := range parts {
+		fmt.Fprintf(hash, "%d:%s\x00", len(part), part)
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func sortedCopy(values []string) []string {
+	sorted := slices.Clone(values)
+	slices.Sort(sorted)
+	return sorted
+}
+
+func workspaceName(ctx context.Context) string {
+	if ws, err := resources.FindWorkspaceUp(ctx); err == nil && ws != nil {
+		return ws.Name
+	}
+	return ""
+}
+
+// waitForControlSocket blocks until the child binds the socket the SDK gave
+// it. A CLI that never binds it is reported as a missing capability rather
+// than left to time out against a channel nothing will ever answer.
+func waitForControlSocket(ctx context.Context, proc *managedProcess, socket string, timeout time.Duration) error {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if info, err := os.Stat(socket); err == nil && info.Mode()&os.ModeSocket != 0 {
+			return nil
+		}
+		select {
+		case <-proc.Done():
+			if exitErr := proc.WaitError(); exitErr != nil {
+				return fmt.Errorf("CLI subprocess exited before it bound its control socket: %w", exitErr)
+			}
+			return fmt.Errorf("CLI subprocess exited before it bound its control socket")
+		case <-ctx.Done():
+			return fmt.Errorf("cancelled while waiting for the CLI subprocess to bind its control socket: %w", ctx.Err())
+		case <-deadline.C:
+			return fmt.Errorf("the codefly CLI did not bind the isolated control socket %s within %s: this CLI build does not honor %s, so upgrade codefly or pass sdk.WithSharedControlChannel()", socket, timeout, session.SocketEnvironment)
+		case <-ticker.C:
+		}
+	}
 }
 
 func cliServerAddress(ctx context.Context, namingScope string) string {
@@ -561,19 +836,27 @@ func codeflyBinary(opt *Option) string {
 	return "codefly"
 }
 
-func attachDependencies(ctx context.Context, addr string, opt *Option) (*Dependencies, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func attachDependencies(ctx context.Context, channel *controlChannel, opt *Option) (*Dependencies, error) {
+	owner, err := warmSessionOwner(channel)
 	if err != nil {
-		return nil, fmt.Errorf("cannot create gRPC client for %s: %w", addr, err)
+		return nil, err
+	}
+	conn, err := grpc.NewClient(channel.target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("cannot create gRPC client for %s: %w", channel.target, err)
 	}
 	connectCtx, connectCancel := context.WithTimeout(ctx, attachExistingTimeout(opt.Timeout))
 	defer connectCancel()
 	conn.Connect()
 	if !waitForReady(connectCtx, conn) {
 		_ = conn.Close()
-		return nil, fmt.Errorf("existing CLI server at %s did not become ready within %s", addr, opt.Timeout)
+		return nil, fmt.Errorf("existing CLI server at %s did not become ready within %s", channel.target, opt.Timeout)
 	}
 	cli := v0.NewCLIClient(conn)
+	if err := channel.verifyOwnership(ctx, cli, owner, attachExistingTimeout(opt.Timeout)); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
 	if _, err := cli.Ping(ctx, &emptypb.Empty{}); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("existing CLI server ping failed: %w", err)
@@ -593,8 +876,29 @@ func attachDependencies(ctx context.Context, addr string, opt *Option) (*Depende
 		_ = conn.Close()
 		return nil, err
 	}
-	fmt.Printf("Attached to existing codefly dependencies at %s\n", addr)
+	fmt.Printf("Attached to existing codefly dependencies at %s\n", channel.target)
 	return l, nil
+}
+
+// warmSessionOwner returns the identity recorded by the session that owns the
+// reusable control directory. Reuse requires both a live receipt and a
+// fingerprint match: a warm stack built from another fixture, profile or
+// dependency set is not a stack this invocation asked for.
+func warmSessionOwner(channel *controlChannel) (*session.Session, error) {
+	if !channel.isolated() {
+		return nil, nil
+	}
+	receipt, err := channel.control.ReadReceipt()
+	if err != nil {
+		return nil, err
+	}
+	if receipt == nil {
+		return nil, fmt.Errorf("no reusable dependency session is recorded at %s", channel.control.Directory)
+	}
+	if receipt.Fingerprint != channel.fingerprint {
+		return nil, fmt.Errorf("the reusable dependency session at %s was started from a different plan", channel.control.Directory)
+	}
+	return &session.Session{ID: receipt.ID, Secret: receipt.Secret}, nil
 }
 
 func attachExistingTimeout(startTimeout time.Duration) time.Duration {
@@ -644,10 +948,17 @@ func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
 	}
 }
 
+// runningMu guards the resolved-resource cache below. WithDependencies now
+// reads it from two places (reuseFingerprint and SetEnvironment), and callers
+// legitimately start dependency sessions from concurrent goroutines, so the
+// lazy fill cannot be left unsynchronised.
+var runningMu sync.Mutex
 var runningModule *resources.Module
 var runningService *resources.Service
 
 func Service() (*resources.Service, error) {
+	runningMu.Lock()
+	defer runningMu.Unlock()
 	if runningService == nil {
 		mod, svc, err := resources.LoadModuleAndServiceFromCurrentPath(context.Background())
 		if err != nil {
@@ -660,6 +971,8 @@ func Service() (*resources.Service, error) {
 }
 
 func Module() (*resources.Module, error) {
+	runningMu.Lock()
+	defer runningMu.Unlock()
 	if runningModule == nil {
 		ctx := context.Background()
 		workspace, err := resources.FindWorkspaceUp(ctx)
@@ -817,14 +1130,7 @@ func (l *Dependencies) Stop(ctx context.Context) error {
 	if err != nil {
 		w.Warn("failed to stop flow", wool.Field("error", err))
 	}
-	if l.conn != nil {
-		_ = l.conn.Close()
-	}
-	if l.proc != nil {
-		if killErr := l.proc.Kill(); killErr != nil {
-			w.Warn("could not tear down the CLI process group", wool.Field("error", killErr))
-		}
-	}
+	l.close(w)
 	return err
 }
 
@@ -855,6 +1161,15 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 	if err != nil {
 		w.Warn("failed to destroy flow", wool.Field("error", err))
 	}
+	l.close(w)
+	return err
+}
+
+// close releases everything this invocation owns: the control connection, the
+// spawned process group, and the private directory holding its control socket.
+// A group teardown that fails is reported rather than discarded — a surviving
+// agent tree is exactly what the caller needs to hear about.
+func (l *Dependencies) close(w *wool.Wool) {
 	if l.conn != nil {
 		_ = l.conn.Close()
 	}
@@ -863,7 +1178,9 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 			w.Warn("could not tear down the CLI process group", wool.Field("error", killErr))
 		}
 	}
-	return err
+	if l.control != nil {
+		_ = l.control.Remove()
+	}
 }
 
 // waitForReady blocks until conn reaches connectivity.Ready AND the
