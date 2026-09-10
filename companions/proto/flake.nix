@@ -145,7 +145,7 @@
         };
 
         facadePython =
-          let py = pkgs.python3.withPackages (ps: [ ps.protobuf ]);
+          let py = pkgs.python3.withPackages (ps: [ ps.protobuf ps.grpcio-tools ]);
           in pkgs.stdenv.mkDerivation {
             name = "codefly-facade-python";
             src = ./facades/python;

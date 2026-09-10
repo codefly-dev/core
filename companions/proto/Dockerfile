@@ -42,8 +42,10 @@ COPY companions/proto/facades/go /src/facade-go
 RUN cd /src/facade-go && \
     go build -ldflags="-s -w" -o /go/bin/protoc-gen-codefly-facade-go .
 
-# Python grpcio-tools (for grpc_* helpers) — built in a separate venv
-# so site-packages doesn't collide with the system Python.
+# Python grpcio-tools for the builder's own grpc_* helper binaries, copied
+# out of /usr/bin below. This venv is NOT copied into the runtime stage — the
+# runtime builds its own /venv, which is where grpcio-tools has to be
+# installed for `python -m grpc_tools.protoc` to exist in the image.
 RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir grpcio-tools
 
 # --- Runtime stage: minimal alpine + the codefly base ---------------
@@ -76,7 +78,7 @@ ENV HOME=/tmp
 # venv is not portable across them.
 RUN apk add --no-cache nodejs npm protobuf go python3 py3-pip && \
     python3 -m venv /venv && \
-    /venv/bin/pip install --no-cache-dir protobuf && \
+    /venv/bin/pip install --no-cache-dir protobuf grpcio-tools && \
     npm install -g \
         openapi-typescript@7.13.0 \
         swagger2openapi@7.0.8 \
