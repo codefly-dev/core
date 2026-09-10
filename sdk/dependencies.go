@@ -58,6 +58,13 @@ type Dependencies struct {
 	// that attached to a server someone else owns.
 	controlAddress string
 
+	// startDone is the caller's context while the session is still starting,
+	// and nil once it is live. A caller that abandons a start — a test that
+	// times out, a cancelled context — leaves a session that will never own
+	// anything, and it must not hold the process environment against the next
+	// one. Guarded by mu.
+	startDone <-chan struct{}
+
 	// mu guards the lazily resolved identity and the resolved environment.
 	mu          sync.Mutex
 	identity    *resolvedIdentity
@@ -341,6 +348,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		keepRunning:    opt.KeepRunning,
 		dir:            dir,
 		controlAddress: channel.target,
+		startDone:      ctx.Done(),
 	}
 	// Claim what this session must own exclusively before provisioning anything.
 	// A competing session then fails in milliseconds instead of starting a full
@@ -462,6 +470,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	l.cli = cli
 	l.conn = conn
 	l.control = channel.control
+	l.started()
 	err = l.WaitForReady(ctx, opt)
 	if err != nil {
 		return nil, err

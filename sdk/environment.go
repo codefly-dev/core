@@ -198,19 +198,45 @@ func foreignEnvironmentKeys(l *Dependencies) map[string]struct{} {
 	return owner.ownedKeys()
 }
 
-// defunct reports whether the session's Codefly process is gone. An attached or
-// inherited session owns no process and is never defunct: its dependencies may
-// well still be running, so its values stay authoritative.
+// defunct reports whether the session can no longer own anything: its Codefly
+// process is gone, or it is still starting and the caller who started it has
+// given up. A caller that abandons a start — a test that times out and never
+// reads the result — would otherwise hold the process environment against
+// every later session for the life of the process.
+//
+// An attached or inherited session owns no process and, once live, is never
+// defunct: its dependencies may well still be running, so its values stay
+// authoritative.
 func (l *Dependencies) defunct() bool {
-	if l.proc == nil {
+	if l.proc != nil {
+		select {
+		case <-l.proc.Done():
+			return true
+		default:
+			return false
+		}
+	}
+	l.mu.Lock()
+	starting := l.startDone
+	l.mu.Unlock()
+	if starting == nil {
 		return false
 	}
 	select {
-	case <-l.proc.Done():
+	case <-starting:
 		return true
 	default:
 		return false
 	}
+}
+
+// started marks the session live, so its ownership no longer depends on the
+// context that created it. A live session whose context is cancelled loses its
+// Codefly process to exec.CommandContext, which the proc check above sees.
+func (l *Dependencies) started() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.startDone = nil
 }
 
 // describe names a session for an error message: its identity when it has been

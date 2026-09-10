@@ -351,6 +351,32 @@ func TestReleasedControlChannelCanBeClaimedAgain(t *testing.T) {
 	releaseControlAddress(address)
 }
 
+// A caller that abandons a start — cancels the context and never reads the
+// result — leaves a session that will never own anything. It must not hold the
+// process environment against the next session, or one flaky test poisons every
+// later one in the process. A start that is merely slow keeps its claim.
+func TestAbandonedStartDoesNotHoldTheProcessEnvironment(t *testing.T) {
+	starting := make(chan struct{})
+	inFlight := &Dependencies{dir: "in-flight", startDone: starting}
+	if err := claimGlobalEnvironment(inFlight); err != nil {
+		t.Fatalf("claimGlobalEnvironment() error = %v", err)
+	}
+	t.Cleanup(inFlight.ReleaseEnvironment)
+
+	// Still starting: the claim stands.
+	contender := &Dependencies{dir: "contender"}
+	if err := claimGlobalEnvironment(contender); err == nil {
+		t.Fatal("a session still starting lost the process environment")
+	}
+
+	// The caller gives up on it.
+	close(starting)
+	if err := claimGlobalEnvironment(contender); err != nil {
+		t.Fatalf("the abandoned start kept the process environment: %v", err)
+	}
+	contender.ReleaseEnvironment()
+}
+
 // A session dropped without Stop must not lock the process out of global
 // injection forever. Once its Codefly process is gone its injected values point
 // at dependencies that no longer exist, so the next session restores them and
