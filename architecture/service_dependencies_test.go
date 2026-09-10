@@ -246,3 +246,133 @@ func testServiceGraph(t *testing.T, workspace *resources.Workspace, organization
 	require.Equal(t, 1, len(entryPoints))
 	require.Equal(t, frontend, entryPoints[0].Unique)
 }
+
+func requireEveryServiceResolvable(t *testing.T, dep *architecture.ServiceDependencies) {
+	t.Helper()
+	for _, service := range dep.Services() {
+		svc, err := dep.ServiceFromUnique(service.Unique)
+		require.NoErrorf(t, err, "service <%s> is in the graph and must be resolvable", service.Unique)
+		require.Equal(t, service.Unique, svc.MustUnique())
+	}
+}
+
+func requireNotResolvable(t *testing.T, dep *architecture.ServiceDependencies, unique string) {
+	t.Helper()
+	svc, err := dep.ServiceFromUnique(unique)
+	require.Nil(t, svc)
+	var notFound *shared.ErrorResourceNotFound
+	require.ErrorAs(t, err, &notFound)
+}
+
+func TestRestrictKeepsServiceLookup(t *testing.T) {
+	ctx := context.Background()
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/module-layout")
+	require.NoError(t, err)
+
+	organization := shared.Must(workspace.FindUniqueServiceByName(ctx, "management/organization")).MustUnique()
+	accounts := shared.Must(workspace.FindUniqueServiceByName(ctx, "billing/accounts")).MustUnique()
+	gateway := shared.Must(workspace.FindUniqueServiceByName(ctx, "web/gateway")).MustUnique()
+	frontend := shared.Must(workspace.FindUniqueServiceByName(ctx, "web/frontend")).MustUnique()
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace)
+	require.NoError(t, err)
+
+	beforeGateway, err := dep.ServiceFromUnique(gateway)
+	require.NoError(t, err)
+
+	restricted, err := dep.Restrict(ctx, frontend)
+	require.NoError(t, err)
+	require.ElementsMatch(t, createServices(organization, accounts, gateway, frontend), restricted.Services())
+	requireEveryServiceResolvable(t, restricted)
+
+	afterGateway, err := restricted.ServiceFromUnique(gateway)
+	require.NoError(t, err)
+	// Identity, not equality: the restricted view must hand back the very service the
+	// receiver holds, so callers cannot end up reading a stale copy of it.
+	require.Same(t, beforeGateway, afterGateway)
+
+	t.Run("removed services are not found", func(t *testing.T) {
+		toAccounts, err := dep.Restrict(ctx, accounts)
+		require.NoError(t, err)
+		require.ElementsMatch(t, createServices(organization, accounts), toAccounts.Services())
+		requireEveryServiceResolvable(t, toAccounts)
+		requireNotResolvable(t, toAccounts, gateway)
+		requireNotResolvable(t, toAccounts, frontend)
+	})
+
+	t.Run("service without dependencies", func(t *testing.T) {
+		toOrganization, err := dep.Restrict(ctx, organization)
+		require.NoError(t, err)
+		require.Equal(t, createServices(organization), toOrganization.Services())
+		requireEveryServiceResolvable(t, toOrganization)
+	})
+
+	t.Run("repeated restriction", func(t *testing.T) {
+		toGateway, err := restricted.Restrict(ctx, gateway)
+		require.NoError(t, err)
+		require.ElementsMatch(t, createServices(organization, accounts, gateway), toGateway.Services())
+		requireEveryServiceResolvable(t, toGateway)
+		requireNotResolvable(t, toGateway, frontend)
+	})
+
+	t.Run("unknown target", func(t *testing.T) {
+		_, err := dep.Restrict(ctx, "web/unknown")
+		require.Error(t, err)
+	})
+
+	t.Run("original is untouched", func(t *testing.T) {
+		require.ElementsMatch(t, createServices(organization, accounts, gateway, frontend), dep.Services())
+		require.Equal(t, 4, len(dep.Dependencies()))
+		requireEveryServiceResolvable(t, dep)
+	})
+}
+
+func TestRestrictKeepsExcludedServicesOut(t *testing.T) {
+	ctx := context.Background()
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/module-layout")
+	require.NoError(t, err)
+
+	organization := shared.Must(workspace.FindUniqueServiceByName(ctx, "management/organization")).MustUnique()
+	accounts := shared.Must(workspace.FindUniqueServiceByName(ctx, "billing/accounts")).MustUnique()
+	gateway := shared.Must(workspace.FindUniqueServiceByName(ctx, "web/gateway")).MustUnique()
+	frontend := shared.Must(workspace.FindUniqueServiceByName(ctx, "web/frontend")).MustUnique()
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace, architecture.ExcludeServices(accounts))
+	require.NoError(t, err)
+
+	restricted, err := dep.Restrict(ctx, frontend)
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, createServices(organization, gateway, frontend), restricted.Services())
+	requireEveryServiceResolvable(t, restricted)
+	requireNotResolvable(t, restricted, accounts)
+}
+
+func TestRestrictKeepsUnresolvableNodesUnresolvable(t *testing.T) {
+	ctx := context.Background()
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/dangling-dependency")
+	require.NoError(t, err)
+
+	frontend := shared.Must(workspace.FindUniqueServiceByName(ctx, "web/frontend")).MustUnique()
+	const ghost = "nowhere/ghost"
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace)
+	require.NoError(t, err)
+
+	// A dependency on a service absent from the workspace is a service node with no
+	// service behind it, so the graph holds nodes that never resolve.
+	require.ElementsMatch(t, createServices(frontend, ghost), dep.Services())
+	requireNotResolvable(t, dep, ghost)
+
+	restricted, err := dep.Restrict(ctx, frontend)
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, createServices(frontend, ghost), restricted.Services())
+	svc, err := restricted.ServiceFromUnique(frontend)
+	require.NoError(t, err)
+	require.Equal(t, frontend, svc.MustUnique())
+	requireNotResolvable(t, restricted, ghost)
+}

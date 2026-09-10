@@ -3,6 +3,7 @@ package architecture
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/codefly-dev/core/graph"
@@ -26,6 +27,16 @@ type ServiceDependencies struct {
 type DependencyOptions struct {
 	SkipDependencyFor map[string]bool
 	ExcludeService    map[string]bool
+}
+
+func (opt *DependencyOptions) clone() *DependencyOptions {
+	out := &DependencyOptions{
+		SkipDependencyFor: make(map[string]bool, len(opt.SkipDependencyFor)),
+		ExcludeService:    make(map[string]bool, len(opt.ExcludeService)),
+	}
+	maps.Copy(out.SkipDependencyFor, opt.SkipDependencyFor)
+	maps.Copy(out.ExcludeService, opt.ExcludeService)
+	return out
 }
 
 type DependencyOption func(*DependencyOptions) error
@@ -204,7 +215,20 @@ func (d *ServiceDependencies) DirectDependents(ctx context.Context, unique strin
 	return out, nil
 }
 
-// Restrict restricts the dependencies to the services required by the service identified by unique
+// Restrict restricts the dependencies to the services required by the service identified by unique.
+//
+// The restricted view keeps the dependency options and the service lookup of the service nodes
+// retained in the sub graph: a service that the receiver resolves and that the sub graph keeps
+// resolves identically here. Services dropped by the restriction are no longer resolvable and
+// ServiceFromUnique reports them as not found. The receiver is left untouched.
+//
+// The lookup is preserved, not repaired: a service node that the receiver cannot resolve stays
+// unresolvable. Such a node is what loadServiceGraph records for a dependency on a service
+// absent from the workspace that is not declared kind external — the external kind is typed
+// EXTERNAL and stays out of Services(), an undeclared one is typed SERVICE with nothing behind it.
+//
+// Workspace is carried over as-is and is NOT restricted, so it still lists modules and services
+// that the restricted graph dropped.
 func (d *ServiceDependencies) Restrict(_ context.Context, unique string) (*ServiceDependencies, error) {
 	// B is required by A if A <- ... <- B
 	sub, err := d.graph.SubGraphTo(unique)
@@ -273,7 +297,7 @@ func (d *ServiceDependencies) withGraph(g *DAG) *ServiceDependencies {
 		Workspace:       d.Workspace,
 		graph:           g,
 		uniqueToService: services,
-		options:         d.options,
+		options:         d.options.clone(),
 	}
 }
 
