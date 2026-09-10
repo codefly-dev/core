@@ -37,11 +37,12 @@ func (g *GRPC) Inject() {
 // that authenticates by Work Context reads it from gRPC metadata under the
 // header's own name — so the REST ingress must forward it verbatim, not under a
 // rewritten context key like the identity headers above.
+//
+// This constant is the single source of that name: metadata.MD.Set lowercases
+// the key it is given, so handing this header to Set derives the metadata key
+// the sdk reads. Never restate the lowercased form as a second constant — the
+// two drift apart on a rename and silently drop the header again (#435).
 const WorkContextHeader = "X-Codefly-Work-Context"
-
-// workContextMetadataKey is the metadata key the sdk reads the Work Context
-// from: the header name, lowercased as gRPC metadata keys are.
-const workContextMetadataKey = "x-codefly-work-context"
 
 // MetadataFromRequest extracts gRPC metadata from an HTTP request, mapping known
 // HTTP headers to context keys and forwarding the Work Context header verbatim.
@@ -58,8 +59,16 @@ func MetadataFromRequest(_ context.Context, req *http.Request) metadata.MD {
 			md.Set(string(key), values...)
 		}
 	}
-	if values := req.Header.Values(WorkContextHeader); len(values) > 0 {
-		md.Set(workContextMetadataKey, values...)
+	// A Work Context is one capability bound to one audience, so exactly one
+	// value is meaningful. A repeated header — a caller's own alongside the one
+	// a trusted proxy minted, including a value smuggled in under
+	// grpc-gateway's Grpc-Metadata- prefix, which metadata.Join places ahead of
+	// ours — leaves which capability authorizes the call to whichever index the
+	// verifier happens to read. That is ambiguous, so it fails closed here
+	// rather than resolving to a caller-chosen credential. An empty value is
+	// not a credential either.
+	if values := req.Header.Values(WorkContextHeader); len(values) == 1 && values[0] != "" {
+		md.Set(WorkContextHeader, values[0])
 	}
 	return md
 }
