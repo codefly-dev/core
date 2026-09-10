@@ -519,9 +519,6 @@ func (s *Service) postLoad(ctx context.Context) error {
 		if err := dep.Validate(); err != nil {
 			return w.Wrap(err)
 		}
-		if err := validateDependencyReadinessMode(dep.Unique(), dep.Readiness); err != nil {
-			return w.Wrap(err)
-		}
 	}
 	// Checked after module defaulting: two entries naming the same service are
 	// duplicates whether or not both spell out the module. A second entry cannot
@@ -846,12 +843,6 @@ type ServiceDependency struct {
 	GrpcClientDir string `yaml:"grpc-client-dir,omitempty"`
 
 	Endpoints []*EndpointReference `yaml:"endpoints,omitempty"`
-
-	// Readiness is what "ready" means for this dependency when it resolves to no
-	// endpoint at all. It defaults to "started", the legacy behavior, so a
-	// workspace that never declared it keeps its semantics; "completed" is for a
-	// one-shot workload whose work must be finished, not merely running.
-	Readiness DependencyReadiness `yaml:"readiness,omitempty"`
 
 	// ExtraFields captures dependency keys that are valid on disk but not
 	// modeled here, for the same reason Service.ExtraFields does one level up:

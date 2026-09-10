@@ -18,34 +18,24 @@ func TestOptingOutOfEveryEndpointIsNotSilentlyALifecycleCheck(t *testing.T) {
 	_, endpoints := loadReadinessService(t, "generated", "saas")
 	no := false
 
-	optedOut := func(readiness resources.DependencyReadiness) *resources.ServiceDependency {
+	optedOut := func(kind resources.DependencyKind) *resources.ServiceDependency {
 		return &resources.ServiceDependency{
-			Name: "accounts", Module: "saas", Readiness: readiness,
+			Name: "accounts", Module: "saas", Kind: kind,
 			Endpoints: []*resources.EndpointReference{{Name: standards.GRPC, Required: &no}},
 		}
 	}
 
-	_, err := resources.PlanServiceDependencyReadiness(optedOut(""), endpoints)
-	require.ErrorContains(t, err, "consumes 1 endpoint(s) but requires none for readiness")
-	require.ErrorContains(t, err, `declare readiness "started"`)
-	require.ErrorContains(t, err, `or "ignore"`)
+	for _, gating := range []resources.DependencyKind{resources.DependencyKindLegacy, resources.DependencyKindRuntime} {
+		_, err := resources.PlanServiceDependencyReadiness(optedOut(gating), endpoints)
+		require.ErrorContains(t, err, "consumes 1 endpoint(s) but requires none for readiness")
+		require.ErrorContains(t, err, `declare kind "external"`)
+	}
 
-	// Both intents are now expressible, and each says which it is.
-	gated, err := resources.PlanServiceDependencyReadiness(optedOut(resources.DependencyReadinessStarted), endpoints)
-	require.NoError(t, err)
-	require.Len(t, gated, 1)
-	require.Equal(t, basev0.ProbeKind_PROBE_KIND_AGENT, resources.ProbeKindOf(gated[0].Probe))
-
-	ignored, err := resources.PlanServiceDependencyReadiness(optedOut(resources.DependencyReadinessIgnore), endpoints)
+	// A dependency that genuinely does not gate says so with its kind, and then
+	// contributes no requirement at all.
+	ignored, err := resources.PlanServiceDependencyReadiness(optedOut(resources.DependencyKindExternal), endpoints)
 	require.NoError(t, err)
 	require.Empty(t, ignored)
-
-	contradictory := &resources.ServiceDependency{
-		Name: "accounts", Module: "saas", Readiness: resources.DependencyReadinessIgnore,
-		Endpoints: []*resources.EndpointReference{{Name: standards.GRPC}},
-	}
-	_, err = resources.PlanServiceDependencyReadiness(contradictory, endpoints)
-	require.ErrorContains(t, err, `declares readiness "ignore" but requires endpoint grpc`)
 }
 
 // An agent can return any Endpoint from Load. A contradiction used to be

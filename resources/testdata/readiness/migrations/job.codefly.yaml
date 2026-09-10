@@ -14,4 +14,4 @@ job-dependencies:
     module: saas
   - name: watcher
     module: saas
-    readiness: started
+    kind: runtime

@@ -42,30 +42,6 @@ func EndpointProbeKinds() []ProbeKind {
 	return []ProbeKind{ProbeKindTransport, ProbeKindGRPCHealth, ProbeKindHTTP, ProbeKindAgent}
 }
 
-// DependencyReadiness is what "ready" means for a dependency that exposes no
-// endpoint to probe.
-type DependencyReadiness = string
-
-const (
-	// DependencyReadinessStarted only requires the dependency's runtime agent to
-	// have reached a started state. It is the legacy behavior and the default
-	// for a service dependency.
-	DependencyReadinessStarted DependencyReadiness = "started"
-	// DependencyReadinessCompleted requires a one-shot workload to have
-	// terminated successfully. It is the default for a job dependency: a
-	// migration that is still running has not prepared anything.
-	DependencyReadinessCompleted DependencyReadiness = "completed"
-	// DependencyReadinessIgnore contributes no requirement at all. It is how a
-	// consumer says it reaches a dependency opportunistically: the endpoints are
-	// still resolved and mapped, they just do not gate startup.
-	DependencyReadinessIgnore DependencyReadiness = "ignore"
-)
-
-// DependencyReadinessModes are the values a dependency readiness field accepts.
-func DependencyReadinessModes() []DependencyReadiness {
-	return []DependencyReadiness{DependencyReadinessStarted, DependencyReadinessCompleted, DependencyReadinessIgnore}
-}
-
 // Probe is the authored form of one health predicate. Kind selects which of the
 // remaining fields apply; declaring a field that belongs to another kind is an
 // error rather than a silently ignored key.
@@ -385,14 +361,6 @@ func ValidateEndpointHealth(endpoint *basev0.Endpoint) error {
 		}
 	}
 	return nil
-}
-
-func validateDependencyReadinessMode(unique string, readiness DependencyReadiness) error {
-	if readiness == "" || slices.Contains(DependencyReadinessModes(), readiness) {
-		return nil
-	}
-	return fmt.Errorf("dependency %s declares unsupported readiness %q (expected one of %s)",
-		unique, readiness, strings.Join(DependencyReadinessModes(), ", "))
 }
 
 // ProbeKindOf labels a wire probe with its predicate family.

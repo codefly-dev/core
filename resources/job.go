@@ -70,19 +70,19 @@ type JobDependency struct {
 	Name   string `yaml:"name"`
 	Module string `yaml:"module,omitempty"`
 
-	// Readiness is what "ready" means for the depended-on job. It defaults to
-	// "completed": a job that is still running has not produced whatever the
-	// consumer depends on. Long-running jobs declare "started" instead.
-	Readiness DependencyReadiness `yaml:"readiness,omitempty"`
+	// Kind classifies the edge exactly as it does on a service dependency, but
+	// an absent kind means completion rather than legacy: a job is one-shot work,
+	// and one that is still running has not produced whatever the consumer
+	// depends on. A long-running job is declared with kind "runtime".
+	Kind DependencyKind `yaml:"kind,omitempty"`
 }
 
-// ReadinessMode resolves the dependency's declared readiness, applying the
-// completed-by-default rule.
-func (d *JobDependency) ReadinessMode() DependencyReadiness {
-	if d.Readiness == "" {
-		return DependencyReadinessCompleted
+// Prerequisite returns what the consumer waits for before it may start.
+func (d *JobDependency) Prerequisite() Prerequisite {
+	if d.Kind == DependencyKindLegacy {
+		return PrerequisiteCompletion
 	}
-	return d.Readiness
+	return d.Kind.Prerequisite()
 }
 
 // Unique identifies the depended-on job.

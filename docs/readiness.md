@@ -65,7 +65,7 @@ service-dependencies:
         required: false   # consumed, but readiness does not wait on it
   - name: seeder
     module: saas
-    readiness: completed  # exposes no endpoint; must finish, not merely run
+    kind: completion      # exposes no endpoint; must finish, not merely run
 ```
 
 ## Predicate kinds
@@ -114,20 +114,33 @@ Newly generated services declare the richer predicate they actually support.
 
 ## Endpointless dependencies
 
-| declaration | default for | ready when |
-|---|---|---|
-| `readiness: started` | `service-dependencies` | the owning agent reports a started service |
-| `readiness: completed` | `job-dependencies` | the workload finished successfully |
-| `readiness: ignore` | — | never gates: the endpoints are still resolved and mapped, they just do not hold up startup |
+What a consumer waits for is decided by the dependency's `kind` — the same
+declaration that types the edge for the execution graph (see
+`resources/dependency_kind.go`). Readiness does not add a second vocabulary for
+it; it is the evaluation half of `DependencyKind.Prerequisite()`.
 
-A service dependency defaults to `started`, preserving the behavior of every
-workspace that never declared readiness. A job dependency defaults to
-`completed`: a migration that is still running has not prepared anything.
+| `kind` | prerequisite | ready when |
+|---|---|---|
+| absent (legacy), `runtime` | `endpoint-health` | every required endpoint's predicate holds — or, with no endpoint to probe, the owning agent reports a started service |
+| `completion` | `completion` | the workload finished successfully |
+| `build`, `schema`, `external` | `none` | never gates: the endpoints are still resolved and mapped, they just do not hold up startup |
+
+A service dependency defaults to legacy, preserving the behavior of every
+workspace that never declared a kind. A **job** dependency defaults to
+`completion` instead: a job is one-shot work, and a migration that is still
+running has not prepared anything. A long-running job is declared
+`kind: runtime`.
+
+Two contradictions are rejected. `kind: completion` alongside declared
+endpoints is caught at load by `ServiceDependency.Validate` — completed work
+serves nothing. `kind: runtime` onto a producer that exports no endpoint is
+caught when readiness is planned, by `ValidateDependencyPrerequisite`, because
+only that caller sees both sides.
 
 Marking *every* endpoint of a dependency `required: false` is not the same as a
 dependency that exposes none, so it is not silently treated as one: it is an
-error until you say which you meant with `readiness: started` or
-`readiness: ignore`.
+error until you say which you meant by dropping the `required: false` or
+declaring `kind: external`.
 
 ## Lifecycle generation
 
@@ -162,8 +175,7 @@ plan := resources.PlanEndpointProbes(endpoint)  // Readiness, Liveness, Startup
 Invalid declarations fail at load, naming the source: an unsupported kind, a
 `grpc-health` probe on an HTTP endpoint, an `http` probe with no path or an
 unroutable status, a `completion` probe on an endpoint, a field belonging to a
-different kind, an endpoint reference the producer does not declare, or
-`readiness: completed` on a dependency whose endpoints the consumer requires.
+different kind, or an endpoint reference the producer does not declare.
 The same rules apply to endpoints arriving from an agent over the wire —
 `resources.ValidateEndpointHealth`, applied by `FromProtoEndpoints` — so a
 contradiction is caught at ingestion rather than when the manifest is written

@@ -170,7 +170,7 @@ func TestPlanReadinessCoversEveryRequiredEndpoint(t *testing.T) {
 
 func TestPlanReadinessEndpointlessDependencyDefaultsToLifecycle(t *testing.T) {
 	dependency := &resources.ServiceDependency{Name: "seeder", Module: "saas"}
-	require.Equal(t, resources.DependencyReadinessStarted, dependency.ReadinessMode())
+	require.Equal(t, resources.PrerequisiteEndpointHealth, dependency.Prerequisite())
 
 	requirements, err := resources.PlanServiceDependencyReadiness(dependency, nil)
 	require.NoError(t, err)
@@ -185,6 +185,7 @@ func TestJobDependenciesRequireCompletionByDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, job.JobDependencies, 2)
 
+	require.Equal(t, resources.PrerequisiteCompletion, job.JobDependencies[0].Prerequisite())
 	seed, err := resources.PlanJobDependencyReadiness(job.JobDependencies[0])
 	require.NoError(t, err)
 	require.Equal(t, basev0.ProbeKind_PROBE_KIND_COMPLETION, resources.ProbeKindOf(seed.Probe))
@@ -256,14 +257,14 @@ func TestInvalidHealthDeclarationsAreRejectedAtLoad(t *testing.T) {
 	}
 }
 
-func TestUnsupportedDependencyReadinessIsRejectedAtLoad(t *testing.T) {
+func TestUnsupportedDependencyKindIsRejectedAtLoad(t *testing.T) {
 	dir := t.TempDir()
-	manifest := "kind: service\nname: gateway\nversion: 0.0.1\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nservice-dependencies:\n  - name: seeder\n    module: saas\n    readiness: eventually\n"
+	manifest := "kind: service\nname: gateway\nversion: 0.0.1\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nservice-dependencies:\n  - name: seeder\n    module: saas\n    kind: eventually\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.ServiceConfigurationName), []byte(manifest), 0o600))
 
 	_, err := resources.LoadServiceFromDir(context.Background(), dir)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), `dependency saas/seeder declares unsupported readiness "eventually" (expected one of started, completed, ignore)`)
+	require.Contains(t, err.Error(), `unknown dependency kind "eventually"`)
 }
 
 func TestPlanReadinessRejectsContradictoryDeclarations(t *testing.T) {
@@ -272,11 +273,17 @@ func TestPlanReadinessRejectsContradictoryDeclarations(t *testing.T) {
 	completedButServing := &resources.ServiceDependency{
 		Name:      "accounts",
 		Module:    "saas",
-		Readiness: resources.DependencyReadinessCompleted,
+		Kind:      resources.DependencyKindCompletion,
 		Endpoints: []*resources.EndpointReference{{Name: standards.GRPC}},
 	}
 	_, err := resources.PlanServiceDependencyReadiness(completedButServing, accounts)
-	require.ErrorContains(t, err, `dependency saas/accounts declares readiness "completed" but requires endpoint grpc`)
+	require.ErrorContains(t, err, `of kind "completion" waits for completed one-shot work and cannot consume endpoints`)
+
+	// The other direction, which only the plan can see: endpoint health onto a
+	// producer that exports none never resolves.
+	healthOnNothing := &resources.ServiceDependency{Name: "seeder", Module: "saas", Kind: resources.DependencyKindRuntime}
+	_, err = resources.PlanServiceDependencyReadiness(healthOnNothing, accounts)
+	require.ErrorContains(t, err, `waits for endpoint health but saas/seeder exports no endpoint`)
 
 	missing := &resources.ServiceDependency{
 		Name:      "accounts",

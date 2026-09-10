@@ -6,15 +6,6 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
 
-// ReadinessMode resolves the dependency's declared readiness, applying the
-// started-by-default rule that preserves legacy behavior.
-func (s *ServiceDependency) ReadinessMode() DependencyReadiness {
-	if s.Readiness == "" {
-		return DependencyReadinessStarted
-	}
-	return s.Readiness
-}
-
 // ReadinessRequirement is one predicate that must hold before a consumer may be
 // considered ready. A consumer is ready only when every requirement passes.
 type ReadinessRequirement struct {
@@ -103,10 +94,17 @@ func PlanEndpointProbes(endpoint *basev0.Endpoint) *EndpointProbePlan {
 	}
 }
 
-func endpointlessRequirement(unique string, readiness DependencyReadiness) *ReadinessRequirement {
-	probe := &basev0.Probe{Predicate: &basev0.Probe_Agent{Agent: &basev0.AgentProbe{}}}
-	if readiness == DependencyReadinessCompleted {
+// endpointlessRequirement turns a typed prerequisite into the predicate that
+// satisfies it when there is no endpoint to probe. PrerequisiteEndpointHealth
+// with nothing to health-check falls back to the owning agent's lifecycle: that
+// is what a legacy endpointless dependency has always meant.
+func endpointlessRequirement(unique string, prerequisite Prerequisite) *ReadinessRequirement {
+	var probe *basev0.Probe
+	switch prerequisite {
+	case PrerequisiteCompletion:
 		probe = &basev0.Probe{Predicate: &basev0.Probe_Completion{Completion: &basev0.CompletionProbe{}}}
+	default:
+		probe = &basev0.Probe{Predicate: &basev0.Probe_Agent{Agent: &basev0.AgentProbe{}}}
 	}
 	return &ReadinessRequirement{Dependency: unique, Probe: probe, Declared: true}
 }
@@ -116,12 +114,22 @@ func endpointlessRequirement(unique string, readiness DependencyReadiness) *Read
 // one requirement per required endpoint; one that resolves to none yields the
 // single lifecycle-or-completion requirement its readiness mode selects.
 func PlanServiceDependencyReadiness(dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*ReadinessRequirement, error) {
-	if err := validateDependencyReadinessMode(dependency.Unique(), dependency.Readiness); err != nil {
+	// The kind decides what the consumer waits for, and rejects the declarations
+	// it contradicts — one-shot work asked to serve endpoints, an unknown kind.
+	if err := dependency.Validate(); err != nil {
 		return nil, err
 	}
 	resolved, err := ResolveServiceDependencyEndpoints(dependency, endpoints)
 	if err != nil {
 		return nil, err
+	}
+	// The other direction: endpoint health onto a producer that exports none is
+	// a wait that never ends. Only the caller planning readiness has both sides.
+	if err := ValidateDependencyPrerequisite(dependency, resolved); err != nil {
+		return nil, err
+	}
+	if dependency.Prerequisite() == PrerequisiteNone {
+		return nil, nil
 	}
 	var required []*basev0.Endpoint
 	for _, endpoint := range resolved {
@@ -129,23 +137,12 @@ func PlanServiceDependencyReadiness(dependency *ServiceDependency, endpoints []*
 			required = append(required, endpoint)
 		}
 	}
-	if dependency.Readiness == DependencyReadinessCompleted && len(required) > 0 {
-		return nil, fmt.Errorf("dependency %s declares readiness %q but requires endpoint %s; a completed workload serves nothing",
-			dependency.Unique(), DependencyReadinessCompleted, required[0].Name)
-	}
-	if dependency.Readiness == DependencyReadinessIgnore {
-		if len(required) > 0 {
-			return nil, fmt.Errorf("dependency %s declares readiness %q but requires endpoint %s; mark the endpoint 'required: false' or drop the readiness declaration",
-				dependency.Unique(), DependencyReadinessIgnore, required[0].Name)
-		}
-		return nil, nil
-	}
 	if len(required) == 0 {
-		if len(resolved) > 0 && dependency.Readiness == "" {
-			return nil, fmt.Errorf("dependency %s consumes %d endpoint(s) but requires none for readiness; declare readiness %q to wait on its lifecycle instead, or %q to not gate on it at all",
-				dependency.Unique(), len(resolved), DependencyReadinessStarted, DependencyReadinessIgnore)
+		if len(resolved) > 0 {
+			return nil, fmt.Errorf("dependency %s consumes %d endpoint(s) but requires none for readiness; drop 'required: false' from the endpoint it must wait on, or declare kind %q to not gate on it at all",
+				dependency.Unique(), len(resolved), DependencyKindExternal)
 		}
-		return []*ReadinessRequirement{endpointlessRequirement(dependency.Unique(), dependency.ReadinessMode())}, nil
+		return []*ReadinessRequirement{endpointlessRequirement(dependency.Unique(), dependency.Prerequisite())}, nil
 	}
 	requirements := make([]*ReadinessRequirement, 0, len(required))
 	for _, endpoint := range required {
@@ -165,10 +162,14 @@ func PlanServiceDependencyReadiness(dependency *ServiceDependency, endpoints []*
 // PlanJobDependencyReadiness returns the single predicate a consumer must
 // satisfy for a depended-on job.
 func PlanJobDependencyReadiness(dependency *JobDependency) (*ReadinessRequirement, error) {
-	if err := validateDependencyReadinessMode(dependency.Unique(), dependency.Readiness); err != nil {
-		return nil, err
+	if err := dependency.Kind.Validate(); err != nil {
+		return nil, fmt.Errorf("job dependency %s: %w", dependency.Unique(), err)
 	}
-	return endpointlessRequirement(dependency.Unique(), dependency.ReadinessMode()), nil
+	prerequisite := dependency.Prerequisite()
+	if prerequisite == PrerequisiteNone {
+		return nil, nil
+	}
+	return endpointlessRequirement(dependency.Unique(), prerequisite), nil
 }
 
 // PlanReadiness returns every predicate a consumer must satisfy across all of
