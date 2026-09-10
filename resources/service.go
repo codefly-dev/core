@@ -949,7 +949,18 @@ func MakeManyServicesSummary(services []*ServiceIdentity) string {
 }
 
 func LoadModuleAndServiceFromCurrentPath(ctx context.Context) (*Module, *Service, error) {
-	dir, err := FindUp[Module](ctx)
+	cur, err := os.Getwd()
+	if err != nil {
+		return nil, nil, err
+	}
+	return LoadModuleAndServiceUpFrom(ctx, cur)
+}
+
+// LoadModuleAndServiceUpFrom resolves the module and service owning dir,
+// searching dir and up. It never consults the process working directory, so a
+// resolved identity stays valid across later chdir calls.
+func LoadModuleAndServiceUpFrom(ctx context.Context, from string) (*Module, *Service, error) {
+	dir, err := FindUpFrom[Module](ctx, from)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -961,7 +972,7 @@ func LoadModuleAndServiceFromCurrentPath(ctx context.Context) (*Module, *Service
 		}
 	}
 
-	dir, err = FindUp[Service](ctx)
+	dir, err = FindUpFrom[Service](ctx, from)
 	if err != nil {
 		return nil, nil, err
 	}

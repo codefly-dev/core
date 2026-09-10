@@ -239,8 +239,18 @@ func LoadWorkspaceFromDir(ctx context.Context, dir string) (*Workspace, error) {
 }
 
 func FindWorkspaceUp(ctx context.Context) (*Workspace, error) {
-	w := wool.Get(ctx).In("LoadFromPath")
-	dir, err := FindUp[Workspace](ctx)
+	cur, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	return FindWorkspaceUpFrom(ctx, cur)
+}
+
+// FindWorkspaceUpFrom loads the workspace owning dir, searching dir and up,
+// without consulting the process working directory.
+func FindWorkspaceUpFrom(ctx context.Context, from string) (*Workspace, error) {
+	w := wool.Get(ctx).In("LoadFromPath", wool.DirField(from))
+	dir, err := FindUpFrom[Workspace](ctx, from)
 	if err != nil {
 		return nil, err
 	}

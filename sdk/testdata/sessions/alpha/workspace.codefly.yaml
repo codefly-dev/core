@@ -1,0 +1,4 @@
+name: alpha-session
+layout: modules
+modules:
+  - name: shop

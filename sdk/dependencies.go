@@ -48,22 +48,50 @@ type Dependencies struct {
 	keepRunning    bool
 	attached       bool
 	inherited      bool
+
+	// dir anchors the session: identity is resolved from it rather than from
+	// the process working directory, which a caller may change at any time.
+	dir string
+
+	// controlAddress is the CLI control channel this session spawned a server
+	// on and holds against other sessions in this process. Empty for a session
+	// that attached to a server someone else owns.
+	controlAddress string
+
+	// startDone is the caller's context while the session is still starting,
+	// and nil once it is live. A caller that abandons a start — a test that
+	// times out, a cancelled context — leaves a session that will never own
+	// anything, and it must not hold the process environment against the next
+	// one. Guarded by mu.
+	startDone <-chan struct{}
+
+	// mu guards the lazily resolved identity and the resolved environment.
+	mu          sync.Mutex
+	identity    *resolvedIdentity
+	environment *sessionEnvironment
+
+	// owned records the variables this session installed into os.Environ.
+	// It is guarded by globalEnvironment.mu, the same lock that serializes
+	// SDK-owned mutation of the process environment.
+	owned []ownedVariable
 }
 
 type Option struct {
-	Debug                   bool
-	Timeout                 time.Duration
-	CodeflyBinary           string
-	NamingScope             string
-	Fixture                 string
-	RunProfile              string
-	Silents                 []string
-	ExcludedDependencies    []string
-	WorkspaceConfigurations []resources.WorkspaceConfigurationOverride
-	ServiceConfigurations   []resources.ServiceConfigurationOverride
-	DependencyHome          string
-	KeepRunning             bool
-	SharedControlChannel    bool
+	Debug                    bool
+	Timeout                  time.Duration
+	CodeflyBinary            string
+	NamingScope              string
+	Fixture                  string
+	RunProfile               string
+	Silents                  []string
+	ExcludedDependencies     []string
+	WorkspaceConfigurations  []resources.WorkspaceConfigurationOverride
+	ServiceConfigurations    []resources.ServiceConfigurationOverride
+	DependencyHome           string
+	KeepRunning              bool
+	SharedControlChannel     bool
+	Directory                string
+	CommandScopedEnvironment bool
 }
 
 type OptionFunc func(*Option)
@@ -211,6 +239,28 @@ func WithSharedControlChannel() OptionFunc {
 	}
 }
 
+// WithDirectory anchors the session to an absolute directory instead of the
+// process working directory. The module and service owning that directory
+// become the session's identity, the spawned Codefly process runs there, and
+// neither follows a later chdir. Callers that drive several dependency stacks
+// from one process use it to keep each stack on its own service.
+func WithDirectory(dir string) OptionFunc {
+	return func(o *Option) {
+		o.Directory = dir
+	}
+}
+
+// WithCommandScopedEnvironment keeps the session out of os.Environ. The
+// resolved values are reachable through Dependencies.Environ, which produces a
+// child-process environment, and through Dependencies.Connection. This is the
+// way to run several dependency sessions in one process — parallel tests, in
+// particular — because the process environment holds one session at a time.
+func WithCommandScopedEnvironment() OptionFunc {
+	return func(o *Option) {
+		o.CommandScopedEnvironment = true
+	}
+}
+
 // WithDependencies starts all dependencies declared in the current service's
 // service.codefly.yaml using the codefly CLI. This handles arbitrarily deep
 // dependency graphs — the CLI resolves and starts everything in order.
@@ -234,6 +284,10 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err := validateDependencyOptions(opt); err != nil {
 		return nil, err
 	}
+	dir, err := sessionDirectory(opt)
+	if err != nil {
+		return nil, err
+	}
 	if hasManagedDependencyEnvironment(os.Environ()) {
 		if hasInvocationConfigurationOverrides(opt) {
 			return nil, fmt.Errorf("invocation-scoped configurations cannot replace values in dependencies owned by the parent Codefly runtime")
@@ -243,9 +297,10 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		return &Dependencies{
 			runtimeContext: resources.RuntimeContextFromEnv(),
 			inherited:      true,
+			dir:            dir,
 		}, nil
 	}
-	channel, err := newControlChannel(ctx, opt)
+	channel, err := newControlChannel(ctx, dir, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +317,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	args := dependencyCommandArguments(opt, channel.scope)
 
 	if opt.KeepRunning {
-		if deps, err := attachDependencies(ctx, channel, opt); err == nil {
+		if deps, err := attachDependencies(ctx, channel, dir, opt); err == nil {
 			success = true
 			return deps, nil
 		} else {
@@ -288,7 +343,35 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		}
 	}
 
+	l := &Dependencies{
+		runtimeContext: resources.RuntimeContextFromEnv(),
+		keepRunning:    opt.KeepRunning,
+		dir:            dir,
+		controlAddress: channel.target,
+		startDone:      ctx.Done(),
+	}
+	// Claim what this session must own exclusively before provisioning anything.
+	// A competing session then fails in milliseconds instead of starting a full
+	// dependency stack — containers included — only to be refused and torn down.
+	if err = claimControlAddress(channel.target, dir); err != nil {
+		return nil, err
+	}
+	// Registered before the second claim so a failure there — or anywhere
+	// below — cannot leave this session holding the control channel.
+	defer func() {
+		if !success {
+			l.ReleaseEnvironment()
+			releaseControlAddress(channel.target)
+		}
+	}()
+	if !opt.CommandScopedEnvironment {
+		if err = claimGlobalEnvironment(l); err != nil {
+			return nil, err
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, codeflyBinary(opt), args...)
+	cmd.Dir = dir
 	// ARCHITECTURE: the SDK owns the control channel for the child it starts.
 	// It hands the child the exact endpoint to bind instead of asking two
 	// separately versioned binaries to reproduce the same hash algorithm. An
@@ -383,14 +466,16 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err != nil {
 		return nil, fmt.Errorf("CLI server ping failed: %w", err)
 	}
-	runtimeContext := resources.RuntimeContextFromEnv()
-	l := &Dependencies{proc: proc, cli: cli, conn: conn, control: channel.control, runtimeContext: runtimeContext, keepRunning: opt.KeepRunning}
+	l.proc = proc
+	l.cli = cli
+	l.conn = conn
+	l.control = channel.control
+	l.started()
 	err = l.WaitForReady(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
-	err = l.SetEnvironment(ctx)
-	if err != nil {
+	if err = l.installEnvironment(ctx, opt); err != nil {
 		return nil, err
 	}
 	if opt.KeepRunning && channel.isolated() {
@@ -408,6 +493,69 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	return l, nil
 }
 
+// controlAddresses are the CLI control addresses this process has spawned a
+// server on. network.CLIServerPort derives the address from the workspace name
+// alone — and returns CODEFLY_CLI_SERVER_PORT verbatim when the caller's
+// environment pins one, which collapses every session onto a single address —
+// so two sessions in one process can resolve the same address. The second
+// spawn's CLI cannot bind it and the SDK would silently drive the first
+// session's server instead, destroying its flow on Stop. Claiming the address
+// turns that into an explicit failure before anything is spawned.
+//
+// Only spawned stacks claim: attaching to a kept-running server (WithKeepRunning)
+// is deliberate sharing of one server between sessions.
+var controlAddresses struct {
+	mu    sync.Mutex
+	inUse map[string]string
+}
+
+func claimControlAddress(addr string, dir string) error {
+	controlAddresses.mu.Lock()
+	defer controlAddresses.mu.Unlock()
+	if owner, held := controlAddresses.inUse[addr]; held {
+		return fmt.Errorf("dependency session %s already owns the Codefly control channel at %s; "+
+			"give this session its own scope with WithNamingScope, or attach to the existing stack with WithKeepRunning",
+			owner, addr)
+	}
+	if controlAddresses.inUse == nil {
+		controlAddresses.inUse = make(map[string]string)
+	}
+	controlAddresses.inUse[addr] = dir
+	return nil
+}
+
+func releaseControlAddress(addr string) {
+	if addr == "" {
+		return
+	}
+	controlAddresses.mu.Lock()
+	defer controlAddresses.mu.Unlock()
+	delete(controlAddresses.inUse, addr)
+}
+
+// sessionDirectory is the absolute directory a session is anchored to: the one
+// the caller pinned, or the working directory at the moment the session starts.
+func sessionDirectory(opt *Option) (string, error) {
+	if opt.Directory != "" {
+		return opt.Directory, nil
+	}
+	return os.Getwd()
+}
+
+// installEnvironment resolves everything the session projects and, unless the
+// caller asked for a command-scoped environment, injects it into os.Environ.
+func (l *Dependencies) installEnvironment(ctx context.Context, opt *Option) error {
+	env, err := l.resolveEnvironment(ctx)
+	if err != nil {
+		return err
+	}
+	l.setResolved(env)
+	if opt.CommandScopedEnvironment {
+		return nil
+	}
+	return l.apply(env)
+}
+
 func validateDependencyOptions(opt *Option) error {
 	if opt.KeepRunning && hasInvocationConfigurationOverrides(opt) {
 		return fmt.Errorf("invocation-scoped configurations cannot be combined with a reusable dependency stack")
@@ -417,6 +565,9 @@ func validateDependencyOptions(opt *Option) error {
 	}
 	if opt.CodeflyBinary != "" && !filepath.IsAbs(opt.CodeflyBinary) {
 		return fmt.Errorf("Codefly binary must be absolute: %s", opt.CodeflyBinary)
+	}
+	if opt.Directory != "" && !filepath.IsAbs(opt.Directory) {
+		return fmt.Errorf("session directory must be absolute: %s", opt.Directory)
 	}
 	return nil
 }
@@ -550,10 +701,10 @@ type controlChannel struct {
 // Its directory is keyed by a reuse fingerprint rather than by randomness, and
 // its naming scope stays the developer's label so a warm stack keeps the
 // containers and state it had.
-func newControlChannel(ctx context.Context, opt *Option) (*controlChannel, error) {
+func newControlChannel(ctx context.Context, dir string, opt *Option) (*controlChannel, error) {
 	if opt.SharedControlChannel {
 		return &controlChannel{
-			target: cliServerAddress(ctx, opt.NamingScope),
+			target: cliServerAddress(ctx, dir, opt.NamingScope),
 			scope:  opt.NamingScope,
 		}, nil
 	}
@@ -562,7 +713,7 @@ func newControlChannel(ctx context.Context, opt *Option) (*controlChannel, error
 		return nil, err
 	}
 	if opt.KeepRunning {
-		fingerprint := reuseFingerprint(ctx, opt)
+		fingerprint := reuseFingerprint(ctx, dir, opt)
 		control, err := session.OpenControl(fingerprint[:16])
 		if err != nil {
 			return nil, err
@@ -658,17 +809,22 @@ func scopeWithSession(label string, invocation *session.Session) string {
 // for. Attaching to a warm stack requires a match, so a run with a different
 // fixture or profile starts its own stack instead of silently inheriting one
 // built from another plan.
-func reuseFingerprint(ctx context.Context, opt *Option) string {
+func reuseFingerprint(ctx context.Context, dir string, opt *Option) string {
 	parts := []string{
 		"codefly-session-v" + fmt.Sprint(session.ProtocolVersion),
-		workspaceName(ctx),
+		workspaceName(ctx, dir),
 		opt.NamingScope,
 		opt.Fixture,
 		opt.RunProfile,
 		opt.DependencyHome,
 		codeflyBinary(opt),
 	}
-	if svc, err := Service(); err == nil && svc != nil {
+	// The session's own service, resolved from the directory it is anchored
+	// to. Reading it from the process working directory would fingerprint a
+	// different service than the one this session runs, and two sessions on
+	// different services would then share — or wrongly refuse — a warm stack.
+	if identity, err := resolveSessionIdentity(ctx, dir); err == nil && identity != nil {
+		svc := identity.service
 		parts = append(parts, svc.Reference().String())
 		for _, dep := range svc.ServiceDependencies {
 			parts = append(parts, dep.Unique())
@@ -690,8 +846,8 @@ func sortedCopy(values []string) []string {
 	return sorted
 }
 
-func workspaceName(ctx context.Context) string {
-	if ws, err := resources.FindWorkspaceUp(ctx); err == nil && ws != nil {
+func workspaceName(ctx context.Context, dir string) string {
+	if ws, err := resources.FindWorkspaceUpFrom(ctx, dir); err == nil && ws != nil {
 		return ws.Name
 	}
 	return ""
@@ -724,12 +880,12 @@ func waitForControlSocket(ctx context.Context, proc *managedProcess, socket stri
 	}
 }
 
-func cliServerAddress(ctx context.Context, namingScope string) string {
+func cliServerAddress(ctx context.Context, dir string, namingScope string) string {
 	// The CLI derives its gRPC port from the workspace name via
 	// network.CLIServerPort. When a naming scope is set (parallel tests),
 	// we include it in the name so each scope gets a unique port.
 	wsName := ""
-	if ws, err := resources.FindWorkspaceUp(ctx); err == nil && ws != nil {
+	if ws, err := resources.FindWorkspaceUpFrom(ctx, dir); err == nil && ws != nil {
 		wsName = ws.Name
 	}
 	if namingScope != "" {
@@ -836,7 +992,7 @@ func codeflyBinary(opt *Option) string {
 	return "codefly"
 }
 
-func attachDependencies(ctx context.Context, channel *controlChannel, opt *Option) (*Dependencies, error) {
+func attachDependencies(ctx context.Context, channel *controlChannel, dir string, opt *Option) (*Dependencies, error) {
 	owner, err := warmSessionOwner(channel)
 	if err != nil {
 		return nil, err
@@ -867,12 +1023,21 @@ func attachDependencies(ctx context.Context, channel *controlChannel, opt *Optio
 		runtimeContext: resources.RuntimeContextFromEnv(),
 		keepRunning:    true,
 		attached:       true,
+		dir:            dir,
+	}
+	if !opt.CommandScopedEnvironment {
+		if err := claimGlobalEnvironment(l); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
 	}
 	if err := l.WaitForReady(ctx, opt); err != nil {
+		l.ReleaseEnvironment()
 		_ = conn.Close()
 		return nil, err
 	}
-	if err := l.SetEnvironment(ctx); err != nil {
+	if err := l.installEnvironment(ctx, opt); err != nil {
+		l.ReleaseEnvironment()
 		_ = conn.Close()
 		return nil, err
 	}
@@ -948,158 +1113,101 @@ func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
 	}
 }
 
-// runningMu guards the resolved-resource cache below. WithDependencies now
-// reads it from two places (reuseFingerprint and SetEnvironment), and callers
-// legitimately start dependency sessions from concurrent goroutines, so the
-// lazy fill cannot be left unsynchronised.
-var runningMu sync.Mutex
-var runningModule *resources.Module
-var runningService *resources.Service
+// running caches the identity of the working directory it was resolved from,
+// keyed by that directory so a later chdir re-resolves instead of serving a
+// stale identity. It is read from concurrent goroutines — callers legitimately
+// start dependency sessions in parallel — so the lazy fill is synchronised.
+//
+// A dependency session does not use it: sessions resolve their own identity
+// from the directory they are anchored to. It serves only the convenience
+// package functions below.
+var running struct {
+	mu      sync.Mutex
+	dir     string
+	module  *resources.Module
+	service *resources.Service
+}
 
+func currentIdentity() (*resources.Module, *resources.Service, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, nil, err
+	}
+	running.mu.Lock()
+	defer running.mu.Unlock()
+	if running.dir == dir {
+		return running.module, running.service, nil
+	}
+	identity, err := findSessionIdentity(context.Background(), dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	if identity == nil {
+		// A directory that owns no service is not an error here: these
+		// functions have always answered it with a nil module and service, and
+		// callers branch on that rather than on an error.
+		return nil, nil, nil
+	}
+	running.dir = dir
+	running.module = identity.module
+	running.service = identity.service
+	return identity.module, identity.service, nil
+}
+
+// Service resolves the service owning the current working directory, or nil
+// when the directory belongs to no service.
+//
+// Deprecated: use Dependencies.Service, which is anchored to the directory its
+// session was created in and therefore survives a change of working directory.
 func Service() (*resources.Service, error) {
-	runningMu.Lock()
-	defer runningMu.Unlock()
-	if runningService == nil {
-		mod, svc, err := resources.LoadModuleAndServiceFromCurrentPath(context.Background())
-		if err != nil {
-			return nil, err
-		}
-		runningService = svc
-		runningModule = mod
-	}
-	return runningService, nil
+	_, svc, err := currentIdentity()
+	return svc, err
 }
 
+// Module resolves the module owning the current working directory, or nil when
+// the directory belongs to no module.
+//
+// Deprecated: use Dependencies.Module, which is anchored to the directory its
+// session was created in and therefore survives a change of working directory.
 func Module() (*resources.Module, error) {
-	runningMu.Lock()
-	defer runningMu.Unlock()
-	if runningModule == nil {
-		ctx := context.Background()
-		workspace, err := resources.FindWorkspaceUp(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if workspace.Layout == resources.LayoutKindFlat {
-			module, err := workspace.LoadModuleFromName(ctx, workspace.Name)
-			if err != nil {
-				return nil, err
-			}
-			runningModule = module
-		} else {
-			mod, err := resources.LoadModuleFromCurrentPath(ctx)
-			if err != nil {
-				return nil, err
-			}
-			runningModule = mod
-		}
-	}
-	return runningModule, nil
+	mod, _, err := currentIdentity()
+	return mod, err
 }
 
+// Inject writes one variable straight into the process environment. It is
+// unmanaged: no dependency session owns the value and nothing restores it.
+//
+// Deprecated: use Dependencies.SetEnvironment, which is transactional and
+// restores what it owns, or Dependencies.Environ for a child-process
+// environment.
 func Inject(env *resources.EnvironmentVariable) {
 	os.Setenv(env.Key, fmt.Sprintf("%v", env.Value))
 }
 
+// SetEnvironment injects this session's dependencies into the process
+// environment. It is the compatibility path for callers that read connection
+// strings with os.Getenv; new code should prefer Environ, which needs no
+// process-global state.
+//
+// os.Environ is a single process-wide resource, so exactly one session owns it
+// at a time: a second session calling SetEnvironment is rejected before any
+// value changes, and must run command-scoped instead (see
+// WithCommandScopedEnvironment). Every value is resolved before the first
+// write, and a write that fails rolls the round back.
+//
+// Calling it again on the same session re-resolves and re-applies; the values
+// captured before the session's first injection are the ones ReleaseEnvironment
+// restores. Stop and Destroy release the session's ownership.
 func (l *Dependencies) SetEnvironment(ctx context.Context) error {
 	if l.inherited {
 		return nil
 	}
-	w := wool.Get(ctx).In("sdk.SetEnvironment")
-	svc, err := Service()
+	env, err := l.resolveEnvironment(ctx)
 	if err != nil {
 		return err
 	}
-	mod, err := Module()
-	if err != nil {
-		return err
-	}
-
-	var envs []*resources.EnvironmentVariable
-	envs = append(envs,
-		resources.ServiceAsEnvironmentVariable(svc.Name),
-		resources.ModuleAsEnvironmentVariable(mod.Name),
-		resources.VersionAsEnvironmentVariable(svc.Version))
-	for _, env := range envs {
-		Inject(env)
-	}
-	// Setup Networking
-	{
-		networkAccess := resources.NetworkAccessFromRuntimeContext(l.runtimeContext)
-		if networkAccess == nil {
-			return w.NewError("no network access found")
-		}
-		req := &v0.GetNetworkMappingsRequest{Module: mod.Name, Service: svc.Name}
-
-		resp, err := l.cli.GetDependenciesNetworkMappings(ctx, req)
-		if err != nil {
-			return w.Wrapf(err, "failed to get dependencies network mappings")
-		}
-		dependencyMappings, err := resources.ResolveDependencyNetworkMappings(svc.ServiceDependencies, resp.NetworkMappings)
-		if err != nil {
-			return w.Wrapf(err, "failed to resolve dependencies network mappings")
-		}
-		// Enforce visibility only over the endpoints this service actually
-		// consumes. The dependency graph may surface sibling endpoints of a
-		// producer (e.g. an internal admin endpoint next to the public one),
-		// and rejecting a run because of an endpoint the consumer never
-		// references would be a false positive — the static workspace pass
-		// (Workspace.ValidateServiceDependencies) scopes the same way.
-		if err := validateConsumedMappingVisibility(mod.Name, svc.ServiceDependencies, dependencyMappings); err != nil {
-			return w.Wrap(err)
-		}
-		for _, np := range dependencyMappings {
-			inst := resources.FilterNetworkInstance(ctx, np.Instances, networkAccess)
-			if inst == nil {
-				return w.NewError("no network instance found")
-			}
-			access := &resources.EndpointAccess{
-				Endpoint:        np.Endpoint,
-				NetworkInstance: inst,
-			}
-			Inject(resources.EndpointAsEnvironmentVariable(access))
-		}
-	}
-	// Setup Configuration
-	{
-		req := &v0.GetConfigurationRequest{
-			Module:  mod.Name,
-			Service: svc.Name,
-		}
-		resp, err := l.cli.GetConfiguration(ctx, req)
-		if err != nil {
-			return w.Wrapf(err, "failed to get configuration")
-		}
-		conf := resp.Configuration
-		if conf != nil {
-			envs := resources.ConfigurationAsEnvironmentVariables(conf, false)
-			secrets := resources.ConfigurationAsEnvironmentVariables(conf, true)
-			envs = append(envs, secrets...)
-			for _, env := range envs {
-				Inject(env)
-			}
-		}
-	}
-	// Setup Dependencies Configurations
-	{
-		req := &v0.GetConfigurationRequest{
-			Module:  mod.Name,
-			Service: svc.Name,
-		}
-		resp, err := l.cli.GetDependenciesConfigurations(ctx, req)
-		if err != nil {
-			return w.Wrapf(err, "failed to get dependencies configurations")
-		}
-		dependenciesConfigurations := resources.FilterConfigurations(resp.Configurations, l.runtimeContext)
-		for _, conf := range dependenciesConfigurations {
-			envs := resources.ConfigurationAsEnvironmentVariables(conf, false)
-			secrets := resources.ConfigurationAsEnvironmentVariables(conf, true)
-			envs = append(envs, secrets...)
-			for _, env := range envs {
-				Inject(env)
-			}
-		}
-	}
-	return nil
+	l.setResolved(env)
+	return l.apply(env)
 }
 
 // Stop gracefully stops all running dependencies. Sends StopFlow to the
@@ -1112,6 +1220,11 @@ func (l *Dependencies) Stop(ctx context.Context) error {
 		w.Debug("leaving dependencies owned by the parent Codefly runtime running")
 		return nil
 	}
+	// Deferred, so this session keeps its control channel until the flow is
+	// actually torn down. Releasing it first would let another session in this
+	// process claim the endpoint while the old CLI still holds it.
+	defer l.ReleaseEnvironment()
+	defer releaseControlAddress(l.controlAddress)
 	if l.keepRunning {
 		if l.conn != nil {
 			_ = l.conn.Close()
@@ -1143,6 +1256,11 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 		w.Debug("leaving dependencies owned by the parent Codefly runtime running")
 		return nil
 	}
+	// Deferred, so this session keeps its control channel until the flow is
+	// actually torn down. Releasing it first would let another session in this
+	// process claim the endpoint while the old CLI still holds it.
+	defer l.ReleaseEnvironment()
+	defer releaseControlAddress(l.controlAddress)
 	if l.keepRunning {
 		if l.conn != nil {
 			_ = l.conn.Close()

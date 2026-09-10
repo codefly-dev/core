@@ -1,0 +1,13 @@
+kind: service
+name: web
+version: 1.2.3
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+service-dependencies:
+  - name: store
+    module: shop
+    endpoints:
+      - name: tcp

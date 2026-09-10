@@ -1,0 +1,10 @@
+kind: service
+name: gateway
+version: 7.8.9
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+service-dependencies:
+  - name: cache
