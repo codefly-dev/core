@@ -30,8 +30,15 @@ const (
 func TestProcessGroupRegistryHelper(t *testing.T) {
 	switch os.Getenv(processGroupRoleEnv) {
 	case "member":
+		// Arm before announcing readiness. The parent treats the ready file as
+		// permission to signal, so a handler installed after writing it leaves
+		// a window in which SIGTERM hits Go's default disposition and kills the
+		// helper — which the parent then reports as "signal: terminated". The
+		// window is real scheduling time, so it widens under load.
+		stopping := armTerminationSignal()
+		defer signal.Stop(stopping)
 		writeTestFile(t, os.Getenv(processGroupReadyFileEnv), "ready")
-		waitForTerminationSignal()
+		<-stopping
 	case "ignores-term":
 		signal.Ignore(syscall.SIGTERM)
 		writeTestFile(t, os.Getenv(processGroupReadyFileEnv), "ready")
@@ -613,11 +620,12 @@ func waitForTestFile(t *testing.T, path string) {
 	t.Fatalf("timed out waiting for %s", path)
 }
 
-func waitForTerminationSignal() {
+// armTerminationSignal installs the termination handler and returns its channel.
+// Callers must arm before they publish any readiness the signaller waits on.
+func armTerminationSignal() chan os.Signal {
 	stopping := make(chan os.Signal, 1)
 	signal.Notify(stopping, syscall.SIGTERM, syscall.SIGINT)
-	defer signal.Stop(stopping)
-	<-stopping
+	return stopping
 }
 
 func assertGroupAlive(t *testing.T, pgid int) {
