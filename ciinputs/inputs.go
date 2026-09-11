@@ -54,21 +54,32 @@ func Discover(ctx context.Context, client Client, info *agent.AgentInformation, 
 		return nil, err
 	}
 	if !slices.Contains(info.GetEffectiveInputsVersions(), Version) {
-		return Evaluate(nil, req.Snapshot, required)
+		return Evaluate(nil, req, required)
 	}
 	response, err := client.GetEffectiveInputs(ctx, req)
 	if status.Code(err) == codes.Unimplemented {
-		return Evaluate(nil, req.Snapshot, required)
+		return Evaluate(nil, req, required)
 	}
 	if err != nil {
 		return nil, err
 	}
-	return Evaluate(response, req.Snapshot, required)
+	return Evaluate(response, req, required)
 }
 
 // Evaluate validates an untrusted wire declaration and returns every required
 // task, including tasks omitted by discovery. Errors contain no input values.
-func Evaluate(response *agent.GetEffectiveInputsResponse, snapshot string, required []Key) ([]Task, error) {
+func Evaluate(response *agent.GetEffectiveInputsResponse, req *agent.GetEffectiveInputsRequest, required []Key) ([]Task, error) {
+	if req == nil || req.SchemaVersion != Version || req.Snapshot == "" {
+		return nil, fmt.Errorf("effective inputs require v1 and a snapshot")
+	}
+	if _, err := validate(&agent.TaskInputs{Inputs: req.Context}); err != nil {
+		return nil, err
+	}
+	contextInputs := map[string]*agent.EffectiveInput{}
+	for _, in := range req.Context {
+		contextInputs[inputKey(in)] = in
+	}
+
 	tasks := make([]Task, 0, len(required))
 	inventory := map[Key]bool{}
 	for _, key := range required {
@@ -80,7 +91,7 @@ func Evaluate(response *agent.GetEffectiveInputsResponse, snapshot string, requi
 	declarations := map[Key]*agent.TaskInputs{}
 	supported := response != nil && response.SchemaVersion == Version && !unknown(response.ProtoReflect())
 	if supported {
-		if snapshot == "" || response.Snapshot != snapshot {
+		if response.Snapshot != req.Snapshot {
 			return nil, fmt.Errorf("effective input snapshot mismatch")
 		}
 		for _, declaration := range response.Tasks {
@@ -100,6 +111,11 @@ func Evaluate(response *agent.GetEffectiveInputsResponse, snapshot string, requi
 				resolved, err := validate(declaration)
 				if err != nil {
 					return nil, err
+				}
+				for _, in := range declaration.Inputs {
+					if supplied := contextInputs[inputKey(in)]; supplied != nil && !proto.Equal(supplied, in) {
+						return nil, fmt.Errorf("effective input contradicts resolved context")
+					}
 				}
 				if declaration.Complete && resolved {
 					identity, err := fingerprint(declaration)
@@ -158,7 +174,7 @@ func validate(t *agent.TaskInputs) (bool, error) {
 		if in == nil || in.Kind < agent.EffectiveInputKind_EFFECTIVE_INPUT_KIND_SOURCE || in.Kind > agent.EffectiveInputKind_EFFECTIVE_INPUT_KIND_EXTERNAL || in.Owner == "" || in.Name == "" {
 			return false, fmt.Errorf("invalid effective input")
 		}
-		key := fmt.Sprintf("%d\x00%s\x00%s", in.Kind, in.Owner, in.Name)
+		key := inputKey(in)
 		if strings.ContainsAny(in.Owner+in.Name, "\x00\r\n") || seen[key] {
 			return false, fmt.Errorf("invalid or duplicate effective input key")
 		}
@@ -324,4 +340,8 @@ func Required(v *agent.ValidationCapabilities) ([]Key, error) {
 		}
 	}
 	return keys, nil
+}
+
+func inputKey(in *agent.EffectiveInput) string {
+	return fmt.Sprintf("%d\x00%s\x00%s", in.Kind, in.Owner, in.Name)
 }

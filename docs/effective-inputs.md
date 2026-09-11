@@ -30,7 +30,10 @@ No advertised v1 support, `Unimplemented`, an unsupported response version or
 unknown protobuf fields produce conservative selection without cache reuse.
 Missing/incomplete tasks and unresolved inputs do the same per task. Other RPC
 failures propagate. Malformed declarations, duplicate identities, unrequested
-tasks and snapshot mismatches are errors. An agent must not advertise support
+tasks and snapshot mismatches are errors. `Evaluate` takes the discovery request,
+and both evaluation and discovery reject returned inputs that contradict matching
+caller-resolved context keys, including identity, sensitivity and file metadata.
+Context not consumed by a task does not enter its identity. An agent must not advertise support
 until it implements discovery. Older clients ignore the new capability field;
 existing Agent methods and validation advertisements retain their wire numbers.
 

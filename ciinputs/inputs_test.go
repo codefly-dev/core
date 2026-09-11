@@ -41,7 +41,7 @@ func response(tasks ...*agent.TaskInputs) *agent.GetEffectiveInputsResponse {
 }
 func evaluate(t *testing.T, r *agent.GetEffectiveInputsResponse, keys ...Key) []Task {
 	t.Helper()
-	got, err := Evaluate(r, "snapshot", keys)
+	got, err := Evaluate(r, &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: "snapshot"}, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,14 +125,14 @@ func TestCanonicalIdentityAndSnapshots(t *testing.T) {
 		t.Fatal("ordering affects identity")
 	}
 	r.Snapshot = "different-snapshot"
-	other, err := Evaluate(r, r.Snapshot, []Key{build})
+	other, err := Evaluate(r, &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: r.Snapshot}, []Key{build})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(Changed(before, other)) != 0 {
 		t.Fatal("snapshot token affects task identity")
 	}
-	if _, err := Evaluate(r, "wrong-snapshot", []Key{build}); err == nil {
+	if _, err := Evaluate(r, &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: "wrong-snapshot"}, []Key{build}); err == nil {
 		t.Fatal("accepted stale snapshot")
 	}
 	r.Snapshot = "snapshot"
@@ -210,7 +210,7 @@ func TestRejectMalformedDeclarations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := response(declaration(build))
 			tc.mutate(r)
-			_, err := Evaluate(r, "snapshot", []Key{build})
+			_, err := Evaluate(r, &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: "snapshot"}, []Key{build})
 			if err == nil {
 				t.Fatal("accepted malformed declaration")
 			}
@@ -368,5 +368,65 @@ func TestV1IdentityGolden(t *testing.T) {
 	const want = "sha256:cf974b884f3095d736ba2b81da97774a2d25d19999b2ad039592d6f32cd873a2"
 	if got := evaluate(t, response(declaration(build)), build)[0].Identity; got != want {
 		t.Fatalf("v1 identity changed: %s", got)
+	}
+}
+
+func TestResolvedContextIsAuthoritative(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*agent.EffectiveInput)
+	}{
+		{"stale identity", func(in *agent.EffectiveInput) { in.Identity.Digest = strings.Repeat("b", 64) }},
+		{"sensitivity downgrade", func(in *agent.EffectiveInput) { in.Sensitive = false }},
+		{"protection downgrade", func(in *agent.EffectiveInput) {
+			in.Sensitive = false
+			in.Identity.Kind = agent.EffectiveIdentityKind_EFFECTIVE_IDENTITY_KIND_SHA256
+			in.Identity.Namespace = ""
+		}},
+		{"unresolved context", func(in *agent.EffectiveInput) { in.Identity = nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			supplied := input(agent.EffectiveInputKind_EFFECTIVE_INPUT_KIND_ENVIRONMENT, "MODE", "value")
+			supplied.Sensitive = true
+			supplied.Identity.Kind = agent.EffectiveIdentityKind_EFFECTIVE_IDENTITY_KIND_HMAC_SHA256
+			supplied.Identity.Namespace = "key/v1"
+			declared := proto.Clone(supplied).(*agent.EffectiveInput)
+			if tc.name == "unresolved context" {
+				tc.change(supplied)
+			} else {
+				tc.change(declared)
+			}
+			req := &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: "candidate", Context: []*agent.EffectiveInput{supplied}}
+			r := response(declaration(unit, declared))
+			r.Snapshot = req.Snapshot
+			if _, err := Evaluate(r, req, []Key{unit}); err == nil {
+				t.Fatal("accepted contradictory context")
+			}
+			if _, err := Discover(context.Background(), wireClient(t, &wireAgent{reply: r}), &agent.AgentInformation{EffectiveInputsVersions: []uint32{Version}}, req, []Key{unit}); err == nil {
+				t.Fatal("discovery accepted contradictory context")
+			}
+		})
+	}
+	supplied := input(agent.EffectiveInputKind_EFFECTIVE_INPUT_KIND_ENVIRONMENT, "MODE", "value")
+	req := &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: "snapshot", Context: []*agent.EffectiveInput{supplied, input(agent.EffectiveInputKind_EFFECTIVE_INPUT_KIND_ENVIRONMENT, "unused", "other")}}
+	before, err := Evaluate(response(declaration(unit, supplied)), req, []Key{unit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Context[1].Identity = nil
+	after, err := Evaluate(response(declaration(unit, supplied)), req, []Key{unit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after[0].CacheEligible || len(Changed(before, after)) != 0 {
+		t.Fatal("unconsumed context invalidated task")
+	}
+	supplied.Identity.Digest = strings.Repeat("b", 64)
+	after, err = Evaluate(response(declaration(unit, supplied)), req, []Key{unit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(Changed(before, after)) != 1 {
+		t.Fatal("consumed context change was lost")
 	}
 }
