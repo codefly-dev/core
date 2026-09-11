@@ -116,6 +116,33 @@ func PrepareBuildContext(ctx context.Context, root, dockerfile, customIgnore str
 	if err != nil {
 		return nil, err
 	}
+	var directories []string
+	err = filepath.WalkDir(prepared.Root, func(file string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			directories = append(directories, file)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Set directory permissions after staging children, including read-only dirs.
+	for i := len(directories) - 1; i >= 0; i-- {
+		relative, relErr := filepath.Rel(prepared.Root, directories[i])
+		if relErr != nil {
+			return nil, relErr
+		}
+		info, statErr := os.Stat(filepath.Join(root, relative))
+		if statErr != nil {
+			return nil, statErr
+		}
+		if err = os.Chmod(directories[i], info.Mode().Perm()); err != nil {
+			return nil, err
+		}
+	}
 	return prepared, nil
 }
 
@@ -134,6 +161,10 @@ func copyBuildFile(source, destination string) error {
 	defer input.Close()
 	output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm())
 	if err != nil {
+		return err
+	}
+	if err := output.Chmod(info.Mode().Perm()); err != nil {
+		_ = output.Close()
 		return err
 	}
 	_, copyErr := io.Copy(output, input)
