@@ -78,12 +78,13 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 	}
 
 	b, err := dockerhelpers.NewBuilder(dockerhelpers.BuilderConfiguration{
-		Root:        location,
-		Cache:       dockerRequest.GetCache(),
-		Dockerfile:  "builder/Dockerfile",
-		Ignorefile:  "builder/dockerignore",
-		Destination: image,
-		Output:      w,
+		Root:          location,
+		Cache:         dockerRequest.GetCache(),
+		BuildxBuilder: dockerRequest.GetBuildxBuilder(),
+		Dockerfile:    "builder/Dockerfile",
+		Ignorefile:    "builder/dockerignore",
+		Destination:   image,
+		Output:        w,
 	})
 	if err != nil {
 		return builder.BuildError(err)
@@ -94,6 +95,9 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 	}
 	builder.WithDockerImages(image)
 	resp, err := builder.BuildResponse()
+	if resp != nil {
+		resp.BuildxBuilder = dockerRequest.GetBuildxBuilder()
+	}
 	if resp != nil && dockerRequest.GetCache() != nil {
 		resp.CacheContractVersion = dockerhelpers.CacheContractVersion
 	}

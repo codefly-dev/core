@@ -51,6 +51,11 @@ class BuilderStub:
                 request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildResponse.FromString,
                 _registered_method=True)
+        self.BuildCapabilities = channel.unary_unary(
+                '/codefly.services.builder.v0.Builder/BuildCapabilities',
+                request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildCapabilitiesRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildCapabilitiesResponse.FromString,
+                _registered_method=True)
         self.Deploy = channel.unary_unary(
                 '/codefly.services.builder.v0.Builder/Deploy',
                 request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.DeploymentRequest.SerializeToString,
@@ -129,6 +134,13 @@ class BuilderServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def BuildCapabilities(self, request, context):
+        """BuildCapabilities is read-only and must not prepare inputs or execute builds.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Deploy(self, request, context):
         """Deploy emits or applies deployment artifacts for the target environment.
         """
@@ -202,6 +214,11 @@ def add_BuilderServicer_to_server(servicer, server):
                     servicer.Build,
                     request_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildRequest.FromString,
                     response_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildResponse.SerializeToString,
+            ),
+            'BuildCapabilities': grpc.unary_unary_rpc_method_handler(
+                    servicer.BuildCapabilities,
+                    request_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildCapabilitiesRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildCapabilitiesResponse.SerializeToString,
             ),
             'Deploy': grpc.unary_unary_rpc_method_handler(
                     servicer.Deploy,
@@ -397,6 +414,33 @@ class Builder:
             '/codefly.services.builder.v0.Builder/Build',
             codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildRequest.SerializeToString,
             codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def BuildCapabilities(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.builder.v0.Builder/BuildCapabilities',
+            codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildCapabilitiesRequest.SerializeToString,
+            codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.BuildCapabilitiesResponse.FromString,
             options,
             channel_credentials,
             insecure,

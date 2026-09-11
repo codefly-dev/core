@@ -26,8 +26,8 @@ func NewBuilderAgentClient(conn *grpc.ClientConn) *BuilderAgent {
 	}
 }
 
-// Build requires cache acknowledgement only when the agent executes the image
-// build. Recipe execution, including cache policy, belongs to the caller.
+// Build checks selection support before dispatch, then requires acknowledgement
+// when the agent executes the image build. Recipe execution belongs to the caller.
 func (b *BuilderAgent) Build(ctx context.Context, req *builderv0.BuildRequest, opts ...grpc.CallOption) (*builderv0.BuildResponse, error) {
 	cache := req.GetBuildContext().GetDockerBuildContext().GetCache()
 	if cache != nil {
@@ -35,9 +35,22 @@ func (b *BuilderAgent) Build(ctx context.Context, req *builderv0.BuildRequest, o
 			return nil, err
 		}
 	}
+	selected := req.GetBuildContext().GetDockerBuildContext().GetBuildxBuilder()
+	if selected != "" {
+		capabilities, err := b.BuildCapabilities(ctx, &builderv0.BuildCapabilitiesRequest{}, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("cannot verify builder agent support for requested Buildx builder %q before execution; upgrade the agent: %w", selected, err)
+		}
+		if !capabilities.GetBuildxSelection() {
+			return nil, fmt.Errorf("builder agent does not support Buildx selection; refusing to execute with requested builder %q; upgrade the agent", selected)
+		}
+	}
 	resp, err := b.BuilderClient.Build(ctx, req, opts...)
 	if err == nil && cache != nil && resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS && resp.GetResult().GetDockerBuildPlan() == nil && resp.GetCacheContractVersion() != dockerhelpers.CacheContractVersion {
 		return nil, fmt.Errorf("builder agent did not acknowledge build cache contract %s; upgrade the agent or remove cache options", dockerhelpers.CacheContractVersion)
+	}
+	if selected != "" && err == nil && resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS && resp.GetResult().GetDockerBuildPlan() == nil && resp.GetBuildxBuilder() != selected {
+		return nil, fmt.Errorf("builder agent did not acknowledge requested Buildx builder %q; upgrade the agent", selected)
 	}
 	return resp, err
 }

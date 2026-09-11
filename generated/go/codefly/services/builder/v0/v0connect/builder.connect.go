@@ -47,6 +47,9 @@ const (
 	BuilderSyncProcedure = "/codefly.services.builder.v0.Builder/Sync"
 	// BuilderBuildProcedure is the fully-qualified name of the Builder's Build RPC.
 	BuilderBuildProcedure = "/codefly.services.builder.v0.Builder/Build"
+	// BuilderBuildCapabilitiesProcedure is the fully-qualified name of the Builder's BuildCapabilities
+	// RPC.
+	BuilderBuildCapabilitiesProcedure = "/codefly.services.builder.v0.Builder/BuildCapabilities"
 	// BuilderDeployProcedure is the fully-qualified name of the Builder's Deploy RPC.
 	BuilderDeployProcedure = "/codefly.services.builder.v0.Builder/Deploy"
 	// BuilderAuditProcedure is the fully-qualified name of the Builder's Audit RPC.
@@ -77,6 +80,8 @@ type BuilderClient interface {
 	Sync(context.Context, *connect.Request[v0.SyncRequest]) (*connect.Response[v0.SyncResponse], error)
 	// Build creates the deployable service artifact, usually a container image.
 	Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error)
+	// BuildCapabilities is read-only and must not prepare inputs or execute builds.
+	BuildCapabilities(context.Context, *connect.Request[v0.BuildCapabilitiesRequest]) (*connect.Response[v0.BuildCapabilitiesResponse], error)
 	// Deploy emits or applies deployment artifacts for the target environment.
 	Deploy(context.Context, *connect.Request[v0.DeploymentRequest]) (*connect.Response[v0.DeploymentResponse], error)
 	// Audit runs dependency and image vulnerability checks.
@@ -146,6 +151,12 @@ func NewBuilderClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(builderMethods.ByName("Build")),
 			connect.WithClientOptions(opts...),
 		),
+		buildCapabilities: connect.NewClient[v0.BuildCapabilitiesRequest, v0.BuildCapabilitiesResponse](
+			httpClient,
+			baseURL+BuilderBuildCapabilitiesProcedure,
+			connect.WithSchema(builderMethods.ByName("BuildCapabilities")),
+			connect.WithClientOptions(opts...),
+		),
 		deploy: connect.NewClient[v0.DeploymentRequest, v0.DeploymentResponse](
 			httpClient,
 			baseURL+BuilderDeployProcedure,
@@ -193,19 +204,20 @@ func NewBuilderClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 
 // builderClient implements BuilderClient.
 type builderClient struct {
-	load        *connect.Client[v0.LoadRequest, v0.LoadResponse]
-	init        *connect.Client[v0.InitRequest, v0.InitResponse]
-	create      *connect.Client[v0.CreateRequest, v0.CreateResponse]
-	update      *connect.Client[v0.UpdateRequest, v0.UpdateResponse]
-	sync        *connect.Client[v0.SyncRequest, v0.SyncResponse]
-	build       *connect.Client[v0.BuildRequest, v0.BuildResponse]
-	deploy      *connect.Client[v0.DeploymentRequest, v0.DeploymentResponse]
-	audit       *connect.Client[v0.AuditRequest, v0.AuditResponse]
-	sBOM        *connect.Client[v0.SBOMRequest, v0.SBOMResponse]
-	_package    *connect.Client[v0.PackageRequest, v0.PackageResponse]
-	upgrade     *connect.Client[v0.UpgradeRequest, v0.UpgradeResponse]
-	configure   *connect.Client[v0.ConfigureRequest, v0.ConfigureResponse]
-	communicate *connect.Client[v01.Answer, v01.Question]
+	load              *connect.Client[v0.LoadRequest, v0.LoadResponse]
+	init              *connect.Client[v0.InitRequest, v0.InitResponse]
+	create            *connect.Client[v0.CreateRequest, v0.CreateResponse]
+	update            *connect.Client[v0.UpdateRequest, v0.UpdateResponse]
+	sync              *connect.Client[v0.SyncRequest, v0.SyncResponse]
+	build             *connect.Client[v0.BuildRequest, v0.BuildResponse]
+	buildCapabilities *connect.Client[v0.BuildCapabilitiesRequest, v0.BuildCapabilitiesResponse]
+	deploy            *connect.Client[v0.DeploymentRequest, v0.DeploymentResponse]
+	audit             *connect.Client[v0.AuditRequest, v0.AuditResponse]
+	sBOM              *connect.Client[v0.SBOMRequest, v0.SBOMResponse]
+	_package          *connect.Client[v0.PackageRequest, v0.PackageResponse]
+	upgrade           *connect.Client[v0.UpgradeRequest, v0.UpgradeResponse]
+	configure         *connect.Client[v0.ConfigureRequest, v0.ConfigureResponse]
+	communicate       *connect.Client[v01.Answer, v01.Question]
 }
 
 // Load calls codefly.services.builder.v0.Builder.Load.
@@ -236,6 +248,11 @@ func (c *builderClient) Sync(ctx context.Context, req *connect.Request[v0.SyncRe
 // Build calls codefly.services.builder.v0.Builder.Build.
 func (c *builderClient) Build(ctx context.Context, req *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error) {
 	return c.build.CallUnary(ctx, req)
+}
+
+// BuildCapabilities calls codefly.services.builder.v0.Builder.BuildCapabilities.
+func (c *builderClient) BuildCapabilities(ctx context.Context, req *connect.Request[v0.BuildCapabilitiesRequest]) (*connect.Response[v0.BuildCapabilitiesResponse], error) {
+	return c.buildCapabilities.CallUnary(ctx, req)
 }
 
 // Deploy calls codefly.services.builder.v0.Builder.Deploy.
@@ -287,6 +304,8 @@ type BuilderHandler interface {
 	Sync(context.Context, *connect.Request[v0.SyncRequest]) (*connect.Response[v0.SyncResponse], error)
 	// Build creates the deployable service artifact, usually a container image.
 	Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error)
+	// BuildCapabilities is read-only and must not prepare inputs or execute builds.
+	BuildCapabilities(context.Context, *connect.Request[v0.BuildCapabilitiesRequest]) (*connect.Response[v0.BuildCapabilitiesResponse], error)
 	// Deploy emits or applies deployment artifacts for the target environment.
 	Deploy(context.Context, *connect.Request[v0.DeploymentRequest]) (*connect.Response[v0.DeploymentResponse], error)
 	// Audit runs dependency and image vulnerability checks.
@@ -352,6 +371,12 @@ func NewBuilderHandler(svc BuilderHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(builderMethods.ByName("Build")),
 		connect.WithHandlerOptions(opts...),
 	)
+	builderBuildCapabilitiesHandler := connect.NewUnaryHandler(
+		BuilderBuildCapabilitiesProcedure,
+		svc.BuildCapabilities,
+		connect.WithSchema(builderMethods.ByName("BuildCapabilities")),
+		connect.WithHandlerOptions(opts...),
+	)
 	builderDeployHandler := connect.NewUnaryHandler(
 		BuilderDeployProcedure,
 		svc.Deploy,
@@ -408,6 +433,8 @@ func NewBuilderHandler(svc BuilderHandler, opts ...connect.HandlerOption) (strin
 			builderSyncHandler.ServeHTTP(w, r)
 		case BuilderBuildProcedure:
 			builderBuildHandler.ServeHTTP(w, r)
+		case BuilderBuildCapabilitiesProcedure:
+			builderBuildCapabilitiesHandler.ServeHTTP(w, r)
 		case BuilderDeployProcedure:
 			builderDeployHandler.ServeHTTP(w, r)
 		case BuilderAuditProcedure:
@@ -453,6 +480,10 @@ func (UnimplementedBuilderHandler) Sync(context.Context, *connect.Request[v0.Syn
 
 func (UnimplementedBuilderHandler) Build(context.Context, *connect.Request[v0.BuildRequest]) (*connect.Response[v0.BuildResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.builder.v0.Builder.Build is not implemented"))
+}
+
+func (UnimplementedBuilderHandler) BuildCapabilities(context.Context, *connect.Request[v0.BuildCapabilitiesRequest]) (*connect.Response[v0.BuildCapabilitiesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.builder.v0.Builder.BuildCapabilities is not implemented"))
 }
 
 func (UnimplementedBuilderHandler) Deploy(context.Context, *connect.Request[v0.DeploymentRequest]) (*connect.Response[v0.DeploymentResponse], error) {

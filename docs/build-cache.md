@@ -134,3 +134,36 @@ Both fixtures hit the dependency-install cache on source and application-argumen
 edits, rebuilt it for lockfile/base changes, and produced the expected changed
 outputs. These are conformance measurements, not a speedup claim; startup and
 host load affect wall time.
+
+### In-agent executor selection
+
+`DockerBuildContext.buildx_builder` carries the caller's Buildx builder name
+through Go and Rust in-agent builds, including Go services with a custom context
+root. It is passed as `--builder` on that build only; the selected global builder
+and process environment are unchanged. The caller provisions its builder before
+issuing Build. Registry exports require a container-driver builder or a Docker
+driver configured with the containerd image store.
+
+Before dispatching a Build with an explicit selection, `BuilderAgent.Build`
+calls the read-only `BuildCapabilities` RPC and requires `buildx_selection=true`.
+Older agents, unsupported agents, and failed probes are rejected before Build
+can transfer source, change image tags, or export cache. This also applies when
+`output_directory` requests a recipe: an older agent can fall back to executing
+the build. Requests without explicit selection do not require the probe.
+
+Agents must explicitly implement the capability RPC after verifying that every
+in-agent path honors selection (for example, through the updated `BuildGoDocker`
+or `BuildRustDocker` helper). Recipe-only agents may opt in as well. The default
+server leaves the RPC unimplemented so a custom Build cannot accidentally claim
+support just by updating Core:
+
+```go
+func (*Builder) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesRequest) (*builderv0.BuildCapabilitiesResponse, error) {
+    return &builderv0.BuildCapabilitiesResponse{BuildxSelection: true}, nil
+}
+```
+
+Successful in-agent responses additionally acknowledge the selection in
+`BuildResponse.buildx_builder`. `BuilderAgent.Build` rejects an absent or different
+acknowledgement when a builder was requested. Recipe responses need no executor
+acknowledgement because the caller executes the plan itself.
