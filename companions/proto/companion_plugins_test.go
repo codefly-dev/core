@@ -144,3 +144,22 @@ func assertPinnedToRuntime(t *testing.T, file string, pin *regexp.Regexp) {
 		t.Fatalf("%s pins protoc-gen-es %s, but the ecosystem runtime is %s; the generator and runtime must move together (see issue #83)", file, got, protocGenEsRuntimeVersion)
 	}
 }
+
+// TestTypeScriptTemplateUsesTheBakedProtocGenEs keeps the generator a consumer's
+// bindings come from inside the guarantee the rest of this file makes. A
+// `plugin: buf.build/bufbuild/es:vX` entry is a second pin that nothing holds to
+// protocGenEsRuntimeVersion — the template generated with v2.2.3 for as long as
+// the image baked 2.11.0 — and it is resolved over the network, so generation
+// depends on the BSR being reachable and under its rate limit.
+func TestTypeScriptTemplateUsesTheBakedProtocGenEs(t *testing.T) {
+	content, err := os.ReadFile("templates/typescript/buf.gen.yaml.tmpl")
+	if err != nil {
+		t.Fatalf("read templates/typescript/buf.gen.yaml.tmpl: %v", err)
+	}
+	if match := regexp.MustCompile(`plugin:\s*buf\.build/bufbuild/es\S*`).Find(content); match != nil {
+		t.Errorf("the TypeScript template resolves es remotely (%s); use the image's own `name: es`, which companion_plugins_test.go pins to %s", match, protocGenEsRuntimeVersion)
+	}
+	if !regexp.MustCompile(`(?m)^\s*-\s*name:\s*es\s*$`).Match(content) {
+		t.Error("the TypeScript template no longer runs the image's own protoc-gen-es")
+	}
+}

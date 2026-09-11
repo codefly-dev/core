@@ -1,6 +1,18 @@
 version: v1
 plugins:
-  - plugin: buf.build/bufbuild/es:v2.2.3
+  # The companion's own protoc-gen-es, not buf.build/bufbuild/es over the
+  # network. The image bakes one version, pinned from source and held to the
+  # ecosystem runtime by companion_plugins_test.go; a remote plugin carries a
+  # second pin that nothing keeps in step, so the bindings a consumer generates
+  # and the @bufbuild/protobuf it runs them against drift apart.
+  #
+  # It is also what makes the image's import markers mean anything on the
+  # descriptor-set path. A contract is a plain FileDescriptorSet, so the markers
+  # MarkForeignImports writes carry is_import but no buf module identity, and
+  # remote execution generated those files regardless; the local plugin honours
+  # them. (Markers that come from a real buf module — the Sources path — were
+  # honoured either way.) See MarkForeignImports.
+  - name: es
     out: {{.Destination}}
     opt: target=ts
 {{- if .Facade }}

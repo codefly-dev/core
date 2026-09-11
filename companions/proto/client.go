@@ -127,7 +127,7 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	var goPackageOverrides map[string]string
 	if len(spec.descriptorSet) > 0 {
 		var merr error
-		if markedDescriptorSet, goPackageOverrides, merr = MarkForeignImports(spec.descriptorSet); merr != nil {
+		if markedDescriptorSet, goPackageOverrides, merr = MarkForeignImports(spec.descriptorSet, spec.language); merr != nil {
 			return w.Wrapf(merr, "cannot mark foreign imports in descriptor set")
 		}
 	}
@@ -202,9 +202,12 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 // the descriptors stay in the pool) even though the current run emits nothing
 // there, and the fix looks like it did not work.
 //
-// Only the namespace roots that MarkForeignImports marks are removed, and they
-// are removed before buf runs, so a Sources-path caller that legitimately owns
-// protos under those paths has them regenerated in the same run.
+// Only the namespace roots that MarkForeignImports considers are removed, and
+// they are removed before buf runs, so a caller that still owns protos under
+// those paths — a Sources-path caller, or a TypeScript library that keeps its
+// google/api and buf/validate copies — has them regenerated in the same run.
+// Reclaiming them unconditionally is what keeps a namespace a contract has
+// stopped importing from living in the destination forever.
 func removeForeignOutput(ctx context.Context, destination string) error {
 	w := wool.Get(ctx).In("removeForeignOutput", wool.DirField(destination))
 	for _, ns := range foreignNamespaces {

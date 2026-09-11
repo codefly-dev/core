@@ -5,8 +5,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/codefly-dev/core/languages"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 	googleproto "google.golang.org/protobuf/proto"
@@ -50,6 +52,16 @@ func foreignSet() *descriptorpb.FileDescriptorSet {
 				},
 			},
 			{
+				// A google/protobuf file protobuf-es publishes no runtime export
+				// for. The prefix says "well-known type"; wktPublicImportPaths
+				// is what decides, and it does not carry this one.
+				Name:    googleproto.String("google/protobuf/rust_features.proto"),
+				Package: googleproto.String("google.protobuf"),
+				Options: &descriptorpb.FileOptions{
+					GoPackage: googleproto.String("google.golang.org/protobuf/types/gofeaturespb"),
+				},
+			},
+			{
 				Name:       googleproto.String("saas/accounts/v1/accounts.proto"),
 				Package:    googleproto.String("saas.accounts.v1"),
 				Dependency: []string{"google/protobuf/timestamp.proto", "google/api/annotations.proto"},
@@ -81,7 +93,7 @@ func marshal(t *testing.T, set *descriptorpb.FileDescriptorSet) []byte {
 // under google/protobuf/ but declaring the module's own package is the module's,
 // not a well-known type.
 func TestMarkForeignImports(t *testing.T) {
-	data, _, err := MarkForeignImports(marshal(t, foreignSet()))
+	data, _, err := MarkForeignImports(marshal(t, foreignSet()), languages.GO)
 	require.NoError(t, err)
 
 	var image descriptorpb.FileDescriptorSet
@@ -90,6 +102,7 @@ func TestMarkForeignImports(t *testing.T) {
 	want := map[string]bool{
 		"google/protobuf/timestamp.proto":       true,
 		"google/protobuf/compiler/plugin.proto": true,
+		"google/protobuf/rust_features.proto":   true,
 		"google/api/annotations.proto":          true,
 		"buf/validate/validate.proto":           true,
 		"saas/accounts/v1/accounts.proto":       false,
@@ -108,7 +121,72 @@ func TestMarkForeignImports(t *testing.T) {
 	require.Equal(t, "google.protobuf", image.GetFile()[0].GetPackage())
 	require.Equal(t,
 		[]string{"google/protobuf/timestamp.proto", "google/api/annotations.proto"},
-		image.GetFile()[4].GetDependency())
+		image.GetFile()[5].GetDependency())
+}
+
+// TestMarkForeignImportsTypeScriptKeepsRelativelyImportedNamespaces pins the
+// half of the answer that is language-specific. Dropping a namespace only works
+// if the generated bindings name it: protoc-gen-es publishes the well-known
+// types as @bufbuild/protobuf/wkt and imports them from there, but it has no
+// package for googleapis or protovalidate and emits a path relative to the file
+// it generates. Mark those two and the library that results imports
+// ../../google/api/annotations_pb and ../../buf/validate/validate_pb from files
+// buf was told not to write — tsc fails with TS2307 on every one of them.
+func TestMarkForeignImportsTypeScriptKeepsRelativelyImportedNamespaces(t *testing.T) {
+	data, _, err := MarkForeignImports(marshal(t, foreignSet()), languages.TYPESCRIPT)
+	require.NoError(t, err)
+
+	var image descriptorpb.FileDescriptorSet
+	require.NoError(t, googleproto.Unmarshal(data, &image))
+
+	want := map[string]bool{
+		"google/protobuf/timestamp.proto":       true,
+		"google/protobuf/compiler/plugin.proto": true,
+		"google/protobuf/rust_features.proto":   false,
+		"google/api/annotations.proto":          false,
+		"buf/validate/validate.proto":           false,
+		"saas/accounts/v1/accounts.proto":       false,
+		"google/protobuf/accounts_extras.proto": false,
+	}
+	require.Len(t, image.GetFile(), len(want))
+	for _, file := range image.GetFile() {
+		marked, known := want[file.GetName()]
+		require.True(t, known, "unexpected file %s", file.GetName())
+		require.Equal(t, marked, isMarkedAsImport(file), "file %s", file.GetName())
+	}
+}
+
+// TestMarkForeignImportsTypeScriptMarksNothingOutsideTheRuntime is the guard on
+// the list itself, rather than on today's entries. `generate client` in the CLI
+// keeps its own table of these namespaces and exempts the same ones from
+// TypeScript, and the two markings merge — a second field-8042 submessage merges
+// with the first and is_import=true merged onto true stays true — so whichever
+// side marks a file wins. Core marking a namespace the CLI deliberately left for
+// TypeScript silently overrides that decision and the library loses a file its
+// own bindings import.
+//
+// Adding a namespace root here without a runtime export for it is therefore the
+// failure, not a detail: every foreign file a TypeScript library is asked to
+// give up has to be one protobuf-es publishes.
+func TestMarkForeignImportsTypeScriptMarksNothingOutsideTheRuntime(t *testing.T) {
+	var probes []*descriptorpb.FileDescriptorProto
+	for _, ns := range foreignNamespaces {
+		probes = append(probes, &descriptorpb.FileDescriptorProto{
+			Name:    googleproto.String(ns.pathPrefix + "probe.proto"),
+			Package: googleproto.String(strings.TrimSuffix(ns.packagePrefix, ".") + ".probe"),
+		})
+	}
+	require.NotEmpty(t, probes)
+
+	data, _, err := MarkForeignImports(marshal(t, &descriptorpb.FileDescriptorSet{File: probes}), languages.TYPESCRIPT)
+	require.NoError(t, err)
+
+	var image descriptorpb.FileDescriptorSet
+	require.NoError(t, googleproto.Unmarshal(data, &image))
+	for _, file := range image.GetFile() {
+		require.False(t, isMarkedAsImport(file),
+			"%s is not published by protobuf-es, so a TypeScript library imports it relatively and must keep it", file.GetName())
+	}
 }
 
 // TestMarkForeignImportsReturnsGoPackageOverrides covers the half of the fix that
@@ -120,12 +198,13 @@ func TestMarkForeignImports(t *testing.T) {
 // library's own path and the module's bindings import a package nothing
 // generated.
 func TestMarkForeignImportsReturnsGoPackageOverrides(t *testing.T) {
-	_, overrides, err := MarkForeignImports(marshal(t, foreignSet()))
+	_, overrides, err := MarkForeignImports(marshal(t, foreignSet()), languages.GO)
 	require.NoError(t, err)
 
 	require.Equal(t, map[string]string{
 		"google/protobuf/timestamp.proto":       "google.golang.org/protobuf/types/known/timestamppb",
 		"google/protobuf/compiler/plugin.proto": "google.golang.org/protobuf/types/pluginpb",
+		"google/protobuf/rust_features.proto":   "google.golang.org/protobuf/types/gofeaturespb",
 		"google/api/annotations.proto":          "google.golang.org/genproto/googleapis/api/annotations;annotations",
 		"buf/validate/validate.proto":           "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate",
 	}, overrides)
@@ -144,9 +223,9 @@ func TestMarkForeignImportsIsIdempotent(t *testing.T) {
 		}},
 	}
 
-	once, _, err := MarkForeignImports(marshal(t, set))
+	once, _, err := MarkForeignImports(marshal(t, set), languages.GO)
 	require.NoError(t, err)
-	twice, _, err := MarkForeignImports(once)
+	twice, _, err := MarkForeignImports(once, languages.GO)
 	require.NoError(t, err)
 
 	var image descriptorpb.FileDescriptorSet
@@ -167,7 +246,7 @@ func TestMarkForeignImportsWireFormat(t *testing.T) {
 		}},
 	}
 
-	data, _, err := MarkForeignImports(marshal(t, set))
+	data, _, err := MarkForeignImports(marshal(t, set), languages.GO)
 	require.NoError(t, err)
 
 	var image descriptorpb.FileDescriptorSet
@@ -181,7 +260,7 @@ func TestMarkForeignImportsWireFormat(t *testing.T) {
 // passing them through: buf could not have generated from them either, and the
 // caller learns which of its inputs is wrong.
 func TestMarkForeignImportsRejectsGarbage(t *testing.T) {
-	_, _, err := MarkForeignImports([]byte("not-a-descriptor-set"))
+	_, _, err := MarkForeignImports([]byte("not-a-descriptor-set"), languages.GO)
 	require.Error(t, err)
 }
 

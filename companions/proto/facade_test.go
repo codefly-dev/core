@@ -34,7 +34,7 @@ func imageRef(t *testing.T, ctx context.Context) string {
 	t.Helper()
 	img, err := proto.CompanionImage(ctx)
 	require.NoError(t, err)
-	return img.Name + ":" + img.Tag
+	return img.FullName()
 }
 
 const auditProtoPath = "saas/accounts/v1/audit.proto"

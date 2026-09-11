@@ -3,6 +3,7 @@ package proto
 import (
 	"strings"
 
+	"github.com/codefly-dev/core/languages"
 	"google.golang.org/protobuf/encoding/protowire"
 	googleproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -31,11 +32,49 @@ type foreignNamespace struct {
 // foreignNamespaces covers google/protobuf (package google.protobuf and
 // google.protobuf.compiler), the rest of google/ (google.api, google.rpc,
 // google.type, ...) and buf/validate. It deliberately mirrors the namespaces
-// strip_custom_options.py refuses to vendor, so the Go/TypeScript path and the
-// Python path agree on what the generated library is allowed to own.
+// strip_custom_options.py refuses to vendor, so the Go path and the Python path
+// agree on what the generated library is allowed to own.
 var foreignNamespaces = []foreignNamespace{
 	{pathPrefix: "google/", packagePrefix: "google."},
 	{pathPrefix: "buf/validate/", packagePrefix: "buf.validate"},
+}
+
+// owns reports whether file belongs to this namespace.
+func (ns foreignNamespace) owns(file *descriptorpb.FileDescriptorProto) bool {
+	return strings.HasPrefix(file.GetName(), ns.pathPrefix) && strings.HasPrefix(file.GetPackage(), ns.packagePrefix)
+}
+
+// protobufESRuntimeFiles are the proto files protoc-gen-es imports from
+// @bufbuild/protobuf/wkt instead of a path relative to the file it is
+// generating. It is protobuf-es's own wktPublicImportPaths, enumerated rather
+// than approximated by the google/protobuf/ prefix: the two are not the same
+// set, and which files are in it changes with the generator (2.2.3 carried no
+// cpp_features, go_features or java_features). Keep it in step with the
+// protoc-gen-es the companion bakes — companion_plugins_test.go's
+// protocGenEsRuntimeVersion.
+//
+// A foreign file outside this set — anything under google/api, buf/validate, or
+// a google/protobuf file protobuf-es has no runtime export for — is emitted with
+// a relative import, so a TypeScript library has to own it. Marking one as a buf
+// image import does not move it upstream, it just leaves
+// `../../google/api/annotations_pb` pointing at a file nothing wrote, and tsc
+// fails with TS2307 on every reference.
+var protobufESRuntimeFiles = map[string]bool{
+	"google/protobuf/any.proto":             true,
+	"google/protobuf/api.proto":             true,
+	"google/protobuf/compiler/plugin.proto": true,
+	"google/protobuf/cpp_features.proto":    true,
+	"google/protobuf/descriptor.proto":      true,
+	"google/protobuf/duration.proto":        true,
+	"google/protobuf/empty.proto":           true,
+	"google/protobuf/field_mask.proto":      true,
+	"google/protobuf/go_features.proto":     true,
+	"google/protobuf/java_features.proto":   true,
+	"google/protobuf/source_context.proto":  true,
+	"google/protobuf/struct.proto":          true,
+	"google/protobuf/timestamp.proto":       true,
+	"google/protobuf/type.proto":            true,
+	"google/protobuf/wrappers.proto":        true,
 }
 
 // buf marks a file that an image carries only to resolve imports with
@@ -46,21 +85,37 @@ const (
 	bufImageFileIsImportField  = 1
 )
 
-// isForeign reports whether the generated library must not own this file's
-// bindings.
-func isForeign(file *descriptorpb.FileDescriptorProto) bool {
+// isForeign reports whether a library generated for language must not own this
+// file's bindings.
+func isForeign(file *descriptorpb.FileDescriptorProto, language languages.Language) bool {
+	owned := false
 	for _, ns := range foreignNamespaces {
-		if strings.HasPrefix(file.GetName(), ns.pathPrefix) && strings.HasPrefix(file.GetPackage(), ns.packagePrefix) {
-			return true
+		if ns.owns(file) {
+			owned = true
+			break
 		}
 	}
-	return false
+	if !owned {
+		return false
+	}
+	// Go and Python name a dropped file's package absolutely — a rewritten
+	// go_package, an untouched `from buf.validate import validate_pb2` — so
+	// every foreign namespace resolves to whatever the consumer installed.
+	// TypeScript only does for the files protobuf-es publishes in its runtime.
+	if language == languages.TYPESCRIPT {
+		return protobufESRuntimeFiles[file.GetName()]
+	}
+	return true
 }
 
 // MarkForeignImports marks every file of a serialized FileDescriptorSet that
-// belongs to a foreign namespace as a buf image import, and returns the
-// re-serialized set together with the go_package each marked file declares,
-// keyed by file name.
+// belongs to a foreign namespace the generated library can drop as a buf image
+// import, and returns the re-serialized set together with the go_package each
+// marked file declares, keyed by file name.
+//
+// Which namespaces those are depends on language, because dropping one only
+// works if the generator refers to it by package name: Go and Python do that for
+// all of them, TypeScript only for the well-known types. See foreignNamespace.
 //
 // A descriptor set handed to GenerateClient is a *plain* FileDescriptorSet —
 // a codefly contract is built with `buf build --as-file-descriptor-set`, which
@@ -93,7 +148,7 @@ func isForeign(file *descriptorpb.FileDescriptorProto) bool {
 // A caller that already marked its image loses nothing by this running again:
 // a second field-8042 submessage merges with the first, and is_import=true
 // merged onto true stays true.
-func MarkForeignImports(descriptorSet []byte) ([]byte, map[string]string, error) {
+func MarkForeignImports(descriptorSet []byte, language languages.Language) ([]byte, map[string]string, error) {
 	var set descriptorpb.FileDescriptorSet
 	if err := googleproto.Unmarshal(descriptorSet, &set); err != nil {
 		return nil, nil, err
@@ -102,7 +157,7 @@ func MarkForeignImports(descriptorSet []byte) ([]byte, map[string]string, error)
 	extension := protowire.AppendBytes(protowire.AppendTag(nil, bufImageFileExtensionField, protowire.BytesType), isImport)
 	goPackages := make(map[string]string)
 	for _, file := range set.GetFile() {
-		if !isForeign(file) {
+		if !isForeign(file, language) {
 			continue
 		}
 		message := file.ProtoReflect()
