@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 
+	dockerhelpers "github.com/codefly-dev/core/agents/helpers/docker"
 	serviceaudit "github.com/codefly-dev/core/agents/services/audit"
 	servicesbom "github.com/codefly-dev/core/agents/services/sbom"
 	"github.com/codefly-dev/core/builders"
@@ -14,6 +15,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
+	"google.golang.org/protobuf/proto"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
@@ -271,8 +273,19 @@ func (s *BuilderWrapper) SingleImageBuildResponse(req *builderv0.BuildRequest, i
 	if err != nil {
 		return s.BuildError(err)
 	}
+	cache := req.GetBuildContext().GetDockerBuildContext().GetCache()
+	if _, err := dockerhelpers.CacheArguments(cache, plan.Recipes[0].Platforms); err != nil {
+		return s.BuildError(err)
+	}
+	if cache != nil {
+		plan.Recipes[0].Cache = proto.Clone(cache).(*builderv0.BuildCacheOptions)
+	}
 	s.WithBuildPlan(plan)
-	return s.BuildResponse()
+	resp, err := s.BuildResponse()
+	if resp != nil && cache != nil {
+		resp.CacheContractVersion = dockerhelpers.CacheContractVersion
+	}
+	return resp, err
 }
 
 func (s *BuilderWrapper) BuildResponse() (*builderv0.BuildResponse, error) {
@@ -1038,6 +1051,9 @@ func (s *BuilderWrapper) DockerBuildRequest(_ context.Context, req *builderv0.Bu
 	}
 	switch v := req.BuildContext.Kind.(type) {
 	case *builderv0.BuildContext_DockerBuildContext:
+		if _, err := dockerhelpers.CacheArguments(v.DockerBuildContext.GetCache(), RecipeBuildPlatforms()); err != nil {
+			return nil, err
+		}
 		return v.DockerBuildContext, nil
 	default:
 		return nil, s.Wool.Wrapf(fmt.Errorf("unsupported build context kind: %T", v), "cannot build")

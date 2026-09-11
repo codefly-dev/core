@@ -97,6 +97,7 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 	if err != nil {
 		return builder.BuildError(err)
 	}
+	configuration.Cache = dockerRequest.GetCache()
 	b, err := dockerhelpers.NewBuilder(configuration)
 	if err != nil {
 		return builder.BuildError(err)
@@ -106,7 +107,11 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 		return builder.BuildError(err)
 	}
 	builder.WithDockerImages(image)
-	return builder.BuildResponse()
+	resp, err := builder.BuildResponse()
+	if resp != nil && dockerRequest.GetCache() != nil {
+		resp.CacheContractVersion = dockerhelpers.CacheContractVersion
+	}
+	return resp, err
 }
 
 func goDockerBuilderConfiguration(

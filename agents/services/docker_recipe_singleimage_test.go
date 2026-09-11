@@ -79,3 +79,24 @@ func TestSingleImageBuildResponseEmitsPlan(t *testing.T) {
 	require.Equal(t, "repo/app:v1", plan.GetRecipes()[0].GetImage())
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 }
+
+func TestSingleImageBuildResponseCarriesCacheWithoutChangingRecipeDigest(t *testing.T) {
+	dir := writeRecipeTree(t, true)
+	base := &Base{loaded: true}
+	wrapper := &BuilderWrapper{Base: base}
+	base.Builder = wrapper
+	req := &builderv0.BuildRequest{OutputDirectory: dir}
+	cold, err := wrapper.SingleImageBuildResponse(req, "repo/app:v1")
+	require.NoError(t, err)
+	cache := &builderv0.BuildCacheOptions{Backend: "registry", Scope: "workspace/service/app", Imports: []string{"ghcr.io/org/cache"}}
+	req.BuildContext = &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{Cache: cache}}}
+	warm, err := wrapper.SingleImageBuildResponse(req, "repo/app:v1")
+	require.NoError(t, err)
+	require.Equal(t, "registry-v1", warm.CacheContractVersion)
+	require.Equal(t, cold.GetResult().GetDockerBuildPlan().Digest, warm.GetResult().GetDockerBuildPlan().Digest)
+	recipe := warm.GetResult().GetDockerBuildPlan().Recipes[0]
+	require.Equal(t, cache.Scope, recipe.Cache.Scope)
+	cache.Scope = "mutated"
+	require.NotEqual(t, cache.Scope, recipe.Cache.Scope)
+	require.NoError(t, VerifyDockerBuildPlan(dir, warm.GetResult().GetDockerBuildPlan()))
+}

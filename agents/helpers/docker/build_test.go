@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/dockerrun"
 )
@@ -263,9 +264,11 @@ type scriptedBackend struct {
 	architecture string
 	platforms    []string
 	calls        int
+	cache        *builderv0.BuildCacheOptions
 }
 
 func (b *scriptedBackend) Build(_ context.Context, req backendBuildRequest) error {
+	b.cache = req.Cache
 	b.platforms = append(b.platforms, req.Platform)
 	b.calls++
 	if b.buildErr != nil {

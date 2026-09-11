@@ -28,7 +28,9 @@ type DockerBuildContext struct {
 	// docker_repository is the image repository used for Docker builds.
 	DockerRepository string `protobuf:"bytes,1,opt,name=docker_repository,json=dockerRepository,proto3" json:"docker_repository,omitempty"`
 	// image_digest is the immutable sha256 manifest digest used for promotable output.
-	ImageDigest   string `protobuf:"bytes,2,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
+	ImageDigest string `protobuf:"bytes,2,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
+	// cache configures optional external layer reuse, never artifact or test reuse.
+	Cache         *BuildCacheOptions `protobuf:"bytes,3,opt,name=cache,proto3" json:"cache,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -75,6 +77,13 @@ func (x *DockerBuildContext) GetImageDigest() string {
 		return x.ImageDigest
 	}
 	return ""
+}
+
+func (x *DockerBuildContext) GetCache() *BuildCacheOptions {
+	if x != nil {
+		return x.Cache
+	}
+	return nil
 }
 
 // DockerBuildResult captures Docker image references produced by a build.
@@ -212,7 +221,9 @@ type DockerBuildRecipe struct {
 	// build_args are Docker build arguments passed with --build-arg.
 	BuildArgs map[string]string `protobuf:"bytes,7,rep,name=build_args,json=buildArgs,proto3" json:"build_args,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// target is the optional Dockerfile stage to build.
-	Target        string `protobuf:"bytes,8,opt,name=target,proto3" json:"target,omitempty"`
+	Target string `protobuf:"bytes,8,opt,name=target,proto3" json:"target,omitempty"`
+	// cache carries caller transport policy separately from recipe file integrity.
+	Cache         *BuildCacheOptions `protobuf:"bytes,9,opt,name=cache,proto3" json:"cache,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -303,6 +314,13 @@ func (x *DockerBuildRecipe) GetTarget() string {
 	return ""
 }
 
+func (x *DockerBuildRecipe) GetCache() *BuildCacheOptions {
+	if x != nil {
+		return x.Cache
+	}
+	return nil
+}
+
 // DockerBuildPlan is the reproducible recipe set a builder emits to the caller's
 // output_directory. The caller owns running docker buildx from the recipes, so
 // the recipes are a durable, first-class artifact rather than an image built
@@ -380,21 +398,106 @@ func (x *DockerBuildPlan) GetContractVersion() string {
 	return ""
 }
 
+// BuildCacheOptions is caller-owned transport policy. Registry credentials are
+// resolved by Docker, never serialized into a request or recipe.
+type BuildCacheOptions struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// imports are trusted registry cache repositories to read.
+	Imports []string `protobuf:"bytes,1,rep,name=imports,proto3" json:"imports,omitempty"`
+	// exports are registry cache repositories to write; empty is read-only.
+	Exports []string `protobuf:"bytes,2,rep,name=exports,proto3" json:"exports,omitempty"`
+	// scope separates workspace/service/recipe and trust domain. It must be stable
+	// across source edits. The backend adds the target platform to the cache tag.
+	Scope string `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`
+	// mode selects exported layers. Empty defaults to min; max includes intermediate layers.
+	Mode string `protobuf:"bytes,4,opt,name=mode,proto3" json:"mode,omitempty"`
+	// backend currently supports only registry; unknown or empty backends fail.
+	Backend       string `protobuf:"bytes,5,opt,name=backend,proto3" json:"backend,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BuildCacheOptions) Reset() {
+	*x = BuildCacheOptions{}
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BuildCacheOptions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BuildCacheOptions) ProtoMessage() {}
+
+func (x *BuildCacheOptions) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BuildCacheOptions.ProtoReflect.Descriptor instead.
+func (*BuildCacheOptions) Descriptor() ([]byte, []int) {
+	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *BuildCacheOptions) GetImports() []string {
+	if x != nil {
+		return x.Imports
+	}
+	return nil
+}
+
+func (x *BuildCacheOptions) GetExports() []string {
+	if x != nil {
+		return x.Exports
+	}
+	return nil
+}
+
+func (x *BuildCacheOptions) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+func (x *BuildCacheOptions) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *BuildCacheOptions) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
 var File_codefly_services_builder_v0_docker_proto protoreflect.FileDescriptor
 
 const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\n" +
-	"(codefly/services/builder/v0/docker.proto\x12\x1bcodefly.services.builder.v0\"d\n" +
+	"(codefly/services/builder/v0/docker.proto\x12\x1bcodefly.services.builder.v0\"\xaa\x01\n" +
 	"\x12DockerBuildContext\x12+\n" +
 	"\x11docker_repository\x18\x01 \x01(\tR\x10dockerRepository\x12!\n" +
-	"\fimage_digest\x18\x02 \x01(\tR\vimageDigest\"+\n" +
+	"\fimage_digest\x18\x02 \x01(\tR\vimageDigest\x12D\n" +
+	"\x05cache\x18\x03 \x01(\v2..codefly.services.builder.v0.BuildCacheOptionsR\x05cache\"+\n" +
 	"\x11DockerBuildResult\x12\x16\n" +
 	"\x06images\x18\x01 \x03(\tR\x06images\"L\n" +
 	"\n" +
 	"RecipeFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06digest\x18\x02 \x01(\tR\x06digest\x12\x12\n" +
-	"\x04mode\x18\x03 \x01(\rR\x04mode\"\xed\x02\n" +
+	"\x04mode\x18\x03 \x01(\rR\x04mode\"\xb3\x03\n" +
 	"\x11DockerBuildRecipe\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
@@ -406,7 +509,8 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\tplatforms\x18\x06 \x03(\tR\tplatforms\x12\\\n" +
 	"\n" +
 	"build_args\x18\a \x03(\v2=.codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntryR\tbuildArgs\x12\x16\n" +
-	"\x06target\x18\b \x01(\tR\x06target\x1a<\n" +
+	"\x06target\x18\b \x01(\tR\x06target\x12D\n" +
+	"\x05cache\x18\t \x01(\v2..codefly.services.builder.v0.BuildCacheOptionsR\x05cache\x1a<\n" +
 	"\x0eBuildArgsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdd\x01\n" +
@@ -414,7 +518,13 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\arecipes\x18\x01 \x03(\v2..codefly.services.builder.v0.DockerBuildRecipeR\arecipes\x12=\n" +
 	"\x05files\x18\x02 \x03(\v2'.codefly.services.builder.v0.RecipeFileR\x05files\x12\x16\n" +
 	"\x06digest\x18\x03 \x01(\tR\x06digest\x12)\n" +
-	"\x10contract_version\x18\x04 \x01(\tR\x0fcontractVersionB\x84\x02\n" +
+	"\x10contract_version\x18\x04 \x01(\tR\x0fcontractVersion\"\x8b\x01\n" +
+	"\x11BuildCacheOptions\x12\x18\n" +
+	"\aimports\x18\x01 \x03(\tR\aimports\x12\x18\n" +
+	"\aexports\x18\x02 \x03(\tR\aexports\x12\x14\n" +
+	"\x05scope\x18\x03 \x01(\tR\x05scope\x12\x12\n" +
+	"\x04mode\x18\x04 \x01(\tR\x04mode\x12\x18\n" +
+	"\abackend\x18\x05 \x01(\tR\abackendB\x84\x02\n" +
 	"\x1fcom.codefly.services.builder.v0B\vDockerProtoP\x01ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\xa2\x02\x04CSBV\xaa\x02\x1bCodefly.Services.Builder.V0\xca\x02\x1bCodefly\\Services\\Builder\\V0\xe2\x02'Codefly\\Services\\Builder\\V0\\GPBMetadata\xea\x02\x1eCodefly::Services::Builder::V0b\x06proto3"
 
 var (
@@ -429,24 +539,27 @@ func file_codefly_services_builder_v0_docker_proto_rawDescGZIP() []byte {
 	return file_codefly_services_builder_v0_docker_proto_rawDescData
 }
 
-var file_codefly_services_builder_v0_docker_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_codefly_services_builder_v0_docker_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_codefly_services_builder_v0_docker_proto_goTypes = []any{
 	(*DockerBuildContext)(nil), // 0: codefly.services.builder.v0.DockerBuildContext
 	(*DockerBuildResult)(nil),  // 1: codefly.services.builder.v0.DockerBuildResult
 	(*RecipeFile)(nil),         // 2: codefly.services.builder.v0.RecipeFile
 	(*DockerBuildRecipe)(nil),  // 3: codefly.services.builder.v0.DockerBuildRecipe
 	(*DockerBuildPlan)(nil),    // 4: codefly.services.builder.v0.DockerBuildPlan
-	nil,                        // 5: codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
+	(*BuildCacheOptions)(nil),  // 5: codefly.services.builder.v0.BuildCacheOptions
+	nil,                        // 6: codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
 }
 var file_codefly_services_builder_v0_docker_proto_depIdxs = []int32{
-	5, // 0: codefly.services.builder.v0.DockerBuildRecipe.build_args:type_name -> codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
-	3, // 1: codefly.services.builder.v0.DockerBuildPlan.recipes:type_name -> codefly.services.builder.v0.DockerBuildRecipe
-	2, // 2: codefly.services.builder.v0.DockerBuildPlan.files:type_name -> codefly.services.builder.v0.RecipeFile
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	5, // 0: codefly.services.builder.v0.DockerBuildContext.cache:type_name -> codefly.services.builder.v0.BuildCacheOptions
+	6, // 1: codefly.services.builder.v0.DockerBuildRecipe.build_args:type_name -> codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
+	5, // 2: codefly.services.builder.v0.DockerBuildRecipe.cache:type_name -> codefly.services.builder.v0.BuildCacheOptions
+	3, // 3: codefly.services.builder.v0.DockerBuildPlan.recipes:type_name -> codefly.services.builder.v0.DockerBuildRecipe
+	2, // 4: codefly.services.builder.v0.DockerBuildPlan.files:type_name -> codefly.services.builder.v0.RecipeFile
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_builder_v0_docker_proto_init() }
@@ -460,7 +573,7 @@ func file_codefly_services_builder_v0_docker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_builder_v0_docker_proto_rawDesc), len(file_codefly_services_builder_v0_docker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

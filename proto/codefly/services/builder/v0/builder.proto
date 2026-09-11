@@ -304,6 +304,8 @@ message BuildResponse {
   BuildStatus state = 1;
   // result is the structured operation outcome.
   BuildResult result = 2;
+  // cache_contract_version acknowledges applied cache semantics; absent on older agents.
+  string cache_contract_version = 3;
 }
 
 /*

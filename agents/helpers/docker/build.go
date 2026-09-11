@@ -2,7 +2,6 @@ package docker
 
 import (
 	"archive/tar"
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -11,10 +10,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/wool"
+	"github.com/moby/patternmatcher"
+	"github.com/moby/patternmatcher/ignorefile"
 )
 
 type Env struct {
@@ -43,6 +47,7 @@ type BuilderConfiguration struct {
 	// Platform is the target build platform (e.g. "linux/amd64"). Empty means
 	// BuildPlatformEnvironmentVariable, then DefaultBuildPlatform.
 	Platform string
+	Cache    *builderv0.BuildCacheOptions
 	Output   io.Writer
 }
 
@@ -66,6 +71,7 @@ type backendBuildRequest struct {
 	Tag        string
 	Context    []byte
 	Output     io.Writer
+	Cache      *builderv0.BuildCacheOptions
 }
 
 func IsValidDockerImageName(_ string) bool {
@@ -82,7 +88,8 @@ func NewBuilder(cfg BuilderConfiguration) (*Builder, error) {
 
 type BuilderOutput struct {
 	// Image is the fully-qualified tag of the image that was built.
-	Image string
+	Image    string
+	Duration time.Duration
 }
 
 // platform resolves the effective build platform: an explicit configuration
@@ -100,6 +107,10 @@ func (builder *Builder) platform() string {
 func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	w := wool.Get(ctx).In("Builder.Build", wool.DirField(builder.Root))
 
+	started := time.Now()
+	if _, err := CacheArguments(builder.Cache, []string{builder.platform()}); err != nil {
+		return nil, err
+	}
 	buildContextBuffer, err := builder.createTarArchive(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create tar archive")
@@ -110,7 +121,9 @@ func (builder *Builder) Build(ctx context.Context) (*BuilderOutput, error) {
 	if err := builder.build(ctx, platform, buildContext); err != nil {
 		return nil, err
 	}
-	return &BuilderOutput{Image: builder.Destination.FullName()}, nil
+	duration := time.Since(started)
+	w.Info("image build completed", wool.Field("duration", duration))
+	return &BuilderOutput{Image: builder.Destination.FullName(), Duration: duration}, nil
 }
 
 func (builder *Builder) build(ctx context.Context, platform string, buildContext []byte) error {
@@ -119,6 +132,7 @@ func (builder *Builder) build(ctx context.Context, platform string, buildContext
 
 	if err := builder.backend.Build(ctx, backendBuildRequest{
 		Platform:   platform,
+		Cache:      builder.Cache,
 		Dockerfile: builder.Dockerfile,
 		Tag:        tag,
 		Context:    buildContext,
@@ -183,6 +197,10 @@ func normalizeArch(arch string) string {
 type dockerCLIBackend struct{}
 
 func (dockerCLIBackend) Build(ctx context.Context, req backendBuildRequest) error {
+	cacheArgs, err := CacheArguments(req.Cache, []string{req.Platform})
+	if err != nil {
+		return err
+	}
 	if err := ensureBuildx(ctx); err != nil {
 		return err
 	}
@@ -196,14 +214,16 @@ func (dockerCLIBackend) Build(ctx context.Context, req backendBuildRequest) erro
 	// can be inspected and pushed. The context is the already
 	// dockerignore-filtered tar, fed on stdin; -f names the Dockerfile inside
 	// it.
-	cmd := exec.CommandContext(ctx, "docker", "buildx", "build",
+	args := []string{"buildx", "build",
 		"--platform", req.Platform,
 		"--load",
 		"--progress", "plain",
 		"-f", req.Dockerfile,
 		"-t", req.Tag,
-		"-",
-	)
+	}
+	args = append(args, cacheArgs...)
+	args = append(args, "-")
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Stdin = bytes.NewReader(req.Context)
 	cmd.Stdout = out
 	cmd.Stderr = out
@@ -335,7 +355,6 @@ func (builder *Builder) readDockerignore(ctx context.Context) ([]string, error) 
 	if builder.Ignorefile == "" {
 		return nil, nil
 	}
-	w := wool.Get(ctx).In("Builder.readDockerignore", wool.DirField(builder.Root))
 	ignoreFilePath := filepath.Join(builder.Root, builder.Ignorefile)
 	file, err := os.Open(ignoreFilePath)
 	if err != nil {
@@ -346,34 +365,7 @@ func (builder *Builder) readDockerignore(ctx context.Context) ([]string, error) 
 	}
 	defer file.Close()
 
-	var patterns []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" && !strings.HasPrefix(line, "#") {
-			patterns = append(patterns, line)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	w.Debug("patterns", wool.Field("patterns", patterns))
-	return patterns, nil
-}
-
-func shouldIgnore(ctx context.Context, file string, patterns []string) bool {
-	w := wool.Get(ctx).In("Builder.shouldIgnore", wool.Field("file", file), wool.Field("patterns", patterns))
-	for _, pattern := range patterns {
-		matched, err := filepath.Match(pattern, file)
-		if err != nil {
-			w.Focus("error", wool.ErrField(err))
-			continue // Invalid pattern, skip it
-		}
-		if matched {
-			return true
-		}
-	}
-	return false
+	return ignorefile.ReadAll(file)
 }
 
 // createTarArchive creates a tar archive from the provided directory and returns it as a bytes buffer.
@@ -385,6 +377,11 @@ func (builder *Builder) createTarArchive(ctx context.Context) (*bytes.Buffer, er
 	tw := tar.NewWriter(buf)
 
 	patterns, err := builder.readDockerignore(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	matcher, err := patternmatcher.New(patterns)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +404,11 @@ func (builder *Builder) createTarArchive(ctx context.Context) (*bytes.Buffer, er
 			return err
 		}
 
-		if shouldIgnore(ctx, rel, patterns) {
+		ignored, err := matcher.MatchesOrParentMatches(filepath.ToSlash(rel))
+		if err != nil {
+			return err
+		}
+		if ignored {
 			return nil
 		}
 
