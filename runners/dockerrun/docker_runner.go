@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/codefly-dev/core/resources"
@@ -1028,11 +1029,8 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 	// when reader was already nil (e.g. GetLogs nil'd it but the goroutine is
 	// still finishing) so we never leave a forwarder running past Shutdown.
 	docker.forwarderWG.Wait()
-	exists, err := docker.IsContainerPresent(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot check if container is running")
-	}
-	if exists {
+	// Teardown owns the acquired generation, never a successor with the same name.
+	if docker.instance != nil && docker.instance.ID != "" {
 		// Try graceful Stop first. If it fails (docker daemon unreachable,
 		// container already gone, etc.), log and continue — Remove with
 		// Force=true below will finish the job, but we prefer the in-
@@ -1041,7 +1039,7 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 		if err := docker.Stop(ctx); err != nil {
 			w.Warn("stop failed; falling back to force remove", wool.ErrField(err))
 		}
-		if err := docker.remove(); err != nil {
+		if err := docker.remove(); err != nil && !errdefs.IsNotFound(err) {
 			return w.Wrapf(err, "cannot remove container")
 		}
 	}
