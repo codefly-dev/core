@@ -48,7 +48,8 @@ func TestGoNativeConsumption(t *testing.T) {
 	root := t.TempDir()
 	writeFixture(t, root, "go.mod", "module fixture\n\ngo 1.25\n")
 	writeFixture(t, root, "value.txt", "production")
-	writeFixture(t, root, "main_test.go", "package main\nimport (\"testing\";\"os\")\nfunc TestValue(t *testing.T){b,e:=os.ReadFile(\"testdata/value.txt\");if e!=nil||string(b)!=value{t.Fatal(string(b),e)}}\n")
+	writeFixture(t, root, "testhelpers/value.go", "package testhelpers\nconst Value=1\n")
+	writeFixture(t, root, "main_test.go", "package main\nimport (\"testing\";\"os\";\"fixture/testhelpers\")\nfunc TestValue(t *testing.T){_ = testhelpers.Value;b,e:=os.ReadFile(\"testdata/value.txt\");if e!=nil||string(b)!=value{t.Fatal(string(b),e)}}\n")
 	writeFixture(t, root, "testdata/value.txt", "production")
 	writeFixture(t, root, "lib/value.go", "package lib\nconst Value=\"production\"\n")
 	writeFixture(t, root, "main.go", "package main\nimport(\"fmt\";\"fixture/lib\";_ \"embed\")\n//go:embed value.txt\nvar value string\nfunc main(){fmt.Print(lib.Value)}\n")
@@ -58,6 +59,12 @@ func TestGoNativeConsumption(t *testing.T) {
 	before := discover()
 	native(t, root, "go", "build", "-o", filepath.Join(root, "app"), ".")
 	native(t, root, "go", "test", "-count=1", ".")
+	writeFixture(t, root, "testhelpers/value.go", "package testhelpers\nconst Value=2\n")
+	helperAfter := discover()
+	if got := Changed(before, helperAfter); len(got) != 1 || got[0] != unit {
+		t.Fatalf("test-only imported package affected production: %v", got)
+	}
+	before = helperAfter
 	writeFixture(t, root, "main_test.go", "package main\nimport \"testing\"\nfunc TestValue(t *testing.T){if value!=\"production\"{t.Fatal(value)}}\n")
 	after := discover()
 	if got := Changed(before, after); len(got) != 1 || got[0] != unit {
@@ -165,52 +172,61 @@ func (s *nativeInputAgent) GetEffectiveInputs(ctx context.Context, req *agent.Ge
 	production, tests := map[string]bool{}, map[string]bool{}
 	tool := "go"
 	if s.language == "go" {
-		cmd := exec.CommandContext(ctx, "go", "list", "-deps", "-test", "-json", ".")
-		cmd.Dir = s.root
-		data, err := cmd.Output()
-		if err != nil {
-			return nil, err
-		}
-		dec := json.NewDecoder(bytes.NewReader(data))
-		for {
-			var pkg struct {
-				Dir                                                                                                                         string
-				Standard                                                                                                                    bool
-				ForTest                                                                                                                     string
-				GoFiles, CgoFiles, CFiles, CXXFiles, HFiles, SFiles, EmbedFiles, TestGoFiles, XTestGoFiles, TestEmbedFiles, XTestEmbedFiles []string
+		for _, target := range []struct {
+			files map[string]bool
+			test  bool
+		}{{production, false}, {tests, true}} {
+			args := []string{"list", "-deps", "-json"}
+			if target.test {
+				args = append(args, "-test")
 			}
-			if err := dec.Decode(&pkg); err == io.EOF {
-				break
-			} else if err != nil {
-				return nil, err
-			}
-			if pkg.Standard || pkg.Dir == "" {
-				continue
-			}
-			rel, err := filepath.Rel(s.root, pkg.Dir)
+			args = append(args, ".")
+			cmd := exec.CommandContext(ctx, "go", args...)
+			cmd.Dir = s.root
+			data, err := cmd.Output()
 			if err != nil {
 				return nil, err
 			}
-			if !filepath.IsLocal(rel) {
-				return nil, fmt.Errorf("fixture has external dependency")
-			}
-			for _, group := range [][]string{pkg.GoFiles, pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles, pkg.HFiles, pkg.SFiles, pkg.EmbedFiles} {
-				for _, file := range group {
-					if filepath.IsAbs(file) {
-						continue
-					} // Synthetic test mains are covered by the resolved Go toolchain.
-					name := filepath.ToSlash(filepath.Join(rel, file))
-					tests[name] = true
-					if pkg.ForTest == "" && !strings.HasSuffix(file, "_test.go") {
-						production[name] = true
+			dec := json.NewDecoder(bytes.NewReader(data))
+			for {
+				var pkg struct {
+					Dir                                                                                                                         string
+					Standard                                                                                                                    bool
+					GoFiles, CgoFiles, CFiles, CXXFiles, HFiles, SFiles, EmbedFiles, TestGoFiles, XTestGoFiles, TestEmbedFiles, XTestEmbedFiles []string
+				}
+				if err := dec.Decode(&pkg); err == io.EOF {
+					break
+				} else if err != nil {
+					return nil, err
+				}
+				if pkg.Standard || pkg.Dir == "" {
+					continue
+				}
+				rel, err := filepath.Rel(s.root, pkg.Dir)
+				if err != nil {
+					return nil, err
+				}
+				if !filepath.IsLocal(rel) {
+					return nil, fmt.Errorf("fixture has external dependency")
+				}
+				for _, group := range [][]string{pkg.GoFiles, pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles, pkg.HFiles, pkg.SFiles, pkg.EmbedFiles} {
+					for _, file := range group {
+						if filepath.IsAbs(file) {
+							continue
+						} // Synthetic test mains are covered by the resolved Go toolchain.
+						name := filepath.ToSlash(filepath.Join(rel, file))
+						target.files[name] = true
+					}
+				}
+				if target.test {
+					for _, group := range [][]string{pkg.TestGoFiles, pkg.XTestGoFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles} {
+						for _, file := range group {
+							tests[filepath.ToSlash(filepath.Join(rel, file))] = true
+						}
 					}
 				}
 			}
-			for _, group := range [][]string{pkg.TestGoFiles, pkg.XTestGoFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles} {
-				for _, file := range group {
-					tests[filepath.ToSlash(filepath.Join(rel, file))] = true
-				}
-			}
+
 		}
 		production["go.mod"] = true
 		tests["go.mod"] = true
