@@ -23,6 +23,10 @@ func (c *PreparedBuildContext) Close() error { return os.RemoveAll(c.directory) 
 // applies each ignore policy before any files reach BuildKit. Custom policy
 // may exclude more files, but its negations cannot undo root exclusions.
 func PrepareBuildContext(ctx context.Context, root, dockerfile, customIgnore string) (_ *PreparedBuildContext, err error) {
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
 	var matchers []*patternmatcher.PatternMatcher
 	seen := map[string]bool{}
 	for _, name := range []string{".dockerignore", dockerfile + ".dockerignore", customIgnore} {
@@ -68,6 +72,9 @@ func PrepareBuildContext(ctx context.Context, root, dockerfile, customIgnore str
 		return nil, err
 	}
 	err = filepath.WalkDir(root, func(file string, entry os.DirEntry, walkErr error) error {
+		if file == directory {
+			return filepath.SkipDir
+		}
 		if walkErr != nil {
 			return walkErr
 		}

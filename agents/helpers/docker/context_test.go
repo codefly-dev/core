@@ -62,3 +62,16 @@ func TestPreparedContextPreservesExecutableAndSymlink(t *testing.T) {
 	_, err = PrepareBuildContext(ctx, root, "Dockerfile", "")
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+func TestPreparedContextDoesNotRecursivelyCopyItsStagingDirectory(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TMPDIR", root)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "Dockerfile"), []byte("FROM scratch"), 0600))
+	prepared, err := PrepareBuildContext(context.Background(), root, "Dockerfile", "")
+	require.NoError(t, err)
+	defer prepared.Close()
+	entries, err := os.ReadDir(prepared.Root)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, "Dockerfile", entries[0].Name())
+}
