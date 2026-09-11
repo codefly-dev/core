@@ -4,10 +4,24 @@ from concurrent import futures
 
 import grpc
 
-from codefly.services.agent.v0 import agent_pb2_grpc, inputs_pb2
+from codefly.services.agent.v0 import agent_pb2, agent_pb2_grpc, inputs_pb2
 
 
 class EffectiveInputsContractTest(unittest.TestCase):
+    def test_published_runtime_requirements_api(self):
+        self.assertEqual(agent_pb2.Runtime.NIX, 8)
+        self.assertEqual(agent_pb2.Runtime.RUST, 9)
+        self.assertEqual(agent_pb2.Runtime.CARGO, 10)
+        message = agent_pb2.AgentInformation(runtime_requirements=[
+            agent_pb2.Runtime(type=agent_pb2.Runtime.GO, version="1.27")
+        ])
+        # Serialized by the SDK on the base branch, before input discovery.
+        published_wire = bytes.fromhex("0a0808011204312e3237")
+        self.assertEqual(message.SerializeToString(), published_wire)
+        self.assertEqual(
+            agent_pb2.AgentInformation.FromString(published_wire), message
+        )
+
     def test_v1_identity_matches_go(self):
         task = inputs_pb2.TaskInputs(
             task=inputs_pb2.TaskKey(phase=inputs_pb2.TASK_PHASE_ARTIFACT_BUILD),
