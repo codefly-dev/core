@@ -1,0 +1,28 @@
+syntax = "proto3";
+package annotated;
+
+import "buf/validate/validate.proto";
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+// The ordinary shape of a gateway-facing service: HTTP annotations, a
+// protovalidate constraint, and a well-known type. The three land in different
+// places in the generated TypeScript — google/api and buf/validate relative to
+// the bindings, google/protobuf in @bufbuild/protobuf/wkt.
+
+message VersionRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message VersionResponse {
+    string version = 1;
+    google.protobuf.Timestamp released_at = 2;
+}
+
+service BuildService {
+    rpc Version(VersionRequest) returns (VersionResponse) {
+        option (google.api.http) = {
+            get: "/version/{id}"
+        };
+    }
+}

@@ -118,3 +118,54 @@ func TestGoConfigurationOmitsEmptyGoPackageOverrides(t *testing.T) {
 		t.Fatalf("no overrides were requested, none must be rendered:\n%s", configuration)
 	}
 }
+
+// TestTypeScriptIncludeImportsIsScopedToTheBindingsPlugin pins the reason the
+// TypeScript template is version v2.
+//
+// The bindings need the imported files generated: protoc-gen-es names them by a
+// path relative to the file it emits, so without them the library imports files
+// nothing wrote. The facade must not see them — a CodeGeneratorRequest carries
+// no is_import, so a dependency that declares a service is indistinguishable
+// from one of ours and gets a facade of its own, while its package joins the
+// module's in the count that decides whether module= is honoured. As a
+// command-line flag there is no way to say one and not the other.
+func TestTypeScriptIncludeImportsIsScopedToTheBindingsPlugin(t *testing.T) {
+	dir := t.TempDir()
+	if err := CreateBufConfiguration(context.Background(), dir, "rest", languages.TYPESCRIPT,
+		FacadeOptions{Facade: true, Module: "rest"}, WithIncludeImports(true)); err != nil {
+		t.Fatalf("CreateBufConfiguration: %v", err)
+	}
+	configuration, err := os.ReadFile(filepath.Join(dir, "buf.gen.yaml"))
+	if err != nil {
+		t.Fatalf("read generated buf config: %v", err)
+	}
+	bindings, facade, found := strings.Cut(string(configuration), "protoc-gen-codefly-facade-ts")
+	if !found {
+		t.Fatal("the TypeScript template no longer runs the facade plugin")
+	}
+	if !strings.Contains(bindings, "include_imports: true") {
+		t.Error("the bindings plugin is not asked for the imports, so every google/api and buf/validate reference dangles")
+	}
+	if strings.Contains(facade, "include_imports") {
+		t.Error("the facade plugin is given the imports, so a dependency's service becomes one of ours")
+	}
+}
+
+// TestTypeScriptDescriptorSetKeepsImportsOut is the other half: an image built
+// as a codefly contract carries its foreign files already marked, and asking
+// for the imports re-targets them — a local google/protobuf/timestamp_pb.ts
+// beside the consumer's @bufbuild/protobuf/wkt one.
+func TestTypeScriptDescriptorSetKeepsImportsOut(t *testing.T) {
+	dir := t.TempDir()
+	if err := CreateBufConfiguration(context.Background(), dir, "rest", languages.TYPESCRIPT,
+		FacadeOptions{}, WithIncludeImports(false)); err != nil {
+		t.Fatalf("CreateBufConfiguration: %v", err)
+	}
+	configuration, err := os.ReadFile(filepath.Join(dir, "buf.gen.yaml"))
+	if err != nil {
+		t.Fatalf("read generated buf config: %v", err)
+	}
+	if strings.Contains(string(configuration), "include_imports: true") {
+		t.Error("the descriptor-set path asks for the imports it was handed already marked")
+	}
+}

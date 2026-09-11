@@ -83,6 +83,10 @@ type TypeScriptConfiguration struct {
 	Facade      bool
 	Services    string
 	Module      string
+	// IncludeImports asks buf to generate the dependency files the bindings
+	// import by a relative path. Scoped to the bindings plugin, so the facade
+	// keeps seeing only the files the library owns.
+	IncludeImports bool
 }
 
 type RustConfiguration struct {
@@ -95,6 +99,7 @@ type BufConfigurationOption func(*bufConfigurationOptions)
 
 type bufConfigurationOptions struct {
 	goPackageOverrides map[string]string
+	includeImports     bool
 }
 
 // WithGoPackageOverrides pins the go_package of files that are present in the
@@ -104,6 +109,13 @@ type bufConfigurationOptions struct {
 // MarkForeignImports.
 func WithGoPackageOverrides(overrides map[string]string) BufConfigurationOption {
 	return func(o *bufConfigurationOptions) { o.goPackageOverrides = overrides }
+}
+
+// WithIncludeImports asks buf to generate the imported files as well, for the
+// plugins whose output references them by a relative path. TypeScript only:
+// every other generator names a dropped file's package absolutely.
+func WithIncludeImports(include bool) BufConfigurationOption {
+	return func(o *bufConfigurationOptions) { o.includeImports = include }
 }
 
 func CreateBufConfiguration(ctx context.Context, bufDir string, service string, language languages.Language, facade FacadeOptions, opts ...BufConfigurationOption) error {
@@ -126,7 +138,7 @@ func CreateBufConfiguration(ctx context.Context, bufDir string, service string, 
 		}
 		return nil
 	case languages.TYPESCRIPT:
-		err := templateTypeScriptConfiguration(ctx, bufDir, facade)
+		err := templateTypeScriptConfiguration(ctx, bufDir, facade, options.includeImports)
 		if err != nil {
 			return w.Wrapf(err, "cannot templatize")
 		}
@@ -177,14 +189,15 @@ func templatePythonConfiguration(ctx context.Context, bufDir string, facade Faca
 	return nil
 }
 
-func templateTypeScriptConfiguration(ctx context.Context, bufDir string, facade FacadeOptions) error {
+func templateTypeScriptConfiguration(ctx context.Context, bufDir string, facade FacadeOptions, includeImports bool) error {
 	w := wool.Get(ctx).In("templateTypeScriptConfiguration", wool.Field("bufDir", bufDir))
 	templator := &templates.Templator{NameReplacer: templates.CutTemplateSuffix{}}
 	conf := TypeScriptConfiguration{
-		Destination: outputDir,
-		Facade:      facade.Facade,
-		Services:    facade.services(),
-		Module:      facade.Module,
+		Destination:    outputDir,
+		Facade:         facade.Facade,
+		Services:       facade.services(),
+		Module:         facade.Module,
+		IncludeImports: includeImports,
 	}
 	err := templator.CopyAndApply(ctx, typescriptFS, "templates/typescript", bufDir, conf)
 	if err != nil {
