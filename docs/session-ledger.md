@@ -290,3 +290,25 @@ records are neither parsed nor quarantined by it, and the `v1` reader ignores
 `v2`. A release that must reconcile both registers both readers. Records are
 decoded with unknown fields rejected, so an additive field is a schema bump, not
 a silent forward-compatibility trick.
+
+## Startup container recovery scope
+
+The legacy PID-based startup sweep requires an exact `codefly.recovery-scope`
+label before checking owner liveness. The label hashes canonical Codefly home,
+workspace path and resolved naming scope. A different home, workspace or scope
+cannot claim a container, even when its creator PID is gone. Containers without
+this label, or with missing/malformed owner PIDs, require explicit owner recovery;
+startup does not infer ownership from container names.
+
+The CLI sets the scope after resolving its run environment and before spawning
+agents. `SetContainerRecoveryScope` projects a PID-bound process marker to direct
+children; Docker environments built against this Core version emit the label.
+Older agents do not emit it and their containers remain outside startup cleanup.
+No automatic relabeling or migration of retained containers occurs.
+
+Within the same scope, live owners and running stateful containers are retained.
+Stopped containers and running ephemeral containers with dead owners can be
+removed, without requesting volume removal. Containers carrying an invocation
+label always remain owned by session-ledger recovery, including when stopped.
+The scope is an isolation boundary between cooperating local runs, not protection
+against a user with direct Docker-daemon access.
