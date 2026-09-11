@@ -85,10 +85,6 @@ type TypeScriptConfiguration struct {
 	Module      string
 }
 
-type RustConfiguration struct {
-	Destination string
-}
-
 // BufConfigurationOption tunes the rendered buf configuration. It is variadic so
 // existing callers keep compiling unchanged.
 type BufConfigurationOption func(*bufConfigurationOptions)
@@ -132,11 +128,7 @@ func CreateBufConfiguration(ctx context.Context, bufDir string, service string, 
 		}
 		return nil
 	case languages.RUST:
-		err := templateRustConfiguration(ctx, bufDir)
-		if err != nil {
-			return w.Wrapf(err, "cannot templatize")
-		}
-		return nil
+		return w.NewError("%s", rustClientUnsupported)
 	case languages.NotSupported:
 		return w.NewError("language not supported")
 	}
@@ -187,19 +179,6 @@ func templateTypeScriptConfiguration(ctx context.Context, bufDir string, facade 
 		Module:      facade.Module,
 	}
 	err := templator.CopyAndApply(ctx, typescriptFS, "templates/typescript", bufDir, conf)
-	if err != nil {
-		return w.Wrapf(err, "cannot copy and apply template")
-	}
-	return nil
-}
-
-func templateRustConfiguration(ctx context.Context, bufDir string) error {
-	w := wool.Get(ctx).In("templateRustConfiguration", wool.Field("bufDir", bufDir))
-	templator := &templates.Templator{NameReplacer: templates.CutTemplateSuffix{}}
-	conf := RustConfiguration{
-		Destination: outputDir,
-	}
-	err := templator.CopyAndApply(ctx, rustFS, "templates/rust", bufDir, conf)
 	if err != nil {
 		return w.Wrapf(err, "cannot copy and apply template")
 	}
@@ -272,6 +251,3 @@ var pythonFS embed.FS
 
 //go:embed templates/typescript
 var typescriptFS embed.FS
-
-//go:embed templates/rust
-var rustFS embed.FS

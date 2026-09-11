@@ -57,6 +57,21 @@ needs no Linux builder VM, which is why the publish workflow uses it.
 | `grpcio-tools` (python)       | `grpc_python_plugin` for Python bindings |
 | `node` + `npm`                | TypeScript generators                    |
 
+## Client languages
+
+`GenerateClient` and `GenerateGRPC` target Go, Python, and TypeScript. **Rust is
+refused.** Its plugins (`neoeinstein-prost`, `neoeinstein-tonic`) were resolved
+remotely from the BSR rather than baked into this image, and BSR execution picks
+generation targets by buf module identity — so a type reached through a
+`buf.yaml` dependency is never generated, and prost, which has an extern path
+only for `google.protobuf` (supplied by `prost-types`), drops the field from the
+struct rather than failing. A contract referencing `google.rpc.Status` produced a
+struct with no `status` field, silently losing that tag on both decode and
+encode.
+
+Re-enabling Rust means baking `protoc-gen-prost` and `protoc-gen-tonic` into this
+image, where the image's own import markers decide what is generated.
+
 ## Versioning
 
 `info.codefly.yaml` carries the image version (`0.0.10` at time of

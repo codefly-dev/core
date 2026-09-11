@@ -118,3 +118,36 @@ func TestGoConfigurationOmitsEmptyGoPackageOverrides(t *testing.T) {
 		t.Fatalf("no overrides were requested, none must be rendered:\n%s", configuration)
 	}
 }
+
+// Rust generation is refused, not attempted. The refusal has to land before the
+// companion image is resolved, so it reaches a caller with no image built, and
+// it must leave no buf configuration behind for a later run to pick up.
+func TestRustClientGenerationIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	err := CreateBufConfiguration(context.Background(), dir, "accounts", languages.RUST, FacadeOptions{})
+	if err == nil {
+		t.Fatal("CreateBufConfiguration(rust) must refuse")
+	}
+	if !strings.Contains(err.Error(), "Rust client generation is disabled") {
+		t.Fatalf("refusal must say why Rust is disabled, got: %v", err)
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatalf("read buf dir: %v", readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a refused language must render no buf configuration, got %v", entries)
+	}
+
+	err = GenerateClient(context.Background(), ClientRequest{
+		Language:    languages.RUST,
+		Destination: t.TempDir(),
+		Sources:     []Source{{Path: "api/v1/api.proto", Content: []byte("syntax = \"proto3\";\npackage api.v1;\n")}},
+	})
+	if err == nil {
+		t.Fatal("GenerateClient(rust) must refuse")
+	}
+	if !strings.Contains(err.Error(), "Rust client generation is disabled") {
+		t.Fatalf("refusal must say why Rust is disabled, got: %v", err)
+	}
+}

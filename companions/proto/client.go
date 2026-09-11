@@ -101,8 +101,25 @@ type clientSpec struct {
 	facade        FacadeOptions
 }
 
+// rustClientUnsupported explains why the Rust target is refused rather than
+// generated. prost and tonic are resolved as remote BSR plugins, and BSR
+// execution picks generation targets by buf module identity: a type reached
+// through a buf.yaml dependency is never a target, whatever the descriptor set
+// marks. prost has no extern path for those namespaces either — only
+// `google.protobuf`, which prost-types supplies — so it cannot name the type and
+// drops the field from the struct instead of failing. The result is a client
+// that silently loses wire data on both decode and encode.
+const rustClientUnsupported = "Rust client generation is disabled: prost and tonic run as remote BSR plugins, " +
+	"which drop every field whose type comes from a buf.yaml dependency (googleapis, protovalidate) " +
+	"without reporting an error. Re-enabling it requires the plugins baked into the proto companion " +
+	"image (codefly-dev/core#441)."
+
 func generateClient(ctx context.Context, spec clientSpec) error {
 	w := wool.Get(ctx).In("generateClient", wool.DirField(spec.destination))
+
+	if spec.language == languages.RUST {
+		return w.NewError("%s", rustClientUnsupported)
+	}
 
 	image, err := CompanionImage(ctx)
 	if err != nil {
