@@ -353,7 +353,7 @@ func TestReapStaleContainersIsolatesHomeAndScope(t *testing.T) {
 		if tc.ephemeral {
 			labels[LabelCodeflyEphemeral] = "true"
 		}
-		created, err := backend.client.ContainerCreate(ctx, &container.Config{Image: "busybox:1.36", Cmd: []string{"sleep", "300"}, Labels: labels}, &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{{Type: mount.TypeBind, Source: data, Target: "/retained", ReadOnly: true}}}, nil, nil, uniqueName(t)+"-"+tc.name)
+		created, err := backend.client.ContainerCreate(ctx, &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels}, &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{{Type: mount.TypeBind, Source: data, Target: "/retained", ReadOnly: true}}}, nil, nil, uniqueName(t)+"-"+tc.name)
 		require.NoError(t, err)
 		t.Cleanup(func() {
 			_ = backend.client.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
